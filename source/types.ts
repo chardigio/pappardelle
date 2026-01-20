@@ -51,63 +51,12 @@ export interface WorkspaceData {
 	tmuxSession?: string; // For SSH mode: the tmux session name
 }
 
-// App icon mapping using short ASCII text (guaranteed consistent terminal width)
-export const APP_ICONS: Record<string, string> = {
-	// Editors
-	Cursor: 'Cu',
-	'Visual Studio Code': 'VS',
-	Code: 'VS',
-	Xcode: 'Xc',
-	Vim: 'Vi',
-	Neovim: 'Nv',
-
-	// Terminals
-	iTerm2: 'iT',
-	Terminal: 'Te',
-	Ghostty: 'Gh',
-	Alacritty: 'Al',
-	kitty: 'Ki',
-	Warp: 'Wa',
-
-	// Browsers
-	Firefox: 'Ff',
-	Safari: 'Sa',
-	Chrome: 'Ch',
-	'Google Chrome': 'Ch',
-	Arc: 'Ar',
-	Brave: 'Br',
-	Edge: 'Ed',
-
-	// Communication
-	Slack: 'Sl',
-	Discord: 'Di',
-	Messages: 'Mg',
-	Mail: 'Ma',
-	Zoom: 'Zm',
-
-	// Dev Tools
-	Figma: 'Fi',
-	Notion: 'No',
-	Linear: 'Li',
-	GitHub: 'Gi',
-	'GitHub Desktop': 'Gi',
-	Docker: 'Do',
-	Postman: 'Po',
-
-	// System
-	Finder: 'Fn',
-	Preview: 'Pv',
-	Simulator: 'Sm',
-	'Activity Monitor': 'AM',
-	'System Preferences': 'SP',
-	'System Settings': 'SS',
-
-	// Default
-	default: '??',
-};
-
+// Generate app icon from first 2 letters of app name
 export function getAppIcon(appName: string): string {
-	return APP_ICONS[appName] ?? APP_ICONS['default']!;
+	if (!appName || appName.length === 0) {
+		return '??';
+	}
+	return appName.slice(0, 2);
 }
 
 // Claude status display
