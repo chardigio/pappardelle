@@ -2,6 +2,7 @@
 import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
+import {execSync} from 'node:child_process';
 import App from './app.js';
 
 meow(
@@ -27,6 +28,22 @@ meow(
 		flags: {},
 	},
 );
+
+// Check if running in a git repository
+function isGitRepository(): boolean {
+	try {
+		execSync('git rev-parse --git-dir', {stdio: 'pipe'});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+if (!isGitRepository()) {
+	console.error('\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m');
+	console.error('\x1b[33mPlease navigate to a git repository and try again.\x1b[0m');
+	process.exit(1);
+}
 
 // Enter alternate screen buffer for full-screen mode
 process.stdout.write('\x1b[?1049h'); // Enter alt screen
