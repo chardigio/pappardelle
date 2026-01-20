@@ -2,23 +2,35 @@
 import {exec, execSync} from 'node:child_process';
 import {promisify} from 'node:util';
 import type {AerospaceWorkspace, AerospaceWindow} from './types.js';
+import {createLogger} from './logger.js';
 
 const execAsync = promisify(exec);
+const log = createLogger('aerospace');
 
 export async function listWorkspaces(): Promise<string[]> {
 	try {
-		const {stdout} = await execAsync('aerospace list-workspaces --all --json 2>/dev/null', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const {stdout} = await execAsync(
+			'aerospace list-workspaces --all --json 2>/dev/null',
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+			},
+		);
 		const workspaces: AerospaceWorkspace[] = JSON.parse(stdout);
-		return workspaces.map((w) => w.workspace);
-	} catch {
+		log.debug(`Found ${workspaces.length} workspaces`);
+		return workspaces.map(w => w.workspace);
+	} catch (err) {
+		log.error(
+			'Failed to list workspaces',
+			err instanceof Error ? err : undefined,
+		);
 		return [];
 	}
 }
 
-export async function listWindowsInWorkspace(workspaceName: string): Promise<AerospaceWindow[]> {
+export async function listWindowsInWorkspace(
+	workspaceName: string,
+): Promise<AerospaceWindow[]> {
 	try {
 		const {stdout} = await execAsync(
 			`aerospace list-windows --workspace "${workspaceName}" --json 2>/dev/null`,
@@ -27,8 +39,14 @@ export async function listWindowsInWorkspace(workspaceName: string): Promise<Aer
 				timeout: 5000,
 			},
 		);
-		return JSON.parse(stdout) as AerospaceWindow[];
-	} catch {
+		const windows = JSON.parse(stdout) as AerospaceWindow[];
+		log.debug(`Found ${windows.length} windows in workspace ${workspaceName}`);
+		return windows;
+	} catch (err) {
+		log.warn(
+			`Failed to list windows in workspace ${workspaceName}`,
+			err instanceof Error ? err : undefined,
+		);
 		return [];
 	}
 }
@@ -40,8 +58,13 @@ export function switchToWorkspace(workspaceName: string): boolean {
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
+		log.info(`Switched to workspace ${workspaceName}`);
 		return true;
-	} catch {
+	} catch (err) {
+		log.error(
+			`Failed to switch to workspace ${workspaceName}`,
+			err instanceof Error ? err : undefined,
+		);
 		return false;
 	}
 }
@@ -54,7 +77,11 @@ export function getFocusedWorkspace(): string | null {
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		return output.trim();
-	} catch {
+	} catch (err) {
+		log.warn(
+			'Failed to get focused workspace',
+			err instanceof Error ? err : undefined,
+		);
 		return null;
 	}
 }
@@ -69,8 +96,12 @@ export async function getVisibleWorkspaces(): Promise<string[]> {
 			},
 		);
 		const workspaces: AerospaceWorkspace[] = JSON.parse(stdout);
-		return workspaces.map((w) => w.workspace);
-	} catch {
+		return workspaces.map(w => w.workspace);
+	} catch (err) {
+		log.warn(
+			'Failed to get visible workspaces',
+			err instanceof Error ? err : undefined,
+		);
 		return [];
 	}
 }

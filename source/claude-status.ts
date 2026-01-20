@@ -1,8 +1,18 @@
 // Claude Code status tracking
-import {existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, watch} from 'node:fs';
+import {
+	existsSync,
+	readFileSync,
+	mkdirSync,
+	writeFileSync,
+	readdirSync,
+	watch,
+} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import type {ClaudeStatus, ClaudeSessionState} from './types.js';
+import {createLogger} from './logger.js';
+
+const log = createLogger('claude-status');
 
 // Status file location: ~/.pappardelle/claude-status/<workspace>.json
 const STATUS_DIR = path.join(homedir(), '.pappardelle', 'claude-status');
@@ -34,7 +44,11 @@ export function getClaudeStatus(workspaceName: string): ClaudeStatus {
 		}
 
 		return state.status;
-	} catch {
+	} catch (err) {
+		log.warn(
+			`Failed to read status for workspace ${workspaceName}`,
+			err instanceof Error ? err : undefined,
+		);
 		return 'unknown';
 	}
 }
@@ -70,8 +84,11 @@ export function getAllStatuses(): Map<string, ClaudeStatus> {
 				statuses.set(workspaceName, getClaudeStatus(workspaceName));
 			}
 		}
-	} catch {
-		// Ignore errors
+	} catch (err) {
+		log.warn(
+			'Failed to read all statuses',
+			err instanceof Error ? err : undefined,
+		);
 	}
 
 	return statuses;

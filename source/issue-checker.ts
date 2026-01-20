@@ -1,5 +1,8 @@
 // Utility to check if an issue has an associated PR with commits
 import {execSync} from 'node:child_process';
+import {createLogger} from './logger.js';
+
+const log = createLogger('issue-checker');
 
 interface PRInfo {
 	hasPR: boolean;
@@ -60,17 +63,28 @@ export function checkIssueHasPRWithCommits(issueKey: string): PRInfo {
 			);
 			const fileCount = parseInt(filesOutput.trim(), 10);
 
+			log.debug(
+				`Issue ${issueKey} has PR #${prNumber} with ${fileCount} files changed`,
+			);
 			return {
 				hasPR: true,
 				hasCommits: fileCount > 0, // "hasCommits" now means "has actual changes"
 				prNumber: parseInt(prNumber!, 10),
 				prUrl,
 			};
-		} catch {
+		} catch (err) {
 			// If gh fails, assume PR exists but can't verify changes
+			log.warn(
+				`Failed to check PR files for ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
 			return {hasPR: true, hasCommits: false, prUrl};
 		}
-	} catch {
+	} catch (err) {
+		log.warn(
+			`Failed to check issue ${issueKey} for PR`,
+			err instanceof Error ? err : undefined,
+		);
 		return {hasPR: false, hasCommits: false};
 	}
 }

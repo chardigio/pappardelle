@@ -7,10 +7,20 @@ import {dirname, join} from 'node:path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 // Script is at _dev/scripts/dow/organize-aerospace.sh, TUI runs from _dev/scripts/pappardelle/dist/
-const ORGANIZE_SCRIPT = join(__dirname, '..', '..', 'dow', 'organize-aerospace.sh');
+const ORGANIZE_SCRIPT = join(
+	__dirname,
+	'..',
+	'..',
+	'dow',
+	'organize-aerospace.sh',
+);
 import WorkspaceCard from './components/WorkspaceCard.js';
 import NewWorkspaceCard from './components/NewWorkspaceCard.js';
 import PromptDialog from './components/PromptDialog.js';
+import ErrorDisplay, {clearRecentErrors} from './components/ErrorDisplay.js';
+import {createLogger} from './logger.js';
+
+const log = createLogger('app');
 import {
 	listWorkspaces,
 	listWindowsInWorkspace,
@@ -20,7 +30,11 @@ import {
 	getFocusedWorkspace,
 } from './aerospace.js';
 import {getIssue, getIssueCached} from './linear.js';
-import {getClaudeStatus, watchStatuses, ensureStatusDir} from './claude-status.js';
+import {
+	getClaudeStatus,
+	watchStatuses,
+	ensureStatusDir,
+} from './claude-status.js';
 import {isLinearIssueKey, checkIssueHasPRWithCommits} from './issue-checker.js';
 import {
 	isSSH,
@@ -32,6 +46,9 @@ import type {WorkspaceData} from './types.js';
 
 // Check if running over SSH
 const IS_SSH_MODE = isSSH();
+
+// Log startup
+log.info(`Pappardelle starting (SSH mode: ${IS_SSH_MODE})`);
 
 export default function App() {
 	const {stdout} = useStdout();
@@ -53,7 +70,10 @@ export default function App() {
 
 	// Calculate grid layout
 	const cols = Math.max(1, Math.floor((termWidth + gap) / (cardWidth + gap)));
-	const maxRows = Math.max(1, Math.floor((termHeight - 4 + gap) / (cardHeight + gap)));
+	const maxRows = Math.max(
+		1,
+		Math.floor((termHeight - 4 + gap) / (cardHeight + gap)),
+	);
 
 	// Total items = workspaces + 1 (for the + button)
 	const totalItems = workspaces.length + 1;
@@ -65,7 +85,7 @@ export default function App() {
 			const tmuxSessions = listClaudeSessions();
 
 			// Build workspace data from tmux sessions
-			const workspaceData: WorkspaceData[] = tmuxSessions.map((session) => {
+			const workspaceData: WorkspaceData[] = tmuxSessions.map(session => {
 				const issueKey = getIssueKeyFromSession(session.name);
 				const claudeStatus = issueKey ? getClaudeStatus(issueKey) : undefined;
 
@@ -77,7 +97,9 @@ export default function App() {
 				return {
 					name: issueKey ?? session.name,
 					isLinearIssue: Boolean(issueKey),
-					linearIssue: issueKey ? getIssueCached(issueKey) ?? undefined : undefined,
+					linearIssue: issueKey
+						? getIssueCached(issueKey) ?? undefined
+						: undefined,
 					windows: [], // No window info in SSH mode
 					claudeStatus,
 					isVisible: session.attached,
@@ -100,7 +122,9 @@ export default function App() {
 		const linearWorkspaces = workspaceNames.filter(isLinearIssueWorkspace);
 
 		// Fetch all window lists in parallel
-		const windowsPromises = linearWorkspaces.map((name) => listWindowsInWorkspace(name));
+		const windowsPromises = linearWorkspaces.map(name =>
+			listWindowsInWorkspace(name),
+		);
 		const windowsResults = await Promise.all(windowsPromises);
 
 		// Build workspace data
@@ -140,8 +164,8 @@ export default function App() {
 	// Watch for Claude status changes
 	useEffect(() => {
 		const unwatch = watchStatuses((workspaceName, status) => {
-			setWorkspaces((prev) =>
-				prev.map((w) =>
+			setWorkspaces(prev =>
+				prev.map(w =>
 					w.name === workspaceName ? {...w, claudeStatus: status} : w,
 				),
 			);
@@ -223,10 +247,14 @@ export default function App() {
 					const workspace = workspaces[selectedIndex];
 					if (workspace) {
 						setStatusMessage(`Laying out ${workspace.name}...`);
-						const child = spawn(ORGANIZE_SCRIPT, ['--issue-key', workspace.name], {
-							detached: true,
-							stdio: 'ignore',
-						});
+						const child = spawn(
+							ORGANIZE_SCRIPT,
+							['--issue-key', workspace.name],
+							{
+								detached: true,
+								stdio: 'ignore',
+							},
+						);
 						child.unref();
 						setTimeout(() => {
 							setStatusMessage(`Layout complete for ${workspace.name}`);
@@ -234,6 +262,9 @@ export default function App() {
 						}, 1000);
 					}
 				}
+			} else if (input === 'c') {
+				// Clear errors
+				clearRecentErrors();
 			}
 		},
 		{isActive: !showPromptDialog},
@@ -254,7 +285,9 @@ export default function App() {
 
 			if (prInfo.hasPR && prInfo.hasCommits) {
 				// Issue has PR with commits - open workspace without prompting Claude
-				setStatusMessage(`Resuming ${trimmedInput} (PR #${prInfo.prNumber} has commits)...`);
+				setStatusMessage(
+					`Resuming ${trimmedInput} (PR #${prInfo.prNumber} has commits)...`,
+				);
 
 				try {
 					// Run dow with --resume flag to skip Claude prompt
@@ -264,14 +297,16 @@ export default function App() {
 					});
 					child.unref();
 
-					setStatusMessage(
-						`Opened ${trimmedInput} in resume mode`,
-					);
+					setStatusMessage(`Opened ${trimmedInput} in resume mode`);
 					setTimeout(() => {
 						setStatusMessage('');
 						loadWorkspaces();
 					}, 3000);
-				} catch {
+				} catch (err) {
+					log.error(
+						`Failed to open workspace ${trimmedInput}`,
+						err instanceof Error ? err : undefined,
+					);
 					setStatusMessage('Failed to open workspace');
 					setTimeout(() => setStatusMessage(''), 3000);
 				}
@@ -289,12 +324,17 @@ export default function App() {
 			});
 			child.unref();
 
+			log.info(`Started DOW session with input: ${input}`);
 			setStatusMessage('DOW session started! Check your new workspace.');
 			setTimeout(() => {
 				setStatusMessage('');
 				loadWorkspaces();
 			}, 3000);
-		} catch {
+		} catch (err) {
+			log.error(
+				'Failed to start DOW session',
+				err instanceof Error ? err : undefined,
+			);
 			setStatusMessage('Failed to start DOW session');
 			setTimeout(() => setStatusMessage(''), 3000);
 		}
@@ -358,7 +398,7 @@ export default function App() {
 			{/* Header */}
 			<Box marginBottom={1}>
 				<Text bold color="cyan">
-					 DOW Workspaces
+					DOW Workspaces
 				</Text>
 				{IS_SSH_MODE && (
 					<>
@@ -396,11 +436,13 @@ export default function App() {
 			{/* Footer */}
 			<Box marginTop={1}>
 				<Text dimColor>
-					{workspaces.length}{' '}
-					{IS_SSH_MODE ? 'tmux session' : 'workspace'}
+					{workspaces.length} {IS_SSH_MODE ? 'tmux session' : 'workspace'}
 					{workspaces.length !== 1 ? 's' : ''} | {termWidth}x{termHeight}
 				</Text>
 			</Box>
+
+			{/* Error display */}
+			<ErrorDisplay maxVisible={3} />
 		</Box>
 	);
 }

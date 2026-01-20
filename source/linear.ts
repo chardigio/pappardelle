@@ -1,7 +1,9 @@
 // Linear CLI utilities
 import {execSync} from 'node:child_process';
 import type {LinearIssue} from './types.js';
+import {createLogger} from './logger.js';
 
+const log = createLogger('linear');
 const issueCache = new Map<string, LinearIssue | null>();
 
 export async function getIssue(issueKey: string): Promise<LinearIssue | null> {
@@ -17,8 +19,13 @@ export async function getIssue(issueKey: string): Promise<LinearIssue | null> {
 		});
 		const issue = JSON.parse(output) as LinearIssue;
 		issueCache.set(issueKey, issue);
+		log.debug(`Fetched issue ${issueKey}: ${issue.title}`);
 		return issue;
-	} catch {
+	} catch (err) {
+		log.warn(
+			`Failed to fetch issue ${issueKey}`,
+			err instanceof Error ? err : undefined,
+		);
 		issueCache.set(issueKey, null);
 		return null;
 	}

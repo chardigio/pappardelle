@@ -1,5 +1,8 @@
 // Tmux session management for SSH mode
 import {execSync, spawnSync} from 'node:child_process';
+import {createLogger} from './logger.js';
+
+const log = createLogger('tmux');
 
 export interface TmuxSession {
 	name: string;
@@ -25,11 +28,11 @@ export function listTmuxSessions(): TmuxSession[] {
 			{encoding: 'utf-8', timeout: 5000},
 		);
 
-		return output
+		const sessions = output
 			.trim()
 			.split('\n')
 			.filter(Boolean)
-			.map((line) => {
+			.map(line => {
 				const [name, windows, attached, created] = line.split('|');
 				return {
 					name: name ?? '',
@@ -38,7 +41,13 @@ export function listTmuxSessions(): TmuxSession[] {
 					created: new Date(parseInt(created ?? '0', 10) * 1000),
 				};
 			});
-	} catch {
+		log.debug(`Found ${sessions.length} tmux sessions`);
+		return sessions;
+	} catch (err) {
+		log.warn(
+			'Failed to list tmux sessions',
+			err instanceof Error ? err : undefined,
+		);
 		return [];
 	}
 }
@@ -47,7 +56,7 @@ export function listTmuxSessions(): TmuxSession[] {
  * List Claude Code tmux sessions (matching claude-STA-* pattern)
  */
 export function listClaudeSessions(): TmuxSession[] {
-	return listTmuxSessions().filter((session) =>
+	return listTmuxSessions().filter(session =>
 		/^claude-STA-\d+$/.test(session.name),
 	);
 }
@@ -71,13 +80,19 @@ export function switchToTmuxSession(sessionName: string): boolean {
 				encoding: 'utf-8',
 				timeout: 5000,
 			});
+			log.info(`Switched to tmux session ${sessionName}`);
 		} else {
 			// Can't attach from non-tmux context in this app
 			// Return false to indicate user needs to attach manually
+			log.debug(`Cannot switch to ${sessionName} - not in tmux context`);
 			return false;
 		}
 		return true;
-	} catch {
+	} catch (err) {
+		log.error(
+			`Failed to switch to tmux session ${sessionName}`,
+			err instanceof Error ? err : undefined,
+		);
 		return false;
 	}
 }
@@ -97,8 +112,13 @@ export function createTmuxSession(
 			['new-session', '-d', '-s', sessionName, '-c', workingDir],
 			{encoding: 'utf-8', timeout: 10000},
 		);
+		log.info(`Created tmux session ${sessionName} in ${workingDir}`);
 		return true;
-	} catch {
+	} catch (err) {
+		log.error(
+			`Failed to create tmux session ${sessionName}`,
+			err instanceof Error ? err : undefined,
+		);
 		return false;
 	}
 }
@@ -114,6 +134,8 @@ export function sessionExists(sessionName: string): boolean {
 		});
 		return true;
 	} catch {
+		// This is expected when session doesn't exist, so just debug level
+		log.debug(`Session ${sessionName} does not exist`);
 		return false;
 	}
 }
