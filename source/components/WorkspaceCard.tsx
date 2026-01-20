@@ -2,6 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {WorkspaceData} from '../types.js';
 import {getAppIcon, CLAUDE_STATUS_DISPLAY} from '../types.js';
+import ClaudeAnimation from './ClaudeAnimation.js';
 
 interface Props {
 	workspace: WorkspaceData;
@@ -53,12 +54,13 @@ export default function WorkspaceCard({
 			? 'cyan'
 			: 'white';
 
-	// Build footer with exact padding (all ASCII, so string.length = display width)
+	// Check if this is a "working" state that should show animation
+	const isWorking =
+		workspace.claudeStatus === 'thinking' ||
+		workspace.claudeStatus === 'tool_use';
+
+	// App icons string for left side of footer
 	const iconStr = appIcons.length > 0 ? appIcons.join(' ') : '';
-	const statusStr = `${statusInfo.icon} ${statusInfo.label}`;
-	const paddingNeeded = contentWidth - iconStr.length - statusStr.length;
-	const padding = paddingNeeded > 0 ? ' '.repeat(paddingNeeded) : ' ';
-	const footerStr = iconStr + padding + statusStr;
 
 	return (
 		<Box
@@ -94,7 +96,20 @@ export default function WorkspaceCard({
 			<Box flexGrow={1} />
 
 			{/* Footer: Apps and Claude status */}
-			<Text>{footerStr}</Text>
+			<Box>
+				<Text>{iconStr}</Text>
+				<Box flexGrow={1} />
+				{isWorking ? (
+					<>
+						<ClaudeAnimation color={statusInfo.color} />
+						<Text color={statusInfo.color}> {statusInfo.label}</Text>
+					</>
+				) : (
+					<Text color={statusInfo.color}>
+						{statusInfo.icon} {statusInfo.label}
+					</Text>
+				)}
+			</Box>
 		</Box>
 	);
 }
