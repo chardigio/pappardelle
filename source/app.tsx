@@ -270,6 +270,59 @@ export default function App() {
 		{isActive: !showPromptDialog},
 	);
 
+	// Helper to spawn dow and capture errors
+	const spawnDow = (
+		args: string[],
+		statusMessageOnStart: string,
+		statusMessageOnSuccess: string,
+	) => {
+		setStatusMessage(statusMessageOnStart);
+
+		const child = spawn('dow', args, {
+			detached: true,
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+
+		let stderrData = '';
+		let stdoutData = '';
+
+		child.stdout?.on('data', data => {
+			stdoutData += data.toString();
+		});
+
+		child.stderr?.on('data', data => {
+			stderrData += data.toString();
+		});
+
+		child.on('error', err => {
+			log.error(`Failed to spawn dow: ${err.message}`, err);
+			setStatusMessage(`Failed to start: ${err.message}`);
+			setTimeout(() => setStatusMessage(''), 5000);
+		});
+
+		child.on('close', code => {
+			if (code !== 0 && code !== null) {
+				// Extract meaningful error message from output
+				const errorMsg =
+					stderrData.trim() ||
+					stdoutData.match(/Error: .*/)?.[0] ||
+					`dow exited with code ${code}`;
+				log.error(`dow failed (exit ${code}): ${errorMsg}`);
+				setStatusMessage(`Failed: ${errorMsg.slice(0, 60)}`);
+				setTimeout(() => setStatusMessage(''), 5000);
+			} else {
+				setStatusMessage(statusMessageOnSuccess);
+				setTimeout(() => {
+					setStatusMessage('');
+					loadWorkspaces();
+				}, 3000);
+			}
+		});
+
+		child.unref();
+		log.info(`Started dow with args: ${args.join(' ')}`);
+	};
+
 	// Handle new session creation
 	const handleNewSession = (input: string) => {
 		setShowPromptDialog(false);
@@ -285,59 +338,21 @@ export default function App() {
 
 			if (prInfo.hasPR && prInfo.hasCommits) {
 				// Issue has PR with commits - open workspace without prompting Claude
-				setStatusMessage(
+				spawnDow(
+					['--resume', trimmedInput],
 					`Resuming ${trimmedInput} (PR #${prInfo.prNumber} has commits)...`,
+					`Opened ${trimmedInput} in resume mode`,
 				);
-
-				try {
-					// Run dow with --resume flag to skip Claude prompt
-					const child = spawn('dow', ['--resume', trimmedInput], {
-						detached: true,
-						stdio: 'ignore',
-					});
-					child.unref();
-
-					setStatusMessage(`Opened ${trimmedInput} in resume mode`);
-					setTimeout(() => {
-						setStatusMessage('');
-						loadWorkspaces();
-					}, 3000);
-				} catch (err) {
-					log.error(
-						`Failed to open workspace ${trimmedInput}`,
-						err instanceof Error ? err : undefined,
-					);
-					setStatusMessage('Failed to open workspace');
-					setTimeout(() => setStatusMessage(''), 3000);
-				}
 				return;
 			}
 		}
 
 		// Not an issue with existing PR, or no commits - start new session with prompt
-		setStatusMessage('Starting new DOW session...');
-
-		try {
-			const child = spawn('dow', [input], {
-				detached: true,
-				stdio: 'ignore',
-			});
-			child.unref();
-
-			log.info(`Started DOW session with input: ${input}`);
-			setStatusMessage('DOW session started! Check your new workspace.');
-			setTimeout(() => {
-				setStatusMessage('');
-				loadWorkspaces();
-			}, 3000);
-		} catch (err) {
-			log.error(
-				'Failed to start DOW session',
-				err instanceof Error ? err : undefined,
-			);
-			setStatusMessage('Failed to start DOW session');
-			setTimeout(() => setStatusMessage(''), 3000);
-		}
+		spawnDow(
+			[input],
+			'Starting new DOW session...',
+			'DOW session started! Check your new workspace.',
+		);
 	};
 
 	// Render grid of workspace cards
