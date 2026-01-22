@@ -139,3 +139,23 @@ export function sessionExists(sessionName: string): boolean {
 		return false;
 	}
 }
+
+/**
+ * Kill a tmux session
+ */
+export function killTmuxSession(sessionName: string): boolean {
+	try {
+		execSync(`tmux kill-session -t "${sessionName}"`, {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+		log.info(`Killed tmux session ${sessionName}`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to kill tmux session ${sessionName}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}

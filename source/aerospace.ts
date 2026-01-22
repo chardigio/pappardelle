@@ -111,3 +111,46 @@ export function isLinearIssueWorkspace(workspaceName: string): boolean {
 	// Match patterns like STA-123, ENG-456, etc.
 	return /^[A-Z]+-\d+$/.test(workspaceName);
 }
+
+/**
+ * Close all windows in a workspace
+ * Returns true if all windows were successfully closed
+ */
+export async function closeWorkspace(workspaceName: string): Promise<boolean> {
+	try {
+		// Get all windows in the workspace
+		const windows = await listWindowsInWorkspace(workspaceName);
+
+		if (windows.length === 0) {
+			log.debug(`No windows in workspace ${workspaceName}`);
+			return true;
+		}
+
+		// Close each window
+		for (const window of windows) {
+			try {
+				execSync(
+					`aerospace close --window-id "${window['window-id']}" 2>/dev/null`,
+					{
+						timeout: 5000,
+						stdio: ['pipe', 'pipe', 'pipe'],
+					},
+				);
+			} catch {
+				// Window might have already closed, just log and continue
+				log.debug(`Could not close window ${window['window-id']}`);
+			}
+		}
+
+		log.info(
+			`Closed ${windows.length} window(s) in workspace ${workspaceName}`,
+		);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to close workspace ${workspaceName}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}

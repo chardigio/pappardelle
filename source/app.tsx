@@ -17,6 +17,7 @@ const ORGANIZE_SCRIPT = join(
 import WorkspaceCard from './components/WorkspaceCard.js';
 import NewWorkspaceCard from './components/NewWorkspaceCard.js';
 import PromptDialog from './components/PromptDialog.js';
+import ConfirmDialog from './components/ConfirmDialog.js';
 import ErrorDisplay, {clearRecentErrors} from './components/ErrorDisplay.js';
 import {createLogger} from './logger.js';
 
@@ -28,6 +29,7 @@ import {
 	isLinearIssueWorkspace,
 	getVisibleWorkspaces,
 	getFocusedWorkspace,
+	closeWorkspace,
 } from './aerospace.js';
 import {getIssue, getIssueCached} from './linear.js';
 import {
@@ -41,6 +43,7 @@ import {
 	listClaudeSessions,
 	getIssueKeyFromSession,
 	switchToTmuxSession,
+	killTmuxSession,
 } from './tmux.js';
 import type {WorkspaceData} from './types.js';
 
@@ -57,6 +60,7 @@ export default function App() {
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
+	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 	const [statusMessage, setStatusMessage] = useState('');
 
 	// Calculate grid dimensions based on terminal size
@@ -177,8 +181,8 @@ export default function App() {
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
-			if (showPromptDialog) {
-				return; // Dialog handles its own input
+			if (showPromptDialog || showDeleteConfirm) {
+				return; // Dialogs handle their own input
 			}
 
 			const rows = Math.ceil(totalItems / cols);
@@ -241,6 +245,14 @@ export default function App() {
 						}
 					}
 				}
+			} else if (input === 'n') {
+				// 'n' for new session
+				setShowPromptDialog(true);
+			} else if (key.delete) {
+				// Delete key to delete selected workspace
+				if (selectedIndex < workspaces.length) {
+					setShowDeleteConfirm(true);
+				}
 			} else if (input === 'l') {
 				// Layout windows for selected workspace
 				if (selectedIndex < workspaces.length) {
@@ -268,7 +280,7 @@ export default function App() {
 				clearRecentErrors();
 			}
 		},
-		{isActive: !showPromptDialog},
+		{isActive: !showPromptDialog && !showDeleteConfirm},
 	);
 
 	// Helper to spawn dow and capture errors
@@ -357,6 +369,54 @@ export default function App() {
 		);
 	};
 
+	// Handle workspace deletion
+	const handleDeleteWorkspace = () => {
+		setShowDeleteConfirm(false);
+
+		const workspace = workspaces[selectedIndex];
+		if (!workspace) return;
+
+		setStatusMessage(`Closing ${workspace.name}...`);
+
+		if (IS_SSH_MODE && workspace.tmuxSession) {
+			// SSH mode: kill tmux session
+			const success = killTmuxSession(workspace.tmuxSession);
+			if (success) {
+				setStatusMessage(`Closed tmux session ${workspace.name}`);
+				// Adjust selection if needed
+				if (selectedIndex >= workspaces.length - 1 && selectedIndex > 0) {
+					setSelectedIndex(selectedIndex - 1);
+				}
+			} else {
+				setStatusMessage(`Failed to close ${workspace.name}`);
+			}
+		} else {
+			// GUI mode: close workspace windows
+			closeWorkspace(workspace.name)
+				.then(success => {
+					if (success) {
+						setStatusMessage(`Closed workspace ${workspace.name}`);
+						// Adjust selection if needed
+						if (selectedIndex >= workspaces.length - 1 && selectedIndex > 0) {
+							setSelectedIndex(selectedIndex - 1);
+						}
+					} else {
+						setStatusMessage(`Failed to close ${workspace.name}`);
+					}
+				})
+				.catch(err => {
+					log.error(`Failed to close workspace: ${err}`);
+					setStatusMessage(`Error closing ${workspace.name}`);
+				});
+		}
+
+		setTimeout(() => setStatusMessage(''), 3000);
+		loadWorkspaces();
+	};
+
+	// Get workspace to delete (for confirmation dialog)
+	const workspaceToDelete = workspaces[selectedIndex];
+
 	// Render grid of workspace cards
 	const renderGrid = () => {
 		const rows: React.ReactNode[] = [];
@@ -425,7 +485,8 @@ export default function App() {
 				)}
 				<Text dimColor> | </Text>
 				<Text dimColor>
-					↑↓←→ navigate, Enter select{!IS_SSH_MODE && ', l layout'}
+					↑↓←→ navigate, Enter select, n new, Del close
+					{!IS_SSH_MODE && ', l layout'}
 				</Text>
 			</Box>
 
@@ -442,6 +503,16 @@ export default function App() {
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
+					/>
+				</Box>
+			) : showDeleteConfirm && workspaceToDelete ? (
+				<Box justifyContent="center" alignItems="center">
+					<ConfirmDialog
+						title="Close Workspace"
+						message={`Close workspace ${workspaceToDelete.name}?`}
+						detail="This will close all windows in this workspace. The worktree and git branch will remain."
+						onConfirm={handleDeleteWorkspace}
+						onCancel={() => setShowDeleteConfirm(false)}
 					/>
 				</Box>
 			) : (
