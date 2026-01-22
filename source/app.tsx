@@ -283,15 +283,15 @@ export default function App() {
 		{isActive: !showPromptDialog && !showDeleteConfirm},
 	);
 
-	// Helper to spawn dow and capture errors
-	const spawnDow = (
+	// Helper to spawn idow and capture errors
+	const spawnIdow = (
 		args: string[],
 		statusMessageOnStart: string,
 		statusMessageOnSuccess: string,
 	) => {
 		setStatusMessage(statusMessageOnStart);
 
-		const child = spawn('dow', args, {
+		const child = spawn('idow', args, {
 			detached: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			env: process.env,
@@ -309,7 +309,7 @@ export default function App() {
 		});
 
 		child.on('error', err => {
-			log.error(`Failed to spawn dow: ${err.message}`, err);
+			log.error(`Failed to spawn idow: ${err.message}`, err);
 			setStatusMessage(`Failed to start: ${err.message}`);
 			setTimeout(() => setStatusMessage(''), 5000);
 		});
@@ -320,8 +320,8 @@ export default function App() {
 				const errorMsg =
 					stderrData.trim() ||
 					stdoutData.match(/Error: .*/)?.[0] ||
-					`dow exited with code ${code}`;
-				log.error(`dow failed (exit ${code}): ${errorMsg}`);
+					`idow exited with code ${code}`;
+				log.error(`idow failed (exit ${code}): ${errorMsg}`);
 				setStatusMessage(`Failed: ${errorMsg.slice(0, 60)}`);
 				setTimeout(() => setStatusMessage(''), 5000);
 			} else {
@@ -334,7 +334,7 @@ export default function App() {
 		});
 
 		child.unref();
-		log.info(`Started dow with args: ${args.join(' ')}`);
+		log.info(`Started idow with args: ${args.join(' ')}`);
 	};
 
 	// Handle new session creation
@@ -352,7 +352,7 @@ export default function App() {
 
 			if (prInfo.hasPR && prInfo.hasCommits) {
 				// Issue has PR with commits - open workspace without prompting Claude
-				spawnDow(
+				spawnIdow(
 					['--resume', trimmedInput],
 					`Resuming ${trimmedInput} (PR #${prInfo.prNumber} has commits)...`,
 					`Opened ${trimmedInput} in resume mode`,
@@ -362,10 +362,10 @@ export default function App() {
 		}
 
 		// Not an issue with existing PR, or no commits - start new session with prompt
-		spawnDow(
+		spawnIdow(
 			[input],
-			'Starting new DOW session...',
-			'DOW session started! Check your new workspace.',
+			'Starting new IDOW session...',
+			'IDOW session started! Check your new workspace.',
 		);
 	};
 
