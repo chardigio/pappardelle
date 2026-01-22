@@ -253,6 +253,7 @@ export default function App() {
 							{
 								detached: true,
 								stdio: 'ignore',
+								env: process.env,
 							},
 						);
 						child.unref();
@@ -281,6 +282,7 @@ export default function App() {
 		const child = spawn('dow', args, {
 			detached: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
+			env: process.env,
 		});
 
 		let stderrData = '';
