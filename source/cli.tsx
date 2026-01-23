@@ -2,30 +2,44 @@
 import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
-import {execSync} from 'node:child_process';
+import {execSync, spawnSync} from 'node:child_process';
 import App from './app.js';
+import {isInTmux, setupPappardellLayout} from './tmux.js';
+import type {PaneLayout} from './types.js';
 
-meow(
+const cli = meow(
 	`
 	Usage
 	  $ pappardelle
 
 	Description
 	  Interactive TUI for managing DOW (Day of Work) workspaces.
-	  Displays aerospace workspaces as cards showing Linear issue info,
-	  open applications, and Claude Code status.
+	  Displays worktree spaces in an fzf-style list with Claude and
+	  lazygit panes for the selected space.
 
 	Controls
-	  Arrow keys  Navigate between workspaces
-	  Enter       Switch to selected workspace (or open new session dialog)
-	  Ctrl+C      Quit
+	  j/k or arrows  Navigate between spaces
+	  Enter          Select space
+	  n              New space (create worktree + issue)
+	  d              Delete selected space
+	  r              Refresh list
+	  q/Ctrl+C       Quit
+
+	Options
+	  --no-layout    Don't set up tmux pane layout (run standalone)
 
 	Examples
-	  $ pappardelle
+	  $ pappardelle              # Run with tmux layout
+	  $ pappardelle --no-layout  # Run standalone (list only)
 `,
 	{
 		importMeta: import.meta,
-		flags: {},
+		flags: {
+			noLayout: {
+				type: 'boolean',
+				default: false,
+			},
+		},
 	},
 );
 
@@ -40,15 +54,50 @@ function isGitRepository(): boolean {
 }
 
 if (!isGitRepository()) {
-	console.error('\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m');
-	console.error('\x1b[33mPlease navigate to a git repository and try again.\x1b[0m');
+	console.error(
+		'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
+	);
+	console.error(
+		'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
+	);
 	process.exit(1);
 }
 
+// If not in tmux, re-exec inside tmux
+if (!isInTmux() && !cli.flags.noLayout) {
+	const args = process.argv.slice(2).join(' ');
+	const cmd = args ? `pappardelle ${args}` : 'pappardelle';
+
+	// Start tmux session with pappardelle (-A attaches if session exists)
+	const result = spawnSync('tmux', ['new-session', '-A', '-s', 'pappardelle', cmd], {
+		stdio: 'inherit',
+		env: process.env,
+	});
+	process.exit(result.status ?? 0);
+}
+
+// Set up tmux layout if in tmux and not disabled
+let paneLayout: PaneLayout | null = null;
+
+if (isInTmux() && !cli.flags.noLayout) {
+	paneLayout = setupPappardellLayout();
+	if (!paneLayout) {
+		console.error(
+			'\x1b[33mWarning: Failed to set up tmux pane layout. Running in standalone mode.\x1b[0m',
+		);
+	}
+}
+
+// Helper to clear the screen completely
+const clearScreen = () => {
+	process.stdout.write('\x1b[2J'); // Clear screen
+	process.stdout.write('\x1b[H'); // Move cursor to home
+	process.stdout.write('\x1b[3J'); // Clear scrollback buffer
+};
+
 // Enter alternate screen buffer for full-screen mode
 process.stdout.write('\x1b[?1049h'); // Enter alt screen
-process.stdout.write('\x1b[2J'); // Clear screen
-process.stdout.write('\x1b[H'); // Move cursor to home
+clearScreen();
 
 // Cleanup on exit
 const cleanup = () => {
@@ -65,4 +114,10 @@ process.on('SIGTERM', () => {
 	process.exit(0);
 });
 
-render(<App />);
+// Render the app
+render(<App paneLayout={paneLayout} />);
+
+// Handle terminal resize - Ink handles repainting, but clear artifacts first
+process.stdout.on('resize', () => {
+	clearScreen();
+});

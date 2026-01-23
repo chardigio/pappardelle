@@ -1,36 +1,15 @@
-import React, {useEffect, useState, useCallback} from 'react';
+import React, {useEffect, useState, useCallback, useRef} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import {spawn} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
-import {dirname, join} from 'node:path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-// Script is at _dev/scripts/dow/organize-aerospace.sh, TUI runs from _dev/scripts/pappardelle/dist/
-const ORGANIZE_SCRIPT = join(
-	__dirname,
-	'..',
-	'..',
-	'dow',
-	'organize-aerospace.sh',
-);
-import WorkspaceCard from './components/WorkspaceCard.js';
-import NewWorkspaceCard from './components/NewWorkspaceCard.js';
+import SpaceListItem from './components/SpaceListItem.js';
 import PromptDialog from './components/PromptDialog.js';
 import ConfirmDialog from './components/ConfirmDialog.js';
 import ErrorDisplay, {clearRecentErrors} from './components/ErrorDisplay.js';
 import {createLogger} from './logger.js';
 
 const log = createLogger('app');
-import {
-	listWorkspaces,
-	listWindowsInWorkspace,
-	switchToWorkspace,
-	isLinearIssueWorkspace,
-	getVisibleWorkspaces,
-	getFocusedWorkspace,
-	closeWorkspace,
-} from './aerospace.js';
+
 import {getIssue, getIssueCached} from './linear.js';
 import {
 	getClaudeStatus,
@@ -39,144 +18,175 @@ import {
 } from './claude-status.js';
 import {isLinearIssueKey, checkIssueHasPRWithCommits} from './issue-checker.js';
 import {
-	isSSH,
-	listClaudeSessions,
-	getIssueKeyFromSession,
-	switchToTmuxSession,
-	killTmuxSession,
+	isInTmux,
+	getWorktreePath,
+	attachToSpace,
+	displayMessageInPane,
 } from './tmux.js';
-import type {WorkspaceData} from './types.js';
+import {getLinearWorkspaces} from './aerospace.js';
+import type {SpaceData, PaneLayout} from './types.js';
 
-// Check if running over SSH
-const IS_SSH_MODE = isSSH();
+// Props passed from cli.tsx with pane layout info
+interface AppProps {
+	paneLayout: PaneLayout | null;
+}
 
-// Log startup
-log.info(`Pappardelle starting (SSH mode: ${IS_SSH_MODE})`);
+log.info('Pappardelle starting');
 
-export default function App() {
+export default function App({paneLayout}: AppProps) {
 	const {stdout} = useStdout();
 
-	const [workspaces, setWorkspaces] = useState<WorkspaceData[]>([]);
+	const [spaces, setSpaces] = useState<SpaceData[]>([]);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 	const [statusMessage, setStatusMessage] = useState('');
+	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
-	// Calculate grid dimensions based on terminal size
-	const termWidth = stdout?.columns ?? 120;
-	const termHeight = stdout?.rows ?? 40;
+	// Track view mode for forcing clean re-renders on view transitions
+	const [viewKey, setViewKey] = useState(0);
 
-	// Card dimensions
-	const cardWidth = 35;
-	const cardHeight = 7;
-	const gap = 1;
+	// Track if panes have been initialized
+	const panesInitialized = useRef(false);
 
-	// Calculate grid layout
-	const cols = Math.max(1, Math.floor((termWidth + gap) / (cardWidth + gap)));
-	const maxRows = Math.max(
-		1,
-		Math.floor((termHeight - 4 + gap) / (cardHeight + gap)),
-	);
+	// Track terminal dimensions with resize handling
+	const [termDimensions, setTermDimensions] = useState({
+		rows: stdout?.rows ?? 40,
+		cols: stdout?.columns ?? 80,
+	});
 
-	// Total items = workspaces + 1 (for the + button)
-	const totalItems = workspaces.length + 1;
+	// Listen for terminal resize events to update dimensions
+	// (cli.tsx handles screen clearing on resize)
+	useEffect(() => {
+		if (!stdout) return;
 
-	// Load workspaces (async to not block UI)
-	const loadWorkspaces = useCallback(async () => {
-		if (IS_SSH_MODE) {
-			// SSH mode: load tmux sessions
-			const tmuxSessions = listClaudeSessions();
+		const handleResize = () => {
+			setTermDimensions({
+				rows: stdout.rows ?? 40,
+				cols: stdout.columns ?? 80,
+			});
+		};
 
-			// Build workspace data from tmux sessions
-			const workspaceData: WorkspaceData[] = tmuxSessions.map(session => {
-				const issueKey = getIssueKeyFromSession(session.name);
-				const claudeStatus = issueKey ? getClaudeStatus(issueKey) : undefined;
+		stdout.on('resize', handleResize);
+		return () => {
+			stdout.off('resize', handleResize);
+		};
+	}, [stdout]);
+
+	// Calculate dimensions
+	const termHeight = termDimensions.rows;
+	const maxVisibleItems = Math.max(1, termHeight - 6); // Header + footer + padding
+
+	// Load spaces from Aerospace workspaces (all monitors)
+	const loadSpaces = useCallback(async () => {
+		try {
+			// Get Linear issue workspaces from Aerospace
+			const workspaceNames = getLinearWorkspaces();
+
+			// Build space data
+			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
+				const claudeStatus = getClaudeStatus(issueKey);
+				const worktreePath = getWorktreePath(issueKey);
 
 				// Start fetching Linear issue in background
-				if (issueKey) {
-					getIssue(issueKey).catch(() => {});
-				}
+				getIssue(issueKey).catch(() => {});
 
 				return {
-					name: issueKey ?? session.name,
-					isLinearIssue: Boolean(issueKey),
-					linearIssue: issueKey
-						? getIssueCached(issueKey) ?? undefined
-						: undefined,
-					windows: [], // No window info in SSH mode
+					name: issueKey,
+					linearIssue: getIssueCached(issueKey) ?? undefined,
 					claudeStatus,
-					isVisible: session.attached,
-					tmuxSession: session.name, // Store tmux session name for switching
+					worktreePath,
 				};
 			});
 
-			setWorkspaces(workspaceData);
+			// Sort by issue number (most recent first)
+			spaceData.sort((a, b) => {
+				const aNum = parseInt(a.name.split('-')[1] ?? '0', 10);
+				const bNum = parseInt(b.name.split('-')[1] ?? '0', 10);
+				return bNum - aNum;
+			});
+
+			setSpaces(spaceData);
 			setLoading(false);
-			return;
+		} catch (err) {
+			log.error('Failed to load spaces', err instanceof Error ? err : undefined);
+			setSpaces([]);
+			setLoading(false);
 		}
-
-		// GUI mode: load aerospace workspaces
-		const [workspaceNames, visibleWorkspaces] = await Promise.all([
-			listWorkspaces(),
-			getVisibleWorkspaces(),
-		]);
-
-		// Filter to only Linear issue workspaces
-		const linearWorkspaces = workspaceNames.filter(isLinearIssueWorkspace);
-
-		// Fetch all window lists in parallel
-		const windowsPromises = linearWorkspaces.map(name =>
-			listWindowsInWorkspace(name),
-		);
-		const windowsResults = await Promise.all(windowsPromises);
-
-		// Build workspace data
-		const workspaceData: WorkspaceData[] = linearWorkspaces.map((name, i) => {
-			const claudeStatus = getClaudeStatus(name);
-
-			// Start fetching Linear issue in background
-			getIssue(name).catch(() => {});
-
-			return {
-				name,
-				isLinearIssue: true,
-				linearIssue: getIssueCached(name) ?? undefined,
-				windows: windowsResults[i] ?? [],
-				claudeStatus,
-				isVisible: visibleWorkspaces.includes(name),
-			};
-		});
-
-		setWorkspaces(workspaceData);
-		setLoading(false);
 	}, []);
 
 	// Initial load
 	useEffect(() => {
 		ensureStatusDir();
-		loadWorkspaces();
+		loadSpaces();
 
-		// Refresh every 500ms (async so doesn't block UI)
+		// Refresh every 2 seconds
 		const interval = setInterval(() => {
-			loadWorkspaces();
-		}, 500);
+			loadSpaces();
+		}, 2000);
 
 		return () => clearInterval(interval);
-	}, [loadWorkspaces]);
+	}, [loadSpaces]);
 
 	// Watch for Claude status changes
 	useEffect(() => {
 		const unwatch = watchStatuses((workspaceName, status) => {
-			setWorkspaces(prev =>
-				prev.map(w =>
-					w.name === workspaceName ? {...w, claudeStatus: status} : w,
+			setSpaces(prev =>
+				prev.map(s =>
+					s.name === workspaceName ? {...s, claudeStatus: status} : s,
 				),
 			);
 		});
 
 		return unwatch;
 	}, []);
+
+	// Increment view key when switching between views to force clean remount
+	// (no screen clearing - just key change forces React to remount components)
+	useEffect(() => {
+		setViewKey(k => k + 1);
+	}, [showPromptDialog, showDeleteConfirm]);
+
+	// Attach to sessions when selection changes (uses existing idow sessions)
+	useEffect(() => {
+		if (!paneLayout) return;
+		if (spaces.length === 0) return;
+
+		const selectedSpace = spaces[selectedIndex];
+		if (!selectedSpace) return;
+
+		// Don't switch if already showing this space
+		if (currentSpace === selectedSpace.name) return;
+
+		// Attach to sessions (creates them on-demand if they don't exist)
+		const success = attachToSpace(
+			paneLayout.claudeViewerPaneId,
+			paneLayout.lazygitViewerPaneId,
+			selectedSpace.name,
+			paneLayout.listPaneId, // Keep focus on list pane
+		);
+		if (success) {
+			setCurrentSpace(selectedSpace.name);
+			panesInitialized.current = true;
+		}
+	}, [selectedIndex, spaces, paneLayout, currentSpace]);
+
+	// Initialize panes with empty state message on first load
+	useEffect(() => {
+		if (!paneLayout) return;
+		if (panesInitialized.current) return;
+		if (loading) return;
+
+		if (spaces.length === 0) {
+			displayMessageInPane(
+				paneLayout.claudeViewerPaneId,
+				'No spaces found. Press n to create a new space.',
+			);
+			displayMessageInPane(paneLayout.lazygitViewerPaneId, '');
+			panesInitialized.current = true;
+		}
+	}, [paneLayout, spaces, loading]);
 
 	// Handle keyboard input
 	useInput(
@@ -185,99 +195,39 @@ export default function App() {
 				return; // Dialogs handle their own input
 			}
 
-			const rows = Math.ceil(totalItems / cols);
-			const currentRow = Math.floor(selectedIndex / cols);
-			const currentCol = selectedIndex % cols;
+			const totalItems = spaces.length;
 
-			if (key.upArrow) {
-				if (currentRow > 0) {
-					const newIndex = (currentRow - 1) * cols + currentCol;
-					setSelectedIndex(Math.min(newIndex, totalItems - 1));
-				}
-			} else if (key.downArrow) {
-				if (currentRow < rows - 1) {
-					const newIndex = (currentRow + 1) * cols + currentCol;
-					setSelectedIndex(Math.min(newIndex, totalItems - 1));
-				}
-			} else if (key.leftArrow) {
+			if (key.upArrow || input === 'k') {
 				if (selectedIndex > 0) {
 					setSelectedIndex(selectedIndex - 1);
 				}
-			} else if (key.rightArrow) {
+			} else if (key.downArrow || input === 'j') {
 				if (selectedIndex < totalItems - 1) {
 					setSelectedIndex(selectedIndex + 1);
 				}
 			} else if (key.return) {
-				// Enter pressed
-				if (selectedIndex === workspaces.length) {
-					// + button selected
-					setShowPromptDialog(true);
-				} else {
-					// Workspace selected - switch to it
-					const workspace = workspaces[selectedIndex];
-					if (workspace) {
-						if (IS_SSH_MODE && workspace.tmuxSession) {
-							// SSH mode: switch tmux session
-							const success = switchToTmuxSession(workspace.tmuxSession);
-							if (success) {
-								setStatusMessage(`Switched to ${workspace.name}`);
-								setTimeout(() => setStatusMessage(''), 2000);
-							} else {
-								setStatusMessage(
-									`Run: tmux attach -t ${workspace.tmuxSession}`,
-								);
-								setTimeout(() => setStatusMessage(''), 5000);
-							}
-						} else {
-							// GUI mode: switch aerospace workspace
-							const originalWorkspace = getFocusedWorkspace();
-							const success = switchToWorkspace(workspace.name);
-							if (success) {
-								setStatusMessage(`Switched to ${workspace.name}`);
-								// Return focus to original workspace after delay for window positioning
-								setTimeout(() => {
-									if (originalWorkspace) {
-										switchToWorkspace(originalWorkspace);
-									}
-									setStatusMessage('');
-								}, 500);
-							}
-						}
-					}
+				// Enter pressed - for now, just confirm selection
+				const space = spaces[selectedIndex];
+				if (space) {
+					setStatusMessage(`Selected ${space.name}`);
+					setTimeout(() => setStatusMessage(''), 2000);
 				}
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
-			} else if (key.delete) {
-				// Delete key to delete selected workspace
-				if (selectedIndex < workspaces.length) {
+			} else if (key.delete || input === 'd') {
+				// Delete key or 'd' to delete selected space
+				if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
-				}
-			} else if (input === 'l') {
-				// Layout windows for selected workspace
-				if (selectedIndex < workspaces.length) {
-					const workspace = workspaces[selectedIndex];
-					if (workspace) {
-						setStatusMessage(`Laying out ${workspace.name}...`);
-						const child = spawn(
-							ORGANIZE_SCRIPT,
-							['--issue-key', workspace.name],
-							{
-								detached: true,
-								stdio: 'ignore',
-								env: process.env,
-							},
-						);
-						child.unref();
-						setTimeout(() => {
-							setStatusMessage(`Layout complete for ${workspace.name}`);
-							setTimeout(() => setStatusMessage(''), 2000);
-						}, 1000);
-					}
 				}
 			} else if (input === 'c') {
 				// Clear errors
 				clearRecentErrors();
+			} else if (input === 'r') {
+				// Refresh
+				loadSpaces();
+				setStatusMessage('Refreshed');
+				setTimeout(() => setStatusMessage(''), 1000);
 			}
 		},
 		{isActive: !showPromptDialog && !showDeleteConfirm},
@@ -316,7 +266,6 @@ export default function App() {
 
 		child.on('close', code => {
 			if (code !== 0 && code !== null) {
-				// Extract meaningful error message from output
 				const errorMsg =
 					stderrData.trim() ||
 					stdoutData.match(/Error: .*/)?.[0] ||
@@ -328,7 +277,7 @@ export default function App() {
 				setStatusMessage(statusMessageOnSuccess);
 				setTimeout(() => {
 					setStatusMessage('');
-					loadWorkspaces();
+					loadSpaces();
 				}, 3000);
 			}
 		});
@@ -341,17 +290,14 @@ export default function App() {
 	const handleNewSession = (input: string) => {
 		setShowPromptDialog(false);
 
-		// Check if input is a Linear issue key (e.g., STA-123)
 		const trimmedInput = input.trim().toUpperCase();
 
 		if (isLinearIssueKey(trimmedInput)) {
 			setStatusMessage(`Checking ${trimmedInput} for existing PR...`);
 
-			// Check if issue has a PR with commits
 			const prInfo = checkIssueHasPRWithCommits(trimmedInput);
 
 			if (prInfo.hasPR && prInfo.hasCommits) {
-				// Issue has PR with commits - open workspace without prompting Claude
 				spawnIdow(
 					['--resume', trimmedInput],
 					`Resuming ${trimmedInput} (PR #${prInfo.prNumber} has commits)...`,
@@ -359,135 +305,108 @@ export default function App() {
 				);
 				return;
 			}
+
+			spawnIdow(
+				[trimmedInput],
+				`Starting ${trimmedInput}...`,
+				`Opened ${trimmedInput}`,
+			);
+			return;
 		}
 
-		// Not an issue with existing PR, or no commits - start new session with prompt
+		// For descriptions, idow will create a new issue
 		spawnIdow(
 			[input],
 			'Starting new IDOW session...',
-			'IDOW session started! Check your new workspace.',
+			'IDOW session started!',
 		);
 	};
 
-	// Handle workspace deletion
-	const handleDeleteWorkspace = () => {
+	// Handle space deletion (closes Aerospace workspace)
+	const handleDeleteSpace = () => {
 		setShowDeleteConfirm(false);
 
-		const workspace = workspaces[selectedIndex];
-		if (!workspace) return;
+		const space = spaces[selectedIndex];
+		if (!space) return;
 
-		setStatusMessage(`Closing ${workspace.name}...`);
+		// Note: This just removes from pappardelle's view
+		// The Aerospace workspace will disappear when all windows in it are closed
+		setStatusMessage(`Note: Close windows in ${space.name} to remove from Aerospace`);
 
-		if (IS_SSH_MODE && workspace.tmuxSession) {
-			// SSH mode: kill tmux session
-			const success = killTmuxSession(workspace.tmuxSession);
-			if (success) {
-				setStatusMessage(`Closed tmux session ${workspace.name}`);
-				// Adjust selection if needed
-				if (selectedIndex >= workspaces.length - 1 && selectedIndex > 0) {
-					setSelectedIndex(selectedIndex - 1);
-				}
-			} else {
-				setStatusMessage(`Failed to close ${workspace.name}`);
-			}
-		} else {
-			// GUI mode: close workspace windows
-			closeWorkspace(workspace.name)
-				.then(success => {
-					if (success) {
-						setStatusMessage(`Closed workspace ${workspace.name}`);
-						// Adjust selection if needed
-						if (selectedIndex >= workspaces.length - 1 && selectedIndex > 0) {
-							setSelectedIndex(selectedIndex - 1);
-						}
-					} else {
-						setStatusMessage(`Failed to close ${workspace.name}`);
-					}
-				})
-				.catch(err => {
-					log.error(`Failed to close workspace: ${err}`);
-					setStatusMessage(`Error closing ${workspace.name}`);
-				});
+		// Adjust selection if needed
+		if (selectedIndex >= spaces.length - 1 && selectedIndex > 0) {
+			setSelectedIndex(selectedIndex - 1);
 		}
 
 		setTimeout(() => setStatusMessage(''), 3000);
-		loadWorkspaces();
+		loadSpaces();
 	};
 
-	// Get workspace to delete (for confirmation dialog)
-	const workspaceToDelete = workspaces[selectedIndex];
+	// Get space to delete (for confirmation dialog)
+	const spaceToDelete = spaces[selectedIndex];
 
-	// Render grid of workspace cards
-	const renderGrid = () => {
-		const rows: React.ReactNode[] = [];
-		let itemIndex = 0;
+	// Calculate scroll offset for large lists
+	const scrollOffset = Math.max(
+		0,
+		Math.min(selectedIndex - Math.floor(maxVisibleItems / 2), spaces.length - maxVisibleItems),
+	);
+	const visibleSpaces = spaces.slice(scrollOffset, scrollOffset + maxVisibleItems);
+	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
-		for (let row = 0; row < maxRows && itemIndex < totalItems; row++) {
-			const rowItems: React.ReactNode[] = [];
-
-			for (let col = 0; col < cols && itemIndex < totalItems; col++) {
-				if (itemIndex < workspaces.length) {
-					const workspace = workspaces[itemIndex]!;
-					rowItems.push(
-						<WorkspaceCard
-							key={workspace.name}
-							workspace={workspace}
-							isSelected={itemIndex === selectedIndex}
-							width={cardWidth}
-							height={cardHeight}
-						/>,
-					);
-				} else {
-					// + button
-					rowItems.push(
-						<NewWorkspaceCard
-							key="new-session"
-							isSelected={itemIndex === selectedIndex}
-							width={cardWidth}
-							height={cardHeight}
-						/>,
-					);
-				}
-
-				itemIndex++;
-			}
-
-			rows.push(
-				<Box key={row} gap={gap}>
-					{rowItems}
-				</Box>,
+	// Render the space list
+	const renderList = () => {
+		if (spaces.length === 0) {
+			return (
+				<Box flexDirection="column" paddingY={1}>
+					<Text dimColor>No spaces found.</Text>
+					<Text dimColor>Press n to create a new space.</Text>
+				</Box>
 			);
 		}
 
-		return rows;
+		return (
+			<Box flexDirection="column">
+				{visibleSpaces.map((space, index) => (
+					<SpaceListItem
+						key={space.name}
+						space={space}
+						isSelected={index === adjustedSelectedIndex}
+						width={termDimensions.cols}
+					/>
+				))}
+			</Box>
+		);
 	};
 
-	if (loading && workspaces.length === 0) {
+	// Check if running in tmux
+	const inTmux = isInTmux();
+
+	if (loading && spaces.length === 0) {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text>Loading workspaces...</Text>
+				<Text>Loading spaces...</Text>
 			</Box>
 		);
 	}
 
+	// Determine current view mode for the key
+	const viewMode = showPromptDialog ? 'prompt' : showDeleteConfirm ? 'confirm' : 'list';
+
 	return (
-		<Box flexDirection="column" padding={1}>
+		<Box key={`view-${viewMode}-${viewKey}`} flexDirection="column" height="100%">
 			{/* Header */}
 			<Box marginBottom={1}>
 				<Text bold color="cyan">
-					DOW Workspaces
+					pappardelle
 				</Text>
-				{IS_SSH_MODE && (
+				{!inTmux && (
 					<>
 						<Text dimColor> | </Text>
-						<Text color="yellow">SSH</Text>
+						<Text color="yellow">Not in tmux</Text>
 					</>
 				)}
 				<Text dimColor> | </Text>
-				<Text dimColor>
-					↑↓←→ navigate, Enter select, n new, Del close
-					{!IS_SSH_MODE && ', l layout'}
-				</Text>
+				<Text dimColor>j/k navigate, n new, d delete, r refresh, q quit</Text>
 			</Box>
 
 			{/* Status message */}
@@ -497,40 +416,36 @@ export default function App() {
 				</Box>
 			)}
 
-			{/* Grid or Dialog */}
-			{showPromptDialog ? (
-				<Box justifyContent="center" alignItems="center">
+			{/* Main content */}
+			<Box flexGrow={1} flexDirection="column">
+				{showPromptDialog ? (
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
 					/>
-				</Box>
-			) : showDeleteConfirm && workspaceToDelete ? (
-				<Box justifyContent="center" alignItems="center">
+				) : showDeleteConfirm && spaceToDelete ? (
 					<ConfirmDialog
-						title="Close Workspace"
-						message={`Close workspace ${workspaceToDelete.name}?`}
-						detail="This will close all windows in this workspace. The worktree and git branch will remain."
-						onConfirm={handleDeleteWorkspace}
+						title="Close Space"
+						message={`Close space ${spaceToDelete.name}?`}
+						detail="The worktree and git branch will remain on disk."
+						onConfirm={handleDeleteSpace}
 						onCancel={() => setShowDeleteConfirm(false)}
 					/>
-				</Box>
-			) : (
-				<Box flexDirection="column" gap={gap}>
-					{renderGrid()}
-				</Box>
-			)}
+				) : (
+					renderList()
+				)}
+			</Box>
 
 			{/* Footer */}
 			<Box marginTop={1}>
 				<Text dimColor>
-					{workspaces.length} {IS_SSH_MODE ? 'tmux session' : 'workspace'}
-					{workspaces.length !== 1 ? 's' : ''} | {termWidth}x{termHeight}
+					{spaces.length} space{spaces.length !== 1 ? 's' : ''}
+					{scrollOffset > 0 && ` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
 				</Text>
 			</Box>
 
 			{/* Error display */}
-			<ErrorDisplay maxVisible={3} />
+			<ErrorDisplay maxVisible={2} />
 		</Box>
 	);
 }

@@ -1,15 +1,5 @@
 // Types for Pappardelle TUI
 
-export interface AerospaceWorkspace {
-	workspace: string;
-}
-
-export interface AerospaceWindow {
-	'app-name': string;
-	'window-id': number;
-	'window-title': string;
-}
-
 export interface LinearIssue {
 	identifier: string;
 	title: string;
@@ -41,22 +31,23 @@ export interface ClaudeSessionState {
 	currentTool?: string;
 }
 
-export interface WorkspaceData {
-	name: string;
-	isLinearIssue: boolean;
+/**
+ * SpaceData represents a DOW workspace (Linear issue with worktree)
+ */
+export interface SpaceData {
+	name: string; // Issue key (e.g., STA-123)
 	linearIssue?: LinearIssue;
-	windows: AerospaceWindow[];
 	claudeStatus?: ClaudeStatus;
-	isVisible: boolean;
-	tmuxSession?: string; // For SSH mode: the tmux session name
+	worktreePath: string | null;
 }
 
-// Generate app icon from first 2 letters of app name
-export function getAppIcon(appName: string): string {
-	if (!appName || appName.length === 0) {
-		return '??';
-	}
-	return appName.slice(0, 2);
+/**
+ * Pane layout configuration for the main pappardelle window
+ */
+export interface PaneLayout {
+	listPaneId: string;
+	claudeViewerPaneId: string;  // Viewer pane that attaches to claude-STA-XXX session
+	lazygitViewerPaneId: string; // Viewer pane that attaches to lazygit-STA-XXX session
 }
 
 // Claude status display
