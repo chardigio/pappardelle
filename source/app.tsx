@@ -22,8 +22,9 @@ import {
 	getWorktreePath,
 	attachToSpace,
 	displayMessageInPane,
+	killSpaceSessions,
+	getLinearIssuesFromTmux,
 } from './tmux.js';
-import {getLinearWorkspaces} from './aerospace.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
 // Props passed from cli.tsx with pane layout info
@@ -82,11 +83,11 @@ export default function App({paneLayout}: AppProps) {
 	const termHeight = termDimensions.rows;
 	const maxVisibleItems = Math.max(1, termHeight - 6); // Header + footer + padding
 
-	// Load spaces from Aerospace workspaces (all monitors)
+	// Load spaces from active tmux sessions (claude-* sessions)
 	const loadSpaces = useCallback(async () => {
 		try {
-			// Get Linear issue workspaces from Aerospace
-			const workspaceNames = getLinearWorkspaces();
+			// Get Linear issue keys from active claude tmux sessions
+			const workspaceNames = getLinearIssuesFromTmux();
 
 			// Build space data
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
@@ -339,16 +340,28 @@ export default function App({paneLayout}: AppProps) {
 		);
 	};
 
-	// Handle space deletion (closes Aerospace workspace)
+	// Handle space deletion (kills tmux sessions for the space)
 	const handleDeleteSpace = () => {
 		setShowDeleteConfirm(false);
 
 		const space = spaces[selectedIndex];
 		if (!space) return;
 
-		// Note: This just removes from pappardelle's view
-		// The Aerospace workspace will disappear when all windows in it are closed
-		setStatusMessage(`Note: Close windows in ${space.name} to remove from Aerospace`);
+		// Kill the claude and lazygit tmux sessions for this space
+		const sessionsKilled = killSpaceSessions(space.name);
+
+		if (sessionsKilled) {
+			setStatusMessage(`Closed sessions for ${space.name}`);
+		} else {
+			setStatusMessage(`Partially closed sessions for ${space.name}`);
+		}
+
+		// Clear the viewer panes since we killed the sessions
+		if (paneLayout && currentSpace === space.name) {
+			displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
+			displayMessageInPane(paneLayout.lazygitViewerPaneId, 'Session closed');
+			setCurrentSpace(null);
+		}
 
 		// Adjust selection if needed
 		if (selectedIndex >= spaces.length - 1 && selectedIndex > 0) {

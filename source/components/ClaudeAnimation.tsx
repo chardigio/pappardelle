@@ -1,10 +1,9 @@
 import React, {useState, useEffect} from 'react';
 import {Text} from 'ink';
 
-// Claude Code's exact spinner animation frames
-// These are the characters used by Claude Code during "Working"/"Simmering" state
-// Reverse engineered from Claude Code CLI output
-const CLAUDE_FRAMES = ['✢', '·', '✢', '✶', '✻', '✽'];
+// Claude Code spinner animation frames
+// Source: https://github.com/farouqaldori/claude-island/blob/main/ClaudeIsland/UI/Components/ProcessingSpinner.swift
+const CLAUDE_FRAMES = ['·', '✢', '✳', '∗', '✻', '✽'];
 
 interface Props {
 	color?: string;
@@ -16,7 +15,7 @@ export default function ClaudeAnimation({color = 'blue'}: Props) {
 	useEffect(() => {
 		const interval = setInterval(() => {
 			setFrameIndex((prev) => (prev + 1) % CLAUDE_FRAMES.length);
-		}, 100); // ~100ms per frame to match Claude Code's animation speed
+		}, 150); // 150ms per frame (matches claude-island)
 
 		return () => clearInterval(interval);
 	}, []);

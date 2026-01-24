@@ -86,6 +86,65 @@ export function listClaudeSessions(): string[] {
 }
 
 /**
+ * Get Linear issue keys from active claude tmux sessions
+ * Extracts issue keys by removing the 'claude-' prefix from session names
+ */
+export function getLinearIssuesFromTmux(): string[] {
+	const claudeSessions = listClaudeSessions();
+	return claudeSessions
+		.map(session => session.replace(CLAUDE_SESSION_PREFIX, ''))
+		.filter(issueKey => /^[A-Z]+-\d+$/.test(issueKey));
+}
+
+/**
+ * Kill a tmux session by name
+ * Returns true if session was killed or didn't exist
+ */
+export function killSession(sessionName: string): boolean {
+	try {
+		// Check if session exists first
+		if (!sessionExists(sessionName)) {
+			log.debug(`Session ${sessionName} does not exist, nothing to kill`);
+			return true;
+		}
+
+		// Kill the session
+		execSync(`tmux kill-session -t "${sessionName}"`, {
+			encoding: 'utf-8',
+			timeout: 5000,
+			stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		log.info(`Killed session: ${sessionName}`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to kill session ${sessionName}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
+ * Kill both claude and lazygit sessions for a space
+ * Returns true if all sessions were killed successfully
+ */
+export function killSpaceSessions(issueKey: string): boolean {
+	const sessions = getSessionNames(issueKey);
+	const claudeKilled = killSession(sessions.claude);
+	const lazygitKilled = killSession(sessions.lazygit);
+
+	// If we just killed the sessions for the currently viewing space, clear the state
+	if (currentlyViewingSpace === issueKey) {
+		currentlyViewingSpace = null;
+		claudeViewerHasSession = false;
+		lazygitViewerHasSession = false;
+	}
+
+	return claudeKilled && lazygitKilled;
+}
+
+/**
  * Send keys to a pane (for attaching to sessions)
  * Clears any partial input first to avoid leftover characters
  */
