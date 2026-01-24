@@ -24,6 +24,8 @@ import {
 	displayMessageInPane,
 	killSpaceSessions,
 	getLinearIssuesFromTmux,
+	zoomPane,
+	unzoomPane,
 } from './tmux.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
@@ -148,6 +150,18 @@ export default function App({paneLayout}: AppProps) {
 	useEffect(() => {
 		setViewKey(k => k + 1);
 	}, [showPromptDialog, showDeleteConfirm]);
+
+	// Zoom/unzoom list pane when prompt dialog is shown/hidden
+	// This gives full screen space for entering the prompt text
+	useEffect(() => {
+		if (!paneLayout) return;
+
+		if (showPromptDialog) {
+			zoomPane(paneLayout.listPaneId);
+		} else {
+			unzoomPane(paneLayout.listPaneId);
+		}
+	}, [showPromptDialog, paneLayout]);
 
 	// Attach to sessions when selection changes (uses existing idow sessions)
 	useEffect(() => {

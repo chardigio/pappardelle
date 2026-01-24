@@ -685,6 +685,85 @@ export function clearCurrentlyViewingSpace(): void {
 }
 
 /**
+ * Zoom a pane to take up the full terminal window
+ * Uses tmux's built-in zoom feature which maximizes the pane
+ */
+export function zoomPane(paneId: string): boolean {
+	try {
+		// Check if already zoomed
+		const checkResult = spawnSync(
+			'tmux',
+			['display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+
+		if (checkResult.stdout.trim() === '1') {
+			log.debug(`Pane ${paneId} is already zoomed`);
+			return true;
+		}
+
+		const result = spawnSync(
+			'tmux',
+			['resize-pane', '-Z', '-t', paneId],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+
+		if (result.error || result.status !== 0) {
+			log.error(`Failed to zoom pane ${paneId}: ${result.stderr}`);
+			return false;
+		}
+
+		log.info(`Zoomed pane ${paneId}`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to zoom pane ${paneId}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
+ * Unzoom a pane to restore the normal layout
+ */
+export function unzoomPane(paneId: string): boolean {
+	try {
+		// Check if actually zoomed
+		const checkResult = spawnSync(
+			'tmux',
+			['display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+
+		if (checkResult.stdout.trim() !== '1') {
+			log.debug(`Pane ${paneId} is not zoomed, nothing to unzoom`);
+			return true;
+		}
+
+		const result = spawnSync(
+			'tmux',
+			['resize-pane', '-Z', '-t', paneId],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+
+		if (result.error || result.status !== 0) {
+			log.error(`Failed to unzoom pane ${paneId}: ${result.stderr}`);
+			return false;
+		}
+
+		log.info(`Unzoomed pane ${paneId}`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to unzoom pane ${paneId}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
  * Get the worktree path for an issue key
  */
 export function getWorktreePath(issueKey: string): string | null {
