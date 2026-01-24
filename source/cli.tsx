@@ -68,8 +68,11 @@ if (!isInTmux() && !cli.flags.noLayout) {
 	const args = process.argv.slice(2).join(' ');
 	const cmd = args ? `pappardelle ${args}` : 'pappardelle';
 
-	// Start tmux session with pappardelle (-A attaches if session exists)
-	const result = spawnSync('tmux', ['new-session', '-A', '-s', 'pappardelle', cmd], {
+	// Generate unique session name so each run is a fresh process
+	const sessionName = `pappardelle-${Date.now()}`;
+
+	// Start new tmux session (no -A flag, always create fresh)
+	const result = spawnSync('tmux', ['new-session', '-s', sessionName, cmd], {
 		stdio: 'inherit',
 		env: process.env,
 	});
