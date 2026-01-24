@@ -1,5 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import {Text} from 'ink';
+import {COLORS} from '../types.js';
 
 // Claude Code spinner animation frames
 // Source: https://github.com/farouqaldori/claude-island/blob/main/ClaudeIsland/UI/Components/ProcessingSpinner.swift
@@ -9,7 +10,7 @@ interface Props {
 	color?: string;
 }
 
-export default function ClaudeAnimation({color = 'blue'}: Props) {
+export default function ClaudeAnimation({color = COLORS.CLAUDE_ORANGE}: Props) {
 	const [frameIndex, setFrameIndex] = useState(0);
 
 	useEffect(() => {

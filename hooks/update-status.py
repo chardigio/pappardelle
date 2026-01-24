@@ -27,16 +27,30 @@ from typing import Any, Optional
 # Get workspace name from cwd (assumes worktree naming convention)
 def get_workspace_name() -> str:
     cwd = os.getcwd()
-    # Try to extract workspace name from path like /Users/charlie/cs/dow-worktrees/STA-316
     parts = cwd.split("/")
-    for i, part in enumerate(parts):
-        if part == "dow-worktrees" and i + 1 < len(parts):
-            return parts[i + 1]
-    # Fallback: use the last directory component if it looks like a Linear issue
-    last_part = parts[-1] if parts else ""
-    if last_part and "-" in last_part and last_part.split("-")[0].isupper():
-        return last_part
+
+    # Look for Linear issue pattern (e.g., STA-123) in path components
+    # Expected path: ~/.worktrees/stardust-labs/STA-123/...
+    for part in parts:
+        if part and "-" in part:
+            prefix = part.split("-")[0]
+            suffix = part.split("-", 1)[1] if "-" in part else ""
+            # Check if it looks like a Linear issue (e.g., STA-123, ABC-45)
+            if prefix.isupper() and prefix.isalpha() and suffix.isdigit():
+                return part
+
     return "unknown"
+
+
+def get_status_dir() -> Path:
+    """Get the status directory path.
+
+    Uses PAPPARDELLE_STATUS_DIR env var if set, otherwise defaults to ~/.pappardelle/claude-status/.
+    """
+    env_dir = os.environ.get("PAPPARDELLE_STATUS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.home() / ".pappardelle" / "claude-status"
 
 
 def update_status(
@@ -45,7 +59,7 @@ def update_status(
     session_id: Optional[str] = None,
 ) -> None:
     workspace = get_workspace_name()
-    status_dir = Path.home() / ".pappardelle" / "claude-status"
+    status_dir = get_status_dir()
     status_dir.mkdir(parents=True, exist_ok=True)
 
     status_file = status_dir / f"{workspace}.json"
@@ -103,6 +117,9 @@ def main() -> None:
                 status = "waiting_permission"
             else:
                 status = "waiting_input"
+        elif hook_event == "PermissionRequest":
+            # PermissionRequest hook fires when Claude needs permission approval
+            status = "waiting_permission"
         else:
             status = "unknown"
 

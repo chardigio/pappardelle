@@ -70,6 +70,17 @@
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.pappardelle/hooks/update-status.py"
+          }
+        ]
+      }
     ]
   }
 }

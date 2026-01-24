@@ -1,5 +1,10 @@
 // Types for Pappardelle TUI
 
+// Brand colors
+export const COLORS = {
+	CLAUDE_ORANGE: '#DE7356',
+} as const;
+
 export interface LinearIssue {
 	identifier: string;
 	title: string;
@@ -51,18 +56,17 @@ export interface PaneLayout {
 }
 
 // Claude status display
-// Note: "thinking" and "tool_use" both show as "Working" to avoid distracting flicker
-// when Claude rapidly switches between thinking and using tools
+// Note: "thinking" and "tool_use" use ClaudeAnimation instead of a static icon
 export const CLAUDE_STATUS_DISPLAY: Record<
 	ClaudeStatus,
-	{label: string; color: string; icon: string}
+	{color: string; icon?: string}
 > = {
-	idle: {label: 'Idle', color: 'gray', icon: '○'},
-	thinking: {label: 'Working', color: 'blue', icon: '◐'},
-	tool_use: {label: 'Working', color: 'blue', icon: '◐'},
-	waiting_input: {label: 'Waiting', color: 'magenta', icon: '?'},
-	waiting_permission: {label: 'Permission', color: 'red', icon: '!'},
-	done: {label: 'Done', color: 'green', icon: '✓'},
-	error: {label: 'Error', color: 'red', icon: '✗'},
-	unknown: {label: 'Unknown', color: 'gray', icon: '?'},
+	idle: {color: 'gray', icon: '○'},
+	thinking: {color: COLORS.CLAUDE_ORANGE},
+	tool_use: {color: COLORS.CLAUDE_ORANGE},
+	waiting_input: {color: 'blue', icon: '?'},
+	waiting_permission: {color: 'red', icon: '!'},
+	done: {color: 'green', icon: '✓'},
+	error: {color: 'red', icon: '✗'},
+	unknown: {color: 'gray', icon: '?'},
 };

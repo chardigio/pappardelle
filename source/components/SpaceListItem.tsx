@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import type {SpaceData} from '../types.js';
 import {CLAUDE_STATUS_DISPLAY} from '../types.js';
@@ -18,12 +18,29 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	const isWorking =
 		space.claudeStatus === 'thinking' || space.claudeStatus === 'tool_use';
 
+	// Determine if row needs attention (blinking background)
+	const needsAttention =
+		space.claudeStatus === 'waiting_input' ||
+		space.claudeStatus === 'waiting_permission';
+
+	// Blink state for rows that need attention
+	const [blinkOn, setBlinkOn] = useState(true);
+	useEffect(() => {
+		if (!needsAttention) {
+			setBlinkOn(true);
+			return;
+		}
+		const interval = setInterval(() => {
+			setBlinkOn((prev) => !prev);
+		}, 500); // 500ms on/off for noticeable but not annoying blink
+		return () => clearInterval(interval);
+	}, [needsAttention]);
+
 	// Calculate available width for title
-	// Format: "> STA-123  ✢ Working  title..."
-	// selector (2) + issueKey (8 padded) + space (2) + icon (1) + space (1) + label (10 padded) + space (2) = 26 chars fixed
+	// Format: "> STA-123 ✢ title..."
+	// selector (2) + issueKey (8 padded) + space (1) + icon (1) + space (1) = 13 chars fixed
 	const issueKeyWidth = 8;
-	const statusLabelWidth = 10;
-	const fixedWidth = 2 + issueKeyWidth + 2 + 1 + 1 + statusLabelWidth + 2; // 26
+	const fixedWidth = 2 + issueKeyWidth + 1 + 1 + 1; // 13
 	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
 	// Pad issue key to fixed width for alignment
@@ -51,36 +68,53 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	};
 	const stateColor = getStateColor();
 
+	// When blinking, use inverse to make the row stand out
+	const useInverse = needsAttention && blinkOn;
+	const textColor = useInverse
+		? space.claudeStatus === 'waiting_permission'
+			? 'red'
+			: 'blue'
+		: undefined;
+
 	return (
 		<Box>
 			{/* Selection indicator */}
-			<Text color={isSelected ? 'white' : undefined} bold={isSelected}>
+			<Text
+				color={isSelected && !useInverse ? 'white' : textColor}
+				bold={isSelected}
+				inverse={useInverse}
+			>
 				{isSelected ? '> ' : '  '}
 			</Text>
 
 			{/* Issue key (colored by Linear state, padded for alignment) */}
-			<Text color={isSelected ? 'white' : stateColor} bold>
+			<Text
+				color={isSelected && !useInverse ? 'white' : useInverse ? textColor : stateColor}
+				bold
+				inverse={useInverse}
+			>
 				{paddedIssueKey}
 			</Text>
 
 			{/* Claude status indicator + label */}
-			<Text>  </Text>
+			<Text inverse={useInverse} color={textColor}>
+				{' '}
+			</Text>
 			{isWorking ? (
 				<ClaudeAnimation color={statusInfo.color} />
 			) : (
-				<Text color={statusInfo.color}>{statusInfo.icon}</Text>
+				<Text color={useInverse ? textColor : statusInfo.color} inverse={useInverse}>
+					{statusInfo.icon ?? '?'}
+				</Text>
 			)}
-			<Text> </Text>
-			<Text color={statusInfo.color}>
-				{statusInfo.label.padEnd(statusLabelWidth)}
-			</Text>
 
 			{/* Title (dimmed) */}
-			<Text>  </Text>
-			<Text dimColor wrap="truncate">
+			<Text inverse={useInverse} color={textColor}>
+				{' '}
+			</Text>
+			<Text dimColor={!useInverse} wrap="truncate" inverse={useInverse} color={textColor}>
 				{truncatedTitle}
 			</Text>
-
 		</Box>
 	);
 }
