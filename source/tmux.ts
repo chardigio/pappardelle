@@ -12,9 +12,13 @@ export const LAZYGIT_SESSION_PREFIX = 'lazygit-';
 // Track which space is currently being viewed
 let currentlyViewingSpace: string | null = null;
 
-// Track if panes have active tmux sessions (vs just shell)
-let claudeViewerHasSession = false;
-let lazygitViewerHasSession = false;
+// Track if panes have active nested tmux clients (vs just shell)
+let claudeViewerHasClient = false;
+let lazygitViewerHasClient = false;
+
+// Cache pane TTYs for fast client switching
+let claudeViewerTty: string | null = null;
+let lazygitViewerTty: string | null = null;
 
 /**
  * Check if running inside tmux
@@ -97,6 +101,73 @@ export function getLinearIssuesFromTmux(): string[] {
 }
 
 /**
+ * Get the TTY device for a pane
+ * This is used to identify the nested tmux client running in a viewer pane
+ */
+function getPaneTty(paneId: string): string | null {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['display-message', '-p', '-t', paneId, '#{pane_tty}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			return null;
+		}
+		return result.stdout.trim() || null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Check if a tmux client exists on a given TTY
+ * When we run `tmux attach` in a pane, it creates a nested client on that pane's TTY
+ */
+function clientExistsOnTty(tty: string): boolean {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['list-clients', '-F', '#{client_tty}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			return false;
+		}
+		const clients = result.stdout.trim().split('\n');
+		return clients.includes(tty);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Switch a tmux client to a different session
+ * This is instant and invisible - much faster than detach + attach via send-keys
+ */
+function switchClientToSession(clientTty: string, sessionName: string): boolean {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['switch-client', '-c', clientTty, '-t', sessionName],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			log.error(`Failed to switch client ${clientTty} to ${sessionName}: ${result.stderr}`);
+			return false;
+		}
+		log.debug(`Switched client ${clientTty} to session ${sessionName}`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to switch client to session`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
  * Kill a tmux session by name
  * Returns true if session was killed or didn't exist
  */
@@ -137,8 +208,8 @@ export function killSpaceSessions(issueKey: string): boolean {
 	// If we just killed the sessions for the currently viewing space, clear the state
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
-		claudeViewerHasSession = false;
-		lazygitViewerHasSession = false;
+		claudeViewerHasClient = false;
+		lazygitViewerHasClient = false;
 	}
 
 	return claudeKilled && lazygitKilled;
@@ -405,7 +476,13 @@ export function setupPappardellLayout(): {
 
 /**
  * Attach viewer panes to a space's sessions
- * This detaches from current sessions (if any) and attaches to the new space's sessions
+ *
+ * Uses tmux switch-client for instant, invisible session switching when a nested
+ * client already exists in the viewer pane. Falls back to send-keys attach for
+ * the initial attachment.
+ *
+ * This avoids the visible "TMUX= tmux attach -t session" command being typed
+ * into the pane, which was jarring when rapidly navigating through spaces.
  */
 export function attachToSpace(
 	claudeViewerPaneId: string,
@@ -427,44 +504,66 @@ export function attachToSpace(
 	const hasClaudeSession = sessionExists(sessions.claude);
 	const hasLazygitSession = sessionExists(sessions.lazygit);
 
-	// Detach from current sessions if they have active nested tmux
-	if (currentlyViewingSpace) {
-		log.debug(`Detaching from ${currentlyViewingSpace}`);
-		if (claudeViewerHasSession) {
-			detachInPane(claudeViewerPaneId);
-		}
-		if (lazygitViewerHasSession && lazygitViewerPaneId) {
-			detachInPane(lazygitViewerPaneId);
-		}
-		// Small delay to let detach complete
-		spawnSync('sleep', ['0.1']);
+	// Cache pane TTYs if we haven't yet (needed for switch-client)
+	if (!claudeViewerTty) {
+		claudeViewerTty = getPaneTty(claudeViewerPaneId);
+	}
+	if (!lazygitViewerTty && lazygitViewerPaneId) {
+		lazygitViewerTty = getPaneTty(lazygitViewerPaneId);
 	}
 
 	try {
-		// Attach to claude session (or show message if no session)
-		// Use TMUX= to allow nested tmux attachment
+		// Handle Claude viewer pane
 		if (hasClaudeSession) {
-			sendToPane(claudeViewerPaneId, `TMUX= tmux attach -t "${sessions.claude}"`);
-			claudeViewerHasSession = true;
-			log.info(`Attached claude viewer to ${sessions.claude}`);
-		} else {
-			sendToPane(claudeViewerPaneId, `clear && echo "No claude session for ${issueKey}"`);
-			claudeViewerHasSession = false;
-		}
+			// Check if we already have a nested client running in this pane
+			const hasExistingClient = claudeViewerTty && clientExistsOnTty(claudeViewerTty);
 
-		// Attach to lazygit session (or show message if no session)
-		// Only if we have a lazygit pane (may not exist on narrow screens)
-		if (lazygitViewerPaneId) {
-			if (hasLazygitSession) {
-				sendToPane(lazygitViewerPaneId, `TMUX= tmux attach -t "${sessions.lazygit}"`);
-				lazygitViewerHasSession = true;
-				log.info(`Attached lazygit viewer to ${sessions.lazygit}`);
+			if (hasExistingClient && claudeViewerHasClient) {
+				// Fast path: switch the existing client to the new session (instant, invisible)
+				switchClientToSession(claudeViewerTty!, sessions.claude);
+				log.debug(`Switched claude viewer to ${sessions.claude} via switch-client`);
 			} else {
-				sendToPane(lazygitViewerPaneId, `clear && echo "No lazygit session for ${issueKey}"`);
-				lazygitViewerHasSession = false;
+				// Slow path: need to create a new nested client via send-keys
+				// This happens on first attach or if the client was lost
+				sendToPane(claudeViewerPaneId, `TMUX= tmux attach -t "${sessions.claude}"`);
+				claudeViewerHasClient = true;
+				log.info(`Attached claude viewer to ${sessions.claude} via send-keys`);
 			}
 		} else {
-			lazygitViewerHasSession = false;
+			// No session - show message (need to detach first if we have a client)
+			if (claudeViewerHasClient && claudeViewerTty) {
+				detachInPane(claudeViewerPaneId);
+				claudeViewerHasClient = false;
+			}
+			sendToPane(claudeViewerPaneId, `clear && echo "No claude session for ${issueKey}"`);
+		}
+
+		// Handle lazygit viewer pane (only if we have one - may not exist on narrow screens)
+		if (lazygitViewerPaneId) {
+			if (hasLazygitSession) {
+				// Check if we already have a nested client running in this pane
+				const hasExistingClient = lazygitViewerTty && clientExistsOnTty(lazygitViewerTty);
+
+				if (hasExistingClient && lazygitViewerHasClient) {
+					// Fast path: switch the existing client to the new session
+					switchClientToSession(lazygitViewerTty!, sessions.lazygit);
+					log.debug(`Switched lazygit viewer to ${sessions.lazygit} via switch-client`);
+				} else {
+					// Slow path: create a new nested client
+					sendToPane(lazygitViewerPaneId, `TMUX= tmux attach -t "${sessions.lazygit}"`);
+					lazygitViewerHasClient = true;
+					log.info(`Attached lazygit viewer to ${sessions.lazygit} via send-keys`);
+				}
+			} else {
+				// No session - show message
+				if (lazygitViewerHasClient && lazygitViewerTty) {
+					detachInPane(lazygitViewerPaneId);
+					lazygitViewerHasClient = false;
+				}
+				sendToPane(lazygitViewerPaneId, `clear && echo "No lazygit session for ${issueKey}"`);
+			}
+		} else {
+			lazygitViewerHasClient = false;
 		}
 
 		// Return focus to the list pane

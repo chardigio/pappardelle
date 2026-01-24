@@ -51,10 +51,6 @@ export default function App({paneLayout}: AppProps) {
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
 
-	// Debounce navigation to prevent issues when cycling too quickly
-	const lastNavigationTime = useRef(0);
-	const NAVIGATION_DEBOUNCE_MS = 100;
-
 	// Track terminal dimensions with resize handling
 	const [termDimensions, setTermDimensions] = useState({
 		rows: stdout?.rows ?? 40,
@@ -206,20 +202,10 @@ export default function App({paneLayout}: AppProps) {
 			const totalItems = spaces.length;
 
 			if (key.upArrow || input === 'k') {
-				const now = Date.now();
-				if (now - lastNavigationTime.current < NAVIGATION_DEBOUNCE_MS) {
-					return; // Ignore rapid navigation
-				}
-				lastNavigationTime.current = now;
 				if (selectedIndex > 0) {
 					setSelectedIndex(selectedIndex - 1);
 				}
 			} else if (key.downArrow || input === 'j') {
-				const now = Date.now();
-				if (now - lastNavigationTime.current < NAVIGATION_DEBOUNCE_MS) {
-					return; // Ignore rapid navigation
-				}
-				lastNavigationTime.current = now;
 				if (selectedIndex < totalItems - 1) {
 					setSelectedIndex(selectedIndex + 1);
 				}
