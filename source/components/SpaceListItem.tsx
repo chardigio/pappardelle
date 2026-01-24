@@ -31,13 +31,20 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			? title.slice(0, availableTitleWidth - 1) + '\u2026'
 			: title;
 
-	// State badge color
-	const stateColor =
-		space.linearIssue?.state.type === 'completed'
-			? 'green'
-			: space.linearIssue?.state.type === 'started'
-				? 'yellow'
-				: 'gray';
+	// Linear state color (applied to issue key)
+	// Distinguish between "In Progress" (yellow) and "In Review" (cyan)
+	const getStateColor = (): string => {
+		const state = space.linearIssue?.state;
+		if (!state) return 'gray';
+		if (state.type === 'completed') return 'green';
+		if (state.type === 'started') {
+			// "In Review" gets cyan to distinguish from "In Progress"
+			if (state.name === 'In Review') return 'cyan';
+			return 'yellow';
+		}
+		return 'gray';
+	};
+	const stateColor = getStateColor();
 
 	return (
 		<Box>
@@ -46,8 +53,8 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 				{isSelected ? '> ' : '  '}
 			</Text>
 
-			{/* Issue key */}
-			<Text color={isSelected ? 'cyan' : 'white'} bold>
+			{/* Issue key (colored by Linear state) */}
+			<Text color={isSelected ? 'cyan' : stateColor} bold>
 				{space.name}
 			</Text>
 
@@ -65,15 +72,6 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 				{truncatedTitle}
 			</Text>
 
-			{/* Fill remaining space */}
-			<Box flexGrow={1} />
-
-			{/* State badge (right-aligned) */}
-			{space.linearIssue && (
-				<Text color={stateColor} dimColor>
-					[{space.linearIssue.state.name}]
-				</Text>
-			)}
 		</Box>
 	);
 }
