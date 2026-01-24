@@ -431,8 +431,8 @@ export function setupPappardellLayout(): {
 				lazygitViewerPaneId = lazygitResult.stdout.trim();
 			}
 		} else {
-			// Not enough space for lazygit - skip it
-			log.warn(
+			// Not enough space for lazygit - skip it silently
+			log.info(
 				`Not enough space for lazygit pane (need ${MIN_LAZYGIT_WIDTH}, have ${sizes.lazygitWidth})`,
 			);
 			lazygitViewerPaneId = '';
