@@ -142,7 +142,7 @@ function detachInPane(paneId: string): void {
 }
 
 // Minimum pane widths (in characters)
-const MIN_LIST_WIDTH = 30;
+const MIN_LIST_WIDTH = 40;
 const MIN_CLAUDE_WIDTH = 40;
 const MIN_LAZYGIT_WIDTH = 10; // Lazygit can be squished but needs at least this much
 

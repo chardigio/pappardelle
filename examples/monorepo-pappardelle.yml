@@ -1,0 +1,238 @@
+# .pappardelle.yml - Pappardelle workspace configuration
+# See _dev/scripts/pappardelle/pappardelle-config.md for full documentation
+version: 1
+
+# Default profile used when no keyword match is found
+default_profile: pappardelle
+
+profiles:
+  stardust-jams:
+    keywords:
+      - stardust
+      - jams
+      - music
+      - spotify
+      - playlist
+      - album
+      - artist
+      - track
+      - recording
+    display_name: "Stardust Jams"
+    ios:
+      app_dir: "_ios/stardust-jams"
+      bundle_id: "com.cd17822.stardust-jams"
+      scheme: "stardust-jams"
+    github:
+      label: "stardust_jams"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+      - name: "Setup QA simulator"
+        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}"
+        background: true
+
+  king-bee:
+    keywords:
+      - king
+      - bee
+      - hive
+      - spelling
+      - wordle
+      - puzzle
+      - colony
+      - guess
+    display_name: "King Bee"
+    ios:
+      app_dir: "_ios/King Bee"
+      bundle_id: "com.cd17822.King-Bee"
+      scheme: "King Bee"
+    github:
+      label: "the_hive"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd \"${WORKTREE_PATH}/${IOS_APP_DIR}\" && xcodegen generate"
+      - name: "Setup QA simulator"
+        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir \"${IOS_APP_DIR}\" --bundle-id ${BUNDLE_ID}"
+        background: true
+
+  slide-puzzle:
+    keywords:
+      - slide
+      - puzzle
+      - tile
+      - speedrun
+    display_name: "Slide Puzzle"
+    ios:
+      app_dir: "_ios/SlidePuzzle"
+      bundle_id: "com.cd17822.slidepuzzle"
+      scheme: "SlidePuzzle"
+    github:
+      label: "slide_puzzle"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+      - name: "Setup QA simulator"
+        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}"
+        background: true
+
+  hit-my-week:
+    keywords:
+      - hit
+      - week
+      - weekly
+      - mileage
+      - running
+      - miles
+    display_name: "Hit My Week"
+    ios:
+      app_dir: "_ios/HitMyWeek"
+      bundle_id: "com.cd17822.hitmyweek"
+      scheme: "HitMyWeek"
+    github:
+      label: "hit_the_weekly"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+      - name: "Setup QA simulator"
+        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}"
+        background: true
+
+  girl-food:
+    keywords:
+      - girl
+      - food
+      - restaurant
+      - meal
+      - recipe
+    display_name: "Girl Food"
+    ios:
+      app_dir: "_ios/Girl Food"
+      bundle_id: "com.cd17822.girl-food"
+      scheme: "Girl Food"
+    github:
+      label: "girl_food"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd \"${WORKTREE_PATH}/${IOS_APP_DIR}\" && xcodegen generate"
+      - name: "Setup QA simulator"
+        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir \"${IOS_APP_DIR}\" --bundle-id ${BUNDLE_ID}"
+        background: true
+
+  preg-prog:
+    keywords:
+      - preg
+      - pregnant
+      - pregnancy
+      - baby
+      - everybodys
+    display_name: "Preg Prog"
+    ios:
+      app_dir: "_ios/EverybodysPregnant"
+      bundle_id: "com.cd17822.everybodysPregnant"
+      scheme: "EverybodysPregnant"
+    github:
+      label: "preg_prog"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+      - name: "Setup QA simulator"
+        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}"
+        background: true
+
+  pappardelle:
+    keywords:
+      - pappardelle
+      - tui
+      - dow
+      - idow
+      - workspace
+      - worktree
+    display_name: "Pappardelle"
+    # No iOS configuration
+    github:
+      label: "pappardelle"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+    commands:
+      - name: "Install dependencies"
+        run: "cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && npm install"
+        continue_on_error: true

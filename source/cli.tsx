@@ -2,20 +2,24 @@
 import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
-import {execSync, spawnSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
 import App from './app.js';
 import {isInTmux, setupPappardellLayout} from './tmux.js';
 import type {PaneLayout} from './types.js';
+import {configExists, getRepoRoot, ConfigNotFoundError, ConfigValidationError} from './config.js';
 
 const cli = meow(
 	`
 	Usage
-	  $ pappardelle
+	  $ pappardelle [prompt]
 
 	Description
 	  Interactive TUI for managing DOW (Day of Work) workspaces.
 	  Displays worktree spaces in an fzf-style list with Claude and
 	  lazygit panes for the selected space.
+
+	  If a prompt is provided, creates a new session directly without
+	  entering the interactive TUI.
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -31,6 +35,7 @@ const cli = meow(
 	Examples
 	  $ pappardelle              # Run with tmux layout
 	  $ pappardelle --no-layout  # Run standalone (list only)
+	  $ pappardelle "fix auth bug"  # Create new session with prompt
 `,
 	{
 		importMeta: import.meta,
@@ -43,24 +48,56 @@ const cli = meow(
 	},
 );
 
-// Check if running in a git repository
-function isGitRepository(): boolean {
+// Check for .pappardelle.yml config file
+function checkConfig(): void {
 	try {
-		execSync('git rev-parse --git-dir', {stdio: 'pipe'});
-		return true;
-	} catch {
-		return false;
+		const repoRoot = getRepoRoot();
+		if (!configExists()) {
+			console.error('\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m');
+			console.error('');
+			console.error('\x1b[33mPappardelle requires a configuration file to operate.\x1b[0m');
+			console.error(`Please create .pappardelle.yml at: ${repoRoot}/.pappardelle.yml`);
+			console.error('');
+			console.error('See _dev/scripts/pappardelle/pappardelle-config.md for the configuration schema.');
+			process.exit(1);
+		}
+	} catch (error) {
+		if (error instanceof ConfigNotFoundError) {
+			console.error('\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m');
+			console.error('');
+			console.error(`Please create .pappardelle.yml at: ${error.repoRoot}/.pappardelle.yml`);
+			process.exit(1);
+		} else if (error instanceof ConfigValidationError) {
+			console.error('\x1b[31mError: Invalid .pappardelle.yml configuration.\x1b[0m');
+			console.error('');
+			for (const err of error.errors) {
+				console.error(`  - ${err}`);
+			}
+			console.error('');
+			console.error('Please fix the configuration and try again.');
+			process.exit(1);
+		} else {
+			// Not in a git repository
+			console.error('\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m');
+			console.error('\x1b[33mPlease navigate to a git repository and try again.\x1b[0m');
+			process.exit(1);
+		}
 	}
 }
 
-if (!isGitRepository()) {
-	console.error(
-		'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
-	);
-	console.error(
-		'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
-	);
-	process.exit(1);
+checkConfig();
+
+// If a prompt is provided as positional argument, spawn idow directly and exit
+if (cli.input.length > 0) {
+	const prompt = cli.input.join(' ');
+	console.log(`Starting new IDOW session with: "${prompt}"`);
+
+	const result = spawnSync('idow', [prompt], {
+		stdio: 'inherit',
+		env: process.env,
+	});
+
+	process.exit(result.status ?? 0);
 }
 
 // If not in tmux, re-exec inside tmux
