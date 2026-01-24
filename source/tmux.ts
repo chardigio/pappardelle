@@ -197,13 +197,81 @@ export function killSession(sessionName: string): boolean {
 }
 
 /**
- * Kill both claude and lazygit sessions for a space
+ * Delete the QA simulator cloned for a space
+ * The simulator is named QA-{issueKey} (e.g., QA-STA-123)
+ * Returns true if simulator was deleted or didn't exist
+ */
+export function deleteQaSimulator(issueKey: string): boolean {
+	const simulatorName = `QA-${issueKey}`;
+
+	try {
+		// Find the simulator UDID by name
+		const result = spawnSync(
+			'xcrun',
+			['simctl', 'list', 'devices', '-j'],
+			{encoding: 'utf-8', timeout: 10000},
+		);
+
+		if (result.error || result.status !== 0) {
+			log.error(`Failed to list simulators: ${result.stderr}`);
+			return false;
+		}
+
+		// Parse JSON output to find our simulator
+		const data = JSON.parse(result.stdout) as {
+			devices: Record<string, Array<{name: string; udid: string}>>;
+		};
+
+		let simulatorUdid: string | null = null;
+
+		// Search through all runtimes for our simulator
+		for (const devices of Object.values(data.devices)) {
+			const found = devices.find(d => d.name === simulatorName);
+			if (found) {
+				simulatorUdid = found.udid;
+				break;
+			}
+		}
+
+		if (!simulatorUdid) {
+			log.debug(`Simulator ${simulatorName} not found, nothing to delete`);
+			return true;
+		}
+
+		// Delete the simulator
+		const deleteResult = spawnSync(
+			'xcrun',
+			['simctl', 'delete', simulatorUdid],
+			{encoding: 'utf-8', timeout: 30000},
+		);
+
+		if (deleteResult.error || deleteResult.status !== 0) {
+			log.error(`Failed to delete simulator ${simulatorName}: ${deleteResult.stderr}`);
+			return false;
+		}
+
+		log.info(`Deleted QA simulator: ${simulatorName} (${simulatorUdid})`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to delete simulator for ${issueKey}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
+ * Kill both claude and lazygit sessions for a space, and delete the QA simulator
  * Returns true if all sessions were killed successfully
  */
 export function killSpaceSessions(issueKey: string): boolean {
 	const sessions = getSessionNames(issueKey);
 	const claudeKilled = killSession(sessions.claude);
 	const lazygitKilled = killSession(sessions.lazygit);
+
+	// Delete the QA simulator (runs in background, doesn't block)
+	deleteQaSimulator(issueKey);
 
 	// If we just killed the sessions for the currently viewing space, clear the state
 	if (currentlyViewingSpace === issueKey) {
