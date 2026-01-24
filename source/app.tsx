@@ -183,7 +183,10 @@ export default function App({paneLayout}: AppProps) {
 				paneLayout.claudeViewerPaneId,
 				'No spaces found. Press n to create a new space.',
 			);
-			displayMessageInPane(paneLayout.lazygitViewerPaneId, '');
+			// Only clear lazygit pane if it exists (may not on narrow screens)
+			if (paneLayout.lazygitViewerPaneId) {
+				displayMessageInPane(paneLayout.lazygitViewerPaneId, '');
+			}
 			panesInitialized.current = true;
 		}
 	}, [paneLayout, spaces, loading]);

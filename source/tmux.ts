@@ -141,9 +141,82 @@ function detachInPane(paneId: string): void {
 	}
 }
 
+// Minimum pane widths (in characters)
+const MIN_LIST_WIDTH = 30;
+const MIN_CLAUDE_WIDTH = 40;
+const MIN_LAZYGIT_WIDTH = 10; // Lazygit can be squished but needs at least this much
+
+/**
+ * Get current terminal/pane width from tmux
+ */
+function getTmuxPaneWidth(): number {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['display-message', '-p', '#{pane_width}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			return 120; // Default fallback
+		}
+		return parseInt(result.stdout.trim(), 10) || 120;
+	} catch {
+		return 120;
+	}
+}
+
+/**
+ * Calculate pane sizes ensuring minimum widths are respected.
+ * Layout: [list] [claude] [lazygit]
+ *
+ * Priority: List gets minimum, Claude gets minimum, Lazygit gets squished if needed.
+ * When there's extra space, distribute proportionally.
+ */
+function calculatePaneSizes(totalWidth: number): {
+	listWidth: number;
+	claudeWidth: number;
+	lazygitWidth: number;
+} {
+	// Account for tmux borders (2 chars per split = 2 borders between 3 panes)
+	const usableWidth = totalWidth - 2;
+
+	// Minimum total required
+	const minTotal = MIN_LIST_WIDTH + MIN_CLAUDE_WIDTH + MIN_LAZYGIT_WIDTH;
+
+	if (usableWidth <= minTotal) {
+		// Very narrow: give each the minimum, lazygit may get nothing
+		const remaining = usableWidth - MIN_LIST_WIDTH - MIN_CLAUDE_WIDTH;
+		return {
+			listWidth: MIN_LIST_WIDTH,
+			claudeWidth: MIN_CLAUDE_WIDTH,
+			lazygitWidth: Math.max(0, remaining),
+		};
+	}
+
+	// We have extra space beyond minimums. Distribute it.
+	// Target proportions: list ~24%, claude ~38%, lazygit ~38%
+	const extraSpace = usableWidth - minTotal;
+
+	// Distribute extra space proportionally (24:38:38 ≈ 0.24:0.38:0.38)
+	const listExtra = Math.floor(extraSpace * 0.24);
+	const claudeExtra = Math.floor(extraSpace * 0.38);
+	const lazygitExtra = extraSpace - listExtra - claudeExtra;
+
+	return {
+		listWidth: MIN_LIST_WIDTH + listExtra,
+		claudeWidth: MIN_CLAUDE_WIDTH + claudeExtra,
+		lazygitWidth: MIN_LAZYGIT_WIDTH + lazygitExtra,
+	};
+}
+
 /**
  * Set up the initial 3-pane layout for pappardelle
  * Returns pane IDs for [list, claudeViewer, lazygitViewer]
+ *
+ * Layout enforces minimum widths:
+ * - List pane: at least 30 characters
+ * - Claude pane: at least 40 characters
+ * - Lazygit can be squished on narrow screens
  */
 export function setupPappardellLayout(): {
 	listPaneId: string;
@@ -160,7 +233,18 @@ export function setupPappardellLayout(): {
 
 		const cwd = process.cwd();
 
-		// Create middle pane (claude viewer) - 76% of remaining width (leaves 24% for list)
+		// Get terminal width and calculate pane sizes
+		const totalWidth = getTmuxPaneWidth();
+		const sizes = calculatePaneSizes(totalWidth);
+
+		log.info(
+			`Terminal width: ${totalWidth}, sizes: list=${sizes.listWidth}, claude=${sizes.claudeWidth}, lazygit=${sizes.lazygitWidth}`,
+		);
+
+		// Create the right portion (claude + lazygit combined)
+		// This takes everything except the list pane width
+		const rightPortionWidth = sizes.claudeWidth + sizes.lazygitWidth + 1; // +1 for border
+
 		const claudeResult = spawnSync(
 			'tmux',
 			[
@@ -171,7 +255,7 @@ export function setupPappardellLayout(): {
 				'-c',
 				cwd,
 				'-l',
-				'76%',
+				String(rightPortionWidth),
 				'-P',
 				'-F',
 				'#{pane_id}',
@@ -186,31 +270,43 @@ export function setupPappardellLayout(): {
 
 		const claudeViewerPaneId = claudeResult.stdout.trim();
 
-		// Create right pane (lazygit viewer) - 50% of the 76% (38% each for claude/lazygit)
-		const lazygitResult = spawnSync(
-			'tmux',
-			[
-				'split-window',
-				'-h',
-				'-t',
-				claudeViewerPaneId,
-				'-c',
-				cwd,
-				'-l',
-				'50%',
-				'-P',
-				'-F',
-				'#{pane_id}',
-			],
-			{encoding: 'utf-8', timeout: 10000},
-		);
+		// Create right pane (lazygit viewer) from the claude pane
+		// Only create if we have space for lazygit
+		let lazygitViewerPaneId: string;
 
-		if (lazygitResult.error || lazygitResult.status !== 0) {
-			log.error(`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`);
-			return null;
+		if (sizes.lazygitWidth >= MIN_LAZYGIT_WIDTH) {
+			const lazygitResult = spawnSync(
+				'tmux',
+				[
+					'split-window',
+					'-h',
+					'-t',
+					claudeViewerPaneId,
+					'-c',
+					cwd,
+					'-l',
+					String(sizes.lazygitWidth),
+					'-P',
+					'-F',
+					'#{pane_id}',
+				],
+				{encoding: 'utf-8', timeout: 10000},
+			);
+
+			if (lazygitResult.error || lazygitResult.status !== 0) {
+				log.error(`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`);
+				// Continue without lazygit pane - use empty string
+				lazygitViewerPaneId = '';
+			} else {
+				lazygitViewerPaneId = lazygitResult.stdout.trim();
+			}
+		} else {
+			// Not enough space for lazygit - skip it
+			log.warn(
+				`Not enough space for lazygit pane (need ${MIN_LAZYGIT_WIDTH}, have ${sizes.lazygitWidth})`,
+			);
+			lazygitViewerPaneId = '';
 		}
-
-		const lazygitViewerPaneId = lazygitResult.stdout.trim();
 
 		// Set pane titles
 		execSync(`tmux select-pane -t "${listPaneId}" -T "pappardelle"`, {
@@ -221,10 +317,12 @@ export function setupPappardellLayout(): {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
-		execSync(`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		if (lazygitViewerPaneId) {
+			execSync(`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`, {
+				encoding: 'utf-8',
+				timeout: 5000,
+			});
+		}
 
 		// Return focus to list pane
 		execSync(`tmux select-pane -t "${listPaneId}"`, {
@@ -276,7 +374,7 @@ export function attachToSpace(
 		if (claudeViewerHasSession) {
 			detachInPane(claudeViewerPaneId);
 		}
-		if (lazygitViewerHasSession) {
+		if (lazygitViewerHasSession && lazygitViewerPaneId) {
 			detachInPane(lazygitViewerPaneId);
 		}
 		// Small delay to let detach complete
@@ -296,12 +394,17 @@ export function attachToSpace(
 		}
 
 		// Attach to lazygit session (or show message if no session)
-		if (hasLazygitSession) {
-			sendToPane(lazygitViewerPaneId, `TMUX= tmux attach -t "${sessions.lazygit}"`);
-			lazygitViewerHasSession = true;
-			log.info(`Attached lazygit viewer to ${sessions.lazygit}`);
+		// Only if we have a lazygit pane (may not exist on narrow screens)
+		if (lazygitViewerPaneId) {
+			if (hasLazygitSession) {
+				sendToPane(lazygitViewerPaneId, `TMUX= tmux attach -t "${sessions.lazygit}"`);
+				lazygitViewerHasSession = true;
+				log.info(`Attached lazygit viewer to ${sessions.lazygit}`);
+			} else {
+				sendToPane(lazygitViewerPaneId, `clear && echo "No lazygit session for ${issueKey}"`);
+				lazygitViewerHasSession = false;
+			}
 		} else {
-			sendToPane(lazygitViewerPaneId, `clear && echo "No lazygit session for ${issueKey}"`);
 			lazygitViewerHasSession = false;
 		}
 
