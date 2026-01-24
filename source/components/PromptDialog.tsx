@@ -1,6 +1,17 @@
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {Box, Text, useInput} from 'ink';
 import TextInput from 'ink-text-input';
+import {
+	loadConfig,
+	matchProfiles,
+	getDefaultProfile,
+	type PappardelleConfig,
+} from '../config.js';
+
+// Issue key patterns
+const ISSUE_KEY_PATTERN = /^[A-Z]+-\d+$/;
+const ISSUE_NUMBER_PATTERN = /^(\d+)$/;
+const LINEAR_URL_PATTERN = /^https:\/\/linear\.app\/.+\/issue\/([A-Z]+-\d+)/;
 
 interface Props {
 	onSubmit: (prompt: string) => void;
@@ -9,6 +20,62 @@ interface Props {
 
 export default function PromptDialog({onSubmit, onCancel}: Props) {
 	const [prompt, setPrompt] = useState('');
+
+	// Load config once
+	const config = useMemo((): PappardelleConfig | null => {
+		try {
+			return loadConfig();
+		} catch {
+			return null;
+		}
+	}, []);
+
+	// Determine what profile will be selected based on current input
+	const profileInfo = useMemo(() => {
+		if (!config) return null;
+
+		const trimmed = prompt.trim();
+		if (!trimmed) return null;
+
+		// Check if input is an issue key or URL (uses default profile)
+		if (
+			ISSUE_KEY_PATTERN.test(trimmed) ||
+			ISSUE_NUMBER_PATTERN.test(trimmed) ||
+			LINEAR_URL_PATTERN.test(trimmed)
+		) {
+			const defaultProfile = getDefaultProfile(config);
+			return {
+				name: defaultProfile.name,
+				displayName: defaultProfile.profile.display_name,
+				hasIos: !!defaultProfile.profile.ios,
+				isDefault: true,
+				matchedKeywords: [] as string[],
+			};
+		}
+
+		// It's a description - match by keywords
+		const matches = matchProfiles(config, trimmed);
+		if (matches.length > 0) {
+			const best = matches[0]!;
+			return {
+				name: best.name,
+				displayName: best.profile.display_name,
+				hasIos: !!best.profile.ios,
+				isDefault: false,
+				matchedKeywords: best.matchedKeywords,
+			};
+		}
+
+		// No matches - use default
+		const defaultProfile = getDefaultProfile(config);
+		return {
+			name: defaultProfile.name,
+			displayName: defaultProfile.profile.display_name,
+			hasIos: !!defaultProfile.profile.ios,
+			isDefault: true,
+			matchedKeywords: [] as string[],
+		};
+	}, [config, prompt]);
 
 	useInput((_input, key) => {
 		if (key.escape) {
@@ -58,6 +125,26 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 					placeholder="STA-123 or describe the task..."
 				/>
 			</Box>
+
+			{profileInfo && (
+				<Box marginTop={1}>
+					<Text dimColor>Profile: </Text>
+					<Text color={profileInfo.hasIos ? 'magenta' : 'blue'}>
+						{profileInfo.displayName}
+					</Text>
+					{profileInfo.hasIos && (
+						<Text dimColor> (iOS)</Text>
+					)}
+					{profileInfo.matchedKeywords.length > 0 && (
+						<Text dimColor>
+							{' '}← {profileInfo.matchedKeywords.join(', ')}
+						</Text>
+					)}
+					{profileInfo.isDefault && profileInfo.matchedKeywords.length === 0 && (
+						<Text dimColor> (default)</Text>
+					)}
+				</Box>
+			)}
 
 			<Box marginTop={1}>
 				<Text dimColor>
