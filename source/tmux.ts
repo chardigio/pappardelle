@@ -339,7 +339,10 @@ function detachInPane(paneId: string): void {
 	}
 }
 
-// Minimum pane widths (in characters)
+// Layout threshold: screens narrower than this use vertical stacking
+const NARROW_SCREEN_THRESHOLD = 100;
+
+// Minimum pane widths (in characters) for horizontal layout
 const MIN_LIST_WIDTH = 40;
 const MIN_CLAUDE_WIDTH = 40;
 const MIN_LAZYGIT_WIDTH = 10; // Lazygit can be squished but needs at least this much
@@ -364,17 +367,76 @@ function getTmuxPaneWidth(): number {
 }
 
 /**
- * Calculate pane sizes ensuring minimum widths are respected.
- * Layout: [list] [claude] [lazygit]
- *
- * Priority: List gets minimum, Claude gets minimum, Lazygit gets squished if needed.
- * When there's extra space, distribute proportionally.
+ * Get current terminal/pane height from tmux
  */
-function calculatePaneSizes(totalWidth: number): {
-	listWidth: number;
-	claudeWidth: number;
-	lazygitWidth: number;
-} {
+function getTmuxPaneHeight(): number {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['display-message', '-p', '#{pane_height}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			return 40; // Default fallback
+		}
+		return parseInt(result.stdout.trim(), 10) || 40;
+	} catch {
+		return 40;
+	}
+}
+
+/**
+ * Get the number of active Claude sessions (determines list pane height in vertical mode)
+ */
+function getActiveSessionCount(): number {
+	return listClaudeSessions().length;
+}
+
+/**
+ * Layout configuration returned by calculateLayout
+ */
+interface LayoutConfig {
+	direction: 'horizontal' | 'vertical';
+	// For horizontal layout: widths
+	listWidth?: number;
+	claudeWidth?: number;
+	lazygitWidth?: number;
+	// For vertical layout: heights
+	listHeight?: number;
+	claudeHeight?: number;
+}
+
+/**
+ * Calculate pane layout based on terminal dimensions.
+ *
+ * Narrow screens (< 100 chars): Vertical layout with list on top, claude below, no lazygit
+ * Wide screens (>= 100 chars): Horizontal layout [list] [claude] [lazygit]
+ */
+function calculateLayout(totalWidth: number, totalHeight: number): LayoutConfig {
+	// Narrow screen: use vertical layout
+	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
+		// List pane height is dynamic based on number of sessions
+		// Each session takes 1 row, plus ~3 rows for header/footer/padding
+		const sessionCount = getActiveSessionCount();
+		const listPaneRows = Math.max(1, sessionCount) + 3; // sessions + header/footer
+
+		// Account for tmux border (1 row)
+		const usableHeight = totalHeight - 1;
+
+		// Ensure claude pane gets at least some rows
+		const minClaudeHeight = 5;
+		const maxListHeight = usableHeight - minClaudeHeight;
+		const listHeight = Math.min(listPaneRows, maxListHeight);
+		const claudeHeight = usableHeight - listHeight;
+
+		return {
+			direction: 'vertical',
+			listHeight,
+			claudeHeight,
+		};
+	}
+
+	// Wide screen: use horizontal layout
 	// Account for tmux borders (2 chars per split = 2 borders between 3 panes)
 	const usableWidth = totalWidth - 2;
 
@@ -385,6 +447,7 @@ function calculatePaneSizes(totalWidth: number): {
 		// Very narrow: give each the minimum, lazygit may get nothing
 		const remaining = usableWidth - MIN_LIST_WIDTH - MIN_CLAUDE_WIDTH;
 		return {
+			direction: 'horizontal',
 			listWidth: MIN_LIST_WIDTH,
 			claudeWidth: MIN_CLAUDE_WIDTH,
 			lazygitWidth: Math.max(0, remaining),
@@ -401,6 +464,7 @@ function calculatePaneSizes(totalWidth: number): {
 	const lazygitExtra = extraSpace - listExtra - claudeExtra;
 
 	return {
+		direction: 'horizontal',
 		listWidth: MIN_LIST_WIDTH + listExtra,
 		claudeWidth: MIN_CLAUDE_WIDTH + claudeExtra,
 		lazygitWidth: MIN_LAZYGIT_WIDTH + lazygitExtra,
@@ -408,13 +472,12 @@ function calculatePaneSizes(totalWidth: number): {
 }
 
 /**
- * Set up the initial 3-pane layout for pappardelle
+ * Set up the pane layout for pappardelle
  * Returns pane IDs for [list, claudeViewer, lazygitViewer]
  *
- * Layout enforces minimum widths:
- * - List pane: at least 30 characters
- * - Claude pane: at least 40 characters
- * - Lazygit can be squished on narrow screens
+ * Layout depends on screen width:
+ * - Narrow screens (< 100 chars): Vertical layout [list on top] [claude below], no lazygit
+ * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [lazygit]
  */
 export function setupPappardellLayout(): {
 	listPaneId: string;
@@ -431,59 +494,32 @@ export function setupPappardellLayout(): {
 
 		const cwd = process.cwd();
 
-		// Get terminal width and calculate pane sizes
+		// Get terminal dimensions and calculate layout
 		const totalWidth = getTmuxPaneWidth();
-		const sizes = calculatePaneSizes(totalWidth);
+		const totalHeight = getTmuxPaneHeight();
+		const layout = calculateLayout(totalWidth, totalHeight);
 
 		log.info(
-			`Terminal width: ${totalWidth}, sizes: list=${sizes.listWidth}, claude=${sizes.claudeWidth}, lazygit=${sizes.lazygitWidth}`,
+			`Terminal size: ${totalWidth}x${totalHeight}, layout: ${layout.direction}`,
 		);
 
-		// Create the right portion (claude + lazygit combined)
-		// This takes everything except the list pane width
-		const rightPortionWidth = sizes.claudeWidth + sizes.lazygitWidth + 1; // +1 for border
+		let claudeViewerPaneId: string;
+		let lazygitViewerPaneId = ''; // Empty by default (not created for vertical layout)
 
-		const claudeResult = spawnSync(
-			'tmux',
-			[
-				'split-window',
-				'-h',
-				'-t',
-				listPaneId,
-				'-c',
-				cwd,
-				'-l',
-				String(rightPortionWidth),
-				'-P',
-				'-F',
-				'#{pane_id}',
-			],
-			{encoding: 'utf-8', timeout: 10000},
-		);
-
-		if (claudeResult.error || claudeResult.status !== 0) {
-			log.error(`Failed to create claude viewer pane: ${claudeResult.stderr}`);
-			return null;
-		}
-
-		const claudeViewerPaneId = claudeResult.stdout.trim();
-
-		// Create right pane (lazygit viewer) from the claude pane
-		// Only create if we have space for lazygit
-		let lazygitViewerPaneId: string;
-
-		if (sizes.lazygitWidth >= MIN_LAZYGIT_WIDTH) {
-			const lazygitResult = spawnSync(
+		if (layout.direction === 'vertical') {
+			// VERTICAL LAYOUT: list on top, claude below, no lazygit
+			// Use -v for vertical split (top/bottom)
+			const claudeResult = spawnSync(
 				'tmux',
 				[
 					'split-window',
-					'-h',
+					'-v', // vertical split (top/bottom)
 					'-t',
-					claudeViewerPaneId,
+					listPaneId,
 					'-c',
 					cwd,
 					'-l',
-					String(sizes.lazygitWidth),
+					String(layout.claudeHeight), // claude pane gets this many rows
 					'-P',
 					'-F',
 					'#{pane_id}',
@@ -491,19 +527,82 @@ export function setupPappardellLayout(): {
 				{encoding: 'utf-8', timeout: 10000},
 			);
 
-			if (lazygitResult.error || lazygitResult.status !== 0) {
-				log.error(`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`);
-				// Continue without lazygit pane - use empty string
-				lazygitViewerPaneId = '';
-			} else {
-				lazygitViewerPaneId = lazygitResult.stdout.trim();
+			if (claudeResult.error || claudeResult.status !== 0) {
+				log.error(`Failed to create claude viewer pane: ${claudeResult.stderr}`);
+				return null;
 			}
-		} else {
-			// Not enough space for lazygit - skip it silently
+
+			claudeViewerPaneId = claudeResult.stdout.trim();
+
 			log.info(
-				`Not enough space for lazygit pane (need ${MIN_LAZYGIT_WIDTH}, have ${sizes.lazygitWidth})`,
+				`Vertical layout: list=${layout.listHeight} rows, claude=${layout.claudeHeight} rows`,
 			);
-			lazygitViewerPaneId = '';
+		} else {
+			// HORIZONTAL LAYOUT: list | claude | lazygit (existing logic)
+			// Create the right portion (claude + lazygit combined)
+			const rightPortionWidth = (layout.claudeWidth ?? 40) + (layout.lazygitWidth ?? 0) + 1; // +1 for border
+
+			const claudeResult = spawnSync(
+				'tmux',
+				[
+					'split-window',
+					'-h', // horizontal split (left/right)
+					'-t',
+					listPaneId,
+					'-c',
+					cwd,
+					'-l',
+					String(rightPortionWidth),
+					'-P',
+					'-F',
+					'#{pane_id}',
+				],
+				{encoding: 'utf-8', timeout: 10000},
+			);
+
+			if (claudeResult.error || claudeResult.status !== 0) {
+				log.error(`Failed to create claude viewer pane: ${claudeResult.stderr}`);
+				return null;
+			}
+
+			claudeViewerPaneId = claudeResult.stdout.trim();
+
+			// Create right pane (lazygit viewer) from the claude pane
+			// Only create if we have space for lazygit
+			if ((layout.lazygitWidth ?? 0) >= MIN_LAZYGIT_WIDTH) {
+				const lazygitResult = spawnSync(
+					'tmux',
+					[
+						'split-window',
+						'-h',
+						'-t',
+						claudeViewerPaneId,
+						'-c',
+						cwd,
+						'-l',
+						String(layout.lazygitWidth),
+						'-P',
+						'-F',
+						'#{pane_id}',
+					],
+					{encoding: 'utf-8', timeout: 10000},
+				);
+
+				if (lazygitResult.error || lazygitResult.status !== 0) {
+					log.error(`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`);
+					// Continue without lazygit pane
+				} else {
+					lazygitViewerPaneId = lazygitResult.stdout.trim();
+				}
+			} else {
+				log.info(
+					`Not enough space for lazygit pane (need ${MIN_LAZYGIT_WIDTH}, have ${layout.lazygitWidth})`,
+				);
+			}
+
+			log.info(
+				`Horizontal layout: list=${layout.listWidth}, claude=${layout.claudeWidth}, lazygit=${layout.lazygitWidth}`,
+			);
 		}
 
 		// Set pane titles
@@ -529,7 +628,7 @@ export function setupPappardellLayout(): {
 		});
 
 		log.info(
-			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, lazygit=${lazygitViewerPaneId}`,
+			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, lazygit=${lazygitViewerPaneId || '(none)'}`,
 		);
 
 		return {listPaneId, claudeViewerPaneId, lazygitViewerPaneId};
