@@ -710,6 +710,17 @@ export function setupPappardellLayout(): {
 			);
 		}
 
+		// Set window-level options for better focus highlighting
+		// These only affect the current window, not other tmux sessions
+		execSync('tmux set-option -w pane-border-style "fg=colour238"', {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+		execSync('tmux set-option -w pane-active-border-style "fg=cyan,bold"', {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+
 		// Return focus to list pane
 		execSync(`tmux select-pane -t "${listPaneId}"`, {
 			encoding: 'utf-8',
