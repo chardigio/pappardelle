@@ -1,10 +1,10 @@
-// Linear CLI utilities
+// Linear CLI utilities - uses caching to avoid rate limiting
 import {execSync} from 'node:child_process';
 import type {LinearIssue} from './types.js';
 import {createLogger} from './logger.js';
 
 const log = createLogger('linear');
-const CACHE_TTL_MS = 5000; // 5 seconds
+const CACHE_TTL_MS = 60000; // 60 seconds (to avoid rate limiting)
 
 interface CacheEntry {
 	issue: LinearIssue | null;

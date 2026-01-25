@@ -126,11 +126,10 @@ function getPaneTty(paneId: string): string | null {
  */
 function clientExistsOnTty(tty: string): boolean {
 	try {
-		const result = spawnSync(
-			'tmux',
-			['list-clients', '-F', '#{client_tty}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
+		const result = spawnSync('tmux', ['list-clients', '-F', '#{client_tty}'], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
 		if (result.error || result.status !== 0) {
 			return false;
 		}
@@ -145,7 +144,10 @@ function clientExistsOnTty(tty: string): boolean {
  * Switch a tmux client to a different session
  * This is instant and invisible - much faster than detach + attach via send-keys
  */
-function switchClientToSession(clientTty: string, sessionName: string): boolean {
+function switchClientToSession(
+	clientTty: string,
+	sessionName: string,
+): boolean {
 	try {
 		const result = spawnSync(
 			'tmux',
@@ -153,7 +155,9 @@ function switchClientToSession(clientTty: string, sessionName: string): boolean 
 			{encoding: 'utf-8', timeout: 5000},
 		);
 		if (result.error || result.status !== 0) {
-			log.error(`Failed to switch client ${clientTty} to ${sessionName}: ${result.stderr}`);
+			log.error(
+				`Failed to switch client ${clientTty} to ${sessionName}: ${result.stderr}`,
+			);
 			return false;
 		}
 		log.debug(`Switched client ${clientTty} to session ${sessionName}`);
@@ -206,11 +210,10 @@ export function deleteQaSimulator(issueKey: string): boolean {
 
 	try {
 		// Find the simulator UDID by name
-		const result = spawnSync(
-			'xcrun',
-			['simctl', 'list', 'devices', '-j'],
-			{encoding: 'utf-8', timeout: 10000},
-		);
+		const result = spawnSync('xcrun', ['simctl', 'list', 'devices', '-j'], {
+			encoding: 'utf-8',
+			timeout: 10000,
+		});
 
 		if (result.error || result.status !== 0) {
 			log.error(`Failed to list simulators: ${result.stderr}`);
@@ -246,7 +249,9 @@ export function deleteQaSimulator(issueKey: string): boolean {
 		);
 
 		if (deleteResult.error || deleteResult.status !== 0) {
-			log.error(`Failed to delete simulator ${simulatorName}: ${deleteResult.stderr}`);
+			log.error(
+				`Failed to delete simulator ${simulatorName}: ${deleteResult.stderr}`,
+			);
 			return false;
 		}
 
@@ -528,7 +533,9 @@ export function setupPappardellLayout(): {
 			);
 
 			if (claudeResult.error || claudeResult.status !== 0) {
-				log.error(`Failed to create claude viewer pane: ${claudeResult.stderr}`);
+				log.error(
+					`Failed to create claude viewer pane: ${claudeResult.stderr}`,
+				);
 				return null;
 			}
 
@@ -615,10 +622,13 @@ export function setupPappardellLayout(): {
 			timeout: 5000,
 		});
 		if (lazygitViewerPaneId) {
-			execSync(`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`, {
-				encoding: 'utf-8',
-				timeout: 5000,
-			});
+			execSync(
+				`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`,
+				{
+					encoding: 'utf-8',
+					timeout: 5000,
+				},
+			);
 		}
 
 		// Return focus to list pane
@@ -683,16 +693,22 @@ export function attachToSpace(
 		// Handle Claude viewer pane
 		if (hasClaudeSession) {
 			// Check if we already have a nested client running in this pane
-			const hasExistingClient = claudeViewerTty && clientExistsOnTty(claudeViewerTty);
+			const hasExistingClient =
+				claudeViewerTty && clientExistsOnTty(claudeViewerTty);
 
 			if (hasExistingClient && claudeViewerHasClient) {
 				// Fast path: switch the existing client to the new session (instant, invisible)
 				switchClientToSession(claudeViewerTty!, sessions.claude);
-				log.debug(`Switched claude viewer to ${sessions.claude} via switch-client`);
+				log.debug(
+					`Switched claude viewer to ${sessions.claude} via switch-client`,
+				);
 			} else {
 				// Slow path: need to create a new nested client via send-keys
 				// This happens on first attach or if the client was lost
-				sendToPane(claudeViewerPaneId, `TMUX= tmux attach -t "${sessions.claude}"`);
+				sendToPane(
+					claudeViewerPaneId,
+					`TMUX= tmux attach -t "${sessions.claude}"`,
+				);
 				claudeViewerHasClient = true;
 				log.info(`Attached claude viewer to ${sessions.claude} via send-keys`);
 			}
@@ -702,24 +718,35 @@ export function attachToSpace(
 				detachInPane(claudeViewerPaneId);
 				claudeViewerHasClient = false;
 			}
-			sendToPane(claudeViewerPaneId, `clear && echo "No claude session for ${issueKey}"`);
+			sendToPane(
+				claudeViewerPaneId,
+				`clear && echo "No claude session for ${issueKey}"`,
+			);
 		}
 
 		// Handle lazygit viewer pane (only if we have one - may not exist on narrow screens)
 		if (lazygitViewerPaneId) {
 			if (hasLazygitSession) {
 				// Check if we already have a nested client running in this pane
-				const hasExistingClient = lazygitViewerTty && clientExistsOnTty(lazygitViewerTty);
+				const hasExistingClient =
+					lazygitViewerTty && clientExistsOnTty(lazygitViewerTty);
 
 				if (hasExistingClient && lazygitViewerHasClient) {
 					// Fast path: switch the existing client to the new session
 					switchClientToSession(lazygitViewerTty!, sessions.lazygit);
-					log.debug(`Switched lazygit viewer to ${sessions.lazygit} via switch-client`);
+					log.debug(
+						`Switched lazygit viewer to ${sessions.lazygit} via switch-client`,
+					);
 				} else {
 					// Slow path: create a new nested client
-					sendToPane(lazygitViewerPaneId, `TMUX= tmux attach -t "${sessions.lazygit}"`);
+					sendToPane(
+						lazygitViewerPaneId,
+						`TMUX= tmux attach -t "${sessions.lazygit}"`,
+					);
 					lazygitViewerHasClient = true;
-					log.info(`Attached lazygit viewer to ${sessions.lazygit} via send-keys`);
+					log.info(
+						`Attached lazygit viewer to ${sessions.lazygit} via send-keys`,
+					);
 				}
 			} else {
 				// No session - show message
@@ -727,7 +754,10 @@ export function attachToSpace(
 					detachInPane(lazygitViewerPaneId);
 					lazygitViewerHasClient = false;
 				}
-				sendToPane(lazygitViewerPaneId, `clear && echo "No lazygit session for ${issueKey}"`);
+				sendToPane(
+					lazygitViewerPaneId,
+					`clear && echo "No lazygit session for ${issueKey}"`,
+				);
 			}
 		} else {
 			lazygitViewerHasClient = false;
@@ -801,11 +831,10 @@ export function zoomPane(paneId: string): boolean {
 			return true;
 		}
 
-		const result = spawnSync(
-			'tmux',
-			['resize-pane', '-Z', '-t', paneId],
-			{encoding: 'utf-8', timeout: 5000},
-		);
+		const result = spawnSync('tmux', ['resize-pane', '-Z', '-t', paneId], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
 
 		if (result.error || result.status !== 0) {
 			log.error(`Failed to zoom pane ${paneId}: ${result.stderr}`);
@@ -840,11 +869,10 @@ export function unzoomPane(paneId: string): boolean {
 			return true;
 		}
 
-		const result = spawnSync(
-			'tmux',
-			['resize-pane', '-Z', '-t', paneId],
-			{encoding: 'utf-8', timeout: 5000},
-		);
+		const result = spawnSync('tmux', ['resize-pane', '-Z', '-t', paneId], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
 
 		if (result.error || result.status !== 0) {
 			log.error(`Failed to unzoom pane ${paneId}: ${result.stderr}`);
@@ -920,7 +948,13 @@ export function ensureClaudeSession(issueKey: string): boolean {
 		// Now send claude command to the session
 		spawnSync(
 			'tmux',
-			['send-keys', '-t', sessionName, 'claude --dangerously-skip-permissions', 'Enter'],
+			[
+				'send-keys',
+				'-t',
+				sessionName,
+				'claude --dangerously-skip-permissions',
+				'Enter',
+			],
 			{encoding: 'utf-8', timeout: 5000},
 		);
 
@@ -953,7 +987,9 @@ export function ensureLazygitSession(issueKey: string): boolean {
 	// Get worktree path
 	const worktreePath = getWorktreePath(issueKey);
 	if (!worktreePath) {
-		log.warn(`Cannot create lazygit session for ${issueKey}: no worktree found`);
+		log.warn(
+			`Cannot create lazygit session for ${issueKey}: no worktree found`,
+		);
 		return false;
 	}
 
@@ -972,11 +1008,10 @@ export function ensureLazygitSession(issueKey: string): boolean {
 		}
 
 		// Now send lazygit command to the session
-		spawnSync(
-			'tmux',
-			['send-keys', '-t', sessionName, 'lazygit', 'Enter'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
+		spawnSync('tmux', ['send-keys', '-t', sessionName, 'lazygit', 'Enter'], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
 
 		log.info(`Created lazygit session: ${sessionName}`);
 		return true;

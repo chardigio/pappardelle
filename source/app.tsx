@@ -113,7 +113,10 @@ export default function App({paneLayout}: AppProps) {
 			setSpaces(spaceData);
 			setLoading(false);
 		} catch (err) {
-			log.error('Failed to load spaces', err instanceof Error ? err : undefined);
+			log.error(
+				'Failed to load spaces',
+				err instanceof Error ? err : undefined,
+			);
 			setSpaces([]);
 			setLoading(false);
 		}
@@ -333,11 +336,7 @@ export default function App({paneLayout}: AppProps) {
 		}
 
 		// For descriptions, idow will create a new issue
-		spawnIdow(
-			[input],
-			'Starting new IDOW session...',
-			'IDOW session started!',
-		);
+		spawnIdow([input], 'Starting new IDOW session...', 'IDOW session started!');
 	};
 
 	// Handle space deletion (kills tmux sessions for the space)
@@ -378,9 +377,15 @@ export default function App({paneLayout}: AppProps) {
 	// Calculate scroll offset for large lists
 	const scrollOffset = Math.max(
 		0,
-		Math.min(selectedIndex - Math.floor(maxVisibleItems / 2), spaces.length - maxVisibleItems),
+		Math.min(
+			selectedIndex - Math.floor(maxVisibleItems / 2),
+			spaces.length - maxVisibleItems,
+		),
 	);
-	const visibleSpaces = spaces.slice(scrollOffset, scrollOffset + maxVisibleItems);
+	const visibleSpaces = spaces.slice(
+		scrollOffset,
+		scrollOffset + maxVisibleItems,
+	);
 	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
 	// Render the space list
@@ -420,10 +425,18 @@ export default function App({paneLayout}: AppProps) {
 	}
 
 	// Determine current view mode for the key
-	const viewMode = showPromptDialog ? 'prompt' : showDeleteConfirm ? 'confirm' : 'list';
+	const viewMode = showPromptDialog
+		? 'prompt'
+		: showDeleteConfirm
+		? 'confirm'
+		: 'list';
 
 	return (
-		<Box key={`view-${viewMode}-${viewKey}`} flexDirection="column" height="100%">
+		<Box
+			key={`view-${viewMode}-${viewKey}`}
+			flexDirection="column"
+			height="100%"
+		>
 			{/* Header */}
 			<Box marginBottom={1}>
 				<Text bold color="cyan">
@@ -470,7 +483,8 @@ export default function App({paneLayout}: AppProps) {
 			<Box marginTop={1}>
 				<Text dimColor>
 					{spaces.length} space{spaces.length !== 1 ? 's' : ''}
-					{scrollOffset > 0 && ` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
+					{scrollOffset > 0 &&
+						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
 				</Text>
 			</Box>
 

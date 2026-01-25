@@ -7,6 +7,7 @@ This document describes the `.pappardelle.yml` configuration file format that co
 The `.pappardelle.yml` file replaces the previous `.git` directory requirement. Instead of assuming a specific project structure, pappardelle now reads configuration from this file to understand how to set up workspaces for different project types.
 
 **Key Design Decisions:**
+
 - **Repository-wide configuration**: One `.pappardelle.yml` at the git repository root
 - **Profile-based**: Different project types (iOS apps, backend services) have named profiles
 - **Required**: Pappardelle exits with an error if no config file is found
@@ -43,59 +44,59 @@ profiles:
       - playlist
 
     # Display name shown in profile picker
-    display_name: "Stardust Jams (iOS Music App)"
+    display_name: 'Stardust Jams (iOS Music App)'
 
     # iOS app configuration
     ios:
-      app_dir: "_ios/stardust-jams"
-      bundle_id: "com.cd17822.stardust-jams"
-      scheme: "stardust-jams"
+      app_dir: '_ios/stardust-jams'
+      bundle_id: 'com.cd17822.stardust-jams'
+      scheme: 'stardust-jams'
       # Optional: simulator device name (default: iPhone 17 Pro)
-      simulator: "iPhone 17 Pro"
+      simulator: 'iPhone 17 Pro'
 
     # GitHub PR configuration
     github:
-      label: "stardust_jams"
+      label: 'stardust_jams'
 
     # Links to open in browser (templated)
     links:
-      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
+      - url: 'https://linear.app/stardust-labs/issue/${ISSUE_KEY}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
         # Optional: only open if variable is non-empty
-        if_set: "PR_URL"
+        if_set: 'PR_URL'
 
     # Applications to open
     apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
-      - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
-      - name: "iTerm"
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
+      - name: 'Xcode'
+        path: '${XCODEPROJ_PATH}'
+        if_set: 'XCODEPROJ_PATH'
+      - name: 'iTerm'
         # Custom command instead of just opening
         command: |
           osascript -e 'tell application "iTerm" to create window with default profile'
 
     # Commands to run during setup (in order)
     commands:
-      - name: "Generate Xcode project"
-        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+      - name: 'Generate Xcode project'
+        run: 'cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate'
         continue_on_error: false
-      - name: "Setup QA simulator"
-        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}"
-        background: true  # Run in background, don't wait
+      - name: 'Setup QA simulator'
+        run: '${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}'
+        background: true # Run in background, don't wait
 
     # Window layout configuration (for Aerospace)
     layout:
       # Position numbers follow Aerospace grid (1-9)
       positions:
-        iTerm: 1      # Left column, top
-        Cursor: 4     # Left column, middle
-        Xcode: 8      # Middle column, full height
-        Simulator: 3  # Right column, top
-        Firefox: 6    # Right column, middle
+        iTerm: 1 # Left column, top
+        Cursor: 4 # Left column, middle
+        Xcode: 8 # Middle column, full height
+        Simulator: 3 # Right column, top
+        Firefox: 6 # Right column, middle
 
   king-bee:
     keywords:
@@ -104,29 +105,29 @@ profiles:
       - hive
       - spelling
       - wordle
-    display_name: "King Bee (iOS Spelling Game)"
+    display_name: 'King Bee (iOS Spelling Game)'
     ios:
-      app_dir: "_ios/King Bee"
-      bundle_id: "com.cd17822.King-Bee"
-      scheme: "King Bee"
+      app_dir: '_ios/King Bee'
+      bundle_id: 'com.cd17822.King-Bee'
+      scheme: 'King Bee'
     github:
-      label: "the_hive"
+      label: 'the_hive'
     links:
-      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
+      - url: 'https://linear.app/stardust-labs/issue/${ISSUE_KEY}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'
     apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
-      - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
+      - name: 'Xcode'
+        path: '${XCODEPROJ_PATH}'
     commands:
-      - name: "Generate Xcode project"
-        run: "cd \"${WORKTREE_PATH}/${IOS_APP_DIR}\" && xcodegen generate"
-      - name: "Setup QA simulator"
-        run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir \"${IOS_APP_DIR}\" --bundle-id ${BUNDLE_ID}"
+      - name: 'Generate Xcode project'
+        run: 'cd "${WORKTREE_PATH}/${IOS_APP_DIR}" && xcodegen generate'
+      - name: 'Setup QA simulator'
+        run: '${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir "${IOS_APP_DIR}" --bundle-id ${BUNDLE_ID}'
         background: true
 
   backend:
@@ -136,22 +137,22 @@ profiles:
       - server
       - database
       - migration
-    display_name: "Backend Service"
+    display_name: 'Backend Service'
     # No iOS configuration for backend-only work
     github:
-      label: "platform"
+      label: 'platform'
     links:
-      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
+      - url: 'https://linear.app/stardust-labs/issue/${ISSUE_KEY}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'
     apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
     commands:
-      - name: "Sync dependencies"
-        run: "cd ${WORKTREE_PATH} && uv sync --all-groups"
+      - name: 'Sync dependencies'
+        run: 'cd ${WORKTREE_PATH} && uv sync --all-groups'
         continue_on_error: true
 ```
 
@@ -159,23 +160,23 @@ profiles:
 
 The following variables are available for use in templates:
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `${ISSUE_KEY}` | Linear issue key | `STA-361` |
-| `${ISSUE_URL}` | Full Linear issue URL | `https://linear.app/...` |
-| `${TITLE}` | Issue title | `Add dark mode` |
-| `${DESCRIPTION}` | Issue description | (full text) |
-| `${WORKTREE_PATH}` | Full path to worktree | `/Users/charlie/.worktrees/stardust-labs/STA-361` |
-| `${REPO_ROOT}` | Git repository root | `/Users/charlie/code/stardust-labs` |
-| `${REPO_NAME}` | Repository directory name | `stardust-labs` |
-| `${PR_URL}` | GitHub PR URL (may be empty) | `https://github.com/...` |
-| `${XCODEPROJ_PATH}` | Path to .xcodeproj (may be empty) | `/path/to/App.xcodeproj` |
-| `${SCRIPT_DIR}` | Directory containing dow/idow scripts | `/path/to/_dev/scripts/dow` |
-| `${HOME}` | User home directory | `/Users/charlie` |
-| `${IOS_APP_DIR}` | iOS app directory from profile | `_ios/stardust-jams` |
-| `${BUNDLE_ID}` | iOS bundle ID from profile | `com.cd17822.stardust-jams` |
-| `${SCHEME}` | Xcode scheme from profile | `stardust-jams` |
-| `${GITHUB_LABEL}` | GitHub PR label from profile | `stardust_jams` |
+| Variable            | Description                           | Example                                           |
+| ------------------- | ------------------------------------- | ------------------------------------------------- |
+| `${ISSUE_KEY}`      | Linear issue key                      | `STA-361`                                         |
+| `${ISSUE_URL}`      | Full Linear issue URL                 | `https://linear.app/...`                          |
+| `${TITLE}`          | Issue title                           | `Add dark mode`                                   |
+| `${DESCRIPTION}`    | Issue description                     | (full text)                                       |
+| `${WORKTREE_PATH}`  | Full path to worktree                 | `/Users/charlie/.worktrees/stardust-labs/STA-361` |
+| `${REPO_ROOT}`      | Git repository root                   | `/Users/charlie/code/stardust-labs`               |
+| `${REPO_NAME}`      | Repository directory name             | `stardust-labs`                                   |
+| `${PR_URL}`         | GitHub PR URL (may be empty)          | `https://github.com/...`                          |
+| `${XCODEPROJ_PATH}` | Path to .xcodeproj (may be empty)     | `/path/to/App.xcodeproj`                          |
+| `${SCRIPT_DIR}`     | Directory containing dow/idow scripts | `/path/to/_dev/scripts/dow`                       |
+| `${HOME}`           | User home directory                   | `/Users/charlie`                                  |
+| `${IOS_APP_DIR}`    | iOS app directory from profile        | `_ios/stardust-jams`                              |
+| `${BUNDLE_ID}`      | iOS bundle ID from profile            | `com.cd17822.stardust-jams`                       |
+| `${SCHEME}`         | Xcode scheme from profile             | `stardust-jams`                                   |
+| `${GITHUB_LABEL}`   | GitHub PR label from profile          | `stardust_jams`                                   |
 
 ### Variable Expansion
 
@@ -194,9 +195,9 @@ Use `if_set` to only include an item when a variable has a non-empty value:
 
 ```yaml
 links:
-  - url: "${PR_URL}"
-    title: "GitHub PR"
-    if_set: "PR_URL"  # Only opens if PR_URL is not empty
+  - url: '${PR_URL}'
+    title: 'GitHub PR'
+    if_set: 'PR_URL' # Only opens if PR_URL is not empty
 ```
 
 ## Profile Selection Logic
@@ -287,84 +288,89 @@ New module for configuration handling:
 import YAML from 'js-yaml';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import {execSync} from 'node:child_process';
 
 interface PappardelleConfig {
-  version: number;
-  default_profile: string;
-  profiles: Record<string, Profile>;
+	version: number;
+	default_profile: string;
+	profiles: Record<string, Profile>;
 }
 
 interface Profile {
-  keywords: string[];
-  display_name: string;
-  ios?: {
-    app_dir: string;
-    bundle_id: string;
-    scheme: string;
-    simulator?: string;
-  };
-  github?: {
-    label: string;
-  };
-  links?: LinkConfig[];
-  apps?: AppConfig[];
-  commands?: CommandConfig[];
-  layout?: LayoutConfig;
+	keywords: string[];
+	display_name: string;
+	ios?: {
+		app_dir: string;
+		bundle_id: string;
+		scheme: string;
+		simulator?: string;
+	};
+	github?: {
+		label: string;
+	};
+	links?: LinkConfig[];
+	apps?: AppConfig[];
+	commands?: CommandConfig[];
+	layout?: LayoutConfig;
 }
 
 // Load config from git root
 function loadConfig(): PappardelleConfig {
-  const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8' }).trim();
-  const configPath = path.join(repoRoot, '.pappardelle.yml');
+	const repoRoot = execSync('git rev-parse --show-toplevel', {
+		encoding: 'utf-8',
+	}).trim();
+	const configPath = path.join(repoRoot, '.pappardelle.yml');
 
-  if (!fs.existsSync(configPath)) {
-    throw new ConfigNotFoundError(repoRoot);
-  }
+	if (!fs.existsSync(configPath)) {
+		throw new ConfigNotFoundError(repoRoot);
+	}
 
-  const content = fs.readFileSync(configPath, 'utf-8');
-  const config = YAML.load(content) as PappardelleConfig;
+	const content = fs.readFileSync(configPath, 'utf-8');
+	const config = YAML.load(content) as PappardelleConfig;
 
-  validateConfig(config);
-  return config;
+	validateConfig(config);
+	return config;
 }
 
 // Template variable expansion
-function expandTemplate(template: string, vars: Record<string, string>): string {
-  return template.replace(/\$\{(\w+)\}/g, (match, varName) => {
-    return vars[varName] ?? process.env[varName] ?? match;
-  });
+function expandTemplate(
+	template: string,
+	vars: Record<string, string>,
+): string {
+	return template.replace(/\$\{(\w+)\}/g, (match, varName) => {
+		return vars[varName] ?? process.env[varName] ?? match;
+	});
 }
 
 // Profile selection based on keywords
 function selectProfile(
-  config: PappardelleConfig,
-  input: string
-): { profile: Profile; profileName: string } | null {
-  const words = input.toLowerCase().split(/\s+/);
-  const matches: Array<{ name: string; score: number }> = [];
+	config: PappardelleConfig,
+	input: string,
+): {profile: Profile; profileName: string} | null {
+	const words = input.toLowerCase().split(/\s+/);
+	const matches: Array<{name: string; score: number}> = [];
 
-  for (const [name, profile] of Object.entries(config.profiles)) {
-    const score = profile.keywords.filter(kw =>
-      words.some(w => w.includes(kw.toLowerCase()))
-    ).length;
+	for (const [name, profile] of Object.entries(config.profiles)) {
+		const score = profile.keywords.filter(kw =>
+			words.some(w => w.includes(kw.toLowerCase())),
+		).length;
 
-    if (score > 0) {
-      matches.push({ name, score });
-    }
-  }
+		if (score > 0) {
+			matches.push({name, score});
+		}
+	}
 
-  // Sort by score descending
-  matches.sort((a, b) => b.score - a.score);
+	// Sort by score descending
+	matches.sort((a, b) => b.score - a.score);
 
-  if (matches.length === 1) {
-    return {
-      profile: config.profiles[matches[0].name]!,
-      profileName: matches[0].name
-    };
-  }
+	if (matches.length === 1) {
+		return {
+			profile: config.profiles[matches[0].name]!,
+			profileName: matches[0].name,
+		};
+	}
 
-  return null; // Multiple or no matches - need user input
+	return null; // Multiple or no matches - need user input
 }
 ```
 

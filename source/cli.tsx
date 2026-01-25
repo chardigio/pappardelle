@@ -6,7 +6,12 @@ import {spawnSync} from 'node:child_process';
 import App from './app.js';
 import {isInTmux, setupPappardellLayout} from './tmux.js';
 import type {PaneLayout} from './types.js';
-import {configExists, getRepoRoot, ConfigNotFoundError, ConfigValidationError} from './config.js';
+import {
+	configExists,
+	getRepoRoot,
+	ConfigNotFoundError,
+	ConfigValidationError,
+} from './config.js';
 
 const cli = meow(
 	`
@@ -53,22 +58,36 @@ function checkConfig(): void {
 	try {
 		const repoRoot = getRepoRoot();
 		if (!configExists()) {
-			console.error('\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m');
+			console.error(
+				'\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m',
+			);
 			console.error('');
-			console.error('\x1b[33mPappardelle requires a configuration file to operate.\x1b[0m');
-			console.error(`Please create .pappardelle.yml at: ${repoRoot}/.pappardelle.yml`);
+			console.error(
+				'\x1b[33mPappardelle requires a configuration file to operate.\x1b[0m',
+			);
+			console.error(
+				`Please create .pappardelle.yml at: ${repoRoot}/.pappardelle.yml`,
+			);
 			console.error('');
-			console.error('See _dev/scripts/pappardelle/pappardelle-config.md for the configuration schema.');
+			console.error(
+				'See _dev/scripts/pappardelle/pappardelle-config.md for the configuration schema.',
+			);
 			process.exit(1);
 		}
 	} catch (error) {
 		if (error instanceof ConfigNotFoundError) {
-			console.error('\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m');
+			console.error(
+				'\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m',
+			);
 			console.error('');
-			console.error(`Please create .pappardelle.yml at: ${error.repoRoot}/.pappardelle.yml`);
+			console.error(
+				`Please create .pappardelle.yml at: ${error.repoRoot}/.pappardelle.yml`,
+			);
 			process.exit(1);
 		} else if (error instanceof ConfigValidationError) {
-			console.error('\x1b[31mError: Invalid .pappardelle.yml configuration.\x1b[0m');
+			console.error(
+				'\x1b[31mError: Invalid .pappardelle.yml configuration.\x1b[0m',
+			);
 			console.error('');
 			for (const err of error.errors) {
 				console.error(`  - ${err}`);
@@ -78,8 +97,12 @@ function checkConfig(): void {
 			process.exit(1);
 		} else {
 			// Not in a git repository
-			console.error('\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m');
-			console.error('\x1b[33mPlease navigate to a git repository and try again.\x1b[0m');
+			console.error(
+				'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
+			);
+			console.error(
+				'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
+			);
 			process.exit(1);
 		}
 	}

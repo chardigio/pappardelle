@@ -74,7 +74,11 @@ export class ConfigValidationError extends Error {
 	errors: string[];
 
 	constructor(errors: string[]) {
-		super(`Invalid .pappardelle.yml configuration:\n${errors.map(e => `  - ${e}`).join('\n')}`);
+		super(
+			`Invalid .pappardelle.yml configuration:\n${errors
+				.map(e => `  - ${e}`)
+				.join('\n')}`,
+		);
 		this.name = 'ConfigValidationError';
 		this.errors = errors;
 	}
@@ -148,7 +152,10 @@ function validateConfig(config: unknown): asserts config is PappardelleConfig {
 	}
 
 	// Check default_profile
-	if (typeof cfg['default_profile'] !== 'string' || (cfg['default_profile'] as string).length === 0) {
+	if (
+		typeof cfg['default_profile'] !== 'string' ||
+		(cfg['default_profile'] as string).length === 0
+	) {
 		errors.push('default_profile: required string field');
 	}
 
@@ -160,7 +167,9 @@ function validateConfig(config: unknown): asserts config is PappardelleConfig {
 
 		// Check that default_profile exists
 		if (cfg['default_profile'] && !profiles[cfg['default_profile'] as string]) {
-			errors.push(`default_profile: profile "${cfg['default_profile']}" not found in profiles`);
+			errors.push(
+				`default_profile: profile "${cfg['default_profile']}" not found in profiles`,
+			);
 		}
 
 		// Validate each profile
@@ -286,7 +295,10 @@ export function expandTemplate(template: string, vars: TemplateVars): string {
 /**
  * Check if a conditional field should be included
  */
-export function shouldInclude(ifSet: string | undefined, vars: TemplateVars): boolean {
+export function shouldInclude(
+	ifSet: string | undefined,
+	vars: TemplateVars,
+): boolean {
 	if (!ifSet) {
 		return true;
 	}
@@ -306,10 +318,25 @@ export interface ProfileMatch {
 }
 
 /**
- * Find profiles that match the given input based on keywords
+ * Find profiles that match the given input based on keywords.
+ * Uses exact word matching (case-insensitive) to avoid false positives.
  */
-export function matchProfiles(config: PappardelleConfig, input: string): ProfileMatch[] {
-	const words = input.toLowerCase().split(/\s+/);
+export function matchProfiles(
+	config: PappardelleConfig,
+	input: string,
+): ProfileMatch[] {
+	// Split on whitespace and common punctuation, filter out empty strings
+	// This handles cases like "pappardelle,now" or "fix.something"
+	const words = input
+		.toLowerCase()
+		.split(/[\s,;:.!?]+/)
+		.filter(w => w.length > 0);
+
+	// Early return for empty input
+	if (words.length === 0) {
+		return [];
+	}
+
 	const matches: ProfileMatch[] = [];
 
 	for (const [name, profile] of Object.entries(config.profiles)) {
@@ -317,7 +344,8 @@ export function matchProfiles(config: PappardelleConfig, input: string): Profile
 
 		for (const keyword of profile.keywords) {
 			const kwLower = keyword.toLowerCase();
-			if (words.some(w => w.includes(kwLower) || kwLower.includes(w))) {
+			// Exact word match only (case-insensitive)
+			if (words.some(w => w === kwLower)) {
 				matchedKeywords.push(keyword);
 			}
 		}
@@ -340,14 +368,20 @@ export function matchProfiles(config: PappardelleConfig, input: string): Profile
 /**
  * Get a profile by name
  */
-export function getProfile(config: PappardelleConfig, name: string): Profile | undefined {
+export function getProfile(
+	config: PappardelleConfig,
+	name: string,
+): Profile | undefined {
 	return config.profiles[name];
 }
 
 /**
  * Get the default profile
  */
-export function getDefaultProfile(config: PappardelleConfig): {name: string; profile: Profile} {
+export function getDefaultProfile(config: PappardelleConfig): {
+	name: string;
+	profile: Profile;
+} {
 	const name = config.default_profile;
 	const profile = config.profiles[name];
 	if (!profile) {
@@ -359,7 +393,9 @@ export function getDefaultProfile(config: PappardelleConfig): {name: string; pro
 /**
  * List all available profiles
  */
-export function listProfiles(config: PappardelleConfig): Array<{name: string; displayName: string}> {
+export function listProfiles(
+	config: PappardelleConfig,
+): Array<{name: string; displayName: string}> {
 	return Object.entries(config.profiles).map(([name, profile]) => ({
 		name,
 		displayName: profile.display_name,

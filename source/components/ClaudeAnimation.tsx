@@ -15,7 +15,7 @@ export default function ClaudeAnimation({color = COLORS.CLAUDE_ORANGE}: Props) {
 
 	useEffect(() => {
 		const interval = setInterval(() => {
-			setFrameIndex((prev) => (prev + 1) % CLAUDE_FRAMES.length);
+			setFrameIndex(prev => (prev + 1) % CLAUDE_FRAMES.length);
 		}, 150); // 150ms per frame (matches claude-island)
 
 		return () => clearInterval(interval);

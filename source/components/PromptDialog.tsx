@@ -107,8 +107,8 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			<Box marginBottom={1} flexDirection="column">
 				<Text dimColor>Enter a prompt or issue key:</Text>
 				<Text dimColor>
-					- <Text color="cyan">STA-123</Text> = resume existing workspace (if
-					PR has commits)
+					- <Text color="cyan">STA-123</Text> = resume existing workspace (if PR
+					has commits)
 				</Text>
 				<Text dimColor>
 					- <Text color="cyan">description</Text> = start new workspace with
@@ -132,17 +132,14 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 					<Text color={profileInfo.hasIos ? 'magenta' : 'blue'}>
 						{profileInfo.displayName}
 					</Text>
-					{profileInfo.hasIos && (
-						<Text dimColor> (iOS)</Text>
-					)}
+					{profileInfo.hasIos && <Text dimColor> (iOS)</Text>}
 					{profileInfo.matchedKeywords.length > 0 && (
-						<Text dimColor>
-							{' '}← {profileInfo.matchedKeywords.join(', ')}
-						</Text>
+						<Text dimColor> ← {profileInfo.matchedKeywords.join(', ')}</Text>
 					)}
-					{profileInfo.isDefault && profileInfo.matchedKeywords.length === 0 && (
-						<Text dimColor> (default)</Text>
-					)}
+					{profileInfo.isDefault &&
+						profileInfo.matchedKeywords.length === 0 && (
+							<Text dimColor> (default)</Text>
+						)}
 				</Box>
 			)}
 

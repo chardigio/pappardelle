@@ -51,7 +51,7 @@ export interface SpaceData {
  */
 export interface PaneLayout {
 	listPaneId: string;
-	claudeViewerPaneId: string;  // Viewer pane that attaches to claude-STA-XXX session
+	claudeViewerPaneId: string; // Viewer pane that attaches to claude-STA-XXX session
 	lazygitViewerPaneId: string; // Viewer pane that attaches to lazygit-STA-XXX session
 }
 
