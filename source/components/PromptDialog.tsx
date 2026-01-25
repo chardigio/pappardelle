@@ -96,7 +96,6 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			borderColor="green"
 			paddingX={2}
 			paddingY={1}
-			width={65}
 		>
 			<Box marginBottom={1}>
 				<Text bold color="green">

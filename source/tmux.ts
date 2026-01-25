@@ -417,7 +417,10 @@ interface LayoutConfig {
  * Narrow screens (< 100 chars): Vertical layout with list on top, claude below, no lazygit
  * Wide screens (>= 100 chars): Horizontal layout [list] [claude] [lazygit]
  */
-function calculateLayout(totalWidth: number, totalHeight: number): LayoutConfig {
+function calculateLayout(
+	totalWidth: number,
+	totalHeight: number,
+): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
 		// List pane height is dynamic based on number of sessions
@@ -547,7 +550,8 @@ export function setupPappardellLayout(): {
 		} else {
 			// HORIZONTAL LAYOUT: list | claude | lazygit (existing logic)
 			// Create the right portion (claude + lazygit combined)
-			const rightPortionWidth = (layout.claudeWidth ?? 40) + (layout.lazygitWidth ?? 0) + 1; // +1 for border
+			const rightPortionWidth =
+				(layout.claudeWidth ?? 40) + (layout.lazygitWidth ?? 0) + 1; // +1 for border
 
 			const claudeResult = spawnSync(
 				'tmux',
@@ -568,7 +572,9 @@ export function setupPappardellLayout(): {
 			);
 
 			if (claudeResult.error || claudeResult.status !== 0) {
-				log.error(`Failed to create claude viewer pane: ${claudeResult.stderr}`);
+				log.error(
+					`Failed to create claude viewer pane: ${claudeResult.stderr}`,
+				);
 				return null;
 			}
 
@@ -596,7 +602,9 @@ export function setupPappardellLayout(): {
 				);
 
 				if (lazygitResult.error || lazygitResult.status !== 0) {
-					log.error(`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`);
+					log.error(
+						`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`,
+					);
 					// Continue without lazygit pane
 				} else {
 					lazygitViewerPaneId = lazygitResult.stdout.trim();
@@ -638,7 +646,9 @@ export function setupPappardellLayout(): {
 		});
 
 		log.info(
-			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, lazygit=${lazygitViewerPaneId || '(none)'}`,
+			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, lazygit=${
+				lazygitViewerPaneId || '(none)'
+			}`,
 		);
 
 		return {listPaneId, claudeViewerPaneId, lazygitViewerPaneId};

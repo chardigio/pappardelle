@@ -102,12 +102,14 @@ When Claude asks clarifying questions using `AskUserQuestion` and the user answe
 **Timing**: How should the feature behave?
 
 Options:
+
 - Option A: Description **[Selected]**
 - Option B: Another description
 
 **Answer**: Option A
 
 ---
+
 _Recorded at 2024-01-15 14:30:45_
 ```
 

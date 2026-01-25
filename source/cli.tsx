@@ -45,9 +45,9 @@ const cli = meow(
 	{
 		importMeta: import.meta,
 		flags: {
-			noLayout: {
+			layout: {
 				type: 'boolean',
-				default: false,
+				default: true,
 			},
 		},
 	},
@@ -124,7 +124,7 @@ if (cli.input.length > 0) {
 }
 
 // If not in tmux, re-exec inside tmux
-if (!isInTmux() && !cli.flags.noLayout) {
+if (!isInTmux() && cli.flags.layout) {
 	const args = process.argv.slice(2).join(' ');
 	const cmd = args ? `pappardelle ${args}` : 'pappardelle';
 
@@ -142,7 +142,7 @@ if (!isInTmux() && !cli.flags.noLayout) {
 // Set up tmux layout if in tmux and not disabled
 let paneLayout: PaneLayout | null = null;
 
-if (isInTmux() && !cli.flags.noLayout) {
+if (isInTmux() && cli.flags.layout) {
 	paneLayout = setupPappardellLayout();
 	if (!paneLayout) {
 		console.error(

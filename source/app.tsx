@@ -47,8 +47,6 @@ export default function App({paneLayout}: AppProps) {
 	const [statusMessage, setStatusMessage] = useState('');
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
-	// Track view mode for forcing clean re-renders on view transitions
-	const [viewKey, setViewKey] = useState(0);
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
@@ -148,11 +146,9 @@ export default function App({paneLayout}: AppProps) {
 		return unwatch;
 	}, []);
 
-	// Increment view key when switching between views to force clean remount
-	// (no screen clearing - just key change forces React to remount components)
-	useEffect(() => {
-		setViewKey(k => k + 1);
-	}, [showPromptDialog, showDeleteConfirm]);
+	// Track whether zoom animation is in progress
+	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
+	const [isZooming, setIsZooming] = useState(false);
 
 	// Zoom/unzoom list pane when prompt dialog is shown/hidden
 	// This gives full screen space for entering the prompt text
@@ -160,9 +156,14 @@ export default function App({paneLayout}: AppProps) {
 		if (!paneLayout) return;
 
 		if (showPromptDialog) {
+			setIsZooming(true);
 			zoomPane(paneLayout.listPaneId);
+			// Wait for zoom to complete before allowing render
+			setTimeout(() => setIsZooming(false), 100);
 		} else {
+			setIsZooming(true);
 			unzoomPane(paneLayout.listPaneId);
+			setTimeout(() => setIsZooming(false), 100);
 		}
 	}, [showPromptDialog, paneLayout]);
 
@@ -424,16 +425,8 @@ export default function App({paneLayout}: AppProps) {
 		);
 	}
 
-	// Determine current view mode for the key
-	const viewMode = showPromptDialog
-		? 'prompt'
-		: showDeleteConfirm
-		? 'confirm'
-		: 'list';
-
 	return (
 		<Box
-			key={`view-${viewMode}-${viewKey}`}
 			flexDirection="column"
 			height="100%"
 		>
@@ -460,8 +453,8 @@ export default function App({paneLayout}: AppProps) {
 			)}
 
 			{/* Main content */}
-			<Box flexGrow={1} flexDirection="column">
-				{showPromptDialog ? (
+			<Box flexDirection="column">
+				{showPromptDialog && !isZooming ? (
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
