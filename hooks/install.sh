@@ -12,11 +12,13 @@ echo "Installing Pappardelle hooks..."
 # Create hooks directory
 mkdir -p "$HOOKS_DIR"
 
-# Copy hook script
+# Copy hook scripts
 cp "$SCRIPT_DIR/update-status.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/update-status.py"
+cp "$SCRIPT_DIR/comment-question-answered.py" "$HOOKS_DIR/"
+chmod +x "$HOOKS_DIR/comment-question-answered.py"
 
-echo "Hook script installed to $HOOKS_DIR/update-status.py"
+echo "Hook scripts installed to $HOOKS_DIR/"
 
 # Check if Claude settings exists
 if [ -f "$CLAUDE_SETTINGS" ]; then

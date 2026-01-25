@@ -57,9 +57,10 @@ source/
     └── ErrorDisplay.tsx     # Error notification display
 
 hooks/
-├── update-status.py     # Hook script for Claude Code
-├── settings.json.example # Example Claude settings
-└── install.sh           # Hook installation script
+├── update-status.py             # Status tracking hook
+├── comment-question-answered.py # Linear Q&A comment hook
+├── settings.json.example        # Example Claude settings
+└── install.sh                   # Hook installation script
 ```
 
 ## Claude Status Tracking
@@ -80,6 +81,40 @@ The TUI tracks Claude Code session status through file-based hooks:
 | Done       | ✓    | Claude finished the task             |
 | Idle       | ○    | Session is idle                      |
 | Unknown    | ?    | No status available                  |
+
+## Linear Q&A Comments
+
+When Claude asks clarifying questions using `AskUserQuestion` and the user answers them, a hook automatically posts a comment to the corresponding Linear issue. This creates a permanent record of the Q&A session.
+
+### How It Works
+
+1. Claude uses the `AskUserQuestion` tool to ask questions
+2. The user selects answers from the provided options
+3. The `PostToolUse` hook for `AskUserQuestion` is triggered
+4. The hook extracts the Linear issue key from the workspace path (e.g., `STA-123`)
+5. A formatted markdown comment is posted to the Linear issue via `linctl`
+
+### Example Comment
+
+```markdown
+### Clarifying Questions Answered
+
+**Timing**: How should the feature behave?
+
+Options:
+- Option A: Description **[Selected]**
+- Option B: Another description
+
+**Answer**: Option A
+
+---
+_Recorded at 2024-01-15 14:30:45_
+```
+
+### Requirements
+
+- The workspace must be in a path containing a Linear issue key (e.g., `~/.worktrees/stardust-labs/STA-123/`)
+- `linctl` must be installed and authenticated
 
 ## Logging
 

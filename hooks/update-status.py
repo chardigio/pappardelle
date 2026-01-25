@@ -110,18 +110,15 @@ def main() -> None:
             status = "idle"
         elif hook_event == "SessionEnd":
             status = "idle"
-        elif hook_event == "Notification":
-            # Check if it's a permission request
-            notification_type = input_data.get("notification_type", "")
-            if "permission" in notification_type.lower():
-                status = "waiting_permission"
-            else:
-                status = "waiting_input"
+        elif hook_event == "Notification" and "permission" in input_data.get("notification_type", "").lower():
+            status = "waiting_permission"
+        elif hook_event == "Notification" and "idle_prompt" in input_data.get("notification_type", "").lower():
+            status = "waiting_input"
         elif hook_event == "PermissionRequest":
             # PermissionRequest hook fires when Claude needs permission approval
             status = "waiting_permission"
         else:
-            status = "unknown"
+            status = "done"
 
     session_id = input_data.get("session_id", os.environ.get("CLAUDE_SESSION_ID"))
     update_status(status, tool_name, session_id)
