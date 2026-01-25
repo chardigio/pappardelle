@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py thinking"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py thinking"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
           }
         ]
       },
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/comment-question-answered.py"
+            "command": "uv run python3 ~/.pappardelle/hooks/comment-question-answered.py"
           }
         ]
       }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py done"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py done"
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py idle"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
           }
         ]
       }
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py idle"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
           }
         ]
       }
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
           }
         ]
       }
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.pappardelle/hooks/update-status.py"
+            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
           }
         ]
       }

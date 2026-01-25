@@ -14,7 +14,6 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
 from typing import Optional
 
 
@@ -38,12 +37,13 @@ def get_issue_key() -> Optional[str]:
     return None
 
 
-def format_question_answer(tool_input: dict, tool_response: str) -> str:
+def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:
     """Format the question and answer as a markdown comment.
 
     Args:
         tool_input: The AskUserQuestion tool input containing questions and options
-        tool_response: The user's response string from the tool result
+        tool_response: Either a dict with 'questions' and 'answers' keys (new format),
+                      or a formatted string (legacy format)
 
     Returns:
         Formatted markdown string for the Linear comment
@@ -52,12 +52,16 @@ def format_question_answer(tool_input: dict, tool_response: str) -> str:
     if not questions:
         return ""
 
-    lines = ["### Clarifying Questions Answered", ""]
+    lines = ["### 💬 Clarifying Question Answered", ""]
 
-    # Parse the user's response - it comes as a formatted string
-    # Format: 'User has answered your questions: "Question1"="Answer1", "Question2"="Answer2"...'
+    # Extract answers from the response
     answers_map = {}
-    if tool_response and "User has answered your questions:" in tool_response:
+
+    # New format: tool_response is a dict with 'answers' key containing {question: answer} mapping
+    if isinstance(tool_response, dict) and "answers" in tool_response:
+        answers_map = tool_response.get("answers", {})
+    # Legacy format: tool_response is a formatted string
+    elif isinstance(tool_response, str) and "User has answered your questions:" in tool_response:
         # Extract the answers portion
         answers_text = tool_response.split("User has answered your questions:")[1].strip()
         # Parse key="value" pairs
@@ -77,41 +81,34 @@ def format_question_answer(tool_input: dict, tool_response: str) -> str:
 
         # Add question with header
         if header:
-            lines.append(f"**{header}**: {question_text}")
+            lines.append(f"❓ **{header}**: {question_text}")
         else:
-            lines.append(f"**Q**: {question_text}")
+            lines.append(f"❓ {question_text}")
         lines.append("")
 
         # Add options with indicators for selected answers
         answer = answers_map.get(question_text, "")
 
         if options:
-            lines.append("Options:")
             for opt in options:
                 label = opt.get("label", "")
                 description = opt.get("description", "")
 
                 # Check if this option was selected
                 is_selected = label == answer or (multi_select and label in answer)
-                marker = "**[Selected]**" if is_selected else ""
+                marker = "✅ " if is_selected else ""
 
                 if description:
-                    lines.append(f"- {label}: {description} {marker}".strip())
+                    lines.append(f"- {marker}{label}: {description}")
                 else:
-                    lines.append(f"- {label} {marker}".strip())
+                    lines.append(f"- {marker}{label}")
             lines.append("")
 
         # If the answer doesn't match any option, it's a custom "Other" response
         if answer and not any(opt.get("label") == answer for opt in options):
-            lines.append(f"**Answer (custom)**: {answer}")
-            lines.append("")
+            lines.append(f"💡 **Answer**: {answer}")
         elif answer:
-            lines.append(f"**Answer**: {answer}")
-            lines.append("")
-
-    # Add timestamp
-    lines.append("---")
-    lines.append(f"_Recorded at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_")
+            lines.append(f"💡 **Answer**: {answer}")
 
     return "\n".join(lines)
 
@@ -169,12 +166,8 @@ def main() -> None:
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", "")
 
-    # Handle tool_response being a dict with a "result" key or similar
-    if isinstance(tool_response, dict):
-        tool_response = tool_response.get("result", str(tool_response))
-
-    # Format the comment
-    comment_body = format_question_answer(tool_input, str(tool_response))
+    # Format the comment - pass tool_response directly (may be dict or string)
+    comment_body = format_question_answer(tool_input, tool_response)
     if not comment_body:
         sys.exit(0)
 
