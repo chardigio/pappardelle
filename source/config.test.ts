@@ -552,18 +552,16 @@ test('matches keyword with dollar sign', t => {
 
 test('matches multiple keywords with mixed special chars', t => {
 	const config = createConfig({
-		pappardelle: createProfile(
-			['pappardelle', 'tui', 'dow'],
-			'Pappardelle',
-		),
+		pappardelle: createProfile(['pappardelle', 'tui', 'dow'], 'Pappardelle'),
 	});
 
-	const matches = matchProfiles(
-		config,
-		'(pappardelle) [tui] {dow}',
-	);
+	const matches = matchProfiles(config, '(pappardelle) [tui] {dow}');
 	t.is(matches.length, 1);
 	t.is(matches[0]!.name, 'pappardelle');
 	t.is(matches[0]!.score, 3);
-	t.deepEqual(matches[0]!.matchedKeywords.sort(), ['dow', 'pappardelle', 'tui']);
+	t.deepEqual(matches[0]!.matchedKeywords.sort(), [
+		'dow',
+		'pappardelle',
+		'tui',
+	]);
 });

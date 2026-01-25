@@ -1,95 +1,95 @@
 {
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py thinking"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
-          }
-        ]
-      },
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/comment-question-answered.py"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py done"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
-          }
-        ]
-      }
-    ]
-  }
+	"hooks": {
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py thinking"
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			},
+			{
+				"matcher": "AskUserQuestion",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/comment-question-answered.py"
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py done"
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"matcher": ".*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
+					}
+				]
+			}
+		],
+		"Notification": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PermissionRequest": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		]
+	}
 }

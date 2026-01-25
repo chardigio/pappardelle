@@ -93,8 +93,8 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 					isSelected && !useInverse
 						? 'white'
 						: useInverse
-						? textColor
-						: stateColor
+							? textColor
+							: stateColor
 				}
 				bold
 				inverse={useInverse}
