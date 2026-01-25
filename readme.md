@@ -1,6 +1,6 @@
 # Pappardelle
 
-Interactive Terminal UI for managing DOW (Day of Work) workspaces.
+Interactive Terminal UI for managing DOW (Do on Worktree) workspaces.
 
 ## Features
 

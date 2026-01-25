@@ -19,7 +19,7 @@ const cli = meow(
 	  $ pappardelle [prompt]
 
 	Description
-	  Interactive TUI for managing DOW (Day of Work) workspaces.
+	  Interactive TUI for managing DOW (Do on Worktree) workspaces.
 	  Displays worktree spaces in an fzf-style list with Claude and
 	  lazygit panes for the selected space.
 
