@@ -283,3 +283,287 @@ test('handles hyphenated keywords', t => {
 	t.is(matches.length, 1);
 	t.is(matches[0]!.name, 'stardust-jams');
 });
+
+// ============================================================================
+// Special Character Tests
+// ============================================================================
+
+test('matches keyword in parentheses', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix (pappardelle) bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with trailing parenthesis', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'pappardelle) is broken');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with leading parenthesis', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix (pappardelle today');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword in square brackets', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix [pappardelle] bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword in curly braces', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix {pappardelle} bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with forward slash', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix pappardelle/config issue');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with backslash', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix pappardelle\\config issue');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with single quotes', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, "fix 'pappardelle' bug");
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with double quotes', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix "pappardelle" bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with underscore prefix', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix _pappardelle module');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with underscore suffix', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix pappardelle_ module');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with hyphen prefix', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix -pappardelle option');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with at symbol', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix @pappardelle/cli bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with hash symbol', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, '#pappardelle needs fix');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with backticks', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix `pappardelle` command');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword surrounded by multiple special chars', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix ["pappardelle"] bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with ampersand', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+		config: createProfile(['config'], 'Config'),
+	});
+
+	const matches = matchProfiles(config, 'pappardelle & config');
+	t.is(matches.length, 2);
+	t.true(matches.some(m => m.name === 'pappardelle'));
+	t.true(matches.some(m => m.name === 'config'));
+});
+
+test('matches keyword with pipe symbol', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'pappardelle | grep something');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with angle brackets', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'fix <pappardelle> component');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with equals sign', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'profile=pappardelle issue');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with plus sign', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'pappardelle+config feature');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with percent sign', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, '%pappardelle variable');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with caret', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, '^pappardelle regex');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with asterisk', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, '*pappardelle* important');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with tilde', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, '~pappardelle path');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches keyword with dollar sign', t => {
+	const config = createConfig({
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, '$pappardelle environment var');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+});
+
+test('matches multiple keywords with mixed special chars', t => {
+	const config = createConfig({
+		pappardelle: createProfile(
+			['pappardelle', 'tui', 'dow'],
+			'Pappardelle',
+		),
+	});
+
+	const matches = matchProfiles(
+		config,
+		'(pappardelle) [tui] {dow}',
+	);
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+	t.is(matches[0]!.score, 3);
+	t.deepEqual(matches[0]!.matchedKeywords.sort(), ['dow', 'pappardelle', 'tui']);
+});

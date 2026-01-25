@@ -47,7 +47,6 @@ export default function App({paneLayout}: AppProps) {
 	const [statusMessage, setStatusMessage] = useState('');
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
-
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
 
@@ -426,10 +425,7 @@ export default function App({paneLayout}: AppProps) {
 	}
 
 	return (
-		<Box
-			flexDirection="column"
-			height="100%"
-		>
+		<Box flexDirection="column" height="100%">
 			{/* Header */}
 			<Box marginBottom={1}>
 				<Text bold color="cyan">

@@ -326,10 +326,14 @@ export function matchProfiles(
 	input: string,
 ): ProfileMatch[] {
 	// Split on whitespace and common punctuation, filter out empty strings
-	// This handles cases like "pappardelle,now" or "fix.something"
+	// This handles cases like "pappardelle,now", "fix.something", "(keyword)", etc.
+	// The regex splits on: whitespace, common punctuation, brackets, quotes, and operators
+	// Note: We strip leading/trailing special chars from each word to handle cases like
+	// "(pappardelle)" -> "pappardelle" while preserving internal hyphens like "stardust-jams"
 	const words = input
 		.toLowerCase()
-		.split(/[\s,;:.!?]+/)
+		.split(/[\s,;:.!?|&/\\@=+]+/)
+		.map(w => w.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, ''))
 		.filter(w => w.length > 0);
 
 	// Early return for empty input
