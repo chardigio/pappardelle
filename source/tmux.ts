@@ -423,18 +423,11 @@ function calculateLayout(
 ): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
-		// List pane height is dynamic based on number of sessions
-		// Each session takes 1 row, plus ~3 rows for header/footer/padding
-		const sessionCount = getActiveSessionCount();
-		const listPaneRows = Math.max(1, sessionCount) + 3; // sessions + header/footer
+		// Use shared calculation for consistent behavior between setup and resize
+		const listHeight = calculateIdealListHeight();
 
-		// Account for tmux border (1 row)
+		// Account for tmux border (1 row), claude gets whatever's left
 		const usableHeight = totalHeight - 1;
-
-		// Ensure claude pane gets at least some rows
-		const minClaudeHeight = 5;
-		const maxListHeight = usableHeight - minClaudeHeight;
-		const listHeight = Math.min(listPaneRows, maxListHeight);
 		const claudeHeight = usableHeight - listHeight;
 
 		return {
@@ -477,6 +470,84 @@ function calculateLayout(
 		claudeWidth: MIN_CLAUDE_WIDTH + claudeExtra,
 		lazygitWidth: MIN_LAZYGIT_WIDTH + lazygitExtra,
 	};
+}
+
+// Height constraints for vertical layout (in rows)
+const MAX_LIST_HEIGHT = 13;
+const DEFAULT_MIN_LIST_HEIGHT = 8;
+
+/**
+ * Calculate the ideal list pane height based on session count
+ *
+ * Constraints:
+ * - Minimum: min(ideal, 8) - give at least 8 rows, or ideal if smaller
+ * - Maximum: 13 rows - don't let list take over the screen
+ */
+function calculateIdealListHeight(): number {
+	const sessionCount = getActiveSessionCount();
+	// Ideal = sessions + header/footer/padding
+	const idealHeight = Math.max(1, sessionCount) + 3;
+
+	// Minimum is the smaller of ideal or 8 (don't force 8 rows if we only need 4)
+	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);
+
+	// Clamp between min and max
+	return Math.max(minHeight, Math.min(idealHeight, MAX_LIST_HEIGHT));
+}
+
+/**
+ * Resize the list pane based on current session count (for vertical layout)
+ * This should be called when spaces are added or deleted to keep the list
+ * pane height optimal.
+ *
+ * Note: When we resize the list pane, tmux automatically adjusts the claude
+ * pane to fill the remaining space, so we only need to resize one pane.
+ *
+ * Returns true if resize was performed, false if not applicable (horizontal layout)
+ */
+export function resizeListPaneForSessionCount(listPaneId: string): boolean {
+	try {
+		// Only resize in vertical layout mode
+		const totalWidth = getTmuxPaneWidth();
+		if (totalWidth >= NARROW_SCREEN_THRESHOLD) {
+			log.debug('Not resizing: horizontal layout mode');
+			return false;
+		}
+
+		const newListHeight = calculateIdealListHeight();
+
+		// Resize the list pane to the new height
+		const result = spawnSync(
+			'tmux',
+			['resize-pane', '-t', listPaneId, '-y', String(newListHeight)],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+
+		if (result.error || result.status !== 0) {
+			log.error(`Failed to resize list pane: ${result.stderr}`);
+			return false;
+		}
+
+		const sessionCount = getActiveSessionCount();
+		log.info(
+			`Resized list pane for ${sessionCount} sessions: list=${newListHeight} rows`,
+		);
+		return true;
+	} catch (err) {
+		log.error(
+			'Failed to resize list pane',
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
+ * Check if we're in vertical layout mode (narrow screen)
+ */
+export function isVerticalLayout(): boolean {
+	const totalWidth = getTmuxPaneWidth();
+	return totalWidth < NARROW_SCREEN_THRESHOLD;
 }
 
 /**

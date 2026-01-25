@@ -26,6 +26,8 @@ import {
 	getLinearIssuesFromTmux,
 	zoomPane,
 	unzoomPane,
+	resizeListPaneForSessionCount,
+	isVerticalLayout,
 } from './tmux.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
@@ -208,6 +210,51 @@ export default function App({paneLayout}: AppProps) {
 			panesInitialized.current = true;
 		}
 	}, [paneLayout, spaces, loading]);
+
+	// Track previous spaces count for detecting changes
+	const prevSpacesCount = useRef(spaces.length);
+	const initialResizeDone = useRef(false);
+
+	// Resize list pane on initial load (after a short delay to let terminal settle)
+	// This helps fix incorrect dimensions on SSH connections like Termius
+	useEffect(() => {
+		if (!paneLayout) return;
+		if (loading) return;
+		if (initialResizeDone.current) return;
+
+		// Only resize in vertical layout mode (narrow screens)
+		if (!isVerticalLayout()) {
+			initialResizeDone.current = true;
+			return;
+		}
+
+		// Delay slightly to let the terminal dimensions stabilize
+		// (SSH connections may not have correct dimensions immediately)
+		const timer = setTimeout(() => {
+			resizeListPaneForSessionCount(paneLayout.listPaneId);
+			initialResizeDone.current = true;
+		}, 200);
+
+		return () => clearTimeout(timer);
+	}, [paneLayout, loading]);
+
+	// Resize list pane when spaces are added or deleted (vertical layout only)
+	// This keeps the list pane height optimal based on current session count
+	useEffect(() => {
+		if (!paneLayout) return;
+		if (loading) return;
+
+		// Only resize if count actually changed (not on every render)
+		if (spaces.length === prevSpacesCount.current) return;
+		prevSpacesCount.current = spaces.length;
+
+		// Only resize in vertical layout mode (narrow screens)
+		if (!isVerticalLayout()) return;
+
+		// Resize the list pane to fit the current number of spaces
+		// (tmux auto-adjusts the claude pane to fill remaining space)
+		resizeListPaneForSessionCount(paneLayout.listPaneId);
+	}, [paneLayout, spaces.length, loading]);
 
 	// Handle keyboard input
 	useInput(
