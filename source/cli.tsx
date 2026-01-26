@@ -9,9 +9,12 @@ import type {PaneLayout} from './types.js';
 import {
 	configExists,
 	getRepoRoot,
+	loadConfig,
+	getTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.js';
+import {normalizeIssueIdentifier} from './issue-checker.js';
 
 const cli = meow(
 	`
@@ -113,9 +116,22 @@ checkConfig();
 // If a prompt is provided as positional argument, spawn idow directly and exit
 if (cli.input.length > 0) {
 	const prompt = cli.input.join(' ');
-	console.log(`Starting new IDOW session with: "${prompt}"`);
 
-	const result = spawnSync('idow', [prompt], {
+	// Normalize issue identifiers (supports bare numbers like '400')
+	let config;
+	try {
+		config = loadConfig();
+	} catch {
+		config = null;
+	}
+
+	const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	const normalizedIssueKey = normalizeIssueIdentifier(prompt, teamPrefix);
+	const finalPrompt = normalizedIssueKey ?? prompt;
+
+	console.log(`Starting new IDOW session with: "${finalPrompt}"`);
+
+	const result = spawnSync('idow', [finalPrompt], {
 		stdio: 'inherit',
 		env: process.env,
 	});

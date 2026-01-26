@@ -106,8 +106,8 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			<Box marginBottom={1} flexDirection="column">
 				<Text dimColor>Enter a prompt or issue key:</Text>
 				<Text dimColor>
-					- <Text color="cyan">STA-123</Text> = resume existing workspace (if PR
-					has commits)
+					- <Text color="cyan">STA-123</Text> or <Text color="cyan">123</Text> =
+					resume existing workspace (if PR has commits)
 				</Text>
 				<Text dimColor>
 					- <Text color="cyan">description</Text> = start new workspace with
@@ -121,7 +121,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 					value={prompt}
 					onChange={setPrompt}
 					onSubmit={handleSubmit}
-					placeholder="STA-123 or describe the task..."
+					placeholder="STA-123, 123, or describe the task..."
 				/>
 			</Box>
 

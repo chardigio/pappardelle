@@ -2,6 +2,13 @@
 import {execSync} from 'node:child_process';
 import {createLogger} from './logger.js';
 
+// Re-export pure utility functions for backwards compatibility
+export {
+	isLinearIssueKey,
+	isIssueNumber,
+	normalizeIssueIdentifier,
+} from './issue-utils.js';
+
 const log = createLogger('issue-checker');
 
 interface PRInfo {
@@ -9,13 +16,6 @@ interface PRInfo {
 	hasCommits: boolean;
 	prNumber?: number;
 	prUrl?: string;
-}
-
-/**
- * Check if a string looks like a Linear issue key (e.g., STA-123, ENG-456)
- */
-export function isLinearIssueKey(input: string): boolean {
-	return /^[A-Z]+-\d+$/i.test(input.trim());
 }
 
 /**

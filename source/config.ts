@@ -57,6 +57,7 @@ export interface Profile {
 export interface PappardelleConfig {
 	version: number;
 	default_profile: string;
+	team_prefix?: string;
 	profiles: Record<string, Profile>;
 }
 
@@ -392,6 +393,15 @@ export function getDefaultProfile(config: PappardelleConfig): {
 		throw new Error(`Default profile "${name}" not found`);
 	}
 	return {name, profile};
+}
+
+/**
+ * Get the team prefix for issue identifiers (e.g., 'STA' for 'STA-123')
+ * Defaults to 'STA' if not configured
+ */
+export function getTeamPrefix(config: PappardelleConfig): string {
+	const prefix = config.team_prefix ?? 'STA';
+	return prefix.toUpperCase();
 }
 
 /**

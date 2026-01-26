@@ -5,6 +5,9 @@ version: 1
 # Default profile used when no keyword match is found
 default_profile: pappardelle
 
+# Team prefix for Linear issues (used when entering bare numbers like '400')
+team_prefix: STA
+
 profiles:
   stardust-jams:
     keywords:

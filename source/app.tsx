@@ -16,7 +16,11 @@ import {
 	watchStatuses,
 	ensureStatusDir,
 } from './claude-status.js';
-import {isLinearIssueKey, checkIssueHasPRWithCommits} from './issue-checker.js';
+import {
+	normalizeIssueIdentifier,
+	checkIssueHasPRWithCommits,
+} from './issue-checker.js';
+import {loadConfig, getTeamPrefix} from './config.js';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -358,26 +362,36 @@ export default function App({paneLayout}: AppProps) {
 	const handleNewSession = (input: string) => {
 		setShowPromptDialog(false);
 
-		const trimmedInput = input.trim().toUpperCase();
+		// Try to normalize as an issue identifier (supports bare numbers like '400')
+		let config;
+		try {
+			config = loadConfig();
+		} catch {
+			// Config loading failed, use default team prefix
+			config = null;
+		}
 
-		if (isLinearIssueKey(trimmedInput)) {
-			setStatusMessage(`Checking ${trimmedInput} for existing PR...`);
+		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+		const normalizedIssueKey = normalizeIssueIdentifier(input, teamPrefix);
 
-			const prInfo = checkIssueHasPRWithCommits(trimmedInput);
+		if (normalizedIssueKey) {
+			setStatusMessage(`Checking ${normalizedIssueKey} for existing PR...`);
+
+			const prInfo = checkIssueHasPRWithCommits(normalizedIssueKey);
 
 			if (prInfo.hasPR && prInfo.hasCommits) {
 				spawnIdow(
-					['--resume', trimmedInput],
-					`Resuming ${trimmedInput} (PR #${prInfo.prNumber} has commits)...`,
-					`Opened ${trimmedInput} in resume mode`,
+					['--resume', normalizedIssueKey],
+					`Resuming ${normalizedIssueKey} (PR #${prInfo.prNumber} has commits)...`,
+					`Opened ${normalizedIssueKey} in resume mode`,
 				);
 				return;
 			}
 
 			spawnIdow(
-				[trimmedInput],
-				`Starting ${trimmedInput}...`,
-				`Opened ${trimmedInput}`,
+				[normalizedIssueKey],
+				`Starting ${normalizedIssueKey}...`,
+				`Opened ${normalizedIssueKey}`,
 			);
 			return;
 		}

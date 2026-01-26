@@ -1,5 +1,6 @@
 import test from 'ava';
-import {matchProfiles, type PappardelleConfig, type Profile} from './config.ts';
+import type {PappardelleConfig, Profile} from './config.ts';
+import {matchProfiles, getTeamPrefix} from './config.ts';
 
 // Helper to create a minimal profile
 function createProfile(keywords: string[], displayName: string): Profile {
@@ -13,13 +14,45 @@ function createProfile(keywords: string[], displayName: string): Profile {
 function createConfig(
 	profiles: Record<string, Profile>,
 	defaultProfile = 'default',
+	teamPrefix?: string,
 ): PappardelleConfig {
 	return {
 		version: 1,
 		default_profile: defaultProfile,
+		team_prefix: teamPrefix,
 		profiles,
 	};
 }
+
+// ============================================================================
+// Team Prefix Tests
+// ============================================================================
+
+test('getTeamPrefix returns configured team_prefix', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+		'ENG',
+	);
+	t.is(getTeamPrefix(config), 'ENG');
+});
+
+test('getTeamPrefix returns default STA when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.is(getTeamPrefix(config), 'STA');
+});
+
+test('getTeamPrefix uppercases the team prefix', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+		'eng',
+	);
+	t.is(getTeamPrefix(config), 'ENG');
+});
 
 // ============================================================================
 // Basic Matching Tests
