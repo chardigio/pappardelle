@@ -4,7 +4,7 @@ import {render} from 'ink';
 import meow from 'meow';
 import {spawnSync} from 'node:child_process';
 import App from './app.js';
-import {isInTmux, setupPappardellLayout} from './tmux.js';
+import {isInTmux, sessionExists, setupPappardellLayout} from './tmux.js';
 import type {PaneLayout} from './types.js';
 import {
 	configExists,
@@ -141,13 +141,22 @@ if (cli.input.length > 0) {
 
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
+	const sessionName = 'pappardelle';
+
+	// Check if a pappardelle session already exists
+	if (sessionExists(sessionName)) {
+		// Attach to the existing session
+		const result = spawnSync('tmux', ['attach-session', '-t', sessionName], {
+			stdio: 'inherit',
+			env: process.env,
+		});
+		process.exit(result.status ?? 0);
+	}
+
+	// No existing session - create a new one
 	const args = process.argv.slice(2).join(' ');
 	const cmd = args ? `pappardelle ${args}` : 'pappardelle';
 
-	// Generate unique session name so each run is a fresh process
-	const sessionName = `pappardelle-${Date.now()}`;
-
-	// Start new tmux session (no -A flag, always create fresh)
 	const result = spawnSync('tmux', ['new-session', '-s', sessionName, cmd], {
 		stdio: 'inherit',
 		env: process.env,
