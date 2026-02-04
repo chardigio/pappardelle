@@ -239,3 +239,24 @@ profiles:
       - name: "Install dependencies"
         run: "cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && npm install"
         continue_on_error: true
+
+  platform:
+    keywords:
+      - platform
+      - sllib
+      - infrastructure
+      - shared
+      - cdk
+    display_name: "Platform"
+    # No iOS configuration
+    github:
+      label: "platform"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
