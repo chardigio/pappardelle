@@ -118,7 +118,6 @@ def main() -> None:
         # Determine from hook event
         hook_event = input_data.get("hook_event_name", "")
         tool_name = input_data.get("tool_name")
-        notification_type = input_data.get("notification_type", "")
 
         if hook_event == "PreToolUse":
             status = "tool_use"
@@ -137,16 +136,16 @@ def main() -> None:
         elif hook_event == "SessionEnd":
             status = "idle"
         elif hook_event == "Notification":
-            # Check exact notification types (not substring matches)
-            # NOTE: We ignore "permission_prompt" notifications because:
-            # 1. PermissionRequest event already handles permission prompts with tool context
-            # 2. AskUserQuestion also triggers "permission_prompt" notification but we want
-            #    to show '?' not '!' for questions, which PermissionRequest handles correctly
-            if notification_type == "idle_prompt":
-                status = "waiting_input"
-            else:
-                # Other notifications (including permission_prompt) don't change status
-                sys.exit(0)
+            # NOTE: We ignore ALL notification events for status updates because:
+            # 1. "permission_prompt": PermissionRequest event already handles this with tool context,
+            #    and AskUserQuestion triggers this but should show '?' not '!'
+            # 2. "idle_prompt": This fires when Claude is sitting at the prompt waiting for new input,
+            #    but this is semantically different from "waiting_input" (which means Claude asked
+            #    a question via AskUserQuestion). If Claude finished its work (status="done"), that
+            #    status should persist until the user actually interacts again - idle_prompt was
+            #    incorrectly overwriting "done" with "waiting_input" for finished sessions.
+            # 3. Other notifications: Not relevant to session status
+            sys.exit(0)
         elif hook_event == "PermissionRequest":
             # AskUserQuestion triggers PermissionRequest but it's actually waiting for user input
             # not a permission approval, so show '?' instead of '!'
