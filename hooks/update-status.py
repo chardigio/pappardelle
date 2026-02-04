@@ -23,6 +23,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+# Debug mode - logs all hook events to a file
+# Set PAPPARDELLE_DEBUG=1 environment variable to enable logging
+DEBUG = os.environ.get("PAPPARDELLE_DEBUG", "0") == "1"
+
+
+def log_debug(message: str, data: Any = None) -> None:
+    """Log debug information to a file."""
+    if not DEBUG:
+        return
+    log_dir = Path.home() / ".pappardelle" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "hook-events.log"
+
+    timestamp = datetime.now().isoformat()
+    with open(log_file, "a") as f:
+        f.write(f"[{timestamp}] {message}\n")
+        if data:
+            f.write(f"  Data: {json.dumps(data, indent=2)}\n")
+
 
 # Get workspace name from cwd (assumes worktree naming convention)
 def get_workspace_name() -> str:
@@ -85,6 +104,8 @@ def main() -> None:
     except json.JSONDecodeError:
         input_data = {}
 
+    log_debug(f"Hook invoked with argv={sys.argv}", input_data)
+
     # Determine status from command line args or hook event
     if len(sys.argv) > 1:
         status = sys.argv[1]
@@ -117,15 +138,22 @@ def main() -> None:
             status = "idle"
         elif hook_event == "Notification":
             # Check exact notification types (not substring matches)
-            if notification_type == "permission_prompt":
-                status = "waiting_permission"
-            elif notification_type == "idle_prompt":
+            # NOTE: We ignore "permission_prompt" notifications because:
+            # 1. PermissionRequest event already handles permission prompts with tool context
+            # 2. AskUserQuestion also triggers "permission_prompt" notification but we want
+            #    to show '?' not '!' for questions, which PermissionRequest handles correctly
+            if notification_type == "idle_prompt":
                 status = "waiting_input"
             else:
-                # Other notifications don't change status
+                # Other notifications (including permission_prompt) don't change status
                 sys.exit(0)
         elif hook_event == "PermissionRequest":
-            status = "waiting_permission"
+            # AskUserQuestion triggers PermissionRequest but it's actually waiting for user input
+            # not a permission approval, so show '?' instead of '!'
+            if tool_name == "AskUserQuestion":
+                status = "waiting_input"
+            else:
+                status = "waiting_permission"
         elif hook_event == "PreCompact":
             # During compaction, Claude is processing
             status = "thinking"
@@ -137,6 +165,7 @@ def main() -> None:
             sys.exit(0)
 
     session_id = input_data.get("session_id", os.environ.get("CLAUDE_SESSION_ID"))
+    log_debug(f"Setting status to: {status} (tool={tool_name})")
     update_status(status, tool_name, session_id)
 
     # Exit successfully

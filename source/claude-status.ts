@@ -27,6 +27,21 @@ function getStatusFilePath(workspaceName: string): string {
 	return path.join(STATUS_DIR, `${workspaceName}.json`);
 }
 
+// Statuses that are stable and should never become stale
+export const STABLE_STATUSES = new Set<ClaudeStatus>([
+	'done', // Finished working - stays done until new session
+	'idle', // Session is idle - stays idle
+	'waiting_input', // Waiting for user input - user may take time to respond
+	'waiting_permission', // Waiting for permission - user may be reviewing
+	'error', // Error state should persist until resolved
+]);
+
+// Statuses that indicate active work and can become stale
+export const ACTIVE_STATUSES = new Set<ClaudeStatus>(['thinking', 'tool_use']);
+
+// How long before an active status becomes stale (10 minutes)
+export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
+
 export function getClaudeStatus(workspaceName: string): ClaudeStatus {
 	try {
 		const filePath = getStatusFilePath(workspaceName);
@@ -37,10 +52,19 @@ export function getClaudeStatus(workspaceName: string): ClaudeStatus {
 		const content = readFileSync(filePath, 'utf-8');
 		const state: ClaudeSessionState = JSON.parse(content);
 
-		// Check if status is stale (> 5 minutes old)
-		const isStale = Date.now() - state.lastUpdate > 5 * 60 * 1000;
-		if (isStale) {
-			return 'unknown';
+		// Stable statuses never become stale
+		// Done sessions stay done, idle sessions stay idle, waiting sessions stay waiting
+		if (STABLE_STATUSES.has(state.status)) {
+			return state.status;
+		}
+
+		// Active statuses (thinking, tool_use) become stale after timeout
+		// This indicates something may be wrong (hook stopped firing, Claude crashed)
+		if (ACTIVE_STATUSES.has(state.status)) {
+			const isStale = Date.now() - state.lastUpdate > ACTIVE_STATUS_TIMEOUT;
+			if (isStale) {
+				return 'unknown';
+			}
 		}
 
 		return state.status;
