@@ -256,8 +256,13 @@ class TestStatusDetermination:
     # Notification Tests
     # =========================================================================
 
-    def test_notification_idle_prompt_sets_waiting_input(self, tmp_path):
-        """Notification with idle_prompt type should set waiting_input."""
+    def test_notification_idle_prompt_does_not_update(self, tmp_path):
+        """Notification with idle_prompt type should NOT update status.
+
+        idle_prompt fires when Claude is sitting at the prompt waiting for new input,
+        but this should not overwrite existing status (e.g., "done" for finished sessions).
+        Status should only change when user actually interacts again.
+        """
         input_data = self._create_hook_input(
             hook_event="Notification",
             notification_type="idle_prompt",
@@ -265,8 +270,8 @@ class TestStatusDetermination:
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
-        assert result is not None
-        assert result["status"] == "waiting_input"
+        # Should not write a status file - idle_prompt should not affect session status
+        assert result is None
 
     def test_notification_other_type_does_not_update(self, tmp_path):
         """Notification with unrecognized type should not update status."""
