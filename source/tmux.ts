@@ -2,6 +2,26 @@
 // Attaches to existing claude-STA-XXX and lazygit-STA-XXX sessions created by idow
 import {execSync, spawnSync} from 'node:child_process';
 import {createLogger} from './logger.js';
+import {
+	calculateIdealListHeightForCount,
+	calculateLayoutForSize,
+	MIN_LAZYGIT_WIDTH,
+	NARROW_SCREEN_THRESHOLD,
+	type LayoutConfig,
+} from './layout-sizing.js';
+
+// Re-export sizing constants and functions for external use
+export {
+	calculateIdealListHeightForCount,
+	calculateLayoutForSize,
+	NARROW_SCREEN_THRESHOLD,
+	MIN_LIST_WIDTH,
+	MIN_CLAUDE_WIDTH,
+	MIN_LAZYGIT_WIDTH,
+	MAX_LIST_HEIGHT,
+	DEFAULT_MIN_LIST_HEIGHT,
+	type LayoutConfig,
+} from './layout-sizing.js';
 
 const log = createLogger('tmux');
 
@@ -344,13 +364,9 @@ function detachInPane(paneId: string): void {
 	}
 }
 
-// Layout threshold: screens narrower than this use vertical stacking
-const NARROW_SCREEN_THRESHOLD = 100;
-
-// Minimum pane widths (in characters) for horizontal layout
-const MIN_LIST_WIDTH = 40;
-const MIN_CLAUDE_WIDTH = 40;
-const MIN_LAZYGIT_WIDTH = 10; // Lazygit can be squished but needs at least this much
+// ============================================================================
+// Tmux Dimension Helpers
+// ============================================================================
 
 /**
  * Get current terminal/pane width from tmux
@@ -397,102 +413,31 @@ function getActiveSessionCount(): number {
 	return listClaudeSessions().length;
 }
 
+// ============================================================================
+// Internal Wrapper Functions (use live tmux state)
+// ============================================================================
+
 /**
- * Layout configuration returned by calculateLayout
+ * Calculate the ideal list pane height based on current session count.
+ * Internal function that queries tmux for current state.
  */
-interface LayoutConfig {
-	direction: 'horizontal' | 'vertical';
-	// For horizontal layout: widths
-	listWidth?: number;
-	claudeWidth?: number;
-	lazygitWidth?: number;
-	// For vertical layout: heights
-	listHeight?: number;
-	claudeHeight?: number;
+function calculateIdealListHeight(): number {
+	return calculateIdealListHeightForCount(getActiveSessionCount());
 }
 
 /**
  * Calculate pane layout based on terminal dimensions.
- *
- * Narrow screens (< 100 chars): Vertical layout with list on top, claude below, no lazygit
- * Wide screens (>= 100 chars): Horizontal layout [list] [claude] [lazygit]
+ * Internal function that queries tmux for current session count.
  */
 function calculateLayout(
 	totalWidth: number,
 	totalHeight: number,
 ): LayoutConfig {
-	// Narrow screen: use vertical layout
-	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
-		// Use shared calculation for consistent behavior between setup and resize
-		const listHeight = calculateIdealListHeight();
-
-		// Account for tmux border (1 row), claude gets whatever's left
-		const usableHeight = totalHeight - 1;
-		const claudeHeight = usableHeight - listHeight;
-
-		return {
-			direction: 'vertical',
-			listHeight,
-			claudeHeight,
-		};
-	}
-
-	// Wide screen: use horizontal layout
-	// Account for tmux borders (2 chars per split = 2 borders between 3 panes)
-	const usableWidth = totalWidth - 2;
-
-	// Minimum total required
-	const minTotal = MIN_LIST_WIDTH + MIN_CLAUDE_WIDTH + MIN_LAZYGIT_WIDTH;
-
-	if (usableWidth <= minTotal) {
-		// Very narrow: give each the minimum, lazygit may get nothing
-		const remaining = usableWidth - MIN_LIST_WIDTH - MIN_CLAUDE_WIDTH;
-		return {
-			direction: 'horizontal',
-			listWidth: MIN_LIST_WIDTH,
-			claudeWidth: MIN_CLAUDE_WIDTH,
-			lazygitWidth: Math.max(0, remaining),
-		};
-	}
-
-	// We have extra space beyond minimums. Distribute it.
-	// Target proportions: list ~24%, claude ~38%, lazygit ~38%
-	const extraSpace = usableWidth - minTotal;
-
-	// Distribute extra space proportionally (24:38:38 ≈ 0.24:0.38:0.38)
-	const listExtra = Math.floor(extraSpace * 0.24);
-	const claudeExtra = Math.floor(extraSpace * 0.38);
-	const lazygitExtra = extraSpace - listExtra - claudeExtra;
-
-	return {
-		direction: 'horizontal',
-		listWidth: MIN_LIST_WIDTH + listExtra,
-		claudeWidth: MIN_CLAUDE_WIDTH + claudeExtra,
-		lazygitWidth: MIN_LAZYGIT_WIDTH + lazygitExtra,
-	};
-}
-
-// Height constraints for vertical layout (in rows)
-const MAX_LIST_HEIGHT = 13;
-const DEFAULT_MIN_LIST_HEIGHT = 8;
-
-/**
- * Calculate the ideal list pane height based on session count
- *
- * Constraints:
- * - Minimum: min(ideal, 8) - give at least 8 rows, or ideal if smaller
- * - Maximum: 13 rows - don't let list take over the screen
- */
-function calculateIdealListHeight(): number {
-	const sessionCount = getActiveSessionCount();
-	// Ideal = sessions + header/footer/padding
-	const idealHeight = Math.max(1, sessionCount) + 3;
-
-	// Minimum is the smaller of ideal or 8 (don't force 8 rows if we only need 4)
-	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);
-
-	// Clamp between min and max
-	return Math.max(minHeight, Math.min(idealHeight, MAX_LIST_HEIGHT));
+	return calculateLayoutForSize(
+		totalWidth,
+		totalHeight,
+		getActiveSessionCount(),
+	);
 }
 
 /**
