@@ -66,10 +66,10 @@ export const CLAUDE_STATUS_DISPLAY: Record<
 > = {
 	processing: {color: COLORS.CLAUDE_ORANGE},
 	running_tool: {color: COLORS.CLAUDE_ORANGE},
-	waiting_for_input: {color: 'blue', icon: '○'},
+	waiting_for_input: {color: 'green', icon: '●'},
 	waiting_for_approval: {color: 'red', icon: '!'},
 	compacting: {color: 'yellow', icon: '◇'},
-	ended: {color: 'gray', icon: '·'},
+	ended: {color: 'green', icon: '●'},
 	error: {color: 'red', icon: '✗'},
 	unknown: {color: 'gray', icon: '?'},
 };

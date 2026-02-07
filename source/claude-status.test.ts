@@ -188,13 +188,13 @@ test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_for_input', async t => 
 
 	t.is(
 		CLAUDE_STATUS_DISPLAY.waiting_for_input.icon,
-		'○',
-		'waiting_for_input should show ○ icon',
+		'●',
+		'waiting_for_input should show ● icon',
 	);
 	t.is(
 		CLAUDE_STATUS_DISPLAY.waiting_for_input.color,
-		'blue',
-		'waiting_for_input should be blue',
+		'green',
+		'waiting_for_input should be green',
 	);
 });
 
@@ -216,8 +216,8 @@ test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_for_approval', async t 
 test('CLAUDE_STATUS_DISPLAY has correct icon for ended', async t => {
 	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
 
-	t.is(CLAUDE_STATUS_DISPLAY.ended.icon, '·', 'ended should show · icon');
-	t.is(CLAUDE_STATUS_DISPLAY.ended.color, 'gray', 'ended should be gray');
+	t.is(CLAUDE_STATUS_DISPLAY.ended.icon, '●', 'ended should show ● icon');
+	t.is(CLAUDE_STATUS_DISPLAY.ended.color, 'green', 'ended should be green');
 });
 
 test('CLAUDE_STATUS_DISPLAY has correct icon for compacting', async t => {
