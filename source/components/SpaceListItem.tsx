@@ -44,14 +44,17 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	}, [needsAttention]);
 
 	// Calculate available width for title
-	// Format: "> STA-123 ✢ title..."
-	// selector (2) + issueKey (8 padded) + space (1) + icon (1) + space (1) = 13 chars fixed
+	// Format: "STA-123 ✢ title..."
+	// issueKey (8 padded) + space (1) + icon (1) + space (1) = 11 chars fixed
 	const issueKeyWidth = 8;
-	const fixedWidth = 2 + issueKeyWidth + 1 + 1 + 1; // 13
+	const fixedWidth = issueKeyWidth + 1 + 1 + 1; // 11
 	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
-	// Pad issue key to fixed width for alignment
-	const paddedIssueKey = space.name.padEnd(issueKeyWidth);
+	// Issue key and padding (separate so badge only covers the key text)
+	const issueKey = space.name;
+	const issueKeyPadding = ' '.repeat(
+		Math.max(0, issueKeyWidth - issueKey.length),
+	);
 
 	// Truncate title
 	const title = space.linearIssue?.title ?? '';
@@ -75,52 +78,61 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	};
 	const stateColor = getStateColor();
 
-	// When blinking, use inverse to make the row stand out
-	const useInverse = needsAttention && blinkOn;
-	const textColor = useInverse ? (isQuestion ? 'blue' : 'red') : undefined;
+	// Determine highlight mode:
+	// - needsAttention + blinkOn: blink color (blue for question, red for approval)
+	// - isSelected (and not blinking): white background via inverse
+	// - needsAttention + isSelected + !blinkOn: white background (blink off-phase)
+	const useBlinkInverse = needsAttention && blinkOn;
+	const useSelectionInverse = isSelected && !useBlinkInverse;
+	const useInverse = useBlinkInverse || useSelectionInverse;
+	const textColor = useBlinkInverse ? (isQuestion ? 'blue' : 'red') : undefined;
 
 	return (
 		<Box>
-			{/* Selection indicator */}
+			{/* Issue key badge (colored by Linear state, inverse gives colored background) */}
 			<Text
-				color={isSelected && !useInverse ? 'white' : textColor}
-				bold={isSelected}
-				inverse={useInverse}
-			>
-				{isSelected ? '> ' : '  '}
-			</Text>
-
-			{/* Issue key (colored by Linear state, padded for alignment) */}
-			<Text
-				color={
-					isSelected && !useInverse
-						? 'white'
-						: useInverse
-							? textColor
-							: stateColor
-				}
+				color={useBlinkInverse ? textColor : stateColor}
 				bold
 				inverse={useInverse}
 			>
-				{paddedIssueKey}
+				{issueKey}
+			</Text>
+			{/* Padding after issue key (regular inverse, no badge color) */}
+			<Text inverse={useInverse} color={textColor}>
+				{issueKeyPadding}
 			</Text>
 
-			{/* Claude status indicator + label */}
+			{/* Claude status indicator (regular inverse when selected, no badge) */}
 			<Text inverse={useInverse} color={textColor}>
 				{' '}
 			</Text>
 			{isWorking ? (
-				<ClaudeAnimation color={statusInfo.color} />
+				<ClaudeAnimation
+					color={
+						useBlinkInverse
+							? textColor
+							: useSelectionInverse
+								? undefined
+								: statusInfo.color
+					}
+					inverse={useInverse}
+				/>
 			) : (
 				<Text
-					color={useInverse ? textColor : statusInfo.color}
+					color={
+						useBlinkInverse
+							? textColor
+							: useSelectionInverse
+								? undefined
+								: statusInfo.color
+					}
 					inverse={useInverse}
 				>
 					{statusInfo.icon ?? '?'}
 				</Text>
 			)}
 
-			{/* Title (dimmed) */}
+			{/* Title (dimmed when not highlighted) */}
 			<Text inverse={useInverse} color={textColor}>
 				{' '}
 			</Text>

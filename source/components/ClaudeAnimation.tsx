@@ -8,9 +8,13 @@ const CLAUDE_FRAMES = ['·', '✢', '✳', '∗', '✻', '✽'];
 
 interface Props {
 	color?: string;
+	inverse?: boolean;
 }
 
-export default function ClaudeAnimation({color = COLORS.CLAUDE_ORANGE}: Props) {
+export default function ClaudeAnimation({
+	color = COLORS.CLAUDE_ORANGE,
+	inverse = false,
+}: Props) {
 	const [frameIndex, setFrameIndex] = useState(0);
 
 	useEffect(() => {
@@ -21,5 +25,9 @@ export default function ClaudeAnimation({color = COLORS.CLAUDE_ORANGE}: Props) {
 		return () => clearInterval(interval);
 	}, []);
 
-	return <Text color={color}>{CLAUDE_FRAMES[frameIndex]}</Text>;
+	return (
+		<Text color={color} inverse={inverse}>
+			{CLAUDE_FRAMES[frameIndex]}
+		</Text>
+	);
 }
