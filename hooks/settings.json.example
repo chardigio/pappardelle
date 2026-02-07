@@ -5,13 +5,14 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py thinking"
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
 					}
 				]
 			}
 		],
 		"PreToolUse": [
 			{
+				"matcher": "*",
 				"hooks": [
 					{
 						"type": "command",
@@ -22,19 +23,11 @@
 		],
 		"PostToolUse": [
 			{
+				"matcher": "*",
 				"hooks": [
 					{
 						"type": "command",
 						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
-					}
-				]
-			},
-			{
-				"matcher": "AskUserQuestion",
-				"hooks": [
-					{
-						"type": "command",
-						"command": "uv run python3 ~/.pappardelle/hooks/comment-question-answered.py"
 					}
 				]
 			}
@@ -44,18 +37,17 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py done"
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
 					}
 				]
 			}
 		],
 		"SessionStart": [
 			{
-				"matcher": ".*",
 				"hooks": [
 					{
 						"type": "command",
-						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
 					}
 				]
 			}
@@ -65,13 +57,14 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py idle"
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
 					}
 				]
 			}
 		],
 		"Notification": [
 			{
+				"matcher": "*",
 				"hooks": [
 					{
 						"type": "command",
@@ -83,6 +76,36 @@
 		"PermissionRequest": [
 			{
 				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"SubagentStop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PreCompact": [
+			{
+				"matcher": "auto",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			},
+			{
+				"matcher": "manual",
 				"hooks": [
 					{
 						"type": "command",

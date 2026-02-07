@@ -12,7 +12,7 @@ const log = createLogger('app');
 
 import {getIssue, getIssueCached} from './linear.js';
 import {
-	getClaudeStatus,
+	getClaudeStatusInfo,
 	watchStatuses,
 	ensureStatusDir,
 } from './claude-status.js';
@@ -92,7 +92,7 @@ export default function App({paneLayout}: AppProps) {
 
 			// Build space data
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
-				const claudeStatus = getClaudeStatus(issueKey);
+				const claudeInfo = getClaudeStatusInfo(issueKey);
 				const worktreePath = getWorktreePath(issueKey);
 
 				// Start fetching Linear issue in background
@@ -101,7 +101,8 @@ export default function App({paneLayout}: AppProps) {
 				return {
 					name: issueKey,
 					linearIssue: getIssueCached(issueKey) ?? undefined,
-					claudeStatus,
+					claudeStatus: claudeInfo.status,
+					claudeTool: claudeInfo.tool,
 					worktreePath,
 				};
 			});
@@ -140,10 +141,12 @@ export default function App({paneLayout}: AppProps) {
 
 	// Watch for Claude status changes
 	useEffect(() => {
-		const unwatch = watchStatuses((workspaceName, status) => {
+		const unwatch = watchStatuses((workspaceName, info) => {
 			setSpaces(prev =>
 				prev.map(s =>
-					s.name === workspaceName ? {...s, claudeStatus: status} : s,
+					s.name === workspaceName
+						? {...s, claudeStatus: info.status, claudeTool: info.tool}
+						: s,
 				),
 			);
 		});

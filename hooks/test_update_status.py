@@ -54,7 +54,11 @@ class TestGetWorkspaceName:
 
 
 class TestStatusDetermination:
-    """Tests for determining status from hook events."""
+    """Tests for determining status from hook events.
+
+    Follows Claude Island's event-forward model where every event updates state
+    uniformly without tool-specific special-casing.
+    """
 
     def _create_hook_input(
         self,
@@ -62,11 +66,13 @@ class TestStatusDetermination:
         tool_name: Optional[str] = None,
         notification_type: Optional[str] = None,
         session_id: str = "test-session",
+        cwd: str = "/Users/charlie/.worktrees/stardust-labs/STA-999",
     ) -> dict[str, Any]:
         """Helper to create hook input dict."""
         data: dict[str, Any] = {
             "hook_event_name": hook_event,
             "session_id": session_id,
+            "cwd": cwd,
         }
         if tool_name:
             data["tool_name"] = tool_name
@@ -108,97 +114,20 @@ class TestStatusDetermination:
         return None
 
     # =========================================================================
-    # AskUserQuestion Tests - THE MAIN BUG
+    # Processing / Tool Use Tests
     # =========================================================================
 
-    def test_ask_user_question_sets_waiting_input(self, tmp_path):
-        """BUG FIX: AskUserQuestion should set status to 'waiting_input', not 'waiting_permission'.
-
-        This is the main bug - when Claude asks a question via AskUserQuestion,
-        pappardelle should show '?' (blue, waiting_input) not '!' (red, waiting_permission).
-        """
-        input_data = self._create_hook_input(
-            hook_event="PostToolUse",
-            tool_name="AskUserQuestion",
-        )
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is not None, "Status file should be written"
-        assert (
-            result["status"] == "waiting_input"
-        ), "AskUserQuestion should set status to 'waiting_input' (shows '?'), not 'waiting_permission' (shows '!')"
-
-    # =========================================================================
-    # Permission Request Tests
-    # =========================================================================
-
-    def test_permission_request_event_sets_waiting_permission(self, tmp_path):
-        """PermissionRequest hook event should set status to 'waiting_permission'."""
-        input_data = self._create_hook_input(
-            hook_event="PermissionRequest",
-            tool_name="Bash",  # Regular tool, not AskUserQuestion
-        )
+    def test_user_prompt_submit_sets_processing(self, tmp_path):
+        """UserPromptSubmit should set status to 'processing'."""
+        input_data = self._create_hook_input(hook_event="UserPromptSubmit")
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "waiting_permission", "PermissionRequest for regular tools should show '!' indicator"
+        assert result["status"] == "processing"
 
-    def test_permission_request_for_ask_user_question_sets_waiting_input(self, tmp_path):
-        """BUG FIX: PermissionRequest for AskUserQuestion should set 'waiting_input', not 'waiting_permission'.
-
-        AskUserQuestion triggers a PermissionRequest event, but semantically it's asking for
-        user input (a question), not asking for permission to run a tool. So it should show
-        '?' (blue) not '!' (red).
-        """
-        input_data = self._create_hook_input(
-            hook_event="PermissionRequest",
-            tool_name="AskUserQuestion",
-        )
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is not None
-        assert result["status"] == "waiting_input", "PermissionRequest for AskUserQuestion should show '?' not '!'"
-
-    def test_notification_permission_prompt_does_not_update(self, tmp_path):
-        """BUG FIX: Notification with permission_prompt type should NOT update status.
-
-        We now rely on PermissionRequest events (which include tool context) instead of
-        Notification events. This allows us to correctly distinguish between:
-        - AskUserQuestion (should show '?')
-        - Actual permission requests (should show '!')
-        """
-        input_data = self._create_hook_input(
-            hook_event="Notification",
-            notification_type="permission_prompt",
-        )
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        # Should not write a status file - we ignore permission_prompt notifications
-        assert result is None, "permission_prompt notifications should be ignored (PermissionRequest handles this)"
-
-    # =========================================================================
-    # Stop Event Tests
-    # =========================================================================
-
-    def test_stop_event_sets_done(self, tmp_path):
-        """Stop hook event should set status to 'done'."""
-        input_data = self._create_hook_input(hook_event="Stop")
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is not None
-        assert result["status"] == "done", "Stop event should show '✓' (done) indicator"
-
-    # =========================================================================
-    # Thinking/Tool Use Tests
-    # =========================================================================
-
-    def test_pre_tool_use_sets_tool_use(self, tmp_path):
-        """PreToolUse should set status to 'tool_use'."""
+    def test_pre_tool_use_sets_running_tool(self, tmp_path):
+        """PreToolUse should set status to 'running_tool'."""
         input_data = self._create_hook_input(
             hook_event="PreToolUse",
             tool_name="Bash",
@@ -207,62 +136,123 @@ class TestStatusDetermination:
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "tool_use"
+        assert result["status"] == "running_tool"
 
-    def test_post_tool_use_non_ask_sets_thinking(self, tmp_path):
-        """PostToolUse for non-AskUserQuestion tools should set 'thinking'."""
+    def test_post_tool_use_sets_processing(self, tmp_path):
+        """PostToolUse should set 'processing' for all tools uniformly."""
         input_data = self._create_hook_input(
             hook_event="PostToolUse",
-            tool_name="Read",  # Not AskUserQuestion
+            tool_name="Read",
         )
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "thinking", "PostToolUse for regular tools should set 'thinking'"
+        assert result["status"] == "processing"
 
-    def test_user_prompt_submit_sets_thinking(self, tmp_path):
-        """UserPromptSubmit should set status to 'thinking'."""
-        input_data = self._create_hook_input(hook_event="UserPromptSubmit")
+    def test_post_tool_use_ask_user_question_sets_processing(self, tmp_path):
+        """PostToolUse for AskUserQuestion sets 'processing' — no special-casing."""
+        input_data = self._create_hook_input(
+            hook_event="PostToolUse",
+            tool_name="AskUserQuestion",
+        )
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "thinking"
+        assert result["status"] == "processing", "No tool-specific special-casing (Claude Island model)"
 
     # =========================================================================
-    # Session Lifecycle Tests
+    # Permission Request Tests
     # =========================================================================
 
-    def test_session_start_sets_idle(self, tmp_path):
-        """SessionStart should set status to 'idle'."""
+    def test_permission_request_sets_waiting_for_approval(self, tmp_path):
+        """PermissionRequest should set 'waiting_for_approval' uniformly."""
+        input_data = self._create_hook_input(
+            hook_event="PermissionRequest",
+            tool_name="Bash",
+        )
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "waiting_for_approval"
+
+    def test_permission_request_ask_user_question_sets_waiting_for_approval(self, tmp_path):
+        """PermissionRequest for AskUserQuestion also sets 'waiting_for_approval' — no special-casing.
+
+        The UI layer differentiates by checking currentTool == 'AskUserQuestion'.
+        """
+        input_data = self._create_hook_input(
+            hook_event="PermissionRequest",
+            tool_name="AskUserQuestion",
+        )
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "waiting_for_approval", "No tool-specific special-casing (Claude Island model)"
+        assert result.get("currentTool") == "AskUserQuestion", "Tool name must be preserved for UI differentiation"
+
+    # =========================================================================
+    # Stop / Session Lifecycle Tests
+    # =========================================================================
+
+    def test_stop_sets_waiting_for_input(self, tmp_path):
+        """Stop should set 'waiting_for_input' (Claude finished turn, session still active)."""
+        input_data = self._create_hook_input(hook_event="Stop")
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "waiting_for_input"
+
+    def test_session_start_sets_waiting_for_input(self, tmp_path):
+        """SessionStart should set 'waiting_for_input'."""
         input_data = self._create_hook_input(hook_event="SessionStart")
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "idle"
+        assert result["status"] == "waiting_for_input"
 
-    def test_session_end_sets_idle(self, tmp_path):
-        """SessionEnd should set status to 'idle'."""
+    def test_session_end_sets_ended(self, tmp_path):
+        """SessionEnd should set 'ended' (distinct from waiting_for_input)."""
         input_data = self._create_hook_input(hook_event="SessionEnd")
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "idle"
+        assert result["status"] == "ended"
+
+    def test_subagent_stop_sets_waiting_for_input(self, tmp_path):
+        """SubagentStop should set 'waiting_for_input' (parent back to waiting)."""
+        input_data = self._create_hook_input(hook_event="SubagentStop")
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "waiting_for_input"
+
+    # =========================================================================
+    # Compaction Tests
+    # =========================================================================
+
+    def test_pre_compact_sets_compacting(self, tmp_path):
+        """PreCompact should set 'compacting' (distinct status)."""
+        input_data = self._create_hook_input(hook_event="PreCompact")
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "compacting"
 
     # =========================================================================
     # Notification Tests
     # =========================================================================
 
-    def test_notification_idle_prompt_does_not_update(self, tmp_path):
-        """Notification with idle_prompt type should NOT update status.
-
-        idle_prompt fires when Claude is sitting at the prompt waiting for new input,
-        but this should not overwrite existing status (e.g., "done" for finished sessions).
-        Status should only change when user actually interacts again.
-        """
+    def test_notification_idle_prompt_sets_waiting_for_input(self, tmp_path):
+        """idle_prompt notification should set 'waiting_for_input'."""
         input_data = self._create_hook_input(
             hook_event="Notification",
             notification_type="idle_prompt",
@@ -270,8 +260,19 @@ class TestStatusDetermination:
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
-        # Should not write a status file - idle_prompt should not affect session status
-        assert result is None
+        assert result is not None
+        assert result["status"] == "waiting_for_input"
+
+    def test_notification_permission_prompt_does_not_update(self, tmp_path):
+        """permission_prompt notification should not update status (PermissionRequest handles it)."""
+        input_data = self._create_hook_input(
+            hook_event="Notification",
+            notification_type="permission_prompt",
+        )
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is None, "permission_prompt notifications should be ignored (PermissionRequest handles this)"
 
     def test_notification_other_type_does_not_update(self, tmp_path):
         """Notification with unrecognized type should not update status."""
@@ -282,8 +283,32 @@ class TestStatusDetermination:
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
-        # Should not write a status file for unrecognized notification types
         assert result is None
+
+    # =========================================================================
+    # Rich Data Tests
+    # =========================================================================
+
+    def test_status_file_includes_event(self, tmp_path):
+        """Status file should include the raw hook event name."""
+        input_data = self._create_hook_input(hook_event="PreToolUse", tool_name="Bash")
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result.get("event") == "PreToolUse"
+
+    def test_status_file_includes_cwd(self, tmp_path):
+        """Status file should include the working directory."""
+        input_data = self._create_hook_input(
+            hook_event="UserPromptSubmit",
+            cwd="/Users/charlie/.worktrees/stardust-labs/STA-999",
+        )
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result.get("cwd") == "/Users/charlie/.worktrees/stardust-labs/STA-999"
 
     # =========================================================================
     # Edge Cases
@@ -296,23 +321,6 @@ class TestStatusDetermination:
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is None
-
-    def test_subagent_stop_does_not_update(self, tmp_path):
-        """SubagentStop should not update parent session status."""
-        input_data = self._create_hook_input(hook_event="SubagentStop")
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is None
-
-    def test_pre_compact_sets_thinking(self, tmp_path):
-        """PreCompact should set status to 'thinking'."""
-        input_data = self._create_hook_input(hook_event="PreCompact")
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is not None
-        assert result["status"] == "thinking"
 
 
 class TestCommandLineArgs:
@@ -333,7 +341,7 @@ class TestCommandLineArgs:
         ):
 
             original_argv = sys.argv
-            sys.argv = ["update-status.py", "done"]
+            sys.argv = ["update-status.py", "waiting_for_input"]
 
             try:
                 us.main()
@@ -344,7 +352,7 @@ class TestCommandLineArgs:
 
         status_file = tmp_path / "STA-999.json"
         result = json.loads(status_file.read_text())
-        assert result["status"] == "done"
+        assert result["status"] == "waiting_for_input"
 
     def test_tool_arg_is_stored(self, tmp_path):
         """--tool argument should be stored in status file."""
@@ -361,7 +369,7 @@ class TestCommandLineArgs:
         ):
 
             original_argv = sys.argv
-            sys.argv = ["update-status.py", "tool_use", "--tool", "Bash"]
+            sys.argv = ["update-status.py", "running_tool", "--tool", "Bash"]
 
             try:
                 us.main()
@@ -372,7 +380,7 @@ class TestCommandLineArgs:
 
         status_file = tmp_path / "STA-999.json"
         result = json.loads(status_file.read_text())
-        assert result["status"] == "tool_use"
+        assert result["status"] == "running_tool"
         assert result.get("currentTool") == "Bash"
 
 

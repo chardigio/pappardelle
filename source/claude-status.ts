@@ -29,51 +29,58 @@ function getStatusFilePath(workspaceName: string): string {
 
 // Statuses that are stable and should never become stale
 export const STABLE_STATUSES = new Set<ClaudeStatus>([
-	'done', // Finished working - stays done until new session
-	'idle', // Session is idle - stays idle
-	'waiting_input', // Waiting for user input - user may take time to respond
-	'waiting_permission', // Waiting for permission - user may be reviewing
+	'waiting_for_input', // Waiting for user input - user may take time to respond
+	'waiting_for_approval', // Waiting for permission - user may be reviewing
+	'ended', // Session terminated - stays ended
 	'error', // Error state should persist until resolved
 ]);
 
 // Statuses that indicate active work and can become stale
-export const ACTIVE_STATUSES = new Set<ClaudeStatus>(['thinking', 'tool_use']);
+export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
+	'processing',
+	'running_tool',
+	'compacting',
+]);
 
 // How long before an active status becomes stale (10 minutes)
 export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
 
-export function getClaudeStatus(workspaceName: string): ClaudeStatus {
+export interface ClaudeStatusInfo {
+	status: ClaudeStatus;
+	tool?: string;
+}
+
+export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
 	try {
 		const filePath = getStatusFilePath(workspaceName);
 		if (!existsSync(filePath)) {
-			return 'unknown';
+			return {status: 'unknown'};
 		}
 
 		const content = readFileSync(filePath, 'utf-8');
 		const state: ClaudeSessionState = JSON.parse(content);
 
 		// Stable statuses never become stale
-		// Done sessions stay done, idle sessions stay idle, waiting sessions stay waiting
 		if (STABLE_STATUSES.has(state.status)) {
-			return state.status;
+			return {status: state.status, tool: state.currentTool};
 		}
 
-		// Active statuses (thinking, tool_use) become stale after timeout
+		// Active statuses become stale after timeout
 		// This indicates something may be wrong (hook stopped firing, Claude crashed)
 		if (ACTIVE_STATUSES.has(state.status)) {
 			const isStale = Date.now() - state.lastUpdate > ACTIVE_STATUS_TIMEOUT;
 			if (isStale) {
-				return 'unknown';
+				return {status: 'unknown'};
 			}
 		}
 
-		return state.status;
+		return {status: state.status, tool: state.currentTool};
 	} catch (err) {
 		log.warn(
 			`Failed to read status for workspace ${workspaceName}`,
 			err instanceof Error ? err : undefined,
 		);
-		return 'unknown';
+		return {status: 'unknown'};
 	}
 }
 
@@ -105,7 +112,7 @@ export function getAllStatuses(): Map<string, ClaudeStatus> {
 		for (const file of files) {
 			if (file.endsWith('.json')) {
 				const workspaceName = file.replace('.json', '');
-				statuses.set(workspaceName, getClaudeStatus(workspaceName));
+				statuses.set(workspaceName, getClaudeStatusInfo(workspaceName).status);
 			}
 		}
 	} catch (err) {
@@ -120,15 +127,15 @@ export function getAllStatuses(): Map<string, ClaudeStatus> {
 
 // Watch for status changes
 export function watchStatuses(
-	callback: (workspaceName: string, status: ClaudeStatus) => void,
+	callback: (workspaceName: string, info: ClaudeStatusInfo) => void,
 ): () => void {
 	ensureStatusDir();
 
 	const watcher = watch(STATUS_DIR, (_eventType, filename) => {
 		if (filename && filename.endsWith('.json')) {
 			const workspaceName = filename.replace('.json', '');
-			const status = getClaudeStatus(workspaceName);
-			callback(workspaceName, status);
+			const info = getClaudeStatusInfo(workspaceName);
+			callback(workspaceName, info);
 		}
 	});
 

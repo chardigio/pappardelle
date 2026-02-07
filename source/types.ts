@@ -19,12 +19,12 @@ export interface LinearIssue {
 }
 
 export type ClaudeStatus =
-	| 'idle'
-	| 'thinking'
-	| 'tool_use'
-	| 'waiting_input'
-	| 'waiting_permission'
-	| 'done'
+	| 'processing'
+	| 'running_tool'
+	| 'waiting_for_input'
+	| 'waiting_for_approval'
+	| 'compacting'
+	| 'ended'
 	| 'error'
 	| 'unknown';
 
@@ -34,6 +34,8 @@ export interface ClaudeSessionState {
 	status: ClaudeStatus;
 	lastUpdate: number;
 	currentTool?: string;
+	event?: string;
+	cwd?: string;
 }
 
 /**
@@ -43,6 +45,7 @@ export interface SpaceData {
 	name: string; // Issue key (e.g., STA-123)
 	linearIssue?: LinearIssue;
 	claudeStatus?: ClaudeStatus;
+	claudeTool?: string; // Current tool name (for UI differentiation, e.g. AskUserQuestion)
 	worktreePath: string | null;
 }
 
@@ -56,17 +59,17 @@ export interface PaneLayout {
 }
 
 // Claude status display
-// Note: "thinking" and "tool_use" use ClaudeAnimation instead of a static icon
+// Note: "processing" and "running_tool" use ClaudeAnimation instead of a static icon
 export const CLAUDE_STATUS_DISPLAY: Record<
 	ClaudeStatus,
 	{color: string; icon?: string}
 > = {
-	idle: {color: 'gray', icon: '○'},
-	thinking: {color: COLORS.CLAUDE_ORANGE},
-	tool_use: {color: COLORS.CLAUDE_ORANGE},
-	waiting_input: {color: 'blue', icon: '?'},
-	waiting_permission: {color: 'red', icon: '!'},
-	done: {color: 'green', icon: '✓'},
+	processing: {color: COLORS.CLAUDE_ORANGE},
+	running_tool: {color: COLORS.CLAUDE_ORANGE},
+	waiting_for_input: {color: 'blue', icon: '○'},
+	waiting_for_approval: {color: 'red', icon: '!'},
+	compacting: {color: 'yellow', icon: '◇'},
+	ended: {color: 'gray', icon: '·'},
 	error: {color: 'red', icon: '✗'},
 	unknown: {color: 'gray', icon: '?'},
 };

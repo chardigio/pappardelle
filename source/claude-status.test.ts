@@ -30,26 +30,22 @@ function createStatusFile(
 // STABLE_STATUSES Tests
 // ============================================================================
 
-test('STABLE_STATUSES includes done', t => {
-	t.true(STABLE_STATUSES.has('done'), 'done should be a stable status');
-});
-
-test('STABLE_STATUSES includes idle', t => {
-	t.true(STABLE_STATUSES.has('idle'), 'idle should be a stable status');
-});
-
-test('STABLE_STATUSES includes waiting_input', t => {
+test('STABLE_STATUSES includes waiting_for_input', t => {
 	t.true(
-		STABLE_STATUSES.has('waiting_input'),
-		'waiting_input should be a stable status',
+		STABLE_STATUSES.has('waiting_for_input'),
+		'waiting_for_input should be a stable status',
 	);
 });
 
-test('STABLE_STATUSES includes waiting_permission', t => {
+test('STABLE_STATUSES includes waiting_for_approval', t => {
 	t.true(
-		STABLE_STATUSES.has('waiting_permission'),
-		'waiting_permission should be a stable status',
+		STABLE_STATUSES.has('waiting_for_approval'),
+		'waiting_for_approval should be a stable status',
 	);
+});
+
+test('STABLE_STATUSES includes ended', t => {
+	t.true(STABLE_STATUSES.has('ended'), 'ended should be a stable status');
 });
 
 test('STABLE_STATUSES includes error', t => {
@@ -59,17 +55,24 @@ test('STABLE_STATUSES includes error', t => {
 	);
 });
 
-test('STABLE_STATUSES does not include thinking', t => {
+test('STABLE_STATUSES does not include processing', t => {
 	t.false(
-		STABLE_STATUSES.has('thinking'),
-		'thinking is an active status, not stable',
+		STABLE_STATUSES.has('processing'),
+		'processing is an active status, not stable',
 	);
 });
 
-test('STABLE_STATUSES does not include tool_use', t => {
+test('STABLE_STATUSES does not include running_tool', t => {
 	t.false(
-		STABLE_STATUSES.has('tool_use'),
-		'tool_use is an active status, not stable',
+		STABLE_STATUSES.has('running_tool'),
+		'running_tool is an active status, not stable',
+	);
+});
+
+test('STABLE_STATUSES does not include compacting', t => {
+	t.false(
+		STABLE_STATUSES.has('compacting'),
+		'compacting is an active status, not stable',
 	);
 });
 
@@ -84,33 +87,43 @@ test('STABLE_STATUSES does not include unknown', t => {
 // ACTIVE_STATUSES Tests
 // ============================================================================
 
-test('ACTIVE_STATUSES includes thinking', t => {
+test('ACTIVE_STATUSES includes processing', t => {
 	t.true(
-		ACTIVE_STATUSES.has('thinking'),
-		'thinking should be an active status',
+		ACTIVE_STATUSES.has('processing'),
+		'processing should be an active status',
 	);
 });
 
-test('ACTIVE_STATUSES includes tool_use', t => {
+test('ACTIVE_STATUSES includes running_tool', t => {
 	t.true(
-		ACTIVE_STATUSES.has('tool_use'),
-		'tool_use should be an active status',
+		ACTIVE_STATUSES.has('running_tool'),
+		'running_tool should be an active status',
 	);
 });
 
-test('ACTIVE_STATUSES does not include done', t => {
-	t.false(ACTIVE_STATUSES.has('done'), 'done is a stable status, not active');
+test('ACTIVE_STATUSES includes compacting', t => {
+	t.true(
+		ACTIVE_STATUSES.has('compacting'),
+		'compacting should be an active status',
+	);
 });
 
-test('ACTIVE_STATUSES does not include idle', t => {
-	t.false(ACTIVE_STATUSES.has('idle'), 'idle is a stable status, not active');
+test('ACTIVE_STATUSES does not include waiting_for_input', t => {
+	t.false(
+		ACTIVE_STATUSES.has('waiting_for_input'),
+		'waiting_for_input is a stable status, not active',
+	);
 });
 
-test('ACTIVE_STATUSES has exactly 2 statuses', t => {
+test('ACTIVE_STATUSES does not include ended', t => {
+	t.false(ACTIVE_STATUSES.has('ended'), 'ended is a stable status, not active');
+});
+
+test('ACTIVE_STATUSES has exactly 3 statuses', t => {
 	t.is(
 		ACTIVE_STATUSES.size,
-		2,
-		'Only thinking and tool_use should be active statuses',
+		3,
+		'processing, running_tool, and compacting should be active statuses',
 	);
 });
 
@@ -134,12 +147,12 @@ test('ACTIVE_STATUS_TIMEOUT is 10 minutes', t => {
 test('All ClaudeStatus types are categorized', t => {
 	// All possible statuses from the ClaudeStatus type
 	const allStatuses: ClaudeStatus[] = [
-		'idle',
-		'thinking',
-		'tool_use',
-		'waiting_input',
-		'waiting_permission',
-		'done',
+		'processing',
+		'running_tool',
+		'waiting_for_input',
+		'waiting_for_approval',
+		'compacting',
+		'ended',
 		'error',
 		'unknown',
 	];
@@ -170,41 +183,56 @@ test('All ClaudeStatus types are categorized', t => {
 // These verify the icon/color mapping is correct
 // ============================================================================
 
-test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_input', async t => {
+test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_for_input', async t => {
 	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
 
 	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_input.icon,
-		'?',
-		'waiting_input should show ? icon',
+		CLAUDE_STATUS_DISPLAY.waiting_for_input.icon,
+		'○',
+		'waiting_for_input should show ○ icon',
 	);
 	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_input.color,
+		CLAUDE_STATUS_DISPLAY.waiting_for_input.color,
 		'blue',
-		'waiting_input should be blue',
+		'waiting_for_input should be blue',
 	);
 });
 
-test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_permission', async t => {
+test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_for_approval', async t => {
 	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
 
 	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_permission.icon,
+		CLAUDE_STATUS_DISPLAY.waiting_for_approval.icon,
 		'!',
-		'waiting_permission should show ! icon',
+		'waiting_for_approval should show ! icon',
 	);
 	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_permission.color,
+		CLAUDE_STATUS_DISPLAY.waiting_for_approval.color,
 		'red',
-		'waiting_permission should be red',
+		'waiting_for_approval should be red',
 	);
 });
 
-test('CLAUDE_STATUS_DISPLAY has correct icon for done', async t => {
+test('CLAUDE_STATUS_DISPLAY has correct icon for ended', async t => {
 	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
 
-	t.is(CLAUDE_STATUS_DISPLAY.done.icon, '✓', 'done should show ✓ icon');
-	t.is(CLAUDE_STATUS_DISPLAY.done.color, 'green', 'done should be green');
+	t.is(CLAUDE_STATUS_DISPLAY.ended.icon, '·', 'ended should show · icon');
+	t.is(CLAUDE_STATUS_DISPLAY.ended.color, 'gray', 'ended should be gray');
+});
+
+test('CLAUDE_STATUS_DISPLAY has correct icon for compacting', async t => {
+	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
+
+	t.is(
+		CLAUDE_STATUS_DISPLAY.compacting.icon,
+		'◇',
+		'compacting should show ◇ icon',
+	);
+	t.is(
+		CLAUDE_STATUS_DISPLAY.compacting.color,
+		'yellow',
+		'compacting should be yellow',
+	);
 });
 
 test('CLAUDE_STATUS_DISPLAY shows ? for unknown (fallback)', async t => {

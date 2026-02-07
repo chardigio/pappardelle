@@ -3,16 +3,18 @@
 Claude Code hook to update Pappardelle status.
 This script is called by Claude Code hooks to report status changes.
 
+Follows Claude Island's event-forward model where every hook event updates state.
+
 Usage:
     update-status.py <status> [--tool <tool_name>]
 
 Status values:
-    - thinking: Claude is processing
-    - tool_use: Claude is using a tool
-    - waiting_input: Claude is waiting for user input
-    - waiting_permission: Claude needs permission approval
-    - done: Claude finished the task
-    - idle: Session is idle
+    - processing: Claude is actively working
+    - running_tool: Claude is using a tool
+    - waiting_for_input: Claude finished turn / waiting for user
+    - waiting_for_approval: Claude needs permission approval
+    - compacting: Context window is being compacted
+    - ended: Session terminated
     - error: An error occurred
 """
 
@@ -76,6 +78,8 @@ def update_status(
     status: str,
     tool_name: Optional[str] = None,
     session_id: Optional[str] = None,
+    event: Optional[str] = None,
+    cwd: Optional[str] = None,
 ) -> None:
     workspace = get_workspace_name()
     status_dir = get_status_dir()
@@ -92,6 +96,10 @@ def update_status(
 
     if tool_name:
         state["currentTool"] = tool_name
+    if event:
+        state["event"] = event
+    if cwd:
+        state["cwd"] = cwd
 
     with open(status_file, "w") as f:
         json.dump(state, f, indent=2)
@@ -115,57 +123,47 @@ def main() -> None:
             if tool_idx + 1 < len(sys.argv):
                 tool_name = sys.argv[tool_idx + 1]
     else:
-        # Determine from hook event
+        # Determine from hook event — follows Claude Island's event-forward model
+        # where every event updates state uniformly without tool-specific special-casing
         hook_event = input_data.get("hook_event_name", "")
         tool_name = input_data.get("tool_name")
 
-        if hook_event == "PreToolUse":
-            status = "tool_use"
+        if hook_event == "UserPromptSubmit":
+            status = "processing"
+        elif hook_event == "PreToolUse":
+            status = "running_tool"
         elif hook_event == "PostToolUse":
-            # After AskUserQuestion, Claude is waiting for user input
-            if tool_name == "AskUserQuestion":
-                status = "waiting_input"
-            else:
-                status = "thinking"
-        elif hook_event == "UserPromptSubmit":
-            status = "thinking"
-        elif hook_event == "Stop":
-            status = "done"
-        elif hook_event == "SessionStart":
-            status = "idle"
-        elif hook_event == "SessionEnd":
-            status = "idle"
-        elif hook_event == "Notification":
-            # NOTE: We ignore ALL notification events for status updates because:
-            # 1. "permission_prompt": PermissionRequest event already handles this with tool context,
-            #    and AskUserQuestion triggers this but should show '?' not '!'
-            # 2. "idle_prompt": This fires when Claude is sitting at the prompt waiting for new input,
-            #    but this is semantically different from "waiting_input" (which means Claude asked
-            #    a question via AskUserQuestion). If Claude finished its work (status="done"), that
-            #    status should persist until the user actually interacts again - idle_prompt was
-            #    incorrectly overwriting "done" with "waiting_input" for finished sessions.
-            # 3. Other notifications: Not relevant to session status
-            sys.exit(0)
+            status = "processing"
         elif hook_event == "PermissionRequest":
-            # AskUserQuestion triggers PermissionRequest but it's actually waiting for user input
-            # not a permission approval, so show '?' instead of '!'
-            if tool_name == "AskUserQuestion":
-                status = "waiting_input"
-            else:
-                status = "waiting_permission"
-        elif hook_event == "PreCompact":
-            # During compaction, Claude is processing
-            status = "thinking"
+            status = "waiting_for_approval"
+        elif hook_event == "Stop":
+            status = "waiting_for_input"
         elif hook_event == "SubagentStop":
-            # Subagent stopping doesn't change parent session status
-            sys.exit(0)
+            status = "waiting_for_input"
+        elif hook_event == "SessionStart":
+            status = "waiting_for_input"
+        elif hook_event == "SessionEnd":
+            status = "ended"
+        elif hook_event == "PreCompact":
+            status = "compacting"
+        elif hook_event == "Notification":
+            notification_type = input_data.get("notification_type")
+            # Skip permission_prompt — PermissionRequest hook handles this
+            if notification_type == "permission_prompt":
+                sys.exit(0)
+            elif notification_type == "idle_prompt":
+                status = "waiting_for_input"
+            else:
+                sys.exit(0)
         else:
             # Unknown event, don't update status
             sys.exit(0)
 
     session_id = input_data.get("session_id", os.environ.get("CLAUDE_SESSION_ID"))
+    event_name = input_data.get("hook_event_name")
+    cwd = input_data.get("cwd")
     log_debug(f"Setting status to: {status} (tool={tool_name})")
-    update_status(status, tool_name, session_id)
+    update_status(status, tool_name, session_id, event_name, cwd)
 
     # Exit successfully
     sys.exit(0)

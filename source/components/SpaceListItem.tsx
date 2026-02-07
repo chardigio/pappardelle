@@ -11,17 +11,24 @@ interface Props {
 }
 
 export default function SpaceListItem({space, isSelected, width}: Props) {
-	const statusInfo = space.claudeStatus
+	const baseStatusInfo = space.claudeStatus
 		? CLAUDE_STATUS_DISPLAY[space.claudeStatus]
 		: CLAUDE_STATUS_DISPLAY.unknown;
 
+	// AskUserQuestion is a question (blue '?'), not a permission approval (red '!')
+	const isQuestion =
+		space.claudeStatus === 'waiting_for_approval' &&
+		space.claudeTool === 'AskUserQuestion';
+
+	const statusInfo = isQuestion ? {color: 'blue', icon: '?'} : baseStatusInfo;
+
 	const isWorking =
-		space.claudeStatus === 'thinking' || space.claudeStatus === 'tool_use';
+		space.claudeStatus === 'processing' ||
+		space.claudeStatus === 'running_tool';
 
 	// Determine if row needs attention (blinking background)
-	const needsAttention =
-		space.claudeStatus === 'waiting_input' ||
-		space.claudeStatus === 'waiting_permission';
+	// Both approval requests and questions blink, but with different colors
+	const needsAttention = space.claudeStatus === 'waiting_for_approval';
 
 	// Blink state for rows that need attention
 	const [blinkOn, setBlinkOn] = useState(true);
@@ -70,11 +77,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 
 	// When blinking, use inverse to make the row stand out
 	const useInverse = needsAttention && blinkOn;
-	const textColor = useInverse
-		? space.claudeStatus === 'waiting_permission'
-			? 'red'
-			: 'blue'
-		: undefined;
+	const textColor = useInverse ? (isQuestion ? 'blue' : 'red') : undefined;
 
 	return (
 		<Box>
