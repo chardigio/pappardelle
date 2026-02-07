@@ -44,17 +44,11 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	}, [needsAttention]);
 
 	// Calculate available width for title
-	// Format: "STA-123 ✢ title..."
-	// issueKey (8 padded) + space (1) + icon (1) + space (1) = 11 chars fixed
-	const issueKeyWidth = 8;
-	const fixedWidth = issueKeyWidth + 1 + 1 + 1; // 11
-	const availableTitleWidth = Math.max(0, width - fixedWidth);
-
-	// Issue key and padding (separate so badge only covers the key text)
+	// Format: "✢ STA-123 title..."
+	// icon (1) + space (1) + issueKey (variable) + space (1) = 3 + key length
 	const issueKey = space.name;
-	const issueKeyPadding = ' '.repeat(
-		Math.max(0, issueKeyWidth - issueKey.length),
-	);
+	const fixedWidth = 1 + 1 + issueKey.length + 1;
+	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
 	// Truncate title
 	const title = space.linearIssue?.title ?? '';
@@ -89,7 +83,26 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 
 	return (
 		<Box>
-			{/* Issue key badge (colored by Linear state, inverse gives colored background) */}
+			{/* Status icon (NOT highlighted, always shows its own color) */}
+			{isWorking ? (
+				<ClaudeAnimation
+					color={useBlinkInverse ? textColor : statusInfo.color}
+					inverse={useBlinkInverse}
+				/>
+			) : (
+				<Text
+					color={useBlinkInverse ? textColor : statusInfo.color}
+					inverse={useBlinkInverse}
+				>
+					{statusInfo.icon ?? '?'}
+				</Text>
+			)}
+			{/* Space after status icon (NOT highlighted) */}
+			<Text inverse={useBlinkInverse} color={textColor}>
+				{' '}
+			</Text>
+
+			{/* Issue key badge (colored by Linear state, highlighted when selected) */}
 			<Text
 				color={useBlinkInverse ? textColor : stateColor}
 				bold
@@ -97,45 +110,13 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			>
 				{issueKey}
 			</Text>
-			{/* Padding after issue key (regular inverse, no badge color) */}
-			<Text inverse={useInverse} color={textColor}>
-				{issueKeyPadding}
-			</Text>
 
-			{/* Claude status indicator (regular inverse when selected, no badge) */}
-			<Text inverse={useInverse} color={textColor}>
+			{/* Space between issue key and title (same highlight as title) */}
+			<Text dimColor={!useInverse} inverse={useInverse} color={textColor}>
 				{' '}
 			</Text>
-			{isWorking ? (
-				<ClaudeAnimation
-					color={
-						useBlinkInverse
-							? textColor
-							: useSelectionInverse
-								? undefined
-								: statusInfo.color
-					}
-					inverse={useInverse}
-				/>
-			) : (
-				<Text
-					color={
-						useBlinkInverse
-							? textColor
-							: useSelectionInverse
-								? undefined
-								: statusInfo.color
-					}
-					inverse={useInverse}
-				>
-					{statusInfo.icon ?? '?'}
-				</Text>
-			)}
 
-			{/* Title (dimmed when not highlighted) */}
-			<Text inverse={useInverse} color={textColor}>
-				{' '}
-			</Text>
+			{/* Title (dimmed when not highlighted, highlighted when selected) */}
 			<Text
 				dimColor={!useInverse}
 				wrap="truncate"
