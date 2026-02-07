@@ -369,6 +369,33 @@ function detachInPane(paneId: string): void {
 // ============================================================================
 
 /**
+ * Get the window size (full terminal dimensions, not individual pane size)
+ * This is needed for relayout calculations since individual panes may have
+ * stale sizes after a resize.
+ */
+function getTmuxWindowSize(): {width: number; height: number} | null {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['display-message', '-p', '#{window_width} #{window_height}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			return null;
+		}
+		const parts = result.stdout.trim().split(' ');
+		const width = parseInt(parts[0] ?? '', 10);
+		const height = parseInt(parts[1] ?? '', 10);
+		if (isNaN(width) || isNaN(height)) {
+			return null;
+		}
+		return {width, height};
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Get current terminal/pane width from tmux
  */
 function getTmuxPaneWidth(): number {
@@ -848,6 +875,313 @@ export function getCurrentlyViewingSpace(): string | null {
  */
 export function clearCurrentlyViewingSpace(): void {
 	currentlyViewingSpace = null;
+}
+
+/**
+ * Get the current layout direction based on window dimensions.
+ * Used to detect when the layout mode needs to switch.
+ */
+export function getCurrentLayoutDirection(): 'horizontal' | 'vertical' | null {
+	const windowDims = getTmuxWindowSize();
+	if (!windowDims) return null;
+	return windowDims.width >= NARROW_SCREEN_THRESHOLD
+		? 'horizontal'
+		: 'vertical';
+}
+
+/**
+ * Kill a tmux pane by ID.
+ * Returns true if pane was killed or didn't exist.
+ */
+function killPane(paneId: string): boolean {
+	if (!paneId) return true;
+	try {
+		const result = spawnSync('tmux', ['kill-pane', '-t', paneId], {
+			encoding: 'utf-8',
+			timeout: 5000,
+			stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		if (result.error || result.status !== 0) {
+			log.warn(`Failed to kill pane ${paneId}: ${result.stderr}`);
+			return false;
+		}
+		log.debug(`Killed pane ${paneId}`);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Rebuild the tmux pane layout when the layout direction changes.
+ * Kills old viewer panes and creates new ones with the correct orientation.
+ *
+ * The list pane (where the Ink app runs) is preserved — only viewer panes
+ * are destroyed and recreated.
+ *
+ * Returns the new PaneLayout, or null on failure.
+ */
+export function rebuildLayout(
+	listPaneId: string,
+	oldClaudeViewerPaneId: string,
+	oldLazygitViewerPaneId: string,
+): {
+	listPaneId: string;
+	claudeViewerPaneId: string;
+	lazygitViewerPaneId: string;
+} | null {
+	try {
+		// Detach any nested clients before killing panes
+		if (oldClaudeViewerPaneId) {
+			if (claudeViewerHasClient) {
+				detachInPane(oldClaudeViewerPaneId);
+			}
+			killPane(oldClaudeViewerPaneId);
+		}
+		if (oldLazygitViewerPaneId) {
+			if (lazygitViewerHasClient) {
+				detachInPane(oldLazygitViewerPaneId);
+			}
+			killPane(oldLazygitViewerPaneId);
+		}
+
+		// Reset cached state since panes are destroyed
+		claudeViewerHasClient = false;
+		lazygitViewerHasClient = false;
+		claudeViewerTty = null;
+		lazygitViewerTty = null;
+		currentlyViewingSpace = null;
+
+		const cwd = process.cwd();
+
+		// Get terminal dimensions and calculate new layout
+		const windowDims = getTmuxWindowSize();
+		if (!windowDims) {
+			log.error('Failed to get window dimensions for rebuild');
+			return null;
+		}
+
+		const {width: totalWidth, height: totalHeight} = windowDims;
+		const layout = calculateLayout(totalWidth, totalHeight);
+
+		log.info(
+			`Rebuilding layout: ${totalWidth}x${totalHeight}, mode=${layout.direction}`,
+		);
+
+		let claudeViewerPaneId: string;
+		let lazygitViewerPaneId = '';
+
+		if (layout.direction === 'vertical') {
+			// VERTICAL: list on top, claude below
+			const claudeResult = spawnSync(
+				'tmux',
+				[
+					'split-window',
+					'-v',
+					'-t',
+					listPaneId,
+					'-c',
+					cwd,
+					'-l',
+					String(layout.claudeHeight),
+					'-P',
+					'-F',
+					'#{pane_id}',
+				],
+				{encoding: 'utf-8', timeout: 10000},
+			);
+
+			if (claudeResult.error || claudeResult.status !== 0) {
+				log.error(
+					`Rebuild: failed to create claude pane: ${claudeResult.stderr}`,
+				);
+				return null;
+			}
+			claudeViewerPaneId = claudeResult.stdout.trim();
+
+			log.info(
+				`Rebuilt vertical: list=${layout.listHeight}, claude=${layout.claudeHeight}`,
+			);
+		} else {
+			// HORIZONTAL: list | claude | lazygit
+			const rightPortionWidth =
+				(layout.claudeWidth ?? 40) + (layout.lazygitWidth ?? 0) + 1;
+
+			const claudeResult = spawnSync(
+				'tmux',
+				[
+					'split-window',
+					'-h',
+					'-t',
+					listPaneId,
+					'-c',
+					cwd,
+					'-l',
+					String(rightPortionWidth),
+					'-P',
+					'-F',
+					'#{pane_id}',
+				],
+				{encoding: 'utf-8', timeout: 10000},
+			);
+
+			if (claudeResult.error || claudeResult.status !== 0) {
+				log.error(
+					`Rebuild: failed to create claude pane: ${claudeResult.stderr}`,
+				);
+				return null;
+			}
+			claudeViewerPaneId = claudeResult.stdout.trim();
+
+			if ((layout.lazygitWidth ?? 0) >= MIN_LAZYGIT_WIDTH) {
+				const lazygitResult = spawnSync(
+					'tmux',
+					[
+						'split-window',
+						'-h',
+						'-t',
+						claudeViewerPaneId,
+						'-c',
+						cwd,
+						'-l',
+						String(layout.lazygitWidth),
+						'-P',
+						'-F',
+						'#{pane_id}',
+					],
+					{encoding: 'utf-8', timeout: 10000},
+				);
+
+				if (!lazygitResult.error && lazygitResult.status === 0) {
+					lazygitViewerPaneId = lazygitResult.stdout.trim();
+				}
+			}
+
+			log.info(
+				`Rebuilt horizontal: list=${layout.listWidth}, claude=${layout.claudeWidth}, lazygit=${layout.lazygitWidth}`,
+			);
+		}
+
+		// Set pane titles
+		try {
+			execSync(
+				`tmux select-pane -t "${claudeViewerPaneId}" -T "claude-viewer"`,
+				{encoding: 'utf-8', timeout: 5000},
+			);
+			if (lazygitViewerPaneId) {
+				execSync(
+					`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`,
+					{encoding: 'utf-8', timeout: 5000},
+				);
+			}
+		} catch {
+			// Non-fatal
+		}
+
+		// Return focus to list pane
+		spawnSync('tmux', ['select-pane', '-t', listPaneId], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+
+		log.info(
+			`Layout rebuilt: claude=${claudeViewerPaneId}, lazygit=${lazygitViewerPaneId || '(none)'}`,
+		);
+
+		return {listPaneId, claudeViewerPaneId, lazygitViewerPaneId};
+	} catch (err) {
+		log.error(
+			'Failed to rebuild layout',
+			err instanceof Error ? err : undefined,
+		);
+		return null;
+	}
+}
+
+/**
+ * Relayout tmux panes based on current terminal dimensions.
+ * Call this when the terminal is resized to keep panes properly proportioned.
+ *
+ * For horizontal layout: resizes list and lazygit widths (claude gets remainder)
+ * For vertical layout: resizes list height (claude gets remainder)
+ *
+ * This only re-proportions within the current layout mode. For switching between
+ * horizontal/vertical, use rebuildLayout() instead.
+ */
+export function relayoutPanes(
+	listPaneId: string,
+	lazygitViewerPaneId: string,
+): boolean {
+	try {
+		// Get current terminal dimensions from the window (not individual panes)
+		const windowDims = getTmuxWindowSize();
+		if (!windowDims) {
+			log.error('Failed to get tmux window dimensions for relayout');
+			return false;
+		}
+
+		const {width: totalWidth, height: totalHeight} = windowDims;
+		const layout = calculateLayout(totalWidth, totalHeight);
+
+		log.info(
+			`Relayout: ${totalWidth}x${totalHeight}, mode=${layout.direction}`,
+		);
+
+		if (layout.direction === 'vertical') {
+			// Vertical: resize list pane height, claude gets remainder
+			if (layout.listHeight != null) {
+				const result = spawnSync(
+					'tmux',
+					['resize-pane', '-t', listPaneId, '-y', String(layout.listHeight)],
+					{encoding: 'utf-8', timeout: 5000},
+				);
+				if (result.error || result.status !== 0) {
+					log.error(`Failed to resize list pane height: ${result.stderr}`);
+					return false;
+				}
+			}
+		} else {
+			// Horizontal: resize list width and lazygit width, claude gets remainder
+			if (layout.listWidth != null) {
+				const result = spawnSync(
+					'tmux',
+					['resize-pane', '-t', listPaneId, '-x', String(layout.listWidth)],
+					{encoding: 'utf-8', timeout: 5000},
+				);
+				if (result.error || result.status !== 0) {
+					log.error(`Failed to resize list pane width: ${result.stderr}`);
+					return false;
+				}
+			}
+
+			if (lazygitViewerPaneId && layout.lazygitWidth != null) {
+				const result = spawnSync(
+					'tmux',
+					[
+						'resize-pane',
+						'-t',
+						lazygitViewerPaneId,
+						'-x',
+						String(layout.lazygitWidth),
+					],
+					{encoding: 'utf-8', timeout: 5000},
+				);
+				if (result.error || result.status !== 0) {
+					log.error(`Failed to resize lazygit pane width: ${result.stderr}`);
+					// Non-fatal, continue
+				}
+			}
+		}
+
+		log.info('Relayout completed successfully');
+		return true;
+	} catch (err) {
+		log.error(
+			'Failed to relayout panes',
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
 }
 
 /**

@@ -32,6 +32,9 @@ import {
 	unzoomPane,
 	resizeListPaneForSessionCount,
 	isVerticalLayout,
+	relayoutPanes,
+	getCurrentLayoutDirection,
+	rebuildLayout,
 } from './tmux.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
@@ -42,7 +45,7 @@ interface AppProps {
 
 log.info('Pappardelle starting');
 
-export default function App({paneLayout}: AppProps) {
+export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const {stdout} = useStdout();
 
 	const [spaces, setSpaces] = useState<SpaceData[]>([]);
@@ -53,6 +56,16 @@ export default function App({paneLayout}: AppProps) {
 	const [statusMessage, setStatusMessage] = useState('');
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
+	// Mutable pane layout — updated when layout mode switches (horizontal ↔ vertical)
+	const [paneLayout, setPaneLayout] = useState<PaneLayout | null>(
+		initialPaneLayout,
+	);
+
+	// Track current layout direction to detect mode switches
+	const layoutDirectionRef = useRef<'horizontal' | 'vertical' | null>(
+		getCurrentLayoutDirection(),
+	);
+
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
 
@@ -62,23 +75,56 @@ export default function App({paneLayout}: AppProps) {
 		cols: stdout?.columns ?? 80,
 	});
 
-	// Listen for terminal resize events to update dimensions
+	// Listen for terminal resize events to update dimensions and relayout panes
 	// (cli.tsx handles screen clearing on resize)
 	useEffect(() => {
 		if (!stdout) return;
+
+		let relayoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 		const handleResize = () => {
 			setTermDimensions({
 				rows: stdout.rows ?? 40,
 				cols: stdout.columns ?? 80,
 			});
+
+			// Debounce tmux pane relayout (resize events fire rapidly)
+			if (relayoutTimer) clearTimeout(relayoutTimer);
+			relayoutTimer = setTimeout(() => {
+				if (!paneLayout || showPromptDialog) return;
+
+				// Check if layout direction changed (crossed the threshold)
+				const newDirection = getCurrentLayoutDirection();
+				if (newDirection && newDirection !== layoutDirectionRef.current) {
+					log.info(
+						`Layout mode switch: ${layoutDirectionRef.current} → ${newDirection}`,
+					);
+					layoutDirectionRef.current = newDirection;
+
+					// Rebuild panes with new orientation
+					const newLayout = rebuildLayout(
+						paneLayout.listPaneId,
+						paneLayout.claudeViewerPaneId,
+						paneLayout.lazygitViewerPaneId,
+					);
+					if (newLayout) {
+						setPaneLayout(newLayout);
+						setCurrentSpace(null); // Force re-attach
+						panesInitialized.current = false;
+					}
+				} else {
+					// Same direction — just re-proportion within current mode
+					relayoutPanes(paneLayout.listPaneId, paneLayout.lazygitViewerPaneId);
+				}
+			}, 150);
 		};
 
 		stdout.on('resize', handleResize);
 		return () => {
 			stdout.off('resize', handleResize);
+			if (relayoutTimer) clearTimeout(relayoutTimer);
 		};
-	}, [stdout]);
+	}, [stdout, paneLayout, showPromptDialog]);
 
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
