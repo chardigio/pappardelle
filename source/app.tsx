@@ -16,10 +16,8 @@ import {
 	watchStatuses,
 	ensureStatusDir,
 } from './claude-status.js';
-import {
-	normalizeIssueIdentifier,
-	checkIssueHasPRWithCommits,
-} from './issue-checker.js';
+import {normalizeIssueIdentifier} from './issue-checker.js';
+import {routeSession} from './session-routing.js';
 import {loadConfig, getTeamPrefix} from './config.js';
 import {
 	isInTmux,
@@ -423,30 +421,10 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
 		const normalizedIssueKey = normalizeIssueIdentifier(input, teamPrefix);
 
-		if (normalizedIssueKey) {
-			setStatusMessage(`Checking ${normalizedIssueKey} for existing PR...`);
-
-			const prInfo = checkIssueHasPRWithCommits(normalizedIssueKey);
-
-			if (prInfo.hasPR && prInfo.hasCommits) {
-				spawnIdow(
-					['--resume', normalizedIssueKey],
-					`Resuming ${normalizedIssueKey} (PR #${prInfo.prNumber} has commits)...`,
-					`Opened ${normalizedIssueKey} in resume mode`,
-				);
-				return;
-			}
-
-			spawnIdow(
-				[normalizedIssueKey],
-				`Starting ${normalizedIssueKey}...`,
-				`Opened ${normalizedIssueKey}`,
-			);
-			return;
-		}
-
-		// For descriptions, idow will create a new issue
-		spawnIdow([input], 'Starting new IDOW session...', 'IDOW session started!');
+		// Route the session: always pass just the issue key (or description) to idow.
+		// idow handles both new and existing issues correctly with a bare issue key.
+		const route = routeSession(normalizedIssueKey, input);
+		spawnIdow(route.args, route.statusStart, route.statusSuccess);
 	};
 
 	// Handle space deletion (kills tmux sessions for the space)
