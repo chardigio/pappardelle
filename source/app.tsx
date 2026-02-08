@@ -97,6 +97,10 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		};
 	});
 
+	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
+	const anyDialogOpen =
+		showPromptDialog || showDeleteConfirm || showHelp || showErrorDialog;
+
 	// Listen for terminal resize events to update dimensions and relayout panes.
 	// Screen clearing lives here (not in cli.tsx) so it's always immediately
 	// followed by setTermDimensions, which guarantees a React re-render after
@@ -123,7 +127,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			// Debounce tmux pane relayout (resize events fire rapidly)
 			if (relayoutTimer) clearTimeout(relayoutTimer);
 			relayoutTimer = setTimeout(() => {
-				if (!paneLayout || showPromptDialog) return;
+				if (!paneLayout || anyDialogOpen) return;
 
 				// Check if layout direction changed (crossed the threshold)
 				const newDirection = getCurrentLayoutDirection();
@@ -156,7 +160,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			stdout.off('resize', handleResize);
 			if (relayoutTimer) clearTimeout(relayoutTimer);
 		};
-	}, [stdout, paneLayout, showPromptDialog]);
+	}, [stdout, paneLayout, anyDialogOpen]);
 
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
@@ -273,12 +277,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
 	const [isZooming, setIsZooming] = useState(false);
 
-	// Zoom/unzoom list pane when prompt dialog is shown/hidden
-	// This gives full screen space for entering the prompt text
+	// Zoom/unzoom list pane when any dialog is shown/hidden
+	// This gives full screen space for all dialogs
 	useEffect(() => {
 		if (!paneLayout) return;
 
-		if (showPromptDialog) {
+		if (anyDialogOpen) {
 			setIsZooming(true);
 			zoomPane(paneLayout.listPaneId);
 			// Wait for zoom to complete before allowing render
@@ -288,7 +292,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			unzoomPane(paneLayout.listPaneId);
 			setTimeout(() => setIsZooming(false), 100);
 		}
-	}, [showPromptDialog, paneLayout]);
+	}, [anyDialogOpen, paneLayout]);
 
 	// Attach to sessions when selection changes (uses existing idow sessions)
 	useEffect(() => {
@@ -656,7 +660,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 			{/* Main content */}
 			<Box flexDirection="column">
-				{showPromptDialog && !isZooming ? (
+				{isZooming ? null : showPromptDialog ? (
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}

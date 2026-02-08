@@ -31,7 +31,6 @@ export default function ConfirmDialog({
 			borderColor="red"
 			paddingX={2}
 			paddingY={1}
-			width={50}
 		>
 			<Box marginBottom={1}>
 				<Text bold color="red">
