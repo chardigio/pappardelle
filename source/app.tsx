@@ -5,9 +5,10 @@ import {spawn} from 'node:child_process';
 import SpaceListItem from './components/SpaceListItem.js';
 import PromptDialog from './components/PromptDialog.js';
 import ConfirmDialog from './components/ConfirmDialog.js';
-import ErrorDisplay, {clearRecentErrors} from './components/ErrorDisplay.js';
 import HelpOverlay from './components/HelpOverlay.js';
-import {createLogger} from './logger.js';
+import ErrorDialog from './components/ErrorDialog.js';
+import ClaudeAnimation from './components/ClaudeAnimation.js';
+import {createLogger, subscribeToErrors, type LogEntry} from './logger.js';
 
 const log = createLogger('app');
 
@@ -18,7 +19,7 @@ import {
 	ensureStatusDir,
 } from './claude-status.js';
 import {normalizeIssueIdentifier} from './issue-checker.js';
-import {routeSession} from './session-routing.js';
+import {routeSession, isStartingStatusResolved} from './session-routing.js';
 import {loadConfig, getTeamPrefix} from './config.js';
 import {
 	isInTmux,
@@ -35,11 +36,7 @@ import {
 	getCurrentLayoutDirection,
 	rebuildLayout,
 } from './tmux.js';
-import {
-	calculateVisibleWindow,
-	HEADER_ROWS,
-	STATUS_MESSAGE_EXTRA_ROWS,
-} from './list-view-sizing.js';
+import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.js';
 import {useMouse} from './use-mouse.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
@@ -59,7 +56,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 	const [showHelp, setShowHelp] = useState(false);
+	const [showErrorDialog, setShowErrorDialog] = useState(false);
 	const [statusMessage, setStatusMessage] = useState('');
+	const [isStatusAnimating, setIsStatusAnimating] = useState(false);
+	const [errorCount, setErrorCount] = useState(0);
+	const spaceCountAtStartRef = useRef(0);
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
 	// Mutable pane layout — updated when layout mode switches (horizontal ↔ vertical)
@@ -215,6 +216,30 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		return unwatch;
 	}, []);
 
+	// Subscribe to error count for header badge
+	useEffect(() => {
+		const unsubscribe = subscribeToErrors((errors: LogEntry[]) => {
+			setErrorCount(errors.length);
+		});
+		return unsubscribe;
+	}, []);
+
+	// Auto-clear "starting ..." status when the new space appears in the list
+	useEffect(() => {
+		if (!statusMessage) return;
+		const spaceNames = spaces.map(s => s.name);
+		if (
+			isStartingStatusResolved(
+				statusMessage,
+				spaceNames,
+				spaceCountAtStartRef.current,
+			)
+		) {
+			setStatusMessage('');
+			setIsStatusAnimating(false);
+		}
+	}, [spaces, statusMessage]);
+
 	// Track whether zoom animation is in progress
 	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
 	const [isZooming, setIsZooming] = useState(false);
@@ -327,7 +352,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
-			if (showPromptDialog || showDeleteConfirm || showHelp) {
+			if (showPromptDialog || showDeleteConfirm || showHelp || showErrorDialog) {
 				return; // Dialogs handle their own input
 			}
 
@@ -342,12 +367,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					setSelectedIndex(selectedIndex + 1);
 				}
 			} else if (key.return) {
-				// Enter pressed - for now, just confirm selection
-				const space = spaces[selectedIndex];
-				if (space) {
-					setStatusMessage(`Selected ${space.name}`);
-					setTimeout(() => setStatusMessage(''), 2000);
-				}
+				// Enter pressed - no-op for now (selection is visual)
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
@@ -356,29 +376,27 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
 				}
-			} else if (input === 'c') {
-				// Clear errors
-				clearRecentErrors();
+			} else if (input === 'e') {
+				// Show error dialog
+				if (errorCount > 0) {
+					setShowErrorDialog(true);
+				}
 			} else if (input === 'r') {
 				// Refresh
 				loadSpaces();
-				setStatusMessage('Refreshed');
-				setTimeout(() => setStatusMessage(''), 1000);
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);
 			}
 		},
-		{isActive: !showPromptDialog && !showDeleteConfirm && !showHelp},
+		{isActive: !showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog},
 	);
 
 	// Helper to spawn idow and capture errors
-	const spawnIdow = (
-		args: string[],
-		statusMessageOnStart: string,
-		statusMessageOnSuccess: string,
-	) => {
+	const spawnIdow = (args: string[], statusMessageOnStart: string) => {
+		spaceCountAtStartRef.current = spaces.length;
 		setStatusMessage(statusMessageOnStart);
+		setIsStatusAnimating(true);
 
 		const child = spawn('idow', args, {
 			detached: true,
@@ -399,25 +417,25 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		child.on('error', err => {
 			log.error(`Failed to spawn idow: ${err.message}`, err);
-			setStatusMessage(`Failed to start: ${err.message}`);
+			setStatusMessage(`failed: ${err.message.slice(0, 40)}`);
+			setIsStatusAnimating(false);
 			setTimeout(() => setStatusMessage(''), 5000);
 		});
 
 		child.on('close', code => {
 			if (code !== 0 && code !== null) {
+				setIsStatusAnimating(false);
 				const errorMsg =
 					stderrData.trim() ||
 					stdoutData.match(/Error: .*/)?.[0] ||
 					`idow exited with code ${code}`;
 				log.error(`idow failed (exit ${code}): ${errorMsg}`);
-				setStatusMessage(`Failed: ${errorMsg.slice(0, 60)}`);
+				setStatusMessage(`failed: ${errorMsg.slice(0, 40)}`);
 				setTimeout(() => setStatusMessage(''), 5000);
 			} else {
-				setStatusMessage(statusMessageOnSuccess);
-				setTimeout(() => {
-					setStatusMessage('');
-					loadSpaces();
-				}, 3000);
+				// Keep the "starting ..." message visible — the useEffect
+				// watching `spaces` will clear it once the new row appears.
+				loadSpaces();
 			}
 		});
 
@@ -444,7 +462,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
 		const route = routeSession(normalizedIssueKey, input);
-		spawnIdow(route.args, route.statusStart, route.statusSuccess);
+		spawnIdow(route.args, route.statusStart);
 	};
 
 	// Handle space deletion (kills tmux sessions for the space)
@@ -455,13 +473,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		if (!space) return;
 
 		// Kill the claude and lazygit tmux sessions for this space
-		const sessionsKilled = killSpaceSessions(space.name);
-
-		if (sessionsKilled) {
-			setStatusMessage(`Closed sessions for ${space.name}`);
-		} else {
-			setStatusMessage(`Partially closed sessions for ${space.name}`);
-		}
+		killSpaceSessions(space.name);
 
 		// Clear the viewer panes since we killed the sessions
 		if (paneLayout && currentSpace === space.name) {
@@ -475,7 +487,6 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			setSelectedIndex(selectedIndex - 1);
 		}
 
-		setTimeout(() => setStatusMessage(''), 3000);
 		loadSpaces();
 	};
 
@@ -484,27 +495,19 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 	// Calculate scroll offset for large lists
 	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
-		calculateVisibleWindow(
-			selectedIndex,
-			spaces.length,
-			termHeight,
-			!!statusMessage,
-		);
+		calculateVisibleWindow(selectedIndex, spaces.length, termHeight);
 	const visibleSpaces = spaces.slice(scrollOffset, scrollOffset + visibleCount);
 
 	// Handle mouse clicks on the list
 	const handleMouse = useCallback(
 		(event: {x: number; y: number; button: string}) => {
 			if (event.button !== 'left') return;
-			if (showPromptDialog || showDeleteConfirm) return;
+			if (showPromptDialog || showDeleteConfirm || showErrorDialog) return;
 			if (spaces.length === 0) return;
 
 			// Calculate which row in the list was clicked
 			// Layout: header (1 line) + marginBottom (1 line) = HEADER_ROWS
-			// Optional: status message (1 line) + marginBottom (1 line) = STATUS_MESSAGE_EXTRA_ROWS
-			const headerOffset =
-				HEADER_ROWS + (statusMessage ? STATUS_MESSAGE_EXTRA_ROWS : 0);
-			const clickedRow = event.y - headerOffset;
+			const clickedRow = event.y - HEADER_ROWS;
 
 			if (clickedRow < 0 || clickedRow >= visibleSpaces.length) return;
 
@@ -518,13 +521,16 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			spaces.length,
 			showPromptDialog,
 			showDeleteConfirm,
-			statusMessage,
+			showErrorDialog,
 			scrollOffset,
 			visibleSpaces.length,
 		],
 	);
 
-	useMouse(handleMouse, !showPromptDialog && !showDeleteConfirm && !showHelp);
+	useMouse(
+		handleMouse,
+		!showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog,
+	);
 
 	// Render the space list
 	const renderList = () => {
@@ -581,14 +587,22 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					{visibleSpaces.length < spaces.length &&
 						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
 				</Text>
+				{statusMessage && (
+					<>
+						<Text dimColor> | </Text>
+						{isStatusAnimating && <ClaudeAnimation />}
+						{isStatusAnimating && <Text> </Text>}
+						<Text color="yellow">{statusMessage}</Text>
+					</>
+				)}
+				{errorCount > 0 && !statusMessage && (
+					<>
+						<Text dimColor> | </Text>
+						<Text color="red">✗ {errorCount}</Text>
+						<Text dimColor> (e)</Text>
+					</>
+				)}
 			</Box>
-
-			{/* Status message */}
-			{statusMessage && (
-				<Box marginBottom={1}>
-					<Text color="yellow">{statusMessage}</Text>
-				</Box>
-			)}
 
 			{/* Main content */}
 			<Box flexDirection="column">
@@ -607,13 +621,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					/>
 				) : showHelp ? (
 					<HelpOverlay onClose={() => setShowHelp(false)} />
+				) : showErrorDialog ? (
+					<ErrorDialog onClose={() => setShowErrorDialog(false)} />
 				) : (
 					renderList()
 				)}
 			</Box>
-
-			{/* Error display */}
-			<ErrorDisplay maxVisible={2} />
 		</Box>
 	);
 }

@@ -13,14 +13,8 @@
 /** Rows consumed by header (1 line) + header marginBottom (1 line) = 2 */
 export const HEADER_ROWS = 2;
 
-/** Rows consumed by the status message when visible (message + marginBottom) = 2 */
-const STATUS_MESSAGE_ROWS = 2;
-
-/** Total non-item chrome (header only, no footer) when no status message is shown */
+/** Total non-item chrome (header only, no footer) */
 export const LIST_CHROME_ROWS = HEADER_ROWS;
-
-/** Additional rows consumed when a status message is visible */
-export const STATUS_MESSAGE_EXTRA_ROWS = STATUS_MESSAGE_ROWS;
 
 /** Fixed-width characters per row (excluding issue key): icon(1) + space(1) + space(1) = 3 */
 export const ROW_FIXED_OVERHEAD = 3;
@@ -33,16 +27,10 @@ export const ROW_FIXED_OVERHEAD = 3;
  * Calculate how many list items can be displayed given the terminal height.
  *
  * @param termHeight - Height of the list pane in rows
- * @param hasStatusMessage - Whether a status message is currently shown
  * @returns Maximum number of items that fit
  */
-export function calculateMaxVisibleItems(
-	termHeight: number,
-	hasStatusMessage = false,
-): number {
-	const chrome =
-		LIST_CHROME_ROWS + (hasStatusMessage ? STATUS_MESSAGE_EXTRA_ROWS : 0);
-	return Math.max(1, termHeight - chrome);
+export function calculateMaxVisibleItems(termHeight: number): number {
+	return Math.max(1, termHeight - LIST_CHROME_ROWS);
 }
 
 /**
@@ -76,13 +64,12 @@ export function calculateVisibleWindow(
 	selectedIndex: number,
 	totalItems: number,
 	termHeight: number,
-	hasStatusMessage?: boolean,
 ): {
 	scrollOffset: number;
 	visibleCount: number;
 	adjustedSelectedIndex: number;
 } {
-	const maxVisible = calculateMaxVisibleItems(termHeight, hasStatusMessage);
+	const maxVisible = calculateMaxVisibleItems(termHeight);
 	const scrollOffset = calculateScrollOffset(
 		selectedIndex,
 		totalItems,
@@ -174,15 +161,9 @@ export function renderListView(
 	selectedIndex: number,
 	termHeight: number,
 	width: number,
-	hasStatusMessage = false,
 ): string {
 	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
-		calculateVisibleWindow(
-			selectedIndex,
-			items.length,
-			termHeight,
-			hasStatusMessage,
-		);
+		calculateVisibleWindow(selectedIndex, items.length, termHeight);
 
 	const visibleItems = items.slice(scrollOffset, scrollOffset + visibleCount);
 	const rows: string[] = [];

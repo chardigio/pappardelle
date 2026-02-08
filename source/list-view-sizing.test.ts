@@ -8,7 +8,6 @@ import {
 	renderListRow,
 	renderListView,
 	LIST_CHROME_ROWS,
-	STATUS_MESSAGE_EXTRA_ROWS,
 	ROW_FIXED_OVERHEAD,
 } from './list-view-sizing.ts';
 
@@ -56,10 +55,6 @@ test('constants: LIST_CHROME_ROWS = 2 (header only, no footer)', t => {
 	t.is(LIST_CHROME_ROWS, 2);
 });
 
-test('constants: STATUS_MESSAGE_EXTRA_ROWS = 2', t => {
-	t.is(STATUS_MESSAGE_EXTRA_ROWS, 2);
-});
-
 test('constants: ROW_FIXED_OVERHEAD = 3 (icon + 2 spaces)', t => {
 	t.is(ROW_FIXED_OVERHEAD, 3);
 });
@@ -71,11 +66,6 @@ test('constants: ROW_FIXED_OVERHEAD = 3 (icon + 2 spaces)', t => {
 test('maxVisible: height 8, no status = 6 items', t => {
 	// 8 - 2 (chrome) = 6
 	t.is(calculateMaxVisibleItems(8), 6);
-});
-
-test('maxVisible: height 8, with status = 4 items', t => {
-	// 8 - 2 (chrome) - 2 (status) = 4
-	t.is(calculateMaxVisibleItems(8, true), 4);
 });
 
 test('maxVisible: height 10, no status = 8 items', t => {
@@ -197,14 +187,6 @@ test('visibleWindow: 20 items, height 20, selected 10', t => {
 	t.is(w.scrollOffset, 1);
 	t.is(w.visibleCount, 18);
 	t.is(w.adjustedSelectedIndex, 9); // 10 - 1
-});
-
-test('visibleWindow: with status message reduces visible items', t => {
-	const without = calculateVisibleWindow(0, 10, 8, false);
-	const with_ = calculateVisibleWindow(0, 10, 8, true);
-	// without: maxVisible = 6, with: maxVisible = 4
-	t.is(without.visibleCount, 6);
-	t.is(with_.visibleCount, 4);
 });
 
 // ============================================================================
@@ -479,14 +461,6 @@ test('vertical pane 8 rows: 10 sessions should show 6 (scrollable)', t => {
 
 	const lines = view.trim().split('\n');
 	t.is(lines.length, 6, 'Should show 6 items in 8-row pane');
-});
-
-test('vertical pane 8 rows: with status message, 5 sessions show 4', t => {
-	const items = makeItems(5);
-	const view = renderListView(items, 0, 8, 50, true);
-
-	const lines = view.trim().split('\n');
-	t.is(lines.length, 4, 'Status message reduces to 4 visible items');
 });
 
 // ============================================================================
