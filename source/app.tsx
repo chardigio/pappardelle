@@ -6,6 +6,7 @@ import SpaceListItem from './components/SpaceListItem.js';
 import PromptDialog from './components/PromptDialog.js';
 import ConfirmDialog from './components/ConfirmDialog.js';
 import ErrorDisplay, {clearRecentErrors} from './components/ErrorDisplay.js';
+import HelpOverlay from './components/HelpOverlay.js';
 import {createLogger} from './logger.js';
 
 const log = createLogger('app');
@@ -57,6 +58,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+	const [showHelp, setShowHelp] = useState(false);
 	const [statusMessage, setStatusMessage] = useState('');
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
@@ -325,7 +327,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
-			if (showPromptDialog || showDeleteConfirm) {
+			if (showPromptDialog || showDeleteConfirm || showHelp) {
 				return; // Dialogs handle their own input
 			}
 
@@ -362,9 +364,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				loadSpaces();
 				setStatusMessage('Refreshed');
 				setTimeout(() => setStatusMessage(''), 1000);
+			} else if (input === '?') {
+				// Show help overlay
+				setShowHelp(true);
 			}
 		},
-		{isActive: !showPromptDialog && !showDeleteConfirm},
+		{isActive: !showPromptDialog && !showDeleteConfirm && !showHelp},
 	);
 
 	// Helper to spawn idow and capture errors
@@ -519,7 +524,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		],
 	);
 
-	useMouse(handleMouse, !showPromptDialog && !showDeleteConfirm);
+	useMouse(handleMouse, !showPromptDialog && !showDeleteConfirm && !showHelp);
 
 	// Render the space list
 	const renderList = () => {
@@ -600,6 +605,8 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 						onConfirm={handleDeleteSpace}
 						onCancel={() => setShowDeleteConfirm(false)}
 					/>
+				) : showHelp ? (
+					<HelpOverlay onClose={() => setShowHelp(false)} />
 				) : (
 					renderList()
 				)}
