@@ -34,7 +34,12 @@ import {
 	getCurrentLayoutDirection,
 	rebuildLayout,
 } from './tmux.js';
-import {calculateVisibleWindow} from './list-view-sizing.js';
+import {
+	calculateVisibleWindow,
+	HEADER_ROWS,
+	STATUS_MESSAGE_EXTRA_ROWS,
+} from './list-view-sizing.js';
+import {useMouse} from './use-mouse.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
 // Props passed from cli.tsx with pane layout info
@@ -481,6 +486,40 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			!!statusMessage,
 		);
 	const visibleSpaces = spaces.slice(scrollOffset, scrollOffset + visibleCount);
+
+	// Handle mouse clicks on the list
+	const handleMouse = useCallback(
+		(event: {x: number; y: number; button: string}) => {
+			if (event.button !== 'left') return;
+			if (showPromptDialog || showDeleteConfirm) return;
+			if (spaces.length === 0) return;
+
+			// Calculate which row in the list was clicked
+			// Layout: header (1 line) + marginBottom (1 line) = HEADER_ROWS
+			// Optional: status message (1 line) + marginBottom (1 line) = STATUS_MESSAGE_EXTRA_ROWS
+			const headerOffset =
+				HEADER_ROWS + (statusMessage ? STATUS_MESSAGE_EXTRA_ROWS : 0);
+			const clickedRow = event.y - headerOffset;
+
+			if (clickedRow < 0 || clickedRow >= visibleSpaces.length) return;
+
+			// Convert visible row to absolute index
+			const absoluteIndex = scrollOffset + clickedRow;
+			if (absoluteIndex >= 0 && absoluteIndex < spaces.length) {
+				setSelectedIndex(absoluteIndex);
+			}
+		},
+		[
+			spaces.length,
+			showPromptDialog,
+			showDeleteConfirm,
+			statusMessage,
+			scrollOffset,
+			visibleSpaces.length,
+		],
+	);
+
+	useMouse(handleMouse, !showPromptDialog && !showDeleteConfirm);
 
 	// Render the space list
 	const renderList = () => {

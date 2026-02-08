@@ -189,6 +189,9 @@ clearScreen();
 
 // Cleanup on exit
 const cleanup = () => {
+	// Disable mouse tracking before exiting
+	process.stdout.write('\x1b[?1006l');
+	process.stdout.write('\x1b[?1000l');
 	process.stdout.write('\x1b[?1049l'); // Exit alt screen
 };
 

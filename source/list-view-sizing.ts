@@ -11,7 +11,7 @@
 // ============================================================================
 
 /** Rows consumed by header (1 line) + header marginBottom (1 line) = 2 */
-const HEADER_ROWS = 2;
+export const HEADER_ROWS = 2;
 
 /** Rows consumed by the status message when visible (message + marginBottom) = 2 */
 const STATUS_MESSAGE_ROWS = 2;
