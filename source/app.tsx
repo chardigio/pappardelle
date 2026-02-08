@@ -35,6 +35,8 @@ import {
 	relayoutPanes,
 	getCurrentLayoutDirection,
 	rebuildLayout,
+	getTmuxPaneWidth,
+	getTmuxPaneHeight,
 } from './tmux.js';
 import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.js';
 import {useMouse} from './use-mouse.js';
@@ -76,10 +78,21 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
 
-	// Track terminal dimensions with resize handling
-	const [termDimensions, setTermDimensions] = useState({
-		rows: stdout?.rows ?? 40,
-		cols: stdout?.columns ?? 80,
+	// Track terminal dimensions with resize handling.
+	// Use a lazy initializer that queries tmux directly for accurate pane
+	// dimensions. stdout.rows/columns may be stale after the tmux pane split
+	// because SIGWINCH hasn't been processed yet on first render.
+	const [termDimensions, setTermDimensions] = useState(() => {
+		if (isInTmux()) {
+			return {
+				rows: getTmuxPaneHeight(),
+				cols: getTmuxPaneWidth(),
+			};
+		}
+		return {
+			rows: stdout?.rows ?? 40,
+			cols: stdout?.columns ?? 80,
+		};
 	});
 
 	// Listen for terminal resize events to update dimensions and relayout panes.

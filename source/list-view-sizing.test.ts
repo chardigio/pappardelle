@@ -724,3 +724,134 @@ test('regression: old code showed 4 items in 10-row pane (now 8)', t => {
 	t.is(maxVisible, 8);
 	t.not(maxVisible, 4, 'Should NOT be 4 (old buggy value)');
 });
+
+// ============================================================================
+// STA-460: Stale dimension regression tests
+//
+// When pappardelle first loads in tmux, the list pane gets split from the
+// full terminal window. Before the fix, stdout.columns reflected the
+// PRE-SPLIT terminal width (e.g. 160 for a full-screen window) instead of
+// the POST-SPLIT list pane width (e.g. 37). This caused rows to be rendered
+// for a width much wider than the actual pane, so tmux clipped them — making
+// issue keys appear truncated and spacing appear broken.
+//
+// The fix queries tmux directly for the pane dimensions on initialization.
+// These tests document the visual difference between stale and correct widths.
+// ============================================================================
+
+test('STA-460: correct pane width renders issue key fully within pane', t => {
+	// After tmux split, list pane is ~37 chars wide (horizontal layout, 160-wide terminal)
+	const correctWidth = 37;
+	const items = [
+		{issueKey: 'STA-460', icon: '·', title: 'Fix pappardelle initialization'},
+	];
+
+	// renderListRow uses the full width for content (no prefix)
+	const row = renderListRow(
+		'STA-460',
+		'·',
+		'Fix pappardelle initialization',
+		correctWidth,
+	);
+
+	// available = 37 - 3 - 7 = 27 chars for title
+	// Title "Fix pappardelle initialization" is 30 chars > 27
+	// Truncated to 26 + ellipsis = 27
+	t.is(row, '· STA-460 Fix pappardelle initializa\u2026');
+	t.is(row.length, correctWidth, 'Row fills exactly the pane width');
+	t.true(row.includes('STA-460'), 'Issue key must not be truncated');
+});
+
+test('STA-460: stale pre-split width produces rows wider than actual pane', t => {
+	// Before fix: stdout.columns was still the full terminal width (160)
+	const staleWidth = 160;
+	// After fix: tmux reports the actual list pane width (37)
+	const correctWidth = 37;
+
+	const items = [
+		{issueKey: 'STA-460', icon: '·', title: 'Fix pappardelle initialization'},
+	];
+
+	const staleRow = renderListRow(
+		'STA-460',
+		'·',
+		'Fix pappardelle initialization',
+		staleWidth,
+	);
+	const correctRow = renderListRow(
+		'STA-460',
+		'·',
+		'Fix pappardelle initialization',
+		correctWidth,
+	);
+
+	// Stale row is way wider than the pane — tmux would clip it
+	t.true(
+		staleRow.length > correctWidth,
+		'Stale-width row overflows actual pane (this caused the visual bug)',
+	);
+
+	// Correct row fits within the pane
+	t.true(
+		correctRow.length <= correctWidth,
+		'Correct-width row fits within the pane',
+	);
+
+	// Both rows have the full issue key (the key itself isn't the problem,
+	// tmux clipping at the pane boundary is what made it look truncated)
+	t.true(staleRow.includes('STA-460'));
+	t.true(correctRow.includes('STA-460'));
+});
+
+test('STA-460: multiple rows with stale width all overflow the pane', t => {
+	// renderListRow is the content-only row (matches SpaceListItem in the real app).
+	// We compare row lengths directly against the pane width.
+	const staleWidth = 160;
+	const correctWidth = 37;
+
+	const rows = [
+		{key: 'STA-460', title: 'Fix pappardelle initialization'},
+		{key: 'STA-459', title: 'Add permanent main worktree row'},
+		{key: 'STA-449', title: 'Multi-Provider Music Integration'},
+	];
+
+	for (const {key, title} of rows) {
+		const staleRow = renderListRow(key, '·', title, staleWidth);
+		const correctRow = renderListRow(key, '·', title, correctWidth);
+
+		// Stale row overflows the actual pane — tmux would clip it
+		t.true(
+			staleRow.length > correctWidth,
+			`Stale row overflows: "${staleRow}" (${staleRow.length} > ${correctWidth})`,
+		);
+
+		// Correct row fits within the pane
+		t.true(
+			correctRow.length <= correctWidth,
+			`Correct row fits: "${correctRow}" (${correctRow.length} <= ${correctWidth})`,
+		);
+	}
+});
+
+test('STA-460: stale height affects visible item count', t => {
+	// Pre-split: full terminal is 45 rows tall
+	// Post-split: list pane is only 8 rows tall (vertical layout)
+	const staleHeight = 45;
+	const correctHeight = 8;
+
+	// With stale height: maxVisible = 45 - 2 = 43
+	// With correct height: maxVisible = 8 - 2 = 6
+	t.is(calculateMaxVisibleItems(staleHeight), 43);
+	t.is(calculateMaxVisibleItems(correctHeight), 6);
+
+	// The stale height would try to render way more items than fit in the pane,
+	// causing Ink to overflow and produce rendering artifacts
+	const items = makeItems(10);
+	const staleWindow = calculateVisibleWindow(0, 10, staleHeight);
+	const correctWindow = calculateVisibleWindow(0, 10, correctHeight);
+
+	// Stale: all 10 items "visible" (but pane can only show ~6)
+	t.is(staleWindow.visibleCount, 10);
+	// Correct: 6 items visible with scrolling
+	t.is(correctWindow.visibleCount, 6);
+});

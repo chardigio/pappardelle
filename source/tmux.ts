@@ -398,7 +398,7 @@ function getTmuxWindowSize(): {width: number; height: number} | null {
 /**
  * Get current terminal/pane width from tmux
  */
-function getTmuxPaneWidth(): number {
+export function getTmuxPaneWidth(): number {
 	try {
 		const result = spawnSync(
 			'tmux',
@@ -417,7 +417,7 @@ function getTmuxPaneWidth(): number {
 /**
  * Get current terminal/pane height from tmux
  */
-function getTmuxPaneHeight(): number {
+export function getTmuxPaneHeight(): number {
 	try {
 		const result = spawnSync(
 			'tmux',
