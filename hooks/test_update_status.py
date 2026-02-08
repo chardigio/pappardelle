@@ -86,6 +86,17 @@ class TestGetWorkspaceName:
         ):
             assert get_workspace_name() == "main"
 
+    def test_detects_arbitrary_branch_name(self):
+        """Should work with any branch name, not just 'master' or 'main'."""
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/cs/some-repo"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 0, "stdout": "foo\n"})(),
+            ),
+        ):
+            assert get_workspace_name() == "foo"
+
     def test_returns_unknown_when_git_fails(self):
         """If git command fails, should still return 'unknown'."""
         with (
