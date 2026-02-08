@@ -24,5 +24,5 @@ export function isWorktreeDirty(worktreePath: string): boolean {
  * Green = clean (no uncommitted changes), Yellow = dirty (has changes).
  */
 export function getMainWorktreeColor(isDirty: boolean): string {
-	return isDirty ? 'yellow' : 'green';
+	return isDirty ? 'yellow' : 'magentaBright';
 }

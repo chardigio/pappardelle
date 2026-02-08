@@ -117,14 +117,18 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			{/* Space + title (only if there's a title to show) */}
 			{truncatedTitle.length > 0 && (
 				<>
-					<Text dimColor={!useInverse} inverse={useInverse} color={textColor}>
+					<Text
+						dimColor={!useInverse}
+						inverse={useInverse}
+						color={useSelectionInverse ? stateColor : textColor}
+					>
 						{' '}
 					</Text>
 					<Text
 						dimColor={!useInverse}
 						wrap="truncate"
 						inverse={useInverse}
-						color={textColor}
+						color={useSelectionInverse ? stateColor : textColor}
 					>
 						{truncatedTitle}
 					</Text>

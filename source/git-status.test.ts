@@ -17,8 +17,8 @@ test('isWorktreeDirty returns false for clean worktree', t => {
 // getMainWorktreeColor Tests
 // ============================================================================
 
-test('getMainWorktreeColor returns green when clean', t => {
-	t.is(getMainWorktreeColor(false), 'green');
+test('getMainWorktreeColor returns magentaBright when clean', t => {
+	t.is(getMainWorktreeColor(false), 'magentaBright');
 });
 
 test('getMainWorktreeColor returns yellow when dirty', t => {
