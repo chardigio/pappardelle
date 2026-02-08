@@ -2,6 +2,7 @@ import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import type {SpaceData} from '../types.js';
 import {CLAUDE_STATUS_DISPLAY} from '../types.js';
+import {getMainWorktreeColor} from '../git-status.js';
 import ClaudeAnimation from './ClaudeAnimation.js';
 
 interface Props {
@@ -60,6 +61,8 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	// Linear state color (applied to issue key)
 	// Each state has a distinct color for easy visual identification
 	const getStateColor = (): string => {
+		if (space.isMainWorktree)
+			return getMainWorktreeColor(space.isDirty ?? false);
 		const state = space.linearIssue?.state;
 		if (!state) return 'gray';
 		if (state.type === 'completed') return 'magentaBright';
@@ -111,20 +114,22 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 				{issueKey}
 			</Text>
 
-			{/* Space between issue key and title (same highlight as title) */}
-			<Text dimColor={!useInverse} inverse={useInverse} color={textColor}>
-				{' '}
-			</Text>
-
-			{/* Title (dimmed when not highlighted, highlighted when selected) */}
-			<Text
-				dimColor={!useInverse}
-				wrap="truncate"
-				inverse={useInverse}
-				color={textColor}
-			>
-				{truncatedTitle}
-			</Text>
+			{/* Space + title (only if there's a title to show) */}
+			{truncatedTitle.length > 0 && (
+				<>
+					<Text dimColor={!useInverse} inverse={useInverse} color={textColor}>
+						{' '}
+					</Text>
+					<Text
+						dimColor={!useInverse}
+						wrap="truncate"
+						inverse={useInverse}
+						color={textColor}
+					>
+						{truncatedTitle}
+					</Text>
+				</>
+			)}
 		</Box>
 	);
 }

@@ -42,11 +42,13 @@ export interface ClaudeSessionState {
  * SpaceData represents a DOW workspace (Linear issue with worktree)
  */
 export interface SpaceData {
-	name: string; // Issue key (e.g., STA-123)
+	name: string; // Issue key (e.g., STA-123) or branch name for main worktree
 	linearIssue?: LinearIssue;
 	claudeStatus?: ClaudeStatus;
 	claudeTool?: string; // Current tool name (for UI differentiation, e.g. AskUserQuestion)
 	worktreePath: string | null;
+	isMainWorktree?: boolean; // True for the main (master/main) worktree — cannot be deleted
+	isDirty?: boolean; // True if worktree has uncommitted changes (used for main worktree color)
 }
 
 /**

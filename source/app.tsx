@@ -24,6 +24,7 @@ import {loadConfig, getTeamPrefix} from './config.js';
 import {
 	isInTmux,
 	getWorktreePath,
+	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
 	killSpaceSessions,
@@ -38,6 +39,7 @@ import {
 	getTmuxPaneWidth,
 	getTmuxPaneHeight,
 } from './tmux.js';
+import {isWorktreeDirty} from './git-status.js';
 import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.js';
 import {useMouse} from './use-mouse.js';
 import type {SpaceData, PaneLayout} from './types.js';
@@ -189,6 +191,20 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				return bNum - aNum;
 			});
 
+			// Prepend the main worktree (always first, non-deletable)
+			const mainInfo = getMainWorktreeInfo();
+			if (mainInfo) {
+				const mainClaudeInfo = getClaudeStatusInfo(mainInfo.branch);
+				spaceData.unshift({
+					name: mainInfo.branch,
+					worktreePath: mainInfo.path,
+					isMainWorktree: true,
+					isDirty: isWorktreeDirty(mainInfo.path),
+					claudeStatus: mainClaudeInfo.status,
+					claudeTool: mainClaudeInfo.tool,
+				});
+			}
+
 			setSpaces(spaceData);
 			setLoading(false);
 		} catch (err) {
@@ -291,6 +307,9 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			paneLayout.lazygitViewerPaneId,
 			selectedSpace.name,
 			paneLayout.listPaneId, // Keep focus on list pane
+			selectedSpace.isMainWorktree
+				? (selectedSpace.worktreePath ?? undefined)
+				: undefined,
 		);
 		if (success) {
 			setCurrentSpace(selectedSpace.name);
@@ -365,7 +384,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
-			if (showPromptDialog || showDeleteConfirm || showHelp || showErrorDialog) {
+			if (
+				showPromptDialog ||
+				showDeleteConfirm ||
+				showHelp ||
+				showErrorDialog
+			) {
 				return; // Dialogs handle their own input
 			}
 
@@ -386,7 +410,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				setShowPromptDialog(true);
 			} else if (key.delete || input === 'd') {
 				// Delete key or 'd' to delete selected space
-				if (selectedIndex < spaces.length) {
+				const space = spaces[selectedIndex];
+				if (space?.isMainWorktree) {
+					setStatusMessage('Cannot close main worktree');
+					setTimeout(() => setStatusMessage(''), 2000);
+				} else if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
 				}
 			} else if (input === 'e') {
@@ -402,7 +430,13 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				setShowHelp(true);
 			}
 		},
-		{isActive: !showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog},
+		{
+			isActive:
+				!showPromptDialog &&
+				!showDeleteConfirm &&
+				!showHelp &&
+				!showErrorDialog,
+		},
 	);
 
 	// Helper to spawn idow and capture errors
@@ -545,6 +579,9 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		!showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog,
 	);
 
+	// Space count excludes the permanent main worktree row
+	const issueSpaceCount = spaces.filter(s => !s.isMainWorktree).length;
+
 	// Render the space list
 	const renderList = () => {
 		if (spaces.length === 0) {
@@ -596,9 +633,9 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				)}
 				<Text dimColor> | </Text>
 				<Text dimColor>
-					{spaces.length} space{spaces.length !== 1 ? 's' : ''}
+					{issueSpaceCount} space{issueSpaceCount !== 1 ? 's' : ''}
 					{visibleSpaces.length < spaces.length &&
-						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
+						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length} of ${spaces.length})`}
 				</Text>
 				{statusMessage && (
 					<>

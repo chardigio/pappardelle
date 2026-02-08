@@ -42,15 +42,101 @@ class TestGetWorkspaceName:
         with patch("os.getcwd", return_value="/home/user/.worktrees/repo/ABC-45"):
             assert get_workspace_name() == "ABC-45"
 
-    def test_returns_unknown_for_non_worktree_path(self):
-        """Should return 'unknown' when not in a worktree path."""
-        with patch("os.getcwd", return_value="/Users/charlie/projects/some-repo"):
+    def test_returns_unknown_for_non_worktree_path_without_git(self):
+        """Should return 'unknown' when not in a worktree path and git fails."""
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/projects/some-repo"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 1, "stdout": ""})(),
+            ),
+        ):
             assert get_workspace_name() == "unknown"
 
-    def test_returns_unknown_for_lowercase_prefix(self):
-        """Should not match lowercase prefixes like sta-123."""
-        with patch("os.getcwd", return_value="/Users/charlie/.worktrees/stardust-labs/sta-123"):
+    def test_returns_unknown_for_lowercase_prefix_without_git(self):
+        """Should not match lowercase prefixes like sta-123 and git fails."""
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/.worktrees/stardust-labs/sta-123"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 1, "stdout": ""})(),
+            ),
+        ):
             assert get_workspace_name() == "unknown"
+
+    def test_detects_main_worktree_via_git_branch(self):
+        """When in main worktree (no issue key in path), should detect branch name via git."""
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/cs/stardust-labs"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 0, "stdout": "master\n"})(),
+            ),
+        ):
+            assert get_workspace_name() == "master"
+
+    def test_detects_main_branch_named_main(self):
+        """Should work with repos that use 'main' instead of 'master'."""
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/cs/some-repo"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 0, "stdout": "main\n"})(),
+            ),
+        ):
+            assert get_workspace_name() == "main"
+
+    def test_returns_unknown_when_git_fails(self):
+        """If git command fails, should still return 'unknown'."""
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/cs/stardust-labs"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 1, "stdout": ""})(),
+            ),
+        ):
+            assert get_workspace_name() == "unknown"
+
+    def test_main_worktree_status_writes_to_branch_name_file(self, tmp_path):
+        """When in main worktree, status file should use branch name (e.g., master.json)."""
+        from io import StringIO
+
+        import update_status as us
+
+        input_data = {
+            "hook_event_name": "Stop",
+            "session_id": "test-session",
+            "cwd": "/Users/charlie/cs/stardust-labs",
+        }
+        stdin_mock = StringIO(json.dumps(input_data))
+
+        with (
+            patch.object(sys, "stdin", stdin_mock),
+            patch.object(us, "get_status_dir", return_value=tmp_path),
+            patch("os.getcwd", return_value="/Users/charlie/cs/stardust-labs"),
+            patch(
+                "subprocess.run",
+                return_value=type("Result", (), {"returncode": 0, "stdout": "master\n"})(),
+            ),
+        ):
+            original_argv = sys.argv
+            sys.argv = ["update-status.py"]
+            try:
+                us.main()
+            except SystemExit:
+                pass
+            finally:
+                sys.argv = original_argv
+
+        # Should write to master.json, NOT unknown.json
+        status_file = tmp_path / "master.json"
+        assert status_file.exists(), "Status should be written to master.json for main worktree"
+        result = json.loads(status_file.read_text())
+        assert result["workspaceName"] == "master"
+        assert result["status"] == "waiting_for_input"
+
+        unknown_file = tmp_path / "unknown.json"
+        assert not unknown_file.exists(), "Should NOT write to unknown.json when branch is detected"
 
 
 class TestStatusDetermination:

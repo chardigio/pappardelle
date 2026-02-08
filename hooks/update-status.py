@@ -20,6 +20,7 @@ Status values:
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,21 @@ def get_workspace_name() -> str:
             # Check if it looks like a Linear issue (e.g., STA-123, ABC-45)
             if prefix.isupper() and prefix.isalpha() and suffix.isdigit():
                 return part
+
+    # No issue key found — likely the main worktree. Detect branch name via git.
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            if branch:
+                return branch
+    except Exception:
+        pass
 
     return "unknown"
 

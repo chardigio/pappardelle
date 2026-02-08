@@ -730,6 +730,7 @@ export function attachToSpace(
 	lazygitViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
+	mainWorktreePath?: string,
 ): boolean {
 	// If already viewing this space, nothing to do
 	if (currentlyViewingSpace === issueKey) {
@@ -739,8 +740,13 @@ export function attachToSpace(
 	const sessions = getSessionNames(issueKey);
 
 	// Ensure sessions exist (create if needed)
-	ensureClaudeSession(issueKey);
-	ensureLazygitSession(issueKey);
+	if (mainWorktreePath) {
+		ensureClaudeSession(issueKey, mainWorktreePath);
+		ensureLazygitSession(issueKey, mainWorktreePath);
+	} else {
+		ensureClaudeSession(issueKey);
+		ensureLazygitSession(issueKey);
+	}
 
 	const hasClaudeSession = sessionExists(sessions.claude);
 	const hasLazygitSession = sessionExists(sessions.lazygit);
@@ -1282,13 +1288,62 @@ export function getWorktreePath(issueKey: string): string | null {
 }
 
 /**
+ * Get the main worktree info (path and branch name).
+ * The main worktree is the original git checkout (not a `git worktree add` worktree).
+ * Returns null if detection fails.
+ */
+export function getMainWorktreeInfo(): {
+	path: string;
+	branch: string;
+} | null {
+	try {
+		// `git worktree list --porcelain` outputs blocks like:
+		//   worktree /path/to/repo
+		//   HEAD abc123
+		//   branch refs/heads/master
+		//
+		// The first block is always the main worktree.
+		const output = execSync('git worktree list --porcelain', {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+
+		const lines = output.split('\n');
+		let path: string | null = null;
+		let branch: string | null = null;
+
+		for (const line of lines) {
+			if (line.startsWith('worktree ') && !path) {
+				path = line.slice('worktree '.length);
+			} else if (line.startsWith('branch ') && !branch) {
+				// e.g. "branch refs/heads/master" → "master"
+				branch = line.slice('branch '.length).replace('refs/heads/', '');
+			} else if (line === '' && path) {
+				// End of first worktree block
+				break;
+			}
+		}
+
+		if (path && branch) {
+			return {path, branch};
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Create a claude session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
  * Creates a shell-based session (not running claude directly) so the session
  * persists even if claude exits.
  */
-export function ensureClaudeSession(issueKey: string): boolean {
+export function ensureClaudeSession(
+	issueKey: string,
+	explicitWorktreePath?: string,
+): boolean {
 	const sessionName = `${CLAUDE_SESSION_PREFIX}${issueKey}`;
 
 	// Already exists?
@@ -1297,7 +1352,7 @@ export function ensureClaudeSession(issueKey: string): boolean {
 	}
 
 	// Get worktree path
-	const worktreePath = getWorktreePath(issueKey);
+	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
 		log.warn(`Cannot create claude session for ${issueKey}: no worktree found`);
 		return false;
@@ -1347,7 +1402,10 @@ export function ensureClaudeSession(issueKey: string): boolean {
  * Creates a shell-based session (not running lazygit directly) so the session
  * persists even if lazygit exits. This matches how claude sessions work.
  */
-export function ensureLazygitSession(issueKey: string): boolean {
+export function ensureLazygitSession(
+	issueKey: string,
+	explicitWorktreePath?: string,
+): boolean {
 	const sessionName = `${LAZYGIT_SESSION_PREFIX}${issueKey}`;
 
 	// Already exists?
@@ -1356,7 +1414,7 @@ export function ensureLazygitSession(issueKey: string): boolean {
 	}
 
 	// Get worktree path
-	const worktreePath = getWorktreePath(issueKey);
+	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
 		log.warn(
 			`Cannot create lazygit session for ${issueKey}: no worktree found`,
