@@ -17,10 +17,10 @@ test('isWorktreeDirty returns false for clean worktree', t => {
 // getMainWorktreeColor Tests
 // ============================================================================
 
-test('getMainWorktreeColor returns magentaBright when clean', t => {
-	t.is(getMainWorktreeColor(false), 'magentaBright');
+test('getMainWorktreeColor returns cleanColor when clean', t => {
+	t.is(getMainWorktreeColor(false, '#f2c94c', '#5e6ad2'), '#5e6ad2');
 });
 
-test('getMainWorktreeColor returns yellow when dirty', t => {
-	t.is(getMainWorktreeColor(true), 'yellow');
+test('getMainWorktreeColor returns dirtyColor when dirty', t => {
+	t.is(getMainWorktreeColor(true, '#f2c94c', '#5e6ad2'), '#f2c94c');
 });

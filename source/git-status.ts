@@ -21,8 +21,12 @@ export function isWorktreeDirty(worktreePath: string): boolean {
 
 /**
  * Get the color for the main worktree key based on git status.
- * Green = clean (no uncommitted changes), Yellow = dirty (has changes).
+ * Caller provides the dirty/clean colors (typically from Linear workflow states).
  */
-export function getMainWorktreeColor(isDirty: boolean): string {
-	return isDirty ? 'yellow' : 'magentaBright';
+export function getMainWorktreeColor(
+	isDirty: boolean,
+	dirtyColor: string,
+	cleanColor: string,
+): string {
+	return isDirty ? dirtyColor : cleanColor;
 }

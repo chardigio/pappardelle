@@ -3,6 +3,7 @@ import {Box, Text} from 'ink';
 import type {SpaceData} from '../types.js';
 import {CLAUDE_STATUS_DISPLAY} from '../types.js';
 import {getMainWorktreeColor} from '../git-status.js';
+import {getWorkflowStateColor} from '../linear.js';
 import ClaudeAnimation from './ClaudeAnimation.js';
 
 interface Props {
@@ -59,19 +60,19 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			: title;
 
 	// Linear state color (applied to issue key)
-	// Each state has a distinct color for easy visual identification
+	// Uses the exact color from Linear's API so pappardelle always matches
 	const getStateColor = (): string => {
-		if (space.isMainWorktree)
-			return getMainWorktreeColor(space.isDirty ?? false);
+		if (space.isMainWorktree) {
+			return getMainWorktreeColor(
+				space.isDirty ?? false,
+				getWorkflowStateColor('In Progress') ?? 'gray',
+				getWorkflowStateColor('Done') ?? 'gray',
+			);
+		}
+
 		const state = space.linearIssue?.state;
 		if (!state) return 'gray';
-		if (state.type === 'completed') return 'magentaBright';
-		if (state.type === 'started') {
-			// "In Review" gets green to match Linear's color scheme
-			if (state.name === 'In Review') return 'green';
-			return 'yellow';
-		}
-		return 'gray';
+		return state.color;
 	};
 	const stateColor = getStateColor();
 
