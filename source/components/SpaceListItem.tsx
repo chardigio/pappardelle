@@ -62,10 +62,10 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	const getStateColor = (): string => {
 		const state = space.linearIssue?.state;
 		if (!state) return 'gray';
-		if (state.type === 'completed') return 'green';
+		if (state.type === 'completed') return 'magentaBright';
 		if (state.type === 'started') {
-			// "In Review" gets magentaBright to distinguish from "In Progress" (yellow)
-			if (state.name === 'In Review') return 'magentaBright';
+			// "In Review" gets green to match Linear's color scheme
+			if (state.name === 'In Review') return 'green';
 			return 'yellow';
 		}
 		return 'gray';
