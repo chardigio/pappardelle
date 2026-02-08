@@ -74,14 +74,24 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		cols: stdout?.columns ?? 80,
 	});
 
-	// Listen for terminal resize events to update dimensions and relayout panes
-	// (cli.tsx handles screen clearing on resize)
+	// Listen for terminal resize events to update dimensions and relayout panes.
+	// Screen clearing lives here (not in cli.tsx) so it's always immediately
+	// followed by setTermDimensions, which guarantees a React re-render after
+	// every clear. A separate listener in cli.tsx would race with Ink's render
+	// cycle — clearScreen could fire *after* Ink paints, leaving a blank screen
+	// with no subsequent state change to trigger a repaint.
 	useEffect(() => {
 		if (!stdout) return;
 
 		let relayoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 		const handleResize = () => {
+			// Clear artifacts before Ink repaints (must precede setTermDimensions
+			// so the state change guarantees a fresh render after the clear)
+			process.stdout.write('\x1b[2J'); // Clear screen
+			process.stdout.write('\x1b[H'); // Move cursor to home
+			process.stdout.write('\x1b[3J'); // Clear scrollback buffer
+
 			setTermDimensions({
 				rows: stdout.rows ?? 40,
 				cols: stdout.columns ?? 80,
@@ -522,7 +532,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					</>
 				)}
 				<Text dimColor> | </Text>
-				<Text dimColor>j/k navigate, n new, d delete, r refresh, q quit</Text>
+				<Text dimColor>
+					{spaces.length} space{spaces.length !== 1 ? 's' : ''}
+					{visibleSpaces.length < spaces.length &&
+						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
+				</Text>
 			</Box>
 
 			{/* Status message */}
@@ -550,15 +564,6 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				) : (
 					renderList()
 				)}
-			</Box>
-
-			{/* Footer */}
-			<Box marginTop={1}>
-				<Text dimColor>
-					{spaces.length} space{spaces.length !== 1 ? 's' : ''}
-					{scrollOffset > 0 &&
-						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length})`}
-				</Text>
 			</Box>
 
 			{/* Error display */}

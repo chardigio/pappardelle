@@ -13,14 +13,11 @@
 /** Rows consumed by header (1 line) + header marginBottom (1 line) = 2 */
 const HEADER_ROWS = 2;
 
-/** Rows consumed by footer marginTop (1 line) + footer line (1 line) = 2 */
-const FOOTER_ROWS = 2;
-
 /** Rows consumed by the status message when visible (message + marginBottom) = 2 */
 const STATUS_MESSAGE_ROWS = 2;
 
-/** Total non-item chrome (header + footer) when no status message is shown */
-export const LIST_CHROME_ROWS = HEADER_ROWS + FOOTER_ROWS;
+/** Total non-item chrome (header only, no footer) when no status message is shown */
+export const LIST_CHROME_ROWS = HEADER_ROWS;
 
 /** Additional rows consumed when a status message is visible */
 export const STATUS_MESSAGE_EXTRA_ROWS = STATUS_MESSAGE_ROWS;

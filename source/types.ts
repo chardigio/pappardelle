@@ -58,6 +58,24 @@ export interface PaneLayout {
 	lazygitViewerPaneId: string; // Viewer pane that attaches to lazygit-STA-XXX session
 }
 
+// Statuses that are stable and should never become stale
+export const STABLE_STATUSES = new Set<ClaudeStatus>([
+	'waiting_for_input', // Waiting for user input - user may take time to respond
+	'waiting_for_approval', // Waiting for permission - user may be reviewing
+	'ended', // Session terminated - stays ended
+	'error', // Error state should persist until resolved
+]);
+
+// Statuses that indicate active work and can become stale
+export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
+	'processing',
+	'running_tool',
+	'compacting',
+]);
+
+// How long before an active status becomes stale (10 minutes)
+export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
+
 // Claude status display
 // Note: "processing" and "running_tool" use ClaudeAnimation instead of a static icon
 export const CLAUDE_STATUS_DISPLAY: Record<

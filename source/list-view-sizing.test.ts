@@ -52,8 +52,8 @@ function assertListView(
 // Constants Verification
 // ============================================================================
 
-test('constants: LIST_CHROME_ROWS = 4 (header 2 + footer 2)', t => {
-	t.is(LIST_CHROME_ROWS, 4);
+test('constants: LIST_CHROME_ROWS = 2 (header only, no footer)', t => {
+	t.is(LIST_CHROME_ROWS, 2);
 });
 
 test('constants: STATUS_MESSAGE_EXTRA_ROWS = 2', t => {
@@ -68,34 +68,35 @@ test('constants: ROW_FIXED_OVERHEAD = 3 (icon + 2 spaces)', t => {
 // calculateMaxVisibleItems
 // ============================================================================
 
-test('maxVisible: height 8, no status = 4 items', t => {
-	// 8 - 4 (chrome) = 4
-	t.is(calculateMaxVisibleItems(8), 4);
+test('maxVisible: height 8, no status = 6 items', t => {
+	// 8 - 2 (chrome) = 6
+	t.is(calculateMaxVisibleItems(8), 6);
 });
 
-test('maxVisible: height 8, with status = 2 items', t => {
-	// 8 - 4 (chrome) - 2 (status) = 2
-	t.is(calculateMaxVisibleItems(8, true), 2);
+test('maxVisible: height 8, with status = 4 items', t => {
+	// 8 - 2 (chrome) - 2 (status) = 4
+	t.is(calculateMaxVisibleItems(8, true), 4);
 });
 
-test('maxVisible: height 10, no status = 6 items', t => {
-	t.is(calculateMaxVisibleItems(10), 6);
+test('maxVisible: height 10, no status = 8 items', t => {
+	t.is(calculateMaxVisibleItems(10), 8);
 });
 
-test('maxVisible: height 20, no status = 16 items', t => {
-	t.is(calculateMaxVisibleItems(20), 16);
+test('maxVisible: height 20, no status = 18 items', t => {
+	t.is(calculateMaxVisibleItems(20), 18);
 });
 
-test('maxVisible: height 40, no status = 36 items', t => {
-	t.is(calculateMaxVisibleItems(40), 36);
+test('maxVisible: height 40, no status = 38 items', t => {
+	t.is(calculateMaxVisibleItems(40), 38);
 });
 
-test('maxVisible: height 4, no status = 1 item (minimum)', t => {
-	// 4 - 4 = 0, but clamped to 1
-	t.is(calculateMaxVisibleItems(4), 1);
+test('maxVisible: height 4, no status = 2 items', t => {
+	// 4 - 2 = 2
+	t.is(calculateMaxVisibleItems(4), 2);
 });
 
 test('maxVisible: height 3, no status = 1 item (minimum)', t => {
+	// 3 - 2 = 1
 	t.is(calculateMaxVisibleItems(3), 1);
 });
 
@@ -103,14 +104,14 @@ test('maxVisible: height 1, no status = 1 item (minimum)', t => {
 	t.is(calculateMaxVisibleItems(1), 1);
 });
 
-test('maxVisible: height 5, no status = 1 item', t => {
-	// 5 - 4 = 1
-	t.is(calculateMaxVisibleItems(5), 1);
+test('maxVisible: height 5, no status = 3 items', t => {
+	// 5 - 2 = 3
+	t.is(calculateMaxVisibleItems(5), 3);
 });
 
-test('maxVisible: height 6, no status = 2 items', t => {
-	// 6 - 4 = 2
-	t.is(calculateMaxVisibleItems(6), 2);
+test('maxVisible: height 6, no status = 4 items', t => {
+	// 6 - 2 = 4
+	t.is(calculateMaxVisibleItems(6), 4);
 });
 
 // ============================================================================
@@ -153,31 +154,31 @@ test('scrollOffset: items == maxVisible, always 0', t => {
 
 test('visibleWindow: 5 items, height 8, selected 0', t => {
 	const w = calculateVisibleWindow(0, 5, 8);
-	// maxVisible = 8-4 = 4, scrollOffset = 0, visibleCount = min(4,5) = 4
+	// maxVisible = 8-2 = 6, scrollOffset = 0, visibleCount = min(6,5) = 5
 	t.is(w.scrollOffset, 0);
-	t.is(w.visibleCount, 4);
+	t.is(w.visibleCount, 5);
 	t.is(w.adjustedSelectedIndex, 0);
 });
 
 test('visibleWindow: 5 items, height 8, selected 4 (last)', t => {
 	const w = calculateVisibleWindow(4, 5, 8);
-	// maxVisible = 4, scrollOffset = min(4-2, 5-4) = 1
-	t.is(w.scrollOffset, 1);
-	t.is(w.visibleCount, 4);
-	t.is(w.adjustedSelectedIndex, 3); // 4 - 1
+	// maxVisible = 6, all 5 fit, scrollOffset = 0
+	t.is(w.scrollOffset, 0);
+	t.is(w.visibleCount, 5);
+	t.is(w.adjustedSelectedIndex, 4);
 });
 
 test('visibleWindow: 10 items, height 8, selected 5 (middle)', t => {
 	const w = calculateVisibleWindow(5, 10, 8);
-	// maxVisible = 4, scrollOffset = min(5-2, 10-4) = min(3,6) = 3
-	t.is(w.scrollOffset, 3);
-	t.is(w.visibleCount, 4);
-	t.is(w.adjustedSelectedIndex, 2); // 5 - 3
+	// maxVisible = 6, scrollOffset = min(5-3, 10-6) = min(2,4) = 2
+	t.is(w.scrollOffset, 2);
+	t.is(w.visibleCount, 6);
+	t.is(w.adjustedSelectedIndex, 3); // 5 - 2
 });
 
 test('visibleWindow: 2 items, height 8, selected 0', t => {
 	const w = calculateVisibleWindow(0, 2, 8);
-	// maxVisible = 4, scrollOffset = 0, visibleCount = min(4,2) = 2
+	// maxVisible = 6, scrollOffset = 0, visibleCount = min(6,2) = 2
 	t.is(w.scrollOffset, 0);
 	t.is(w.visibleCount, 2);
 	t.is(w.adjustedSelectedIndex, 0);
@@ -192,18 +193,18 @@ test('visibleWindow: 1 item, height 8', t => {
 
 test('visibleWindow: 20 items, height 20, selected 10', t => {
 	const w = calculateVisibleWindow(10, 20, 20);
-	// maxVisible = 16, scrollOffset = min(10-8, 20-16) = min(2,4) = 2
-	t.is(w.scrollOffset, 2);
-	t.is(w.visibleCount, 16);
-	t.is(w.adjustedSelectedIndex, 8); // 10 - 2
+	// maxVisible = 18, scrollOffset = min(10-9, 20-18) = min(1,2) = 1
+	t.is(w.scrollOffset, 1);
+	t.is(w.visibleCount, 18);
+	t.is(w.adjustedSelectedIndex, 9); // 10 - 1
 });
 
 test('visibleWindow: with status message reduces visible items', t => {
 	const without = calculateVisibleWindow(0, 10, 8, false);
 	const with_ = calculateVisibleWindow(0, 10, 8, true);
-	// without: maxVisible = 4, with: maxVisible = 2
-	t.is(without.visibleCount, 4);
-	t.is(with_.visibleCount, 2);
+	// without: maxVisible = 6, with: maxVisible = 4
+	t.is(without.visibleCount, 6);
+	t.is(with_.visibleCount, 4);
 });
 
 // ============================================================================
@@ -348,11 +349,11 @@ test('list view: 3 items, height 8, last selected', t => {
 	);
 });
 
-test('list view: 5 items, height 8 (vertical pane), first selected \u2192 shows 4', t => {
+test('list view: 5 items, height 8 (vertical pane), first selected \u2192 shows all 5', t => {
 	const items = makeItems(5);
 	const view = renderListView(items, 0, 8, 40);
 
-	// maxVisible = 8 - 4 = 4, shows items 0-3
+	// maxVisible = 8 - 2 = 6, all 5 fit
 	assertListView(
 		t,
 		view,
@@ -361,16 +362,36 @@ test('list view: 5 items, height 8 (vertical pane), first selected \u2192 shows 
  \u00b7 STA-401 Issue title number 2
  \u00b7 STA-402 Issue title number 3
  \u00b7 STA-403 Issue title number 4
+ \u00b7 STA-404 Issue title number 5
 `,
 		'5 items height 8 first selected',
 	);
 });
 
-test('list view: 5 items, height 8, last selected \u2192 scrolled', t => {
+test('list view: 5 items, height 8, last selected \u2192 all visible', t => {
 	const items = makeItems(5);
 	const view = renderListView(items, 4, 8, 40);
 
-	// maxVisible = 4, scrollOffset = min(4-2, 5-4) = 1, shows items 1-4
+	// maxVisible = 6, all 5 fit, no scrolling needed
+	assertListView(
+		t,
+		view,
+		`
+ \u00b7 STA-400 Issue title number 1
+ \u00b7 STA-401 Issue title number 2
+ \u00b7 STA-402 Issue title number 3
+ \u00b7 STA-403 Issue title number 4
+*\u00b7 STA-404 Issue title number 5
+`,
+		'5 items height 8 last selected',
+	);
+});
+
+test('list view: 8 items, height 8, middle selected \u2192 scrolled to centre', t => {
+	const items = makeItems(8);
+	const view = renderListView(items, 4, 8, 40);
+
+	// maxVisible = 6, scrollOffset = min(4-3, 8-6) = min(1,2) = 1, shows items 1-6
 	assertListView(
 		t,
 		view,
@@ -379,24 +400,8 @@ test('list view: 5 items, height 8, last selected \u2192 scrolled', t => {
  \u00b7 STA-402 Issue title number 3
  \u00b7 STA-403 Issue title number 4
 *\u00b7 STA-404 Issue title number 5
-`,
-		'5 items height 8 last selected scrolled',
-	);
-});
-
-test('list view: 8 items, height 8, middle selected \u2192 scrolled to centre', t => {
-	const items = makeItems(8);
-	const view = renderListView(items, 4, 8, 40);
-
-	// maxVisible = 4, scrollOffset = min(4-2, 8-4) = 2, shows items 2-5
-	assertListView(
-		t,
-		view,
-		`
- \u00b7 STA-402 Issue title number 3
- \u00b7 STA-403 Issue title number 4
-*\u00b7 STA-404 Issue title number 5
  \u00b7 STA-405 Issue title number 6
+ \u00b7 STA-406 Issue title number 7
 `,
 		'8 items height 8 middle selected scrolled',
 	);
@@ -406,7 +411,7 @@ test('list view: 10 items, height 20, all fit, first selected', t => {
 	const items = makeItems(10);
 	const view = renderListView(items, 0, 20, 40);
 
-	// maxVisible = 20 - 4 = 16, all 10 items fit
+	// maxVisible = 20 - 2 = 18, all 10 items fit
 	assertListView(
 		t,
 		view,
@@ -449,16 +454,15 @@ test('list view: 0 items \u2192 empty', t => {
 // ASCII ART: Vertical Layout (typical 8-row list pane)
 //
 // This is the scenario the user flagged: vertical layout gives ~8 rows to
-// the list pane, and with the old code (termHeight - 6) only 2 items showed.
-// With the fix (termHeight - 4), 4 items show \u2014 much better.
+// the list pane. With no footer (chrome = 2), we get 6 visible items.
 // ============================================================================
 
-test('vertical pane 8 rows: 5 sessions should show 4 (not 2)', t => {
+test('vertical pane 8 rows: 5 sessions should show all 5', t => {
 	const items = makeItems(5);
 	const view = renderListView(items, 0, 8, 50);
 
 	const lines = view.trim().split('\n');
-	t.is(lines.length, 4, 'Should show 4 items in 8-row pane');
+	t.is(lines.length, 5, 'Should show all 5 items in 8-row pane');
 });
 
 test('vertical pane 8 rows: 3 sessions should show all 3', t => {
@@ -469,20 +473,20 @@ test('vertical pane 8 rows: 3 sessions should show all 3', t => {
 	t.is(lines.length, 3, 'All 3 items visible in 8-row pane');
 });
 
-test('vertical pane 8 rows: 10 sessions should show 4 (scrollable)', t => {
+test('vertical pane 8 rows: 10 sessions should show 6 (scrollable)', t => {
 	const items = makeItems(10);
 	const view = renderListView(items, 0, 8, 50);
 
 	const lines = view.trim().split('\n');
-	t.is(lines.length, 4, 'Should show 4 items in 8-row pane');
+	t.is(lines.length, 6, 'Should show 6 items in 8-row pane');
 });
 
-test('vertical pane 8 rows: with status message, 5 sessions show 2', t => {
+test('vertical pane 8 rows: with status message, 5 sessions show 4', t => {
 	const items = makeItems(5);
 	const view = renderListView(items, 0, 8, 50, true);
 
 	const lines = view.trim().split('\n');
-	t.is(lines.length, 2, 'Status message reduces to 2 visible items');
+	t.is(lines.length, 4, 'Status message reduces to 4 visible items');
 });
 
 // ============================================================================
@@ -591,36 +595,36 @@ test('list view: various status icons', t => {
 
 test('list view: 15 items, height 10, scrolling through', t => {
 	const items = makeItems(15);
-	// maxVisible = 10 - 4 = 6
+	// maxVisible = 10 - 2 = 8
 
 	// At beginning (selected 0)
 	const viewStart = renderListView(items, 0, 10, 40);
 	let lines = viewStart.split('\n');
-	t.is(lines.length, 6, 'Shows 6 items');
+	t.is(lines.length, 8, 'Shows 8 items');
 	t.true(lines[0]!.startsWith('*'), 'First item selected at start');
 	t.true(lines[0]!.includes('STA-400'), 'First item is STA-400');
-	t.true(lines[5]!.includes('STA-405'), 'Last visible is STA-405');
+	t.true(lines[7]!.includes('STA-407'), 'Last visible is STA-407');
 
 	// At middle (selected 7)
 	const viewMid = renderListView(items, 7, 10, 40);
 	lines = viewMid.split('\n');
-	t.is(lines.length, 6, 'Shows 6 items');
-	// scrollOffset = min(7-3, 15-6) = min(4, 9) = 4
-	t.true(lines[0]!.includes('STA-404'), 'Scrolled: first visible is STA-404');
-	t.true(lines[3]!.startsWith('*'), 'Selected item has * prefix');
-	t.true(lines[3]!.includes('STA-407'), 'Selected item is STA-407');
+	t.is(lines.length, 8, 'Shows 8 items');
+	// scrollOffset = min(7-4, 15-8) = min(3, 7) = 3
+	t.true(lines[0]!.includes('STA-403'), 'Scrolled: first visible is STA-403');
+	t.true(lines[4]!.startsWith('*'), 'Selected item has * prefix');
+	t.true(lines[4]!.includes('STA-407'), 'Selected item is STA-407');
 
 	// At end (selected 14)
 	const viewEnd = renderListView(items, 14, 10, 40);
 	lines = viewEnd.split('\n');
-	t.is(lines.length, 6, 'Shows 6 items');
-	// scrollOffset = min(14-3, 15-6) = min(11, 9) = 9
+	t.is(lines.length, 8, 'Shows 8 items');
+	// scrollOffset = min(14-4, 15-8) = min(10, 7) = 7
 	t.true(
-		lines[0]!.includes('STA-409'),
-		'Scrolled to end: first visible is STA-409',
+		lines[0]!.includes('STA-407'),
+		'Scrolled to end: first visible is STA-407',
 	);
-	t.true(lines[5]!.startsWith('*'), 'Last item selected');
-	t.true(lines[5]!.includes('STA-414'), 'Last item is STA-414');
+	t.true(lines[7]!.startsWith('*'), 'Last item selected');
+	t.true(lines[7]!.includes('STA-414'), 'Last item is STA-414');
 });
 
 // ============================================================================
@@ -628,8 +632,7 @@ test('list view: 15 items, height 10, scrolling through', t => {
 // ============================================================================
 
 test('scenario: vertical layout, 8-row pane, 6 active sessions', t => {
-	// This is the common problematic case: vertical layout gives 8 rows to list
-	// With the bug fix, we get maxVisible = 4 (was 2 with old code)
+	// With no footer (chrome = 2), we get maxVisible = 6 — all items fit!
 	const items = makeItems(6);
 	const view = renderListView(items, 0, 8, 50);
 
@@ -641,6 +644,8 @@ test('scenario: vertical layout, 8-row pane, 6 active sessions', t => {
  \u00b7 STA-401 Issue title number 2
  \u00b7 STA-402 Issue title number 3
  \u00b7 STA-403 Issue title number 4
+ \u00b7 STA-404 Issue title number 5
+ \u00b7 STA-405 Issue title number 6
 `,
 		'vertical 8-row pane, 6 sessions, first selected',
 	);
@@ -650,11 +655,13 @@ test('scenario: vertical layout, 8-row pane, 6 sessions, 5th selected', t => {
 	const items = makeItems(6);
 	const view = renderListView(items, 4, 8, 50);
 
-	// maxVisible = 4, scrollOffset = min(4-2, 6-4) = 2
+	// maxVisible = 6, all 6 fit, no scrolling needed
 	assertListView(
 		t,
 		view,
 		`
+ \u00b7 STA-400 Issue title number 1
+ \u00b7 STA-401 Issue title number 2
  \u00b7 STA-402 Issue title number 3
  \u00b7 STA-403 Issue title number 4
 *\u00b7 STA-404 Issue title number 5
@@ -666,7 +673,7 @@ test('scenario: vertical layout, 8-row pane, 6 sessions, 5th selected', t => {
 
 test('scenario: horizontal layout, tall terminal, 10 sessions', t => {
 	// In horizontal layout, the list pane shares the full terminal height
-	// e.g. 45 rows = maxVisible = 41
+	// e.g. 45 rows = maxVisible = 43
 	const items = makeItems(10);
 	const view = renderListView(items, 0, 45, 40);
 
@@ -675,13 +682,16 @@ test('scenario: horizontal layout, tall terminal, 10 sessions', t => {
 });
 
 test('scenario: MacBook Pro half-width, 4-row list pane (minimal)', t => {
-	// Very small pane: 4 rows. maxVisible = max(1, 4-4) = max(1, 0) = 1
+	// Very small pane: 4 rows. maxVisible = max(1, 4-2) = 2
 	const items = makeItems(5);
 	const view = renderListView(items, 2, 4, 40);
 
 	const lines = view.trim().split('\n');
-	t.is(lines.length, 1, 'Only 1 item visible in tiny 4-row pane');
-	t.true(lines[0]!.includes('STA-402'), 'Shows the selected item');
+	t.is(lines.length, 2, '2 items visible in tiny 4-row pane');
+	t.true(
+		lines[0]!.includes('STA-401') || lines[1]!.includes('STA-402'),
+		'Shows the selected item',
+	);
 });
 
 // ============================================================================
@@ -696,8 +706,8 @@ test('edge: selected index beyond items', t => {
 });
 
 test('edge: height equals chrome exactly', t => {
-	// termHeight = 4 = LIST_CHROME_ROWS, maxVisible = max(1, 0) = 1
-	t.is(calculateMaxVisibleItems(4), 1);
+	// termHeight = 2 = LIST_CHROME_ROWS, maxVisible = max(1, 0) = 1
+	t.is(calculateMaxVisibleItems(2), 1);
 });
 
 test('edge: single item always visible regardless of height', t => {
@@ -727,17 +737,16 @@ test('edge: variable-length keys get different title room', t => {
 // improvement is clear.
 // ============================================================================
 
-test('regression: old code showed only 2 items in 8-row pane (now 4)', t => {
+test('regression: old code showed only 2 items in 8-row pane (now 6)', t => {
 	// Old formula: maxVisible = termHeight - 6 = 8 - 6 = 2
-	// New formula: maxVisible = termHeight - 4 = 8 - 4 = 4
-	// The difference: 2 extra rows of items visible!
+	// Current formula (no footer): maxVisible = termHeight - 2 = 8 - 2 = 6
 	const maxVisible = calculateMaxVisibleItems(8);
-	t.is(maxVisible, 4);
+	t.is(maxVisible, 6);
 	t.not(maxVisible, 2, 'Should NOT be 2 (old buggy value)');
 });
 
-test('regression: old code showed 4 items in 10-row pane (now 6)', t => {
+test('regression: old code showed 4 items in 10-row pane (now 8)', t => {
 	const maxVisible = calculateMaxVisibleItems(10);
-	t.is(maxVisible, 6);
+	t.is(maxVisible, 8);
 	t.not(maxVisible, 4, 'Should NOT be 4 (old buggy value)');
 });

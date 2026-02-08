@@ -205,7 +205,8 @@ process.on('SIGTERM', () => {
 // Render the app
 render(<App paneLayout={paneLayout} />);
 
-// Handle terminal resize - Ink handles repainting, but clear artifacts first
-process.stdout.on('resize', () => {
-	clearScreen();
-});
+// NOTE: Screen clearing on resize is handled inside app.tsx's resize handler,
+// NOT here. Clearing here (in a separate listener) can race with Ink's render
+// cycle — if clearScreen fires *after* Ink's re-render, the screen stays blank
+// until the next state change. Keeping clear + setTermDimensions in the same
+// handler guarantees a React re-render always follows the clear.

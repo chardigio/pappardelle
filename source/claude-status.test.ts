@@ -1,11 +1,10 @@
 import test from 'ava';
 import type {ClaudeStatus, ClaudeSessionState} from './types.ts';
-// Import from compiled dist to avoid logger.js resolution issues during tsx execution
 import {
 	STABLE_STATUSES,
 	ACTIVE_STATUSES,
 	ACTIVE_STATUS_TIMEOUT,
-} from '../dist/claude-status.js';
+} from './types.ts';
 
 // ============================================================================
 // Helper Functions

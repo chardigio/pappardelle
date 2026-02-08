@@ -56,15 +56,16 @@ export interface LayoutConfig {
  * - Maximum: 8 rows - don't let list take over the screen
  *
  * Examples:
- * - 0 sessions → height 4 (1+3 = 4, less than min 8, so use 4)
- * - 1 session  → height 4 (1+3 = 4, less than min 8, so use 4)
- * - 5 sessions → height 8 (5+3 = 8, capped at max)
- * - 10 sessions → height 8 (10+3 = 13, capped at max 8)
- * - 15 sessions → height 8 (15+3 = 18, capped at max 8)
+ * - 0 sessions → height 3 (1+2 = 3, less than min 8, so use 3)
+ * - 1 session  → height 3 (1+2 = 3, less than min 8, so use 3)
+ * - 5 sessions → height 7 (5+2 = 7, less than min 8, so use 7)
+ * - 6 sessions → height 8 (6+2 = 8, capped at max)
+ * - 10 sessions → height 8 (10+2 = 12, capped at max 8)
+ * - 15 sessions → height 8 (15+2 = 17, capped at max 8)
  */
 export function calculateIdealListHeightForCount(sessionCount: number): number {
-	// Ideal = sessions + header/footer/padding (3 rows for chrome)
-	const idealHeight = Math.max(1, sessionCount) + 3;
+	// Ideal = sessions + header/padding (2 rows for chrome)
+	const idealHeight = Math.max(1, sessionCount) + 2;
 
 	// Minimum is the smaller of ideal or 8 (don't force 8 rows if we only need 4)
 	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);

@@ -10,7 +10,14 @@ import {
 import {homedir} from 'node:os';
 import path from 'node:path';
 import type {ClaudeStatus, ClaudeSessionState} from './types.js';
+import {
+	STABLE_STATUSES,
+	ACTIVE_STATUSES,
+	ACTIVE_STATUS_TIMEOUT,
+} from './types.js';
 import {createLogger} from './logger.js';
+
+export {STABLE_STATUSES, ACTIVE_STATUSES, ACTIVE_STATUS_TIMEOUT};
 
 const log = createLogger('claude-status');
 
@@ -26,24 +33,6 @@ export function ensureStatusDir(): void {
 function getStatusFilePath(workspaceName: string): string {
 	return path.join(STATUS_DIR, `${workspaceName}.json`);
 }
-
-// Statuses that are stable and should never become stale
-export const STABLE_STATUSES = new Set<ClaudeStatus>([
-	'waiting_for_input', // Waiting for user input - user may take time to respond
-	'waiting_for_approval', // Waiting for permission - user may be reviewing
-	'ended', // Session terminated - stays ended
-	'error', // Error state should persist until resolved
-]);
-
-// Statuses that indicate active work and can become stale
-export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
-	'processing',
-	'running_tool',
-	'compacting',
-]);
-
-// How long before an active status becomes stale (10 minutes)
-export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
 
 export interface ClaudeStatusInfo {
 	status: ClaudeStatus;
