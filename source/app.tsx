@@ -34,6 +34,7 @@ import {
 	getCurrentLayoutDirection,
 	rebuildLayout,
 } from './tmux.js';
+import {calculateVisibleWindow} from './list-view-sizing.js';
 import type {SpaceData, PaneLayout} from './types.js';
 
 // Props passed from cli.tsx with pane layout info
@@ -126,7 +127,6 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
-	const maxVisibleItems = Math.max(1, termHeight - 6); // Header + footer + padding
 
 	// Load spaces from active tmux sessions (claude-* sessions)
 	const loadSpaces = useCallback(async () => {
@@ -463,18 +463,14 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const spaceToDelete = spaces[selectedIndex];
 
 	// Calculate scroll offset for large lists
-	const scrollOffset = Math.max(
-		0,
-		Math.min(
-			selectedIndex - Math.floor(maxVisibleItems / 2),
-			spaces.length - maxVisibleItems,
-		),
-	);
-	const visibleSpaces = spaces.slice(
-		scrollOffset,
-		scrollOffset + maxVisibleItems,
-	);
-	const adjustedSelectedIndex = selectedIndex - scrollOffset;
+	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
+		calculateVisibleWindow(
+			selectedIndex,
+			spaces.length,
+			termHeight,
+			!!statusMessage,
+		);
+	const visibleSpaces = spaces.slice(scrollOffset, scrollOffset + visibleCount);
 
 	// Render the space list
 	const renderList = () => {
