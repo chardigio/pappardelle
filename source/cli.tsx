@@ -40,16 +40,22 @@ const cli = meow(
 
 	Options
 	  --no-layout    Don't set up tmux pane layout (run standalone)
+	  --no-iterm     Disable iTerm2 native pane integration (use regular tmux)
 
 	Examples
 	  $ pappardelle              # Run with tmux layout
 	  $ pappardelle --no-layout  # Run standalone (list only)
+	  $ pappardelle --no-iterm   # Force regular tmux (no native panes)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 `,
 	{
 		importMeta: import.meta,
 		flags: {
 			layout: {
+				type: 'boolean',
+				default: true,
+			},
+			iterm: {
 				type: 'boolean',
 				default: true,
 			},
@@ -140,6 +146,13 @@ if (cli.input.length > 0) {
 	process.exit(result.status ?? 0);
 }
 
+// Detect iTerm2 for native pane support via tmux -CC (control mode).
+// When attached via -CC, iTerm2 renders tmux panes as native split panes,
+// giving you mouse-drag resizing, Cmd+[/] pane switching, native scrollback,
+// Cmd+F search, and macOS copy/paste.
+const useItermNativePanes =
+	cli.flags.iterm && process.env['TERM_PROGRAM'] === 'iTerm.app';
+
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
@@ -148,7 +161,13 @@ if (!isInTmux() && cli.flags.layout) {
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
 		// Attach to the existing session
-		const result = spawnSync('tmux', ['attach-session', '-t', sessionName], {
+		const tmuxArgs = [
+			...(useItermNativePanes ? ['-CC'] : []),
+			'attach-session',
+			'-t',
+			sessionName,
+		];
+		const result = spawnSync('tmux', tmuxArgs, {
 			stdio: 'inherit',
 			env: process.env,
 		});
@@ -159,7 +178,14 @@ if (!isInTmux() && cli.flags.layout) {
 	const args = process.argv.slice(2).join(' ');
 	const cmd = args ? `pappardelle ${args}` : 'pappardelle';
 
-	const result = spawnSync('tmux', ['new-session', '-s', sessionName, cmd], {
+	const tmuxArgs = [
+		...(useItermNativePanes ? ['-CC'] : []),
+		'new-session',
+		'-s',
+		sessionName,
+		cmd,
+	];
+	const result = spawnSync('tmux', tmuxArgs, {
 		stdio: 'inherit',
 		env: process.env,
 	});
