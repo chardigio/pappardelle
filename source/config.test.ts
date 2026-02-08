@@ -1,6 +1,10 @@
 import test from 'ava';
 import type {PappardelleConfig, Profile} from './config.ts';
-import {matchProfiles, getTeamPrefix} from './config.ts';
+import {
+	matchProfiles,
+	getTeamPrefix,
+	repoNameFromGitCommonDir,
+} from './config.ts';
 
 // Helper to create a minimal profile
 function createProfile(keywords: string[], displayName: string): Profile {
@@ -597,4 +601,35 @@ test('matches multiple keywords with mixed special chars', t => {
 		'pappardelle',
 		'tui',
 	]);
+});
+
+// ============================================================================
+// Repo Name from Git Common Dir Tests
+// ============================================================================
+
+test('repoNameFromGitCommonDir extracts repo name from main repo .git path', t => {
+	t.is(
+		repoNameFromGitCommonDir('/Users/charlie/cs/stardust-labs/.git'),
+		'stardust-labs',
+	);
+});
+
+test('repoNameFromGitCommonDir extracts repo name from worktree .git path', t => {
+	// git common dir is always the main repo's .git, even from a worktree
+	t.is(
+		repoNameFromGitCommonDir('/Users/charlie/cs/my-project/.git'),
+		'my-project',
+	);
+});
+
+test('repoNameFromGitCommonDir handles trailing slash', t => {
+	t.is(
+		repoNameFromGitCommonDir('/Users/charlie/cs/stardust-labs/.git/'),
+		'stardust-labs',
+	);
+});
+
+test('repoNameFromGitCommonDir handles relative .git path', t => {
+	// Edge case: relative path — dirname of ".git" is "."
+	t.is(repoNameFromGitCommonDir('.git'), '.');
 });

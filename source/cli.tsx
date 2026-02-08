@@ -9,6 +9,7 @@ import type {PaneLayout} from './types.js';
 import {
 	configExists,
 	getRepoRoot,
+	getRepoName,
 	loadConfig,
 	getTeamPrefix,
 	ConfigNotFoundError,
@@ -141,7 +142,8 @@ if (cli.input.length > 0) {
 
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
-	const sessionName = 'pappardelle';
+	const repoName = getRepoName();
+	const sessionName = `pappardelle-${repoName}`;
 
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {

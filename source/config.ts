@@ -104,6 +104,37 @@ export function getRepoRoot(): string {
 }
 
 /**
+ * Extract the repository name from a git common dir path.
+ * `git rev-parse --path-format=absolute --git-common-dir` returns the main
+ * repo's `.git` directory even when run from a worktree, e.g.
+ * `/Users/charlie/cs/stardust-labs/.git`. The parent directory's basename
+ * is the repo name.
+ */
+export function repoNameFromGitCommonDir(gitCommonDir: string): string {
+	// Strip trailing slash then get parent basename
+	const normalized = gitCommonDir.replace(/\/+$/, '');
+	return path.basename(path.dirname(normalized));
+}
+
+/**
+ * Get the repository name, correctly resolving through worktrees.
+ */
+export function getRepoName(): string {
+	try {
+		const gitCommonDir = execSync(
+			'git rev-parse --path-format=absolute --git-common-dir',
+			{
+				encoding: 'utf-8',
+				stdio: ['pipe', 'pipe', 'pipe'],
+			},
+		).trim();
+		return repoNameFromGitCommonDir(gitCommonDir);
+	} catch {
+		throw new Error('Not in a git repository');
+	}
+}
+
+/**
  * Load the .pappardelle.yml config from the repository root
  */
 export function loadConfig(): PappardelleConfig {
