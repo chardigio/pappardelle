@@ -7,7 +7,6 @@ import PromptDialog from './components/PromptDialog.js';
 import ConfirmDialog from './components/ConfirmDialog.js';
 import HelpOverlay from './components/HelpOverlay.js';
 import ErrorDialog from './components/ErrorDialog.js';
-import ClaudeAnimation from './components/ClaudeAnimation.js';
 import {createLogger, subscribeToErrors, type LogEntry} from './logger.js';
 
 const log = createLogger('app');
@@ -19,7 +18,11 @@ import {
 	ensureStatusDir,
 } from './claude-status.js';
 import {normalizeIssueIdentifier} from './issue-checker.js';
-import {routeSession, isStartingStatusResolved} from './session-routing.js';
+import {
+	routeSession,
+	isPendingSessionResolved,
+	type PendingSession,
+} from './session-routing.js';
 import {loadConfig, getTeamPrefix} from './config.js';
 import {
 	isInTmux,
@@ -61,10 +64,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 	const [showHelp, setShowHelp] = useState(false);
 	const [showErrorDialog, setShowErrorDialog] = useState(false);
-	const [statusMessage, setStatusMessage] = useState('');
-	const [isStatusAnimating, setIsStatusAnimating] = useState(false);
+	const [pendingSession, setPendingSession] = useState<PendingSession | null>(
+		null,
+	);
+	const [headerMessage, setHeaderMessage] = useState('');
 	const [errorCount, setErrorCount] = useState(0);
-	const spaceCountAtStartRef = useRef(0);
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 
 	// Mutable pane layout — updated when layout mode switches (horizontal ↔ vertical)
@@ -257,21 +261,14 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		return unsubscribe;
 	}, []);
 
-	// Auto-clear "starting ..." status when the new space appears in the list
+	// Auto-clear pending session when the new space appears in the list
 	useEffect(() => {
-		if (!statusMessage) return;
+		if (!pendingSession) return;
 		const spaceNames = spaces.map(s => s.name);
-		if (
-			isStartingStatusResolved(
-				statusMessage,
-				spaceNames,
-				spaceCountAtStartRef.current,
-			)
-		) {
-			setStatusMessage('');
-			setIsStatusAnimating(false);
+		if (isPendingSessionResolved(pendingSession, spaceNames)) {
+			setPendingSession(null);
 		}
-	}, [spaces, statusMessage]);
+	}, [spaces, pendingSession]);
 
 	// Track whether zoom animation is in progress
 	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
@@ -416,8 +413,8 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				// Delete key or 'd' to delete selected space
 				const space = spaces[selectedIndex];
 				if (space?.isMainWorktree) {
-					setStatusMessage('Cannot close main worktree');
-					setTimeout(() => setStatusMessage(''), 2000);
+					setHeaderMessage('Cannot close main worktree');
+					setTimeout(() => setHeaderMessage(''), 2000);
 				} else if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
 				}
@@ -444,12 +441,10 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	);
 
 	// Helper to spawn idow and capture errors
-	const spawnIdow = (args: string[], statusMessageOnStart: string) => {
-		spaceCountAtStartRef.current = spaces.length;
-		setStatusMessage(statusMessageOnStart);
-		setIsStatusAnimating(true);
+	const spawnIdow = (pending: PendingSession) => {
+		setPendingSession(pending);
 
-		const child = spawn('idow', args, {
+		const child = spawn('idow', [pending.idowArg], {
 			detached: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			env: process.env,
@@ -468,30 +463,30 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		child.on('error', err => {
 			log.error(`Failed to spawn idow: ${err.message}`, err);
-			setStatusMessage(`failed: ${err.message.slice(0, 40)}`);
-			setIsStatusAnimating(false);
-			setTimeout(() => setStatusMessage(''), 5000);
+			setPendingSession(null);
+			setHeaderMessage(`Failed: ${err.message.slice(0, 40)}`);
+			setTimeout(() => setHeaderMessage(''), 5000);
 		});
 
 		child.on('close', code => {
 			if (code !== 0 && code !== null) {
-				setIsStatusAnimating(false);
+				setPendingSession(null);
 				const errorMsg =
 					stderrData.trim() ||
 					stdoutData.match(/Error: .*/)?.[0] ||
 					`idow exited with code ${code}`;
 				log.error(`idow failed (exit ${code}): ${errorMsg}`);
-				setStatusMessage(`failed: ${errorMsg.slice(0, 40)}`);
-				setTimeout(() => setStatusMessage(''), 5000);
+				setHeaderMessage(`Failed: ${errorMsg.slice(0, 40)}`);
+				setTimeout(() => setHeaderMessage(''), 5000);
 			} else {
-				// Keep the "starting ..." message visible — the useEffect
+				// Keep the pending row visible — the useEffect
 				// watching `spaces` will clear it once the new row appears.
 				loadSpaces();
 			}
 		});
 
 		child.unref();
-		log.info(`Started idow with args: ${args.join(' ')}`);
+		log.info(`Started idow for pending session: ${pending.name}`);
 	};
 
 	// Handle new session creation
@@ -512,8 +507,15 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
-		const route = routeSession(normalizedIssueKey, input);
-		spawnIdow(route.args, route.statusStart);
+		const route = routeSession(normalizedIssueKey);
+		const pending: PendingSession = {
+			type: route.type,
+			name: route.issueKey ?? '',
+			idowArg: route.issueKey ?? input,
+			pendingTitle: route.pendingTitle,
+			prevSpaceCount: spaces.length,
+		};
+		spawnIdow(pending);
 	};
 
 	// Handle space deletion (kills tmux sessions for the space)
@@ -544,37 +546,116 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Get space to delete (for confirmation dialog)
 	const spaceToDelete = spaces[selectedIndex];
 
-	// Calculate scroll offset for large lists
-	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
-		calculateVisibleWindow(selectedIndex, spaces.length, termHeight);
-	const visibleSpaces = spaces.slice(scrollOffset, scrollOffset + visibleCount);
+	// Build display list: real spaces + pending row (if any) at the correct position.
+	// Also track the insert index so we can offset selectedIndex correctly.
+	const {displaySpaces, pendingInsertIndex} = React.useMemo((): {
+		displaySpaces: SpaceData[];
+		pendingInsertIndex: number;
+	} => {
+		if (!pendingSession) return {displaySpaces: spaces, pendingInsertIndex: -1};
+
+		// Don't show pending row if the real space already exists
+		if (
+			pendingSession.name &&
+			spaces.some(s => s.name === pendingSession.name)
+		) {
+			return {displaySpaces: spaces, pendingInsertIndex: -1};
+		}
+
+		const pendingRow: SpaceData = {
+			name: pendingSession.name,
+			worktreePath: null,
+			isPending: true,
+			pendingTitle: pendingSession.pendingTitle,
+		};
+
+		if (pendingSession.type === 'issue') {
+			// Insert at the correct sorted position by issue number (descending)
+			const pendingNum = parseInt(pendingSession.name.split('-')[1] ?? '0', 10);
+			const result = [...spaces];
+			// Find the first non-main issue space with a lower number
+			let insertIdx = result.findIndex(
+				s =>
+					!s.isMainWorktree &&
+					parseInt(s.name.split('-')[1] ?? '0', 10) < pendingNum,
+			);
+			if (insertIdx === -1) {
+				// No lower-numbered space found — append at the end
+				insertIdx = result.length;
+			}
+			result.splice(insertIdx, 0, pendingRow);
+			return {displaySpaces: result, pendingInsertIndex: insertIdx};
+		}
+
+		// Description route: insert right after main/master (position 1)
+		const mainIdx = spaces.findIndex(s => s.isMainWorktree);
+		const insertIdx = mainIdx + 1;
+		const result = [...spaces];
+		result.splice(insertIdx, 0, pendingRow);
+		return {displaySpaces: result, pendingInsertIndex: insertIdx};
+	}, [spaces, pendingSession]);
+
+	// Map selectedIndex (which indexes into `spaces`) to the display list.
+	// When a pending row is inserted before the selected item, shift by 1.
+	const displaySelectedIndex =
+		pendingInsertIndex >= 0 && selectedIndex >= pendingInsertIndex
+			? selectedIndex + 1
+			: selectedIndex;
+
+	// Calculate scroll offset for large lists (using displaySpaces which includes pending row)
+	const {
+		scrollOffset,
+		visibleCount,
+		adjustedSelectedIndex: adjustedDisplayIndex,
+	} = calculateVisibleWindow(
+		displaySelectedIndex,
+		displaySpaces.length,
+		termHeight,
+	);
+	const visibleDisplaySpaces = displaySpaces.slice(
+		scrollOffset,
+		scrollOffset + visibleCount,
+	);
 
 	// Handle mouse clicks on the list
 	const handleMouse = useCallback(
 		(event: {x: number; y: number; button: string}) => {
 			if (event.button !== 'left') return;
 			if (showPromptDialog || showDeleteConfirm || showErrorDialog) return;
-			if (spaces.length === 0) return;
+			if (displaySpaces.length === 0) return;
 
 			// Calculate which row in the list was clicked
 			// Layout: header (1 line) + marginBottom (1 line) = HEADER_ROWS
 			const clickedRow = event.y - HEADER_ROWS;
 
-			if (clickedRow < 0 || clickedRow >= visibleSpaces.length) return;
+			if (clickedRow < 0 || clickedRow >= visibleDisplaySpaces.length) return;
 
-			// Convert visible row to absolute index
-			const absoluteIndex = scrollOffset + clickedRow;
-			if (absoluteIndex >= 0 && absoluteIndex < spaces.length) {
-				setSelectedIndex(absoluteIndex);
+			// Convert visible row to absolute display index
+			const displayIndex = scrollOffset + clickedRow;
+			if (displayIndex < 0 || displayIndex >= displaySpaces.length) return;
+
+			// Ignore clicks on the pending row
+			if (displaySpaces[displayIndex]?.isPending) return;
+
+			// Map display index back to spaces index (reverse the +1 offset)
+			const spacesIndex =
+				pendingInsertIndex >= 0 && displayIndex > pendingInsertIndex
+					? displayIndex - 1
+					: displayIndex;
+
+			if (spacesIndex >= 0 && spacesIndex < spaces.length) {
+				setSelectedIndex(spacesIndex);
 			}
 		},
 		[
+			displaySpaces,
 			spaces.length,
 			showPromptDialog,
 			showDeleteConfirm,
 			showErrorDialog,
 			scrollOffset,
-			visibleSpaces.length,
+			visibleDisplaySpaces.length,
+			pendingInsertIndex,
 		],
 	);
 
@@ -583,12 +664,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		!showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog,
 	);
 
-	// Space count excludes the permanent main worktree row
+	// Space count excludes the permanent main worktree row and pending rows
 	const issueSpaceCount = spaces.filter(s => !s.isMainWorktree).length;
 
 	// Render the space list
 	const renderList = () => {
-		if (spaces.length === 0) {
+		if (displaySpaces.length === 0) {
 			return (
 				<Box flexDirection="column" paddingY={1}>
 					<Text dimColor>No spaces found.</Text>
@@ -599,11 +680,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		return (
 			<Box flexDirection="column">
-				{visibleSpaces.map((space, index) => (
+				{visibleDisplaySpaces.map((space, index) => (
 					<SpaceListItem
-						key={space.name}
+						key={space.isPending ? `pending-${space.name}` : space.name}
 						space={space}
-						isSelected={index === adjustedSelectedIndex}
+						isSelected={index === adjustedDisplayIndex}
 						width={termDimensions.cols}
 					/>
 				))}
@@ -638,18 +719,16 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				<Text dimColor> | </Text>
 				<Text dimColor>
 					{issueSpaceCount} space{issueSpaceCount !== 1 ? 's' : ''}
-					{visibleSpaces.length < spaces.length &&
-						` (${scrollOffset + 1}-${scrollOffset + visibleSpaces.length} of ${spaces.length})`}
+					{visibleDisplaySpaces.length < displaySpaces.length &&
+						` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${displaySpaces.length})`}
 				</Text>
-				{statusMessage && (
+				{headerMessage && (
 					<>
 						<Text dimColor> | </Text>
-						{isStatusAnimating && <ClaudeAnimation />}
-						{isStatusAnimating && <Text> </Text>}
-						<Text color="yellow">{statusMessage}</Text>
+						<Text color="yellow">{headerMessage}</Text>
 					</>
 				)}
-				{errorCount > 0 && !statusMessage && (
+				{errorCount > 0 && !headerMessage && (
 					<>
 						<Text dimColor> | </Text>
 						<Text color="red">✗ {errorCount}</Text>

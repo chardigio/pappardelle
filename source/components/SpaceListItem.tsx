@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import type {SpaceData} from '../types.js';
-import {CLAUDE_STATUS_DISPLAY} from '../types.js';
+import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.js';
 import {getMainWorktreeColor} from '../git-status.js';
 import {getWorkflowStateColor} from '../linear.js';
 import ClaudeAnimation from './ClaudeAnimation.js';
@@ -24,7 +24,9 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 
 	const statusInfo = isQuestion ? {color: 'blue', icon: '?'} : baseStatusInfo;
 
+	// Pending rows always show the animation spinner
 	const isWorking =
+		space.isPending ||
 		space.claudeStatus === 'processing' ||
 		space.claudeStatus === 'running_tool';
 
@@ -46,14 +48,15 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	}, [needsAttention]);
 
 	// Calculate available width for title
-	// Format: "✢ STA-123 title..."
-	// icon (1) + space (1) + issueKey (variable) + space (1) = 3 + key length
+	// Format: "✢ STA-123 title..." or "✢ title..." (no issue key for pending description rows)
 	const issueKey = space.name;
-	const fixedWidth = 1 + 1 + issueKey.length + 1;
+	const hasIssueKey = issueKey.length > 0;
+	// icon (1) + space (1) [+ issueKey (variable) + space (1)]
+	const fixedWidth = hasIssueKey ? 1 + 1 + issueKey.length + 1 : 1 + 1;
 	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
-	// Truncate title
-	const title = space.linearIssue?.title ?? '';
+	// Truncate title (pending rows use their own title text)
+	const title = space.pendingTitle ?? space.linearIssue?.title ?? '';
 	const truncatedTitle =
 		title.length > availableTitleWidth
 			? title.slice(0, availableTitleWidth - 1) + '\u2026'
@@ -71,7 +74,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		}
 
 		const state = space.linearIssue?.state;
-		if (!state) return 'gray';
+		if (!state) return space.isPending ? 'white' : 'gray';
 		return state.color;
 	};
 	const stateColor = getStateColor();
@@ -90,7 +93,13 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			{/* Status icon (NOT highlighted, always shows its own color) */}
 			{isWorking ? (
 				<ClaudeAnimation
-					color={useBlinkInverse ? textColor : statusInfo.color}
+					color={
+						useBlinkInverse
+							? textColor
+							: space.isPending
+								? COLORS.CLAUDE_ORANGE
+								: statusInfo.color
+					}
 					inverse={useBlinkInverse}
 				/>
 			) : (
@@ -107,24 +116,28 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			</Text>
 
 			{/* Issue key badge (colored by Linear state, highlighted when selected) */}
-			<Text
-				color={useBlinkInverse ? textColor : stateColor}
-				bold
-				inverse={useInverse}
-			>
-				{issueKey}
-			</Text>
+			{hasIssueKey && (
+				<Text
+					color={useBlinkInverse ? textColor : stateColor}
+					bold
+					inverse={useInverse}
+				>
+					{issueKey}
+				</Text>
+			)}
 
 			{/* Space + title (only if there's a title to show) */}
 			{truncatedTitle.length > 0 && (
 				<>
-					<Text
-						dimColor={!useInverse}
-						inverse={useInverse}
-						color={useSelectionInverse ? stateColor : textColor}
-					>
-						{' '}
-					</Text>
+					{hasIssueKey && (
+						<Text
+							dimColor={!useInverse}
+							inverse={useInverse}
+							color={useSelectionInverse ? stateColor : textColor}
+						>
+							{' '}
+						</Text>
+					)}
 					<Text
 						dimColor={!useInverse}
 						wrap="truncate"

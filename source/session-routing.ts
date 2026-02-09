@@ -1,62 +1,69 @@
 // Pure logic for determining how to spawn an idow session
 // Extracted from handleNewSession in app.tsx for testability
 
-const STARTING_PREFIX = 'starting ';
-const STARTING_NEW_SESSION = 'starting new session';
-
 export type SessionRoute = {
 	type: 'issue' | 'description';
-	args: string[];
-	statusStart: string;
+	/** Issue key for issue routes, null for description routes */
+	issueKey: string | null;
+	/** Title shown in the pending list row (e.g., "Resuming..." or "Starting new session...") */
+	pendingTitle: string;
 };
 
 /**
- * Given a normalized issue key (or null) and the original input,
- * determine the idow arguments and status messages.
+ * Given a normalized issue key (or null), determine the route type
+ * and pending row metadata.
  *
- * Key behavior: when the input is an issue key, always pass just the
- * issue key to idow — never --resume or other flags. The idow script
- * handles both new and existing issues correctly with a bare issue key.
+ * Key behavior: when the input is an issue key, the caller passes
+ * just the issue key to idow — never --resume or other flags.
+ * The idow script handles both new and existing issues correctly
+ * with a bare issue key.
  */
-export function routeSession(
-	normalizedIssueKey: string | null,
-	originalInput: string,
-): SessionRoute {
+export function routeSession(normalizedIssueKey: string | null): SessionRoute {
 	if (normalizedIssueKey) {
 		return {
 			type: 'issue',
-			args: [normalizedIssueKey],
-			statusStart: `starting ${normalizedIssueKey}`,
+			issueKey: normalizedIssueKey,
+			pendingTitle: 'Resuming\u2026',
 		};
 	}
 
 	return {
 		type: 'description',
-		args: [originalInput],
-		statusStart: STARTING_NEW_SESSION,
+		issueKey: null,
+		pendingTitle: 'Starting new session\u2026',
 	};
 }
 
 /**
- * Check if a "starting ..." status message should be cleared because
+ * Pending session state for rendering a placeholder row in the list.
+ * Set when a session is spawned, cleared when the real space appears.
+ */
+export interface PendingSession {
+	type: 'issue' | 'description';
+	/** Issue key for issue routes (e.g., "STA-477"), empty string for description routes */
+	name: string;
+	/** The idow argument to spawn with */
+	idowArg: string;
+	/** Title shown in the pending list row */
+	pendingTitle: string;
+	/** Space count at the time the session was started (for description routes) */
+	prevSpaceCount: number;
+}
+
+/**
+ * Check if a pending session should be cleared because
  * the space it refers to now exists in the spaces list.
  *
- * For issue-key sessions ("starting STA-464"), resolves when that key
- * appears in spaceNames.  For description sessions ("starting new session"),
- * resolves when the space count grows beyond prevSpaceCount.
+ * For issue-key sessions, resolves when that key appears in spaceNames.
+ * For description sessions, resolves when the space count grows beyond prevSpaceCount.
  */
-export function isStartingStatusResolved(
-	statusMessage: string,
+export function isPendingSessionResolved(
+	pending: PendingSession,
 	spaceNames: string[],
-	prevSpaceCount: number,
 ): boolean {
-	if (!statusMessage.startsWith(STARTING_PREFIX)) return false;
-
-	if (statusMessage === STARTING_NEW_SESSION) {
-		return spaceNames.length > prevSpaceCount;
+	if (pending.type === 'description') {
+		return spaceNames.length > pending.prevSpaceCount;
 	}
 
-	// Extract the issue key after "starting "
-	const issueKey = statusMessage.slice(STARTING_PREFIX.length);
-	return spaceNames.includes(issueKey);
+	return spaceNames.includes(pending.name);
 }
