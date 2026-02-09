@@ -43,11 +43,31 @@ export interface GitHubConfig {
 	label: string;
 }
 
+/**
+ * Provider-agnostic VCS config for a profile.
+ * New name for the github config; `github:` key still accepted as fallback.
+ */
+export interface VcsConfig {
+	label: string;
+}
+
+export interface IssueTrackerConfig {
+	provider: 'linear' | 'jira';
+	base_url?: string; // Required for jira
+}
+
+export interface VcsHostConfig {
+	provider: 'github' | 'gitlab';
+	host?: string; // For self-hosted GitLab
+}
+
 export interface Profile {
 	keywords: string[];
 	display_name: string;
 	ios?: IOSConfig;
 	github?: GitHubConfig;
+	/** Provider-agnostic VCS config; falls back to `github` if absent. */
+	vcs?: VcsConfig;
 	links?: LinkConfig[];
 	apps?: AppConfig[];
 	commands?: CommandConfig[];
@@ -58,6 +78,8 @@ export interface PappardelleConfig {
 	version: number;
 	default_profile: string;
 	team_prefix?: string;
+	issue_tracker?: IssueTrackerConfig;
+	vcs_host?: VcsHostConfig;
 	profiles: Record<string, Profile>;
 }
 
@@ -191,6 +213,37 @@ function validateConfig(config: unknown): asserts config is PappardelleConfig {
 		errors.push('default_profile: required string field');
 	}
 
+	// Check issue_tracker (optional)
+	if (cfg['issue_tracker'] !== undefined) {
+		if (
+			typeof cfg['issue_tracker'] !== 'object' ||
+			cfg['issue_tracker'] === null
+		) {
+			errors.push('issue_tracker: must be an object');
+		} else {
+			const it = cfg['issue_tracker'] as Record<string, unknown>;
+			const provider = it['provider'];
+			if (provider !== 'linear' && provider !== 'jira') {
+				errors.push('issue_tracker.provider: must be "linear" or "jira"');
+			} else if (provider === 'jira' && typeof it['base_url'] !== 'string') {
+				errors.push('issue_tracker.base_url: required when provider is "jira"');
+			}
+		}
+	}
+
+	// Check vcs_host (optional)
+	if (cfg['vcs_host'] !== undefined) {
+		if (typeof cfg['vcs_host'] !== 'object' || cfg['vcs_host'] === null) {
+			errors.push('vcs_host: must be an object');
+		} else {
+			const vh = cfg['vcs_host'] as Record<string, unknown>;
+			const provider = vh['provider'];
+			if (provider !== 'github' && provider !== 'gitlab') {
+				errors.push('vcs_host.provider: must be "github" or "gitlab"');
+			}
+		}
+	}
+
 	// Check profiles
 	if (!cfg['profiles'] || typeof cfg['profiles'] !== 'object') {
 		errors.push('profiles: required object field');
@@ -296,12 +349,20 @@ export interface TemplateVars {
 	REPO_ROOT: string;
 	REPO_NAME: string;
 	PR_URL?: string;
+	/** Provider-agnostic alias for PR_URL */
+	MR_URL?: string;
 	XCODEPROJ_PATH?: string;
 	SCRIPT_DIR?: string;
 	IOS_APP_DIR?: string;
 	BUNDLE_ID?: string;
 	SCHEME?: string;
 	GITHUB_LABEL?: string;
+	/** Provider-agnostic alias for GITHUB_LABEL */
+	VCS_LABEL?: string;
+	/** Issue tracker provider name (e.g., "linear", "jira") */
+	TRACKER_PROVIDER?: string;
+	/** VCS host provider name (e.g., "github", "gitlab") */
+	VCS_PROVIDER?: string;
 	[key: string]: string | undefined;
 }
 
@@ -445,4 +506,12 @@ export function listProfiles(
 		name,
 		displayName: profile.display_name,
 	}));
+}
+
+/**
+ * Get the VCS label for a profile (e.g., GitHub PR label).
+ * Checks `vcs.label` first, then falls back to `github.label`.
+ */
+export function getProfileVcsLabel(profile: Profile): string | undefined {
+	return profile.vcs?.label ?? profile.github?.label;
 }

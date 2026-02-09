@@ -1,6 +1,7 @@
 import test from 'ava';
 import {
 	isLinearIssueKey,
+	isIssueKey,
 	isIssueNumber,
 	normalizeIssueIdentifier,
 } from './issue-utils.ts';
@@ -114,4 +115,19 @@ test('normalizeIssueIdentifier works with different team prefixes', t => {
 test('normalizeIssueIdentifier preserves original team prefix when different from default', t => {
 	// If user types ENG-100 but default is STA, keep ENG-100
 	t.is(normalizeIssueIdentifier('ENG-100', 'STA'), 'ENG-100');
+});
+
+// ============================================================================
+// isIssueKey Tests (provider-agnostic alias)
+// ============================================================================
+
+test('isIssueKey is an alias for isLinearIssueKey', t => {
+	t.is(isIssueKey, isLinearIssueKey);
+});
+
+test('isIssueKey works for standard format', t => {
+	t.true(isIssueKey('STA-123'));
+	t.true(isIssueKey('PROJ-456'));
+	t.false(isIssueKey('fix bug'));
+	t.false(isIssueKey('400'));
 });

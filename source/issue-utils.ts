@@ -9,6 +9,12 @@ export function isLinearIssueKey(input: string): boolean {
 }
 
 /**
+ * Provider-agnostic alias for isLinearIssueKey.
+ * The pattern (PREFIX-NUMBER) is shared by Linear, Jira, and most trackers.
+ */
+export const isIssueKey = isLinearIssueKey;
+
+/**
  * Check if a string is a bare issue number (e.g., 400, 123)
  */
 export function isIssueNumber(input: string): boolean {

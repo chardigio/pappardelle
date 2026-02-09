@@ -5,7 +5,7 @@ Interactive Terminal UI for managing DOW (Do on Worktree) workspaces.
 ## Features
 
 - **Workspace Grid**: Displays aerospace workspaces as cards in a responsive grid
-- **Linear Integration**: Shows Linear issue key, title, and status for each workspace
+- **Issue Tracker Integration**: Shows issue key, title, and status (Linear or Jira)
 - **App Icons**: Displays icons for open applications in each workspace
 - **Claude Status**: Real-time Claude Code status tracking (thinking, working, waiting, done)
 - **Quick Navigation**: Arrow key navigation with Enter to switch workspaces
@@ -49,11 +49,18 @@ source/
 ├── config.ts            # Configuration loading and parsing
 ├── logger.ts            # Centralized logging system
 ├── tmux.ts              # Tmux session management and layout
-├── linear.ts            # Linear (linctl) integration
+├── linear.ts            # Issue tracker facade (delegates to providers)
 ├── claude-status.ts     # Claude status file management
 ├── git-status.ts        # Git worktree status detection
-├── issue-checker.ts     # Issue key normalization
+├── issue-checker.ts     # VCS host facade (delegates to providers)
 ├── issue-utils.ts       # Issue utility helpers
+├── providers/
+│   ├── types.ts             # Provider interfaces (IssueTrackerProvider, VcsHostProvider)
+│   ├── index.ts             # Provider factory (createIssueTracker, createVcsHost)
+│   ├── linear-provider.ts   # Linear provider (linctl)
+│   ├── jira-provider.ts     # Jira provider (acli)
+│   ├── github-provider.ts   # GitHub provider (gh)
+│   └── gitlab-provider.ts   # GitLab provider (glab)
 ├── session-routing.ts   # Session routing logic
 ├── layout-sizing.ts     # Layout calculations
 ├── list-view-sizing.ts  # List view sizing calculations
@@ -93,17 +100,20 @@ The TUI tracks Claude Code session status through file-based hooks:
 | Idle       | ○    | Session is idle                      |
 | Unknown    | ?    | No status available                  |
 
-## Linear Q&A Comments
+## Issue Tracker Q&A Comments
 
-When Claude asks clarifying questions using `AskUserQuestion` and the user answers them, a hook automatically posts a comment to the corresponding Linear issue. This creates a permanent record of the Q&A session.
+When Claude asks clarifying questions using `AskUserQuestion` and the user answers them, a hook automatically posts a comment to the corresponding issue. This creates a permanent record of the Q&A session.
+
+Supports both **Linear** (via `linctl`) and **Jira** (via `acli`), configured in `.pappardelle.yml`.
 
 ### How It Works
 
 1. Claude uses the `AskUserQuestion` tool to ask questions
 2. The user selects answers from the provided options
 3. The `PostToolUse` hook for `AskUserQuestion` is triggered
-4. The hook extracts the Linear issue key from the workspace path (e.g., `STA-123`)
-5. A formatted markdown comment is posted to the Linear issue via `linctl`
+4. The hook extracts the issue key from the workspace path (e.g., `STA-123`)
+5. The hook reads `.pappardelle.yml` to determine the issue tracker provider
+6. A formatted markdown comment is posted via `linctl` (Linear) or `acli` (Jira)
 
 ### Example Comment
 
@@ -126,8 +136,10 @@ _Recorded at 2024-01-15 14:30:45_
 
 ### Requirements
 
-- The workspace must be in a path containing a Linear issue key (e.g., `~/.worktrees/stardust-labs/STA-123/`)
-- `linctl` must be installed and authenticated
+- The workspace must be in a path containing an issue key (e.g., `~/.worktrees/stardust-labs/STA-123/`)
+- The appropriate CLI tool must be installed and authenticated:
+  - **Linear**: `linctl` (`brew tap raegislabs/linctl && brew install linctl`)
+  - **Jira**: `acli` (Atlassian CLI)
 
 ## Logging
 
@@ -168,11 +180,30 @@ tail -f ~/.pappardelle/logs/pappardelle-*.log
 grep '\[ERROR\]' ~/.pappardelle/logs/*.log
 ```
 
+## Provider Configuration
+
+Pappardelle supports pluggable issue tracker and VCS host providers, configured via `.pappardelle.yml`:
+
+```yaml
+# Issue tracker: "linear" (default) or "jira"
+issue_tracker:
+  provider: jira
+  base_url: https://mycompany.atlassian.net
+
+# VCS host: "github" (default) or "gitlab"
+vcs_host:
+  provider: gitlab
+  host: gitlab.mycompany.com  # optional, for self-hosted
+```
+
+Omitting these fields defaults to Linear + GitHub. See [pappardelle-config.md](pappardelle-config.md) for full configuration reference.
+
 ## Dependencies
 
 - [Ink](https://github.com/vadimdemedes/ink) - React for CLIs
 - [tmux](https://github.com/tmux/tmux) - Terminal multiplexer (for pane layout)
-- [linctl](https://github.com/raegislabs/linctl) - Linear CLI
+- Issue tracker CLI: [linctl](https://github.com/raegislabs/linctl) (Linear) or `acli` (Jira)
+- VCS host CLI: [gh](https://cli.github.com/) (GitHub) or [glab](https://gitlab.com/gitlab-org/cli) (GitLab)
 
 ## Development
 
