@@ -50,7 +50,7 @@ test('resolves when issue key appears in spaces', t => {
 	const pending: PendingSession = {
 		type: 'issue',
 		name: 'STA-464',
-		idowArg: 'STA-464',
+		dowArg: 'STA-464',
 		pendingTitle: 'Resuming\u2026',
 		prevSpaceCount: 1,
 	};
@@ -61,7 +61,7 @@ test('does not resolve when issue key is absent from spaces', t => {
 	const pending: PendingSession = {
 		type: 'issue',
 		name: 'STA-464',
-		idowArg: 'STA-464',
+		dowArg: 'STA-464',
 		pendingTitle: 'Resuming\u2026',
 		prevSpaceCount: 1,
 	};
@@ -72,7 +72,7 @@ test('resolves description session when space count increases', t => {
 	const pending: PendingSession = {
 		type: 'description',
 		name: '',
-		idowArg: 'add dark mode',
+		dowArg: 'add dark mode',
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
 	};
@@ -83,7 +83,7 @@ test('does not resolve description session when count unchanged', t => {
 	const pending: PendingSession = {
 		type: 'description',
 		name: '',
-		idowArg: 'add dark mode',
+		dowArg: 'add dark mode',
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
 	};

@@ -74,6 +74,24 @@ source/
     ├── HelpOverlay.tsx      # Help overlay
     └── ClaudeAnimation.tsx  # Claude status animation
 
+scripts/                         # Workspace setup scripts (dow/idow)
+├── dow                          # Non-interactive workspace setup
+├── idow                         # Interactive workspace setup
+├── provider-helpers.sh          # Provider-agnostic helper functions
+├── create-worktree.sh           # Git worktree creation
+├── create-linear-issue.sh       # Linear issue creation
+├── create-github-pr.sh          # GitHub PR creation
+├── derive-title.sh              # Issue title generation
+├── generate-xcode-project.sh    # XcodeGen project generation
+├── setup-qa-simulator.sh        # iOS simulator setup
+├── open-iterm-claude.sh         # iTerm + Claude session opener
+├── open-cursor.sh               # Cursor editor opener
+├── open-firefox-tabs.sh         # Firefox tab opener
+├── organize-aerospace.sh        # AeroSpace workspace organizer
+├── position-window.sh           # Window positioning
+├── yabai-position.sh            # Yabai window positioning
+└── test-create-worktree.sh      # Worktree creation tests
+
 hooks/
 ├── update-status.py             # Status tracking hook
 ├── comment-question-answered.py # Linear Q&A comment hook

@@ -3,6 +3,8 @@ import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
 import App from './app.js';
 import {isInTmux, sessionExists, setupPappardellLayout} from './tmux.js';
 import type {PaneLayout} from './types.js';
@@ -16,6 +18,10 @@ import {
 	ConfigValidationError,
 } from './config.js';
 import {normalizeIssueIdentifier} from './issue-checker.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
 const cli = meow(
 	`
@@ -136,9 +142,9 @@ if (cli.input.length > 0) {
 	const normalizedIssueKey = normalizeIssueIdentifier(prompt, teamPrefix);
 	const finalPrompt = normalizedIssueKey ?? prompt;
 
-	console.log(`Starting new IDOW session with: "${finalPrompt}"`);
+	console.log(`Starting new DOW session with: "${finalPrompt}"`);
 
-	const result = spawnSync('idow', [finalPrompt], {
+	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
 		stdio: 'inherit',
 		env: process.env,
 	});

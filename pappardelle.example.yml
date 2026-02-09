@@ -9,6 +9,22 @@ default_profile: backend
 # Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123')
 team_prefix: ENG
 
+# Claude initialization command (optional)
+# When set, this command is passed to Claude when a new session opens.
+# Omit or leave empty to open Claude with no initialization command.
+# claude:
+#   initialization_command: "/idow"
+
+# Lifecycle hooks (optional)
+# hooks:
+#   post_workspace_create:
+#     - name: "Run project setup"
+#       run: "cd ${WORKTREE_PATH} && ./setup.sh"
+#       continue_on_error: true
+#     - name: "Organize windows"
+#       run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
+#       continue_on_error: true
+
 profiles:
   ios-app:
     keywords:

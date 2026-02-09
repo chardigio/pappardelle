@@ -39,6 +39,25 @@ vcs_host:
   provider: github  # "github" or "gitlab"
   # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 
+# Claude initialization command (optional)
+# When set, this command is passed to Claude when opening a new session.
+# Example: "/idow" will run the /idow skill with the issue key.
+# When not set, Claude opens with no initialization command.
+claude:
+  initialization_command: "/idow"
+
+# Lifecycle hooks (optional)
+# Commands that run at specific points during workspace setup.
+hooks:
+  # Runs after the workspace is fully created (worktree, PR, apps opened)
+  post_workspace_create:
+    - name: "Organize workspace"
+      run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
+      continue_on_error: true  # Don't fail workspace setup if this fails
+    # - name: "Run setup script"
+    #   run: "cd ${WORKTREE_PATH} && ./setup.sh"
+    #   background: true  # Run in background, don't wait
+
 # Default profile used when no match is found
 default_profile: stardust-jams
 
@@ -184,7 +203,7 @@ The following variables are available for use in templates:
 | `${PR_URL}`            | GitHub PR URL (may be empty)               | `https://github.com/...`                          |
 | `${MR_URL}`            | GitLab MR URL (may be empty)               | `https://gitlab.com/.../merge_requests/1`         |
 | `${XCODEPROJ_PATH}`    | Path to .xcodeproj (may be empty)          | `/path/to/App.xcodeproj`                          |
-| `${SCRIPT_DIR}`        | Directory containing dow/idow scripts      | `/path/to/_dev/scripts/dow`                       |
+| `${SCRIPT_DIR}`        | Directory containing dow/idow scripts      | `/path/to/_dev/scripts/pappardelle/scripts`       |
 | `${HOME}`              | User home directory                        | `/Users/charlie`                                  |
 | `${IOS_APP_DIR}`       | iOS app directory from profile             | `_ios/stardust-jams`                              |
 | `${BUNDLE_ID}`         | iOS bundle ID from profile                 | `com.cd17822.stardust-jams`                       |
@@ -544,6 +563,55 @@ profiles:
 | Jira     | `acli`   | See [Atlassian CLI docs](https://developer.atlassian.com/cloud/jira/platform/rest/v3/) |
 | GitHub   | `gh`     | `brew install gh` |
 | GitLab   | `glab`   | `brew install glab` |
+
+## Claude Configuration
+
+The `claude` section configures how Claude is initialized when opening a new workspace session.
+
+```yaml
+claude:
+  initialization_command: "/idow"  # Optional, default: empty
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `initialization_command` | `string` | `""` | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
+
+The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
+
+## Lifecycle Hooks
+
+The `hooks` section defines commands that run at specific points during workspace setup.
+
+```yaml
+hooks:
+  post_workspace_create:
+    - name: "Organize workspace"
+      run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
+      continue_on_error: true
+      background: false
+```
+
+### Hook Points
+
+| Hook | When it Runs |
+|------|-------------|
+| `post_workspace_create` | After workspace setup is complete (worktree created, PR created, apps opened), before final summary |
+
+### Hook Command Fields
+
+Each hook entry uses the same `CommandConfig` structure as profile commands:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `string` | Required | Human-readable name for logging |
+| `run` | `string` | Required | Command to execute (supports template variables) |
+| `continue_on_error` | `boolean` | `false` | If true, workspace setup continues even if this hook fails |
+| `background` | `boolean` | `false` | If true, run command in background without waiting |
+
+### Available Template Variables in Hooks
+
+All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}`, `${IOS_APP_DIR}`, `${BUNDLE_ID}`.
 
 ## Future Enhancements
 

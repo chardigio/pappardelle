@@ -28,6 +28,14 @@ export interface CommandConfig {
 	background?: boolean;
 }
 
+export interface ClaudeConfig {
+	initialization_command?: string;
+}
+
+export interface HooksConfig {
+	post_workspace_create?: CommandConfig[];
+}
+
 export interface LayoutConfig {
 	positions?: Record<string, number>;
 }
@@ -80,6 +88,8 @@ export interface PappardelleConfig {
 	team_prefix?: string;
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
+	claude?: ClaudeConfig;
+	hooks?: HooksConfig;
 	profiles: Record<string, Profile>;
 }
 
@@ -240,6 +250,47 @@ function validateConfig(config: unknown): asserts config is PappardelleConfig {
 			const provider = vh['provider'];
 			if (provider !== 'github' && provider !== 'gitlab') {
 				errors.push('vcs_host.provider: must be "github" or "gitlab"');
+			}
+		}
+	}
+
+	// Check claude (optional)
+	if (cfg['claude'] !== undefined) {
+		if (typeof cfg['claude'] !== 'object' || cfg['claude'] === null) {
+			errors.push('claude: must be an object');
+		} else {
+			const cl = cfg['claude'] as Record<string, unknown>;
+			if (
+				cl['initialization_command'] !== undefined &&
+				typeof cl['initialization_command'] !== 'string'
+			) {
+				errors.push('claude.initialization_command: must be a string');
+			}
+		}
+	}
+
+	// Check hooks (optional)
+	if (cfg['hooks'] !== undefined) {
+		if (typeof cfg['hooks'] !== 'object' || cfg['hooks'] === null) {
+			errors.push('hooks: must be an object');
+		} else {
+			const hooks = cfg['hooks'] as Record<string, unknown>;
+			if (hooks['post_workspace_create'] !== undefined) {
+				if (!Array.isArray(hooks['post_workspace_create'])) {
+					errors.push('hooks.post_workspace_create: must be an array');
+				} else {
+					const cmds = hooks['post_workspace_create'] as Array<
+						Record<string, unknown>
+					>;
+					for (let i = 0; i < cmds.length; i++) {
+						const cmd = cmds[i]!;
+						if (typeof cmd['run'] !== 'string') {
+							errors.push(
+								`hooks.post_workspace_create[${i}].run: required string field`,
+							);
+						}
+					}
+				}
 			}
 		}
 	}
@@ -514,4 +565,12 @@ export function listProfiles(
  */
 export function getProfileVcsLabel(profile: Profile): string | undefined {
 	return profile.vcs?.label ?? profile.github?.label;
+}
+
+/**
+ * Get the Claude initialization command from config.
+ * Returns the command string (e.g., "/idow") or empty string if not configured.
+ */
+export function getInitializationCommand(config: PappardelleConfig): string {
+	return config.claude?.initialization_command ?? '';
 }
