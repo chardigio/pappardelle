@@ -74,7 +74,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		}
 
 		const state = space.linearIssue?.state;
-		if (!state) return 'gray';
+		if (!state) return space.isPending ? 'white' : 'gray';
 		return state.color;
 	};
 	const stateColor = getStateColor();
