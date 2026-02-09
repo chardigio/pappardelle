@@ -478,7 +478,7 @@ if [[ "$HOOK_COUNT" -gt 0 ]]; then
             elif [[ "$HOOK_CONTINUE" == "true" ]]; then
                 eval "$HOOK_RUN" || print_warning "Hook '$HOOK_NAME' failed (continuing)"
             else
-                eval "$HOOK_RUN" || print_warning "Hook '$HOOK_NAME' failed"
+                eval "$HOOK_RUN" || { print_warning "Hook '$HOOK_NAME' failed"; exit 1; }
             fi
         fi
     done
