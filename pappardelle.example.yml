@@ -1,0 +1,82 @@
+# .pappardelle.yml - Pappardelle workspace configuration
+# Place this file at the root of your git repository.
+# See pappardelle-config.md for full documentation.
+version: 1
+
+# Default profile used when no keyword match is found
+default_profile: backend
+
+# Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123')
+team_prefix: ENG
+
+profiles:
+  ios-app:
+    keywords:
+      - ios
+      - app
+      - mobile
+      - swift
+    display_name: "iOS App"
+    ios:
+      app_dir: "ios/MyApp"
+      bundle_id: "com.example.myapp"
+      scheme: "MyApp"
+    github:
+      label: "ios"
+    links:
+      - url: "https://linear.app/my-team/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+      - name: "Xcode"
+        path: "${XCODEPROJ_PATH}"
+        if_set: "XCODEPROJ_PATH"
+    commands:
+      - name: "Generate Xcode project"
+        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+
+  backend:
+    keywords:
+      - backend
+      - api
+      - server
+      - database
+    display_name: "Backend"
+    github:
+      label: "backend"
+    links:
+      - url: "https://linear.app/my-team/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+
+  frontend:
+    keywords:
+      - frontend
+      - web
+      - react
+      - ui
+    display_name: "Frontend"
+    github:
+      label: "frontend"
+    links:
+      - url: "https://linear.app/my-team/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+    commands:
+      - name: "Install dependencies"
+        run: "cd ${WORKTREE_PATH} && npm install"
+        continue_on_error: true

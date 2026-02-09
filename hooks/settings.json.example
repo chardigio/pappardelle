@@ -1,0 +1,118 @@
+{
+	"hooks": {
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"Notification": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PermissionRequest": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"SubagentStop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		],
+		"PreCompact": [
+			{
+				"matcher": "auto",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			},
+			{
+				"matcher": "manual",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "uv run python3 ~/.pappardelle/hooks/update-status.py"
+					}
+				]
+			}
+		]
+	}
+}
