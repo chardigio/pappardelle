@@ -95,6 +95,41 @@ test.serial('createVcsHost returns singleton', t => {
 });
 
 // ============================================================================
+// Config mismatch detection
+// ============================================================================
+
+test.serial(
+	'createIssueTracker throws when called with different config than cached',
+	t => {
+		createIssueTracker(); // defaults to linear
+		t.throws(
+			() =>
+				createIssueTracker({
+					provider: 'jira',
+					base_url: 'https://example.com',
+				}),
+			{message: /already initialized/},
+		);
+	},
+);
+
+test.serial(
+	'createVcsHost throws when called with different config than cached',
+	t => {
+		createVcsHost(); // defaults to github
+		t.throws(() => createVcsHost({provider: 'gitlab'}), {
+			message: /already initialized/,
+		});
+	},
+);
+
+test.serial('createIssueTracker allows same config on subsequent calls', t => {
+	const a = createIssueTracker({provider: 'linear'});
+	const b = createIssueTracker({provider: 'linear'});
+	t.is(a, b);
+});
+
+// ============================================================================
 // resetProviders
 // ============================================================================
 
@@ -105,3 +140,16 @@ test.serial('resetProviders clears cached singletons', t => {
 	t.not(a, b);
 	t.is(a.name, b.name);
 });
+
+test.serial(
+	'resetProviders allows re-initialization with different config',
+	t => {
+		createIssueTracker(); // linear
+		resetProviders();
+		const b = createIssueTracker({
+			provider: 'jira',
+			base_url: 'https://example.com',
+		});
+		t.is(b.name, 'jira');
+	},
+);

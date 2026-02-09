@@ -1,5 +1,5 @@
 // Linear issue tracker provider — wraps linctl CLI
-import {execSync} from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import {createLogger} from '../logger.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
@@ -30,10 +30,11 @@ export class LinearProvider implements IssueTrackerProvider {
 		}
 
 		try {
-			const output = execSync(`linctl issue get "${issueKey}" --json`, {
-				encoding: 'utf-8',
-				timeout: 10_000,
-			});
+			const output = execFileSync(
+				'linctl',
+				['issue', 'get', issueKey, '--json'],
+				{encoding: 'utf-8', timeout: 10_000},
+			);
 			const issue = JSON.parse(output) as TrackerIssue;
 			this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
 			this.stateColorMap.set(issue.state.name, issue.state.color);
@@ -58,8 +59,9 @@ export class LinearProvider implements IssueTrackerProvider {
 		if (cached) return cached;
 
 		try {
-			const output = execSync(
-				`linctl issue list --state "${stateName}" --limit 1 --json`,
+			const output = execFileSync(
+				'linctl',
+				['issue', 'list', '--state', stateName, '--limit', '1', '--json'],
 				{encoding: 'utf-8', timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe']},
 			);
 			const issues = JSON.parse(output) as TrackerIssue[];
@@ -84,10 +86,10 @@ export class LinearProvider implements IssueTrackerProvider {
 
 	async createComment(issueKey: string, body: string): Promise<boolean> {
 		try {
-			execSync(
-				`linctl comment create "${issueKey}" --body ${JSON.stringify(body)}`,
-				{encoding: 'utf-8', timeout: 30_000},
-			);
+			execFileSync('linctl', ['comment', 'create', issueKey, '--body', body], {
+				encoding: 'utf-8',
+				timeout: 30_000,
+			});
 			return true;
 		} catch (err) {
 			log.warn(

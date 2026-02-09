@@ -1,5 +1,5 @@
 // Jira issue tracker provider — wraps acli (Atlassian CLI)
-import {execSync} from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import {createLogger} from '../logger.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
@@ -66,10 +66,11 @@ export class JiraProvider implements IssueTrackerProvider {
 		}
 
 		try {
-			const output = execSync(`acli jira workitem view "${issueKey}" --json`, {
-				encoding: 'utf-8',
-				timeout: 15_000,
-			});
+			const output = execFileSync(
+				'acli',
+				['jira', 'workitem', 'view', issueKey, '--json'],
+				{encoding: 'utf-8', timeout: 15_000},
+			);
 			const raw = JSON.parse(output) as Record<string, unknown>;
 			const issue = mapJiraIssue(raw);
 			this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
@@ -104,8 +105,9 @@ export class JiraProvider implements IssueTrackerProvider {
 
 	async createComment(issueKey: string, body: string): Promise<boolean> {
 		try {
-			execSync(
-				`acli jira workitem comment --key "${issueKey}" --body ${JSON.stringify(body)}`,
+			execFileSync(
+				'acli',
+				['jira', 'workitem', 'comment', '--key', issueKey, '--body', body],
 				{encoding: 'utf-8', timeout: 30_000},
 			);
 			return true;

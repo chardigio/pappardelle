@@ -1,5 +1,5 @@
 // GitLab VCS host provider — wraps glab CLI
-import {execSync} from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import {createLogger} from '../logger.ts';
 import type {PRInfo, VcsHostProvider} from './types.ts';
 
@@ -21,8 +21,9 @@ export class GitLabProvider implements VcsHostProvider {
 		try {
 			// GitLab doesn't store MR links in issue tracker attachments like Linear.
 			// Discover MR by branch name (branch name matches issue key).
-			const mrOutput = execSync(
-				`glab mr list --source-branch "${issueKey}" --json`,
+			const mrOutput = execFileSync(
+				'glab',
+				['mr', 'list', '--source-branch', issueKey, '--json'],
 				{encoding: 'utf-8', timeout: 10_000},
 			);
 			const mrs = JSON.parse(mrOutput) as Array<{
@@ -38,10 +39,11 @@ export class GitLabProvider implements VcsHostProvider {
 
 			// Check if MR has file changes via diff
 			try {
-				const diffOutput = execSync(`glab mr diff ${mr.iid} --color=never`, {
-					encoding: 'utf-8',
-					timeout: 15_000,
-				});
+				const diffOutput = execFileSync(
+					'glab',
+					['mr', 'diff', String(mr.iid), '--color=never'],
+					{encoding: 'utf-8', timeout: 15_000},
+				);
 				// Count diff file headers (lines starting with "diff --git")
 				const fileCount = (diffOutput.match(/^diff --git/gm) ?? []).length;
 

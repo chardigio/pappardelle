@@ -23,16 +23,39 @@ export interface VcsHostConfig {
 }
 
 let issueTrackerInstance: IssueTrackerProvider | null = null;
+let issueTrackerConfigKey: string | null = null;
 let vcsHostInstance: VcsHostProvider | null = null;
+let vcsHostConfigKey: string | null = null;
+
+function trackerKey(config?: IssueTrackerConfig): string {
+	const provider = config?.provider ?? 'linear';
+	return provider === 'jira' ? `jira:${config?.base_url ?? ''}` : 'linear';
+}
+
+function vcsKey(config?: VcsHostConfig): string {
+	const provider = config?.provider ?? 'github';
+	return provider === 'gitlab' ? `gitlab:${config?.host ?? ''}` : 'github';
+}
 
 /**
  * Create (or return cached) issue tracker provider.
  * Defaults to Linear when no config is provided.
+ * Throws if called with a different config than the cached instance.
  */
 export function createIssueTracker(
 	config?: IssueTrackerConfig,
 ): IssueTrackerProvider {
-	if (issueTrackerInstance) return issueTrackerInstance;
+	const key = trackerKey(config);
+
+	if (issueTrackerInstance) {
+		if (issueTrackerConfigKey !== key) {
+			throw new Error(
+				`Issue tracker already initialized as "${issueTrackerConfigKey}" — cannot re-initialize as "${key}". Call resetProviders() first.`,
+			);
+		}
+
+		return issueTrackerInstance;
+	}
 
 	const provider = config?.provider ?? 'linear';
 
@@ -60,15 +83,27 @@ export function createIssueTracker(
 		}
 	}
 
+	issueTrackerConfigKey = key;
 	return issueTrackerInstance;
 }
 
 /**
  * Create (or return cached) VCS host provider.
  * Defaults to GitHub when no config is provided.
+ * Throws if called with a different config than the cached instance.
  */
 export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
-	if (vcsHostInstance) return vcsHostInstance;
+	const key = vcsKey(config);
+
+	if (vcsHostInstance) {
+		if (vcsHostConfigKey !== key) {
+			throw new Error(
+				`VCS host already initialized as "${vcsHostConfigKey}" — cannot re-initialize as "${key}". Call resetProviders() first.`,
+			);
+		}
+
+		return vcsHostInstance;
+	}
 
 	const provider = config?.provider ?? 'github';
 
@@ -88,6 +123,7 @@ export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
 		}
 	}
 
+	vcsHostConfigKey = key;
 	return vcsHostInstance;
 }
 
@@ -96,5 +132,7 @@ export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
  */
 export function resetProviders(): void {
 	issueTrackerInstance = null;
+	issueTrackerConfigKey = null;
 	vcsHostInstance = null;
+	vcsHostConfigKey = null;
 }
