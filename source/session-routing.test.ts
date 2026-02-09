@@ -9,47 +9,21 @@ import {
 // Issue Key Routing
 // ============================================================================
 
-test('routeSession routes issue key to idow with just the key', t => {
-	const result = routeSession('STA-421', 'STA-421');
+test('routeSession routes issue key as issue type', t => {
+	const result = routeSession('STA-421');
 	t.is(result.type, 'issue');
-	t.deepEqual(result.args, ['STA-421']);
-});
-
-test('routeSession routes expanded bare number to idow with just the key', t => {
-	// normalizeIssueIdentifier('421', 'STA') returns 'STA-421'
-	const result = routeSession('STA-421', '421');
-	t.is(result.type, 'issue');
-	t.deepEqual(result.args, ['STA-421']);
-});
-
-test('routeSession never passes --resume flag to idow', t => {
-	// This is the critical regression test for STA-453.
-	// The old code passed ['--resume', 'STA-421'] which idow didn't handle,
-	// causing it to create a brand new issue with "--resume STA-421" as description.
-	const result = routeSession('STA-421', 'STA-421');
-	t.is(result.args.length, 1);
-	t.false(result.args.includes('--resume'));
-});
-
-test('routeSession args contain only the issue key, nothing else', t => {
-	const result = routeSession('STA-100', 'STA-100');
-	t.deepEqual(result.args, ['STA-100']);
-});
-
-test('routeSession provides issue key for issue routes', t => {
-	const result = routeSession('STA-421', 'STA-421');
 	t.is(result.issueKey, 'STA-421');
 });
 
 test('routeSession provides sentence-case pending title for issue routes', t => {
-	const result = routeSession('STA-421', 'STA-421');
+	const result = routeSession('STA-421');
 	t.is(result.pendingTitle, 'Resuming\u2026');
 });
 
-test('routeSession preserves non-default team prefix in args', t => {
-	const result = routeSession('ENG-100', 'ENG-100');
+test('routeSession preserves non-default team prefix', t => {
+	const result = routeSession('ENG-100');
 	t.is(result.type, 'issue');
-	t.deepEqual(result.args, ['ENG-100']);
+	t.is(result.issueKey, 'ENG-100');
 });
 
 // ============================================================================
@@ -57,25 +31,14 @@ test('routeSession preserves non-default team prefix in args', t => {
 // ============================================================================
 
 test('routeSession routes null issue key as description', t => {
-	const result = routeSession(null, 'add dark mode to settings');
+	const result = routeSession(null);
 	t.is(result.type, 'description');
-	t.deepEqual(result.args, ['add dark mode to settings']);
-});
-
-test('routeSession provides sentence-case pending title for descriptions', t => {
-	const result = routeSession(null, 'fix the login bug');
-	t.is(result.pendingTitle, 'Starting new session\u2026');
-});
-
-test('routeSession provides null issue key for descriptions', t => {
-	const result = routeSession(null, 'fix the login bug');
 	t.is(result.issueKey, null);
 });
 
-test('routeSession passes original input as-is for descriptions', t => {
-	const input = 'implement user authentication with OAuth';
-	const result = routeSession(null, input);
-	t.deepEqual(result.args, [input]);
+test('routeSession provides sentence-case pending title for descriptions', t => {
+	const result = routeSession(null);
+	t.is(result.pendingTitle, 'Starting new session\u2026');
 });
 
 // ============================================================================

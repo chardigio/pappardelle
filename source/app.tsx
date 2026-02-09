@@ -507,7 +507,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
-		const route = routeSession(normalizedIssueKey, input);
+		const route = routeSession(normalizedIssueKey);
 		const pending: PendingSession = {
 			type: route.type,
 			name: route.issueKey ?? '',

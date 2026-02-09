@@ -3,7 +3,6 @@
 
 export type SessionRoute = {
 	type: 'issue' | 'description';
-	args: string[];
 	/** Issue key for issue routes, null for description routes */
 	issueKey: string | null;
 	/** Title shown in the pending list row (e.g., "Resuming..." or "Starting new session...") */
@@ -11,21 +10,18 @@ export type SessionRoute = {
 };
 
 /**
- * Given a normalized issue key (or null) and the original input,
- * determine the idow arguments and pending row metadata.
+ * Given a normalized issue key (or null), determine the route type
+ * and pending row metadata.
  *
- * Key behavior: when the input is an issue key, always pass just the
- * issue key to idow — never --resume or other flags. The idow script
- * handles both new and existing issues correctly with a bare issue key.
+ * Key behavior: when the input is an issue key, the caller passes
+ * just the issue key to idow — never --resume or other flags.
+ * The idow script handles both new and existing issues correctly
+ * with a bare issue key.
  */
-export function routeSession(
-	normalizedIssueKey: string | null,
-	originalInput: string,
-): SessionRoute {
+export function routeSession(normalizedIssueKey: string | null): SessionRoute {
 	if (normalizedIssueKey) {
 		return {
 			type: 'issue',
-			args: [normalizedIssueKey],
 			issueKey: normalizedIssueKey,
 			pendingTitle: 'Resuming\u2026',
 		};
@@ -33,7 +29,6 @@ export function routeSession(
 
 	return {
 		type: 'description',
-		args: [originalInput],
 		issueKey: null,
 		pendingTitle: 'Starting new session\u2026',
 	};
