@@ -3,6 +3,7 @@ import type {PappardelleConfig, Profile} from './config.ts';
 import {
 	matchProfiles,
 	getTeamPrefix,
+	getProfileVcsLabel,
 	repoNameFromGitCommonDir,
 } from './config.ts';
 
@@ -632,4 +633,45 @@ test('repoNameFromGitCommonDir handles trailing slash', t => {
 test('repoNameFromGitCommonDir handles relative .git path', t => {
 	// Edge case: relative path — dirname of ".git" is "."
 	t.is(repoNameFromGitCommonDir('.git'), '.');
+});
+
+// ============================================================================
+// getProfileVcsLabel Tests
+// ============================================================================
+
+test('getProfileVcsLabel returns vcs.label when set', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		vcs: {label: 'my_label'},
+		github: {label: 'gh_label'},
+	};
+	t.is(getProfileVcsLabel(profile), 'my_label');
+});
+
+test('getProfileVcsLabel falls back to github.label', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		github: {label: 'gh_label'},
+	};
+	t.is(getProfileVcsLabel(profile), 'gh_label');
+});
+
+test('getProfileVcsLabel returns undefined when neither set', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+	};
+	t.is(getProfileVcsLabel(profile), undefined);
+});
+
+test('getProfileVcsLabel prefers vcs.label over github.label', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		vcs: {label: 'vcs_first'},
+		github: {label: 'gh_second'},
+	};
+	t.is(getProfileVcsLabel(profile), 'vcs_first');
 });

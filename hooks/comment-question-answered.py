@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Claude Code hook to comment on Linear issues when AskUserQuestion is answered.
+Claude Code hook to comment on issues when AskUserQuestion is answered.
 
 This script is called by Claude Code PostToolUse hook after AskUserQuestion completes.
-It creates a comment on the Linear issue with the question and answer for documentation.
+It creates a comment on the issue (Linear or Jira) with the question and answer for
+documentation.
+
+Supports:
+- Linear (linctl): default provider
+- Jira (acli): when .pappardelle.yml has issue_tracker.provider: jira
 
 Usage:
     Called automatically by Claude Code hooks when AskUserQuestion tool completes.
@@ -12,6 +17,7 @@ Usage:
 
 import json
 import os
+import re as _re_module
 import subprocess
 import sys
 from typing import Optional
@@ -113,29 +119,81 @@ def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:
     return "\n".join(lines)
 
 
+def get_tracker_provider() -> str:
+    """Get the issue tracker provider from .pappardelle.yml.
+
+    Uses regex-based parsing to avoid requiring PyYAML dependency.
+    Walks up from cwd to find the config file, then extracts the provider.
+
+    Returns:
+        "linear" (default) or "jira"
+    """
+    # Walk up directories to find .pappardelle.yml
+    current = os.getcwd()
+    config_path = None
+    for _ in range(20):  # max depth to prevent infinite loop
+        candidate = os.path.join(current, ".pappardelle.yml")
+        if os.path.isfile(candidate):
+            config_path = candidate
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    if not config_path:
+        return "linear"
+
+    try:
+        with open(config_path) as f:
+            content = f.read()
+        # Look for issue_tracker.provider value using regex
+        # Matches patterns like:
+        #   issue_tracker:
+        #     provider: jira
+        match = _re_module.search(r"issue_tracker:\s*\n\s+provider:\s*(\w+)", content)
+        if match:
+            return match.group(1).strip()
+    except OSError:
+        pass
+
+    return "linear"
+
+
 def post_comment(issue_key: str, body: str) -> bool:
-    """Post a comment to Linear using linctl.
+    """Post a comment to the configured issue tracker.
+
+    Dispatches to linctl (Linear) or acli (Jira) based on .pappardelle.yml config.
 
     Args:
-        issue_key: The Linear issue key (e.g., STA-123)
+        issue_key: The issue key (e.g., STA-123 or PROJ-456)
         body: The comment body in markdown
 
     Returns:
         True if successful, False otherwise
     """
+    provider = get_tracker_provider()
+
+    if provider == "jira":
+        cmd = ["acli", "jira", "workitem", "comment", "--key", issue_key, "--body", body]
+        not_found_msg = "acli not found - install the Atlassian CLI"
+    else:
+        cmd = ["linctl", "comment", "create", issue_key, "--body", body]
+        not_found_msg = "linctl not found - install with: brew tap raegislabs/linctl && brew install linctl"
+
     try:
         result = subprocess.run(
-            ["linctl", "comment", "create", issue_key, "--body", body],
+            cmd,
             capture_output=True,
             text=True,
             timeout=30,
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
-        print("Timeout posting comment to Linear", file=sys.stderr)
+        print(f"Timeout posting comment via {provider}", file=sys.stderr)
         return False
     except FileNotFoundError:
-        print("linctl not found - install with: brew tap raegislabs/linctl && brew install linctl", file=sys.stderr)
+        print(not_found_msg, file=sys.stderr)
         return False
     except Exception as e:
         print(f"Error posting comment: {e}", file=sys.stderr)

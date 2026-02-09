@@ -12,6 +12,7 @@ The `.pappardelle.yml` file replaces the previous `.git` directory requirement. 
 - **Profile-based**: Different project types (iOS apps, backend services) have named profiles
 - **Required**: Pappardelle exits with an error if no config file is found
 - **Templated**: Supports variable expansion for dynamic values
+- **Provider-agnostic**: Supports multiple issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab)
 
 ## File Location
 
@@ -27,6 +28,16 @@ git rev-parse --show-toplevel  # Find repo root
 ```yaml
 # .pappardelle.yml - Pappardelle workspace configuration
 version: 1
+
+# Issue tracker provider (optional, defaults to linear)
+issue_tracker:
+  provider: linear  # "linear" or "jira"
+  # base_url: https://mycompany.atlassian.net  # Required for jira
+
+# VCS host provider (optional, defaults to github)
+vcs_host:
+  provider: github  # "github" or "gitlab"
+  # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 
 # Default profile used when no match is found
 default_profile: stardust-jams
@@ -54,16 +65,17 @@ profiles:
       # Optional: simulator device name (default: iPhone 17 Pro)
       simulator: 'iPhone 17 Pro'
 
-    # GitHub PR configuration
-    github:
+    # VCS label for PRs/MRs (provider-agnostic, preferred)
+    vcs:
       label: 'stardust_jams'
+    # Legacy alias (still works): github: { label: 'stardust_jams' }
 
     # Links to open in browser (templated)
     links:
-      - url: 'https://linear.app/stardust-labs/issue/${ISSUE_KEY}'
-        title: 'Linear Issue'
+      - url: '${ISSUE_URL}'
+        title: 'Issue'
       - url: '${PR_URL}'
-        title: 'GitHub PR'
+        title: 'PR/MR'
         # Optional: only open if variable is non-empty
         if_set: 'PR_URL'
 
@@ -160,23 +172,27 @@ profiles:
 
 The following variables are available for use in templates:
 
-| Variable            | Description                           | Example                                           |
-| ------------------- | ------------------------------------- | ------------------------------------------------- |
-| `${ISSUE_KEY}`      | Linear issue key                      | `STA-361`                                         |
-| `${ISSUE_URL}`      | Full Linear issue URL                 | `https://linear.app/...`                          |
-| `${TITLE}`          | Issue title                           | `Add dark mode`                                   |
-| `${DESCRIPTION}`    | Issue description                     | (full text)                                       |
-| `${WORKTREE_PATH}`  | Full path to worktree                 | `/Users/charlie/.worktrees/stardust-labs/STA-361` |
-| `${REPO_ROOT}`      | Git repository root                   | `/Users/charlie/code/stardust-labs`               |
-| `${REPO_NAME}`      | Repository directory name             | `stardust-labs`                                   |
-| `${PR_URL}`         | GitHub PR URL (may be empty)          | `https://github.com/...`                          |
-| `${XCODEPROJ_PATH}` | Path to .xcodeproj (may be empty)     | `/path/to/App.xcodeproj`                          |
-| `${SCRIPT_DIR}`     | Directory containing dow/idow scripts | `/path/to/_dev/scripts/dow`                       |
-| `${HOME}`           | User home directory                   | `/Users/charlie`                                  |
-| `${IOS_APP_DIR}`    | iOS app directory from profile        | `_ios/stardust-jams`                              |
-| `${BUNDLE_ID}`      | iOS bundle ID from profile            | `com.cd17822.stardust-jams`                       |
-| `${SCHEME}`         | Xcode scheme from profile             | `stardust-jams`                                   |
-| `${GITHUB_LABEL}`   | GitHub PR label from profile          | `stardust_jams`                                   |
+| Variable               | Description                                | Example                                           |
+| ---------------------- | ------------------------------------------ | ------------------------------------------------- |
+| `${ISSUE_KEY}`         | Issue key                                  | `STA-361`                                         |
+| `${ISSUE_URL}`         | Full issue URL (tracker-specific)          | `https://linear.app/...` or `https://jira.../browse/...` |
+| `${TITLE}`             | Issue title                                | `Add dark mode`                                   |
+| `${DESCRIPTION}`       | Issue description                          | (full text)                                       |
+| `${WORKTREE_PATH}`     | Full path to worktree                      | `/Users/charlie/.worktrees/stardust-labs/STA-361` |
+| `${REPO_ROOT}`         | Git repository root                        | `/Users/charlie/code/stardust-labs`               |
+| `${REPO_NAME}`         | Repository directory name                  | `stardust-labs`                                   |
+| `${PR_URL}`            | GitHub PR URL (may be empty)               | `https://github.com/...`                          |
+| `${MR_URL}`            | GitLab MR URL (may be empty)               | `https://gitlab.com/.../merge_requests/1`         |
+| `${XCODEPROJ_PATH}`    | Path to .xcodeproj (may be empty)          | `/path/to/App.xcodeproj`                          |
+| `${SCRIPT_DIR}`        | Directory containing dow/idow scripts      | `/path/to/_dev/scripts/dow`                       |
+| `${HOME}`              | User home directory                        | `/Users/charlie`                                  |
+| `${IOS_APP_DIR}`       | iOS app directory from profile             | `_ios/stardust-jams`                              |
+| `${BUNDLE_ID}`         | iOS bundle ID from profile                 | `com.cd17822.stardust-jams`                       |
+| `${SCHEME}`            | Xcode scheme from profile                  | `stardust-jams`                                   |
+| `${GITHUB_LABEL}`      | GitHub PR label from profile               | `stardust_jams`                                   |
+| `${VCS_LABEL}`         | VCS label from profile (provider-agnostic) | `stardust_jams`                                   |
+| `${TRACKER_PROVIDER}`  | Issue tracker provider name                | `linear` or `jira`                                |
+| `${VCS_PROVIDER}`      | VCS host provider name                     | `github` or `gitlab`                              |
 
 ### Variable Expansion
 
@@ -293,6 +309,14 @@ import {execSync} from 'node:child_process';
 interface PappardelleConfig {
 	version: number;
 	default_profile: string;
+	issue_tracker?: {
+		provider: 'linear' | 'jira';
+		base_url?: string; // Required for jira
+	};
+	vcs_host?: {
+		provider: 'github' | 'gitlab';
+		host?: string; // For self-hosted GitLab
+	};
 	profiles: Record<string, Profile>;
 }
 
@@ -305,8 +329,11 @@ interface Profile {
 		scheme: string;
 		simulator?: string;
 	};
+	vcs?: {
+		label: string; // Provider-agnostic VCS label for PRs/MRs
+	};
 	github?: {
-		label: string;
+		label: string; // Legacy alias, still supported
 	};
 	links?: LinkConfig[];
 	apps?: AppConfig[];
@@ -415,6 +442,108 @@ get_profile_value() {
 ### Existing Workspaces
 
 Existing worktrees and workspaces continue to work. The config is only used when creating new workspaces.
+
+## Provider Configuration
+
+### Issue Tracker Providers
+
+Pappardelle supports multiple issue tracker backends. Configure with the top-level `issue_tracker` field.
+
+| Provider | CLI Tool | Default |
+| -------- | -------- | ------- |
+| `linear` | `linctl` | Yes     |
+| `jira`   | `acli`   | No      |
+
+**Linear** (default — no config needed):
+```yaml
+# These are equivalent:
+issue_tracker:
+  provider: linear
+
+# Or simply omit the field entirely
+```
+
+**Jira** (requires `base_url`):
+```yaml
+issue_tracker:
+  provider: jira
+  base_url: https://mycompany.atlassian.net
+```
+
+### VCS Host Providers
+
+Configure with the top-level `vcs_host` field.
+
+| Provider | CLI Tool | Default |
+| -------- | -------- | ------- |
+| `github` | `gh`     | Yes     |
+| `gitlab` | `glab`   | No      |
+
+**GitHub** (default — no config needed):
+```yaml
+vcs_host:
+  provider: github
+```
+
+**GitLab** (optionally specify self-hosted instance):
+```yaml
+vcs_host:
+  provider: gitlab
+  host: gitlab.mycompany.com  # Optional, defaults to gitlab.com
+```
+
+### Backwards Compatibility
+
+Omitting `issue_tracker` and `vcs_host` defaults to Linear + GitHub. Existing configs that don't specify these fields continue to work unchanged.
+
+The `github.label` field in profiles is still supported as a legacy alias for `vcs.label`. If both are present, `vcs.label` takes precedence.
+
+### Example: Jira + GitLab Configuration
+
+```yaml
+version: 1
+
+issue_tracker:
+  provider: jira
+  base_url: https://mycompany.atlassian.net
+
+vcs_host:
+  provider: gitlab
+  host: gitlab.mycompany.com
+
+default_profile: backend
+
+profiles:
+  backend:
+    keywords:
+      - backend
+      - api
+      - server
+    display_name: 'Backend Service'
+    vcs:
+      label: 'backend'
+    links:
+      - url: '${ISSUE_URL}'
+        title: 'Jira Issue'
+      - url: '${MR_URL}'
+        title: 'GitLab MR'
+        if_set: 'MR_URL'
+    apps:
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
+    commands:
+      - name: 'Install dependencies'
+        run: 'cd ${WORKTREE_PATH} && npm install'
+```
+
+### CLI Tool Requirements
+
+| Provider | Tool | Install |
+| -------- | ---- | ------- |
+| Linear   | `linctl` | `brew tap raegislabs/linctl && brew install linctl` |
+| Jira     | `acli`   | See [Atlassian CLI docs](https://developer.atlassian.com/cloud/jira/platform/rest/v3/) |
+| GitHub   | `gh`     | `brew install gh` |
+| GitLab   | `glab`   | `brew install glab` |
 
 ## Future Enhancements
 
