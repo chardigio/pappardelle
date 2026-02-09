@@ -1,6 +1,8 @@
 import React, {useEffect, useState, useCallback, useRef} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
 
 import SpaceListItem from './components/SpaceListItem.js';
 import PromptDialog from './components/PromptDialog.js';
@@ -10,6 +12,10 @@ import ErrorDialog from './components/ErrorDialog.js';
 import {createLogger, subscribeToErrors, type LogEntry} from './logger.js';
 
 const log = createLogger('app');
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
 import {getIssue, getIssueCached} from './linear.js';
 import {
@@ -441,11 +447,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		},
 	);
 
-	// Helper to spawn idow and capture errors
-	const spawnIdow = (pending: PendingSession) => {
+	// Helper to spawn dow and capture errors
+	const spawnDow = (pending: PendingSession) => {
 		setPendingSession(pending);
 
-		const child = spawn('idow', [pending.idowArg], {
+		const child = spawn(path.join(SCRIPTS_DIR, 'idow'), [pending.dowArg], {
 			detached: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			env: process.env,
@@ -463,7 +469,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		});
 
 		child.on('error', err => {
-			log.error(`Failed to spawn idow: ${err.message}`, err);
+			log.error(`Failed to spawn dow: ${err.message}`, err);
 			setPendingSession(null);
 			setHeaderMessage(`Failed: ${err.message.slice(0, 40)}`);
 			setTimeout(() => setHeaderMessage(''), 5000);
@@ -475,8 +481,8 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				const errorMsg =
 					stderrData.trim() ||
 					stdoutData.match(/Error: .*/)?.[0] ||
-					`idow exited with code ${code}`;
-				log.error(`idow failed (exit ${code}): ${errorMsg}`);
+					`dow exited with code ${code}`;
+				log.error(`dow failed (exit ${code}): ${errorMsg}`);
 				setHeaderMessage(`Failed: ${errorMsg.slice(0, 40)}`);
 				setTimeout(() => setHeaderMessage(''), 5000);
 			} else {
@@ -487,7 +493,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		});
 
 		child.unref();
-		log.info(`Started idow for pending session: ${pending.name}`);
+		log.info(`Started dow for pending session: ${pending.name}`);
 	};
 
 	// Handle new session creation
@@ -512,11 +518,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		const pending: PendingSession = {
 			type: route.type,
 			name: route.issueKey ?? '',
-			idowArg: route.issueKey ?? input,
+			dowArg: route.issueKey ?? input,
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
 		};
-		spawnIdow(pending);
+		spawnDow(pending);
 	};
 
 	// Handle space deletion (kills tmux sessions for the space)
