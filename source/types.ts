@@ -5,18 +5,15 @@ export const COLORS = {
 	CLAUDE_ORANGE: '#DE7356',
 } as const;
 
-export interface LinearIssue {
-	identifier: string;
-	title: string;
-	state: {
-		name: string;
-		type: string;
-		color: string;
-	};
-	project?: {
-		name: string;
-	} | null;
-}
+import type {TrackerIssue} from './providers/types.ts';
+
+/**
+ * Provider-agnostic issue type. Identical to TrackerIssue.
+ * @deprecated Use TrackerIssue from providers/types for new code.
+ */
+export type LinearIssue = TrackerIssue;
+
+export type {TrackerIssue} from './providers/types.ts';
 
 export type ClaudeStatus =
 	| 'processing'
@@ -44,6 +41,8 @@ export interface ClaudeSessionState {
 export interface SpaceData {
 	name: string; // Issue key (e.g., STA-123) or branch name for main worktree
 	linearIssue?: LinearIssue;
+	/** Provider-agnostic alias for linearIssue. Prefer this in new code. */
+	trackerIssue?: TrackerIssue;
 	claudeStatus?: ClaudeStatus;
 	claudeTool?: string; // Current tool name (for UI differentiation, e.g. AskUserQuestion)
 	worktreePath: string | null;
