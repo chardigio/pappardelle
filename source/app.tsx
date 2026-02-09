@@ -21,6 +21,7 @@ import {normalizeIssueIdentifier} from './issue-checker.js';
 import {
 	routeSession,
 	isPendingSessionResolved,
+	getSpaceCount,
 	type PendingSession,
 } from './session-routing.js';
 import {loadConfig, getTeamPrefix} from './config.js';
@@ -664,8 +665,8 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		!showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog,
 	);
 
-	// Space count excludes the permanent main worktree row and pending rows
-	const issueSpaceCount = spaces.filter(s => !s.isMainWorktree).length;
+	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
+	const spaceCount = getSpaceCount(spaces);
 
 	// Render the space list
 	const renderList = () => {
@@ -718,7 +719,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				)}
 				<Text dimColor> | </Text>
 				<Text dimColor>
-					{issueSpaceCount} space{issueSpaceCount !== 1 ? 's' : ''}
+					{spaceCount} space{spaceCount !== 1 ? 's' : ''}
 					{visibleDisplaySpaces.length < displaySpaces.length &&
 						` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${displaySpaces.length})`}
 				</Text>

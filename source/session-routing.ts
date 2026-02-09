@@ -57,6 +57,18 @@ export interface PendingSession {
  * For issue-key sessions, resolves when that key appears in spaceNames.
  * For description sessions, resolves when the space count grows beyond prevSpaceCount.
  */
+/**
+ * Count all real spaces (main worktree + issue worktrees).
+ * Pending placeholder rows are not included in the spaces array,
+ * so this is simply the array length — importantly, the main
+ * worktree IS counted (fixing the previous off-by-one).
+ */
+export function getSpaceCount(
+	spaces: ReadonlyArray<{isMainWorktree?: boolean}>,
+): number {
+	return spaces.length;
+}
+
 export function isPendingSessionResolved(
 	pending: PendingSession,
 	spaceNames: string[],
