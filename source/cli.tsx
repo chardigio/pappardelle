@@ -80,7 +80,7 @@ function checkConfig(): void {
 			);
 			console.error('');
 			console.error(
-				'See _dev/scripts/pappardelle/pappardelle-config.md for the configuration schema.',
+				'See https://github.com/chardigio/pappardelle for the configuration schema.',
 			);
 			process.exit(1);
 		}

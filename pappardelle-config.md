@@ -253,7 +253,7 @@ Error: No .pappardelle.yml found at repository root.
 Pappardelle requires a configuration file to operate.
 Please create .pappardelle.yml at: /path/to/repo/.pappardelle.yml
 
-See _dev/scripts/pappardelle/pappardelle-config.md for the configuration schema.
+See https://github.com/chardigio/pappardelle for the configuration schema.
 ```
 
 ### Invalid Config

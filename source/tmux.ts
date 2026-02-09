@@ -1,6 +1,7 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and lazygit-STA-XXX sessions created by idow
 import {execSync, spawnSync} from 'node:child_process';
+import {getRepoName} from './config.js';
 import {createLogger} from './logger.js';
 import {
 	calculateIdealListHeightForCount,
@@ -1273,7 +1274,8 @@ export function unzoomPane(paneId: string): boolean {
 export function getWorktreePath(issueKey: string): string | null {
 	try {
 		const homeDir = process.env['HOME'] ?? '';
-		const worktreePath = `${homeDir}/.worktrees/stardust-labs/${issueKey}`;
+		const repoName = getRepoName();
+		const worktreePath = `${homeDir}/.worktrees/${repoName}/${issueKey}`;
 
 		// Verify it exists
 		execSync(`test -d "${worktreePath}"`, {

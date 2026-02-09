@@ -46,15 +46,26 @@ source/
 ├── app.tsx              # Main application component
 ├── cli.tsx              # CLI entry point
 ├── types.ts             # TypeScript types and constants
+├── config.ts            # Configuration loading and parsing
 ├── logger.ts            # Centralized logging system
-├── aerospace.ts         # Aerospace CLI integration
+├── tmux.ts              # Tmux session management and layout
 ├── linear.ts            # Linear (linctl) integration
 ├── claude-status.ts     # Claude status file management
+├── git-status.ts        # Git worktree status detection
+├── issue-checker.ts     # Issue key normalization
+├── issue-utils.ts       # Issue utility helpers
+├── session-routing.ts   # Session routing logic
+├── layout-sizing.ts     # Layout calculations
+├── list-view-sizing.ts  # List view sizing calculations
+├── use-mouse.ts         # Mouse input handling
 └── components/
-    ├── WorkspaceCard.tsx    # Individual workspace card
-    ├── NewWorkspaceCard.tsx # "+" button card
+    ├── SpaceListItem.tsx    # Individual space list item
     ├── PromptDialog.tsx     # New session prompt dialog
-    └── ErrorDisplay.tsx     # Error notification display
+    ├── ConfirmDialog.tsx    # Confirmation dialog
+    ├── ErrorDialog.tsx      # Error dialog
+    ├── ErrorDisplay.tsx     # Error notification display
+    ├── HelpOverlay.tsx      # Help overlay
+    └── ClaudeAnimation.tsx  # Claude status animation
 
 hooks/
 ├── update-status.py             # Status tracking hook
@@ -160,7 +171,7 @@ grep '\[ERROR\]' ~/.pappardelle/logs/*.log
 ## Dependencies
 
 - [Ink](https://github.com/vadimdemedes/ink) - React for CLIs
-- [aerospace](https://github.com/nikitabobko/AeroSpace) - Tiling window manager
+- [tmux](https://github.com/tmux/tmux) - Terminal multiplexer (for pane layout)
 - [linctl](https://github.com/raegislabs/linctl) - Linear CLI
 
 ## Development
