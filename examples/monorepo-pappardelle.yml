@@ -8,6 +8,17 @@ default_profile: pappardelle
 # Team prefix for Linear issues (used when entering bare numbers like '400')
 team_prefix: STA
 
+# Claude initialization command (passed to Claude when opening a new session)
+claude:
+  initialization_command: "/idow"
+
+# Lifecycle hooks
+hooks:
+  post_workspace_create:
+    - name: "Organize aerospace workspace"
+      run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
+      continue_on_error: true
+
 profiles:
   stardust-jams:
     keywords:

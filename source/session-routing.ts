@@ -1,4 +1,4 @@
-// Pure logic for determining how to spawn an idow session
+// Pure logic for determining how to spawn a dow session
 // Extracted from handleNewSession in app.tsx for testability
 
 export type SessionRoute = {
@@ -42,8 +42,8 @@ export interface PendingSession {
 	type: 'issue' | 'description';
 	/** Issue key for issue routes (e.g., "STA-477"), empty string for description routes */
 	name: string;
-	/** The idow argument to spawn with */
-	idowArg: string;
+	/** The dow argument to spawn with */
+	dowArg: string;
 	/** Title shown in the pending list row */
 	pendingTitle: string;
 	/** Space count at the time the session was started (for description routes) */
