@@ -20,7 +20,7 @@ export const MIN_LAZYGIT_WIDTH = 20; // Lazygit can be squished but needs at lea
 
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 8;
-export const DEFAULT_MIN_LIST_HEIGHT = 8;
+export const DEFAULT_MIN_LIST_HEIGHT = 6;
 
 // ============================================================================
 // Types
@@ -67,7 +67,7 @@ export function calculateIdealListHeightForCount(sessionCount: number): number {
 	// Ideal = sessions + header/padding (2 rows for chrome)
 	const idealHeight = Math.max(1, sessionCount) + 2;
 
-	// Minimum is the smaller of ideal or 8 (don't force 8 rows if we only need 4)
+	// Minimum is the smaller of ideal or default (don't force default num rows if we only need 4)
 	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);
 
 	// Clamp between min and max

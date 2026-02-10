@@ -200,7 +200,7 @@ test('layout constants', t => {
 	t.is(MIN_CLAUDE_WIDTH, 40);
 	t.is(MIN_LAZYGIT_WIDTH, 20);
 	t.is(MAX_LIST_HEIGHT, 8);
-	t.is(DEFAULT_MIN_LIST_HEIGHT, 8);
+	t.is(DEFAULT_MIN_LIST_HEIGHT, 6);
 });
 
 // ============================================================================
