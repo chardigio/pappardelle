@@ -32,11 +32,11 @@ def get_issue_key() -> Optional[str]:
     cwd = os.getcwd()
     parts = cwd.split("/")
 
-    for part in parts:
+    for part in reversed(parts):
         if part and "-" in part:
             prefix = part.split("-")[0]
-            suffix = part.split("-", 1)[1] if "-" in part else ""
-            if prefix.isupper() and prefix.isalpha() and suffix.isdigit():
+            suffix = part.split("-", 1)[1]
+            if len(prefix) >= 2 and prefix.isupper() and prefix.isalpha() and suffix.isdigit():
                 return part
 
     return None

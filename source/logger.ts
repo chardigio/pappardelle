@@ -174,13 +174,14 @@ export function getLogDir(): string {
 // Call once at startup (idempotent).
 let stderrCaptured = false;
 
-// Matches strings that are only ANSI escape sequences (cursor show/hide, colors, etc.)
-const ANSI_ONLY_RE =
-	// eslint-disable-next-line no-control-regex, no-useless-escape
-	/^[\u001B\u009B\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~lh]*$/;
+/* eslint-disable no-control-regex */
+// Strip all ANSI escape sequences from a string
+const ANSI_RE =
+	/[\u001B\u009B][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~lh]/g;
+/* eslint-enable no-control-regex */
 
 function isStderrNoise(text: string): boolean {
-	return ANSI_ONLY_RE.test(text);
+	return text.replace(ANSI_RE, '').trim() === '';
 }
 
 export function captureStderr(): void {

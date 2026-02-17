@@ -43,6 +43,14 @@ class TestGetIssueKey:
         with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/sta-123"):
             assert get_issue_key() is None
 
+    def test_ignores_single_char_prefix(self):
+        with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/X-99"):
+            assert get_issue_key() is None
+
+    def test_ignores_repo_name_false_positive(self):
+        with patch("os.getcwd", return_value="/Users/x/.worktrees/MY-5/STA-123"):
+            assert get_issue_key() == "STA-123"
+
 
 class TestIsNewIssue:
     def test_returns_true_when_created_by_pappardelle(self, tmp_path):
