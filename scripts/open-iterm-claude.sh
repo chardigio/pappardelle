@@ -6,7 +6,7 @@
 #
 # Opens a new iTerm window with:
 #   1. A tmux session running Claude with --dangerously-skip-permissions
-#   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow or /dow)
+#   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow)
 #   3. A split pane running lazygit
 #
 # The window title is set to include the issue key for AeroSpace organization.
@@ -27,6 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 # Parse arguments
 WORKTREE=""
 ISSUE_KEY=""
+REPO_NAME=""
 PROMPT=""
 
 while [[ $# -gt 0 ]]; do
@@ -39,12 +40,16 @@ while [[ $# -gt 0 ]]; do
             ISSUE_KEY="$2"
             shift 2
             ;;
+        --repo-name)
+            REPO_NAME="$2"
+            shift 2
+            ;;
         --prompt)
             PROMPT="$2"
             shift 2
             ;;
         --help|-h)
-            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt \"<prompt>\""
+            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\""
             echo ""
             echo "Opens iTerm with tmux/Claude and lazygit in split panes."
             exit 0
@@ -66,10 +71,15 @@ if [[ -z "$ISSUE_KEY" ]]; then
     exit 1
 fi
 
-# Create the tmux session name based on issue key
-TMUX_SESSION="claude-$ISSUE_KEY"
+if [[ -z "$REPO_NAME" ]]; then
+    echo "Error: --repo-name is required" >&2
+    exit 1
+fi
 
-# The prompt is passed directly - the caller should include the skill prefix (/idow or /dow)
+# Create the tmux session name based on repo and issue key
+TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
+
+# The prompt is passed directly - the caller should include the skill prefix (e.g., /idow)
 # If empty, Claude will start without any prompt (resume mode)
 # In both cases, --continue is tried first to resume an existing Claude conversation
 CLAUDE_PROMPT="$PROMPT"
@@ -82,6 +92,7 @@ on run argv
     set worktreePath to item 2 of argv
     set tmuxSession to item 3 of argv
     set claudePrompt to item 4 of argv
+    set repoName to item 5 of argv
 
     tell application "iTerm"
         activate
@@ -117,7 +128,7 @@ on run argv
                     set name to issueKey & " - lazygit"
                     -- Create session with shell (not lazygit directly), send lazygit command, then attach
                     -- This ensures session persists if user quits lazygit
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -d -s 'lazygit-" & issueKey & "' 2>/dev/null; tmux send-keys -t 'lazygit-" & issueKey & "' lazygit Enter 2>/dev/null; TMUX= tmux attach -t 'lazygit-" & issueKey & "'"
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -d -s 'lazygit-" & repoName & "-" & issueKey & "' 2>/dev/null; tmux send-keys -t 'lazygit-" & repoName & "-" & issueKey & "' lazygit Enter 2>/dev/null; TMUX= tmux attach -t 'lazygit-" & repoName & "-" & issueKey & "'"
                 end tell
             end tell
         end tell
@@ -126,7 +137,7 @@ end run
 APPLESCRIPT_END
 
 # Run the AppleScript with arguments
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME"
 rm -f "$APPLESCRIPT"
 
 # Position window immediately (position 6 = bottom right)

@@ -4,12 +4,12 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
-import SpaceListItem from './components/SpaceListItem.js';
-import PromptDialog from './components/PromptDialog.js';
-import ConfirmDialog from './components/ConfirmDialog.js';
-import HelpOverlay from './components/HelpOverlay.js';
-import ErrorDialog from './components/ErrorDialog.js';
-import {createLogger, subscribeToErrors, type LogEntry} from './logger.js';
+import SpaceListItem from './components/SpaceListItem.tsx';
+import PromptDialog from './components/PromptDialog.tsx';
+import ConfirmDialog from './components/ConfirmDialog.tsx';
+import HelpOverlay from './components/HelpOverlay.tsx';
+import ErrorDialog from './components/ErrorDialog.tsx';
+import {createLogger, subscribeToErrors, type LogEntry} from './logger.ts';
 
 const log = createLogger('app');
 
@@ -17,20 +17,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
-import {getIssue, getIssueCached} from './linear.js';
+import {getIssue, getIssueCached} from './linear.ts';
 import {
 	getClaudeStatusInfo,
 	watchStatuses,
 	ensureStatusDir,
-} from './claude-status.js';
-import {normalizeIssueIdentifier} from './issue-checker.js';
+	findSpaceByStatusKey,
+} from './claude-status.ts';
+import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
 	getSpaceCount,
+	buildNewSessionArgs,
+	buildOpenWorkspaceArgs,
 	type PendingSession,
-} from './session-routing.js';
-import {loadConfig, getTeamPrefix} from './config.js';
+} from './session-routing.ts';
+import {
+	loadConfig,
+	getTeamPrefix,
+	getRepoRoot,
+	getRepoName,
+	qualifyMainBranch,
+} from './config.ts';
+import {buildSpawnEnv} from './spawn-env.ts';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -48,11 +58,11 @@ import {
 	rebuildLayout,
 	getTmuxPaneWidth,
 	getTmuxPaneHeight,
-} from './tmux.js';
-import {isWorktreeDirty} from './git-status.js';
-import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.js';
-import {useMouse} from './use-mouse.js';
-import type {SpaceData, PaneLayout} from './types.js';
+} from './tmux.ts';
+import {isWorktreeDirty} from './git-status.ts';
+import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
+import {useMouse} from './use-mouse.ts';
+import type {SpaceData, PaneLayout} from './types.ts';
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
@@ -209,9 +219,14 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			// Prepend the main worktree (always first, non-deletable)
 			const mainInfo = getMainWorktreeInfo();
 			if (mainInfo) {
-				const mainClaudeInfo = getClaudeStatusInfo(mainInfo.branch);
+				// name stays as bare branch (used for session ops: getSessionNames adds repo prefix)
+				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-main")
+				const repoName = getRepoName();
+				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);
+				const mainClaudeInfo = getClaudeStatusInfo(statusKey);
 				spaceData.unshift({
 					name: mainInfo.branch,
+					statusKey,
 					worktreePath: mainInfo.path,
 					isMainWorktree: true,
 					isDirty: isWorktreeDirty(mainInfo.path),
@@ -248,13 +263,15 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	// Watch for Claude status changes
 	useEffect(() => {
 		const unwatch = watchStatuses((workspaceName, info) => {
-			setSpaces(prev =>
-				prev.map(s =>
-					s.name === workspaceName
+			setSpaces(prev => {
+				const idx = findSpaceByStatusKey(prev, workspaceName);
+				if (idx === -1) return prev;
+				return prev.map((s, i) =>
+					i === idx
 						? {...s, claudeStatus: info.status, claudeTool: info.tool}
 						: s,
-				),
-			);
+				);
+			});
 		});
 
 		return unwatch;
@@ -413,6 +430,9 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				}
 			} else if (key.return) {
 				// Enter pressed - no-op for now (selection is visual)
+			} else if (input === 'o') {
+				// 'o' to open workspace (apps, links, iTerm, etc.)
+				handleOpenWorkspace();
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
@@ -447,15 +467,20 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		},
 	);
 
-	// Helper to spawn dow and capture errors
-	const spawnDow = (pending: PendingSession) => {
+	// Helper to spawn idow and capture errors
+	const spawnSession = (pending: PendingSession) => {
 		setPendingSession(pending);
 
-		const child = spawn(path.join(SCRIPTS_DIR, 'idow'), [pending.dowArg], {
-			detached: true,
-			stdio: ['ignore', 'pipe', 'pipe'],
-			env: process.env,
-		});
+		const child = spawn(
+			path.join(SCRIPTS_DIR, 'idow'),
+			buildNewSessionArgs(pending.idowArg),
+			{
+				detached: true,
+				stdio: ['ignore', 'pipe', 'pipe'],
+				cwd: getRepoRoot(),
+				env: buildSpawnEnv(getRepoRoot()),
+			},
+		);
 
 		let stderrData = '';
 		let stdoutData = '';
@@ -469,7 +494,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		});
 
 		child.on('error', err => {
-			log.error(`Failed to spawn dow: ${err.message}`, err);
+			log.error(`Failed to spawn idow: ${err.message}`, err);
 			setPendingSession(null);
 			setHeaderMessage(`Failed: ${err.message.slice(0, 40)}`);
 			setTimeout(() => setHeaderMessage(''), 5000);
@@ -481,8 +506,8 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				const errorMsg =
 					stderrData.trim() ||
 					stdoutData.match(/Error: .*/)?.[0] ||
-					`dow exited with code ${code}`;
-				log.error(`dow failed (exit ${code}): ${errorMsg}`);
+					`idow exited with code ${code}`;
+				log.error(`idow failed (exit ${code}): ${errorMsg}`);
 				setHeaderMessage(`Failed: ${errorMsg.slice(0, 40)}`);
 				setTimeout(() => setHeaderMessage(''), 5000);
 			} else {
@@ -493,7 +518,49 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		});
 
 		child.unref();
-		log.info(`Started dow for pending session: ${pending.name}`);
+		log.info(`Started idow for pending session: ${pending.name}`);
+	};
+
+	// Open workspace apps/links/etc for the selected space (runs idow --resume)
+	const handleOpenWorkspace = () => {
+		const space = spaces[selectedIndex];
+		if (!space) return;
+		if (space.isPending) return;
+		if (space.isMainWorktree) {
+			setHeaderMessage('Cannot open main worktree');
+			setTimeout(() => setHeaderMessage(''), 2000);
+			return;
+		}
+
+		setHeaderMessage(`Opening ${space.name}...`);
+
+		const child = spawn(
+			path.join(SCRIPTS_DIR, 'idow'),
+			buildOpenWorkspaceArgs(space.name),
+			{
+				detached: true,
+				stdio: ['ignore', 'pipe', 'pipe'],
+				cwd: getRepoRoot(),
+				env: buildSpawnEnv(getRepoRoot()),
+			},
+		);
+
+		child.on('close', code => {
+			if (code !== 0 && code !== null) {
+				setHeaderMessage(`Open failed (exit ${code})`);
+			} else {
+				setHeaderMessage(`Opened ${space.name}`);
+			}
+			setTimeout(() => setHeaderMessage(''), 3000);
+		});
+
+		child.on('error', err => {
+			log.error(`Failed to open workspace: ${err.message}`, err);
+			setHeaderMessage(`Failed: ${err.message.slice(0, 40)}`);
+			setTimeout(() => setHeaderMessage(''), 5000);
+		});
+
+		child.unref();
 	};
 
 	// Handle new session creation
@@ -518,11 +585,11 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		const pending: PendingSession = {
 			type: route.type,
 			name: route.issueKey ?? '',
-			dowArg: route.issueKey ?? input,
+			idowArg: route.issueKey ?? input,
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
 		};
-		spawnDow(pending);
+		spawnSession(pending);
 	};
 
 	// Handle space deletion (kills tmux sessions for the space)

@@ -31,12 +31,12 @@ version: 1
 
 # Issue tracker provider (optional, defaults to linear)
 issue_tracker:
-  provider: linear  # "linear" or "jira"
+  provider: linear # "linear" or "jira"
   # base_url: https://mycompany.atlassian.net  # Required for jira
 
 # VCS host provider (optional, defaults to github)
 vcs_host:
-  provider: github  # "github" or "gitlab"
+  provider: github # "github" or "gitlab"
   # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 
 # Claude initialization command (optional)
@@ -44,16 +44,16 @@ vcs_host:
 # Example: "/idow" will run the /idow skill with the issue key.
 # When not set, Claude opens with no initialization command.
 claude:
-  initialization_command: "/idow"
+  initialization_command: '/idow'
 
 # Lifecycle hooks (optional)
 # Commands that run at specific points during workspace setup.
 hooks:
   # Runs after the workspace is fully created (worktree, PR, apps opened)
   post_workspace_create:
-    - name: "Organize workspace"
-      run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
-      continue_on_error: true  # Don't fail workspace setup if this fails
+    - name: 'Organize workspace'
+      run: '${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}'
+      continue_on_error: true # Don't fail workspace setup if this fails
     # - name: "Run setup script"
     #   run: "cd ${WORKTREE_PATH} && ./setup.sh"
     #   background: true  # Run in background, don't wait
@@ -191,27 +191,27 @@ profiles:
 
 The following variables are available for use in templates:
 
-| Variable               | Description                                | Example                                           |
-| ---------------------- | ------------------------------------------ | ------------------------------------------------- |
-| `${ISSUE_KEY}`         | Issue key                                  | `STA-361`                                         |
-| `${ISSUE_URL}`         | Full issue URL (tracker-specific)          | `https://linear.app/...` or `https://jira.../browse/...` |
-| `${TITLE}`             | Issue title                                | `Add dark mode`                                   |
-| `${DESCRIPTION}`       | Issue description                          | (full text)                                       |
-| `${WORKTREE_PATH}`     | Full path to worktree                      | `/Users/charlie/.worktrees/stardust-labs/STA-361` |
-| `${REPO_ROOT}`         | Git repository root                        | `/Users/charlie/code/stardust-labs`               |
-| `${REPO_NAME}`         | Repository directory name                  | `stardust-labs`                                   |
-| `${PR_URL}`            | GitHub PR URL (may be empty)               | `https://github.com/...`                          |
-| `${MR_URL}`            | GitLab MR URL (may be empty)               | `https://gitlab.com/.../merge_requests/1`         |
-| `${XCODEPROJ_PATH}`    | Path to .xcodeproj (may be empty)          | `/path/to/App.xcodeproj`                          |
-| `${SCRIPT_DIR}`        | Directory containing dow/idow scripts      | `/path/to/_dev/scripts/pappardelle/scripts`       |
-| `${HOME}`              | User home directory                        | `/Users/charlie`                                  |
-| `${IOS_APP_DIR}`       | iOS app directory from profile             | `_ios/stardust-jams`                              |
-| `${BUNDLE_ID}`         | iOS bundle ID from profile                 | `com.cd17822.stardust-jams`                       |
-| `${SCHEME}`            | Xcode scheme from profile                  | `stardust-jams`                                   |
-| `${GITHUB_LABEL}`      | GitHub PR label from profile               | `stardust_jams`                                   |
-| `${VCS_LABEL}`         | VCS label from profile (provider-agnostic) | `stardust_jams`                                   |
-| `${TRACKER_PROVIDER}`  | Issue tracker provider name                | `linear` or `jira`                                |
-| `${VCS_PROVIDER}`      | VCS host provider name                     | `github` or `gitlab`                              |
+| Variable              | Description                                | Example                                                  |
+| --------------------- | ------------------------------------------ | -------------------------------------------------------- |
+| `${ISSUE_KEY}`        | Issue key                                  | `STA-361`                                                |
+| `${ISSUE_URL}`        | Full issue URL (tracker-specific)          | `https://linear.app/...` or `https://jira.../browse/...` |
+| `${TITLE}`            | Issue title                                | `Add dark mode`                                          |
+| `${DESCRIPTION}`      | Issue description                          | (full text)                                              |
+| `${WORKTREE_PATH}`    | Full path to worktree                      | `/Users/charlie/.worktrees/stardust-labs/STA-361`        |
+| `${REPO_ROOT}`        | Git repository root                        | `/Users/charlie/code/stardust-labs`                      |
+| `${REPO_NAME}`        | Repository directory name                  | `stardust-labs`                                          |
+| `${PR_URL}`           | GitHub PR URL (may be empty)               | `https://github.com/...`                                 |
+| `${MR_URL}`           | GitLab MR URL (may be empty)               | `https://gitlab.com/.../merge_requests/1`                |
+| `${XCODEPROJ_PATH}`   | Path to .xcodeproj (may be empty)          | `/path/to/App.xcodeproj`                                 |
+| `${SCRIPT_DIR}`       | Directory containing dow/idow scripts      | `/path/to/_dev/scripts/pappardelle/scripts`              |
+| `${HOME}`             | User home directory                        | `/Users/charlie`                                         |
+| `${IOS_APP_DIR}`      | iOS app directory from profile             | `_ios/stardust-jams`                                     |
+| `${BUNDLE_ID}`        | iOS bundle ID from profile                 | `com.cd17822.stardust-jams`                              |
+| `${SCHEME}`           | Xcode scheme from profile                  | `stardust-jams`                                          |
+| `${GITHUB_LABEL}`     | GitHub PR label from profile               | `stardust_jams`                                          |
+| `${VCS_LABEL}`        | VCS label from profile (provider-agnostic) | `stardust_jams`                                          |
+| `${TRACKER_PROVIDER}` | Issue tracker provider name                | `linear` or `jira`                                       |
+| `${VCS_PROVIDER}`     | VCS host provider name                     | `github` or `gitlab`                                     |
 
 ### Variable Expansion
 
@@ -474,6 +474,7 @@ Pappardelle supports multiple issue tracker backends. Configure with the top-lev
 | `jira`   | `acli`   | No      |
 
 **Linear** (default — no config needed):
+
 ```yaml
 # These are equivalent:
 issue_tracker:
@@ -483,6 +484,7 @@ issue_tracker:
 ```
 
 **Jira** (requires `base_url`):
+
 ```yaml
 issue_tracker:
   provider: jira
@@ -499,16 +501,18 @@ Configure with the top-level `vcs_host` field.
 | `gitlab` | `glab`   | No      |
 
 **GitHub** (default — no config needed):
+
 ```yaml
 vcs_host:
   provider: github
 ```
 
 **GitLab** (optionally specify self-hosted instance):
+
 ```yaml
 vcs_host:
   provider: gitlab
-  host: gitlab.mycompany.com  # Optional, defaults to gitlab.com
+  host: gitlab.mycompany.com # Optional, defaults to gitlab.com
 ```
 
 ### Backwards Compatibility
@@ -557,12 +561,12 @@ profiles:
 
 ### CLI Tool Requirements
 
-| Provider | Tool | Install |
-| -------- | ---- | ------- |
-| Linear   | `linctl` | `brew tap raegislabs/linctl && brew install linctl` |
+| Provider | Tool     | Install                                                                                |
+| -------- | -------- | -------------------------------------------------------------------------------------- |
+| Linear   | `linctl` | `brew tap raegislabs/linctl && brew install linctl`                                    |
 | Jira     | `acli`   | See [Atlassian CLI docs](https://developer.atlassian.com/cloud/jira/platform/rest/v3/) |
-| GitHub   | `gh`     | `brew install gh` |
-| GitLab   | `glab`   | `brew install glab` |
+| GitHub   | `gh`     | `brew install gh`                                                                      |
+| GitLab   | `glab`   | `brew install glab`                                                                    |
 
 ## Claude Configuration
 
@@ -570,12 +574,12 @@ The `claude` section configures how Claude is initialized when opening a new wor
 
 ```yaml
 claude:
-  initialization_command: "/idow"  # Optional, default: empty
+  initialization_command: '/idow' # Optional, default: empty
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `initialization_command` | `string` | `""` | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
+| Field                    | Type     | Default | Description                                                                                                                                                  |
+| ------------------------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `initialization_command` | `string` | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 
@@ -586,28 +590,28 @@ The `hooks` section defines commands that run at specific points during workspac
 ```yaml
 hooks:
   post_workspace_create:
-    - name: "Organize workspace"
-      run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
+    - name: 'Organize workspace'
+      run: '${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}'
       continue_on_error: true
       background: false
 ```
 
 ### Hook Points
 
-| Hook | When it Runs |
-|------|-------------|
+| Hook                    | When it Runs                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
 | `post_workspace_create` | After workspace setup is complete (worktree created, PR created, apps opened), before final summary |
 
 ### Hook Command Fields
 
 Each hook entry uses the same `CommandConfig` structure as profile commands:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | `string` | Required | Human-readable name for logging |
-| `run` | `string` | Required | Command to execute (supports template variables) |
-| `continue_on_error` | `boolean` | `false` | If true, workspace setup continues even if this hook fails |
-| `background` | `boolean` | `false` | If true, run command in background without waiting |
+| Field               | Type      | Default  | Description                                                |
+| ------------------- | --------- | -------- | ---------------------------------------------------------- |
+| `name`              | `string`  | Required | Human-readable name for logging                            |
+| `run`               | `string`  | Required | Command to execute (supports template variables)           |
+| `continue_on_error` | `boolean` | `false`  | If true, workspace setup continues even if this hook fails |
+| `background`        | `boolean` | `false`  | If true, run command in background without waiting         |
 
 ### Available Template Variables in Hooks
 

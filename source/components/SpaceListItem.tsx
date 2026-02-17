@@ -1,10 +1,10 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
-import type {SpaceData} from '../types.js';
-import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.js';
-import {getMainWorktreeColor} from '../git-status.js';
-import {getWorkflowStateColor} from '../linear.js';
-import ClaudeAnimation from './ClaudeAnimation.js';
+import type {SpaceData} from '../types.ts';
+import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
+import {getMainWorktreeColor} from '../git-status.ts';
+import {getWorkflowStateColor} from '../linear.ts';
+import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
 	space: SpaceData;

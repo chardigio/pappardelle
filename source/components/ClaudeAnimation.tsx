@@ -1,6 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import {Text} from 'ink';
-import {COLORS} from '../types.js';
+import {COLORS} from '../types.ts';
 
 // Claude Code spinner animation frames
 // Source: https://github.com/farouqaldori/claude-island/blob/main/ClaudeIsland/UI/Components/ProcessingSpinner.swift

@@ -1,4 +1,5 @@
 // Logging system for Pappardelle
+import {Buffer} from 'node:buffer';
 import {
 	existsSync,
 	mkdirSync,
@@ -167,6 +168,42 @@ export function clearRecentErrors(): void {
 // Get log directory path (for user reference)
 export function getLogDir(): string {
 	return LOG_DIR;
+}
+
+// Intercept stderr writes so Ink/React rendering errors land in the log file.
+// Call once at startup (idempotent).
+let stderrCaptured = false;
+
+// Matches strings that are only ANSI escape sequences (cursor show/hide, colors, etc.)
+const ANSI_ONLY_RE =
+	// eslint-disable-next-line no-control-regex, no-useless-escape
+	/^[\u001B\u009B\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~lh]*$/;
+
+function isStderrNoise(text: string): boolean {
+	return ANSI_ONLY_RE.test(text);
+}
+
+export function captureStderr(): void {
+	if (stderrCaptured) return;
+	stderrCaptured = true;
+
+	const originalWrite = process.stderr.write.bind(process.stderr);
+	const stderrLog = createLogger('stderr');
+
+	process.stderr.write = (
+		chunk: Uint8Array | string,
+		encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+		cb?: (err?: Error | null) => void,
+	): boolean => {
+		const text =
+			typeof chunk === 'string'
+				? chunk.trim()
+				: Buffer.from(chunk).toString('utf-8').trim();
+		if (text && !isStderrNoise(text)) {
+			stderrLog.error(text);
+		}
+		return originalWrite(chunk, encodingOrCb as BufferEncoding, cb);
+	};
 }
 
 // Export a default logger for general use

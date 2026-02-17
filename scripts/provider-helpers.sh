@@ -2,7 +2,7 @@
 
 # provider-helpers.sh - Shared functions for provider-agnostic issue tracking and VCS
 #
-# Source this file in dow/idow scripts to get provider dispatch functions.
+# Source this file in the idow script to get provider dispatch functions.
 # Reads provider config from .pappardelle.yml using yq.
 #
 # Requires: yq, jq, and the relevant CLI tools (linctl/acli, gh/glab)
@@ -143,8 +143,8 @@ check_existing_pr() {
                 export GITLAB_HOST="$gitlab_host"
             fi
             local mr_url
-            mr_url=$(glab mr view --json web_url -q ".web_url" 2>&1) || true
-            if [[ -n "$mr_url" && "$mr_url" != *"no open merge request"* ]]; then
+            mr_url=$(glab mr view -F json 2>/dev/null | jq -r '.web_url // empty' 2>/dev/null) || true
+            if [[ -n "$mr_url" ]]; then
                 echo "$mr_url"
             fi
             ;;
@@ -155,7 +155,7 @@ check_existing_pr() {
 # Args: --title <title> --prompt <prompt> --config <config_path> [--team <team>]
 # Outputs: JSON with issue_key and issue_url
 create_issue() {
-    local title="" prompt="" config_path="" team="STA"
+    local title="" prompt="" config_path="" team=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -166,6 +166,12 @@ create_issue() {
             *) shift ;;
         esac
     done
+
+    # Read team prefix from config if not explicitly passed
+    if [[ -z "$team" && -n "$config_path" ]]; then
+        team=$(yq -r '.team_prefix // "STA"' "$config_path" | tr '[:lower:]' '[:upper:]')
+    fi
+    team="${team:-STA}"
 
     local provider
     provider=$(get_issue_tracker_provider "$config_path")

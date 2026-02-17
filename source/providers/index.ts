@@ -39,12 +39,19 @@ function vcsKey(config?: VcsHostConfig): string {
 
 /**
  * Create (or return cached) issue tracker provider.
- * Defaults to Linear when no config is provided.
- * Throws if called with a different config than the cached instance.
+ * When called without config, returns the existing singleton if one was
+ * already initialized (regardless of provider type). Only defaults to
+ * Linear when no singleton exists and no config is provided.
+ * Throws if called with an explicit config that differs from the cached instance.
  */
 export function createIssueTracker(
 	config?: IssueTrackerConfig,
 ): IssueTrackerProvider {
+	// No config: return existing singleton without key checking
+	if (!config && issueTrackerInstance) {
+		return issueTrackerInstance;
+	}
+
 	const key = trackerKey(config);
 
 	if (issueTrackerInstance) {
@@ -89,10 +96,17 @@ export function createIssueTracker(
 
 /**
  * Create (or return cached) VCS host provider.
- * Defaults to GitHub when no config is provided.
- * Throws if called with a different config than the cached instance.
+ * When called without config, returns the existing singleton if one was
+ * already initialized. Only defaults to GitHub when no singleton exists
+ * and no config is provided.
+ * Throws if called with an explicit config that differs from the cached instance.
  */
 export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
+	// No config: return existing singleton without key checking
+	if (!config && vcsHostInstance) {
+		return vcsHostInstance;
+	}
+
 	const key = vcsKey(config);
 
 	if (vcsHostInstance) {
