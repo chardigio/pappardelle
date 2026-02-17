@@ -690,7 +690,7 @@ if [[ "$CMD_COUNT" -gt 0 ]]; then
                 eval "$CMD_RUN" || print_warning "Command '$CMD_NAME' failed (continuing)"
                 print_success "$CMD_NAME"
             else
-                eval "$CMD_RUN" || { print_warning "Command '$CMD_NAME' failed"; }
+                eval "$CMD_RUN" || { print_warning "Command '$CMD_NAME' failed"; exit 1; }
                 print_success "$CMD_NAME"
             fi
         fi

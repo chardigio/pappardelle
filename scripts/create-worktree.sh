@@ -88,7 +88,6 @@ remove_stale_index_lock() {
 }
 
 # Check if there are uncommitted changes in the main repo
-# Check if there are uncommitted changes in the main repo
 has_uncommitted_changes() {
     cd "$MAIN_REPO"
     # Check for staged or unstaged changes (untracked files don't block checkout/pull)
