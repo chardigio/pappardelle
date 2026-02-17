@@ -32,28 +32,28 @@ profiles:
       - app
       - mobile
       - swift
-    display_name: "iOS App"
+    display_name: 'iOS App'
     ios:
-      app_dir: "ios/MyApp"
-      bundle_id: "com.example.myapp"
-      scheme: "MyApp"
+      app_dir: 'ios/MyApp'
+      bundle_id: 'com.example.myapp'
+      scheme: 'MyApp'
     github:
-      label: "ios"
+      label: 'ios'
     links:
-      - url: "https://linear.app/my-team/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
+      - url: 'https://linear.app/my-team/issue/${ISSUE_KEY}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'
     apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
-      - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
+      - name: 'Xcode'
+        path: '${XCODEPROJ_PATH}'
+        if_set: 'XCODEPROJ_PATH'
     commands:
-      - name: "Generate Xcode project"
-        run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
+      - name: 'Generate Xcode project'
+        run: 'cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate'
 
   backend:
     keywords:
@@ -61,18 +61,18 @@ profiles:
       - api
       - server
       - database
-    display_name: "Backend"
+    display_name: 'Backend'
     github:
-      label: "backend"
+      label: 'backend'
     links:
-      - url: "https://linear.app/my-team/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
+      - url: 'https://linear.app/my-team/issue/${ISSUE_KEY}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'
     apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
 
   frontend:
     keywords:
@@ -80,19 +80,19 @@ profiles:
       - web
       - react
       - ui
-    display_name: "Frontend"
+    display_name: 'Frontend'
     github:
-      label: "frontend"
+      label: 'frontend'
     links:
-      - url: "https://linear.app/my-team/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
+      - url: 'https://linear.app/my-team/issue/${ISSUE_KEY}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'
     apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
+      - name: 'Cursor'
+        path: '${WORKTREE_PATH}'
     commands:
-      - name: "Install dependencies"
-        run: "cd ${WORKTREE_PATH} && npm install"
+      - name: 'Install dependencies'
+        run: 'cd ${WORKTREE_PATH} && npm install'
         continue_on_error: true

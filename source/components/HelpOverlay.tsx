@@ -10,6 +10,7 @@ const shortcuts = [
 	{key: 'k / ↑', description: 'Move up'},
 	{key: 'Enter', description: 'Select space'},
 	{key: 'n', description: 'New space'},
+	{key: 'o', description: 'Open workspace (apps, links, etc.)'},
 	{key: 'd / Del', description: 'Close space'},
 	{key: 'r', description: 'Refresh list'},
 	{key: 'c', description: 'Clear errors'},

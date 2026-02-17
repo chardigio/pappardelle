@@ -245,6 +245,164 @@ teardown_repo
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: create-worktree with main-based repo (not master)${RESET}"
+
+# Set up a repo that uses 'main' instead of 'master'
+TMPDIR_ROOT=$(mktemp -d)
+export MAIN_REPO="$TMPDIR_ROOT/repo"
+export WORKTREES_ROOT="$TMPDIR_ROOT/worktrees"
+
+bare_repo="$TMPDIR_ROOT/origin.git"
+git init --bare --quiet --initial-branch=main "$bare_repo"
+git clone --quiet "$bare_repo" "$MAIN_REPO" 2>/dev/null
+cd "$MAIN_REPO"
+git checkout -b main --quiet
+echo "initial" > README.md
+git add README.md
+git commit -m "initial commit" --quiet
+git push --quiet -u origin main 2>/dev/null
+
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "CHEX-100" --project-key "test" 2>/dev/null)
+
+assert_valid_json "stdout is valid JSON (main-based repo)" "$OUTPUT"
+assert_single_line "stdout is a single line (main-based repo)" "$OUTPUT"
+assert_json_field "issue_key is correct (main-based repo)" "$OUTPUT" "issue_key" "CHEX-100"
+
+# Verify worktree was created
+EXPECTED_PATH="$WORKTREES_ROOT/repo/CHEX-100"
+if [[ -d "$EXPECTED_PATH" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} worktree directory exists"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} worktree directory exists"
+    echo "    Expected: $EXPECTED_PATH"
+    FAIL=$((FAIL + 1))
+fi
+
+cd /
+rm -rf "$TMPDIR_ROOT"
+unset MAIN_REPO WORKTREES_ROOT
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: create-worktree when branch already exists (no worktree dir)${RESET}"
+setup_repo
+
+# Create a branch, then delete the worktree dir but leave the branch behind.
+# This simulates a previous worktree that was cleaned up incompletely.
+cd "$MAIN_REPO"
+git branch "STA-500" master --quiet
+# Verify the branch exists
+if git show-ref --verify --quiet "refs/heads/STA-500"; then
+    echo -e "  ${GREEN}PASS${RESET} precondition: branch STA-500 exists"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} precondition: branch STA-500 exists"
+    FAIL=$((FAIL + 1))
+fi
+
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-500" --project-key "test" 2>/dev/null)
+EXIT_CODE=$?
+
+if [[ "$EXIT_CODE" -eq 0 ]]; then
+    echo -e "  ${GREEN}PASS${RESET} exits 0 when branch already exists"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} exits 0 when branch already exists (got exit $EXIT_CODE)"
+    FAIL=$((FAIL + 1))
+fi
+
+assert_valid_json "stdout is valid JSON (existing branch)" "$OUTPUT"
+assert_single_line "stdout is a single line (existing branch)" "$OUTPUT"
+assert_json_field "issue_key is correct (existing branch)" "$OUTPUT" "issue_key" "STA-500"
+
+# Verify worktree was actually created
+EXPECTED_PATH="$WORKTREES_ROOT/repo/STA-500"
+if [[ -d "$EXPECTED_PATH" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} worktree directory exists (existing branch)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} worktree directory exists (existing branch)"
+    echo "    Expected: $EXPECTED_PATH"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown_repo
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: create-worktree with stale index.lock${RESET}"
+setup_repo
+
+# Simulate a stale index.lock (crashed git process)
+touch "$MAIN_REPO/.git/index.lock"
+
+# Create uncommitted changes that trigger stash path
+echo "dirty" > "$MAIN_REPO/README.md"
+
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-600" --project-key "test" 2>/dev/null)
+EXIT_CODE=$?
+
+if [[ "$EXIT_CODE" -eq 0 ]]; then
+    echo -e "  ${GREEN}PASS${RESET} succeeds despite stale index.lock"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} succeeds despite stale index.lock (got exit $EXIT_CODE)"
+    FAIL=$((FAIL + 1))
+fi
+
+assert_valid_json "stdout is valid JSON (stale index.lock)" "$OUTPUT"
+assert_json_field "issue_key is correct (stale index.lock)" "$OUTPUT" "issue_key" "STA-600"
+
+# Verify the lock file was cleaned up
+if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} stale index.lock was removed"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} stale index.lock was removed"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown_repo
+
+# ==========================================================================
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: create-worktree with stale index.lock and CLEAN repo (no stash path)${RESET}"
+setup_repo
+
+# Simulate a stale index.lock but repo is clean — stash path is skipped,
+# so the lock blocks git fetch/checkout/pull directly.
+touch "$MAIN_REPO/.git/index.lock"
+
+EXIT_CODE=0
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-700" --project-key "test" 2>/dev/null) || EXIT_CODE=$?
+
+if [[ "$EXIT_CODE" -eq 0 ]]; then
+    echo -e "  ${GREEN}PASS${RESET} succeeds despite stale index.lock on clean repo"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} succeeds despite stale index.lock on clean repo (got exit $EXIT_CODE)"
+    FAIL=$((FAIL + 1))
+fi
+
+assert_valid_json "stdout is valid JSON (index.lock, clean repo)" "$OUTPUT"
+assert_json_field "issue_key is correct (index.lock, clean repo)" "$OUTPUT" "issue_key" "STA-700"
+
+# Verify the lock file was cleaned up
+if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} stale index.lock was removed (clean repo)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} stale index.lock was removed (clean repo)"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown_repo
+
+# ==========================================================================
+
 echo ""
 TOTAL=$((PASS + FAIL))
 if [[ "$FAIL" -eq 0 ]]; then

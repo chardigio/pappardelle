@@ -211,7 +211,7 @@ issue_tracker:
 # VCS host: "github" (default) or "gitlab"
 vcs_host:
   provider: gitlab
-  host: gitlab.mycompany.com  # optional, for self-hosted
+  host: gitlab.mycompany.com # optional, for self-hosted
 ```
 
 Omitting these fields defaults to Linear + GitHub. See [pappardelle-config.md](pappardelle-config.md) for full configuration reference.

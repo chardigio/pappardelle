@@ -1,4 +1,4 @@
-// Pure logic for determining how to spawn a dow session
+// Pure logic for determining how to spawn an idow session
 // Extracted from handleNewSession in app.tsx for testability
 
 export type SessionRoute = {
@@ -42,8 +42,8 @@ export interface PendingSession {
 	type: 'issue' | 'description';
 	/** Issue key for issue routes (e.g., "STA-477"), empty string for description routes */
 	name: string;
-	/** The dow argument to spawn with */
-	dowArg: string;
+	/** The argument to pass to idow */
+	idowArg: string;
 	/** Title shown in the pending list row */
 	pendingTitle: string;
 	/** Space count at the time the session was started (for description routes) */
@@ -67,6 +67,23 @@ export function getSpaceCount(
 	spaces: ReadonlyArray<{isMainWorktree?: boolean}>,
 ): number {
 	return spaces.length;
+}
+
+/**
+ * Build idow args for creating a new session.
+ * idow always creates Claude/lazygit tmux sessions.
+ * Pass --open to also open iTerm, apps, links, etc.
+ */
+export function buildNewSessionArgs(idowArg: string): string[] {
+	return [idowArg];
+}
+
+/**
+ * Build idow args for opening a workspace (apps, links, iTerm, etc.).
+ * Uses --resume (no Claude prompt) + --open (enable open steps).
+ */
+export function buildOpenWorkspaceArgs(issueKey: string): string[] {
+	return ['--resume', '--open', issueKey];
 }
 
 export function isPendingSessionResolved(

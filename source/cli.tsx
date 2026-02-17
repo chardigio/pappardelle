@@ -5,19 +5,26 @@ import meow from 'meow';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import App from './app.js';
-import {isInTmux, sessionExists, setupPappardellLayout} from './tmux.js';
-import type {PaneLayout} from './types.js';
+import App from './app.tsx';
+import {isInTmux, sessionExists, setupPappardellLayout} from './tmux.ts';
+import type {PaneLayout} from './types.ts';
 import {
 	configExists,
 	getRepoRoot,
 	getRepoName,
 	loadConfig,
+	loadProviderConfigs,
 	getTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
-} from './config.js';
-import {normalizeIssueIdentifier} from './issue-checker.js';
+} from './config.ts';
+import {captureStderr} from './logger.ts';
+
+// Capture stderr early so Ink/React rendering errors go to the log file
+captureStderr();
+import {createIssueTracker, createVcsHost} from './providers/index.ts';
+import {normalizeIssueIdentifier} from './issue-checker.ts';
+import {buildSpawnEnv} from './spawn-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,7 +36,7 @@ const cli = meow(
 	  $ pappardelle [prompt]
 
 	Description
-	  Interactive TUI for managing DOW (Do on Worktree) workspaces.
+	  Interactive TUI for managing pappardelle workspaces.
 	  Displays worktree spaces in an fzf-style list with Claude and
 	  lazygit panes for the selected space.
 
@@ -40,6 +47,7 @@ const cli = meow(
 	  j/k or arrows  Navigate between spaces
 	  Enter          Select space
 	  n              New space (create worktree + issue)
+	  o              Open workspace (apps, links, iTerm, etc.)
 	  d              Delete selected space
 	  r              Refresh list
 	  q/Ctrl+C       Quit
@@ -126,6 +134,19 @@ function checkConfig(): void {
 
 checkConfig();
 
+// Initialize provider singletons from config so that all subsequent
+// no-arg calls (e.g. from linear.ts facade) use the correct provider.
+// Uses loadProviderConfigs() instead of loadConfig() so that provider
+// initialization succeeds even when unrelated config sections (e.g.
+// profiles) have validation errors.
+try {
+	const providerCfg = loadProviderConfigs();
+	createIssueTracker(providerCfg.issue_tracker);
+	createVcsHost(providerCfg.vcs_host);
+} catch {
+	// If loading fails the providers will fall back to defaults on first use.
+}
+
 // If a prompt is provided as positional argument, spawn idow directly and exit
 if (cli.input.length > 0) {
 	const prompt = cli.input.join(' ');
@@ -142,11 +163,12 @@ if (cli.input.length > 0) {
 	const normalizedIssueKey = normalizeIssueIdentifier(prompt, teamPrefix);
 	const finalPrompt = normalizedIssueKey ?? prompt;
 
-	console.log(`Starting new DOW session with: "${finalPrompt}"`);
+	console.log(`Starting new session with: "${finalPrompt}"`);
 
 	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
 		stdio: 'inherit',
-		env: process.env,
+		cwd: getRepoRoot(),
+		env: buildSpawnEnv(getRepoRoot()),
 	});
 
 	process.exit(result.status ?? 0);

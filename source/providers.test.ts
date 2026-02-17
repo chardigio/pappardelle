@@ -95,6 +95,36 @@ test.serial('createVcsHost returns singleton', t => {
 });
 
 // ============================================================================
+// No-config returns existing singleton (regardless of provider type)
+// ============================================================================
+
+test.serial(
+	'createIssueTracker with no config returns existing Jira singleton',
+	t => {
+		const jira = createIssueTracker({
+			provider: 'jira',
+			base_url: 'https://example.com',
+		});
+		const noConfig = createIssueTracker();
+		t.is(noConfig, jira);
+		t.is(noConfig.name, 'jira');
+	},
+);
+
+test.serial(
+	'createVcsHost with no config returns existing GitLab singleton',
+	t => {
+		const gitlab = createVcsHost({
+			provider: 'gitlab',
+			host: 'gitlab.example.com',
+		});
+		const noConfig = createVcsHost();
+		t.is(noConfig, gitlab);
+		t.is(noConfig.name, 'gitlab');
+	},
+);
+
+// ============================================================================
 // Config mismatch detection
 // ============================================================================
 

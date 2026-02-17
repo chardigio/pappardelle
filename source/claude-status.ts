@@ -9,13 +9,13 @@ import {
 } from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import type {ClaudeStatus, ClaudeSessionState} from './types.js';
+import type {ClaudeStatus, ClaudeSessionState} from './types.ts';
 import {
 	STABLE_STATUSES,
 	ACTIVE_STATUSES,
 	ACTIVE_STATUS_TIMEOUT,
-} from './types.js';
-import {createLogger} from './logger.js';
+} from './types.ts';
+import {createLogger} from './logger.ts';
 
 export {STABLE_STATUSES, ACTIVE_STATUSES, ACTIVE_STATUS_TIMEOUT};
 
@@ -112,6 +112,17 @@ export function getAllStatuses(): Map<string, ClaudeStatus> {
 	}
 
 	return statuses;
+}
+
+/**
+ * Find the index of a space matching a status file workspace name.
+ * Uses statusKey (repo-qualified) when present, falls back to name.
+ */
+export function findSpaceByStatusKey(
+	spaces: ReadonlyArray<{name: string; statusKey?: string}>,
+	workspaceName: string,
+): number {
+	return spaces.findIndex(s => (s.statusKey ?? s.name) === workspaceName);
 }
 
 // Watch for status changes

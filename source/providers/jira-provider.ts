@@ -21,7 +21,7 @@ const STATUS_CATEGORY_COLORS: Record<string, string> = {
 	Done: '#4caf50', // green
 };
 
-function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
+export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 	const fields = (raw['fields'] as Record<string, unknown>) ?? {};
 	const status = (fields['status'] as Record<string, unknown>) ?? {};
 	const statusCategory =
@@ -41,15 +41,24 @@ function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 	};
 }
 
+export type CliExecutor = (
+	command: string,
+	args: string[],
+	options: {encoding: BufferEncoding; timeout: number},
+) => string;
+
 export class JiraProvider implements IssueTrackerProvider {
 	readonly name = 'jira';
 	private readonly baseUrl: string;
 	private readonly issueCache = new Map<string, CacheEntry>();
 	private readonly stateColorMap = new Map<string, string>();
+	private readonly execCli: CliExecutor;
 
-	constructor(baseUrl: string) {
+	constructor(baseUrl: string, execCli?: CliExecutor) {
 		// Strip trailing slash
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
+		this.execCli =
+			execCli ?? ((cmd, args, opts) => execFileSync(cmd, args, opts));
 	}
 
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
@@ -66,7 +75,7 @@ export class JiraProvider implements IssueTrackerProvider {
 		}
 
 		try {
-			const output = execFileSync(
+			const output = this.execCli(
 				'acli',
 				['jira', 'workitem', 'view', issueKey, '--json'],
 				{encoding: 'utf-8', timeout: 15_000},
@@ -78,6 +87,26 @@ export class JiraProvider implements IssueTrackerProvider {
 			log.debug(`Fetched Jira issue ${issueKey}: ${issue.title}`);
 			return issue;
 		} catch (err) {
+			// execFileSync throws on non-zero exit codes, but acli may still
+			// have written valid JSON to stdout (it exits 1 even on success).
+			if (err && typeof err === 'object' && 'stdout' in err) {
+				const {stdout} = err as {stdout: unknown};
+				if (typeof stdout === 'string' && stdout.trim().startsWith('{')) {
+					try {
+						const raw = JSON.parse(stdout) as Record<string, unknown>;
+						const issue = mapJiraIssue(raw);
+						this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
+						this.stateColorMap.set(issue.state.name, issue.state.color);
+						log.debug(
+							`Fetched Jira issue ${issueKey} (from non-zero exit): ${issue.title}`,
+						);
+						return issue;
+					} catch {
+						/* stdout wasn't valid JSON after all */
+					}
+				}
+			}
+
 			log.warn(
 				`Failed to fetch Jira issue ${issueKey}`,
 				err instanceof Error ? err : undefined,
@@ -92,7 +121,11 @@ export class JiraProvider implements IssueTrackerProvider {
 	}
 
 	getWorkflowStateColor(stateName: string): string | null {
-		return this.stateColorMap.get(stateName) ?? null;
+		return (
+			this.stateColorMap.get(stateName) ??
+			STATUS_CATEGORY_COLORS[stateName] ??
+			null
+		);
 	}
 
 	clearCache(): void {
@@ -105,7 +138,7 @@ export class JiraProvider implements IssueTrackerProvider {
 
 	async createComment(issueKey: string, body: string): Promise<boolean> {
 		try {
-			execFileSync(
+			this.execCli(
 				'acli',
 				['jira', 'workitem', 'comment', '--key', issueKey, '--body', body],
 				{encoding: 'utf-8', timeout: 30_000},

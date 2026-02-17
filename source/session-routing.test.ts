@@ -3,6 +3,8 @@ import {
 	routeSession,
 	isPendingSessionResolved,
 	getSpaceCount,
+	buildNewSessionArgs,
+	buildOpenWorkspaceArgs,
 	type PendingSession,
 } from './session-routing.ts';
 
@@ -50,7 +52,7 @@ test('resolves when issue key appears in spaces', t => {
 	const pending: PendingSession = {
 		type: 'issue',
 		name: 'STA-464',
-		dowArg: 'STA-464',
+		idowArg: 'STA-464',
 		pendingTitle: 'Resuming\u2026',
 		prevSpaceCount: 1,
 	};
@@ -61,7 +63,7 @@ test('does not resolve when issue key is absent from spaces', t => {
 	const pending: PendingSession = {
 		type: 'issue',
 		name: 'STA-464',
-		dowArg: 'STA-464',
+		idowArg: 'STA-464',
 		pendingTitle: 'Resuming\u2026',
 		prevSpaceCount: 1,
 	};
@@ -72,7 +74,7 @@ test('resolves description session when space count increases', t => {
 	const pending: PendingSession = {
 		type: 'description',
 		name: '',
-		dowArg: 'add dark mode',
+		idowArg: 'add dark mode',
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
 	};
@@ -83,7 +85,7 @@ test('does not resolve description session when count unchanged', t => {
 	const pending: PendingSession = {
 		type: 'description',
 		name: '',
-		dowArg: 'add dark mode',
+		idowArg: 'add dark mode',
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
 	};
@@ -134,4 +136,44 @@ test('getSpaceCount includes main worktree (regression: previously filtered out)
 		count > oldBuggyCount,
 		'new count is higher because it includes main worktree',
 	);
+});
+
+// ============================================================================
+// buildNewSessionArgs (idow should NOT open by default)
+// ============================================================================
+
+test('buildNewSessionArgs returns only the idow arg (no --open)', t => {
+	const args = buildNewSessionArgs('STA-500');
+	t.deepEqual(args, ['STA-500']);
+});
+
+test('buildNewSessionArgs passes description as-is', t => {
+	const args = buildNewSessionArgs('add dark mode to settings');
+	t.deepEqual(args, ['add dark mode to settings']);
+});
+
+test('buildNewSessionArgs does not include --resume or --open', t => {
+	const args = buildNewSessionArgs('STA-500');
+	t.false(args.includes('--resume'));
+	t.false(args.includes('--open'));
+});
+
+// ============================================================================
+// buildOpenWorkspaceArgs (pressing 'o' should open with --resume --open)
+// ============================================================================
+
+test('buildOpenWorkspaceArgs includes --resume and --open flags', t => {
+	const args = buildOpenWorkspaceArgs('STA-500');
+	t.true(args.includes('--resume'));
+	t.true(args.includes('--open'));
+});
+
+test('buildOpenWorkspaceArgs passes issue key as last arg', t => {
+	const args = buildOpenWorkspaceArgs('STA-500');
+	t.is(args.at(-1), 'STA-500');
+});
+
+test('buildOpenWorkspaceArgs returns exact expected args', t => {
+	const args = buildOpenWorkspaceArgs('ENG-42');
+	t.deepEqual(args, ['--resume', '--open', 'ENG-42']);
 });

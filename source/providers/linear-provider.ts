@@ -15,8 +15,13 @@ export class LinearProvider implements IssueTrackerProvider {
 	readonly name = 'linear';
 	private readonly issueCache = new Map<string, CacheEntry>();
 	private readonly stateColorMap = new Map<string, string>();
+	private linctlMissing = false;
 
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
+		if (this.linctlMissing) {
+			return this.issueCache.get(issueKey)?.issue ?? null;
+		}
+
 		const cached = this.issueCache.get(issueKey);
 		if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
 			if (cached.issue) {
@@ -41,10 +46,22 @@ export class LinearProvider implements IssueTrackerProvider {
 			log.debug(`Fetched issue ${issueKey}: ${issue.title}`);
 			return issue;
 		} catch (err) {
-			log.warn(
-				`Failed to fetch issue ${issueKey}`,
-				err instanceof Error ? err : undefined,
-			);
+			const isEnoent =
+				err instanceof Error &&
+				'code' in err &&
+				(err as NodeJS.ErrnoException).code === 'ENOENT';
+			if (isEnoent) {
+				this.linctlMissing = true;
+				log.warn(
+					'linctl binary not found on PATH — Linear issue fetching disabled. Install linctl or check your PATH.',
+				);
+			} else {
+				log.warn(
+					`Failed to fetch issue ${issueKey}`,
+					err instanceof Error ? err : undefined,
+				);
+			}
+
 			this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
 			return null;
 		}
@@ -55,25 +72,7 @@ export class LinearProvider implements IssueTrackerProvider {
 	}
 
 	getWorkflowStateColor(stateName: string): string | null {
-		const cached = this.stateColorMap.get(stateName);
-		if (cached) return cached;
-
-		try {
-			const output = execFileSync(
-				'linctl',
-				['issue', 'list', '--state', stateName, '--limit', '1', '--json'],
-				{encoding: 'utf-8', timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe']},
-			);
-			const issues = JSON.parse(output) as TrackerIssue[];
-			if (issues.length > 0 && issues[0]!.state.color) {
-				this.stateColorMap.set(stateName, issues[0]!.state.color);
-				return issues[0]!.state.color;
-			}
-		} catch {
-			log.warn(`Failed to fetch workflow state color for "${stateName}"`);
-		}
-
-		return null;
+		return this.stateColorMap.get(stateName) ?? null;
 	}
 
 	clearCache(): void {
@@ -85,6 +84,10 @@ export class LinearProvider implements IssueTrackerProvider {
 	}
 
 	async createComment(issueKey: string, body: string): Promise<boolean> {
+		if (this.linctlMissing) {
+			return false;
+		}
+
 		try {
 			execFileSync('linctl', ['comment', 'create', issueKey, '--body', body], {
 				encoding: 'utf-8',
@@ -92,10 +95,22 @@ export class LinearProvider implements IssueTrackerProvider {
 			});
 			return true;
 		} catch (err) {
-			log.warn(
-				`Failed to post comment on ${issueKey}`,
-				err instanceof Error ? err : undefined,
-			);
+			const isEnoent =
+				err instanceof Error &&
+				'code' in err &&
+				(err as NodeJS.ErrnoException).code === 'ENOENT';
+			if (isEnoent) {
+				this.linctlMissing = true;
+				log.warn(
+					'linctl binary not found on PATH — Linear comment posting disabled.',
+				);
+			} else {
+				log.warn(
+					`Failed to post comment on ${issueKey}`,
+					err instanceof Error ? err : undefined,
+				);
+			}
+
 			return false;
 		}
 	}

@@ -10,7 +10,7 @@ export {
 	isLinearIssueKey,
 	isIssueNumber,
 	normalizeIssueIdentifier,
-} from './issue-utils.js';
+} from './issue-utils.ts';
 
 /**
  * Check if an issue has an associated PR with commits.

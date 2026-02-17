@@ -4,7 +4,7 @@ import {
 	subscribeToErrors,
 	clearRecentErrors,
 	type LogEntry,
-} from '../logger.js';
+} from '../logger.ts';
 
 interface Props {
 	maxVisible?: number;

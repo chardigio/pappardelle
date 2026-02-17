@@ -6,7 +6,7 @@ import {
 	matchProfiles,
 	getDefaultProfile,
 	type PappardelleConfig,
-} from '../config.js';
+} from '../config.ts';
 
 // Issue key patterns
 const ISSUE_KEY_PATTERN = /^[A-Z]+-\d+$/;

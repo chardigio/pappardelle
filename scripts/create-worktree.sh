@@ -18,7 +18,7 @@
 set -e
 
 # Configuration (overridable via env vars for testing)
-MAIN_REPO="${MAIN_REPO:-$HOME/cs/stardust-labs}"
+MAIN_REPO="${MAIN_REPO:-${PAPPARDELLE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}}"
 WORKTREES_ROOT="${WORKTREES_ROOT:-$HOME/.worktrees}"
 
 # Parse arguments
@@ -72,7 +72,21 @@ log() {
     echo "[create-worktree] $*" >&2
 }
 
-# Check if there are uncommitted changes in the main repo
+# Remove stale .git/index.lock left behind by crashed git processes.
+# Must run before any git operations (stash, fetch, checkout, pull).
+remove_stale_index_lock() {
+    local lock_file="$MAIN_REPO/.git/index.lock"
+    if [[ -f "$lock_file" ]]; then
+        # Check if any process is actively holding this lock
+        if command -v lsof >/dev/null 2>&1 && lsof "$lock_file" >/dev/null 2>&1; then
+            log "WARNING: index.lock is held by a running process, skipping removal"
+            return
+        fi
+        log "Removing stale .git/index.lock..."
+        rm -f "$lock_file"
+    fi
+}
+
 # Check if there are uncommitted changes in the main repo
 has_uncommitted_changes() {
     cd "$MAIN_REPO"
@@ -86,20 +100,43 @@ if [[ ! -d "$WORKTREE_PATH" ]]; then
     log "Creating worktree at $WORKTREE_PATH"
     cd "$MAIN_REPO"
 
+    # Clean up any stale index.lock before running git operations
+    remove_stale_index_lock
+
     # Stash uncommitted changes if present to avoid checkout/pull failures
     if has_uncommitted_changes; then
         log "Stashing uncommitted changes in main repo (use 'git stash pop' to restore)..."
-        git stash push -m "auto-stash for worktree creation ($ISSUE_KEY)" --quiet >&2 2>&1
+        if ! git stash push -m "auto-stash for worktree creation ($ISSUE_KEY)" --quiet >&2 2>&1; then
+            echo "Error: git stash failed" >&2
+            exit 1
+        fi
     fi
 
-    # Pull latest master from origin to ensure we branch from up-to-date code
-    log "Pulling latest master..."
-    git fetch origin master --quiet >&2 2>&1
-    git checkout master --quiet >&2 2>&1
-    git pull origin master --quiet >&2 2>&1
+    # Detect default branch (main or master)
+    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    if [[ -z "$DEFAULT_BRANCH" ]]; then
+        # Fallback: check which branch exists on remote
+        if git show-ref --verify --quiet refs/remotes/origin/main 2>/dev/null; then
+            DEFAULT_BRANCH="main"
+        else
+            DEFAULT_BRANCH="master"
+        fi
+    fi
 
-    # Create worktree with new branch (redirect all output to stderr)
-    git worktree add "$WORKTREE_PATH" -b "$ISSUE_KEY" origin/master >&2 2>&1
+    # Pull latest default branch from origin to ensure we branch from up-to-date code
+    log "Pulling latest $DEFAULT_BRANCH..."
+    git fetch origin "$DEFAULT_BRANCH" --quiet >&2 2>&1
+    git checkout "$DEFAULT_BRANCH" --quiet >&2 2>&1
+    git pull origin "$DEFAULT_BRANCH" --quiet >&2 2>&1
+
+    # Create worktree — reuse existing branch or create a new one
+    if git show-ref --verify --quiet "refs/heads/$ISSUE_KEY"; then
+        log "Branch $ISSUE_KEY already exists, reusing it"
+        git worktree add "$WORKTREE_PATH" "$ISSUE_KEY" >&2 2>&1
+    else
+        log "Preparing worktree (new branch '$ISSUE_KEY')"
+        git worktree add "$WORKTREE_PATH" -b "$ISSUE_KEY" "origin/$DEFAULT_BRANCH" >&2 2>&1
+    fi
     log "Worktree created with branch $ISSUE_KEY"
 else
     log "Worktree already exists at $WORKTREE_PATH"
