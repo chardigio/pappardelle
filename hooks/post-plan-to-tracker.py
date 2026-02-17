@@ -17,7 +17,7 @@ Usage:
 
 import json
 import os
-import re as _re_module
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -161,7 +161,7 @@ def get_tracker_provider() -> str:
             try:
                 with open(candidate) as f:
                     content = f.read()
-                match = _re_module.search(r"issue_tracker:\s*\n\s+provider:\s*(\w+)", content)
+                match = re.search(r"issue_tracker:\s*\n\s+provider:\s*(\w+)", content)
                 if match:
                     return match.group(1).strip()
             except OSError:

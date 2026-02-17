@@ -77,6 +77,11 @@ log() {
 remove_stale_index_lock() {
     local lock_file="$MAIN_REPO/.git/index.lock"
     if [[ -f "$lock_file" ]]; then
+        # Check if any process is actively holding this lock
+        if command -v lsof >/dev/null 2>&1 && lsof "$lock_file" >/dev/null 2>&1; then
+            log "WARNING: index.lock is held by a running process, skipping removal"
+            return
+        fi
         log "Removing stale .git/index.lock..."
         rm -f "$lock_file"
     fi

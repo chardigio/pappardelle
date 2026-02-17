@@ -740,7 +740,7 @@ fi
 # Switch to the workspace
 aerospace workspace "$ISSUE_KEY" 2>/dev/null || true
 
-fi # end of NO_OPEN check
+fi # end of OPEN_WORKSPACE check
 
 # Final summary
 echo ""
