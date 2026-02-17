@@ -1,15 +1,16 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and lazygit-STA-XXX sessions created by idow
 import {execSync, spawnSync} from 'node:child_process';
-import {getRepoName} from './config.js';
-import {createLogger} from './logger.js';
+import {getRepoName} from './config.ts';
+import {createLogger} from './logger.ts';
+import {isSimctlUnavailableError} from './simctl-check.ts';
 import {
 	calculateIdealListHeightForCount,
 	calculateLayoutForSize,
 	MIN_LAZYGIT_WIDTH,
 	NARROW_SCREEN_THRESHOLD,
 	type LayoutConfig,
-} from './layout-sizing.js';
+} from './layout-sizing.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -22,13 +23,38 @@ export {
 	MAX_LIST_HEIGHT,
 	DEFAULT_MIN_LIST_HEIGHT,
 	type LayoutConfig,
-} from './layout-sizing.js';
+} from './layout-sizing.ts';
 
 const log = createLogger('tmux');
 
 // Session naming convention (matches idow)
-export const CLAUDE_SESSION_PREFIX = 'claude-';
-export const LAZYGIT_SESSION_PREFIX = 'lazygit-';
+// Sessions are repo-qualified: claude-{repoName}-{key}, e.g. claude-pappa-chex-CHEX-313
+
+/**
+ * Get the session prefix for a given type and repo name.
+ * e.g. getSessionPrefix('claude', 'pappa-chex') → 'claude-pappa-chex-'
+ */
+export function getSessionPrefix(
+	type: 'claude' | 'lazygit',
+	repoName?: string,
+): string {
+	const repo = repoName ?? getRepoName();
+	return `${type}-${repo}-`;
+}
+
+/**
+ * Extract the space key from a repo-qualified session name.
+ * e.g. extractIssueKeyFromSession('claude-pappa-chex-CHEX-313', 'pappa-chex') → 'CHEX-313'
+ * Returns null if the session doesn't match the expected prefix.
+ */
+export function extractIssueKeyFromSession(
+	sessionName: string,
+	repoName?: string,
+): string | null {
+	const prefix = getSessionPrefix('claude', repoName);
+	if (!sessionName.startsWith(prefix)) return null;
+	return sessionName.slice(prefix.length);
+}
 
 // Track which space is currently being viewed
 let currentlyViewingSpace: string | null = null;
@@ -65,15 +91,21 @@ export function sessionExists(sessionName: string): boolean {
 }
 
 /**
- * Get session names for a space
+ * Get session names for a space.
+ * Optional repoName parameter for testing; defaults to getRepoName().
  */
-export function getSessionNames(issueKey: string): {
+export function getSessionNames(
+	issueKey: string,
+	repoName?: string,
+): {
 	claude: string;
 	lazygit: string;
 } {
+	const claudePrefix = getSessionPrefix('claude', repoName);
+	const lazygitPrefix = getSessionPrefix('lazygit', repoName);
 	return {
-		claude: `${CLAUDE_SESSION_PREFIX}${issueKey}`,
-		lazygit: `${LAZYGIT_SESSION_PREFIX}${issueKey}`,
+		claude: `${claudePrefix}${issueKey}`,
+		lazygit: `${lazygitPrefix}${issueKey}`,
 	};
 }
 
@@ -92,10 +124,11 @@ export function spaceHasSessions(issueKey: string): {
 }
 
 /**
- * List all claude sessions (claude-STA-*)
+ * List all claude sessions for this repo (claude-{repoName}-*)
  */
 export function listClaudeSessions(): string[] {
 	try {
+		const prefix = getSessionPrefix('claude');
 		const output = execSync('tmux list-sessions -F "#{session_name}"', {
 			encoding: 'utf-8',
 			timeout: 5000,
@@ -104,20 +137,21 @@ export function listClaudeSessions(): string[] {
 		return output
 			.trim()
 			.split('\n')
-			.filter(name => name.startsWith(CLAUDE_SESSION_PREFIX));
+			.filter(name => name.startsWith(prefix));
 	} catch {
 		return [];
 	}
 }
 
 /**
- * Get Linear issue keys from active claude tmux sessions
- * Extracts issue keys by removing the 'claude-' prefix from session names
+ * Get issue keys from active claude tmux sessions for this repo.
+ * Extracts issue keys by removing the repo-qualified prefix from session names.
  */
 export function getLinearIssuesFromTmux(): string[] {
 	const claudeSessions = listClaudeSessions();
+	const prefix = getSessionPrefix('claude');
 	return claudeSessions
-		.map(session => session.replace(CLAUDE_SESSION_PREFIX, ''))
+		.map(session => session.slice(prefix.length))
 		.filter(issueKey => /^[A-Z]+-\d+$/.test(issueKey));
 }
 
@@ -229,6 +263,16 @@ export function killSession(sessionName: string): boolean {
 export function deleteQaSimulator(issueKey: string): boolean {
 	const simulatorName = `QA-${issueKey}`;
 
+	// Skip if xcrun is not available (machines without Xcode)
+	const which = spawnSync('which', ['xcrun'], {
+		encoding: 'utf-8',
+		timeout: 5000,
+	});
+	if (which.status !== 0) {
+		log.debug('xcrun not available, skipping simulator cleanup');
+		return true;
+	}
+
 	try {
 		// Find the simulator UDID by name
 		const result = spawnSync('xcrun', ['simctl', 'list', 'devices', '-j'], {
@@ -237,7 +281,13 @@ export function deleteQaSimulator(issueKey: string): boolean {
 		});
 
 		if (result.error || result.status !== 0) {
-			log.error(`Failed to list simulators: ${result.stderr}`);
+			const stderr = result.stderr?.trim() ?? '';
+			if (isSimctlUnavailableError(stderr)) {
+				log.debug('simctl not available, skipping simulator cleanup');
+				return true;
+			}
+
+			log.error(`Failed to list simulators: ${stderr}`);
 			return false;
 		}
 
@@ -1346,7 +1396,7 @@ export function ensureClaudeSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 ): boolean {
-	const sessionName = `${CLAUDE_SESSION_PREFIX}${issueKey}`;
+	const sessionName = getSessionNames(issueKey).claude;
 
 	// Already exists?
 	if (sessionExists(sessionName)) {
@@ -1408,7 +1458,7 @@ export function ensureLazygitSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 ): boolean {
-	const sessionName = `${LAZYGIT_SESSION_PREFIX}${issueKey}`;
+	const sessionName = getSessionNames(issueKey).lazygit;
 
 	// Already exists?
 	if (sessionExists(sessionName)) {

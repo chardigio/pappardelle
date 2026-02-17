@@ -47,7 +47,7 @@
 			"tsx": "module"
 		},
 		"nodeArguments": [
-			"--import=tsx"
+			"--experimental-strip-types"
 		]
 	},
 	"xo": {

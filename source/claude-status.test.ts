@@ -5,6 +5,7 @@ import {
 	ACTIVE_STATUSES,
 	ACTIVE_STATUS_TIMEOUT,
 } from './types.ts';
+import {findSpaceByStatusKey} from './claude-status.ts';
 
 // ============================================================================
 // Helper Functions
@@ -250,4 +251,51 @@ test('CLAUDE_STATUS_DISPLAY has correct icon for error', async t => {
 
 	t.is(CLAUDE_STATUS_DISPLAY.error.icon, '✗', 'error should show ✗ icon');
 	t.is(CLAUDE_STATUS_DISPLAY.error.color, 'red', 'error should be red');
+});
+
+// ============================================================================
+// findSpaceByStatusKey Tests
+// ============================================================================
+
+test('findSpaceByStatusKey matches main worktree by statusKey, not bare name', t => {
+	const spaces = [
+		{name: 'main', statusKey: 'pappa-chex-main'},
+		{name: 'STA-123'},
+	];
+	// Should match the qualified status key
+	t.is(findSpaceByStatusKey(spaces, 'pappa-chex-main'), 0);
+	// Bare "main" should NOT match — prevents cross-repo collision
+	t.is(findSpaceByStatusKey(spaces, 'main'), -1);
+});
+
+test('findSpaceByStatusKey matches issue worktrees by name (no statusKey)', t => {
+	const spaces = [
+		{name: 'main', statusKey: 'pappa-chex-main'},
+		{name: 'STA-123'},
+		{name: 'STA-456'},
+	];
+	t.is(findSpaceByStatusKey(spaces, 'STA-123'), 1);
+	t.is(findSpaceByStatusKey(spaces, 'STA-456'), 2);
+});
+
+test('findSpaceByStatusKey returns -1 for unknown workspace', t => {
+	const spaces = [
+		{name: 'main', statusKey: 'pappa-chex-main'},
+		{name: 'STA-123'},
+	];
+	t.is(findSpaceByStatusKey(spaces, 'other-repo-main'), -1);
+	t.is(findSpaceByStatusKey(spaces, 'nonexistent'), -1);
+});
+
+test('findSpaceByStatusKey prevents cross-repo main branch collision', t => {
+	// Two pappardelle instances managing different repos, both on branch "main"
+	// Each should only match its own qualified status key
+	const repoASpaces = [{name: 'main', statusKey: 'repo-a-main'}];
+	const repoBSpaces = [{name: 'main', statusKey: 'repo-b-main'}];
+	// Repo A status update should match repo A, not repo B
+	t.is(findSpaceByStatusKey(repoASpaces, 'repo-a-main'), 0);
+	t.is(findSpaceByStatusKey(repoBSpaces, 'repo-a-main'), -1);
+	// Repo B status update should match repo B, not repo A
+	t.is(findSpaceByStatusKey(repoBSpaces, 'repo-b-main'), 0);
+	t.is(findSpaceByStatusKey(repoASpaces, 'repo-b-main'), -1);
 });

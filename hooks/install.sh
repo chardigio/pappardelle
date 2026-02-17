@@ -17,6 +17,8 @@ cp "$SCRIPT_DIR/update-status.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/update-status.py"
 cp "$SCRIPT_DIR/comment-question-answered.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/comment-question-answered.py"
+cp "$SCRIPT_DIR/post-plan-to-tracker.py" "$HOOKS_DIR/"
+chmod +x "$HOOKS_DIR/post-plan-to-tracker.py"
 
 echo "Hook scripts installed to $HOOKS_DIR/"
 
@@ -39,8 +41,9 @@ else
     echo "Created $CLAUDE_SETTINGS with Pappardelle hooks"
 fi
 
-# Create status directory
+# Create status and metadata directories
 mkdir -p "$HOME/.pappardelle/claude-status"
+mkdir -p "$HOME/.pappardelle/issue-meta"
 
 echo ""
 echo "Installation complete!"

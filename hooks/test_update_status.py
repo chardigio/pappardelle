@@ -65,37 +65,52 @@ class TestGetWorkspaceName:
             assert get_workspace_name() == "unknown"
 
     def test_detects_main_worktree_via_git_branch(self):
-        """When in main worktree (no issue key in path), should detect branch name via git."""
+        """When in main worktree (no issue key in path), should use repo-qualified name."""
+
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "master\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/charlie/cs/stardust-labs\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
         with (
             patch("os.getcwd", return_value="/Users/charlie/cs/stardust-labs"),
-            patch(
-                "subprocess.run",
-                return_value=type("Result", (), {"returncode": 0, "stdout": "master\n"})(),
-            ),
+            patch("subprocess.run", side_effect=mock_run),
         ):
-            assert get_workspace_name() == "master"
+            assert get_workspace_name() == "stardust-labs-master"
 
     def test_detects_main_branch_named_main(self):
-        """Should work with repos that use 'main' instead of 'master'."""
+        """Should include repo name for 'main' branches too."""
+
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "main\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/charlie/cs/some-repo\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
         with (
             patch("os.getcwd", return_value="/Users/charlie/cs/some-repo"),
-            patch(
-                "subprocess.run",
-                return_value=type("Result", (), {"returncode": 0, "stdout": "main\n"})(),
-            ),
+            patch("subprocess.run", side_effect=mock_run),
         ):
-            assert get_workspace_name() == "main"
+            assert get_workspace_name() == "some-repo-main"
 
     def test_detects_arbitrary_branch_name(self):
-        """Should work with any branch name, not just 'master' or 'main'."""
+        """Should include repo name for any branch."""
+
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "foo\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/charlie/cs/some-repo\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
         with (
             patch("os.getcwd", return_value="/Users/charlie/cs/some-repo"),
-            patch(
-                "subprocess.run",
-                return_value=type("Result", (), {"returncode": 0, "stdout": "foo\n"})(),
-            ),
+            patch("subprocess.run", side_effect=mock_run),
         ):
-            assert get_workspace_name() == "foo"
+            assert get_workspace_name() == "some-repo-foo"
 
     def test_returns_unknown_when_git_fails(self):
         """If git command fails, should still return 'unknown'."""
@@ -108,8 +123,24 @@ class TestGetWorkspaceName:
         ):
             assert get_workspace_name() == "unknown"
 
-    def test_main_worktree_status_writes_to_branch_name_file(self, tmp_path):
-        """When in main worktree, status file should use branch name (e.g., master.json)."""
+    def test_falls_back_to_branch_only_when_toplevel_fails(self):
+        """If git show-toplevel fails but branch succeeds, fall back to branch only."""
+
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "main\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 1, "stdout": ""})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
+        with (
+            patch("os.getcwd", return_value="/Users/charlie/cs/some-repo"),
+            patch("subprocess.run", side_effect=mock_run),
+        ):
+            assert get_workspace_name() == "main"
+
+    def test_main_worktree_status_writes_to_repo_qualified_file(self, tmp_path):
+        """When in main worktree, status file should use repo-qualified name (e.g., stardust-labs-master.json)."""
         from io import StringIO
 
         import update_status as us
@@ -121,14 +152,18 @@ class TestGetWorkspaceName:
         }
         stdin_mock = StringIO(json.dumps(input_data))
 
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "master\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/charlie/cs/stardust-labs\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
         with (
             patch.object(sys, "stdin", stdin_mock),
             patch.object(us, "get_status_dir", return_value=tmp_path),
             patch("os.getcwd", return_value="/Users/charlie/cs/stardust-labs"),
-            patch(
-                "subprocess.run",
-                return_value=type("Result", (), {"returncode": 0, "stdout": "master\n"})(),
-            ),
+            patch("subprocess.run", side_effect=mock_run),
         ):
             original_argv = sys.argv
             sys.argv = ["update-status.py"]
@@ -139,12 +174,16 @@ class TestGetWorkspaceName:
             finally:
                 sys.argv = original_argv
 
-        # Should write to master.json, NOT unknown.json
-        status_file = tmp_path / "master.json"
-        assert status_file.exists(), "Status should be written to master.json for main worktree"
+        # Should write to stardust-labs-master.json (repo-qualified), NOT master.json
+        status_file = tmp_path / "stardust-labs-master.json"
+        assert status_file.exists(), "Status should be written to stardust-labs-master.json for main worktree"
         result = json.loads(status_file.read_text())
-        assert result["workspaceName"] == "master"
+        assert result["workspaceName"] == "stardust-labs-master"
         assert result["status"] == "waiting_for_input"
+
+        # Should NOT write to bare branch name
+        bare_file = tmp_path / "master.json"
+        assert not bare_file.exists(), "Should NOT write to bare master.json (would collide across repos)"
 
         unknown_file = tmp_path / "unknown.json"
         assert not unknown_file.exists(), "Should NOT write to unknown.json when branch is detected"

@@ -61,17 +61,34 @@ def get_workspace_name() -> str:
             if prefix.isupper() and prefix.isalpha() and suffix.isdigit():
                 return part
 
-    # No issue key found — likely the main worktree. Detect branch name via git.
+    # No issue key found — likely the main worktree. Detect branch name via git
+    # and qualify with repo name to avoid collisions across repos
+    # (e.g. "stardust-labs-master" instead of just "master").
     try:
-        result = subprocess.run(
+        branch_result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        if result.returncode == 0:
-            branch = result.stdout.strip()
+        if branch_result.returncode == 0:
+            branch = branch_result.stdout.strip()
             if branch:
+                # Try to get repo name from git toplevel
+                try:
+                    toplevel_result = subprocess.run(
+                        ["git", "rev-parse", "--show-toplevel"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if toplevel_result.returncode == 0:
+                        repo_name = os.path.basename(toplevel_result.stdout.strip())
+                        if repo_name:
+                            return f"{repo_name}-{branch}"
+                except Exception:
+                    pass
+                # Fall back to branch only if we can't determine repo name
                 return branch
     except Exception:
         pass

@@ -6,6 +6,7 @@ import {
 	getProfileVcsLabel,
 	getInitializationCommand,
 	repoNameFromGitCommonDir,
+	qualifyMainBranch,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -707,4 +708,20 @@ test('getInitializationCommand returns empty string when claude section exists b
 	);
 	(config as Record<string, unknown>)['claude'] = {};
 	t.is(getInitializationCommand(config), '');
+});
+
+// ============================================================================
+// qualifyMainBranch Tests
+// ============================================================================
+
+test('qualifyMainBranch combines repo name and branch', t => {
+	t.is(qualifyMainBranch('stardust-labs', 'master'), 'stardust-labs-master');
+});
+
+test('qualifyMainBranch works with main branch', t => {
+	t.is(qualifyMainBranch('pappa-chex', 'main'), 'pappa-chex-main');
+});
+
+test('qualifyMainBranch works with arbitrary branch names', t => {
+	t.is(qualifyMainBranch('my-repo', 'develop'), 'my-repo-develop');
 });

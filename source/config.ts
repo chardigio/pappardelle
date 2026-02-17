@@ -167,6 +167,14 @@ export function getRepoName(): string {
 }
 
 /**
+ * Qualify a main-worktree branch name with the repo name to avoid
+ * collisions across repos (e.g. "stardust-labs-master" instead of "master").
+ */
+export function qualifyMainBranch(repoName: string, branch: string): string {
+	return `${repoName}-${branch}`;
+}
+
+/**
  * Load the .pappardelle.yml config from the repository root
  */
 export function loadConfig(): PappardelleConfig {
@@ -182,6 +190,30 @@ export function loadConfig(): PappardelleConfig {
 
 	validateConfig(config);
 	return config;
+}
+
+/**
+ * Load just the provider configs (issue_tracker, vcs_host) from .pappardelle.yml.
+ * Skips full config validation so providers can be initialized even when
+ * unrelated config sections (e.g. profiles) have errors.
+ */
+export function loadProviderConfigs(): {
+	issue_tracker?: IssueTrackerConfig;
+	vcs_host?: VcsHostConfig;
+} {
+	const repoRoot = getRepoRoot();
+	const configPath = path.join(repoRoot, '.pappardelle.yml');
+
+	if (!fs.existsSync(configPath)) {
+		return {};
+	}
+
+	const content = fs.readFileSync(configPath, 'utf-8');
+	const raw = YAML.load(content) as Record<string, unknown>;
+	return {
+		issue_tracker: raw['issue_tracker'] as IssueTrackerConfig | undefined,
+		vcs_host: raw['vcs_host'] as VcsHostConfig | undefined,
+	};
 }
 
 /**
