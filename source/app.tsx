@@ -1,6 +1,6 @@
 import React, {useEffect, useState, useCallback, useRef} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -18,6 +18,7 @@ const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
 import {getIssue, getIssueCached} from './linear.ts';
+import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
 	getClaudeStatusInfo,
 	watchStatuses,
@@ -414,6 +415,82 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		resizeListPaneForSessionCount(paneLayout.listPaneId);
 	}, [paneLayout, spaces.length, loading]);
 
+	// Open the GitHub PR / GitLab MR in browser for the selected space
+	const handleOpenPR = () => {
+		const space = spaces[selectedIndex];
+		if (!space || space.isPending || space.isMainWorktree) {
+			setHeaderMessage(space?.isMainWorktree ? 'No PR for main worktree' : '');
+			if (space?.isMainWorktree) setTimeout(() => setHeaderMessage(''), 2000);
+			return;
+		}
+
+		setHeaderMessage(`Opening PR for ${space.name}...`);
+
+		try {
+			const prInfo = createVcsHost().checkIssueHasPRWithCommits(space.name);
+			if (prInfo.hasPR && prInfo.prUrl) {
+				spawn('open', [prInfo.prUrl], {
+					detached: true,
+					stdio: 'ignore',
+				}).unref();
+				setHeaderMessage(`Opened PR #${prInfo.prNumber}`);
+			} else {
+				setHeaderMessage(`No PR found for ${space.name}`);
+			}
+		} catch {
+			setHeaderMessage('Failed to look up PR');
+		}
+		setTimeout(() => setHeaderMessage(''), 3000);
+	};
+
+	// Open the Linear/Jira issue in browser for the selected space
+	const handleOpenIssue = () => {
+		const space = spaces[selectedIndex];
+		if (!space || space.isPending || space.isMainWorktree) {
+			setHeaderMessage(
+				space?.isMainWorktree ? 'No issue for main worktree' : '',
+			);
+			if (space?.isMainWorktree) setTimeout(() => setHeaderMessage(''), 2000);
+			return;
+		}
+
+		try {
+			const url = createIssueTracker().buildIssueUrl(space.name);
+			spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
+			setHeaderMessage(`Opened ${space.name}`);
+		} catch {
+			setHeaderMessage('Failed to look up issue');
+		}
+		setTimeout(() => setHeaderMessage(''), 3000);
+	};
+
+	// Open the IDE (Cursor) at the worktree path for the selected space
+	const handleOpenIDE = () => {
+		const space = spaces[selectedIndex];
+		if (!space || space.isPending) return;
+
+		const worktreePath = space.worktreePath;
+		if (!worktreePath) {
+			setHeaderMessage('No worktree path found');
+			setTimeout(() => setHeaderMessage(''), 2000);
+			return;
+		}
+
+		spawn('cursor', [worktreePath], {detached: true, stdio: 'ignore'}).unref();
+		setHeaderMessage(`Opening Cursor for ${space.name}`);
+		setTimeout(() => setHeaderMessage(''), 3000);
+	};
+
+	// Focus the Claude viewer pane (Enter key)
+	const handleFocusClaude = () => {
+		if (!paneLayout) return;
+
+		spawnSync('tmux', ['select-pane', '-t', paneLayout.claudeViewerPaneId], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+	};
+
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
@@ -437,15 +514,25 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					setSelectedIndex(selectedIndex + 1);
 				}
 			} else if (key.return) {
-				// Enter pressed - no-op for now (selection is visual)
+				// Enter - focus the Claude viewer pane
+				handleFocusClaude();
+			} else if (input === 'g') {
+				// 'g' to open the GitHub PR / GitLab MR in browser
+				handleOpenPR();
+			} else if (input === 'i') {
+				// 'i' to open the Linear/Jira issue in browser
+				handleOpenIssue();
+			} else if (input === 'd') {
+				// 'd' to open the IDE (Cursor) at the worktree path
+				handleOpenIDE();
 			} else if (input === 'o') {
 				// 'o' to open workspace (apps, links, iTerm, etc.)
 				handleOpenWorkspace();
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
-			} else if (key.delete || input === 'd') {
-				// Delete key or 'd' to delete selected space
+			} else if (key.delete) {
+				// Delete key to close selected space
 				const space = spaces[selectedIndex];
 				if (space?.isMainWorktree) {
 					setHeaderMessage('Cannot close main worktree');

@@ -8,12 +8,15 @@ interface Props {
 const shortcuts = [
 	{key: 'j / ↓', description: 'Move down'},
 	{key: 'k / ↑', description: 'Move up'},
-	{key: 'Enter', description: 'Select space'},
+	{key: 'Enter', description: 'Focus Claude pane'},
+	{key: 'g', description: 'Open PR / MR in browser'},
+	{key: 'i', description: 'Open issue in browser'},
+	{key: 'd', description: 'Open IDE (Cursor)'},
 	{key: 'n', description: 'New space'},
 	{key: 'o', description: 'Open workspace (apps, links, etc.)'},
-	{key: 'd / Del', description: 'Close space'},
+	{key: 'Del', description: 'Close space'},
 	{key: 'r', description: 'Refresh list'},
-	{key: 'c', description: 'Clear errors'},
+	{key: 'e', description: 'Show errors'},
 	{key: '?', description: 'Show this help'},
 ];
 
