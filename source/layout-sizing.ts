@@ -14,10 +14,10 @@ export const NARROW_SCREEN_THRESHOLD = 100;
 
 /** Minimum pane widths (in characters) for horizontal layout */
 export const MIN_LIST_WIDTH = 15;
-export const MAX_LIST_WIDTH = 30;
+export const MAX_LIST_WIDTH = 44;
 export const MIN_CLAUDE_WIDTH = 40;
 export const MIN_LAZYGIT_WIDTH = 20; // Lazygit can be squished but needs at least this much
-export const MAX_LAZYGIT_WIDTH = 40;
+export const MAX_LAZYGIT_WIDTH = 56;
 
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 8;
