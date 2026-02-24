@@ -5,6 +5,22 @@ import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
 const log = createLogger('jira-provider');
 const CACHE_TTL_MS = 60_000;
+export const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 500;
+
+export function isEnoent(err: unknown): boolean {
+	return (
+		err instanceof Error &&
+		'code' in err &&
+		(err as NodeJS.ErrnoException).code === 'ENOENT'
+	);
+}
+
+async function defaultSleep(ms: number): Promise<void> {
+	return new Promise(resolve => {
+		setTimeout(resolve, ms);
+	});
+}
 
 interface CacheEntry {
 	issue: TrackerIssue | null;
@@ -47,21 +63,30 @@ export type CliExecutor = (
 	options: {encoding: BufferEncoding; timeout: number},
 ) => string;
 
+export type SleepFn = (ms: number) => Promise<void>;
+
 export class JiraProvider implements IssueTrackerProvider {
 	readonly name = 'jira';
 	private readonly baseUrl: string;
 	private readonly issueCache = new Map<string, CacheEntry>();
 	private readonly stateColorMap = new Map<string, string>();
 	private readonly execCli: CliExecutor;
+	private readonly sleepFn: SleepFn;
+	private acliMissing = false;
 
-	constructor(baseUrl: string, execCli?: CliExecutor) {
+	constructor(baseUrl: string, execCli?: CliExecutor, sleepFn?: SleepFn) {
 		// Strip trailing slash
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
 		this.execCli =
 			execCli ?? ((cmd, args, opts) => execFileSync(cmd, args, opts));
+		this.sleepFn = sleepFn ?? defaultSleep;
 	}
 
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
+		if (this.acliMissing) {
+			return this.issueCache.get(issueKey)?.issue ?? null;
+		}
+
 		const cached = this.issueCache.get(issueKey);
 		if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
 			if (cached.issue) {
@@ -74,46 +99,66 @@ export class JiraProvider implements IssueTrackerProvider {
 			return cached.issue;
 		}
 
-		try {
-			const output = this.execCli(
-				'acli',
-				['jira', 'workitem', 'view', issueKey, '--json'],
-				{encoding: 'utf-8', timeout: 15_000},
-			);
-			const raw = JSON.parse(output) as Record<string, unknown>;
-			const issue = mapJiraIssue(raw);
-			this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
-			this.stateColorMap.set(issue.state.name, issue.state.color);
-			log.debug(`Fetched Jira issue ${issueKey}: ${issue.title}`);
-			return issue;
-		} catch (err) {
-			// execFileSync throws on non-zero exit codes, but acli may still
-			// have written valid JSON to stdout (it exits 1 even on success).
-			if (err && typeof err === 'object' && 'stdout' in err) {
-				const {stdout} = err as {stdout: unknown};
-				if (typeof stdout === 'string' && stdout.trim().startsWith('{')) {
-					try {
-						const raw = JSON.parse(stdout) as Record<string, unknown>;
-						const issue = mapJiraIssue(raw);
-						this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
-						this.stateColorMap.set(issue.state.name, issue.state.color);
-						log.debug(
-							`Fetched Jira issue ${issueKey} (from non-zero exit): ${issue.title}`,
-						);
-						return issue;
-					} catch {
-						/* stdout wasn't valid JSON after all */
+		let lastError: unknown;
+		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				const output = this.execCli(
+					'acli',
+					['jira', 'workitem', 'view', issueKey, '--json'],
+					{encoding: 'utf-8', timeout: 15_000},
+				);
+				const raw = JSON.parse(output) as Record<string, unknown>;
+				const issue = mapJiraIssue(raw);
+				this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
+				this.stateColorMap.set(issue.state.name, issue.state.color);
+				log.debug(`Fetched Jira issue ${issueKey}: ${issue.title}`);
+				return issue;
+			} catch (err) {
+				if (isEnoent(err)) {
+					this.acliMissing = true;
+					log.warn(
+						'acli binary not found on PATH — Jira issue fetching disabled. Install acli or check your PATH.',
+					);
+					this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
+					return null;
+				}
+
+				// execFileSync throws on non-zero exit codes, but acli may still
+				// have written valid JSON to stdout (it exits 1 even on success).
+				if (err && typeof err === 'object' && 'stdout' in err) {
+					const {stdout} = err as {stdout: unknown};
+					if (typeof stdout === 'string' && stdout.trim().startsWith('{')) {
+						try {
+							const raw = JSON.parse(stdout) as Record<string, unknown>;
+							const issue = mapJiraIssue(raw);
+							this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
+							this.stateColorMap.set(issue.state.name, issue.state.color);
+							log.debug(
+								`Fetched Jira issue ${issueKey} (from non-zero exit): ${issue.title}`,
+							);
+							return issue;
+						} catch {
+							/* stdout wasn't valid JSON after all */
+						}
 					}
 				}
-			}
 
-			log.warn(
-				`Failed to fetch Jira issue ${issueKey}`,
-				err instanceof Error ? err : undefined,
-			);
-			this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
-			return null;
+				lastError = err;
+				if (attempt < MAX_RETRIES) {
+					log.debug(
+						`Fetch Jira issue ${issueKey} failed (attempt ${attempt}/${MAX_RETRIES}), retrying…`,
+					);
+					await this.sleepFn(RETRY_DELAY_MS);
+				}
+			}
 		}
+
+		log.warn(
+			`Failed to fetch Jira issue ${issueKey} after ${MAX_RETRIES} attempts`,
+			lastError instanceof Error ? lastError : undefined,
+		);
+		this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
+		return null;
 	}
 
 	getIssueCached(issueKey: string): TrackerIssue | null {
@@ -137,19 +182,42 @@ export class JiraProvider implements IssueTrackerProvider {
 	}
 
 	async createComment(issueKey: string, body: string): Promise<boolean> {
-		try {
-			this.execCli(
-				'acli',
-				['jira', 'workitem', 'comment', '--key', issueKey, '--body', body],
-				{encoding: 'utf-8', timeout: 30_000},
-			);
-			return true;
-		} catch (err) {
-			log.warn(
-				`Failed to post comment on Jira issue ${issueKey}`,
-				err instanceof Error ? err : undefined,
-			);
+		if (this.acliMissing) {
 			return false;
 		}
+
+		let lastError: unknown;
+		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				this.execCli(
+					'acli',
+					['jira', 'workitem', 'comment', '--key', issueKey, '--body', body],
+					{encoding: 'utf-8', timeout: 30_000},
+				);
+				return true;
+			} catch (err) {
+				if (isEnoent(err)) {
+					this.acliMissing = true;
+					log.warn(
+						'acli binary not found on PATH — Jira comment posting disabled.',
+					);
+					return false;
+				}
+
+				lastError = err;
+				if (attempt < MAX_RETRIES) {
+					log.debug(
+						`Post comment on Jira ${issueKey} failed (attempt ${attempt}/${MAX_RETRIES}), retrying…`,
+					);
+					await this.sleepFn(RETRY_DELAY_MS);
+				}
+			}
+		}
+
+		log.warn(
+			`Failed to post comment on Jira ${issueKey} after ${MAX_RETRIES} attempts`,
+			lastError instanceof Error ? lastError : undefined,
+		);
+		return false;
 	}
 }
