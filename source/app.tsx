@@ -74,6 +74,14 @@ log.info('Pappardelle starting');
 export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const {stdout} = useStdout();
 
+	const repoName = React.useMemo(() => {
+		try {
+			return getRepoName();
+		} catch {
+			return 'unknown';
+		}
+	}, []);
+
 	const [spaces, setSpaces] = useState<SpaceData[]>([]);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [loading, setLoading] = useState(true);
@@ -782,7 +790,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			{/* Header */}
 			<Box marginBottom={1}>
 				<Text bold color="cyan">
-					pappardelle
+					🍝 {repoName}
 				</Text>
 				{!inTmux && (
 					<>
