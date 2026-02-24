@@ -13,8 +13,23 @@ Interactive Terminal UI for managing DOW (Do on Worktree) workspaces.
 
 ## Installation
 
+**One-line install:**
+
 ```bash
-# From the pappardelle directory
+curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
+```
+
+This installs the `pappardelle` TUI, `idow` CLI tool, and Claude Code hooks for status tracking.
+
+**Or from a local clone:**
+
+```bash
+./install.sh
+```
+
+**Or manually:**
+
+```bash
 npm install
 npm run build
 npm link  # Makes pappardelle available globally
