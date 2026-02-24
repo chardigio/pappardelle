@@ -14,9 +14,10 @@ export const NARROW_SCREEN_THRESHOLD = 100;
 
 /** Minimum pane widths (in characters) for horizontal layout */
 export const MIN_LIST_WIDTH = 15;
-export const MAX_LIST_WIDTH = 50;
+export const MAX_LIST_WIDTH = 30;
 export const MIN_CLAUDE_WIDTH = 40;
 export const MIN_LAZYGIT_WIDTH = 20; // Lazygit can be squished but needs at least this much
+export const MAX_LAZYGIT_WIDTH = 40;
 
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 8;
@@ -145,6 +146,13 @@ export function calculateLayoutForSize(
 			Math.max(MIN_LIST_WIDTH, Math.floor((remaining * 0.24) / 0.62)),
 		);
 		claudeWidth = remaining - listWidth;
+	}
+
+	// Cap lazygit at maximum, give excess to claude
+	if (lazygitWidth > MAX_LAZYGIT_WIDTH) {
+		const excess = lazygitWidth - MAX_LAZYGIT_WIDTH;
+		lazygitWidth = MAX_LAZYGIT_WIDTH;
+		claudeWidth += excess;
 	}
 
 	return {
