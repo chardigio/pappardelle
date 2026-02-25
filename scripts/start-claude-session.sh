@@ -66,6 +66,29 @@ fi
 CLAUDE_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
 LAZYGIT_SESSION="lazygit-${REPO_NAME}-${ISSUE_KEY}"
 
+# Pre-trust the worktree directory for Claude Code
+# Claude Code stores workspace trust in ~/.claude.json under projects.<path>.hasTrustDialogAccepted
+# Without this, every new worktree triggers a "do you trust this folder?" prompt
+# This trust dialog was introduced in Claude Code v2.1.53 for directories with risky project settings
+# (e.g. .claude/commands/ with Bash tool access, hooks, etc.)
+python3 -c "
+import json, os, sys
+config_path = os.path.expanduser('~/.claude.json')
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    config = {}
+projects = config.setdefault('projects', {})
+path = sys.argv[1]
+if path not in projects:
+    projects[path] = {}
+if not projects[path].get('hasTrustDialogAccepted'):
+    projects[path]['hasTrustDialogAccepted'] = True
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=2)
+" "$WORKTREE_PATH" 2>/dev/null || true
+
 # Ensure Claude tmux session
 if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     tmux new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
