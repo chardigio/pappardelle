@@ -4,12 +4,66 @@ Interactive Terminal UI for managing DOW (Do on Worktree) workspaces.
 
 ## Features
 
-- **Workspace Grid**: Displays aerospace workspaces as cards in a responsive grid
+- **3-Pane Layout**: Workspace list, Claude Code viewer, and lazygit viewer side-by-side in tmux
 - **Issue Tracker Integration**: Shows issue key, title, and status (Linear or Jira)
-- **App Icons**: Displays icons for open applications in each workspace
-- **Claude Status**: Real-time Claude Code status tracking (thinking, working, waiting, done)
-- **Quick Navigation**: Arrow key navigation with Enter to switch workspaces
-- **New Sessions**: Create new DOW sessions with the "+" button
+- **Claude Status**: Real-time Claude Code status tracking with animated spinner, attention-blinking rows, and per-tool status icons
+- **Quick Navigation**: Vim-style `j`/`k` and arrow key navigation with instant pane switching
+- **Workspace Provisioning**: Create full workspaces (worktree, PR, Xcode project, Claude session) from a prompt
+- **Quick Actions**: Open PRs, issues, and IDE from keybindings (`g`, `i`, `d`)
+- **Mouse Support**: Click workspace rows to select
+- **Provider Agnostic**: Pluggable issue tracker (Linear, Jira) and VCS host (GitHub, GitLab)
+
+## How It Works
+
+Pappardelle orchestrates isolated development workspaces using tmux, git worktrees, and Claude Code. Here's the end-to-end flow:
+
+### 1. Launch
+
+Running `pappardelle` creates (or attaches to) a tmux session with a 3-pane layout:
+
+- **Left** — workspace list (the TUI itself)
+- **Center** — Claude Code viewer (shows the selected workspace's Claude session)
+- **Right** — lazygit viewer (shows the selected workspace's git state)
+
+If you're not already in tmux, pappardelle auto-creates a session and re-launches inside it. When running inside iTerm2, it uses `tmux -CC` control mode for native split panes with mouse resize and macOS copy/paste.
+
+### 2. Create a Workspace
+
+Press `n` to open the prompt dialog. You can enter:
+
+- A **free-text description** (e.g., `"add dark mode to settings"`) — creates a new issue
+- An **issue key** (e.g., `STA-123`) — uses an existing issue
+- A **bare number** (e.g., `123`) — prepends the global `team_prefix` from `.pappardelle.yml` (profile-level prefixes are only used for new issue creation, not bare-number expansion)
+
+This triggers `idow`, which provisions the entire workspace:
+
+1. **Profile selection** — keyword-matches your input against profiles in `.pappardelle.yml` to determine project-specific config (iOS settings, GitHub labels, apps to open)
+2. **Issue creation/fetch** — creates a new issue in your tracker (Linear or Jira) or fetches an existing one
+3. **Title generation** — for new issues, uses AI to derive a concise title from the description
+4. **Git worktree** — creates an isolated worktree at `~/.worktrees/{repo}/{issue-key}/`
+5. **PR/MR creation** — opens a placeholder pull request (GitHub) or merge request (GitLab)
+6. **Xcode project** — if the profile has an `ios` block (with `app_dir`, `bundle_id`, `scheme`), runs `xcodegen generate` and creates a `Local.xcconfig` with worktree-specific port settings. See [pappardelle-config.md](pappardelle-config.md) for profile `ios` configuration.
+7. **Claude session** — starts a named tmux session (`claude-{repo}-{issue-key}`) with Claude Code. If `claude.initialization_command` is set in `.pappardelle.yml` (e.g., `"/idow"`), that command is passed to Claude along with the issue key; otherwise Claude opens with just the issue key.
+
+With the `--open` flag (or pressing `o` in the TUI), additional steps run: opens iTerm2 with Claude, launches configured apps (Cursor, Xcode, etc.), opens the issue and PR URLs in the browser, and clones a QA iOS simulator in the background.
+
+### 3. Navigate Between Workspaces
+
+Use `↑`/`↓` (or `j`/`k`) to move through the workspace list. Highlighting a row instantly switches the Claude and lazygit viewer panes to that workspace's sessions — no restart or re-attach needed. Press `Enter` to focus the Claude pane for direct interaction.
+
+### 4. Real-Time Status Tracking
+
+Claude Code hooks report session status back to the TUI in real time:
+
+1. Claude Code lifecycle events (`PreToolUse`, `PostToolUse`, `Stop`, etc.) trigger `update-status.py`
+2. The hook writes a JSON status file to `~/.pappardelle/claude-status/{workspace}.json`
+3. The TUI watches this directory with a filesystem watcher and updates the status icon instantly
+
+Status icons show at a glance whether Claude is working (animated spinner), waiting for input (`●`), needs permission (`!`), or is done (`●`). See the [Status Values](#status-values) table below for the full list.
+
+### 5. Closing Workspaces
+
+Press `Delete` on a workspace to tear it down. This kills the Claude and lazygit tmux sessions and removes the workspace from the list. The git worktree and any committed work remain intact on disk.
 
 ## Installation
 
@@ -46,13 +100,20 @@ pappardelle
 
 ### Controls
 
-| Key     | Action                                                 |
-| ------- | ------------------------------------------------------ |
-| ↑↓←→    | Navigate between workspaces                            |
-| Enter   | Switch to selected workspace / Open new session dialog |
-| r       | Refresh workspace list                                 |
-| c       | Clear error messages                                   |
-| q / Esc | Quit                                                   |
+| Key   | Action                        |
+| ----- | ----------------------------- |
+| j / ↓ | Move down                     |
+| k / ↑ | Move up                       |
+| Enter | Focus Claude pane             |
+| g     | Open PR / MR in browser       |
+| i     | Open issue in browser         |
+| d     | Open IDE (Cursor)             |
+| n     | New space                     |
+| o     | Open workspace (apps, links)  |
+| Del   | Close space                   |
+| r     | Refresh list                  |
+| e     | Show errors                   |
+| ?     | Show help                     |
 
 ## Architecture
 
@@ -69,6 +130,13 @@ source/
 ├── git-status.ts        # Git worktree status detection
 ├── issue-checker.ts     # VCS host facade (delegates to providers)
 ├── issue-utils.ts       # Issue utility helpers
+├── simctl-check.ts      # iOS simulator availability check
+├── space-utils.ts       # Space data utility helpers
+├── spawn-env.ts         # Spawned process environment setup
+├── session-routing.ts   # Session routing logic
+├── layout-sizing.ts     # Layout calculations
+├── list-view-sizing.ts  # List view sizing calculations
+├── use-mouse.ts         # Mouse input handling
 ├── providers/
 │   ├── types.ts             # Provider interfaces (IssueTrackerProvider, VcsHostProvider)
 │   ├── index.ts             # Provider factory (createIssueTracker, createVcsHost)
@@ -76,10 +144,6 @@ source/
 │   ├── jira-provider.ts     # Jira provider (acli)
 │   ├── github-provider.ts   # GitHub provider (gh)
 │   └── gitlab-provider.ts   # GitLab provider (glab)
-├── session-routing.ts   # Session routing logic
-├── layout-sizing.ts     # Layout calculations
-├── list-view-sizing.ts  # List view sizing calculations
-├── use-mouse.ts         # Mouse input handling
 └── components/
     ├── SpaceListItem.tsx    # Individual space list item
     ├── PromptDialog.tsx     # New session prompt dialog
@@ -89,9 +153,9 @@ source/
     ├── HelpOverlay.tsx      # Help overlay
     └── ClaudeAnimation.tsx  # Claude status animation
 
-scripts/                         # Workspace setup scripts (dow/idow)
-├── dow                          # Non-interactive workspace setup
+scripts/                         # Workspace setup scripts
 ├── idow                         # Interactive workspace setup
+├── start-claude-session.sh      # Claude + lazygit tmux session launcher
 ├── provider-helpers.sh          # Provider-agnostic helper functions
 ├── create-worktree.sh           # Git worktree creation
 ├── create-linear-issue.sh       # Linear issue creation
@@ -104,12 +168,12 @@ scripts/                         # Workspace setup scripts (dow/idow)
 ├── open-firefox-tabs.sh         # Firefox tab opener
 ├── organize-aerospace.sh        # AeroSpace workspace organizer
 ├── position-window.sh           # Window positioning
-├── yabai-position.sh            # Yabai window positioning
-└── test-create-worktree.sh      # Worktree creation tests
+└── yabai-position.sh            # Yabai window positioning
 
 hooks/
 ├── update-status.py             # Status tracking hook
-├── comment-question-answered.py # Linear Q&A comment hook
+├── comment-question-answered.py # Issue tracker Q&A comment hook
+├── post-plan-to-tracker.py      # Plan posting hook
 ├── settings.json.example        # Example Claude settings
 └── install.sh                   # Hook installation script
 ```
@@ -124,14 +188,16 @@ The TUI tracks Claude Code session status through file-based hooks:
 
 ### Status Values
 
-| Status     | Icon | Description                          |
-| ---------- | ---- | ------------------------------------ |
-| Working    | ◐    | Claude is processing or using a tool |
-| Waiting    | ?    | Claude needs user input              |
-| Permission | !    | Claude needs permission approval     |
-| Done       | ✓    | Claude finished the task             |
-| Idle       | ○    | Session is idle                      |
-| Unknown    | ?    | No status available                  |
+| Status     | Icon          | Description                          |
+| ---------- | ------------- | ------------------------------------ |
+| Working    | ·✢✳∗✻✽       | Animated spinner while processing    |
+| Waiting    | ● (green)     | Claude needs user input              |
+| Permission | ! (red)       | Claude needs permission approval     |
+| Question   | ? (blue)      | Claude asked a clarifying question   |
+| Compacting | ◇ (yellow)    | Context window compacting            |
+| Done       | ● (green)     | Claude finished the task             |
+| Error      | ✗ (red)       | An error occurred                    |
+| Unknown    | ? (gray)      | No status available                  |
 
 ## Issue Tracker Q&A Comments
 
