@@ -1,7 +1,9 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and lazygit-STA-XXX sessions created by idow
 import {exec, execSync, spawnSync} from 'node:child_process';
-import {existsSync, statSync} from 'node:fs';
+import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {homedir} from 'node:os';
+import {join} from 'node:path';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
@@ -1396,6 +1398,52 @@ export async function getMainWorktreeInfo(): Promise<{
 }
 
 /**
+ * Pre-trust a directory for Claude Code by writing hasTrustDialogAccepted
+ * to ~/.claude.json. Without this, every new worktree directory triggers
+ * a "do you trust this folder?" prompt that blocks the interactive session.
+ *
+ * This trust dialog was introduced in Claude Code v2.1.53 for directories
+ * with risky project settings (e.g. .claude/commands/ with Bash tool access).
+ */
+export function pretrustDirectoryForClaude(
+	worktreePath: string,
+	configPath?: string,
+): void {
+	const resolvedConfigPath = configPath ?? join(homedir(), '.claude.json');
+	try {
+		let config: Record<string, unknown> = {};
+		try {
+			config = JSON.parse(readFileSync(resolvedConfigPath, 'utf-8'));
+		} catch {
+			// File doesn't exist or is invalid JSON - start fresh
+		}
+
+		const projects = (config['projects'] ?? {}) as Record<
+			string,
+			Record<string, unknown>
+		>;
+		if (!projects[worktreePath]) {
+			projects[worktreePath] = {};
+		}
+		if (!projects[worktreePath]!['hasTrustDialogAccepted']) {
+			projects[worktreePath]!['hasTrustDialogAccepted'] = true;
+			config['projects'] = projects;
+			writeFileSync(
+				resolvedConfigPath,
+				JSON.stringify(config, null, 2),
+				'utf-8',
+			);
+			log.info(`Pre-trusted directory for Claude: ${worktreePath}`);
+		}
+	} catch (err) {
+		log.warn(
+			`Failed to pre-trust directory for Claude: ${worktreePath}`,
+			err instanceof Error ? err : undefined,
+		);
+	}
+}
+
+/**
  * Create a claude session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
@@ -1419,6 +1467,9 @@ export function ensureClaudeSession(
 		log.warn(`Cannot create claude session for ${issueKey}: no worktree found`);
 		return false;
 	}
+
+	// Pre-trust the worktree directory so Claude doesn't ask "do you trust this folder?"
+	pretrustDirectoryForClaude(worktreePath);
 
 	try {
 		// Create detached tmux session with a shell
