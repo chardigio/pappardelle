@@ -382,8 +382,135 @@ test('no false positives from common words', t => {
 });
 
 // ============================================================================
+// Multi-word Keyword Matching Tests
+// ============================================================================
+
+test('matches multi-word keyword as adjacent phrase', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	const matches = matchProfiles(config, 'fix the venue page layout');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'venue-profile');
+	t.deepEqual(matches[0]!.matchedKeywords, ['venue page']);
+});
+
+test('does NOT match multi-word keyword when words are non-adjacent', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	const matches = matchProfiles(config, 'venue detail page');
+	t.is(matches.length, 0);
+});
+
+test('does NOT match multi-word keyword when only partial words appear', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	const matches = matchProfiles(config, 'fix venue layout');
+	t.is(matches.length, 0);
+});
+
+test('matches multi-word keyword case-insensitively', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['Venue Page'], 'Venue Profile'),
+	});
+
+	const matches = matchProfiles(config, 'fix the VENUE PAGE bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'venue-profile');
+});
+
+test('matches mix of single-word and multi-word keywords', t => {
+	const config = createConfig({
+		'mixed-profile': createProfile(
+			['venue page', 'map', 'location detail'],
+			'Mixed Profile',
+		),
+	});
+
+	const matches = matchProfiles(config, 'fix the venue page map');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.score, 2);
+	t.deepEqual(matches[0]!.matchedKeywords, ['venue page', 'map']);
+});
+
+test('multi-word keyword scores 1 like single-word keyword', t => {
+	const config = createConfig({
+		'profile-a': createProfile(['venue page'], 'Profile A'),
+		'profile-b': createProfile(['venue'], 'Profile B'),
+	});
+
+	const matches = matchProfiles(config, 'venue page test');
+	// Both should match; profile-a matches "venue page", profile-b matches "venue"
+	t.is(matches.length, 2);
+	// Both have score 1
+	t.is(matches[0]!.score, 1);
+	t.is(matches[1]!.score, 1);
+});
+
+test('multi-word keyword at start of input', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	const matches = matchProfiles(config, 'venue page needs fixing');
+	t.is(matches.length, 1);
+});
+
+test('multi-word keyword at end of input', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	const matches = matchProfiles(config, 'fix the venue page');
+	t.is(matches.length, 1);
+});
+
+test('multi-word keyword with punctuation between words in input', t => {
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	// Words separated by comma - the splitter should still produce adjacent words
+	const matches = matchProfiles(config, 'fix venue,page layout');
+	t.is(matches.length, 1);
+});
+
+test('three-word keyword matches', t => {
+	const config = createConfig({
+		'detail-profile': createProfile(['venue detail page'], 'Detail Profile'),
+	});
+
+	const matches = matchProfiles(config, 'fix the venue detail page layout');
+	t.is(matches.length, 1);
+	t.deepEqual(matches[0]!.matchedKeywords, ['venue detail page']);
+});
+
+test('three-word keyword does NOT match with wrong order', t => {
+	const config = createConfig({
+		'detail-profile': createProfile(['venue detail page'], 'Detail Profile'),
+	});
+
+	const matches = matchProfiles(config, 'venue page detail');
+	t.is(matches.length, 0);
+});
+
+// ============================================================================
 // Edge Cases
 // ============================================================================
+
+test('empty keyword does not match any input', t => {
+	const config = createConfig({
+		'bad-profile': createProfile(['', '   '], 'Bad Profile'),
+	});
+
+	const matches = matchProfiles(config, 'anything here');
+	t.is(matches.length, 0);
+});
 
 test('handles empty input', t => {
 	const config = createConfig({
