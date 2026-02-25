@@ -540,9 +540,24 @@ export function matchProfiles(
 
 		for (const keyword of profile.keywords) {
 			const kwLower = keyword.toLowerCase();
-			// Exact word match only (case-insensitive)
-			if (words.some(w => w === kwLower)) {
-				matchedKeywords.push(keyword);
+			// Split keyword on whitespace to detect multi-word keywords
+			const kwParts = kwLower.split(/\s+/).filter(p => p.length > 0);
+
+			if (kwParts.length === 0) continue;
+
+			if (kwParts.length === 1) {
+				// Single-word keyword: exact word match (case-insensitive)
+				if (words.some(w => w === kwLower)) {
+					matchedKeywords.push(keyword);
+				}
+			} else {
+				// Multi-word keyword: match adjacent words in input
+				for (let i = 0; i <= words.length - kwParts.length; i++) {
+					if (kwParts.every((part, j) => words[i + j] === part)) {
+						matchedKeywords.push(keyword);
+						break;
+					}
+				}
 			}
 		}
 
