@@ -924,7 +924,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	return (
 		<Box flexDirection="column" height="100%">
 			{/* Header */}
-			<Box marginBottom={1}>
+			<Box>
 				<Text bold color="cyan">
 					🍝 {repoName}
 				</Text>
@@ -940,19 +940,18 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					{visibleDisplaySpaces.length < displaySpaces.length &&
 						` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${displaySpaces.length})`}
 				</Text>
-				{headerMessage && (
-					<>
-						<Text dimColor> | </Text>
-						<Text color="yellow">{headerMessage}</Text>
-					</>
-				)}
-				{errorCount > 0 && !headerMessage && (
+				{errorCount > 0 && (
 					<>
 						<Text dimColor> | </Text>
 						<Text color="red">✗ {errorCount}</Text>
 						<Text dimColor> (e)</Text>
 					</>
 				)}
+			</Box>
+
+			{/* Status message line (occupies the row between header and list) */}
+			<Box>
+				<Text color="yellow">{headerMessage || ' '}</Text>
 			</Box>
 
 			{/* Main content */}

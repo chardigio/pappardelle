@@ -10,7 +10,7 @@
 // Constants
 // ============================================================================
 
-/** Rows consumed by header (1 line) + header marginBottom (1 line) = 2 */
+/** Rows consumed by header (1 line) + status message line (1 line) = 2 */
 export const HEADER_ROWS = 2;
 
 /** Total non-item chrome (header only, no footer) */
