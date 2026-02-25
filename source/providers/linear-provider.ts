@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
+import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
 const execFileAsync = promisify(execFile);
@@ -41,12 +42,16 @@ interface CacheEntry {
 export class LinearProvider implements IssueTrackerProvider {
 	readonly name = 'linear';
 	private readonly issueCache = new Map<string, CacheEntry>();
-	private readonly stateColorMap = new Map<string, string>();
+	private readonly stateColors: StateColorCache;
 	private readonly execCli: CliExecutor;
 	private readonly sleepFn: SleepFn;
 	private linctlMissing = false;
 
-	constructor(execCli?: CliExecutor, sleepFn?: SleepFn) {
+	constructor(
+		execCli?: CliExecutor,
+		sleepFn?: SleepFn,
+		stateColorCache?: StateColorCache,
+	) {
 		this.execCli =
 			execCli ??
 			(async (cmd, args, opts) => {
@@ -54,6 +59,7 @@ export class LinearProvider implements IssueTrackerProvider {
 				return stdout;
 			});
 		this.sleepFn = sleepFn ?? defaultSleep;
+		this.stateColors = stateColorCache ?? new StateColorCache();
 	}
 
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
@@ -64,7 +70,7 @@ export class LinearProvider implements IssueTrackerProvider {
 		const cached = this.issueCache.get(issueKey);
 		if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
 			if (cached.issue) {
-				this.stateColorMap.set(
+				this.stateColors.update(
 					cached.issue.state.name,
 					cached.issue.state.color,
 				);
@@ -83,7 +89,7 @@ export class LinearProvider implements IssueTrackerProvider {
 				);
 				const issue = JSON.parse(output) as TrackerIssue;
 				this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
-				this.stateColorMap.set(issue.state.name, issue.state.color);
+				this.stateColors.update(issue.state.name, issue.state.color);
 				log.debug(`Fetched issue ${issueKey}: ${issue.title}`);
 				return issue;
 			} catch (err) {
@@ -119,7 +125,7 @@ export class LinearProvider implements IssueTrackerProvider {
 	}
 
 	getWorkflowStateColor(stateName: string): string | null {
-		return this.stateColorMap.get(stateName) ?? null;
+		return this.stateColors.get(stateName);
 	}
 
 	clearCache(): void {
