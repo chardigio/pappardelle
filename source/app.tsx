@@ -208,15 +208,16 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				const claudeInfo = getClaudeStatusInfo(issueKey);
 				const worktreePath = getWorktreePath(issueKey);
 
-				// Start fetching Linear issue in background (only if not cached yet)
+				// Use cached issue for immediate display (avoids "Loading…" flash
+				// on subsequent polls), but always call getIssue() in background
+				// so that: (a) stateColorMap stays populated for main worktree
+				// color, and (b) cache entries refresh when their TTL expires.
 				const cached = getIssueCached(issueKey);
-				if (!cached) {
-					issueFetches.push(
-						getIssue(issueKey)
-							.then(() => {})
-							.catch(() => {}),
-					);
-				}
+				issueFetches.push(
+					getIssue(issueKey)
+						.then(() => {})
+						.catch(() => {}),
+				);
 
 				return {
 					name: issueKey,
@@ -257,15 +258,19 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			setLoading(false);
 
 			// When background issue fetches complete, update spaces with newly
-			// cached titles so "Loading…" resolves quickly (~1-3s) instead of
-			// waiting for the next 10-second poll.
+			// cached data. This resolves "Loading…" quickly (~1-3s) on first
+			// load and picks up state changes (e.g., issue moved to "Done")
+			// after cache TTL expires on subsequent polls.
 			if (issueFetches.length > 0) {
 				Promise.allSettled(issueFetches).then(() => {
 					setSpaces(prev =>
 						prev.map(s => {
-							if (s.isMainWorktree || s.linearIssue) return s;
+							if (s.isMainWorktree) return s;
 							const issue = getIssueCached(s.name);
-							return issue ? {...s, linearIssue: issue} : s;
+							if (!issue) return s;
+							// Reference equality: skip if same object (no refresh)
+							if (s.linearIssue === issue) return s;
+							return {...s, linearIssue: issue};
 						}),
 					);
 				});
