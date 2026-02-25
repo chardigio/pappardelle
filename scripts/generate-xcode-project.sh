@@ -1,15 +1,11 @@
 #!/bin/bash
 
-# generate-xcode-project.sh - Generate and rename Xcode project for a worktree
+# generate-xcode-project.sh - Generate Xcode project for a worktree
 #
 # Usage: generate-xcode-project.sh --worktree <path> --issue-key <STA-XXX> --ios-app-dir <dir>
 #
-# Generates the Xcode project using xcodegen, then renames it to include
-# the issue key (e.g., stardust-jams-STA-123.xcodeproj).
-#
-# Also:
-#   - Fixes scheme container references to point to renamed project
-#   - Creates Local.xcconfig with worktree-specific port settings
+# Generates the Xcode project using xcodegen and creates Local.xcconfig
+# with worktree-specific port settings.
 #
 # Outputs: JSON with xcodeproj_path
 # Exit code: 0 on success, 1 on failure
@@ -38,7 +34,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: generate-xcode-project.sh --worktree <path> --issue-key <STA-XXX> --ios-app-dir <dir>"
             echo ""
-            echo "Generates and renames Xcode project for the issue."
+            echo "Generates Xcode project and Local.xcconfig for the worktree."
             exit 0
             ;;
         *)
@@ -91,39 +87,16 @@ if [[ ! -f "$XCODE_DIR/project.yml" ]]; then
     exit 1
 fi
 
-# Target project names
-ORIGINAL_PROJ="$XCODE_DIR/$APP_NAME.xcodeproj"
-RENAMED_PROJ="$XCODE_DIR/$APP_NAME-$ISSUE_KEY.xcodeproj"
+# Target project path
+PROJ="$XCODE_DIR/$APP_NAME.xcodeproj"
 
-# Check if renamed project already exists
-if [[ -d "$RENAMED_PROJ" ]]; then
-    log "Xcode project already exists: $RENAMED_PROJ"
-    echo "{\"xcodeproj_path\":\"$RENAMED_PROJ\"}"
-    exit 0
-fi
-
-# Generate project with xcodegen if needed
-if [[ ! -d "$ORIGINAL_PROJ" ]]; then
+# Check if project already exists
+if [[ -d "$PROJ" ]]; then
+    log "Xcode project already exists: $PROJ"
+else
+    # Generate project with xcodegen
     log "Running xcodegen in $XCODE_DIR"
     (cd "$XCODE_DIR" && xcodegen generate --quiet 2>/dev/null) || (cd "$XCODE_DIR" && xcodegen generate)
-fi
-
-# Rename project to include issue key
-if [[ -d "$ORIGINAL_PROJ" ]]; then
-    log "Renaming xcodeproj to include issue key"
-    mv "$ORIGINAL_PROJ" "$RENAMED_PROJ"
-
-    # Fix scheme container references to point to renamed project
-    # Without this fix, schemes show gear icon and are not runnable
-    SCHEME_DIR="$RENAMED_PROJ/xcshareddata/xcschemes"
-    if [[ -d "$SCHEME_DIR" ]]; then
-        for SCHEME_FILE in "$SCHEME_DIR"/*.xcscheme; do
-            if [[ -f "$SCHEME_FILE" ]]; then
-                log "Fixing scheme container references in $(basename "$SCHEME_FILE")"
-                sed -i '' "s/container:$APP_NAME.xcodeproj/container:$APP_NAME-$ISSUE_KEY.xcodeproj/g" "$SCHEME_FILE"
-            fi
-        done
-    fi
 fi
 
 # Extract issue number for port
@@ -142,4 +115,4 @@ EOF
 log "Created Local.xcconfig with port $WORKTREE_PORT"
 
 # Output JSON
-echo "{\"xcodeproj_path\":\"$RENAMED_PROJ\"}"
+echo "{\"xcodeproj_path\":\"$PROJ\"}"
