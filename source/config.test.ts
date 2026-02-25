@@ -3,10 +3,13 @@ import type {PappardelleConfig, Profile} from './config.ts';
 import {
 	matchProfiles,
 	getTeamPrefix,
+	getProfileTeamPrefix,
 	getProfileVcsLabel,
 	getInitializationCommand,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
+	validateConfig,
+	ConfigValidationError,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -59,6 +62,101 @@ test('getTeamPrefix uppercases the team prefix', t => {
 		'eng',
 	);
 	t.is(getTeamPrefix(config), 'ENG');
+});
+
+// ============================================================================
+// Per-Profile Team Prefix Tests
+// ============================================================================
+
+test('getProfileTeamPrefix returns profile team_prefix when set', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		team_prefix: 'OTH',
+	};
+	const config = createConfig({'test-profile': profile}, 'test-profile', 'STA');
+	t.is(getProfileTeamPrefix(profile, config), 'OTH');
+});
+
+test('getProfileTeamPrefix falls back to global team_prefix', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+	};
+	const config = createConfig({'test-profile': profile}, 'test-profile', 'ENG');
+	t.is(getProfileTeamPrefix(profile, config), 'ENG');
+});
+
+test('getProfileTeamPrefix falls back to STA when neither set', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+	};
+	const config = createConfig({'test-profile': profile}, 'test-profile');
+	t.is(getProfileTeamPrefix(profile, config), 'STA');
+});
+
+test('getProfileTeamPrefix uppercases profile team_prefix', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		team_prefix: 'oth',
+	};
+	const config = createConfig({'test-profile': profile}, 'test-profile', 'STA');
+	t.is(getProfileTeamPrefix(profile, config), 'OTH');
+});
+
+test('getProfileTeamPrefix prefers profile over global', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		team_prefix: 'PROJ',
+	};
+	const config = createConfig(
+		{'test-profile': profile},
+		'test-profile',
+		'GLOBAL',
+	);
+	t.is(getProfileTeamPrefix(profile, config), 'PROJ');
+});
+
+// ============================================================================
+// Profile team_prefix Validation Tests
+// ============================================================================
+
+test('validateConfig rejects non-string profile team_prefix', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				team_prefix: 123, // Invalid: should be a string
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('profiles.test.team_prefix: must be a string'),
+	);
+});
+
+test('validateConfig accepts valid string profile team_prefix', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				team_prefix: 'OTH',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
 });
 
 // ============================================================================

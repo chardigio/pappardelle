@@ -76,6 +76,12 @@ profiles:
     # Display name shown in profile picker
     display_name: 'Stardust Jams (iOS Music App)'
 
+    # Per-profile team prefix override (optional)
+    # When set, issues created under this profile use this team prefix
+    # instead of the global team_prefix. Does not affect bare-number
+    # normalization (that always uses the global prefix).
+    # team_prefix: JAM
+
     # iOS app configuration
     ios:
       app_dir: '_ios/stardust-jams'
@@ -342,6 +348,7 @@ interface PappardelleConfig {
 interface Profile {
 	keywords: string[];
 	display_name: string;
+	team_prefix?: string; // Override global team_prefix for issue creation
 	ios?: {
 		app_dir: string;
 		bundle_id: string;
