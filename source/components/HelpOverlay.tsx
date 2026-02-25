@@ -1,8 +1,10 @@
 import React from 'react';
 import {Box, Text, useInput} from 'ink';
+import type {KeybindingConfig} from '../config.ts';
 
 interface Props {
 	onClose: () => void;
+	customKeybindings?: KeybindingConfig[];
 }
 
 const shortcuts = [
@@ -20,15 +22,22 @@ const shortcuts = [
 	{key: '?', description: 'Show this help'},
 ];
 
-export default function HelpOverlay({onClose}: Props) {
+export default function HelpOverlay({onClose, customKeybindings}: Props) {
 	useInput((_input, key) => {
 		if (key.escape || _input === '?' || key.return) {
 			onClose();
 		}
 	});
 
-	// Find the longest key string for alignment
-	const maxKeyLen = Math.max(...shortcuts.map(s => s.key.length));
+	// Combine built-in and custom shortcuts for alignment
+	const allShortcuts = [
+		...shortcuts,
+		...(customKeybindings ?? []).map(kb => ({
+			key: kb.key,
+			description: kb.name,
+		})),
+	];
+	const maxKeyLen = Math.max(...allShortcuts.map(s => s.key.length));
 
 	return (
 		<Box
@@ -50,6 +59,22 @@ export default function HelpOverlay({onClose}: Props) {
 					<Text> {s.description}</Text>
 				</Box>
 			))}
+
+			{customKeybindings && customKeybindings.length > 0 && (
+				<>
+					<Box marginTop={1} marginBottom={1}>
+						<Text bold color="cyan">
+							Custom Commands
+						</Text>
+					</Box>
+					{customKeybindings.map(kb => (
+						<Box key={kb.key}>
+							<Text color="magenta">{kb.key.padEnd(maxKeyLen)}</Text>
+							<Text> {kb.name}</Text>
+						</Box>
+					))}
+				</>
+			)}
 
 			<Box marginTop={1}>
 				<Text dimColor>Press Esc, Enter, or ? to close</Text>

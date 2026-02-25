@@ -6,10 +6,12 @@ import {
 	getProfileTeamPrefix,
 	getProfileVcsLabel,
 	getInitializationCommand,
+	getKeybindings,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
 	ConfigValidationError,
+	RESERVED_KEYS,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -949,4 +951,186 @@ test('qualifyMainBranch works with main branch', t => {
 
 test('qualifyMainBranch works with arbitrary branch names', t => {
 	t.is(qualifyMainBranch('my-repo', 'develop'), 'my-repo-develop');
+});
+
+// ============================================================================
+// Keybinding Tests
+// ============================================================================
+
+test('getKeybindings returns empty array when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.deepEqual(getKeybindings(config), []);
+});
+
+test('getKeybindings returns configured keybindings', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.keybindings = [
+		{key: 'b', name: 'Build', run: 'make build'},
+		{key: 't', name: 'Test', run: 'make test'},
+	];
+	const bindings = getKeybindings(config);
+	t.is(bindings.length, 2);
+	t.is(bindings[0]!.key, 'b');
+	t.is(bindings[0]!.name, 'Build');
+	t.is(bindings[1]!.key, 't');
+});
+
+test('validateConfig accepts valid keybindings', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [
+			{key: 'b', name: 'Build', run: 'make build'},
+			{key: 't', name: 'Test', run: 'make test'},
+		],
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects keybinding with multi-character key', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [{key: 'bb', name: 'Build', run: 'make build'}],
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('must be a single character'));
+});
+
+test('validateConfig rejects keybinding with reserved key', t => {
+	for (const reservedKey of RESERVED_KEYS) {
+		const raw = {
+			version: 1,
+			default_profile: 'test',
+			keybindings: [{key: reservedKey, name: 'Conflict', run: 'echo conflict'}],
+			profiles: {
+				test: {
+					keywords: ['test'],
+					display_name: 'Test',
+				},
+			},
+		};
+		const error = t.throws(() => validateConfig(raw), {
+			instanceOf: ConfigValidationError,
+		});
+		t.truthy(error?.message.includes('conflicts with built-in shortcut'));
+	}
+});
+
+test('validateConfig rejects duplicate keybinding keys', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [
+			{key: 'b', name: 'Build', run: 'make build'},
+			{key: 'b', name: 'Build again', run: 'make build2'},
+		],
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('already bound'));
+});
+
+test('validateConfig rejects keybinding missing name', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [{key: 'b', run: 'make build'}],
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('name: required string field'));
+});
+
+test('validateConfig rejects keybinding missing run', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [{key: 'b', name: 'Build'}],
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('run: required string field'));
+});
+
+test('validateConfig accepts uppercase versions of reserved keys', t => {
+	// Uppercase letters like 'G', 'D', 'R' should be valid even though
+	// their lowercase counterparts are reserved built-in shortcuts
+	const uppercaseReserved = [...RESERVED_KEYS]
+		.filter(k => k !== '?') // '?' has no uppercase
+		.map(k => k.toUpperCase());
+
+	for (const key of uppercaseReserved) {
+		const raw = {
+			version: 1,
+			default_profile: 'test',
+			keybindings: [{key, name: `Command ${key}`, run: `echo ${key}`}],
+			profiles: {
+				test: {
+					keywords: ['test'],
+					display_name: 'Test',
+				},
+			},
+		};
+		t.notThrows(() => validateConfig(raw), `"${key}" should be allowed`);
+	}
+});
+
+test('validateConfig rejects non-array keybindings', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: 'not an array',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('keybindings: must be an array'));
 });
