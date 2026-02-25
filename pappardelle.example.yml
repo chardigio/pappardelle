@@ -33,6 +33,9 @@ profiles:
       - mobile
       - swift
     display_name: 'iOS App'
+    # Per-profile team prefix override (optional).
+    # Issues created under this profile will use this prefix instead of the global one.
+    # team_prefix: IOS
     ios:
       app_dir: 'ios/MyApp'
       bundle_id: 'com.example.myapp'

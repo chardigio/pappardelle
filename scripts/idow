@@ -382,6 +382,14 @@ BUNDLE_ID=$(get_profile_value "$SELECTED_PROFILE" "ios.bundle_id")
 SCHEME=$(get_profile_value "$SELECTED_PROFILE" "ios.scheme")
 HAS_IOS=$(profile_has_ios "$SELECTED_PROFILE" && echo "true" || echo "false")
 
+# Read per-profile team prefix (falls back to global TEAM_PREFIX)
+PROFILE_TEAM_PREFIX=$(yq -r ".profiles.$SELECTED_PROFILE.team_prefix // \"\"" "$CONFIG_PATH" | tr '[:lower:]' '[:upper:]')
+if [[ -n "$PROFILE_TEAM_PREFIX" ]]; then
+    EFFECTIVE_TEAM_PREFIX="$PROFILE_TEAM_PREFIX"
+else
+    EFFECTIVE_TEAM_PREFIX="$TEAM_PREFIX"
+fi
+
 # Use profile name as project key
 PROJECT_KEY="$SELECTED_PROFILE"
 
@@ -398,7 +406,7 @@ if [[ "$IS_NEW_ISSUE" == true ]]; then
 
     # Create issue via provider
     print_step 4 "Creating issue..."
-    ISSUE_JSON=$(create_issue --title "$TITLE" --prompt "$DESCRIPTION" --config "$CONFIG_PATH" --team "$TEAM_PREFIX") || error "Failed to create issue"
+    ISSUE_JSON=$(create_issue --title "$TITLE" --prompt "$DESCRIPTION" --config "$CONFIG_PATH" --team "$EFFECTIVE_TEAM_PREFIX") || error "Failed to create issue"
     ISSUE_KEY=$(echo "$ISSUE_JSON" | jq -r '.issue_key')
     ISSUE_URL=$(echo "$ISSUE_JSON" | jq -r '.issue_url')
     print_success "Created issue: $ISSUE_KEY (project will be assigned by Claude)"

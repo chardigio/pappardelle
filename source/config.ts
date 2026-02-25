@@ -72,6 +72,8 @@ export interface VcsHostConfig {
 export interface Profile {
 	keywords: string[];
 	display_name: string;
+	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
+	team_prefix?: string;
 	ios?: IOSConfig;
 	github?: GitHubConfig;
 	/** Provider-agnostic VCS config; falls back to `github` if absent. */
@@ -240,7 +242,9 @@ export function configExists(): boolean {
 // Config Validation
 // ============================================================================
 
-function validateConfig(config: unknown): asserts config is PappardelleConfig {
+export function validateConfig(
+	config: unknown,
+): asserts config is PappardelleConfig {
 	const errors: string[] = [];
 
 	if (!config || typeof config !== 'object') {
@@ -376,6 +380,11 @@ function validateProfile(name: string, profile: unknown): string[] {
 
 	if (typeof p['display_name'] !== 'string') {
 		errors.push(`${prefix}.display_name: required string field`);
+	}
+
+	// Optional team_prefix
+	if (p['team_prefix'] !== undefined && typeof p['team_prefix'] !== 'string') {
+		errors.push(`${prefix}.team_prefix: must be a string`);
 	}
 
 	// Optional iOS config
@@ -583,6 +592,18 @@ export function getDefaultProfile(config: PappardelleConfig): {
  */
 export function getTeamPrefix(config: PappardelleConfig): string {
 	const prefix = config.team_prefix ?? 'STA';
+	return prefix.toUpperCase();
+}
+
+/**
+ * Get the effective team prefix for a specific profile.
+ * Uses the profile's `team_prefix` if set, otherwise falls back to the global config.
+ */
+export function getProfileTeamPrefix(
+	profile: Profile,
+	config: PappardelleConfig,
+): string {
+	const prefix = profile.team_prefix ?? config.team_prefix ?? 'STA';
 	return prefix.toUpperCase();
 }
 

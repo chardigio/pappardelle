@@ -181,7 +181,7 @@ create_issue() {
             # Delegate to existing script
             local script_dir
             script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            "$script_dir/create-linear-issue.sh" --title "$title" --prompt "$prompt"
+            "$script_dir/create-linear-issue.sh" --title "$title" --prompt "$prompt" --team "$team"
             ;;
         jira)
             local quoted_prompt
