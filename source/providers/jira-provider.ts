@@ -1,7 +1,10 @@
 // Jira issue tracker provider — wraps acli (Atlassian CLI)
-import {execFileSync} from 'node:child_process';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
+
+const execFileAsync = promisify(execFile);
 
 const log = createLogger('jira-provider');
 const CACHE_TTL_MS = 60_000;
@@ -61,7 +64,7 @@ export type CliExecutor = (
 	command: string,
 	args: string[],
 	options: {encoding: BufferEncoding; timeout: number},
-) => string;
+) => Promise<string>;
 
 export type SleepFn = (ms: number) => Promise<void>;
 
@@ -78,7 +81,11 @@ export class JiraProvider implements IssueTrackerProvider {
 		// Strip trailing slash
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
 		this.execCli =
-			execCli ?? ((cmd, args, opts) => execFileSync(cmd, args, opts));
+			execCli ??
+			(async (cmd, args, opts) => {
+				const {stdout} = await execFileAsync(cmd, args, opts);
+				return stdout;
+			});
 		this.sleepFn = sleepFn ?? defaultSleep;
 	}
 
@@ -102,7 +109,7 @@ export class JiraProvider implements IssueTrackerProvider {
 		let lastError: unknown;
 		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				const output = this.execCli(
+				const output = await this.execCli(
 					'acli',
 					['jira', 'workitem', 'view', issueKey, '--json'],
 					{encoding: 'utf-8', timeout: 15_000},
@@ -123,7 +130,7 @@ export class JiraProvider implements IssueTrackerProvider {
 					return null;
 				}
 
-				// execFileSync throws on non-zero exit codes, but acli may still
+				// execFile rejects on non-zero exit codes, but acli may still
 				// have written valid JSON to stdout (it exits 1 even on success).
 				if (err && typeof err === 'object' && 'stdout' in err) {
 					const {stdout} = err as {stdout: unknown};
@@ -189,7 +196,7 @@ export class JiraProvider implements IssueTrackerProvider {
 		let lastError: unknown;
 		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				this.execCli(
+				await this.execCli(
 					'acli',
 					['jira', 'workitem', 'comment', '--key', issueKey, '--body', body],
 					{encoding: 'utf-8', timeout: 30_000},

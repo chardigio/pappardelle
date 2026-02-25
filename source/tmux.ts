@@ -1,6 +1,10 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and lazygit-STA-XXX sessions created by idow
-import {execSync, spawnSync} from 'node:child_process';
+import {exec, execSync, spawnSync} from 'node:child_process';
+import {existsSync, statSync} from 'node:fs';
+import {promisify} from 'node:util';
+
+const execAsync = promisify(exec);
 import {getRepoName} from './config.ts';
 import {createLogger} from './logger.ts';
 import {isSimctlUnavailableError} from './simctl-check.ts';
@@ -147,12 +151,22 @@ export function listClaudeSessions(): string[] {
  * Get issue keys from active claude tmux sessions for this repo.
  * Extracts issue keys by removing the repo-qualified prefix from session names.
  */
-export function getLinearIssuesFromTmux(): string[] {
-	const claudeSessions = listClaudeSessions();
-	const prefix = getSessionPrefix('claude');
-	return claudeSessions
-		.map(session => session.slice(prefix.length))
-		.filter(issueKey => /^[A-Z]+-\d+$/.test(issueKey));
+export async function getLinearIssuesFromTmux(): Promise<string[]> {
+	try {
+		const prefix = getSessionPrefix('claude');
+		const {stdout} = await execAsync(
+			'tmux list-sessions -F "#{session_name}"',
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		return stdout
+			.trim()
+			.split('\n')
+			.filter(name => name.startsWith(prefix))
+			.map(session => session.slice(prefix.length))
+			.filter(issueKey => /^[A-Z]+-\d+$/.test(issueKey));
+	} catch {
+		return [];
+	}
 }
 
 /**
@@ -1327,13 +1341,9 @@ export function getWorktreePath(issueKey: string): string | null {
 		const repoName = getRepoName();
 		const worktreePath = `${homeDir}/.worktrees/${repoName}/${issueKey}`;
 
-		// Verify it exists
-		execSync(`test -d "${worktreePath}"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-
-		return worktreePath;
+		return existsSync(worktreePath) && statSync(worktreePath).isDirectory()
+			? worktreePath
+			: null;
 	} catch {
 		return null;
 	}
@@ -1344,10 +1354,10 @@ export function getWorktreePath(issueKey: string): string | null {
  * The main worktree is the original git checkout (not a `git worktree add` worktree).
  * Returns null if detection fails.
  */
-export function getMainWorktreeInfo(): {
+export async function getMainWorktreeInfo(): Promise<{
 	path: string;
 	branch: string;
-} | null {
+} | null> {
 	try {
 		// `git worktree list --porcelain` outputs blocks like:
 		//   worktree /path/to/repo
@@ -1355,12 +1365,12 @@ export function getMainWorktreeInfo(): {
 		//   branch refs/heads/master
 		//
 		// The first block is always the main worktree.
-		const output = execSync('git worktree list --porcelain', {
+		const {stdout} = await execAsync('git worktree list --porcelain', {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
 
-		const lines = output.split('\n');
+		const lines = stdout.split('\n');
 		let path: string | null = null;
 		let branch: string | null = null;
 

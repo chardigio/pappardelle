@@ -1,19 +1,21 @@
 // Git working tree status utilities
-import {execSync} from 'node:child_process';
+import {exec} from 'node:child_process';
+import {promisify} from 'node:util';
+
+const execAsync = promisify(exec);
 
 /**
  * Check if a worktree has uncommitted changes (staged or unstaged).
  * Returns false if the path doesn't exist or git fails (fail-safe: treat as clean).
  */
-export function isWorktreeDirty(worktreePath: string): boolean {
+export async function isWorktreeDirty(worktreePath: string): Promise<boolean> {
 	try {
-		const output = execSync('git status --porcelain', {
+		const {stdout} = await execAsync('git status --porcelain', {
 			cwd: worktreePath,
 			encoding: 'utf-8',
 			timeout: 5000,
-			stdio: ['pipe', 'pipe', 'pipe'],
 		});
-		return output.trim().length > 0;
+		return stdout.trim().length > 0;
 	} catch {
 		return false;
 	}

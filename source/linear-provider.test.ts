@@ -88,7 +88,7 @@ test('clearCache does not throw', t => {
 
 test('getIssue succeeds on first attempt — no retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		return makeIssueJson('STA-100', 'First try');
 	};
@@ -104,7 +104,7 @@ test('getIssue succeeds on first attempt — no retry', async t => {
 
 test('getIssue fails once then succeeds on retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		if (callCount === 1) {
 			throw new Error('Connection timed out');
@@ -123,7 +123,7 @@ test('getIssue fails once then succeeds on retry', async t => {
 
 test('getIssue fails all retries — returns null and caches null', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw new Error('Network unreachable');
 	};
@@ -138,7 +138,7 @@ test('getIssue fails all retries — returns null and caches null', async t => {
 
 test('getIssue with ENOENT — fails immediately, no retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw makeEnoentError();
 	};
@@ -152,7 +152,7 @@ test('getIssue with ENOENT — fails immediately, no retry', async t => {
 
 test('getIssue with ENOENT — subsequent calls return cached without CLI call', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw makeEnoentError();
 	};
@@ -173,7 +173,7 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 		sleepCalls.push(ms);
 	};
 
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		throw new Error('Timeout');
 	};
 
@@ -191,7 +191,7 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 });
 
 test('getIssue populates workflow state color cache', async t => {
-	const exec: CliExecutor = () =>
+	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-600', 'Color test', 'In Progress', '#4b9fea');
 
 	const provider = new LinearProvider(exec, noopSleep);
@@ -202,7 +202,7 @@ test('getIssue populates workflow state color cache', async t => {
 
 test('getIssue returns cached result within TTL without calling CLI', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		return makeIssueJson('STA-700', 'Cached');
 	};
@@ -224,7 +224,7 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 
 test('createComment succeeds on first attempt', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		return '';
 	};
@@ -238,7 +238,7 @@ test('createComment succeeds on first attempt', async t => {
 
 test('createComment fails once then succeeds on retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		if (callCount === 1) {
 			throw new Error('Timeout');
@@ -256,7 +256,7 @@ test('createComment fails once then succeeds on retry', async t => {
 
 test('createComment fails all retries — returns false', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw new Error('Network error');
 	};
@@ -270,7 +270,7 @@ test('createComment fails all retries — returns false', async t => {
 
 test('createComment with ENOENT — fails immediately, no retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw makeEnoentError();
 	};
