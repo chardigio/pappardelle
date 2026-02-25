@@ -5,11 +5,9 @@ import {getMainWorktreeColor, isWorktreeDirty} from './git-status.ts';
 // isWorktreeDirty Tests
 // ============================================================================
 
-test('isWorktreeDirty returns false for clean worktree', t => {
-	// This is an integration test — it checks the actual main worktree
-	// We can't mock execSync easily in ava, so we test the function signature
-	const result = isWorktreeDirty('/nonexistent/path');
+test('isWorktreeDirty returns false for nonexistent path', async t => {
 	// Nonexistent path should return false (fail-safe: treat as clean)
+	const result = await isWorktreeDirty('/nonexistent/path');
 	t.false(result);
 });
 

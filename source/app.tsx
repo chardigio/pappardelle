@@ -199,7 +199,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const loadSpaces = useCallback(async () => {
 		try {
 			// Get Linear issue keys from active claude tmux sessions
-			const workspaceNames = getLinearIssuesFromTmux();
+			const workspaceNames = await getLinearIssuesFromTmux();
 
 			// Build space data
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
@@ -226,7 +226,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			});
 
 			// Prepend the main worktree (always first, non-deletable)
-			const mainInfo = getMainWorktreeInfo();
+			const mainInfo = await getMainWorktreeInfo();
 			if (mainInfo) {
 				// name stays as bare branch (used for session ops: getSessionNames adds repo prefix)
 				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-main")
@@ -238,7 +238,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					statusKey,
 					worktreePath: mainInfo.path,
 					isMainWorktree: true,
-					isDirty: isWorktreeDirty(mainInfo.path),
+					isDirty: await isWorktreeDirty(mainInfo.path),
 					claudeStatus: mainClaudeInfo.status,
 					claudeTool: mainClaudeInfo.tool,
 				});
@@ -261,10 +261,20 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		ensureStatusDir();
 		loadSpaces();
 
-		// Refresh every 2 seconds
-		const interval = setInterval(() => {
-			loadSpaces();
-		}, 2000);
+		// Refresh every 10 seconds (Claude status updates arrive via file watcher
+		// in real-time, so polling is only needed to detect new/removed tmux sessions)
+		// Guard against overlapping runs — loadSpaces has real await points so a
+		// previous invocation may still be in-flight when the next interval fires.
+		let loadInFlight = false;
+		const interval = setInterval(async () => {
+			if (loadInFlight) return;
+			loadInFlight = true;
+			try {
+				await loadSpaces();
+			} finally {
+				loadInFlight = false;
+			}
+		}, 10_000);
 
 		return () => clearInterval(interval);
 	}, [loadSpaces]);

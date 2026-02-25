@@ -1,7 +1,10 @@
 // Linear issue tracker provider — wraps linctl CLI
-import {execFileSync} from 'node:child_process';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
+
+const execFileAsync = promisify(execFile);
 
 const log = createLogger('linear-provider');
 const CACHE_TTL_MS = 60_000; // 60 seconds
@@ -26,7 +29,7 @@ export type CliExecutor = (
 	command: string,
 	args: string[],
 	options: {encoding: BufferEncoding; timeout: number},
-) => string;
+) => Promise<string>;
 
 export type SleepFn = (ms: number) => Promise<void>;
 
@@ -45,7 +48,11 @@ export class LinearProvider implements IssueTrackerProvider {
 
 	constructor(execCli?: CliExecutor, sleepFn?: SleepFn) {
 		this.execCli =
-			execCli ?? ((cmd, args, opts) => execFileSync(cmd, args, opts));
+			execCli ??
+			(async (cmd, args, opts) => {
+				const {stdout} = await execFileAsync(cmd, args, opts);
+				return stdout;
+			});
 		this.sleepFn = sleepFn ?? defaultSleep;
 	}
 
@@ -69,7 +76,7 @@ export class LinearProvider implements IssueTrackerProvider {
 		let lastError: unknown;
 		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				const output = this.execCli(
+				const output = await this.execCli(
 					'linctl',
 					['issue', 'get', issueKey, '--json'],
 					{encoding: 'utf-8', timeout: 10_000},
@@ -131,7 +138,7 @@ export class LinearProvider implements IssueTrackerProvider {
 		let lastError: unknown;
 		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				this.execCli(
+				await this.execCli(
 					'linctl',
 					['comment', 'create', issueKey, '--body', body],
 					{encoding: 'utf-8', timeout: 30_000},

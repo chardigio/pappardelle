@@ -86,7 +86,7 @@ function makeJiraResponse(
 
 test('getIssue populates cache and getIssueCached returns issue', async t => {
 	const json = makeJiraResponse('CHEX-100', 'Add feature X');
-	const provider = new JiraProvider('https://example.com', () => json);
+	const provider = new JiraProvider('https://example.com', async () => json);
 
 	const issue = await provider.getIssue('CHEX-100');
 	t.truthy(issue);
@@ -98,9 +98,9 @@ test('getIssue populates cache and getIssueCached returns issue', async t => {
 });
 
 test('getIssue extracts issue when CLI exits non-zero but stdout has valid JSON', async t => {
-	// acli returns valid JSON but exits with code 1 — execFileSync throws
+	// acli returns valid JSON but exits with code 1 — execFile rejects
 	const json = makeJiraResponse('CHEX-200', 'Fix authentication bug');
-	const provider = new JiraProvider('https://example.com', () => {
+	const provider = new JiraProvider('https://example.com', async () => {
 		const err = new Error('Command failed: exit code 1') as Error & {
 			stdout: string;
 			status: number;
@@ -122,7 +122,7 @@ test('getIssue extracts issue when CLI exits non-zero but stdout has valid JSON'
 test('getIssue returns null when CLI truly fails (no stdout)', async t => {
 	const provider = new JiraProvider(
 		'https://example.com',
-		() => {
+		async () => {
 			throw new Error('Connection refused');
 		},
 		noopSleep,
@@ -205,7 +205,7 @@ test('clearCache does not throw', t => {
 
 test('getIssue succeeds on first attempt — no retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		return makeJiraResponse('CHEX-100', 'First try');
 	};
@@ -221,7 +221,7 @@ test('getIssue succeeds on first attempt — no retry', async t => {
 
 test('getIssue fails once then succeeds on retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		if (callCount === 1) {
 			throw new Error('Connection timed out');
@@ -240,7 +240,7 @@ test('getIssue fails once then succeeds on retry', async t => {
 
 test('getIssue fails all retries — returns null and caches null', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw new Error('Network unreachable');
 	};
@@ -255,7 +255,7 @@ test('getIssue fails all retries — returns null and caches null', async t => {
 
 test('getIssue with ENOENT — fails immediately, no retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw makeEnoentError();
 	};
@@ -269,7 +269,7 @@ test('getIssue with ENOENT — fails immediately, no retry', async t => {
 
 test('getIssue with ENOENT — subsequent calls return cached without CLI call', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw makeEnoentError();
 	};
@@ -290,7 +290,7 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 		sleepCalls.push(ms);
 	};
 
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		throw new Error('Timeout');
 	};
 
@@ -310,7 +310,7 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 test('getIssue extracts issue from non-zero exit stdout without retrying', async t => {
 	let callCount = 0;
 	const json = makeJiraResponse('CHEX-600', 'Stdout extraction');
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		const err = new Error('Command failed: exit code 1') as Error & {
 			stdout: string;
@@ -331,7 +331,7 @@ test('getIssue extracts issue from non-zero exit stdout without retrying', async
 
 test('getIssue returns cached result within TTL without calling CLI', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		return makeJiraResponse('CHEX-700', 'Cached');
 	};
@@ -353,7 +353,7 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 
 test('createComment succeeds on first attempt', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		return '';
 	};
@@ -367,7 +367,7 @@ test('createComment succeeds on first attempt', async t => {
 
 test('createComment fails once then succeeds on retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		if (callCount === 1) {
 			throw new Error('Timeout');
@@ -385,7 +385,7 @@ test('createComment fails once then succeeds on retry', async t => {
 
 test('createComment fails all retries — returns false', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw new Error('Network error');
 	};
@@ -399,7 +399,7 @@ test('createComment fails all retries — returns false', async t => {
 
 test('createComment with ENOENT — fails immediately, no retry', async t => {
 	let callCount = 0;
-	const exec: CliExecutor = () => {
+	const exec: CliExecutor = async () => {
 		callCount++;
 		throw makeEnoentError();
 	};

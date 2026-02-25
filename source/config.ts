@@ -150,8 +150,14 @@ export function repoNameFromGitCommonDir(gitCommonDir: string): string {
 
 /**
  * Get the repository name, correctly resolving through worktrees.
+ * Cached after first successful call — the repo name never changes during a session
+ * and this avoids spawning `git rev-parse` on every poll cycle.
  */
+let cachedRepoName: string | null = null;
+
 export function getRepoName(): string {
+	if (cachedRepoName) return cachedRepoName;
+
 	try {
 		const gitCommonDir = execSync(
 			'git rev-parse --path-format=absolute --git-common-dir',
@@ -160,7 +166,8 @@ export function getRepoName(): string {
 				stdio: ['pipe', 'pipe', 'pipe'],
 			},
 		).trim();
-		return repoNameFromGitCommonDir(gitCommonDir);
+		cachedRepoName = repoNameFromGitCommonDir(gitCommonDir);
+		return cachedRepoName;
 	} catch {
 		throw new Error('Not in a git repository');
 	}

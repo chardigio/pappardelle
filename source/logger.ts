@@ -30,6 +30,9 @@ const MAX_RECENT_ERRORS = 10; // Keep last 10 errors in memory for TUI display
 const recentErrors: LogEntry[] = [];
 let errorListeners: Array<(errors: LogEntry[]) => void> = [];
 
+// Track whether log rotation has run this session (only needs to run once at startup)
+let rotationDone = false;
+
 function ensureLogDir(): void {
 	if (!existsSync(LOG_DIR)) {
 		mkdirSync(LOG_DIR, {recursive: true});
@@ -86,7 +89,13 @@ function rotateLogsIfNeeded(): void {
 function writeToFile(entry: LogEntry): void {
 	try {
 		ensureLogDir();
-		rotateLogsIfNeeded();
+		// Only rotate old log files once per session (at startup),
+		// not on every write — the previous behavior did readdirSync + statSync
+		// on every log call which blocked the event loop.
+		if (!rotationDone) {
+			rotateLogsIfNeeded();
+			rotationDone = true;
+		}
 		const line = formatLogEntry(entry) + '\n';
 		appendFileSync(getLogFilePath(), line, 'utf-8');
 	} catch {
