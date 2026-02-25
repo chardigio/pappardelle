@@ -63,6 +63,7 @@ import {
 import {isWorktreeDirty} from './git-status.ts';
 import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
+import {computePostDeleteState} from './space-utils.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 // Props passed from cli.tsx with pane layout info
@@ -714,11 +715,21 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			setCurrentSpace(null);
 		}
 
-		// Adjust selection if needed
-		if (selectedIndex >= spaces.length - 1 && selectedIndex > 0) {
-			setSelectedIndex(selectedIndex - 1);
-		}
+		// Optimistically remove the space from state immediately so the
+		// reattach useEffect never sees the deleted space (loadSpaces is async,
+		// so relying on it alone would leave a window where the old spaces array
+		// is still in state, causing attachToSpace to respawn the killed session).
+		const {filteredSpaces} = computePostDeleteState(
+			spaces,
+			space.name,
+			selectedIndex,
+		);
+		setSpaces(filteredSpaces);
+		setSelectedIndex(prev =>
+			prev >= filteredSpaces.length && prev > 0 ? prev - 1 : prev,
+		);
 
+		// Reconcile with tmux reality in the background
 		loadSpaces();
 	};
 
