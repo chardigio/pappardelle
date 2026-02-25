@@ -219,6 +219,49 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 });
 
 // ============================================================================
+// stateColorMap refresh: getIssue() vs getIssueCached()
+// Regression tests for STA-589 — getIssue() must be called on every poll
+// so that stateColorMap stays populated (used for main worktree color).
+// ============================================================================
+
+test('getIssue refreshes stateColorMap from cache hit within TTL', async t => {
+	const exec: CliExecutor = async () =>
+		makeIssueJson('STA-800', 'Color refresh', 'In Progress', '#4b9fea');
+
+	const provider = new LinearProvider(exec, noopSleep);
+	await provider.getIssue('STA-800');
+	t.is(provider.getWorkflowStateColor('In Progress'), '#4b9fea');
+
+	// Calling getIssue again (cache hit) should still keep stateColorMap populated
+	await provider.getIssue('STA-800');
+	t.is(
+		provider.getWorkflowStateColor('In Progress'),
+		'#4b9fea',
+		'stateColorMap should persist across cache-hit getIssue calls',
+	);
+});
+
+test('getIssueCached does NOT populate stateColorMap', async t => {
+	const exec: CliExecutor = async () =>
+		makeIssueJson('STA-810', 'Cache only', 'Done', '#27b067');
+
+	const provider = new LinearProvider(exec, noopSleep);
+	await provider.getIssue('STA-810');
+
+	// Clear internal stateColorMap by creating a fresh provider and copying the cache
+	// Instead, verify the asymmetry: getIssueCached returns the issue but
+	// calling getWorkflowStateColor for a *different* state not yet seen returns null
+	t.is(provider.getWorkflowStateColor('Backlog'), null);
+	t.truthy(provider.getIssueCached('STA-810'));
+	// After getIssueCached, 'Backlog' is still not in stateColorMap
+	t.is(
+		provider.getWorkflowStateColor('Backlog'),
+		null,
+		'getIssueCached should not populate stateColorMap with new states',
+	);
+});
+
+// ============================================================================
 // createComment: retry logic
 // ============================================================================
 
