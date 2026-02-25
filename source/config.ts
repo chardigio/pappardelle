@@ -2,6 +2,7 @@
 import {execSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
 
 // ============================================================================
@@ -26,6 +27,12 @@ export interface CommandConfig {
 	run: string;
 	continue_on_error?: boolean;
 	background?: boolean;
+}
+
+export interface KeybindingConfig {
+	key: string;
+	name: string;
+	run: string;
 }
 
 export interface ClaudeConfig {
@@ -92,8 +99,25 @@ export interface PappardelleConfig {
 	vcs_host?: VcsHostConfig;
 	claude?: ClaudeConfig;
 	hooks?: HooksConfig;
+	keybindings?: KeybindingConfig[];
 	profiles: Record<string, Profile>;
 }
+
+/**
+ * Built-in keyboard shortcuts that cannot be overridden by custom keybindings.
+ */
+export const RESERVED_KEYS = new Set([
+	'j',
+	'k',
+	'g',
+	'i',
+	'd',
+	'o',
+	'n',
+	'e',
+	'r',
+	'?',
+]);
 
 export class ConfigNotFoundError extends Error {
 	repoRoot: string;
@@ -333,6 +357,42 @@ export function validateConfig(
 							);
 						}
 					}
+				}
+			}
+		}
+	}
+
+	// Check keybindings (optional)
+	if (cfg['keybindings'] !== undefined) {
+		if (!Array.isArray(cfg['keybindings'])) {
+			errors.push('keybindings: must be an array');
+		} else {
+			const bindings = cfg['keybindings'] as Array<Record<string, unknown>>;
+			const seenKeys = new Set<string>();
+			for (let i = 0; i < bindings.length; i++) {
+				const binding = bindings[i]!;
+				if (
+					typeof binding['key'] !== 'string' ||
+					(binding['key'] as string).length !== 1
+				) {
+					errors.push(`keybindings[${i}].key: must be a single character`);
+				} else {
+					const k = binding['key'] as string;
+					if (RESERVED_KEYS.has(k)) {
+						errors.push(
+							`keybindings[${i}].key: "${k}" conflicts with built-in shortcut`,
+						);
+					}
+					if (seenKeys.has(k)) {
+						errors.push(`keybindings[${i}].key: "${k}" is already bound`);
+					}
+					seenKeys.add(k);
+				}
+				if (typeof binding['name'] !== 'string') {
+					errors.push(`keybindings[${i}].name: required string field`);
+				}
+				if (typeof binding['run'] !== 'string') {
+					errors.push(`keybindings[${i}].run: required string field`);
 				}
 			}
 		}
@@ -649,3 +709,71 @@ export function getProfileVcsLabel(profile: Profile): string | undefined {
 export function getInitializationCommand(config: PappardelleConfig): string {
 	return config.claude?.initialization_command ?? '';
 }
+
+/**
+ * Get custom keybindings from config.
+ * Returns an empty array if none are configured.
+ */
+export function getKeybindings(config: PappardelleConfig): KeybindingConfig[] {
+	return config.keybindings ?? [];
+}
+
+/**
+ * Build template variables for a workspace, using profile-specific vars when available.
+ * Tries to match the space's issue title against profiles to get iOS config etc.
+ */
+export function buildWorkspaceTemplateVars(
+	issueKey: string,
+	worktreePath: string,
+	issueTitle?: string,
+): TemplateVars {
+	const repoRoot = getRepoRoot();
+	const repoName = getRepoName();
+
+	const vars: TemplateVars = {
+		ISSUE_KEY: issueKey,
+		WORKTREE_PATH: worktreePath,
+		REPO_ROOT: repoRoot,
+		REPO_NAME: repoName,
+		SCRIPT_DIR: path.resolve(__dirname, '..', 'scripts'),
+	};
+
+	// Try to match a profile for additional template vars
+	try {
+		const config = loadConfig();
+		let profile: Profile | undefined;
+
+		if (issueTitle) {
+			const matches = matchProfiles(config, issueTitle);
+			if (matches.length > 0) {
+				profile = matches[0]!.profile;
+			}
+		}
+
+		if (!profile) {
+			profile = config.profiles[config.default_profile];
+		}
+
+		if (profile?.ios) {
+			vars.IOS_APP_DIR = profile.ios.app_dir;
+			vars.BUNDLE_ID = profile.ios.bundle_id;
+			vars.SCHEME = profile.ios.scheme;
+			vars.XCODEPROJ_PATH = `${worktreePath}/${profile.ios.app_dir}/${profile.ios.scheme}.xcodeproj`;
+		}
+
+		if (profile) {
+			const vcsLabel = getProfileVcsLabel(profile);
+			if (vcsLabel) {
+				vars.VCS_LABEL = vcsLabel;
+				vars.GITHUB_LABEL = vcsLabel;
+			}
+		}
+	} catch {
+		// Config load failed — continue with basic vars
+	}
+
+	return vars;
+}
+
+// Directory of this file (used by buildWorkspaceTemplateVars for SCRIPT_DIR)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));

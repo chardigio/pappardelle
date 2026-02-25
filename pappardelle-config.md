@@ -624,11 +624,46 @@ Each hook entry uses the same `CommandConfig` structure as profile commands:
 
 All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}`, `${IOS_APP_DIR}`, `${BUNDLE_ID}`.
 
-## Future Enhancements
+## Custom Keybindings
 
-Potential future additions (not in current scope):
+The `keybindings` section defines custom keyboard shortcuts that execute bash commands in the context of the currently selected workspace's worktree directory.
 
-- **Profile inheritance**: Base profiles that others extend
-- **Remote config**: Fetch config from URL
-- **Plugin system**: Custom setup steps
-- **Workspace templates**: Pre-configured file scaffolding
+```yaml
+keybindings:
+  - key: 'b'
+    name: 'Build iOS app'
+    run: 'cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodebuild build'
+  - key: 't'
+    name: 'Run tests'
+    run: 'cd ${WORKTREE_PATH} && uv run pytest'
+```
+
+### Keybinding Fields
+
+| Field  | Type     | Description                                              |
+| ------ | -------- | -------------------------------------------------------- |
+| `key`  | `string` | Single character key to bind (must not conflict with built-in shortcuts) |
+| `name` | `string` | Human-readable name shown in help overlay and status messages |
+| `run`  | `string` | Command to execute (supports template variables)         |
+
+### Reserved Keys
+
+The following keys are reserved for built-in shortcuts and cannot be used for custom keybindings:
+
+`j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `r`, `?`
+
+Additionally, `Enter` and `Delete` are reserved but use special key codes (not single characters).
+
+### Behavior
+
+- Commands run with `cwd` set to the selected workspace's worktree path
+- Status is shown in the header: "Running: {name}..." then "✓ {name} ({time})" or "✗ {name} failed"
+- Only one custom command can run at a time
+- Template variables are expanded using the selected workspace's context (issue key, worktree path, profile-matched iOS config, etc.)
+- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section
+
+### Template Variables in Keybindings
+
+All standard template variables are available: `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${SCRIPT_DIR}`, `${IOS_APP_DIR}`, `${BUNDLE_ID}`, `${SCHEME}`, `${XCODEPROJ_PATH}`, `${VCS_LABEL}`.
+
+Profile-specific variables (like `IOS_APP_DIR`) are resolved by matching the selected workspace's issue title against profile keywords. If no match is found, the default profile is used.

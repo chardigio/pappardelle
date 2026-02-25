@@ -40,6 +40,10 @@ import {
 	getRepoRoot,
 	getRepoName,
 	qualifyMainBranch,
+	getKeybindings,
+	expandTemplate,
+	buildWorkspaceTemplateVars,
+	type KeybindingConfig,
 } from './config.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {
@@ -97,6 +101,33 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const [headerMessage, setHeaderMessage] = useState('');
 	const [errorCount, setErrorCount] = useState(0);
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
+	const [runningCommand, setRunningCommand] = useState<string | null>(null);
+	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const setHeaderWithTimeout = useCallback((msg: string, ms: number) => {
+		if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
+		setHeaderMessage(msg);
+		headerTimeoutRef.current = setTimeout(() => setHeaderMessage(''), ms);
+	}, []);
+
+	// Load custom keybindings from config (once at startup)
+	const keybindings = React.useMemo<KeybindingConfig[]>(() => {
+		try {
+			const config = loadConfig();
+			return getKeybindings(config);
+		} catch {
+			return [];
+		}
+	}, []);
+
+	// Build a lookup map: key char → keybinding config
+	const keybindingMap = React.useMemo(() => {
+		const map = new Map<string, KeybindingConfig>();
+		for (const kb of keybindings) {
+			map.set(kb.key, kb);
+		}
+		return map;
+	}, [keybindings]);
 
 	// Mutable pane layout — updated when layout mode switches (horizontal ↔ vertical)
 	const [paneLayout, setPaneLayout] = useState<PaneLayout | null>(
@@ -458,8 +489,8 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 	const handleOpenPR = () => {
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending || space.isMainWorktree) {
-			setHeaderMessage(space?.isMainWorktree ? 'No PR for main worktree' : '');
-			if (space?.isMainWorktree) setTimeout(() => setHeaderMessage(''), 2000);
+			if (space?.isMainWorktree)
+				setHeaderWithTimeout('No PR for main worktree', 2000);
 			return;
 		}
 
@@ -472,35 +503,31 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					detached: true,
 					stdio: 'ignore',
 				}).unref();
-				setHeaderMessage(`Opened PR #${prInfo.prNumber}`);
+				setHeaderWithTimeout(`Opened PR #${prInfo.prNumber}`, 3000);
 			} else {
-				setHeaderMessage(`No PR found for ${space.name}`);
+				setHeaderWithTimeout(`No PR found for ${space.name}`, 3000);
 			}
 		} catch {
-			setHeaderMessage('Failed to look up PR');
+			setHeaderWithTimeout('Failed to look up PR', 3000);
 		}
-		setTimeout(() => setHeaderMessage(''), 3000);
 	};
 
 	// Open the Linear/Jira issue in browser for the selected space
 	const handleOpenIssue = () => {
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending || space.isMainWorktree) {
-			setHeaderMessage(
-				space?.isMainWorktree ? 'No issue for main worktree' : '',
-			);
-			if (space?.isMainWorktree) setTimeout(() => setHeaderMessage(''), 2000);
+			if (space?.isMainWorktree)
+				setHeaderWithTimeout('No issue for main worktree', 2000);
 			return;
 		}
 
 		try {
 			const url = createIssueTracker().buildIssueUrl(space.name);
 			spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
-			setHeaderMessage(`Opened ${space.name}`);
+			setHeaderWithTimeout(`Opened ${space.name}`, 3000);
 		} catch {
-			setHeaderMessage('Failed to look up issue');
+			setHeaderWithTimeout('Failed to look up issue', 3000);
 		}
-		setTimeout(() => setHeaderMessage(''), 3000);
 	};
 
 	// Open the IDE (Cursor) at the worktree path for the selected space
@@ -510,14 +537,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		const worktreePath = space.worktreePath;
 		if (!worktreePath) {
-			setHeaderMessage('No worktree path found');
-			setTimeout(() => setHeaderMessage(''), 2000);
+			setHeaderWithTimeout('No worktree path found', 2000);
 			return;
 		}
 
 		spawn('cursor', [worktreePath], {detached: true, stdio: 'ignore'}).unref();
-		setHeaderMessage(`Opening Cursor for ${space.name}`);
-		setTimeout(() => setHeaderMessage(''), 3000);
+		setHeaderWithTimeout(`Opening Cursor for ${space.name}`, 3000);
 	};
 
 	// Focus the Claude viewer pane (Enter key)
@@ -528,6 +553,62 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
+	};
+
+	// Execute a custom keybinding command for the selected workspace
+	const handleCustomKeybinding = (kb: KeybindingConfig) => {
+		const space = spaces[selectedIndex];
+		if (!space || space.isPending) return;
+
+		const worktreePath = space.worktreePath;
+		if (!worktreePath) {
+			setHeaderWithTimeout('No worktree path for this space', 2000);
+			return;
+		}
+
+		if (runningCommand) {
+			setHeaderWithTimeout(`Already running: ${runningCommand}`, 2000);
+			return;
+		}
+
+		const startTime = Date.now();
+		setRunningCommand(kb.name);
+		setHeaderMessage(`Running: ${kb.name}...`);
+
+		// Build template vars and expand the command
+		const vars = buildWorkspaceTemplateVars(
+			space.name,
+			worktreePath,
+			space.linearIssue?.title,
+		);
+		const expandedCommand = expandTemplate(kb.run, vars);
+
+		const child = spawn('bash', ['-c', expandedCommand], {
+			cwd: worktreePath,
+			detached: true,
+			stdio: ['ignore', 'pipe', 'pipe'],
+			env: {...process.env},
+		});
+		child.stdout?.resume();
+		child.stderr?.resume();
+
+		child.on('close', code => {
+			const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+			setRunningCommand(null);
+			if (code === 0) {
+				setHeaderWithTimeout(`✓ ${kb.name} (${elapsed}s)`, 5000);
+			} else {
+				setHeaderWithTimeout(`✗ ${kb.name} failed (exit ${code})`, 5000);
+			}
+		});
+
+		child.on('error', err => {
+			setRunningCommand(null);
+			log.error(`Keybinding command failed: ${err.message}`, err);
+			setHeaderWithTimeout(`✗ ${kb.name}: ${err.message.slice(0, 40)}`, 5000);
+		});
+
+		child.unref();
 	};
 
 	// Handle keyboard input
@@ -574,8 +655,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 				// Delete key to close selected space
 				const space = spaces[selectedIndex];
 				if (space?.isMainWorktree) {
-					setHeaderMessage('Cannot close main worktree');
-					setTimeout(() => setHeaderMessage(''), 2000);
+					setHeaderWithTimeout('Cannot close main worktree', 2000);
 				} else if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
 				}
@@ -590,6 +670,12 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);
+			} else {
+				// Check custom keybindings
+				const kb = keybindingMap.get(input);
+				if (kb) {
+					handleCustomKeybinding(kb);
+				}
 			}
 		},
 		{
@@ -630,8 +716,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		child.on('error', err => {
 			log.error(`Failed to spawn idow: ${err.message}`, err);
 			setPendingSession(null);
-			setHeaderMessage(`Failed: ${err.message.slice(0, 40)}`);
-			setTimeout(() => setHeaderMessage(''), 5000);
+			setHeaderWithTimeout(`Failed: ${err.message.slice(0, 40)}`, 5000);
 		});
 
 		child.on('close', code => {
@@ -642,8 +727,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					stdoutData.match(/Error: .*/)?.[0] ||
 					`idow exited with code ${code}`;
 				log.error(`idow failed (exit ${code}): ${errorMsg}`);
-				setHeaderMessage(`Failed: ${errorMsg.slice(0, 40)}`);
-				setTimeout(() => setHeaderMessage(''), 5000);
+				setHeaderWithTimeout(`Failed: ${errorMsg.slice(0, 40)}`, 5000);
 			} else {
 				// Keep the pending row visible — the useEffect
 				// watching `spaces` will clear it once the new row appears.
@@ -661,8 +745,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 		if (!space) return;
 		if (space.isPending) return;
 		if (space.isMainWorktree) {
-			setHeaderMessage('Cannot open main worktree');
-			setTimeout(() => setHeaderMessage(''), 2000);
+			setHeaderWithTimeout('Cannot open main worktree', 2000);
 			return;
 		}
 
@@ -681,17 +764,15 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 		child.on('close', code => {
 			if (code !== 0 && code !== null) {
-				setHeaderMessage(`Open failed (exit ${code})`);
+				setHeaderWithTimeout(`Open failed (exit ${code})`, 3000);
 			} else {
-				setHeaderMessage(`Opened ${space.name}`);
+				setHeaderWithTimeout(`Opened ${space.name}`, 3000);
 			}
-			setTimeout(() => setHeaderMessage(''), 3000);
 		});
 
 		child.on('error', err => {
 			log.error(`Failed to open workspace: ${err.message}`, err);
-			setHeaderMessage(`Failed: ${err.message.slice(0, 40)}`);
-			setTimeout(() => setHeaderMessage(''), 5000);
+			setHeaderWithTimeout(`Failed: ${err.message.slice(0, 40)}`, 5000);
 		});
 
 		child.unref();
@@ -970,7 +1051,10 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 						onCancel={() => setShowDeleteConfirm(false)}
 					/>
 				) : showHelp ? (
-					<HelpOverlay onClose={() => setShowHelp(false)} />
+					<HelpOverlay
+						onClose={() => setShowHelp(false)}
+						customKeybindings={keybindings}
+					/>
 				) : showErrorDialog ? (
 					<ErrorDialog onClose={() => setShowErrorDialog(false)} />
 				) : (
