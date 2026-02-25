@@ -203,16 +203,24 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 			const workspaceNames = await getLinearIssuesFromTmux();
 
 			// Build space data
+			const issueFetches: Array<Promise<void>> = [];
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
 				const claudeInfo = getClaudeStatusInfo(issueKey);
 				const worktreePath = getWorktreePath(issueKey);
 
-				// Start fetching Linear issue in background
-				getIssue(issueKey).catch(() => {});
+				// Start fetching Linear issue in background (only if not cached yet)
+				const cached = getIssueCached(issueKey);
+				if (!cached) {
+					issueFetches.push(
+						getIssue(issueKey)
+							.then(() => {})
+							.catch(() => {}),
+					);
+				}
 
 				return {
 					name: issueKey,
-					linearIssue: getIssueCached(issueKey) ?? undefined,
+					linearIssue: cached ?? undefined,
 					claudeStatus: claudeInfo.status,
 					claudeTool: claudeInfo.tool,
 					worktreePath,
@@ -247,6 +255,21 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 
 			setSpaces(spaceData);
 			setLoading(false);
+
+			// When background issue fetches complete, update spaces with newly
+			// cached titles so "Loading…" resolves quickly (~1-3s) instead of
+			// waiting for the next 10-second poll.
+			if (issueFetches.length > 0) {
+				Promise.allSettled(issueFetches).then(() => {
+					setSpaces(prev =>
+						prev.map(s => {
+							if (s.isMainWorktree || s.linearIssue) return s;
+							const issue = getIssueCached(s.name);
+							return issue ? {...s, linearIssue: issue} : s;
+						}),
+					);
+				});
+			}
 		} catch (err) {
 			log.error(
 				'Failed to load spaces',

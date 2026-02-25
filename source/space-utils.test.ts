@@ -1,5 +1,5 @@
 import test from 'ava';
-import {computePostDeleteState} from './space-utils.ts';
+import {computePostDeleteState, shouldShowLoadingTitle} from './space-utils.ts';
 import type {SpaceData} from './types.ts';
 
 // ============================================================================
@@ -80,4 +80,42 @@ test('deleting from middle keeps selectedIndex when it is below deleted position
 	// Selected index 2 (STA-3), delete STA-2 → 2 items remain, index 2 is out of bounds → clamp to 1
 	const {newSelectedIndex} = computePostDeleteState(spaces, 'STA-2', 2);
 	t.is(newSelectedIndex, 1);
+});
+
+// ============================================================================
+// shouldShowLoadingTitle
+// ============================================================================
+
+test('shows loading when linearIssue is undefined and space is not pending or main', t => {
+	t.true(shouldShowLoadingTitle(makeSpace('STA-123')));
+});
+
+test('does not show loading for main worktree rows', t => {
+	t.false(shouldShowLoadingTitle(makeSpace('master', {isMainWorktree: true})));
+});
+
+test('does not show loading when pendingTitle is set', t => {
+	t.false(
+		shouldShowLoadingTitle(
+			makeSpace('STA-123', {pendingTitle: 'Starting new session…'}),
+		),
+	);
+});
+
+test('does not show loading when linearIssue title is available', t => {
+	t.false(
+		shouldShowLoadingTitle(
+			makeSpace('STA-123', {
+				linearIssue: {
+					identifier: 'STA-123',
+					title: 'Fix the bug',
+					state: {name: 'In Progress', color: '#f2c94c'},
+				},
+			}),
+		),
+	);
+});
+
+test('does not show loading when name is empty', t => {
+	t.false(shouldShowLoadingTitle(makeSpace('')));
 });

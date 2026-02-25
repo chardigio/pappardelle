@@ -4,6 +4,7 @@ import type {SpaceData} from '../types.ts';
 import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../linear.ts';
+import {shouldShowLoadingTitle} from '../space-utils.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
@@ -56,7 +57,11 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
 	// Truncate title (pending rows use their own title text)
-	const title = space.pendingTitle ?? space.linearIssue?.title ?? '';
+	// Show "Loading…" while the Linear issue title is being fetched
+	const title =
+		space.pendingTitle ??
+		space.linearIssue?.title ??
+		(shouldShowLoadingTitle(space) ? 'Loading\u2026' : '');
 	const truncatedTitle =
 		title.length > availableTitleWidth
 			? title.slice(0, availableTitleWidth - 1) + '\u2026'
