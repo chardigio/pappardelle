@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'ava';
 import {
 	JiraProvider,
@@ -6,6 +9,7 @@ import {
 	type CliExecutor,
 	type SleepFn,
 } from './providers/jira-provider.ts';
+import {StateColorCache} from './providers/state-color-cache.ts';
 
 function makeEnoentError(): Error & {code: string} {
 	const err = new Error('spawn acli ENOENT') as Error & {code: string};
@@ -15,6 +19,19 @@ function makeEnoentError(): Error & {code: string} {
 
 // No-op sleep so tests don't wait
 const noopSleep: SleepFn = async () => {};
+
+// Generate a unique temp cache path for each test
+let tempCounter = 0;
+function tempCachePath(): string {
+	return path.join(
+		os.tmpdir(),
+		`pappardelle-jira-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
+	);
+}
+
+function tempCache(): StateColorCache {
+	return new StateColorCache(tempCachePath());
+}
 
 // ============================================================================
 // mapJiraIssue — pure parsing logic
@@ -86,7 +103,12 @@ function makeJiraResponse(
 
 test('getIssue populates cache and getIssueCached returns issue', async t => {
 	const json = makeJiraResponse('CHEX-100', 'Add feature X');
-	const provider = new JiraProvider('https://example.com', async () => json);
+	const provider = new JiraProvider(
+		'https://example.com',
+		async () => json,
+		undefined,
+		tempCache(),
+	);
 
 	const issue = await provider.getIssue('CHEX-100');
 	t.truthy(issue);
@@ -100,15 +122,20 @@ test('getIssue populates cache and getIssueCached returns issue', async t => {
 test('getIssue extracts issue when CLI exits non-zero but stdout has valid JSON', async t => {
 	// acli returns valid JSON but exits with code 1 — execFile rejects
 	const json = makeJiraResponse('CHEX-200', 'Fix authentication bug');
-	const provider = new JiraProvider('https://example.com', async () => {
-		const err = new Error('Command failed: exit code 1') as Error & {
-			stdout: string;
-			status: number;
-		};
-		err.stdout = json;
-		err.status = 1;
-		throw err;
-	});
+	const provider = new JiraProvider(
+		'https://example.com',
+		async () => {
+			const err = new Error('Command failed: exit code 1') as Error & {
+				stdout: string;
+				status: number;
+			};
+			err.stdout = json;
+			err.status = 1;
+			throw err;
+		},
+		undefined,
+		tempCache(),
+	);
 
 	const issue = await provider.getIssue('CHEX-200');
 	t.truthy(issue, 'should extract issue from error.stdout');
@@ -126,6 +153,7 @@ test('getIssue returns null when CLI truly fails (no stdout)', async t => {
 			throw new Error('Connection refused');
 		},
 		noopSleep,
+		tempCache(),
 	);
 
 	const issue = await provider.getIssue('CHEX-999');
@@ -138,12 +166,22 @@ test('getIssue returns null when CLI truly fails (no stdout)', async t => {
 // ============================================================================
 
 test('JiraProvider has name "jira"', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	t.is(provider.name, 'jira');
 });
 
 test('buildIssueUrl uses base_url', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	t.is(
 		provider.buildIssueUrl('PROJ-123'),
 		'https://mycompany.atlassian.net/browse/PROJ-123',
@@ -151,7 +189,12 @@ test('buildIssueUrl uses base_url', t => {
 });
 
 test('buildIssueUrl strips trailing slash from base_url', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net/');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net/',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	t.is(
 		provider.buildIssueUrl('PROJ-456'),
 		'https://mycompany.atlassian.net/browse/PROJ-456',
@@ -159,12 +202,22 @@ test('buildIssueUrl strips trailing slash from base_url', t => {
 });
 
 test('getIssueCached returns null for uncached issues', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	t.is(provider.getIssueCached('PROJ-999'), null);
 });
 
 test('getWorkflowStateColor returns null for unknown state', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	t.is(provider.getWorkflowStateColor('Unknown State'), null);
 });
 
@@ -177,25 +230,45 @@ test('getWorkflowStateColor returns null for unknown state', t => {
 // ============================================================================
 
 test('getWorkflowStateColor returns blue for "In Progress" without any fetched issues', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	const color = provider.getWorkflowStateColor('In Progress');
 	t.is(color, '#4b9fea');
 });
 
 test('getWorkflowStateColor returns green for "Done" without any fetched issues', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	const color = provider.getWorkflowStateColor('Done');
 	t.is(color, '#4caf50');
 });
 
 test('getWorkflowStateColor returns gray for "To Do" without any fetched issues', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	const color = provider.getWorkflowStateColor('To Do');
 	t.is(color, '#95a2b3');
 });
 
 test('clearCache does not throw', t => {
-	const provider = new JiraProvider('https://mycompany.atlassian.net');
+	const provider = new JiraProvider(
+		'https://mycompany.atlassian.net',
+		undefined,
+		undefined,
+		tempCache(),
+	);
 	t.notThrows(() => provider.clearCache());
 });
 
@@ -210,7 +283,12 @@ test('getIssue succeeds on first attempt — no retry', async t => {
 		return makeJiraResponse('CHEX-100', 'First try');
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const issue = await provider.getIssue('CHEX-100');
 
 	t.is(callCount, 1);
@@ -230,7 +308,12 @@ test('getIssue fails once then succeeds on retry', async t => {
 		return makeJiraResponse('CHEX-200', 'Retry success');
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const issue = await provider.getIssue('CHEX-200');
 
 	t.is(callCount, 2);
@@ -245,7 +328,12 @@ test('getIssue fails all retries — returns null and caches null', async t => {
 		throw new Error('Network unreachable');
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const issue = await provider.getIssue('CHEX-300');
 
 	t.is(callCount, MAX_RETRIES);
@@ -260,7 +348,12 @@ test('getIssue with ENOENT — fails immediately, no retry', async t => {
 		throw makeEnoentError();
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const issue = await provider.getIssue('CHEX-400');
 
 	t.is(callCount, 1, 'should not retry on ENOENT');
@@ -274,7 +367,12 @@ test('getIssue with ENOENT — subsequent calls return cached without CLI call',
 		throw makeEnoentError();
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	await provider.getIssue('CHEX-410');
 	t.is(callCount, 1);
 
@@ -294,7 +392,12 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 		throw new Error('Timeout');
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, sleepSpy);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		sleepSpy,
+		tempCache(),
+	);
 	await provider.getIssue('CHEX-500');
 
 	t.is(
@@ -321,7 +424,12 @@ test('getIssue extracts issue from non-zero exit stdout without retrying', async
 		throw err;
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const issue = await provider.getIssue('CHEX-600');
 
 	t.is(callCount, 1, 'should not retry when stdout has valid JSON');
@@ -336,7 +444,12 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 		return makeJiraResponse('CHEX-700', 'Cached');
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	await provider.getIssue('CHEX-700');
 	t.is(callCount, 1);
 
@@ -358,7 +471,12 @@ test('createComment succeeds on first attempt', async t => {
 		return '';
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const result = await provider.createComment('CHEX-100', 'Hello');
 
 	t.is(callCount, 1);
@@ -376,7 +494,12 @@ test('createComment fails once then succeeds on retry', async t => {
 		return '';
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const result = await provider.createComment('CHEX-200', 'Hello');
 
 	t.is(callCount, 2);
@@ -390,7 +513,12 @@ test('createComment fails all retries — returns false', async t => {
 		throw new Error('Network error');
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const result = await provider.createComment('CHEX-300', 'Hello');
 
 	t.is(callCount, MAX_RETRIES);
@@ -404,9 +532,54 @@ test('createComment with ENOENT — fails immediately, no retry', async t => {
 		throw makeEnoentError();
 	};
 
-	const provider = new JiraProvider('https://example.com', exec, noopSleep);
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
 	const result = await provider.createComment('CHEX-400', 'Hello');
 
 	t.is(callCount, 1, 'should not retry on ENOENT');
 	t.false(result);
+});
+
+// ============================================================================
+// State color disk persistence (STA-590)
+// ============================================================================
+
+test('getIssue persists state colors to disk via shared cache', async t => {
+	const cachePath = tempCachePath();
+	const exec: CliExecutor = async () =>
+		makeJiraResponse('CHEX-800', 'Persist test', 'In Progress', 'In Progress');
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		new StateColorCache(cachePath),
+	);
+	await provider.getIssue('CHEX-800');
+
+	t.true(fs.existsSync(cachePath), 'state-colors.json should be created');
+	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+	t.is(data['In Progress'], '#4b9fea');
+});
+
+test('new Jira provider loads persisted state colors from disk', async t => {
+	const cachePath = tempCachePath();
+	fs.writeFileSync(
+		cachePath,
+		JSON.stringify({Done: '#custom00', 'In Progress': '#custom11'}) + '\n',
+	);
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		undefined,
+		undefined,
+		new StateColorCache(cachePath),
+	);
+	// Persisted cache should take priority over STATUS_CATEGORY_COLORS
+	t.is(provider.getWorkflowStateColor('Done'), '#custom00');
+	t.is(provider.getWorkflowStateColor('In Progress'), '#custom11');
 });

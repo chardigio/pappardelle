@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
+import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
 const execFileAsync = promisify(execFile);
@@ -72,12 +73,17 @@ export class JiraProvider implements IssueTrackerProvider {
 	readonly name = 'jira';
 	private readonly baseUrl: string;
 	private readonly issueCache = new Map<string, CacheEntry>();
-	private readonly stateColorMap = new Map<string, string>();
+	private readonly stateColors: StateColorCache;
 	private readonly execCli: CliExecutor;
 	private readonly sleepFn: SleepFn;
 	private acliMissing = false;
 
-	constructor(baseUrl: string, execCli?: CliExecutor, sleepFn?: SleepFn) {
+	constructor(
+		baseUrl: string,
+		execCli?: CliExecutor,
+		sleepFn?: SleepFn,
+		stateColorCache?: StateColorCache,
+	) {
 		// Strip trailing slash
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
 		this.execCli =
@@ -87,6 +93,7 @@ export class JiraProvider implements IssueTrackerProvider {
 				return stdout;
 			});
 		this.sleepFn = sleepFn ?? defaultSleep;
+		this.stateColors = stateColorCache ?? new StateColorCache();
 	}
 
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
@@ -97,7 +104,7 @@ export class JiraProvider implements IssueTrackerProvider {
 		const cached = this.issueCache.get(issueKey);
 		if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
 			if (cached.issue) {
-				this.stateColorMap.set(
+				this.stateColors.update(
 					cached.issue.state.name,
 					cached.issue.state.color,
 				);
@@ -117,7 +124,7 @@ export class JiraProvider implements IssueTrackerProvider {
 				const raw = JSON.parse(output) as Record<string, unknown>;
 				const issue = mapJiraIssue(raw);
 				this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
-				this.stateColorMap.set(issue.state.name, issue.state.color);
+				this.stateColors.update(issue.state.name, issue.state.color);
 				log.debug(`Fetched Jira issue ${issueKey}: ${issue.title}`);
 				return issue;
 			} catch (err) {
@@ -139,7 +146,7 @@ export class JiraProvider implements IssueTrackerProvider {
 							const raw = JSON.parse(stdout) as Record<string, unknown>;
 							const issue = mapJiraIssue(raw);
 							this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
-							this.stateColorMap.set(issue.state.name, issue.state.color);
+							this.stateColors.update(issue.state.name, issue.state.color);
 							log.debug(
 								`Fetched Jira issue ${issueKey} (from non-zero exit): ${issue.title}`,
 							);
@@ -174,7 +181,7 @@ export class JiraProvider implements IssueTrackerProvider {
 
 	getWorkflowStateColor(stateName: string): string | null {
 		return (
-			this.stateColorMap.get(stateName) ??
+			this.stateColors.get(stateName) ??
 			STATUS_CATEGORY_COLORS[stateName] ??
 			null
 		);
