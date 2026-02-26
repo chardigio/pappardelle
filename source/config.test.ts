@@ -313,6 +313,87 @@ test('SHOULD match exact word even with punctuation nearby', t => {
 });
 
 // ============================================================================
+// Prefix Keyword Tests (keywords ending with a hyphen)
+// ============================================================================
+
+test('keyword ending with hyphen matches as prefix: "SHOP-" matches "SHOP-313"', t => {
+	const config = createConfig({
+		shop: createProfile(['SHOP-'], 'Shop'),
+	});
+
+	const matches = matchProfiles(config, 'working on SHOP-313 today');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'shop');
+	t.deepEqual(matches[0]!.matchedKeywords, ['SHOP-']);
+});
+
+test('prefix keyword matches various suffixes', t => {
+	const config = createConfig({
+		shop: createProfile(['SHOP-'], 'Shop'),
+	});
+
+	for (const input of ['SHOP-1', 'SHOP-999', 'SHOP-abc', 'fix SHOP-42 bug']) {
+		const matches = matchProfiles(config, input);
+		t.is(matches.length, 1, `"SHOP-" should match "${input}"`);
+		t.is(matches[0]!.name, 'shop');
+	}
+});
+
+test('prefix keyword is case-insensitive', t => {
+	const config = createConfig({
+		shop: createProfile(['SHOP-'], 'Shop'),
+	});
+
+	const matches = matchProfiles(config, 'shop-42 is broken');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'shop');
+});
+
+test('prefix keyword does NOT match word without the hyphen suffix', t => {
+	const config = createConfig({
+		shop: createProfile(['SHOP-'], 'Shop'),
+	});
+
+	// "shop" alone should NOT match "SHOP-" prefix keyword
+	const matches = matchProfiles(config, 'shop is broken');
+	t.is(matches.length, 0, '"shop" should NOT match prefix keyword "SHOP-"');
+});
+
+test('regular keywords still use exact matching (not prefix)', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
+	});
+
+	// "tracking" should still NOT match exact keyword "track"
+	const matches = matchProfiles(config, 'tracking the issue');
+	t.is(matches.length, 0);
+});
+
+test('prefix keyword coexists with exact keywords in same profile', t => {
+	const config = createConfig({
+		shop: createProfile(['SHOP-', 'store'], 'Shop'),
+	});
+
+	const prefixMatch = matchProfiles(config, 'SHOP-42 is down');
+	t.is(prefixMatch.length, 1);
+	t.is(prefixMatch[0]!.name, 'shop');
+
+	const exactMatch = matchProfiles(config, 'the store is closed');
+	t.is(exactMatch.length, 1);
+	t.is(exactMatch[0]!.name, 'shop');
+});
+
+test('multiple prefix keywords can match from different profiles', t => {
+	const config = createConfig({
+		shop: createProfile(['SHOP-'], 'Shop'),
+		warehouse: createProfile(['WH-'], 'Warehouse'),
+	});
+
+	const matches = matchProfiles(config, 'SHOP-42 needs WH-7 stock');
+	t.is(matches.length, 2);
+});
+
+// ============================================================================
 // Real-world Scenario Tests
 // ============================================================================
 

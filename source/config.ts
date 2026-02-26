@@ -571,6 +571,8 @@ export interface ProfileMatch {
 /**
  * Find profiles that match the given input based on keywords.
  * Uses exact word matching (case-insensitive) to avoid false positives.
+ * Keywords ending with a hyphen (e.g. "SHOP-") act as prefix matchers,
+ * so "SHOP-313" will match the keyword "SHOP-".
  */
 export function matchProfiles(
 	config: PappardelleConfig,
@@ -605,8 +607,13 @@ export function matchProfiles(
 			if (kwParts.length === 0) continue;
 
 			if (kwParts.length === 1) {
-				// Single-word keyword: exact word match (case-insensitive)
-				if (words.some(w => w === kwLower)) {
+				if (kwLower.endsWith('-')) {
+					// Prefix keyword (e.g. "SHOP-"): match any word starting with it
+					if (words.some(w => w.startsWith(kwLower))) {
+						matchedKeywords.push(keyword);
+					}
+				} else if (words.some(w => w === kwLower)) {
+					// Single-word keyword: exact word match (case-insensitive)
 					matchedKeywords.push(keyword);
 				}
 			} else {
