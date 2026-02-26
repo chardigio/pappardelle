@@ -74,15 +74,21 @@ log() {
 
 # Remove stale .git/index.lock left behind by crashed git processes.
 # Must run before any git operations (stash, fetch, checkout, pull).
+# Uses git rev-parse to resolve the correct .git directory, which works
+# both in normal repos (.git is a directory) and worktrees (.git is a file).
 remove_stale_index_lock() {
-    local lock_file="$MAIN_REPO/.git/index.lock"
+    local git_common_dir
+    git_common_dir=$(git -C "$MAIN_REPO" rev-parse --git-common-dir 2>/dev/null) || return
+    local lock_file="$git_common_dir/index.lock"
     if [[ -f "$lock_file" ]]; then
-        # Check if any process is actively holding this lock
-        if command -v lsof >/dev/null 2>&1 && lsof "$lock_file" >/dev/null 2>&1; then
-            log "WARNING: index.lock is held by a running process, skipping removal"
+        # Only skip removal if a git process is actively holding the lock.
+        # Plain `lsof FILE` matches ANY process (including macOS Spotlight/mds),
+        # causing false positives. Filter to git commands only.
+        if command -v lsof >/dev/null 2>&1 && lsof "$lock_file" 2>/dev/null | awk 'NR>1{print $1}' | grep -qi '^git'; then
+            log "WARNING: index.lock is held by a running git process, skipping removal"
             return
         fi
-        log "Removing stale .git/index.lock..."
+        log "Removing stale index.lock at $lock_file..."
         rm -f "$lock_file"
     fi
 }

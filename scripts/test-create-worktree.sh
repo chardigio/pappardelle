@@ -403,6 +403,47 @@ teardown_repo
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: index.lock resolved via git-common-dir when MAIN_REPO is a worktree${RESET}"
+setup_repo
+
+# Create a worktree from the test repo, then use it as MAIN_REPO.
+# In a worktree, .git is a file (not a directory), so the old code path
+# "$MAIN_REPO/.git/index.lock" would never find the lock. The fix uses
+# git rev-parse --git-common-dir to resolve the actual .git directory.
+WORKTREE_EXTRA="$TMPDIR_ROOT/worktree-extra"
+git -C "$MAIN_REPO" worktree add "$WORKTREE_EXTRA" -b extra-branch master --quiet 2>/dev/null
+
+# Place a stale index.lock in the actual git common dir
+touch "$MAIN_REPO/.git/index.lock"
+
+# Verify precondition: .git in worktree is a file, not a directory
+if [[ -f "$WORKTREE_EXTRA/.git" && ! -d "$WORKTREE_EXTRA/.git" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} precondition: .git in worktree is a file"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} precondition: .git in worktree is a file"
+    FAIL=$((FAIL + 1))
+fi
+
+# Run create-worktree with MAIN_REPO pointing to the worktree.
+# The script will fail at git checkout (can't checkout a branch that's
+# checked out in another worktree), but the lock removal happens BEFORE
+# the checkout, so we can still verify it was cleaned up.
+MAIN_REPO="$WORKTREE_EXTRA" "$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-800" --project-key "test" 2>/dev/null || true
+
+# Verify the lock file was cleaned up from the actual git common dir
+if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} stale index.lock removed via git-common-dir resolution"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} stale index.lock removed via git-common-dir resolution"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown_repo
+
+# ==========================================================================
+
 echo ""
 TOTAL=$((PASS + FAIL))
 if [[ "$FAIL" -eq 0 ]]; then
