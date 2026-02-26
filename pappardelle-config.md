@@ -650,7 +650,7 @@ keybindings:
 
 The following keys are reserved for built-in shortcuts and cannot be used for custom keybindings:
 
-`j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `?`
+`j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `?`
 
 Additionally, `Enter` and `Delete` are reserved but use special key codes (not single characters).
 

@@ -490,11 +490,19 @@ export default function App({
 	}, [paneLayout, spaces.length, loading]);
 
 	// Open the GitHub PR / GitLab MR in browser for the selected space
+	// For main worktree, opens the repo page instead
 	const handleOpenPR = () => {
 		const space = spaces[selectedIndex];
-		if (!space || space.isPending || space.isMainWorktree) {
-			if (space?.isMainWorktree)
-				setHeaderWithTimeout('No PR for main worktree', 2000);
+		if (!space || space.isPending) return;
+
+		if (space.isMainWorktree) {
+			setHeaderMessage('Opening repo...');
+			const child = spawn('gh', ['repo', 'view', '--web'], {
+				detached: true,
+				stdio: 'ignore',
+			});
+			child.unref();
+			setHeaderWithTimeout('Opened repo', 3000);
 			return;
 		}
 
@@ -557,6 +565,53 @@ export default function App({
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
+	};
+
+	// Git pull in the selected space's worktree
+	const handleGitPull = () => {
+		const space = spaces[selectedIndex];
+		if (!space || space.isPending) return;
+
+		const worktreePath = space.worktreePath;
+		if (!worktreePath) {
+			setHeaderWithTimeout('No worktree path for this space', 2000);
+			return;
+		}
+
+		if (runningCommand) {
+			setHeaderWithTimeout(`Already running: ${runningCommand}`, 2000);
+			return;
+		}
+
+		setRunningCommand('git pull');
+		setHeaderMessage('Pulling...');
+
+		const startTime = Date.now();
+		const child = spawn('git', ['pull'], {
+			cwd: worktreePath,
+			detached: true,
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+		child.stdout?.resume();
+		child.stderr?.resume();
+
+		child.on('close', code => {
+			const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+			setRunningCommand(null);
+			if (code === 0) {
+				setHeaderWithTimeout(`✓ git pull (${elapsed}s)`, 5000);
+			} else {
+				setHeaderWithTimeout(`✗ git pull failed (exit ${code})`, 5000);
+			}
+		});
+
+		child.on('error', err => {
+			setRunningCommand(null);
+			log.error(`git pull failed: ${err.message}`, err);
+			setHeaderWithTimeout(`✗ git pull: ${err.message.slice(0, 40)}`, 5000);
+		});
+
+		child.unref();
 	};
 
 	// Execute a custom keybinding command for the selected workspace
@@ -668,6 +723,9 @@ export default function App({
 				if (errorCount > 0) {
 					setShowErrorDialog(true);
 				}
+			} else if (input === 'p') {
+				// 'p' to git pull in the selected workspace
+				handleGitPull();
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);
