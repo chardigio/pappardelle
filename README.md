@@ -111,7 +111,6 @@ pappardelle
 | n     | New space                     |
 | o     | Open workspace (apps, links)  |
 | Del   | Close space                   |
-| r     | Refresh list                  |
 | e     | Show errors                   |
 | ?     | Show help                     |
 

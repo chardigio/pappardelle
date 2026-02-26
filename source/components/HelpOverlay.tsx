@@ -18,7 +18,6 @@ const shortcuts = [
 	{key: 'n', description: 'New space'},
 	{key: 'o', description: 'Open workspace (apps, links, etc.)'},
 	{key: 'Del', description: 'Close space'},
-	{key: 'r', description: 'Refresh list'},
 	{key: 'e', description: 'Show errors'},
 	{key: '?', description: 'Show this help'},
 ];

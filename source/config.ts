@@ -115,7 +115,6 @@ export const RESERVED_KEYS = new Set([
 	'o',
 	'n',
 	'e',
-	'r',
 	'?',
 ]);
 

@@ -668,9 +668,6 @@ export default function App({
 				if (errorCount > 0) {
 					setShowErrorDialog(true);
 				}
-			} else if (input === 'r') {
-				// Refresh
-				loadSpaces();
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);
