@@ -2,7 +2,7 @@
 import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
-import {spawnSync} from 'node:child_process';
+import {execSync, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import App from './app.tsx';
@@ -261,8 +261,22 @@ process.on('SIGTERM', () => {
 	process.exit(0);
 });
 
+// Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
+// Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
+let commitSha = 'unknown';
+try {
+	const pappardelleDir = path.resolve(__dirname, '..');
+	commitSha = execSync('git log -1 --format=%h -- .', {
+		cwd: pappardelleDir,
+		encoding: 'utf8',
+		stdio: ['pipe', 'pipe', 'pipe'],
+	}).trim();
+} catch {
+	// Not in a git repo or git not available - leave as 'unknown'
+}
+
 // Render the app
-render(<App paneLayout={paneLayout} />);
+render(<App paneLayout={paneLayout} commitSha={commitSha} />);
 
 // NOTE: Screen clearing on resize is handled inside app.tsx's resize handler,
 // NOT here. Clearing here (in a separate listener) can race with Ink's render

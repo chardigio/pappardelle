@@ -5,6 +5,7 @@ import type {KeybindingConfig} from '../config.ts';
 interface Props {
 	onClose: () => void;
 	customKeybindings?: KeybindingConfig[];
+	commitSha: string;
 }
 
 const shortcuts = [
@@ -22,7 +23,11 @@ const shortcuts = [
 	{key: '?', description: 'Show this help'},
 ];
 
-export default function HelpOverlay({onClose, customKeybindings}: Props) {
+export default function HelpOverlay({
+	onClose,
+	customKeybindings,
+	commitSha,
+}: Props) {
 	useInput((_input, key) => {
 		if (key.escape || _input === '?' || key.return) {
 			onClose();
@@ -47,10 +52,11 @@ export default function HelpOverlay({onClose, customKeybindings}: Props) {
 			paddingX={2}
 			paddingY={1}
 		>
-			<Box marginBottom={1}>
+			<Box marginBottom={1} flexDirection="column">
 				<Text bold color="cyan">
 					Keyboard Shortcuts
 				</Text>
+				<Text dimColor>pappardelle ({commitSha})</Text>
 			</Box>
 
 			{shortcuts.map(s => (

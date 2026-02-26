@@ -73,11 +73,15 @@ import type {SpaceData, PaneLayout} from './types.ts';
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
 	paneLayout: PaneLayout | null;
+	commitSha: string;
 }
 
 log.info('Pappardelle starting');
 
-export default function App({paneLayout: initialPaneLayout}: AppProps) {
+export default function App({
+	paneLayout: initialPaneLayout,
+	commitSha,
+}: AppProps) {
 	const {stdout} = useStdout();
 
 	const repoName = React.useMemo(() => {
@@ -1054,6 +1058,7 @@ export default function App({paneLayout: initialPaneLayout}: AppProps) {
 					<HelpOverlay
 						onClose={() => setShowHelp(false)}
 						customKeybindings={keybindings}
+						commitSha={commitSha}
 					/>
 				) : showErrorDialog ? (
 					<ErrorDialog onClose={() => setShowErrorDialog(false)} />
