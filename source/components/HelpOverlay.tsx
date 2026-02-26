@@ -17,6 +17,7 @@ const shortcuts = [
 	{key: 'd', description: 'Open IDE (Cursor)'},
 	{key: 'n', description: 'New space'},
 	{key: 'o', description: 'Open workspace (apps, links, etc.)'},
+	{key: 'p', description: 'Git pull'},
 	{key: 'Del', description: 'Close space'},
 	{key: 'e', description: 'Show errors'},
 	{key: '?', description: 'Show this help'},
