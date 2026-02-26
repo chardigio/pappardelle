@@ -17,7 +17,7 @@ export const MIN_LIST_WIDTH = 15;
 export const MAX_LIST_WIDTH = 40;
 export const MIN_CLAUDE_WIDTH = 40;
 export const MIN_LAZYGIT_WIDTH = 20; // Lazygit can be squished but needs at least this much
-export const MAX_LAZYGIT_WIDTH = 85; // 85 is the lazygit breakpoint where it displays two columns
+export const MAX_LAZYGIT_WIDTH = 86; // 85 is the supposed breakpoint, but rounding errors sometimes cause vertical rendering at exactly 85, so we use 86 conservatively
 
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 8;

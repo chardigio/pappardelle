@@ -200,7 +200,7 @@ test('layout constants', t => {
 	t.is(MAX_LIST_WIDTH, 40);
 	t.is(MIN_CLAUDE_WIDTH, 40);
 	t.is(MIN_LAZYGIT_WIDTH, 20);
-	t.is(MAX_LAZYGIT_WIDTH, 85);
+	t.is(MAX_LAZYGIT_WIDTH, 86);
 	t.is(MAX_LIST_HEIGHT, 8);
 	t.is(DEFAULT_MIN_LIST_HEIGHT, 6);
 });
@@ -974,8 +974,8 @@ test('edge: very large terminal 500x100', t => {
 
 	// usable = 498
 	// list=floor(498*0.24)=119 → capped at MAX_LIST_WIDTH=40
-	// claude=floor(498*0.38)=189, lazygit=498-40-189=269 → capped at MAX_LAZYGIT_WIDTH=85
-	// excess 269-85=184 → claude=189+184=373
+	// claude=floor(498*0.38)=189, lazygit=498-40-189=269 → capped at MAX_LAZYGIT_WIDTH=86
+	// excess 269-86=183 → claude=189+183=372
 	const total = layout.listWidth! + layout.claudeWidth! + layout.lazygitWidth!;
 	t.is(total, 498);
 
