@@ -25,7 +25,7 @@ Running `pappardelle` creates (or attaches to) a tmux session with a 3-pane layo
 - **Center** — Claude Code viewer (shows the selected workspace's Claude session)
 - **Right** — lazygit viewer (shows the selected workspace's git state)
 
-If you're not already in tmux, pappardelle auto-creates a session and re-launches inside it. When running inside iTerm2, it uses `tmux -CC` control mode for native split panes with mouse resize and macOS copy/paste.
+If you're not already in tmux, pappardelle auto-creates a session and re-launches inside it.
 
 ### 2. Create a Workspace
 
