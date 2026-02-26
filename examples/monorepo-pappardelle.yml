@@ -17,9 +17,12 @@ keybindings:
   - key: "S"
     name: "Open Stardust Jams Xcode project"
     run: "open ${WORKTREE_PATH}/_ios/stardust-jams/stardust-jams.xcodeproj"
-  - key: "I"
-    name: "Build & deploy Stardust Jams to iPhone"
-    run: "echo '--worktree ${WORKTREE_PATH}' > /tmp/ios_triggers/stardust-jams"
+  - key: "l"
+    name: "Zap Linear Issue"
+    run: "curl -d '${ISSUE_KEY} Linear Issue' -H 'Click: https://linear.app/stardust-labs/issue/${ISSUE_KEY}' ntfy.sh/chardigio-zap"
+  - key: "z"
+    name: "Zap PR"
+    run: "curl -d '${ISSUE_KEY} GitHub PR #'$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number') -H 'Click: '$(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url') ntfy.sh/chardigio-zap"
 
 # Lifecycle hooks
 hooks:
