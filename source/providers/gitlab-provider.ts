@@ -23,7 +23,7 @@ export class GitLabProvider implements VcsHostProvider {
 			// Discover MR by branch name (branch name matches issue key).
 			const mrOutput = execFileSync(
 				'glab',
-				['mr', 'list', '--source-branch', issueKey, '--json'],
+				['mr', 'list', '--source-branch', issueKey, '-F', 'json'],
 				{encoding: 'utf-8', timeout: 10_000},
 			);
 			const mrs = JSON.parse(mrOutput) as Array<{
