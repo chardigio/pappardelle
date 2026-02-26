@@ -175,7 +175,7 @@ def post_comment(issue_key: str, body: str) -> bool:
     provider = get_tracker_provider()
 
     if provider == "jira":
-        cmd = ["acli", "jira", "workitem", "comment", "--key", issue_key, "--body", body]
+        cmd = ["acli", "jira", "workitem", "comment", "create", "--key", issue_key, "--body", body]
         not_found_msg = "acli not found - install the Atlassian CLI"
     else:
         cmd = ["linctl", "comment", "create", issue_key, "--body", body]
