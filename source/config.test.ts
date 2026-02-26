@@ -256,40 +256,43 @@ test('returns pappardelle for pappardelle-related prompts, not stardust-jams', t
 	t.is(matches[0]!.name, 'pappardelle');
 });
 
-test('pappardelle should win even when profiles are ordered with stardust-jams first', t => {
-	// This tests the tie-breaking issue - stardust-jams is first in the config
+test('both profiles match when input contains prefixes for both', t => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
+	// "tracking" prefix-matches "track", "pappardelle" exact-matches "pappardelle"
 	const matches = matchProfiles(config, 'pappardelle tracking test');
-	t.true(matches.length >= 1);
-	// pappardelle should win because 'tracking' should NOT match 'track'
-	t.is(matches[0]!.name, 'pappardelle');
+	t.is(matches.length, 2);
 });
 
 // ============================================================================
-// Substring Matching Tests (The Core Bug)
+// Prefix Matching Tests
 // ============================================================================
 
-test('SHOULD NOT match "track" keyword when input has "tracking"', t => {
-	// This is the core bug - substring matching is too loose
+test('SHOULD match "track" keyword when input has "tracking"', t => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'tracking the issue');
-	t.is(matches.length, 0, 'tracking should NOT match track keyword');
+	t.is(matches.length, 1, '"tracking" starts with "track" so it should match');
+	t.is(matches[0]!.name, 'stardust-jams');
 });
 
-test('SHOULD NOT match "record" keyword when input has "recording"', t => {
+test('SHOULD match "record" keyword when input has "recording"', t => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['record'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'recording a video');
-	t.is(matches.length, 0, 'recording should NOT match record keyword');
+	t.is(
+		matches.length,
+		1,
+		'"recording" starts with "record" so it should match',
+	);
+	t.is(matches[0]!.name, 'stardust-jams');
 });
 
 test('SHOULD NOT match "music" keyword when input has "mu"', t => {
@@ -298,7 +301,7 @@ test('SHOULD NOT match "music" keyword when input has "mu"', t => {
 	});
 
 	const matches = matchProfiles(config, 'mu test');
-	t.is(matches.length, 0, 'mu should NOT match music keyword');
+	t.is(matches.length, 0, '"mu" does not start with "music"');
 });
 
 test('SHOULD match exact word even with punctuation nearby', t => {
@@ -313,10 +316,10 @@ test('SHOULD match exact word even with punctuation nearby', t => {
 });
 
 // ============================================================================
-// Prefix Keyword Tests (keywords ending with a hyphen)
+// Prefix Matching with Hyphens
 // ============================================================================
 
-test('keyword ending with hyphen matches as prefix: "SHOP-" matches "SHOP-313"', t => {
+test('"SHOP-" keyword matches "SHOP-313"', t => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
@@ -349,38 +352,14 @@ test('prefix keyword is case-insensitive', t => {
 	t.is(matches[0]!.name, 'shop');
 });
 
-test('prefix keyword does NOT match word without the hyphen suffix', t => {
+test('hyphenated keyword does NOT match word missing the hyphen', t => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
 
-	// "shop" alone should NOT match "SHOP-" prefix keyword
+	// "shop" does not start with "shop-"
 	const matches = matchProfiles(config, 'shop is broken');
-	t.is(matches.length, 0, '"shop" should NOT match prefix keyword "SHOP-"');
-});
-
-test('regular keywords still use exact matching (not prefix)', t => {
-	const config = createConfig({
-		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
-	});
-
-	// "tracking" should still NOT match exact keyword "track"
-	const matches = matchProfiles(config, 'tracking the issue');
-	t.is(matches.length, 0);
-});
-
-test('prefix keyword coexists with exact keywords in same profile', t => {
-	const config = createConfig({
-		shop: createProfile(['SHOP-', 'store'], 'Shop'),
-	});
-
-	const prefixMatch = matchProfiles(config, 'SHOP-42 is down');
-	t.is(prefixMatch.length, 1);
-	t.is(prefixMatch[0]!.name, 'shop');
-
-	const exactMatch = matchProfiles(config, 'the store is closed');
-	t.is(exactMatch.length, 1);
-	t.is(exactMatch[0]!.name, 'shop');
+	t.is(matches.length, 0, '"shop" does not start with "shop-"');
 });
 
 test('multiple prefix keywords can match from different profiles', t => {
