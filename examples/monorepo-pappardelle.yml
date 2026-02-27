@@ -26,6 +26,9 @@ keybindings:
   - key: "z"
     name: "Zap PR"
     run: "curl -d '${ISSUE_KEY} GitHub PR #'$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number') -H 'Click: '$(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url') ntfy.sh/chardigio-zap"
+  - key: "r"
+    name: "Request Claude code review"
+    run: "PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number') && gh pr edit $PR_NUM --remove-label claude-reviewed 2>/dev/null; gh workflow run claude-code-review.yml -f pr_number=$PR_NUM"
 
 # Lifecycle hooks
 hooks:
