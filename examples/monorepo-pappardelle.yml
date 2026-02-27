@@ -19,7 +19,7 @@ keybindings:
     run: "open ${WORKTREE_PATH}/_ios/stardust-jams/stardust-jams.xcodeproj"
   - key: "I"
     name: "Build & deploy Stardust Jams to iPhone"
-    run: "echo '--worktree ${WORKTREE_PATH}' > /tmp/ios_triggers/stardust-jams"
+    run: "cd ${WORKTREE_PATH}/_ios/stardust-jams && xcodegen generate && echo '--worktree ${WORKTREE_PATH}' > /tmp/ios_triggers/stardust-jams"
   - key: "l"
     name: "Zap Linear Issue"
     run: "curl -d '${ISSUE_KEY} Linear Issue' -H 'Click: https://linear.app/stardust-labs/issue/${ISSUE_KEY}' ntfy.sh/chardigio-zap"
