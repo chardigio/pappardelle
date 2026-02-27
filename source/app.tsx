@@ -17,7 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
-import {getIssue, getIssueCached} from './linear.ts';
+import {getIssueCached, getIssues} from './tracker.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
 	getClaudeStatusInfo,
@@ -237,22 +237,11 @@ export default function App({
 			// Get Linear issue keys from active claude tmux sessions
 			const workspaceNames = await getLinearIssuesFromTmux();
 
-			// Build space data
-			const issueFetches: Array<Promise<void>> = [];
+			// Build space data using cached issues for immediate display
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
 				const claudeInfo = getClaudeStatusInfo(issueKey);
 				const worktreePath = getWorktreePath(issueKey);
-
-				// Use cached issue for immediate display (avoids "Loading…" flash
-				// on subsequent polls), but always call getIssue() in background
-				// so that: (a) stateColorMap stays populated for main worktree
-				// color, and (b) cache entries refresh when their TTL expires.
 				const cached = getIssueCached(issueKey);
-				issueFetches.push(
-					getIssue(issueKey)
-						.then(() => {})
-						.catch(() => {}),
-				);
 
 				return {
 					name: issueKey,
@@ -292,23 +281,23 @@ export default function App({
 			setSpaces(spaceData);
 			setLoading(false);
 
-			// When background issue fetches complete, update spaces with newly
-			// cached data. This resolves "Loading…" quickly (~1-3s) on first
-			// load and picks up state changes (e.g., issue moved to "Done")
-			// after cache TTL expires on subsequent polls.
-			if (issueFetches.length > 0) {
-				Promise.allSettled(issueFetches).then(() => {
-					setSpaces(prev =>
-						prev.map(s => {
-							if (s.isMainWorktree) return s;
-							const issue = getIssueCached(s.name);
-							if (!issue) return s;
-							// Reference equality: skip if same object (no refresh)
-							if (s.linearIssue === issue) return s;
-							return {...s, linearIssue: issue};
-						}),
-					);
-				});
+			// Batch-fetch all issues in background. This resolves "Loading…"
+			// quickly (~1-3s) on first load and picks up state changes
+			// (e.g., issue moved to "Done") after cache TTL expires.
+			if (workspaceNames.length > 0) {
+				getIssues(workspaceNames)
+					.then(() => {
+						setSpaces(prev =>
+							prev.map(s => {
+								if (s.isMainWorktree) return s;
+								const issue = getIssueCached(s.name);
+								if (!issue) return s;
+								if (s.linearIssue === issue) return s;
+								return {...s, linearIssue: issue};
+							}),
+						);
+					})
+					.catch(() => {});
 			}
 		} catch (err) {
 			log.error(

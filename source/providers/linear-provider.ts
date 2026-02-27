@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
+import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
@@ -118,6 +119,35 @@ export class LinearProvider implements IssueTrackerProvider {
 		);
 		this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
 		return null;
+	}
+
+	async getIssues(
+		issueKeys: string[],
+	): Promise<Map<string, TrackerIssue | null>> {
+		const results = new Map<string, TrackerIssue | null>();
+		if (issueKeys.length === 0) return results;
+
+		if (this.linctlMissing) {
+			for (const key of issueKeys) {
+				results.set(key, this.issueCache.get(key)?.issue ?? null);
+			}
+
+			return results;
+		}
+
+		// Concurrent individual calls with concurrency limit of 5
+		const tasks = issueKeys.map(
+			key => async () =>
+				this.getIssue(key).then(
+					issue => [key, issue] as [string, TrackerIssue | null],
+				),
+		);
+		const fetched = await pLimit(tasks, 5);
+		for (const entry of fetched) {
+			if (entry) results.set(entry[0], entry[1]);
+		}
+
+		return results;
 	}
 
 	getIssueCached(issueKey: string): TrackerIssue | null {

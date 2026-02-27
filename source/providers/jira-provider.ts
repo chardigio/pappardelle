@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
+import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
@@ -173,6 +174,82 @@ export class JiraProvider implements IssueTrackerProvider {
 		);
 		this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
 		return null;
+	}
+
+	async getIssues(
+		issueKeys: string[],
+	): Promise<Map<string, TrackerIssue | null>> {
+		const results = new Map<string, TrackerIssue | null>();
+		if (issueKeys.length === 0) return results;
+
+		if (this.acliMissing) {
+			for (const key of issueKeys) {
+				results.set(key, this.issueCache.get(key)?.issue ?? null);
+			}
+
+			return results;
+		}
+
+		// Try batch JQL search first
+		const jql = `key in (${issueKeys.join(', ')})`;
+		try {
+			const output = await this.execCli(
+				'acli',
+				['jira', 'workitem', 'search', '--jql', jql, '--json'],
+				{encoding: 'utf-8', timeout: 30_000},
+			);
+			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
+			const found = new Set<string>();
+
+			for (const raw of rawList) {
+				const issue = mapJiraIssue(raw);
+				found.add(issue.identifier);
+				results.set(issue.identifier, issue);
+				this.issueCache.set(issue.identifier, {
+					issue,
+					timestamp: Date.now(),
+				});
+				this.stateColors.update(issue.state.name, issue.state.color);
+			}
+
+			// Keys not in results → cache as null
+			for (const key of issueKeys) {
+				if (!found.has(key)) {
+					results.set(key, null);
+					this.issueCache.set(key, {issue: null, timestamp: Date.now()});
+				}
+			}
+
+			return results;
+		} catch (err) {
+			if (isEnoent(err)) {
+				this.acliMissing = true;
+				log.warn(
+					'acli binary not found on PATH — Jira issue fetching disabled.',
+				);
+				for (const key of issueKeys) {
+					results.set(key, this.issueCache.get(key)?.issue ?? null);
+				}
+
+				return results;
+			}
+
+			log.debug('Batch JQL search failed, falling back to individual fetches');
+		}
+
+		// Fallback: individual getIssue() calls with concurrency limit
+		const tasks = issueKeys.map(
+			key => async () =>
+				this.getIssue(key).then(
+					issue => [key, issue] as [string, TrackerIssue | null],
+				),
+		);
+		const fetched = await pLimit(tasks, 3);
+		for (const entry of fetched) {
+			if (entry) results.set(entry[0], entry[1]);
+		}
+
+		return results;
 	}
 
 	getIssueCached(issueKey: string): TrackerIssue | null {
