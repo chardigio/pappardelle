@@ -566,6 +566,185 @@ test('getIssue persists state colors to disk via shared cache', async t => {
 	t.is(data['In Progress'], '#4b9fea');
 });
 
+// ============================================================================
+// getIssues: batch fetching (STA-608)
+// ============================================================================
+
+test('getIssues returns empty map for empty keys array', async t => {
+	const provider = new JiraProvider(
+		'https://example.com',
+		async () => '[]',
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues([]);
+	t.is(result.size, 0);
+});
+
+test('getIssues fetches multiple issues via single JQL search', async t => {
+	let callCount = 0;
+	let lastArgs: string[] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		callCount++;
+		lastArgs = args;
+		return JSON.stringify([
+			{
+				key: 'CHEX-1',
+				fields: {
+					summary: 'First',
+					status: {name: 'Done', statusCategory: {name: 'Done'}},
+				},
+			},
+			{
+				key: 'CHEX-2',
+				fields: {
+					summary: 'Second',
+					status: {
+						name: 'In Progress',
+						statusCategory: {name: 'In Progress'},
+					},
+				},
+			},
+		]);
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues(['CHEX-1', 'CHEX-2']);
+
+	t.is(callCount, 1, 'should make a single CLI call');
+	t.true(lastArgs.includes('--jql'), 'should use JQL search');
+	t.is(result.size, 2);
+	t.is(result.get('CHEX-1')!.title, 'First');
+	t.is(result.get('CHEX-2')!.title, 'Second');
+});
+
+test('getIssues populates cache and stateColors', async t => {
+	const exec: CliExecutor = async () =>
+		JSON.stringify([
+			{
+				key: 'CHEX-10',
+				fields: {
+					summary: 'Cache test',
+					status: {name: 'Done', statusCategory: {name: 'Done'}},
+				},
+			},
+		]);
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	await provider.getIssues(['CHEX-10']);
+
+	t.is(provider.getIssueCached('CHEX-10')!.title, 'Cache test');
+	t.is(provider.getWorkflowStateColor('Done'), '#4caf50');
+});
+
+test('getIssues caches null for keys not found in results', async t => {
+	const exec: CliExecutor = async () =>
+		JSON.stringify([
+			{
+				key: 'CHEX-20',
+				fields: {
+					summary: 'Found',
+					status: {name: 'Done', statusCategory: {name: 'Done'}},
+				},
+			},
+		]);
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues(['CHEX-20', 'CHEX-21']);
+
+	t.truthy(result.get('CHEX-20'));
+	t.is(result.get('CHEX-21'), null);
+	t.is(provider.getIssueCached('CHEX-21'), null);
+});
+
+test('getIssues falls back to individual calls when search fails', async t => {
+	let callCount = 0;
+	const exec: CliExecutor = async (_cmd, args) => {
+		callCount++;
+		if (args.includes('search')) {
+			throw new Error('Search command not supported');
+		}
+
+		// Individual view calls
+		const key = args[3]!;
+		return makeJiraResponse(key, `Issue ${key}`);
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues(['CHEX-30', 'CHEX-31']);
+
+	t.true(callCount > 1, 'should fall back to individual calls');
+	t.is(result.get('CHEX-30')!.title, 'Issue CHEX-30');
+	t.is(result.get('CHEX-31')!.title, 'Issue CHEX-31');
+});
+
+test('getIssues returns cached values when acliMissing', async t => {
+	let callCount = 0;
+	const exec: CliExecutor = async () => {
+		callCount++;
+		throw makeEnoentError();
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	// Trigger acliMissing
+	await provider.getIssue('CHEX-40');
+	t.is(callCount, 1);
+
+	// getIssues should not make any CLI calls
+	const result = await provider.getIssues(['CHEX-40', 'CHEX-41']);
+	t.is(callCount, 1, 'should not make CLI calls when acliMissing');
+	t.is(result.get('CHEX-40'), null);
+	t.is(result.get('CHEX-41'), null);
+});
+
+test('getIssues sets acliMissing on ENOENT during batch search', async t => {
+	let callCount = 0;
+	const exec: CliExecutor = async () => {
+		callCount++;
+		throw makeEnoentError();
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues(['CHEX-50']);
+	t.is(callCount, 1);
+	t.is(result.get('CHEX-50'), null);
+
+	// Subsequent call should not invoke CLI
+	const result2 = await provider.getIssues(['CHEX-51']);
+	t.is(callCount, 1, 'acliMissing should prevent further calls');
+	t.is(result2.get('CHEX-51'), null);
+});
+
 test('new Jira provider loads persisted state colors from disk', async t => {
 	const cachePath = tempCachePath();
 	fs.writeFileSync(

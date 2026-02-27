@@ -1,4 +1,4 @@
-// Linear CLI utilities — thin facade over IssueTrackerProvider
+// Issue tracker facade — thin wrapper over IssueTrackerProvider
 // All exports preserved for backwards compatibility.
 import {createIssueTracker} from './providers/index.ts';
 import type {TrackerIssue} from './providers/types.ts';
@@ -20,6 +20,12 @@ export function getIssueCached(issueKey: string): TrackerIssue | null {
 
 export function getWorkflowStateColor(stateName: string): string | null {
 	return tracker().getWorkflowStateColor(stateName);
+}
+
+export async function getIssues(
+	issueKeys: string[],
+): Promise<Map<string, TrackerIssue | null>> {
+	return tracker().getIssues(issueKeys);
 }
 
 export function clearCache(): void {

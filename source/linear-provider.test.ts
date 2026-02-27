@@ -463,6 +463,111 @@ test('persisted cache with invalid JSON is silently ignored', t => {
 	t.is(provider.getWorkflowStateColor('Done'), null);
 });
 
+// ============================================================================
+// getIssues: batch fetching with concurrency (STA-608)
+// ============================================================================
+
+test('getIssues returns empty map for empty keys array', async t => {
+	const provider = new LinearProvider(undefined, undefined, tempCache());
+	const result = await provider.getIssues([]);
+	t.is(result.size, 0);
+});
+
+test('getIssues fetches multiple issues with concurrent calls', async t => {
+	let callCount = 0;
+	const exec: CliExecutor = async (_cmd, args) => {
+		callCount++;
+		const key = args[2]!;
+		return makeIssueJson(key, `Issue ${key}`);
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
+
+	t.is(callCount, 3, 'should make one call per issue');
+	t.is(result.size, 3);
+	t.is(result.get('STA-1')!.title, 'Issue STA-1');
+	t.is(result.get('STA-2')!.title, 'Issue STA-2');
+	t.is(result.get('STA-3')!.title, 'Issue STA-3');
+});
+
+test('getIssues respects concurrency limit', async t => {
+	let concurrent = 0;
+	let maxConcurrent = 0;
+	const exec: CliExecutor = async (_cmd, args) => {
+		concurrent++;
+		if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+		// Simulate async work
+		await new Promise(resolve => {
+			setTimeout(resolve, 10);
+		});
+		concurrent--;
+		const key = args[2]!;
+		return makeIssueJson(key, `Issue ${key}`);
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const keys = Array.from({length: 10}, (_, i) => `STA-${i + 1}`);
+	const result = await provider.getIssues(keys);
+
+	t.is(result.size, 10);
+	t.true(
+		maxConcurrent <= 5,
+		`max concurrency should be <= 5, got ${maxConcurrent}`,
+	);
+});
+
+test('getIssues populates cache and stateColors', async t => {
+	const exec: CliExecutor = async () =>
+		makeIssueJson('STA-60', 'Color batch', 'Done', '#74d09f');
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	await provider.getIssues(['STA-60']);
+
+	t.is(provider.getIssueCached('STA-60')!.title, 'Color batch');
+	t.is(provider.getWorkflowStateColor('Done'), '#74d09f');
+});
+
+test('getIssues returns cached values when linctlMissing', async t => {
+	let callCount = 0;
+	const exec: CliExecutor = async () => {
+		callCount++;
+		throw makeEnoentError();
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	// Trigger linctlMissing
+	await provider.getIssue('STA-70');
+	t.is(callCount, 1);
+
+	// getIssues should not make any CLI calls
+	const result = await provider.getIssues(['STA-70', 'STA-71']);
+	t.is(callCount, 1, 'should not make CLI calls when linctlMissing');
+	t.is(result.get('STA-70'), null);
+	t.is(result.get('STA-71'), null);
+});
+
+test('getIssues handles mixed success and failure', async t => {
+	let callCount = 0;
+	const exec: CliExecutor = async (_cmd, args) => {
+		callCount++;
+		const key = args[2]!;
+		if (key === 'STA-82') {
+			throw new Error('Network error');
+		}
+
+		return makeIssueJson(key, `Issue ${key}`);
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.getIssues(['STA-81', 'STA-82', 'STA-83']);
+
+	t.is(result.size, 3);
+	t.truthy(result.get('STA-81'));
+	t.is(result.get('STA-82'), null, 'failed issue should be null');
+	t.truthy(result.get('STA-83'));
+});
+
 test('persistence does not write when color unchanged', async t => {
 	const cachePath = tempCachePath();
 	const exec: CliExecutor = async () =>

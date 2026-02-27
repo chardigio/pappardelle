@@ -129,7 +129,7 @@ function checkConfig(): void {
 checkConfig();
 
 // Initialize provider singletons from config so that all subsequent
-// no-arg calls (e.g. from linear.ts facade) use the correct provider.
+// no-arg calls (e.g. from tracker.ts facade) use the correct provider.
 // Uses loadProviderConfigs() instead of loadConfig() so that provider
 // initialization succeeds even when unrelated config sections (e.g.
 // profiles) have validation errors.

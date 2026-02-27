@@ -124,7 +124,7 @@ source/
 ├── config.ts            # Configuration loading and parsing
 ├── logger.ts            # Centralized logging system
 ├── tmux.ts              # Tmux session management and layout
-├── linear.ts            # Issue tracker facade (delegates to providers)
+├── tracker.ts           # Issue tracker facade (delegates to providers)
 ├── claude-status.ts     # Claude status file management
 ├── git-status.ts        # Git worktree status detection
 ├── issue-checker.ts     # VCS host facade (delegates to providers)

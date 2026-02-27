@@ -3,7 +3,7 @@ import {Box, Text} from 'ink';
 import type {SpaceData} from '../types.ts';
 import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
-import {getWorkflowStateColor} from '../linear.ts';
+import {getWorkflowStateColor} from '../tracker.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 

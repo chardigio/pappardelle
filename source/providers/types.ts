@@ -37,6 +37,9 @@ export interface IssueTrackerProvider {
 	/** Fetch an issue by key, with caching */
 	getIssue(issueKey: string): Promise<TrackerIssue | null>;
 
+	/** Fetch multiple issues in a single batch (one CLI call where possible). */
+	getIssues(issueKeys: string[]): Promise<Map<string, TrackerIssue | null>>;
+
 	/** Get a cached issue (no fetch) */
 	getIssueCached(issueKey: string): TrackerIssue | null;
 
