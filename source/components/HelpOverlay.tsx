@@ -76,7 +76,11 @@ export default function HelpOverlay({
 					{customKeybindings.map(kb => (
 						<Box key={kb.key}>
 							<Text color="magenta">{kb.key.padEnd(maxKeyLen)}</Text>
-							<Text> {kb.name}</Text>
+							<Text>
+								{' '}
+								{kb.name}
+								{kb.send_to_claude ? ' → Claude' : ''}
+							</Text>
 						</Box>
 					))}
 				</>

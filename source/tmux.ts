@@ -376,10 +376,10 @@ export function killSpaceSessions(issueKey: string): boolean {
 }
 
 /**
- * Send keys to a pane (for attaching to sessions)
+ * Send keys to a pane (for attaching to sessions or sending commands)
  * Clears any partial input first to avoid leftover characters
  */
-function sendToPane(paneId: string, command: string): boolean {
+export function sendToPane(paneId: string, command: string): boolean {
 	try {
 		// Clear any partial input on the line first (Ctrl+U)
 		spawnSync('tmux', ['send-keys', '-t', paneId, 'C-u'], {
