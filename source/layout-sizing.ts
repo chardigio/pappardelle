@@ -20,11 +20,11 @@ export const MIN_LAZYGIT_WIDTH = 20; // Lazygit can be squished but needs at lea
 export const MAX_LAZYGIT_WIDTH = 86; // 85 is the supposed breakpoint, but rounding errors sometimes cause vertical rendering at exactly 85, so we use 86 conservatively
 
 /** Height constraints for vertical layout (in rows) */
-export const MAX_LIST_HEIGHT = 8;
+export const MAX_LIST_HEIGHT = 12;
 export const DEFAULT_MIN_LIST_HEIGHT = 6;
 
 /** Max fraction of usable height the list pane can take in vertical layout */
-export const MAX_LIST_HEIGHT_RATIO = 0.23;
+export const MAX_LIST_HEIGHT_RATIO = 0.25;
 
 // ============================================================================
 // Types
