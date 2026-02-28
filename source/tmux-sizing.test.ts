@@ -202,9 +202,9 @@ test('layout constants', t => {
 	t.is(MIN_CLAUDE_WIDTH, 40);
 	t.is(MIN_LAZYGIT_WIDTH, 20);
 	t.is(MAX_LAZYGIT_WIDTH, 86);
-	t.is(MAX_LIST_HEIGHT, 8);
+	t.is(MAX_LIST_HEIGHT, 12);
 	t.is(DEFAULT_MIN_LIST_HEIGHT, 6);
-	t.is(MAX_LIST_HEIGHT_RATIO, 0.23);
+	t.is(MAX_LIST_HEIGHT_RATIO, 0.25);
 });
 
 // ============================================================================
@@ -239,28 +239,28 @@ test('list height for 6 sessions = 8 (capped)', t => {
 	t.is(calculateIdealListHeightForCount(6), 8);
 });
 
-test('list height for 7 sessions = 8 (capped)', t => {
-	t.is(calculateIdealListHeightForCount(7), 8);
+test('list height for 7 sessions = 9', t => {
+	t.is(calculateIdealListHeightForCount(7), 9);
 });
 
-test('list height for 8 sessions = 8 (capped)', t => {
-	t.is(calculateIdealListHeightForCount(8), 8);
+test('list height for 8 sessions = 10', t => {
+	t.is(calculateIdealListHeightForCount(8), 10);
 });
 
-test('list height for 9 sessions = 8 (capped)', t => {
-	t.is(calculateIdealListHeightForCount(9), 8);
+test('list height for 9 sessions = 11', t => {
+	t.is(calculateIdealListHeightForCount(9), 11);
 });
 
-test('list height for 10 sessions = 8 (capped)', t => {
-	t.is(calculateIdealListHeightForCount(10), 8);
+test('list height for 10 sessions = 12 (capped)', t => {
+	t.is(calculateIdealListHeightForCount(10), 12);
 });
 
-test('list height for 15 sessions = 8 (capped)', t => {
-	t.is(calculateIdealListHeightForCount(15), 8);
+test('list height for 15 sessions = 12 (capped)', t => {
+	t.is(calculateIdealListHeightForCount(15), 12);
 });
 
-test('list height for 100 sessions = 8 (capped)', t => {
-	t.is(calculateIdealListHeightForCount(100), 8);
+test('list height for 100 sessions = 12 (capped)', t => {
+	t.is(calculateIdealListHeightForCount(100), 12);
 });
 
 // ============================================================================
@@ -363,7 +363,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 60x20, 3 sessions', t => {
-	// ideal = 3+2 = 5, but maxListForScreen = floor(19*0.23) = 4
+	// ideal = 3+2 = 5, but maxListForScreen = floor(19*0.25) = 4
 	// listHeight = min(5, 4) = 4, claudeHeight = (20-1) - 4 = 15
 	const layout = calculateLayoutForSize(60, 20, 3);
 	t.is(layout.direction, 'vertical');
@@ -436,7 +436,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 80x24, 5 sessions', t => {
-	// ideal = 5+2 = 7, but maxListForScreen = floor(23*0.23) = 5
+	// ideal = 5+2 = 7, but maxListForScreen = floor(23*0.25) = 5
 	// listHeight = min(7, 5) = 5, claudeHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 5);
 	t.is(layout.direction, 'vertical');
@@ -475,8 +475,8 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 80x24, 10 sessions (ratio-capped)', t => {
-	// ideal = 10+2 = 12, MAX caps to 8, ratio caps to floor(23*0.23) = 5
-	// listHeight = min(8, 5) = 5, claudeHeight = (24-1) - 5 = 18
+	// ideal = 10+2 = 12, MAX caps to 12, ratio caps to floor(23*0.25) = 5
+	// listHeight = min(12, 5) = 5, claudeHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 10);
 	t.is(layout.direction, 'vertical');
 
@@ -637,7 +637,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 99x30, 5 sessions (just under threshold)', t => {
-	// listHeight = 5+2 = 7 → capped at 6, claudeHeight = (30-1) - 6 = 23
+	// listHeight = 5+2 = 7, maxListForScreen = floor(29*0.25) = 7, claudeHeight = 29 - 7 = 22
 	const layout = calculateLayoutForSize(99, 30, 5);
 	t.is(layout.direction, 'vertical');
 
@@ -651,8 +651,8 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
+LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ───────────────────────────────────────────────────────────────────────────────────────────────────
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -1061,8 +1061,8 @@ test('vertical: session count changes list height', t => {
 	const many = calculateLayoutForSize(80, 30, 10);
 
 	t.is(few.listHeight, 4); // 2+2
-	t.is(many.listHeight, 6); // 10+2 capped at 6
+	t.is(many.listHeight, 7); // 10+2 capped by ratio floor(29*0.25)=7
 
 	t.is(few.claudeHeight, 25); // 29-4
-	t.is(many.claudeHeight, 23); // 29-6
+	t.is(many.claudeHeight, 22); // 29-7
 });
