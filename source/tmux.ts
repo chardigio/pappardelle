@@ -386,8 +386,15 @@ export function sendToPane(paneId: string, command: string): boolean {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
-		// Now send the actual command
-		spawnSync('tmux', ['send-keys', '-t', paneId, command, 'Enter'], {
+		// Send the command text (literal to avoid key name interpretation)
+		spawnSync('tmux', ['send-keys', '-t', paneId, '-l', command], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
+		// Send Enter separately so it's not batched with the text
+		// (otherwise Claude Code treats the whole thing as a paste
+		// and the Enter becomes a literal newline)
+		spawnSync('tmux', ['send-keys', '-t', paneId, 'Enter'], {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
