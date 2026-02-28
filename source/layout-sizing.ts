@@ -23,6 +23,9 @@ export const MAX_LAZYGIT_WIDTH = 86; // 85 is the supposed breakpoint, but round
 export const MAX_LIST_HEIGHT = 8;
 export const DEFAULT_MIN_LIST_HEIGHT = 6;
 
+/** Max fraction of usable height the list pane can take in vertical layout */
+export const MAX_LIST_HEIGHT_RATIO = 0.23;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -55,6 +58,10 @@ export interface LayoutConfig {
  * Constraints:
  * - Minimum: min(ideal, 8) - give at least 8 rows, or ideal if smaller
  * - Maximum: 8 rows - don't let list take over the screen
+ *
+ * Note: calculateLayoutForSize applies an additional proportional cap
+ * based on terminal height (MAX_LIST_HEIGHT_RATIO) so the list doesn't
+ * dominate small screens.
  *
  * Examples:
  * - 0 sessions → height 3 (1+2 = 3, less than min 8, so use 3)
@@ -95,10 +102,18 @@ export function calculateLayoutForSize(
 ): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
-		const listHeight = calculateIdealListHeightForCount(sessionCount);
-
 		// Account for tmux border (1 row), claude gets whatever's left
 		const usableHeight = totalHeight - 1;
+
+		// Cap list height proportionally so it doesn't dominate small screens
+		const maxListForScreen = Math.max(
+			3,
+			Math.floor(usableHeight * MAX_LIST_HEIGHT_RATIO),
+		);
+		const listHeight = Math.min(
+			calculateIdealListHeightForCount(sessionCount),
+			maxListForScreen,
+		);
 		const claudeHeight = usableHeight - listHeight;
 
 		return {
