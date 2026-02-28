@@ -119,8 +119,14 @@ export default function App({
 	const keybindings = React.useMemo<KeybindingConfig[]>(() => {
 		try {
 			const config = loadConfig();
-			return getKeybindings(config);
-		} catch {
+			const kb = getKeybindings(config);
+			log.info(`Loaded ${kb.length} custom keybindings`);
+			return kb;
+		} catch (err) {
+			log.error(
+				'Failed to load keybindings',
+				err instanceof Error ? err : undefined,
+			);
 			return [];
 		}
 	}, []);
