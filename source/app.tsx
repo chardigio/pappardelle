@@ -997,12 +997,23 @@ export default function App({
 		scrollOffset + visibleCount,
 	);
 
-	// Handle mouse clicks on the list
+	// Handle mouse clicks and scroll wheel on the list
 	const handleMouse = useCallback(
 		(event: {x: number; y: number; button: string}) => {
-			if (event.button !== 'left') return;
 			if (showPromptDialog || showDeleteConfirm || showErrorDialog) return;
 			if (displaySpaces.length === 0) return;
+
+			// Handle scroll wheel
+			if (event.button === 'scrollUp') {
+				setSelectedIndex(prev => Math.max(0, prev - 1));
+				return;
+			}
+			if (event.button === 'scrollDown') {
+				setSelectedIndex(prev => Math.min(spaces.length - 1, prev + 1));
+				return;
+			}
+
+			if (event.button !== 'left') return;
 
 			// Calculate which row in the list was clicked
 			// Layout: header (1 line) + marginBottom (1 line) = HEADER_ROWS
