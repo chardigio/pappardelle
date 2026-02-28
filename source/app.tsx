@@ -624,7 +624,7 @@ export default function App({
 			kb.send_to_claude,
 		);
 		if (success) {
-			setHeaderWithTimeout(`Sent: ${kb.name}`, 3000);
+			setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
 		} else {
 			setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
 		}
