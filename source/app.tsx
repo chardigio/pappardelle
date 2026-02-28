@@ -52,6 +52,7 @@ import {
 	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
+	sendToPane,
 	killSpaceSessions,
 	getLinearIssuesFromTmux,
 	zoomPane,
@@ -603,8 +604,34 @@ export default function App({
 		child.unref();
 	};
 
+	// Send text to the Claude pane for the selected workspace
+	const handleSendToClaude = (
+		kb: KeybindingConfig & {send_to_claude: string},
+	) => {
+		if (!paneLayout) {
+			setHeaderWithTimeout('No pane layout available', 2000);
+			return;
+		}
+
+		const success = sendToPane(
+			paneLayout.claudeViewerPaneId,
+			kb.send_to_claude,
+		);
+		if (success) {
+			setHeaderWithTimeout(`Sent: ${kb.name}`, 3000);
+		} else {
+			setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
+		}
+	};
+
 	// Execute a custom keybinding command for the selected workspace
 	const handleCustomKeybinding = (kb: KeybindingConfig) => {
+		// Handle send_to_claude keybindings
+		if (kb.send_to_claude) {
+			handleSendToClaude(kb as KeybindingConfig & {send_to_claude: string});
+			return;
+		}
+
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending) return;
 
@@ -629,7 +656,7 @@ export default function App({
 			worktreePath,
 			space.linearIssue?.title,
 		);
-		const expandedCommand = expandTemplate(kb.run, vars);
+		const expandedCommand = expandTemplate(kb.run!, vars);
 
 		const child = spawn('bash', ['-c', expandedCommand], {
 			cwd: worktreePath,

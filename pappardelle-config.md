@@ -636,15 +636,19 @@ keybindings:
   - key: 't'
     name: 'Run tests'
     run: 'cd ${WORKTREE_PATH} && uv run pytest'
+  - key: 'a'
+    name: 'Address PR feedback'
+    send_to_claude: '/address-pr-feedback'
 ```
 
 ### Keybinding Fields
 
-| Field  | Type     | Description                                              |
-| ------ | -------- | -------------------------------------------------------- |
-| `key`  | `string` | Single character key to bind (must not conflict with built-in shortcuts) |
-| `name` | `string` | Human-readable name shown in help overlay and status messages |
-| `run`  | `string` | Command to execute (supports template variables)         |
+| Field             | Type     | Description                                              |
+| ----------------- | -------- | -------------------------------------------------------- |
+| `key`             | `string` | Single character key to bind (must not conflict with built-in shortcuts) |
+| `name`            | `string` | Human-readable name shown in help overlay and status messages |
+| `run`             | `string` | Command to execute (supports template variables). Use either `run` or `send_to_claude`. |
+| `send_to_claude`  | `string` | Text to send to the Claude pane (sent with Enter). Use either `run` or `send_to_claude`. |
 
 ### Reserved Keys
 
@@ -656,11 +660,9 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 
 ### Behavior
 
-- Commands run with `cwd` set to the selected workspace's worktree path
-- Status is shown in the header: "Running: {name}..." then "✓ {name} ({time})" or "✗ {name} failed"
-- Only one custom command can run at a time
-- Template variables are expanded using the selected workspace's context (issue key, worktree path, profile-matched iOS config, etc.)
-- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section
+- **`run` keybindings**: Commands run with `cwd` set to the selected workspace's worktree path. Status is shown in the header: "Running: {name}..." then "✓ {name} ({time})" or "✗ {name} failed". Only one custom command can run at a time. Template variables are expanded using the selected workspace's context.
+- **`send_to_claude` keybindings**: Text is sent directly to the Claude viewer pane (with Enter). Any partial input in the Claude prompt is cleared first. Useful for sending slash commands like `/address-pr-feedback`.
+- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section. `send_to_claude` keybindings show "→ Claude" to indicate they target the Claude pane.
 
 ### Template Variables in Keybindings
 

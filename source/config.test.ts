@@ -1136,7 +1136,7 @@ test('validateConfig rejects keybinding missing name', t => {
 	t.truthy(error?.message.includes('name: required string field'));
 });
 
-test('validateConfig rejects keybinding missing run', t => {
+test('validateConfig rejects keybinding with neither run nor send_to_claude', t => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -1151,7 +1151,50 @@ test('validateConfig rejects keybinding missing run', t => {
 	const error = t.throws(() => validateConfig(raw), {
 		instanceOf: ConfigValidationError,
 	});
-	t.truthy(error?.message.includes('run: required string field'));
+	t.truthy(
+		error?.message.includes("must have either 'run' or 'send_to_claude'"),
+	);
+});
+
+test('validateConfig accepts send_to_claude keybinding without run', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [
+			{
+				key: 'a',
+				name: 'Address PR feedback',
+				send_to_claude: '/address-pr-feedback',
+			},
+		],
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('getKeybindings returns send_to_claude keybindings', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.keybindings = [
+		{key: 'b', name: 'Build', run: 'make build'},
+		{
+			key: 'a',
+			name: 'Address PR feedback',
+			send_to_claude: '/address-pr-feedback',
+		},
+	];
+	const bindings = getKeybindings(config);
+	t.is(bindings.length, 2);
+	t.is(bindings[1]!.key, 'a');
+	t.is(bindings[1]!.send_to_claude, '/address-pr-feedback');
+	t.is(bindings[1]!.run, undefined);
 });
 
 test('validateConfig accepts uppercase versions of reserved keys', t => {

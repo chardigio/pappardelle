@@ -32,7 +32,8 @@ export interface CommandConfig {
 export interface KeybindingConfig {
 	key: string;
 	name: string;
-	run: string;
+	run?: string;
+	send_to_claude?: string;
 }
 
 export interface ClaudeConfig {
@@ -391,8 +392,12 @@ export function validateConfig(
 				if (typeof binding['name'] !== 'string') {
 					errors.push(`keybindings[${i}].name: required string field`);
 				}
-				if (typeof binding['run'] !== 'string') {
-					errors.push(`keybindings[${i}].run: required string field`);
+				const hasRun = typeof binding['run'] === 'string';
+				const hasSendToClaude = typeof binding['send_to_claude'] === 'string';
+				if (!hasRun && !hasSendToClaude) {
+					errors.push(
+						`keybindings[${i}]: must have either 'run' or 'send_to_claude'`,
+					);
 				}
 			}
 		}
