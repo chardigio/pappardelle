@@ -14,13 +14,13 @@ claude:
 
 # Custom keybindings (run bash commands from the selected workspace's worktree)
 keybindings:
-  - key: "S"
+  - key: "X"
     name: "Open Stardust Xcode project"
     run: "open ${WORKTREE_PATH}/_ios/stardust-jams/stardust-jams.xcodeproj"
-  - key: "i"
+  - key: "s"
     name: "Build & deploy Stardust to iPhone"
     run: "cd ${WORKTREE_PATH}/_ios/stardust-jams && xcodegen generate && echo '--worktree ${WORKTREE_PATH}' > /tmp/ios_triggers/stardust-jams"
-  - key: "I"
+  - key: "S"
     name: "Build & run Stardust on QA simulator"
     run: "cd ${WORKTREE_PATH}/_ios/stardust-jams && xcodegen generate && xcodebuild -project stardust-jams.xcodeproj -scheme stardust-jams -destination 'platform=iOS Simulator,name=QA-${ISSUE_KEY}' -derivedDataPath DerivedData -quiet build && xcrun simctl install 'QA-${ISSUE_KEY}' DerivedData/Build/Products/Debug-iphonesimulator/stardust-jams.app && xcrun simctl launch 'QA-${ISSUE_KEY}' com.cd17822.stardust-jams"
   - key: "l"
