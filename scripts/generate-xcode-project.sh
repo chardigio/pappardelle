@@ -111,6 +111,7 @@ cat > "$XCCONFIG_PATH" << EOF
 // Worktree-specific local API settings for $ISSUE_KEY
 LOCAL_API_PORT = $WORKTREE_PORT
 LOCAL_API_HOST = 100.69.3.88
+ISSUE_KEY = $ISSUE_KEY
 EOF
 log "Created Local.xcconfig with port $WORKTREE_PORT"
 
