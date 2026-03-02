@@ -96,3 +96,17 @@ export function isPendingSessionResolved(
 
 	return spaceNames.includes(pending.name);
 }
+
+/**
+ * Extract the issue key from idow's stdout after a description-route session.
+ *
+ * When a session is created from a free-text description, the issue key isn't
+ * known until idow creates it. idow prints "Workspace STA-XXX is ready!" on
+ * completion, so we parse that to register the space in the registry.
+ *
+ * Returns the issue key (e.g. "STA-633") or null if not found.
+ */
+export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
+	const match = stdout.match(/Workspace ([A-Z]+-\d+) is ready/);
+	return match ? match[1]! : null;
+}

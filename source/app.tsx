@@ -32,6 +32,7 @@ import {
 	getSpaceCount,
 	buildNewSessionArgs,
 	buildOpenWorkspaceArgs,
+	extractIssueKeyFromIdowOutput,
 	type PendingSession,
 } from './session-routing.ts';
 import {
@@ -828,9 +829,16 @@ export default function App({
 				log.error(`idow failed (exit ${code}): ${errorMsg}`);
 				setHeaderWithTimeout(`Failed: ${errorMsg.slice(0, 40)}`, 5000);
 			} else {
-				// Register the space so it persists across reboots
-				if (pending.name) {
-					addSpace(pending.name);
+				// Register the space so it persists across reboots.
+				// For description routes, pending.name is empty because the issue
+				// key isn't known until idow creates it. Extract it from stdout.
+				const spaceKey =
+					pending.name || extractIssueKeyFromIdowOutput(stdoutData);
+				if (spaceKey && !pending.name) {
+					log.info(`Extracted issue key from idow output: ${spaceKey}`);
+				}
+				if (spaceKey) {
+					addSpace(spaceKey);
 				}
 				// Keep the pending row visible — the useEffect
 				// watching `spaces` will clear it once the new row appears.

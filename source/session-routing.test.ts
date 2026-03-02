@@ -5,6 +5,7 @@ import {
 	getSpaceCount,
 	buildNewSessionArgs,
 	buildOpenWorkspaceArgs,
+	extractIssueKeyFromIdowOutput,
 	type PendingSession,
 } from './session-routing.ts';
 
@@ -176,4 +177,44 @@ test('buildOpenWorkspaceArgs passes issue key as last arg', t => {
 test('buildOpenWorkspaceArgs returns exact expected args', t => {
 	const args = buildOpenWorkspaceArgs('ENG-42');
 	t.deepEqual(args, ['--resume', '--open', 'ENG-42']);
+});
+
+// ============================================================================
+// extractIssueKeyFromIdowOutput
+// ============================================================================
+
+test('extracts issue key from idow success output', t => {
+	const stdout = `
+Starting workspace setup...
+
+[ 1/13] Selecting project profile...
+  ✓ Selected profile: Pappardelle
+[ 4/13] Creating issue...
+  ✓ Created issue: STA-633 (project will be assigned by Claude)
+[ 8/13] Starting Claude tmux session...
+  ✓ Claude session: claude-stardust-labs-STA-633
+
+============================================
+Workspace STA-633 is ready!
+============================================
+
+Issue:     https://linear.app/stardust-labs/issue/STA-633
+`;
+	t.is(extractIssueKeyFromIdowOutput(stdout), 'STA-633');
+});
+
+test('extracts issue key with non-STA prefix', t => {
+	const stdout = 'Workspace ENG-42 is ready!\n';
+	t.is(extractIssueKeyFromIdowOutput(stdout), 'ENG-42');
+});
+
+test('returns null when idow output has no workspace line', t => {
+	t.is(extractIssueKeyFromIdowOutput(''), null);
+	t.is(extractIssueKeyFromIdowOutput('some random output'), null);
+	t.is(extractIssueKeyFromIdowOutput('Error: something failed'), null);
+});
+
+test('returns null for partial workspace line', t => {
+	t.is(extractIssueKeyFromIdowOutput('Workspace is ready'), null);
+	t.is(extractIssueKeyFromIdowOutput('Workspace STA- is ready'), null);
 });
