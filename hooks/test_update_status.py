@@ -42,6 +42,23 @@ class TestGetWorkspaceName:
         with patch("os.getcwd", return_value="/home/user/.worktrees/repo/ABC-45"):
             assert get_workspace_name() == "ABC-45"
 
+    def test_returns_unknown_when_getcwd_raises_oserror(self):
+        """Should return 'unknown' when os.getcwd() raises (deleted worktree)."""
+        with patch("os.getcwd", side_effect=FileNotFoundError):
+            assert get_workspace_name() == "unknown"
+
+    def test_uses_explicit_cwd_parameter(self):
+        """Should use provided cwd without calling os.getcwd()."""
+        with patch("os.getcwd") as mock_getcwd:
+            result = get_workspace_name(cwd="/Users/x/.worktrees/repo/STA-456")
+            assert result == "STA-456"
+            mock_getcwd.assert_not_called()
+
+    def test_explicit_cwd_none_falls_back_to_getcwd(self):
+        """When cwd is None, should fall back to os.getcwd()."""
+        with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/STA-789"):
+            assert get_workspace_name(cwd=None) == "STA-789"
+
     def test_returns_unknown_for_non_worktree_path_without_git(self):
         """Should return 'unknown' when not in a worktree path and git fails."""
         with (

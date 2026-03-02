@@ -29,7 +29,10 @@ def get_issue_key() -> Optional[str]:
 
     Expected path: ~/.worktrees/<repo>/<ISSUE-123>/...
     """
-    cwd = os.getcwd()
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        return None
     parts = cwd.split("/")
 
     for part in reversed(parts):
@@ -154,7 +157,10 @@ def get_tracker_provider() -> str:
     Returns:
         "linear" (default) or "jira"
     """
-    current = os.getcwd()
+    try:
+        current = os.getcwd()
+    except OSError:
+        return "linear"
     for _ in range(20):
         candidate = os.path.join(current, ".pappardelle.yml")
         if os.path.isfile(candidate):
@@ -310,4 +316,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Never let hook failures propagate to Claude Code
+        sys.exit(0)

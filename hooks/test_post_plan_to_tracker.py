@@ -51,6 +51,18 @@ class TestGetIssueKey:
         with patch("os.getcwd", return_value="/Users/x/.worktrees/MY-5/STA-123"):
             assert get_issue_key() == "STA-123"
 
+    def test_returns_none_when_getcwd_raises_oserror(self):
+        """Should return None when os.getcwd() raises (deleted worktree)."""
+        with patch("os.getcwd", side_effect=FileNotFoundError):
+            assert get_issue_key() is None
+
+
+class TestGetTrackerProviderOSError:
+    def test_returns_linear_when_getcwd_raises_oserror(self):
+        """Should return 'linear' default when os.getcwd() raises (deleted worktree)."""
+        with patch("os.getcwd", side_effect=FileNotFoundError):
+            assert get_tracker_provider() == "linear"
+
 
 class TestIsNewIssue:
     def test_returns_true_when_created_by_pappardelle(self, tmp_path):

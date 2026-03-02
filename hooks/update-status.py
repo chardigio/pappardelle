@@ -47,8 +47,12 @@ def log_debug(message: str, data: Any = None) -> None:
 
 
 # Get workspace name from cwd (assumes worktree naming convention)
-def get_workspace_name() -> str:
-    cwd = os.getcwd()
+def get_workspace_name(cwd: Optional[str] = None) -> str:
+    if cwd is None:
+        try:
+            cwd = os.getcwd()
+        except OSError:
+            return "unknown"
     parts = cwd.split("/")
 
     # Look for Linear issue pattern (e.g., STA-123) in path components
@@ -114,7 +118,7 @@ def update_status(
     event: Optional[str] = None,
     cwd: Optional[str] = None,
 ) -> None:
-    workspace = get_workspace_name()
+    workspace = get_workspace_name(cwd)
     status_dir = get_status_dir()
     status_dir.mkdir(parents=True, exist_ok=True)
 
@@ -203,4 +207,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Never let hook failures propagate to Claude Code
+        sys.exit(0)

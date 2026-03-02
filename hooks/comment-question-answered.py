@@ -28,7 +28,10 @@ def get_issue_key() -> Optional[str]:
 
     Expected path: ~/.worktrees/stardust-labs/STA-123/...
     """
-    cwd = os.getcwd()
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        return None
     parts = cwd.split("/")
 
     # Look for Linear issue pattern (e.g., STA-123) in path components
@@ -129,7 +132,10 @@ def get_tracker_provider() -> str:
         "linear" (default) or "jira"
     """
     # Walk up directories to find .pappardelle.yml
-    current = os.getcwd()
+    try:
+        current = os.getcwd()
+    except OSError:
+        return "linear"
     config_path = None
     for _ in range(20):  # max depth to prevent infinite loop
         candidate = os.path.join(current, ".pappardelle.yml")
@@ -239,4 +245,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Never let hook failures propagate to Claude Code
+        sys.exit(0)
