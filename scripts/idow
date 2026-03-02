@@ -116,6 +116,9 @@ fi
 # Read initialization command from config (e.g., "/idow" or empty)
 INIT_CMD=$(yq -r '.claude.initialization_command // ""' "$CONFIG_PATH")
 
+# Read dangerously_skip_permissions flag (defaults to false)
+SKIP_PERMISSIONS=$(yq -r '.claude.dangerously_skip_permissions // false' "$CONFIG_PATH")
+
 # Source provider-agnostic helpers
 # shellcheck source=provider-helpers.sh
 source "$SCRIPT_DIR/provider-helpers.sh"
@@ -537,6 +540,9 @@ CLAUDE_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktre
 if [[ -n "$INIT_CMD" && "$RESUME_MODE" != true ]]; then
     CLAUDE_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
 fi
+if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
+    CLAUDE_SESSION_ARGS+=(--skip-permissions)
+fi
 CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
 "$SCRIPT_DIR/start-claude-session.sh" "${CLAUDE_SESSION_ARGS[@]}" || print_warning "Failed to start Claude tmux session"
 if tmux has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
@@ -555,20 +561,24 @@ else
 
 # Step 9: Open iTerm with Claude and lazygit
 print_step 9 "Opening iTerm with Claude..."
+ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME")
+if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
+    ITERM_ARGS+=(--skip-permissions)
+fi
 # In resume mode, start Claude without any prompt; otherwise use configured init command
 if [[ "$RESUME_MODE" == true ]]; then
-    "$SCRIPT_DIR/open-iterm-claude.sh" --worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --prompt "" || {
+    "$SCRIPT_DIR/open-iterm-claude.sh" "${ITERM_ARGS[@]}" --prompt "" || {
         print_warning "Failed to open iTerm"
     }
     print_success "iTerm opened with Claude (resume mode)"
 elif [[ -n "$INIT_CMD" ]]; then
     CLAUDE_PROMPT="$INIT_CMD $ISSUE_KEY"
-    "$SCRIPT_DIR/open-iterm-claude.sh" --worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --prompt "$CLAUDE_PROMPT" || {
+    "$SCRIPT_DIR/open-iterm-claude.sh" "${ITERM_ARGS[@]}" --prompt "$CLAUDE_PROMPT" || {
         print_warning "Failed to open iTerm"
     }
     print_success "iTerm opened with Claude session ($INIT_CMD)"
 else
-    "$SCRIPT_DIR/open-iterm-claude.sh" --worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --prompt "$ISSUE_KEY" || {
+    "$SCRIPT_DIR/open-iterm-claude.sh" "${ITERM_ARGS[@]}" --prompt "$ISSUE_KEY" || {
         print_warning "Failed to open iTerm"
     }
     print_success "iTerm opened with Claude (issue key only)"

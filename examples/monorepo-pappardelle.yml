@@ -8,9 +8,10 @@ default_profile: pappardelle
 # Team prefix for Linear issues (used when entering bare numbers like '400')
 team_prefix: STA
 
-# Claude initialization command (passed to Claude when opening a new session)
+# Claude configuration
 claude:
   initialization_command: "/idow"
+  dangerously_skip_permissions: true
 
 # Custom keybindings (run bash commands from the selected workspace's worktree)
 keybindings:

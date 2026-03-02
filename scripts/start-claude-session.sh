@@ -2,14 +2,15 @@
 
 # start-claude-session.sh - Ensure Claude and lazygit tmux sessions exist for an issue
 #
-# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-claude]
+# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-claude] [--skip-permissions]
 #
 # Creates detached tmux sessions (repo-qualified):
-#   claude-<REPO>-<KEY>   — runs Claude with --dangerously-skip-permissions
+#   claude-<REPO>-<KEY>   — runs Claude (with --dangerously-skip-permissions if --skip-permissions is set)
 #   lazygit-<REPO>-<KEY>  — runs lazygit
 #
 # Idempotent: if sessions already exist, does nothing.
 # --no-claude: create sessions but don't launch claude/lazygit (for testing)
+# --skip-permissions: pass --dangerously-skip-permissions to claude
 
 set -e
 
@@ -18,6 +19,7 @@ REPO_NAME=""
 WORKTREE_PATH=""
 INIT_CMD=""
 NO_CLAUDE=false
+SKIP_PERMISSIONS=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -39,6 +41,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-claude)
             NO_CLAUDE=true
+            shift
+            ;;
+        --skip-permissions)
+            SKIP_PERMISSIONS=true
             shift
             ;;
         *)
@@ -93,6 +99,12 @@ if not projects[path].get('hasTrustDialogAccepted'):
 if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     tmux new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
     if [[ "$NO_CLAUDE" != true ]]; then
+        # Build the Claude command with optional --dangerously-skip-permissions
+        CLAUDE_CMD="claude"
+        if [[ "$SKIP_PERMISSIONS" == true ]]; then
+            CLAUDE_CMD="claude --dangerously-skip-permissions"
+        fi
+
         # Build the Claude prompt argument, quoting it to handle special characters
         if [[ -n "$INIT_CMD" ]]; then
             CLAUDE_ARG="${INIT_CMD} ${ISSUE_KEY}"
@@ -101,7 +113,7 @@ if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
         fi
         # Use printf %q to safely quote the argument for the shell inside tmux
         SAFE_ARG=$(printf '%q' "$CLAUDE_ARG")
-        tmux send-keys -t "$CLAUDE_SESSION" "claude --dangerously-skip-permissions --continue 2>/dev/null || claude --dangerously-skip-permissions ${SAFE_ARG}" Enter
+        tmux send-keys -t "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue 2>/dev/null || ${CLAUDE_CMD} ${SAFE_ARG}" Enter
     fi
 fi
 

@@ -38,6 +38,7 @@ export interface KeybindingConfig {
 
 export interface ClaudeConfig {
 	initialization_command?: string;
+	dangerously_skip_permissions?: boolean;
 }
 
 export interface HooksConfig {
@@ -333,6 +334,12 @@ export function validateConfig(
 				typeof cl['initialization_command'] !== 'string'
 			) {
 				errors.push('claude.initialization_command: must be a string');
+			}
+			if (
+				cl['dangerously_skip_permissions'] !== undefined &&
+				typeof cl['dangerously_skip_permissions'] !== 'boolean'
+			) {
+				errors.push('claude.dangerously_skip_permissions: must be a boolean');
 			}
 		}
 	}
@@ -715,6 +722,16 @@ export function getProfileVcsLabel(profile: Profile): string | undefined {
  */
 export function getInitializationCommand(config: PappardelleConfig): string {
 	return config.claude?.initialization_command ?? '';
+}
+
+/**
+ * Get the Claude dangerously_skip_permissions flag from config.
+ * Returns false if not configured (safe default).
+ */
+export function getDangerouslySkipPermissions(
+	config: PappardelleConfig,
+): boolean {
+	return config.claude?.dangerously_skip_permissions ?? false;
 }
 
 /**

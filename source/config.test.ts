@@ -6,6 +6,7 @@ import {
 	getProfileTeamPrefix,
 	getProfileVcsLabel,
 	getInitializationCommand,
+	getDangerouslySkipPermissions,
 	getKeybindings,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
@@ -995,6 +996,70 @@ test('getInitializationCommand returns empty string when claude section exists b
 	);
 	(config as Record<string, unknown>)['claude'] = {};
 	t.is(getInitializationCommand(config), '');
+});
+
+// ============================================================================
+// getDangerouslySkipPermissions Tests
+// ============================================================================
+
+test('getDangerouslySkipPermissions returns true when configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.claude = {dangerously_skip_permissions: true};
+	t.is(getDangerouslySkipPermissions(config), true);
+});
+
+test('getDangerouslySkipPermissions returns false when configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.claude = {dangerously_skip_permissions: false};
+	t.is(getDangerouslySkipPermissions(config), false);
+});
+
+test('getDangerouslySkipPermissions returns false when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.is(getDangerouslySkipPermissions(config), false);
+});
+
+test('getDangerouslySkipPermissions returns false when claude section exists but no flag', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.claude = {initialization_command: '/idow'};
+	t.is(getDangerouslySkipPermissions(config), false);
+});
+
+test('validateConfig rejects non-boolean dangerously_skip_permissions', t => {
+	const rawConfig = {
+		version: 1,
+		default_profile: 'test',
+		claude: {dangerously_skip_permissions: 'yes'},
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	const error = t.throws(() => validateConfig(rawConfig), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('dangerously_skip_permissions: must be a boolean'),
+	);
+});
+
+test('validateConfig accepts boolean dangerously_skip_permissions', t => {
+	const rawConfig = {
+		version: 1,
+		default_profile: 'test',
+		claude: {dangerously_skip_permissions: true},
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(rawConfig));
 });
 
 // ============================================================================

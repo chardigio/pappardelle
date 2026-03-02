@@ -39,12 +39,10 @@ vcs_host:
   provider: github # "github" or "gitlab"
   # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 
-# Claude initialization command (optional)
-# When set, this command is passed to Claude when opening a new session.
-# Example: "/idow" will run the /idow skill with the issue key.
-# When not set, Claude opens with no initialization command.
+# Claude configuration (optional)
 claude:
-  initialization_command: '/idow'
+  initialization_command: '/idow'          # Command passed to Claude on new sessions
+  dangerously_skip_permissions: true       # Pass --dangerously-skip-permissions to Claude (default: false)
 
 # Lifecycle hooks (optional)
 # Commands that run at specific points during workspace setup.
@@ -581,12 +579,14 @@ The `claude` section configures how Claude is initialized when opening a new wor
 
 ```yaml
 claude:
-  initialization_command: '/idow' # Optional, default: empty
+  initialization_command: '/idow'          # Optional, default: empty
+  dangerously_skip_permissions: true       # Optional, default: false
 ```
 
-| Field                    | Type     | Default | Description                                                                                                                                                  |
-| ------------------------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `initialization_command` | `string` | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
+| Field                          | Type      | Default | Description                                                                                                                                                  |
+| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
+| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories. |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 

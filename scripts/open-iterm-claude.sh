@@ -2,10 +2,10 @@
 
 # open-iterm-claude.sh - Open iTerm with tmux/Claude and lazygit
 #
-# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>"
+# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--skip-permissions]
 #
 # Opens a new iTerm window with:
-#   1. A tmux session running Claude with --dangerously-skip-permissions
+#   1. A tmux session running Claude (with --dangerously-skip-permissions if --skip-permissions is set)
 #   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow)
 #   3. A split pane running lazygit
 #
@@ -29,6 +29,7 @@ WORKTREE=""
 ISSUE_KEY=""
 REPO_NAME=""
 PROMPT=""
+SKIP_PERMISSIONS=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -48,8 +49,12 @@ while [[ $# -gt 0 ]]; do
             PROMPT="$2"
             shift 2
             ;;
+        --skip-permissions)
+            SKIP_PERMISSIONS=true
+            shift
+            ;;
         --help|-h)
-            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\""
+            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--skip-permissions]"
             echo ""
             echo "Opens iTerm with tmux/Claude and lazygit in split panes."
             exit 0
@@ -84,6 +89,14 @@ TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
 # In both cases, --continue is tried first to resume an existing Claude conversation
 CLAUDE_PROMPT="$PROMPT"
 
+# Build the --dangerously-skip-permissions flag string (or empty).
+# Leading space is intentional — the value is concatenated directly into AppleScript
+# command strings (e.g., "claude" & dspFlag), so the space separates the flag cleanly.
+DSP_FLAG=""
+if [[ "$SKIP_PERMISSIONS" == true ]]; then
+    DSP_FLAG=" --dangerously-skip-permissions"
+fi
+
 # Write the AppleScript to a temp file to avoid heredoc escaping issues
 APPLESCRIPT=$(mktemp)
 cat > "$APPLESCRIPT" << 'APPLESCRIPT_END'
@@ -93,6 +106,7 @@ on run argv
     set tmuxSession to item 3 of argv
     set claudePrompt to item 4 of argv
     set repoName to item 5 of argv
+    set dspFlag to item 6 of argv
 
     tell application "iTerm"
         activate
@@ -111,9 +125,9 @@ on run argv
                 --   resume mode (empty prompt): bare Claude
                 --   normal mode: Claude with the skill prompt
                 if claudePrompt is equal to "" then
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude --dangerously-skip-permissions --continue 2>/dev/null || claude --dangerously-skip-permissions\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue 2>/dev/null || claude" & dspFlag & "\""
                 else
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude --dangerously-skip-permissions --continue 2>/dev/null || claude --dangerously-skip-permissions '" & claudePrompt & "'\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue 2>/dev/null || claude" & dspFlag & " '" & claudePrompt & "'\""
                 end if
 
                 -- Wait for Claude to start
@@ -137,7 +151,7 @@ end run
 APPLESCRIPT_END
 
 # Run the AppleScript with arguments
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG"
 rm -f "$APPLESCRIPT"
 
 # Position window immediately (position 6 = bottom right)

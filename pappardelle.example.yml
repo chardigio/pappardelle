@@ -9,11 +9,10 @@ default_profile: backend
 # Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123')
 team_prefix: ENG
 
-# Claude initialization command (optional)
-# When set, this command is passed to Claude when a new session opens.
-# Omit or leave empty to open Claude with no initialization command.
+# Claude configuration (optional)
 # claude:
-#   initialization_command: "/idow"
+#   initialization_command: "/idow"        # Command passed to Claude when a new session opens
+#   dangerously_skip_permissions: false     # Pass --dangerously-skip-permissions to Claude (default: false)
 
 # Lifecycle hooks (optional)
 # hooks:

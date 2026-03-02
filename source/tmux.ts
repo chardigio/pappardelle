@@ -7,7 +7,11 @@ import {join} from 'node:path';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
-import {getRepoName} from './config.ts';
+import {
+	getDangerouslySkipPermissions,
+	getRepoName,
+	loadConfig,
+} from './config.ts';
 import {createLogger} from './logger.ts';
 import {isSimctlUnavailableError} from './simctl-check.ts';
 import {
@@ -813,12 +817,21 @@ export function attachToSpace(
 
 	const sessions = getSessionNames(issueKey);
 
+	// Load config once for all session creation
+	let skipPermissions = false;
+	try {
+		const config = loadConfig();
+		skipPermissions = getDangerouslySkipPermissions(config);
+	} catch {
+		// Config load failed — use safe default
+	}
+
 	// Ensure sessions exist (create if needed)
 	if (mainWorktreePath) {
-		ensureClaudeSession(issueKey, mainWorktreePath);
+		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions);
 		ensureLazygitSession(issueKey, mainWorktreePath);
 	} else {
-		ensureClaudeSession(issueKey);
+		ensureClaudeSession(issueKey, undefined, skipPermissions);
 		ensureLazygitSession(issueKey);
 	}
 
@@ -1460,6 +1473,7 @@ export function pretrustDirectoryForClaude(
 export function ensureClaudeSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
+	skipPermissions = false,
 ): boolean {
 	const sessionName = getSessionNames(issueKey).claude;
 
@@ -1492,17 +1506,14 @@ export function ensureClaudeSession(
 		}
 
 		// Now send claude command to the session
-		spawnSync(
-			'tmux',
-			[
-				'send-keys',
-				'-t',
-				sessionName,
-				'claude --dangerously-skip-permissions',
-				'Enter',
-			],
-			{encoding: 'utf-8', timeout: 5000},
-		);
+		const claudeCmd = skipPermissions
+			? 'claude --dangerously-skip-permissions'
+			: 'claude';
+
+		spawnSync('tmux', ['send-keys', '-t', sessionName, claudeCmd, 'Enter'], {
+			encoding: 'utf-8',
+			timeout: 5000,
+		});
 
 		log.info(`Created claude session: ${sessionName}`);
 		return true;
