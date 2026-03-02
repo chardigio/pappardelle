@@ -69,6 +69,12 @@ import {isWorktreeDirty} from './git-status.ts';
 import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
 import {computePostDeleteState} from './space-utils.ts';
+import {
+	getRegisteredSpaces,
+	addSpace,
+	removeSpace,
+	seedFromTmux,
+} from './space-registry.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 // Props passed from cli.tsx with pane layout info
@@ -238,11 +244,11 @@ export default function App({
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
 
-	// Load spaces from active tmux sessions (claude-* sessions)
+	// Load spaces from persisted registry (survives reboots)
 	const loadSpaces = useCallback(async () => {
 		try {
-			// Get Linear issue keys from active claude tmux sessions
-			const workspaceNames = await getLinearIssuesFromTmux();
+			// Get issue keys from the persisted space registry
+			const workspaceNames = getRegisteredSpaces();
 
 			// Build space data using cached issues for immediate display
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
@@ -319,10 +325,22 @@ export default function App({
 	// Initial load
 	useEffect(() => {
 		ensureStatusDir();
-		loadSpaces();
+
+		// Migrate: seed registry from any active tmux sessions not yet tracked.
+		// This ensures a smooth transition from tmux-based to registry-based discovery.
+		getLinearIssuesFromTmux()
+			.then(tmuxKeys => {
+				if (tmuxKeys.length > 0) {
+					seedFromTmux(tmuxKeys);
+				}
+				loadSpaces();
+			})
+			.catch(() => {
+				loadSpaces();
+			});
 
 		// Refresh every 10 seconds (Claude status updates arrive via file watcher
-		// in real-time, so polling is only needed to detect new/removed tmux sessions)
+		// in real-time, so polling is only needed to pick up external changes)
 		// Guard against overlapping runs — loadSpaces has real await points so a
 		// previous invocation may still be in-flight when the next interval fires.
 		let loadInFlight = false;
@@ -810,6 +828,10 @@ export default function App({
 				log.error(`idow failed (exit ${code}): ${errorMsg}`);
 				setHeaderWithTimeout(`Failed: ${errorMsg.slice(0, 40)}`, 5000);
 			} else {
+				// Register the space so it persists across reboots
+				if (pending.name) {
+					addSpace(pending.name);
+				}
 				// Keep the pending row visible — the useEffect
 				// watching `spaces` will clear it once the new row appears.
 				loadSpaces();
@@ -895,7 +917,8 @@ export default function App({
 		const space = spaces[selectedIndex];
 		if (!space) return;
 
-		// Kill the claude and lazygit tmux sessions for this space
+		// Remove from persisted registry and kill tmux sessions
+		removeSpace(space.name);
 		killSpaceSessions(space.name);
 
 		// Clear the viewer panes since we killed the sessions
