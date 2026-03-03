@@ -156,15 +156,9 @@ set -g status-right ''
 
 ### Exiting Pappardelle
 
-Press `q` in the workspace list pane to quit the TUI. Your Claude and lazygit sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
+Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux session and all its viewer panes, returning you to your original terminal. Your Claude and lazygit workspace sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
 
-To fully tear down everything (TUI + all workspace sessions):
-
-```bash
-tmux kill-session -t pappardelle
-```
-
-This kills the Pappardelle tmux session and its viewer panes, but the independent Claude and lazygit sessions remain running. To kill those too, use `Delete` on each workspace from the TUI before quitting, or nuke everything with:
+To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting, or nuke everything with:
 
 ```bash
 tmux kill-server

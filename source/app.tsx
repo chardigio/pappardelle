@@ -55,6 +55,7 @@ import {
 	attachToSpace,
 	displayMessageInPane,
 	sendToPane,
+	killSession,
 	killSpaceSessions,
 	getLinearIssuesFromTmux,
 	zoomPane,
@@ -781,7 +782,11 @@ export default function App({
 				setSearchQuery('');
 				setSearchSelectedIndex(0);
 			} else if (input === 'q') {
-				// Quit Pappardelle
+				// Quit Pappardelle — kill the tmux session so viewer panes
+				// are cleaned up too (workspace sessions stay alive).
+				if (paneLayout) {
+					killSession(`pappardelle-${repoName}`);
+				}
 				process.exit(0);
 			} else if (input === '?') {
 				// Show help overlay
