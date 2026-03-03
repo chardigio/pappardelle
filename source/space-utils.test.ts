@@ -95,7 +95,7 @@ test('shows loading when linearIssue is undefined and space is not pending or ma
 });
 
 test('does not show loading for main worktree rows', t => {
-	t.false(shouldShowLoadingTitle(makeSpace('master', {isMainWorktree: true})));
+	t.false(shouldShowLoadingTitle(makeSpace('main', {isMainWorktree: true})));
 });
 
 test('does not show loading when pendingTitle is set', t => {

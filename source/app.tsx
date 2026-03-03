@@ -285,13 +285,13 @@ export default function App({
 			// Prepend the main worktree (always first, non-deletable)
 			const mainInfo = await getMainWorktreeInfo();
 			if (mainInfo) {
-				// name stays as bare branch (used for session ops: getSessionNames adds repo prefix)
-				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-main")
+				// name is always "main" (like lazygit) regardless of actual branch name
+				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-master")
 				const repoName = getRepoName();
 				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);
 				const mainClaudeInfo = getClaudeStatusInfo(statusKey);
 				spaceData.unshift({
-					name: mainInfo.branch,
+					name: 'main',
 					statusKey,
 					worktreePath: mainInfo.path,
 					isMainWorktree: true,
