@@ -258,7 +258,7 @@ Some **important** details about the plan."""
 
     def test_issue_creation_description(self):
         """Test the initial issue description from provider-helpers.sh."""
-        md = """More details coming soon.
+        md = """👨‍🍳🍝 More details coming soon.
 
 ---
 

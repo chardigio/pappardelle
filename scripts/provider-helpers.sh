@@ -186,7 +186,7 @@ create_issue() {
         jira)
             local quoted_prompt
             quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
-            local description="More details coming soon.
+            local description="👨‍🍳🍝 More details coming soon.
 
 ---
 
