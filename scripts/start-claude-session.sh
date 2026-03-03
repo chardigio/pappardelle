@@ -113,7 +113,7 @@ if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
         fi
         # Use printf %q to safely quote the argument for the shell inside tmux
         SAFE_ARG=$(printf '%q' "$CLAUDE_ARG")
-        tmux send-keys -t "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue 2>/dev/null || ${CLAUDE_CMD} ${SAFE_ARG}" Enter
+        tmux send-keys -t "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}" Enter
     fi
 fi
 

@@ -125,9 +125,9 @@ on run argv
                 --   resume mode (empty prompt): bare Claude
                 --   normal mode: Claude with the skill prompt
                 if claudePrompt is equal to "" then
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue 2>/dev/null || claude" & dspFlag & "\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & "\""
                 else
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue 2>/dev/null || claude" & dspFlag & " '" & claudePrompt & "'\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & " '" & claudePrompt & "'\""
                 end if
 
                 -- Wait for Claude to start

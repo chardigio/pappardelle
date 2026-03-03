@@ -153,7 +153,8 @@ mkdir -p "$WORKTREE_PATH3"
 sleep 0.3
 
 # Capture the full scrollback to see the command that was typed
-PANE_CONTENT=$(tmux capture-pane -t "claude-${TEST_REPO}-${ISSUE_KEY3}" -p -S - 2>/dev/null || echo "")
+# -J joins wrapped lines so long commands aren't split across lines
+PANE_CONTENT=$(tmux capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY3}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY3"; then
     echo -e "  ${GREEN}PASS${RESET} issue key included in claude command"
     PASS=$((PASS + 1))
@@ -178,7 +179,7 @@ mkdir -p "$WORKTREE_PATH4"
 
 sleep 0.3
 
-PANE_CONTENT=$(tmux capture-pane -t "claude-${TEST_REPO}-${ISSUE_KEY4}" -p -S - 2>/dev/null || echo "")
+PANE_CONTENT=$(tmux capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY4}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "/test-skill" && echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY4"; then
     echo -e "  ${GREEN}PASS${RESET} init cmd + issue key in claude command"
     PASS=$((PASS + 1))
@@ -191,6 +192,33 @@ fi
 
 tmux kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
 tmux kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: --continue error message is suppressed when no conversation exists${RESET}"
+ISSUE_KEY5="${TEST_PREFIX}-500"
+WORKTREE_PATH5="$TMPDIR_ROOT/worktree5"
+mkdir -p "$WORKTREE_PATH5"
+
+# Run WITHOUT --no-claude in a fresh worktree with no prior conversations.
+# claude --continue should fail, but the error message should be erased from the pane.
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH5" 2>/dev/null
+
+# Wait for claude --continue to fail and the cleanup to execute
+sleep 3
+
+PANE_CONTENT=$(tmux capture-pane -t "claude-${TEST_REPO}-${ISSUE_KEY5}" -p -S - 2>/dev/null || echo "")
+if echo "$PANE_CONTENT" | grep -qF "No conversation found to continue"; then
+    echo -e "  ${RED}FAIL${RESET} error message should be suppressed"
+    echo "    Pane contains: $(echo "$PANE_CONTENT" | grep 'No conversation')"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${RESET} error message suppressed"
+    PASS=$((PASS + 1))
+fi
+
+tmux kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
+tmux kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
 
 # ==========================================================================
 
