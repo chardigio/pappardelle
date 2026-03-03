@@ -370,10 +370,10 @@ else
     print_success "Using default profile: $(get_profile_display_name "$SELECTED_PROFILE")"
 fi
 
-# Extract generic profile vars
-declare -A PROFILE_VARS
+# Extract generic profile vars (bash 3.2 compatible — no associative arrays)
+PROFILE_VAR_KEYS=""
 while IFS='=' read -r key value; do
-    [[ -n "$key" ]] && PROFILE_VARS[$key]="$value" && declare "$key=$value"
+    [[ -n "$key" ]] && PROFILE_VAR_KEYS="$PROFILE_VAR_KEYS $key" && declare "$key=$value"
 done < <(yq -r '.profiles.'"$SELECTED_PROFILE"'.vars // {} | to_entries[] | .key + "=" + .value' "$CONFIG_PATH")
 
 # Read per-profile team prefix (falls back to global TEAM_PREFIX)
@@ -390,7 +390,7 @@ PROJECT_KEY="$SELECTED_PROFILE"
 # Get VCS label from profile (provider-agnostic, falls back to github.label)
 VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
 
-log "Profile: $SELECTED_PROFILE, vars: ${!PROFILE_VARS[*]}"
+log "Profile: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
 
 # Step 2: Get or create issue
 print_step 2 "Setting up issue ($TRACKER_PROVIDER)..."
@@ -459,8 +459,8 @@ expand_var() {
     result="${result//\$\{TRACKER_PROVIDER\}/$TRACKER_PROVIDER}"
     result="${result//\$\{VCS_PROVIDER\}/$VCS_PROVIDER}"
     # Expand generic profile vars
-    for key in "${!PROFILE_VARS[@]}"; do
-        result="${result//\$\{$key\}/${PROFILE_VARS[$key]}}"
+    for key in $PROFILE_VAR_KEYS; do
+        result="${result//\$\{$key\}/${!key}}"
     done
     echo "$result"
 }
@@ -475,8 +475,8 @@ var_is_set() {
         ISSUE_URL) [[ -n "$ISSUE_URL" ]] ;;
         TITLE) [[ -n "$TITLE" ]] ;;
         DESCRIPTION) [[ -n "$DESCRIPTION" ]] ;;
-        *) # Check profile vars, then fall back to env var
-           [[ -n "${PROFILE_VARS[$var_name]:-}" ]] || [[ -n "${!var_name:-}" ]] ;;
+        *) # Check profile vars / env var via indirect expansion
+           [[ -n "${!var_name:-}" ]] ;;
     esac
 }
 
