@@ -143,7 +143,6 @@ else
     # Always fresh clone to avoid divergent history issues
     if [[ -d "$REPO_DIR" ]]; then
         print_info "Removing existing clone..."
-        (cd "$REPO_DIR" && npm unlink --silent 2>/dev/null) || true
         rm -rf "$REPO_DIR"
     fi
     print_info "Cloning pappardelle..."
