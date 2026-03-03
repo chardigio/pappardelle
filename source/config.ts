@@ -623,6 +623,7 @@ export interface ProfileMatch {
 	profile: Profile;
 	score: number;
 	matchedKeywords: string[];
+	enforced: boolean;
 }
 
 /**
@@ -630,11 +631,25 @@ export interface ProfileMatch {
  * Uses prefix matching (case-insensitive): a keyword matches if any input
  * word starts with it. For example, keyword "track" matches "tracking",
  * and keyword "SHOP-" matches "SHOP-313".
+ *
+ * Keyword enforcement: If a word in the input is followed by `!` (e.g. "music!"),
+ * it enforces that the selected profile must match that keyword. When enforced
+ * keywords are present, only profiles matching at least one enforced keyword are
+ * returned, even if other profiles match non-enforced keywords.
  */
 export function matchProfiles(
 	config: PappardelleConfig,
 	input: string,
 ): ProfileMatch[] {
+	// Extract enforced words: words immediately followed by ! in the raw input
+	// e.g. "music!" → "music", "stardust-jams!" → "stardust-jams"
+	const enforcedWords: string[] = [];
+	const enforcedRegex = /([a-z0-9][a-z0-9-]*)!/gi;
+	let regexMatch;
+	while ((regexMatch = enforcedRegex.exec(input)) !== null) {
+		enforcedWords.push(regexMatch[1]!.toLowerCase());
+	}
+
 	// Split on whitespace and common punctuation, filter out empty strings
 	// This handles cases like "pappardelle,now", "fix.something", "(keyword)", etc.
 	// The regex splits on: whitespace, common punctuation, brackets, quotes, and operators
@@ -685,8 +700,29 @@ export function matchProfiles(
 				profile,
 				score: matchedKeywords.length,
 				matchedKeywords,
+				enforced: false,
 			});
 		}
+	}
+
+	// If there are enforced words, filter to only profiles matching an enforced keyword
+	if (enforcedWords.length > 0) {
+		const enforcedMatches = matches.filter(m =>
+			m.matchedKeywords.some(kw => {
+				const kwLower = kw.toLowerCase();
+				// An enforced word matches a keyword if the enforced word starts with the keyword
+				// (same prefix-matching logic as the main algorithm)
+				return enforcedWords.some(ew => ew.startsWith(kwLower));
+			}),
+		);
+		if (enforcedMatches.length > 0) {
+			for (const m of enforcedMatches) {
+				m.enforced = true;
+			}
+			enforcedMatches.sort((a, b) => b.score - a.score);
+			return enforcedMatches;
+		}
+		// No enforced keywords matched any profile — fall through to normal behavior
 	}
 
 	// Sort by score descending

@@ -1199,6 +1199,159 @@ test('matches multiple keywords with mixed special chars', t => {
 });
 
 // ============================================================================
+// Keyword Enforcement (!) Tests
+// ============================================================================
+
+test('! after keyword enforces that profile', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(
+			['music', 'spotify', 'track'],
+			'Stardust Jams',
+		),
+		'king-bee': createProfile(['bee', 'hive', 'spelling'], 'King Bee'),
+	});
+
+	// "music!" should enforce stardust-jams even though "bee" matches king-bee
+	const matches = matchProfiles(config, 'fix the music! and bee stuff');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.true(matches[0]!.enforced);
+});
+
+test('! enforcement wins over higher-scoring non-enforced profile', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+		'king-bee': createProfile(['bee', 'hive', 'spelling'], 'King Bee'),
+	});
+
+	// "music!" enforces stardust-jams even though king-bee has more keyword matches
+	const matches = matchProfiles(config, 'music! bee hive spelling');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.true(matches[0]!.enforced);
+});
+
+test('! enforcement with prefix matching', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	// "tracking!" should enforce stardust-jams via prefix match on "track"
+	const matches = matchProfiles(config, 'tracking! pappardelle issue');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.true(matches[0]!.enforced);
+});
+
+test('! enforcement is case-insensitive', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+		'king-bee': createProfile(['bee'], 'King Bee'),
+	});
+
+	const matches = matchProfiles(config, 'MUSIC! bee');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.true(matches[0]!.enforced);
+});
+
+test('! on non-keyword word falls back to normal matching', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+		'king-bee': createProfile(['bee'], 'King Bee'),
+	});
+
+	// "fix!" is not a keyword for any profile, so fall back to normal matching
+	const matches = matchProfiles(config, 'fix! the music and bee');
+	t.is(matches.length, 2);
+	t.false(matches[0]!.enforced);
+});
+
+test('multiple ! keywords from same profile', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(
+			['music', 'spotify', 'track'],
+			'Stardust Jams',
+		),
+		'king-bee': createProfile(['bee'], 'King Bee'),
+	});
+
+	const matches = matchProfiles(config, 'music! spotify! bee');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.true(matches[0]!.enforced);
+});
+
+test('multiple ! keywords from different profiles returns both enforced', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+		'king-bee': createProfile(['bee'], 'King Bee'),
+	});
+
+	const matches = matchProfiles(config, 'music! bee!');
+	t.is(matches.length, 2);
+	t.true(matches[0]!.enforced);
+	t.true(matches[1]!.enforced);
+});
+
+test('! alone without preceding word does not enforce', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+	});
+
+	const matches = matchProfiles(config, '! music');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.false(matches[0]!.enforced);
+});
+
+test('no ! in input means enforced is false', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+	});
+
+	const matches = matchProfiles(config, 'music player bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.false(matches[0]!.enforced);
+});
+
+test('! enforcement with hyphenated keyword', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['stardust-jams'], 'Stardust Jams'),
+		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
+	});
+
+	const matches = matchProfiles(config, 'stardust-jams! pappardelle bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+	t.true(matches[0]!.enforced);
+});
+
+test('real-world: enforce pappardelle over stardust-jams', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(
+			['stardust', 'jams', 'music', 'track', 'recording'],
+			'Stardust Jams',
+		),
+		pappardelle: createProfile(
+			['pappardelle', 'tui', 'dow', 'idow'],
+			'Pappardelle',
+		),
+	});
+
+	// Even though "recording" matches stardust-jams, pappardelle! enforces pappardelle
+	const matches = matchProfiles(
+		config,
+		'pappardelle! recording keyword matching',
+	);
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'pappardelle');
+	t.true(matches[0]!.enforced);
+});
+
+// ============================================================================
 // Repo Name from Git Common Dir Tests
 // ============================================================================
 

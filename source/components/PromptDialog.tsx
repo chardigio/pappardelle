@@ -49,6 +49,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 				displayName: defaultProfile.profile.display_name,
 				isDefault: true,
 				matchedKeywords: [] as string[],
+				enforced: false,
 			};
 		}
 
@@ -61,6 +62,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 				displayName: best.profile.display_name,
 				isDefault: false,
 				matchedKeywords: best.matchedKeywords,
+				enforced: best.enforced,
 			};
 		}
 
@@ -71,6 +73,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			displayName: defaultProfile.profile.display_name,
 			isDefault: true,
 			matchedKeywords: [] as string[],
+			enforced: false,
 		};
 	}, [config, prompt]);
 
@@ -129,6 +132,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 					{profileInfo.matchedKeywords.length > 0 && (
 						<Text dimColor> ← {profileInfo.matchedKeywords.join(', ')}</Text>
 					)}
+					{profileInfo.enforced && <Text color="magenta"> (enforced)</Text>}
 					{profileInfo.isDefault &&
 						profileInfo.matchedKeywords.length === 0 && (
 							<Text dimColor> (default)</Text>
