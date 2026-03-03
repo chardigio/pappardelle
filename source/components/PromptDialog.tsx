@@ -96,7 +96,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 		>
 			<Box marginBottom={1}>
 				<Text bold color="green">
-					+ New DOW Session
+					+ New Session
 				</Text>
 			</Box>
 
@@ -104,7 +104,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 				<Text dimColor>Enter a prompt or issue key:</Text>
 				<Text dimColor>
 					- <Text color="cyan">STA-123</Text> or <Text color="cyan">123</Text> =
-					resume existing workspace (if PR has commits)
+					open workspace for existing issue
 				</Text>
 				<Text dimColor>
 					- <Text color="cyan">description</Text> = start new workspace with
