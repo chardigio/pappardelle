@@ -20,6 +20,7 @@ const shortcuts = [
 	{key: 'p', description: 'Git pull'},
 	{key: 'Del', description: 'Close space'},
 	{key: 'e', description: 'Show errors'},
+	{key: '/', description: 'Search spaces'},
 	{key: '?', description: 'Show this help'},
 ];
 

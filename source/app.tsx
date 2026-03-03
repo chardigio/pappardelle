@@ -1,5 +1,6 @@
-import React, {useEffect, useState, useCallback, useRef} from 'react';
+import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
+import TextInput from 'ink-text-input';
 import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -69,7 +70,7 @@ import {
 import {isWorktreeDirty} from './git-status.ts';
 import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {computePostDeleteState} from './space-utils.ts';
+import {computePostDeleteState, filterSpaces} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
 	addSpace,
@@ -114,6 +115,9 @@ export default function App({
 	const [errorCount, setErrorCount] = useState(0);
 	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
+	const [isSearching, setIsSearching] = useState(false);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
 	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const setHeaderWithTimeout = useCallback((msg: string, ms: number) => {
@@ -179,7 +183,11 @@ export default function App({
 
 	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
 	const anyDialogOpen =
-		showPromptDialog || showDeleteConfirm || showHelp || showErrorDialog;
+		showPromptDialog ||
+		showDeleteConfirm ||
+		showHelp ||
+		showErrorDialog ||
+		isSearching;
 
 	// Listen for terminal resize events to update dimensions and relayout panes.
 	// Screen clearing lives here (not in cli.tsx) so it's always immediately
@@ -767,6 +775,11 @@ export default function App({
 			} else if (input === 'p') {
 				// 'p' to git pull in the selected workspace
 				handleGitPull();
+			} else if (input === '/') {
+				// Start searching spaces
+				setIsSearching(true);
+				setSearchQuery('');
+				setSearchSelectedIndex(0);
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);
@@ -783,8 +796,41 @@ export default function App({
 				!showPromptDialog &&
 				!showDeleteConfirm &&
 				!showHelp &&
-				!showErrorDialog,
+				!showErrorDialog &&
+				!isSearching,
 		},
+	);
+
+	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
+	useInput(
+		(_input, key) => {
+			if (key.escape) {
+				setIsSearching(false);
+				setSearchQuery('');
+			} else if (key.return) {
+				// Confirm: resolve filtered selection back to real spaces index
+				const displayIdx = filteredToDisplayMap[searchSelectedIndex];
+				if (displayIdx !== undefined) {
+					// Map display index back to spaces index (reverse the pending offset)
+					const spacesIdx =
+						pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
+							? displayIdx - 1
+							: displayIdx;
+					if (spacesIdx >= 0 && spacesIdx < spaces.length) {
+						setSelectedIndex(spacesIdx);
+					}
+				}
+				setIsSearching(false);
+				setSearchQuery('');
+			} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
+				setSearchSelectedIndex(prev => Math.max(0, prev - 1));
+			} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
+				setSearchSelectedIndex(prev =>
+					Math.min(filteredDisplaySpaces.length - 1, prev + 1),
+				);
+			}
+		},
+		{isActive: isSearching},
 	);
 
 	// Helper to spawn idow and capture errors
@@ -1006,6 +1052,23 @@ export default function App({
 		return {displaySpaces: result, pendingInsertIndex: insertIdx};
 	}, [spaces, pendingSession]);
 
+	// Filter display spaces when searching
+	const {filteredDisplaySpaces, filteredToDisplayMap} = useMemo(() => {
+		if (!isSearching || !searchQuery) {
+			return {
+				filteredDisplaySpaces: displaySpaces,
+				filteredToDisplayMap: displaySpaces.map((_, i) => i),
+			};
+		}
+		const {filtered, indexMap} = filterSpaces(displaySpaces, searchQuery);
+		return {filteredDisplaySpaces: filtered, filteredToDisplayMap: indexMap};
+	}, [displaySpaces, isSearching, searchQuery]);
+
+	// Reset search selection when query changes
+	useEffect(() => {
+		setSearchSelectedIndex(0);
+	}, [searchQuery]);
+
 	// Map selectedIndex (which indexes into `spaces`) to the display list.
 	// When a pending row is inserted before the selected item, shift by 1.
 	const displaySelectedIndex =
@@ -1013,17 +1076,23 @@ export default function App({
 			? selectedIndex + 1
 			: selectedIndex;
 
-	// Calculate scroll offset for large lists (using displaySpaces which includes pending row)
+	// Choose which list and index to use for scroll calculation
+	const activeSpaces = isSearching ? filteredDisplaySpaces : displaySpaces;
+	const activeSelectedIndex = isSearching
+		? searchSelectedIndex
+		: displaySelectedIndex;
+
+	// Calculate scroll offset for large lists
 	const {
 		scrollOffset,
 		visibleCount,
 		adjustedSelectedIndex: adjustedDisplayIndex,
 	} = calculateVisibleWindow(
-		displaySelectedIndex,
-		displaySpaces.length,
+		activeSelectedIndex,
+		activeSpaces.length,
 		termHeight,
 	);
-	const visibleDisplaySpaces = displaySpaces.slice(
+	const visibleDisplaySpaces = activeSpaces.slice(
 		scrollOffset,
 		scrollOffset + visibleCount,
 	);
@@ -1072,7 +1141,11 @@ export default function App({
 
 	useMouse(
 		handleMouse,
-		!showPromptDialog && !showDeleteConfirm && !showHelp && !showErrorDialog,
+		!showPromptDialog &&
+			!showDeleteConfirm &&
+			!showHelp &&
+			!showErrorDialog &&
+			!isSearching,
 	);
 
 	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
@@ -1080,11 +1153,13 @@ export default function App({
 
 	// Render the space list
 	const renderList = () => {
-		if (displaySpaces.length === 0) {
+		if (activeSpaces.length === 0) {
 			return (
 				<Box flexDirection="column" paddingY={1}>
-					<Text dimColor>No spaces found.</Text>
-					<Text dimColor>Press n to create a new space.</Text>
+					<Text dimColor>
+						{isSearching ? 'No matches.' : 'No spaces found.'}
+					</Text>
+					{!isSearching && <Text dimColor>Press n to create a new space.</Text>}
 				</Box>
 			);
 		}
@@ -1130,8 +1205,8 @@ export default function App({
 				<Text dimColor> | </Text>
 				<Text dimColor>
 					{spaceCount} space{spaceCount !== 1 ? 's' : ''}
-					{visibleDisplaySpaces.length < displaySpaces.length &&
-						` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${displaySpaces.length})`}
+					{visibleDisplaySpaces.length < activeSpaces.length &&
+						` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
 				</Text>
 				{errorCount > 0 && (
 					<>
@@ -1144,7 +1219,25 @@ export default function App({
 
 			{/* Status message line (occupies the row between header and list) */}
 			<Box>
-				<Text color="yellow">{headerMessage || ' '}</Text>
+				{isSearching ? (
+					<>
+						<Text color="cyan">/</Text>
+						<TextInput
+							value={searchQuery}
+							onChange={setSearchQuery}
+							placeholder="filter by key or title..."
+						/>
+						{filteredDisplaySpaces.length !== displaySpaces.length && (
+							<Text dimColor>
+								{' '}
+								({filteredDisplaySpaces.length} match
+								{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+							</Text>
+						)}
+					</>
+				) : (
+					<Text color="yellow">{headerMessage || ' '}</Text>
+				)}
 			</Box>
 
 			{/* Main content */}

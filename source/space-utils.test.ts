@@ -1,5 +1,9 @@
 import test from 'ava';
-import {computePostDeleteState, shouldShowLoadingTitle} from './space-utils.ts';
+import {
+	computePostDeleteState,
+	filterSpaces,
+	shouldShowLoadingTitle,
+} from './space-utils.ts';
 import type {SpaceData} from './types.ts';
 
 // ============================================================================
@@ -118,4 +122,142 @@ test('does not show loading when linearIssue title is available', t => {
 
 test('does not show loading when name is empty', t => {
 	t.false(shouldShowLoadingTitle(makeSpace('')));
+});
+
+// ============================================================================
+// filterSpaces
+// ============================================================================
+
+test('filterSpaces: empty query returns all spaces with identity index map', t => {
+	const spaces = [makeSpace('STA-1'), makeSpace('STA-2'), makeSpace('STA-3')];
+	const {filtered, indexMap} = filterSpaces(spaces, '');
+	t.is(filtered.length, 3);
+	t.deepEqual(indexMap, [0, 1, 2]);
+});
+
+test('filterSpaces: matches by issue key (case-insensitive)', t => {
+	const spaces = [
+		makeSpace('STA-100'),
+		makeSpace('STA-200'),
+		makeSpace('STA-300'),
+	];
+	const {filtered, indexMap} = filterSpaces(spaces, 'sta-2');
+	t.deepEqual(
+		filtered.map(s => s.name),
+		['STA-200'],
+	);
+	t.deepEqual(indexMap, [1]);
+});
+
+test('filterSpaces: matches by issue title (case-insensitive)', t => {
+	const spaces = [
+		makeSpace('STA-1', {
+			linearIssue: {
+				identifier: 'STA-1',
+				title: 'Fix login bug',
+				state: {name: 'Todo', color: '#ccc'},
+			},
+		}),
+		makeSpace('STA-2', {
+			linearIssue: {
+				identifier: 'STA-2',
+				title: 'Add search feature',
+				state: {name: 'Todo', color: '#ccc'},
+			},
+		}),
+		makeSpace('STA-3', {
+			linearIssue: {
+				identifier: 'STA-3',
+				title: 'Refactor database',
+				state: {name: 'Todo', color: '#ccc'},
+			},
+		}),
+	];
+	const {filtered, indexMap} = filterSpaces(spaces, 'search');
+	t.deepEqual(
+		filtered.map(s => s.name),
+		['STA-2'],
+	);
+	t.deepEqual(indexMap, [1]);
+});
+
+test('filterSpaces: matches both name and title across multiple spaces', t => {
+	const spaces = [
+		makeSpace('STA-10', {
+			linearIssue: {
+				identifier: 'STA-10',
+				title: 'Dashboard redesign',
+				state: {name: 'Todo', color: '#ccc'},
+			},
+		}),
+		makeSpace('STA-20', {
+			linearIssue: {
+				identifier: 'STA-20',
+				title: 'Fix STA-10 regression',
+				state: {name: 'Todo', color: '#ccc'},
+			},
+		}),
+		makeSpace('STA-30'),
+	];
+	// "sta-10" matches STA-10 by name and STA-20 by title
+	const {filtered, indexMap} = filterSpaces(spaces, 'sta-10');
+	t.deepEqual(
+		filtered.map(s => s.name),
+		['STA-10', 'STA-20'],
+	);
+	t.deepEqual(indexMap, [0, 1]);
+});
+
+test('filterSpaces: no matches returns empty list', t => {
+	const spaces = [makeSpace('STA-1'), makeSpace('STA-2')];
+	const {filtered, indexMap} = filterSpaces(spaces, 'nonexistent');
+	t.is(filtered.length, 0);
+	t.deepEqual(indexMap, []);
+});
+
+test('filterSpaces: partial key match works', t => {
+	const spaces = [
+		makeSpace('STA-123'),
+		makeSpace('STA-456'),
+		makeSpace('STA-127'),
+	];
+	const {filtered} = filterSpaces(spaces, '12');
+	t.deepEqual(
+		filtered.map(s => s.name),
+		['STA-123', 'STA-127'],
+	);
+});
+
+test('filterSpaces: spaces without linearIssue only match on name', t => {
+	const spaces = [
+		makeSpace('STA-1'),
+		makeSpace('STA-2', {
+			linearIssue: {
+				identifier: 'STA-2',
+				title: 'Has a title',
+				state: {name: 'Todo', color: '#ccc'},
+			},
+		}),
+	];
+	const {filtered} = filterSpaces(spaces, 'title');
+	t.deepEqual(
+		filtered.map(s => s.name),
+		['STA-2'],
+	);
+});
+
+test('filterSpaces: index map correctly maps back to original positions', t => {
+	const spaces = [
+		makeSpace('STA-1'),
+		makeSpace('STA-2'),
+		makeSpace('STA-3'),
+		makeSpace('STA-4'),
+		makeSpace('STA-5'),
+	];
+	const {filtered, indexMap} = filterSpaces(spaces, 'sta-3');
+	t.deepEqual(
+		filtered.map(s => s.name),
+		['STA-3'],
+	);
+	t.deepEqual(indexMap, [2]);
 });
