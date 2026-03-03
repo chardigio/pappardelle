@@ -15,12 +15,36 @@ Usage:
     Reads JSON from stdin containing tool_input (questions) and tool_response (answers).
 """
 
+import importlib.util
 import json
 import os
 import re as _re_module
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 from typing import Optional
+
+# Import shared helpers from sibling modules (same directory)
+_hooks_dir = Path(__file__).parent
+
+_adf_module_path = _hooks_dir / "markdown_to_adf.py"
+_adf_spec = importlib.util.spec_from_file_location("markdown_to_adf", _adf_module_path)
+if _adf_spec and _adf_spec.loader:
+    _adf_mod = importlib.util.module_from_spec(_adf_spec)
+    _adf_spec.loader.exec_module(_adf_mod)
+    markdown_to_adf_json = _adf_mod.markdown_to_adf_json
+else:
+    raise ImportError(f"Could not load markdown_to_adf from {_adf_module_path}")
+
+_acli_module_path = _hooks_dir / "acli_helpers.py"
+_acli_spec = importlib.util.spec_from_file_location("acli_helpers", _acli_module_path)
+if _acli_spec and _acli_spec.loader:
+    _acli_mod = importlib.util.module_from_spec(_acli_spec)
+    _acli_spec.loader.exec_module(_acli_mod)
+    acli_succeeded = _acli_mod.acli_succeeded
+else:
+    raise ImportError(f"Could not load acli_helpers from {_acli_module_path}")
 
 
 def get_issue_key() -> Optional[str]:
@@ -170,6 +194,7 @@ def post_comment(issue_key: str, body: str) -> bool:
     """Post a comment to the configured issue tracker.
 
     Dispatches to linctl (Linear) or acli (Jira) based on .pappardelle.yml config.
+    Uses ADF formatting for Jira comments via --body-file with ADF JSON.
 
     Args:
         issue_key: The issue key (e.g., STA-123 or PROJ-456)
@@ -181,9 +206,27 @@ def post_comment(issue_key: str, body: str) -> bool:
     provider = get_tracker_provider()
 
     if provider == "jira":
-        cmd = ["acli", "jira", "workitem", "comment", "create", "--key", issue_key, "--body", body]
+        # Convert markdown to ADF and write to temp file for --body-file
+        adf_json = markdown_to_adf_json(body)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", prefix="pappardelle-comment-", delete=False
+            ) as f:
+                tmp_path = f.name
+                f.write(adf_json)
+            cmd = ["acli", "jira", "workitem", "comment", "create", "--key", issue_key, "--body-file", tmp_path]
+        except OSError as e:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            print(f"Error creating temp file for ADF: {e}", file=sys.stderr)
+            return False
         not_found_msg = "acli not found - install the Atlassian CLI"
     else:
+        tmp_path = None
         cmd = ["linctl", "comment", "create", issue_key, "--body", body]
         not_found_msg = "linctl not found - install with: brew tap raegislabs/linctl && brew install linctl"
 
@@ -194,6 +237,8 @@ def post_comment(issue_key: str, body: str) -> bool:
             text=True,
             timeout=30,
         )
+        if provider == "jira":
+            return acli_succeeded(result)
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         print(f"Timeout posting comment via {provider}", file=sys.stderr)
@@ -204,6 +249,12 @@ def post_comment(issue_key: str, body: str) -> bool:
     except Exception as e:
         print(f"Error posting comment: {e}", file=sys.stderr)
         return False
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def main() -> None:

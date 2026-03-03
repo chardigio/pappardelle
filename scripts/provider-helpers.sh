@@ -193,9 +193,22 @@ create_issue() {
 _Original prompt:_
 
 $quoted_prompt"
+            # Convert markdown description to ADF JSON via the converter script
+            local script_dir
+            script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            local hooks_dir="$script_dir/../hooks"
+            local adf_tmp
+            adf_tmp=$(mktemp /tmp/pappardelle-desc-XXXXXX.json)
+            if ! python3 "$hooks_dir/markdown_to_adf.py" "$description" > "$adf_tmp"; then
+                echo "Error: Failed to convert description to ADF format" >&2
+                rm -f "$adf_tmp"
+                return 1
+            fi
+
             local output
-            output=$(acli jira workitem create --project "$team" --type Task --summary "$title" --description "$description" 2>&1)
+            output=$(acli jira workitem create --project "$team" --type Task --summary "$title" --description-file "$adf_tmp" 2>&1)
             local exit_code=$?
+            rm -f "$adf_tmp"
             if [[ $exit_code -ne 0 ]]; then
                 echo "Error: Failed to create Jira issue: $output" >&2
                 return 1
