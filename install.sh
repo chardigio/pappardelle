@@ -140,22 +140,18 @@ echo ""
 if [[ "$LOCAL_MODE" == true ]]; then
     print_status "Running from local clone: $REPO_DIR"
 else
-    if [[ -d "$REPO_DIR/.git" ]]; then
-        print_info "Updating existing installation..."
-        if (cd "$REPO_DIR" && git fetch --quiet origin && git reset --hard origin/main --quiet); then
-            print_status "Updated $REPO_DIR"
-        else
-            print_warning "git update failed, continuing with existing version"
-        fi
+    # Always fresh clone to avoid divergent history issues
+    if [[ -d "$REPO_DIR" ]]; then
+        print_info "Removing existing clone..."
+        rm -rf "$REPO_DIR"
+    fi
+    print_info "Cloning pappardelle..."
+    mkdir -p "$PAPPARDELLE_DIR"
+    if git clone --quiet "$REPO_URL" "$REPO_DIR"; then
+        print_status "Cloned to $REPO_DIR"
     else
-        print_info "Cloning pappardelle..."
-        mkdir -p "$PAPPARDELLE_DIR"
-        if git clone --quiet "$REPO_URL" "$REPO_DIR"; then
-            print_status "Cloned to $REPO_DIR"
-        else
-            print_error "Failed to clone $REPO_URL"
-            exit 1
-        fi
+        print_error "Failed to clone $REPO_URL"
+        exit 1
     fi
 fi
 
