@@ -20,6 +20,10 @@ chmod +x "$HOOKS_DIR/comment-question-answered.py"
 cp "$SCRIPT_DIR/post-plan-to-tracker.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/post-plan-to-tracker.py"
 
+# Copy helper modules (imported by hook scripts above)
+cp "$SCRIPT_DIR/markdown_to_adf.py" "$HOOKS_DIR/"
+cp "$SCRIPT_DIR/acli_helpers.py" "$HOOKS_DIR/"
+
 echo "Hook scripts installed to $HOOKS_DIR/"
 
 # Check if Claude settings exists
