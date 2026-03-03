@@ -165,6 +165,7 @@ print_info "Installing dependencies and building..."
     cd "$REPO_DIR"
     npm install --silent
     npm run build --silent
+    chmod +x dist/cli.js
 ) || {
     print_error "npm install/build failed"
     print_info "Try manually: cd $REPO_DIR && npm install && npm run build"
