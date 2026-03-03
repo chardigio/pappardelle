@@ -71,7 +71,7 @@ See [Section 7: Reference](#7-reference) for alternative install methods (local 
    The `/do` initialization command tells Claude to start planning, implementing, and testing the issue with care. Install a starter `/do` skill into your project with the following command:
 
    ```bash
-   mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do/SKILL.md -o .claude/skills/do/SKILL.md
+   mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
    ```
 
 2. **Launch Pappardelle:**
@@ -282,6 +282,10 @@ Omit `issue_tracker` and `vcs_host` to use the defaults (Linear + GitHub).
 
 For the full configuration reference, see [pappardelle-config.md](pappardelle-config.md).
 
+### Real-world example
+
+For a production `.pappardelle.yml` used across a polyglot monorepo (Python backends + Swift iOS apps), see [`examples/monorepo-pappardelle.yml`](examples/monorepo-pappardelle.yml). It demonstrates profiles with iOS build commands, custom keybindings for deploying to devices and simulators, QA simulator setup, `post_worktree_init` hooks, and more.
+
 ---
 
 ## 5. Advanced: Wrangling Multi-Repo Changes
@@ -330,10 +334,10 @@ One key distinction for multi-repo work is between **plugin** skills and parent 
 
 ### Example `/do` skill for multi-repo
 
-A starter `/do` skill tailored for multi-repo workflows is available at [`example_skills/do-multi-repo/SKILL.md`](example_skills/do-multi-repo/SKILL.md). It covers submodule init, agent team spin-up, per-repo QA, and coordinated PR creation. Install it into your parent repo with:
+A starter `/do` skill tailored for multi-repo workflows is available at [`examples/skills/do-multi-repo/SKILL.md`](examples/skills/do-multi-repo/SKILL.md). It covers submodule init, agent team spin-up, per-repo QA, and coordinated PR creation. Install it into your parent repo with:
 
 ```bash
-mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do-multi-repo/SKILL.md -o .claude/skills/do/SKILL.md
+mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do-multi-repo/SKILL.md -o .claude/skills/do/SKILL.md
 ```
 
 ### Useful keybindings
