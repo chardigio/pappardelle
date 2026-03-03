@@ -1,8 +1,10 @@
-# Pappardelle
+# 🦀🍝🦀 Pappardelle
 
-Pappardelle is a powerful, configurable tool for managing multiple development workspaces at once with Claude Code, git worktrees, and tmux.
+Pappardelle is a configurable tool that enables multi-clauding without losing your marbles.
 
-Pappardelle orchestrates the full lifecycle of a coding task: you type a description, and it creates an issue, git worktree, PR/MR, and a Claude Code session — all wired together in a 3-pane tmux layout you can navigate with simple keystrokes.
+Pappardelle orchestrates the full lifecycle of a coding task: you type a description, and it reads or creates an issue, spawns a git worktree, builds a PR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple keystrokes.
+
+TODO: video
 
 ---
 
