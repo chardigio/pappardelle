@@ -186,7 +186,7 @@ You can also create workspaces from the command line — see [Section 7: Referen
 
 When you create a workspace, Pappardelle runs through these steps:
 
-1. **Profile selection** — Your input is keyword-matched against profiles in `.pappardelle.yml`. If one profile matches, it's auto-selected. If multiple match, you're prompted to choose. If none match, the `default_profile` is used.
+1. **Profile selection** — Your input is keyword-matched against profiles in `.pappardelle.yml`. If one profile matches, it's auto-selected. If multiple match, the best match is used. If none match, the `default_profile` is used. Append `!` to a keyword to enforce that profile (e.g., `music! add playlist shuffle`).
 
 2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira) issue is created with a WIP title. For existing issue keys, the issue is fetched.
 
@@ -205,7 +205,7 @@ When you create a workspace, Pappardelle runs through these steps:
 Pappardelle is configured via a `.pappardelle.yml` file at your git repository root. This file is **required** — Pappardelle won't start without it.
 ### Profiles
 
-Profiles define per-project-type configuration. When you create a workspace, Pappardelle matches your input text against each profile's `keywords` array. If one profile matches, it's selected automatically. If multiple match or none match, you're prompted.
+Profiles define per-project-type configuration. When you create a workspace, Pappardelle matches your input text against each profile's `keywords` array. If one profile matches, it's selected automatically. If multiple match, the best match is used. Append `!` to a keyword to enforce that profile (e.g., `music! add playlist shuffle`).
 
 **Profile fields:**
 
