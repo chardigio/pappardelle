@@ -21,7 +21,7 @@ test('routeSession routes issue key as issue type', t => {
 
 test('routeSession provides sentence-case pending title for issue routes', t => {
 	const result = routeSession('STA-421');
-	t.is(result.pendingTitle, 'Resuming\u2026');
+	t.is(result.pendingTitle, 'Opening\u2026');
 });
 
 test('routeSession preserves non-default team prefix', t => {
@@ -54,7 +54,7 @@ test('resolves when issue key appears in spaces', t => {
 		type: 'issue',
 		name: 'STA-464',
 		idowArg: 'STA-464',
-		pendingTitle: 'Resuming\u2026',
+		pendingTitle: 'Opening\u2026',
 		prevSpaceCount: 1,
 	};
 	t.true(isPendingSessionResolved(pending, ['STA-463', 'STA-464']));
@@ -65,7 +65,7 @@ test('does not resolve when issue key is absent from spaces', t => {
 		type: 'issue',
 		name: 'STA-464',
 		idowArg: 'STA-464',
-		pendingTitle: 'Resuming\u2026',
+		pendingTitle: 'Opening\u2026',
 		prevSpaceCount: 1,
 	};
 	t.false(isPendingSessionResolved(pending, ['STA-463']));

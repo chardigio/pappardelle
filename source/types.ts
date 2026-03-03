@@ -50,7 +50,7 @@ export interface SpaceData {
 	isMainWorktree?: boolean; // True for the main (master/main) worktree — cannot be deleted
 	isDirty?: boolean; // True if worktree has uncommitted changes (used for main worktree color)
 	isPending?: boolean; // True for placeholder rows shown while a new session is starting
-	pendingTitle?: string; // Title text for pending rows (e.g., "Resuming..." or "Starting new session...")
+	pendingTitle?: string; // Title text for pending rows (e.g., "Opening..." or "Starting new session...")
 }
 
 /**

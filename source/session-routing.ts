@@ -5,7 +5,7 @@ export type SessionRoute = {
 	type: 'issue' | 'description';
 	/** Issue key for issue routes, null for description routes */
 	issueKey: string | null;
-	/** Title shown in the pending list row (e.g., "Resuming..." or "Starting new session...") */
+	/** Title shown in the pending list row (e.g., "Opening..." or "Starting new session...") */
 	pendingTitle: string;
 };
 
@@ -23,7 +23,7 @@ export function routeSession(normalizedIssueKey: string | null): SessionRoute {
 		return {
 			type: 'issue',
 			issueKey: normalizedIssueKey,
-			pendingTitle: 'Resuming\u2026',
+			pendingTitle: 'Opening\u2026',
 		};
 	}
 
