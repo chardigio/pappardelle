@@ -13,6 +13,7 @@ import {
 	loadConfig,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {getRegisteredSpaces} from './space-registry.ts';
 import {isSimctlUnavailableError} from './simctl-check.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -525,37 +526,36 @@ export function getTmuxPaneHeight(): number {
 }
 
 /**
- * Get the number of active Claude sessions (determines list pane height in vertical mode)
+ * Get the number of active spaces from the persisted registry.
+ * Uses the space registry (JSON file) as the single source of truth,
+ * rather than querying tmux sessions directly. This ensures correct
+ * counts even when pappardelle starts after a tmux server kill/reboot.
  */
-function getActiveSessionCount(): number {
-	return listClaudeSessions().length;
+export function getActiveSpaceCount(): number {
+	return getRegisteredSpaces().length;
 }
 
 // ============================================================================
-// Internal Wrapper Functions (use live tmux state)
+// Internal Wrapper Functions (use persisted space registry for counts)
 // ============================================================================
 
 /**
- * Calculate the ideal list pane height based on current session count.
- * Internal function that queries tmux for current state.
+ * Calculate the ideal list pane height based on current space count.
+ * Internal function that reads from the persisted space registry.
  */
 function calculateIdealListHeight(): number {
-	return calculateIdealListHeightForCount(getActiveSessionCount());
+	return calculateIdealListHeightForCount(getActiveSpaceCount());
 }
 
 /**
  * Calculate pane layout based on terminal dimensions.
- * Internal function that queries tmux for current session count.
+ * Internal function that reads space count from the persisted registry.
  */
 function calculateLayout(
 	totalWidth: number,
 	totalHeight: number,
 ): LayoutConfig {
-	return calculateLayoutForSize(
-		totalWidth,
-		totalHeight,
-		getActiveSessionCount(),
-	);
+	return calculateLayoutForSize(totalWidth, totalHeight, getActiveSpaceCount());
 }
 
 /**
@@ -591,9 +591,9 @@ export function resizeListPaneForSessionCount(listPaneId: string): boolean {
 			return false;
 		}
 
-		const sessionCount = getActiveSessionCount();
+		const spaceCount = getActiveSpaceCount();
 		log.info(
-			`Resized list pane for ${sessionCount} sessions: list=${newListHeight} rows`,
+			`Resized list pane for ${spaceCount} spaces: list=${newListHeight} rows`,
 		);
 		return true;
 	} catch (err) {
