@@ -71,7 +71,7 @@ See [Section 7: Reference](#7-reference) for alternative install methods (local 
    The `/do` initialization command tells Claude to start planning, implementing, and testing the issue with care. Install a starter `/do` skill into your project with the following command:
 
    ```bash
-   mkdir -p .claude/commands && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do/SKILL.md -o .claude/commands/do.md
+   mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do/SKILL.md -o .claude/skills/do/SKILL.md
    ```
 
 2. **Launch Pappardelle:**
@@ -324,7 +324,7 @@ One key distinction for multi-repo work is between **plugin** skills and parent 
 
   Example: An `/address-mr-feedback` plugin that lets any agent look at its own repo's MR and address reviewer comments.
 
-- **Parent repo skills** (in the parent repo's `.claude/commands/`) are orchestration skills that spawn agent teams across submodules.
+- **Parent repo skills** (in the parent repo's `.claude/skills/`) are orchestration skills that spawn agent teams across submodules.
 
   Example: An `/address-mr-feedbacks` (plural) skill that spins up an agent team, spawning one agent per relevant submodule — each agent calls the plugin's singular skill for its own MR.
 
@@ -333,7 +333,7 @@ One key distinction for multi-repo work is between **plugin** skills and parent 
 A starter `/do` skill tailored for multi-repo workflows is available at [`example_skills/do-multi-repo/SKILL.md`](example_skills/do-multi-repo/SKILL.md). It covers submodule init, agent team spin-up, per-repo QA, and coordinated PR creation. Install it into your parent repo with:
 
 ```bash
-mkdir -p .claude/commands && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do-multi-repo/SKILL.md -o .claude/commands/do.md
+mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do-multi-repo/SKILL.md -o .claude/skills/do/SKILL.md
 ```
 
 ### Useful keybindings
