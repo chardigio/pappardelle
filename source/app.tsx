@@ -285,7 +285,9 @@ export default function App({
 			// Prepend the main worktree (always first, non-deletable)
 			const mainInfo = await getMainWorktreeInfo();
 			if (mainInfo) {
-				// name is always "main" (like lazygit) regardless of actual branch name
+				// name is always "main" regardless of actual branch name.
+				// This ensures stable tmux session names (claude-<repo>-main) that don't
+				// change if the default branch is renamed.
 				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-master")
 				const repoName = getRepoName();
 				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);

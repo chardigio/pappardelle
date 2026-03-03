@@ -7,6 +7,7 @@ import {
 	extractIssueKeyFromSession,
 	getSessionPrefix,
 	pretrustDirectoryForClaude,
+	buildClaudeResumeCommand,
 } from './tmux.ts';
 
 // getSessionPrefix: returns repo-qualified prefix
@@ -135,4 +136,38 @@ test('pretrustDirectoryForClaude handles corrupt JSON gracefully', t => {
 	t.deepEqual(config.projects['/tmp/worktree/STA-300'], {
 		hasTrustDialogAccepted: true,
 	});
+});
+
+// buildClaudeResumeCommand: generates --continue fallback chain
+
+test('buildClaudeResumeCommand tries --continue first', t => {
+	const cmd = buildClaudeResumeCommand();
+	t.true(cmd.startsWith('claude --continue'));
+});
+
+test('buildClaudeResumeCommand falls back to bare claude', t => {
+	const cmd = buildClaudeResumeCommand();
+	t.true(cmd.endsWith('|| claude'));
+});
+
+test('buildClaudeResumeCommand includes ANSI escape to clear error line', t => {
+	const cmd = buildClaudeResumeCommand();
+	t.true(cmd.includes("printf '\\033[A\\033[2K'"));
+});
+
+test('buildClaudeResumeCommand with skipPermissions includes flag in both branches', t => {
+	const cmd = buildClaudeResumeCommand(true);
+	// --continue attempt should have the flag
+	t.true(cmd.startsWith('claude --dangerously-skip-permissions --continue'));
+	// Fallback should also have the flag
+	t.true(cmd.endsWith('|| claude --dangerously-skip-permissions'));
+});
+
+test('buildClaudeResumeCommand without skipPermissions has no permission flag', t => {
+	const cmd = buildClaudeResumeCommand(false);
+	t.false(cmd.includes('--dangerously-skip-permissions'));
+});
+
+test('buildClaudeResumeCommand default is skipPermissions=false', t => {
+	t.is(buildClaudeResumeCommand(), buildClaudeResumeCommand(false));
 });

@@ -120,6 +120,19 @@ export function getSessionNames(
 }
 
 /**
+ * Build the shell command for starting Claude with --continue fallback.
+ * Tries to resume the most recent conversation in the worktree directory,
+ * falling back to bare claude if no prior conversation exists.
+ * The ANSI escape clears the "No conversation found" error line on failure.
+ */
+export function buildClaudeResumeCommand(skipPermissions = false): string {
+	const claudeCmd = skipPermissions
+		? 'claude --dangerously-skip-permissions'
+		: 'claude';
+	return `${claudeCmd} --continue || { printf '\\033[A\\033[2K'; false; } || ${claudeCmd}`;
+}
+
+/**
  * Check if sessions exist for a space (created by idow)
  */
 export function spaceHasSessions(issueKey: string): {
@@ -1505,12 +1518,12 @@ export function ensureClaudeSession(
 			return false;
 		}
 
-		// Now send claude command to the session
-		const claudeCmd = skipPermissions
-			? 'claude --dangerously-skip-permissions'
-			: 'claude';
+		// Now send claude command to the session.
+		// Try --continue first to resume an existing conversation in this worktree,
+		// falling back to bare claude if no prior session exists.
+		const fullCmd = buildClaudeResumeCommand(skipPermissions);
 
-		spawnSync('tmux', ['send-keys', '-t', sessionName, claudeCmd, 'Enter'], {
+		spawnSync('tmux', ['send-keys', '-t', sessionName, fullCmd, 'Enter'], {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
