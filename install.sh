@@ -165,7 +165,6 @@ print_info "Installing dependencies and building..."
     cd "$REPO_DIR"
     npm install --silent
     npm run build --silent
-    chmod +x dist/cli.js
 ) || {
     print_error "npm install/build failed"
     print_info "Try manually: cd $REPO_DIR && npm install && npm run build"
@@ -173,20 +172,20 @@ print_info "Installing dependencies and building..."
 }
 print_status "Built successfully"
 
-# npm link to make `pappardelle` available globally
-(cd "$REPO_DIR" && npm link --silent) && print_status "Linked 'pappardelle' command globally" \
-    || print_warning "npm link failed — you may need to run: cd $REPO_DIR && sudo npm link"
+# Link pappardelle and idow to ~/.local/bin/
+mkdir -p "$LOCAL_BIN"
 
-# ============================================================================
-# Symlink idow to ~/.local/bin/
-# ============================================================================
+# pappardelle — wrapper script instead of npm link (avoids Volta shim issues)
+cat > "$LOCAL_BIN/pappardelle" <<WRAPPER
+#!/usr/bin/env bash
+exec node "$REPO_DIR/dist/cli.js" "\$@"
+WRAPPER
+chmod +x "$LOCAL_BIN/pappardelle"
+print_status "Linked 'pappardelle' command globally"
 
+# idow
 IDOW_SRC="$REPO_DIR/scripts/idow"
-
 if [[ -f "$IDOW_SRC" ]]; then
-    mkdir -p "$LOCAL_BIN"
-
-    # idow
     if [[ -L "$LOCAL_BIN/idow" || -f "$LOCAL_BIN/idow" ]]; then
         rm "$LOCAL_BIN/idow"
     fi
