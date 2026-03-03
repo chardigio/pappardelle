@@ -1,267 +1,374 @@
 # Pappardelle
 
-Interactive Terminal UI for managing DOW (Do on Worktree) workspaces.
+Pappardelle is a powerful, configurable tool for managing multiple development workspaces at once with Claude Code, git worktrees, and tmux.
 
-## Features
+Pappardelle orchestrates the full lifecycle of a coding task: you type a description, and it creates an issue, git worktree, PR/MR, and a Claude Code session — all wired together in a 3-pane tmux layout you can navigate with simple keystrokes.
 
-- **3-Pane Layout**: Workspace list, Claude Code viewer, and lazygit viewer side-by-side in tmux
-- **Issue Tracker Integration**: Shows issue key, title, and status (Linear or Jira)
-- **Claude Status**: Real-time Claude Code status tracking with animated spinner, attention-blinking rows, and per-tool status icons
-- **Quick Navigation**: Vim-style `j`/`k` and arrow key navigation with instant pane switching
-- **Workspace Provisioning**: Create full workspaces (worktree, PR, Xcode project, Claude session) from a prompt
-- **Quick Actions**: Open PRs, issues, and IDE from keybindings (`g`, `i`, `d`)
-- **Mouse Support**: Click workspace rows to select
-- **Provider Agnostic**: Pluggable issue tracker (Linear, Jira) and VCS host (GitHub, GitLab)
+---
 
-## How It Works
+## Table of Contents
 
-Pappardelle orchestrates isolated development workspaces using tmux, git worktrees, and Claude Code. Here's the end-to-end flow:
+1. [Installation and Getting Started](#1-installation-and-getting-started)
+2. [Understanding tmux in Pappardelle](#2-understanding-tmux-in-pappardelle)
+3. [Spawning New Sessions](#3-spawning-new-sessions)
+4. [Customizing Your Configuration](#4-customizing-your-configuration)
+5. [Advanced: Wrangling Multi-Repo Changes](#5-advanced-wrangling-multi-repo-changes)
+6. [Advanced: Pappardelle on the Go](#6-advanced-pappardelle-on-the-go)
+7. [Reference](#7-reference)
 
-### 1. Launch
+---
 
-Running `pappardelle` creates (or attaches to) a tmux session with a 3-pane layout:
+## 1. Installation and Getting Started
 
-- **Left** — workspace list (the TUI itself)
-- **Center** — Claude Code viewer (shows the selected workspace's Claude session)
-- **Right** — lazygit viewer (shows the selected workspace's git state)
+### Prerequisites
 
-If you're not already in tmux, pappardelle auto-creates a session and re-launches inside it.
+| Tool                                                                   | Required | Install                                                            |
+| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------ |
+| Node.js >= 18                                                          | Yes      | `brew install node`                                                |
+| npm                                                                    | Yes      | Comes with Node.js                                                 |
+| git                                                                    | Yes      | `brew install git`                                                 |
+| tmux                                                                   | Yes      | `brew install tmux`                                                |
+| jq                                                                     | Yes      | `brew install jq`                                                  |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                  |
+| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)   |
+| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
+| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
+| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
 
-### 2. Create a Workspace
+### Install
 
-Press `n` to open the prompt dialog. You can enter:
-
-- A **free-text description** (e.g., `"add dark mode to settings"`) — creates a new issue
-- An **issue key** (e.g., `STA-123`) — uses an existing issue
-- A **bare number** (e.g., `123`) — prepends the global `team_prefix` from `.pappardelle.yml` (profile-level prefixes are only used for new issue creation, not bare-number expansion)
-
-This triggers `idow`, which provisions the entire workspace:
-
-1. **Profile selection** — keyword-matches your input against profiles in `.pappardelle.yml` to determine project-specific config (iOS settings, GitHub labels, apps to open)
-2. **Issue creation/fetch** — creates a new issue in your tracker (Linear or Jira) or fetches an existing one
-3. **Title generation** — for new issues, uses AI to derive a concise title from the description
-4. **Git worktree** — creates an isolated worktree at `~/.worktrees/{repo}/{issue-key}/`
-5. **PR/MR creation** — opens a placeholder pull request (GitHub) or merge request (GitLab)
-6. **Xcode project** — if the profile has an `ios` block (with `app_dir`, `bundle_id`, `scheme`), runs `xcodegen generate` and creates a `Local.xcconfig` with worktree-specific port settings. See [pappardelle-config.md](pappardelle-config.md) for profile `ios` configuration.
-7. **Claude session** — starts a named tmux session (`claude-{repo}-{issue-key}`) with Claude Code. If `claude.initialization_command` is set in `.pappardelle.yml` (e.g., `"/idow"`), that command is passed to Claude along with the issue key; otherwise Claude opens with just the issue key.
-
-With the `--open` flag (or pressing `o` in the TUI), additional steps run: opens iTerm2 with Claude, launches configured apps (Cursor, Xcode, etc.), opens the issue and PR URLs in the browser, and clones a QA iOS simulator in the background.
-
-### 3. Navigate Between Workspaces
-
-Use `↑`/`↓` (or `j`/`k`) to move through the workspace list. Highlighting a row instantly switches the Claude and lazygit viewer panes to that workspace's sessions — no restart or re-attach needed. Press `Enter` to focus the Claude pane for direct interaction.
-
-### 4. Real-Time Status Tracking
-
-Claude Code hooks report session status back to the TUI in real time:
-
-1. Claude Code lifecycle events (`PreToolUse`, `PostToolUse`, `Stop`, etc.) trigger `update-status.py`
-2. The hook writes a JSON status file to `~/.pappardelle/claude-status/{workspace}.json`
-3. The TUI watches this directory with a filesystem watcher and updates the status icon instantly
-
-Status icons show at a glance whether Claude is working (animated spinner), waiting for input (`●`), needs permission (`!`), or is done (`●`). See the [Status Values](#status-values) table below for the full list.
-
-### 5. Closing Workspaces
-
-Press `Delete` on a workspace to tear it down. This kills the Claude and lazygit tmux sessions and removes the workspace from the list. The git worktree and any committed work remain intact on disk.
-
-## Installation
-
-**One-line install:**
+**One-line install** (clones to `~/.pappardelle/repo/`, builds, and links globally):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-This installs the `pappardelle` TUI, `idow` CLI tool, and Claude Code hooks for status tracking.
+See [Section 7: Reference](#7-reference) for alternative install methods (local clone, manual).
 
-**Or from a local clone:**
+### First run
 
-```bash
-./install.sh
-```
+1. **Add a config file** to your repo root (Pappardelle won't start without one):
 
-**Or manually:**
+   ```bash
+   # In your git repository root
+   touch .pappardelle.yml
+   ```
 
-```bash
-npm install
-npm run build
-npm link  # Makes pappardelle available globally
+   See [Section 4: Customizing Your Configuration](#4-customizing-your-configuration) for the full config format. A minimal config looks like:
 
-# Install Claude Code hooks for status tracking
-./hooks/install.sh
-```
+   ```yaml
+   version: 1
+   team_prefix: PROJ # your issue prefix (e.g., PROJ-123)
 
-## Usage
+   claude:
+     initialization_command: '/do' # skill Claude runs on each new workspace
 
-```bash
-pappardelle
-```
+   profiles:
+     my-app:
+       display_name: 'My App'
+   ```
 
-### Controls
+   The `/do` initialization command tells Claude to start planning, implementing, and testing the issue with care. Install a starter `/do` skill into your project with the following command:
 
-| Key   | Action                        |
-| ----- | ----------------------------- |
-| j / ↓ | Move down                     |
-| k / ↑ | Move up                       |
-| Enter | Focus Claude pane             |
-| g     | Open PR / MR in browser       |
-| i     | Open issue in browser         |
-| d     | Open IDE (Cursor)             |
-| n     | New space                     |
-| o     | Open workspace (apps, links)  |
-| Del   | Close space                   |
-| e     | Show errors                   |
-| ?     | Show help                     |
+   ```bash
+   mkdir -p .claude/commands && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do/SKILL.md -o .claude/commands/do.md
+   ```
 
-## Architecture
+2. **Launch Pappardelle:**
 
-```
-source/
-├── app.tsx              # Main application component
-├── cli.tsx              # CLI entry point
-├── types.ts             # TypeScript types and constants
-├── config.ts            # Configuration loading and parsing
-├── logger.ts            # Centralized logging system
-├── tmux.ts              # Tmux session management and layout
-├── tracker.ts           # Issue tracker facade (delegates to providers)
-├── claude-status.ts     # Claude status file management
-├── git-status.ts        # Git worktree status detection
-├── issue-checker.ts     # VCS host facade (delegates to providers)
-├── issue-utils.ts       # Issue utility helpers
-├── simctl-check.ts      # iOS simulator availability check
-├── space-utils.ts       # Space data utility helpers
-├── spawn-env.ts         # Spawned process environment setup
-├── session-routing.ts   # Session routing logic
-├── layout-sizing.ts     # Layout calculations
-├── list-view-sizing.ts  # List view sizing calculations
-├── use-mouse.ts         # Mouse input handling
-├── providers/
-│   ├── types.ts             # Provider interfaces (IssueTrackerProvider, VcsHostProvider)
-│   ├── index.ts             # Provider factory (createIssueTracker, createVcsHost)
-│   ├── linear-provider.ts   # Linear provider (linctl)
-│   ├── jira-provider.ts     # Jira provider (acli)
-│   ├── github-provider.ts   # GitHub provider (gh)
-│   └── gitlab-provider.ts   # GitLab provider (glab)
-└── components/
-    ├── SpaceListItem.tsx    # Individual space list item
-    ├── PromptDialog.tsx     # New session prompt dialog
-    ├── ConfirmDialog.tsx    # Confirmation dialog
-    ├── ErrorDialog.tsx      # Error dialog
-    ├── ErrorDisplay.tsx     # Error notification display
-    ├── HelpOverlay.tsx      # Help overlay
-    └── ClaudeAnimation.tsx  # Claude status animation
+   ```bash
+   pappardelle
+   ```
 
-scripts/                         # Workspace setup scripts
-├── idow                         # Interactive workspace setup
-├── start-claude-session.sh      # Claude + lazygit tmux session launcher
-├── provider-helpers.sh          # Provider-agnostic helper functions
-├── create-worktree.sh           # Git worktree creation
-├── create-linear-issue.sh       # Linear issue creation
-├── create-github-pr.sh          # GitHub PR creation
-├── derive-title.sh              # Issue title generation
-├── setup-qa-simulator.sh        # iOS simulator setup
-├── open-iterm-claude.sh         # iTerm + Claude session opener
-├── open-cursor.sh               # Cursor editor opener
-└── open-firefox-tabs.sh         # Firefox tab opener
+   This creates (or attaches to) a tmux session with the 3-pane layout. If you're not already inside tmux, Pappardelle creates a session and re-launches itself inside it.
 
-hooks/
-├── update-status.py             # Status tracking hook
-├── comment-question-answered.py # Issue tracker Q&A comment hook
-├── post-plan-to-tracker.py      # Plan posting hook
-├── settings.json.example        # Example Claude settings
-└── install.sh                   # Hook installation script
-```
+### Quick reference
 
-## Claude Status Tracking
-
-The TUI tracks Claude Code session status through file-based hooks:
-
-1. Claude Code hooks write status to `~/.pappardelle/claude-status/<workspace>.json`
-2. The TUI watches this directory for changes
-3. Status is displayed in real-time on workspace cards
-
-### Status Values
-
-| Status     | Icon          | Description                          |
-| ---------- | ------------- | ------------------------------------ |
-| Working    | ·✢✳∗✻✽       | Animated spinner while processing    |
-| Waiting    | ● (green)     | Claude needs user input              |
-| Permission | ! (red)       | Claude needs permission approval     |
-| Question   | ? (blue)      | Claude asked a clarifying question   |
-| Compacting | ◇ (yellow)    | Context window compacting            |
-| Done       | ● (green)     | Claude finished the task             |
-| Error      | ✗ (red)       | An error occurred                    |
-| Unknown    | ? (gray)      | No status available                  |
-
-## Issue Tracker Q&A Comments
-
-When Claude asks clarifying questions using `AskUserQuestion` and the user answers them, a hook automatically posts a comment to the corresponding issue. This creates a permanent record of the Q&A session.
-
-Supports both **Linear** (via `linctl`) and **Jira** (via `acli`), configured in `.pappardelle.yml`.
-
-### How It Works
-
-1. Claude uses the `AskUserQuestion` tool to ask questions
-2. The user selects answers from the provided options
-3. The `PostToolUse` hook for `AskUserQuestion` is triggered
-4. The hook extracts the issue key from the workspace path (e.g., `STA-123`)
-5. The hook reads `.pappardelle.yml` to determine the issue tracker provider
-6. A formatted markdown comment is posted via `linctl` (Linear) or `acli` (Jira)
-
-### Example Comment
-
-```markdown
-### Clarifying Questions Answered
-
-**Timing**: How should the feature behave?
-
-Options:
-
-- Option A: Description **[Selected]**
-- Option B: Another description
-
-**Answer**: Option A
+| Key | Action            |
+| --- | ----------------- |
+| `?` | Show help overlay |
 
 ---
 
-_Recorded at 2024-01-15 14:30:45_
+## 2. Understanding tmux in Pappardelle
+
+Pappardelle is built on tmux. Understanding the tmux layer will help you navigate, debug, and get the most out of the tool.
+
+### The 3-pane layout
+
+When you launch `pappardelle`, it creates a tmux session (named `pappardelle`) with three panes:
+
+![Screenshot 2026-03-02 at 4.18.44 PM](assets/Screenshot%202026-03-02%20at%204.18.44%E2%80%AFPM.png)
+
+- **Left pane** shows the space list view. This is where you navigate workspaces, create new ones, and trigger actions.
+- **Center pane** shows the Claude Code session for whichever workspace is highlighted. Pressing `Enter` focuses this pane so you can interact with Claude directly.
+- **Right pane** shows lazygit for the highlighted workspace's worktree.
+
+### How nested sessions work
+
+Each workspace creates two independent tmux sessions:
+
+- `claude-{repo}-{issue-key}` — runs Claude Code
+- `lazygit-{repo}-{issue-key}` — runs lazygit
+
+The center and right panes in the Pappardelle session are "viewers" — they run nested tmux clients that attach to these independent sessions. When you highlight a different workspace in the list, Pappardelle uses `tmux switch-client` to instantly swap which session the viewer pane displays.
+
+This means:
+
+- **Workspaces are independent.** Each Claude session runs in its own tmux session. If Pappardelle crashes, your Claude sessions keep running.
+- **Attach from anywhere.** You can attach to any workspace's Claude session from a separate terminal: `tmux attach -t claude-stardust-labs-STA-631`.
+- **Switching is instant.** After the first attachment, switching between workspaces uses tmux's fast `switch-client` path — no process restart, no visible flash.
+
+### Recommended tmux config
+
+Pappardelle works with any tmux configuration, but these settings improve the experience. Add them to `~/.tmux.conf`:
+
+```bash
+# Mouse support — click panes, drag to resize, scroll to browse history
+set -g mouse on
+
+# Focus events — enables dim-on-unfocus hooks (helps distinguish active pane)
+set -g focus-events on
+
+# Dim unfocused panes when the terminal loses focus
+set-hook -g client-focus-out 'set window-style fg=colour245; set window-active-style fg=colour245'
+set-hook -g client-focus-in 'set -u window-style; set -u window-active-style'
+
+# Navigate between panes with Ctrl+arrow keys (no prefix needed)
+bind -n C-Left select-pane -L
+bind -n C-Right select-pane -R
+bind -n C-Up select-pane -U
+bind -n C-Down select-pane -D
+
+# Mouse scroll — enter copy mode on scroll up, passthrough on scroll down
+bind -n WheelUpPane if-shell -F -t = "#{mouse_any_flag}" \
+  "send-keys -M" "copy-mode -e; send-keys -M"
+bind -n WheelDownPane send-keys -M
+
+# Clean status bar — just show the session name
+set -g status-style 'bg=colour235,fg=colour255'
+set -g status-left-length 100
+set -g status-left '#{?client_prefix,#[bg=colour208]#[fg=colour0] ^B ,#[bg=colour39]#[fg=colour0] #S }'
+set -g window-status-format ''
+set -g window-status-current-format ''
+set -g status-right ''
 ```
 
-### Requirements
+### Exiting Pappardelle
 
-- The workspace must be in a path containing an issue key (e.g., `~/.worktrees/stardust-labs/STA-123/`)
-- The appropriate CLI tool must be installed and authenticated:
-  - **Linear**: `linctl` (`brew tap raegislabs/linctl && brew install linctl`)
-  - **Jira**: `acli` (Atlassian CLI)
+Press `q` in the workspace list pane to quit the TUI. Your Claude and lazygit sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
 
-## Logging
+To fully tear down everything (TUI + all workspace sessions):
 
-Pappardelle includes a file-based logging system for debugging and error tracking.
+```bash
+tmux kill-session -t pappardelle
+```
 
-### Log Location
+This kills the Pappardelle tmux session and its viewer panes, but the independent Claude and lazygit sessions remain running. To kill those too, use `Delete` on each workspace from the TUI before quitting, or nuke everything with:
 
-Logs are written to `~/.pappardelle/logs/` with daily rotation:
+```bash
+tmux kill-server
+```
 
-- `pappardelle-YYYY-MM-DD.log`
-- Keeps last 7 days of logs
+---
 
-### Log Levels
+## 3. Spawning New Sessions
 
-| Level | Description                       |
-| ----- | --------------------------------- |
-| debug | Detailed diagnostic information   |
-| info  | General operational events        |
-| warn  | Warning conditions (shown in TUI) |
-| error | Error conditions (shown in TUI)   |
+### From the TUI
 
-### Error Display
+TODO: IMAGE
 
-- Warnings and errors are displayed in a red-bordered box at the bottom of the TUI
-- Press `c` to clear displayed errors
-- Full error history is available in log files
+Press `n` in the workspace list to open the prompt dialog. You can enter:
 
-### View Logs
+| Input                                          | What happens                                                                  |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| A description (e.g., `"add playlist shuffle"`) | Creates a new issue, worktree, PR, and Claude session                         |
+| An issue key (e.g., `STA-123`)                 | Fetches the existing issue and creates a workspace for it                     |
+| A bare number (e.g., `123`)                    | Prepends the global `team_prefix` from `.pappardelle.yml` (becomes `STA-123`) |
+
+You can also create workspaces from the command line — see [Section 7: Reference](#creating-workspaces-from-the-command-line).
+
+### What gets provisioned
+
+When you create a workspace, Pappardelle runs through these steps:
+
+1. **Profile selection** — Your input is keyword-matched against profiles in `.pappardelle.yml`. If one profile matches, it's auto-selected. If multiple match, you're prompted to choose. If none match, the `default_profile` is used.
+
+2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira) issue is created with a WIP title. For existing issue keys, the issue is fetched.
+
+3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
+
+4. **PR/MR creation** — A placeholder pull request (GitHub) or merge request (GitLab) is created from the new branch.
+
+5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_worktree_init` commands also run after the worktree is created (e.g., copying `.env` files).
+
+6. **Claude & lazygit sessions spawned** — A named tmux session is created and Claude Code is launched inside it. If `claude.initialization_command` is set in `.pappardelle.yml` (e.g., `/do`), that command is passed to Claude along with the issue key. A lazygit session rooted at the worktree dir is also spawned.
+
+---
+
+## 4. Customizing Your Configuration
+
+Pappardelle is configured via a `.pappardelle.yml` file at your git repository root. This file is **required** — Pappardelle won't start without it.
+### Profiles
+
+Profiles define per-project-type configuration. When you create a workspace, Pappardelle matches your input text against each profile's `keywords` array. If one profile matches, it's selected automatically. If multiple match or none match, you're prompted.
+
+**Profile fields:**
+
+| Field          | Type                   | Description                                                             |
+| -------------- | ---------------------- | ----------------------------------------------------------------------- |
+| `keywords`     | `string[]`             | Words that trigger auto-selection of this profile                       |
+| `display_name` | `string`               | Human-readable name shown in the profile picker                         |
+| `team_prefix`  | `string`               | Override the global team prefix for new issues                          |
+| `vars`         | `Record<string, string>` | Key-value pairs that become template variables (e.g., `IOS_APP_DIR`)  |
+| `vcs`          | `object`               | VCS label config (`label` — applied to PRs/MRs)                        |
+| `links`        | `array`                | URLs to open with `o` key (supports `if_set` for conditional inclusion) |
+| `apps`         | `array`                | Applications to launch with `o` key                                     |
+| `commands`     | `array`                | Setup commands run during workspace creation                            |
+
+### Template variables
+
+All string values in the config support `${VAR_NAME}` expansion:
+
+| Variable             | Example                                 |
+| -------------------- | --------------------------------------- |
+| `${ISSUE_KEY}`       | `STA-631`                               |
+| `${ISSUE_NUMBER}`    | `631`                                   |
+| `${ISSUE_URL}`       | `https://linear.app/...`                |
+| `${TITLE}`           | `Add dark mode`                         |
+| `${WORKTREE_PATH}`   | `/Users/you/.worktrees/my-repo/STA-631` |
+| `${REPO_ROOT}`       | `/Users/you/code/my-repo`               |
+| `${REPO_NAME}`       | `my-repo`                               |
+| `${PR_URL}`          | `https://github.com/.../pull/42`        |
+| `${SCRIPT_DIR}`      | `/path/to/pappardelle/scripts`          |
+| `${VCS_LABEL}`       | `my_app`                                |
+| `${TRACKER_PROVIDER}` | `linear`                               |
+| `${VCS_PROVIDER}`    | `github`                                |
+
+Profile `vars` keys are also injected as template variables (e.g., `vars: { IOS_APP_DIR: "_ios/MyApp" }` makes `${IOS_APP_DIR}` available). Environment variables work too (e.g., `${HOME}`).
+
+### Custom keybindings
+
+Bind single keys to bash commands or Claude directives:
+
+TODO: example where we create a new terminal
+
+```yaml
+keybindings:
+  - key: 'b'
+    name: 'Build'
+    run: 'cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodebuild build'
+
+  - key: 't'
+    name: 'Run tests'
+    run: 'cd ${WORKTREE_PATH} && uv run pytest'
+
+  - key: 'a'
+    name: 'Address PR feedback'
+    send_to_claude: '/address-pr-feedback'
+```
+
+- **`run`** keybindings execute in the selected workspace's worktree directory. Status is shown in the header while running.
+- **`send_to_claude`** keybindings send text to the Claude pane (with Enter). Useful for invoking Claude skills.
+- Custom keybindings appear in the help overlay (`?`).
+- Reserved keys that can't be rebound: `j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?`, `Enter`, `Delete`.
+
+### Providers
+
+Pappardelle supports pluggable issue trackers and VCS hosts:
+
+| Provider         | CLI Tool | Config                                                       |
+| ---------------- | -------- | ------------------------------------------------------------ |
+| Linear (default) | `linctl` | `issue_tracker: { provider: linear }`                        |
+| Jira             | `acli`   | `issue_tracker: { provider: jira, base_url: "https://..." }` |
+| GitHub (default) | `gh`     | `vcs_host: { provider: github }`                             |
+| GitLab           | `glab`   | `vcs_host: { provider: gitlab }`                             |
+
+Omit `issue_tracker` and `vcs_host` to use the defaults (Linear + GitHub).
+
+For the full configuration reference, see [pappardelle-config.md](pappardelle-config.md).
+
+---
+
+## 5. Advanced: Wrangling Multi-Repo Changes
+
+TODO
+
+---
+
+## 6. Advanced: Pappardelle on the Go
+
+Because Pappardelle runs entirely inside tmux, you can access your full workspace setup from anywhere — all you need is an SSH connection to the machine running it.
+
+### What you need
+
+- **[Tailscale](https://tailscale.com/)** — A mesh VPN that makes your dev machine accessible from any network without port forwarding or firewall configuration. Install on both your dev machine and your mobile device.
+- **[Termius](https://termius.com/)** (iOS) — A full-featured SSH client for iPhone and iPad with good tmux support, copy/paste, and keyboard shortcuts. Other SSH clients work too (Blink Shell, Prompt 3), but Termius handles tmux rendering well.
+
+### Setup
+
+TODO
+
+---
+
+## 7. Reference
+
+### Alternative install methods
+
+**From a local clone:**
+
+```bash
+git clone https://github.com/chardigio/pappardelle.git
+cd pappardelle
+./install.sh
+```
+
+**Manual install:**
+
+```bash
+git clone https://github.com/chardigio/pappardelle.git
+cd pappardelle
+npm install
+npm run build
+npm link                # makes `pappardelle` available globally
+./hooks/install.sh      # installs Claude Code hooks for status tracking
+```
+
+**Directories created by the installer:**
+
+| Directory / File                       | Purpose                                              |
+| -------------------------------------- | ---------------------------------------------------- |
+| `~/.pappardelle/`                      | Config, hooks, logs, and Claude status files         |
+| `~/.pappardelle/claude-status/`        | Real-time status JSON files from Claude hooks        |
+| `~/.pappardelle/open-spaces.json`      | Persisted workspace registry (survives reboots)      |
+| `~/.pappardelle/logs/`                 | Daily log files (7-day retention)                    |
+| `~/.worktrees/`                        | Git worktrees for all your workspaces                |
+
+### Creating workspaces from the command line
+
+You can create workspaces without launching the TUI using the `idow` ("interactively do on worktree") command:
+
+```bash
+# Create a workspace from a description
+idow "add dark mode to settings"
+
+# Create a workspace for an existing issue
+idow STA-123
+```
+
+### Claude Code hooks
+
+Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
+
+| Hook                           | Trigger                             | What it does                                                                  |
+| ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
+| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
+| `post-plan-to-tracker.py`      | `PostToolUse` (ExitPlanMode)        | Posts implementation plans as issue comments                                  |
+
+### Logging
+
+Logs are written to `~/.pappardelle/logs/` with daily rotation (7-day retention):
 
 ```bash
 # View today's log
@@ -274,40 +381,20 @@ tail -f ~/.pappardelle/logs/pappardelle-*.log
 grep '\[ERROR\]' ~/.pappardelle/logs/*.log
 ```
 
-## Provider Configuration
+Warnings and errors also appear in a red box at the bottom of the TUI. Press `e` to view them.
 
-Pappardelle supports pluggable issue tracker and VCS host providers, configured via `.pappardelle.yml`:
-
-```yaml
-# Issue tracker: "linear" (default) or "jira"
-issue_tracker:
-  provider: jira
-  base_url: https://mycompany.atlassian.net
-
-# VCS host: "github" (default) or "gitlab"
-vcs_host:
-  provider: gitlab
-  host: gitlab.mycompany.com # optional, for self-hosted
-```
-
-Omitting these fields defaults to Linear + GitHub. See [pappardelle-config.md](pappardelle-config.md) for full configuration reference.
-
-## Dependencies
-
-- [Ink](https://github.com/vadimdemedes/ink) - React for CLIs
-- [tmux](https://github.com/tmux/tmux) - Terminal multiplexer (for pane layout)
-- Issue tracker CLI: [linctl](https://github.com/raegislabs/linctl) (Linear) or `acli` (Jira)
-- VCS host CLI: [gh](https://cli.github.com/) (GitHub) or [glab](https://gitlab.com/gitlab-org/cli) (GitLab)
-
-## Development
+### Development
 
 ```bash
-# Watch mode
-npm run dev
-
-# Build
-npm run build
-
-# Run
-npm start
+npm run dev      # Watch mode (auto-rebuild on changes)
+npm run build    # Build once
+npm start        # Run without building
+npm test         # Lint + format check + tests
 ```
+
+### Dependencies
+
+- [Ink](https://github.com/vadimdemedes/ink) — React for CLIs
+- [tmux](https://github.com/tmux/tmux) — Terminal multiplexer
+- [lazygit](https://github.com/jesseduffield/lazygit) — Terminal git UI
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) — AI coding assistant

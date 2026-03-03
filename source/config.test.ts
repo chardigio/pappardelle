@@ -8,6 +8,7 @@ import {
 	getInitializationCommand,
 	getDangerouslySkipPermissions,
 	getKeybindings,
+	getDefaultProfile,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
@@ -28,7 +29,7 @@ function createProfile(keywords: string[], displayName: string): Profile {
 // Helper to create a test config
 function createConfig(
 	profiles: Record<string, Profile>,
-	defaultProfile = 'default',
+	defaultProfile?: string,
 	teamPrefix?: string,
 ): PappardelleConfig {
 	return {
@@ -1758,4 +1759,109 @@ test('validateConfig rejects non-array keybindings', t => {
 		instanceOf: ConfigValidationError,
 	});
 	t.truthy(error?.message.includes('keybindings: must be an array'));
+});
+
+// ============================================================================
+// Optional default_profile Tests
+// ============================================================================
+
+test('validateConfig accepts config without default_profile (uses first profile)', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			'my-app': {
+				display_name: 'My App',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+	// After validation, default_profile should be set to first profile key
+	t.is((raw as Record<string, unknown>)['default_profile'], 'my-app');
+});
+
+test('validateConfig rejects empty string default_profile', t => {
+	const raw = {
+		version: 1,
+		default_profile: '',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('default_profile'));
+});
+
+test('getDefaultProfile falls back to first profile when default_profile is undefined', t => {
+	const config = createConfig(
+		{'first-profile': createProfile(['test'], 'First')},
+		undefined,
+	);
+	const result = getDefaultProfile(config);
+	t.is(result.name, 'first-profile');
+	t.is(result.profile.display_name, 'First');
+});
+
+// ============================================================================
+// Optional keywords Tests
+// ============================================================================
+
+test('validateConfig accepts profile without keywords', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				display_name: 'Test',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects non-array keywords', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: 'not-an-array',
+				display_name: 'Test',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('keywords: must be an array'));
+});
+
+test('profile without keywords never matches in matchProfiles', t => {
+	const config = createConfig(
+		{
+			'no-kw': {display_name: 'No Keywords'},
+			'has-kw': createProfile(['foo'], 'Has Keywords'),
+		},
+		'no-kw',
+	);
+	const matches = matchProfiles(config, 'foo bar');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'has-kw');
+});
+
+test('minimal config with just team_prefix and one profile validates', t => {
+	const raw = {
+		version: 1,
+		team_prefix: 'PROJ',
+		profiles: {
+			'my-app': {
+				display_name: 'My App',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
 });

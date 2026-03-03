@@ -780,6 +780,9 @@ export default function App({
 				setIsSearching(true);
 				setSearchQuery('');
 				setSearchSelectedIndex(0);
+			} else if (input === 'q') {
+				// Quit Pappardelle
+				process.exit(0);
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);

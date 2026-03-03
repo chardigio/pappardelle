@@ -72,7 +72,7 @@ export interface TerminalConfig {
 }
 
 export interface Profile {
-	keywords: string[];
+	keywords?: string[];
 	display_name: string;
 	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
 	team_prefix?: string;
@@ -88,7 +88,7 @@ export interface Profile {
 
 export interface PappardelleConfig {
 	version: number;
-	default_profile: string;
+	default_profile?: string;
 	team_prefix?: string;
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
@@ -149,6 +149,7 @@ export const RESERVED_KEYS = new Set([
 	'n',
 	'e',
 	'p',
+	'q',
 	'?',
 ]);
 
@@ -315,12 +316,13 @@ export function validateConfig(
 		errors.push('version: must be 1');
 	}
 
-	// Check default_profile
+	// Check default_profile (optional — falls back to first profile)
 	if (
-		typeof cfg['default_profile'] !== 'string' ||
-		(cfg['default_profile'] as string).length === 0
+		cfg['default_profile'] !== undefined &&
+		(typeof cfg['default_profile'] !== 'string' ||
+			(cfg['default_profile'] as string).length === 0)
 	) {
-		errors.push('default_profile: required string field');
+		errors.push('default_profile: must be a non-empty string when specified');
 	}
 
 	// Check issue_tracker (optional)
@@ -462,11 +464,23 @@ export function validateConfig(
 	} else {
 		const profiles = cfg['profiles'] as Record<string, unknown>;
 
-		// Check that default_profile exists
-		if (cfg['default_profile'] && !profiles[cfg['default_profile'] as string]) {
+		// Check that default_profile exists (when specified)
+		if (
+			typeof cfg['default_profile'] === 'string' &&
+			cfg['default_profile'].length > 0 &&
+			!profiles[cfg['default_profile']]
+		) {
 			errors.push(
 				`default_profile: profile "${cfg['default_profile']}" not found in profiles`,
 			);
+		}
+
+		// If no default_profile specified, resolve it to the first profile key
+		if (cfg['default_profile'] === undefined) {
+			const firstKey = Object.keys(profiles)[0];
+			if (firstKey) {
+				(cfg as Record<string, unknown>)['default_profile'] = firstKey;
+			}
 		}
 
 		// Validate each profile
@@ -491,9 +505,11 @@ function validateProfile(name: string, profile: unknown): string[] {
 
 	const p = profile as Record<string, unknown>;
 
-	// Required fields
-	if (!Array.isArray(p['keywords'])) {
-		errors.push(`${prefix}.keywords: required array field`);
+	// keywords (optional — defaults to empty array)
+	if (p['keywords'] !== undefined && !Array.isArray(p['keywords'])) {
+		errors.push(`${prefix}.keywords: must be an array when specified`);
+	} else if (p['keywords'] === undefined) {
+		(p as Record<string, unknown>)['keywords'] = [];
 	}
 
 	if (typeof p['display_name'] !== 'string') {
@@ -671,7 +687,7 @@ export function matchProfiles(
 	for (const [name, profile] of Object.entries(config.profiles)) {
 		const matchedKeywords: string[] = [];
 
-		for (const keyword of profile.keywords) {
+		for (const keyword of profile.keywords ?? []) {
 			const kwLower = keyword.toLowerCase();
 			// Split keyword on whitespace to detect multi-word keywords
 			const kwParts = kwLower.split(/\s+/).filter(p => p.length > 0);
@@ -741,13 +757,17 @@ export function getProfile(
 }
 
 /**
- * Get the default profile
+ * Get the default profile.
+ * Uses `default_profile` if set, otherwise falls back to the first profile.
  */
 export function getDefaultProfile(config: PappardelleConfig): {
 	name: string;
 	profile: Profile;
 } {
-	const name = config.default_profile;
+	const name = config.default_profile ?? Object.keys(config.profiles)[0];
+	if (!name) {
+		throw new Error('No profiles defined');
+	}
 	const profile = config.profiles[name];
 	if (!profile) {
 		throw new Error(`Default profile "${name}" not found`);
@@ -854,7 +874,7 @@ export function buildWorkspaceTemplateVars(
 			}
 		}
 
-		if (!profile) {
+		if (!profile && config.default_profile) {
 			profile = config.profiles[config.default_profile];
 		}
 
