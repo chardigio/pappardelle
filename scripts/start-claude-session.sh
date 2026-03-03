@@ -121,6 +121,6 @@ fi
 if ! tmux has-session -t "$LAZYGIT_SESSION" 2>/dev/null; then
     tmux new-session -d -s "$LAZYGIT_SESSION" -c "$WORKTREE_PATH"
     if [[ "$NO_CLAUDE" != true ]]; then
-        tmux send-keys -t "$LAZYGIT_SESSION" 'lazygit' Enter
+        tmux send-keys -t "$LAZYGIT_SESSION" 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter
     fi
 fi

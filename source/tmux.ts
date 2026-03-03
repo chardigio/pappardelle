@@ -1568,10 +1568,16 @@ export function ensureLazygitSession(
 		}
 
 		// Now send lazygit command to the session
-		spawnSync('tmux', ['send-keys', '-t', sessionName, 'lazygit', 'Enter'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		// GIT_OPTIONAL_LOCKS=0 prevents git from acquiring locks for read-only operations (like status),
+		// avoiding lock contention when other tools (e.g. Claude Code) are running git concurrently
+		spawnSync(
+			'tmux',
+			['send-keys', '-t', sessionName, 'GIT_OPTIONAL_LOCKS=0 lazygit', 'Enter'],
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+			},
+		);
 
 		log.info(`Created lazygit session: ${sessionName}`);
 		return true;

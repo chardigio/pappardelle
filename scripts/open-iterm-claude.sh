@@ -142,7 +142,7 @@ on run argv
                     set name to issueKey & " - lazygit"
                     -- Create session with shell (not lazygit directly), send lazygit command, then attach
                     -- This ensures session persists if user quits lazygit
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -d -s 'lazygit-" & repoName & "-" & issueKey & "' 2>/dev/null; tmux send-keys -t 'lazygit-" & repoName & "-" & issueKey & "' lazygit Enter 2>/dev/null; TMUX= tmux attach -t 'lazygit-" & repoName & "-" & issueKey & "'"
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -d -s 'lazygit-" & repoName & "-" & issueKey & "' 2>/dev/null; tmux send-keys -t 'lazygit-" & repoName & "-" & issueKey & "' 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter 2>/dev/null; TMUX= tmux attach -t 'lazygit-" & repoName & "-" & issueKey & "'"
                 end tell
             end tell
         end tell
