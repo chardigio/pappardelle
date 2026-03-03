@@ -21,6 +21,7 @@ const shortcuts = [
 	{key: 'Del', description: 'Close space'},
 	{key: 'e', description: 'Show errors'},
 	{key: '/', description: 'Search spaces'},
+	{key: 'q', description: 'Quit'},
 	{key: '?', description: 'Show this help'},
 ];
 
