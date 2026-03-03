@@ -66,7 +66,6 @@ profiles:
       - playlist
       - album
       - artist
-      - track
       - recording
     display_name: "Stardust Jams"
     vars:
@@ -133,6 +132,50 @@ profiles:
       - name: "Setup QA simulator"
         run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir \"${IOS_APP_DIR}\" --bundle-id ${BUNDLE_ID}"
         background: true
+
+  pappardelle:
+    keywords:
+      - pappardelle
+      - tui
+      - idow
+      - workspace
+    display_name: "Pappardelle"
+    # No iOS configuration
+    github:
+      label: "pappardelle"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
+    commands:
+      - name: "Install dependencies"
+        run: "cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && npm install"
+        continue_on_error: true
+
+  platform:
+    keywords:
+      - platform
+      - sllib
+      - infrastructure
+      - cdk
+    display_name: "Platform"
+    # No iOS configuration
+    github:
+      label: "platform"
+    links:
+      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
+        title: "Linear Issue"
+      - url: "${PR_URL}"
+        title: "GitHub PR"
+        if_set: "PR_URL"
+    apps:
+      - name: "Cursor"
+        path: "${WORKTREE_PATH}"
 
   slide-puzzle:
     keywords:
@@ -273,50 +316,3 @@ profiles:
       - name: "Setup QA simulator"
         run: "${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}"
         background: true
-
-  pappardelle:
-    keywords:
-      - pappardelle
-      - tui
-      - dow
-      - idow
-      - workspace
-      - worktree
-    display_name: "Pappardelle"
-    # No iOS configuration
-    github:
-      label: "pappardelle"
-    links:
-      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
-    apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
-    commands:
-      - name: "Install dependencies"
-        run: "cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && npm install"
-        continue_on_error: true
-
-  platform:
-    keywords:
-      - platform
-      - sllib
-      - infrastructure
-      - shared
-      - cdk
-    display_name: "Platform"
-    # No iOS configuration
-    github:
-      label: "platform"
-    links:
-      - url: "https://linear.app/stardust-labs/issue/${ISSUE_KEY}"
-        title: "Linear Issue"
-      - url: "${PR_URL}"
-        title: "GitHub PR"
-        if_set: "PR_URL"
-    apps:
-      - name: "Cursor"
-        path: "${WORKTREE_PATH}"
