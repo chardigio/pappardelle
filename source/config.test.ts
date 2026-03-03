@@ -11,8 +11,10 @@ import {
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
+	buildWorkspaceTemplateVars,
 	ConfigValidationError,
 	RESERVED_KEYS,
+	RESERVED_VAR_NAMES,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -160,6 +162,308 @@ test('validateConfig accepts valid string profile team_prefix', t => {
 		},
 	};
 	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// Profile vars Validation Tests
+// ============================================================================
+
+test('validateConfig rejects non-string vars value', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {IOS_APP_DIR: 123},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('profiles.test.vars.IOS_APP_DIR: must be a string'),
+	);
+});
+
+test('validateConfig accepts valid string vars', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {IOS_APP_DIR: '_ios/MyApp', SCHEME: 'MyApp'},
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts profile without vars', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects non-object vars', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: 'not an object',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('profiles.test.vars: must be an object'));
+});
+
+test('validateConfig rejects null vars', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: null,
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('profiles.test.vars: must be an object'));
+});
+
+test('validateConfig accepts empty vars object', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {},
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig reports multiple invalid vars values', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {FOO: 123, BAR: true, VALID: 'ok'},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('vars.FOO: must be a string'));
+	t.truthy(error?.message.includes('vars.BAR: must be a string'));
+	// VALID should not appear in error
+	t.falsy(error?.message.includes('vars.VALID'));
+});
+
+test('validateConfig rejects reserved var name PATH', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {PATH: '/usr/bin'},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('vars.PATH: reserved name'));
+});
+
+test('validateConfig rejects reserved var name HOME', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {HOME: '/tmp'},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('vars.HOME: reserved name'));
+});
+
+test('validateConfig rejects reserved built-in template var ISSUE_KEY', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {ISSUE_KEY: 'STA-123'},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('vars.ISSUE_KEY: reserved name'));
+});
+
+test('validateConfig rejects reserved built-in template var WORKTREE_PATH', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {WORKTREE_PATH: '/tmp/wt'},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('vars.WORKTREE_PATH: reserved name'));
+});
+
+test('validateConfig allows non-reserved var names', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {
+				keywords: ['test'],
+				display_name: 'Test',
+				vars: {
+					IOS_APP_DIR: '_ios/MyApp',
+					BUNDLE_ID: 'com.example.app',
+					SCHEME: 'MyApp',
+					MY_CUSTOM_VAR: 'hello',
+				},
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('RESERVED_VAR_NAMES includes critical shell variables', t => {
+	for (const name of ['PATH', 'HOME', 'IFS', 'SHELL', 'USER', 'PWD', 'TERM']) {
+		t.true(RESERVED_VAR_NAMES.has(name), `${name} should be reserved`);
+	}
+});
+
+test('RESERVED_VAR_NAMES includes built-in template variables', t => {
+	for (const name of [
+		'ISSUE_KEY',
+		'WORKTREE_PATH',
+		'REPO_ROOT',
+		'REPO_NAME',
+		'SCRIPT_DIR',
+		'PR_URL',
+		'VCS_LABEL',
+	]) {
+		t.true(RESERVED_VAR_NAMES.has(name), `${name} should be reserved`);
+	}
+});
+
+// ============================================================================
+// buildWorkspaceTemplateVars Tests
+// ============================================================================
+
+test('buildWorkspaceTemplateVars sets base variables', t => {
+	const vars = buildWorkspaceTemplateVars('STA-999', '/tmp/worktree');
+	t.is(vars.ISSUE_KEY, 'STA-999');
+	t.is(vars.WORKTREE_PATH, '/tmp/worktree');
+	t.truthy(vars.REPO_ROOT);
+	t.truthy(vars.REPO_NAME);
+	t.truthy(vars.SCRIPT_DIR);
+});
+
+test('buildWorkspaceTemplateVars merges profile vars when title matches', t => {
+	// "stardust" should match the stardust-jams profile in .pappardelle.yml
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'fix stardust jams bug',
+	);
+	// Profile vars from stardust-jams profile should be merged
+	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
+	t.is(vars['BUNDLE_ID'], 'com.cd17822.stardust-jams');
+	t.is(vars['SCHEME'], 'stardust-jams');
+});
+
+test('buildWorkspaceTemplateVars sets VCS label from matched profile', t => {
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'fix stardust jams bug',
+	);
+	t.is(vars.VCS_LABEL, 'stardust_jams');
+	t.is(vars.GITHUB_LABEL, 'stardust_jams');
+});
+
+test('buildWorkspaceTemplateVars falls back to default profile when no title match', t => {
+	// "zzz nonexistent" won't match any profile keywords
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'zzz nonexistent topic',
+	);
+	// Default profile is "pappardelle" which has no vars, so custom vars should be absent
+	t.is(vars['IOS_APP_DIR'], undefined);
+	t.is(vars['BUNDLE_ID'], undefined);
+});
+
+test('buildWorkspaceTemplateVars falls back to default profile when no title provided', t => {
+	const vars = buildWorkspaceTemplateVars('STA-999', '/tmp/worktree');
+	// No title = no match = falls back to default profile (pappardelle, no vars)
+	t.is(vars['IOS_APP_DIR'], undefined);
+});
+
+test('buildWorkspaceTemplateVars does not overwrite base vars with profile vars', t => {
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'fix stardust jams bug',
+	);
+	// Base vars should remain even though profile vars were merged
+	t.is(vars.ISSUE_KEY, 'STA-999');
+	t.is(vars.WORKTREE_PATH, '/tmp/worktree');
 });
 
 // ============================================================================

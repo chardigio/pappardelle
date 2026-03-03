@@ -102,6 +102,41 @@ export interface PappardelleConfig {
 }
 
 /**
+ * Var key names that must not be used in profile `vars:` blocks.
+ * Includes built-in template variables (which would be silently overwritten)
+ * and critical shell variables (which would break the idow bash script).
+ */
+export const RESERVED_VAR_NAMES = new Set([
+	// Built-in template variables
+	'ISSUE_KEY',
+	'ISSUE_URL',
+	'ISSUE_NUMBER',
+	'TITLE',
+	'DESCRIPTION',
+	'WORKTREE_PATH',
+	'REPO_ROOT',
+	'REPO_NAME',
+	'PR_URL',
+	'MR_URL',
+	'SCRIPT_DIR',
+	'GITHUB_LABEL',
+	'VCS_LABEL',
+	'TRACKER_PROVIDER',
+	'VCS_PROVIDER',
+	// Critical shell variables
+	'PATH',
+	'HOME',
+	'IFS',
+	'SHELL',
+	'USER',
+	'PWD',
+	'OLDPWD',
+	'LANG',
+	'TERM',
+	'TMPDIR',
+]);
+
+/**
  * Built-in keyboard shortcuts that cannot be overridden by custom keybindings.
  */
 export const RESERVED_KEYS = new Set([
@@ -479,6 +514,12 @@ function validateProfile(name: string, profile: unknown): string[] {
 			for (const [k, v] of Object.entries(vars)) {
 				if (typeof v !== 'string') {
 					errors.push(`${prefix}.vars.${k}: must be a string`);
+				}
+
+				if (RESERVED_VAR_NAMES.has(k)) {
+					errors.push(
+						`${prefix}.vars.${k}: reserved name (collides with built-in template variable or shell variable)`,
+					);
 				}
 			}
 		}
