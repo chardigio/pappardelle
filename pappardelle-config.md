@@ -94,13 +94,12 @@ profiles:
     # normalization (that always uses the global prefix).
     # team_prefix: JAM
 
-    # iOS app configuration
-    ios:
-      app_dir: '_ios/stardust-jams'
-      bundle_id: 'com.cd17822.stardust-jams'
-      scheme: 'stardust-jams'
-      # Optional: simulator device name (default: iPhone 17 Pro)
-      simulator: 'iPhone 17 Pro'
+    # Generic template variables injected into workspace context.
+    # Keys become available as ${KEY} in templates.
+    vars:
+      IOS_APP_DIR: '_ios/stardust-jams'
+      BUNDLE_ID: 'com.cd17822.stardust-jams'
+      SCHEME: 'stardust-jams'
 
     # VCS label for PRs/MRs (provider-agnostic, preferred)
     vcs:
@@ -121,8 +120,8 @@ profiles:
       - name: 'Cursor'
         path: '${WORKTREE_PATH}'
       - name: 'Xcode'
-        path: '${XCODEPROJ_PATH}'
-        if_set: 'XCODEPROJ_PATH'
+        path: '${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj'
+        if_set: 'IOS_APP_DIR'
       - name: 'iTerm'
         # Custom command instead of just opening
         command: |
@@ -145,10 +144,10 @@ profiles:
       - spelling
       - wordle
     display_name: 'King Bee (iOS Spelling Game)'
-    ios:
-      app_dir: '_ios/King Bee'
-      bundle_id: 'com.cd17822.King-Bee'
-      scheme: 'King Bee'
+    vars:
+      IOS_APP_DIR: '_ios/King Bee'
+      BUNDLE_ID: 'com.cd17822.King-Bee'
+      SCHEME: 'King Bee'
     github:
       label: 'the_hive'
     links:
@@ -161,7 +160,8 @@ profiles:
       - name: 'Cursor'
         path: '${WORKTREE_PATH}'
       - name: 'Xcode'
-        path: '${XCODEPROJ_PATH}'
+        path: '${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj'
+        if_set: 'IOS_APP_DIR'
     commands:
       - name: 'Generate Xcode project'
         run: 'cd "${WORKTREE_PATH}/${IOS_APP_DIR}" && xcodegen generate'
@@ -211,16 +211,14 @@ The following variables are available for use in templates:
 | `${REPO_NAME}`        | Repository directory name                  | `stardust-labs`                                          |
 | `${PR_URL}`           | GitHub PR URL (may be empty)               | `https://github.com/...`                                 |
 | `${MR_URL}`           | GitLab MR URL (may be empty)               | `https://gitlab.com/.../merge_requests/1`                |
-| `${XCODEPROJ_PATH}`   | Path to .xcodeproj (may be empty)          | `/path/to/App.xcodeproj`                                 |
 | `${SCRIPT_DIR}`       | Directory containing dow/idow scripts      | `/path/to/_dev/scripts/pappardelle/scripts`              |
 | `${HOME}`             | User home directory                        | `/Users/charlie`                                         |
-| `${IOS_APP_DIR}`      | iOS app directory from profile             | `_ios/stardust-jams`                                     |
-| `${BUNDLE_ID}`        | iOS bundle ID from profile                 | `com.cd17822.stardust-jams`                              |
-| `${SCHEME}`           | Xcode scheme from profile                  | `stardust-jams`                                          |
 | `${VCS_LABEL}`        | VCS label from profile (provider-agnostic) | `stardust_jams`                                          |
 | `${GITHUB_LABEL}`     | Deprecated alias for `${VCS_LABEL}`        | `stardust_jams`                                          |
 | `${TRACKER_PROVIDER}` | Issue tracker provider name                | `linear` or `jira`                                       |
 | `${VCS_PROVIDER}`     | VCS host provider name                     | `github` or `gitlab`                                     |
+
+Additionally, any keys defined in a profile's `vars` section become template variables. For example, `vars: { IOS_APP_DIR: "_ios/MyApp" }` makes `${IOS_APP_DIR}` available in all templates.
 
 ### Variable Expansion
 
@@ -305,7 +303,7 @@ See https://github.com/chardigio/pappardelle for the configuration schema.
 ```
 Error: Invalid .pappardelle.yml configuration.
 
-- profiles.stardust-jams.ios.bundle_id: required field missing
+- profiles.stardust-jams.vars.BUNDLE_ID: must be a string
 - profiles.backend.commands[0].run: must be a string
 
 Please fix the configuration and try again.
@@ -356,12 +354,7 @@ interface Profile {
 	keywords: string[];
 	display_name: string;
 	team_prefix?: string; // Override global team_prefix for issue creation
-	ios?: {
-		app_dir: string;
-		bundle_id: string;
-		scheme: string;
-		simulator?: string;
-	};
+	vars?: Record<string, string>; // Generic template variables
 	vcs?: {
 		label: string; // Provider-agnostic VCS label for PRs/MRs
 	};
@@ -701,7 +694,7 @@ Each hook entry uses the same `CommandConfig` structure as profile commands:
 
 ### Available Template Variables in Hooks
 
-All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}`, `${IOS_APP_DIR}`, `${BUNDLE_ID}`.
+All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}`, plus any profile `vars`.
 
 ## Custom Keybindings
 
@@ -745,6 +738,6 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 
 ### Template Variables in Keybindings
 
-All standard template variables are available: `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${SCRIPT_DIR}`, `${IOS_APP_DIR}`, `${BUNDLE_ID}`, `${SCHEME}`, `${XCODEPROJ_PATH}`, `${VCS_LABEL}`.
+All standard template variables are available: `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${SCRIPT_DIR}`, `${VCS_LABEL}`, plus any profile `vars`.
 
 Profile-specific variables (like `IOS_APP_DIR`) are resolved by matching the selected workspace's issue title against profile keywords. If no match is found, the default profile is used.

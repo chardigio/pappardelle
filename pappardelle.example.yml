@@ -47,10 +47,10 @@ profiles:
     # Per-profile team prefix override (optional).
     # Issues created under this profile will use this prefix instead of the global one.
     # team_prefix: IOS
-    ios:
-      app_dir: 'ios/MyApp'
-      bundle_id: 'com.example.myapp'
-      scheme: 'MyApp'
+    vars:
+      IOS_APP_DIR: 'ios/MyApp'
+      BUNDLE_ID: 'com.example.myapp'
+      SCHEME: 'MyApp'
     github:
       label: 'ios'
     links:
@@ -63,8 +63,8 @@ profiles:
       - name: 'Cursor'
         path: '${WORKTREE_PATH}'
       - name: 'Xcode'
-        path: '${XCODEPROJ_PATH}'
-        if_set: 'XCODEPROJ_PATH'
+        path: '${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj'
+        if_set: 'IOS_APP_DIR'
     commands:
       - name: 'Generate Xcode project'
         run: 'cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate'

@@ -45,13 +45,6 @@ export interface HooksConfig {
 	post_workspace_create?: CommandConfig[];
 }
 
-export interface IOSConfig {
-	app_dir: string;
-	bundle_id: string;
-	scheme: string;
-	simulator?: string;
-}
-
 export interface GitHubConfig {
 	label: string;
 }
@@ -83,7 +76,8 @@ export interface Profile {
 	display_name: string;
 	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
 	team_prefix?: string;
-	ios?: IOSConfig;
+	/** Generic template variables injected into the workspace context. */
+	vars?: Record<string, string>;
 	github?: GitHubConfig;
 	/** Provider-agnostic VCS config; falls back to `github` if absent. */
 	vcs?: VcsConfig;
@@ -476,20 +470,16 @@ function validateProfile(name: string, profile: unknown): string[] {
 		errors.push(`${prefix}.team_prefix: must be a string`);
 	}
 
-	// Optional iOS config
-	if (p['ios'] !== undefined) {
-		if (typeof p['ios'] !== 'object' || p['ios'] === null) {
-			errors.push(`${prefix}.ios: must be an object`);
+	// Optional vars
+	if (p['vars'] !== undefined) {
+		if (typeof p['vars'] !== 'object' || p['vars'] === null) {
+			errors.push(`${prefix}.vars: must be an object`);
 		} else {
-			const ios = p['ios'] as Record<string, unknown>;
-			if (typeof ios['app_dir'] !== 'string') {
-				errors.push(`${prefix}.ios.app_dir: required string field`);
-			}
-			if (typeof ios['bundle_id'] !== 'string') {
-				errors.push(`${prefix}.ios.bundle_id: required string field`);
-			}
-			if (typeof ios['scheme'] !== 'string') {
-				errors.push(`${prefix}.ios.scheme: required string field`);
+			const vars = p['vars'] as Record<string, unknown>;
+			for (const [k, v] of Object.entries(vars)) {
+				if (typeof v !== 'string') {
+					errors.push(`${prefix}.vars.${k}: must be a string`);
+				}
 			}
 		}
 	}
@@ -539,11 +529,7 @@ export interface TemplateVars {
 	PR_URL?: string;
 	/** Provider-agnostic alias for PR_URL */
 	MR_URL?: string;
-	XCODEPROJ_PATH?: string;
 	SCRIPT_DIR?: string;
-	IOS_APP_DIR?: string;
-	BUNDLE_ID?: string;
-	SCHEME?: string;
 	GITHUB_LABEL?: string;
 	/** Provider-agnostic alias for GITHUB_LABEL */
 	VCS_LABEL?: string;
@@ -795,11 +781,8 @@ export function buildWorkspaceTemplateVars(
 			profile = config.profiles[config.default_profile];
 		}
 
-		if (profile?.ios) {
-			vars.IOS_APP_DIR = profile.ios.app_dir;
-			vars.BUNDLE_ID = profile.ios.bundle_id;
-			vars.SCHEME = profile.ios.scheme;
-			vars.XCODEPROJ_PATH = `${worktreePath}/${profile.ios.app_dir}/${profile.ios.scheme}.xcodeproj`;
+		if (profile?.vars) {
+			Object.assign(vars, profile.vars);
 		}
 
 		if (profile) {

@@ -69,10 +69,10 @@ profiles:
       - track
       - recording
     display_name: "Stardust Jams"
-    ios:
-      app_dir: "_ios/stardust-jams"
-      bundle_id: "com.cd17822.stardust-jams"
-      scheme: "stardust-jams"
+    vars:
+      IOS_APP_DIR: "_ios/stardust-jams"
+      BUNDLE_ID: "com.cd17822.stardust-jams"
+      SCHEME: "stardust-jams"
     github:
       label: "stardust_jams"
     links:
@@ -85,8 +85,8 @@ profiles:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
       - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+        path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
+        if_set: "IOS_APP_DIR"
     commands:
       - name: "Generate Xcode project"
         run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
@@ -107,10 +107,10 @@ profiles:
       - colony
       - guess
     display_name: "King Bee"
-    ios:
-      app_dir: "_ios/King Bee"
-      bundle_id: "com.cd17822.King-Bee"
-      scheme: "King Bee"
+    vars:
+      IOS_APP_DIR: "_ios/King Bee"
+      BUNDLE_ID: "com.cd17822.King-Bee"
+      SCHEME: "King Bee"
     github:
       label: "the_hive"
     links:
@@ -123,8 +123,8 @@ profiles:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
       - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+        path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
+        if_set: "IOS_APP_DIR"
     commands:
       - name: "Generate Xcode project"
         run: "cd \"${WORKTREE_PATH}/${IOS_APP_DIR}\" && xcodegen generate"
@@ -141,10 +141,10 @@ profiles:
       - tile
       - speedrun
     display_name: "Slide Puzzle"
-    ios:
-      app_dir: "_ios/SlidePuzzle"
-      bundle_id: "com.cd17822.slidepuzzle"
-      scheme: "SlidePuzzle"
+    vars:
+      IOS_APP_DIR: "_ios/SlidePuzzle"
+      BUNDLE_ID: "com.cd17822.slidepuzzle"
+      SCHEME: "SlidePuzzle"
     github:
       label: "slide_puzzle"
     links:
@@ -157,8 +157,8 @@ profiles:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
       - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+        path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
+        if_set: "IOS_APP_DIR"
     commands:
       - name: "Generate Xcode project"
         run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
@@ -177,10 +177,10 @@ profiles:
       - running
       - miles
     display_name: "Hit My Week"
-    ios:
-      app_dir: "_ios/HitMyWeek"
-      bundle_id: "com.cd17822.hitmyweek"
-      scheme: "HitMyWeek"
+    vars:
+      IOS_APP_DIR: "_ios/HitMyWeek"
+      BUNDLE_ID: "com.cd17822.hitmyweek"
+      SCHEME: "HitMyWeek"
     github:
       label: "hit_the_weekly"
     links:
@@ -193,8 +193,8 @@ profiles:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
       - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+        path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
+        if_set: "IOS_APP_DIR"
     commands:
       - name: "Generate Xcode project"
         run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"
@@ -212,10 +212,10 @@ profiles:
       - meal
       - recipe
     display_name: "Girl Food"
-    ios:
-      app_dir: "_ios/Girl Food"
-      bundle_id: "com.cd17822.girl-food"
-      scheme: "Girl Food"
+    vars:
+      IOS_APP_DIR: "_ios/Girl Food"
+      BUNDLE_ID: "com.cd17822.girl-food"
+      SCHEME: "Girl Food"
     github:
       label: "girl_food"
     links:
@@ -228,8 +228,8 @@ profiles:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
       - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+        path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
+        if_set: "IOS_APP_DIR"
     commands:
       - name: "Generate Xcode project"
         run: "cd \"${WORKTREE_PATH}/${IOS_APP_DIR}\" && xcodegen generate"
@@ -247,10 +247,10 @@ profiles:
       - baby
       - everybodys
     display_name: "Preg Prog"
-    ios:
-      app_dir: "_ios/EverybodysPregnant"
-      bundle_id: "com.cd17822.everybodysPregnant"
-      scheme: "EverybodysPregnant"
+    vars:
+      IOS_APP_DIR: "_ios/EverybodysPregnant"
+      BUNDLE_ID: "com.cd17822.everybodysPregnant"
+      SCHEME: "EverybodysPregnant"
     github:
       label: "preg_prog"
     links:
@@ -263,8 +263,8 @@ profiles:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
       - name: "Xcode"
-        path: "${XCODEPROJ_PATH}"
-        if_set: "XCODEPROJ_PATH"
+        path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
+        if_set: "IOS_APP_DIR"
     commands:
       - name: "Generate Xcode project"
         run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"

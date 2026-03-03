@@ -144,14 +144,6 @@ get_profile_display_name() {
     yq -r ".profiles.$profile.display_name // \"$profile\"" "$CONFIG_PATH"
 }
 
-# Helper function to check if a profile has iOS config
-profile_has_ios() {
-    local profile="$1"
-    local app_dir
-    app_dir=$(get_profile_value "$profile" "ios.app_dir")
-    [[ -n "$app_dir" ]]
-}
-
 # Function to match profiles based on keywords
 match_profiles() {
     local input="$1"
@@ -378,11 +370,11 @@ else
     print_success "Using default profile: $(get_profile_display_name "$SELECTED_PROFILE")"
 fi
 
-# Extract profile values
-IOS_APP_DIR=$(get_profile_value "$SELECTED_PROFILE" "ios.app_dir")
-BUNDLE_ID=$(get_profile_value "$SELECTED_PROFILE" "ios.bundle_id")
-SCHEME=$(get_profile_value "$SELECTED_PROFILE" "ios.scheme")
-HAS_IOS=$(profile_has_ios "$SELECTED_PROFILE" && echo "true" || echo "false")
+# Extract generic profile vars
+declare -A PROFILE_VARS
+while IFS='=' read -r key value; do
+    [[ -n "$key" ]] && PROFILE_VARS[$key]="$value" && declare "$key=$value"
+done < <(yq -r '.profiles.'"$SELECTED_PROFILE"'.vars // {} | to_entries[] | .key + "=" + .value' "$CONFIG_PATH")
 
 # Read per-profile team prefix (falls back to global TEAM_PREFIX)
 PROFILE_TEAM_PREFIX=$(yq -r ".profiles.$SELECTED_PROFILE.team_prefix // \"\"" "$CONFIG_PATH" | tr '[:lower:]' '[:upper:]')
@@ -398,7 +390,7 @@ PROJECT_KEY="$SELECTED_PROFILE"
 # Get VCS label from profile (provider-agnostic, falls back to github.label)
 VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
 
-log "Profile: $SELECTED_PROFILE, iOS: $HAS_IOS, App Dir: $IOS_APP_DIR, Bundle: $BUNDLE_ID"
+log "Profile: $SELECTED_PROFILE, vars: ${!PROFILE_VARS[*]}"
 
 # Step 2: Get or create issue
 print_step 2 "Setting up issue ($TRACKER_PROVIDER)..."
@@ -459,10 +451,6 @@ expand_var() {
     result="${result//\$\{REPO_NAME\}/$REPO_NAME}"
     result="${result//\$\{PR_URL\}/$PR_URL}"
     result="${result//\$\{MR_URL\}/$PR_URL}"
-    result="${result//\$\{XCODEPROJ_PATH\}/$XCODEPROJ_PATH}"
-    result="${result//\$\{IOS_APP_DIR\}/$IOS_APP_DIR}"
-    result="${result//\$\{BUNDLE_ID\}/$BUNDLE_ID}"
-    result="${result//\$\{SCHEME\}/$SCHEME}"
     result="${result//\$\{SCRIPT_DIR\}/$SCRIPT_DIR}"
     result="${result//\$\{TITLE\}/$TITLE}"
     result="${result//\$\{DESCRIPTION\}/$DESCRIPTION}"
@@ -470,6 +458,10 @@ expand_var() {
     result="${result//\$\{GITHUB_LABEL\}/$VCS_LABEL}"
     result="${result//\$\{TRACKER_PROVIDER\}/$TRACKER_PROVIDER}"
     result="${result//\$\{VCS_PROVIDER\}/$VCS_PROVIDER}"
+    # Expand generic profile vars
+    for key in "${!PROFILE_VARS[@]}"; do
+        result="${result//\$\{$key\}/${PROFILE_VARS[$key]}}"
+    done
     echo "$result"
 }
 
@@ -480,14 +472,11 @@ var_is_set() {
     case "$var_name" in
         WORKTREE_PATH) [[ -n "$WORKTREE_PATH" ]] ;;
         PR_URL|MR_URL) [[ -n "$PR_URL" ]] ;;
-        XCODEPROJ_PATH) [[ -n "$XCODEPROJ_PATH" && -d "$XCODEPROJ_PATH" ]] ;;
         ISSUE_URL) [[ -n "$ISSUE_URL" ]] ;;
-        IOS_APP_DIR) [[ -n "$IOS_APP_DIR" ]] ;;
-        BUNDLE_ID) [[ -n "$BUNDLE_ID" ]] ;;
-        SCHEME) [[ -n "$SCHEME" ]] ;;
         TITLE) [[ -n "$TITLE" ]] ;;
         DESCRIPTION) [[ -n "$DESCRIPTION" ]] ;;
-        *) [[ -n "${!var_name:-}" ]] ;;  # fall back to env var indirect ref
+        *) # Check profile vars, then fall back to env var
+           [[ -n "${PROFILE_VARS[$var_name]:-}" ]] || [[ -n "${!var_name:-}" ]] ;;
     esac
 }
 
@@ -531,14 +520,6 @@ else
             fi
         done
     fi
-fi
-
-# Derive XCODEPROJ_PATH from profile's iOS config (no separate generation step needed;
-# xcodegen runs as a profile command in Step 8)
-XCODEPROJ_PATH=""
-if [[ "$HAS_IOS" == "true" && -n "$IOS_APP_DIR" ]]; then
-    APP_NAME=$(basename "$IOS_APP_DIR")
-    XCODEPROJ_PATH="$WORKTREE_PATH/$IOS_APP_DIR/$APP_NAME.xcodeproj"
 fi
 
 # Step 6: Create or find PR/MR

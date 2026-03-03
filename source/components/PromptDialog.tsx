@@ -47,7 +47,6 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			return {
 				name: defaultProfile.name,
 				displayName: defaultProfile.profile.display_name,
-				hasIos: !!defaultProfile.profile.ios,
 				isDefault: true,
 				matchedKeywords: [] as string[],
 			};
@@ -60,7 +59,6 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			return {
 				name: best.name,
 				displayName: best.profile.display_name,
-				hasIos: !!best.profile.ios,
 				isDefault: false,
 				matchedKeywords: best.matchedKeywords,
 			};
@@ -71,7 +69,6 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 		return {
 			name: defaultProfile.name,
 			displayName: defaultProfile.profile.display_name,
-			hasIos: !!defaultProfile.profile.ios,
 			isDefault: true,
 			matchedKeywords: [] as string[],
 		};
@@ -128,10 +125,7 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			{profileInfo && (
 				<Box marginTop={1}>
 					<Text dimColor>Profile: </Text>
-					<Text color={profileInfo.hasIos ? 'magenta' : 'blue'}>
-						{profileInfo.displayName}
-					</Text>
-					{profileInfo.hasIos && <Text dimColor> (iOS)</Text>}
+					<Text color="blue">{profileInfo.displayName}</Text>
 					{profileInfo.matchedKeywords.length > 0 && (
 						<Text dimColor> ← {profileInfo.matchedKeywords.join(', ')}</Text>
 					)}
