@@ -286,7 +286,68 @@ For the full configuration reference, see [pappardelle-config.md](pappardelle-co
 
 ## 5. Advanced: Wrangling Multi-Repo Changes
 
-TODO
+Pappardelle is designed for single-repo workflows, but (experimentally) you can extend it to orchestrate changes across multiple repositories using a parent (pappa) repo.
+
+### The setup
+
+Create a master repository that embeds the repos you care about as git submodules:
+
+```
+my-workspace/
+├── .pappardelle.yml
+├── .claude/
+│   ├── settings.json         # shared settings + plugins
+│   └── skills/address-mr-feedbacks/
+│       └── SKILL.md          # orchestration skill (plural)
+├── repo-a/                   # git submodule
+├── repo-b/                   # git submodule
+└── repo-c/                   # git submodule
+```
+
+The parent repo's primary purpose is to share settings, context, and orchestration skills to coordinate work across submodules.
+
+### Spawning agents in submodules
+
+Multi-repo work has been an achilles heel for Claude Code in the past, but I'm hoping **[Agent Teams](https://code.claude.com/docs/en/agent-teams)** can help solve this. One key unlock with agent teams is that teammates can be spawned in _separate directories_, meaning we can have a parent repo, but then spawn a repo per relevant submodule, which is nice because it automatically loads that submodule's CLAUDE.md, skills, settings, etc.
+
+### Selective submodule fetching
+
+Ideally not every submodule is pulled down upfront for every task. It's best to use a search tool like SourceBot's `codesearch` MCP during the planning phase to identify which submodules are relevant, then `git submodule update --init --depth 1 <submodule-path>` only those.
+
+This helps not only keep initialization latency low, but also makes for less noise for the agent while it greps and globs.
+
+### Plugin skills vs. parent repo skills
+
+One key distinction for multi-repo work is between **plugin** skills and parent repo skills:
+
+- **Plugin skills** (added in the parent repo's `settings.json` but defined elsewhere) are skills that can be used by any repo / agent teammate receives automatically. These handle single-repo concerns.
+
+  Example: An `/address-mr-feedback` plugin that lets any agent look at its own repo's MR and address reviewer comments.
+
+- **Parent repo skills** (in the parent repo's `.claude/commands/`) are orchestration skills that spawn agent teams across submodules.
+
+  Example: An `/address-mr-feedbacks` (plural) skill that spins up an agent team, spawning one agent per relevant submodule — each agent calls the plugin's singular skill for its own MR.
+
+### Example `/do` skill for multi-repo
+
+A starter `/do` skill tailored for multi-repo workflows is available at [`example_skills/do-multi-repo/SKILL.md`](example_skills/do-multi-repo/SKILL.md). It covers submodule init, agent team spin-up, per-repo QA, and coordinated PR creation. Install it into your parent repo with:
+
+```bash
+mkdir -p .claude/commands && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/example_skills/do-multi-repo/SKILL.md -o .claude/commands/do.md
+```
+
+### Useful keybindings
+
+Bind keys to open specific submodules in your editor for quick navigation:
+
+```yaml
+keybindings:
+  - key: 's'
+    name: 'Open repo-a in Cursor'
+    run: 'open -a "Cursor" "${WORKTREE_PATH}/repo-a" 2>/dev/null || open -a "Cursor" "${REPO_ROOT}/repo-a"'
+```
+
+Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in the `master`/`main` space.
 
 ---
 
