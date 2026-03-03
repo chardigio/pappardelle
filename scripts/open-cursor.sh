@@ -66,11 +66,4 @@ fi
 # The -n flag opens a new window, -g opens in the background without activating
 cursor "$WORKTREE"
 
-# Position window immediately (position 7 = left column, full height)
-"$SCRIPT_DIR/position-window.sh" \
-    --app "Cursor" \
-    --title "$ISSUE_KEY" \
-    --workspace "$ISSUE_KEY" \
-    --position 7 &
-
 echo "Cursor opened at $WORKTREE"

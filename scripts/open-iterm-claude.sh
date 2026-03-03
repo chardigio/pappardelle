@@ -9,7 +9,7 @@
 #   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow)
 #   3. A split pane running lazygit
 #
-# The window title is set to include the issue key for AeroSpace organization.
+# The window title is set to include the issue key.
 #
 # Exit code: 0 on success, 1 on failure
 
@@ -153,12 +153,5 @@ APPLESCRIPT_END
 # Run the AppleScript with arguments
 osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG"
 rm -f "$APPLESCRIPT"
-
-# Position window immediately (position 6 = bottom right)
-"$SCRIPT_DIR/position-window.sh" \
-    --app "iTerm2" \
-    --title "$ISSUE_KEY" \
-    --workspace "$ISSUE_KEY" \
-    --position 6 &
 
 echo "iTerm window opened with Claude and lazygit for $ISSUE_KEY"

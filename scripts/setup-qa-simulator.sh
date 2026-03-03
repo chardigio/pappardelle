@@ -190,13 +190,6 @@ xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
 # Open Simulator.app to show the window
 open -a Simulator
 
-# Position simulator window immediately (center)
-"$SCRIPT_DIR/position-window.sh" \
-    --app "Simulator" \
-    --title "QA-$ISSUE_KEY" \
-    --workspace "$ISSUE_KEY" \
-    --position center &
-
 # Wait for simulator to boot
 wait_for_sim_state "$SIM_UDID" "Booted" 60 || true
 

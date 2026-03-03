@@ -14,14 +14,26 @@ team_prefix: ENG
 #   initialization_command: "/idow"        # Command passed to Claude when a new session opens
 #   dangerously_skip_permissions: false     # Pass --dangerously-skip-permissions to Claude (default: false)
 
+# Commands to run after git worktree is created (optional).
+# Without this section, create-worktree.sh just creates the branch.
+# Uses the same CommandConfig format as profile commands.
+# Template variables (${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_NUMBER}, etc.) are expanded.
+post_worktree_init:
+  - name: "Copy .env"
+    run: "cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true"
+  - name: "Install dependencies"
+    run: "cd ${WORKTREE_PATH} && npm install"
+    continue_on_error: true
+
+# Terminal application for workspace windows (optional, default: iTerm)
+# terminal:
+#   app: "iTerm"
+
 # Lifecycle hooks (optional)
 # hooks:
 #   post_workspace_create:
 #     - name: "Run project setup"
 #       run: "cd ${WORKTREE_PATH} && ./setup.sh"
-#       continue_on_error: true
-#     - name: "Organize windows"
-#       run: "${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}"
 #       continue_on_error: true
 
 profiles:

@@ -44,17 +44,31 @@ claude:
   initialization_command: '/idow'          # Command passed to Claude on new sessions
   dangerously_skip_permissions: true       # Pass --dangerously-skip-permissions to Claude (default: false)
 
+# Commands to run after git worktree is created (optional).
+# Without this section, create-worktree.sh just creates the branch.
+# Uses the same CommandConfig format as profile commands.
+post_worktree_init:
+  - name: 'Copy .env'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
+  - name: 'Set PORT'
+    run: "sed -i '' 's/^PORT=.*/PORT=5${ISSUE_NUMBER}/' ${WORKTREE_PATH}/.env"
+  - name: 'Install dependencies'
+    run: 'cd ${WORKTREE_PATH} && uv sync --quiet'
+    continue_on_error: true
+
+# Terminal application for workspace windows (optional, default: iTerm)
+terminal:
+  app: 'iTerm' # Currently only iTerm is supported
+
 # Lifecycle hooks (optional)
 # Commands that run at specific points during workspace setup.
 hooks:
   # Runs after the workspace is fully created (worktree, PR, apps opened)
   post_workspace_create:
-    - name: 'Organize workspace'
-      run: '${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}'
-      continue_on_error: true # Don't fail workspace setup if this fails
-    # - name: "Run setup script"
-    #   run: "cd ${WORKTREE_PATH} && ./setup.sh"
-    #   background: true  # Run in background, don't wait
+    - name: 'Run setup script'
+      run: 'cd ${WORKTREE_PATH} && ./setup.sh'
+      continue_on_error: true
+      # background: true  # Run in background, don't wait
 
 # Default profile used when no match is found
 default_profile: stardust-jams
@@ -123,16 +137,6 @@ profiles:
         run: '${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}'
         background: true # Run in background, don't wait
 
-    # Window layout configuration (for Aerospace)
-    layout:
-      # Position numbers follow Aerospace grid (1-9)
-      positions:
-        iTerm: 1 # Left column, top
-        Cursor: 4 # Left column, middle
-        Xcode: 8 # Middle column, full height
-        Simulator: 3 # Right column, top
-        Firefox: 6 # Right column, middle
-
   king-bee:
     keywords:
       - king
@@ -198,6 +202,7 @@ The following variables are available for use in templates:
 | Variable              | Description                                | Example                                                  |
 | --------------------- | ------------------------------------------ | -------------------------------------------------------- |
 | `${ISSUE_KEY}`        | Issue key                                  | `STA-361`                                                |
+| `${ISSUE_NUMBER}`     | Numeric part of issue key                  | `361`                                                    |
 | `${ISSUE_URL}`        | Full issue URL (tracker-specific)          | `https://linear.app/...` or `https://jira.../browse/...` |
 | `${TITLE}`            | Issue title                                | `Add dark mode`                                          |
 | `${DESCRIPTION}`      | Issue description                          | (full text)                                              |
@@ -212,8 +217,8 @@ The following variables are available for use in templates:
 | `${IOS_APP_DIR}`      | iOS app directory from profile             | `_ios/stardust-jams`                                     |
 | `${BUNDLE_ID}`        | iOS bundle ID from profile                 | `com.cd17822.stardust-jams`                              |
 | `${SCHEME}`           | Xcode scheme from profile                  | `stardust-jams`                                          |
-| `${GITHUB_LABEL}`     | GitHub PR label from profile               | `stardust_jams`                                          |
 | `${VCS_LABEL}`        | VCS label from profile (provider-agnostic) | `stardust_jams`                                          |
+| `${GITHUB_LABEL}`     | Deprecated alias for `${VCS_LABEL}`        | `stardust_jams`                                          |
 | `${TRACKER_PROVIDER}` | Issue tracker provider name                | `linear` or `jira`                                       |
 | `${VCS_PROVIDER}`     | VCS host provider name                     | `github` or `gitlab`                                     |
 
@@ -340,6 +345,10 @@ interface PappardelleConfig {
 		provider: 'github' | 'gitlab';
 		host?: string; // For self-hosted GitLab
 	};
+	post_worktree_init?: CommandConfig[]; // Commands to run after worktree creation
+	terminal?: {
+		app?: string; // Terminal app name (default: iTerm)
+	};
 	profiles: Record<string, Profile>;
 }
 
@@ -362,7 +371,6 @@ interface Profile {
 	links?: LinkConfig[];
 	apps?: AppConfig[];
 	commands?: CommandConfig[];
-	layout?: LayoutConfig;
 }
 
 // Load config from git root
@@ -590,6 +598,77 @@ claude:
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 
+## Post-Worktree-Init Commands
+
+The `post_worktree_init` section defines commands to run after a git worktree is created. Without this section, `create-worktree.sh` only creates the branch — no file copying, env setup, or dependency installation.
+
+Commands use the same `CommandConfig` format as profile commands, with full template variable support.
+
+```yaml
+post_worktree_init:
+  - name: 'Copy .env'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
+  - name: 'Set PORT'
+    run: "sed -i '' 's/^PORT=.*/PORT=5${ISSUE_NUMBER}/' ${WORKTREE_PATH}/.env"
+  - name: 'Install dependencies'
+    run: 'cd ${WORKTREE_PATH} && uv sync --quiet'
+    continue_on_error: true
+```
+
+Each command entry uses the `CommandConfig` structure:
+
+| Field               | Type      | Default  | Description                                                |
+| ------------------- | --------- | -------- | ---------------------------------------------------------- |
+| `name`              | `string`  | Required | Human-readable name for logging                            |
+| `run`               | `string`  | Required | Command to execute (supports template variables)           |
+| `continue_on_error` | `boolean` | `false`  | If true, subsequent commands still run even if this fails  |
+| `background`        | `boolean` | `false`  | If true, run command in background without waiting         |
+
+### Example: Python project
+
+```yaml
+post_worktree_init:
+  - name: 'Copy .env'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
+  - name: 'Set PORT'
+    run: "sed -i '' 's/^PORT=.*/PORT=5${ISSUE_NUMBER}/' ${WORKTREE_PATH}/.env"
+  - name: 'Install dependencies'
+    run: 'cd ${WORKTREE_PATH} && uv sync --quiet'
+    continue_on_error: true
+```
+
+### Example: Node.js project
+
+```yaml
+post_worktree_init:
+  - name: 'Copy env files'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null; cp -n ${REPO_ROOT}/.env.local ${WORKTREE_PATH}/.env.local 2>/dev/null || true'
+  - name: 'Install dependencies'
+    run: 'cd ${WORKTREE_PATH} && npm install'
+    continue_on_error: true
+```
+
+### Example: Minimal (no setup)
+
+```yaml
+# Omit the post_worktree_init section entirely — just creates the branch
+```
+
+## Terminal Configuration
+
+The `terminal` section configures which terminal application is used for workspace windows.
+
+```yaml
+terminal:
+  app: 'iTerm' # Currently only iTerm is supported
+```
+
+| Field | Type     | Default  | Description                                                                 |
+| ----- | -------- | -------- | --------------------------------------------------------------------------- |
+| `app` | `string` | `iTerm`  | Terminal application name. Currently only `iTerm` is supported.             |
+
+When omitted, defaults to iTerm.
+
 ## Lifecycle Hooks
 
 The `hooks` section defines commands that run at specific points during workspace setup.
@@ -597,8 +676,8 @@ The `hooks` section defines commands that run at specific points during workspac
 ```yaml
 hooks:
   post_workspace_create:
-    - name: 'Organize workspace'
-      run: '${SCRIPT_DIR}/organize-aerospace.sh ${ISSUE_KEY}'
+    - name: 'Run setup script'
+      run: 'cd ${WORKTREE_PATH} && ./setup.sh'
       continue_on_error: true
       background: false
 ```

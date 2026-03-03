@@ -4,15 +4,13 @@
 #
 # Usage: create-worktree.sh --issue-key <STA-XXX> --project-key <project-key>
 #
-# Creates a git worktree at ~/.worktrees/<project-key>/<issue-key>
-# from the stardust-labs main repository.
+# Creates a git worktree at ~/.worktrees/<repo-name>/<issue-key>
+# from the repository root.
 #
-# Also:
-#   - Copies .env from main repo if it doesn't exist
-#   - Runs uv sync if .venv is missing/broken
-#   - Sets up unique port for the worktree
+# Post-creation setup (file copying, env overrides, dependency installation)
+# is handled by `post_worktree_init` commands in .pappardelle.yml, executed by idow.
 #
-# Outputs: JSON with worktree_path
+# Outputs: JSON with worktree_path and issue_key
 # Exit code: 0 on success, 1 on failure
 
 set -e
@@ -38,7 +36,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: create-worktree.sh --issue-key <STA-XXX> --project-key <project-key>"
             echo ""
-            echo "Creates a git worktree at ~/.worktrees/<project-key>/<issue-key>"
+            echo "Creates a git worktree at ~/.worktrees/<repo-name>/<issue-key>"
             exit 0
             ;;
         *)
@@ -64,9 +62,6 @@ WORKTREE_PATH="$WORKTREES_ROOT/$REPO_NAME/$ISSUE_KEY"
 
 # Create parent directory if needed
 mkdir -p "$(dirname "$WORKTREE_PATH")"
-
-# Extract issue number for port assignment
-ISSUE_NUMBER=$(echo "$ISSUE_KEY" | grep -oE '[0-9]+')
 
 log() {
     echo "[create-worktree] $*" >&2
@@ -148,32 +143,5 @@ else
     log "Worktree already exists at $WORKTREE_PATH"
 fi
 
-# Copy .env if it doesn't exist
-if [[ ! -f "$WORKTREE_PATH/.env" ]] && [[ -f "$MAIN_REPO/.env" ]]; then
-    log "Copying .env from main repo"
-    cp "$MAIN_REPO/.env" "$WORKTREE_PATH/.env"
-fi
-
-# Set unique port for this worktree (e.g., 5323 for STA-323)
-WORKTREE_PORT="5$ISSUE_NUMBER"
-if [[ -f "$WORKTREE_PATH/.env" ]]; then
-    if grep -q "^PORT=" "$WORKTREE_PATH/.env"; then
-        sed -i '' "s/^PORT=.*/PORT=$WORKTREE_PORT/" "$WORKTREE_PATH/.env"
-    else
-        echo "PORT=$WORKTREE_PORT" >> "$WORKTREE_PATH/.env"
-    fi
-    log "Set PORT=$WORKTREE_PORT in .env"
-fi
-
-# Run uv sync if .venv doesn't exist or is broken
-VENV_PYTHON="$WORKTREE_PATH/.venv/bin/python"
-if [[ ! -f "$VENV_PYTHON" ]] || [[ ! -s "$VENV_PYTHON" ]] || ! "$VENV_PYTHON" --version >/dev/null 2>&1; then
-    log "Running uv sync (venv missing or broken)"
-    rm -rf "$WORKTREE_PATH/.venv"
-    (cd "$WORKTREE_PATH" && uv sync --quiet >/dev/null 2>&1) || log "Warning: uv sync failed (non-critical)"
-else
-    log "Venv exists and works, skipping uv sync"
-fi
-
 # Output JSON
-echo "{\"worktree_path\":\"$WORKTREE_PATH\",\"issue_key\":\"$ISSUE_KEY\",\"port\":\"$WORKTREE_PORT\"}"
+echo "{\"worktree_path\":\"$WORKTREE_PATH\",\"issue_key\":\"$ISSUE_KEY\"}"

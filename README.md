@@ -160,14 +160,10 @@ scripts/                         # Workspace setup scripts
 ├── create-linear-issue.sh       # Linear issue creation
 ├── create-github-pr.sh          # GitHub PR creation
 ├── derive-title.sh              # Issue title generation
-├── generate-xcode-project.sh    # XcodeGen project generation
 ├── setup-qa-simulator.sh        # iOS simulator setup
 ├── open-iterm-claude.sh         # iTerm + Claude session opener
 ├── open-cursor.sh               # Cursor editor opener
-├── open-firefox-tabs.sh         # Firefox tab opener
-├── organize-aerospace.sh        # AeroSpace workspace organizer
-├── position-window.sh           # Window positioning
-└── yabai-position.sh            # Yabai window positioning
+└── open-firefox-tabs.sh         # Firefox tab opener
 
 hooks/
 ├── update-status.py             # Status tracking hook

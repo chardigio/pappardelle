@@ -70,18 +70,6 @@ else
     LINEAR_URL="https://linear.app/stardust-labs/issue/$ISSUE_KEY"
 fi
 
-# Check if Firefox already has a window for this ticket
-firefox_has_ticket() {
-    local result
-    result=$(aerospace list-windows --all --json 2>/dev/null | jq -e ".[] | select(.[\"app-name\"] == \"Firefox\" and (.[\"window-title\"] | contains(\"$ISSUE_KEY\")))" 2>&1)
-    return $?
-}
-
-if firefox_has_ticket; then
-    log "Firefox already has window for $ISSUE_KEY - skipping"
-    exit 0
-fi
-
 log "Opening new Firefox window with Linear: $LINEAR_URL"
 
 # Open Linear in a new window first
@@ -99,12 +87,5 @@ if [[ -n "$PR_URL" ]]; then
     log "Adding PR files tab: $PR_URL/files"
     open -na "Firefox.app" --args --new-tab "$PR_URL/files"
 fi
-
-# Position window immediately (position 3 = top right)
-"$SCRIPT_DIR/position-window.sh" \
-    --app "Firefox" \
-    --title "$ISSUE_KEY" \
-    --workspace "$ISSUE_KEY" \
-    --position 3 &
 
 log "Firefox tabs opened for $ISSUE_KEY"

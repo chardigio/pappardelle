@@ -119,7 +119,6 @@ OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-100" --project-key "t
 assert_valid_json "stdout is valid JSON" "$OUTPUT"
 assert_single_line "stdout is a single line" "$OUTPUT"
 assert_json_field "issue_key is correct" "$OUTPUT" "issue_key" "STA-100"
-assert_json_field "port is derived from issue number" "$OUTPUT" "port" "5100"
 
 teardown_repo
 

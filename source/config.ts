@@ -45,10 +45,6 @@ export interface HooksConfig {
 	post_workspace_create?: CommandConfig[];
 }
 
-export interface LayoutConfig {
-	positions?: Record<string, number>;
-}
-
 export interface IOSConfig {
 	app_dir: string;
 	bundle_id: string;
@@ -78,6 +74,10 @@ export interface VcsHostConfig {
 	host?: string; // For self-hosted GitLab
 }
 
+export interface TerminalConfig {
+	app?: string; // Default: "iTerm"
+}
+
 export interface Profile {
 	keywords: string[];
 	display_name: string;
@@ -90,7 +90,6 @@ export interface Profile {
 	links?: LinkConfig[];
 	apps?: AppConfig[];
 	commands?: CommandConfig[];
-	layout?: LayoutConfig;
 }
 
 export interface PappardelleConfig {
@@ -100,6 +99,9 @@ export interface PappardelleConfig {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
 	claude?: ClaudeConfig;
+	/** Commands to run after git worktree is created. Same format as profile commands. */
+	post_worktree_init?: CommandConfig[];
+	terminal?: TerminalConfig;
 	hooks?: HooksConfig;
 	keybindings?: KeybindingConfig[];
 	profiles: Record<string, Profile>;
@@ -340,6 +342,21 @@ export function validateConfig(
 				typeof cl['dangerously_skip_permissions'] !== 'boolean'
 			) {
 				errors.push('claude.dangerously_skip_permissions: must be a boolean');
+			}
+		}
+	}
+
+	// Check post_worktree_init (optional)
+	if (cfg['post_worktree_init'] !== undefined) {
+		if (!Array.isArray(cfg['post_worktree_init'])) {
+			errors.push('post_worktree_init: must be an array');
+		} else {
+			const cmds = cfg['post_worktree_init'] as Array<Record<string, unknown>>;
+			for (let i = 0; i < cmds.length; i++) {
+				const cmd = cmds[i]!;
+				if (typeof cmd['run'] !== 'string') {
+					errors.push(`post_worktree_init[${i}].run: required string field`);
+				}
 			}
 		}
 	}
