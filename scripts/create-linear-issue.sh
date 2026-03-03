@@ -67,7 +67,7 @@ fi
 # Convert prompt to blockquote by adding > to each line
 QUOTED_PROMPT=$(echo "$PROMPT" | sed 's/^/> /')
 
-DESCRIPTION="👨‍🍳🍝 More details coming soon.
+DESCRIPTION="👨‍🍳🍝 More details coming soon...
 
 ---
 
