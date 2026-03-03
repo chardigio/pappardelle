@@ -142,8 +142,11 @@ if [[ "$LOCAL_MODE" == true ]]; then
 else
     if [[ -d "$REPO_DIR/.git" ]]; then
         print_info "Updating existing installation..."
-        (cd "$REPO_DIR" && git pull --quiet) && print_status "Updated $REPO_DIR" \
-            || print_warning "git pull failed, continuing with existing version"
+        if (cd "$REPO_DIR" && git fetch --quiet origin && git reset --hard origin/main --quiet); then
+            print_status "Updated $REPO_DIR"
+        else
+            print_warning "git update failed, continuing with existing version"
+        fi
     else
         print_info "Cloning pappardelle..."
         mkdir -p "$PAPPARDELLE_DIR"
