@@ -421,11 +421,11 @@ idow STA-123
 
 Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
 
-| Hook                           | Trigger                             | What it does                                                                  |
-| ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
-| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
-| `post-plan-to-tracker.py`      | `PostToolUse` (ExitPlanMode)        | Posts implementation plans as issue comments                                  |
+| Hook                           | Trigger                                       | What it does                                                                  |
+| ------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop`           | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)               | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`             | Sends push notifications via ntfy when Claude needs user input                |
 
 ### Logging
 

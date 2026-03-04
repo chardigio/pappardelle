@@ -220,7 +220,7 @@ class TestCodeBlocks:
 
 class TestComplexDocuments:
     def test_plan_description(self):
-        """Test the typical plan description format from post-plan-to-tracker.py."""
+        """Test converting a typical plan description to ADF."""
         md = """## Implementation Plan
 
 ### Steps

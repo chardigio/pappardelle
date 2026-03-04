@@ -41,15 +41,6 @@
 				]
 			},
 			{
-				"matcher": "ExitPlanMode",
-				"hooks": [
-					{
-						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/post-plan-to-tracker.py"
-					}
-				]
-			},
-			{
 				"matcher": "AskUserQuestion",
 				"hooks": [
 					{

@@ -207,7 +207,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
     mkdir -p "$HOOKS_DIR"
 
     # Copy hook scripts
-    for hook in update-status.py comment-question-answered.py post-plan-to-tracker.py; do
+    for hook in update-status.py comment-question-answered.py zap-notification.py; do
         if [[ -f "$HOOKS_SRC/$hook" ]]; then
             cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
             chmod +x "$HOOKS_DIR/$hook"

@@ -17,8 +17,6 @@ cp "$SCRIPT_DIR/update-status.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/update-status.py"
 cp "$SCRIPT_DIR/comment-question-answered.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/comment-question-answered.py"
-cp "$SCRIPT_DIR/post-plan-to-tracker.py" "$HOOKS_DIR/"
-chmod +x "$HOOKS_DIR/post-plan-to-tracker.py"
 cp "$SCRIPT_DIR/zap-notification.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/zap-notification.py"
 
