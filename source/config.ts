@@ -850,6 +850,7 @@ export function buildWorkspaceTemplateVars(
 	issueKey: string,
 	worktreePath: string,
 	issueTitle?: string,
+	configOverride?: PappardelleConfig,
 ): TemplateVars {
 	const repoRoot = getRepoRoot();
 	const repoName = getRepoName();
@@ -864,7 +865,7 @@ export function buildWorkspaceTemplateVars(
 
 	// Try to match a profile for additional template vars
 	try {
-		const config = loadConfig();
+		const config = configOverride ?? loadConfig();
 		let profile: Profile | undefined;
 
 		if (issueTitle) {
