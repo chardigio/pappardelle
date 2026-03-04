@@ -19,6 +19,15 @@
 						"command": "python3 ~/.pappardelle/hooks/update-status.py"
 					}
 				]
+			},
+			{
+				"matcher": "AskUserQuestion",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/zap-notification.py"
+					}
+				]
 			}
 		],
 		"PostToolUse": [
@@ -98,6 +107,10 @@
 					{
 						"type": "command",
 						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+					},
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/zap-notification.py"
 					}
 				]
 			}

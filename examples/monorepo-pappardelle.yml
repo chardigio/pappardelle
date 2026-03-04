@@ -53,7 +53,7 @@ keybindings:
     name: "Address PR feedback"
     send_to_claude: "/address-pr-feedback"
   - key: "c"
-    name: "Clear Claude context"
+    name: "Clear context"
     send_to_claude: "/clear"
 
 profiles:
