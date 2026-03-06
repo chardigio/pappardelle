@@ -409,7 +409,8 @@ if [[ "$IS_NEW_ISSUE" == true ]]; then
     print_success "Created issue: $ISSUE_KEY (project will be assigned by Claude)"
 
     # Write issue metadata for hook tracking (plan → description vs comment)
-    ISSUE_META_DIR="$HOME/.pappardelle/issue-meta"
+    # Namespaced per-repo under ~/.pappardelle/repos/{repoName}/issue-meta/
+    ISSUE_META_DIR="$HOME/.pappardelle/repos/$(basename "$REPO_ROOT")/issue-meta"
     mkdir -p "$ISSUE_META_DIR"
     echo "{\"created_by_pappardelle\": true, \"created_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$ISSUE_META_DIR/$ISSUE_KEY.json"
 else

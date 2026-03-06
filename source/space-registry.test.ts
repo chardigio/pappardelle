@@ -10,6 +10,8 @@ import {
 	seedFromTmux,
 	setRegistryPath,
 	resetRegistryPath,
+	getRegistryPathForRepo,
+	initForRepo,
 } from './space-registry.ts';
 
 let tempCounter = 0;
@@ -18,6 +20,15 @@ function tempRegistryPath(): string {
 		os.tmpdir(),
 		`pappardelle-registry-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
 	);
+}
+
+function tempDir(): string {
+	const dir = path.join(
+		os.tmpdir(),
+		`pappardelle-test-${process.pid}-${Date.now()}-${tempCounter++}`,
+	);
+	fs.mkdirSync(dir, {recursive: true});
+	return dir;
 }
 
 test.afterEach(() => {
@@ -133,4 +144,135 @@ test.serial('seedFromTmux works on empty registry', t => {
 
 	seedFromTmux(['STA-50', 'STA-60']);
 	t.deepEqual(getRegisteredSpaces(), ['STA-50', 'STA-60']);
+});
+
+// ============================================================================
+// Repo-namespaced registry paths
+// ============================================================================
+
+test.serial(
+	'getRegistryPathForRepo returns repo-namespaced path under ~/.pappardelle/repos/',
+	t => {
+		const result = getRegistryPathForRepo('stardust-labs');
+		t.true(result.includes('/repos/stardust-labs/open-spaces.json'));
+		t.true(result.includes('.pappardelle'));
+	},
+);
+
+test.serial(
+	'getRegistryPathForRepo returns different paths for different repos',
+	t => {
+		const path1 = getRegistryPathForRepo('stardust-labs');
+		const path2 = getRegistryPathForRepo('pappa-chex');
+		t.not(path1, path2);
+		t.true(path1.includes('stardust-labs'));
+		t.true(path2.includes('pappa-chex'));
+	},
+);
+
+test.serial('initForRepo sets registry path for the given repo', t => {
+	const baseDir = tempDir();
+	initForRepo('my-repo', baseDir);
+
+	addSpace('REPO-1');
+	t.deepEqual(getRegisteredSpaces(), ['REPO-1']);
+
+	// Verify file is at the repo-namespaced location
+	const expectedPath = path.join(
+		baseDir,
+		'repos',
+		'my-repo',
+		'open-spaces.json',
+	);
+	t.true(fs.existsSync(expectedPath));
+	const data = JSON.parse(fs.readFileSync(expectedPath, 'utf-8'));
+	t.deepEqual(data, ['REPO-1']);
+});
+
+test.serial('initForRepo keeps spaces separate between repos', t => {
+	const baseDir = tempDir();
+
+	// Initialize repo A and add spaces
+	initForRepo('repo-a', baseDir);
+	addSpace('A-1');
+	addSpace('A-2');
+
+	// Initialize repo B and add different spaces
+	initForRepo('repo-b', baseDir);
+	addSpace('B-1');
+
+	// Verify repo B only has its own spaces
+	t.deepEqual(getRegisteredSpaces(), ['B-1']);
+
+	// Switch back to repo A and verify its spaces are intact
+	initForRepo('repo-a', baseDir);
+	t.deepEqual(getRegisteredSpaces(), ['A-1', 'A-2']);
+});
+
+// ============================================================================
+// Migration from legacy global open-spaces.json
+// ============================================================================
+
+test.serial(
+	'initForRepo migrates legacy open-spaces.json to repo-specific path',
+	t => {
+		const baseDir = tempDir();
+
+		// Create legacy file at the old global location
+		const legacyPath = path.join(baseDir, 'open-spaces.json');
+		fs.writeFileSync(legacyPath, JSON.stringify(['STA-100', 'STA-200']) + '\n');
+
+		// Initialize for a repo — should migrate legacy data
+		initForRepo('stardust-labs', baseDir);
+
+		t.deepEqual(getRegisteredSpaces(), ['STA-100', 'STA-200']);
+
+		// Verify new repo-specific file exists
+		const repoPath = path.join(
+			baseDir,
+			'repos',
+			'stardust-labs',
+			'open-spaces.json',
+		);
+		t.true(fs.existsSync(repoPath));
+
+		// Verify legacy file was moved (not copied)
+		t.false(fs.existsSync(legacyPath));
+	},
+);
+
+test.serial(
+	'initForRepo does NOT overwrite existing repo-specific file with legacy data, but still removes legacy',
+	t => {
+		const baseDir = tempDir();
+
+		// Create legacy file
+		const legacyPath = path.join(baseDir, 'open-spaces.json');
+		fs.writeFileSync(legacyPath, JSON.stringify(['OLD-1', 'OLD-2']) + '\n');
+
+		// Create repo-specific file (already migrated previously)
+		const repoDir = path.join(baseDir, 'repos', 'stardust-labs');
+		fs.mkdirSync(repoDir, {recursive: true});
+		const repoPath = path.join(repoDir, 'open-spaces.json');
+		fs.writeFileSync(repoPath, JSON.stringify(['NEW-1']) + '\n');
+
+		// Initialize — should use existing repo file, not legacy
+		initForRepo('stardust-labs', baseDir);
+		t.deepEqual(getRegisteredSpaces(), ['NEW-1']);
+
+		// Legacy file should be deleted even though repo file already existed
+		t.false(fs.existsSync(legacyPath));
+		t.true(fs.existsSync(repoPath));
+	},
+);
+
+test.serial('initForRepo works cleanly when no legacy file exists', t => {
+	const baseDir = tempDir();
+
+	// No legacy file, no repo file — fresh start
+	initForRepo('fresh-repo', baseDir);
+	t.deepEqual(getRegisteredSpaces(), []);
+
+	addSpace('FRESH-1');
+	t.deepEqual(getRegisteredSpaces(), ['FRESH-1']);
 });

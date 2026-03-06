@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import {StateColorCache} from './providers/state-color-cache.ts';
+import {
+	StateColorCache,
+	initStateColorCacheDir,
+	resetStateColorCacheDir,
+} from './providers/state-color-cache.ts';
 
 let tempCounter = 0;
 function tempCachePath(): string {
@@ -10,6 +14,15 @@ function tempCachePath(): string {
 		os.tmpdir(),
 		`pappardelle-scc-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
 	);
+}
+
+function tempDir(): string {
+	const dir = path.join(
+		os.tmpdir(),
+		`pappardelle-scc-dir-test-${process.pid}-${Date.now()}-${tempCounter++}`,
+	);
+	fs.mkdirSync(dir, {recursive: true});
+	return dir;
 }
 
 test('get returns null for unknown state', t => {
@@ -79,3 +92,85 @@ test('multiple updates accumulate in the persisted file', t => {
 	t.is(data['In Progress'], '#bbb');
 	t.is(data['Todo'], '#ccc');
 });
+
+// ============================================================================
+// Repo-namespaced state color cache
+// ============================================================================
+
+test.serial(
+	'initStateColorCacheDir sets default path for new StateColorCache instances',
+	t => {
+		const baseDir = tempDir();
+		const repoDir = path.join(baseDir, 'repos', 'my-repo');
+		fs.mkdirSync(repoDir, {recursive: true});
+
+		initStateColorCacheDir(repoDir);
+
+		const cache = new StateColorCache();
+		cache.update('Done', '#74d09f');
+
+		const expectedPath = path.join(repoDir, 'state-colors.json');
+		t.true(fs.existsSync(expectedPath));
+
+		resetStateColorCacheDir();
+	},
+);
+
+test.serial(
+	'initStateColorCacheDir migrates legacy state-colors.json by moving it',
+	t => {
+		const baseDir = tempDir();
+		const repoDir = path.join(baseDir, 'repos', 'my-repo');
+
+		// Create legacy file
+		const legacyPath = path.join(baseDir, 'state-colors.json');
+		fs.writeFileSync(
+			legacyPath,
+			JSON.stringify({Done: '#aaa', Todo: '#bbb'}) + '\n',
+		);
+
+		initStateColorCacheDir(repoDir, baseDir);
+
+		// New cache should have migrated data
+		const cache = new StateColorCache();
+		t.is(cache.get('Done'), '#aaa');
+		t.is(cache.get('Todo'), '#bbb');
+
+		// Legacy file should be gone
+		t.false(fs.existsSync(legacyPath));
+
+		// Repo-specific file should exist
+		const repoPath = path.join(repoDir, 'state-colors.json');
+		t.true(fs.existsSync(repoPath));
+
+		resetStateColorCacheDir();
+	},
+);
+
+test.serial(
+	'initStateColorCacheDir deletes legacy file even if repo file already exists',
+	t => {
+		const baseDir = tempDir();
+		const repoDir = path.join(baseDir, 'repos', 'my-repo');
+		fs.mkdirSync(repoDir, {recursive: true});
+
+		// Create legacy file
+		const legacyPath = path.join(baseDir, 'state-colors.json');
+		fs.writeFileSync(legacyPath, JSON.stringify({Done: '#old'}) + '\n');
+
+		// Create repo-specific file
+		const repoPath = path.join(repoDir, 'state-colors.json');
+		fs.writeFileSync(repoPath, JSON.stringify({Done: '#new'}) + '\n');
+
+		initStateColorCacheDir(repoDir, baseDir);
+
+		// Legacy file should be deleted
+		t.false(fs.existsSync(legacyPath));
+
+		// Repo file should be preserved
+		const cache = new StateColorCache();
+		t.is(cache.get('Done'), '#new');
+
+		resetStateColorCacheDir();
+	},
+);

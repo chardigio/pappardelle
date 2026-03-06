@@ -3,6 +3,7 @@ import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
 import {execSync, spawnSync} from 'node:child_process';
+import {homedir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import App from './app.tsx';
@@ -25,6 +26,8 @@ captureStderr();
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
+import {initForRepo} from './space-registry.ts';
+import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,6 +130,13 @@ function checkConfig(): void {
 }
 
 checkConfig();
+
+// Initialize per-repo state directories so state is kept separate
+// from other repos that may also use pappardelle.
+const repoName = getRepoName();
+const repoStateDir = path.join(homedir(), '.pappardelle', 'repos', repoName);
+initForRepo(repoName);
+initStateColorCacheDir(repoStateDir);
 
 // Initialize provider singletons from config so that all subsequent
 // no-arg calls (e.g. from tracker.ts facade) use the correct provider.

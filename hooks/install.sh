@@ -47,7 +47,7 @@ fi
 
 # Create status and metadata directories
 mkdir -p "$HOME/.pappardelle/claude-status"
-mkdir -p "$HOME/.pappardelle/issue-meta"
+mkdir -p "$HOME/.pappardelle/repos"
 
 echo ""
 echo "Installation complete!"

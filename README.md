@@ -302,13 +302,18 @@ npm link                # makes `pappardelle` available globally
 
 **Directories created by the installer:**
 
-| Directory / File                       | Purpose                                              |
-| -------------------------------------- | ---------------------------------------------------- |
-| `~/.pappardelle/`                      | Config, hooks, logs, and Claude status files         |
-| `~/.pappardelle/claude-status/`        | Real-time status JSON files from Claude hooks        |
-| `~/.pappardelle/open-spaces.json`      | Persisted workspace registry (survives reboots)      |
-| `~/.pappardelle/logs/`                 | Daily log files (7-day retention)                    |
-| `~/.worktrees/`                        | Git worktrees for all your workspaces                |
+| Directory / File                                        | Purpose                                              |
+| ------------------------------------------------------- | ---------------------------------------------------- |
+| `~/.pappardelle/`                                       | Config, hooks, logs, and Claude status files         |
+| `~/.pappardelle/repos/{repoName}/open-spaces.json`      | Persisted workspace registry (per-repo, survives reboots) |
+| `~/.pappardelle/repos/{repoName}/issue-meta/`           | Issue metadata for hook tracking (per-repo)          |
+| `~/.pappardelle/claude-status/`                         | Real-time status JSON files from Claude hooks        |
+| `~/.pappardelle/logs/`                                  | Daily log files (7-day retention)                    |
+| `~/.worktrees/`                                         | Git worktrees for all your workspaces                |
+
+> **Multi-repo support:** State is namespaced per repository under `~/.pappardelle/repos/{repoName}/`.
+> Running pappardelle in two different repos keeps their workspace registries completely separate.
+> On first run, existing state is automatically migrated from the legacy global location.
 
 ### Creating workspaces from the command line
 

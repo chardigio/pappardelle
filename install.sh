@@ -235,7 +235,7 @@ fi
 # ============================================================================
 
 mkdir -p "$PAPPARDELLE_DIR/claude-status"
-mkdir -p "$PAPPARDELLE_DIR/issue-meta"
+mkdir -p "$PAPPARDELLE_DIR/repos"
 mkdir -p "$PAPPARDELLE_DIR/logs"
 mkdir -p "$WORKTREES_DIR"
 print_status "Created directories (~/.pappardelle/, ~/.worktrees/)"
