@@ -67,7 +67,7 @@ pappardelle
 
 ### The 3-pane layout
 
-When you launch `pappardelle`, it creates a tmux session (named `pappardelle`) with three panes:
+When you launch `pappardelle`, it creates a tmux session with three panes:
 
 - **Left pane** shows the ticket rail. This is where you navigate workspaces, create new ones, and trigger actions.
 - **Center pane** shows the Claude Code session for whichever workspace is highlighted.
