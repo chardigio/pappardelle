@@ -8,7 +8,7 @@ A TUI for multi-clauding without losing your marbles.
 
 You type a description, it reads or creates an issue, spawns a git worktree, builds a PR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
-<video src="assets/pappardelle-demo.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/42e7c234-2dd1-4e9e-a211-f2caa4d257d8
 
 ---
 
@@ -176,7 +176,7 @@ tmux kill-server
 
 ### From the TUI
 
-TODO: IMAGE
+![New session dialog](assets/new-session-dialog.png)
 
 Press `n` in the workspace list to open the prompt dialog. You can enter:
 
@@ -251,8 +251,6 @@ Profile `vars` keys are also injected as template variables (e.g., `vars: { IOS_
 
 Bind single keys to bash commands or Claude directives:
 
-TODO: example where we create a new terminal
-
 ```yaml
 keybindings:
   - key: 'b'
@@ -261,7 +259,14 @@ keybindings:
 
   - key: 't'
     name: 'Run tests'
-    run: 'cd ${WORKTREE_PATH} && uv run pytest'
+    run: |
+      osascript -e '
+        tell application "iTerm"
+          create window with default profile
+          tell current session of current window
+            write text "cd \"${WORKTREE_PATH}\" && uv run pytest"
+          end tell
+        end tell'
 
   - key: 'a'
     name: 'Address PR feedback'
@@ -300,47 +305,52 @@ Pappardelle is designed for single-repo workflows, but (experimentally) you can 
 
 ### The setup
 
-Create a master repository that embeds the repos you care about as git submodules:
+Create a parent repository that serves as the orchestration hub:
 
 ```
 my-workspace/
 ├── .pappardelle.yml
 ├── .claude/
 │   ├── settings.json         # shared settings + plugins
-│   └── skills/address-mr-feedbacks/
-│       └── SKILL.md          # orchestration skill (plural)
-├── repo-a/                   # git submodule
-├── repo-b/                   # git submodule
-└── repo-c/                   # git submodule
+│   └── skills/
+│       ├── do/
+│       │   └── SKILL.md      # initialization skill
+│       └── address-mr-feedbacks/
+│           └── SKILL.md      # orchestration skill
+├── CLAUDE.md
 ```
 
-The parent repo's primary purpose is to share settings, context, and orchestration skills to coordinate work across submodules.
+The parent repo's primary purpose is to share settings, context, and orchestration skills to coordinate work across child repos. Child repos are **not** committed to the parent — they're shallow-cloned on demand during workspace setup.
 
-### Spawning agents in submodules
+### Spawning agents in child repos
 
-Multi-repo work has been an achilles heel for Claude Code in the past, but I'm hoping **[Agent Teams](https://code.claude.com/docs/en/agent-teams)** can help solve this. One key unlock with agent teams is that teammates can be spawned in _separate directories_, meaning we can have a parent repo, but then spawn a repo per relevant submodule, which is nice because it automatically loads that submodule's CLAUDE.md, skills, settings, etc.
+Multi-repo work has been an achilles heel for Claude Code in the past, but I'm hoping **[Agent Teams](https://code.claude.com/docs/en/agent-teams)** can help solve this. One key unlock with agent teams is that teammates can be spawned in _separate directories_, meaning we can have a parent repo, but then spawn an agent per relevant child repo, which is nice because it automatically loads that repo's CLAUDE.md, skills, settings, etc.
 
-### Selective submodule fetching
+### On-demand shallow cloning
 
-Ideally not every submodule is pulled down upfront for every task. It's best to use a search tool like SourceBot's `codesearch` MCP during the planning phase to identify which submodules are relevant, then `git submodule update --init --depth 1 <submodule-path>` only those.
+Repos are pulled down as needed — not upfront. During the planning phase, use a search tool like SourceBot's `codesearch` MCP to identify which repos are relevant, then shallow-clone only those:
 
-This helps not only keep initialization latency low, but also makes for less noise for the agent while it greps and globs.
+```bash
+git clone --depth 1 https://github.com/org/repo-a.git
+```
+
+This keeps initialization fast and reduces noise for the agent while it greps and globs. Because we use `--depth 1`, only the latest commit is fetched — no full history.
 
 ### Plugin skills vs. parent repo skills
 
-One key distinction for multi-repo work is between **plugin** skills and parent repo skills:
+One key distinction for multi-repo work is between plugin skills and parent repo skills:
 
 - **Plugin skills** (added in the parent repo's `settings.json` but defined elsewhere) are skills that can be used by any repo / agent teammate receives automatically. These handle single-repo concerns.
 
   Example: An `/address-mr-feedback` plugin that lets any agent look at its own repo's MR and address reviewer comments.
 
-- **Parent repo skills** (in the parent repo's `.claude/skills/`) are orchestration skills that spawn agent teams across submodules.
+- **Parent repo skills** (in the parent repo's `.claude/skills/`) are orchestration skills that spawn agent teams across child repos.
 
-  Example: An `/address-mr-feedbacks` (plural) skill that spins up an agent team, spawning one agent per relevant submodule — each agent calls the plugin's singular skill for its own MR.
+  Example: An `/address-mr-feedbacks` (plural) skill that spins up an agent team, spawning one agent per relevant child repo — each agent calls the plugin's singular skill for its own MR.
 
 ### Example `/do` skill for multi-repo
 
-A starter `/do` skill tailored for multi-repo workflows is available at [`examples/skills/do-multi-repo/SKILL.md`](examples/skills/do-multi-repo/SKILL.md). It covers submodule init, agent team spin-up, per-repo QA, and coordinated PR creation. Install it into your parent repo with:
+A starter `/do` skill tailored for multi-repo workflows is available at [`examples/skills/do-multi-repo/SKILL.md`](examples/skills/do-multi-repo/SKILL.md). It covers shallow cloning, agent team spin-up, per-repo QA, and coordinated PR creation. Install it into your parent repo with:
 
 ```bash
 mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do-multi-repo/SKILL.md -o .claude/skills/do/SKILL.md
@@ -348,7 +358,7 @@ mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chard
 
 ### Useful keybindings
 
-Bind keys to open specific submodules in your editor for quick navigation:
+Bind keys to open specific child repos in your editor for quick navigation:
 
 ```yaml
 keybindings:
@@ -361,18 +371,23 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 ---
 
-## 6. Advanced: Pappardelle on the Go
+## 6. Advanced: Doom-coding with Pappardelle
+
+https://github.com/user-attachments/assets/acfacd3c-bf42-4e94-84ed-0b57781283a5
 
 Because Pappardelle runs entirely inside tmux, you can access your full workspace setup from anywhere — all you need is an SSH connection to the machine running it.
 
 ### What you need
 
+- **A machine that stays on** — A Mac Mini is popular for this, but your laptop works fine too — just keep it plugged in. macOS won't sleep with the lid closed as long as it has power and an active SSH session.
 - **[Tailscale](https://tailscale.com/)** — A mesh VPN that makes your dev machine accessible from any network without port forwarding or firewall configuration. Install on both your dev machine and your mobile device.
 - **[Termius](https://termius.com/)** (iOS) — A full-featured SSH client for iPhone and iPad with good tmux support, copy/paste, and keyboard shortcuts. Other SSH clients work too (Blink Shell, Prompt 3), but Termius handles tmux rendering well.
 
-### Setup
 
-TODO
+### Nice-to-haves
+
+- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a `zap-notification.py` hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. This way you don't have to babysit the terminal — just wait for the buzz.
+- **[Wispr Flow](https://wisprflow.ai/)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
 
 ---
 
