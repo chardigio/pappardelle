@@ -8,6 +8,8 @@ A TUI for multi-clauding without losing your marbles.
 
 You type a description, it reads or creates an issue in Linear/Jira, spawns a git worktree, builds a PR/MR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
+**Video:**
+
 https://github.com/user-attachments/assets/42e7c234-2dd1-4e9e-a211-f2caa4d257d8
 
 ---
@@ -130,98 +132,23 @@ When you create a workspace, Pappardelle runs through these steps:
 
 ## 4. Customizing Your Configuration
 
-Pappardelle is configured via a `.pappardelle.yml` file at your git repository root. This file is **required** — Pappardelle won't start without it.
-### Profiles
+Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The key concepts:
 
-Profiles define per-project-type configuration. When you create a workspace, Pappardelle matches your input text against each profile's `keywords` array. If one profile matches, it's selected automatically. If multiple match, the best match is used. Append `!` to a keyword to enforce that profile (e.g., `music! add playlist shuffle`).
+- **Profiles** — Per-project-type config (keywords, setup commands, VCS labels). Pappardelle keyword-matches your input to auto-select the right profile.
+- **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
+- **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
+- **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
+- **Post-worktree hooks** — Commands that run after worktree creation (e.g., copying `.env` files, installing dependencies).
 
-**Profile fields:**
+For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).
 
-| Field          | Type                   | Description                                                             |
-| -------------- | ---------------------- | ----------------------------------------------------------------------- |
-| `keywords`     | `string[]`             | Words that trigger auto-selection of this profile                       |
-| `display_name` | `string`               | Human-readable name shown in the profile picker                         |
-| `team_prefix`  | `string`               | Override the global team prefix for new issues                          |
-| `vars`         | `Record<string, string>` | Key-value pairs that become template variables (e.g., `IOS_APP_DIR`)  |
-| `vcs`          | `object`               | VCS label config (`label` — applied to PRs/MRs)                        |
-| `links`        | `array`                | URLs to open with `o` key (supports `if_set` for conditional inclusion) |
-| `apps`         | `array`                | Applications to launch with `o` key                                     |
-| `commands`     | `array`                | Setup commands run during workspace creation                            |
-
-### Template variables
-
-All string values in the config support `${VAR_NAME}` expansion:
-
-| Variable             | Example                                 |
-| -------------------- | --------------------------------------- |
-| `${ISSUE_KEY}`       | `STA-631`                               |
-| `${ISSUE_NUMBER}`    | `631`                                   |
-| `${ISSUE_URL}`       | `https://linear.app/...`                |
-| `${TITLE}`           | `Add dark mode`                         |
-| `${WORKTREE_PATH}`   | `/Users/you/.worktrees/my-repo/STA-631` |
-| `${REPO_ROOT}`       | `/Users/you/code/my-repo`               |
-| `${REPO_NAME}`       | `my-repo`                               |
-| `${PR_URL}`          | `https://github.com/.../pull/42`        |
-| `${SCRIPT_DIR}`      | `/path/to/pappardelle/scripts`          |
-| `${VCS_LABEL}`       | `my_app`                                |
-| `${TRACKER_PROVIDER}` | `linear`                               |
-| `${VCS_PROVIDER}`    | `github`                                |
-
-Profile `vars` keys are also injected as template variables (e.g., `vars: { IOS_APP_DIR: "_ios/MyApp" }` makes `${IOS_APP_DIR}` available). Environment variables work too (e.g., `${HOME}`).
-
-### Custom keybindings
-
-Bind single keys to bash commands or Claude directives:
-
-```yaml
-keybindings:
-  - key: 'b'
-    name: 'Build'
-    run: 'cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodebuild build'
-
-  - key: 't'
-    name: 'Run tests'
-    run: |
-      osascript -e '
-        tell application "iTerm"
-          create window with default profile
-          tell current session of current window
-            write text "cd \"${WORKTREE_PATH}\" && uv run pytest"
-          end tell
-        end tell'
-
-  - key: 'a'
-    name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
-```
-
-- **`run`** keybindings execute in the selected workspace's worktree directory. Status is shown in the header while running.
-- **`send_to_claude`** keybindings send text to the Claude pane (with Enter). Useful for invoking Claude skills.
-- Custom keybindings appear in the help overlay (`?`).
-- Reserved keys that can't be rebound: `j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?`, `Enter`, `Delete`.
-
-### Providers
-
-Pappardelle supports pluggable issue trackers and VCS hosts:
-
-| Provider         | CLI Tool | Config                                                       |
-| ---------------- | -------- | ------------------------------------------------------------ |
-| Linear (default) | `linctl` | `issue_tracker: { provider: linear }`                        |
-| Jira             | `acli`   | `issue_tracker: { provider: jira, base_url: "https://..." }` |
-| GitHub (default) | `gh`     | `vcs_host: { provider: github }`                             |
-| GitLab           | `glab`   | `vcs_host: { provider: gitlab, host: "gitlab.company.com" }` |
-
-Omit `issue_tracker` and `vcs_host` to use the defaults (Linear + GitHub).
-
-For the full configuration reference, see [pappardelle-config.md](pappardelle-config.md).
-
-### Real-world example
-
-For a production `.pappardelle.yml` used across a polyglot monorepo (Python backends + Swift iOS apps), see [`examples/monorepo-pappardelle.yml`](examples/monorepo-pappardelle.yml). It demonstrates profiles with iOS build commands, custom keybindings for deploying to devices and simulators, QA simulator setup, `post_worktree_init` hooks, and more.
+For a production `.pappardelle.yml` used across a polyglot monorepo (Python backends + Swift iOS apps), see [`examples/monorepo-pappardelle.yml`](examples/monorepo-pappardelle.yml).
 
 ---
 
 ## 5. Advanced: Doom-coding with Pappardelle
+
+**Video:**
 
 https://github.com/user-attachments/assets/acfacd3c-bf42-4e94-84ed-0b57781283a5
 
