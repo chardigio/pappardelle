@@ -6,7 +6,7 @@
 
 A TUI for multi-clauding without losing your marbles.
 
-You type a description, it reads or creates an issue, spawns a git worktree, builds a PR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
+You type a description, it reads or creates an issue in Linear/Jira, spawns a git worktree, builds a PR/MR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
 https://github.com/user-attachments/assets/42e7c234-2dd1-4e9e-a211-f2caa4d257d8
 
