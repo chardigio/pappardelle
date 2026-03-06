@@ -66,6 +66,13 @@ See [Section 7: Reference](#7-reference) for alternative install methods (local 
    version: 1
    team_prefix: PROJ # your issue prefix (e.g., PROJ-123)
 
+   vcs_host:
+     provider: github
+
+   issue_tracker:
+     provider: jira
+     base_url: https://mycompany.atlassian.net
+
    claude:
      initialization_command: '/do' # skill Claude runs on each new workspace
 
