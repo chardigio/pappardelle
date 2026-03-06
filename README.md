@@ -18,88 +18,40 @@ https://github.com/user-attachments/assets/42e7c234-2dd1-4e9e-a211-f2caa4d257d8
 2. [Understanding tmux in Pappardelle](#2-understanding-tmux-in-pappardelle)
 3. [Spawning New Sessions](#3-spawning-new-sessions)
 4. [Customizing Your Configuration](#4-customizing-your-configuration)
-5. [Advanced: Wrangling Multi-Repo Changes](#5-advanced-wrangling-multi-repo-changes)
-6. [Advanced: Pappardelle on the Go](#6-advanced-pappardelle-on-the-go)
+5. [Advanced: Doom-coding with Pappardelle](#5-advanced-doom-coding-with-pappardelle)
+6. [Advanced: Wrangling Multi-Repo Changes](#6-advanced-wrangling-multi-repo-changes)
 7. [Reference](#7-reference)
 
 ---
 
 ## 1. Installation and Getting Started
 
-### Prerequisites
+### Install Pappardelle
 
-| Tool                                                                   | Required | Install                                                            |
-| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------ |
-| Node.js >= 18                                                          | Yes      | `brew install node`                                                |
-| npm                                                                    | Yes      | Comes with Node.js                                                 |
-| git                                                                    | Yes      | `brew install git`                                                 |
-| tmux                                                                   | Yes      | `brew install tmux`                                                |
-| jq                                                                     | Yes      | `brew install jq`                                                  |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                  |
-| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)   |
-| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
-| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
-| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
-
-### Install
-
-**One-line install** (clones to `~/.pappardelle/repo/`, builds, and links globally):
+One-line install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-See [Section 7: Reference](#7-reference) for alternative install methods (local clone, manual).
+See [Section 7: Reference](#7-reference) for alternative install methods.
 
-### First run
+### Initialize your repo
 
-1. **Add a config file** to your repo root (Pappardelle won't start without one):
+Pappardelle needs a `.pappardelle.yml` config at your repo root. The fastest way to create one is with the `/init-pappardelle` skill — it checks your [prerequisites](#prerequisites), asks about your VCS host, issue tracker, and project profiles, then generates the config for you:
 
-   ```bash
-   # In your git repository root
-   touch .pappardelle.yml
-   ```
+```bash
+mkdir -p ~/.claude/skills/init-pappardelle && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/init-pappardelle/SKILL.md -o .claude/skills/init-pappardelle/SKILL.md
+claude /init-pappardelle
+```
 
-   See [Section 4: Customizing Your Configuration](#4-customizing-your-configuration) for the full config format. A minimal config looks like:
+For the full config format and manual setup, see the [configuration reference](pappardelle-config.md).
 
-   ```yaml
-   version: 1
-   team_prefix: PROJ # your issue prefix (e.g., PROJ-123)
+### Launch Pappardelle:
 
-   vcs_host:
-     provider: github
-
-   issue_tracker:
-     provider: jira
-     base_url: https://mycompany.atlassian.net
-
-   claude:
-     initialization_command: '/do' # skill Claude runs on each new workspace
-
-   profiles:
-     my-app:
-       display_name: 'My App'
-   ```
-
-   The `/do` initialization command tells Claude to start planning, implementing, and testing the issue with care. Install a starter `/do` skill into your project with the following command:
-
-   ```bash
-   mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
-   ```
-
-2. **Launch Pappardelle:**
-
-   ```bash
-   pappardelle
-   ```
-
-   This creates (or attaches to) a tmux session with the 3-pane layout. If you're not already inside tmux, Pappardelle creates a session and re-launches itself inside it.
-
-### Quick reference
-
-| Key | Action            |
-| --- | ----------------- |
-| `?` | Show help overlay |
+```bash
+pappardelle
+```
 
 ---
 
@@ -306,7 +258,46 @@ For a production `.pappardelle.yml` used across a polyglot monorepo (Python back
 
 ---
 
-## 5. Advanced: Wrangling Multi-Repo Changes
+## 5. Advanced: Doom-coding with Pappardelle
+
+https://github.com/user-attachments/assets/acfacd3c-bf42-4e94-84ed-0b57781283a5
+
+Because Pappardelle runs entirely inside tmux, you can access your full workspace setup from anywhere — all you need is an SSH connection to the machine running it.
+
+### What you need
+
+- **A machine that stays on** — A Mac Mini is popular for this, but your laptop works fine too — just keep it plugged in. macOS won't sleep with the lid closed as long as it has power and an active SSH session.
+- **[Tailscale](https://tailscale.com/)** — A mesh VPN that makes your dev machine accessible from any network without port forwarding or firewall configuration. Install on both your dev machine and your mobile device.
+- **[Termius](https://termius.com/)** (iOS) — A full-featured SSH client for iPhone and iPad with good tmux support, copy/paste, and keyboard shortcuts. Other SSH clients work too (Blink Shell, Prompt 3), but Termius handles tmux rendering well.
+
+
+### Nice-to-haves
+
+- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a `zap-notification.py` hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. This way you don't have to babysit the terminal — just wait for the buzz.
+- **[Wispr Flow](https://wisprflow.ai/)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
+
+### Useful keybindings
+
+When you're doom-coding from your phone, you want one-tap access to open the PR on the device in your hand. Bind a key that sends an ntfy notification with a clickable link:
+
+```yaml
+keybindings:
+  - key: 'z'
+    name: 'Zap PR'
+    run: >
+      PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number' 2>/dev/null);
+      if [ -n "$PR_NUM" ]; then
+        curl -d "${ISSUE_KEY} GitHub PR #$PR_NUM"
+          -H "Click: $(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url')"
+          ntfy.sh/${NTFY_TOPIC};
+      fi
+```
+
+Press `z` on a workspace and your phone buzzes with a notification — tap it and the PR opens in the GitHub app.
+
+---
+
+## 6. Advanced: Wrangling Multi-Repo Changes
 
 Pappardelle is designed for single-repo workflows, but (experimentally) you can extend it to orchestrate changes across multiple repositories using a parent (pappa) repo.
 
@@ -378,46 +369,22 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 ---
 
-## 6. Advanced: Doom-coding with Pappardelle
-
-https://github.com/user-attachments/assets/acfacd3c-bf42-4e94-84ed-0b57781283a5
-
-Because Pappardelle runs entirely inside tmux, you can access your full workspace setup from anywhere — all you need is an SSH connection to the machine running it.
-
-### What you need
-
-- **A machine that stays on** — A Mac Mini is popular for this, but your laptop works fine too — just keep it plugged in. macOS won't sleep with the lid closed as long as it has power and an active SSH session.
-- **[Tailscale](https://tailscale.com/)** — A mesh VPN that makes your dev machine accessible from any network without port forwarding or firewall configuration. Install on both your dev machine and your mobile device.
-- **[Termius](https://termius.com/)** (iOS) — A full-featured SSH client for iPhone and iPad with good tmux support, copy/paste, and keyboard shortcuts. Other SSH clients work too (Blink Shell, Prompt 3), but Termius handles tmux rendering well.
-
-
-### Nice-to-haves
-
-- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a `zap-notification.py` hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. This way you don't have to babysit the terminal — just wait for the buzz.
-- **[Wispr Flow](https://wisprflow.ai/)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
-
-### Useful keybindings
-
-When you're doom-coding from your phone, you want one-tap access to open the PR on the device in your hand. Bind a key that sends an ntfy notification with a clickable link:
-
-```yaml
-keybindings:
-  - key: 'z'
-    name: 'Zap PR'
-    run: >
-      PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number' 2>/dev/null);
-      if [ -n "$PR_NUM" ]; then
-        curl -d "${ISSUE_KEY} GitHub PR #$PR_NUM"
-          -H "Click: $(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url')"
-          ntfy.sh/${NTFY_TOPIC};
-      fi
-```
-
-Press `z` on a workspace and your phone buzzes with a notification — tap it and the PR opens in the GitHub app.
-
----
-
 ## 7. Reference
+
+### Prerequisites
+
+| Tool                                                                   | Required | Install                                                            |
+| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------ |
+| Node.js >= 18                                                          | Yes      | `brew install node`                                                |
+| npm                                                                    | Yes      | Comes with Node.js                                                 |
+| git                                                                    | Yes      | `brew install git`                                                 |
+| tmux                                                                   | Yes      | `brew install tmux`                                                |
+| jq                                                                     | Yes      | `brew install jq`                                                  |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                  |
+| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)   |
+| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
+| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
+| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
 
 ### Alternative install methods
 
