@@ -102,29 +102,21 @@ tmux kill-server
 
 ### From the TUI
 
+Press `n` in the workspace list to open the prompt dialog.
+
 ![New session dialog](assets/new-session-dialog.png)
-
-Press `n` in the workspace list to open the prompt dialog. You can enter:
-
-| Input                                          | What happens                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| A description (e.g., `"add playlist shuffle"`) | Creates a new issue, worktree, PR, and Claude session                         |
-| An issue key (e.g., `STA-123`)                 | Fetches the existing issue and creates a workspace for it                     |
-| A bare number (e.g., `123`)                    | Prepends the global `team_prefix` from `.pappardelle.yml` (becomes `STA-123`) |
-
-You can also create workspaces from the command line — see [Section 7: Reference](#creating-workspaces-from-the-command-line).
 
 ### What gets provisioned
 
 When you create a workspace, Pappardelle runs through these steps:
 
-1. **Profile selection** — Your input is keyword-matched against profiles in `.pappardelle.yml`. If one profile matches, it's auto-selected. If multiple match, the best match is used. If none match, the `default_profile` is used. Append `!` to a keyword to enforce that profile (e.g., `music! add playlist shuffle`).
+1. **Profile selection** — Your input is keyword-matched against a profile in `.pappardelle.yml`.
 
 2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira) issue is created with a WIP title. For existing issue keys, the issue is fetched.
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
-4. **PR/MR creation** — A placeholder pull request (GitHub) or merge request (GitLab) is created from the new branch.
+4. **PR/MR creation** — A placeholder PR (GitHub) or MR (GitLab) is created from the new branch.
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_worktree_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
