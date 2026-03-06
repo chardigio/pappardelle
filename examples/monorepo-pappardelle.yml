@@ -21,6 +21,8 @@ post_worktree_init:
     run: "cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true"
   - name: "Set PORT"
     run: "sed -i '' 's/^PORT=.*/PORT=5${ISSUE_NUMBER}/' ${WORKTREE_PATH}/.env"
+  - name: "Copy Claude local settings"
+    run: "cp -n ${REPO_ROOT}/.claude/settings.local.json ${WORKTREE_PATH}/.claude/settings.local.json 2>/dev/null || true"
   - name: "Install dependencies"
     run: "cd ${WORKTREE_PATH} && uv sync --quiet"
     continue_on_error: true
