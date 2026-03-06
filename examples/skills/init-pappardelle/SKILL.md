@@ -1,6 +1,7 @@
 ---
 name: init-pappardelle
 description: Initialize Pappardelle in a repository. Asks about your VCS host, issue tracker, and project profiles, checks prerequisites, then generates a .pappardelle.yml config file.
+disable-model-invocation: true
 ---
 
 # /init-pappardelle — Set Up Pappardelle in This Repo

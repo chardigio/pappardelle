@@ -1,6 +1,7 @@
 ---
 name: do
 description: Step-based workflow for implementing an issue in a multi-repo workspace. Handles research, planning, shallow cloning, agent teams, implementation, QA, and pull requests.
+disable-model-invocation: true
 ---
 
 # /do — Implement an Issue Across Multiple Repos

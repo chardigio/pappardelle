@@ -43,7 +43,7 @@ See [Section 7: Reference](#7-reference) for alternative install methods.
 Pappardelle needs a `.pappardelle.yml` config at your repo root. The fastest way to create one is with the `/init-pappardelle` skill — it checks your [prerequisites](#prerequisites), asks about your VCS host, issue tracker, and project profiles, then generates the config for you:
 
 ```bash
-mkdir -p ~/.claude/skills/init-pappardelle && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/init-pappardelle/SKILL.md -o .claude/skills/init-pappardelle/SKILL.md
+mkdir -p ~/.claude/skills/init-pappardelle && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/init-pappardelle/SKILL.md -o ~/.claude/skills/init-pappardelle/SKILL.md
 claude /init-pappardelle
 ```
 

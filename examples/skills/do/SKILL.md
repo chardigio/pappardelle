@@ -1,6 +1,7 @@
 ---
 name: do
 description: Start working on a new task. Workspace is already set up with git worktree, issue, and GitHub PR. Just start implementing the feature described in the prompt.
+disable-model-invocation: true
 ---
 
 # /do - Implement a Task
