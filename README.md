@@ -4,11 +4,11 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Pappardelle is a configurable tool that enables multi-clauding without losing your marbles.
+A TUI for multi-clauding without losing your marbles.
 
-Pappardelle orchestrates the full lifecycle of a coding task: you type a description, and it reads or creates an issue, spawns a git worktree, builds a PR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple keystrokes.
+You type a description, it reads or creates an issue, spawns a git worktree, builds a PR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
-TODO: video
+<video src="assets/pappardelle-demo.mp4" controls width="100%"></video>
 
 ---
 
