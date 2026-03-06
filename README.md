@@ -294,7 +294,7 @@ Pappardelle supports pluggable issue trackers and VCS hosts:
 | Linear (default) | `linctl` | `issue_tracker: { provider: linear }`                        |
 | Jira             | `acli`   | `issue_tracker: { provider: jira, base_url: "https://..." }` |
 | GitHub (default) | `gh`     | `vcs_host: { provider: github }`                             |
-| GitLab           | `glab`   | `vcs_host: { provider: gitlab }`                             |
+| GitLab           | `glab`   | `vcs_host: { provider: gitlab, host: "gitlab.company.com" }` |
 
 Omit `issue_tracker` and `vcs_host` to use the defaults (Linear + GitHub).
 
