@@ -44,6 +44,9 @@ Pappardelle needs a `.pappardelle.yml` config at your repo root. The fastest way
 
 ```bash
 mkdir -p ~/.claude/skills/init-pappardelle && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/init-pappardelle/SKILL.md -o ~/.claude/skills/init-pappardelle/SKILL.md
+```
+
+```bash
 claude /init-pappardelle
 ```
 
