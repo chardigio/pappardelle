@@ -389,6 +389,25 @@ Because Pappardelle runs entirely inside tmux, you can access your full workspac
 - **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a `zap-notification.py` hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. This way you don't have to babysit the terminal — just wait for the buzz.
 - **[Wispr Flow](https://wisprflow.ai/)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
 
+### Useful keybindings
+
+When you're doom-coding from your phone, you want one-tap access to open the PR on the device in your hand. Bind a key that sends an ntfy notification with a clickable link:
+
+```yaml
+keybindings:
+  - key: 'z'
+    name: 'Zap PR'
+    run: >
+      PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number' 2>/dev/null);
+      if [ -n "$PR_NUM" ]; then
+        curl -d "${ISSUE_KEY} GitHub PR #$PR_NUM"
+          -H "Click: $(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url')"
+          ntfy.sh/${NTFY_TOPIC};
+      fi
+```
+
+Press `z` on a workspace and your phone buzzes with a notification — tap it and the PR opens in the GitHub app.
+
 ---
 
 ## 7. Reference
