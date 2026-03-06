@@ -696,6 +696,36 @@ Each hook entry uses the same `CommandConfig` structure as profile commands:
 
 All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}`, plus any profile `vars`.
 
+## Local Overrides (`.pappardelle.local.yml`)
+
+You can create a `.pappardelle.local.yml` file in the same directory as `.pappardelle.yml` for personal keybinding overrides. This file is gitignored so it won't create noise in version control.
+
+The local file uses the same schema but only the `keybindings` section is merged. It supports three operations:
+
+- **Add**: Keybindings with keys not in the base config are added
+- **Override**: Keybindings whose key matches a base keybinding replace it entirely
+- **Disable**: Keybindings with `disabled: true` remove that key from the active set
+
+```yaml
+# .pappardelle.local.yml — personal overrides (gitignored)
+keybindings:
+  # Add a personal binding
+  - key: "V"
+    name: "Open in VS Code"
+    run: "code ${WORKTREE_PATH}"
+  # Override the repo-wide X binding
+  - key: "X"
+    name: "Open in Nova"
+    run: "nova ${WORKTREE_PATH}"
+  # Disable a binding I don't use
+  - key: "r"
+    disabled: true
+```
+
+Reserved keys (`j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?`) remain blocked in both files. Duplicate detection applies across the merged result.
+
+If the local file has syntax errors, config loading fails with an error message mentioning the local file.
+
 ## Custom Keybindings
 
 The `keybindings` section defines custom keyboard shortcuts that execute bash commands in the context of the currently selected workspace's worktree directory.

@@ -34,6 +34,7 @@ export interface KeybindingConfig {
 	name: string;
 	run?: string;
 	send_to_claude?: string;
+	disabled?: boolean;
 }
 
 export interface ClaudeConfig {
@@ -242,7 +243,31 @@ export function qualifyMainBranch(repoName: string, branch: string): string {
 }
 
 /**
- * Load the .pappardelle.yml config from the repository root
+ * Merge local keybinding overrides on top of base keybindings.
+ * - New keys are added
+ * - Existing keys are replaced entirely
+ * - Keys with `disabled: true` are removed from the active set
+ */
+export function mergeKeybindings(
+	base: KeybindingConfig[],
+	local: KeybindingConfig[],
+): KeybindingConfig[] {
+	const result = new Map(base.map(kb => [kb.key, kb]));
+	for (const kb of local) {
+		if (kb.disabled) {
+			result.delete(kb.key);
+		} else {
+			result.set(kb.key, kb);
+		}
+	}
+
+	return Array.from(result.values());
+}
+
+/**
+ * Load the .pappardelle.yml config from the repository root.
+ * If a .pappardelle.local.yml file exists, its keybindings are merged
+ * on top of the base config before validation.
  */
 export function loadConfig(): PappardelleConfig {
 	const repoRoot = getRepoRoot();
@@ -254,6 +279,27 @@ export function loadConfig(): PappardelleConfig {
 
 	const content = fs.readFileSync(configPath, 'utf-8');
 	const config = YAML.load(content) as PappardelleConfig;
+
+	// Merge local overrides if present
+	const localPath = path.join(repoRoot, '.pappardelle.local.yml');
+	if (fs.existsSync(localPath)) {
+		try {
+			const localContent = fs.readFileSync(localPath, 'utf-8');
+			const localConfig = YAML.load(localContent) as Record<string, unknown>;
+			if (
+				localConfig?.['keybindings'] &&
+				Array.isArray(localConfig['keybindings'])
+			) {
+				config.keybindings = mergeKeybindings(
+					config.keybindings ?? [],
+					localConfig['keybindings'] as KeybindingConfig[],
+				);
+			}
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			throw new ConfigValidationError([`.pappardelle.local.yml: ${msg}`]);
+		}
+	}
 
 	validateConfig(config);
 	return config;
@@ -443,6 +489,11 @@ export function validateConfig(
 						errors.push(`keybindings[${i}].key: "${k}" is already bound`);
 					}
 					seenKeys.add(k);
+				}
+
+				// Disabled bindings only need a valid key
+				if (binding['disabled'] === true) {
+					continue;
 				}
 				if (typeof binding['name'] !== 'string') {
 					errors.push(`keybindings[${i}].name: required string field`);

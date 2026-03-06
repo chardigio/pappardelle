@@ -1,5 +1,5 @@
 import test from 'ava';
-import type {PappardelleConfig, Profile} from './config.ts';
+import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
 import {
 	matchProfiles,
 	getTeamPrefix,
@@ -16,6 +16,7 @@ import {
 	ConfigValidationError,
 	RESERVED_KEYS,
 	RESERVED_VAR_NAMES,
+	mergeKeybindings,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -1898,4 +1899,160 @@ test('minimal config with just team_prefix and one profile validates', t => {
 		},
 	};
 	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// mergeKeybindings Tests
+// ============================================================================
+
+test('mergeKeybindings returns base keybindings when local is empty', t => {
+	const base: KeybindingConfig[] = [
+		{key: 'b', name: 'Build', run: 'make build'},
+		{key: 't', name: 'Test', run: 'make test'},
+	];
+	const result = mergeKeybindings(base, []);
+	t.deepEqual(result, base);
+});
+
+test('mergeKeybindings adds new keybindings from local', t => {
+	const base: KeybindingConfig[] = [
+		{key: 'b', name: 'Build', run: 'make build'},
+	];
+	const local: KeybindingConfig[] = [
+		{key: 'v', name: 'Open in VS Code', run: 'code .'},
+	];
+	const result = mergeKeybindings(base, local);
+	t.is(result.length, 2);
+	t.is(result[0]!.key, 'b');
+	t.is(result[1]!.key, 'v');
+	t.is(result[1]!.name, 'Open in VS Code');
+});
+
+test('mergeKeybindings overrides existing key with local version', t => {
+	const base: KeybindingConfig[] = [
+		{key: 'x', name: 'Open in Cursor', run: 'cursor .'},
+		{key: 'b', name: 'Build', run: 'make build'},
+	];
+	const local: KeybindingConfig[] = [
+		{key: 'x', name: 'Open in Nova', run: 'nova .'},
+	];
+	const result = mergeKeybindings(base, local);
+	t.is(result.length, 2);
+	const xBinding = result.find(kb => kb.key === 'x')!;
+	t.is(xBinding.name, 'Open in Nova');
+	t.is(xBinding.run, 'nova .');
+});
+
+test('mergeKeybindings removes disabled keybindings', t => {
+	const base: KeybindingConfig[] = [
+		{key: 'b', name: 'Build', run: 'make build'},
+		{key: 'r', name: 'Run', run: 'make run'},
+		{key: 't', name: 'Test', run: 'make test'},
+	];
+	const local: KeybindingConfig[] = [{key: 'r', name: '', disabled: true}];
+	const result = mergeKeybindings(base, local);
+	t.is(result.length, 2);
+	t.is(result[0]!.key, 'b');
+	t.is(result[1]!.key, 't');
+});
+
+test('mergeKeybindings handles add, override, and disable together', t => {
+	const base: KeybindingConfig[] = [
+		{key: 'b', name: 'Build', run: 'make build'},
+		{key: 'r', name: 'Run', run: 'make run'},
+		{key: 'x', name: 'Open Cursor', run: 'cursor .'},
+	];
+	const local: KeybindingConfig[] = [
+		{key: 'v', name: 'VS Code', run: 'code .'},
+		{key: 'x', name: 'Open Nova', run: 'nova .'},
+		{key: 'r', name: '', disabled: true},
+	];
+	const result = mergeKeybindings(base, local);
+	t.is(result.length, 3);
+	const keys = result.map(kb => kb.key);
+	t.deepEqual(keys, ['b', 'x', 'v']);
+	t.is(result.find(kb => kb.key === 'x')!.name, 'Open Nova');
+});
+
+test('mergeKeybindings returns empty array when both are empty', t => {
+	const result = mergeKeybindings([], []);
+	t.deepEqual(result, []);
+});
+
+test('mergeKeybindings with only local keybindings (empty base)', t => {
+	const local: KeybindingConfig[] = [
+		{key: 'v', name: 'VS Code', run: 'code .'},
+	];
+	const result = mergeKeybindings([], local);
+	t.is(result.length, 1);
+	t.is(result[0]!.key, 'v');
+});
+
+test('mergeKeybindings: disabling a non-existent key is a no-op', t => {
+	const base: KeybindingConfig[] = [
+		{key: 'b', name: 'Build', run: 'make build'},
+	];
+	const local: KeybindingConfig[] = [{key: 'z', name: '', disabled: true}];
+	const result = mergeKeybindings(base, local);
+	t.deepEqual(result, base);
+});
+
+// ============================================================================
+// Validation: disabled keybindings
+// ============================================================================
+
+test('validation accepts disabled keybinding without name/run/send_to_claude', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {display_name: 'Test'},
+		},
+		keybindings: [{key: 'r', disabled: true}],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validation still rejects disabled keybinding with reserved key', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {display_name: 'Test'},
+		},
+		keybindings: [{key: 'j', disabled: true}],
+	};
+	const err = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(err!.errors.some(e => e.includes('"j" conflicts with built-in')));
+});
+
+test('validation still rejects disabled keybinding with invalid key', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {display_name: 'Test'},
+		},
+		keybindings: [{key: 'ab', disabled: true}],
+	};
+	const err = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(err!.errors.some(e => e.includes('must be a single character')));
+});
+
+test('validation detects duplicate keys even if one is disabled', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {display_name: 'Test'},
+		},
+		keybindings: [
+			{key: 'b', name: 'Build', run: 'make build'},
+			{key: 'b', disabled: true},
+		],
+	};
+	const err = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(err!.errors.some(e => e.includes('"b" is already bound')));
 });
