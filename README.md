@@ -1,4 +1,4 @@
-# 🦀🍝🦀 Pappardelle
+# 🦀🍝🦀 Pappardelle 🦀🍝🦀
 
 [![Test](https://github.com/chardigio/pappardelle/actions/workflows/test.yml/badge.svg)](https://github.com/chardigio/pappardelle/actions/workflows/test.yml)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
