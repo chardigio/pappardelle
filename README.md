@@ -136,6 +136,8 @@ When you create a workspace, Pappardelle runs through these steps:
 
 ## 4. Spec-Driven Development Mindset
 
+![Spec-driven development in Linear](assets/spec-driven-development-linear.png)
+
 Pappardelle's recommended `/do` skill (set via `claude.initialization_command` in `.pappardelle.yml`) starts every Claude session with a **planning-first workflow**. Before writing any code, the agent researches and uses Claude Code's `AskUserQuestion` tool to clarify requirements — asking about ambiguous scope, confirming design decisions, and validating edge cases. The goal is to turn a rough prompt into a detailed, unambiguous spec — **written back to the issue description** — before the first line of code is written.
 
 ### Why this matters
