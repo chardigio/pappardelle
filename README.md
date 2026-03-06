@@ -10,7 +10,7 @@ You type a description, it reads or creates an issue in Linear/Jira, spawns a co
 
 **Video:**
 
-https://github.com/user-attachments/assets/42e7c234-2dd1-4e9e-a211-f2caa4d257d8
+ 
 
 ---
 
