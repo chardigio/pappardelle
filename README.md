@@ -19,10 +19,11 @@ https://github.com/user-attachments/assets/42e7c234-2dd1-4e9e-a211-f2caa4d257d8
 1. [Installation and Getting Started](#1-installation-and-getting-started)
 2. [Understanding tmux in Pappardelle](#2-understanding-tmux-in-pappardelle)
 3. [Spawning New Sessions](#3-spawning-new-sessions)
-4. [Customizing Your Configuration](#4-customizing-your-configuration)
-5. [Advanced: Doom-coding with Pappardelle](#5-advanced-doom-coding-with-pappardelle)
-6. [Advanced: Wrangling Multi-Repo Changes](#6-advanced-wrangling-multi-repo-changes)
-7. [Reference](#7-reference)
+4. [Spec-Driven Development Mindset](#4-spec-driven-development-mindset)
+5. [Customizing Your Configuration](#5-customizing-your-configuration)
+6. [Advanced: Doom-coding with Pappardelle](#6-advanced-doom-coding-with-pappardelle)
+7. [Advanced: Wrangling Multi-Repo Changes](#7-advanced-wrangling-multi-repo-changes)
+8. [Reference](#8-reference)
 
 ---
 
@@ -36,7 +37,7 @@ One-line install:
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-See [Section 7: Reference](#7-reference) for alternative install methods.
+See [Section 8: Reference](#8-reference) for alternative install methods.
 
 ### Initialize your repo
 
@@ -133,7 +134,25 @@ When you create a workspace, Pappardelle runs through these steps:
 
 ---
 
-## 4. Customizing Your Configuration
+## 4. Spec-Driven Development Mindset
+
+Pappardelle's recommended `/do` skill (set via `claude.initialization_command` in `.pappardelle.yml`) starts every Claude session with a **planning-first workflow**. Before writing any code, the agent researches and uses Claude Code's `AskUserQuestion` tool to clarify requirements — asking about ambiguous scope, confirming design decisions, and validating edge cases. The goal is to turn a rough prompt into a detailed, unambiguous spec — **written back to the issue description** — before the first line of code is written.
+
+### Why this matters
+
+A one-line prompt like "add dark mode to settings" leaves a lot of questions open: which settings screen? System preference or manual toggle? What colors? The `/do` skill instructs the agent to surface these questions upfront rather than guessing. This front-loaded clarification produces better code on the first pass and fewer revision cycles.
+
+### Automatic Q&A documentation
+
+Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear or Jira issue by the [`comment-question-answered.py`](hooks/comment-question-answered.py) hook. This means:
+
+- **The issue becomes the single source of truth.** The original prompt, every clarifying question, and every answer are all captured in one place — not scattered across chat windows or terminal scrollback.
+- **Anyone reviewing the PR can see the full context.** The issue thread shows exactly what the agent asked, what the developer decided, and why.
+- **Record-keeping is automatic.** You don't need to manually document decisions or copy-paste from the terminal. The hook handles it silently in the background.
+
+---
+
+## 5. Customizing Your Configuration
 
 Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The key concepts:
 
@@ -149,7 +168,7 @@ For a production `.pappardelle.yml` used across a polyglot monorepo (Python back
 
 ---
 
-## 5. Advanced: Doom-coding with Pappardelle
+## 6. Advanced: Doom-coding with Pappardelle
 
 **Video:**
 
@@ -190,7 +209,7 @@ Press `z` on a workspace and your phone buzzes with a notification — tap it an
 
 ---
 
-## 6. Advanced: Wrangling Multi-Repo Changes
+## 7. Advanced: Wrangling Multi-Repo Changes
 
 Pappardelle is designed for single-repo workflows, but (experimentally) you can extend it to orchestrate changes across multiple repositories using a parent (pappa) repo.
 
@@ -262,7 +281,7 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 ---
 
-## 7. Reference
+## 8. Reference
 
 ### Prerequisites
 
