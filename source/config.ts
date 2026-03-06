@@ -265,8 +265,44 @@ export function mergeKeybindings(
 }
 
 /**
+ * Apply local overrides from .pappardelle.local.yml onto the base config.
+ * Mutates `config` in place. Supports overriding:
+ * - `keybindings` (merged via mergeKeybindings)
+ * - `claude.dangerously_skip_permissions` (replaced if boolean)
+ * - `claude.initialization_command` (replaced if string)
+ */
+export function applyLocalOverrides(
+	config: PappardelleConfig,
+	localConfig: Record<string, unknown>,
+): void {
+	if (localConfig['keybindings'] && Array.isArray(localConfig['keybindings'])) {
+		config.keybindings = mergeKeybindings(
+			config.keybindings ?? [],
+			localConfig['keybindings'] as KeybindingConfig[],
+		);
+	}
+
+	if (localConfig['claude'] && typeof localConfig['claude'] === 'object') {
+		const localClaude = localConfig['claude'] as Record<string, unknown>;
+		if (typeof localClaude['dangerously_skip_permissions'] === 'boolean') {
+			config.claude = {
+				...config.claude,
+				dangerously_skip_permissions:
+					localClaude['dangerously_skip_permissions'],
+			};
+		}
+		if (typeof localClaude['initialization_command'] === 'string') {
+			config.claude = {
+				...config.claude,
+				initialization_command: localClaude['initialization_command'],
+			};
+		}
+	}
+}
+
+/**
  * Load the .pappardelle.yml config from the repository root.
- * If a .pappardelle.local.yml file exists, its keybindings are merged
+ * If a .pappardelle.local.yml file exists, its overrides are merged
  * on top of the base config before validation.
  */
 export function loadConfig(): PappardelleConfig {
@@ -286,14 +322,8 @@ export function loadConfig(): PappardelleConfig {
 		try {
 			const localContent = fs.readFileSync(localPath, 'utf-8');
 			const localConfig = YAML.load(localContent) as Record<string, unknown>;
-			if (
-				localConfig?.['keybindings'] &&
-				Array.isArray(localConfig['keybindings'])
-			) {
-				config.keybindings = mergeKeybindings(
-					config.keybindings ?? [],
-					localConfig['keybindings'] as KeybindingConfig[],
-				);
+			if (localConfig) {
+				applyLocalOverrides(config, localConfig);
 			}
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);

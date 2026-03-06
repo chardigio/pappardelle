@@ -324,7 +324,7 @@ my-workspace/
 │       │   └── SKILL.md      # initialization skill
 │       └── address-mr-feedbacks/
 │           └── SKILL.md      # orchestration skill
-├── CLAUDE.md
+└── CLAUDE.md
 ```
 
 The parent repo's primary purpose is to share settings, context, and orchestration skills to coordinate work across child repos. Child repos are **not** committed to the parent — they're shallow-cloned on demand during workspace setup.

@@ -17,6 +17,7 @@ import {
 	RESERVED_KEYS,
 	RESERVED_VAR_NAMES,
 	mergeKeybindings,
+	applyLocalOverrides,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -2055,4 +2056,154 @@ test('validation detects duplicate keys even if one is disabled', t => {
 		instanceOf: ConfigValidationError,
 	});
 	t.true(err!.errors.some(e => e.includes('"b" is already bound')));
+});
+
+// ============================================================================
+// applyLocalOverrides Tests
+// ============================================================================
+
+test('applyLocalOverrides overrides dangerously_skip_permissions from true to false', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {dangerously_skip_permissions: true};
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: false},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), false);
+});
+
+test('applyLocalOverrides overrides dangerously_skip_permissions from false to true', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {dangerously_skip_permissions: false};
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: true},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), true);
+});
+
+test('applyLocalOverrides adds dangerously_skip_permissions when base has no claude section', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: true},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), true);
+});
+
+test('applyLocalOverrides preserves initialization_command when overriding dangerously_skip_permissions', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {
+		initialization_command: '/idow',
+		dangerously_skip_permissions: true,
+	};
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: false},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), false);
+	t.is(config.claude!.initialization_command, '/idow');
+});
+
+test('applyLocalOverrides ignores non-boolean dangerously_skip_permissions in local', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {dangerously_skip_permissions: true};
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: 'yes'},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), true);
+});
+
+test('applyLocalOverrides ignores empty claude section in local', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {dangerously_skip_permissions: true};
+
+	applyLocalOverrides(config, {claude: {}});
+
+	t.is(getDangerouslySkipPermissions(config), true);
+});
+
+test('applyLocalOverrides overrides initialization_command', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {initialization_command: '/idow'};
+
+	applyLocalOverrides(config, {
+		claude: {initialization_command: '/dow'},
+	});
+
+	t.is(getInitializationCommand(config), '/dow');
+});
+
+test('applyLocalOverrides adds initialization_command when base has no claude section', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+
+	applyLocalOverrides(config, {
+		claude: {initialization_command: '/idow'},
+	});
+
+	t.is(getInitializationCommand(config), '/idow');
+});
+
+test('applyLocalOverrides preserves dangerously_skip_permissions when overriding initialization_command', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {
+		initialization_command: '/idow',
+		dangerously_skip_permissions: true,
+	};
+
+	applyLocalOverrides(config, {
+		claude: {initialization_command: '/dow'},
+	});
+
+	t.is(getInitializationCommand(config), '/dow');
+	t.is(getDangerouslySkipPermissions(config), true);
+});
+
+test('applyLocalOverrides ignores non-string initialization_command in local', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {initialization_command: '/idow'};
+
+	applyLocalOverrides(config, {
+		claude: {initialization_command: 123},
+	});
+
+	t.is(getInitializationCommand(config), '/idow');
+});
+
+test('applyLocalOverrides overrides both initialization_command and dangerously_skip_permissions', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {
+		initialization_command: '/idow',
+		dangerously_skip_permissions: true,
+	};
+
+	applyLocalOverrides(config, {
+		claude: {
+			initialization_command: '/dow',
+			dangerously_skip_permissions: false,
+		},
+	});
+
+	t.is(getInitializationCommand(config), '/dow');
+	t.is(getDangerouslySkipPermissions(config), false);
+});
+
+test('applyLocalOverrides merges both keybindings and claude overrides', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {dangerously_skip_permissions: true};
+	config.keybindings = [{key: 'b', name: 'Build', run: 'make build'}];
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: false},
+		keybindings: [{key: 'v', name: 'VS Code', run: 'code .'}],
+	});
+
+	t.is(getDangerouslySkipPermissions(config), false);
+	t.is(config.keybindings!.length, 2);
 });
