@@ -180,15 +180,15 @@ Because Pappardelle runs entirely inside tmux, you can access your full workspac
 
 ### What you need
 
-- **A machine that stays on** — A Mac Mini is popular for this, but your laptop works fine too — just keep it plugged in. macOS won't sleep with the lid closed as long as it has power and an active SSH session.
+- **A machine that stays on** — I'm not a Mac Mini guy (yet), I just keep my MacBook plugged in. macOS won't sleep with the lid closed as long as it has power and an active SSH session.
 - **[Tailscale](https://tailscale.com/)** — A mesh VPN that makes your dev machine accessible from any network without port forwarding or firewall configuration. Install on both your dev machine and your mobile device.
 - **[Termius](https://termius.com/)** (iOS) — A full-featured SSH client for iPhone and iPad with good tmux support, copy/paste, and keyboard shortcuts. Other SSH clients work too (Blink Shell, Prompt 3), but Termius handles tmux rendering well.
 
 
 ### Nice-to-haves
 
-- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a `zap-notification.py` hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. This way you don't have to babysit the terminal — just wait for the buzz.
-- **[Wispr Flow](https://wisprflow.ai/)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
+- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a [`zap-notification.py`](hooks/zap-notification.py) hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. To get it working, set the `NTFY_TOPIC` environment variable and subscribe to the same topic in the ntfy app on your phone — the hook only fires when an Tailscale SSH session is active. This way you don't have to babysit the terminal — just wait for the buzz.
+- **[Wispr Flow](https://apps.apple.com/us/app/wispr-flow-ai-voice-keyboard/id6497229487)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
 
 ### Useful keybindings
 
