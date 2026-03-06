@@ -1,11 +1,11 @@
 ---
 name: do
-description: Step-based workflow for implementing an issue in a multi-repo workspace. Handles research, planning, submodule setup, agent teams, implementation, QA, and pull requests.
+description: Step-based workflow for implementing an issue in a multi-repo workspace. Handles research, planning, shallow cloning, agent teams, implementation, QA, and pull requests.
 ---
 
 # /do — Implement an Issue Across Multiple Repos
 
-Step-based workflow for implementing an issue end-to-end in a parent repo of git submodules.
+Step-based workflow for implementing an issue end-to-end in a parent repo that orchestrates work across multiple child repos via on-demand shallow cloning.
 
 ## Input
 
@@ -34,37 +34,31 @@ Accepts:
 - **Update the issue title and description** with refined requirements, acceptance criteria, and technical plan before implementing
 - This is critical — the issue must accurately reflect what will be built
 
-### 4. Init Required Submodules
+### 4. Shallow-Clone Required Repos
 
-Only init the submodules you need. Bring them down **shallow** (fastest):
-
-```bash
-git submodule update --init --depth 1 <submodule-name>
-```
-
-Do NOT init all submodules.
-
-**IMPORTANT:** Always work off the **latest remote commit** for each submodule, not the commit pinned by the superproject. After init, checkout the latest remote main/master:
+Only clone the repos you need. Use `--depth 1` for fast, minimal clones:
 
 ```bash
-cd <submodule-name>
-git fetch origin
-git checkout origin/master  # or origin/main
+git clone --depth 1 https://github.com/org/repo-name.git
 ```
+
+Do NOT clone all repos upfront — only the ones identified as relevant during planning.
+
+This keeps initialization fast and reduces noise while grepping and globbing. Because we use `--depth 1`, only the latest commit is fetched — no full history.
 
 ### 5. Spin Up Agent Team
 
 Spin up an **Agent Team** with at least **one agent per repo** being modified:
 
-- Each agent works in its own submodule directory! YOU MUST INITIALIZE THE AGENT IN THE CORRECT DIRECTORY!
+- Each agent works in its own cloned repo directory! YOU MUST INITIALIZE THE AGENT IN THE CORRECT DIRECTORY!
 - Each agent creates a feature branch, implements changes, runs tests, and commits
 - The lead agent coordinates, reviews progress, and handles cross-repo concerns
 
 ### 6. Implement
 
 - **Prefer red-green TDD** — write tests first when possible
-- Follow existing architectural patterns in each submodule
-- Run pre-commit hooks and tests in each submodule before committing
+- Follow existing architectural patterns in each repo
+- Run pre-commit hooks and tests in each repo before committing
 
 ### 7. QA
 
@@ -81,6 +75,6 @@ Do NOT skip this step — it is critical to the success of the project.
 - **Description**: comprehensive — include summary, what each agent did, QA steps, and overview of all changes
 - **NEVER** mark the issue as "Done" — that's for human review after merge
 
-There should be one PR/MR per submodule worked on!
+There should be one PR/MR per child repo worked on!
 
 There should always be a PR/MR in the parent repo itself that serves as a reference for the others: the description should link to the other PRs/MRs and give a high-level overview of the changes.
