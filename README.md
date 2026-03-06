@@ -53,21 +53,19 @@ For the full config format and manual setup, see the [configuration reference](p
 pappardelle
 ```
 
+![Screenshot 2026-03-02 at 4.18.44 PM](assets/Screenshot%202026-03-02%20at%204.18.44%E2%80%AFPM.png)
+
 ---
 
 ## 2. Understanding tmux in Pappardelle
-
-Pappardelle is built on tmux. Understanding the tmux layer will help you navigate, debug, and get the most out of the tool.
 
 ### The 3-pane layout
 
 When you launch `pappardelle`, it creates a tmux session (named `pappardelle`) with three panes:
 
-![Screenshot 2026-03-02 at 4.18.44 PM](assets/Screenshot%202026-03-02%20at%204.18.44%E2%80%AFPM.png)
-
-- **Left pane** shows the space list view. This is where you navigate workspaces, create new ones, and trigger actions.
-- **Center pane** shows the Claude Code session for whichever workspace is highlighted. Pressing `Enter` focuses this pane so you can interact with Claude directly.
-- **Right pane** shows lazygit for the highlighted workspace's worktree.
+- **Left pane** shows the ticket rail. This is where you navigate workspaces, create new ones, and trigger actions.
+- **Center pane** shows the Claude Code session for whichever workspace is highlighted.
+- **Right pane** shows [lazygit](https://github.com/jesseduffield/lazygit) for the highlighted workspace's worktree.
 
 ### How nested sessions work
 
@@ -86,38 +84,7 @@ This means:
 
 ### Recommended tmux config
 
-Pappardelle works with any tmux configuration, but these settings improve the experience. Add them to `~/.tmux.conf`:
-
-```bash
-# Mouse support — click panes, drag to resize, scroll to browse history
-set -g mouse on
-
-# Focus events — enables dim-on-unfocus hooks (helps distinguish active pane)
-set -g focus-events on
-
-# Dim unfocused panes when the terminal loses focus
-set-hook -g client-focus-out 'set window-style fg=colour245; set window-active-style fg=colour245'
-set-hook -g client-focus-in 'set -u window-style; set -u window-active-style'
-
-# Navigate between panes with Ctrl+arrow keys (no prefix needed)
-bind -n C-Left select-pane -L
-bind -n C-Right select-pane -R
-bind -n C-Up select-pane -U
-bind -n C-Down select-pane -D
-
-# Mouse scroll — enter copy mode on scroll up, passthrough on scroll down
-bind -n WheelUpPane if-shell -F -t = "#{mouse_any_flag}" \
-  "send-keys -M" "copy-mode -e; send-keys -M"
-bind -n WheelDownPane send-keys -M
-
-# Clean status bar — just show the session name
-set -g status-style 'bg=colour235,fg=colour255'
-set -g status-left-length 100
-set -g status-left '#{?client_prefix,#[bg=colour208]#[fg=colour0] ^B ,#[bg=colour39]#[fg=colour0] #S }'
-set -g window-status-format ''
-set -g window-status-current-format ''
-set -g status-right ''
-```
+Pappardelle works with any tmux configuration, but these settings improve the experience — mouse support, Ctrl+arrow pane navigation, and a clean status bar. See [`examples/tmux.conf`](examples/tmux.conf) and append to your `~/.tmux.conf`.
 
 ### Exiting Pappardelle
 

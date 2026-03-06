@@ -80,40 +80,13 @@ mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chard
 
 Ask: "Would you like me to add the recommended tmux config? It enables mouse support, pane navigation with Ctrl+arrow keys, and a clean status bar. (I'll append to ~/.tmux.conf)"
 
-If yes, check if `~/.tmux.conf` exists and read it. Append the following block (skip any settings that already exist in their config):
+If yes, fetch the recommended config and append it to `~/.tmux.conf` (skip any settings that already exist):
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/tmux.conf >> ~/.tmux.conf
 ```
-# --- Pappardelle recommended settings ---
 
-# Mouse support — click panes, drag to resize, scroll to browse history
-set -g mouse on
-
-# Focus events — enables dim-on-unfocus hooks (helps distinguish active pane)
-set -g focus-events on
-
-# Dim unfocused panes when the terminal loses focus
-set-hook -g client-focus-out 'set window-style fg=colour245; set window-active-style fg=colour245'
-set-hook -g client-focus-in 'set -u window-style; set -u window-active-style'
-
-# Navigate between panes with Ctrl+arrow keys (no prefix needed)
-bind -n C-Left select-pane -L
-bind -n C-Right select-pane -R
-bind -n C-Up select-pane -U
-bind -n C-Down select-pane -D
-
-# Mouse scroll — enter copy mode on scroll up, passthrough on scroll down
-bind -n WheelUpPane if-shell -F -t = "#{mouse_any_flag}" \
-  "send-keys -M" "copy-mode -e; send-keys -M"
-bind -n WheelDownPane send-keys -M
-
-# Clean status bar — just show the session name
-set -g status-style 'bg=colour235,fg=colour255'
-set -g status-left-length 100
-set -g status-left '#{?client_prefix,#[bg=colour208]#[fg=colour0] ^B ,#[bg=colour39]#[fg=colour0] #S }'
-set -g window-status-format ''
-set -g window-status-current-format ''
-set -g status-right ''
-```
+Check if `~/.tmux.conf` exists first and read it — if settings already exist, skip the duplicates rather than appending blindly.
 
 If they decline, move on.
 
