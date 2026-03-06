@@ -10,7 +10,7 @@ You type a description, it reads or creates an issue in Linear/Jira, spawns a co
 
 **Video:**
 
-https://github.com/user-attachments/assets/824307b7-73a6-48d2-918f-4a2d75fcb39b
+https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
 
 ---
 
@@ -174,7 +174,7 @@ For a production `.pappardelle.yml` used across a polyglot monorepo (Python back
 
 **Video:**
 
-https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
+https://github.com/user-attachments/assets/824307b7-73a6-48d2-918f-4a2d75fcb39b
 
 Because Pappardelle runs entirely inside tmux, you can access your full workspace setup from anywhere — all you need is an SSH connection to the machine running it.
 
