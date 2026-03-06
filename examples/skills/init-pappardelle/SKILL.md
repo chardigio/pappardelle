@@ -1,31 +1,17 @@
 ---
 name: init-pappardelle
-description: Initialize Pappardelle in a repository. Checks prerequisites, asks about your VCS host, issue tracker, and project profiles, then generates a .pappardelle.yml config file.
+description: Initialize Pappardelle in a repository. Asks about your VCS host, issue tracker, and project profiles, checks prerequisites, then generates a .pappardelle.yml config file.
 ---
 
 # /init-pappardelle — Set Up Pappardelle in This Repo
 
-Interactive setup wizard that checks prerequisites, gathers your configuration preferences, and generates a `.pappardelle.yml` file.
+Interactive setup wizard that gathers your configuration preferences, checks prerequisites, and generates a `.pappardelle.yml` file.
 
-## Step 1: Check Prerequisites
-
-Check which required and optional tools are installed. Run these checks in a single bash command:
-
-```bash
-echo "=== Required ===" && \
-for cmd in node npm git tmux jq claude; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done && \
-echo "=== Optional ===" && \
-for cmd in linctl gh glab acli lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ not installed')"; done
-```
-
-- If any **required** tools are missing, tell the user which ones and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing.
-- If all required tools are present, move on.
-
-## Step 2: Gather Configuration
+## Step 1: Gather Configuration
 
 Use `AskUserQuestion` for each of these. Ask them one at a time — don't bundle questions.
 
-### 2a. VCS Host
+### 1a. VCS Host
 
 Ask: "Which VCS host do you use?"
 
@@ -34,7 +20,7 @@ Options:
 - **GitLab** — requires `glab` CLI. If selected, follow up asking if it's gitlab.com or self-hosted (get the `host` value).
 - **Other** — Pappardelle only supports GitHub and GitLab. Let the user know and stop.
 
-### 2b. Issue Tracker
+### 1b. Issue Tracker
 
 Ask: "Which issue tracker do you use?"
 
@@ -43,25 +29,26 @@ Options:
 - **Jira** — requires `acli` CLI. If selected, follow up asking for their Jira base URL (e.g., `https://mycompany.atlassian.net`).
 - **Neither / Other** — Pappardelle requires Linear or Jira. Let the user know and stop.
 
-For whichever provider they chose, check that the corresponding CLI tool is installed. If not, offer to install it.
+### 1c. Team Prefix & Profiles
 
-### 2c. Team Prefix
+Ask: "What are your issue key prefixes? For example, if your issues look like PROJ-123, the prefix is PROJ. If you have multiple teams/projects with different prefixes (e.g., FE-123, BE-456), list them all."
 
-Ask: "What is your issue key prefix? (e.g., PROJ for PROJ-123)"
+**Single prefix** (e.g., they say just "PROJ"):
+- Set the global `team_prefix: PROJ`
+- Create one default profile with no `keywords` (it catches everything)
+- Ask what kind of project it is (iOS app, backend, frontend, etc.) to generate sensible `display_name` and `commands`
 
-This becomes the global `team_prefix`.
+**Multiple prefixes** (e.g., they say "FE for frontend, BE for backend, MOB for mobile"):
+- Set the global `team_prefix` to whichever prefix they use most (ask if unclear)
+- Create one profile per prefix:
+  - Slug name: kebab-case of the project name (e.g., `frontend`, `backend`, `mobile`)
+  - `display_name`: human-readable name they gave
+  - `keywords`: include the prefix with hyphen (e.g., `["FE-"]`) — this is how Pappardelle auto-selects the profile when the user enters an issue key like `FE-123`
+  - `team_prefix`: set per-profile to override the global prefix for issue creation
+  - `commands`: reasonable setup commands based on project type (e.g., `npm install` for Node.js, `xcodegen generate` for iOS)
+- Set `default_profile` to the most common one
 
-### 2d. Profiles
-
-Ask: "What project types do you work on in this repo? Describe each one briefly (e.g., 'iOS app called MyApp', 'backend API', 'React frontend'). You can list multiple."
-
-Based on their answer, generate sensible profile entries with:
-- A slug name (kebab-case)
-- `display_name`
-- `keywords` array (words that would appear in issue descriptions for this project type)
-- Reasonable `commands` if applicable (e.g., `xcodegen generate` for iOS, `npm install` for Node.js)
-
-### 2e. Claude initialization command
+### 1d. Claude initialization command
 
 Ask: "Would you like Claude to run a skill automatically when a new workspace is created? The default is `/do` which starts planning and implementing the issue."
 
@@ -76,9 +63,25 @@ If they chose `/do`, also offer to install the starter `/do` skill:
 mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
 ```
 
-### 2f. tmux configuration
+## Step 2: Check Prerequisites
 
-Ask: "Would you like me to add the recommended tmux config? It enables mouse support, pane navigation with Ctrl+arrow keys, and a clean status bar. (I'll append to ~/.tmux.conf)"
+Now that you know which providers they chose, check the relevant tools. Run these checks in a single bash command:
+
+```bash
+echo "=== Required ===" && \
+for cmd in node npm git tmux jq claude; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done && \
+echo "=== Provider CLIs ===" && \
+for cmd in <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
+```
+
+Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira) based on the answers from Step 1.
+
+- If any tools are missing, tell the user which ones and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing.
+- If all tools are present, move on.
+
+## Step 3: tmux Configuration
+
+Ask: "Would you like me to add the recommended tmux config? It enables mouse support, pane navigation with Ctrl+Shift+arrow keys, and a clean status bar. (I'll append to ~/.tmux.conf)"
 
 If yes, fetch the recommended config and append it to `~/.tmux.conf` (skip any settings that already exist):
 
@@ -90,26 +93,144 @@ Check if `~/.tmux.conf` exists first and read it — if settings already exist, 
 
 If they decline, move on.
 
-## Step 3: Generate .pappardelle.yml
+## Step 4: Generate .pappardelle.yml
 
 Based on the answers, generate a `.pappardelle.yml` file at the repository root. Use the full config format from the [configuration reference](pappardelle-config.md).
 
 Rules:
 - Always include `version: 1`
-- Only include `issue_tracker` if it's not the default (Linear)
-- Only include `vcs_host` if it's not the default (GitHub)
+- Always `issue_tracker`
+- Always `vcs_host`
 - Always include `team_prefix`
-- Include a `default_profile` set to the first profile
-- Include all profiles with their keywords, display names, and any commands
+- **Single prefix**: one profile with no `keywords`, set as `default_profile`
+- **Multiple prefixes**: one profile per prefix, each with `keywords: ["PREFIX-"]` (include the hyphen) and a per-profile `team_prefix` override. Set `default_profile` to the most common one
 
-Before writing the file, show the generated YAML to the user and use `AskUserQuestion` to confirm: "Does this look right? I'll write it to .pappardelle.yml."
-
-If a `.pappardelle.yml` already exists, warn the user and ask before overwriting.
-
-## Step 4: Summary
+## Step 5: Summary
 
 After writing the file, print a summary:
 
 1. What was configured (providers, profiles)
 2. How to launch: `pappardelle`
 3. Link to the full config reference: [pappardelle-config.md](pappardelle-config.md) for customizing keybindings, post-worktree hooks, lifecycle hooks, and more
+
+## Example Outputs
+
+### Single prefix (GitHub + Linear)
+
+```yaml
+version: 1
+
+# Issue key prefix (e.g., PROJ-123)
+team_prefix: PROJ
+
+# VCS host
+vcs_host:
+  provider: github
+
+# Issue tracker
+issue_tracker:
+  provider: linear
+
+# Claude configuration
+claude:
+  initialization_command: '/do'
+  dangerously_skip_permissions: false
+
+# Commands to run after git worktree is created
+post_worktree_init:
+  - name: 'Copy .env'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
+
+# Custom keybindings
+keybindings:
+  - key: 'c'
+    name: 'Clear context'
+    send_to_claude: '/clear'
+
+# Profiles
+profiles:
+  default:
+    display_name: 'Default'
+    links:
+      - url: '${ISSUE_URL}'
+        title: 'Linear Issue'
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'
+```
+
+### Multiple prefixes (GitLab + Jira)
+
+```yaml
+version: 1
+
+# Issue key prefix (most common one — FE is the default for bare numbers)
+team_prefix: FE
+
+# VCS host
+vcs_host:
+  provider: gitlab
+  host: gitlab.mycompany.com
+
+# Issue tracker
+issue_tracker:
+  provider: jira
+  base_url: https://mycompany.atlassian.net
+
+# Claude configuration
+claude:
+  initialization_command: '/do'
+  dangerously_skip_permissions: false
+
+# Commands to run after git worktree is created
+post_worktree_init:
+  - name: 'Copy .env'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
+
+# Custom keybindings
+keybindings:
+  - key: 'c'
+    name: 'Clear context'
+    send_to_claude: '/clear'
+
+# Profiles
+profiles:
+  frontend:
+    display_name: 'Frontend'
+    team_prefix: FE
+    keywords:
+      - FE-
+      - frontend
+    links:
+      - url: '${ISSUE_URL}'
+        title: 'Jira Issue'
+      - url: '${MR_URL}'
+        title: 'GitLab MR'
+        if_set: 'MR_URL'
+
+  backend:
+    display_name: 'Backend'
+    team_prefix: BE
+    keywords:
+      - BE-
+      - backend
+    links:
+      - url: '${ISSUE_URL}'
+        title: 'Jira Issue'
+      - url: '${MR_URL}'
+        title: 'GitLab MR'
+        if_set: 'MR_URL'
+
+  mobile:
+    display_name: 'Mobile'
+    team_prefix: MOB
+    keywords:
+      - MOB-
+      - mobile
+    links:
+      - url: '${ISSUE_URL}'
+        title: 'Jira Issue'
+      - url: '${MR_URL}'
+        title: 'GitLab MR'
+        if_set: 'MR_URL'
+```

@@ -86,7 +86,7 @@ This means:
 
 ### Recommended tmux config
 
-Pappardelle works with any tmux configuration, but these settings improve the experience — mouse support, Ctrl+arrow pane navigation, and a clean status bar. See [`examples/tmux.conf`](examples/tmux.conf) and append to your `~/.tmux.conf`. If you don't have one yet:
+Pappardelle works with any tmux configuration, but these settings improve the experience — mouse support, Ctrl+Shift+arrow pane navigation, and a clean status bar. See [`examples/tmux.conf`](examples/tmux.conf) and append to your `~/.tmux.conf`. If you don't have one yet:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/tmux.conf -o ~/.tmux.conf
