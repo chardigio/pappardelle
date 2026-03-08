@@ -102,7 +102,7 @@ profiles:
         if_set: "IOS_APP_DIR"
     post_worktree_init:
       - name: "Create TODO.md"
-        run: "cp ${SCRIPT_DIR}/stardust-todo.md ${WORKTREE_PATH}/TODO.md"
+        run: "cp ${REPO_ROOT}/_dev/todo-templates/stardust-jams.md ${WORKTREE_PATH}/TODO.md"
     commands:
       - name: "Generate Xcode project"
         run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"

@@ -632,7 +632,7 @@ profiles:
   stardust-jams:
     post_worktree_init:
       - name: 'Create TODO.md'
-        run: 'cp ${SCRIPT_DIR}/stardust-todo.md ${WORKTREE_PATH}/TODO.md'
+        run: 'cp ${REPO_ROOT}/_dev/todo-templates/stardust-jams.md ${WORKTREE_PATH}/TODO.md'
 ```
 
 Global commands always run first, then profile-specific commands. Both use the same `CommandConfig` format.
