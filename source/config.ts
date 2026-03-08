@@ -77,6 +77,8 @@ export interface Profile {
 	display_name: string;
 	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
 	team_prefix?: string;
+	/** Per-profile Claude config override. Falls back to the global `claude` section. */
+	claude?: ClaudeConfig;
 	/** Generic template variables injected into the workspace context. */
 	vars?: Record<string, string>;
 	github?: GitHubConfig;
@@ -84,6 +86,8 @@ export interface Profile {
 	vcs?: VcsConfig;
 	links?: LinkConfig[];
 	apps?: AppConfig[];
+	/** Commands to run after worktree creation, after global post_worktree_init. */
+	post_worktree_init?: CommandConfig[];
 	commands?: CommandConfig[];
 }
 
@@ -630,6 +634,40 @@ function validateProfile(name: string, profile: unknown): string[] {
 			const gh = p['github'] as Record<string, unknown>;
 			if (typeof gh['label'] !== 'string') {
 				errors.push(`${prefix}.github.label: required string field`);
+			}
+		}
+	}
+
+	// Optional per-profile claude config
+	if (p['claude'] !== undefined) {
+		if (typeof p['claude'] !== 'object' || p['claude'] === null) {
+			errors.push(`${prefix}.claude: must be an object`);
+		} else {
+			const cl = p['claude'] as Record<string, unknown>;
+			if (
+				cl['initialization_command'] !== undefined &&
+				typeof cl['initialization_command'] !== 'string'
+			) {
+				errors.push(
+					`${prefix}.claude.initialization_command: must be a string`,
+				);
+			}
+		}
+	}
+
+	// Optional per-profile post_worktree_init
+	if (p['post_worktree_init'] !== undefined) {
+		if (!Array.isArray(p['post_worktree_init'])) {
+			errors.push(`${prefix}.post_worktree_init: must be an array`);
+		} else {
+			const cmds = p['post_worktree_init'] as Array<Record<string, unknown>>;
+			for (let i = 0; i < cmds.length; i++) {
+				const cmd = cmds[i]!;
+				if (typeof cmd['run'] !== 'string') {
+					errors.push(
+						`${prefix}.post_worktree_init[${i}].run: required string field`,
+					);
+				}
 			}
 		}
 	}

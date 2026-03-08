@@ -2041,6 +2041,113 @@ test('validation still rejects disabled keybinding with invalid key', t => {
 	t.true(err!.errors.some(e => e.includes('must be a single character')));
 });
 
+// ============================================================================
+// Per-profile claude and post_worktree_init validation
+// ============================================================================
+
+test('validateConfig accepts profile with valid claude.initialization_command', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				claude: {initialization_command: '/do-todo'},
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects profile with non-string claude.initialization_command', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				claude: {initialization_command: 42},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('claude.initialization_command: must be a string'),
+		),
+	);
+});
+
+test('validateConfig rejects profile with non-object claude section', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				claude: 'not-an-object',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(error!.errors.some(e => e.includes('claude: must be an object')));
+});
+
+test('validateConfig accepts profile with valid post_worktree_init array', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				post_worktree_init: [
+					{name: 'Copy files', run: 'cp a b'},
+					{run: 'echo done'},
+				],
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects profile with non-array post_worktree_init', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				post_worktree_init: 'not-an-array',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e => e.includes('post_worktree_init: must be an array')),
+	);
+});
+
+test('validateConfig rejects profile post_worktree_init entry missing run', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				post_worktree_init: [{name: 'Missing run field'}],
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('post_worktree_init[0].run: required string field'),
+		),
+	);
+});
+
 test('validation detects duplicate keys even if one is disabled', t => {
 	const raw = {
 		version: 1,

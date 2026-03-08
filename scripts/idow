@@ -70,6 +70,26 @@ print_warning() {
     log "  Warning: $1"
 }
 
+# Run a CommandConfig-style command with support for background and continue_on_error.
+# Usage: run_command <name> <run> <continue_on_error> <background>
+run_command() {
+    local CMD_NAME="$1" CMD_RUN="$2" CMD_CONTINUE="$3" CMD_BG="$4"
+    if [[ -z "$CMD_RUN" ]]; then return; fi
+    if [[ "$CMD_BG" == "true" ]]; then
+        eval "$CMD_RUN" &
+        print_success "$CMD_NAME (background)"
+    elif [[ "$CMD_CONTINUE" == "true" ]]; then
+        if eval "$CMD_RUN" >/dev/null 2>&1; then
+            print_success "$CMD_NAME"
+        else
+            print_warning "$CMD_NAME failed (continuing)"
+        fi
+    else
+        eval "$CMD_RUN" >/dev/null 2>&1 || error "Command '$CMD_NAME' failed"
+        print_success "$CMD_NAME"
+    fi
+}
+
 # Handle help flag
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "Usage: idow [--resume] [--profile <name>] <input>"
@@ -390,6 +410,13 @@ PROJECT_KEY="$SELECTED_PROFILE"
 # Get VCS label from profile (provider-agnostic, falls back to github.label)
 VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
 
+# Override global INIT_CMD with per-profile initialization_command (if set)
+PROFILE_INIT_CMD=$(yq -r ".profiles.$SELECTED_PROFILE.claude.initialization_command // \"\"" "$CONFIG_PATH")
+if [[ -n "$PROFILE_INIT_CMD" ]]; then
+    INIT_CMD="$PROFILE_INIT_CMD"
+    log "Using per-profile initialization_command: $INIT_CMD"
+fi
+
 log "Profile: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
 
 # Step 2: Get or create issue
@@ -503,22 +530,24 @@ else
             CMD_RUN_TMPL=$(yq -r ".post_worktree_init[$i].run // \"\"" "$CONFIG_PATH")
             CMD_CONTINUE=$(yq -r ".post_worktree_init[$i].continue_on_error // false" "$CONFIG_PATH")
             CMD_BG=$(yq -r ".post_worktree_init[$i].background // false" "$CONFIG_PATH")
-
             CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
+            log "  post_worktree_init: $CMD_NAME -> $CMD_RUN"
+            run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
+        done
+    fi
 
-            if [[ -n "$CMD_RUN" ]]; then
-                log "  post_worktree_init: $CMD_NAME -> $CMD_RUN"
-                if [[ "$CMD_BG" == "true" ]]; then
-                    eval "$CMD_RUN" &
-                    print_success "$CMD_NAME (background)"
-                elif [[ "$CMD_CONTINUE" == "true" ]]; then
-                    eval "$CMD_RUN" >/dev/null 2>&1 || print_warning "$CMD_NAME failed (continuing)"
-                    print_success "$CMD_NAME"
-                else
-                    eval "$CMD_RUN" >/dev/null 2>&1 || error "post_worktree_init command '$CMD_NAME' failed"
-                    print_success "$CMD_NAME"
-                fi
-            fi
+    # Run profile-specific post_worktree_init commands
+    PROFILE_POST_INIT_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init | length // 0" "$CONFIG_PATH" 2>/dev/null)
+    if [[ "$PROFILE_POST_INIT_COUNT" -gt 0 ]]; then
+        log "Running $PROFILE_POST_INIT_COUNT profile post_worktree_init command(s)..."
+        for (( i=0; i<PROFILE_POST_INIT_COUNT; i++ )); do
+            CMD_NAME=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].name // \"profile_post_init[$i]\"" "$CONFIG_PATH")
+            CMD_RUN_TMPL=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].run // \"\"" "$CONFIG_PATH")
+            CMD_CONTINUE=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].continue_on_error // false" "$CONFIG_PATH")
+            CMD_BG=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].background // false" "$CONFIG_PATH")
+            CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
+            log "  profile post_worktree_init: $CMD_NAME -> $CMD_RUN"
+            run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
         done
     fi
 fi
@@ -586,22 +615,9 @@ if [[ "$CMD_COUNT" -gt 0 ]]; then
         CMD_RUN_TMPL=$(yq -r ".profiles.$SELECTED_PROFILE.commands[$i].run // \"\"" "$CONFIG_PATH")
         CMD_CONTINUE=$(yq -r ".profiles.$SELECTED_PROFILE.commands[$i].continue_on_error // false" "$CONFIG_PATH")
         CMD_BG=$(yq -r ".profiles.$SELECTED_PROFILE.commands[$i].background // false" "$CONFIG_PATH")
-
         CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
-
-        if [[ -n "$CMD_RUN" ]]; then
-            log "  Command: $CMD_NAME -> $CMD_RUN"
-            if [[ "$CMD_BG" == "true" ]]; then
-                eval "$CMD_RUN" &
-                print_success "$CMD_NAME (background)"
-            elif [[ "$CMD_CONTINUE" == "true" ]]; then
-                eval "$CMD_RUN" || print_warning "Command '$CMD_NAME' failed (continuing)"
-                print_success "$CMD_NAME"
-            else
-                eval "$CMD_RUN" || { log "Command '$CMD_NAME' failed — aborting workspace setup"; exit 1; }
-                print_success "$CMD_NAME"
-            fi
-        fi
+        log "  Command: $CMD_NAME -> $CMD_RUN"
+        run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
     done
 else
     print_success "No commands configured in profile"

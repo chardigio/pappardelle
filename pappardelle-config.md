@@ -41,8 +41,8 @@ vcs_host:
 
 # Claude configuration (optional)
 claude:
-  initialization_command: '/idow'          # Command passed to Claude on new sessions
-  dangerously_skip_permissions: true       # Pass --dangerously-skip-permissions to Claude (default: false)
+  initialization_command: '/idow' # Command passed to Claude on new sessions
+  dangerously_skip_permissions: true # Pass --dangerously-skip-permissions to Claude (default: false)
 
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
@@ -354,6 +354,9 @@ interface Profile {
 	keywords: string[];
 	display_name: string;
 	team_prefix?: string; // Override global team_prefix for issue creation
+	claude?: {
+		initialization_command?: string; // Override global init command for this profile
+	};
 	vars?: Record<string, string>; // Generic template variables
 	vcs?: {
 		label: string; // Provider-agnostic VCS label for PRs/MRs
@@ -363,6 +366,7 @@ interface Profile {
 	};
 	links?: LinkConfig[];
 	apps?: AppConfig[];
+	post_worktree_init?: CommandConfig[]; // Profile-specific post-worktree-init commands
 	commands?: CommandConfig[];
 }
 
@@ -576,26 +580,37 @@ profiles:
 
 ## Claude Configuration
 
-The `claude` section configures how Claude is initialized when opening a new workspace session.
+The `claude` section configures how Claude is initialized when opening a new workspace session. It can be set globally and/or per-profile.
 
 ```yaml
+# Global (applies to all profiles unless overridden)
 claude:
-  initialization_command: '/idow'          # Optional, default: empty
-  dangerously_skip_permissions: true       # Optional, default: false
+  initialization_command: '/idow' # Optional, default: empty
+  dangerously_skip_permissions: true # Optional, default: false
+
+profiles:
+  stardust-jams:
+    # Per-profile override (takes precedence over global)
+    claude:
+      initialization_command: '/do-todo'
 ```
 
 | Field                          | Type      | Default | Description                                                                                                                                                  |
 | ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
-| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories. |
+| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.            |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
+
+**Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-todo` for profiles that use a TODO.md checklist workflow).
 
 ## Post-Worktree-Init Commands
 
 The `post_worktree_init` section defines commands to run after a git worktree is created. Without this section, `create-worktree.sh` only creates the branch — no file copying, env setup, or dependency installation.
 
 Commands use the same `CommandConfig` format as profile commands, with full template variable support.
+
+### Global Post-Worktree-Init
 
 ```yaml
 post_worktree_init:
@@ -608,14 +623,28 @@ post_worktree_init:
     continue_on_error: true
 ```
 
+### Per-Profile Post-Worktree-Init
+
+Profiles can also define `post_worktree_init` commands that run _after_ the global ones. This is useful for profile-specific setup like creating TODO checklists or generating project files.
+
+```yaml
+profiles:
+  stardust-jams:
+    post_worktree_init:
+      - name: 'Create TODO.md'
+        run: 'cp ${SCRIPT_DIR}/stardust-todo.md ${WORKTREE_PATH}/TODO.md'
+```
+
+Global commands always run first, then profile-specific commands. Both use the same `CommandConfig` format.
+
 Each command entry uses the `CommandConfig` structure:
 
-| Field               | Type      | Default  | Description                                                |
-| ------------------- | --------- | -------- | ---------------------------------------------------------- |
-| `name`              | `string`  | Required | Human-readable name for logging                            |
-| `run`               | `string`  | Required | Command to execute (supports template variables)           |
-| `continue_on_error` | `boolean` | `false`  | If true, subsequent commands still run even if this fails  |
-| `background`        | `boolean` | `false`  | If true, run command in background without waiting         |
+| Field               | Type      | Default  | Description                                               |
+| ------------------- | --------- | -------- | --------------------------------------------------------- |
+| `name`              | `string`  | Required | Human-readable name for logging                           |
+| `run`               | `string`  | Required | Command to execute (supports template variables)          |
+| `continue_on_error` | `boolean` | `false`  | If true, subsequent commands still run even if this fails |
+| `background`        | `boolean` | `false`  | If true, run command in background without waiting        |
 
 ### Example: Python project
 
@@ -656,9 +685,9 @@ terminal:
   app: 'iTerm' # Currently only iTerm is supported
 ```
 
-| Field | Type     | Default  | Description                                                                 |
-| ----- | -------- | -------- | --------------------------------------------------------------------------- |
-| `app` | `string` | `iTerm`  | Terminal application name. Currently only `iTerm` is supported.             |
+| Field | Type     | Default | Description                                                     |
+| ----- | -------- | ------- | --------------------------------------------------------------- |
+| `app` | `string` | `iTerm` | Terminal application name. Currently only `iTerm` is supported. |
 
 When omitted, defaults to iTerm.
 
@@ -710,15 +739,15 @@ The local file uses the same schema but only the `keybindings` section is merged
 # .pappardelle.local.yml — personal overrides (gitignored)
 keybindings:
   # Add a personal binding
-  - key: "V"
-    name: "Open in VS Code"
-    run: "code ${WORKTREE_PATH}"
+  - key: 'V'
+    name: 'Open in VS Code'
+    run: 'code ${WORKTREE_PATH}'
   # Override the repo-wide X binding
-  - key: "X"
-    name: "Open in Nova"
-    run: "nova ${WORKTREE_PATH}"
+  - key: 'X'
+    name: 'Open in Nova'
+    run: 'nova ${WORKTREE_PATH}'
   # Disable a binding I don't use
-  - key: "r"
+  - key: 'r'
     disabled: true
 ```
 
@@ -745,12 +774,12 @@ keybindings:
 
 ### Keybinding Fields
 
-| Field             | Type     | Description                                              |
-| ----------------- | -------- | -------------------------------------------------------- |
-| `key`             | `string` | Single character key to bind (must not conflict with built-in shortcuts) |
-| `name`            | `string` | Human-readable name shown in help overlay and status messages |
-| `run`             | `string` | Command to execute (supports template variables). Use either `run` or `send_to_claude`. |
-| `send_to_claude`  | `string` | Text to send to the Claude pane (sent with Enter). Use either `run` or `send_to_claude`. |
+| Field            | Type     | Description                                                                              |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `key`            | `string` | Single character key to bind (must not conflict with built-in shortcuts)                 |
+| `name`           | `string` | Human-readable name shown in help overlay and status messages                            |
+| `run`            | `string` | Command to execute (supports template variables). Use either `run` or `send_to_claude`.  |
+| `send_to_claude` | `string` | Text to send to the Claude pane (sent with Enter). Use either `run` or `send_to_claude`. |
 
 ### Reserved Keys
 
