@@ -29,29 +29,23 @@ https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
 
 ## 1. Installation and Getting Started
 
-### Install Pappardelle
+### Set up with `/init-pappardelle`
 
-One-line install:
+The fastest way to get started is with the `/init-pappardelle` Claude Code skill. It installs Pappardelle, checks [prerequisites](#prerequisites), asks about your VCS host and issue tracker, and generates a `.pappardelle.yml` config — all in one interactive session.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
-```
-
-See [Section 8: Reference](#8-reference) for alternative install methods.
-
-### Initialize your repo
-
-Pappardelle needs a `.pappardelle.yml` config at your repo root. The fastest way to create one is with the `/init-pappardelle` skill — it checks your [prerequisites](#prerequisites), asks about your VCS host, issue tracker, and project profiles, then generates the config for you:
+Install the skill:
 
 ```bash
 mkdir -p ~/.claude/skills/init-pappardelle && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/init-pappardelle/SKILL.md -o ~/.claude/skills/init-pappardelle/SKILL.md
 ```
 
+Then run it from any repo where you want to use Pappardelle:
+
 ```bash
 claude /init-pappardelle
 ```
 
-For the full config format and manual setup, see the [configuration reference](pappardelle-config.md).
+For manual installation, see [Section 8: Reference](#8-reference). For the full config format, see the [configuration reference](pappardelle-config.md).
 
 ### Launch Pappardelle:
 
@@ -300,7 +294,15 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 | [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
 | [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
 
-### Alternative install methods
+### Manual installation
+
+If you prefer to install without the `/init-pappardelle` skill:
+
+**One-line install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
+```
 
 **From a local clone:**
 

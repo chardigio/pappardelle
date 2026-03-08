@@ -1,12 +1,12 @@
 ---
 name: init-pappardelle
-description: Initialize Pappardelle in a repository. Asks about your VCS host, issue tracker, and project profiles, checks prerequisites, then generates a .pappardelle.yml config file.
+description: Install and initialize Pappardelle in a repository. Installs Pappardelle, checks prerequisites, asks about your VCS host, issue tracker, and project profiles, then generates a .pappardelle.yml config file.
 disable-model-invocation: true
 ---
 
 # /init-pappardelle — Set Up Pappardelle in This Repo
 
-Interactive setup wizard that gathers your configuration preferences, checks prerequisites, and generates a `.pappardelle.yml` file.
+Interactive setup wizard that installs Pappardelle, gathers your configuration preferences, checks prerequisites, and generates a `.pappardelle.yml` file.
 
 ## Step 1: Gather Configuration
 
@@ -64,23 +64,39 @@ If they chose `/do`, also offer to install the starter `/do` skill:
 mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
 ```
 
-## Step 2: Check Prerequisites
+## Step 2: Install Pappardelle
 
-Now that you know which providers they chose, check the relevant tools. Run these checks in a single bash command:
+Check if Pappardelle is already installed:
 
 ```bash
-echo "=== Required ===" && \
-for cmd in node npm git tmux jq claude; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done && \
+command -v pappardelle &>/dev/null && echo "INSTALLED" || echo "NOT_INSTALLED"
+```
+
+- If **not installed**, tell the user you'll install it now and run the install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
+```
+
+The install script checks base prerequisites (Node.js >= 18, npm, git, tmux, jq), clones the repo, builds it, and makes `pappardelle` and `idow` available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
+
+- If **already installed**, print "Pappardelle is already installed" and move on.
+
+## Step 3: Check Provider CLIs
+
+Now that you know which providers they chose, check the provider-specific CLIs. Run these checks in a single bash command:
+
+```bash
 echo "=== Provider CLIs ===" && \
 for cmd in <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
 Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira) based on the answers from Step 1.
 
-- If any tools are missing, tell the user which ones and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing.
+- If any tools are missing, tell the user which ones and offer to install them via `brew install <tool>`. Use `AskUserQuestion` to confirm before installing.
 - If all tools are present, move on.
 
-## Step 3: tmux Configuration
+## Step 4: tmux Configuration
 
 Ask: "Would you like me to add the recommended tmux config? It enables mouse support, pane navigation with Ctrl+Shift+arrow keys, and a clean status bar. (I'll append to ~/.tmux.conf)"
 
@@ -94,7 +110,7 @@ Check if `~/.tmux.conf` exists first and read it — if settings already exist, 
 
 If they decline, move on.
 
-## Step 4: Generate .pappardelle.yml
+## Step 5: Generate .pappardelle.yml
 
 Based on the answers, generate a `.pappardelle.yml` file at the repository root. Use the full config format from the [configuration reference](pappardelle-config.md).
 
@@ -106,7 +122,7 @@ Rules:
 - **Single prefix**: one profile with no `keywords`, set as `default_profile`
 - **Multiple prefixes**: one profile per prefix, each with `keywords: ["PREFIX-"]` (include the hyphen) and a per-profile `team_prefix` override. Set `default_profile` to the most common one
 
-## Step 5: Summary
+## Step 6: Summary
 
 After writing the file, print a summary:
 
