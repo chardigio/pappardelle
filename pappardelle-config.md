@@ -592,7 +592,7 @@ profiles:
   stardust-jams:
     # Per-profile override (takes precedence over global)
     claude:
-      initialization_command: '/do-todo'
+      initialization_command: '/do-stardust'
 ```
 
 | Field                          | Type      | Default | Description                                                                                                                                                  |
@@ -602,7 +602,7 @@ profiles:
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 
-**Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-todo` for profiles that use a TODO.md checklist workflow).
+**Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
 
 ## Post-Worktree-Init Commands
 
@@ -632,7 +632,7 @@ profiles:
   stardust-jams:
     post_worktree_init:
       - name: 'Create TODO.md'
-        run: 'cp ${REPO_ROOT}/_dev/todo-templates/stardust-jams.md ${WORKTREE_PATH}/TODO.md'
+        run: 'cp ${REPO_ROOT}/.claude/skills/do-stardust/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md'
 ```
 
 Global commands always run first, then profile-specific commands. Both use the same `CommandConfig` format.

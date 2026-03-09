@@ -81,7 +81,7 @@ profiles:
       - recording
     display_name: "Stardust Jams"
     claude:
-      initialization_command: "/do-todo"
+      initialization_command: "/do-stardust"
     vars:
       IOS_APP_DIR: "_ios/stardust-jams"
       BUNDLE_ID: "com.cd17822.stardust-jams"
@@ -102,7 +102,7 @@ profiles:
         if_set: "IOS_APP_DIR"
     post_worktree_init:
       - name: "Create TODO.md"
-        run: "cp ${REPO_ROOT}/_dev/todo-templates/stardust-jams.md ${WORKTREE_PATH}/TODO.md"
+        run: "cp ${REPO_ROOT}/.claude/skills/do-stardust/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
     commands:
       - name: "Generate Xcode project"
         run: "cd ${WORKTREE_PATH}/${IOS_APP_DIR} && xcodegen generate"

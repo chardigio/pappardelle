@@ -1,6 +1,7 @@
 ---
 name: do-todo
 description: Work through a TODO.md checklist in the worktree root, continuing until all items are checked off.
+disable-model-invocation: true
 hooks:
   Stop:
     - hooks:
