@@ -6,7 +6,7 @@ hooks:
   Stop:
     - hooks:
         - type: command
-          command: "cat > /dev/null; if grep -qF -- '- [ ]' TODO.md 2>/dev/null; then echo '{\"ok\": false, \"reason\": \"Unchecked TODO items remain in TODO.md. Keep working through them.\"}'; else echo '{\"ok\": true}'; fi"
+          command: "cat > /dev/null; COUNT_FILE=.claude/skills/do-todo/.ralph-count; COUNT=$(cat \"$COUNT_FILE\" 2>/dev/null || echo 0); if grep -qF -- '- [ ]' TODO.md 2>/dev/null && [ \"$COUNT\" -lt 3 ]; then echo $((COUNT + 1)) > \"$COUNT_FILE\"; echo '{\"ok\": false, \"reason\": \"Unchecked TODO items remain in TODO.md. Keep working through them.\"}'; else rm -f \"$COUNT_FILE\"; echo '{\"ok\": true}'; fi"
 ---
 
 # /do-todo - Work Through TODO Checklist
