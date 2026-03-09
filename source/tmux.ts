@@ -183,7 +183,7 @@ export async function getLinearIssuesFromTmux(): Promise<string[]> {
 			.split('\n')
 			.filter(name => name.startsWith(prefix))
 			.map(session => session.slice(prefix.length))
-			.filter(issueKey => /^[A-Z]+-\d+$/.test(issueKey));
+			.filter(issueKey => /^[A-Z][A-Z0-9]*-\d+$/.test(issueKey));
 	} catch {
 		return [];
 	}

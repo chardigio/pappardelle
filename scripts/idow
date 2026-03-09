@@ -337,11 +337,11 @@ ISSUE_KEY=""
 DESCRIPTION=""
 IS_NEW_ISSUE=false
 
-if [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z]+-[0-9]+) ]]; then
+if [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then
     # Linear URL
     ISSUE_KEY="${BASH_REMATCH[1]}"
     log "Detected Linear URL, issue key: $ISSUE_KEY"
-elif [[ "$INPUT" =~ ^[A-Z]+-[0-9]+$ ]]; then
+elif [[ "$INPUT" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
     # Full issue key (e.g., STA-123)
     ISSUE_KEY="$INPUT"
     log "Detected full issue key: $ISSUE_KEY"

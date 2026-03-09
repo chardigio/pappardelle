@@ -107,6 +107,6 @@ export function isPendingSessionResolved(
  * Returns the issue key (e.g. "STA-633") or null if not found.
  */
 export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
-	const match = stdout.match(/Workspace ([A-Z]+-\d+) is ready/);
+	const match = stdout.match(/Workspace ([A-Z][A-Z0-9]*-\d+) is ready/);
 	return match ? match[1]! : null;
 }

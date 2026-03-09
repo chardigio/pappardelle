@@ -5,7 +5,7 @@
  * Check if a string looks like a Linear issue key (e.g., STA-123, ENG-456)
  */
 export function isLinearIssueKey(input: string): boolean {
-	return /^[A-Z]+-\d+$/i.test(input.trim());
+	return /^[A-Z][A-Z0-9]*-\d+$/i.test(input.trim());
 }
 
 /**

@@ -215,7 +215,7 @@ $quoted_prompt"
             fi
             # Parse issue key from acli output
             local issue_key
-            issue_key=$(echo "$output" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+            issue_key=$(echo "$output" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -1)
             if [[ -z "$issue_key" ]]; then
                 echo "Error: Could not extract issue key from output: $output" >&2
                 return 1

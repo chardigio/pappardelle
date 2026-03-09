@@ -9,9 +9,10 @@ import {
 } from '../config.ts';
 
 // Issue key patterns
-const ISSUE_KEY_PATTERN = /^[A-Z]+-\d+$/;
+const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 const ISSUE_NUMBER_PATTERN = /^(\d+)$/;
-const LINEAR_URL_PATTERN = /^https:\/\/linear\.app\/.+\/issue\/([A-Z]+-\d+)/;
+const LINEAR_URL_PATTERN =
+	/^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*-\d+)/;
 
 interface Props {
 	onSubmit: (prompt: string) => void;

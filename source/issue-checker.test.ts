@@ -34,6 +34,18 @@ test('isLinearIssueKey returns false for empty string', t => {
 	t.false(isLinearIssueKey(''));
 });
 
+test('isLinearIssueKey returns true for alphanumeric prefix B2B-100', t => {
+	t.true(isLinearIssueKey('B2B-100'));
+});
+
+test('isLinearIssueKey returns true for alphanumeric prefix A1-50', t => {
+	t.true(isLinearIssueKey('A1-50'));
+});
+
+test('isLinearIssueKey returns false for number-only prefix 123-456', t => {
+	t.false(isLinearIssueKey('123-456'));
+});
+
 test('isLinearIssueKey returns false for descriptions', t => {
 	t.false(isLinearIssueKey('fix the bug'));
 });
@@ -115,6 +127,12 @@ test('normalizeIssueIdentifier works with different team prefixes', t => {
 test('normalizeIssueIdentifier preserves original team prefix when different from default', t => {
 	// If user types ENG-100 but default is STA, keep ENG-100
 	t.is(normalizeIssueIdentifier('ENG-100', 'STA'), 'ENG-100');
+});
+
+test('normalizeIssueIdentifier works with alphanumeric prefixes', t => {
+	t.is(normalizeIssueIdentifier('b2b-100', 'B2B'), 'B2B-100');
+	t.is(normalizeIssueIdentifier('B2B-200', 'STA'), 'B2B-200');
+	t.is(normalizeIssueIdentifier('100', 'B2B'), 'B2B-100');
 });
 
 // ============================================================================
