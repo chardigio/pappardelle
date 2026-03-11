@@ -92,18 +92,21 @@ The install script checks base prerequisites (Node.js >= 18, npm, git, tmux, jq)
 
 - If **already installed**, print "Pappardelle is already installed" and move on.
 
-## Step 3: Check Provider CLIs
+## Step 3: Check Prerequisites & Provider CLIs
 
-Now that you know which providers they chose, check the provider-specific CLIs. Run these checks in a single bash command:
+Now that you know which providers they chose, check the required tools and provider-specific CLIs. Run these checks in a single bash command:
 
 ```bash
+echo "=== Required ===" && \
+for cmd in node npm git tmux jq yq claude; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done && \
 echo "=== Provider CLIs ===" && \
-for cmd in yq claude <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
+for cmd in <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
 Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira) based on the answers from Step 1.
 
-- If any tools are missing, tell the user which ones and offer to install them via `brew install <tool>`. Use `AskUserQuestion` to confirm before installing.
+- If any **required** tools are missing, **stop and do not proceed** to Step 4. Tell the user which ones are missing and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
+- If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
 - If all tools are present, move on.
 
 ## Step 4: tmux Configuration
