@@ -108,6 +108,23 @@ else
     MISSING+=("git")
 fi
 
+# Check yq (YAML processor - required for reading .pappardelle.yml)
+if command -v yq &>/dev/null; then
+    print_status "yq installed"
+else
+    print_error "yq not found (required for reading .pappardelle.yml)"
+    print_info "Install with: brew install yq"
+    MISSING+=("yq")
+fi
+
+# Check claude (Claude Code CLI)
+if command -v claude &>/dev/null; then
+    print_status "Claude Code installed"
+else
+    print_warning "Claude Code not found (needed for AI-assisted workspaces)"
+    print_info "Install with: curl -fsSL https://claude.ai/install.sh | bash"
+fi
+
 # Optional: check linctl
 if command -v linctl &>/dev/null; then
     print_status "linctl installed (Linear integration)"

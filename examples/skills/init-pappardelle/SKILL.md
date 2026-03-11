@@ -64,6 +64,16 @@ If they chose `/do`, also offer to install the starter `/do` skill:
 mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
 ```
 
+### 1e. Dangerously Skip Permissions ("Yolo Mode")
+
+Ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
+
+Options:
+- **No** (default) — set `dangerously_skip_permissions: false`
+- **Yes** — set `dangerously_skip_permissions: true`. Warn the user: "This means Claude can read, write, and execute anything without confirmation. Only enable this if you trust the skills and prompts being used in your workspaces."
+
+This setting is only relevant if a `claude` section exists (i.e., the user chose an initialization command in 1d). If they opted out of `claude` in 1d, skip this question.
+
 ## Step 2: Install Pappardelle
 
 Check if Pappardelle is already installed:
@@ -88,7 +98,7 @@ Now that you know which providers they chose, check the provider-specific CLIs. 
 
 ```bash
 echo "=== Provider CLIs ===" && \
-for cmd in <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
+for cmd in yq claude <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
 Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira) based on the answers from Step 1.
