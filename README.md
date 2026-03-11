@@ -157,6 +157,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Post-worktree hooks** — Commands that run after worktree creation (e.g., copying `.env` files, installing dependencies).
+- **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues.
 
 For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).
 
