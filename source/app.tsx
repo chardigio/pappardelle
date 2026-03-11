@@ -18,7 +18,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
-import {getIssueCached, getIssues} from './tracker.ts';
+import {getIssueCached, getIssues, searchAssignedIssues} from './tracker.ts';
+import {getNewWatchlistIssues} from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
 	getClaudeStatusInfo,
@@ -43,9 +44,11 @@ import {
 	getRepoName,
 	qualifyMainBranch,
 	getKeybindings,
+	getIssueWatchlist,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	type KeybindingConfig,
+	type IssueWatchlistConfig,
 } from './config.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {
@@ -140,6 +143,30 @@ export default function App({
 				err instanceof Error ? err : undefined,
 			);
 			return [];
+		}
+	}, []);
+
+	// Load issue watchlist config (once at startup)
+	const watchlistConfig = React.useMemo<
+		IssueWatchlistConfig | undefined
+	>(() => {
+		try {
+			const config = loadConfig();
+			const wl = getIssueWatchlist(config);
+			if (wl) {
+				log.info(
+					`Issue watchlist configured: assignee=${wl.assignee}, statuses=[${wl.statuses.join(', ')}]`,
+				);
+			} else {
+				log.debug('No issue_watchlist configured — watchlist polling disabled');
+			}
+
+			return wl;
+		} catch (err) {
+			log.debug(
+				`Failed to load watchlist config: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			return undefined;
 		}
 	}, []);
 
@@ -905,6 +932,79 @@ export default function App({
 		child.unref();
 		log.info(`Started idow for pending session: ${pending.name}`);
 	};
+
+	// Issue watchlist polling — auto-spawn workspaces for assigned issues
+	// Track which issues we've already attempted to spawn (prevents re-spawning on every poll)
+	const watchlistSpawnedRef = useRef(new Set<string>());
+	// Use ref for spaces length so the effect doesn't re-run on every space change
+	const spacesLengthRef = useRef(spaces.length);
+	spacesLengthRef.current = spaces.length;
+
+	useEffect(() => {
+		if (!watchlistConfig) return;
+
+		const {assignee, statuses} = watchlistConfig;
+
+		// Poll immediately on first load, then every 30 seconds
+		let pollInFlight = false;
+
+		const poll = async () => {
+			if (pollInFlight) return;
+			pollInFlight = true;
+			log.debug('Watchlist: polling for assigned issues…');
+
+			try {
+				const issues = await searchAssignedIssues(assignee, statuses);
+				if (issues.length === 0) {
+					log.debug('Watchlist: no matching issues found');
+					return;
+				}
+
+				// Get current space names to determine what's new
+				const currentSpaceNames = getRegisteredSpaces();
+				const newIssues = getNewWatchlistIssues(issues, currentSpaceNames);
+				log.debug(
+					`Watchlist: found ${issues.length} assigned issue(s), ${newIssues.length} new`,
+				);
+
+				for (const issue of newIssues) {
+					// Skip if we already attempted to spawn this issue
+					if (watchlistSpawnedRef.current.has(issue.identifier.toUpperCase())) {
+						continue;
+					}
+
+					watchlistSpawnedRef.current.add(issue.identifier.toUpperCase());
+					log.info(
+						`Watchlist: spawning workspace for ${issue.identifier} (${issue.title})`,
+					);
+
+					spawnSession({
+						type: 'issue',
+						name: issue.identifier,
+						idowArg: issue.identifier,
+						pendingTitle: `Watchlist: ${issue.title}`,
+						prevSpaceCount: spacesLengthRef.current,
+					});
+				}
+			} catch (err) {
+				log.warn(
+					'Watchlist poll failed',
+					err instanceof Error ? err : undefined,
+				);
+			} finally {
+				pollInFlight = false;
+			}
+		};
+
+		// Initial poll after a short delay (let the UI settle first)
+		const initialTimer = setTimeout(poll, 5_000);
+		const interval = setInterval(poll, 30_000);
+
+		return () => {
+			clearTimeout(initialTimer);
+			clearInterval(interval);
+		};
+	}, [watchlistConfig]);
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {

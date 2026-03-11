@@ -9,6 +9,7 @@ import {
 	getDangerouslySkipPermissions,
 	getKeybindings,
 	getDefaultProfile,
+	getIssueWatchlist,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
@@ -2313,4 +2314,271 @@ test('applyLocalOverrides merges both keybindings and claude overrides', t => {
 
 	t.is(getDangerouslySkipPermissions(config), false);
 	t.is(config.keybindings!.length, 2);
+});
+
+// ============================================================================
+// applyLocalOverrides — issue_watchlist
+// ============================================================================
+
+test('applyLocalOverrides sets issue_watchlist when base has none', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+
+	applyLocalOverrides(config, {
+		issue_watchlist: {assignee: 'me', statuses: ['To Do']},
+	});
+
+	t.deepEqual(config.issue_watchlist, {
+		assignee: 'me',
+		statuses: ['To Do'],
+	});
+});
+
+test('applyLocalOverrides overrides existing issue_watchlist entirely', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+
+	applyLocalOverrides(config, {
+		issue_watchlist: {
+			assignee: 'charlie@example.com',
+			statuses: ['In Progress', 'In Review'],
+		},
+	});
+
+	t.is(config.issue_watchlist!.assignee, 'charlie@example.com');
+	t.deepEqual(config.issue_watchlist!.statuses, ['In Progress', 'In Review']);
+});
+
+test('applyLocalOverrides ignores non-object issue_watchlist in local', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+
+	applyLocalOverrides(config, {
+		issue_watchlist: 'invalid',
+	});
+
+	t.is(config.issue_watchlist!.assignee, 'me');
+});
+
+test('applyLocalOverrides ignores null issue_watchlist in local', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+
+	applyLocalOverrides(config, {
+		issue_watchlist: null,
+	});
+
+	t.is(config.issue_watchlist!.assignee, 'me');
+});
+
+test('applyLocalOverrides preserves other fields when overriding issue_watchlist', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+	config.claude = {dangerously_skip_permissions: true};
+	config.keybindings = [{key: 'b', name: 'Build', run: 'make build'}];
+
+	applyLocalOverrides(config, {
+		issue_watchlist: {assignee: 'me', statuses: ['To Do']},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), true);
+	t.is(config.keybindings!.length, 1);
+	t.deepEqual(config.issue_watchlist, {
+		assignee: 'me',
+		statuses: ['To Do'],
+	});
+});
+
+test('applyLocalOverrides issue_watchlist combined with claude overrides', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')}, 'test');
+
+	applyLocalOverrides(config, {
+		claude: {dangerously_skip_permissions: true},
+		issue_watchlist: {assignee: 'me', statuses: ['In Progress']},
+	});
+
+	t.is(getDangerouslySkipPermissions(config), true);
+	t.deepEqual(config.issue_watchlist, {
+		assignee: 'me',
+		statuses: ['In Progress'],
+	});
+});
+
+// ============================================================================
+// issue_watchlist Validation Tests
+// ============================================================================
+
+test('validateConfig accepts valid issue_watchlist with assignee and statuses', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do', 'In Progress'],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts issue_watchlist with explicit assignee', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'charlie@example.com',
+			statuses: ['In Review'],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects issue_watchlist that is not an object', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: 'not-an-object',
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('issue_watchlist: must be an object'));
+});
+
+test('validateConfig rejects issue_watchlist without assignee', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			statuses: ['To Do'],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('issue_watchlist.assignee: required string field'),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with non-string assignee', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 42,
+			statuses: ['To Do'],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('issue_watchlist.assignee: required string field'),
+	);
+});
+
+test('validateConfig rejects issue_watchlist without statuses', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'issue_watchlist.statuses: required non-empty array',
+		),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with non-array statuses', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: 'To Do',
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'issue_watchlist.statuses: required non-empty array',
+		),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with empty statuses array', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: [],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'issue_watchlist.statuses: required non-empty array',
+		),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with non-string statuses entries', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do', 123],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('issue_watchlist.statuses[1]: must be a string'),
+	);
+});
+
+test('validateConfig accepts config without issue_watchlist', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// getIssueWatchlist Tests
+// ============================================================================
+
+test('getIssueWatchlist returns undefined when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.is(getIssueWatchlist(config), undefined);
+});
+
+test('getIssueWatchlist returns the configured watchlist', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.issue_watchlist = {
+		assignee: 'me',
+		statuses: ['To Do', 'In Progress'],
+	};
+	const watchlist = getIssueWatchlist(config);
+	t.truthy(watchlist);
+	t.is(watchlist!.assignee, 'me');
+	t.deepEqual(watchlist!.statuses, ['To Do', 'In Progress']);
 });

@@ -28,6 +28,13 @@ export async function getIssues(
 	return tracker().getIssues(issueKeys);
 }
 
+export async function searchAssignedIssues(
+	assignee: string,
+	statuses: string[],
+): Promise<TrackerIssue[]> {
+	return tracker().searchAssignedIssues(assignee, statuses);
+}
+
 export function clearCache(): void {
 	tracker().clearCache();
 }

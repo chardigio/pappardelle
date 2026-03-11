@@ -166,6 +166,77 @@ export class LinearProvider implements IssueTrackerProvider {
 		return `https://linear.app/stardust-labs/issue/${issueKey}`;
 	}
 
+	async searchAssignedIssues(
+		assignee: string,
+		statuses: string[],
+	): Promise<TrackerIssue[]> {
+		if (this.linctlMissing || statuses.length === 0) {
+			return [];
+		}
+
+		const seen = new Set<string>();
+		const results: TrackerIssue[] = [];
+
+		// linctl --state only accepts one value, so we make one call per status
+		for (const status of statuses) {
+			log.info(
+				`Watchlist query: linctl issue list --assignee ${assignee} --state "${status}"`,
+			);
+			try {
+				const output = await this.execCli(
+					'linctl',
+					[
+						'issue',
+						'list',
+						'--assignee',
+						assignee,
+						'--state',
+						status,
+						'--json',
+					],
+					{encoding: 'utf-8', timeout: 15_000},
+				);
+				const parsed = JSON.parse(output) as unknown;
+				const issues = Array.isArray(parsed) ? (parsed as TrackerIssue[]) : [];
+				for (const issue of issues) {
+					if (!seen.has(issue.identifier)) {
+						seen.add(issue.identifier);
+						results.push(issue);
+						// Populate caches
+						this.issueCache.set(issue.identifier, {
+							issue,
+							timestamp: Date.now(),
+						});
+						this.stateColors.update(issue.state.name, issue.state.color);
+					}
+				}
+			} catch (err) {
+				if (isEnoent(err)) {
+					this.linctlMissing = true;
+					log.warn(
+						'linctl binary not found on PATH — Linear issue listing disabled.',
+					);
+					return [];
+				}
+
+				log.warn(
+					`Failed to list issues for status "${status}"`,
+					err instanceof Error ? err : undefined,
+				);
+			}
+		}
+
+		if (results.length > 0) {
+			log.info(
+				`Watchlist results: ${results.map(i => `${i.identifier} (${i.state.name})`).join(', ')}`,
+			);
+		} else {
+			log.info('Watchlist results: none');
+		}
+
+		return results;
+	}
+
 	async createComment(issueKey: string, body: string): Promise<boolean> {
 		if (this.linctlMissing) {
 			return false;

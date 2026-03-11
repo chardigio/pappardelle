@@ -54,6 +54,12 @@ export interface IssueTrackerProvider {
 
 	/** Post a comment on an issue */
 	createComment(issueKey: string, body: string): Promise<boolean>;
+
+	/** Search for issues assigned to a user with matching statuses */
+	searchAssignedIssues(
+		assignee: string,
+		statuses: string[],
+	): Promise<TrackerIssue[]>;
 }
 
 /**

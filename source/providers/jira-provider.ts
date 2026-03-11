@@ -272,6 +272,72 @@ export class JiraProvider implements IssueTrackerProvider {
 		return `${this.baseUrl}/browse/${issueKey}`;
 	}
 
+	async searchAssignedIssues(
+		assignee: string,
+		statuses: string[],
+	): Promise<TrackerIssue[]> {
+		if (this.acliMissing || statuses.length === 0) {
+			return [];
+		}
+
+		// Build JQL: assignee = currentUser() AND status IN ("To Do", "In Progress")
+		const assigneeClause =
+			assignee === 'me'
+				? 'assignee = currentUser()'
+				: `assignee = "${assignee.replace(/"/g, '\\"')}"`;
+		const statusList = statuses
+			.map(s => `"${s.replace(/"/g, '\\"')}"`)
+			.join(', ');
+		const jql = `${assigneeClause} AND status IN (${statusList})`;
+		log.info(`Watchlist query: ${jql}`);
+
+		try {
+			const output = await this.execCli(
+				'acli',
+				['jira', 'workitem', 'search', '--jql', jql, '--json'],
+				{encoding: 'utf-8', timeout: 30_000},
+			);
+			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
+			const results: TrackerIssue[] = [];
+
+			for (const raw of rawList) {
+				try {
+					const issue = mapJiraIssue(raw);
+					results.push(issue);
+					this.issueCache.set(issue.identifier, {
+						issue,
+						timestamp: Date.now(),
+					});
+					this.stateColors.update(issue.state.name, issue.state.color);
+				} catch {
+					// Skip malformed issues, preserve valid ones
+				}
+			}
+
+			if (results.length > 0) {
+				log.info(
+					`Watchlist results: ${results.map(i => `${i.identifier} (${i.state.name})`).join(', ')}`,
+				);
+			} else {
+				log.info('Watchlist results: none');
+			}
+
+			return results;
+		} catch (err) {
+			if (isEnoent(err)) {
+				this.acliMissing = true;
+				log.warn('acli binary not found on PATH — Jira issue search disabled.');
+				return [];
+			}
+
+			log.warn(
+				'Failed to search Jira issues',
+				err instanceof Error ? err : undefined,
+			);
+			return [];
+		}
+	}
+
 	async createComment(issueKey: string, body: string): Promise<boolean> {
 		if (this.acliMissing) {
 			return false;

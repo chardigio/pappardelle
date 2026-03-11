@@ -68,6 +68,11 @@ export interface VcsHostConfig {
 	host?: string; // For self-hosted GitLab
 }
 
+export interface IssueWatchlistConfig {
+	assignee: string; // Username/email, or 'me' to auto-detect
+	statuses: string[]; // Issue statuses to match (e.g., ['To Do', 'In Progress'])
+}
+
 export interface TerminalConfig {
 	app?: string; // Default: "iTerm"
 }
@@ -98,6 +103,8 @@ export interface PappardelleConfig {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
 	claude?: ClaudeConfig;
+	/** Poll the issue tracker for issues assigned to a user with matching statuses. */
+	issue_watchlist?: IssueWatchlistConfig;
 	/** Commands to run after git worktree is created. Same format as profile commands. */
 	post_worktree_init?: CommandConfig[];
 	terminal?: TerminalConfig;
@@ -272,6 +279,7 @@ export function mergeKeybindings(
  * Apply local overrides from .pappardelle.local.yml onto the base config.
  * Mutates `config` in place. Supports overriding:
  * - `keybindings` (merged via mergeKeybindings)
+ * - `issue_watchlist` (replaced if valid object)
  * - `claude.dangerously_skip_permissions` (replaced if boolean)
  * - `claude.initialization_command` (replaced if string)
  */
@@ -284,6 +292,15 @@ export function applyLocalOverrides(
 			config.keybindings ?? [],
 			localConfig['keybindings'] as KeybindingConfig[],
 		);
+	}
+
+	if (
+		localConfig['issue_watchlist'] &&
+		typeof localConfig['issue_watchlist'] === 'object'
+	) {
+		config.issue_watchlist = localConfig[
+			'issue_watchlist'
+		] as IssueWatchlistConfig;
 	}
 
 	if (localConfig['claude'] && typeof localConfig['claude'] === 'object') {
@@ -453,6 +470,32 @@ export function validateConfig(
 				typeof cl['dangerously_skip_permissions'] !== 'boolean'
 			) {
 				errors.push('claude.dangerously_skip_permissions: must be a boolean');
+			}
+		}
+	}
+
+	// Check issue_watchlist (optional)
+	if (cfg['issue_watchlist'] !== undefined) {
+		if (
+			typeof cfg['issue_watchlist'] !== 'object' ||
+			cfg['issue_watchlist'] === null
+		) {
+			errors.push('issue_watchlist: must be an object');
+		} else {
+			const wl = cfg['issue_watchlist'] as Record<string, unknown>;
+			if (typeof wl['assignee'] !== 'string') {
+				errors.push('issue_watchlist.assignee: required string field');
+			}
+
+			if (!Array.isArray(wl['statuses']) || wl['statuses'].length === 0) {
+				errors.push('issue_watchlist.statuses: required non-empty array');
+			} else {
+				const statuses = wl['statuses'] as unknown[];
+				for (let i = 0; i < statuses.length; i++) {
+					if (typeof statuses[i] !== 'string') {
+						errors.push(`issue_watchlist.statuses[${i}]: must be a string`);
+					}
+				}
 			}
 		}
 	}
@@ -951,6 +994,16 @@ export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
 ): boolean {
 	return config.claude?.dangerously_skip_permissions ?? false;
+}
+
+/**
+ * Get the issue watchlist config.
+ * Returns undefined if not configured.
+ */
+export function getIssueWatchlist(
+	config: PappardelleConfig,
+): IssueWatchlistConfig | undefined {
+	return config.issue_watchlist;
 }
 
 /**

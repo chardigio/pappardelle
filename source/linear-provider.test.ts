@@ -568,6 +568,151 @@ test('getIssues handles mixed success and failure', async t => {
 	t.truthy(result.get('STA-83'));
 });
 
+// ============================================================================
+// searchAssignedIssues
+// ============================================================================
+
+function makeIssueListJson(
+	issues: Array<{
+		identifier: string;
+		title: string;
+		stateName: string;
+		stateColor?: string;
+	}>,
+): string {
+	return JSON.stringify(
+		issues.map(i => ({
+			identifier: i.identifier,
+			title: i.title,
+			state: {
+				name: i.stateName,
+				type: 'started',
+				color: i.stateColor ?? '#f2c94c',
+			},
+			project: null,
+		})),
+	);
+}
+
+test('searchAssignedIssues calls linctl with --assignee and --state flags', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return makeIssueListJson([
+			{identifier: 'STA-10', title: 'Issue 10', stateName: 'To Do'},
+		]);
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+
+	t.is(calls.length, 1);
+	t.deepEqual(calls[0], [
+		'issue',
+		'list',
+		'--assignee',
+		'me',
+		'--state',
+		'To Do',
+		'--json',
+	]);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-10');
+});
+
+test('searchAssignedIssues makes one call per status', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		const state = args[5];
+		if (state === 'To Do') {
+			return makeIssueListJson([
+				{identifier: 'STA-1', title: 'Todo', stateName: 'To Do'},
+			]);
+		}
+
+		return makeIssueListJson([
+			{
+				identifier: 'STA-2',
+				title: 'In Progress',
+				stateName: 'In Progress',
+			},
+		]);
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('charlie', [
+		'To Do',
+		'In Progress',
+	]);
+
+	t.is(calls.length, 2);
+	t.is(result.length, 2);
+	t.truthy(result.find(i => i.identifier === 'STA-1'));
+	t.truthy(result.find(i => i.identifier === 'STA-2'));
+});
+
+test('searchAssignedIssues deduplicates issues across statuses', async t => {
+	const exec: CliExecutor = async () =>
+		makeIssueListJson([
+			{identifier: 'STA-1', title: 'Shared', stateName: 'To Do'},
+		]);
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('me', [
+		'To Do',
+		'In Progress',
+	]);
+
+	// STA-1 appears in both status calls, but should appear only once
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-1');
+});
+
+test('searchAssignedIssues returns empty array when linctlMissing', async t => {
+	const exec: CliExecutor = async () => {
+		throw makeEnoentError();
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	// Trigger linctlMissing
+	await provider.getIssue('STA-99');
+
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+	t.deepEqual(result, []);
+});
+
+test('searchAssignedIssues returns empty array on CLI error', async t => {
+	const exec: CliExecutor = async (_cmd, args) => {
+		if (args[0] === 'issue' && args[1] === 'list') {
+			throw new Error('API error');
+		}
+
+		return makeIssueJson('STA-1', 'Test');
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+	t.deepEqual(result, []);
+});
+
+test('searchAssignedIssues handles non-array JSON response (e.g. linctl "No issues found")', async t => {
+	const exec: CliExecutor = async () =>
+		JSON.stringify({info: 'No issues found'});
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+	t.deepEqual(result, []);
+});
+
+test('searchAssignedIssues returns empty array for empty statuses', async t => {
+	const exec: CliExecutor = async () => makeIssueListJson([]);
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('me', []);
+	t.deepEqual(result, []);
+});
+
 test('persistence does not write when color unchanged', async t => {
 	const cachePath = tempCachePath();
 	const exec: CliExecutor = async () =>

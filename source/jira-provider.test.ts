@@ -745,6 +745,201 @@ test('getIssues sets acliMissing on ENOENT during batch search', async t => {
 	t.is(result2.get('CHEX-51'), null);
 });
 
+// ============================================================================
+// searchAssignedIssues
+// ============================================================================
+
+test('searchAssignedIssues calls acli with JQL for assignee and statuses', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return JSON.stringify([
+			{
+				key: 'CHEX-100',
+				fields: {
+					summary: 'My todo',
+					status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+				},
+			},
+		]);
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.searchAssignedIssues('me', [
+		'To Do',
+		'In Progress',
+	]);
+
+	t.is(calls.length, 1);
+	t.true(calls[0]!.includes('--jql'));
+	const jqlIndex = calls[0]!.indexOf('--jql');
+	const jql = calls[0]![jqlIndex + 1]!;
+	t.true(jql.includes('assignee'));
+	t.true(jql.includes('currentUser()'));
+	t.true(jql.includes('To Do'));
+	t.true(jql.includes('In Progress'));
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'CHEX-100');
+});
+
+test('searchAssignedIssues uses currentUser() for "me" in JQL', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return '[]';
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	await provider.searchAssignedIssues('me', ['To Do']);
+
+	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
+	t.true(
+		jql.includes('currentUser()'),
+		'should use currentUser() for "me" assignee',
+	);
+});
+
+test('searchAssignedIssues uses quoted assignee for explicit usernames', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return '[]';
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	await provider.searchAssignedIssues('charlie@example.com', ['To Do']);
+
+	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
+	t.true(
+		jql.includes('"charlie@example.com"'),
+		'should quote explicit assignee',
+	);
+});
+
+test('searchAssignedIssues returns empty array when acliMissing', async t => {
+	const exec: CliExecutor = async () => {
+		throw makeEnoentError();
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	// Trigger acliMissing
+	await provider.getIssue('CHEX-1');
+
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+	t.deepEqual(result, []);
+});
+
+test('searchAssignedIssues returns empty array for empty statuses', async t => {
+	const exec: CliExecutor = async () => '[]';
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.searchAssignedIssues('me', []);
+	t.deepEqual(result, []);
+});
+
+test('searchAssignedIssues skips malformed issues without discarding valid ones', async t => {
+	const exec: CliExecutor = async () => {
+		return JSON.stringify([
+			{
+				key: 'CHEX-1',
+				fields: {
+					summary: 'Good issue',
+					status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+				},
+			},
+			// Malformed: key is a number instead of string, which will cause mapJiraIssue
+			// to set identifier to a non-string. We simulate a throw by using a getter.
+			null,
+			{
+				key: 'CHEX-3',
+				fields: {
+					summary: 'Another good issue',
+					status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+				},
+			},
+		]);
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+
+	// Should get both valid issues, skipping the null entry that causes mapJiraIssue to throw
+	t.is(result.length, 2);
+	t.is(result[0]!.identifier, 'CHEX-1');
+	t.is(result[1]!.identifier, 'CHEX-3');
+});
+
+test('searchAssignedIssues escapes double quotes in assignee', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return '[]';
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	await provider.searchAssignedIssues('user"name', ['To Do']);
+
+	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
+	t.true(
+		jql.includes('assignee = "user\\"name"'),
+		'should escape double quotes in assignee',
+	);
+});
+
+test('searchAssignedIssues returns empty array on CLI error', async t => {
+	const exec: CliExecutor = async (_cmd, args) => {
+		if (args.includes('search')) {
+			throw new Error('API error');
+		}
+
+		return makeJiraResponse('CHEX-1', 'Test');
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+	t.deepEqual(result, []);
+});
+
 test('new Jira provider loads persisted state colors from disk', async t => {
 	const cachePath = tempCachePath();
 	fs.writeFileSync(

@@ -604,6 +604,33 @@ The initialization command is combined with the issue key: `<command> <issue-key
 
 **Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
 
+## Issue Watchlist
+
+The `issue_watchlist` section enables automatic workspace creation for issues assigned to you. Pappardelle polls the issue tracker every 30 seconds and spawns workspaces for matching issues that don't already have one.
+
+```yaml
+issue_watchlist:
+  assignee: me           # 'me' auto-detects from CLI, or use explicit username/email
+  statuses:
+    - To Do
+    - In Progress
+    - In Review
+```
+
+| Field      | Type       | Required | Description                                                                                                          |
+| ---------- | ---------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `assignee` | `string`   | Yes      | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli).               |
+| `statuses` | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation. |
+
+**How it works:**
+1. Pappardelle polls the issue tracker every 30 seconds using the configured assignee and statuses
+2. For Linear: calls `linctl issue list --assignee <user> --state <status>` per status
+3. For Jira: uses JQL `assignee = currentUser() AND status IN ("To Do", "In Progress")`
+4. New issues (not already in the space list) are auto-spawned as full workspaces via `idow`
+5. Each issue is only spawned once per Pappardelle session (tracked in memory)
+
+**Note:** The `assignee: me` value uses `currentUser()` in Jira JQL and `me` in linctl, both of which resolve to the authenticated user automatically.
+
 ## Post-Worktree-Init Commands
 
 The `post_worktree_init` section defines commands to run after a git worktree is created. Without this section, `create-worktree.sh` only creates the branch — no file copying, env setup, or dependency installation.
