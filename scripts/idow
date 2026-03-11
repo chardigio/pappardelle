@@ -521,6 +521,13 @@ else
     WORKTREE_PATH=$(echo "$WORKTREE_JSON" | jq -r '.worktree_path')
     print_success "Created worktree: $WORKTREE_PATH"
 
+    # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
+    LOCAL_CONFIG="$REPO_ROOT/.pappardelle.local.yml"
+    if [[ -f "$LOCAL_CONFIG" ]]; then
+        cp -n "$LOCAL_CONFIG" "$WORKTREE_PATH/.pappardelle.local.yml" 2>/dev/null || true
+        print_success "Copied .pappardelle.local.yml"
+    fi
+
     # Run post_worktree_init commands from config
     POST_INIT_COUNT=$(yq -r '.post_worktree_init | length // 0' "$CONFIG_PATH" 2>/dev/null)
     if [[ "$POST_INIT_COUNT" -gt 0 ]]; then
