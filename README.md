@@ -29,17 +29,23 @@ https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
 
 ## 1. Installation and Getting Started
 
-### Set up with `/init-pappardelle`
+### Set up with the Pappardelle plugin
 
-The fastest way to get started is with the `/init-pappardelle` Claude Code skill. It installs Pappardelle, checks [prerequisites](#prerequisites), asks about your VCS host and issue tracker, and generates a `.pappardelle.yml` config — all in one interactive session.
+The fastest way to get started is with the Pappardelle plugin. It installs three skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), and `/configure-pappardelle` (interactive config editor).
 
-Install the skill:
+Add the marketplace:
 
 ```bash
-mkdir -p ~/.claude/skills/init-pappardelle && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/init-pappardelle/SKILL.md -o ~/.claude/skills/init-pappardelle/SKILL.md
+claude /plugin marketplace add chardigio/pappardelle
 ```
 
-Then run it from any repo where you want to use Pappardelle:
+Install the plugin:
+
+```bash
+claude /plugin install pappardelle@pappardelle-marketplace
+```
+
+Then run the setup wizard from any repo where you want to use Pappardelle:
 
 ```bash
 claude /init-pappardelle
@@ -157,8 +163,10 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
-- **Post-worktree hooks** — Additional commands that run after worktree creation (e.g., copying `.env` files, installing dependencies).
+- **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues.
+
+**Use `/configure-pappardelle`** to interactively edit your config — it walks you through adding profiles, keybindings, hooks, and more using `AskUserQuestion`. Available via the [plugin marketplace](#plugin-marketplace) or by asking Claude directly (it's model-invocable).
 
 For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).
 
@@ -416,6 +424,28 @@ npx tsx integration-tests/verify-comments.ts   # Comment posting (creates real c
 ```
 
 See [`integration-tests/README.md`](integration-tests/README.md) for env vars and prerequisites.
+
+### Plugin Marketplace
+
+Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pappardelle` plugin containing three skills:
+
+| Skill | Description | Model-invocable |
+| ----- | ----------- | --------------- |
+| `/init-pappardelle` | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml` | No |
+| `/update-pappardelle` | Re-runs the install script to update Pappardelle to the latest version | No |
+| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more | Yes |
+
+**Install the plugin:**
+
+```bash
+claude /plugin marketplace add chardigio/pappardelle
+```
+
+```bash
+claude /plugin install pappardelle@pappardelle-marketplace
+```
+
+Because `/configure-pappardelle` is model-invocable, Claude will automatically offer to use it when you ask about configuring Pappardelle — no need to invoke it explicitly.
 
 ### Dependencies
 

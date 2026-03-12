@@ -1,0 +1,29 @@
+{
+  "name": "pappardelle-marketplace",
+  "owner": {
+    "name": "chardigio",
+    "email": "hi@charliedigiovanna.com"
+  },
+  "metadata": {
+    "description": "Official plugin marketplace for Pappardelle — the TUI for multi-clauding without losing your marbles. Includes skills for installing, updating, and configuring Pappardelle.",
+    "version": "1.0.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "pappardelle",
+      "source": "./plugins/pappardelle",
+      "description": "Install, update, and configure Pappardelle workspaces. Provides /init-pappardelle (interactive setup wizard), /update-pappardelle (update to latest version), and /configure-pappardelle (interactive config editor).",
+      "version": "1.0.0",
+      "author": {
+        "name": "chardigio"
+      },
+      "homepage": "https://github.com/chardigio/pappardelle",
+      "repository": "https://github.com/chardigio/pappardelle",
+      "license": "MIT",
+      "keywords": ["pappardelle", "worktree", "workspace", "tui", "multi-clauding"],
+      "category": "productivity",
+      "tags": ["setup", "configuration", "workspace-management"]
+    }
+  ]
+}

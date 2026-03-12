@@ -1,0 +1,13 @@
+{
+  "name": "pappardelle",
+  "version": "1.0.0",
+  "description": "Install, update, and configure Pappardelle workspaces. Provides /init-pappardelle (interactive setup wizard), /update-pappardelle (update to latest version), and /configure-pappardelle (interactive config editor).",
+  "author": {
+    "name": "chardigio",
+    "email": "hi@charliedigiovanna.com"
+  },
+  "homepage": "https://github.com/chardigio/pappardelle",
+  "repository": "https://github.com/chardigio/pappardelle",
+  "license": "MIT",
+  "keywords": ["pappardelle", "worktree", "workspace", "tui", "configuration"]
+}
