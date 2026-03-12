@@ -29,9 +29,7 @@ https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
 
 ## 1. Installation and Getting Started
 
-### Set up with the Pappardelle plugin
-
-The fastest way to get started is with the Pappardelle plugin. It installs three skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), and `/configure-pappardelle` (interactive config editor).
+The fastest way to get set up is with `/init-pappardelle`.
 
 Add the marketplace:
 
@@ -45,13 +43,13 @@ Install the plugin:
 claude /plugin install pappardelle@pappardelle-marketplace
 ```
 
-Then run the setup wizard from any repo where you want to use Pappardelle:
+Run the setup wizard from any repo where you want to use Pappardelle:
 
 ```bash
 claude /init-pappardelle
 ```
 
-For manual installation, see [Section 8: Reference](#8-reference). For the full config format, see the [configuration reference](pappardelle-config.md).
+This installs three skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), and `/configure-pappardelle` (interactive config editor). For manual installation, see [Section 8: Reference](#8-reference). For the full config format, see the [configuration reference](pappardelle-config.md).
 
 ### Launch Pappardelle:
 
@@ -156,17 +154,17 @@ Every `AskUserQuestion` exchange is automatically posted as a comment on the Lin
 
 ## 5. Customizing Your Configuration
 
+Use `/configure-pappardelle` to interactively edit your config — it walks you through adding profiles, keybindings, hooks, and more using `AskUserQuestion`. Available via the [plugin marketplace](#plugin-marketplace) or by asking Claude directly (it's model-invocable).
+
 Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The key concepts:
 
+- **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues.
 - **Profiles** — Per-project-type config (keywords, setup commands, VCS labels). Pappardelle keyword-matches your input to auto-select the right profile.
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
 - **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
-- **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues.
-
-**Use `/configure-pappardelle`** to interactively edit your config — it walks you through adding profiles, keybindings, hooks, and more using `AskUserQuestion`. Available via the [plugin marketplace](#plugin-marketplace) or by asking Claude directly (it's model-invocable).
 
 For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).
 
