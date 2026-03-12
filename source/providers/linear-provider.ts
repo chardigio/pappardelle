@@ -189,7 +189,7 @@ export class LinearProvider implements IssueTrackerProvider {
 	}
 
 	async searchAssignedIssues(
-		assignee: string,
+		assignee: string | undefined,
 		statuses: string[],
 	): Promise<TrackerIssue[]> {
 		if (this.linctlMissing || statuses.length === 0) {
@@ -201,21 +201,14 @@ export class LinearProvider implements IssueTrackerProvider {
 
 		// linctl --state only accepts one value, so we make one call per status
 		for (const status of statuses) {
+			const assigneeArgs = assignee ? ['--assignee', assignee] : [];
 			log.info(
-				`Watchlist query: linctl issue list --assignee ${assignee} --state "${status}"`,
+				`Watchlist query: linctl issue list${assignee ? ` --assignee ${assignee}` : ''} --state "${status}"`,
 			);
 			try {
 				const output = await this.execCli(
 					'linctl',
-					[
-						'issue',
-						'list',
-						'--assignee',
-						assignee,
-						'--state',
-						status,
-						'--json',
-					],
+					['issue', 'list', ...assigneeArgs, '--state', status, '--json'],
 					{encoding: 'utf-8', timeout: 15_000},
 				);
 				const parsed = JSON.parse(output) as unknown;

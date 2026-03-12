@@ -69,7 +69,7 @@ export interface VcsHostConfig {
 }
 
 export interface IssueWatchlistConfig {
-	assignee: string; // Username/email, or 'me' to auto-detect
+	assignee?: string; // Optional: username/email, or 'me' to auto-detect. Omit to match all assignees.
 	statuses: string[]; // Issue statuses to match (e.g., ['To Do', 'In Progress'])
 	labels?: string[]; // Optional: only match issues with any of these labels
 }
@@ -484,8 +484,8 @@ export function validateConfig(
 			errors.push('issue_watchlist: must be an object');
 		} else {
 			const wl = cfg['issue_watchlist'] as Record<string, unknown>;
-			if (typeof wl['assignee'] !== 'string') {
-				errors.push('issue_watchlist.assignee: required string field');
+			if (wl['assignee'] !== undefined && typeof wl['assignee'] !== 'string') {
+				errors.push('issue_watchlist.assignee: must be a string');
 			}
 
 			if (!Array.isArray(wl['statuses']) || wl['statuses'].length === 0) {

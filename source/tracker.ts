@@ -29,7 +29,7 @@ export async function getIssues(
 }
 
 export async function searchAssignedIssues(
-	assignee: string,
+	assignee: string | undefined,
 	statuses: string[],
 ): Promise<TrackerIssue[]> {
 	return tracker().searchAssignedIssues(assignee, statuses);

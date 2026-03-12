@@ -302,22 +302,25 @@ export class JiraProvider implements IssueTrackerProvider {
 	}
 
 	async searchAssignedIssues(
-		assignee: string,
+		assignee: string | undefined,
 		statuses: string[],
 	): Promise<TrackerIssue[]> {
 		if (this.acliMissing || statuses.length === 0) {
 			return [];
 		}
 
-		// Build JQL: assignee = currentUser() AND status IN ("To Do", "In Progress")
-		const assigneeClause =
-			assignee === 'me'
+		// Build JQL: optionally filter by assignee, always filter by status
+		const assigneeClause = assignee
+			? assignee === 'me'
 				? 'assignee = currentUser()'
-				: `assignee = "${assignee.replace(/"/g, '\\"')}"`;
+				: `assignee = "${assignee.replace(/"/g, '\\"')}"`
+			: undefined;
 		const statusList = statuses
 			.map(s => `"${s.replace(/"/g, '\\"')}"`)
 			.join(', ');
-		const jql = `${assigneeClause} AND status IN (${statusList})`;
+		const jql = assigneeClause
+			? `${assigneeClause} AND status IN (${statusList})`
+			: `status IN (${statusList})`;
 		log.info(`Watchlist query: ${jql}`);
 
 		try {

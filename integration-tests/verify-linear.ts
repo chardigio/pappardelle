@@ -130,6 +130,22 @@ async function main() {
 		}
 	}
 
+	// ── searchAssignedIssues (no assignee) ───────────────────
+	header(`searchAssignedIssues(undefined, ${JSON.stringify(STATUSES)})`);
+	const unfiltered = await provider.searchAssignedIssues(undefined, STATUSES);
+
+	info('count', unfiltered.length);
+
+	if (unfiltered.length >= assigned.length) {
+		pass(
+			`No-assignee search returned ${unfiltered.length} issues (≥ ${assigned.length} from "me")`,
+		);
+	} else {
+		fail(
+			`No-assignee search returned fewer issues (${unfiltered.length}) than "me" search (${assigned.length})`,
+		);
+	}
+
 	// ── getIssues (batch) ─────────────────────────────────────
 	if (assigned.length >= 2) {
 		const batchKeys = assigned.slice(0, 3).map(i => i.identifier);

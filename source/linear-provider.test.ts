@@ -628,6 +628,24 @@ test('searchAssignedIssues calls linctl with --assignee and --state flags', asyn
 	t.is(result[0]!.identifier, 'STA-10');
 });
 
+test('searchAssignedIssues omits --assignee flag when assignee is undefined', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return makeIssueListJson([
+			{identifier: 'STA-10', title: 'Issue 10', stateName: 'To Do'},
+		]);
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues(undefined, ['To Do']);
+
+	t.is(calls.length, 1);
+	t.deepEqual(calls[0], ['issue', 'list', '--state', 'To Do', '--json']);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-10');
+});
+
 test('searchAssignedIssues makes one call per status', async t => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {

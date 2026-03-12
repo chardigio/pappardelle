@@ -94,6 +94,22 @@ async function main() {
 		}
 	}
 
+	// ── searchAssignedIssues (no assignee) ───────────────────
+	header(`searchAssignedIssues(undefined, ${JSON.stringify(STATUSES)})`);
+	const unfiltered = await provider.searchAssignedIssues(undefined, STATUSES);
+
+	info('count', unfiltered.length);
+
+	if (unfiltered.length >= assigned.length) {
+		pass(
+			`No-assignee search returned ${unfiltered.length} issues (≥ ${assigned.length} from "me")`,
+		);
+	} else {
+		fail(
+			`No-assignee search returned fewer issues (${unfiltered.length}) than "me" search (${assigned.length})`,
+		);
+	}
+
 	// Determine issue key to test getIssue with
 	const issueKey =
 		EXPLICIT_ISSUE ?? (assigned.length > 0 ? assigned[0]!.identifier : null);

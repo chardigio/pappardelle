@@ -2442,7 +2442,7 @@ test('validateConfig rejects issue_watchlist that is not an object', t => {
 	t.truthy(error?.message.includes('issue_watchlist: must be an object'));
 });
 
-test('validateConfig rejects issue_watchlist without assignee', t => {
+test('validateConfig accepts issue_watchlist without assignee (optional)', t => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -2450,12 +2450,7 @@ test('validateConfig rejects issue_watchlist without assignee', t => {
 			statuses: ['To Do'],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
-		error?.message.includes('issue_watchlist.assignee: required string field'),
-	);
+	t.notThrows(() => validateConfig(raw));
 });
 
 test('validateConfig rejects issue_watchlist with non-string assignee', t => {
@@ -2471,7 +2466,7 @@ test('validateConfig rejects issue_watchlist with non-string assignee', t => {
 		instanceOf: ConfigValidationError,
 	});
 	t.truthy(
-		error?.message.includes('issue_watchlist.assignee: required string field'),
+		error?.message.includes('issue_watchlist.assignee: must be a string'),
 	);
 });
 

@@ -154,11 +154,12 @@ export default function App({
 			const config = loadConfig();
 			const wl = getIssueWatchlist(config);
 			if (wl) {
+				const assigneeInfo = wl.assignee ? `assignee=${wl.assignee}, ` : '';
 				const labelInfo = wl.labels?.length
 					? `, labels=[${wl.labels.join(', ')}]`
 					: '';
 				log.info(
-					`Issue watchlist configured: assignee=${wl.assignee}, statuses=[${wl.statuses.join(', ')}]${labelInfo}`,
+					`Issue watchlist configured: ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}`,
 				);
 			} else {
 				log.debug('No issue_watchlist configured — watchlist polling disabled');

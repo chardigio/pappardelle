@@ -851,6 +851,29 @@ test('searchAssignedIssues uses currentUser() for "me" in JQL', async t => {
 	);
 });
 
+test('searchAssignedIssues omits assignee clause when assignee is undefined', async t => {
+	const calls: string[][] = [];
+	const exec: CliExecutor = async (_cmd, args) => {
+		calls.push(args);
+		return '[]';
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	await provider.searchAssignedIssues(undefined, ['To Do', 'In Progress']);
+
+	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
+	t.false(
+		jql.includes('assignee'),
+		'should not include assignee clause when undefined',
+	);
+	t.true(jql.includes('status IN'), 'should still include status clause');
+});
+
 test('searchAssignedIssues uses quoted assignee for explicit usernames', async t => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {

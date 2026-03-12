@@ -58,7 +58,7 @@ export interface IssueTrackerProvider {
 
 	/** Search for issues assigned to a user with matching statuses */
 	searchAssignedIssues(
-		assignee: string,
+		assignee: string | undefined,
 		statuses: string[],
 	): Promise<TrackerIssue[]>;
 }

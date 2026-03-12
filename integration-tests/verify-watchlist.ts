@@ -79,7 +79,7 @@ async function main() {
 	}
 
 	pass('issue_watchlist found');
-	info('assignee', watchlist.assignee);
+	info('assignee', watchlist.assignee ?? '(all)');
 	info('statuses', watchlist.statuses);
 	info('labels', watchlist.labels);
 
@@ -115,8 +115,11 @@ async function main() {
 	}
 
 	// ── Step 3: Fetch assigned issues ─────────────────────────
+	const assigneeLabel = watchlist.assignee
+		? `"${watchlist.assignee}"`
+		: 'undefined';
 	header(
-		`Step 3: searchAssignedIssues("${watchlist.assignee}", ${JSON.stringify(watchlist.statuses)})`,
+		`Step 3: searchAssignedIssues(${assigneeLabel}, ${JSON.stringify(watchlist.statuses)})`,
 	);
 	const allIssues = await provider.searchAssignedIssues(
 		watchlist.assignee,
@@ -125,7 +128,7 @@ async function main() {
 
 	info('total fetched', allIssues.length);
 	if (allIssues.length === 0) {
-		pass('No assigned issues found (pipeline works, just no data)');
+		pass('No matching issues found (pipeline works, just no data)');
 	} else {
 		pass(`Fetched ${allIssues.length} issues from ${providerName}`);
 		for (const issue of allIssues) {
