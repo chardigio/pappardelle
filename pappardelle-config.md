@@ -636,9 +636,22 @@ issue_watchlist:
 
 **Note:** The `assignee: me` value uses `currentUser()` in Jira JQL and `me` in linctl, both of which resolve to the authenticated user automatically.
 
+## Built-in File Copies
+
+When creating a new worktree, `idow` automatically copies these gitignored files from the main repo root to the new worktree (if they exist). This happens before any `post_worktree_init` commands run.
+
+| File | Purpose |
+|------|---------|
+| `.pappardelle.local.yml` | Personal pappardelle overrides (keybindings, etc.) |
+| `.claude/settings.local.json` | Personal Claude Code settings (permissions, MCP servers, etc.) |
+
+Both use `cp -n` (no-clobber), so existing files in the worktree are never overwritten. If the source file doesn't exist, it's silently skipped.
+
+These copies are built into the `idow` script itself — you don't need to configure them in `post_worktree_init`.
+
 ## Post-Worktree-Init Commands
 
-The `post_worktree_init` section defines commands to run after a git worktree is created. Without this section, `create-worktree.sh` only creates the branch — no file copying, env setup, or dependency installation.
+The `post_worktree_init` section defines commands to run after a git worktree is created (and after the built-in file copies above). Without this section, `create-worktree.sh` only creates the branch — no env setup or dependency installation beyond the built-in copies.
 
 Commands use the same `CommandConfig` format as profile commands, with full template variable support.
 

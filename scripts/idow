@@ -528,6 +528,14 @@ else
         print_success "Copied .pappardelle.local.yml"
     fi
 
+    # Copy .claude/settings.local.json to the new worktree (gitignored personal overrides)
+    CLAUDE_LOCAL_SETTINGS="$REPO_ROOT/.claude/settings.local.json"
+    if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
+        mkdir -p "$WORKTREE_PATH/.claude"
+        cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
+        print_success "Copied .claude/settings.local.json"
+    fi
+
     # Run post_worktree_init commands from config
     POST_INIT_COUNT=$(yq -r '.post_worktree_init | length // 0' "$CONFIG_PATH" 2>/dev/null)
     if [[ "$POST_INIT_COUNT" -gt 0 ]]; then

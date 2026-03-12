@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Test: idow copies .pappardelle.local.yml to new worktrees
+# Test: idow copies local config files to new worktrees
 #
 # Verifies the built-in behavior in idow that copies .pappardelle.local.yml
-# from the main repo root to newly created worktrees.
+# and .claude/settings.local.json from the main repo root to newly created worktrees.
 #
 # Usage: ./test-local-config-copy.sh
 
@@ -180,6 +180,98 @@ if [[ -f "$LOCAL_CONFIG" ]]; then
 fi
 
 assert_file_exists "empty .pappardelle.local.yml was copied" "$WORKTREE_PATH/.pappardelle.local.yml"
+
+teardown
+
+# ==========================================================================
+# .claude/settings.local.json tests
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: .claude/settings.local.json is copied when it exists${RESET}"
+setup_repo_with_worktree
+
+# Create .claude/settings.local.json in main repo
+mkdir -p "$MAIN_REPO/.claude"
+cat > "$MAIN_REPO/.claude/settings.local.json" <<'JSONEOF'
+{
+  "permissions": {
+    "allow": ["Bash(git add:*)"]
+  }
+}
+JSONEOF
+
+# Simulate the idow copy logic (exact code from idow)
+CLAUDE_LOCAL_SETTINGS="$MAIN_REPO/.claude/settings.local.json"
+if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
+    mkdir -p "$WORKTREE_PATH/.claude"
+    cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
+fi
+
+assert_file_exists ".claude/settings.local.json was copied to worktree" "$WORKTREE_PATH/.claude/settings.local.json"
+assert_file_content "copied file has correct content" "$WORKTREE_PATH/.claude/settings.local.json" "$(cat "$MAIN_REPO/.claude/settings.local.json")"
+
+teardown
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: no error when .claude/settings.local.json does not exist${RESET}"
+setup_repo_with_worktree
+
+# Don't create .claude/settings.local.json — simulate the idow copy logic
+CLAUDE_LOCAL_SETTINGS="$MAIN_REPO/.claude/settings.local.json"
+if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
+    mkdir -p "$WORKTREE_PATH/.claude"
+    cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
+fi
+
+assert_file_not_exists ".claude/settings.local.json is not created when source doesn't exist" "$WORKTREE_PATH/.claude/settings.local.json"
+
+teardown
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: existing .claude/settings.local.json in worktree is not overwritten (cp -n)${RESET}"
+setup_repo_with_worktree
+
+# Create .claude/settings.local.json in main repo
+mkdir -p "$MAIN_REPO/.claude"
+echo '{"new": true}' > "$MAIN_REPO/.claude/settings.local.json"
+
+# Pre-create a .claude/settings.local.json in the worktree (simulates existing file)
+mkdir -p "$WORKTREE_PATH/.claude"
+echo '{"existing": true}' > "$WORKTREE_PATH/.claude/settings.local.json"
+
+# Simulate the idow copy logic
+CLAUDE_LOCAL_SETTINGS="$MAIN_REPO/.claude/settings.local.json"
+if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
+    mkdir -p "$WORKTREE_PATH/.claude"
+    cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
+fi
+
+assert_file_content "existing file was not overwritten" "$WORKTREE_PATH/.claude/settings.local.json" '{"existing": true}'
+
+teardown
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: .claude directory is created if it doesn't exist in worktree${RESET}"
+setup_repo_with_worktree
+
+# Create .claude/settings.local.json in main repo
+mkdir -p "$MAIN_REPO/.claude"
+echo '{"test": true}' > "$MAIN_REPO/.claude/settings.local.json"
+
+# Ensure .claude dir doesn't exist in worktree
+rm -rf "$WORKTREE_PATH/.claude"
+
+# Simulate the idow copy logic
+CLAUDE_LOCAL_SETTINGS="$MAIN_REPO/.claude/settings.local.json"
+if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
+    mkdir -p "$WORKTREE_PATH/.claude"
+    cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
+fi
+
+assert_file_exists ".claude directory was created and file was copied" "$WORKTREE_PATH/.claude/settings.local.json"
 
 teardown
 
