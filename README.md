@@ -249,7 +249,7 @@ Multi-repo work has been an achilles heel for Claude Code in the past, but I'm h
 
 ### On-demand shallow cloning
 
-Repos are pulled down as needed — not upfront. During the planning phase, use a search tool like SourceBot's `codesearch` MCP to identify which repos are relevant, then shallow-clone only those:
+Repos are pulled down as needed, not upfront. During the planning phase, use a search tool like SourceBot's `codesearch` MCP to identify which repos are relevant, then shallow-clone only those:
 
 ```bash
 git clone --depth 1 https://github.com/org/repo-a.git
