@@ -387,6 +387,22 @@ npm start        # Run without building
 npm test         # Lint + format check + tests
 ```
 
+### Integration tests
+
+Standalone scripts in `integration-tests/` verify providers against real instances. They are **not** ava tests and are never run in CI — use them for local verification after making provider changes.
+
+```bash
+npx tsx integration-tests/verify-linear.ts     # Linear provider (linctl)
+npx tsx integration-tests/verify-jira.ts       # Jira provider (acli)
+npx tsx integration-tests/verify-github.ts     # GitHub PR detection (gh)
+npx tsx integration-tests/verify-gitlab.ts     # GitLab MR detection (glab)
+npx tsx integration-tests/verify-config.ts     # Config loading + validation
+npx tsx integration-tests/verify-watchlist.ts  # Full watchlist pipeline end-to-end
+npx tsx integration-tests/verify-comments.ts   # Comment posting (creates real comments)
+```
+
+See [`integration-tests/README.md`](integration-tests/README.md) for env vars and prerequisites.
+
 ### Dependencies
 
 - [Ink](https://github.com/vadimdemedes/ink) — React for CLIs

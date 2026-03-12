@@ -16,6 +16,7 @@ export interface TrackerIssue {
 	project?: {
 		name: string;
 	} | null;
+	labels?: string[]; // Label names (e.g., ["bug", "feature"])
 }
 
 /**

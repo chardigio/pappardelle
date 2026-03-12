@@ -71,6 +71,7 @@ export interface VcsHostConfig {
 export interface IssueWatchlistConfig {
 	assignee: string; // Username/email, or 'me' to auto-detect
 	statuses: string[]; // Issue statuses to match (e.g., ['To Do', 'In Progress'])
+	labels?: string[]; // Optional: only match issues with any of these labels
 }
 
 export interface TerminalConfig {
@@ -494,6 +495,19 @@ export function validateConfig(
 				for (let i = 0; i < statuses.length; i++) {
 					if (typeof statuses[i] !== 'string') {
 						errors.push(`issue_watchlist.statuses[${i}]: must be a string`);
+					}
+				}
+			}
+
+			if (wl['labels'] !== undefined) {
+				if (!Array.isArray(wl['labels'])) {
+					errors.push('issue_watchlist.labels: must be an array');
+				} else {
+					const labels = wl['labels'] as unknown[];
+					for (let i = 0; i < labels.length; i++) {
+						if (typeof labels[i] !== 'string') {
+							errors.push(`issue_watchlist.labels[${i}]: must be a string`);
+						}
 					}
 				}
 			}

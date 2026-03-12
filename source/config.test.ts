@@ -2582,3 +2582,116 @@ test('getIssueWatchlist returns the configured watchlist', t => {
 	t.is(watchlist!.assignee, 'me');
 	t.deepEqual(watchlist!.statuses, ['To Do', 'In Progress']);
 });
+
+test('getIssueWatchlist returns labels when configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.issue_watchlist = {
+		assignee: 'me',
+		statuses: ['To Do'],
+		labels: ['pappardelle', 'platform'],
+	};
+	const watchlist = getIssueWatchlist(config);
+	t.deepEqual(watchlist!.labels, ['pappardelle', 'platform']);
+});
+
+// ============================================================================
+// issue_watchlist labels Validation Tests
+// ============================================================================
+
+test('validateConfig accepts issue_watchlist with labels', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			labels: ['pappardelle', 'platform'],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts issue_watchlist without labels (optional)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects issue_watchlist with non-array labels', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			labels: 'not-an-array',
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('issue_watchlist.labels: must be an array'));
+});
+
+test('validateConfig rejects issue_watchlist with non-string label entries', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			labels: ['valid', 123],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('issue_watchlist.labels[1]: must be a string'),
+	);
+});
+
+test('validateConfig accepts issue_watchlist with empty labels array', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			labels: [],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// applyLocalOverrides — issue_watchlist with labels
+// ============================================================================
+
+test('applyLocalOverrides preserves labels in issue_watchlist override', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	applyLocalOverrides(config, {
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['Todo'],
+			labels: ['pappardelle'],
+		},
+	});
+	t.deepEqual(config.issue_watchlist, {
+		assignee: 'me',
+		statuses: ['Todo'],
+		labels: ['pappardelle'],
+	});
+});

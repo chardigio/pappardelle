@@ -13,6 +13,12 @@ const CACHE_TTL_MS = 60_000;
 export const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 500;
 
+// acli defaults to a limited field set that excludes labels.
+// `view` supports '*all'; `search` only accepts explicit field names.
+const ACLI_VIEW_FIELDS = '*all';
+const ACLI_SEARCH_FIELDS =
+	'issuetype,key,assignee,priority,status,summary,labels';
+
 export function isEnoent(err: unknown): boolean {
 	return (
 		err instanceof Error &&
@@ -50,6 +56,11 @@ export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 	const project = (fields['project'] as Record<string, unknown>) ?? {};
 	const categoryName = (statusCategory['name'] as string) ?? 'To Do';
 
+	const rawLabels = fields['labels'];
+	const labels = Array.isArray(rawLabels)
+		? (rawLabels as unknown[]).filter((l): l is string => typeof l === 'string')
+		: undefined;
+
 	return {
 		identifier: raw['key'] as string,
 		title: (fields['summary'] as string) ?? '',
@@ -59,6 +70,7 @@ export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 			color: STATUS_CATEGORY_COLORS[categoryName] ?? '#95a2b3',
 		},
 		project: project['name'] ? {name: project['name'] as string} : null,
+		labels,
 	};
 }
 
@@ -119,7 +131,15 @@ export class JiraProvider implements IssueTrackerProvider {
 			try {
 				const output = await this.execCli(
 					'acli',
-					['jira', 'workitem', 'view', issueKey, '--json'],
+					[
+						'jira',
+						'workitem',
+						'view',
+						issueKey,
+						'--fields',
+						ACLI_VIEW_FIELDS,
+						'--json',
+					],
 					{encoding: 'utf-8', timeout: 15_000},
 				);
 				const raw = JSON.parse(output) as Record<string, unknown>;
@@ -195,7 +215,16 @@ export class JiraProvider implements IssueTrackerProvider {
 		try {
 			const output = await this.execCli(
 				'acli',
-				['jira', 'workitem', 'search', '--jql', jql, '--json'],
+				[
+					'jira',
+					'workitem',
+					'search',
+					'--jql',
+					jql,
+					'--fields',
+					ACLI_SEARCH_FIELDS,
+					'--json',
+				],
 				{encoding: 'utf-8', timeout: 30_000},
 			);
 			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
@@ -294,7 +323,16 @@ export class JiraProvider implements IssueTrackerProvider {
 		try {
 			const output = await this.execCli(
 				'acli',
-				['jira', 'workitem', 'search', '--jql', jql, '--json'],
+				[
+					'jira',
+					'workitem',
+					'search',
+					'--jql',
+					jql,
+					'--fields',
+					ACLI_SEARCH_FIELDS,
+					'--json',
+				],
 				{encoding: 'utf-8', timeout: 30_000},
 			);
 			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
@@ -348,7 +386,16 @@ export class JiraProvider implements IssueTrackerProvider {
 			try {
 				await this.execCli(
 					'acli',
-					['jira', 'workitem', 'comment', '--key', issueKey, '--body', body],
+					[
+						'jira',
+						'workitem',
+						'comment',
+						'create',
+						'--key',
+						issueKey,
+						'--body',
+						body,
+					],
 					{encoding: 'utf-8', timeout: 30_000},
 				);
 				return true;

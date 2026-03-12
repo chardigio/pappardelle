@@ -80,6 +80,48 @@ test('mapJiraIssue maps statusCategory to color', t => {
 });
 
 // ============================================================================
+// mapJiraIssue — label parsing
+// ============================================================================
+
+test('mapJiraIssue extracts labels from fields.labels', t => {
+	const raw = {
+		key: 'CHEX-400',
+		fields: {
+			summary: 'Labeled issue',
+			status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+			labels: ['pappardelle', 'platform'],
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.deepEqual(issue.labels, ['pappardelle', 'platform']);
+});
+
+test('mapJiraIssue returns undefined labels when fields.labels is missing', t => {
+	const raw = {
+		key: 'CHEX-401',
+		fields: {
+			summary: 'No labels',
+			status: {name: 'In Progress', statusCategory: {name: 'In Progress'}},
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.is(issue.labels, undefined);
+});
+
+test('mapJiraIssue filters out non-string entries from fields.labels', t => {
+	const raw = {
+		key: 'CHEX-402',
+		fields: {
+			summary: 'Mixed labels',
+			status: {name: 'Done', statusCategory: {name: 'Done'}},
+			labels: ['valid', 123, null, 'also-valid', true],
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.deepEqual(issue.labels, ['valid', 'also-valid']);
+});
+
+// ============================================================================
 // getIssue + getIssueCached — CLI integration via injected executor
 // ============================================================================
 

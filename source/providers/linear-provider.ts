@@ -10,6 +10,27 @@ const execFileAsync = promisify(execFile);
 
 const log = createLogger('linear-provider');
 const CACHE_TTL_MS = 60_000; // 60 seconds
+
+/**
+ * Parse a raw linctl JSON object into a TrackerIssue, extracting label names
+ * from the `labels.nodes[].name` structure.
+ */
+function parseLinearIssue(raw: Record<string, unknown>): TrackerIssue {
+	const issue = raw as unknown as TrackerIssue;
+	// Extract label names from Linear's labels.nodes structure
+	const labelsObj = raw['labels'] as
+		| {nodes?: Array<{name?: string}>}
+		| undefined;
+	if (labelsObj?.nodes && Array.isArray(labelsObj.nodes)) {
+		issue.labels = labelsObj.nodes
+			.map(n => n.name)
+			.filter((name): name is string => typeof name === 'string');
+	} else {
+		issue.labels = undefined;
+	}
+
+	return issue;
+}
 export const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 500;
 
@@ -88,7 +109,8 @@ export class LinearProvider implements IssueTrackerProvider {
 					['issue', 'get', issueKey, '--json'],
 					{encoding: 'utf-8', timeout: 10_000},
 				);
-				const issue = JSON.parse(output) as TrackerIssue;
+				const raw = JSON.parse(output) as Record<string, unknown>;
+				const issue = parseLinearIssue(raw);
 				this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
 				this.stateColors.update(issue.state.name, issue.state.color);
 				log.debug(`Fetched issue ${issueKey}: ${issue.title}`);
@@ -197,7 +219,10 @@ export class LinearProvider implements IssueTrackerProvider {
 					{encoding: 'utf-8', timeout: 15_000},
 				);
 				const parsed = JSON.parse(output) as unknown;
-				const issues = Array.isArray(parsed) ? (parsed as TrackerIssue[]) : [];
+				const rawList = Array.isArray(parsed)
+					? (parsed as Array<Record<string, unknown>>)
+					: [];
+				const issues = rawList.map(parseLinearIssue);
 				for (const issue of issues) {
 					if (!seen.has(issue.identifier)) {
 						seen.add(issue.identifier);

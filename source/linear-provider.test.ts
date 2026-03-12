@@ -19,12 +19,16 @@ function makeIssueJson(
 	title = 'Test issue',
 	stateName = 'In Progress',
 	stateColor = '#f2c94c',
+	labels?: string[],
 ): string {
 	return JSON.stringify({
 		identifier,
 		title,
 		state: {name: stateName, type: 'started', color: stateColor},
 		project: null,
+		labels: {
+			nodes: (labels ?? []).map(name => ({name})),
+		},
 	});
 }
 
@@ -578,6 +582,7 @@ function makeIssueListJson(
 		title: string;
 		stateName: string;
 		stateColor?: string;
+		labels?: string[];
 	}>,
 ): string {
 	return JSON.stringify(
@@ -590,6 +595,9 @@ function makeIssueListJson(
 				color: i.stateColor ?? '#f2c94c',
 			},
 			project: null,
+			labels: {
+				nodes: (i.labels ?? []).map(name => ({name})),
+			},
 		})),
 	);
 }
@@ -711,6 +719,62 @@ test('searchAssignedIssues returns empty array for empty statuses', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues('me', []);
 	t.deepEqual(result, []);
+});
+
+// ============================================================================
+// Label parsing
+// ============================================================================
+
+test('getIssue parses labels from labels.nodes', async t => {
+	const exec: CliExecutor = async () =>
+		makeIssueJson('STA-100', 'Labels test', 'In Progress', '#f2c94c', [
+			'pappardelle',
+			'platform',
+		]);
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const issue = await provider.getIssue('STA-100');
+
+	t.truthy(issue);
+	t.deepEqual(issue!.labels, ['pappardelle', 'platform']);
+});
+
+test('getIssue returns empty labels for issue with no labels', async t => {
+	const exec: CliExecutor = async () =>
+		makeIssueJson('STA-100', 'No labels', 'In Progress', '#f2c94c');
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const issue = await provider.getIssue('STA-100');
+
+	t.truthy(issue);
+	t.deepEqual(issue!.labels, []);
+});
+
+test('searchAssignedIssues parses labels from list results', async t => {
+	const exec: CliExecutor = async () =>
+		JSON.stringify([
+			{
+				identifier: 'STA-10',
+				title: 'Issue 10',
+				state: {name: 'To Do', type: 'unstarted', color: '#95a2b3'},
+				project: null,
+				labels: {nodes: [{name: 'pappardelle'}, {name: 'urgent'}]},
+			},
+			{
+				identifier: 'STA-20',
+				title: 'Issue 20',
+				state: {name: 'To Do', type: 'unstarted', color: '#95a2b3'},
+				project: null,
+				labels: {nodes: []},
+			},
+		]);
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+
+	t.is(result.length, 2);
+	t.deepEqual(result[0]!.labels, ['pappardelle', 'urgent']);
+	t.deepEqual(result[1]!.labels, []);
 });
 
 test('persistence does not write when color unchanged', async t => {

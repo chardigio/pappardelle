@@ -19,7 +19,7 @@ const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
 import {getIssueCached, getIssues, searchAssignedIssues} from './tracker.ts';
-import {getNewWatchlistIssues} from './watchlist.ts';
+import {filterByLabels, getNewWatchlistIssues} from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
 	getClaudeStatusInfo,
@@ -154,8 +154,11 @@ export default function App({
 			const config = loadConfig();
 			const wl = getIssueWatchlist(config);
 			if (wl) {
+				const labelInfo = wl.labels?.length
+					? `, labels=[${wl.labels.join(', ')}]`
+					: '';
 				log.info(
-					`Issue watchlist configured: assignee=${wl.assignee}, statuses=[${wl.statuses.join(', ')}]`,
+					`Issue watchlist configured: assignee=${wl.assignee}, statuses=[${wl.statuses.join(', ')}]${labelInfo}`,
 				);
 			} else {
 				log.debug('No issue_watchlist configured — watchlist polling disabled');
@@ -943,7 +946,7 @@ export default function App({
 	useEffect(() => {
 		if (!watchlistConfig) return;
 
-		const {assignee, statuses} = watchlistConfig;
+		const {assignee, statuses, labels: watchLabels} = watchlistConfig;
 
 		// Poll immediately on first load, then every 30 seconds
 		let pollInFlight = false;
@@ -954,7 +957,13 @@ export default function App({
 			log.debug('Watchlist: polling for assigned issues…');
 
 			try {
-				const issues = await searchAssignedIssues(assignee, statuses);
+				let issues = await searchAssignedIssues(assignee, statuses);
+
+				// Apply label filter if configured
+				if (watchLabels && watchLabels.length > 0) {
+					issues = filterByLabels(issues, watchLabels);
+				}
+
 				if (issues.length === 0) {
 					log.debug('Watchlist: no matching issues found');
 					return;
