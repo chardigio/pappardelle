@@ -92,8 +92,12 @@ export interface Profile {
 	vcs?: VcsConfig;
 	links?: LinkConfig[];
 	apps?: AppConfig[];
-	/** Commands to run after worktree creation, after global post_worktree_init. */
+	/** Commands to run after worktree creation, after global post_workspace_init. */
+	post_workspace_init?: CommandConfig[];
+	/** @deprecated Use post_workspace_init instead. Accepted for backwards compat. */
 	post_worktree_init?: CommandConfig[];
+	/** Commands to run before workspace deletion. If any fails, deletion is aborted. */
+	pre_workspace_deinit?: CommandConfig[];
 	commands?: CommandConfig[];
 }
 
@@ -107,7 +111,11 @@ export interface PappardelleConfig {
 	/** Poll the issue tracker for issues assigned to a user with matching statuses. */
 	issue_watchlist?: IssueWatchlistConfig;
 	/** Commands to run after git worktree is created. Same format as profile commands. */
+	post_workspace_init?: CommandConfig[];
+	/** @deprecated Use post_workspace_init instead. Accepted for backwards compat. */
 	post_worktree_init?: CommandConfig[];
+	/** Commands to run before workspace deletion. If any fails, deletion is aborted. */
+	pre_workspace_deinit?: CommandConfig[];
 	terminal?: TerminalConfig;
 	hooks?: HooksConfig;
 	keybindings?: KeybindingConfig[];
@@ -514,16 +522,61 @@ export function validateConfig(
 		}
 	}
 
-	// Check post_worktree_init (optional)
-	if (cfg['post_worktree_init'] !== undefined) {
-		if (!Array.isArray(cfg['post_worktree_init'])) {
-			errors.push('post_worktree_init: must be an array');
+	// Check post_workspace_init / post_worktree_init (optional, mutually exclusive)
+	if (
+		cfg['post_workspace_init'] !== undefined &&
+		cfg['post_worktree_init'] !== undefined
+	) {
+		errors.push(
+			'post_workspace_init and post_worktree_init cannot both be specified (use post_workspace_init)',
+		);
+	}
+	const globalPostInit =
+		cfg['post_workspace_init'] ?? cfg['post_worktree_init'];
+	if (globalPostInit !== undefined) {
+		const label =
+			cfg['post_workspace_init'] !== undefined
+				? 'post_workspace_init'
+				: 'post_worktree_init';
+		if (!Array.isArray(globalPostInit)) {
+			errors.push(`${label}: must be an array`);
 		} else {
-			const cmds = cfg['post_worktree_init'] as Array<Record<string, unknown>>;
+			const cmds = globalPostInit as Array<Record<string, unknown>>;
 			for (let i = 0; i < cmds.length; i++) {
 				const cmd = cmds[i]!;
 				if (typeof cmd['run'] !== 'string') {
-					errors.push(`post_worktree_init[${i}].run: required string field`);
+					errors.push(`${label}[${i}].run: required string field`);
+				}
+				if (
+					cmd['continue_on_error'] !== undefined &&
+					typeof cmd['continue_on_error'] !== 'boolean'
+				) {
+					errors.push(`${label}[${i}].continue_on_error: must be a boolean`);
+				}
+			}
+		}
+	}
+
+	// Check pre_workspace_deinit (optional)
+	if (cfg['pre_workspace_deinit'] !== undefined) {
+		if (!Array.isArray(cfg['pre_workspace_deinit'])) {
+			errors.push('pre_workspace_deinit: must be an array');
+		} else {
+			const cmds = cfg['pre_workspace_deinit'] as Array<
+				Record<string, unknown>
+			>;
+			for (let i = 0; i < cmds.length; i++) {
+				const cmd = cmds[i]!;
+				if (typeof cmd['run'] !== 'string') {
+					errors.push(`pre_workspace_deinit[${i}].run: required string field`);
+				}
+				if (
+					cmd['continue_on_error'] !== undefined &&
+					typeof cmd['continue_on_error'] !== 'boolean'
+				) {
+					errors.push(
+						`pre_workspace_deinit[${i}].continue_on_error: must be a boolean`,
+					);
 				}
 			}
 		}
@@ -712,17 +765,61 @@ function validateProfile(name: string, profile: unknown): string[] {
 		}
 	}
 
-	// Optional per-profile post_worktree_init
-	if (p['post_worktree_init'] !== undefined) {
-		if (!Array.isArray(p['post_worktree_init'])) {
-			errors.push(`${prefix}.post_worktree_init: must be an array`);
+	// Optional per-profile post_workspace_init / post_worktree_init (mutually exclusive)
+	if (
+		p['post_workspace_init'] !== undefined &&
+		p['post_worktree_init'] !== undefined
+	) {
+		errors.push(
+			`${prefix}.post_workspace_init and post_worktree_init cannot both be specified (use post_workspace_init)`,
+		);
+	}
+	const profilePostInit = p['post_workspace_init'] ?? p['post_worktree_init'];
+	if (profilePostInit !== undefined) {
+		const label =
+			p['post_workspace_init'] !== undefined
+				? 'post_workspace_init'
+				: 'post_worktree_init';
+		if (!Array.isArray(profilePostInit)) {
+			errors.push(`${prefix}.${label}: must be an array`);
 		} else {
-			const cmds = p['post_worktree_init'] as Array<Record<string, unknown>>;
+			const cmds = profilePostInit as Array<Record<string, unknown>>;
+			for (let i = 0; i < cmds.length; i++) {
+				const cmd = cmds[i]!;
+				if (typeof cmd['run'] !== 'string') {
+					errors.push(`${prefix}.${label}[${i}].run: required string field`);
+				}
+				if (
+					cmd['continue_on_error'] !== undefined &&
+					typeof cmd['continue_on_error'] !== 'boolean'
+				) {
+					errors.push(
+						`${prefix}.${label}[${i}].continue_on_error: must be a boolean`,
+					);
+				}
+			}
+		}
+	}
+
+	// Optional per-profile pre_workspace_deinit
+	if (p['pre_workspace_deinit'] !== undefined) {
+		if (!Array.isArray(p['pre_workspace_deinit'])) {
+			errors.push(`${prefix}.pre_workspace_deinit: must be an array`);
+		} else {
+			const cmds = p['pre_workspace_deinit'] as Array<Record<string, unknown>>;
 			for (let i = 0; i < cmds.length; i++) {
 				const cmd = cmds[i]!;
 				if (typeof cmd['run'] !== 'string') {
 					errors.push(
-						`${prefix}.post_worktree_init[${i}].run: required string field`,
+						`${prefix}.pre_workspace_deinit[${i}].run: required string field`,
+					);
+				}
+				if (
+					cmd['continue_on_error'] !== undefined &&
+					typeof cmd['continue_on_error'] !== 'boolean'
+				) {
+					errors.push(
+						`${prefix}.pre_workspace_deinit[${i}].continue_on_error: must be a boolean`,
 					);
 				}
 			}
@@ -739,6 +836,14 @@ function validateProfile(name: string, profile: unknown): string[] {
 				const cmd = commands[i]!;
 				if (typeof cmd['run'] !== 'string') {
 					errors.push(`${prefix}.commands[${i}].run: required string field`);
+				}
+				if (
+					cmd['continue_on_error'] !== undefined &&
+					typeof cmd['continue_on_error'] !== 'boolean'
+				) {
+					errors.push(
+						`${prefix}.commands[${i}].continue_on_error: must be a boolean`,
+					);
 				}
 			}
 		}

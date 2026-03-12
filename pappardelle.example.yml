@@ -18,12 +18,23 @@ team_prefix: ENG
 # Without this section, create-worktree.sh just creates the branch.
 # Uses the same CommandConfig format as profile commands.
 # Template variables (${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_NUMBER}, etc.) are expanded.
-post_worktree_init:
+# Note: `post_worktree_init` is also accepted for backwards compatibility.
+post_workspace_init:
   - name: "Copy .env"
     run: "cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true"
   - name: "Install dependencies"
     run: "cd ${WORKTREE_PATH} && npm install"
     continue_on_error: true
+
+# Commands to run before workspace deletion (optional).
+# If any command fails (without continue_on_error), the deletion is aborted.
+# pre_workspace_deinit:
+#   - name: "Close issue"
+#     run: "linctl issue update ${ISSUE_KEY} --state Done"
+#     continue_on_error: true
+#   - name: "Remove worktree"
+#     run: "git worktree remove ${WORKTREE_PATH} --force"
+#     continue_on_error: true
 
 # Terminal application for workspace windows (optional, default: iTerm)
 # terminal:

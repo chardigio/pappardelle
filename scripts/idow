@@ -536,32 +536,42 @@ else
         print_success "Copied .claude/settings.local.json"
     fi
 
-    # Run post_worktree_init commands from config
-    POST_INIT_COUNT=$(yq -r '.post_worktree_init | length // 0' "$CONFIG_PATH" 2>/dev/null)
+    # Run post_workspace_init commands from config (falls back to legacy post_worktree_init)
+    POST_INIT_KEY="post_workspace_init"
+    POST_INIT_COUNT=$(yq -r '.post_workspace_init | length // 0' "$CONFIG_PATH" 2>/dev/null)
+    if [[ "$POST_INIT_COUNT" -eq 0 ]]; then
+        POST_INIT_KEY="post_worktree_init"
+        POST_INIT_COUNT=$(yq -r '.post_worktree_init | length // 0' "$CONFIG_PATH" 2>/dev/null)
+    fi
     if [[ "$POST_INIT_COUNT" -gt 0 ]]; then
-        log "Running $POST_INIT_COUNT post_worktree_init command(s)..."
+        log "Running $POST_INIT_COUNT $POST_INIT_KEY command(s)..."
         for (( i=0; i<POST_INIT_COUNT; i++ )); do
-            CMD_NAME=$(yq -r ".post_worktree_init[$i].name // \"post_worktree_init[$i]\"" "$CONFIG_PATH")
-            CMD_RUN_TMPL=$(yq -r ".post_worktree_init[$i].run // \"\"" "$CONFIG_PATH")
-            CMD_CONTINUE=$(yq -r ".post_worktree_init[$i].continue_on_error // false" "$CONFIG_PATH")
-            CMD_BG=$(yq -r ".post_worktree_init[$i].background // false" "$CONFIG_PATH")
+            CMD_NAME=$(yq -r ".$POST_INIT_KEY[$i].name // \"$POST_INIT_KEY[$i]\"" "$CONFIG_PATH")
+            CMD_RUN_TMPL=$(yq -r ".$POST_INIT_KEY[$i].run // \"\"" "$CONFIG_PATH")
+            CMD_CONTINUE=$(yq -r ".$POST_INIT_KEY[$i].continue_on_error // false" "$CONFIG_PATH")
+            CMD_BG=$(yq -r ".$POST_INIT_KEY[$i].background // false" "$CONFIG_PATH")
             CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
-            log "  post_worktree_init: $CMD_NAME -> $CMD_RUN"
+            log "  $POST_INIT_KEY: $CMD_NAME -> $CMD_RUN"
             run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
         done
     fi
 
-    # Run profile-specific post_worktree_init commands
-    PROFILE_POST_INIT_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init | length // 0" "$CONFIG_PATH" 2>/dev/null)
+    # Run profile-specific post_workspace_init commands (falls back to legacy post_worktree_init)
+    PROFILE_POST_INIT_KEY="post_workspace_init"
+    PROFILE_POST_INIT_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.post_workspace_init | length // 0" "$CONFIG_PATH" 2>/dev/null)
+    if [[ "$PROFILE_POST_INIT_COUNT" -eq 0 ]]; then
+        PROFILE_POST_INIT_KEY="post_worktree_init"
+        PROFILE_POST_INIT_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init | length // 0" "$CONFIG_PATH" 2>/dev/null)
+    fi
     if [[ "$PROFILE_POST_INIT_COUNT" -gt 0 ]]; then
-        log "Running $PROFILE_POST_INIT_COUNT profile post_worktree_init command(s)..."
+        log "Running $PROFILE_POST_INIT_COUNT profile $PROFILE_POST_INIT_KEY command(s)..."
         for (( i=0; i<PROFILE_POST_INIT_COUNT; i++ )); do
-            CMD_NAME=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].name // \"profile_post_init[$i]\"" "$CONFIG_PATH")
-            CMD_RUN_TMPL=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].run // \"\"" "$CONFIG_PATH")
-            CMD_CONTINUE=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].continue_on_error // false" "$CONFIG_PATH")
-            CMD_BG=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init[$i].background // false" "$CONFIG_PATH")
+            CMD_NAME=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].name // \"profile_post_init[$i]\"" "$CONFIG_PATH")
+            CMD_RUN_TMPL=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].run // \"\"" "$CONFIG_PATH")
+            CMD_CONTINUE=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].continue_on_error // false" "$CONFIG_PATH")
+            CMD_BG=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].background // false" "$CONFIG_PATH")
             CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
-            log "  profile post_worktree_init: $CMD_NAME -> $CMD_RUN"
+            log "  profile $PROFILE_POST_INIT_KEY: $CMD_NAME -> $CMD_RUN"
             run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
         done
     fi

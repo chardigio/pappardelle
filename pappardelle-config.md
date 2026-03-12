@@ -47,13 +47,25 @@ claude:
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
 # Uses the same CommandConfig format as profile commands.
-post_worktree_init:
+# Note: `post_worktree_init` is also accepted for backwards compatibility.
+post_workspace_init:
   - name: 'Copy .env'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
   - name: 'Set PORT'
     run: "sed -i '' 's/^PORT=.*/PORT=5${ISSUE_NUMBER}/' ${WORKTREE_PATH}/.env"
   - name: 'Install dependencies'
     run: 'cd ${WORKTREE_PATH} && uv sync --quiet'
+    continue_on_error: true
+
+# Commands to run before workspace deletion (optional).
+# If any command fails (without continue_on_error), the deletion is aborted.
+# Useful for cleanup tasks like closing issues or removing worktrees from disk.
+pre_workspace_deinit:
+  - name: 'Close issue'
+    run: 'linctl issue update ${ISSUE_KEY} --state Done'
+    continue_on_error: true
+  - name: 'Remove worktree'
+    run: 'git worktree remove ${WORKTREE_PATH} --force'
     continue_on_error: true
 
 # Terminal application for workspace windows (optional, default: iTerm)
@@ -343,7 +355,8 @@ interface PappardelleConfig {
 		provider: 'github' | 'gitlab';
 		host?: string; // For self-hosted GitLab
 	};
-	post_worktree_init?: CommandConfig[]; // Commands to run after worktree creation
+	post_workspace_init?: CommandConfig[]; // Commands to run after worktree creation (legacy: post_worktree_init)
+	pre_workspace_deinit?: CommandConfig[]; // Commands to run before workspace deletion
 	terminal?: {
 		app?: string; // Terminal app name (default: iTerm)
 	};
@@ -366,7 +379,8 @@ interface Profile {
 	};
 	links?: LinkConfig[];
 	apps?: AppConfig[];
-	post_worktree_init?: CommandConfig[]; // Profile-specific post-worktree-init commands
+	post_workspace_init?: CommandConfig[]; // Profile-specific post-workspace-init commands (legacy: post_worktree_init)
+	pre_workspace_deinit?: CommandConfig[]; // Profile-specific pre-workspace-deinit commands
 	commands?: CommandConfig[];
 }
 
@@ -638,7 +652,7 @@ issue_watchlist:
 
 ## Built-in File Copies
 
-When creating a new worktree, `idow` automatically copies these gitignored files from the main repo root to the new worktree (if they exist). This happens before any `post_worktree_init` commands run.
+When creating a new worktree, `idow` automatically copies these gitignored files from the main repo root to the new worktree (if they exist). This happens before any `post_workspace_init` commands run.
 
 | File | Purpose |
 |------|---------|
@@ -647,18 +661,20 @@ When creating a new worktree, `idow` automatically copies these gitignored files
 
 Both use `cp -n` (no-clobber), so existing files in the worktree are never overwritten. If the source file doesn't exist, it's silently skipped.
 
-These copies are built into the `idow` script itself — you don't need to configure them in `post_worktree_init`.
+These copies are built into the `idow` script itself — you don't need to configure them in `post_workspace_init`.
 
-## Post-Worktree-Init Commands
+## Post-Workspace-Init Commands
 
-The `post_worktree_init` section defines commands to run after a git worktree is created (and after the built-in file copies above). Without this section, `create-worktree.sh` only creates the branch — no env setup or dependency installation beyond the built-in copies.
+The `post_workspace_init` section defines commands to run after a git worktree is created (and after the built-in file copies above). Without this section, `create-worktree.sh` only creates the branch — no env setup or dependency installation beyond the built-in copies.
+
+> **Backwards compatibility:** `post_worktree_init` is still accepted as an alias. If both are present at the same level, validation will report an error.
 
 Commands use the same `CommandConfig` format as profile commands, with full template variable support.
 
-### Global Post-Worktree-Init
+### Global Post-Workspace-Init
 
 ```yaml
-post_worktree_init:
+post_workspace_init:
   - name: 'Copy .env'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
   - name: 'Set PORT'
@@ -668,14 +684,14 @@ post_worktree_init:
     continue_on_error: true
 ```
 
-### Per-Profile Post-Worktree-Init
+### Per-Profile Post-Workspace-Init
 
-Profiles can also define `post_worktree_init` commands that run _after_ the global ones. This is useful for profile-specific setup like creating TODO checklists or generating project files.
+Profiles can also define `post_workspace_init` commands that run _after_ the global ones. This is useful for profile-specific setup like creating TODO checklists or generating project files.
 
 ```yaml
 profiles:
   stardust-jams:
-    post_worktree_init:
+    post_workspace_init:
       - name: 'Create TODO.md'
         run: 'cp ${REPO_ROOT}/.claude/skills/do-stardust/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md'
 ```
@@ -694,7 +710,7 @@ Each command entry uses the `CommandConfig` structure:
 ### Example: Python project
 
 ```yaml
-post_worktree_init:
+post_workspace_init:
   - name: 'Copy .env'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
   - name: 'Set PORT'
@@ -707,7 +723,7 @@ post_worktree_init:
 ### Example: Node.js project
 
 ```yaml
-post_worktree_init:
+post_workspace_init:
   - name: 'Copy env files'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null; cp -n ${REPO_ROOT}/.env.local ${WORKTREE_PATH}/.env.local 2>/dev/null || true'
   - name: 'Install dependencies'
@@ -718,8 +734,41 @@ post_worktree_init:
 ### Example: Minimal (no setup)
 
 ```yaml
-# Omit the post_worktree_init section entirely — just creates the branch
+# Omit the post_workspace_init section entirely — just creates the branch
 ```
+
+## Pre-Workspace-Deinit Commands
+
+The `pre_workspace_deinit` section defines commands to run **before** a workspace is deleted from the Pappardelle TUI. If any command fails (without `continue_on_error: true`), the deletion is aborted and the user sees an error message.
+
+This is useful for cleanup tasks like closing tracker issues, removing git worktrees from disk, or any other teardown that should happen before the space disappears from the TUI.
+
+### Global Pre-Workspace-Deinit
+
+```yaml
+pre_workspace_deinit:
+  - name: 'Close issue'
+    run: 'linctl issue update ${ISSUE_KEY} --state Done'
+    continue_on_error: true
+  - name: 'Remove worktree'
+    run: 'git worktree remove ${WORKTREE_PATH} --force'
+    continue_on_error: true
+```
+
+### Per-Profile Pre-Workspace-Deinit
+
+Profiles can also define `pre_workspace_deinit` commands that run _after_ the global ones.
+
+```yaml
+profiles:
+  ios-app:
+    pre_workspace_deinit:
+      - name: 'Delete QA simulator'
+        run: 'xcrun simctl delete QA-${ISSUE_KEY}'
+        continue_on_error: true
+```
+
+Uses the same `CommandConfig` format and template variables as `post_workspace_init`.
 
 ## Terminal Configuration
 

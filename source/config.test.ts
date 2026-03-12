@@ -2149,6 +2149,286 @@ test('validateConfig rejects profile post_worktree_init entry missing run', t =>
 	);
 });
 
+// ============================================================================
+// post_workspace_init (rename of post_worktree_init) and backwards compat
+// ============================================================================
+
+test('validateConfig accepts global post_workspace_init as replacement for post_worktree_init', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		post_workspace_init: [
+			{name: 'Copy env', run: 'cp .env ${WORKTREE_PATH}/.env'},
+		],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts post_worktree_init for backwards compat (global)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		post_worktree_init: [{name: 'Copy env', run: 'cp .env .env.bak'}],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects both post_workspace_init and post_worktree_init at global level', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		post_workspace_init: [{name: 'A', run: 'echo a'}],
+		post_worktree_init: [{name: 'B', run: 'echo b'}],
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes(
+				'post_workspace_init and post_worktree_init cannot both be specified',
+			),
+		),
+	);
+});
+
+test('validateConfig accepts profile-level post_workspace_init', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				post_workspace_init: [{name: 'Setup', run: 'echo setup'}],
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects both post_workspace_init and post_worktree_init at profile level', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				post_workspace_init: [{name: 'A', run: 'echo a'}],
+				post_worktree_init: [{name: 'B', run: 'echo b'}],
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes(
+				'post_workspace_init and post_worktree_init cannot both be specified',
+			),
+		),
+	);
+});
+
+// ============================================================================
+// pre_workspace_deinit validation
+// ============================================================================
+
+test('validateConfig accepts global pre_workspace_deinit array', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		pre_workspace_deinit: [
+			{
+				name: 'Close issue',
+				run: 'linctl issue update ${ISSUE_KEY} --state Done',
+			},
+			{run: 'echo cleanup'},
+		],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects global non-array pre_workspace_deinit', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		pre_workspace_deinit: 'not-an-array',
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('pre_workspace_deinit: must be an array'),
+		),
+	);
+});
+
+test('validateConfig rejects global pre_workspace_deinit entry missing run', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		pre_workspace_deinit: [{name: 'No run'}],
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('pre_workspace_deinit[0].run: required string field'),
+		),
+	);
+});
+
+test('validateConfig accepts profile-level pre_workspace_deinit array', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				pre_workspace_deinit: [{name: 'Cleanup', run: 'rm -rf tmp/'}],
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects profile non-array pre_workspace_deinit', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				pre_workspace_deinit: 42,
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('pre_workspace_deinit: must be an array'),
+		),
+	);
+});
+
+test('validateConfig rejects profile pre_workspace_deinit entry missing run', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				pre_workspace_deinit: [{name: 'Missing run'}],
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('pre_workspace_deinit[0].run: required string field'),
+		),
+	);
+});
+
+// ============================================================================
+// continue_on_error validation
+// ============================================================================
+
+test('validateConfig accepts continue_on_error in post_workspace_init', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		post_workspace_init: [
+			{name: 'Install', run: 'npm install', continue_on_error: true},
+		],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts continue_on_error in pre_workspace_deinit', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		pre_workspace_deinit: [
+			{name: 'Cleanup', run: 'rm -rf tmp/', continue_on_error: true},
+		],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts continue_on_error: false in pre_workspace_deinit', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		pre_workspace_deinit: [
+			{name: 'Cleanup', run: 'rm -rf tmp/', continue_on_error: false},
+		],
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects non-boolean continue_on_error in global post_workspace_init', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		post_workspace_init: [
+			{name: 'Install', run: 'npm install', continue_on_error: 'yes'},
+		],
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('post_workspace_init[0].continue_on_error: must be a boolean'),
+		),
+	);
+});
+
+test('validateConfig rejects non-boolean continue_on_error in global pre_workspace_deinit', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		pre_workspace_deinit: [
+			{name: 'Cleanup', run: 'rm tmp/', continue_on_error: 1},
+		],
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes(
+				'pre_workspace_deinit[0].continue_on_error: must be a boolean',
+			),
+		),
+	);
+});
+
+test('validateConfig rejects non-boolean continue_on_error in profile commands', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				commands: [
+					{name: 'Build', run: 'make build', continue_on_error: 'always'},
+				],
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('commands[0].continue_on_error: must be a boolean'),
+		),
+	);
+});
+
 test('validation detects duplicate keys even if one is disabled', t => {
 	const raw = {
 		version: 1,

@@ -32,6 +32,9 @@ npx tsx integration-tests/verify-watchlist.ts
 # Comment posting (creates real comments — clean up after)
 npx tsx integration-tests/verify-comments.ts
 
+# Workspace deinit (runs real shell commands in a temp dir)
+npx tsx integration-tests/verify-workspace-deinit.ts
+
 # Run all (that apply to your setup)
 npx tsx integration-tests/verify-linear.ts && \
 npx tsx integration-tests/verify-github.ts && \
@@ -50,6 +53,7 @@ npx tsx integration-tests/verify-watchlist.ts
 | `verify-config.ts` | Config loading, validation, profiles, watchlist, keybindings, Claude config |
 | `verify-watchlist.ts` | Full pipeline: config → provider fetch → label filter → workspace decision |
 | `verify-comments.ts` | createComment on Linear and/or Jira (posts real comments) |
+| `verify-workspace-deinit.ts` | Command execution, variable expansion, continue_on_error, cwd fallback |
 
 ## Environment Variables
 

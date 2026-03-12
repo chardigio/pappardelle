@@ -167,7 +167,7 @@ claude:
   dangerously_skip_permissions: false
 
 # Commands to run after git worktree is created
-post_worktree_init:
+post_workspace_init:
   - name: 'Copy .env'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
 
@@ -213,7 +213,7 @@ claude:
   dangerously_skip_permissions: false
 
 # Commands to run after git worktree is created
-post_worktree_init:
+post_workspace_init:
   - name: 'Copy .env'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
 

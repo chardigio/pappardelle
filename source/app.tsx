@@ -47,10 +47,13 @@ import {
 	getIssueWatchlist,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
+	matchProfiles,
 	type KeybindingConfig,
 	type IssueWatchlistConfig,
+	type CommandConfig,
 } from './config.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
+import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -1084,12 +1087,60 @@ export default function App({
 		spawnSession(pending);
 	};
 
-	// Handle space deletion (kills tmux sessions for the space)
-	const handleDeleteSpace = () => {
+	// Handle space deletion (runs pre_workspace_deinit, then kills tmux sessions)
+	const handleDeleteSpace = async () => {
 		setShowDeleteConfirm(false);
 
 		const space = spaces[selectedIndex];
 		if (!space) return;
+
+		// Run pre_workspace_deinit commands before deletion
+		try {
+			const config = loadConfig();
+			const deinitCommands: CommandConfig[] = [];
+
+			// Global pre_workspace_deinit commands
+			if (config.pre_workspace_deinit) {
+				deinitCommands.push(...config.pre_workspace_deinit);
+			}
+
+			// Profile-specific pre_workspace_deinit commands
+			const issueTitle = space.trackerIssue?.title ?? space.linearIssue?.title;
+			if (issueTitle) {
+				const profileMatches = matchProfiles(config, issueTitle);
+				if (profileMatches.length > 0) {
+					const profile = profileMatches[0]!.profile;
+					if (profile.pre_workspace_deinit) {
+						deinitCommands.push(...profile.pre_workspace_deinit);
+					}
+				}
+			}
+
+			if (deinitCommands.length > 0 && space.worktreePath) {
+				const result = await runPreWorkspaceDeinit(
+					deinitCommands,
+					space.worktreePath,
+					{
+						issueKey: space.name,
+						repoRoot: getRepoRoot(),
+						repoName: getRepoName(),
+					},
+				);
+				if (!result.success) {
+					setHeaderWithTimeout(
+						`Deinit failed: ${result.failedCommand ?? 'unknown'} — deletion aborted`,
+						5000,
+					);
+					return;
+				}
+			}
+		} catch (err) {
+			log.error(
+				'pre_workspace_deinit error',
+				err instanceof Error ? err : undefined,
+			);
+			// Config load failure shouldn't block deletion
+		}
 
 		// Remove from persisted registry and kill tmux sessions
 		removeSpace(space.name);

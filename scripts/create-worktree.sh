@@ -8,7 +8,7 @@
 # from the repository root.
 #
 # Post-creation setup (file copying, env overrides, dependency installation)
-# is handled by `post_worktree_init` commands in .pappardelle.yml, executed by idow.
+# is handled by `post_workspace_init` commands in .pappardelle.yml, executed by idow.
 #
 # Outputs: JSON with worktree_path and issue_key
 # Exit code: 0 on success, 1 on failure
