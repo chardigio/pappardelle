@@ -183,7 +183,7 @@ Because Pappardelle runs entirely inside tmux, you can access your full workspac
 
 ### Nice-to-haves
 
-- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a [`zap-notification.py`](hooks/zap-notification.py) hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. To get it working, set the `NTFY_TOPIC` environment variable and subscribe to the same topic in the ntfy app on your phone — the hook only fires when an Tailscale SSH session is active. This way you don't have to babysit the terminal — just wait for the buzz.
+- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a [`zap-notification.py`](hooks/zap-notification.py) hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. To get it working, set the `PAPPARDELLE_NTFY_TOPIC` environment variable and subscribe to the same topic in the ntfy app on your phone — the hook only fires when an Tailscale SSH session is active. This way you don't have to babysit the terminal — just wait for the buzz.
 - **[Wispr Flow](https://apps.apple.com/us/app/wispr-flow-ai-voice-keyboard/id6497229487)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
 
 ### Useful keybindings
@@ -199,7 +199,7 @@ keybindings:
       if [ -n "$PR_NUM" ]; then
         curl -d "${ISSUE_KEY} GitHub PR #$PR_NUM"
           -H "Click: $(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url')"
-          ntfy.sh/${NTFY_TOPIC};
+          ntfy.sh/${PAPPARDELLE_NTFY_TOPIC};
       fi
 ```
 

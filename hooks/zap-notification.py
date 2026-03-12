@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
+PAPPARDELLE_NTFY_TOPIC = os.environ.get("PAPPARDELLE_NTFY_TOPIC")
 TERMIUS_DEEPLINK = "termius://terminal"
 
 
@@ -59,7 +59,7 @@ def send_zap(message: str) -> None:
                 message,
                 "-H",
                 f"Click: {TERMIUS_DEEPLINK}",
-                f"ntfy.sh/{NTFY_TOPIC}",
+                f"ntfy.sh/{PAPPARDELLE_NTFY_TOPIC}",
             ],
             capture_output=True,
             timeout=10,
@@ -74,7 +74,7 @@ def main() -> None:
     except json.JSONDecodeError:
         input_data = {}
 
-    if not NTFY_TOPIC or not is_tailscale_ssh_active():
+    if not PAPPARDELLE_NTFY_TOPIC or not is_tailscale_ssh_active():
         sys.exit(0)
 
     hook_event = input_data.get("hook_event_name", "")

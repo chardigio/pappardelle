@@ -73,7 +73,7 @@ class TestIsTailscaleSshActive:
 
 class TestSendZap:
     def test_calls_curl_with_correct_args(self):
-        with patch.object(zap_mod, "NTFY_TOPIC", "test-topic"), patch("subprocess.run") as mock_run:
+        with patch.object(zap_mod, "PAPPARDELLE_NTFY_TOPIC", "test-topic"), patch("subprocess.run") as mock_run:
             send_zap("test message")
             mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
@@ -100,7 +100,7 @@ class TestMainLogic:
 
         stdin_mock = io.StringIO(json.dumps(input_data))
         with (
-            patch.object(zap_mod, "NTFY_TOPIC", ntfy_topic),
+            patch.object(zap_mod, "PAPPARDELLE_NTFY_TOPIC", ntfy_topic),
             patch.object(zap_mod, "is_tailscale_ssh_active", return_value=tailscale_active),
             patch.object(zap_mod, "send_zap") as mock_zap,
             patch("sys.stdin", stdin_mock),
