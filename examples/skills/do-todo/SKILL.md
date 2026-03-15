@@ -17,7 +17,7 @@ You have a `TODO.md` file in the worktree root containing a checklist of tasks t
 
 1. **Read `TODO.md`** to see what needs to be done
 2. **Work through each item** in order
-3. **Check off items** as you complete them by changing `- [ ]` to `- [x]`
+3. **Check off items** as you complete them by changing `- [ ]` to `- [x]`  and adding a detailed explanation of what was done and how in parentheses after.
 4. A hook will automatically check if unchecked items remain and keep you going
 
 ## Rules

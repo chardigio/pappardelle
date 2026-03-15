@@ -1,6 +1,6 @@
 # TODO
 
-Work through each item below. Check off items as you complete them by changing `- [ ]` to `- [x]`.
+Work through each item below. Check off items as you complete them by changing `- [ ]` to `- [x]` and adding a detailed explanation of what was done and how in parentheses after.
 
 ## Setup
 
