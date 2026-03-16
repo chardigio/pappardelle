@@ -6,7 +6,18 @@ hooks:
   Stop:
     - hooks:
         - type: command
-          command: "cat > /dev/null; COUNT_FILE=.claude/skills/do-todo/.ralph-count; COUNT=$(cat \"$COUNT_FILE\" 2>/dev/null || echo 0); if grep -qF -- '- [ ]' TODO.md 2>/dev/null && [ \"$COUNT\" -lt 3 ]; then echo $((COUNT + 1)) > \"$COUNT_FILE\"; echo '{\"ok\": false, \"reason\": \"Unchecked TODO items remain in TODO.md. Keep working through them.\"}'; else rm -f \"$COUNT_FILE\"; echo '{\"ok\": true}'; fi"
+          command: >
+            cat >/dev/null;
+            COUNT_FILE=.claude/skills/do-todo/.ralph-count;
+            COUNT=$(cat "$COUNT_FILE" 2>/dev/null || echo 0);
+            if grep -qF -- '- [ ]' TODO.md 2>/dev/null && [ "$COUNT" -lt 3 ]; then
+              echo $((COUNT + 1)) > "$COUNT_FILE";
+              echo "Unchecked TODO items remain in TODO.md. Keep working through them." >&2;
+              exit 2;
+            else
+              rm -f "$COUNT_FILE";
+              exit 0;
+            fi
 ---
 
 # /do-todo - Work Through TODO Checklist
@@ -17,7 +28,7 @@ You have a `TODO.md` file in the worktree root containing a checklist of tasks t
 
 1. **Read `TODO.md`** to see what needs to be done
 2. **Work through each item** in order
-3. **Check off items** as you complete them by changing `- [ ]` to `- [x]`  and adding a detailed explanation of what was done and how in parentheses after.
+3. **Check off items** as you complete them by changing `- [ ]` to `- [x]` and adding a detailed explanation of what was done and how in parentheses after.
 4. A hook will automatically check if unchecked items remain and keep you going
 
 ## Rules
@@ -31,6 +42,7 @@ You have a `TODO.md` file in the worktree root containing a checklist of tasks t
 ## Argument
 
 The argument passed to this skill is the issue key (e.g., `PROJ-123`). Use it for:
+
 - Looking up the issue in your issue tracker
 - Updating issue status as you progress
 - Commit messages: `[PROJ-123] Description`
