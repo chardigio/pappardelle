@@ -132,11 +132,12 @@ if ! command -v yq &> /dev/null; then
     error "yq is required but not installed. Install with: brew install yq"
 fi
 
-# Read initialization command from config (e.g., "/idow" or empty)
-INIT_CMD=$(yq -r '.claude.initialization_command // ""' "$CONFIG_PATH")
-
-# Read dangerously_skip_permissions flag (defaults to false)
-SKIP_PERMISSIONS=$(yq -r '.claude.dangerously_skip_permissions // false' "$CONFIG_PATH")
+# Resolve claude config values (initialization_command and dangerously_skip_permissions)
+# with local override support from .pappardelle.local.yml
+LOCAL_CONFIG_PATH="$REPO_ROOT/.pappardelle.local.yml"
+CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH")
+INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
+SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
 
 # Source provider-agnostic helpers
 # shellcheck source=provider-helpers.sh
