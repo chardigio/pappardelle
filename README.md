@@ -34,22 +34,22 @@ The fastest way to get set up is with `/init-pappardelle`.
 Add the marketplace:
 
 ```bash
-claude /plugin marketplace add chardigio/pappardelle
+claude plugin marketplace add chardigio/pappardelle
 ```
 
-Install the plugin:
+Install the plugin. This installs three skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), and `/configure-pappardelle` (interactive config editor):
 
 ```bash
-claude /plugin install pappardelle@pappardelle-marketplace
+claude plugin install pappardelle@pappardelle-marketplace
 ```
 
-Run the setup wizard from any repo where you want to use Pappardelle:
+Run the setup wizard from any repo where you want to use Pappardelle. This installs pappardelle configures your .pappardelle.yml:
 
 ```bash
 claude /init-pappardelle
 ```
 
-This installs three skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), and `/configure-pappardelle` (interactive config editor). For manual installation, see [Section 8: Reference](#8-reference). For the full config format, see the [configuration reference](pappardelle-config.md).
+For manual installation, see [Section 8: Reference](#8-reference). For the full config format, see the [configuration reference](pappardelle-config.md).
 
 ### Launch Pappardelle:
 
