@@ -280,8 +280,7 @@ create_pr() {
             local mr_title="[$issue_key] $title"
             local quoted_prompt
             quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
-            local mr_body="## Summary
-Work in progress - more details coming soon.
+            local mr_body="👨‍🍳🍝 More details coming soon...
 
 ---
 

@@ -106,8 +106,7 @@ PR_TITLE="[$ISSUE_KEY] $TITLE"
 QUOTED_PROMPT=$(echo "$PROMPT" | sed 's/^/> /')
 
 # Build PR body with better formatting
-PR_BODY="## Summary
-Work in progress - more details coming soon.
+PR_BODY="👨‍🍳🍝 More details coming soon...
 
 ## Linear Issue
 https://linear.app/stardust-labs/issue/$ISSUE_KEY
