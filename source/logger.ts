@@ -25,6 +25,7 @@ export interface LogEntry {
 const LOG_DIR = path.join(homedir(), '.pappardelle', 'logs');
 const MAX_LOG_FILES = 7; // Keep last 7 days of logs
 const MAX_RECENT_ERRORS = 10; // Keep last 10 errors in memory for TUI display
+const ERROR_TTL_MS = 5 * 60 * 1000; // Auto-clear errors from UI after 5 minutes
 
 // In-memory error buffer for TUI display
 const recentErrors: LogEntry[] = [];
@@ -173,6 +174,30 @@ export function clearRecentErrors(): void {
 		listener([]);
 	}
 }
+
+// Prune errors older than ERROR_TTL_MS from the in-memory buffer.
+// Errors remain in log files — this only affects the TUI display.
+// Accepts an optional `now` timestamp (ms) for testing; defaults to Date.now().
+export function pruneExpiredErrors(now = Date.now()): void {
+	const cutoff = now - ERROR_TTL_MS;
+	const before = recentErrors.length;
+	for (let i = recentErrors.length - 1; i >= 0; i--) {
+		if (new Date(recentErrors[i]!.timestamp).getTime() <= cutoff) {
+			recentErrors.splice(i, 1);
+		}
+	}
+
+	if (recentErrors.length !== before) {
+		for (const listener of errorListeners) {
+			listener([...recentErrors]);
+		}
+	}
+}
+
+// Start the auto-prune timer. Check every 30 seconds.
+// Uses unref() so the timer doesn't prevent process exit.
+const pruneTimer = setInterval(pruneExpiredErrors, 30_000);
+pruneTimer.unref();
 
 // Get log directory path (for user reference)
 export function getLogDir(): string {
