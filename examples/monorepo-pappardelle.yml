@@ -142,6 +142,8 @@ profiles:
       - colony
       - guess
     display_name: "King Bee"
+    claude:
+      initialization_command: "/do-king-bee"    # Each profile can have its own Claude init command
     vars:
       IOS_APP_DIR: "_ios/King Bee"
       BUNDLE_ID: "com.cd17822.King-Bee"
@@ -160,6 +162,9 @@ profiles:
       - name: "Xcode"
         path: "${WORKTREE_PATH}/${IOS_APP_DIR}/${SCHEME}.xcodeproj"
         if_set: "IOS_APP_DIR"
+    post_workspace_init:
+      - name: "Create TODO.md"
+        run: "cp ${REPO_ROOT}/.claude/skills/do-king-bee/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
     commands:
       - name: "Generate Xcode project"
         run: "cd \"${WORKTREE_PATH}/${IOS_APP_DIR}\" && xcodegen generate"
@@ -177,6 +182,8 @@ profiles:
       - idow
       - workspace
     display_name: "Pappardelle"
+    claude:
+      initialization_command: "/do-pappardelle"
     github:
       label: "pappardelle"
     links:
@@ -188,6 +195,9 @@ profiles:
     apps:
       - name: "Cursor"
         path: "${WORKTREE_PATH}"
+    post_workspace_init:
+      - name: "Create TODO.md"
+        run: "cp ${REPO_ROOT}/.claude/skills/do-pappardelle/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
     commands:
       - name: "Install dependencies"
         run: "cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && npm install"
