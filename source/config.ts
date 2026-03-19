@@ -1,6 +1,7 @@
 // Config loading and parsing for .pappardelle.yml
 import {execSync} from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
@@ -281,88 +282,182 @@ export function mergeKeybindings(
 		}
 	}
 
-	return Array.from(result.values());
+	return [...result.values()];
+}
+
+// ============================================================================
+// Deep Merge & 3-Layer Config
+// ============================================================================
+
+/**
+ * Deep-merge two plain objects. Later values override earlier ones.
+ * - Objects are merged recursively
+ * - Arrays and scalars are replaced entirely
+ * - null/undefined overlay values replace the base value
+ */
+export function deepMerge(
+	base: Record<string, unknown>,
+	overlay: Record<string, unknown>,
+): Record<string, unknown> {
+	const result: Record<string, unknown> = {...base};
+	for (const key of Object.keys(overlay)) {
+		const baseVal = base[key];
+		const overVal = overlay[key];
+		if (
+			overVal !== null &&
+			overVal !== undefined &&
+			typeof overVal === 'object' &&
+			!Array.isArray(overVal) &&
+			baseVal !== null &&
+			baseVal !== undefined &&
+			typeof baseVal === 'object' &&
+			!Array.isArray(baseVal)
+		) {
+			result[key] = deepMerge(
+				baseVal as Record<string, unknown>,
+				overVal as Record<string, unknown>,
+			);
+		} else {
+			result[key] = overVal;
+		}
+	}
+
+	return result;
 }
 
 /**
- * Apply local overrides from .pappardelle.local.yml onto the base config.
- * Mutates `config` in place. Supports overriding:
- * - `keybindings` (merged via mergeKeybindings)
- * - `issue_watchlist` (replaced if valid object)
- * - `claude.dangerously_skip_permissions` (replaced if boolean)
- * - `claude.initialization_command` (replaced if string)
+ * Merge up to three config layers with proper override semantics.
+ * Priority (lowest → highest): home → project → local.
+ *
+ * Uses deep merge for most fields. Keybindings use the smart
+ * add/override/disable merge logic from `mergeKeybindings`.
  */
-export function applyLocalOverrides(
-	config: PappardelleConfig,
-	localConfig: Record<string, unknown>,
-): void {
-	if (localConfig['keybindings'] && Array.isArray(localConfig['keybindings'])) {
-		config.keybindings = mergeKeybindings(
-			config.keybindings ?? [],
-			localConfig['keybindings'] as KeybindingConfig[],
-		);
+export function mergeConfigLayers(
+	home: Record<string, unknown> | null,
+	project: Record<string, unknown> | null,
+	local: Record<string, unknown> | null,
+): Record<string, unknown> {
+	const layers = [home, project, local].filter(
+		(l): l is Record<string, unknown> => l !== null && l !== undefined,
+	);
+	if (layers.length === 0) {
+		return {};
 	}
 
-	if (
-		localConfig['issue_watchlist'] &&
-		typeof localConfig['issue_watchlist'] === 'object'
-	) {
-		config.issue_watchlist = localConfig[
-			'issue_watchlist'
-		] as IssueWatchlistConfig;
+	// Start with the first layer, then merge each subsequent one
+	let result: Record<string, unknown> = {...layers[0]!};
+	for (let i = 1; i < layers.length; i++) {
+		const layer = layers[i]!;
+
+		// Extract keybindings before deep merge so we can smart-merge them
+		const baseKb = result['keybindings'] as KeybindingConfig[] | undefined;
+		const layerKb = layer['keybindings'] as KeybindingConfig[] | undefined;
+
+		result = deepMerge(result, layer);
+
+		// Smart-merge keybindings instead of replacing
+		if (baseKb && layerKb) {
+			result['keybindings'] = mergeKeybindings(baseKb, layerKb);
+		}
 	}
 
-	if (localConfig['claude'] && typeof localConfig['claude'] === 'object') {
-		const localClaude = localConfig['claude'] as Record<string, unknown>;
-		if (typeof localClaude['dangerously_skip_permissions'] === 'boolean') {
-			config.claude = {
-				...config.claude,
-				dangerously_skip_permissions:
-					localClaude['dangerously_skip_permissions'],
-			};
-		}
-		if (typeof localClaude['initialization_command'] === 'string') {
-			config.claude = {
-				...config.claude,
-				initialization_command: localClaude['initialization_command'],
-			};
+	return result;
+}
+
+/**
+ * The default home config directory: ~/.pappardelle/
+ */
+export function getDefaultHomeConfigDir(): string {
+	return path.join(os.homedir(), '.pappardelle');
+}
+
+/**
+ * Load config from explicit paths, supporting the 3-layer merge:
+ *   1. Home config   (homeConfigDir/.pappardelle.yml)
+ *   2. Project config (projectDir/.pappardelle.yml)
+ *   3. Local config   (projectDir/.pappardelle.local.yml)
+ *
+ * At least one layer must provide a config file, otherwise throws ConfigNotFoundError.
+ */
+export function loadConfigFromPaths(opts: {
+	homeConfigDir?: string;
+	projectDir?: string;
+}): PappardelleConfig {
+	const {homeConfigDir, projectDir} = opts;
+
+	// Load each layer if its file exists
+	let home: Record<string, unknown> | null = null;
+	let project: Record<string, unknown> | null = null;
+	let local: Record<string, unknown> | null = null;
+
+	if (homeConfigDir) {
+		const homePath = path.join(homeConfigDir, '.pappardelle.yml');
+		if (fs.existsSync(homePath)) {
+			try {
+				const content = fs.readFileSync(homePath, 'utf-8');
+				const parsed = YAML.load(content);
+				if (parsed && typeof parsed === 'object') {
+					home = parsed as Record<string, unknown>;
+				}
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error);
+				throw new ConfigValidationError([
+					`~/.pappardelle/.pappardelle.yml: ${msg}`,
+				]);
+			}
 		}
 	}
+
+	if (projectDir) {
+		const projectPath = path.join(projectDir, '.pappardelle.yml');
+		if (fs.existsSync(projectPath)) {
+			try {
+				const content = fs.readFileSync(projectPath, 'utf-8');
+				const parsed = YAML.load(content);
+				if (parsed && typeof parsed === 'object') {
+					project = parsed as Record<string, unknown>;
+				}
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error);
+				throw new ConfigValidationError([`.pappardelle.yml: ${msg}`]);
+			}
+		}
+
+		const localPath = path.join(projectDir, '.pappardelle.local.yml');
+		if (fs.existsSync(localPath)) {
+			try {
+				const content = fs.readFileSync(localPath, 'utf-8');
+				const parsed = YAML.load(content);
+				if (parsed && typeof parsed === 'object') {
+					local = parsed as Record<string, unknown>;
+				}
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error);
+				throw new ConfigValidationError([`.pappardelle.local.yml: ${msg}`]);
+			}
+		}
+	}
+
+	if (!home && !project && !local) {
+		throw new ConfigNotFoundError(projectDir ?? '(no project dir)');
+	}
+
+	const merged = mergeConfigLayers(home, project, local);
+	validateConfig(merged);
+	return merged as PappardelleConfig;
 }
 
 /**
  * Load the .pappardelle.yml config from the repository root.
- * If a .pappardelle.local.yml file exists, its overrides are merged
- * on top of the base config before validation.
+ * Supports 3-layer merge: home (~/.pappardelle/.pappardelle.yml) →
+ * project (.pappardelle.yml) → local (.pappardelle.local.yml).
  */
 export function loadConfig(): PappardelleConfig {
 	const repoRoot = getRepoRoot();
-	const configPath = path.join(repoRoot, '.pappardelle.yml');
-
-	if (!fs.existsSync(configPath)) {
-		throw new ConfigNotFoundError(repoRoot);
-	}
-
-	const content = fs.readFileSync(configPath, 'utf-8');
-	const config = YAML.load(content) as PappardelleConfig;
-
-	// Merge local overrides if present
-	const localPath = path.join(repoRoot, '.pappardelle.local.yml');
-	if (fs.existsSync(localPath)) {
-		try {
-			const localContent = fs.readFileSync(localPath, 'utf-8');
-			const localConfig = YAML.load(localContent) as Record<string, unknown>;
-			if (localConfig) {
-				applyLocalOverrides(config, localConfig);
-			}
-		} catch (error) {
-			const msg = error instanceof Error ? error.message : String(error);
-			throw new ConfigValidationError([`.pappardelle.local.yml: ${msg}`]);
-		}
-	}
-
-	validateConfig(config);
-	return config;
+	return loadConfigFromPaths({
+		homeConfigDir: getDefaultHomeConfigDir(),
+		projectDir: repoRoot,
+	});
 }
 
 /**
