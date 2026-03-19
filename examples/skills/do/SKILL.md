@@ -1,70 +1,43 @@
 ---
 name: do
-description: Start working on a new task. Workspace is already set up with git worktree, issue, and GitHub PR. Just start implementing the feature described in the prompt.
+description: Work through a TODO.md checklist in the worktree root, continuing until all items are checked off.
 disable-model-invocation: true
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: >
+            cat >/dev/null;
+            COUNT_FILE=.claude/skills/do/.ralph-count;
+            COUNT=$(cat "$COUNT_FILE" 2>/dev/null || echo 0);
+            if grep -qF -- '- [ ]' TODO.md 2>/dev/null && [ "$COUNT" -lt 3 ]; then
+              echo $((COUNT + 1)) > "$COUNT_FILE";
+              echo "Unchecked TODO items remain in TODO.md. Keep working through them." >&2;
+              exit 2;
+            else
+              rm -f "$COUNT_FILE";
+              exit 0;
+            fi
 ---
 
-# /do - Implement a Task
+# /do - Work Through TODO Checklist
 
-You are in a development workspace that has been automatically set up for you. The workspace includes:
-- Git worktree with a branch for this issue
-- Issue tracker issue (created or fetched)
-- GitHub PR (created or found)
+You have a `TODO.md` file in the worktree root containing a checklist of tasks to complete for this issue. Your job is to work through every item systematically.
 
-## Interactive Mode
+## How It Works
 
-**This is INTERACTIVE mode.** Before diving into implementation, you should:
+1. **Read `TODO.md`** to see what needs to be done
+2. **Work through each item** in order
+3. **Check off items** as you complete them by marking each empty checkbox as done and adding a detailed explanation of what was done and how in parentheses after.
+4. A hook will automatically check if unchecked items remain and keep you going
 
-1. **Ask clarifying questions** using the `AskUserQuestion` tool
-2. **Validate assumptions** about the requirements
-3. **Confirm the approach** before writing code
+## Rules
 
-Use `AskUserQuestion` when:
-- The requirements are ambiguous
-- Multiple implementation approaches are possible
-- You need to confirm UI/UX decisions
-- You're unsure about edge cases
-
-## Your Current Task
-
-The user has described what they want (either via prompt or issue description). Your job is to:
-
-1. **Understand the request** — Read the prompt/description carefully
-2. **Ask questions** — Use AskUserQuestion to clarify any ambiguities
-3. **Explore the codebase** — Find relevant files and understand the existing implementation
-4. **Plan the implementation** — Think about how to implement the feature
-5. **Confirm the plan** — Optionally share your plan with the user
-6. **Implement the changes** — Make the necessary code changes
-7. **Test your changes** — Build and verify the changes work
-
-## Workflow
-
-1. First, explore the codebase to understand the current implementation:
-   - Use Grep/Glob to find relevant files
-   - Read the key files to understand the architecture
-
-2. **Ask clarifying questions** if anything is unclear:
-   ```
-   Use AskUserQuestion tool with options like:
-   - "Which approach do you prefer?"
-   - "Should this affect X or Y?"
-   - "What should happen when Z?"
-   ```
-
-3. Create a plan for the implementation:
-   - Break down the task into smaller steps
-   - Identify files that need to be modified
-   - Consider edge cases
-
-4. Implement the changes:
-   - STRONGLY PREFER RED/GREEN TEST-DRIVEN DEVELOPMENT
-   - Make incremental changes
-   - Test as you go
-   - Commit when appropriate
-
-5. Update the issue and PR:
-   - Update issue status as you progress
-   - The PR will be updated when you push commits
+- Always check off an item (`- [x]`) immediately after completing it
+- Work through items in order unless dependencies require a different sequence
+- If an item is blocked or not applicable, check it off and add a note explaining why
+- Use `AskUserQuestion` when requirements are ambiguous or you need user input
+- Make small, incremental changes and test frequently
 
 ## Updating Issue Details
 
@@ -116,12 +89,10 @@ _Original prompt:_
 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
 
-## Important Notes
+## Argument
 
-- **ASK QUESTIONS FIRST** — This is interactive mode, use AskUserQuestion before making assumptions
-- The workspace is already set up — you don't need to create the worktree, issue, or PR
-- Focus on implementing the feature described in the prompt
-- Make small, incremental changes and test frequently
-- Use the TODO list to track your progress
-- Update issue state as you progress (In Progress → In Review → Done)
-- **Always preserve the "Original prompt" section** when updating descriptions
+The argument passed to this skill is the issue key (e.g., `PROJ-123`). Use it for:
+
+- Looking up the issue in your issue tracker
+- Updating issue status as you progress
+- Commit messages: `[PROJ-123] Description`

@@ -1,11 +1,11 @@
-# /do-todo
+# /do
 
 A generic skill for working through a TODO checklist. Designed for use with Pappardelle workspaces.
 
 ## How it works
 
 1. Pappardelle copies `TODO-TEMPLATE.md` → `TODO.md` in the worktree during `post_workspace_init`
-2. Claude is initialized with `/do-todo <issue-key>`
+2. Claude is initialized with `/do <issue-key>`
 3. Claude reads TODO.md and works through each item systematically
 4. A [ralph loop](https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum) (Stop hook) prevents Claude from finishing until all items are checked off, with a maximum of 3 iterations to avoid runaway loops
 
@@ -17,10 +17,10 @@ Add the initialization command and a `post_workspace_init` command to your `.pap
 
 ```yaml
 claude:
-  initialization_command: "/do-todo"
+  initialization_command: "/do"
 post_workspace_init:
   - name: "Create TODO.md"
-    run: "cp ${REPO_ROOT}/.claude/skills/do-todo/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
+    run: "cp ${REPO_ROOT}/.claude/skills/do/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
 ```
 
 **Per-profile** (overrides global for a specific profile):
@@ -29,10 +29,10 @@ post_workspace_init:
 profiles:
   my-profile:
     claude:
-      initialization_command: "/do-todo"
+      initialization_command: "/do"
     post_workspace_init:
       - name: "Create TODO.md"
-        run: "cp ${REPO_ROOT}/.claude/skills/do-todo/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
+        run: "cp ${REPO_ROOT}/.claude/skills/do/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
 ```
 
 ## Files

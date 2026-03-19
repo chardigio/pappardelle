@@ -2051,7 +2051,7 @@ test('validateConfig accepts profile with valid claude.initialization_command', 
 		profiles: {
 			test: {
 				display_name: 'Test',
-				claude: {initialization_command: '/do-todo'},
+				claude: {initialization_command: '/do'},
 			},
 		},
 	};
