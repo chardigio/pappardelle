@@ -8,6 +8,69 @@ disable-model-invocation: true
 
 Interactive setup wizard that installs Pappardelle, gathers your configuration preferences, checks prerequisites, and generates a `.pappardelle.yml` file.
 
+## Step 0: Check for Existing Configuration
+
+Before starting the wizard, check if a `.pappardelle.yml` already exists:
+
+```bash
+test -f "$(git rev-parse --show-toplevel)/.pappardelle.yml" && echo "EXISTS" || echo "NOT_FOUND"
+```
+
+If `NOT_FOUND`, skip to Step 1.
+
+If `EXISTS`, read and parse the config file to extract the current configuration, then walk the user through personalization. Use `AskUserQuestion` for each sub-step — ask them one at a time, don't bundle questions.
+
+### 0a. Show Current Configuration
+
+Present a summary of the existing config:
+
+> **Pappardelle is already configured in this repository.**
+>
+> **Current configuration:**
+> - VCS Host: {provider}
+> - Issue Tracker: {provider}
+> - Team Prefix: {prefix}
+> - Profiles:
+>   - **{display_name}** — keywords: {comma-separated keywords}
+>   - **{display_name}** — keywords: {comma-separated keywords}
+>   - *(repeat for each profile)*
+
+### 0b. Add a New Profile?
+
+Ask: "Do any of the existing profiles fit your use case, or would you like to add a new one?"
+
+- If they're happy with existing profiles, move on.
+- If they want a new profile, gather the same info as Step 1c (display name, keywords, project type, commands) and add it to `.pappardelle.yml`.
+
+### 0c. Default Profile
+
+Ask: "Which profile should be your default? (This is the profile used when no keywords match your issue.)"
+
+List the available profiles by name. If they pick one that differs from the current `default_profile`, write/update `.pappardelle.local.yml` with the override:
+
+```yaml
+default_profile: their-choice
+```
+
+If they pick the one that's already the default, skip writing.
+
+### 0d. Dangerously Skip Permissions
+
+Show the current `dangerously_skip_permissions` value and ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls? (Currently: {yes/no})"
+
+- If they want to change it, write/update `.pappardelle.local.yml` with the override:
+  ```yaml
+  claude:
+    dangerously_skip_permissions: true  # or false
+  ```
+- If they're happy with the current value, skip.
+
+### 0e. Write Local Overrides
+
+If any local overrides were collected in 0c–0d, write or update `.pappardelle.local.yml`. Preserve any existing content (e.g., `keybindings`, `issue_watchlist`) — only add/update the fields that changed.
+
+After this, skip to Step 6 (Summary) — print a summary of what was configured and launch instructions.
+
 ## Step 1: Gather Configuration
 
 Use `AskUserQuestion` for each of these. Ask them one at a time — don't bundle questions.
