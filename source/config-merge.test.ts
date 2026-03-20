@@ -554,6 +554,68 @@ test('default_profile from home config works', t => {
 	t.is(config.default_profile, 'music');
 });
 
+test('default_profile from local config overrides project', t => {
+	const result = mergeConfigLayers(
+		null,
+		{
+			version: 1,
+			default_profile: 'hive',
+			profiles: {
+				music: {display_name: 'Music'},
+				hive: {display_name: 'Hive'},
+			},
+		},
+		{default_profile: 'music'},
+	);
+	validateConfig(result);
+	const config = result as PappardelleConfig;
+	t.is(config.default_profile, 'music');
+});
+
+test('default_profile from local config overrides home', t => {
+	const result = mergeConfigLayers(
+		{
+			version: 1,
+			default_profile: 'music',
+			profiles: {
+				music: {display_name: 'Music'},
+				hive: {display_name: 'Hive'},
+			},
+		},
+		null,
+		{default_profile: 'hive'},
+	);
+	validateConfig(result);
+	const config = result as PappardelleConfig;
+	t.is(config.default_profile, 'hive');
+});
+
+test('default_profile from local overrides all three layers', t => {
+	const result = mergeConfigLayers(
+		{
+			version: 1,
+			default_profile: 'music',
+			profiles: {
+				music: {display_name: 'Music'},
+			},
+		},
+		{
+			default_profile: 'hive',
+			profiles: {
+				hive: {display_name: 'Hive'},
+			},
+		},
+		{default_profile: 'music'},
+	);
+	validateConfig(result);
+	const config = result as PappardelleConfig;
+	// local wins: picks 'music' even though project set 'hive'
+	t.is(config.default_profile, 'music');
+	// Both profiles are still present from home + project merge
+	t.truthy(config.profiles['music']);
+	t.truthy(config.profiles['hive']);
+});
+
 // ============================================================================
 // mergeConfigLayers — project not needed when home or local provides all
 // ============================================================================
@@ -963,6 +1025,37 @@ vcs_host:
 		t.is(config.terminal!.app, 'Warp');
 		t.is(config.issue_tracker!.provider, 'jira');
 		t.is(config.vcs_host!.provider, 'gitlab');
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths local overrides default_profile from project', t => {
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.yml': `version: 1
+team_prefix: STA
+default_profile: hive
+profiles:
+  music:
+    display_name: Music
+    keywords:
+      - music
+  hive:
+    display_name: Hive
+    keywords:
+      - hive
+`,
+		'project/.pappardelle.local.yml': `default_profile: music
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			projectDir: path.join(dir, 'project'),
+		});
+		t.is(config.default_profile, 'music');
+		// Both profiles still present
+		t.truthy(config.profiles['music']);
+		t.truthy(config.profiles['hive']);
 	} finally {
 		cleanup();
 	}
