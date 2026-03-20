@@ -459,6 +459,19 @@ else
     LINEAR_PROJECT=$(echo "$ISSUE_JSON" | jq -r '.project.name // empty')
     if [[ -n "$LINEAR_PROJECT" ]]; then
         print_success "Project: $LINEAR_PROJECT"
+
+        # Try to match a profile by tracker project name (if not already forced)
+        if [[ -z "$FORCED_PROFILE" ]]; then
+            PROJECT_MATCHED_PROFILE=$(yq -r --arg proj "$LINEAR_PROJECT" '
+                .profiles | to_entries[] |
+                select(.value.tracker_projects != null) |
+                select([.value.tracker_projects[] | ascii_downcase] | index($proj | ascii_downcase)) |
+                .key' "$CONFIG_PATH" 2>/dev/null | head -1)
+            if [[ -n "$PROJECT_MATCHED_PROFILE" ]]; then
+                SELECTED_PROFILE="$PROJECT_MATCHED_PROFILE"
+                print_success "Profile matched by project: $(get_profile_display_name "$SELECTED_PROFILE")"
+            fi
+        fi
     else
         print_success "No project assigned (will use defaults)"
     fi

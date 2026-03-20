@@ -2,6 +2,7 @@ import test from 'ava';
 import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
 import {
 	matchProfiles,
+	matchProfileByProject,
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	getProfileVcsLabel,
@@ -2709,4 +2710,198 @@ test('validateConfig accepts issue_watchlist with empty labels array', t => {
 		},
 	};
 	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// tracker_projects Validation Tests
+// ============================================================================
+
+test('validateConfig accepts profile with valid tracker_projects array', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				tracker_projects: ['The Hive', 'The Hive Quality'],
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts profile without tracker_projects (optional)', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {display_name: 'Test'},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects profile with non-array tracker_projects', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				tracker_projects: 'The Hive',
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('tracker_projects: must be an array when specified'),
+		),
+	);
+});
+
+test('validateConfig rejects profile with non-string tracker_projects entries', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				tracker_projects: ['The Hive', 42],
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(
+		error!.errors.some(e =>
+			e.includes('tracker_projects[1]: must be a string'),
+		),
+	);
+});
+
+test('validateConfig accepts profile with empty tracker_projects array', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			test: {
+				display_name: 'Test',
+				tracker_projects: [],
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// matchProfileByProject Tests
+// ============================================================================
+
+test('matchProfileByProject matches exact project name', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+			tracker_projects: ['The Hive', 'The Hive Quality'],
+		},
+		jams: {
+			display_name: 'Stardust Jams',
+			keywords: ['music'],
+			tracker_projects: ['Stardust Jams'],
+		},
+	});
+	const match = matchProfileByProject(config, 'The Hive');
+	t.truthy(match);
+	t.is(match!.name, 'hive');
+	t.is(match!.profile.display_name, 'King Bee');
+});
+
+test('matchProfileByProject is case-insensitive', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+			tracker_projects: ['The Hive'],
+		},
+	});
+	const match = matchProfileByProject(config, 'the hive');
+	t.truthy(match);
+	t.is(match!.name, 'hive');
+});
+
+test('matchProfileByProject returns null when no match', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+			tracker_projects: ['The Hive'],
+		},
+	});
+	const match = matchProfileByProject(config, 'Unknown Project');
+	t.is(match, null);
+});
+
+test('matchProfileByProject returns null for empty project name', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+			tracker_projects: ['The Hive'],
+		},
+	});
+	t.is(matchProfileByProject(config, ''), null);
+});
+
+test('matchProfileByProject returns null when no profiles have tracker_projects', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+		},
+	});
+	const match = matchProfileByProject(config, 'The Hive');
+	t.is(match, null);
+});
+
+test('matchProfileByProject matches second tracker_projects entry', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+			tracker_projects: ['The Hive', 'The Hive Quality'],
+		},
+	});
+	const match = matchProfileByProject(config, 'The Hive Quality');
+	t.truthy(match);
+	t.is(match!.name, 'hive');
+});
+
+test('matchProfileByProject returns first matching profile when multiple match', t => {
+	const config = createConfig({
+		first: {
+			display_name: 'First',
+			keywords: ['a'],
+			tracker_projects: ['Shared Project'],
+		},
+		second: {
+			display_name: 'Second',
+			keywords: ['b'],
+			tracker_projects: ['Shared Project'],
+		},
+	});
+	const match = matchProfileByProject(config, 'Shared Project');
+	t.truthy(match);
+	t.is(match!.name, 'first');
+});
+
+test('matchProfileByProject handles mixed case project name in config', t => {
+	const config = createConfig({
+		hive: {
+			display_name: 'King Bee',
+			keywords: ['bee'],
+			tracker_projects: ['THE HIVE QUALITY'],
+		},
+	});
+	const match = matchProfileByProject(config, 'The Hive Quality');
+	t.truthy(match);
+	t.is(match!.name, 'hive');
 });

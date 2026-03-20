@@ -97,6 +97,13 @@ profiles:
       - spotify
       - playlist
 
+    # Issue tracker project names that map to this profile (case-insensitive).
+    # When a user enters an issue key (e.g., STA-123), the issue's project
+    # is checked against these names to auto-select the profile.
+    tracker_projects:
+      - 'Stardust Jams MVP'
+      - 'Stardust Jams Quality'
+
     # Display name shown in profile picker
     display_name: 'Stardust Jams (iOS Music App)'
 
@@ -256,7 +263,19 @@ links:
 
 ## Profile Selection Logic
 
-When running `dow` or `idow` with a description (not an existing issue key):
+Profile selection uses two complementary strategies depending on the input type:
+
+### Existing Issue Key (e.g., `STA-123` or `123`)
+
+When the input is an existing issue key, the issue is fetched from the tracker and its **project name** is used for matching:
+
+1. **Project Matching**: The issue's project name (e.g., "The Hive Quality") is checked against each profile's `tracker_projects` list (case-insensitive)
+2. **Auto-selection**: If a profile matches, it's auto-selected
+3. **Fallback**: If no project match is found, the default profile is used
+
+### Description (e.g., `"add playlist shuffle feature"`)
+
+When the input is a description (not an issue key):
 
 1. **Keyword Matching**: Each word in the input is checked against all profile keywords
 2. **Auto-selection**: If keywords match exactly one profile, it's auto-selected
@@ -365,6 +384,7 @@ interface PappardelleConfig {
 
 interface Profile {
 	keywords: string[];
+	tracker_projects?: string[]; // Issue tracker project names for project-based matching
 	display_name: string;
 	team_prefix?: string; // Override global team_prefix for issue creation
 	claude?: {
@@ -893,4 +913,4 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 
 All standard template variables are available: `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${SCRIPT_DIR}`, `${VCS_LABEL}`, plus any profile `vars`.
 
-Profile-specific variables (like `IOS_APP_DIR`) are resolved by matching the selected workspace's issue title against profile keywords. If no match is found, the default profile is used.
+Profile-specific variables (like `IOS_APP_DIR`) are resolved by matching the issue's tracker project against `tracker_projects`, then falling back to keyword matching against the issue title. If no match is found, the default profile is used.

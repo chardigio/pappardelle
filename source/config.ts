@@ -81,6 +81,8 @@ export interface TerminalConfig {
 
 export interface Profile {
 	keywords?: string[];
+	/** Issue tracker project names that map to this profile (case-insensitive match). */
+	tracker_projects?: string[];
 	display_name: string;
 	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
 	team_prefix?: string;
@@ -802,6 +804,22 @@ function validateProfile(name: string, profile: unknown): string[] {
 		(p as Record<string, unknown>)['keywords'] = [];
 	}
 
+	// tracker_projects (optional)
+	if (p['tracker_projects'] !== undefined) {
+		if (!Array.isArray(p['tracker_projects'])) {
+			errors.push(
+				`${prefix}.tracker_projects: must be an array when specified`,
+			);
+		} else {
+			const projects = p['tracker_projects'] as unknown[];
+			for (let i = 0; i < projects.length; i++) {
+				if (typeof projects[i] !== 'string') {
+					errors.push(`${prefix}.tracker_projects[${i}]: must be a string`);
+				}
+			}
+		}
+	}
+
 	if (typeof p['display_name'] !== 'string') {
 		errors.push(`${prefix}.display_name: required string field`);
 	}
@@ -1120,6 +1138,30 @@ export function matchProfiles(
 	// Sort by score descending
 	matches.sort((a, b) => b.score - a.score);
 	return matches;
+}
+
+/**
+ * Find a profile that matches the given issue tracker project name.
+ * Uses case-insensitive exact matching against each profile's `tracker_projects` list.
+ * Returns the first matching profile, or null if no profile matches.
+ */
+export function matchProfileByProject(
+	config: PappardelleConfig,
+	projectName: string,
+): {name: string; profile: Profile} | null {
+	if (!projectName) return null;
+
+	const projectLower = projectName.toLowerCase();
+
+	for (const [name, profile] of Object.entries(config.profiles)) {
+		if (
+			profile.tracker_projects?.some(tp => tp.toLowerCase() === projectLower)
+		) {
+			return {name, profile};
+		}
+	}
+
+	return null;
 }
 
 /**

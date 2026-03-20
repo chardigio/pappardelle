@@ -48,6 +48,7 @@ import {
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	matchProfiles,
+	matchProfileByProject,
 	type KeybindingConfig,
 	type IssueWatchlistConfig,
 	type CommandConfig,
@@ -1105,15 +1106,31 @@ export default function App({
 			}
 
 			// Profile-specific pre_workspace_deinit commands
-			const issueTitle = space.trackerIssue?.title ?? space.linearIssue?.title;
-			if (issueTitle) {
-				const profileMatches = matchProfiles(config, issueTitle);
-				if (profileMatches.length > 0) {
-					const profile = profileMatches[0]!.profile;
-					if (profile.pre_workspace_deinit) {
-						deinitCommands.push(...profile.pre_workspace_deinit);
-					}
+			// Try project-based matching first, then fall back to keyword matching
+			const trackerIssue = space.trackerIssue ?? space.linearIssue;
+			let matchedProfile:
+				| {profile: {pre_workspace_deinit?: CommandConfig[]}}
+				| undefined;
+
+			if (trackerIssue?.project?.name) {
+				const projectMatch = matchProfileByProject(
+					config,
+					trackerIssue.project.name,
+				);
+				if (projectMatch) {
+					matchedProfile = projectMatch;
 				}
+			}
+
+			if (!matchedProfile && trackerIssue?.title) {
+				const profileMatches = matchProfiles(config, trackerIssue.title);
+				if (profileMatches.length > 0) {
+					matchedProfile = profileMatches[0]!;
+				}
+			}
+
+			if (matchedProfile?.profile.pre_workspace_deinit) {
+				deinitCommands.push(...matchedProfile.profile.pre_workspace_deinit);
 			}
 
 			if (deinitCommands.length > 0 && space.worktreePath) {

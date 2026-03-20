@@ -10,6 +10,7 @@
  */
 
 import {JiraProvider} from '../source/providers/jira-provider.ts';
+import {loadConfig, matchProfileByProject} from '../source/config.ts';
 
 const BASE_URL = process.env['JIRA_BASE_URL'];
 if (!BASE_URL) {
@@ -149,6 +150,36 @@ async function main() {
 	info('labels', issue.labels);
 
 	verifyLabels(issue.identifier, issue.labels);
+
+	// ── project field & matchProfileByProject ────────────────
+	header('Project field & matchProfileByProject');
+
+	if (issue.project?.name) {
+		pass(`Issue has project: "${issue.project.name}"`);
+
+		// Try to load config and match by project
+		try {
+			const config = loadConfig();
+			const match = matchProfileByProject(config, issue.project.name);
+			if (match) {
+				pass(
+					`Project "${issue.project.name}" matched profile: ${match.name} (${match.profile.display_name})`,
+				);
+			} else {
+				pass(
+					`Project "${issue.project.name}" did not match any profile (no tracker_projects entry for it)`,
+				);
+			}
+		} catch {
+			pass(
+				'Could not load config (not in a repo with .pappardelle.yml) — skipping profile match test',
+			);
+		}
+	} else {
+		pass(
+			'Issue has no project assigned (project-based matching would fall back to default)',
+		);
+	}
 
 	// ── getIssueCached ────────────────────────────────────────
 	header('getIssueCached (should return cached issue)');

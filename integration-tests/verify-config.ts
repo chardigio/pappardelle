@@ -17,6 +17,7 @@ import {
 	getDefaultProfile,
 	getProfile,
 	matchProfiles,
+	matchProfileByProject,
 	getTeamPrefix,
 	getKeybindings,
 	getInitializationCommand,
@@ -187,6 +188,69 @@ function main() {
 		}
 	} else {
 		pass('No custom keybindings (optional)');
+	}
+
+	// ── tracker_projects / matchProfileByProject ─────────────
+	header('matchProfileByProject()');
+
+	// Collect all tracker_projects across profiles
+	const allTrackerProjects: Array<{
+		profileName: string;
+		project: string;
+	}> = [];
+	for (const p of profiles) {
+		const profile = getProfile(config, p.name);
+		if (profile?.tracker_projects) {
+			for (const tp of profile.tracker_projects) {
+				allTrackerProjects.push({profileName: p.name, project: tp});
+			}
+		}
+	}
+
+	if (allTrackerProjects.length === 0) {
+		pass('No tracker_projects configured in any profile (optional)');
+	} else {
+		pass(
+			`${allTrackerProjects.length} tracker_projects entries across profiles`,
+		);
+
+		// Test each one matches the right profile
+		for (const {profileName, project} of allTrackerProjects) {
+			const match = matchProfileByProject(config, project);
+			if (match && match.name === profileName) {
+				pass(`"${project}" → ${profileName}`);
+			} else if (match) {
+				fail(
+					`"${project}" matched ${match.name} instead of expected ${profileName}`,
+				);
+			} else {
+				fail(`"${project}" returned no match (expected ${profileName})`);
+			}
+		}
+
+		// Test case-insensitivity with a known project
+		const first = allTrackerProjects[0]!;
+		const ciMatch = matchProfileByProject(config, first.project.toUpperCase());
+		if (ciMatch && ciMatch.name === first.profileName) {
+			pass(
+				`Case-insensitive match: "${first.project.toUpperCase()}" → ${ciMatch.name}`,
+			);
+		} else {
+			fail(
+				`Case-insensitive match failed for "${first.project.toUpperCase()}"`,
+			);
+		}
+
+		// Test non-existent project returns null
+		const noMatch = matchProfileByProject(
+			config,
+			'__nonexistent_project_12345__',
+		);
+		if (noMatch === null) {
+			pass('Non-existent project correctly returns null');
+		} else {
+			fail(`Non-existent project matched: ${noMatch.name}`);
+		}
 	}
 
 	// ── Claude config ─────────────────────────────────────────
