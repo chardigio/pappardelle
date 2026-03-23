@@ -85,6 +85,11 @@ import {
 	removeSpace,
 	seedFromTmux,
 } from './space-registry.ts';
+import {
+	watchHighlightTarget,
+	findSpaceIndexByIssueKey,
+	clearHighlightTarget,
+} from './highlight.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 // Props passed from cli.tsx with pane layout info
@@ -420,6 +425,24 @@ export default function App({
 
 		return unwatch;
 	}, []);
+
+	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
+	useEffect(() => {
+		const unwatch = watchHighlightTarget(repoName, issueKey => {
+			setSpaces(currentSpaces => {
+				const idx = findSpaceIndexByIssueKey(currentSpaces, issueKey);
+				if (idx !== -1) {
+					setSelectedIndex(idx);
+				}
+
+				return currentSpaces;
+			});
+			// Clear outside setState so the updater stays pure
+			clearHighlightTarget(repoName);
+		});
+
+		return unwatch;
+	}, [repoName]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {

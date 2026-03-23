@@ -28,6 +28,7 @@ import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {initForRepo} from './space-registry.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
+import {writeHighlightTarget} from './highlight.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,7 @@ const cli = meow(
 	`
 	Usage
 	  $ pappardelle [prompt]
+	  $ pappardelle highlight <issue-key>
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
@@ -45,6 +47,9 @@ const cli = meow(
 
 	  If a prompt is provided, creates a new session directly without
 	  entering the interactive TUI.
+
+	Commands
+	  highlight <key>  Select a row in the running TUI by issue key
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -62,6 +67,7 @@ const cli = meow(
 	  $ pappardelle              # Run with tmux layout
 	  $ pappardelle --no-layout  # Run standalone (list only)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
+	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 `,
 	{
 		importMeta: import.meta,
@@ -149,6 +155,18 @@ try {
 	createVcsHost(providerCfg.vcs_host);
 } catch {
 	// If loading fails the providers will fall back to defaults on first use.
+}
+
+// Handle `pappardelle highlight STA-XXX` — write target file and exit
+if (cli.input[0] === 'highlight') {
+	const issueKey = cli.input[1];
+	if (!issueKey) {
+		console.error('Usage: pappardelle highlight <issue-key>');
+		process.exit(1);
+	}
+
+	writeHighlightTarget(repoName, issueKey);
+	process.exit(0);
 }
 
 // If a prompt is provided as positional argument, spawn idow directly and exit
