@@ -15,6 +15,7 @@
 # 4. Symlinks `idow` to ~/.local/bin/
 # 5. Installs Claude Code hooks for status tracking
 # 6. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
+# 7. Installs skill helper scripts to ~/.pappardelle/scripts/
 
 set -e
 
@@ -256,6 +257,25 @@ mkdir -p "$PAPPARDELLE_DIR/repos"
 mkdir -p "$PAPPARDELLE_DIR/logs"
 mkdir -p "$WORKTREES_DIR"
 print_status "Created directories (~/.pappardelle/, ~/.worktrees/)"
+
+# ============================================================================
+# Install Skill Scripts
+# ============================================================================
+
+SOUS_CHEF_SRC="$REPO_DIR/plugins/pappardelle/skills/sous-chef/scripts"
+
+if [[ -d "$SOUS_CHEF_SRC" ]]; then
+    mkdir -p "$PAPPARDELLE_DIR/scripts/sous-chef"
+    for script in gather-spaces.sh read-conversation.sh; do
+        if [[ -f "$SOUS_CHEF_SRC/$script" ]]; then
+            cp "$SOUS_CHEF_SRC/$script" "$PAPPARDELLE_DIR/scripts/sous-chef/"
+            chmod +x "$PAPPARDELLE_DIR/scripts/sous-chef/$script"
+        fi
+    done
+    print_status "Installed sous-chef scripts to $PAPPARDELLE_DIR/scripts/sous-chef/"
+else
+    print_warning "sous-chef scripts not found at $SOUS_CHEF_SRC — /sous-chef skill will be non-functional"
+fi
 
 # ============================================================================
 # Check PATH

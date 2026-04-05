@@ -37,7 +37,7 @@ Add the marketplace:
 claude plugin marketplace add chardigio/pappardelle
 ```
 
-Install the plugin. This installs three skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), and `/configure-pappardelle` (interactive config editor):
+Install the plugin. This installs four skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), `/configure-pappardelle` (interactive config editor), and `/sous-chef` (optional workspace coordinator):
 
 ```bash
 claude plugin install pappardelle@pappardelle-marketplace
@@ -185,7 +185,6 @@ Because Pappardelle runs entirely inside tmux, you can access your full workspac
 - **A machine that stays on** — I'm not a Mac Mini guy (yet), I just keep my MacBook plugged in. macOS won't sleep with the lid closed as long as it has power and an active SSH session.
 - **[Tailscale](https://tailscale.com/)** — A mesh VPN that makes your dev machine accessible from any network without port forwarding or firewall configuration. Install on both your dev machine and your mobile device.
 - **[Termius](https://termius.com/)** (iOS) — A full-featured SSH client for iPhone and iPad with good tmux support, copy/paste, and keyboard shortcuts.
-
 
 ### Nice-to-haves
 
@@ -346,14 +345,14 @@ npm link                # makes `pappardelle` available globally
 
 **Directories created by the installer:**
 
-| Directory / File                                        | Purpose                                              |
-| ------------------------------------------------------- | ---------------------------------------------------- |
-| `~/.pappardelle/`                                       | Config, hooks, logs, and Claude status files         |
-| `~/.pappardelle/repos/{repoName}/open-spaces.json`      | Persisted workspace registry (per-repo, survives reboots) |
-| `~/.pappardelle/repos/{repoName}/issue-meta/`           | Issue metadata for hook tracking (per-repo)          |
-| `~/.pappardelle/claude-status/`                         | Real-time status JSON files from Claude hooks        |
-| `~/.pappardelle/logs/`                                  | Daily log files (7-day retention)                    |
-| `~/.worktrees/`                                         | Git worktrees for all your workspaces                |
+| Directory / File                                   | Purpose                                                   |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files              |
+| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots) |
+| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)               |
+| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks             |
+| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                         |
+| `~/.worktrees/`                                    | Git worktrees for all your workspaces                     |
 
 > **Multi-repo support:** State is namespaced per repository under `~/.pappardelle/repos/{repoName}/`.
 > Running pappardelle in two different repos keeps their workspace registries completely separate.
@@ -375,11 +374,11 @@ idow STA-123
 
 Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
 
-| Hook                           | Trigger                                       | What it does                                                                  |
-| ------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------- |
-| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop`           | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)               | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
-| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`             | Sends push notifications via ntfy when Claude needs user input                |
+| Hook                           | Trigger                             | What it does                                                                  |
+| ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
+| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                |
 
 ### Logging
 
@@ -425,13 +424,14 @@ See [`integration-tests/README.md`](integration-tests/README.md) for env vars an
 
 ### Plugin Marketplace
 
-Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pappardelle` plugin containing three skills:
+Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pappardelle` plugin containing four skills:
 
-| Skill | Description | Model-invocable |
-| ----- | ----------- | --------------- |
-| `/init-pappardelle` | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml` | No |
-| `/update-pappardelle` | Re-runs the install script to update Pappardelle to the latest version | No |
-| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more | Yes |
+| Skill                    | Description                                                                                                                                            | Model-invocable |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- |
+| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                    | No              |
+| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                 | No              |
+| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                     | Yes             |
+| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via tmux | No              |
 
 **Install the plugin:**
 
