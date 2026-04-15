@@ -17,6 +17,8 @@ import {
 	buildWorkspaceTemplateVars,
 	ConfigValidationError,
 	RESERVED_KEYS,
+	NON_OVERRIDABLE_KEYS,
+	DEFAULT_KEYBINDING_KEYS,
 	RESERVED_VAR_NAMES,
 	mergeKeybindings,
 } from './config.ts';
@@ -1637,8 +1639,8 @@ test('validateConfig rejects keybinding with multi-character key', t => {
 	t.truthy(error?.message.includes('must be a single character'));
 });
 
-test('validateConfig rejects keybinding with reserved key', t => {
-	for (const reservedKey of RESERVED_KEYS) {
+test('validateConfig rejects keybinding with non-overridable reserved key', t => {
+	for (const reservedKey of NON_OVERRIDABLE_KEYS) {
 		const raw = {
 			version: 1,
 			default_profile: 'test',
@@ -1654,6 +1656,60 @@ test('validateConfig rejects keybinding with reserved key', t => {
 			instanceOf: ConfigValidationError,
 		});
 		t.truthy(error?.message.includes('conflicts with built-in shortcut'));
+	}
+});
+
+test('validateConfig accepts keybinding that overrides a default key', t => {
+	for (const defaultKey of DEFAULT_KEYBINDING_KEYS) {
+		const raw = {
+			version: 1,
+			default_profile: 'test',
+			keybindings: [
+				{
+					key: defaultKey,
+					name: `Custom ${defaultKey}`,
+					run: `echo ${defaultKey}`,
+				},
+			],
+			profiles: {
+				test: {
+					keywords: ['test'],
+					display_name: 'Test',
+				},
+			},
+		};
+		t.notThrows(
+			() => validateConfig(raw),
+			`"${defaultKey}" should be overridable`,
+		);
+	}
+});
+
+test('validateConfig accepts disabled keybinding for a default key', t => {
+	for (const defaultKey of DEFAULT_KEYBINDING_KEYS) {
+		const raw = {
+			version: 1,
+			profiles: {
+				test: {display_name: 'Test'},
+			},
+			keybindings: [{key: defaultKey, disabled: true}],
+		};
+		t.notThrows(
+			() => validateConfig(raw),
+			`"${defaultKey}" should be disableable`,
+		);
+	}
+});
+
+test('RESERVED_KEYS is the union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS', t => {
+	const union = new Set([...NON_OVERRIDABLE_KEYS, ...DEFAULT_KEYBINDING_KEYS]);
+	t.deepEqual(RESERVED_KEYS, union);
+	// No overlap between the two sets
+	for (const key of NON_OVERRIDABLE_KEYS) {
+		t.false(
+			DEFAULT_KEYBINDING_KEYS.has(key),
+			`"${key}" should not be in both sets`,
+		);
 	}
 });
 
@@ -1757,10 +1813,10 @@ test('getKeybindings returns send_to_claude keybindings', t => {
 	t.is(bindings[1]!.run, undefined);
 });
 
-test('validateConfig accepts uppercase versions of reserved keys', t => {
-	// Uppercase letters like 'G', 'D', 'R' should be valid even though
-	// their lowercase counterparts are reserved built-in shortcuts
-	const uppercaseReserved = [...RESERVED_KEYS]
+test('validateConfig accepts uppercase versions of non-overridable keys', t => {
+	// Uppercase letters like 'J', 'K', 'N' should be valid even though
+	// their lowercase counterparts are non-overridable built-in shortcuts
+	const uppercaseReserved = [...NON_OVERRIDABLE_KEYS]
 		.filter(k => k !== '?') // '?' has no uppercase
 		.map(k => k.toUpperCase());
 
@@ -1777,6 +1833,50 @@ test('validateConfig accepts uppercase versions of reserved keys', t => {
 			},
 		};
 		t.notThrows(() => validateConfig(raw), `"${key}" should be allowed`);
+	}
+});
+
+test('validateConfig accepts uppercase versions of default keybinding keys', t => {
+	// Uppercase of overridable keys (G, I, D, O, E, P) should be valid custom bindings
+	const uppercaseDefaultKeys = [...DEFAULT_KEYBINDING_KEYS].map(k =>
+		k.toUpperCase(),
+	);
+
+	for (const key of uppercaseDefaultKeys) {
+		const raw = {
+			version: 1,
+			default_profile: 'test',
+			keybindings: [{key, name: `Command ${key}`, run: `echo ${key}`}],
+			profiles: {
+				test: {
+					keywords: ['test'],
+					display_name: 'Test',
+				},
+			},
+		};
+		t.notThrows(() => validateConfig(raw), `"${key}" should be allowed`);
+	}
+});
+
+test('validateConfig rejects disabled keybinding for a non-overridable key', t => {
+	// disabled: true should not bypass the non-overridable key restriction
+	for (const key of NON_OVERRIDABLE_KEYS) {
+		const raw = {
+			version: 1,
+			default_profile: 'test',
+			keybindings: [{key, disabled: true}],
+			profiles: {
+				test: {
+					keywords: ['test'],
+					display_name: 'Test',
+				},
+			},
+		};
+		t.throws(
+			() => validateConfig(raw),
+			undefined,
+			`"${key}" should not be disableable`,
+		);
 	}
 });
 

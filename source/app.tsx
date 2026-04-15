@@ -794,6 +794,16 @@ export default function App({
 
 			const totalItems = spaces.length;
 
+			// Check custom keybindings first — they can override default keys
+			const kb = keybindingMap.get(input);
+			if (kb) {
+				if (!kb.disabled) {
+					handleCustomKeybinding(kb);
+				}
+				return;
+			}
+
+			// Non-overridable built-in shortcuts
 			if (key.upArrow || input === 'k') {
 				if (selectedIndex > 0) {
 					setSelectedIndex(selectedIndex - 1);
@@ -805,18 +815,6 @@ export default function App({
 			} else if (key.return) {
 				// Enter - focus the Claude viewer pane
 				handleFocusClaude();
-			} else if (input === 'g') {
-				// 'g' to open the GitHub PR / GitLab MR in browser
-				handleOpenPR();
-			} else if (input === 'i') {
-				// 'i' to open the Linear/Jira issue in browser
-				handleOpenIssue();
-			} else if (input === 'd') {
-				// 'd' to open the IDE (Cursor) at the worktree path
-				handleOpenIDE();
-			} else if (input === 'o') {
-				// 'o' to open workspace (apps, links, iTerm, etc.)
-				handleOpenWorkspace();
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
@@ -828,14 +826,6 @@ export default function App({
 				} else if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
 				}
-			} else if (input === 'e') {
-				// Show error dialog
-				if (errorCount > 0) {
-					setShowErrorDialog(true);
-				}
-			} else if (input === 'p') {
-				// 'p' to git pull in the selected workspace
-				handleGitPull();
 			} else if (input === '/') {
 				// Start searching spaces
 				setIsSearching(true);
@@ -851,12 +841,22 @@ export default function App({
 			} else if (input === '?') {
 				// Show help overlay
 				setShowHelp(true);
-			} else {
-				// Check custom keybindings
-				const kb = keybindingMap.get(input);
-				if (kb) {
-					handleCustomKeybinding(kb);
+
+				// Default behaviors for overridable keys (only reached if not custom-bound)
+			} else if (input === 'g') {
+				handleOpenPR();
+			} else if (input === 'i') {
+				handleOpenIssue();
+			} else if (input === 'd') {
+				handleOpenIDE();
+			} else if (input === 'o') {
+				handleOpenWorkspace();
+			} else if (input === 'e') {
+				if (errorCount > 0) {
+					setShowErrorDialog(true);
 				}
+			} else if (input === 'p') {
+				handleGitPull();
 			}
 		},
 		{

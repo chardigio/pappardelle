@@ -161,20 +161,24 @@ export const RESERVED_VAR_NAMES = new Set([
 ]);
 
 /**
- * Built-in keyboard shortcuts that cannot be overridden by custom keybindings.
+ * Navigation and system keys that cannot be overridden by custom keybindings.
+ */
+export const NON_OVERRIDABLE_KEYS = new Set(['j', 'k', 'n', 'q', '?']);
+
+/**
+ * Keys with built-in default behavior that CAN be overridden by custom keybindings.
+ * When overridden, the custom binding replaces the default action entirely.
+ * Use `disabled: true` to suppress a default without adding a replacement.
+ */
+export const DEFAULT_KEYBINDING_KEYS = new Set(['g', 'i', 'd', 'o', 'e', 'p']);
+
+/**
+ * Union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS.
+ * Kept for backwards compatibility and tests that need the full set.
  */
 export const RESERVED_KEYS = new Set([
-	'j',
-	'k',
-	'g',
-	'i',
-	'd',
-	'o',
-	'n',
-	'e',
-	'p',
-	'q',
-	'?',
+	...NON_OVERRIDABLE_KEYS,
+	...DEFAULT_KEYBINDING_KEYS,
 ]);
 
 export class ConfigNotFoundError extends Error {
@@ -721,7 +725,7 @@ export function validateConfig(
 					errors.push(`keybindings[${i}].key: must be a single character`);
 				} else {
 					const k = binding['key'] as string;
-					if (RESERVED_KEYS.has(k)) {
+					if (NON_OVERRIDABLE_KEYS.has(k)) {
 						errors.push(
 							`keybindings[${i}].key: "${k}" conflicts with built-in shortcut`,
 						);
