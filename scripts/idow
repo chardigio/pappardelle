@@ -462,14 +462,39 @@ else
 
         # Try to match a profile by tracker project name (if not already forced)
         if [[ -z "$FORCED_PROFILE" ]]; then
-            PROJECT_MATCHED_PROFILE=$(yq -r --arg proj "$LINEAR_PROJECT" '
+            export LINEAR_PROJECT
+            PROJECT_MATCHED_PROFILE=$(yq -r '
                 .profiles | to_entries[] |
                 select(.value.tracker_projects != null) |
-                select([.value.tracker_projects[] | ascii_downcase] | index($proj | ascii_downcase)) |
+                select([.value.tracker_projects[] | downcase] | any_c(. == (env(LINEAR_PROJECT) | downcase))) |
                 .key' "$CONFIG_PATH" 2>/dev/null | head -1)
             if [[ -n "$PROJECT_MATCHED_PROFILE" ]]; then
                 SELECTED_PROFILE="$PROJECT_MATCHED_PROFILE"
                 print_success "Profile matched by project: $(get_profile_display_name "$SELECTED_PROFILE")"
+
+                # Re-extract profile-derived values for the matched profile
+                PROFILE_VAR_KEYS=""
+                while IFS='=' read -r key value; do
+                    [[ -n "$key" ]] && PROFILE_VAR_KEYS="$PROFILE_VAR_KEYS $key" && declare "$key=$value"
+                done < <(yq -r '.profiles.'"$SELECTED_PROFILE"'.vars // {} | to_entries[] | .key + "=" + .value' "$CONFIG_PATH")
+
+                PROFILE_TEAM_PREFIX=$(yq -r ".profiles.$SELECTED_PROFILE.team_prefix // \"\"" "$CONFIG_PATH" | tr '[:lower:]' '[:upper:]')
+                if [[ -n "$PROFILE_TEAM_PREFIX" ]]; then
+                    EFFECTIVE_TEAM_PREFIX="$PROFILE_TEAM_PREFIX"
+                else
+                    EFFECTIVE_TEAM_PREFIX="$TEAM_PREFIX"
+                fi
+
+                PROJECT_KEY="$SELECTED_PROFILE"
+                VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
+
+                PROFILE_INIT_CMD=$(yq -r ".profiles.$SELECTED_PROFILE.claude.initialization_command // \"\"" "$CONFIG_PATH")
+                if [[ -n "$PROFILE_INIT_CMD" ]]; then
+                    INIT_CMD="$PROFILE_INIT_CMD"
+                    log "Using per-profile initialization_command: $INIT_CMD"
+                fi
+
+                log "Profile updated: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
             fi
         fi
     else
