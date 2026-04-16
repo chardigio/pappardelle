@@ -35,6 +35,9 @@ npx tsx integration-tests/verify-comments.ts
 # Workspace deinit (runs real shell commands in a temp dir)
 npx tsx integration-tests/verify-workspace-deinit.ts
 
+# Bash keyword matching (idow match_profiles function)
+bash integration-tests/verify-bash-keyword-matching.sh
+
 # Run all (that apply to your setup)
 npx tsx integration-tests/verify-linear.ts && \
 npx tsx integration-tests/verify-github.ts && \
@@ -54,6 +57,7 @@ npx tsx integration-tests/verify-watchlist.ts
 | `verify-watchlist.ts` | Full pipeline: config → provider fetch → label filter → workspace decision |
 | `verify-comments.ts` | createComment on Linear and/or Jira (posts real comments) |
 | `verify-workspace-deinit.ts` | Command execution, variable expansion, continue_on_error, cwd fallback |
+| `verify-bash-keyword-matching.sh` | Bash `match_profiles()` in idow: word boundaries, multi-word keywords, false positives |
 
 ## Environment Variables
 

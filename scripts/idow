@@ -174,29 +174,35 @@ match_profiles() {
     local matched_profiles=()
 
     for profile in $(list_profiles); do
-        local keywords
-        keywords=$(yq -r ".profiles.$profile.keywords[]" "$CONFIG_PATH" 2>/dev/null)
+        local matched=false
 
-        for keyword in $keywords; do
+        # Use while-read to preserve multi-word keywords (e.g. "hit the weekly")
+        while IFS= read -r keyword; do
+            [[ -z "$keyword" ]] && continue
             local keyword_lower
             keyword_lower=$(echo "$keyword" | tr '[:upper:]' '[:lower:]')
 
-            if [[ "$input_lower" == *"$keyword_lower"* ]]; then
-                # Check if profile is already in matched list
-                local already_matched=false
-                for mp in "${matched_profiles[@]}"; do
-                    if [[ "$mp" == "$profile" ]]; then
-                        already_matched=true
-                        break
-                    fi
-                done
-
-                if [[ "$already_matched" == false ]]; then
-                    matched_profiles+=("$profile")
-                fi
+            # Use word-boundary matching to prevent "king" matching "looking"
+            if echo "$input_lower" | grep -qw "$keyword_lower"; then
+                matched=true
                 break
             fi
-        done
+        done < <(yq -r ".profiles.$profile.keywords[]" "$CONFIG_PATH" 2>/dev/null)
+
+        if [[ "$matched" == true ]]; then
+            # Check if profile is already in matched list
+            local already_matched=false
+            for mp in "${matched_profiles[@]}"; do
+                if [[ "$mp" == "$profile" ]]; then
+                    already_matched=true
+                    break
+                fi
+            done
+
+            if [[ "$already_matched" == false ]]; then
+                matched_profiles+=("$profile")
+            fi
+        fi
     done
 
     echo "${matched_profiles[@]}"
