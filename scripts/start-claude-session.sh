@@ -100,9 +100,12 @@ if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     tmux new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
     if [[ "$NO_CLAUDE" != true ]]; then
         # Build the Claude command with optional --dangerously-skip-permissions
-        CLAUDE_CMD="claude"
+        # and --name set to the issue key so the session is findable via /resume
+        # and shows up in the terminal title.
+        SAFE_NAME=$(printf '%q' "$ISSUE_KEY")
+        CLAUDE_CMD="claude --name ${SAFE_NAME}"
         if [[ "$SKIP_PERMISSIONS" == true ]]; then
-            CLAUDE_CMD="claude --dangerously-skip-permissions"
+            CLAUDE_CMD="claude --dangerously-skip-permissions --name ${SAFE_NAME}"
         fi
 
         # Build the Claude prompt argument, quoting it to handle special characters

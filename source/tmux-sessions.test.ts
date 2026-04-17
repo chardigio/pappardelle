@@ -141,33 +141,58 @@ test('pretrustDirectoryForClaude handles corrupt JSON gracefully', t => {
 // buildClaudeResumeCommand: generates --continue fallback chain
 
 test('buildClaudeResumeCommand tries --continue first', t => {
-	const cmd = buildClaudeResumeCommand();
-	t.true(cmd.startsWith('claude --continue'));
+	const cmd = buildClaudeResumeCommand('STA-806');
+	t.true(cmd.startsWith('claude --name STA-806 --continue'));
 });
 
-test('buildClaudeResumeCommand falls back to bare claude', t => {
-	const cmd = buildClaudeResumeCommand();
-	t.true(cmd.endsWith('|| claude'));
+test('buildClaudeResumeCommand falls back to bare claude with --name', t => {
+	const cmd = buildClaudeResumeCommand('STA-806');
+	t.true(cmd.endsWith('|| claude --name STA-806'));
 });
 
 test('buildClaudeResumeCommand includes ANSI escape to clear error line', t => {
-	const cmd = buildClaudeResumeCommand();
+	const cmd = buildClaudeResumeCommand('STA-806');
 	t.true(cmd.includes("printf '\\033[A\\033[2K'"));
 });
 
 test('buildClaudeResumeCommand with skipPermissions includes flag in both branches', t => {
-	const cmd = buildClaudeResumeCommand(true);
-	// --continue attempt should have the flag
-	t.true(cmd.startsWith('claude --dangerously-skip-permissions --continue'));
-	// Fallback should also have the flag
-	t.true(cmd.endsWith('|| claude --dangerously-skip-permissions'));
+	const cmd = buildClaudeResumeCommand('STA-806', true);
+	// --continue attempt should have both flags
+	t.true(
+		cmd.startsWith(
+			'claude --dangerously-skip-permissions --name STA-806 --continue',
+		),
+	);
+	// Fallback should also have both flags
+	t.true(
+		cmd.endsWith('|| claude --dangerously-skip-permissions --name STA-806'),
+	);
 });
 
 test('buildClaudeResumeCommand without skipPermissions has no permission flag', t => {
-	const cmd = buildClaudeResumeCommand(false);
+	const cmd = buildClaudeResumeCommand('STA-806', false);
 	t.false(cmd.includes('--dangerously-skip-permissions'));
 });
 
 test('buildClaudeResumeCommand default is skipPermissions=false', t => {
-	t.is(buildClaudeResumeCommand(), buildClaudeResumeCommand(false));
+	t.is(
+		buildClaudeResumeCommand('STA-806'),
+		buildClaudeResumeCommand('STA-806', false),
+	);
+});
+
+test('buildClaudeResumeCommand sets --name to the issue key on both branches', t => {
+	const cmd = buildClaudeResumeCommand('CHEX-42');
+	// --name appears in both the --continue attempt and the fallback
+	const occurrences = cmd.match(/--name CHEX-42/g) ?? [];
+	t.is(occurrences.length, 2);
+});
+
+test('buildClaudeResumeCommand shell-quotes non-standard issue keys', t => {
+	// An issue key with shell metacharacters should be safely quoted.
+	const cmd = buildClaudeResumeCommand('weird key; rm -rf /');
+	// Must not contain the raw unquoted metacharacters inline as an arg.
+	t.false(cmd.includes('--name weird key; rm -rf /'));
+	// Must still reference --name twice.
+	t.is((cmd.match(/--name /g) ?? []).length, 2);
 });

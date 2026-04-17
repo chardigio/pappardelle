@@ -124,10 +124,15 @@ on run argv
                 -- If --continue fails (no prior session or crash), fall back to:
                 --   resume mode (empty prompt): bare Claude
                 --   normal mode: Claude with the skill prompt
+                -- issueKey is always PROJECT-NUMBER format (safe for direct interpolation).
+                -- The TS helper and start-claude-session.sh shell-quote for defense-in-depth;
+                -- AppleScript string assembly makes quoting awkward, so we rely on caller
+                -- validation here instead.
+                set nameFlag to " --name " & issueKey
                 if claudePrompt is equal to "" then
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & "\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & "\""
                 else
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & " '" & claudePrompt & "'\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & " '" & claudePrompt & "'\""
                 end if
 
                 -- Wait for Claude to start

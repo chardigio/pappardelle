@@ -121,15 +121,34 @@ export function getSessionNames(
 }
 
 /**
+ * Single-quote a string for safe use as a shell argument. Wraps the value in
+ * single quotes and escapes any embedded single quotes via the classic
+ * `'\''` trick.
+ */
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
  * Build the shell command for starting Claude with --continue fallback.
  * Tries to resume the most recent conversation in the worktree directory,
  * falling back to bare claude if no prior conversation exists.
  * The ANSI escape clears the "No conversation found" error line on failure.
+ *
+ * `--name <issueKey>` is included on both branches so the session shows up
+ * under the issue key in `/resume` and in the terminal title.
  */
-export function buildClaudeResumeCommand(skipPermissions = false): string {
-	const claudeCmd = skipPermissions
+export function buildClaudeResumeCommand(
+	issueKey: string,
+	skipPermissions = false,
+): string {
+	const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
+		? issueKey
+		: shellQuote(issueKey);
+	const base = skipPermissions
 		? 'claude --dangerously-skip-permissions'
 		: 'claude';
+	const claudeCmd = `${base} --name ${safeKey}`;
 	return `${claudeCmd} --continue || { printf '\\033[A\\033[2K'; false; } || ${claudeCmd}`;
 }
 
@@ -1521,7 +1540,7 @@ export function ensureClaudeSession(
 		// Now send claude command to the session.
 		// Try --continue first to resume an existing conversation in this worktree,
 		// falling back to bare claude if no prior session exists.
-		const fullCmd = buildClaudeResumeCommand(skipPermissions);
+		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions);
 
 		spawnSync('tmux', ['send-keys', '-t', sessionName, fullCmd, 'Enter'], {
 			encoding: 'utf-8',
