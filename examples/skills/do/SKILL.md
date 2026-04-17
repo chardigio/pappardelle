@@ -2,22 +2,6 @@
 name: do
 description: Work through a TODO.md checklist in the worktree root, continuing until all items are checked off.
 disable-model-invocation: true
-hooks:
-  Stop:
-    - hooks:
-        - type: command
-          command: >
-            cat >/dev/null;
-            COUNT_FILE=.claude/skills/do/.ralph-count;
-            COUNT=$(cat "$COUNT_FILE" 2>/dev/null || echo 0);
-            if grep -qF -- '- [ ]' TODO.md 2>/dev/null && [ "$COUNT" -lt 3 ]; then
-              echo $((COUNT + 1)) > "$COUNT_FILE";
-              echo "Unchecked TODO items remain in TODO.md. Keep working through them." >&2;
-              exit 2;
-            else
-              rm -f "$COUNT_FILE";
-              exit 0;
-            fi
 ---
 
 # /do - Work Through TODO Checklist
