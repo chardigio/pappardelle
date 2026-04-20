@@ -48,6 +48,12 @@ export interface PendingSession {
 	pendingTitle: string;
 	/** Space count at the time the session was started (for description routes) */
 	prevSpaceCount: number;
+	/**
+	 * Profile name the TUI decided on for this session, forwarded to idow
+	 * as --profile. Null when idow should resolve the profile itself
+	 * (e.g. opening an existing issue via buildOpenWorkspaceArgs).
+	 */
+	profileName?: string | null;
 }
 
 /**
@@ -73,8 +79,20 @@ export function getSpaceCount(
  * Build idow args for creating a new session.
  * idow always creates Claude/lazygit tmux sessions.
  * Pass --open to also open iTerm, apps, links, etc.
+ *
+ * When the caller has already decided which profile to use, forward it as
+ * --profile <name> so idow skips its own (less sophisticated) bash matcher.
+ * The flag must come before the positional idow arg — idow only checks $1
+ * for it.
  */
-export function buildNewSessionArgs(idowArg: string): string[] {
+export function buildNewSessionArgs(
+	idowArg: string,
+	opts?: {profileName?: string | null},
+): string[] {
+	const profileName = opts?.profileName;
+	if (profileName) {
+		return ['--profile', profileName, idowArg];
+	}
 	return [idowArg];
 }
 

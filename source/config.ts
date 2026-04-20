@@ -1178,6 +1178,70 @@ export function getProfile(
 	return config.profiles[name];
 }
 
+// Issue-key patterns used to short-circuit keyword matching and return the default profile.
+const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
+const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
+const DETERMINE_PROFILE_LINEAR_URL =
+	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/;
+
+export interface DeterminedProfile {
+	name: string;
+	displayName: string;
+	isDefault: boolean;
+	matchedKeywords: string[];
+	enforced: boolean;
+}
+
+/**
+ * Resolve the profile that should be used for a new-session input.
+ *
+ * Single source of truth for profile selection: both the TUI PromptDialog
+ * and the spawned idow process route through this function (the TUI forwards
+ * the chosen name via --profile) so the display and runtime selection can't
+ * diverge when multiple profiles match.
+ *
+ * Returns null only for empty/whitespace input; otherwise always returns a
+ * profile (falling back to the default when nothing matches).
+ */
+export function determineProfileForInput(
+	config: PappardelleConfig,
+	input: string,
+): DeterminedProfile | null {
+	const trimmed = input.trim();
+	if (!trimmed) return null;
+
+	const toDefault = (): DeterminedProfile => {
+		const def = getDefaultProfile(config);
+		return {
+			name: def.name,
+			displayName: def.profile.display_name,
+			isDefault: true,
+			matchedKeywords: [],
+			enforced: false,
+		};
+	};
+
+	if (
+		DETERMINE_PROFILE_ISSUE_KEY.test(trimmed) ||
+		DETERMINE_PROFILE_ISSUE_NUMBER.test(trimmed) ||
+		DETERMINE_PROFILE_LINEAR_URL.test(trimmed)
+	) {
+		return toDefault();
+	}
+
+	const matches = matchProfiles(config, trimmed);
+	if (matches.length === 0) return toDefault();
+
+	const best = matches[0]!;
+	return {
+		name: best.name,
+		displayName: best.profile.display_name,
+		isDefault: false,
+		matchedKeywords: best.matchedKeywords,
+		enforced: best.enforced,
+	};
+}
+
 /**
  * Get the default profile.
  * Uses `default_profile` if set, otherwise falls back to the first profile.

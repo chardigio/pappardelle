@@ -21,6 +21,7 @@ import {
 	DEFAULT_KEYBINDING_KEYS,
 	RESERVED_VAR_NAMES,
 	mergeKeybindings,
+	determineProfileForInput,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -3004,4 +3005,132 @@ test('matchProfileByProject handles mixed case project name in config', t => {
 	const match = matchProfileByProject(config, 'The Hive Quality');
 	t.truthy(match);
 	t.is(match!.name, 'hive');
+});
+
+// ============================================================================
+// determineProfileForInput (STA-856)
+//
+// Single source of truth for "which profile will this input resolve to?",
+// shared by the PromptDialog display and the idow spawn arg. Whatever the
+// dialog shows MUST be the profile actually passed to idow.
+// ============================================================================
+
+test('determineProfileForInput returns null for empty / whitespace input', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	t.is(determineProfileForInput(config, ''), null);
+	t.is(determineProfileForInput(config, '   \t '), null);
+});
+
+test('determineProfileForInput returns default profile for issue keys', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'STA-123');
+	t.truthy(info);
+	t.is(info!.name, 'personal');
+	t.true(info!.isDefault);
+	t.deepEqual(info!.matchedKeywords, []);
+});
+
+test('determineProfileForInput returns default profile for bare issue numbers', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(config, '42');
+	t.truthy(info);
+	t.is(info!.name, 'personal');
+	t.true(info!.isDefault);
+});
+
+test('determineProfileForInput returns default profile for Linear URLs', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(
+		config,
+		'https://linear.app/stardust-labs/issue/STA-123/something',
+	);
+	t.truthy(info);
+	t.is(info!.name, 'personal');
+	t.true(info!.isDefault);
+});
+
+test('determineProfileForInput returns default profile when no keyword matches', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'random description nothing');
+	t.truthy(info);
+	t.is(info!.name, 'personal');
+	t.true(info!.isDefault);
+	t.deepEqual(info!.matchedKeywords, []);
+});
+
+test('determineProfileForInput picks the single matching profile', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'upload to trotbooks');
+	t.truthy(info);
+	t.is(info!.name, 'trotbooks');
+	t.false(info!.isDefault);
+});
+
+test('determineProfileForInput picks highest-scoring profile on multi-match (STA-856 regression)', t => {
+	// This is the exact shape of the bug: "personal" matches 1 keyword, "trotbooks"
+	// matches 2 keywords (trotbooks + trot via prefix). The TUI sorted by score and
+	// displayed trotbooks, but idow's bash matcher used config iteration order and
+	// picked personal. determineProfileForInput must return the same winner the
+	// TUI was already showing — i.e. the highest-scoring match.
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks', 'trot', 'horse'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(
+		config,
+		'make it so i can upload a personal image to trotbooks',
+	);
+	t.truthy(info);
+	t.is(info!.name, 'trotbooks');
+	t.false(info!.isDefault);
+	// Should surface the keywords that tipped the scoring so the caller can show them.
+	t.true(info!.matchedKeywords.length >= 2);
+});
+
+test('determineProfileForInput honors enforced (!) keywords', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks', 'trot'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	// Enforcing "personal!" must win even though trotbooks scores higher without it.
+	const info = determineProfileForInput(
+		config,
+		'upload a personal! image to trotbooks',
+	);
+	t.truthy(info);
+	t.is(info!.name, 'personal');
+	t.true(info!.enforced);
 });

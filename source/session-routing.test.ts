@@ -160,6 +160,44 @@ test('buildNewSessionArgs does not include --resume or --open', t => {
 });
 
 // ============================================================================
+// buildNewSessionArgs with a forced profile (STA-856: lock TUI choice in)
+// ============================================================================
+
+test('buildNewSessionArgs forwards --profile when profile name provided', t => {
+	const args = buildNewSessionArgs('upload a personal image to trotbooks', {
+		profileName: 'trotbooks',
+	});
+	t.deepEqual(args, [
+		'--profile',
+		'trotbooks',
+		'upload a personal image to trotbooks',
+	]);
+});
+
+test('buildNewSessionArgs omits --profile when profileName is null', t => {
+	const args = buildNewSessionArgs('add dark mode', {profileName: null});
+	t.deepEqual(args, ['add dark mode']);
+});
+
+test('buildNewSessionArgs omits --profile when profileName is empty string', t => {
+	const args = buildNewSessionArgs('add dark mode', {profileName: ''});
+	t.deepEqual(args, ['add dark mode']);
+});
+
+test('buildNewSessionArgs omits --profile when opts omitted (back-compat)', t => {
+	const args = buildNewSessionArgs('add dark mode');
+	t.deepEqual(args, ['add dark mode']);
+});
+
+test('buildNewSessionArgs puts --profile before the input so idow parses it', t => {
+	// idow checks $1 for --profile; the flag must come before the input.
+	const args = buildNewSessionArgs('STA-500', {profileName: 'pappardelle'});
+	t.is(args[0], '--profile');
+	t.is(args[1], 'pappardelle');
+	t.is(args[2], 'STA-500');
+});
+
+// ============================================================================
 // buildOpenWorkspaceArgs (pressing 'o' should open with --resume --open)
 // ============================================================================
 

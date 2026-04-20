@@ -3,19 +3,12 @@ import {Box, Text, useInput} from 'ink';
 import TextInput from 'ink-text-input';
 import {
 	loadConfig,
-	matchProfiles,
-	getDefaultProfile,
+	determineProfileForInput,
 	type PappardelleConfig,
 } from '../config.ts';
 
-// Issue key patterns
-const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
-const ISSUE_NUMBER_PATTERN = /^(\d+)$/;
-const LINEAR_URL_PATTERN =
-	/^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*-\d+)/;
-
 interface Props {
-	onSubmit: (prompt: string) => void;
+	onSubmit: (prompt: string, profileName: string | null) => void;
 	onCancel: () => void;
 }
 
@@ -31,51 +24,12 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 		}
 	}, []);
 
-	// Determine what profile will be selected based on current input
+	// Determine what profile will be selected based on current input.
+	// This must stay in lockstep with what we pass to idow — both the display
+	// and the spawned command go through determineProfileForInput.
 	const profileInfo = useMemo(() => {
 		if (!config) return null;
-
-		const trimmed = prompt.trim();
-		if (!trimmed) return null;
-
-		// Check if input is an issue key or URL (uses default profile)
-		if (
-			ISSUE_KEY_PATTERN.test(trimmed) ||
-			ISSUE_NUMBER_PATTERN.test(trimmed) ||
-			LINEAR_URL_PATTERN.test(trimmed)
-		) {
-			const defaultProfile = getDefaultProfile(config);
-			return {
-				name: defaultProfile.name,
-				displayName: defaultProfile.profile.display_name,
-				isDefault: true,
-				matchedKeywords: [] as string[],
-				enforced: false,
-			};
-		}
-
-		// It's a description - match by keywords
-		const matches = matchProfiles(config, trimmed);
-		if (matches.length > 0) {
-			const best = matches[0]!;
-			return {
-				name: best.name,
-				displayName: best.profile.display_name,
-				isDefault: false,
-				matchedKeywords: best.matchedKeywords,
-				enforced: best.enforced,
-			};
-		}
-
-		// No matches - use default
-		const defaultProfile = getDefaultProfile(config);
-		return {
-			name: defaultProfile.name,
-			displayName: defaultProfile.profile.display_name,
-			isDefault: true,
-			matchedKeywords: [] as string[],
-			enforced: false,
-		};
+		return determineProfileForInput(config, prompt);
 	}, [config, prompt]);
 
 	useInput((_input, key) => {
@@ -85,9 +39,13 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 	});
 
 	const handleSubmit = (value: string) => {
-		if (value.trim()) {
-			onSubmit(value.trim());
-		}
+		const trimmed = value.trim();
+		if (!trimmed) return;
+		// Recompute against the submitted value rather than trusting stale state —
+		// profileInfo is derived from `prompt`, which is the same thing, but being
+		// explicit keeps the invariant local to this handler.
+		const chosen = config ? determineProfileForInput(config, trimmed) : null;
+		onSubmit(trimmed, chosen?.name ?? null);
 	};
 
 	return (

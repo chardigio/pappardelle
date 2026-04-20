@@ -907,7 +907,7 @@ export default function App({
 
 		const child = spawn(
 			path.join(SCRIPTS_DIR, 'idow'),
-			buildNewSessionArgs(pending.idowArg),
+			buildNewSessionArgs(pending.idowArg, {profileName: pending.profileName}),
 			{
 				detached: true,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -1082,8 +1082,11 @@ export default function App({
 		child.unref();
 	};
 
-	// Handle new session creation
-	const handleNewSession = (input: string) => {
+	// Handle new session creation.
+	// profileName is whatever the PromptDialog displayed — we forward
+	// it to idow via --profile so the runtime selection can't diverge from the
+	// UI preview.
+	const handleNewSession = (input: string, profileName: string | null) => {
 		setShowPromptDialog(false);
 
 		// Try to normalize as an issue identifier (supports bare numbers like '400')
@@ -1107,6 +1110,7 @@ export default function App({
 			idowArg: route.issueKey ?? input,
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
+			profileName,
 		};
 		spawnSession(pending);
 	};
