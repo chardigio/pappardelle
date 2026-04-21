@@ -34,6 +34,7 @@ import {buildSpawnEnv} from './spawn-env.ts';
 import {initForRepo} from './space-registry.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {writeHighlightTarget} from './highlight.ts';
+import {safeCheckForUpdate} from './update-check.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -293,9 +294,9 @@ process.on('SIGTERM', () => {
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
+const pappardelleDir = path.resolve(__dirname, '..');
 let commitSha = 'unknown';
 try {
-	const pappardelleDir = path.resolve(__dirname, '..');
 	commitSha = execSync('git log -1 --format=%h -- .', {
 		cwd: pappardelleDir,
 		encoding: 'utf8',
@@ -305,8 +306,20 @@ try {
 	// Not in a git repo or git not available - leave as 'unknown'
 }
 
+// Kick off the update check asynchronously — never blocks startup, fails silent.
+// safeCheckForUpdate swallows all errors, so the promise will only ever
+// resolve (never reject). We hand the promise straight to App so render()
+// isn't blocked on the network.
+const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
+
 // Render the app
-render(<App paneLayout={paneLayout} commitSha={commitSha} />);
+render(
+	<App
+		paneLayout={paneLayout}
+		commitSha={commitSha}
+		updateCheckPromise={updateCheckPromise}
+	/>,
+);
 
 // NOTE: Screen clearing on resize is handled inside app.tsx's resize handler,
 // NOT here. Clearing here (in a separate listener) can race with Ink's render

@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 Re-runs the Pappardelle install script to pull the latest version, rebuild, and update hooks.
 
+Pappardelle now checks GitHub Releases on startup (cached once per 24h) and shows a banner in the TUI when a newer version is available — pressing `U` in the workspace list runs the same install script this skill runs. Use this skill when the user explicitly asks (e.g. they want to force a check after dismissing the banner, or they're not running the TUI right now).
+
 ## Steps
 
 1. Tell the user you're updating Pappardelle to the latest version.

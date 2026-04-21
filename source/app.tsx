@@ -10,6 +10,8 @@ import PromptDialog from './components/PromptDialog.tsx';
 import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
+import UpdateBanner from './components/UpdateBanner.tsx';
+import {pappardelleInstallCommand, type UpdateInfo} from './update-check.ts';
 import {createLogger, subscribeToErrors, type LogEntry} from './logger.ts';
 
 const log = createLogger('app');
@@ -96,6 +98,7 @@ import type {SpaceData, PaneLayout} from './types.ts';
 interface AppProps {
 	paneLayout: PaneLayout | null;
 	commitSha: string;
+	updateCheckPromise?: Promise<UpdateInfo | null>;
 }
 
 log.info('Pappardelle starting');
@@ -103,6 +106,7 @@ log.info('Pappardelle starting');
 export default function App({
 	paneLayout: initialPaneLayout,
 	commitSha,
+	updateCheckPromise,
 }: AppProps) {
 	const {stdout} = useStdout();
 
@@ -131,7 +135,26 @@ export default function App({
 	const [isSearching, setIsSearching] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
+	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// Resolve the update check in the background. Never throws — cli.tsx
+	// installs a .catch() that swallows to null.
+	useEffect(() => {
+		if (!updateCheckPromise) return;
+		let cancelled = false;
+		updateCheckPromise.then(info => {
+			if (!cancelled && info) {
+				setUpdateInfo(info);
+				log.info(
+					`Update available: ${info.installedVersion} → ${info.latestVersion}`,
+				);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [updateCheckPromise]);
 
 	const setHeaderWithTimeout = useCallback((msg: string, ms: number) => {
 		if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
@@ -870,6 +893,21 @@ export default function App({
 				}
 			} else if (input === 'p') {
 				handleGitPull();
+			} else if (updateInfo && (input === 'U' || input === 'u')) {
+				// Handoff to install.sh: kill the tmux session first so the
+				// alt screen is cleanly released, then exec the installer.
+				log.info('Update keybinding triggered — running install.sh');
+				if (paneLayout) {
+					killSession(`pappardelle-${repoName}`);
+				}
+				spawnSync('bash', ['-c', pappardelleInstallCommand()], {
+					stdio: 'inherit',
+				});
+				process.exit(0);
+			} else if (updateInfo && (input === 'X' || input === 'x')) {
+				// Dismiss the banner for this session. Next launch re-checks
+				// against the cache on disk.
+				setUpdateInfo(null);
 			}
 		},
 		{
@@ -1500,6 +1538,9 @@ export default function App({
 
 	return (
 		<Box flexDirection="column" height="100%">
+			{/* Update banner (only shown if an update is available and not dismissed) */}
+			{updateInfo && <UpdateBanner info={updateInfo} />}
+
 			{/* Header */}
 			<Box>
 				<Text bold color="cyan">

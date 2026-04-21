@@ -368,6 +368,32 @@ Pappardelle installs three Claude Code hooks that provide integration between Cl
 | `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
 | `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                |
 
+### Versioning and updates
+
+Pappardelle is versioned via git tags on `chardigio/pappardelle` (`vX.Y.Z`) — `package.json` is not bumped on release. Every push to `main` cuts a new tag + GitHub Release via the `release` workflow. Bump type is driven by PR labels:
+
+| Label           | Effect               |
+| --------------- | -------------------- |
+| `release:major` | `X.0.0` bump         |
+| `release:minor` | `x.Y.0` bump         |
+| `release:patch` | `x.y.Z` bump         |
+| _(no label)_    | patch bump (default) |
+
+Two paths feed the release workflow:
+
+- **Direct merge on `chardigio/pappardelle`** — an external contributor opens a PR here and you merge it. The release workflow reads the `release:*` label on the chardigio-side PR directly.
+- **Forward sync from `stardust-labs-io/stardust-labs`** — rsync pushes straight to `main` with no PR on this side. The monorepo's sync workflow reads the merged _monorepo_ PR's `release:*` label and propagates it to the synced commit as a `Release-bump: <major|minor|patch>` trailer, which the release workflow here consumes.
+
+On startup, the TUI checks the GitHub Releases API (cached for 24h at `~/.pappardelle/update-check.json`) and, if a newer tag is available, renders a magenta banner above the workspace list:
+
+```
+Update available: v0.1.0 → v0.2.0 · U to update · X to dismiss
+```
+
+The installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone, with `package.json` as a fallback for the pre-release window. Press `U` to exit the TUI and re-run the install script in-place. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
+
+When running out of the stardust-labs monorepo (LOCAL_MODE), the check is skipped entirely; the monorepo is the source of truth and must not be clobbered by `curl | bash`.
+
 ### Logging
 
 Logs are written to `~/.pappardelle/logs/` with daily rotation (7-day retention):

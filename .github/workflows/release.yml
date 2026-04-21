@@ -1,0 +1,127 @@
+name: Release
+
+# Creates a tag + GitHub Release on every push to main. No package.json
+# edits, no push-back commits — tags only. This makes the workflow safe
+# regardless of whether the commit arrived via:
+#
+#   - a direct PR merge on chardigio/pappardelle (external contributor); or
+#   - a forward-sync from stardust-labs-io/stardust-labs (rsync, direct push).
+#
+# Bump type resolution, in order:
+#
+#   1. `Release-bump: major|minor|patch` trailer on the HEAD commit.
+#      The forward-sync workflow on stardust-labs writes this trailer from
+#      the merged monorepo PR's `release:*` label.
+#   2. `release:*` label on the PR that introduced this commit (only exists
+#      for direct merges on chardigio/pappardelle).
+#   3. `patch` (default).
+#
+# The workflow never writes to the repo beyond creating the tag + release,
+# so there's nothing for the sync-back workflow to loop on.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'chardigio/pappardelle'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout with tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve bump type
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_MSG=$(git log -1 --format=%B)
+
+          # 1. Release-bump: trailer set by forward-sync.
+          BUMP=$(echo "$HEAD_MSG" | git interpret-trailers --parse | awk -F': ' '/^Release-bump:/ {print tolower($2); exit}')
+
+          # 2. PR labels on chardigio/pappardelle (direct merges only).
+          if [ -z "$BUMP" ]; then
+            PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].number' 2>/dev/null || true)
+            if [ -n "$PR_NUMBER" ]; then
+              LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
+              echo "PR #$PR_NUMBER labels:"
+              echo "$LABELS"
+              if echo "$LABELS" | grep -qx 'release:major'; then
+                BUMP=major
+              elif echo "$LABELS" | grep -qx 'release:minor'; then
+                BUMP=minor
+              elif echo "$LABELS" | grep -qx 'release:patch'; then
+                BUMP=patch
+              fi
+            fi
+            echo "pr_number=${PR_NUMBER:-}" >> "$GITHUB_OUTPUT"
+          else
+            echo "Bump type from Release-bump: trailer: $BUMP"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 3. Default.
+          if [ -z "$BUMP" ]; then
+            BUMP=patch
+          fi
+
+          if [ "$BUMP" != "major" ] && [ "$BUMP" != "minor" ] && [ "$BUMP" != "patch" ]; then
+            echo "::warning::Unrecognized bump '$BUMP' — falling back to patch"
+            BUMP=patch
+          fi
+
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: version
+        run: |
+          BUMP="${{ steps.bump.outputs.bump }}"
+          LATEST=$(git tag --list 'v*.*.*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          echo "Latest tag: $LATEST"
+
+          VERSION="${LATEST#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "Next tag: $NEW_TAG"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.version.outputs.tag }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+          BUMP: ${{ steps.bump.outputs.bump }}
+        run: |
+          NOTES="Triggered by ${{ github.sha }} · bump: $BUMP"
+          if [ -n "$PR_NUMBER" ]; then
+            NOTES="Triggered by PR #$PR_NUMBER merge · bump: $BUMP"
+          fi
+
+          # Don't clobber existing tag (defensive — shouldn't happen).
+          if gh release view "$NEW_TAG" >/dev/null 2>&1; then
+            echo "::warning::Release $NEW_TAG already exists — skipping"
+            exit 0
+          fi
+
+          gh release create "$NEW_TAG" \
+            --target "${{ github.sha }}" \
+            --title "$NEW_TAG" \
+            --generate-notes \
+            --notes "$NOTES"
