@@ -8,6 +8,22 @@ disable-model-invocation: true
 
 Interactive setup wizard that installs Pappardelle, gathers your configuration preferences, checks prerequisites, and generates a `.pappardelle.yml` file.
 
+Before running any of the steps below, print the "What is a Workspace?" section verbatim so the user has a shared vocabulary before the wizard starts asking questions. This is important — the rest of the wizard uses the word "workspace" throughout.
+
+## What is a Workspace?
+
+A **workspace** in Pappardelle is the per-issue environment Pappardelle creates for you when you start work on a ticket. Each workspace bundles together:
+
+- A dedicated **git worktree** at `~/.worktrees/{repo}/{issue-key}/` — an isolated checkout on a fresh branch, so you can have many in-flight tickets without stashing or switching branches.
+- A tracked **issue** in your issue tracker (Linear or Jira) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123`.
+- A draft **PR/MR** against the main branch for that worktree.
+- Its own **Claude Code session** (a named tmux session: `claude-{repo}-{issue-key}`) where you drive the work.
+- Its own **lazygit session** (tmux session: `lazygit-{repo}-{issue-key}`) pointed at that worktree.
+
+The Pappardelle TUI is a 3-pane tmux layout that lets you list, switch between, and operate on workspaces — the left pane is the list, the center attaches to the highlighted workspace's Claude session, and the right attaches to its lazygit. Workspaces run in independent tmux sessions, so they survive even if the TUI is closed or restarted.
+
+Everything the wizard asks — providers, profiles, init command, post-init hooks — is about configuring what happens **each time a new workspace is created**.
+
 ## Step 0: Check for Existing Configuration
 
 Before starting the wizard, check if a `.pappardelle.yml` already exists:
@@ -27,13 +43,14 @@ Present a summary of the existing config:
 > **Pappardelle is already configured in this repository.**
 >
 > **Current configuration:**
+>
 > - VCS Host: {provider}
 > - Issue Tracker: {provider}
 > - Team Prefix: {prefix}
 > - Profiles:
 >   - **{display_name}** — keywords: {comma-separated keywords}
 >   - **{display_name}** — keywords: {comma-separated keywords}
->   - *(repeat for each profile)*
+>   - _(repeat for each profile)_
 
 ### 0b. Add a New Profile?
 
@@ -61,7 +78,7 @@ Show the current `dangerously_skip_permissions` value and ask: "Should Claude st
 - If they want to change it, write/update `.pappardelle.local.yml` with the override:
   ```yaml
   claude:
-    dangerously_skip_permissions: true  # or false
+    dangerously_skip_permissions: true # or false
   ```
 - If they're happy with the current value, skip.
 
@@ -80,6 +97,7 @@ Use `AskUserQuestion` for each of these. Ask them one at a time — don't bundle
 Ask: "Which VCS host do you use?"
 
 Options:
+
 - **GitHub** (default) — requires `gh` CLI
 - **GitLab** — requires `glab` CLI. If selected, follow up asking if it's gitlab.com or self-hosted (get the `host` value).
 - **Other** — Pappardelle only supports GitHub and GitLab. Let the user know and stop.
@@ -89,6 +107,7 @@ Options:
 Ask: "Which issue tracker do you use?"
 
 Options:
+
 - **Linear** (default) — requires `linctl` CLI
 - **Jira** — requires `acli` CLI. If selected, follow up asking for their Jira base URL (e.g., `https://mycompany.atlassian.net`).
 - **Neither / Other** — Pappardelle requires Linear or Jira. Let the user know and stop.
@@ -98,11 +117,13 @@ Options:
 Ask: "What are your issue key prefixes? For example, if your issues look like PROJ-123, the prefix is PROJ. If you have multiple teams/projects with different prefixes (e.g., FE-123, BE-456), list them all."
 
 **Single prefix** (e.g., they say just "PROJ"):
+
 - Set the global `team_prefix: PROJ`
 - Create one default profile with no `keywords` (it catches everything)
 - Ask what kind of project it is (iOS app, backend, frontend, etc.) to generate sensible `display_name` and `commands`
 
 **Multiple prefixes** (e.g., they say "FE for frontend, BE for backend, MOB for mobile"):
+
 - Set the global `team_prefix` to whichever prefix they use most (ask if unclear)
 - Create one profile per prefix:
   - Slug name: kebab-case of the project name (e.g., `frontend`, `backend`, `mobile`)
@@ -117,6 +138,7 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
 Ask: "Would you like Claude to run a skill automatically when a new workspace is created? The default is `/do` which starts planning and implementing the issue."
 
 Options:
+
 - **Yes, use `/do`** (default) — set `initialization_command: '/do'`
 - **Custom** — let them type a skill name
 - **No** — omit the `claude` section
@@ -132,6 +154,7 @@ mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chard
 Ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
 
 Options:
+
 - **No** (default) — set `dangerously_skip_permissions: false`
 - **Yes** — set `dangerously_skip_permissions: true`. Warn the user: "This means Claude can read, write, and execute anything without confirmation. Only enable this if you trust the skills and prompts being used in your workspaces."
 
@@ -151,7 +174,7 @@ command -v pappardelle &>/dev/null && echo "INSTALLED" || echo "NOT_INSTALLED"
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-The install script checks base prerequisites (Node.js >= 18, npm, git, tmux, jq), clones the repo, builds it, and makes `pappardelle` and `idow` available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
+The install script checks base prerequisites (Node.js >= 18, npm, git, tmux, jq), clones the repo, builds it, and makes the `pappardelle` command available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
 
 - If **already installed**, print "Pappardelle is already installed" and move on.
 
@@ -191,6 +214,7 @@ If they decline, move on.
 Based on the answers, generate a `.pappardelle.yml` file at the repository root. Use the full config format from the [configuration reference](pappardelle-config.md).
 
 Rules:
+
 - Always include `version: 1`
 - Always `issue_tracker`
 - Always `vcs_host`
@@ -200,11 +224,43 @@ Rules:
 
 ## Step 6: Summary
 
-After writing the file, print a summary:
+After writing the file, print a clear "you're done" summary. The goal is to leave the user with (a) exactly what was written where, (b) a concrete next command to run, and (c) a heads-up of what creating their first workspace will actually do.
 
-1. What was configured (providers, profiles)
-2. How to launch: `pappardelle`
-3. Link to the full config reference: [pappardelle-config.md](pappardelle-config.md) for customizing keybindings, post-worktree hooks, lifecycle hooks, and more
+Format it like this, filling in the real values from what you just collected:
+
+```
+✅ Pappardelle is configured.
+
+Wrote /path/to/repo/.pappardelle.yml:
+  • Issue tracker: {linear | jira (<base_url>)}
+  • VCS host:      {github | gitlab (<host>)}
+  • Team prefix:   {PROJ}
+  • Profiles:      {default} (or list each one with its keywords)
+  • Claude init:   {/do | <custom> | (none)}
+  • Yolo mode:     {on | off}
+
+Wrote /path/to/repo/.pappardelle.local.yml:
+  • {only include this block if local overrides were written in 0c–0e or 1e}
+  • default_profile: <name>
+  • dangerously_skip_permissions: <value>
+
+Next steps:
+  1. Launch the TUI:            pappardelle
+  2. In the TUI, press `n` to create your first workspace.
+  3. Type an issue key (e.g., PROJ-123) or a one-line description of what you want to build.
+
+What happens when you create a workspace:
+  • A git worktree is created at ~/.worktrees/{repo}/{issue-key}/
+  • A draft PR/MR is opened from the new branch
+  • A named tmux session spins up Claude Code (with `{initialization_command}` if set)
+  • A lazygit session is spawned for that worktree
+  • The TUI's center and right panes attach to those sessions
+
+For customizing keybindings, post-init hooks, issue watchlists, etc., see
+[pappardelle-config.md](pappardelle-config.md) or run `/configure-pappardelle`.
+```
+
+Keep the summary grounded in what was actually written — don't list a `.pappardelle.local.yml` block if no local overrides were set, and don't mention yolo mode if the user skipped the `claude` section entirely.
 
 ## Example Outputs
 

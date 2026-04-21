@@ -358,18 +358,6 @@ npm link                # makes `pappardelle` available globally
 > Running pappardelle in two different repos keeps their workspace registries completely separate.
 > On first run, existing state is automatically migrated from the legacy global location.
 
-### Creating workspaces from the command line
-
-You can create workspaces without launching the TUI using the `idow` ("interactively do on worktree") command:
-
-```bash
-# Create a workspace from a description
-idow "add dark mode to settings"
-
-# Create a workspace for an existing issue
-idow STA-123
-```
-
 ### Claude Code hooks
 
 Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
