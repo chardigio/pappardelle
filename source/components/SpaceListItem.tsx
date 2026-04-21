@@ -140,12 +140,14 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 						{' '}
 					</Text>
 					<Text
+						bold
 						color={useBlinkInverse ? textColor : 'yellow'}
 						inverse={useBlinkInverse}
 					>
 						◐
 					</Text>
 					<Text
+						bold
 						color={useBlinkInverse ? textColor : 'red'}
 						inverse={useBlinkInverse}
 					>
@@ -162,6 +164,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 					{' '}
 				</Text>
 				<Text
+					bold
 					color={useBlinkInverse ? textColor : style.color}
 					inverse={useBlinkInverse}
 				>
