@@ -22,6 +22,7 @@ import {
 	RESERVED_VAR_NAMES,
 	mergeKeybindings,
 	determineProfileForInput,
+	DEFERRED_PROFILE_DISPLAY_NAME,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -3008,11 +3009,17 @@ test('matchProfileByProject handles mixed case project name in config', t => {
 });
 
 // ============================================================================
-// determineProfileForInput (STA-856)
+// determineProfileForInput (STA-856, STA-865)
 //
 // Single source of truth for "which profile will this input resolve to?",
 // shared by the PromptDialog display and the idow spawn arg. Whatever the
 // dialog shows MUST be the profile actually passed to idow.
+//
+// STA-865: for issue-key / bare-number / Linear-URL inputs we can't pick a
+// profile yet — the right profile is whatever matches the fetched issue's
+// Linear project via `tracker_projects`. Return `{kind: 'deferred'}` so the
+// TUI shows "Determined by issue project" and forwards `null` to idow, which
+// lets idow's existing project-matching block (scripts/idow ~L470) run.
 // ============================================================================
 
 test('determineProfileForInput returns null for empty / whitespace input', t => {
@@ -3024,7 +3031,7 @@ test('determineProfileForInput returns null for empty / whitespace input', t => 
 	t.is(determineProfileForInput(config, '   \t '), null);
 });
 
-test('determineProfileForInput returns default profile for issue keys', t => {
+test('determineProfileForInput defers profile selection for issue keys', t => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -3034,23 +3041,26 @@ test('determineProfileForInput returns default profile for issue keys', t => {
 	);
 	const info = determineProfileForInput(config, 'STA-123');
 	t.truthy(info);
-	t.is(info!.name, 'personal');
-	t.true(info!.isDefault);
-	t.deepEqual(info!.matchedKeywords, []);
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') {
+		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+	}
 });
 
-test('determineProfileForInput returns default profile for bare issue numbers', t => {
+test('determineProfileForInput defers profile selection for bare issue numbers', t => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
 	const info = determineProfileForInput(config, '42');
 	t.truthy(info);
-	t.is(info!.name, 'personal');
-	t.true(info!.isDefault);
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') {
+		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+	}
 });
 
-test('determineProfileForInput returns default profile for Linear URLs', t => {
+test('determineProfileForInput defers profile selection for Linear URLs', t => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
@@ -3060,8 +3070,10 @@ test('determineProfileForInput returns default profile for Linear URLs', t => {
 		'https://linear.app/stardust-labs/issue/STA-123/something',
 	);
 	t.truthy(info);
-	t.is(info!.name, 'personal');
-	t.true(info!.isDefault);
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') {
+		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+	}
 });
 
 test('determineProfileForInput returns default profile when no keyword matches', t => {
@@ -3074,9 +3086,12 @@ test('determineProfileForInput returns default profile when no keyword matches',
 	);
 	const info = determineProfileForInput(config, 'random description nothing');
 	t.truthy(info);
-	t.is(info!.name, 'personal');
-	t.true(info!.isDefault);
-	t.deepEqual(info!.matchedKeywords, []);
+	t.is(info!.kind, 'resolved');
+	if (info!.kind === 'resolved') {
+		t.is(info.name, 'personal');
+		t.true(info.isDefault);
+		t.deepEqual(info.matchedKeywords, []);
+	}
 });
 
 test('determineProfileForInput picks the single matching profile', t => {
@@ -3089,8 +3104,11 @@ test('determineProfileForInput picks the single matching profile', t => {
 	);
 	const info = determineProfileForInput(config, 'upload to trotbooks');
 	t.truthy(info);
-	t.is(info!.name, 'trotbooks');
-	t.false(info!.isDefault);
+	t.is(info!.kind, 'resolved');
+	if (info!.kind === 'resolved') {
+		t.is(info.name, 'trotbooks');
+		t.false(info.isDefault);
+	}
 });
 
 test('determineProfileForInput picks highest-scoring profile on multi-match (STA-856 regression)', t => {
@@ -3111,10 +3129,13 @@ test('determineProfileForInput picks highest-scoring profile on multi-match (STA
 		'make it so i can upload a personal image to trotbooks',
 	);
 	t.truthy(info);
-	t.is(info!.name, 'trotbooks');
-	t.false(info!.isDefault);
-	// Should surface the keywords that tipped the scoring so the caller can show them.
-	t.true(info!.matchedKeywords.length >= 2);
+	t.is(info!.kind, 'resolved');
+	if (info!.kind === 'resolved') {
+		t.is(info.name, 'trotbooks');
+		t.false(info.isDefault);
+		// Should surface the keywords that tipped the scoring so the caller can show them.
+		t.true(info.matchedKeywords.length >= 2);
+	}
 });
 
 test('determineProfileForInput honors enforced (!) keywords', t => {
@@ -3131,6 +3152,9 @@ test('determineProfileForInput honors enforced (!) keywords', t => {
 		'upload a personal! image to trotbooks',
 	);
 	t.truthy(info);
-	t.is(info!.name, 'personal');
-	t.true(info!.enforced);
+	t.is(info!.kind, 'resolved');
+	if (info!.kind === 'resolved') {
+		t.is(info.name, 'personal');
+		t.true(info.enforced);
+	}
 });

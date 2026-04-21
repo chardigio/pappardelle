@@ -44,8 +44,11 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 		// Recompute against the submitted value rather than trusting stale state —
 		// profileInfo is derived from `prompt`, which is the same thing, but being
 		// explicit keeps the invariant local to this handler.
+		// Deferred selections must forward null so idow's tracker_projects lookup runs
+		// instead of being short-circuited by a forced --profile flag.
 		const chosen = config ? determineProfileForInput(config, trimmed) : null;
-		onSubmit(trimmed, chosen?.name ?? null);
+		const forwardedName = chosen?.kind === 'resolved' ? chosen.name : null;
+		onSubmit(trimmed, forwardedName);
 	};
 
 	return (
@@ -87,15 +90,26 @@ export default function PromptDialog({onSubmit, onCancel}: Props) {
 			{profileInfo && (
 				<Box marginTop={1}>
 					<Text dimColor>Profile: </Text>
-					<Text color="blue">{profileInfo.displayName}</Text>
-					{profileInfo.matchedKeywords.length > 0 && (
-						<Text dimColor> ← {profileInfo.matchedKeywords.join(', ')}</Text>
+					{profileInfo.kind === 'deferred' ? (
+						<Text dimColor italic>
+							{profileInfo.displayName}
+						</Text>
+					) : (
+						<>
+							<Text color="blue">{profileInfo.displayName}</Text>
+							{profileInfo.matchedKeywords.length > 0 && (
+								<Text dimColor>
+									{' '}
+									← {profileInfo.matchedKeywords.join(', ')}
+								</Text>
+							)}
+							{profileInfo.enforced && <Text color="magenta"> (enforced)</Text>}
+							{profileInfo.isDefault &&
+								profileInfo.matchedKeywords.length === 0 && (
+									<Text dimColor> (default)</Text>
+								)}
+						</>
 					)}
-					{profileInfo.enforced && <Text color="magenta"> (enforced)</Text>}
-					{profileInfo.isDefault &&
-						profileInfo.matchedKeywords.length === 0 && (
-							<Text dimColor> (default)</Text>
-						)}
 				</Box>
 			)}
 
