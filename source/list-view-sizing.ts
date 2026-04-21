@@ -81,6 +81,25 @@ export function calculateVisibleWindow(
 	return {scrollOffset, visibleCount, adjustedSelectedIndex};
 }
 
+/**
+ * Translate a mouse y coordinate into a visible-list row index, accounting
+ * for the optional update banner that sits above the header. The banner's
+ * content wraps at narrow pane widths so its footprint isn't a fixed
+ * constant — the caller passes the current measured height (0 when the
+ * banner is hidden). Returns null when the click is on chrome (banner /
+ * header) or below the visible rows.
+ */
+export function calculateListClickRow(options: {
+	y: number;
+	bannerHeight: number;
+	visibleRows: number;
+}): number | null {
+	const headerOffset = options.bannerHeight + HEADER_ROWS;
+	const row = options.y - headerOffset;
+	if (row < 0 || row >= options.visibleRows) return null;
+	return row;
+}
+
 // ============================================================================
 // Row rendering
 // ============================================================================

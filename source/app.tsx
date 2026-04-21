@@ -78,7 +78,10 @@ import {
 	getTmuxPaneHeight,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
-import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
+import {
+	calculateVisibleWindow,
+	calculateListClickRow,
+} from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
 import {computePostDeleteState, filterSpaces} from './space-utils.ts';
 import {
@@ -138,6 +141,12 @@ export default function App({
 	const [searchQuery, setSearchQuery] = useState('');
 	const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
 	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+	// Measured footprint of the update banner (outer Box height + its
+	// marginBottom). Reported by UpdateBanner via onMeasure — the content
+	// wraps at narrow pane widths so a fixed constant is wrong. Stays at 0
+	// when the banner is hidden so the mouse hit-test falls back to plain
+	// HEADER_ROWS math.
+	const [bannerHeight, setBannerHeight] = useState(0);
 	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// Resolve the update check in the background. Never throws — cli.tsx
@@ -896,20 +905,32 @@ export default function App({
 			} else if (input === 'p') {
 				handleGitPull();
 			} else if (updateInfo && (input === 'U' || input === 'u')) {
-				// Handoff to install.sh: kill the tmux session first so the
-				// alt screen is cleanly released, then exec the installer.
+				// Order matters: if we kill the outer tmux session first,
+				// tmux SIGHUPs pappardelle (its root command) before
+				// spawnSync can even fork bash, so the installer never
+				// runs and the user just sees the TUI quit (STA-873).
+				// Instead: release the alt screen + mouse tracking so the
+				// installer's stdout is visible in the list pane, run it
+				// to completion with inherited stdio, and only then tear
+				// down the outer session.
 				log.info('Update keybinding triggered — running install.sh');
-				if (paneLayout) {
-					killSession(`pappardelle-${repoName}`);
-				}
+				process.stdout.write('\x1b[?1006l'); // disable SGR mouse
+				process.stdout.write('\x1b[?1000l'); // disable basic mouse
+				process.stdout.write('\x1b[?1049l'); // exit alt screen
 				spawnSync('bash', ['-c', pappardelleInstallCommand()], {
 					stdio: 'inherit',
 				});
+				if (paneLayout) {
+					killSession(`pappardelle-${repoName}`);
+				}
 				process.exit(0);
 			} else if (updateInfo && (input === 'X' || input === 'x')) {
 				// Dismiss the banner for this session. Next launch re-checks
-				// against the cache on disk.
+				// against the cache on disk. Reset the measured height so
+				// the mouse hit-test stops compensating for a banner that
+				// is no longer rendered.
 				setUpdateInfo(null);
+				setBannerHeight(0);
 			}
 		},
 		{
@@ -1453,11 +1474,17 @@ export default function App({
 			if (showPromptDialog || showDeleteConfirm || showErrorDialog) return;
 			if (displaySpaces.length === 0) return;
 
-			// Calculate which row in the list was clicked
-			// Layout: header (1 line) + marginBottom (1 line) = HEADER_ROWS
-			const clickedRow = event.y - HEADER_ROWS;
-
-			if (clickedRow < 0 || clickedRow >= visibleDisplaySpaces.length) return;
+			// Map the raw mouse y into a visible-list row index. `bannerHeight`
+			// is measured by UpdateBanner — it's 0 when the banner is hidden
+			// and grows when content wraps at narrow pane widths. Without
+			// this offset, clicks land on the row `bannerHeight` above the
+			// intended target (STA-873).
+			const clickedRow = calculateListClickRow({
+				y: event.y,
+				bannerHeight,
+				visibleRows: visibleDisplaySpaces.length,
+			});
+			if (clickedRow === null) return;
 
 			// Convert visible row to absolute display index
 			const displayIndex = scrollOffset + clickedRow;
@@ -1485,6 +1512,7 @@ export default function App({
 			scrollOffset,
 			visibleDisplaySpaces.length,
 			pendingInsertIndex,
+			bannerHeight,
 		],
 	);
 
@@ -1541,7 +1569,9 @@ export default function App({
 	return (
 		<Box flexDirection="column" height="100%">
 			{/* Update banner (only shown if an update is available and not dismissed) */}
-			{updateInfo && <UpdateBanner info={updateInfo} />}
+			{updateInfo && (
+				<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
+			)}
 
 			{/* Header */}
 			<Box>

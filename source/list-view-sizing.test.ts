@@ -8,6 +8,8 @@ import {
 	renderListRow,
 	renderListView,
 	railPrefixWidth,
+	calculateListClickRow,
+	HEADER_ROWS,
 	LIST_CHROME_ROWS,
 	ROW_FIXED_OVERHEAD,
 } from './list-view-sizing.ts';
@@ -1059,5 +1061,106 @@ test('list view: every pipeline state + a comment count row', t => {
 	t.false(
 		lines[5]!.includes('✓') || lines[5]!.includes('('),
 		`no-PR row has no icons: ${lines[5]}`,
+	);
+});
+
+// ============================================================================
+// calculateListClickRow — maps a mouse y to a visible list row index, taking
+// the optional update banner into account. Regression coverage for STA-873
+// where clicking a workspace while the update banner was shown selected the
+// wrong row because the banner's extra rows of chrome weren't subtracted.
+// The banner content wraps at narrow pane widths, so the caller passes the
+// actual measured height (0 when the banner is hidden).
+// ============================================================================
+
+test('calculateListClickRow: no banner — first list row is at HEADER_ROWS', t => {
+	t.is(HEADER_ROWS, 2, 'sanity: header chrome is 2 rows');
+	t.is(
+		calculateListClickRow({y: 2, bannerHeight: 0, visibleRows: 5}),
+		0,
+		'click on first list row',
+	);
+	t.is(
+		calculateListClickRow({y: 6, bannerHeight: 0, visibleRows: 5}),
+		4,
+		'click on last visible row',
+	);
+});
+
+test('calculateListClickRow: no banner — clicks above header are rejected', t => {
+	t.is(
+		calculateListClickRow({y: 0, bannerHeight: 0, visibleRows: 5}),
+		null,
+		'click on header row 0',
+	);
+	t.is(
+		calculateListClickRow({y: 1, bannerHeight: 0, visibleRows: 5}),
+		null,
+		'click on header row 1',
+	);
+});
+
+test('calculateListClickRow: no banner — clicks below visible rows are rejected', t => {
+	t.is(
+		calculateListClickRow({y: 7, bannerHeight: 0, visibleRows: 5}),
+		null,
+		'click one row past the last visible',
+	);
+	t.is(
+		calculateListClickRow({y: 100, bannerHeight: 0, visibleRows: 5}),
+		null,
+		'click far below the list',
+	);
+});
+
+test('calculateListClickRow: wide pane — banner is 4 rows (single-line content + margin)', t => {
+	// borderTop(1) + content(1) + borderBottom(1) + marginBottom(1)
+	t.is(
+		calculateListClickRow({y: 6, bannerHeight: 4, visibleRows: 5}),
+		0,
+		'first list row shifts down by 4 when banner fits on one line',
+	);
+	t.is(
+		calculateListClickRow({y: 10, bannerHeight: 4, visibleRows: 5}),
+		4,
+		'click on last visible row',
+	);
+});
+
+test('calculateListClickRow: narrow pane — banner content wraps to 2 rows, total height 5', t => {
+	// borderTop(1) + content(2) + borderBottom(1) + marginBottom(1) = 5
+	t.is(
+		calculateListClickRow({y: 7, bannerHeight: 5, visibleRows: 5}),
+		0,
+		'first list row shifts down by 5 when banner wraps once',
+	);
+});
+
+test('calculateListClickRow: very narrow pane — banner content wraps to 3 rows, total height 6', t => {
+	t.is(
+		calculateListClickRow({y: 8, bannerHeight: 6, visibleRows: 5}),
+		0,
+		'first list row shifts down by 6 when banner wraps twice',
+	);
+});
+
+test('calculateListClickRow: banner shown — clicks on banner/header chrome are rejected', t => {
+	const bannerHeight = 4;
+	for (let y = 0; y < HEADER_ROWS + bannerHeight; y++) {
+		t.is(
+			calculateListClickRow({y, bannerHeight, visibleRows: 5}),
+			null,
+			`click on chrome row y=${y}`,
+		);
+	}
+});
+
+test('calculateListClickRow: banner shown — regression for pre-STA-873 miscalculation', t => {
+	// Before the fix, handleMouse treated y=2 as "first list row" even when
+	// the banner was present, which actually maps to a banner row.
+	t.is(
+		calculateListClickRow({y: 2, bannerHeight: 4, visibleRows: 5}),
+		null,
+		'y=2 with banner must not select any list row',
 	);
 });
