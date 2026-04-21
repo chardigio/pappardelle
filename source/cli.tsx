@@ -7,7 +7,12 @@ import {homedir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import App from './app.tsx';
-import {isInTmux, sessionExists, setupPappardellLayout} from './tmux.ts';
+import {
+	cleanupOrphanedOuterSessions,
+	isInTmux,
+	sessionExists,
+	setupPappardellLayout,
+} from './tmux.ts';
 import type {PaneLayout} from './types.ts';
 import {
 	configExists,
@@ -228,6 +233,18 @@ if (!isInTmux() && cli.flags.layout) {
 let paneLayout: PaneLayout | null = null;
 
 if (isInTmux() && cli.flags.layout) {
+	// On startup, kill any leftover claude-{repo}-* / lazygit-{repo}-* sessions
+	// on the default socket from a pre-STA-860 run. tmux can't migrate sessions
+	// between servers, so we drop them; idow / Pappardelle recreates them on
+	// the inner socket on demand. Runs every startup (fast no-op once drained);
+	// the phrasing used to say "one-time migration" but the call is unconditional.
+	const killed = cleanupOrphanedOuterSessions();
+	if (killed > 0) {
+		console.error(
+			`\x1b[33mPappardelle: cleared ${killed} stale outer-socket session(s) — they'll be recreated on the inner socket.\x1b[0m`,
+		);
+	}
+
 	paneLayout = setupPappardellLayout();
 	if (!paneLayout) {
 		console.error(

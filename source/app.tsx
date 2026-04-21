@@ -380,16 +380,16 @@ export default function App({
 
 		// Migrate: seed registry from any active tmux sessions not yet tracked.
 		// This ensures a smooth transition from tmux-based to registry-based discovery.
-		getLinearIssuesFromTmux()
-			.then(tmuxKeys => {
-				if (tmuxKeys.length > 0) {
-					seedFromTmux(tmuxKeys);
-				}
-				loadSpaces();
-			})
-			.catch(() => {
-				loadSpaces();
-			});
+		try {
+			const tmuxKeys = getLinearIssuesFromTmux();
+			if (tmuxKeys.length > 0) {
+				seedFromTmux(tmuxKeys);
+			}
+		} catch {
+			// getLinearIssuesFromTmux already swallows its own errors; this
+			// catch is belt-and-suspenders in case seedFromTmux throws.
+		}
+		loadSpaces();
 
 		// Refresh every 10 seconds (Claude status updates arrive via file watcher
 		// in real-time, so polling is only needed to pick up external changes)

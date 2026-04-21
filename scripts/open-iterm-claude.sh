@@ -84,6 +84,10 @@ fi
 # Create the tmux session name based on repo and issue key
 TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
 
+# Per-issue claude/lazygit sessions live on a dedicated tmux socket so the
+# nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
+PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
+
 # The prompt is passed directly - the caller should include the skill prefix (e.g., /idow)
 # If empty, Claude will start without any prompt (resume mode)
 # In both cases, --continue is tried first to resume an existing Claude conversation
@@ -107,6 +111,12 @@ on run argv
     set claudePrompt to item 4 of argv
     set repoName to item 5 of argv
     set dspFlag to item 6 of argv
+    set tmuxSocket to item 7 of argv
+
+    -- Build the `tmux -L <socket>` prefix once. Inner sessions (claude /
+    -- lazygit) live on a dedicated socket so Pappardelle's nested viewer
+    -- pane can attach without TMUX=. See STA-860.
+    set tmuxL to "tmux -L " & tmuxSocket
 
     tell application "iTerm"
         activate
@@ -130,9 +140,9 @@ on run argv
                 -- validation here instead.
                 set nameFlag to " --name " & issueKey
                 if claudePrompt is equal to "" then
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & "\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & "\""
                 else
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & " '" & claudePrompt & "'\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & " '" & claudePrompt & "'\""
                 end if
 
                 -- Wait for Claude to start
@@ -145,9 +155,10 @@ on run argv
                 set newSession to (split vertically with default profile)
                 tell newSession
                     set name to issueKey & " - lazygit"
-                    -- Create session with shell (not lazygit directly), send lazygit command, then attach
-                    -- This ensures session persists if user quits lazygit
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && tmux new-session -d -s 'lazygit-" & repoName & "-" & issueKey & "' 2>/dev/null; tmux send-keys -t 'lazygit-" & repoName & "-" & issueKey & "' 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter 2>/dev/null; TMUX= tmux attach -t 'lazygit-" & repoName & "-" & issueKey & "'"
+                    -- Create session with shell (not lazygit directly), send lazygit command, then attach.
+                    -- All three commands target the same inner tmux socket so the attach
+                    -- doesn't need TMUX= (different socket → no nesting check).
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -d -s 'lazygit-" & repoName & "-" & issueKey & "' 2>/dev/null; " & tmuxL & " send-keys -t 'lazygit-" & repoName & "-" & issueKey & "' 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter 2>/dev/null; " & tmuxL & " attach -t 'lazygit-" & repoName & "-" & issueKey & "'"
                 end tell
             end tell
         end tell
@@ -156,7 +167,7 @@ end run
 APPLESCRIPT_END
 
 # Run the AppleScript with arguments
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG" "$PAPPARDELLE_TMUX_SOCKET"
 rm -f "$APPLESCRIPT"
 
 echo "iTerm window opened with Claude and lazygit for $ISSUE_KEY"

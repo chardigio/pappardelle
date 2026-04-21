@@ -38,6 +38,23 @@ export {
 
 const log = createLogger('tmux');
 
+// Dedicated tmux socket for per-issue claude/lazygit sessions. The root
+// `pappardelle-{repo}` session and its layout panes stay on the default
+// socket; everything the viewer panes attach to lives here. Routing inner
+// sessions onto a distinct socket lets the nested attach succeed without
+// `TMUX=`, which in turn lets `$TMUX` propagate correctly to subprocesses
+// like Claude Code's Agent Teams feature. Must match PAPPARDELLE_TMUX_SOCKET
+// in _dev/scripts/dow/*.sh — the two sides have to agree.
+export const INNER_SOCKET = 'pappardelle_inner';
+
+/**
+ * Prefix `['-L', INNER_SOCKET, ...]` onto a tmux argv. Every inner-session
+ * call site must route through this helper so the -L flag can't be forgotten.
+ */
+export function innerTmuxArgs(args: readonly string[]): string[] {
+	return ['-L', INNER_SOCKET, ...args];
+}
+
 // Session naming convention (matches idow)
 // Sessions are repo-qualified: claude-{repoName}-{key}, e.g. claude-pappa-chex-CHEX-313
 
@@ -86,7 +103,9 @@ export function isInTmux(): boolean {
 }
 
 /**
- * Check if a tmux session exists
+ * Check if a tmux session exists on the default socket. Used for the outer
+ * `pappardelle-{repo}` session. Do not call for per-issue claude/lazygit
+ * sessions — those live on the inner socket; use `innerSessionExists` instead.
  */
 export function sessionExists(sessionName: string): boolean {
 	try {
@@ -96,6 +115,27 @@ export function sessionExists(sessionName: string): boolean {
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Check if a per-issue tmux session exists on the inner socket
+ * (`tmux -L pappardelle_inner`).
+ */
+export function innerSessionExists(sessionName: string): boolean {
+	try {
+		const result = spawnSync(
+			'tmux',
+			innerTmuxArgs(['has-session', '-t', sessionName]),
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+				stdio: ['pipe', 'pipe', 'pipe'],
+			},
+		);
+		return !result.error && result.status === 0;
 	} catch {
 		return false;
 	}
@@ -153,7 +193,8 @@ export function buildClaudeResumeCommand(
 }
 
 /**
- * Check if sessions exist for a space (created by idow)
+ * Check if sessions exist for a space (created by idow).
+ * Queries the inner socket since per-issue sessions live there.
  */
 export function spaceHasSessions(issueKey: string): {
 	claude: boolean;
@@ -161,23 +202,28 @@ export function spaceHasSessions(issueKey: string): {
 } {
 	const names = getSessionNames(issueKey);
 	return {
-		claude: sessionExists(names.claude),
-		lazygit: sessionExists(names.lazygit),
+		claude: innerSessionExists(names.claude),
+		lazygit: innerSessionExists(names.lazygit),
 	};
 }
 
 /**
  * List all claude sessions for this repo (claude-{repoName}-*)
+ * on the inner socket.
  */
 export function listClaudeSessions(): string[] {
 	try {
 		const prefix = getSessionPrefix('claude');
-		const output = execSync('tmux list-sessions -F "#{session_name}"', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const result = spawnSync(
+			'tmux',
+			innerTmuxArgs(['list-sessions', '-F', '#{session_name}']),
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) {
+			return [];
+		}
 
-		return output
+		return result.stdout
 			.trim()
 			.split('\n')
 			.filter(name => name.startsWith(prefix));
@@ -189,15 +235,25 @@ export function listClaudeSessions(): string[] {
 /**
  * Get issue keys from active claude tmux sessions for this repo.
  * Extracts issue keys by removing the repo-qualified prefix from session names.
+ * Queries the inner socket.
+ *
+ * Synchronous for consistency with `listClaudeSessions` — wrapping `spawnSync`
+ * in a Promise executor only gives the function async *shape*, not async
+ * *behavior* (the executor runs synchronously and still blocks the event
+ * loop).
  */
-export async function getLinearIssuesFromTmux(): Promise<string[]> {
+export function getLinearIssuesFromTmux(): string[] {
 	try {
 		const prefix = getSessionPrefix('claude');
-		const {stdout} = await execAsync(
-			'tmux list-sessions -F "#{session_name}"',
+		const result = spawnSync(
+			'tmux',
+			innerTmuxArgs(['list-sessions', '-F', '#{session_name}']),
 			{encoding: 'utf-8', timeout: 5000},
 		);
-		return stdout
+		if (result.error || result.status !== 0) {
+			return [];
+		}
+		return result.stdout
 			.trim()
 			.split('\n')
 			.filter(name => name.startsWith(prefix))
@@ -229,15 +285,20 @@ function getPaneTty(paneId: string): string | null {
 }
 
 /**
- * Check if a tmux client exists on a given TTY
- * When we run `tmux attach` in a pane, it creates a nested client on that pane's TTY
+ * Check if a tmux client exists on a given TTY.
+ * Nested clients created by the viewer-pane attach live on the inner socket,
+ * so list-clients must target that socket.
  */
 function clientExistsOnTty(tty: string): boolean {
 	try {
-		const result = spawnSync('tmux', ['list-clients', '-F', '#{client_tty}'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const result = spawnSync(
+			'tmux',
+			innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+			},
+		);
 		if (result.error || result.status !== 0) {
 			return false;
 		}
@@ -249,8 +310,11 @@ function clientExistsOnTty(tty: string): boolean {
 }
 
 /**
- * Switch a tmux client to a different session
- * This is instant and invisible - much faster than detach + attach via send-keys
+ * Switch a tmux client to a different session.
+ * The client lives on the inner socket (it was created by our `tmux -L
+ * pappardelle_inner attach …`), and switch-client can only move a client
+ * between sessions on the *same* socket — which is fine because every
+ * per-issue session also lives on the inner socket.
  */
 function switchClientToSession(
 	clientTty: string,
@@ -259,7 +323,7 @@ function switchClientToSession(
 	try {
 		const result = spawnSync(
 			'tmux',
-			['switch-client', '-c', clientTty, '-t', sessionName],
+			innerTmuxArgs(['switch-client', '-c', clientTty, '-t', sessionName]),
 			{encoding: 'utf-8', timeout: 5000},
 		);
 		if (result.error || result.status !== 0) {
@@ -280,18 +344,16 @@ function switchClientToSession(
 }
 
 /**
- * Kill a tmux session by name
- * Returns true if session was killed or didn't exist
+ * Kill a tmux session by name on the default socket.
+ * Used for the outer `pappardelle-{repo}` session on Pappardelle quit.
  */
 export function killSession(sessionName: string): boolean {
 	try {
-		// Check if session exists first
 		if (!sessionExists(sessionName)) {
 			log.debug(`Session ${sessionName} does not exist, nothing to kill`);
 			return true;
 		}
 
-		// Kill the session
 		execSync(`tmux kill-session -t "${sessionName}"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
@@ -305,6 +367,116 @@ export function killSession(sessionName: string): boolean {
 			err instanceof Error ? err : undefined,
 		);
 		return false;
+	}
+}
+
+/**
+ * Kill a tmux session by name on the inner socket. Used for per-issue
+ * claude/lazygit sessions.
+ */
+export function innerKillSession(sessionName: string): boolean {
+	try {
+		if (!innerSessionExists(sessionName)) {
+			log.debug(`Inner session ${sessionName} does not exist, nothing to kill`);
+			return true;
+		}
+
+		const result = spawnSync(
+			'tmux',
+			innerTmuxArgs(['kill-session', '-t', sessionName]),
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+				stdio: ['pipe', 'pipe', 'pipe'],
+			},
+		);
+		if (result.error || result.status !== 0) {
+			log.error(
+				`Failed to kill inner session ${sessionName}: ${result.stderr}`,
+			);
+			return false;
+		}
+		log.info(`Killed inner session: ${sessionName}`);
+		return true;
+	} catch (err) {
+		log.error(
+			`Failed to kill inner session ${sessionName}`,
+			err instanceof Error ? err : undefined,
+		);
+		return false;
+	}
+}
+
+/**
+ * Minimal runner surface for `cleanupOrphanedOuterSessions`. Exposed so tests
+ * can inject a fake tmux without spawning real processes. The default runner
+ * shells out via `spawnSync`.
+ */
+export type OuterTmuxRunner = (args: readonly string[]) => {
+	error?: Error;
+	status: number | null;
+	stdout: string;
+};
+
+const defaultOuterTmuxRunner: OuterTmuxRunner = args => {
+	const r = spawnSync('tmux', [...args], {
+		encoding: 'utf-8',
+		timeout: 5000,
+		stdio: ['pipe', 'pipe', 'pipe'],
+	});
+	return {
+		error: r.error,
+		status: r.status,
+		stdout: r.stdout ?? '',
+	};
+};
+
+/**
+ * Kill any leftover `claude-{repo}-*` and `lazygit-{repo}-*` sessions still
+ * living on the default tmux socket from a pre-STA-860 Pappardelle run. They
+ * can't be migrated (tmux doesn't move sessions between servers), so we drop
+ * them and let idow/Pappardelle recreate them on the inner socket.
+ *
+ * Intentionally targets the default socket (no `-L pappardelle_inner`) and
+ * uses bare `kill-session` — this is the one inner-session-name operation
+ * that must not route through `innerKillSession`. See STA-860.
+ *
+ * Returns the number of sessions killed.
+ *
+ * `runner` is exposed for tests only; production always uses the spawnSync
+ * default.
+ */
+export function cleanupOrphanedOuterSessions(
+	repoName?: string,
+	runner: OuterTmuxRunner = defaultOuterTmuxRunner,
+): number {
+	try {
+		const claudePrefix = getSessionPrefix('claude', repoName);
+		const lazygitPrefix = getSessionPrefix('lazygit', repoName);
+
+		const result = runner(['list-sessions', '-F', '#{session_name}']);
+		if (result.error || result.status !== 0) {
+			return 0;
+		}
+
+		const orphans = result.stdout
+			.trim()
+			.split('\n')
+			.filter(
+				name => name.startsWith(claudePrefix) || name.startsWith(lazygitPrefix),
+			);
+
+		let killed = 0;
+		for (const name of orphans) {
+			const k = runner(['kill-session', '-t', name]);
+			if (!k.error && k.status === 0) {
+				killed++;
+				log.info(`Killed orphaned outer-socket session: ${name}`);
+			}
+		}
+		return killed;
+	} catch {
+		return 0;
 	}
 }
 
@@ -396,8 +568,8 @@ export function deleteQaSimulator(issueKey: string): boolean {
  */
 export function killSpaceSessions(issueKey: string): boolean {
 	const sessions = getSessionNames(issueKey);
-	const claudeKilled = killSession(sessions.claude);
-	const lazygitKilled = killSession(sessions.lazygit);
+	const claudeKilled = innerKillSession(sessions.claude);
+	const lazygitKilled = innerKillSession(sessions.lazygit);
 
 	// Delete the QA simulator (runs in background, doesn't block)
 	deleteQaSimulator(issueKey);
@@ -832,8 +1004,8 @@ export function setupPappardellLayout(): {
  * client already exists in the viewer pane. Falls back to send-keys attach for
  * the initial attachment.
  *
- * This avoids the visible "TMUX= tmux attach -t session" command being typed
- * into the pane, which was jarring when rapidly navigating through spaces.
+ * This avoids the visible attach command being typed into the pane, which was
+ * jarring when rapidly navigating through spaces.
  */
 export function attachToSpace(
 	claudeViewerPaneId: string,
@@ -867,8 +1039,8 @@ export function attachToSpace(
 		ensureLazygitSession(issueKey);
 	}
 
-	const hasClaudeSession = sessionExists(sessions.claude);
-	const hasLazygitSession = sessionExists(sessions.lazygit);
+	const hasClaudeSession = innerSessionExists(sessions.claude);
+	const hasLazygitSession = innerSessionExists(sessions.lazygit);
 
 	// Cache pane TTYs if we haven't yet (needed for switch-client)
 	if (!claudeViewerTty) {
@@ -892,11 +1064,15 @@ export function attachToSpace(
 					`Switched claude viewer to ${sessions.claude} via switch-client`,
 				);
 			} else {
-				// Slow path: need to create a new nested client via send-keys
-				// This happens on first attach or if the client was lost
+				// Slow path: create a new nested client via send-keys.
+				// The per-issue session lives on the inner socket, so attach via
+				// `tmux -L pappardelle_inner attach`. A distinct socket means a
+				// distinct tmux server, so tmux's nesting check can't fire and we
+				// don't need to clobber $TMUX — which is the whole point of STA-860
+				// (lets $TMUX propagate to Claude Code's Agent Teams feature).
 				sendToPane(
 					claudeViewerPaneId,
-					`TMUX= tmux attach -t "${sessions.claude}"`,
+					`tmux -L ${INNER_SOCKET} attach -t "${sessions.claude}"`,
 				);
 				claudeViewerHasClient = true;
 				log.info(`Attached claude viewer to ${sessions.claude} via send-keys`);
@@ -927,10 +1103,10 @@ export function attachToSpace(
 						`Switched lazygit viewer to ${sessions.lazygit} via switch-client`,
 					);
 				} else {
-					// Slow path: create a new nested client
+					// Slow path: create a new nested client on the inner socket.
 					sendToPane(
 						lazygitViewerPaneId,
-						`TMUX= tmux attach -t "${sessions.lazygit}"`,
+						`tmux -L ${INNER_SOCKET} attach -t "${sessions.lazygit}"`,
 					);
 					lazygitViewerHasClient = true;
 					log.info(
@@ -1509,12 +1685,11 @@ export function ensureClaudeSession(
 ): boolean {
 	const sessionName = getSessionNames(issueKey).claude;
 
-	// Already exists?
-	if (sessionExists(sessionName)) {
+	// Already exists on the inner socket?
+	if (innerSessionExists(sessionName)) {
 		return true;
 	}
 
-	// Get worktree path
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
 		log.warn(`Cannot create claude session for ${issueKey}: no worktree found`);
@@ -1525,10 +1700,16 @@ export function ensureClaudeSession(
 	pretrustDirectoryForClaude(worktreePath);
 
 	try {
-		// Create detached tmux session with a shell
 		const result = spawnSync(
 			'tmux',
-			['new-session', '-d', '-s', sessionName, '-c', worktreePath],
+			innerTmuxArgs([
+				'new-session',
+				'-d',
+				'-s',
+				sessionName,
+				'-c',
+				worktreePath,
+			]),
 			{encoding: 'utf-8', timeout: 10000},
 		);
 
@@ -1537,15 +1718,18 @@ export function ensureClaudeSession(
 			return false;
 		}
 
-		// Now send claude command to the session.
-		// Try --continue first to resume an existing conversation in this worktree,
-		// falling back to bare claude if no prior session exists.
+		// Send claude command to the session. Try --continue first to resume an
+		// existing conversation, falling back to bare claude if none exists.
 		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions);
 
-		spawnSync('tmux', ['send-keys', '-t', sessionName, fullCmd, 'Enter'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		spawnSync(
+			'tmux',
+			innerTmuxArgs(['send-keys', '-t', sessionName, fullCmd, 'Enter']),
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+			},
+		);
 
 		log.info(`Created claude session: ${sessionName}`);
 		return true;
@@ -1571,12 +1755,11 @@ export function ensureLazygitSession(
 ): boolean {
 	const sessionName = getSessionNames(issueKey).lazygit;
 
-	// Already exists?
-	if (sessionExists(sessionName)) {
+	// Already exists on the inner socket?
+	if (innerSessionExists(sessionName)) {
 		return true;
 	}
 
-	// Get worktree path
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
 		log.warn(
@@ -1586,11 +1769,18 @@ export function ensureLazygitSession(
 	}
 
 	try {
-		// Create detached tmux session with a shell (not running lazygit directly)
-		// This ensures the session persists even if lazygit exits
+		// Detached shell-based session (not running lazygit directly) so it
+		// persists even if lazygit exits.
 		const result = spawnSync(
 			'tmux',
-			['new-session', '-d', '-s', sessionName, '-c', worktreePath],
+			innerTmuxArgs([
+				'new-session',
+				'-d',
+				'-s',
+				sessionName,
+				'-c',
+				worktreePath,
+			]),
 			{encoding: 'utf-8', timeout: 10000},
 		);
 
@@ -1599,12 +1789,18 @@ export function ensureLazygitSession(
 			return false;
 		}
 
-		// Now send lazygit command to the session
-		// GIT_OPTIONAL_LOCKS=0 prevents git from acquiring locks for read-only operations (like status),
-		// avoiding lock contention when other tools (e.g. Claude Code) are running git concurrently
+		// GIT_OPTIONAL_LOCKS=0 prevents git from acquiring locks for read-only
+		// operations like `git status`, avoiding lock contention when other
+		// tools (e.g. Claude Code) are running git concurrently.
 		spawnSync(
 			'tmux',
-			['send-keys', '-t', sessionName, 'GIT_OPTIONAL_LOCKS=0 lazygit', 'Enter'],
+			innerTmuxArgs([
+				'send-keys',
+				'-t',
+				sessionName,
+				'GIT_OPTIONAL_LOCKS=0 lazygit',
+				'Enter',
+			]),
 			{
 				encoding: 'utf-8',
 				timeout: 5000,

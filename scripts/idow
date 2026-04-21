@@ -656,8 +656,12 @@ if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     CLAUDE_SESSION_ARGS+=(--skip-permissions)
 fi
 CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
+# Per-issue claude/lazygit sessions live on a dedicated tmux socket so the
+# Pappardelle viewer pane can attach without TMUX=. See STA-860.
+PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
+export PAPPARDELLE_TMUX_SOCKET
 "$SCRIPT_DIR/start-claude-session.sh" "${CLAUDE_SESSION_ARGS[@]}" || print_warning "Failed to start Claude tmux session"
-if tmux has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
     print_success "Claude session: $CLAUDE_SESSION_NAME"
 else
     print_warning "Claude session not created (is tmux running?)"
@@ -843,7 +847,7 @@ if [[ -n "$PR_URL" ]]; then
 fi
 echo "Worktree:  $WORKTREE_PATH"
 echo ""
-if tmux has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
     if [[ "$RESUME_MODE" == true ]]; then
         echo "Claude session ready (resume mode)."
     elif [[ -n "$INIT_CMD" ]]; then

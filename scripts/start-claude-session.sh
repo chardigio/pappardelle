@@ -72,6 +72,13 @@ fi
 CLAUDE_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
 LAZYGIT_SESSION="lazygit-${REPO_NAME}-${ISSUE_KEY}"
 
+# Per-issue claude/lazygit sessions live on a dedicated tmux socket so the
+# nested viewer pane in Pappardelle can attach without `TMUX=` (which would
+# otherwise defeat $TMUX propagation to subprocesses like Claude Code's
+# Agent Teams feature). See STA-860 for the full rationale and the matching
+# INNER_SOCKET constant in pappardelle/source/tmux.ts.
+PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
+
 # Pre-trust the worktree directory for Claude Code
 # Claude Code stores workspace trust in ~/.claude.json under projects.<path>.hasTrustDialogAccepted
 # Without this, every new worktree triggers a "do you trust this folder?" prompt
@@ -96,8 +103,8 @@ if not projects[path].get('hasTrustDialogAccepted'):
 " "$WORKTREE_PATH" 2>/dev/null || true
 
 # Ensure Claude tmux session
-if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    tmux new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
     if [[ "$NO_CLAUDE" != true ]]; then
         # Build the Claude command with optional --dangerously-skip-permissions
         # and --name set to the issue key so the session is findable via /resume
@@ -116,14 +123,14 @@ if ! tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
         fi
         # Use printf %q to safely quote the argument for the shell inside tmux
         SAFE_ARG=$(printf '%q' "$CLAUDE_ARG")
-        tmux send-keys -t "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}" Enter
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}" Enter
     fi
 fi
 
 # Ensure lazygit tmux session
-if ! tmux has-session -t "$LAZYGIT_SESSION" 2>/dev/null; then
-    tmux new-session -d -s "$LAZYGIT_SESSION" -c "$WORKTREE_PATH"
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$LAZYGIT_SESSION" 2>/dev/null; then
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LAZYGIT_SESSION" -c "$WORKTREE_PATH"
     if [[ "$NO_CLAUDE" != true ]]; then
-        tmux send-keys -t "$LAZYGIT_SESSION" 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$LAZYGIT_SESSION" 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter
     fi
 fi

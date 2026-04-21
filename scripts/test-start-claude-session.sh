@@ -19,11 +19,18 @@ RESET='\033[0m'
 TEST_PREFIX="test-$$"
 TEST_REPO="testrepo-$$"
 
+# Sessions created by start-claude-session.sh live on the Pappardelle inner
+# tmux socket (see STA-860). Use a unique per-run socket name so parallel test
+# runs don't interfere with each other or with a developer's live session.
+PAPPARDELLE_TMUX_SOCKET="pappardelle_inner_test_$$"
+export PAPPARDELLE_TMUX_SOCKET
+
 cleanup() {
-    # Kill all test sessions matching our unique repo name
-    tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "$TEST_REPO" | while read -r session; do
-        tmux kill-session -t "$session" 2>/dev/null || true
-    done
+    # Kill the per-run inner tmux server wholesale. Each test run uses a unique
+    # socket (pappardelle_inner_test_$$), so killing the server cleans up every
+    # session created during the run without touching the developer's real
+    # pappardelle_inner server.
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
         rm -rf "$TMPDIR_ROOT"
     fi
@@ -57,7 +64,7 @@ CLAUDE_SESSION="claude-${TEST_REPO}-${ISSUE_KEY}"
 LAZYGIT_SESSION="lazygit-${TEST_REPO}-${ISSUE_KEY}"
 
 # Precondition: no session
-if tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     echo -e "  ${RED}FAIL${RESET} precondition: session should not exist"
     FAIL=$((FAIL + 1))
 else
@@ -71,7 +78,7 @@ EXIT_CODE=$?
 
 assert_eq "exits 0" "0" "$EXIT_CODE"
 
-if tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} claude session created with repo-qualified name"
     PASS=$((PASS + 1))
 else
@@ -80,7 +87,7 @@ else
 fi
 
 # Verify session working directory (resolve symlinks for macOS /var → /private/var)
-SESSION_PATH=$(tmux display-message -t "$CLAUDE_SESSION" -p '#{pane_current_path}' 2>/dev/null)
+SESSION_PATH=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -t "$CLAUDE_SESSION" -p '#{pane_current_path}' 2>/dev/null)
 RESOLVED_WORKTREE=$(cd "$WORKTREE_PATH" && pwd -P)
 RESOLVED_SESSION=$(cd "$SESSION_PATH" && pwd -P)
 assert_eq "session has correct working directory" "$RESOLVED_WORKTREE" "$RESOLVED_SESSION"
@@ -94,7 +101,7 @@ EXIT_CODE=$?
 
 assert_eq "exits 0 when session already exists" "0" "$EXIT_CODE"
 
-if tmux has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} session still exists (idempotent)"
     PASS=$((PASS + 1))
 else
@@ -102,8 +109,8 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-tmux kill-session -t "$CLAUDE_SESSION" 2>/dev/null || true
-tmux kill-session -t "$LAZYGIT_SESSION" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$CLAUDE_SESSION" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$LAZYGIT_SESSION" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -115,7 +122,7 @@ mkdir -p "$WORKTREE_PATH2"
 "$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY2" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH2" --no-claude 2>/dev/null
 
 LAZYGIT_SESSION2="lazygit-${TEST_REPO}-${ISSUE_KEY2}"
-if tmux has-session -t "$LAZYGIT_SESSION2" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$LAZYGIT_SESSION2" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} lazygit session created with repo-qualified name"
     PASS=$((PASS + 1))
 else
@@ -123,8 +130,8 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-tmux kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY2}" 2>/dev/null || true
-tmux kill-session -t "$LAZYGIT_SESSION2" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY2}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$LAZYGIT_SESSION2" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -154,7 +161,7 @@ sleep 0.3
 
 # Capture the full scrollback to see the command that was typed
 # -J joins wrapped lines so long commands aren't split across lines
-PANE_CONTENT=$(tmux capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY3}" -p -S - 2>/dev/null || echo "")
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY3}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY3"; then
     echo -e "  ${GREEN}PASS${RESET} issue key included in claude command"
     PASS=$((PASS + 1))
@@ -165,8 +172,8 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-tmux kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
-tmux kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -179,7 +186,7 @@ mkdir -p "$WORKTREE_PATH4"
 
 sleep 0.3
 
-PANE_CONTENT=$(tmux capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY4}" -p -S - 2>/dev/null || echo "")
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY4}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "/test-skill" && echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY4"; then
     echo -e "  ${GREEN}PASS${RESET} init cmd + issue key in claude command"
     PASS=$((PASS + 1))
@@ -190,8 +197,8 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-tmux kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
-tmux kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -207,7 +214,7 @@ mkdir -p "$WORKTREE_PATH5"
 # Wait for claude --continue to fail and the cleanup to execute
 sleep 3
 
-PANE_CONTENT=$(tmux capture-pane -t "claude-${TEST_REPO}-${ISSUE_KEY5}" -p -S - 2>/dev/null || echo "")
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -t "claude-${TEST_REPO}-${ISSUE_KEY5}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "No conversation found to continue"; then
     echo -e "  ${RED}FAIL${RESET} error message should be suppressed"
     echo "    Pane contains: $(echo "$PANE_CONTENT" | grep 'No conversation')"
@@ -217,8 +224,40 @@ else
     PASS=$((PASS + 1))
 fi
 
-tmux kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
-tmux kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: sessions land on the inner socket, not the default${RESET}"
+ISSUE_KEY6="${TEST_PREFIX}-600"
+WORKTREE_PATH6="$TMPDIR_ROOT/worktree6"
+mkdir -p "$WORKTREE_PATH6"
+
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY6" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH6" --no-claude 2>/dev/null
+
+# Must exist on the inner socket
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "claude-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
+    echo -e "  ${GREEN}PASS${RESET} claude session is on the inner socket"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} claude session is on the inner socket"
+    FAIL=$((FAIL + 1))
+fi
+
+# Must NOT exist on the default socket (STA-860: the whole point of the fix
+# is that inner sessions move off the default socket so the viewer-pane
+# attach doesn't collide with tmux's nesting check).
+if tmux has-session -t "claude-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
+    echo -e "  ${RED}FAIL${RESET} claude session leaked onto the default socket"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${RESET} claude session did not leak onto the default socket"
+    PASS=$((PASS + 1))
+fi
+
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
 
 # ==========================================================================
 
