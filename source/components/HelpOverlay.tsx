@@ -1,11 +1,13 @@
 import React from 'react';
 import {Box, Text, useInput} from 'ink';
 import type {KeybindingConfig} from '../config.ts';
+import {formatVersionLine} from '../help-version-line.ts';
 
 interface Props {
 	onClose: () => void;
 	customKeybindings?: KeybindingConfig[];
 	commitSha: string;
+	installedVersion?: string | null;
 }
 
 /** Default descriptions for overridable keys. */
@@ -33,6 +35,7 @@ export default function HelpOverlay({
 	onClose,
 	customKeybindings,
 	commitSha,
+	installedVersion,
 }: Props) {
 	useInput((_input, key) => {
 		if (key.escape || _input === '?' || key.return) {
@@ -98,7 +101,7 @@ export default function HelpOverlay({
 				<Text bold color="cyan">
 					Keyboard Shortcuts
 				</Text>
-				<Text dimColor>pappardelle ({commitSha})</Text>
+				<Text dimColor>{formatVersionLine(installedVersion, commitSha)}</Text>
 			</Box>
 
 			{fixedShortcuts.map(s => (

@@ -98,6 +98,7 @@ import type {SpaceData, PaneLayout} from './types.ts';
 interface AppProps {
 	paneLayout: PaneLayout | null;
 	commitSha: string;
+	installedVersion: string | null;
 	updateCheckPromise?: Promise<UpdateInfo | null>;
 }
 
@@ -106,6 +107,7 @@ log.info('Pappardelle starting');
 export default function App({
 	paneLayout: initialPaneLayout,
 	commitSha,
+	installedVersion,
 	updateCheckPromise,
 }: AppProps) {
 	const {stdout} = useStdout();
@@ -1610,6 +1612,7 @@ export default function App({
 						onClose={() => setShowHelp(false)}
 						customKeybindings={keybindings}
 						commitSha={commitSha}
+						installedVersion={installedVersion}
 					/>
 				) : showErrorDialog ? (
 					<ErrorDialog onClose={() => setShowErrorDialog(false)} />
