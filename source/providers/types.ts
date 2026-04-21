@@ -30,6 +30,31 @@ export interface PRInfo {
 }
 
 /**
+ * Coarse-grained CI/CD pipeline state for the rail icon column.
+ * - passing: all checks completed successfully
+ * - failing: all checks completed, at least one non-success
+ * - progressing_clean: one or more checks still running, nothing failed yet
+ * - progressing_dirty: one or more checks still running, at least one already failed
+ */
+export type PipelineStatus =
+	| 'passing'
+	| 'failing'
+	| 'progressing_clean'
+	| 'progressing_dirty';
+
+/**
+ * Per-row data fetched from the VCS host for the ticket rail's status column.
+ * `pipeline` is `null` when the branch has no open PR/MR (or when fetching
+ * failed); in that case the rail should hide both the pipeline icon and the
+ * comment icon even if `unresolvedCommentCount` is non-zero.
+ */
+export interface RailStatus {
+	pipeline: PipelineStatus | null;
+	unresolvedCommentCount: number;
+	prNumber?: number;
+}
+
+/**
  * Issue tracker provider interface (Linear, Jira, etc.)
  */
 export interface IssueTrackerProvider {
@@ -74,4 +99,13 @@ export interface VcsHostProvider {
 
 	/** Build the web URL for a PR/MR */
 	buildPRUrl(prNumber: number): string;
+
+	/**
+	 * Fetch the rail-status snapshot for an issue's branch:
+	 * pipeline state + unresolved PR/MR comment count. Implementations
+	 * should be resilient to "no PR", "no checks", or transient CLI
+	 * failures and return `{pipeline: null, unresolvedCommentCount: 0}`
+	 * in those cases.
+	 */
+	getRailStatus(issueKey: string): Promise<RailStatus>;
 }

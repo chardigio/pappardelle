@@ -7,6 +7,7 @@ import {
 	truncateTitle,
 	renderListRow,
 	renderListView,
+	railPrefixWidth,
 	LIST_CHROME_ROWS,
 	ROW_FIXED_OVERHEAD,
 } from './list-view-sizing.ts';
@@ -854,4 +855,209 @@ test('STA-460: stale height affects visible item count', t => {
 	t.is(staleWindow.visibleCount, 10);
 	// Correct: 6 items visible with scrolling
 	t.is(correctWindow.visibleCount, 6);
+});
+
+// ============================================================================
+// Rail icons: pipeline + unresolved comment count
+// ============================================================================
+
+test('railPrefixWidth: no icons → 0', t => {
+	t.is(railPrefixWidth(), 0);
+	t.is(railPrefixWidth({}), 0);
+	t.is(railPrefixWidth({pipelineIcon: '', commentCount: 0}), 0);
+});
+
+test('railPrefixWidth: single-cell pipeline icon → 2 (icon + trailing space)', t => {
+	t.is(railPrefixWidth({pipelineIcon: '✓'}), 2);
+	t.is(railPrefixWidth({pipelineIcon: '✗'}), 2);
+	t.is(railPrefixWidth({pipelineIcon: '◔'}), 2);
+});
+
+test('railPrefixWidth: two-cell pipeline icon ◐◑ → 3 (2 cells + trailing space)', t => {
+	t.is(railPrefixWidth({pipelineIcon: '◐◑'}), 3);
+});
+
+test('railPrefixWidth: single-digit comment count only → 4 (paren + 1 digit + paren + space)', t => {
+	t.is(railPrefixWidth({commentCount: 3}), 4);
+});
+
+test('railPrefixWidth: double-digit comment count only → 5', t => {
+	t.is(railPrefixWidth({commentCount: 12}), 5);
+});
+
+test('railPrefixWidth: pipeline + comment combined', t => {
+	// pipeline ✓ (2) + (1) (4) = 6
+	t.is(railPrefixWidth({pipelineIcon: '✓', commentCount: 1}), 6);
+	// pipeline ◐◑ (3) + (99) (5) = 8
+	t.is(railPrefixWidth({pipelineIcon: '◐◑', commentCount: 99}), 8);
+});
+
+// ----------------------------------------------------------------------------
+// calculateAvailableTitleWidth with rail icons
+// ----------------------------------------------------------------------------
+
+test('titleWidth w/ pipeline ✓: width 40, key STA-452 → 28', t => {
+	// 40 - 3 - 7 - 2 (pipeline prefix) = 28
+	t.is(calculateAvailableTitleWidth(40, 7, {pipelineIcon: '✓'}), 28);
+});
+
+test('titleWidth w/ ◐◑ pipeline: width 40, key STA-452 → 27', t => {
+	// 40 - 3 - 7 - 3 (pipeline prefix) = 27
+	t.is(calculateAvailableTitleWidth(40, 7, {pipelineIcon: '◐◑'}), 27);
+});
+
+test('titleWidth w/ pipeline + comments: width 40, key STA-452 → 24', t => {
+	// 40 - 3 - 7 - 2 (pipeline) - 4 (comment chunk, 1 digit) = 24
+	t.is(
+		calculateAvailableTitleWidth(40, 7, {
+			pipelineIcon: '✓',
+			commentCount: 2,
+		}),
+		24,
+	);
+});
+
+test('titleWidth clamps to 0 when icons eat all space', t => {
+	t.is(
+		calculateAvailableTitleWidth(10, 7, {
+			pipelineIcon: '◐◑',
+			commentCount: 9,
+		}),
+		0,
+	);
+});
+
+// ----------------------------------------------------------------------------
+// renderListRow with rail icons
+// ----------------------------------------------------------------------------
+
+test('renderListRow: passing pipeline, no comments', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+	});
+	t.is(row, '· STA-452 Fix the bug ✓');
+});
+
+test('renderListRow: failing pipeline, no comments', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✗',
+	});
+	t.is(row, '· STA-452 Fix the bug ✗');
+});
+
+test('renderListRow: progressing_clean, no comments', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '◔',
+	});
+	t.is(row, '· STA-452 Fix the bug ◔');
+});
+
+test('renderListRow: progressing_dirty ◐◑, no comments', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '◐◑',
+	});
+	t.is(row, '· STA-452 Fix the bug ◐◑');
+});
+
+test('renderListRow: comments only (e.g. no checks but review threads) → no pipeline, (count) shown', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		commentCount: 4,
+	});
+	t.is(row, '· STA-452 Fix the bug (4)');
+});
+
+test('renderListRow: pipeline + comments (comments first, pipeline at far right)', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+		commentCount: 2,
+	});
+	t.is(row, '· STA-452 Fix the bug (2) ✓');
+});
+
+test('renderListRow: zero comment count hides comment chunk', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+		commentCount: 0,
+	});
+	t.is(row, '· STA-452 Fix the bug ✓');
+});
+
+test('renderListRow: icons truncate title correctly', t => {
+	const row = renderListRow(
+		'STA-400',
+		'·',
+		'This is a very long title that will be truncated',
+		30,
+		{pipelineIcon: '✓'},
+	);
+	// available = 30 - 3 - 7 - 2 = 18 chars, title truncated to 17 + ellipsis,
+	// then " ✓" appended on the right
+	t.is(row, '· STA-400 This is a very lo… ✓');
+});
+
+// ----------------------------------------------------------------------------
+// renderListView ASCII: every pipeline + comment combination
+// ----------------------------------------------------------------------------
+
+test('list view: every pipeline state + a comment count row', t => {
+	const items = [
+		{
+			issueKey: 'STA-100',
+			icon: '·',
+			title: 'Passing',
+			pipelineIcon: '✓',
+		},
+		{
+			issueKey: 'STA-101',
+			icon: '·',
+			title: 'Failing',
+			pipelineIcon: '✗',
+		},
+		{
+			issueKey: 'STA-102',
+			icon: '·',
+			title: 'In progress',
+			pipelineIcon: '◔',
+		},
+		{
+			issueKey: 'STA-103',
+			icon: '·',
+			title: 'In progress w/ fail',
+			pipelineIcon: '◐◑',
+		},
+		{
+			issueKey: 'STA-104',
+			icon: '·',
+			title: 'Passing w/ 3 comments',
+			pipelineIcon: '✓',
+			commentCount: 3,
+		},
+		{
+			issueKey: 'STA-105',
+			icon: '·',
+			title: 'No PR yet',
+		},
+	];
+	const view = renderListView(items, 0, 20, 60);
+
+	const lines = view.split('\n');
+	t.is(lines.length, 6, 'All six rows rendered');
+	t.true(lines[0]!.endsWith(' ✓'), `passing row trails in ✓: ${lines[0]}`);
+	t.true(lines[1]!.endsWith(' ✗'), `failing row trails in ✗: ${lines[1]}`);
+	t.true(
+		lines[2]!.endsWith(' ◔'),
+		`progressing_clean row trails in ◔: ${lines[2]}`,
+	);
+	t.true(
+		lines[3]!.endsWith(' ◐◑'),
+		`progressing_dirty row trails in ◐◑: ${lines[3]}`,
+	);
+	t.true(
+		lines[4]!.endsWith(' (3) ✓'),
+		`comments row trails in (3) ✓: ${lines[4]}`,
+	);
+	t.false(
+		lines[5]!.includes('✓') || lines[5]!.includes('('),
+		`no-PR row has no icons: ${lines[5]}`,
+	);
 });

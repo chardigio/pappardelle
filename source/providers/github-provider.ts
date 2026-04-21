@@ -1,9 +1,12 @@
 // GitHub VCS host provider — wraps gh CLI
-import {execFileSync} from 'node:child_process';
+import {execFile, execFileSync} from 'node:child_process';
+import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
-import type {PRInfo, VcsHostProvider} from './types.ts';
+import {classifyPipeline, type CheckContext} from '../rail-status.ts';
+import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
 
 const log = createLogger('github-provider');
+const execFileAsync = promisify(execFile);
 
 export class GitHubProvider implements VcsHostProvider {
 	readonly name = 'github';
@@ -84,5 +87,134 @@ export class GitHubProvider implements VcsHostProvider {
 
 		// Fallback — callers typically use the full URL from checkIssueHasPRWithCommits
 		return `https://github.com/pull/${prNumber}`;
+	}
+
+	async getRailStatus(issueKey: string): Promise<RailStatus> {
+		const empty: RailStatus = {pipeline: null, unresolvedCommentCount: 0};
+		const slug = this.getRepoSlug();
+		if (!slug) return empty;
+
+		const [owner, name] = slug.split('/');
+		if (!owner || !name) return empty;
+
+		try {
+			const query = `
+				query($owner: String!, $name: String!, $branch: String!) {
+					repository(owner: $owner, name: $name) {
+						pullRequests(headRefName: $branch, first: 1, states: OPEN) {
+							nodes {
+								number
+								commits(last: 1) {
+									nodes {
+										commit {
+											statusCheckRollup {
+												contexts(first: 100) {
+													nodes {
+														__typename
+														... on CheckRun {
+															status
+															conclusion
+														}
+														... on StatusContext {
+															state
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+								reviewThreads(first: 100) {
+									nodes {
+										isResolved
+									}
+								}
+							}
+						}
+					}
+				}
+			`;
+
+			// Async exec — execFileSync would block the Ink event loop for the
+			// entire duration of the gh call (~500ms-1s), and Promise.all over N
+			// spaces would make initial pappardelle startup feel frozen.
+			const {stdout} = await execFileAsync(
+				'gh',
+				[
+					'api',
+					'graphql',
+					'-F',
+					`owner=${owner}`,
+					'-F',
+					`name=${name}`,
+					'-F',
+					`branch=${issueKey}`,
+					'-f',
+					`query=${query}`,
+				],
+				{encoding: 'utf-8', timeout: 15_000},
+			);
+
+			const parsed = JSON.parse(stdout) as {
+				data?: {
+					repository?: {
+						pullRequests?: {
+							nodes?: Array<{
+								number?: number;
+								commits?: {
+									nodes?: Array<{
+										commit?: {
+											statusCheckRollup?: {
+												contexts?: {
+													nodes?: Array<{
+														__typename?: string;
+														status?: string;
+														conclusion?: string | null;
+														state?: string;
+													}>;
+												};
+											} | null;
+										};
+									}>;
+								};
+								reviewThreads?: {
+									nodes?: Array<{isResolved?: boolean}>;
+								};
+							}>;
+						};
+					};
+				};
+			};
+
+			const pr = parsed.data?.repository?.pullRequests?.nodes?.[0];
+			if (!pr) return empty;
+
+			const contextNodes =
+				pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ??
+				[];
+			const contexts: CheckContext[] = contextNodes.map(node => ({
+				status: node.status,
+				conclusion: node.conclusion ?? undefined,
+				state: node.state,
+			}));
+			const pipeline = classifyPipeline(contexts);
+
+			const threadNodes = pr.reviewThreads?.nodes ?? [];
+			const unresolvedCommentCount = threadNodes.filter(
+				t => t.isResolved === false,
+			).length;
+
+			return {
+				pipeline,
+				unresolvedCommentCount,
+				prNumber: pr.number,
+			};
+		} catch (err) {
+			log.warn(
+				`Failed to fetch rail status for ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
+			return empty;
+		}
 	}
 }

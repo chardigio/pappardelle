@@ -39,6 +39,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
+/** Single-quote a path for safe inclusion in a shell command we hand to tmux. */
+function shellQuote(s: string): string {
+	return `'${s.replaceAll("'", `'\\''`)}'`;
+}
+
 const cli = meow(
 	`
 	Usage
@@ -217,9 +222,13 @@ if (!isInTmux() && cli.flags.layout) {
 		process.exit(result.status ?? 0);
 	}
 
-	// No existing session - create a new one
+	// No existing session - create a new one. Re-exec the same cli.js the
+	// user just ran (via process.execPath + process.argv[1]) so side-by-side
+	// installs (e.g. a dev build at ~/.local/bin/pappardelle-sta862) don't
+	// silently fall back to the global `pappardelle` binary on PATH.
+	const selfCmd = `${shellQuote(process.execPath)} ${shellQuote(process.argv[1] ?? 'pappardelle')}`;
 	const args = process.argv.slice(2).join(' ');
-	const cmd = args ? `pappardelle ${args}` : 'pappardelle';
+	const cmd = args ? `${selfCmd} ${args}` : selfCmd;
 
 	const tmuxArgs = ['new-session', '-s', sessionName, cmd];
 	const result = spawnSync('tmux', tmuxArgs, {

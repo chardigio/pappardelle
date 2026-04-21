@@ -343,7 +343,20 @@ export default function App({
 				});
 			}
 
-			setSpaces(spaceData);
+			// Merge in any previously-fetched railStatus so the 10s loadSpaces
+			// rebuild doesn't wipe data set by the slower 30s rail poller.
+			setSpaces(prev => {
+				const prevRailByName = new Map(
+					prev
+						.filter(p => p.railStatus)
+						.map(p => [p.name, p.railStatus!] as const),
+				);
+				return spaceData.map(s =>
+					prevRailByName.has(s.name)
+						? {...s, railStatus: prevRailByName.get(s.name)}
+						: s,
+				);
+			});
 			setLoading(false);
 
 			// Batch-fetch all issues in background. This resolves "Loading…"
@@ -1042,6 +1055,87 @@ export default function App({
 			clearInterval(interval);
 		};
 	}, [watchlistConfig]);
+
+	// Rail-status polling — fetch each space's PR pipeline state + unresolved
+	// review-comment count from the VCS host every 30s. First poll fires
+	// ~1s after mount so the icons appear quickly; subsequent polls are
+	// throttled. Skips the main worktree and pending placeholder rows. Uses
+	// spacesRef so the effect doesn't re-subscribe on every space mutation.
+	const spacesRef = useRef(spaces);
+	spacesRef.current = spaces;
+
+	useEffect(() => {
+		let pollInFlight = false;
+		const vcs = createVcsHost();
+
+		const poll = async () => {
+			if (pollInFlight) return;
+			pollInFlight = true;
+			try {
+				const targets = spacesRef.current.filter(
+					s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+				);
+				log.debug(
+					`Rail status poll: ${targets.length} target(s) (${targets.map(t => t.name).join(', ')})`,
+				);
+				const results = await Promise.all(
+					targets.map(async s => {
+						try {
+							const status = await vcs.getRailStatus(s.name);
+							log.debug(
+								`Rail status ${s.name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} pr=${status.prNumber ?? 'none'}`,
+							);
+							return [s.name, status] as const;
+						} catch (err) {
+							log.warn(
+								`Rail status fetch failed for ${s.name}`,
+								err instanceof Error ? err : undefined,
+							);
+							return [s.name, null] as const;
+						}
+					}),
+				);
+
+				if (results.length === 0) return;
+
+				const lookup = new Map(results);
+				setSpaces(prev =>
+					prev.map(s => {
+						if (s.isMainWorktree || s.isPending) return s;
+						if (!lookup.has(s.name)) return s;
+						const next = lookup.get(s.name);
+						if (!next) return s;
+						const prevRail = s.railStatus;
+						if (
+							prevRail &&
+							prevRail.pipeline === next.pipeline &&
+							prevRail.unresolvedCommentCount === next.unresolvedCommentCount &&
+							prevRail.prNumber === next.prNumber
+						) {
+							return s;
+						}
+
+						return {...s, railStatus: next};
+					}),
+				);
+			} catch (err) {
+				log.warn(
+					'Rail status poll failed',
+					err instanceof Error ? err : undefined,
+				);
+			} finally {
+				pollInFlight = false;
+			}
+		};
+
+		const initialTimer = setTimeout(poll, 1_000);
+		const interval = setInterval(poll, 30_000);
+
+		return () => {
+			clearTimeout(initialTimer);
+			clearInterval(interval);
+		};
+	}, []);
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {

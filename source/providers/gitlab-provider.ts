@@ -1,7 +1,7 @@
 // GitLab VCS host provider — wraps glab CLI
 import {execFileSync} from 'node:child_process';
 import {createLogger} from '../logger.ts';
-import type {PRInfo, VcsHostProvider} from './types.ts';
+import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
 
 const log = createLogger('gitlab-provider');
 
@@ -75,5 +75,11 @@ export class GitLabProvider implements VcsHostProvider {
 	buildPRUrl(prNumber: number): string {
 		const host = this.host ?? 'gitlab.com';
 		return `https://${host}/-/merge_requests/${prNumber}`;
+	}
+
+	async getRailStatus(_issueKey: string): Promise<RailStatus> {
+		// Not yet implemented for GitLab. GitLab users see the rail without
+		// pipeline/comment icons — identical to the pre-STA-862 behavior.
+		return {pipeline: null, unresolvedCommentCount: 0};
 	}
 }

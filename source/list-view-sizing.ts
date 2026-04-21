@@ -86,21 +86,66 @@ export function calculateVisibleWindow(
 // ============================================================================
 
 /**
+ * Extra content rendered at the right edge of the row: pipeline state icon
+ * and parenthesized unresolved-comment count. Both slots are optional — when
+ * both are empty the row renders as it did before the STA-862 rail-icons
+ * change.
+ */
+export interface RailIcons {
+	/** Single token for the pipeline icon (e.g. "✓", "◐◑"). Empty = hidden. */
+	pipelineIcon?: string;
+	/** Unresolved PR/MR comment count. 0 = hidden. */
+	commentCount?: number;
+}
+
+/**
+ * How many cells the right-aligned rail-icon cluster occupies. Includes one
+ * leading space per chunk (separating the icons from the title and from
+ * each other). Returns 0 when both pipeline and comment count are absent.
+ *
+ * The unresolved comment count is rendered as a parenthesized text token
+ * `(N)` (no separate icon glyph) so it can be color-styled (gray) like
+ * the rest of the rail.
+ */
+export function railPrefixWidth(icons?: RailIcons): number {
+	if (!icons) return 0;
+	let width = 0;
+	if (icons.pipelineIcon && icons.pipelineIcon.length > 0) {
+		// leading space + icon token
+		width += 1 + icons.pipelineIcon.length;
+	}
+
+	if (icons.commentCount && icons.commentCount > 0) {
+		// leading space + "(" + digits + ")"
+		width += 1 + 1 + String(icons.commentCount).length + 1;
+	}
+
+	return width;
+}
+
+/**
  * Calculate available width for the title text in a list row.
  *
- * Row format: "icon space issueKey space title"
- * Fixed overhead = icon(1) + space(1) + space(1) = 3
- * Total fixed = 3 + issueKey.length
+ * Row format:
+ *   "icon space issueKey space title [space pipelineIcon] [space (count)]"
+ *
+ * Fixed overhead (without rail icons) = icon(1) + space(1) + space(1) = 3
+ * Total fixed = 3 + issueKey.length + railPrefixWidth(icons)
  *
  * @param totalWidth - Total width of the list pane in characters
  * @param issueKeyLength - Length of the issue key string (e.g. 7 for "STA-452")
+ * @param icons - Optional rail icons (pipeline + unresolved comment count)
  * @returns Number of characters available for the title
  */
 export function calculateAvailableTitleWidth(
 	totalWidth: number,
 	issueKeyLength: number,
+	icons?: RailIcons,
 ): number {
-	return Math.max(0, totalWidth - ROW_FIXED_OVERHEAD - issueKeyLength);
+	return Math.max(
+		0,
+		totalWidth - ROW_FIXED_OVERHEAD - issueKeyLength - railPrefixWidth(icons),
+	);
 }
 
 /**
@@ -118,10 +163,12 @@ export function truncateTitle(title: string, availableWidth: number): string {
 
 /**
  * Render a simplified ASCII representation of a single list row.
- * Matches the SpaceListItem layout: icon first, then issue key, then title.
+ * Matches the SpaceListItem layout: icon first, then issue key, then title,
+ * then right-aligned rail icons (unresolved-comment count, then pipeline
+ * state flush at the far right).
  * Selection is shown via inverse background in the real UI, not in ASCII.
  *
- * Format: "· STA-452 Fix the bu…"
+ * Format: "· STA-452 Fix the bug (3) ✓"
  *
  * @param issueKey - e.g. "STA-452"
  * @param icon - status icon character (e.g. "?", "·", "!")
@@ -134,11 +181,25 @@ export function renderListRow(
 	icon: string,
 	title: string,
 	width: number,
+	icons?: RailIcons,
 ): string {
-	const availableTitle = calculateAvailableTitleWidth(width, issueKey.length);
+	const availableTitle = calculateAvailableTitleWidth(
+		width,
+		issueKey.length,
+		icons,
+	);
 	const truncated = truncateTitle(title, availableTitle);
 
-	return `${icon} ${issueKey} ${truncated}`;
+	let suffix = '';
+	if (icons?.commentCount && icons.commentCount > 0) {
+		suffix += ` (${icons.commentCount})`;
+	}
+
+	if (icons?.pipelineIcon && icons.pipelineIcon.length > 0) {
+		suffix += ` ${icons.pipelineIcon}`;
+	}
+
+	return `${icon} ${issueKey} ${truncated}${suffix}`;
 }
 
 /**
@@ -157,7 +218,13 @@ export function renderListRow(
  * @returns Multi-line ASCII string of the visible list
  */
 export function renderListView(
-	items: Array<{issueKey: string; icon: string; title: string}>,
+	items: Array<{
+		issueKey: string;
+		icon: string;
+		title: string;
+		pipelineIcon?: string;
+		commentCount?: number;
+	}>,
 	selectedIndex: number,
 	termHeight: number,
 	width: number,
@@ -170,7 +237,10 @@ export function renderListView(
 
 	for (let i = 0; i < visibleItems.length; i++) {
 		const item = visibleItems[i]!;
-		const row = renderListRow(item.issueKey, item.icon, item.title, width);
+		const row = renderListRow(item.issueKey, item.icon, item.title, width, {
+			pipelineIcon: item.pipelineIcon,
+			commentCount: item.commentCount,
+		});
 		const prefix = i === adjustedSelectedIndex ? '*' : ' ';
 		rows.push(`${prefix}${row}`);
 	}

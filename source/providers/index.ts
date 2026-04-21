@@ -8,6 +8,8 @@ import type {IssueTrackerProvider, VcsHostProvider} from './types.ts';
 export type {
 	TrackerIssue,
 	PRInfo,
+	PipelineStatus,
+	RailStatus,
 	IssueTrackerProvider,
 	VcsHostProvider,
 } from './types.ts';

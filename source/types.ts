@@ -5,7 +5,7 @@ export const COLORS = {
 	CLAUDE_ORANGE: '#DE7356',
 } as const;
 
-import type {TrackerIssue} from './providers/types.ts';
+import type {RailStatus, TrackerIssue} from './providers/types.ts';
 
 /**
  * Provider-agnostic issue type. Identical to TrackerIssue.
@@ -13,7 +13,11 @@ import type {TrackerIssue} from './providers/types.ts';
  */
 export type LinearIssue = TrackerIssue;
 
-export type {TrackerIssue} from './providers/types.ts';
+export type {
+	PipelineStatus,
+	RailStatus,
+	TrackerIssue,
+} from './providers/types.ts';
 
 export type ClaudeStatus =
 	| 'processing'
@@ -51,6 +55,7 @@ export interface SpaceData {
 	isDirty?: boolean; // True if worktree has uncommitted changes (used for main worktree color)
 	isPending?: boolean; // True for placeholder rows shown while a new session is starting
 	pendingTitle?: string; // Title text for pending rows (e.g., "Opening..." or "Starting new session...")
+	railStatus?: RailStatus; // Snapshot of PR pipeline state + unresolved comment count (from VcsHostProvider.getRailStatus)
 }
 
 /**
