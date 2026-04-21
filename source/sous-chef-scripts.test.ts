@@ -185,6 +185,91 @@ test.serial('gather: includes issue metadata when present', t => {
 	t.is(meta['title'], 'Fix the thing');
 });
 
+test.serial(
+	'gather: surfaces persisted rail-status + recap from space-state',
+	t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		writeJson(
+			path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
+			['STA-350'],
+		);
+		writeJson(
+			path.join(
+				home,
+				'.pappardelle',
+				'repos',
+				'test-repo',
+				'space-state',
+				'STA-350.json',
+			),
+			{
+				pipeline: 'failing',
+				unresolvedCommentCount: 4,
+				prNumber: 777,
+				recap: {
+					customTitle: 'refactor auth',
+					lastPrompt: 'ship it',
+					lastAssistantExcerpt: 'tests pass, awaiting review',
+				},
+				updatedAt: '2026-04-21T05:00:00.000Z',
+			},
+		);
+
+		const result = runGather(home);
+		const spaces = result['spaces'] as Array<Record<string, unknown>>;
+		t.is(spaces[0]!['pipeline'], 'failing');
+		t.is(spaces[0]!['unresolvedCommentCount'], 4);
+		t.is(spaces[0]!['prNumber'], 777);
+		t.is(spaces[0]!['spaceStateUpdatedAt'], '2026-04-21T05:00:00.000Z');
+		const recap = spaces[0]!['recap'] as Record<string, unknown>;
+		t.is(recap['customTitle'], 'refactor auth');
+		t.is(recap['lastPrompt'], 'ship it');
+	},
+);
+
+test.serial(
+	'gather: omits rail-status + recap fields when space-state file is absent',
+	t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		writeJson(
+			path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
+			['STA-360'],
+		);
+
+		const result = runGather(home);
+		const spaces = result['spaces'] as Array<Record<string, unknown>>;
+		t.false('pipeline' in spaces[0]!);
+		t.false('unresolvedCommentCount' in spaces[0]!);
+		t.false('recap' in spaces[0]!);
+	},
+);
+
+test.serial('gather: handles malformed space-state file gracefully', t => {
+	const home = createTempHome();
+	setupDirs(home, 'test-repo');
+	writeJson(
+		path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
+		['STA-370'],
+	);
+	const spaceStateFile = path.join(
+		home,
+		'.pappardelle',
+		'repos',
+		'test-repo',
+		'space-state',
+		'STA-370.json',
+	);
+	fs.mkdirSync(path.dirname(spaceStateFile), {recursive: true});
+	fs.writeFileSync(spaceStateFile, 'not json{{{');
+
+	const result = runGather(home);
+	const spaces = result['spaces'] as Array<Record<string, unknown>>;
+	// Should not crash; should not include rail-status fields
+	t.false('pipeline' in spaces[0]!);
+});
+
 test.serial('gather: matches sessions using full worktree prefix', t => {
 	const home = createTempHome();
 	setupDirs(home, 'test-repo');

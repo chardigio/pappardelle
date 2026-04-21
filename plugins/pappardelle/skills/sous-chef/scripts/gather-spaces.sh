@@ -18,6 +18,7 @@ export SC_REPO_NAME="$REPO_NAME"
 export SC_OPEN_SPACES_FILE="$OPEN_SPACES_FILE"
 export SC_STATUS_DIR="$HOME/.pappardelle/claude-status"
 export SC_META_DIR="$HOME/.pappardelle/repos/$REPO_NAME/issue-meta"
+export SC_SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
 export SC_SESSIONS_DIR="$HOME/.claude/sessions"
 export SC_PROJECTS_DIR="$HOME/.claude/projects"
 
@@ -28,6 +29,7 @@ repo_name = os.environ['SC_REPO_NAME']
 open_spaces_file = os.environ['SC_OPEN_SPACES_FILE']
 status_dir = os.environ['SC_STATUS_DIR']
 meta_dir = os.environ['SC_META_DIR']
+space_state_dir = os.environ['SC_SPACE_STATE_DIR']
 sessions_dir = os.environ['SC_SESSIONS_DIR']
 projects_dir = os.environ['SC_PROJECTS_DIR']
 
@@ -93,6 +95,22 @@ for space in spaces:
             entry['meta'] = meta
         except Exception as e:
             print(f'Warning: could not read metadata for {space}: {e}', file=sys.stderr)
+
+    # Persisted space-state (rail-status + recap) written by the Pappardelle TUI.
+    # Lets the sous-chef brief on pipeline/comments/recap without shelling out.
+    space_state_file = os.path.join(space_state_dir, f'{space}.json')
+    if os.path.exists(space_state_file):
+        try:
+            with open(space_state_file) as f:
+                state = json.load(f)
+            if isinstance(state, dict):
+                for key in ('pipeline', 'unresolvedCommentCount', 'prNumber', 'recap'):
+                    if key in state:
+                        entry[key] = state[key]
+                if 'updatedAt' in state:
+                    entry['spaceStateUpdatedAt'] = state['updatedAt']
+        except Exception as e:
+            print(f'Warning: could not read space-state for {space}: {e}', file=sys.stderr)
 
     # Session info
     if space in session_map:

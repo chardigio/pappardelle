@@ -91,6 +91,11 @@ import {
 	seedFromTmux,
 } from './space-registry.ts';
 import {
+	writeSpaceState,
+	findLatestSessionJsonl,
+	extractRecapFromJsonl,
+} from './space-state.ts';
+import {
 	watchHighlightTarget,
 	findSpaceIndexByIssueKey,
 	clearHighlightTarget,
@@ -1179,6 +1184,27 @@ export default function App({
 						return {...s, railStatus: next};
 					}),
 				);
+
+				// Persist each space's state (rail-status + recap) so sous-chef
+				// and other consumers can read cached data without re-fetching.
+				// Done in a microtask to keep the render-blocking path tight.
+				const repoName = getRepoName();
+				queueMicrotask(() => {
+					for (const [name, rail] of lookup) {
+						if (!rail) continue;
+						const worktreePath = getWorktreePath(name);
+						const jsonl = worktreePath
+							? findLatestSessionJsonl(worktreePath)
+							: null;
+						const recap = jsonl ? extractRecapFromJsonl(jsonl) : null;
+						writeSpaceState(repoName, name, {
+							pipeline: rail.pipeline,
+							unresolvedCommentCount: rail.unresolvedCommentCount,
+							prNumber: rail.prNumber,
+							...(recap ? {recap} : {}),
+						});
+					}
+				});
 			} catch (err) {
 				log.warn(
 					'Rail status poll failed',

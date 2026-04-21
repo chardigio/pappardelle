@@ -38,6 +38,20 @@ linctl issue get STA-XXX --json 2>/dev/null
 
 Run these in parallel for the top ~5-10 most recent spaces. Extract the `title` field and condense it to a 3-6 word gist. If linctl is slow or fails, fall back to using the git branch name as a hint.
 
+**Step 2c: Use persisted space-state fields when present**
+
+Each space entry from `gather-spaces.sh` may include pre-cached data written by the Pappardelle TUI:
+
+- `pipeline` — `passing` / `failing` / `progressing_clean` / `progressing_dirty` / `null`
+- `unresolvedCommentCount` — integer count of unresolved PR review threads
+- `prNumber` — the open PR number (if any)
+- `recap.customTitle` — Claude Code's auto-generated 3-6 word session label
+- `recap.lastPrompt` — the most recent user prompt in that space
+- `recap.lastAssistantExcerpt` — up to 500 chars of the most recent assistant reply
+- `spaceStateUpdatedAt` — ISO timestamp of the last rail-status poll
+
+Prefer `recap.customTitle` over linctl for the gist line; it is already condensed. Surface a trailing flag when the pipeline is failing ("pipeline red") or `unresolvedCommentCount` is non-zero ("3 unresolved"). These fields are best-effort — the Pappardelle TUI refreshes them every ~30s while running; if the TUI has not been open recently, they may be stale or absent.
+
 **Step 3: Present the board**
 
 Show a concise overview. Prioritize by urgency:
