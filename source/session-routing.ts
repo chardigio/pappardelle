@@ -54,6 +54,17 @@ export interface PendingSession {
 	 * (e.g. opening an existing issue via buildOpenWorkspaceArgs).
 	 */
 	profileName?: string | null;
+	/**
+	 * Emoji slot for the pending row (left of the Claude status icon).
+	 * Mirrors the emoji-rail behavior of real rows so the Claude thinking
+	 * icon stays vertically aligned while the session spins up. Resolved
+	 * via `resolvePendingProfileEmoji`:
+	 *   - undefined → no slot (the only state when no emoji is configured
+	 *     anywhere — preserves byte-identical master output)
+	 *   - "" → reserved blank slot (slot occupied, glyph absent)
+	 *   - "🍝" / "🐝" / etc. → render the glyph
+	 */
+	profileEmoji?: string;
 }
 
 /**

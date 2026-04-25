@@ -86,7 +86,9 @@ hooks:
 default_profile: stardust-jams
 
 # Default emoji rendered in the ticket-rail prefix when a profile has no
-# `emoji:` of its own (or when no profile can be matched, e.g. main worktree).
+# `emoji:` of its own (or when no profile can be matched, e.g. main worktree
+# and pending placeholder rows like "Starting new session…" / "Opening…" /
+# "Watchlist: …" while a session is spinning up).
 # Empty string = "reserve the slot but render nothing in it" so emoji-less
 # rows still align with their emoji-bearing siblings.
 #

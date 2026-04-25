@@ -7,6 +7,7 @@ import {
 	getProfileTeamPrefix,
 	getProfileVcsLabel,
 	getProfileEmoji,
+	resolvePendingProfileEmoji,
 	getInitializationCommand,
 	getDangerouslySkipPermissions,
 	getKeybindings,
@@ -344,6 +345,121 @@ test('footgun guard: explicit "" on one profile still promotes unset siblings', 
 	};
 	t.is(getProfileEmoji(config.profiles['a']!, config), '');
 	t.is(getProfileEmoji(config.profiles['b']!, config), '');
+});
+
+// ============================================================================
+// resolvePendingProfileEmoji Tests
+// ============================================================================
+//
+// Pending placeholder rows (`Starting new session…`, `Opening…`, `Watchlist:
+// <title>`) need to reserve the same emoji slot as real rows whenever any
+// emoji is configured, so the Claude thinking icon stays vertically aligned.
+// When no emoji is configured anywhere, the slot must NOT be reserved or
+// the TUI changes shape for users who never opted into the feature.
+
+// Off-by-default regression: the single most important case. If this ever
+// flips, every existing user gets a surprise blank slot in their TUI on
+// the next upgrade — exactly the regression the emoji rail feature was
+// careful to avoid in STA-924.
+test('resolvePendingProfileEmoji: emoji-free config → undefined regardless of profileName', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A'},
+			b: {keywords: ['b'], display_name: 'B'},
+		},
+	};
+	t.is(resolvePendingProfileEmoji(config, null), undefined);
+	t.is(resolvePendingProfileEmoji(config, undefined), undefined);
+	t.is(resolvePendingProfileEmoji(config, 'a'), undefined);
+	t.is(resolvePendingProfileEmoji(config, 'unknown-profile'), undefined);
+});
+
+test('resolvePendingProfileEmoji: null config → undefined (load failure path)', t => {
+	t.is(resolvePendingProfileEmoji(null, null), undefined);
+	t.is(resolvePendingProfileEmoji(null, 'whatever'), undefined);
+});
+
+test('resolvePendingProfileEmoji: known profileName → that profile emoji', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		default_emoji: '🍕',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A', emoji: '🎸'},
+			b: {keywords: ['b'], display_name: 'B'},
+		},
+	};
+	t.is(resolvePendingProfileEmoji(config, 'a'), '🎸');
+});
+
+test('resolvePendingProfileEmoji: known profileName w/o emoji → default_emoji fallback', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		default_emoji: '🍕',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A'}, // no emoji on profile
+		},
+	};
+	t.is(resolvePendingProfileEmoji(config, 'a'), '🍕');
+});
+
+test('resolvePendingProfileEmoji: no profileName, default_emoji set → default_emoji', t => {
+	// Description-route ("Starting new session…") never knows the profile
+	// upfront — the user just typed free text. Must still pick up the
+	// default emoji so the slot is reserved.
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		default_emoji: '🍝',
+		profiles: {a: {keywords: ['a'], display_name: 'A'}},
+	};
+	t.is(resolvePendingProfileEmoji(config, null), '🍝');
+	t.is(resolvePendingProfileEmoji(config, undefined), '🍝');
+});
+
+test('resolvePendingProfileEmoji: no profileName, footgun guard active → "" blank slot', t => {
+	// Watchlist auto-spawn doesn't pass a profileName but other profiles
+	// have emoji set; the helper must reserve a blank slot so the pending
+	// row aligns with its emoji-bearing neighbors.
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A', emoji: '🎸'},
+			b: {keywords: ['b'], display_name: 'B'},
+		},
+	};
+	t.is(resolvePendingProfileEmoji(config, null), '');
+});
+
+test('resolvePendingProfileEmoji: unknown profileName → falls back as if undefined', t => {
+	// If the profileName the spawn site passes doesn't exist (config drift,
+	// renamed profile mid-flight, etc.), we must not crash and we must still
+	// reserve the slot when emoji machinery is in use. Cover both fallback
+	// branches explicitly so a future refactor that special-cases unknown
+	// profileName can't silently regress one path while leaving the other
+	// passing.
+	const configWithDefault: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		default_emoji: '🍕',
+		profiles: {a: {keywords: ['a'], display_name: 'A'}},
+	};
+	t.is(resolvePendingProfileEmoji(configWithDefault, 'does-not-exist'), '🍕');
+
+	// Footgun-guard path: no `default_emoji` but a profile has `emoji:` →
+	// `''` blank slot for unknown profileName too.
+	const configWithFootgun: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A', emoji: '🎸'},
+		},
+	};
+	t.is(resolvePendingProfileEmoji(configWithFootgun, 'does-not-exist'), '');
 });
 
 // ============================================================================

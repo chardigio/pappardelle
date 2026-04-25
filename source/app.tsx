@@ -52,6 +52,7 @@ import {
 	matchProfiles,
 	matchProfileByProject,
 	getProfileEmoji,
+	resolvePendingProfileEmoji,
 	type KeybindingConfig,
 	type IssueWatchlistConfig,
 	type CommandConfig,
@@ -1127,6 +1128,10 @@ export default function App({
 						idowArg: issue.identifier,
 						pendingTitle: `Watchlist: ${issue.title}`,
 						prevSpaceCount: spacesLengthRef.current,
+						// No profileName upfront — the watchlist doesn't pre-pick
+						// a profile. Falls back to default_emoji or "" blank slot
+						// when emoji machinery is configured, undefined otherwise.
+						profileEmoji: resolvePendingProfileEmoji(configMemo, null),
 					});
 				}
 			} catch (err) {
@@ -1319,6 +1324,7 @@ export default function App({
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
 			profileName,
+			profileEmoji: resolvePendingProfileEmoji(config, profileName),
 		};
 		spawnSession(pending);
 	};
@@ -1447,6 +1453,11 @@ export default function App({
 			worktreePath: null,
 			isPending: true,
 			pendingTitle: pendingSession.pendingTitle,
+			// Mirror real rows' emoji slot so the Claude thinking icon stays
+			// vertically aligned while the session spins up. Stays undefined
+			// (no slot rendered) when the user hasn't opted into the emoji
+			// rail at all — preserves byte-identical master output.
+			profileEmoji: pendingSession.profileEmoji,
 		};
 
 		if (pendingSession.type === 'issue') {

@@ -1392,6 +1392,33 @@ export function getProfileEmoji(
 }
 
 /**
+ * Resolve the emoji slot for a pending placeholder row ("Starting new
+ * session…", "Opening…", "Watchlist: …").
+ *
+ * Pending rows have to mirror real rows' slot occupancy or the Claude
+ * thinking icon rendered to their right ends up flush left while every
+ * other row's icon sits at column 3 — visibly misaligned. Three cases:
+ *
+ *   - `config` is null (load failed) → undefined; the renderer skips
+ *     the slot, matching the rest of the (also slot-less) list.
+ *   - `profileName` is set and resolves to a profile → that profile's
+ *     emoji chain via `getProfileEmoji`.
+ *   - Otherwise → `getProfileEmoji(undefined, config)`, which yields
+ *     `default_emoji` when set, `''` (slot reserved blank) when any
+ *     other profile has an emoji, or `undefined` when no emoji
+ *     machinery exists in the config (off-by-default regression: rows
+ *     stay byte-identical to master).
+ */
+export function resolvePendingProfileEmoji(
+	config: PappardelleConfig | null,
+	profileName?: string | null,
+): string | undefined {
+	if (!config) return undefined;
+	const profile = profileName ? getProfile(config, profileName) : undefined;
+	return getProfileEmoji(profile, config);
+}
+
+/**
  * Get the Claude initialization command from config.
  * Returns the command string (e.g., "/idow") or empty string if not configured.
  */
