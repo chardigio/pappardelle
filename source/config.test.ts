@@ -933,6 +933,99 @@ test('multiple prefix keywords can match from different profiles', t => {
 });
 
 // ============================================================================
+// Keyword Buried Inside a Hyphen-Joined Input Word (STA-927)
+// ============================================================================
+
+test('keyword buried inside a hyphen-joined input word still matches', t => {
+	// Regression for STA-927: "something-keyword-something" should match
+	// keyword "keyword" — previously the input was treated as a single word
+	// that did not start with the keyword, so it silently failed.
+	const config = createConfig({
+		'test-profile': createProfile(['keyword'], 'Test Profile'),
+	});
+
+	const matches = matchProfiles(config, 'something-keyword-something');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'test-profile');
+	t.deepEqual(matches[0]!.matchedKeywords, ['keyword']);
+});
+
+test('keyword buried in hyphenated word matches case-insensitively', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+	});
+
+	const matches = matchProfiles(config, 'Fix-MUSIC-Bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+});
+
+test('prefix keyword matches buried hyphen-joined sub-token (e.g. "spot" → "add-spotify")', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['spot'], 'Stardust Jams'),
+	});
+
+	const matches = matchProfiles(config, 'add-spotify-integration');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.name, 'stardust-jams');
+});
+
+test('multiple distinct keywords buried in same hyphen-joined word both match', t => {
+	const config = createConfig({
+		'stardust-jams': createProfile(['music', 'spotify'], 'Stardust Jams'),
+	});
+
+	const matches = matchProfiles(config, 'fix-music-spotify-bug');
+	t.is(matches.length, 1);
+	t.is(matches[0]!.score, 2);
+	t.deepEqual(matches[0]!.matchedKeywords.sort(), ['music', 'spotify']);
+});
+
+test('buried keyword does not bleed across whitespace word boundaries', t => {
+	// "mu" is a sub-token of "mu-foo" but it does not start with "music",
+	// so a profile keyworded "music" must not match.
+	const config = createConfig({
+		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
+	});
+
+	const matches = matchProfiles(config, 'mu-foo bar');
+	t.is(matches.length, 0, '"mu" sub-token does not start with "music"');
+});
+
+test('regression: "shop" alone still does not match "SHOP-" keyword after hyphen-aware fix', t => {
+	// Pin: the trailing-hyphen keyword "SHOP-" must still REJECT bare "shop"
+	// inputs, even after the fix walks hyphen sub-tokens. This is what makes
+	// "SHOP-" distinct from "SHOP" and prevents false-positive matches on
+	// unrelated words like "shopping" or "shopkeeper".
+	const config = createConfig({
+		shop: createProfile(['SHOP-'], 'Shop'),
+	});
+
+	t.is(matchProfiles(config, 'shop is broken').length, 0);
+	t.is(matchProfiles(config, 'fix-shop-bug').length, 0);
+});
+
+test('regression: hyphen-aware fix still respects multi-word keyword adjacency in plain input', t => {
+	// Pin existing whitespace-adjacency semantics for multi-word keywords.
+	// The third assertion pins the *intentional* non-wiring of subTokens into
+	// the multi-word branch: a hyphenated input like "fix-venue-page" must NOT
+	// match keyword "venue page" today. If a future change extends the
+	// multi-word branch to also walk sub-tokens, this assertion will go red
+	// and force a deliberate decision instead of a silent behavior shift.
+	const config = createConfig({
+		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
+	});
+
+	t.is(matchProfiles(config, 'venue detail page').length, 0);
+	t.is(matchProfiles(config, 'fix the venue page').length, 1);
+	t.is(
+		matchProfiles(config, 'fix-venue-page').length,
+		0,
+		'hyphenated input does not bypass multi-word adjacency requirement',
+	);
+});
+
+// ============================================================================
 // Real-world Scenario Tests
 // ============================================================================
 

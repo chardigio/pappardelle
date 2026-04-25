@@ -1071,8 +1071,9 @@ export interface ProfileMatch {
 /**
  * Find profiles that match the given input based on keywords.
  * Uses prefix matching (case-insensitive): a keyword matches if any input
- * word starts with it. For example, keyword "track" matches "tracking",
- * and keyword "SHOP-" matches "SHOP-313".
+ * word — or any hyphen-split sub-token of an input word — starts with it.
+ * For example, keyword "track" matches "tracking", keyword "SHOP-" matches
+ * "SHOP-313", and keyword "music" matches "fix-music-bug" (sub-token).
  *
  * Keyword enforcement: If a word in the input is followed by `!` (e.g. "music!"),
  * it enforces that the selected profile must match that keyword. When enforced
@@ -1108,6 +1109,18 @@ export function matchProfiles(
 		return [];
 	}
 
+	// Hyphen-split sub-tokens: lets a keyword match when it's buried inside a
+	// hyphen-joined word like "fix-music-bug" → "music". Original `words` is
+	// preserved so trailing-hyphen keywords (e.g. "SHOP-") still match the
+	// whole word "shop-313" and still reject bare "shop".
+	const subTokens = [
+		...new Set(
+			words.flatMap(w =>
+				w.includes('-') ? w.split('-').filter(t => t.length > 0) : [],
+			),
+		),
+	];
+
 	const matches: ProfileMatch[] = [];
 
 	for (const [name, profile] of Object.entries(config.profiles)) {
@@ -1121,8 +1134,12 @@ export function matchProfiles(
 			if (kwParts.length === 0) continue;
 
 			if (kwParts.length === 1) {
-				// Prefix match: any input word starting with the keyword matches
-				if (words.some(w => w.startsWith(kwLower))) {
+				// Prefix match: any input word — or hyphen-split sub-token — starting
+				// with the keyword matches.
+				if (
+					words.some(w => w.startsWith(kwLower)) ||
+					subTokens.some(t => t.startsWith(kwLower))
+				) {
 					matchedKeywords.push(keyword);
 				}
 			} else {
