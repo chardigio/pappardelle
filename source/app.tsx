@@ -51,7 +51,6 @@ import {
 	buildWorkspaceTemplateVars,
 	matchProfiles,
 	matchProfileByProject,
-	getProfileEmoji,
 	resolvePendingProfileEmoji,
 	type KeybindingConfig,
 	type IssueWatchlistConfig,
@@ -97,6 +96,7 @@ import {
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
 } from './space-state.ts';
+import {resolveSpaceEmoji} from './space-emoji.ts';
 import {
 	watchHighlightTarget,
 	findSpaceIndexByIssueKey,
@@ -203,18 +203,23 @@ export default function App({
 		return kb;
 	}, [configMemo]);
 
-	// Resolve profile emoji for a space using its cached issue's project name.
-	// Falls back to the top-level `default_emoji` when no profile matches.
-	const resolveProfileEmoji = React.useCallback(
-		(cachedIssue: ReturnType<typeof getIssueCached>): string | undefined => {
-			if (!configMemo) return undefined;
-			const projectName = cachedIssue?.project?.name;
-			const matched = projectName
-				? matchProfileByProject(configMemo, projectName)
-				: null;
-			return getProfileEmoji(matched?.profile, configMemo);
-		},
-		[configMemo],
+	// Resolve profile emoji for a space. The single source of truth is the
+	// profile name persisted in space-state.json — written by `idow` on
+	// workspace creation, and back-filled here the first time we see a space
+	// without a persisted profile but with a cached issue whose project
+	// matches a configured profile.
+	const resolveProfileEmojiForSpace = React.useCallback(
+		(
+			issueKey: string | undefined,
+			cachedIssue: ReturnType<typeof getIssueCached>,
+		): string | undefined =>
+			resolveSpaceEmoji({
+				config: configMemo,
+				repoName,
+				issueKey,
+				cachedIssue,
+			}),
+		[configMemo, repoName],
 	);
 
 	// Load issue watchlist config (once at startup)
@@ -374,7 +379,7 @@ export default function App({
 					claudeStatus: claudeInfo.status,
 					claudeTool: claudeInfo.tool,
 					worktreePath,
-					profileEmoji: resolveProfileEmoji(cached),
+					profileEmoji: resolveProfileEmojiForSpace(issueKey, cached),
 				};
 			});
 
@@ -403,7 +408,7 @@ export default function App({
 					isDirty: await isWorktreeDirty(mainInfo.path),
 					claudeStatus: mainClaudeInfo.status,
 					claudeTool: mainClaudeInfo.tool,
-					profileEmoji: resolveProfileEmoji(null),
+					profileEmoji: resolveProfileEmojiForSpace(undefined, null),
 				});
 			}
 
@@ -434,7 +439,7 @@ export default function App({
 								if (s.isMainWorktree) return s;
 								const issue = getIssueCached(s.name);
 								if (!issue) return s;
-								const nextEmoji = resolveProfileEmoji(issue);
+								const nextEmoji = resolveProfileEmojiForSpace(s.name, issue);
 								if (s.linearIssue === issue && s.profileEmoji === nextEmoji) {
 									return s;
 								}
@@ -452,7 +457,7 @@ export default function App({
 			setSpaces([]);
 			setLoading(false);
 		}
-	}, [resolveProfileEmoji]);
+	}, [resolveProfileEmojiForSpace]);
 
 	// Initial load
 	useEffect(() => {

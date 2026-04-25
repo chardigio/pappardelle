@@ -115,6 +115,32 @@ test('writeSpaceState merges with existing state rather than replacing it', t =>
 	t.is(state!.recap?.lastPrompt, 'ship it');
 });
 
+// Persisted at workspace-creation time by `idow` so the TUI can resolve the
+// profile (and therefore the emoji) on first paint, before the in-memory
+// issue cache has filled. See STA-930.
+test('writeSpaceState round-trips the profile field', t => {
+	const base = tempDir();
+	writeSpaceState('stardust-labs', 'STA-930', {profile: 'pappardelle'}, base);
+	const state = readSpaceState('stardust-labs', 'STA-930', base);
+	t.is(state!.profile, 'pappardelle');
+});
+
+test('writeSpaceState merges profile alongside rail-status fields', t => {
+	const base = tempDir();
+	// idow writes the profile first, then the rail-status poller adds pipeline data.
+	writeSpaceState('stardust-labs', 'STA-931', {profile: 'stardust_jams'}, base);
+	writeSpaceState(
+		'stardust-labs',
+		'STA-931',
+		{pipeline: 'passing', unresolvedCommentCount: 0, prNumber: 100},
+		base,
+	);
+	const state = readSpaceState('stardust-labs', 'STA-931', base);
+	t.is(state!.profile, 'stardust_jams');
+	t.is(state!.pipeline, 'passing');
+	t.is(state!.prNumber, 100);
+});
+
 test('writeSpaceState creates parent directories if missing', t => {
 	const base = tempDir();
 	// Note: base exists but repos/.../space-state does not.

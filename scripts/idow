@@ -566,6 +566,38 @@ else
     WORKTREE_PATH=$(echo "$WORKTREE_JSON" | jq -r '.worktree_path')
     print_success "Created worktree: $WORKTREE_PATH"
 
+    # Persist the resolved profile to space-state so the Pappardelle TUI can
+    # render the right ticket-rail emoji on first paint, before its in-memory
+    # issue cache fills via the background getIssues() batch (see STA-930).
+    # Only written on workspace creation — not on resume — so existing spaces
+    # keep their lazy emoji-pop behavior until they're recreated.
+    SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
+    SPACE_STATE_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.json"
+    mkdir -p "$SPACE_STATE_DIR"
+    NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [[ -f "$SPACE_STATE_FILE" ]]; then
+        # Merge so we don't clobber rail-status / recap fields written by the
+        # TUI poller (writeSpaceState in space-state.ts does the same merge).
+        # `&&` is part of a compound, so `set -e` doesn't trip on jq failure —
+        # gate the success log on the actual exit status and clean up the
+        # tempfile so a corrupted JSON read can't leak into /tmp.
+        TMP_FILE=$(mktemp)
+        if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
+                '. + {profile: $p, updatedAt: $t}' \
+                "$SPACE_STATE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$SPACE_STATE_FILE"; then
+            log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
+        else
+            log "Warning: failed to persist profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
+            rm -f "$TMP_FILE"
+        fi
+    else
+        # `jq -n` generates from scratch (no file input) so failure is
+        # essentially impossible; the redirect already creates the file.
+        jq -n --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
+            '{profile: $p, updatedAt: $t}' > "$SPACE_STATE_FILE"
+        log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
+    fi
+
     # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
     LOCAL_CONFIG="$REPO_ROOT/.pappardelle.local.yml"
     if [[ -f "$LOCAL_CONFIG" ]]; then

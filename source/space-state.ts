@@ -29,6 +29,13 @@ export interface SpaceState {
 	prNumber?: number;
 	recap?: SpaceRecap;
 	updatedAt?: string;
+	/**
+	 * Profile name selected by `idow` at workspace-creation time. Lets the TUI
+	 * resolve the profile (and its emoji) on first paint without waiting for the
+	 * in-memory issue cache to fill via the background `getIssues()` batch.
+	 * Written once per workspace creation; never updated by the rail-status poller.
+	 */
+	profile?: string;
 }
 
 /**
