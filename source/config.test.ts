@@ -6,6 +6,7 @@ import {
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	getProfileVcsLabel,
+	getProfileEmoji,
 	getInitializationCommand,
 	getDangerouslySkipPermissions,
 	getKeybindings,
@@ -131,6 +132,218 @@ test('getProfileTeamPrefix prefers profile over global', t => {
 		'GLOBAL',
 	);
 	t.is(getProfileTeamPrefix(profile, config), 'PROJ');
+});
+
+// ============================================================================
+// Profile emoji + default_emoji Tests
+// ============================================================================
+
+test('getProfileEmoji returns profile emoji when set', t => {
+	const profile: Profile = {
+		keywords: ['test'],
+		display_name: 'Test',
+		emoji: '🍝',
+	};
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'test',
+		default_emoji: '🍕',
+		profiles: {test: profile},
+	};
+	t.is(getProfileEmoji(profile, config), '🍝');
+});
+
+test('getProfileEmoji falls back to default_emoji when profile has none', t => {
+	const profile: Profile = {keywords: ['test'], display_name: 'Test'};
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'test',
+		default_emoji: '🍕',
+		profiles: {test: profile},
+	};
+	t.is(getProfileEmoji(profile, config), '🍕');
+});
+
+test('getProfileEmoji returns undefined when neither is set', t => {
+	const profile: Profile = {keywords: ['test'], display_name: 'Test'};
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {test: profile},
+	};
+	t.is(getProfileEmoji(profile, config), undefined);
+});
+
+test('getProfileEmoji uses default_emoji when profile is undefined', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_emoji: '🍕',
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	t.is(getProfileEmoji(undefined, config), '🍕');
+});
+
+test('validateConfig rejects non-string default_emoji', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		default_emoji: 123,
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('default_emoji'));
+});
+
+test('validateConfig accepts empty-string default_emoji (blank slot)', t => {
+	// Empty string means "reserve the emoji slot but render nothing in it",
+	// keeping rows aligned when some profiles have an emoji and others don't.
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		default_emoji: '',
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts valid default_emoji', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		default_emoji: '🍝',
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects non-string profile emoji', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {keywords: ['test'], display_name: 'Test', emoji: 42},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('profiles.test.emoji'));
+});
+
+test('validateConfig accepts empty-string profile emoji (blank slot)', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {keywords: ['test'], display_name: 'Test', emoji: ''},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts valid profile emoji', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		profiles: {
+			test: {keywords: ['test'], display_name: 'Test', emoji: '🚀'},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+// Regression: a config with no emoji fields anywhere — neither
+// `default_emoji` nor any profile `emoji:` — must produce `undefined` from
+// getProfileEmoji for every profile. This is what the SpaceListItem renderer
+// keys off of to skip the emoji slot entirely and render the row exactly as
+// it did on master. If this ever returns a string, every existing user gets
+// an unexpected blank slot in their TUI on the next upgrade.
+test('emoji-free config: getProfileEmoji returns undefined for every profile', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A'},
+			b: {keywords: ['b'], display_name: 'B'},
+			c: {keywords: ['c'], display_name: 'C'},
+		},
+	};
+	for (const profile of Object.values(config.profiles)) {
+		t.is(
+			getProfileEmoji(profile, config),
+			undefined,
+			'no emoji fields anywhere should yield undefined (master UI preserved)',
+		);
+	}
+
+	// Also: undefined profile (e.g., main worktree path) must stay undefined.
+	t.is(getProfileEmoji(undefined, config), undefined);
+});
+
+test('partial emoji config: profiles without emoji fall back to default_emoji', t => {
+	// Sanity check the inverse: as soon as ANY emoji field is set, unmatched
+	// profiles inherit the default. (This is the "blank slot" case Charlie
+	// uses — default_emoji = "" means "reserve the slot but render nothing".)
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		default_emoji: '',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A', emoji: '🎸'},
+			b: {keywords: ['b'], display_name: 'B'},
+		},
+	};
+	t.is(getProfileEmoji(config.profiles['a']!, config), '🎸');
+	t.is(getProfileEmoji(config.profiles['b']!, config), '');
+});
+
+// Footgun guard: if the user sets an `emoji:` on some profiles but forgets
+// `default_emoji`, we auto-promote to `''` (blank slot) for the rest so
+// rows stay aligned. Without this, one profile's emoji would silently
+// jut every other row's row out of alignment by 3 cells.
+test('footgun guard: any profile emoji + no default_emoji → "" for unset profiles', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A', emoji: '🎸'},
+			b: {keywords: ['b'], display_name: 'B'}, // no emoji
+			c: {keywords: ['c'], display_name: 'C'}, // no emoji
+		},
+	};
+	t.is(getProfileEmoji(config.profiles['a']!, config), '🎸');
+	t.is(
+		getProfileEmoji(config.profiles['b']!, config),
+		'',
+		'unset profile should inherit auto-blank slot so rows line up',
+	);
+	t.is(
+		getProfileEmoji(config.profiles['c']!, config),
+		'',
+		'unset profile should inherit auto-blank slot so rows line up',
+	);
+	t.is(
+		getProfileEmoji(undefined, config),
+		'',
+		'main worktree (undefined profile) should also inherit the auto-blank slot',
+	);
+});
+
+// Same guard applies when the profile's emoji is explicitly empty — the
+// "any other profile has an emoji" check counts empty-string as set.
+test('footgun guard: explicit "" on one profile still promotes unset siblings', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		default_profile: 'a',
+		profiles: {
+			a: {keywords: ['a'], display_name: 'A', emoji: ''},
+			b: {keywords: ['b'], display_name: 'B'},
+		},
+	};
+	t.is(getProfileEmoji(config.profiles['a']!, config), '');
+	t.is(getProfileEmoji(config.profiles['b']!, config), '');
 });
 
 // ============================================================================

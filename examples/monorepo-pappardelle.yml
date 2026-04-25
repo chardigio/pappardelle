@@ -98,6 +98,7 @@ profiles:
       - artist
       - recording
     display_name: "Stardust Jams"
+    emoji: "🎸"                                  # Shown in the ticket rail (STA-924)
     claude:
       initialization_command: "/do-stardust"    # Profile-level override for Claude init
     vars:
@@ -142,6 +143,7 @@ profiles:
       - colony
       - guess
     display_name: "King Bee"
+    emoji: "🐝"
     claude:
       initialization_command: "/do-king-bee"    # Each profile can have its own Claude init command
     vars:
@@ -182,6 +184,7 @@ profiles:
       - idow
       - workspace
     display_name: "Pappardelle"
+    emoji: "🍝"
     claude:
       initialization_command: "/do-pappardelle"
     github:

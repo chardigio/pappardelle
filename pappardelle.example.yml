@@ -6,6 +6,17 @@ version: 1
 # Default profile used when no keyword match is found
 default_profile: backend
 
+# Default emoji shown in the ticket rail when no per-profile `emoji:` is set,
+# or when a workspace can't be matched to a profile (e.g. main worktree).
+# Empty string = "reserve the slot but render nothing in it" so emoji-less
+# rows still align with their emoji-bearing siblings.
+#
+# Optional. If you set `emoji:` on at least one profile and omit this key,
+# Pappardelle auto-promotes unmatched rows to a blank-reserved slot for
+# you. If no profile has `emoji:` anywhere, the TUI looks identical to
+# pre-emoji Pappardelle (no slot rendered).
+default_emoji: ''
+
 # Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123')
 team_prefix: ENG
 
@@ -55,6 +66,9 @@ profiles:
       - mobile
       - swift
     display_name: 'iOS App'
+    # Optional emoji shown in the ticket rail (left of the Claude status icon).
+    # Falls back to top-level `default_emoji` when omitted.
+    emoji: '📱'
     # Per-profile team prefix override (optional).
     # Issues created under this profile will use this prefix instead of the global one.
     # team_prefix: IOS
@@ -88,6 +102,7 @@ profiles:
       - database
       - db migration  # Multi-word keywords match adjacent words in the input
     display_name: 'Backend'
+    emoji: '⚙️'
     github:
       label: 'backend'
     links:
@@ -107,6 +122,7 @@ profiles:
       - react
       - ui
     display_name: 'Frontend'
+    emoji: '🎨'
     github:
       label: 'frontend'
     links:

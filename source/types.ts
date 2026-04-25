@@ -56,6 +56,7 @@ export interface SpaceData {
 	isPending?: boolean; // True for placeholder rows shown while a new session is starting
 	pendingTitle?: string; // Title text for pending rows (e.g., "Opening..." or "Starting new session...")
 	railStatus?: RailStatus; // Snapshot of PR pipeline state + unresolved comment count (from VcsHostProvider.getRailStatus)
+	profileEmoji?: string; // Optional emoji for the active profile, rendered to the left of the Claude status icon
 }
 
 /**

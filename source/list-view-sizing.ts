@@ -118,6 +118,28 @@ export interface RailIcons {
 }
 
 /**
+ * Optional emoji rendered to the left of the Claude status icon (the very
+ * first cell on the row). `width` is the visual width in terminal cells —
+ * most emoji render as 2 cells, but the caller is responsible for supplying
+ * the correct width (e.g. via `string-width`).
+ */
+export interface RowPrefix {
+	emoji?: string;
+	width?: number;
+}
+
+/**
+ * How many cells the left-side emoji prefix occupies, including the trailing
+ * space that separates it from the Claude status icon. Returns 0 when no
+ * emoji is set.
+ */
+export function rowPrefixWidth(prefix?: RowPrefix): number {
+	if (!prefix?.emoji) return 0;
+	const width = prefix.width ?? 2;
+	return width + 1; // emoji + trailing space
+}
+
+/**
  * How many cells the right-aligned rail-icon cluster occupies. Includes one
  * leading space per chunk (separating the icons from the title and from
  * each other). Returns 0 when both pipeline and comment count are absent.
@@ -146,24 +168,30 @@ export function railPrefixWidth(icons?: RailIcons): number {
  * Calculate available width for the title text in a list row.
  *
  * Row format:
- *   "icon space issueKey space title [space pipelineIcon] [space (count)]"
+ *   "[emoji space] icon space issueKey space title [space pipelineIcon] [space (count)]"
  *
- * Fixed overhead (without rail icons) = icon(1) + space(1) + space(1) = 3
- * Total fixed = 3 + issueKey.length + railPrefixWidth(icons)
+ * Fixed overhead (without rail icons or emoji) = icon(1) + space(1) + space(1) = 3
+ * Total fixed = 3 + issueKey.length + rowPrefixWidth(prefix) + railPrefixWidth(icons)
  *
  * @param totalWidth - Total width of the list pane in characters
  * @param issueKeyLength - Length of the issue key string (e.g. 7 for "STA-452")
  * @param icons - Optional rail icons (pipeline + unresolved comment count)
+ * @param prefix - Optional left-side emoji prefix
  * @returns Number of characters available for the title
  */
 export function calculateAvailableTitleWidth(
 	totalWidth: number,
 	issueKeyLength: number,
 	icons?: RailIcons,
+	prefix?: RowPrefix,
 ): number {
 	return Math.max(
 		0,
-		totalWidth - ROW_FIXED_OVERHEAD - issueKeyLength - railPrefixWidth(icons),
+		totalWidth -
+			ROW_FIXED_OVERHEAD -
+			issueKeyLength -
+			railPrefixWidth(icons) -
+			rowPrefixWidth(prefix),
 	);
 }
 
@@ -201,11 +229,13 @@ export function renderListRow(
 	title: string,
 	width: number,
 	icons?: RailIcons,
+	prefix?: RowPrefix,
 ): string {
 	const availableTitle = calculateAvailableTitleWidth(
 		width,
 		issueKey.length,
 		icons,
+		prefix,
 	);
 	const truncated = truncateTitle(title, availableTitle);
 
@@ -218,7 +248,8 @@ export function renderListRow(
 		suffix += ` ${icons.pipelineIcon}`;
 	}
 
-	return `${icon} ${issueKey} ${truncated}${suffix}`;
+	const emojiPrefix = prefix?.emoji ? `${prefix.emoji} ` : '';
+	return `${emojiPrefix}${icon} ${issueKey} ${truncated}${suffix}`;
 }
 
 /**

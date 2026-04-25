@@ -85,6 +85,18 @@ hooks:
 # Default profile used when no match is found
 default_profile: stardust-jams
 
+# Default emoji rendered in the ticket-rail prefix when a profile has no
+# `emoji:` of its own (or when no profile can be matched, e.g. main worktree).
+# Empty string = "reserve the slot but render nothing in it" so emoji-less
+# rows still align with their emoji-bearing siblings.
+#
+# This key is optional. If you set `emoji:` on at least one profile and
+# omit `default_emoji` entirely, Pappardelle auto-promotes unmatched rows
+# to a blank-but-reserved slot for you (equivalent to `default_emoji: ''`).
+# If NO profile has an `emoji:` anywhere in the config, the emoji slot is
+# not rendered at all and the TUI looks identical to pre-STA-924.
+default_emoji: ''
+
 # Named profiles for different project types
 profiles:
   stardust-jams:
@@ -106,6 +118,10 @@ profiles:
 
     # Display name shown in profile picker
     display_name: 'Stardust Jams (iOS Music App)'
+
+    # Optional emoji shown in the TUI ticket rail (left of the Claude status
+    # icon). Falls back to the top-level `default_emoji` when omitted.
+    emoji: '🎵'
 
     # Per-profile team prefix override (optional)
     # When set, issues created under this profile use this team prefix
@@ -366,6 +382,7 @@ import {execSync} from 'node:child_process';
 interface PappardelleConfig {
 	version: number;
 	default_profile: string;
+	default_emoji?: string; // Fallback emoji for the ticket-rail prefix
 	issue_tracker?: {
 		provider: 'linear' | 'jira';
 		base_url?: string; // Required for jira
@@ -386,6 +403,7 @@ interface Profile {
 	keywords: string[];
 	tracker_projects?: string[]; // Issue tracker project names for project-based matching
 	display_name: string;
+	emoji?: string; // Shown in the TUI ticket rail to the left of the Claude status icon
 	team_prefix?: string; // Override global team_prefix for issue creation
 	claude?: {
 		initialization_command?: string; // Override global init command for this profile

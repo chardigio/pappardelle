@@ -131,6 +131,7 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
   - `keywords`: include the prefix with hyphen (e.g., `["FE-"]`) — this is how Pappardelle auto-selects the profile when the user enters an issue key like `FE-123`
   - `team_prefix`: set per-profile to override the global prefix for issue creation
   - `commands`: reasonable setup commands based on project type (e.g., `npm install` for Node.js, `xcodegen generate` for iOS)
+  - `emoji`: optional — suggest one via `/configure-pappardelle`'s emoji flow. With 3+ profiles, offer to bulk-assign now.
 - Set `default_profile` to the most common one
 
 ### 1d. Claude initialization command

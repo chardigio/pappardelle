@@ -1,11 +1,12 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
+import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
 import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
-import {railPrefixWidth} from '../list-view-sizing.ts';
+import {railPrefixWidth, rowPrefixWidth} from '../list-view-sizing.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
@@ -82,16 +83,34 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		commentCount,
 	});
 
+	// Optional profile emoji rendered to the left of the Claude status icon.
+	//
+	// Three states:
+	//   - undefined: user has no emoji config at all → render no prefix,
+	//     keeping the row visually identical to master.
+	//   - "" (empty string): emoji slot is configured but blank → render
+	//     two spaces so rows still line up with their emoji-bearing siblings.
+	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
+	//     so multi-cell emoji reserve the right number of cells.
+	const rawEmoji = space.profileEmoji;
+	const hasEmojiSlot = rawEmoji !== undefined;
+	const emoji = hasEmojiSlot ? (rawEmoji === '' ? '  ' : rawEmoji) : undefined;
+	const emojiCells = emoji ? stringWidth(emoji) : 0;
+	const emojiPrefixCells = rowPrefixWidth(
+		emoji ? {emoji, width: emojiCells} : undefined,
+	);
+
 	// Calculate available width for title
-	// Format: "✢ STA-123 title…   [pipeline] [(N)]" — rail icons are right-
-	// aligned at the end of the row so the eye-line of issue keys + titles
-	// stays clean. They reserve space at the right by shrinking the title
-	// budget; same arithmetic as before, just rendered after the title.
+	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]" — emoji on the
+	// far left, rail icons right-aligned. They reserve space by shrinking
+	// the title budget.
 	const issueKey = space.name;
 	const hasIssueKey = issueKey.length > 0;
-	// icon (1) + space (1) [+ issueKey (variable) + space (1)] + rail suffix
+	// emoji prefix + icon (1) + space (1) [+ issueKey (variable) + space (1)] + rail suffix
 	const fixedWidth =
-		(hasIssueKey ? 1 + 1 + issueKey.length + 1 : 1 + 1) + prefixCells;
+		emojiPrefixCells +
+		(hasIssueKey ? 1 + 1 + issueKey.length + 1 : 1 + 1) +
+		prefixCells;
 	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
 	// Truncate title (pending rows use their own title text)
@@ -193,6 +212,19 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 
 	return (
 		<Box>
+			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
+			    Followed by a single space separator so it doesn't crash into the
+			    Claude status icon. */}
+			{emoji ? (
+				<>
+					<Text inverse={useBlinkInverse} color={textColor}>
+						{emoji}
+					</Text>
+					<Text inverse={useBlinkInverse} color={textColor}>
+						{' '}
+					</Text>
+				</>
+			) : null}
 			{/* Status icon (NOT highlighted, always shows its own color) */}
 			{isWorking ? (
 				<ClaudeAnimation

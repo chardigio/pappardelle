@@ -51,6 +51,7 @@ import {
 	buildWorkspaceTemplateVars,
 	matchProfiles,
 	matchProfileByProject,
+	getProfileEmoji,
 	type KeybindingConfig,
 	type IssueWatchlistConfig,
 	type CommandConfig,
@@ -178,21 +179,42 @@ export default function App({
 		headerTimeoutRef.current = setTimeout(() => setHeaderMessage(''), ms);
 	}, []);
 
-	// Load custom keybindings from config (once at startup)
-	const keybindings = React.useMemo<KeybindingConfig[]>(() => {
+	// Load config once at startup. Used for keybindings, emoji lookup, etc.
+	// May be null if .pappardelle.yml is missing or invalid; downstream lookups
+	// guard against this.
+	const configMemo = React.useMemo(() => {
 		try {
-			const config = loadConfig();
-			const kb = getKeybindings(config);
-			log.info(`Loaded ${kb.length} custom keybindings`);
-			return kb;
+			return loadConfig();
 		} catch (err) {
 			log.error(
-				'Failed to load keybindings',
+				'Failed to load config',
 				err instanceof Error ? err : undefined,
 			);
-			return [];
+			return null;
 		}
 	}, []);
+
+	// Load custom keybindings from config (once at startup)
+	const keybindings = React.useMemo<KeybindingConfig[]>(() => {
+		if (!configMemo) return [];
+		const kb = getKeybindings(configMemo);
+		log.info(`Loaded ${kb.length} custom keybindings`);
+		return kb;
+	}, [configMemo]);
+
+	// Resolve profile emoji for a space using its cached issue's project name.
+	// Falls back to the top-level `default_emoji` when no profile matches.
+	const resolveProfileEmoji = React.useCallback(
+		(cachedIssue: ReturnType<typeof getIssueCached>): string | undefined => {
+			if (!configMemo) return undefined;
+			const projectName = cachedIssue?.project?.name;
+			const matched = projectName
+				? matchProfileByProject(configMemo, projectName)
+				: null;
+			return getProfileEmoji(matched?.profile, configMemo);
+		},
+		[configMemo],
+	);
 
 	// Load issue watchlist config (once at startup)
 	const watchlistConfig = React.useMemo<
@@ -351,6 +373,7 @@ export default function App({
 					claudeStatus: claudeInfo.status,
 					claudeTool: claudeInfo.tool,
 					worktreePath,
+					profileEmoji: resolveProfileEmoji(cached),
 				};
 			});
 
@@ -379,6 +402,7 @@ export default function App({
 					isDirty: await isWorktreeDirty(mainInfo.path),
 					claudeStatus: mainClaudeInfo.status,
 					claudeTool: mainClaudeInfo.tool,
+					profileEmoji: resolveProfileEmoji(null),
 				});
 			}
 
@@ -409,8 +433,11 @@ export default function App({
 								if (s.isMainWorktree) return s;
 								const issue = getIssueCached(s.name);
 								if (!issue) return s;
-								if (s.linearIssue === issue) return s;
-								return {...s, linearIssue: issue};
+								const nextEmoji = resolveProfileEmoji(issue);
+								if (s.linearIssue === issue && s.profileEmoji === nextEmoji) {
+									return s;
+								}
+								return {...s, linearIssue: issue, profileEmoji: nextEmoji};
 							}),
 						);
 					})
@@ -424,7 +451,7 @@ export default function App({
 			setSpaces([]);
 			setLoading(false);
 		}
-	}, []);
+	}, [resolveProfileEmoji]);
 
 	// Initial load
 	useEffect(() => {

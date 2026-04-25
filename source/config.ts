@@ -84,6 +84,11 @@ export interface Profile {
 	/** Issue tracker project names that map to this profile (case-insensitive match). */
 	tracker_projects?: string[];
 	display_name: string;
+	/**
+	 * Optional emoji shown in the TUI ticket rail (left of the Claude status icon).
+	 * Falls back to the top-level `default_emoji`.
+	 */
+	emoji?: string;
 	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
 	team_prefix?: string;
 	/** Per-profile Claude config override. Falls back to the global `claude` section. */
@@ -107,6 +112,11 @@ export interface Profile {
 export interface PappardelleConfig {
 	version: number;
 	default_profile?: string;
+	/**
+	 * Emoji shown in the ticket rail when the active profile has no `emoji` of
+	 * its own (or no profile can be matched at all, e.g. for the main worktree).
+	 */
+	default_emoji?: string;
 	team_prefix?: string;
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
@@ -532,6 +542,17 @@ export function validateConfig(
 		errors.push('default_profile: must be a non-empty string when specified');
 	}
 
+	// Check default_emoji (optional)
+	// Empty string is allowed and means "reserve the emoji slot but render
+	// nothing in it" — useful when most profiles have an emoji and you want
+	// the unmatched ones to align without showing a glyph.
+	if (
+		cfg['default_emoji'] !== undefined &&
+		typeof cfg['default_emoji'] !== 'string'
+	) {
+		errors.push('default_emoji: must be a string when specified');
+	}
+
 	// Check issue_tracker (optional)
 	if (cfg['issue_tracker'] !== undefined) {
 		if (
@@ -826,6 +847,13 @@ function validateProfile(name: string, profile: unknown): string[] {
 
 	if (typeof p['display_name'] !== 'string') {
 		errors.push(`${prefix}.display_name: required string field`);
+	}
+
+	// Optional emoji. Empty string is allowed (renders as a blank slot that
+	// still reserves the emoji width — useful for keeping rows aligned when
+	// some profiles have an emoji and others don't).
+	if (p['emoji'] !== undefined && typeof p['emoji'] !== 'string') {
+		errors.push(`${prefix}.emoji: must be a string when specified`);
 	}
 
 	// Optional team_prefix
@@ -1316,6 +1344,34 @@ export function listProfiles(
  */
 export function getProfileVcsLabel(profile: Profile): string | undefined {
 	return profile.vcs?.label ?? profile.github?.label;
+}
+
+/**
+ * Get the emoji to display in the ticket rail for a profile.
+ *
+ * Resolution order:
+ *   1. The profile's own `emoji:`
+ *   2. The top-level `default_emoji:` (may be an empty string — that means
+ *      "reserve the slot but render nothing")
+ *   3. Footgun guard: if *any other* profile in the config has an `emoji:`,
+ *      return `''` so unmatched rows (main worktree, issues without a
+ *      project match) still reserve the slot and line up with their
+ *      emoji-bearing siblings. Otherwise the user would set an emoji on
+ *      one profile and silently get misaligned rows everywhere else.
+ *   4. `undefined` — no emoji machinery anywhere in the config; the
+ *      renderer skips the slot entirely and the TUI stays byte-identical
+ *      to master for users who haven't opted in.
+ */
+export function getProfileEmoji(
+	profile: Profile | undefined,
+	config: PappardelleConfig,
+): string | undefined {
+	if (profile?.emoji !== undefined) return profile.emoji;
+	if (config.default_emoji !== undefined) return config.default_emoji;
+	const anyProfileHasEmoji = Object.values(config.profiles).some(
+		p => p.emoji !== undefined,
+	);
+	return anyProfileHasEmoji ? '' : undefined;
 }
 
 /**

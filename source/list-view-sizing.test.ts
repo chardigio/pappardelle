@@ -8,6 +8,7 @@ import {
 	renderListRow,
 	renderListView,
 	railPrefixWidth,
+	rowPrefixWidth,
 	calculateListClickRow,
 	HEADER_ROWS,
 	LIST_CHROME_ROWS,
@@ -292,6 +293,81 @@ test('renderListRow: narrow width, no title room', t => {
 	const row = renderListRow('STA-400', '\u00b7', 'Hello', 10);
 	// available = 10 - 3 - 7 = 0, no title
 	t.is(row, '\u00b7 STA-400 ');
+});
+
+// ============================================================================
+// Row prefix (profile emoji)
+// ============================================================================
+
+test('rowPrefixWidth: undefined \u2192 0', t => {
+	t.is(rowPrefixWidth(undefined), 0);
+});
+
+test('rowPrefixWidth: missing emoji \u2192 0', t => {
+	t.is(rowPrefixWidth({}), 0);
+});
+
+test('rowPrefixWidth: default width 2 + trailing space = 3', t => {
+	t.is(rowPrefixWidth({emoji: '\ud83c\udf5d'}), 3);
+});
+
+test('rowPrefixWidth: explicit width 1 (e.g. ASCII glyph) \u2192 2', t => {
+	t.is(rowPrefixWidth({emoji: '*', width: 1}), 2);
+});
+
+test('calculateAvailableTitleWidth: shrinks by emoji prefix', t => {
+	// totalWidth=40, issueKey=7, no rail icons:
+	// without prefix: 40 - 3 - 7 = 30
+	// with default-width emoji prefix (3 cells): 30 - 3 = 27
+	t.is(calculateAvailableTitleWidth(40, 7), 30);
+	t.is(
+		calculateAvailableTitleWidth(40, 7, undefined, {emoji: '\ud83c\udf5d'}),
+		27,
+	);
+});
+
+test('renderListRow: with emoji prefix', t => {
+	const row = renderListRow('STA-452', '\u00b7', 'Fix the bug', 40, undefined, {
+		emoji: '\ud83c\udf5d',
+	});
+	// emoji prefix (3 cells) renders as "\ud83c\udf5d " then the rest of the row.
+	t.is(row, '\ud83c\udf5d \u00b7 STA-452 Fix the bug');
+});
+
+test('renderListRow: emoji prefix shrinks title budget', t => {
+	const row = renderListRow(
+		'STA-400',
+		'\u00b7',
+		'This is a very long title that will be truncated',
+		30,
+		undefined,
+		{emoji: '\ud83c\udf5d'},
+	);
+	// available = 30 - 3 - 7 - 3 = 17 chars for title
+	// "This is a very lo" = 17 \u2192 truncated to "This is a very l\u2026" (16 + ellipsis)
+	t.is(row, '\ud83c\udf5d \u00b7 STA-400 This is a very l\u2026');
+});
+
+// Regression: when `prefix` is undefined (the case for users who haven't
+// added any emoji fields to their .pappardelle.yml), renderListRow MUST
+// produce byte-for-byte the same string it did on master. If this ever
+// drifts, every existing user gets an unexpected blank slot pushing their
+// rows over by 3 cells on upgrade.
+test('renderListRow: no prefix arg \u2192 row is byte-identical to master output', t => {
+	const noPrefix = renderListRow('STA-452', '\u00b7', 'Fix the bug', 40);
+	const explicitUndefined = renderListRow(
+		'STA-452',
+		'\u00b7',
+		'Fix the bug',
+		40,
+		undefined,
+		undefined,
+	);
+	t.is(noPrefix, '\u00b7 STA-452 Fix the bug');
+	t.is(explicitUndefined, '\u00b7 STA-452 Fix the bug');
+	// Available title width must also match master: 40 - 3 - 7 = 30.
+	t.is(calculateAvailableTitleWidth(40, 7), 30);
+	t.is(calculateAvailableTitleWidth(40, 7, undefined, undefined), 30);
 });
 
 // ============================================================================

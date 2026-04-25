@@ -23,6 +23,7 @@ ls -la "$REPO_ROOT/.pappardelle.yml" "$REPO_ROOT/.pappardelle.local.yml" 2>/dev/
 
 Options:
 - **Add or edit a profile** — create a new project profile or modify an existing one
+- **Assign emojis to profiles** — suggest a ticket-rail emoji for each profile (STA-924)
 - **Configure keybindings** — add, change, or remove keyboard shortcuts
 - **Set up workspace init commands** — commands to run after worktree creation (`post_workspace_init`)
 - **Set up workspace deinit commands** — commands to run before workspace deletion (`pre_workspace_deinit`)
@@ -33,6 +34,13 @@ Options:
 
 Then follow the appropriate section below based on their choice.
 
+### Proactive emoji suggestion
+
+Before showing the menu: if the config has >2 profiles and none of them have
+an `emoji:`, ask once whether to assign emojis (see *Configuring Profile
+Emojis*). If yes → jump there; if no → continue to the menu and don't ask
+again this session.
+
 ## Configuring Profiles
 
 Profiles define project-specific workspace behavior. Ask these questions with `AskUserQuestion`:
@@ -40,8 +48,9 @@ Profiles define project-specific workspace behavior. Ask these questions with `A
 1. **Profile name**: kebab-case slug (e.g., `my-app`, `backend-api`)
 2. **Display name**: human-readable (e.g., `My iOS App`, `Backend API`)
 3. **Keywords**: words that auto-select this profile when creating workspaces (e.g., `ios`, `app`, `swift`). Include the issue prefix with hyphen if applicable (e.g., `MOB-`)
-4. **Team prefix override**: if this profile uses a different issue key prefix than the global `team_prefix`
-5. **Project type**: ask what kind of project to generate sensible defaults:
+4. **Emoji** (optional): suggest one via the resolution flow in *Configuring Profile Emojis* below. If the user already has emojis on other profiles, always ask — otherwise skip unless they express interest.
+5. **Team prefix override**: if this profile uses a different issue key prefix than the global `team_prefix`
+6. **Project type**: ask what kind of project to generate sensible defaults:
    - **iOS app**: ask for app directory, bundle ID, Xcode scheme. Generate `vars` and `commands` for xcodegen/xcodebuild
    - **Backend/API**: generate dependency install commands
    - **Frontend/Web**: generate npm/yarn commands
@@ -54,6 +63,7 @@ profiles:
   my-profile:
     keywords: [keyword1, keyword2]
     display_name: 'My Profile'
+    emoji: '🎸'                   # Optional — shown in the ticket rail (STA-924)
     team_prefix: PREFIX           # Optional per-profile override
     claude:
       initialization_command: '/do'  # Optional per-profile override
@@ -84,6 +94,31 @@ profiles:
         run: 'some command'
         continue_on_error: true
 ```
+
+## Configuring Profile Emojis
+
+Each profile can set an `emoji:` — shown as the first cell of its row in
+the ticket rail. Goes in `.pappardelle.yml` (shared).
+
+**Pick one for a profile** by trying in order:
+
+1. **Linear project icon** (Linear projects only): `linctl project list --json`
+   and look up the profile's `tracker_projects` entry. If `.icon` is a name
+   like `Rocket`/`MusicNote`, translate to the matching emoji (🚀/🎵 etc.).
+2. **Guess from the profile's `display_name` / `keywords`** — pick whatever
+   emoji fits best (music → 🎸, bee → 🐝, infra → ⚙️, etc.).
+3. **Ask** via `AskUserQuestion` with 3 candidates + "Other".
+
+**Bulk flow** (menu option or proactive prompt): propose a mapping for all
+emoji-less profiles, show it in one table, and ask apply-all / tweak-each /
+skip.
+
+Do **not** prompt for `default_emoji:` — Pappardelle auto-promotes
+unmatched rows to a blank slot whenever any profile has an `emoji:`, so
+rows stay aligned without it. Only touch `default_emoji:` if the user
+explicitly asks for a non-blank fallback glyph.
+
+Remind the user to quit and relaunch the TUI to see the change.
 
 ## Configuring Keybindings
 
