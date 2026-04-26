@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
+import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
@@ -190,7 +191,7 @@ export class JiraProvider implements IssueTrackerProvider {
 
 		log.warn(
 			`Failed to fetch Jira issue ${issueKey} after ${MAX_RETRIES} attempts`,
-			lastError instanceof Error ? lastError : undefined,
+			sanitizeSubprocessError(lastError),
 		);
 		this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
 		return null;
@@ -371,10 +372,7 @@ export class JiraProvider implements IssueTrackerProvider {
 				return [];
 			}
 
-			log.warn(
-				'Failed to search Jira issues',
-				err instanceof Error ? err : undefined,
-			);
+			log.warn('Failed to search Jira issues', sanitizeSubprocessError(err));
 			return [];
 		}
 	}
@@ -423,7 +421,7 @@ export class JiraProvider implements IssueTrackerProvider {
 
 		log.warn(
 			`Failed to post comment on Jira ${issueKey} after ${MAX_RETRIES} attempts`,
-			lastError instanceof Error ? lastError : undefined,
+			sanitizeSubprocessError(lastError),
 		);
 		return false;
 	}

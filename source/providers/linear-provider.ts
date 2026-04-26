@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
+import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
@@ -137,7 +138,7 @@ export class LinearProvider implements IssueTrackerProvider {
 
 		log.warn(
 			`Failed to fetch issue ${issueKey} after ${MAX_RETRIES} attempts`,
-			lastError instanceof Error ? lastError : undefined,
+			sanitizeSubprocessError(lastError),
 		);
 		this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
 		return null;
@@ -239,7 +240,7 @@ export class LinearProvider implements IssueTrackerProvider {
 
 				log.warn(
 					`Failed to list issues for status "${status}"`,
-					err instanceof Error ? err : undefined,
+					sanitizeSubprocessError(err),
 				);
 			}
 		}
@@ -290,7 +291,7 @@ export class LinearProvider implements IssueTrackerProvider {
 
 		log.warn(
 			`Failed to post comment on ${issueKey} after ${MAX_RETRIES} attempts`,
-			lastError instanceof Error ? lastError : undefined,
+			sanitizeSubprocessError(lastError),
 		);
 		return false;
 	}

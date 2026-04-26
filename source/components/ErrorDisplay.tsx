@@ -1,5 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
+import {clipErrorText} from '../clip-error-text.ts';
+import {buildLogsHint} from '../error-display-hint.ts';
 import {
 	subscribeToErrors,
 	clearRecentErrors,
@@ -26,6 +28,14 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 	const visibleErrors = errors.slice(-maxVisible);
 	const hiddenCount = errors.length - visibleErrors.length;
 
+	const clipped = visibleErrors.map(entry =>
+		entry.error
+			? {entry, body: clipErrorText(entry.error)}
+			: {entry, body: null},
+	);
+	const anyTruncated = clipped.some(c => c.body?.truncated);
+	const showLogsHint = hiddenCount > 0 || anyTruncated;
+
 	return (
 		<Box
 			flexDirection="column"
@@ -44,7 +54,7 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 				<Text dimColor>Press 'c' to clear</Text>
 			</Box>
 
-			{visibleErrors.map((entry, i) => (
+			{clipped.map(({entry, body}, i) => (
 				<Box key={`${entry.timestamp}-${i}`} flexDirection="column">
 					<Box>
 						<Text color={entry.level === 'error' ? 'red' : 'yellow'}>
@@ -52,14 +62,12 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 						</Text>
 						<Text> {entry.message}</Text>
 					</Box>
-					{entry.error && <Text dimColor> {entry.error}</Text>}
+					{body && <Text dimColor> {body.text}</Text>}
 				</Box>
 			))}
 
-			{hiddenCount > 0 && (
-				<Text dimColor>
-					...and {hiddenCount} more (see ~/.pappardelle/logs/)
-				</Text>
+			{showLogsHint && (
+				<Text dimColor>{buildLogsHint(hiddenCount, anyTruncated)}</Text>
 			)}
 		</Box>
 	);

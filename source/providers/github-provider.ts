@@ -3,6 +3,7 @@ import {execFile, execFileSync} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
 import {classifyPipeline, type CheckContext} from '../rail-status.ts';
+import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
 
 const log = createLogger('github-provider');
@@ -73,7 +74,7 @@ export class GitHubProvider implements VcsHostProvider {
 		} catch (err) {
 			log.warn(
 				`Failed to check issue ${issueKey} for PR`,
-				err instanceof Error ? err : undefined,
+				sanitizeSubprocessError(err),
 			);
 			return {hasPR: false, hasCommits: false};
 		}
@@ -212,7 +213,7 @@ export class GitHubProvider implements VcsHostProvider {
 		} catch (err) {
 			log.warn(
 				`Failed to fetch rail status for ${issueKey}`,
-				err instanceof Error ? err : undefined,
+				sanitizeSubprocessError(err),
 			);
 			return empty;
 		}
