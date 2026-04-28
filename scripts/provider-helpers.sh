@@ -152,10 +152,10 @@ check_existing_pr() {
 }
 
 # Create an issue in the configured tracker
-# Args: --title <title> --prompt <prompt> --config <config_path> [--team <team>]
+# Args: --title <title> --prompt <prompt> --config <config_path> [--team <team>] [--issue-type <type>]
 # Outputs: JSON with issue_key and issue_url
 create_issue() {
-    local title="" prompt="" config_path="" team=""
+    local title="" prompt="" config_path="" team="" issue_type=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -163,6 +163,7 @@ create_issue() {
             --prompt) prompt="$2"; shift 2 ;;
             --config) config_path="$2"; shift 2 ;;
             --team) team="$2"; shift 2 ;;
+            --issue-type) issue_type="$2"; shift 2 ;;
             *) shift ;;
         esac
     done
@@ -172,6 +173,12 @@ create_issue() {
         team=$(yq -r '.team_prefix // "STA"' "$config_path" | tr '[:lower:]' '[:upper:]')
     fi
     team="${team:-STA}"
+
+    # Resolve Jira issue type: explicit arg → global default in config → "Task"
+    if [[ -z "$issue_type" && -n "$config_path" ]]; then
+        issue_type=$(yq -r '.issue_tracker.default_issue_type // ""' "$config_path")
+    fi
+    issue_type="${issue_type:-Task}"
 
     local provider
     provider=$(get_issue_tracker_provider "$config_path")
@@ -206,7 +213,7 @@ $quoted_prompt"
             fi
 
             local output
-            output=$(acli jira workitem create --project "$team" --type Task --summary "$title" --description-file "$adf_tmp" 2>&1)
+            output=$(acli jira workitem create --project "$team" --type "$issue_type" --summary "$title" --description-file "$adf_tmp" 2>&1)
             local exit_code=$?
             rm -f "$adf_tmp"
             if [[ $exit_code -ne 0 ]]; then
