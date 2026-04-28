@@ -388,6 +388,7 @@ interface PappardelleConfig {
 	issue_tracker?: {
 		provider: 'linear' | 'jira';
 		base_url?: string; // Required for jira
+		default_issue_type?: string; // Jira-only. Default issue type for new issues. Defaults to "Task".
 	};
 	vcs_host?: {
 		provider: 'github' | 'gitlab';
@@ -407,6 +408,9 @@ interface Profile {
 	display_name: string;
 	emoji?: string; // Shown in the TUI ticket rail to the left of the Claude status icon
 	team_prefix?: string; // Override global team_prefix for issue creation
+	jira?: {
+		issue_type?: string; // Override the Jira issue type used when creating issues under this profile (e.g. "Feature", "Bug"). Falls back to issue_tracker.default_issue_type, then "Task".
+	};
 	claude?: {
 		initialization_command?: string; // Override global init command for this profile
 	};
@@ -553,6 +557,24 @@ issue_tracker:
 issue_tracker:
   provider: jira
   base_url: https://mycompany.atlassian.net
+  # Optional. Issue type used when creating new issues. Defaults to "Task".
+  # Set this if your Jira project doesn't allow "Task" (e.g. your project's
+  # allowed types are "Feature, Epic, Bug, ..."). Can be overridden per
+  # profile via `profiles.<name>.jira.issue_type`.
+  default_issue_type: Task
+```
+
+**Per-profile Jira issue type override.** When you have multiple profiles
+each pointing at a different Jira project, set `jira.issue_type` on the
+profile to override the global default. Resolution order:
+`profiles.<name>.jira.issue_type` → `issue_tracker.default_issue_type` → `"Task"`.
+
+```yaml
+profiles:
+  data-analytics:
+    team_prefix: DA
+    jira:
+      issue_type: Feature   # DA project doesn't accept "Task"
 ```
 
 ### VCS Host Providers
