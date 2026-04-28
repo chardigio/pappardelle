@@ -20,6 +20,14 @@ default_emoji: ''
 # Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123')
 team_prefix: ENG
 
+# Issue tracker (optional). Linear is assumed when omitted.
+# For Jira, you can set `default_issue_type` if your project doesn't accept the
+# default of "Task" — and override it per-profile via `profiles.<name>.jira.issue_type`.
+# issue_tracker:
+#   provider: jira
+#   base_url: https://mycompany.atlassian.net
+#   default_issue_type: Task
+
 # Claude configuration (optional)
 # claude:
 #   initialization_command: "/idow"        # Command passed to Claude when a new session opens
@@ -72,6 +80,10 @@ profiles:
     # Per-profile team prefix override (optional).
     # Issues created under this profile will use this prefix instead of the global one.
     # team_prefix: IOS
+    # Per-profile Jira issue type override (optional).
+    # Falls back to issue_tracker.default_issue_type, then "Task".
+    # jira:
+    #   issue_type: Feature
     vars:
       IOS_APP_DIR: 'ios/MyApp'
       BUNDLE_ID: 'com.example.myapp'

@@ -411,6 +411,10 @@ else
     EFFECTIVE_TEAM_PREFIX="$TEAM_PREFIX"
 fi
 
+# Read per-profile Jira issue type override (provider-helpers falls back to
+# .issue_tracker.default_issue_type and finally "Task" when this is empty).
+PROFILE_JIRA_ISSUE_TYPE=$(yq -r ".profiles.$SELECTED_PROFILE.jira.issue_type // \"\"" "$CONFIG_PATH")
+
 # Use profile name as project key
 PROJECT_KEY="$SELECTED_PROFILE"
 
@@ -437,7 +441,11 @@ if [[ "$IS_NEW_ISSUE" == true ]]; then
 
     # Create issue via provider
     print_step 4 "Creating issue..."
-    ISSUE_JSON=$(create_issue --title "$TITLE" --prompt "$DESCRIPTION" --config "$CONFIG_PATH" --team "$EFFECTIVE_TEAM_PREFIX") || error "Failed to create issue"
+    CREATE_ISSUE_ARGS=(--title "$TITLE" --prompt "$DESCRIPTION" --config "$CONFIG_PATH" --team "$EFFECTIVE_TEAM_PREFIX")
+    if [[ -n "$PROFILE_JIRA_ISSUE_TYPE" ]]; then
+        CREATE_ISSUE_ARGS+=(--issue-type "$PROFILE_JIRA_ISSUE_TYPE")
+    fi
+    ISSUE_JSON=$(create_issue "${CREATE_ISSUE_ARGS[@]}") || error "Failed to create issue"
     ISSUE_KEY=$(echo "$ISSUE_JSON" | jq -r '.issue_key')
     ISSUE_URL=$(echo "$ISSUE_JSON" | jq -r '.issue_url')
     print_success "Created issue: $ISSUE_KEY (project will be assigned by Claude)"
