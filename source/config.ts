@@ -1223,6 +1223,23 @@ export function getProfile(
 	return config.profiles[name];
 }
 
+/**
+ * The default issue-tracker project for newly-created issues under a profile.
+ *
+ * When `idow` creates a new issue (no key supplied), `provider-helpers.sh`
+ * resolves this name to a Linear project UUID and passes it to
+ * `linctl issue create --project <uuid>`. Returns `undefined` when the
+ * profile has no `tracker_projects` (or an empty array), in which case the
+ * issue is created with no project assigned (pre-STA-959 behavior).
+ *
+ * Centralizing the "first entry wins" rule here keeps the TS-side and the
+ * bash-side `yq -r '.profiles.<p>.tracker_projects[0]'` lookup in lockstep.
+ */
+export function getProfileDefaultProject(profile: Profile): string | undefined {
+	const first = profile.tracker_projects?.[0];
+	return first === undefined || first === '' ? undefined : first;
+}
+
 // Issue-key patterns used to short-circuit keyword matching and return the default profile.
 const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;

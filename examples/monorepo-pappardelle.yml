@@ -97,6 +97,13 @@ profiles:
       - album
       - artist
       - recording
+    # Linear project routing. Existing issues whose project matches any entry
+    # land on this profile. `tracker_projects[0]` is also the default project
+    # for issues CREATED under this profile (STA-959): order it so the active
+    # project for new work is first.
+    tracker_projects:
+      - "Stardust Jams Quality"
+      - "Stardust Jams MVP"
     display_name: "Stardust Jams"
     emoji: "🎸"                                  # Shown in the ticket rail (STA-924)
     claude:

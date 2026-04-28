@@ -73,6 +73,14 @@ profiles:
       - app
       - mobile
       - swift
+    # Linear project names that map to this profile. Existing issues fetched
+    # by key are routed here when their project matches (case-insensitive).
+    # On Linear, `tracker_projects[0]` is also the default project for issues
+    # CREATED under this profile (e.g. via `idow "fix login bug"`). Reorder
+    # this list so the project where new work should land is first.
+    tracker_projects:
+      - 'iOS App Quality'
+      - 'iOS App MVP'
     display_name: 'iOS App'
     # Optional emoji shown in the ticket rail (left of the Claude status icon).
     # Falls back to top-level `default_emoji` when omitted.

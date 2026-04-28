@@ -50,7 +50,8 @@ Profiles define project-specific workspace behavior. Ask these questions with `A
 3. **Keywords**: words that auto-select this profile when creating workspaces (e.g., `ios`, `app`, `swift`). Include the issue prefix with hyphen if applicable (e.g., `MOB-`)
 4. **Emoji** (optional): suggest one via the resolution flow in *Configuring Profile Emojis* below. If the user already has emojis on other profiles, always ask — otherwise skip unless they express interest.
 5. **Team prefix override**: if this profile uses a different issue key prefix than the global `team_prefix`
-6. **Project type**: ask what kind of project to generate sensible defaults:
+6. **Linear project routing** (`tracker_projects`, optional): a list of Linear project names that map to this profile. Pappardelle uses it for two things — (a) when an existing issue is fetched, its project name is matched against the list to auto-select the profile, and (b) when a *new* issue is created under this profile via `idow`, `tracker_projects[0]` is resolved to a Linear project UUID and assigned automatically (STA-959). Order so the active project for new work is first; re-order when the active project rotates (e.g., once `Foo MVP` ships, move `Foo Quality` to position 0). Skip for Jira — `team_prefix` already controls Jira project routing.
+7. **Project type**: ask what kind of project to generate sensible defaults:
    - **iOS app**: ask for app directory, bundle ID, Xcode scheme. Generate `vars` and `commands` for xcodegen/xcodebuild
    - **Backend/API**: generate dependency install commands
    - **Frontend/Web**: generate npm/yarn commands
@@ -62,6 +63,9 @@ Profiles define project-specific workspace behavior. Ask these questions with `A
 profiles:
   my-profile:
     keywords: [keyword1, keyword2]
+    tracker_projects:               # Optional — Linear project names. [0] is the
+      - 'My Project Quality'        # default project for issues newly-created under
+      - 'My Project MVP'            # this profile (STA-959).
     display_name: 'My Profile'
     emoji: '🎸'                   # Optional — shown in the ticket rail (STA-924)
     team_prefix: PREFIX           # Optional per-profile override

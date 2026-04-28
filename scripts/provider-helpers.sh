@@ -152,10 +152,10 @@ check_existing_pr() {
 }
 
 # Create an issue in the configured tracker
-# Args: --title <title> --prompt <prompt> --config <config_path> [--team <team>] [--issue-type <type>]
+# Args: --title <title> --prompt <prompt> --config <config_path> [--team <team>] [--issue-type <type>] [--profile <name>]
 # Outputs: JSON with issue_key and issue_url
 create_issue() {
-    local title="" prompt="" config_path="" team="" issue_type=""
+    local title="" prompt="" config_path="" team="" issue_type="" profile=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -164,6 +164,7 @@ create_issue() {
             --config) config_path="$2"; shift 2 ;;
             --team) team="$2"; shift 2 ;;
             --issue-type) issue_type="$2"; shift 2 ;;
+            --profile) profile="$2"; shift 2 ;;
             *) shift ;;
         esac
     done
@@ -188,7 +189,22 @@ create_issue() {
             # Delegate to existing script
             local script_dir
             script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            "$script_dir/create-linear-issue.sh" --title "$title" --prompt "$prompt" --team "$team"
+            local create_args=(--title "$title" --prompt "$prompt" --team "$team")
+
+            # STA-959: assign the new issue to the matched profile's default
+            # project (`tracker_projects[0]`). Off-by-default — when no profile
+            # is passed or the profile has no tracker_projects, this block is a
+            # no-op and the issue is created unassigned (pre-STA-959 behavior).
+            local project_name project_uuid
+            project_name=$(get_profile_default_project_name "$profile" "$config_path")
+            if [[ -n "$project_name" ]]; then
+                project_uuid=$(resolve_linear_project_uuid "$project_name")
+                if [[ -n "$project_uuid" ]]; then
+                    create_args+=(--project-uuid "$project_uuid")
+                fi
+            fi
+
+            "$script_dir/create-linear-issue.sh" "${create_args[@]}"
             ;;
         jira)
             local quoted_prompt
@@ -331,4 +347,44 @@ get_profile_vcs_label() {
     local vcs_label
     vcs_label=$(yq -r ".profiles.$profile.vcs.label // .profiles.$profile.github.label // empty" "$config_path" 2>/dev/null)
     echo "$vcs_label"
+}
+
+# Get the first tracker_projects entry for a profile (the "default project" for
+# new issues created under that profile). Returns the empty string if the
+# profile has no tracker_projects, or no profile name was supplied.
+# Args: $1=profile_name, $2=config_path
+get_profile_default_project_name() {
+    local profile="$1"
+    local config_path="$2"
+    [[ -z "$profile" || -z "$config_path" ]] && { echo ""; return 0; }
+    local name
+    name=$(yq -r ".profiles.$profile.tracker_projects[0] // \"\"" "$config_path" 2>/dev/null)
+    # yq emits "null" (literal string) when the key is missing in some versions.
+    [[ "$name" == "null" ]] && name=""
+    echo "$name"
+}
+
+# Resolve a Linear project name to its UUID via `linctl project list --json`.
+# Case-insensitive exact match. On no match, logs a warning to stderr and
+# returns 0 with empty stdout — callers create the issue without --project,
+# matching the pre-STA-959 behavior.
+# Args: $1=project_name
+# Stdout: project UUID, or empty on no match
+resolve_linear_project_uuid() {
+    local name="$1"
+    [[ -z "$name" ]] && { echo ""; return 0; }
+    local projects_json
+    projects_json=$(linctl project list --json --include-completed 2>/dev/null) || {
+        echo "Warning: \`linctl project list\` failed; creating issue without project assignment" >&2
+        echo ""
+        return 0
+    }
+    local uuid
+    uuid=$(echo "$projects_json" | jq -r --arg n "$name" '
+        .[] | select((.name | ascii_downcase) == ($n | ascii_downcase)) | .id
+    ' | head -1)
+    if [[ -z "$uuid" ]]; then
+        echo "Warning: Linear project \"$name\" not found; creating issue without project assignment" >&2
+    fi
+    echo "$uuid"
 }

@@ -3,6 +3,7 @@ import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
 import {
 	matchProfiles,
 	matchProfileByProject,
+	getProfileDefaultProject,
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	getProfileVcsLabel,
@@ -3428,6 +3429,66 @@ test('matchProfileByProject handles mixed case project name in config', t => {
 	const match = matchProfileByProject(config, 'The Hive Quality');
 	t.truthy(match);
 	t.is(match!.name, 'hive');
+});
+
+// ============================================================================
+// getProfileDefaultProject (STA-959)
+//
+// When idow creates a new issue under a profile, the profile's
+// `tracker_projects[0]` is treated as the default project for that issue —
+// resolved to a Linear project UUID by provider-helpers.sh::create_issue.
+// This helper centralizes the "first entry, or undefined" semantics so the
+// TS side and the bash side stay in sync.
+//
+// Off-by-default regression: profiles without `tracker_projects` (or with an
+// empty array) must return undefined so create_issue falls back to the
+// pre-STA-959 behavior of creating an unassigned issue.
+// ============================================================================
+
+test('getProfileDefaultProject returns first tracker_projects entry', t => {
+	const profile: Profile = {
+		display_name: 'King Bee',
+		keywords: ['bee'],
+		tracker_projects: ['The Hive Quality', 'Wordle'],
+	};
+	t.is(getProfileDefaultProject(profile), 'The Hive Quality');
+});
+
+test('getProfileDefaultProject returns sole tracker_projects entry', t => {
+	const profile: Profile = {
+		display_name: 'Pappardelle',
+		keywords: ['pappardelle'],
+		tracker_projects: ['Pappardelle Quality'],
+	};
+	t.is(getProfileDefaultProject(profile), 'Pappardelle Quality');
+});
+
+test('getProfileDefaultProject returns undefined when tracker_projects omitted (off-by-default)', t => {
+	const profile: Profile = {
+		display_name: 'Personal',
+		keywords: ['personal'],
+	};
+	t.is(getProfileDefaultProject(profile), undefined);
+});
+
+test('getProfileDefaultProject returns undefined for empty tracker_projects (off-by-default)', t => {
+	const profile: Profile = {
+		display_name: 'Test',
+		keywords: ['t'],
+		tracker_projects: [],
+	};
+	t.is(getProfileDefaultProject(profile), undefined);
+});
+
+test("getProfileDefaultProject preserves exact casing — UUID resolution is the bash side's responsibility", t => {
+	const profile: Profile = {
+		display_name: 'Mixed',
+		keywords: ['m'],
+		tracker_projects: ['  Stardust Jams MVP  '],
+	};
+	// Whatever the user wrote is what we return — provider-helpers.sh's jq filter
+	// is what decides whether trimming/case-folding happens at resolution time.
+	t.is(getProfileDefaultProject(profile), '  Stardust Jams MVP  ');
 });
 
 // ============================================================================

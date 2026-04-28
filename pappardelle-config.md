@@ -114,6 +114,15 @@ profiles:
     # Issue tracker project names that map to this profile (case-insensitive).
     # When a user enters an issue key (e.g., STA-123), the issue's project
     # is checked against these names to auto-select the profile.
+    #
+    # The FIRST entry doubles as the default project for newly-created issues:
+    # `idow "add dark mode"` resolves the matched profile, takes
+    # `tracker_projects[0]`, looks up its Linear project UUID, and assigns the
+    # new issue to it. Reorder the list when the active project for new work
+    # changes (e.g. once an MVP project completes, move 'Stardust Jams Quality'
+    # to position 0). Profiles with no `tracker_projects` create unassigned
+    # issues, matching the pre-STA-959 default. Linear-only — Jira's
+    # `--project KEY` is the team prefix, already per-profile-overridable.
     tracker_projects:
       - 'Stardust Jams MVP'
       - 'Stardust Jams Quality'
@@ -298,6 +307,12 @@ When the input is a description (not an issue key):
 1. **Keyword Matching**: Each word in the input is checked against all profile keywords
 2. **Auto-selection**: If keywords match exactly one profile, it's auto-selected
 3. **Disambiguation**: If multiple profiles match, user is prompted to choose
+4. **Project assignment** (Linear, STA-959): The new issue is created in the
+   profile's `tracker_projects[0]` Linear project. Resolved at create-time via
+   `linctl project list --json --include-completed` (case-insensitive name
+   match). If the name doesn't resolve (typo, archived project), pappardelle
+   warns and creates the issue unassigned — same as pre-STA-959 behavior.
+   Profiles without `tracker_projects` always create unassigned issues.
 4. **No Match**: User is prompted to select from all profiles
 5. **Explicit Override**: User can always type a different profile name
 
@@ -404,7 +419,7 @@ interface PappardelleConfig {
 
 interface Profile {
 	keywords: string[];
-	tracker_projects?: string[]; // Issue tracker project names for project-based matching
+	tracker_projects?: string[]; // Issue tracker project names. Used for project-based matching when fetching an existing issue, and `tracker_projects[0]` is used as the default Linear project for issues created under this profile (STA-959).
 	display_name: string;
 	emoji?: string; // Shown in the TUI ticket rail to the left of the Claude status icon
 	team_prefix?: string; // Override global team_prefix for issue creation
