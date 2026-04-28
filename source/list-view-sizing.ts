@@ -105,16 +105,20 @@ export function calculateListClickRow(options: {
 // ============================================================================
 
 /**
- * Extra content rendered at the right edge of the row: pipeline state icon
- * and parenthesized unresolved-comment count. Both slots are optional — when
- * both are empty the row renders as it did before the STA-862 rail-icons
- * change.
+ * Extra content rendered at the right edge of the row: pipeline state icon,
+ * parenthesized unresolved-comment count, and merge-conflict indicator. All
+ * slots are optional — when all are empty the row renders as it did before
+ * the STA-862 rail-icons change.
+ *
+ * Right-side rendering order (left → right): commentCount, conflict, pipeline.
  */
 export interface RailIcons {
 	/** Single token for the pipeline icon (e.g. "✓", "◐◑"). Empty = hidden. */
 	pipelineIcon?: string;
 	/** Unresolved PR/MR comment count. 0 = hidden. */
 	commentCount?: number;
+	/** True when the PR can't be merged due to conflicts. Renders as ↯. */
+	hasConflict?: boolean;
 }
 
 /**
@@ -142,7 +146,8 @@ export function rowPrefixWidth(prefix?: RowPrefix): number {
 /**
  * How many cells the right-aligned rail-icon cluster occupies. Includes one
  * leading space per chunk (separating the icons from the title and from
- * each other). Returns 0 when both pipeline and comment count are absent.
+ * each other). Returns 0 when pipeline, comment count, and conflict flag are
+ * all absent.
  *
  * The unresolved comment count is rendered as a parenthesized text token
  * `(N)` (no separate icon glyph) so it can be color-styled (gray) like
@@ -161,6 +166,11 @@ export function railPrefixWidth(icons?: RailIcons): number {
 		width += 1 + 1 + String(icons.commentCount).length + 1;
 	}
 
+	if (icons.hasConflict) {
+		// leading space + ↯ (1 cell)
+		width += 2;
+	}
+
 	return width;
 }
 
@@ -168,14 +178,14 @@ export function railPrefixWidth(icons?: RailIcons): number {
  * Calculate available width for the title text in a list row.
  *
  * Row format:
- *   "[emoji space] icon space issueKey space title [space pipelineIcon] [space (count)]"
+ *   "[emoji space] icon space issueKey space title [space (count)] [space conflict] [space pipelineIcon]"
  *
  * Fixed overhead (without rail icons or emoji) = icon(1) + space(1) + space(1) = 3
  * Total fixed = 3 + issueKey.length + rowPrefixWidth(prefix) + railPrefixWidth(icons)
  *
  * @param totalWidth - Total width of the list pane in characters
  * @param issueKeyLength - Length of the issue key string (e.g. 7 for "STA-452")
- * @param icons - Optional rail icons (pipeline + unresolved comment count)
+ * @param icons - Optional rail icons (pipeline + unresolved comment count + conflict flag)
  * @param prefix - Optional left-side emoji prefix
  * @returns Number of characters available for the title
  */
@@ -211,11 +221,11 @@ export function truncateTitle(title: string, availableWidth: number): string {
 /**
  * Render a simplified ASCII representation of a single list row.
  * Matches the SpaceListItem layout: icon first, then issue key, then title,
- * then right-aligned rail icons (unresolved-comment count, then pipeline
- * state flush at the far right).
+ * then right-aligned rail icons (unresolved-comment count, then merge-conflict
+ * indicator, then pipeline state flush at the far right).
  * Selection is shown via inverse background in the real UI, not in ASCII.
  *
- * Format: "· STA-452 Fix the bug (3) ✓"
+ * Format: "· STA-452 Fix the bug (3) ↯ ✓"
  *
  * @param issueKey - e.g. "STA-452"
  * @param icon - status icon character (e.g. "?", "·", "!")
@@ -242,6 +252,10 @@ export function renderListRow(
 	let suffix = '';
 	if (icons?.commentCount && icons.commentCount > 0) {
 		suffix += ` (${icons.commentCount})`;
+	}
+
+	if (icons?.hasConflict) {
+		suffix += ' ↯'; // ↯
 	}
 
 	if (icons?.pipelineIcon && icons.pipelineIcon.length > 0) {

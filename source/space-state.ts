@@ -27,6 +27,7 @@ export interface SpaceState {
 	pipeline?: PipelineStatus | null;
 	unresolvedCommentCount?: number;
 	prNumber?: number;
+	hasConflict?: boolean;
 	recap?: SpaceRecap;
 	updatedAt?: string;
 	/**

@@ -1186,7 +1186,7 @@ export default function App({
 						try {
 							const status = await vcs.getRailStatus(s.name);
 							log.debug(
-								`Rail status ${s.name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} pr=${status.prNumber ?? 'none'}`,
+								`Rail status ${s.name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} conflict=${status.hasConflict ?? false} pr=${status.prNumber ?? 'none'}`,
 							);
 							return [s.name, status] as const;
 						} catch (err) {
@@ -1213,7 +1213,8 @@ export default function App({
 							prevRail &&
 							prevRail.pipeline === next.pipeline &&
 							prevRail.unresolvedCommentCount === next.unresolvedCommentCount &&
-							prevRail.prNumber === next.prNumber
+							prevRail.prNumber === next.prNumber &&
+							(prevRail.hasConflict ?? false) === (next.hasConflict ?? false)
 						) {
 							return s;
 						}
@@ -1238,6 +1239,7 @@ export default function App({
 							pipeline: rail.pipeline,
 							unresolvedCommentCount: rail.unresolvedCommentCount,
 							prNumber: rail.prNumber,
+							hasConflict: rail.hasConflict ?? false,
 							...(recap ? {recap} : {}),
 						});
 					}

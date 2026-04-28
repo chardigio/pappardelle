@@ -1052,6 +1052,74 @@ test('renderListRow: pipeline + comments (comments first, pipeline at far right)
 	t.is(row, '· STA-452 Fix the bug (2) ✓');
 });
 
+// ----------------------------------------------------------------------------
+// Conflict indicator (STA-964): rendered between unresolved-comment count and
+// pipeline icon when the PR can't be merged due to conflicts.
+// ----------------------------------------------------------------------------
+
+test('railPrefixWidth: hasConflict adds 2 cells (leading space + ↯)', t => {
+	t.is(railPrefixWidth({hasConflict: true}), 2);
+	t.is(railPrefixWidth({hasConflict: false}), 0);
+});
+
+test('railPrefixWidth: conflict + pipeline + comments stacks correctly', t => {
+	// pipeline ✓ (2) + conflict (2) + comments (4) = 8
+	t.is(
+		railPrefixWidth({
+			pipelineIcon: '✓',
+			commentCount: 1,
+			hasConflict: true,
+		}),
+		8,
+	);
+});
+
+test('titleWidth shrinks by 2 when conflict indicator is shown', t => {
+	// 40 - 3 - 7 - 2 (pipeline) - 2 (conflict) = 26
+	t.is(
+		calculateAvailableTitleWidth(40, 7, {
+			pipelineIcon: '✓',
+			hasConflict: true,
+		}),
+		26,
+	);
+});
+
+test('renderListRow: conflict between comment count and pipeline (left → right: comments, ↯, pipeline)', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+		commentCount: 2,
+		hasConflict: true,
+	});
+	t.is(row, '· STA-452 Fix the bug (2) ↯ ✓');
+});
+
+test('renderListRow: conflict alone with pipeline (no comments)', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+		hasConflict: true,
+	});
+	t.is(row, '· STA-452 Fix the bug ↯ ✓');
+});
+
+test('renderListRow: conflict alone without pipeline (no comments, no pipeline icon)', t => {
+	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		hasConflict: true,
+	});
+	t.is(row, '· STA-452 Fix the bug ↯');
+});
+
+test('renderListRow: hasConflict false renders identically to no flag', t => {
+	const without = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+	});
+	const withFalse = renderListRow('STA-452', '·', 'Fix the bug', 40, {
+		pipelineIcon: '✓',
+		hasConflict: false,
+	});
+	t.is(withFalse, without);
+});
+
 test('renderListRow: zero comment count hides comment chunk', t => {
 	const row = renderListRow('STA-452', '·', 'Fix the bug', 40, {
 		pipelineIcon: '✓',

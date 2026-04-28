@@ -47,11 +47,16 @@ export type PipelineStatus =
  * `pipeline` is `null` when the branch has no open PR/MR (or when fetching
  * failed); in that case the rail should hide both the pipeline icon and the
  * comment icon even if `unresolvedCommentCount` is non-zero.
+ *
+ * `hasConflict` is true only when the host reports the PR/MR as un-mergeable
+ * due to conflicts (GitHub `mergeable: CONFLICTING`). `UNKNOWN` (still
+ * computing) is treated as false to avoid flicker on every fresh PR.
  */
 export interface RailStatus {
 	pipeline: PipelineStatus | null;
 	unresolvedCommentCount: number;
 	prNumber?: number;
+	hasConflict?: boolean;
 }
 
 /**

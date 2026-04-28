@@ -105,6 +105,7 @@ export class GitHubProvider implements VcsHostProvider {
 						pullRequests(headRefName: $branch, first: 1, states: OPEN) {
 							nodes {
 								number
+								mergeable
 								commits(last: 1) {
 									nodes {
 										commit {
@@ -162,6 +163,7 @@ export class GitHubProvider implements VcsHostProvider {
 						pullRequests?: {
 							nodes?: Array<{
 								number?: number;
+								mergeable?: string;
 								commits?: {
 									nodes?: Array<{
 										commit?: {
@@ -205,10 +207,16 @@ export class GitHubProvider implements VcsHostProvider {
 				t => t.isResolved === false,
 			).length;
 
+			// `mergeable` is GitHub's MERGEABLE / CONFLICTING / UNKNOWN. Only
+			// CONFLICTING is a confirmed conflict; UNKNOWN often means GitHub
+			// is still computing mergeability for a freshly opened PR.
+			const hasConflict = pr.mergeable === 'CONFLICTING';
+
 			return {
 				pipeline,
 				unresolvedCommentCount,
 				prNumber: pr.number,
+				hasConflict,
 			};
 		} catch (err) {
 			log.warn(

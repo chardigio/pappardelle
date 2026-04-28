@@ -73,6 +73,9 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	const pipeline = space.railStatus?.pipeline ?? null;
 	const commentCount =
 		pipeline === null ? 0 : (space.railStatus?.unresolvedCommentCount ?? 0);
+	// Conflict indicator only meaningful when there's an open PR (pipeline !== null).
+	const hasConflict =
+		pipeline === null ? false : (space.railStatus?.hasConflict ?? false);
 	const pipelineToken = pipeline
 		? pipeline === 'progressing_dirty'
 			? '◐◑'
@@ -81,6 +84,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	const prefixCells = railPrefixWidth({
 		pipelineIcon: pipelineToken,
 		commentCount,
+		hasConflict,
 	});
 
 	// Optional profile emoji rendered to the left of the Claude status icon.
@@ -210,6 +214,24 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		);
 	};
 
+	const renderConflictIcon = () => {
+		if (!hasConflict) return null;
+		return (
+			<>
+				<Text inverse={useBlinkInverse} color={textColor}>
+					{' '}
+				</Text>
+				<Text
+					bold
+					color={useBlinkInverse ? textColor : 'red'}
+					inverse={useBlinkInverse}
+				>
+					↯
+				</Text>
+			</>
+		);
+	};
+
 	return (
 		<Box>
 			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
@@ -285,12 +307,14 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 				</>
 			)}
 
-			{/* Rail icons — right-aligned: unresolved comment count first,
-			    then pipeline state flush at the far right. Pushed right by a
-			    flex spacer that consumes whatever leftover width remains. */}
-			{pipeline !== null || commentCount > 0 ? (
+			{/* Rail icons — right-aligned: unresolved comment count, then the
+			    merge-conflict indicator, then pipeline state flush at the far
+			    right. Pushed right by a flex spacer that consumes whatever
+			    leftover width remains. */}
+			{pipeline !== null || commentCount > 0 || hasConflict ? (
 				<Box flexGrow={1} justifyContent="flex-end">
 					{renderCommentCount()}
+					{renderConflictIcon()}
 					{renderPipelineIcon()}
 				</Box>
 			) : null}
