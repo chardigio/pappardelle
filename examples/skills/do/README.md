@@ -4,22 +4,21 @@ A generic skill for working through a TODO checklist. Designed for use with Papp
 
 ## How it works
 
-1. Pappardelle copies `TODO-TEMPLATE.md` → `TODO.md` in the worktree during `post_workspace_init`
-2. Claude is initialized with `/do <issue-key>`
-3. Claude reads TODO.md and works through each item systematically
+1. Claude is initialized with `/do <issue-key>` (set via `claude.initialization_command` in your `.pappardelle.yml`)
+2. The skill's first step copies `TODO-TEMPLATE.md` → `TODO.md` in the worktree on every invocation (always overwrite — see the `## Setup` section in `SKILL.md`)
+3. Claude reads `TODO.md` and works through each item systematically
+
+The template copy is now owned by the skill itself rather than `post_workspace_init`, so adding a `/do` profile no longer requires any TODO-related shell command in `.pappardelle.yml`.
 
 ## Setup
 
-Add the initialization command and a `post_workspace_init` command to your `.pappardelle.yml` to copy the template. You can set these globally or per-profile:
+Just point your profile at the skill — that's it:
 
 **Global** (applies to all profiles):
 
 ```yaml
 claude:
-  initialization_command: "/do"
-post_workspace_init:
-  - name: "Create TODO.md"
-    run: "cp ${REPO_ROOT}/.claude/skills/do/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
+  initialization_command: '/do'
 ```
 
 **Per-profile** (overrides global for a specific profile):
@@ -28,10 +27,7 @@ post_workspace_init:
 profiles:
   my-profile:
     claude:
-      initialization_command: "/do"
-    post_workspace_init:
-      - name: "Create TODO.md"
-        run: "cp ${REPO_ROOT}/.claude/skills/do/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md"
+      initialization_command: '/do'
 ```
 
 ## Files

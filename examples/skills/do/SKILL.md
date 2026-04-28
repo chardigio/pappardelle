@@ -6,7 +6,15 @@ disable-model-invocation: true
 
 # /do - Work Through TODO Checklist
 
-You have a `TODO.md` file in the worktree root containing a checklist of tasks to complete for this issue. Your job is to work through every item systematically.
+## Setup
+
+Before doing anything else, copy the TODO template into the worktree root (always overwrite — keeps a single canonical seed step that runs on every invocation):
+
+```bash
+cp .claude/skills/do/TODO-TEMPLATE.md TODO.md
+```
+
+Then read `TODO.md` — a checklist of tasks to complete for this issue — and work through every item systematically.
 
 ## How It Works
 

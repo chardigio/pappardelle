@@ -574,7 +574,7 @@ profiles:
   data-analytics:
     team_prefix: DA
     jira:
-      issue_type: Feature   # DA project doesn't accept "Task"
+      issue_type: Feature # DA project doesn't accept "Task"
 ```
 
 ### VCS Host Providers
@@ -686,23 +686,24 @@ The `issue_watchlist` section enables automatic workspace creation for issues as
 
 ```yaml
 issue_watchlist:
-  assignee: me           # 'me' auto-detects from CLI, or use explicit username/email
+  assignee: me # 'me' auto-detects from CLI, or use explicit username/email
   statuses:
     - To Do
     - In Progress
     - In Review
-  labels:                # Optional: only watch issues with any of these labels
+  labels: # Optional: only watch issues with any of these labels
     - pappardelle
     - platform
 ```
 
-| Field      | Type       | Required | Description                                                                                                          |
-| ---------- | ---------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
-| `assignee` | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees. |
-| `statuses` | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation. |
+| Field      | Type       | Required | Description                                                                                                                                               |
+| ---------- | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assignee` | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees.                       |
+| `statuses` | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation.                                    |
 | `labels`   | `string[]` | No       | When set, only issues with at least one matching label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels. |
 
 **How it works:**
+
 1. Pappardelle polls the issue tracker every 30 seconds using the configured statuses (and optionally assignee)
 2. For Linear: calls `linctl issue list --state <status>` per status (adds `--assignee <user>` when configured)
 3. For Jira: uses JQL `status IN ("To Do", "In Progress")` (adds `assignee = currentUser()` when configured)
@@ -716,9 +717,9 @@ issue_watchlist:
 
 When creating a new worktree, `idow` automatically copies these gitignored files from the main repo root to the new worktree (if they exist). This happens before any `post_workspace_init` commands run.
 
-| File | Purpose |
-|------|---------|
-| `.pappardelle.local.yml` | Personal pappardelle overrides (keybindings, etc.) |
+| File                          | Purpose                                                        |
+| ----------------------------- | -------------------------------------------------------------- |
+| `.pappardelle.local.yml`      | Personal pappardelle overrides (keybindings, etc.)             |
 | `.claude/settings.local.json` | Personal Claude Code settings (permissions, MCP servers, etc.) |
 
 Both use `cp -n` (no-clobber), so existing files in the worktree are never overwritten. If the source file doesn't exist, it's silently skipped.
@@ -748,17 +749,19 @@ post_workspace_init:
 
 ### Per-Profile Post-Workspace-Init
 
-Profiles can also define `post_workspace_init` commands that run _after_ the global ones. This is useful for profile-specific setup like creating TODO checklists or generating project files.
+Profiles can also define `post_workspace_init` commands that run _after_ the global ones. This is useful for profile-specific setup like generating project files, fetching iOS provisioning profiles, or any one-time worktree bootstrapping that the skill itself shouldn't own.
 
 ```yaml
 profiles:
   stardust-jams:
     post_workspace_init:
-      - name: 'Create TODO.md'
-        run: 'cp ${REPO_ROOT}/.claude/skills/do-stardust/TODO-TEMPLATE.md ${WORKTREE_PATH}/TODO.md'
+      - name: 'Generate Xcode project'
+        run: 'cd ${WORKTREE_PATH}/_ios/stardust-jams && xcodegen generate'
 ```
 
 Global commands always run first, then profile-specific commands. Both use the same `CommandConfig` format.
+
+> **Note:** TODO checklist seeding (e.g. `/do-*` skills copying `TODO-TEMPLATE.md` → `TODO.md`) is now owned by the skill itself via a `## Setup` section in its `SKILL.md` — no `post_workspace_init` entry required. See `examples/skills/do/SKILL.md` for the canonical pattern.
 
 Each command entry uses the `CommandConfig` structure:
 
