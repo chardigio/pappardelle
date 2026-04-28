@@ -1,7 +1,14 @@
 name: Sync Back to Monorepo
 
 on:
-  pull_request:
+  # `pull_request_target` (not `pull_request`) is required because secrets — in
+  # particular `STARDUST_LABS_PAT` — are not exposed to workflows triggered by
+  # PRs from forks. This is GitHub's standard fork-secrets gate. We only ever
+  # operate on the merged PR's diff *text* (no fork-code execution), and the
+  # workflow file itself is read from `main` (the base ref), so a fork can't
+  # tamper with the workflow either. See chardigio/pappardelle#3 (synced as
+  # STA-944) for the failure mode this guards against.
+  pull_request_target:
     types: [closed]
     branches: [main]
 
