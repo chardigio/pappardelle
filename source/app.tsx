@@ -1,6 +1,6 @@
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
-import TextInput from 'ink-text-input';
+import TextInput from './components/TextInput.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';

@@ -1,6 +1,6 @@
 import React, {useState, useMemo} from 'react';
 import {Box, Text, useInput} from 'ink';
-import TextInput from 'ink-text-input';
+import TextInput from './TextInput.tsx';
 import {
 	loadConfig,
 	determineProfileForInput,
