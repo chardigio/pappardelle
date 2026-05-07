@@ -37,6 +37,11 @@ export type KeyResult = {
  *      Terminal (Option-as-Meta) and iTerm2/Ghostty "Natural Text Editing"
  *      presets. Parsed by Ink as meta + input='b'/'f' with leftArrow=false.
  * The third convention is what most macOS users hit by default.
+ *
+ * Ctrl+A / Ctrl+E / Ctrl+U implement the readline line-editing shortcuts.
+ * iTerm2's "Natural Text Editing" preset (and equivalents in other emulators)
+ * translates Cmd+Left, Cmd+Right, and Cmd+Backspace to those same control
+ * codes, so wiring them here transparently picks up the macOS Cmd shortcuts.
  */
 export function handleTextInputKey(
 	value: string,
@@ -56,6 +61,23 @@ export function handleTextInputKey(
 
 	if (key.return) {
 		return {value, cursorOffset, submit: true, ignored: false};
+	}
+
+	if (key.ctrl && input === 'a') {
+		return {value, cursorOffset: 0, submit: false, ignored: false};
+	}
+
+	if (key.ctrl && input === 'e') {
+		return {value, cursorOffset: value.length, submit: false, ignored: false};
+	}
+
+	if (key.ctrl && input === 'u') {
+		return {
+			value: value.slice(cursorOffset),
+			cursorOffset: 0,
+			submit: false,
+			ignored: false,
+		};
 	}
 
 	const isAltLeft = key.meta && (key.leftArrow || input === 'b');

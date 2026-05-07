@@ -202,6 +202,99 @@ test('plain backspace deletes one char', t => {
 });
 
 // ============================================================================
+// Ctrl+A / Ctrl+E / Ctrl+U — readline line-editing shortcuts
+//
+// These also pick up the macOS Cmd+Left / Cmd+Right / Cmd+Backspace muscle
+// memory: iTerm2's "Natural Text Editing" preset (and most other terminal
+// emulators with a comparable preset) translates those Cmd combos to ^A, ^E,
+// and ^U respectively, so wiring the readline codes covers both.
+// ============================================================================
+
+test('ctrl+a moves cursor to start of line', t => {
+	const r = handleTextInputKey('hello world', 7, 'a', k({ctrl: true}));
+	t.is(r.cursorOffset, 0);
+	t.is(r.value, 'hello world');
+	t.false(r.submit);
+	t.false(r.ignored);
+});
+
+test('ctrl+a at start of line stays at 0', t => {
+	const r = handleTextInputKey('hello', 0, 'a', k({ctrl: true}));
+	t.is(r.cursorOffset, 0);
+	t.is(r.value, 'hello');
+});
+
+test('ctrl+a on empty input stays at 0', t => {
+	const r = handleTextInputKey('', 0, 'a', k({ctrl: true}));
+	t.is(r.cursorOffset, 0);
+	t.is(r.value, '');
+});
+
+test('ctrl+e moves cursor to end of line', t => {
+	const r = handleTextInputKey('hello world', 3, 'e', k({ctrl: true}));
+	t.is(r.cursorOffset, 11);
+	t.is(r.value, 'hello world');
+	t.false(r.submit);
+	t.false(r.ignored);
+});
+
+test('ctrl+e at end of line stays at end', t => {
+	const r = handleTextInputKey('hello', 5, 'e', k({ctrl: true}));
+	t.is(r.cursorOffset, 5);
+	t.is(r.value, 'hello');
+});
+
+test('ctrl+e on empty input stays at 0', t => {
+	const r = handleTextInputKey('', 0, 'e', k({ctrl: true}));
+	t.is(r.cursorOffset, 0);
+	t.is(r.value, '');
+});
+
+test('ctrl+u kills text from cursor back to start of line', t => {
+	const r = handleTextInputKey('hello world', 6, 'u', k({ctrl: true}));
+	t.is(r.value, 'world');
+	t.is(r.cursorOffset, 0);
+	t.false(r.submit);
+	t.false(r.ignored);
+});
+
+test('ctrl+u from end of line clears the entire input', t => {
+	const r = handleTextInputKey('hello world', 11, 'u', k({ctrl: true}));
+	t.is(r.value, '');
+	t.is(r.cursorOffset, 0);
+});
+
+test('ctrl+u at start of line is a no-op', t => {
+	const r = handleTextInputKey('hello', 0, 'u', k({ctrl: true}));
+	t.is(r.value, 'hello');
+	t.is(r.cursorOffset, 0);
+});
+
+test('ctrl+u on empty input is a no-op', t => {
+	const r = handleTextInputKey('', 0, 'u', k({ctrl: true}));
+	t.is(r.value, '');
+	t.is(r.cursorOffset, 0);
+});
+
+test("typing 'a' without ctrl still inserts the letter", t => {
+	const r = handleTextInputKey('hello', 5, 'a', k());
+	t.is(r.value, 'helloa');
+	t.is(r.cursorOffset, 6);
+});
+
+test("typing 'e' without ctrl still inserts the letter", t => {
+	const r = handleTextInputKey('hello', 5, 'e', k());
+	t.is(r.value, 'helloe');
+	t.is(r.cursorOffset, 6);
+});
+
+test("typing 'u' without ctrl still inserts the letter", t => {
+	const r = handleTextInputKey('hello', 5, 'u', k());
+	t.is(r.value, 'hellou');
+	t.is(r.cursorOffset, 6);
+});
+
+// ============================================================================
 // Ignored keys
 // ============================================================================
 
