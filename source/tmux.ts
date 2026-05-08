@@ -731,22 +731,37 @@ export function getActiveSpaceCount(): number {
 // ============================================================================
 
 /**
- * Calculate the ideal list pane height based on current space count.
- * Internal function that reads from the persisted space registry.
+ * Number of items the list pane renders in addition to each registered space:
+ * the always-pinned main-worktree row that app.tsx prepends to the list. Layout
+ * sizing must include this row or the bottom of the list gets clipped on
+ * narrow screens.
  */
-function calculateIdealListHeight(): number {
-	return calculateIdealListHeightForCount(getActiveSpaceCount());
+const PINNED_LIST_ROWS = 1;
+
+/**
+ * Calculate the ideal list pane height based on current space count.
+ * Reads from the persisted space registry and adds the pinned main-worktree row.
+ */
+export function calculateIdealListHeight(): number {
+	return calculateIdealListHeightForCount(
+		getActiveSpaceCount() + PINNED_LIST_ROWS,
+	);
 }
 
 /**
  * Calculate pane layout based on terminal dimensions.
- * Internal function that reads space count from the persisted registry.
+ * Reads space count from the persisted registry and adds the pinned
+ * main-worktree row to the visible item count.
  */
-function calculateLayout(
+export function calculateLayout(
 	totalWidth: number,
 	totalHeight: number,
 ): LayoutConfig {
-	return calculateLayoutForSize(totalWidth, totalHeight, getActiveSpaceCount());
+	return calculateLayoutForSize(
+		totalWidth,
+		totalHeight,
+		getActiveSpaceCount() + PINNED_LIST_ROWS,
+	);
 }
 
 /**
