@@ -113,4 +113,13 @@ export interface VcsHostProvider {
 	 * in those cases.
 	 */
 	getRailStatus(issueKey: string): Promise<RailStatus>;
+
+	/**
+	 * Fetch rail-status for multiple issues in a single API call.
+	 * Returns a Map from issue key → RailStatus. Keys with no open PR
+	 * map to `{pipeline: null, unresolvedCommentCount: 0}`. On total
+	 * failure (e.g. rate-limited), returns an empty Map so callers
+	 * can preserve existing state.
+	 */
+	getBulkRailStatus(issueKeys: string[]): Promise<Map<string, RailStatus>>;
 }

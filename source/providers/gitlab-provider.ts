@@ -82,4 +82,12 @@ export class GitLabProvider implements VcsHostProvider {
 		// pipeline/comment icons — identical to the pre-STA-862 behavior.
 		return {pipeline: null, unresolvedCommentCount: 0};
 	}
+
+	async getBulkRailStatus(
+		issueKeys: string[],
+	): Promise<Map<string, RailStatus>> {
+		// Not yet implemented for GitLab — return empty status for all keys.
+		const empty: RailStatus = {pipeline: null, unresolvedCommentCount: 0};
+		return new Map(issueKeys.map(key => [key, empty]));
+	}
 }

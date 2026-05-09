@@ -1181,27 +1181,22 @@ export default function App({
 				log.debug(
 					`Rail status poll: ${targets.length} target(s) (${targets.map(t => t.name).join(', ')})`,
 				);
-				const results = await Promise.all(
-					targets.map(async s => {
-						try {
-							const status = await vcs.getRailStatus(s.name);
-							log.debug(
-								`Rail status ${s.name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} conflict=${status.hasConflict ?? false} pr=${status.prNumber ?? 'none'}`,
-							);
-							return [s.name, status] as const;
-						} catch (err) {
-							log.warn(
-								`Rail status fetch failed for ${s.name}`,
-								err instanceof Error ? err : undefined,
-							);
-							return [s.name, null] as const;
-						}
-					}),
-				);
 
-				if (results.length === 0) return;
+				if (targets.length === 0) return;
 
-				const lookup = new Map(results);
+				// Single bulk GraphQL request for all workspaces — one API call
+				// instead of N parallel calls, avoiding GitHub rate-limit pressure.
+				const lookup = await vcs.getBulkRailStatus(targets.map(t => t.name));
+
+				// Empty Map means total failure (e.g. rate-limited) — keep old state.
+				if (lookup.size === 0) return;
+
+				for (const [name, status] of lookup) {
+					log.debug(
+						`Rail status ${name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} conflict=${status.hasConflict ?? false} pr=${status.prNumber ?? 'none'}`,
+					);
+				}
+
 				setSpaces(prev =>
 					prev.map(s => {
 						if (s.isMainWorktree || s.isPending) return s;
@@ -1229,7 +1224,6 @@ export default function App({
 				const repoName = getRepoName();
 				queueMicrotask(() => {
 					for (const [name, rail] of lookup) {
-						if (!rail) continue;
 						const worktreePath = getWorktreePath(name);
 						const jsonl = worktreePath
 							? findLatestSessionJsonl(worktreePath)

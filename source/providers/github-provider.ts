@@ -9,16 +9,115 @@ import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
 const log = createLogger('github-provider');
 const execFileAsync = promisify(execFile);
 
+/** Invokes `gh` with the given args and returns stdout. Injectable for tests. */
+export type GhExecutor = (args: string[]) => Promise<string>;
+
+const defaultGhExecutor: GhExecutor = async args => {
+	const {stdout} = await execFileAsync('gh', args, {
+		encoding: 'utf-8',
+		timeout: 15_000,
+	});
+	return stdout;
+};
+
+type PrNodeRaw = {
+	number?: number;
+	mergeable?: string;
+	commits?: {
+		nodes?: Array<{
+			commit?: {
+				statusCheckRollup?: {
+					contexts?: {
+						nodes?: Array<{
+							__typename?: string;
+							status?: string;
+							conclusion?: string | null;
+							state?: string;
+						}>;
+					};
+				} | null;
+			};
+		}>;
+	};
+	reviewThreads?: {
+		nodes?: Array<{isResolved?: boolean}>;
+	};
+};
+
+function parsePrNode(pr: PrNodeRaw): RailStatus {
+	const contextNodes =
+		pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
+	const contexts: CheckContext[] = contextNodes.map(node => ({
+		status: node.status,
+		conclusion: node.conclusion ?? undefined,
+		state: node.state,
+	}));
+	const pipeline = classifyPipeline(contexts);
+	const threadNodes = pr.reviewThreads?.nodes ?? [];
+	const unresolvedCommentCount = threadNodes.filter(
+		t => t.isResolved === false,
+	).length;
+	const hasConflict = pr.mergeable === 'CONFLICTING';
+	return {pipeline, unresolvedCommentCount, prNumber: pr.number, hasConflict};
+}
+
+// Shared GraphQL fragment for the PR fields we need
+const PR_FIELDS = `
+	nodes {
+		number
+		mergeable
+		commits(last: 1) {
+			nodes {
+				commit {
+					statusCheckRollup {
+						contexts(first: 100) {
+							nodes {
+								__typename
+								... on CheckRun {
+									status
+									conclusion
+								}
+								... on StatusContext {
+									state
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		reviewThreads(first: 100) {
+			nodes {
+				isResolved
+			}
+		}
+	}
+`;
+
 export class GitHubProvider implements VcsHostProvider {
 	readonly name = 'github';
-	private repoSlug: string | null = null;
+	// undefined = not yet fetched; null = fetched but not in a GitHub repo
+	private repoSlug: string | null | undefined = undefined;
+	private readonly executor: GhExecutor;
+
+	/**
+	 * @param executor - Optional gh CLI wrapper; defaults to real execFile calls.
+	 *   Pass a stub in tests to avoid subprocess calls.
+	 * @param initialRepoSlug - Optional owner/repo slug. Pass a string in tests
+	 *   to skip the `gh repo view` subprocess call; pass `null` to force the
+	 *   "no slug" path (for testing resilience when not in a GitHub repo).
+	 */
+	constructor(executor?: GhExecutor, initialRepoSlug?: string | null) {
+		this.executor = executor ?? defaultGhExecutor;
+		if (initialRepoSlug !== undefined) this.repoSlug = initialRepoSlug;
+	}
 
 	/**
 	 * Get the owner/repo slug from the current git remote.
-	 * Cached after first successful call.
+	 * Cached after first call. Returns null if not in a GitHub repo.
 	 */
 	private getRepoSlug(): string | null {
-		if (this.repoSlug) return this.repoSlug;
+		if (this.repoSlug !== undefined) return this.repoSlug;
 		try {
 			const output = execFileSync(
 				'gh',
@@ -28,6 +127,7 @@ export class GitHubProvider implements VcsHostProvider {
 			this.repoSlug = output.trim();
 			return this.repoSlug;
 		} catch {
+			this.repoSlug = null;
 			return null;
 		}
 	}
@@ -103,35 +203,7 @@ export class GitHubProvider implements VcsHostProvider {
 				query($owner: String!, $name: String!, $branch: String!) {
 					repository(owner: $owner, name: $name) {
 						pullRequests(headRefName: $branch, first: 1, states: OPEN) {
-							nodes {
-								number
-								mergeable
-								commits(last: 1) {
-									nodes {
-										commit {
-											statusCheckRollup {
-												contexts(first: 100) {
-													nodes {
-														__typename
-														... on CheckRun {
-															status
-															conclusion
-														}
-														... on StatusContext {
-															state
-														}
-													}
-												}
-											}
-										}
-									}
-								}
-								reviewThreads(first: 100) {
-									nodes {
-										isResolved
-									}
-								}
-							}
+							${PR_FIELDS}
 						}
 					}
 				}
@@ -140,50 +212,24 @@ export class GitHubProvider implements VcsHostProvider {
 			// Async exec — execFileSync would block the Ink event loop for the
 			// entire duration of the gh call (~500ms-1s), and Promise.all over N
 			// spaces would make initial pappardelle startup feel frozen.
-			const {stdout} = await execFileAsync(
-				'gh',
-				[
-					'api',
-					'graphql',
-					'-F',
-					`owner=${owner}`,
-					'-F',
-					`name=${name}`,
-					'-F',
-					`branch=${issueKey}`,
-					'-f',
-					`query=${query}`,
-				],
-				{encoding: 'utf-8', timeout: 15_000},
-			);
+			const stdout = await this.executor([
+				'api',
+				'graphql',
+				'-F',
+				`owner=${owner}`,
+				'-F',
+				`name=${name}`,
+				'-F',
+				`branch=${issueKey}`,
+				'-f',
+				`query=${query}`,
+			]);
 
 			const parsed = JSON.parse(stdout) as {
 				data?: {
 					repository?: {
 						pullRequests?: {
-							nodes?: Array<{
-								number?: number;
-								mergeable?: string;
-								commits?: {
-									nodes?: Array<{
-										commit?: {
-											statusCheckRollup?: {
-												contexts?: {
-													nodes?: Array<{
-														__typename?: string;
-														status?: string;
-														conclusion?: string | null;
-														state?: string;
-													}>;
-												};
-											} | null;
-										};
-									}>;
-								};
-								reviewThreads?: {
-									nodes?: Array<{isResolved?: boolean}>;
-								};
-							}>;
+							nodes?: PrNodeRaw[];
 						};
 					};
 				};
@@ -192,32 +238,7 @@ export class GitHubProvider implements VcsHostProvider {
 			const pr = parsed.data?.repository?.pullRequests?.nodes?.[0];
 			if (!pr) return empty;
 
-			const contextNodes =
-				pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ??
-				[];
-			const contexts: CheckContext[] = contextNodes.map(node => ({
-				status: node.status,
-				conclusion: node.conclusion ?? undefined,
-				state: node.state,
-			}));
-			const pipeline = classifyPipeline(contexts);
-
-			const threadNodes = pr.reviewThreads?.nodes ?? [];
-			const unresolvedCommentCount = threadNodes.filter(
-				t => t.isResolved === false,
-			).length;
-
-			// `mergeable` is GitHub's MERGEABLE / CONFLICTING / UNKNOWN. Only
-			// CONFLICTING is a confirmed conflict; UNKNOWN often means GitHub
-			// is still computing mergeability for a freshly opened PR.
-			const hasConflict = pr.mergeable === 'CONFLICTING';
-
-			return {
-				pipeline,
-				unresolvedCommentCount,
-				prNumber: pr.number,
-				hasConflict,
-			};
+			return parsePrNode(pr);
 		} catch (err) {
 			log.warn(
 				`Failed to fetch rail status for ${issueKey}`,
@@ -225,5 +246,82 @@ export class GitHubProvider implements VcsHostProvider {
 			);
 			return empty;
 		}
+	}
+
+	async getBulkRailStatus(
+		issueKeys: string[],
+	): Promise<Map<string, RailStatus>> {
+		const result = new Map<string, RailStatus>();
+		if (issueKeys.length === 0) return result;
+
+		const slug = this.getRepoSlug();
+		if (!slug) return result;
+
+		const [owner, name] = slug.split('/');
+		if (!owner || !name) return result;
+
+		// Build one aliased pullRequests field per branch so a single GraphQL
+		// request fetches all PR states. Alias names are pr0, pr1, … and we
+		// keep issueKeys as the index-to-key mapping.
+		const aliases = issueKeys
+			.map(
+				(key, i) =>
+					`pr${i}: pullRequests(headRefName: ${JSON.stringify(key)}, first: 1, states: OPEN) {\n${PR_FIELDS}\n}`,
+			)
+			.join('\n');
+
+		const query = `
+			query($owner: String!, $name: String!) {
+				repository(owner: $owner, name: $name) {
+					${aliases}
+				}
+			}
+		`;
+
+		try {
+			const stdout = await this.executor([
+				'api',
+				'graphql',
+				'-F',
+				`owner=${owner}`,
+				'-F',
+				`name=${name}`,
+				'-f',
+				`query=${query}`,
+			]);
+
+			const parsed = JSON.parse(stdout) as {
+				data?: {
+					repository?: Record<string, {nodes?: PrNodeRaw[]} | undefined>;
+				};
+				errors?: Array<{message: string}>;
+			};
+
+			if (parsed.errors?.length) {
+				log.warn(
+					`Partial GraphQL errors in bulk rail status: ${parsed.errors.map(e => e.message).join('; ')}`,
+				);
+			}
+
+			for (let i = 0; i < issueKeys.length; i++) {
+				const key = issueKeys[i]!;
+				const prData = parsed.data?.repository?.[`pr${i}`];
+				const pr = prData?.nodes?.[0];
+				if (!pr) {
+					result.set(key, {pipeline: null, unresolvedCommentCount: 0});
+					continue;
+				}
+
+				result.set(key, parsePrNode(pr));
+			}
+		} catch (err) {
+			log.warn(
+				'Failed to fetch bulk rail status',
+				sanitizeSubprocessError(err),
+			);
+			// Return empty Map — callers keep existing state on total failure
+		}
+
+		return result;
 	}
 }
