@@ -1,6 +1,10 @@
 import test from 'ava';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
-import {GitHubProvider, type GhExecutor} from './providers/github-provider.ts';
+import {
+	GitHubProvider,
+	type GhExecutor,
+	type SyncGhExecutor,
+} from './providers/github-provider.ts';
 
 // ============================================================================
 // Helpers
@@ -337,4 +341,99 @@ test('getBulkRailStatus: StatusContext nodes supported', async t => {
 	const result = await provider.getBulkRailStatus(['STA-77']);
 
 	t.is(result.get('STA-77')!.pipeline, 'progressing_clean');
+});
+
+// ============================================================================
+// checkIssueHasPRWithCommits
+// ============================================================================
+
+test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and number', t => {
+	let capturedArgs: string[] = [];
+	const syncExec: SyncGhExecutor = (args: string[]) => {
+		capturedArgs = args;
+		return JSON.stringify([
+			{
+				number: 42,
+				url: 'https://github.com/owner/repo/pull/42',
+				changedFiles: 5,
+			},
+		]);
+	};
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	const result = provider.checkIssueHasPRWithCommits('STA-100');
+
+	t.true(result.hasPR);
+	t.true(result.hasCommits);
+	t.is(result.prNumber, 42);
+	t.is(result.prUrl, 'https://github.com/owner/repo/pull/42');
+
+	// Pin the gh invocation so we don't regress to OPEN-only matching.
+	t.true(capturedArgs.includes('--state'));
+	t.is(capturedArgs[capturedArgs.indexOf('--state') + 1], 'all');
+	t.true(capturedArgs.includes('--head'));
+	t.is(capturedArgs[capturedArgs.indexOf('--head') + 1], 'STA-100');
+});
+
+test('checkIssueHasPRWithCommits: merged PR is found', t => {
+	// Simulate a branch whose only PR has already been merged. Without
+	// `--state all` this list comes back empty and pappardelle reports
+	// "No PR found"; this test pins the fix.
+	const syncExec: SyncGhExecutor = () =>
+		JSON.stringify([
+			{
+				number: 1092,
+				url: 'https://github.com/owner/repo/pull/1092',
+				changedFiles: 14,
+			},
+		]);
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	const result = provider.checkIssueHasPRWithCommits('STA-1078');
+
+	t.true(result.hasPR);
+	t.true(result.hasCommits);
+	t.is(result.prNumber, 1092);
+	t.is(result.prUrl, 'https://github.com/owner/repo/pull/1092');
+});
+
+test('checkIssueHasPRWithCommits: no PR found returns hasPR false', t => {
+	const syncExec: SyncGhExecutor = () => JSON.stringify([]);
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	const result = provider.checkIssueHasPRWithCommits('STA-404');
+
+	t.false(result.hasPR);
+	t.false(result.hasCommits);
+	t.is(result.prNumber, undefined);
+	t.is(result.prUrl, undefined);
+});
+
+test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits false', t => {
+	const syncExec: SyncGhExecutor = () =>
+		JSON.stringify([
+			{
+				number: 7,
+				url: 'https://github.com/owner/repo/pull/7',
+				changedFiles: 0,
+			},
+		]);
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	const result = provider.checkIssueHasPRWithCommits('STA-7');
+
+	t.true(result.hasPR);
+	t.false(result.hasCommits);
+});
+
+test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', t => {
+	const syncExec: SyncGhExecutor = () => {
+		throw new Error('gh: not authenticated');
+	};
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	const result = provider.checkIssueHasPRWithCommits('STA-500');
+
+	t.false(result.hasPR);
+	t.false(result.hasCommits);
 });

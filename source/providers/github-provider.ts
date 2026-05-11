@@ -12,6 +12,9 @@ const execFileAsync = promisify(execFile);
 /** Invokes `gh` with the given args and returns stdout. Injectable for tests. */
 export type GhExecutor = (args: string[]) => Promise<string>;
 
+/** Synchronous variant for code paths that block the UI on a single short call. */
+export type SyncGhExecutor = (args: string[]) => string;
+
 const defaultGhExecutor: GhExecutor = async args => {
 	const {stdout} = await execFileAsync('gh', args, {
 		encoding: 'utf-8',
@@ -19,6 +22,9 @@ const defaultGhExecutor: GhExecutor = async args => {
 	});
 	return stdout;
 };
+
+const defaultSyncGhExecutor: SyncGhExecutor = args =>
+	execFileSync('gh', args, {encoding: 'utf-8', timeout: 10_000});
 
 type PrNodeRaw = {
 	number?: number;
@@ -99,16 +105,24 @@ export class GitHubProvider implements VcsHostProvider {
 	// undefined = not yet fetched; null = fetched but not in a GitHub repo
 	private repoSlug: string | null | undefined = undefined;
 	private readonly executor: GhExecutor;
+	private readonly syncExecutor: SyncGhExecutor;
 
 	/**
-	 * @param executor - Optional gh CLI wrapper; defaults to real execFile calls.
+	 * @param executor - Optional async gh CLI wrapper; defaults to real execFile calls.
 	 *   Pass a stub in tests to avoid subprocess calls.
 	 * @param initialRepoSlug - Optional owner/repo slug. Pass a string in tests
 	 *   to skip the `gh repo view` subprocess call; pass `null` to force the
 	 *   "no slug" path (for testing resilience when not in a GitHub repo).
+	 * @param syncExecutor - Optional sync gh CLI wrapper used by
+	 *   `checkIssueHasPRWithCommits` (which blocks the UI on a single call).
 	 */
-	constructor(executor?: GhExecutor, initialRepoSlug?: string | null) {
+	constructor(
+		executor?: GhExecutor,
+		initialRepoSlug?: string | null,
+		syncExecutor?: SyncGhExecutor,
+	) {
 		this.executor = executor ?? defaultGhExecutor;
+		this.syncExecutor = syncExecutor ?? defaultSyncGhExecutor;
 		if (initialRepoSlug !== undefined) this.repoSlug = initialRepoSlug;
 	}
 
@@ -137,20 +151,26 @@ export class GitHubProvider implements VcsHostProvider {
 			// Discover PR by branch name (branch name matches issue key).
 			// This approach is tracker-agnostic — no dependency on linctl or any
 			// issue tracker. Works for Linear + GitHub and Jira + GitHub alike.
-			const prOutput = execFileSync(
-				'gh',
-				[
-					'pr',
-					'list',
-					'--head',
-					issueKey,
-					'--json',
-					'number,url,changedFiles',
-					'--limit',
-					'1',
-				],
-				{encoding: 'utf-8', timeout: 10_000},
-			);
+			//
+			// `--state all` so a merged PR still resolves. The ordering `gh pr list`
+			// uses isn't formally documented, but in practice it surfaces the
+			// most-recently-updated PR first (inherited from GitHub's GraphQL
+			// default), which means `--limit 1` returns the open PR when one
+			// exists and falls back to the latest merged PR otherwise. The two
+			// observable cases (open exists / only merged exists) are both
+			// pinned in github-provider.test.ts.
+			const prOutput = this.syncExecutor([
+				'pr',
+				'list',
+				'--head',
+				issueKey,
+				'--state',
+				'all',
+				'--json',
+				'number,url,changedFiles',
+				'--limit',
+				'1',
+			]);
 			const prs = JSON.parse(prOutput) as Array<{
 				number: number;
 				url: string;

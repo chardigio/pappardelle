@@ -55,7 +55,7 @@ keybindings:
     run: "curl -d '${ISSUE_KEY} Linear Issue' -H 'Click: https://linear.app/stardust-labs/issue/${ISSUE_KEY}' ntfy.sh/${NTFY_TOPIC}"
   - key: "z"
     name: "Zap PR"
-    run: "PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number' 2>/dev/null); if [ -n \"$PR_NUM\" ]; then curl -d \"${ISSUE_KEY} GitHub PR #$PR_NUM\" -H \"Click: $(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url')\" ntfy.sh/${NTFY_TOPIC}; else REPO_URL=$(gh repo view --json url -q '.url'); curl -d \"${REPO_NAME}\" -H \"Click: $REPO_URL\" ntfy.sh/${NTFY_TOPIC}; fi"
+    run: "PR_NUM=$(gh pr list --head ${ISSUE_KEY} --state all --json number -q '.[0].number' 2>/dev/null); if [ -n \"$PR_NUM\" ]; then curl -d \"${ISSUE_KEY} GitHub PR #$PR_NUM\" -H \"Click: $(gh pr list --head ${ISSUE_KEY} --state all --json url -q '.[0].url')\" ntfy.sh/${NTFY_TOPIC}; else REPO_URL=$(gh repo view --json url -q '.url'); curl -d \"${REPO_NAME}\" -H \"Click: $REPO_URL\" ntfy.sh/${NTFY_TOPIC}; fi"
 
   # GitHub workflow triggers — kick off CI actions from the TUI
   - key: "r"

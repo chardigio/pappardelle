@@ -213,10 +213,10 @@ keybindings:
   - key: 'z'
     name: 'Zap PR'
     run: >
-      PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number' 2>/dev/null);
+      PR_NUM=$(gh pr list --head ${ISSUE_KEY} --state all --json number -q '.[0].number' 2>/dev/null);
       if [ -n "$PR_NUM" ]; then
         curl -d "${ISSUE_KEY} GitHub PR #$PR_NUM"
-          -H "Click: $(gh pr list --head ${ISSUE_KEY} --json url -q '.[0].url')"
+          -H "Click: $(gh pr list --head ${ISSUE_KEY} --state all --json url -q '.[0].url')"
           ntfy.sh/${PAPPARDELLE_NTFY_TOPIC};
       fi
 ```
