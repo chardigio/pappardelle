@@ -16,6 +16,7 @@ type Props = {
  * Custom TextInput component based on ink-text-input with added support for:
  * - Alt+Left/Right: move cursor by word boundary
  * - Alt+Backspace: delete previous word
+ * - fn+Delete: forward delete (Mac-native)
  *
  * All keypress logic lives in `handleTextInputKey` so it can be unit-tested
  * without rendering React.

@@ -42,6 +42,11 @@ export type KeyResult = {
  * iTerm2's "Natural Text Editing" preset (and equivalents in other emulators)
  * translates Cmd+Left, Cmd+Right, and Cmd+Backspace to those same control
  * codes, so wiring them here transparently picks up the macOS Cmd shortcuts.
+ *
+ * fn+Delete on Mac (forward delete) sends `\x1b[3~`, which Ink parses as
+ * key.delete=true with no meta. That's distinct from Alt+Backspace
+ * (`\x1b\x7f`), which Ink parses as key.delete + key.meta — the meta branch
+ * keeps doing word-back so Option+Backspace still kills the previous word.
  */
 export function handleTextInputKey(
 	value: string,
@@ -114,6 +119,22 @@ export function handleTextInputKey(
 		return {
 			value,
 			cursorOffset: Math.min(value.length, cursorOffset + 1),
+			submit: false,
+			ignored: false,
+		};
+	}
+
+	// Plain key.delete (fn+Delete on Mac, `\x1b[3~`) is forward delete: drop the
+	// char at the cursor, leave the cursor put. key.delete+meta is Alt+Backspace
+	// on macOS with Option-as-Meta (`\x1b\x7f`), which is word-back — so the
+	// meta branch falls through to the backspace handler below.
+	if (key.delete && !key.meta) {
+		if (cursorOffset >= value.length) {
+			return {value, cursorOffset, submit: false, ignored: false};
+		}
+		return {
+			value: value.slice(0, cursorOffset) + value.slice(cursorOffset + 1),
+			cursorOffset,
 			submit: false,
 			ignored: false,
 		};

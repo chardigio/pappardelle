@@ -202,6 +202,40 @@ test('plain backspace deletes one char', t => {
 });
 
 // ============================================================================
+// fn+Delete (forward delete) — Mac native behavior
+//
+// On Mac the regular `delete` key sends \x7f (parsed as key.backspace) and
+// fn+delete sends \x1b[3~ (parsed as key.delete). Forward-delete removes the
+// character AT the cursor (the one to the right), leaving the cursor in place.
+// Alt+Backspace on Mac with Option-as-Meta sends \x1b\x7f, which Ink parses as
+// key.delete + key.meta — that case must still delete the previous word.
+// ============================================================================
+
+test('fn+delete (key.delete alone) deletes the char at the cursor', t => {
+	const r = handleTextInputKey('hello', 2, '', k({delete: true}));
+	t.is(r.value, 'helo');
+	t.is(r.cursorOffset, 2);
+});
+
+test('fn+delete at start of input deletes the first char', t => {
+	const r = handleTextInputKey('hello', 0, '', k({delete: true}));
+	t.is(r.value, 'ello');
+	t.is(r.cursorOffset, 0);
+});
+
+test('fn+delete at end of input is a no-op', t => {
+	const r = handleTextInputKey('hello', 5, '', k({delete: true}));
+	t.is(r.value, 'hello');
+	t.is(r.cursorOffset, 5);
+});
+
+test('fn+delete on empty input is a no-op', t => {
+	const r = handleTextInputKey('', 0, '', k({delete: true}));
+	t.is(r.value, '');
+	t.is(r.cursorOffset, 0);
+});
+
+// ============================================================================
 // Ctrl+A / Ctrl+E / Ctrl+U — readline line-editing shortcuts
 //
 // These also pick up the macOS Cmd+Left / Cmd+Right / Cmd+Backspace muscle
