@@ -88,14 +88,6 @@ remove_stale_index_lock() {
     fi
 }
 
-# Check if there are uncommitted changes in the main repo
-has_uncommitted_changes() {
-    cd "$MAIN_REPO"
-    # Check for staged or unstaged changes (untracked files don't block checkout/pull)
-    ! git diff --quiet --exit-code 2>/dev/null || \
-    ! git diff --quiet --cached --exit-code 2>/dev/null
-}
-
 # Create worktree if it doesn't exist
 if [[ ! -d "$WORKTREE_PATH" ]]; then
     log "Creating worktree at $WORKTREE_PATH"
@@ -103,15 +95,6 @@ if [[ ! -d "$WORKTREE_PATH" ]]; then
 
     # Clean up any stale index.lock before running git operations
     remove_stale_index_lock
-
-    # Stash uncommitted changes if present to avoid checkout/pull failures
-    if has_uncommitted_changes; then
-        log "Stashing uncommitted changes in main repo (use 'git stash pop' to restore)..."
-        if ! git stash push -m "auto-stash for worktree creation ($ISSUE_KEY)" --quiet >&2 2>&1; then
-            echo "Error: git stash failed" >&2
-            exit 1
-        fi
-    fi
 
     # Detect default branch (main or master)
     DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -124,11 +107,13 @@ if [[ ! -d "$WORKTREE_PATH" ]]; then
         fi
     fi
 
-    # Pull latest default branch from origin to ensure we branch from up-to-date code
-    log "Pulling latest $DEFAULT_BRANCH..."
+    # Fetch latest default branch so the new worktree branches from up-to-date
+    # origin/<default>. We deliberately do NOT checkout, pull, or stash the
+    # main repo here — `git worktree add ... origin/<default>` works regardless
+    # of what's checked out, and silently mutating the main repo can revert
+    # merged commits when a stale auto-stash later pops over a newer master.
+    log "Fetching latest $DEFAULT_BRANCH..."
     git fetch origin "$DEFAULT_BRANCH" --quiet >&2 2>&1
-    git checkout "$DEFAULT_BRANCH" --quiet >&2 2>&1
-    git pull origin "$DEFAULT_BRANCH" --quiet >&2 2>&1
 
     # Create worktree — reuse existing branch or create a new one
     if git show-ref --verify --quiet "refs/heads/$ISSUE_KEY"; then
