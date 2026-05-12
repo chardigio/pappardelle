@@ -204,11 +204,13 @@ test('plain backspace deletes one char', t => {
 // ============================================================================
 // fn+Delete (forward delete) — Mac native behavior
 //
-// On Mac the regular `delete` key sends \x7f (parsed as key.backspace) and
-// fn+delete sends \x1b[3~ (parsed as key.delete). Forward-delete removes the
-// character AT the cursor (the one to the right), leaving the cursor in place.
-// Alt+Backspace on Mac with Option-as-Meta sends \x1b\x7f, which Ink parses as
-// key.delete + key.meta — that case must still delete the previous word.
+// Pappardelle parses raw stdin via `parseRawKey` (see parse-raw-key.ts) so
+// the Mac Delete/Backspace key (\x7f) and fn+Delete (\x1b[3~) — which Ink 4.x
+// conflates under one 'delete' name — are correctly split:
+//   \x7f / \x1b\x7f / \b / \x1b\b → key.backspace (backward, meta = word-back)
+//   \x1b[3~                       → key.delete    (forward, the only one)
+// Forward-delete removes the character AT the cursor (to the right), leaving
+// the cursor in place.
 // ============================================================================
 
 test('fn+delete (key.delete alone) deletes the char at the cursor', t => {

@@ -1,7 +1,8 @@
 import React, {useState, useEffect} from 'react';
-import {Text, useInput} from 'ink';
+import {Text} from 'ink';
 import chalk from 'chalk';
 import {handleTextInputKey} from './text-input-key.ts';
+import {useRawInput} from './use-raw-input.ts';
 
 type Props = {
 	value: string;
@@ -17,6 +18,12 @@ type Props = {
  * - Alt+Left/Right: move cursor by word boundary
  * - Alt+Backspace: delete previous word
  * - fn+Delete: forward delete (Mac-native)
+ *
+ * Uses `useRawInput` instead of Ink's `useInput` because Ink 4.x conflates the
+ * Mac Delete/Backspace key (`\x7f`) and fn+Delete (`\x1b[3~`) under one
+ * `'delete'` name — which silently broke regular delete after the forward-
+ * delete feature landed in STA-1131 (see STA-1145). Parsing raw stdin
+ * ourselves restores the distinction.
  *
  * All keypress logic lives in `handleTextInputKey` so it can be unit-tested
  * without rendering React.
@@ -70,7 +77,7 @@ export default function TextInput({
 		}
 	}
 
-	useInput(
+	useRawInput(
 		(input, key) => {
 			const result = handleTextInputKey(
 				originalValue,
