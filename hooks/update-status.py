@@ -138,8 +138,22 @@ def update_status(
     if cwd:
         state["cwd"] = cwd
 
-    with open(status_file, "w") as f:
-        json.dump(state, f, indent=2)
+    # Atomic write: write to a sibling temp file then rename. POSIX rename is
+    # atomic, so a concurrent reader always sees either the previous complete
+    # file or the new complete file — never a truncated one. If the write
+    # raises (disk full, permission denied) before the rename, clean up the
+    # orphan so the status dir doesn't accumulate junk across crashes.
+    tmp_file = status_dir / f"{workspace}.json.tmp.{os.getpid()}"
+    try:
+        with open(tmp_file, "w") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp_file, status_file)
+    except Exception:
+        try:
+            tmp_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def main() -> None:

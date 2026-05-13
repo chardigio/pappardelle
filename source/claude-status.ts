@@ -4,6 +4,8 @@ import {
 	readFileSync,
 	mkdirSync,
 	writeFileSync,
+	renameSync,
+	rmSync,
 	readdirSync,
 	watch,
 } from 'node:fs';
@@ -21,17 +23,25 @@ export {STABLE_STATUSES, ACTIVE_STATUSES, ACTIVE_STATUS_TIMEOUT};
 
 const log = createLogger('claude-status');
 
-// Status file location: ~/.pappardelle/claude-status/<workspace>.json
-const STATUS_DIR = path.join(homedir(), '.pappardelle', 'claude-status');
+// Status file location: ~/.pappardelle/claude-status/<workspace>.json.
+// Resolved at call time so tests (and the Python hook) can override via
+// PAPPARDELLE_STATUS_DIR.
+function getStatusDir(): string {
+	return (
+		process.env['PAPPARDELLE_STATUS_DIR'] ??
+		path.join(homedir(), '.pappardelle', 'claude-status')
+	);
+}
 
 export function ensureStatusDir(): void {
-	if (!existsSync(STATUS_DIR)) {
-		mkdirSync(STATUS_DIR, {recursive: true});
+	const dir = getStatusDir();
+	if (!existsSync(dir)) {
+		mkdirSync(dir, {recursive: true});
 	}
 }
 
 function getStatusFilePath(workspaceName: string): string {
-	return path.join(STATUS_DIR, `${workspaceName}.json`);
+	return path.join(getStatusDir(), `${workspaceName}.json`);
 }
 
 export interface ClaudeStatusInfo {
@@ -65,9 +75,14 @@ export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
 
 		return {status: state.status, tool: state.currentTool};
 	} catch (err) {
-		log.warn(
-			`Failed to read status for workspace ${workspaceName}`,
-			err instanceof Error ? err : undefined,
+		// Parse failures here are almost always a transient read/write race on
+		// the status JSON file (writer truncates before rewriting). Atomic
+		// writes make this rare, but a stray partial file shouldn't surface as
+		// a UI-visible warning — fall back to 'unknown' and move on.
+		log.debug(
+			`Failed to read status for workspace ${workspaceName}: ${
+				err instanceof Error ? err.message : String(err)
+			}`,
 		);
 		return {status: 'unknown'};
 	}
@@ -88,7 +103,23 @@ export function setClaudeStatus(
 		lastUpdate: Date.now(),
 		currentTool,
 	};
-	writeFileSync(filePath, JSON.stringify(state, null, 2));
+	// Atomic write: write to a sibling temp file then rename. POSIX rename is
+	// atomic, so concurrent readers (and our own fs.watch) always observe
+	// either the previous complete file or the new complete file. If the
+	// write throws (disk full, permission denied) before the rename, clean
+	// up the orphan so the status dir doesn't accumulate junk across crashes.
+	const tmpPath = `${filePath}.tmp.${process.pid}`;
+	try {
+		writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+		renameSync(tmpPath, filePath);
+	} catch (err) {
+		try {
+			rmSync(tmpPath, {force: true});
+		} catch {
+			// swallow — original error is what we want to surface
+		}
+		throw err;
+	}
 }
 
 export function getAllStatuses(): Map<string, ClaudeStatus> {
@@ -96,7 +127,7 @@ export function getAllStatuses(): Map<string, ClaudeStatus> {
 
 	try {
 		ensureStatusDir();
-		const files = readdirSync(STATUS_DIR);
+		const files = readdirSync(getStatusDir());
 
 		for (const file of files) {
 			if (file.endsWith('.json')) {
@@ -131,7 +162,7 @@ export function watchStatuses(
 ): () => void {
 	ensureStatusDir();
 
-	const watcher = watch(STATUS_DIR, (_eventType, filename) => {
+	const watcher = watch(getStatusDir(), (_eventType, filename) => {
 		if (filename && filename.endsWith('.json')) {
 			const workspaceName = filename.replace('.json', '');
 			const info = getClaudeStatusInfo(workspaceName);

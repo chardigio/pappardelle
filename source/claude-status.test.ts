@@ -1,3 +1,14 @@
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 import test from 'ava';
 import type {ClaudeStatus, ClaudeSessionState} from './types.ts';
 import {
@@ -5,7 +16,13 @@ import {
 	ACTIVE_STATUSES,
 	ACTIVE_STATUS_TIMEOUT,
 } from './types.ts';
-import {findSpaceByStatusKey} from './claude-status.ts';
+import {
+	findSpaceByStatusKey,
+	getClaudeStatusInfo,
+	setClaudeStatus,
+	watchStatuses,
+} from './claude-status.ts';
+import {clearRecentErrors, getRecentErrors} from './logger.ts';
 
 // ============================================================================
 // Helper Functions
@@ -23,7 +40,10 @@ function createStatusFile(
 		status,
 		lastUpdate,
 	};
-	writeFileSync(join(dir, `${workspace}.json`), JSON.stringify(state, null, 2));
+	writeFileSync(
+		path.join(dir, `${workspace}.json`),
+		JSON.stringify(state, null, 2),
+	);
 }
 
 // ============================================================================
@@ -298,4 +318,165 @@ test('findSpaceByStatusKey prevents cross-repo main branch collision', t => {
 	// Repo B status update should match repo B, not repo A
 	t.is(findSpaceByStatusKey(repoBSpaces, 'repo-b-main'), 0);
 	t.is(findSpaceByStatusKey(repoASpaces, 'repo-b-main'), -1);
+});
+
+// ============================================================================
+// Atomic write + defensive read tests
+//
+// Regression coverage for the file-race that produced "Unexpected end of JSON
+// input" warnings: pappardelle reads status JSON on every fs.watch event, and
+// the Claude Code hook (plus setClaudeStatus itself) was truncating-then-
+// rewriting the same file. The fix is an atomic write (tmp file + rename) on
+// the writer side and a silent fall-through to {status:'unknown'} on the
+// reader side.
+// ============================================================================
+
+function withStatusDir(t: import('ava').ExecutionContext): string {
+	const dir = mkdtempSync(path.join(tmpdir(), 'papp-claude-status-'));
+	const previous = process.env['PAPPARDELLE_STATUS_DIR'];
+	process.env['PAPPARDELLE_STATUS_DIR'] = dir;
+	t.teardown(() => {
+		if (previous === undefined) {
+			delete process.env['PAPPARDELLE_STATUS_DIR'];
+		} else {
+			process.env['PAPPARDELLE_STATUS_DIR'] = previous;
+		}
+		rmSync(dir, {recursive: true, force: true});
+	});
+	return dir;
+}
+
+test('setClaudeStatus is atomic — inode changes on each write (rename, not in-place truncate)', t => {
+	const dir = withStatusDir(t);
+	const workspace = 'STA-9001';
+	const filePath = path.join(dir, `${workspace}.json`);
+
+	setClaudeStatus(workspace, 'processing');
+	const inodeBefore = statSync(filePath).ino;
+
+	setClaudeStatus(workspace, 'running_tool');
+	const inodeAfter = statSync(filePath).ino;
+
+	// An atomic rename swaps the directory entry to a brand-new inode; an
+	// in-place writeFileSync would truncate and reuse the same inode.
+	// Note: this holds on ext4/APFS/HFS+ local filesystems (and is the case in
+	// CI). On some NFS/SMB mounts and certain container overlayfs setups
+	// inodes can be recycled — if this single assertion ever flakes on such a
+	// host, the other checks below (no straggler tmps, parseable JSON, no
+	// warn-level log) are the portable signals that the writer is atomic.
+	t.not(
+		inodeBefore,
+		inodeAfter,
+		'rewrite must replace the inode (atomic rename), not truncate in place',
+	);
+});
+
+test('setClaudeStatus leaves no .tmp sibling files after a successful write', t => {
+	const dir = withStatusDir(t);
+	setClaudeStatus('STA-9002', 'processing');
+	setClaudeStatus('STA-9002', 'running_tool');
+
+	const stragglers = readdirSync(dir).filter(f => f.includes('.tmp.'));
+	t.deepEqual(stragglers, [], 'rename should consume the temp file');
+});
+
+test('setClaudeStatus cleans up the tmp file when rename fails (no orphan on error)', t => {
+	const dir = withStatusDir(t);
+	const workspace = 'STA-9002b';
+
+	// Create a directory where the final status file would go. renameSync of a
+	// regular file onto a non-empty directory fails (EISDIR/ENOTDIR/ENOTEMPTY),
+	// so the writer's try/catch must rm the tmp sibling before rethrowing.
+	const targetAsDir = path.join(dir, `${workspace}.json`);
+	mkdirSync(targetAsDir);
+	writeFileSync(path.join(targetAsDir, 'placeholder'), 'x');
+
+	t.throws(() => setClaudeStatus(workspace, 'processing'));
+
+	const stragglers = readdirSync(dir).filter(f => f.includes('.tmp.'));
+	t.deepEqual(
+		stragglers,
+		[],
+		'failed write must not leave .tmp.<pid> orphans behind',
+	);
+});
+
+test('setClaudeStatus produces parseable JSON at the final path', t => {
+	const dir = withStatusDir(t);
+	const workspace = 'STA-9003';
+	setClaudeStatus(workspace, 'waiting_for_input', 'sess-1', 'Bash');
+
+	const info = getClaudeStatusInfo(workspace);
+	t.is(info.status, 'waiting_for_input');
+	t.is(info.tool, 'Bash');
+
+	// And sanity-check the on-disk shape directly.
+	const raw = readFileSync(path.join(dir, `${workspace}.json`), 'utf-8');
+	const parsed = JSON.parse(raw) as ClaudeSessionState;
+	t.is(parsed.status, 'waiting_for_input');
+	t.is(parsed.workspaceName, workspace);
+});
+
+test('getClaudeStatusInfo returns {status:"unknown"} for an empty file (mid-truncate race)', t => {
+	const dir = withStatusDir(t);
+	const workspace = 'STA-9004';
+	writeFileSync(path.join(dir, `${workspace}.json`), '');
+
+	// The truncate-then-write race used to bubble "Unexpected end of JSON
+	// input" up to the TUI. Defensive read should swallow that and report
+	// unknown.
+	t.deepEqual(getClaudeStatusInfo(workspace), {status: 'unknown'});
+});
+
+test('getClaudeStatusInfo returns {status:"unknown"} for malformed JSON without throwing', t => {
+	const dir = withStatusDir(t);
+	const workspace = 'STA-9005';
+	writeFileSync(path.join(dir, `${workspace}.json`), '{not really json');
+
+	t.notThrows(() => getClaudeStatusInfo(workspace));
+	t.deepEqual(getClaudeStatusInfo(workspace), {status: 'unknown'});
+});
+
+test('watchStatuses ignores .tmp.<pid> filesystem events (only .json events reach the callback)', async t => {
+	const dir = withStatusDir(t);
+	const callbackArgs: string[] = [];
+
+	const stop = watchStatuses(workspaceName => {
+		callbackArgs.push(workspaceName);
+	});
+	t.teardown(stop);
+
+	// Two writes — each creates a .tmp.<pid> sibling, renames it onto the .json
+	// target. The watcher should never surface .tmp.<pid> filename events.
+	setClaudeStatus('STA-9010', 'processing');
+	setClaudeStatus('STA-9010', 'running_tool');
+
+	// fs.watch delivers events on the next tick; give it a beat to flush.
+	await new Promise<void>(resolve => setTimeout(resolve, 50));
+
+	t.true(
+		callbackArgs.every(ws => !ws.includes('.tmp.')),
+		`callback received a .tmp.<pid> event it should have filtered out: ${JSON.stringify(callbackArgs)}`,
+	);
+});
+
+test('getClaudeStatusInfo parse failures do NOT surface a warn-level log to the TUI', t => {
+	const dir = withStatusDir(t);
+	const workspace = 'STA-9006';
+	writeFileSync(path.join(dir, `${workspace}.json`), '');
+
+	clearRecentErrors();
+	getClaudeStatusInfo(workspace);
+	const surfaced = getRecentErrors().filter(
+		e => e.component === 'claude-status',
+	);
+
+	// warn/error entries get pushed to the in-memory buffer that powers the
+	// "Errors (N)" pane. A parse failure on the status file is a known
+	// transient and must not show up there.
+	t.deepEqual(
+		surfaced,
+		[],
+		'parse failures must stay at debug level (file logs only, no TUI noise)',
+	);
 });

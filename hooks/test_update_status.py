@@ -537,5 +537,90 @@ class TestCommandLineArgs:
         assert result.get("currentTool") == "Bash"
 
 
+class TestAtomicWrite:
+    """Regression coverage for the file-race that produced
+    ``Unexpected end of JSON input`` warnings in pappardelle's TUI.
+
+    The hook used to ``open(status_file, "w")`` — which truncates in place and
+    leaves a zero-byte window for any concurrent reader. The fix writes to a
+    sibling ``*.tmp.<pid>`` file and ``os.replace``s it onto the target, so the
+    target's directory entry always points at a complete file.
+    """
+
+    def test_rewrite_swaps_inode_via_atomic_rename(self, tmp_path):
+        """Two sequential writes must land on distinct inodes.
+
+        An in-place ``writeFileSync``/``open(..., "w")`` keeps the same inode
+        (truncate + rewrite). ``os.replace`` swaps in a new inode. The inode
+        check is a deterministic structural signal that the writer is atomic.
+        """
+        with patch.object(update_status_module, "get_status_dir", return_value=tmp_path):
+            update_status("processing", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9101")
+            status_file = tmp_path / "STA-9101.json"
+            assert status_file.exists()
+            inode_before = status_file.stat().st_ino
+
+            update_status("running_tool", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9101")
+            inode_after = status_file.stat().st_ino
+
+        assert inode_before != inode_after, "rewrite must replace the inode (atomic rename), not truncate in place"
+
+    def test_no_tmp_files_remain_after_successful_write(self, tmp_path):
+        """After a happy-path write the temp sibling must be consumed by the rename."""
+        with patch.object(update_status_module, "get_status_dir", return_value=tmp_path):
+            update_status("processing", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9102")
+            update_status("running_tool", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9102")
+
+        stragglers = [p.name for p in tmp_path.iterdir() if ".tmp." in p.name]
+        assert stragglers == [], f"tmp file(s) leaked: {stragglers}"
+
+    def test_tmp_file_is_cleaned_up_when_rename_fails(self, tmp_path):
+        """If ``os.replace`` raises, the sibling tmp file must be unlinked
+        before the exception propagates — otherwise a crashy writer would
+        leave orphan ``*.tmp.<pid>`` files in the status dir forever.
+        """
+        cwd = "/Users/charlie/.worktrees/stardust-labs/STA-9104"
+
+        with (
+            patch.object(update_status_module, "get_status_dir", return_value=tmp_path),
+            patch.object(update_status_module.os, "replace", side_effect=OSError("simulated replace failure")),
+        ):
+            with pytest.raises(OSError, match="simulated replace failure"):
+                update_status("processing", cwd=cwd)
+
+        stragglers = [p.name for p in tmp_path.iterdir() if ".tmp." in p.name]
+        assert stragglers == [], f"failed write must not leave .tmp.<pid> orphans behind: {stragglers}"
+
+    def test_target_path_is_never_opened_in_write_mode(self, tmp_path):
+        """Atomic write contract: ``open`` must never be called with the
+        target path in write mode. Writes go to a sibling tmp path that is
+        then renamed into place.
+        """
+        opens: list[tuple[str, str]] = []
+        real_open = open
+
+        def recording_open(file, mode="r", *args, **kwargs):
+            opens.append((str(file), mode))
+            return real_open(file, mode, *args, **kwargs)
+
+        target = tmp_path / "STA-9103.json"
+        with (
+            patch.object(update_status_module, "get_status_dir", return_value=tmp_path),
+            patch("builtins.open", side_effect=recording_open),
+        ):
+            update_status("processing", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9103")
+
+        write_opens_on_target = [(p, m) for (p, m) in opens if p == str(target) and "w" in m]
+        assert write_opens_on_target == [], (
+            "target path must not be opened in write mode — writes go via a "
+            f"sibling tmp file. Saw: {write_opens_on_target}"
+        )
+
+        # And confirm the final file ended up readable + correct.
+        assert target.exists()
+        payload = json.loads(target.read_text())
+        assert payload["status"] == "processing"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
