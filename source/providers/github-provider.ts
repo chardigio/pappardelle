@@ -318,8 +318,13 @@ export class GitHubProvider implements VcsHostProvider {
 			};
 
 			if (parsed.errors?.length) {
+				// Keep the headline short; route the joined error bodies through
+				// the error parameter so they get sanitized + clipped on display
+				// rather than rendered as a wall of text.
+				const detail = parsed.errors.map(e => e.message).join('; ');
 				log.warn(
-					`Partial GraphQL errors in bulk rail status: ${parsed.errors.map(e => e.message).join('; ')}`,
+					'Partial GraphQL errors in bulk rail status',
+					new Error(detail),
 				);
 			}
 

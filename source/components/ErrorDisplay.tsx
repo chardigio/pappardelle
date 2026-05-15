@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
-import {clipErrorText} from '../clip-error-text.ts';
+import {clipLogEntryForDisplay} from '../clip-error-text.ts';
 import {buildLogsHint} from '../error-display-hint.ts';
 import {
 	subscribeToErrors,
@@ -28,12 +28,16 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 	const visibleErrors = errors.slice(-maxVisible);
 	const hiddenCount = errors.length - visibleErrors.length;
 
-	const clipped = visibleErrors.map(entry =>
-		entry.error
-			? {entry, body: clipErrorText(entry.error)}
-			: {entry, body: null},
+	const clipped = visibleErrors.map(entry => ({
+		entry,
+		display: clipLogEntryForDisplay({
+			message: entry.message,
+			error: entry.error,
+		}),
+	}));
+	const anyTruncated = clipped.some(
+		c => c.display.headline.truncated || c.display.body?.truncated,
 	);
-	const anyTruncated = clipped.some(c => c.body?.truncated);
 	const showLogsHint = hiddenCount > 0 || anyTruncated;
 
 	return (
@@ -54,15 +58,20 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 				<Text dimColor>Press 'c' to clear</Text>
 			</Box>
 
-			{clipped.map(({entry, body}, i) => (
+			{clipped.map(({entry, display}, i) => (
 				<Box key={`${entry.timestamp}-${i}`} flexDirection="column">
 					<Box>
 						<Text color={entry.level === 'error' ? 'red' : 'yellow'}>
 							[{entry.component}]
 						</Text>
-						<Text> {entry.message}</Text>
+						<Text wrap="truncate"> {display.headline.text}</Text>
 					</Box>
-					{body && <Text dimColor> {body.text}</Text>}
+					{display.body && (
+						<Text dimColor wrap="truncate">
+							{' '}
+							{display.body.text}
+						</Text>
+					)}
 				</Box>
 			))}
 

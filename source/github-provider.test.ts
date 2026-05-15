@@ -318,11 +318,17 @@ test.serial(
 		t.is(result.get('STA-1')!.prNumber, 42);
 		t.is(result.get('STA-2')!.pipeline, null);
 
-		// Warning was emitted for the errors field
+		// Warning was emitted for the errors field — the headline is a short,
+		// stable string and the dynamic error bodies live in `entry.error` so
+		// the TUI clip path (`clipLogEntryForDisplay`) bounds the rendered size
+		// even when many aliases fail at once.
 		const warnings = getRecentErrors().filter(
-			e => e.level === 'warn' && e.message.includes('Partial GraphQL errors'),
+			e =>
+				e.level === 'warn' &&
+				e.message === 'Partial GraphQL errors in bulk rail status',
 		);
 		t.is(warnings.length, 1);
+		t.true(warnings[0]!.error!.includes('Field-level permission denied'));
 	},
 );
 

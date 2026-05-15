@@ -1,6 +1,7 @@
 import test from 'ava';
 import {
 	clipErrorText,
+	clipLogEntryForDisplay,
 	MAX_ERROR_CHARS,
 	MAX_ERROR_LINES,
 } from './clip-error-text.ts';
@@ -48,4 +49,68 @@ test(`exactly ${MAX_ERROR_LINES} short lines is not truncated`, t => {
 	const result = clipErrorText(text);
 	t.false(result.truncated);
 	t.is(result.text, text);
+});
+
+// ----------------------------------------------------------------------------
+// clipLogEntryForDisplay — guards the TUI error rail against any log call
+// (existing or future) that stuffs payload into the message string. The body
+// field has been clipped for a while; until now the headline was rendered
+// verbatim, which let a bulk rail-status failure paint the screen with raw
+// JSON. Pinning both fields here means new call sites are auto-protected.
+// ----------------------------------------------------------------------------
+
+test('clipLogEntryForDisplay: short message + no error round-trips unchanged', t => {
+	const result = clipLogEntryForDisplay({message: 'Failed to fetch X'});
+	t.is(result.headline.text, 'Failed to fetch X');
+	t.false(result.headline.truncated);
+	t.is(result.body, null);
+});
+
+test('clipLogEntryForDisplay: short message + short error preserves both', t => {
+	const result = clipLogEntryForDisplay({
+		message: 'Failed to fetch X',
+		error: 'timeout',
+	});
+	t.is(result.headline.text, 'Failed to fetch X');
+	t.false(result.headline.truncated);
+	t.is(result.body!.text, 'timeout');
+	t.false(result.body!.truncated);
+});
+
+test('clipLogEntryForDisplay: oversized message gets clipped to the same caps as error body', t => {
+	const huge = 'x'.repeat(MAX_ERROR_CHARS + 500);
+	const result = clipLogEntryForDisplay({message: huge});
+	t.true(result.headline.truncated);
+	t.true(result.headline.text.length <= MAX_ERROR_CHARS);
+	t.true(result.headline.text.startsWith('…'));
+});
+
+test('clipLogEntryForDisplay: JSON-shaped message from a bulk gh failure cannot blow up the rail', t => {
+	// Mirrors the failure mode in github-provider.ts when gh dumps a
+	// pretty-printed GraphQL error response and a future caller forgets to
+	// route it through the error parameter — the rail should still hold.
+	const jsonish = JSON.stringify(
+		{
+			errors: Array.from({length: 30}, (_, i) => ({
+				message: `Could not resolve to a Repository with the name 'whatever-${i}'.`,
+				type: 'NOT_FOUND',
+				path: ['repository', `pr${i}`],
+			})),
+		},
+		null,
+		2,
+	);
+	const result = clipLogEntryForDisplay({message: `Bulk failure: ${jsonish}`});
+
+	t.true(result.headline.truncated);
+	t.true(result.headline.text.length <= MAX_ERROR_CHARS);
+	t.true(result.headline.text.split('\n').length <= MAX_ERROR_LINES);
+});
+
+test('clipLogEntryForDisplay: error field still gets clipped alongside the headline', t => {
+	const big = 'y'.repeat(MAX_ERROR_CHARS + 500);
+	const result = clipLogEntryForDisplay({message: 'short', error: big});
+	t.false(result.headline.truncated);
+	t.true(result.body!.truncated);
+	t.true(result.body!.text.length <= MAX_ERROR_CHARS);
 });
