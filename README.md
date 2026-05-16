@@ -212,11 +212,17 @@ When you're doom-coding from your phone, you want one-tap access to open the PR 
 keybindings:
   - key: 'z'
     name: 'Zap PR'
+    # Sort by updatedAt desc — when a branch name has been reused (e.g. an
+    # old merged PR + a freshly opened one), surface the PR you're actually
+    # working on, not the oldest stale match.
     run: >
-      PR_NUM=$(gh pr list --head ${ISSUE_KEY} --state all --json number -q '.[0].number' 2>/dev/null);
+      PR_JSON=$(gh pr list --head ${ISSUE_KEY} --state all --json number,url,updatedAt
+        -q 'sort_by(.updatedAt) | reverse | .[0]' 2>/dev/null);
+      PR_NUM=$(echo "$PR_JSON" | jq -r '.number // empty');
+      PR_URL=$(echo "$PR_JSON" | jq -r '.url // empty');
       if [ -n "$PR_NUM" ]; then
         curl -d "${ISSUE_KEY} GitHub PR #$PR_NUM"
-          -H "Click: $(gh pr list --head ${ISSUE_KEY} --state all --json url -q '.[0].url')"
+          -H "Click: $PR_URL"
           ntfy.sh/${PAPPARDELLE_NTFY_TOPIC};
       fi
 ```

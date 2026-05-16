@@ -155,7 +155,7 @@ If the tmux session doesn't exist, report it:
 
 For requests like "open the PR for 696" or "what's the PR status":
 
-- Use `gh pr list --head STA-XXX` to find the PR
+- Use `gh pr list --head STA-XXX --state all --json number,url,updatedAt -q 'sort_by(.updatedAt) | reverse | .[0]'` to find the PR you're actively working on (sort by updatedAt desc — branch names get reused, and GitHub's default order surfaces the oldest match first)
 - Present the URL concisely
 
 ## Triggering a Code Review
@@ -163,7 +163,7 @@ For requests like "open the PR for 696" or "what's the PR status":
 To request a Claude code review on a PR, use the `r` Pappardelle shortcut. This runs the `claude-code-review.yml` workflow on the PR:
 
 ```bash
-PR_NUM=$(gh pr list --head STA-XXX --json number -q '.[0].number') && [ -n "$PR_NUM" ] && gh pr edit "$PR_NUM" --remove-label claude-reviewed 2>/dev/null; [ -n "$PR_NUM" ] && gh workflow run claude-code-review.yml -f pr_number="$PR_NUM" && gh pr comment "$PR_NUM" --body '> Code review requested. Workflow triggered.'
+PR_NUM=$(gh pr list --head STA-XXX --json number,updatedAt -q 'sort_by(.updatedAt) | reverse | .[0].number') && [ -n "$PR_NUM" ] && gh pr edit "$PR_NUM" --remove-label claude-reviewed 2>/dev/null; [ -n "$PR_NUM" ] && gh workflow run claude-code-review.yml -f pr_number="$PR_NUM" && gh pr comment "$PR_NUM" --body '> Code review requested. Workflow triggered.'
 ```
 
 When the user asks to trigger or request a review on a space, run this command directly (substituting the correct issue key). No need to use tmux or relay to the Claude session.

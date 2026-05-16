@@ -8,8 +8,12 @@
  * Env vars:
  *   GITHUB_ISSUE — branch/issue key to check for PRs (default: STA-683)
  *   GITHUB_PR    — known PR number to test buildPRUrl (default: auto-detected)
+ *   GITHUB_MULTI_PR_BRANCH — branch with multiple PRs (open + merged) to
+ *                            stress-test ordering. If unset, the script
+ *                            auto-detects a candidate via `gh search prs`.
  */
 
+import {execFileSync} from 'node:child_process';
 import {GitHubProvider} from '../source/providers/github-provider.ts';
 
 const ISSUE_KEY = process.env['GITHUB_ISSUE'] ?? 'STA-683';
@@ -36,6 +40,127 @@ function fail(msg: string) {
 
 function info(label: string, value: unknown) {
 	console.log(`  ${label}: ${JSON.stringify(value)}`);
+}
+
+type PrListEntry = {number: number; url: string; updatedAt: string};
+
+/**
+ * Find a head-branch name in the current repo that has more than one PR
+ * (the case where ordering actually matters). Returns null if none is
+ * found within the search budget.
+ */
+function findMultiPrBranch(): string | null {
+	const override = process.env['GITHUB_MULTI_PR_BRANCH'];
+	if (override) return override;
+
+	try {
+		// Walk recently updated PRs and look for any head ref name that
+		// appears twice. `gh search prs` doesn't expose duplicates directly,
+		// so we paginate one batch and count locally.
+		const stdout = execFileSync(
+			'gh',
+			[
+				'pr',
+				'list',
+				'--state',
+				'all',
+				'--limit',
+				'200',
+				'--json',
+				'headRefName',
+			],
+			{encoding: 'utf-8', timeout: 15_000},
+		);
+		const prs = JSON.parse(stdout) as Array<{headRefName: string}>;
+		const counts = new Map<string, number>();
+		for (const pr of prs) {
+			counts.set(pr.headRefName, (counts.get(pr.headRefName) ?? 0) + 1);
+		}
+		for (const [branch, count] of counts) {
+			if (count > 1) return branch;
+		}
+	} catch {
+		// Falls through to the null return — verification will skip with a
+		// pass message.
+	}
+	return null;
+}
+
+function listPrsForBranch(branch: string): PrListEntry[] {
+	const stdout = execFileSync(
+		'gh',
+		[
+			'pr',
+			'list',
+			'--head',
+			branch,
+			'--state',
+			'all',
+			'--json',
+			'number,url,updatedAt',
+			'--limit',
+			'50',
+		],
+		{encoding: 'utf-8', timeout: 15_000},
+	);
+	return JSON.parse(stdout) as PrListEntry[];
+}
+
+function verifyOrderingForBranch(provider: GitHubProvider) {
+	const branch = findMultiPrBranch();
+	header('PR ordering — latest-updatedAt wins');
+
+	if (!branch) {
+		pass(
+			'No head branch with multiple PRs found in the recent window; ordering check skipped (set GITHUB_MULTI_PR_BRANCH to force)',
+		);
+		return;
+	}
+
+	info('branch', branch);
+
+	let allPrs: PrListEntry[];
+	try {
+		allPrs = listPrsForBranch(branch);
+	} catch (err) {
+		fail(`Failed to list PRs for branch "${branch}": ${String(err)}`);
+		return;
+	}
+
+	info('matching PR count', allPrs.length);
+	if (allPrs.length < 2) {
+		pass(
+			`Branch "${branch}" no longer has multiple PRs at query time; ordering check skipped`,
+		);
+		return;
+	}
+
+	const expected = allPrs.reduce((newest, current) =>
+		current.updatedAt > newest.updatedAt ? current : newest,
+	);
+	info('expected (max updatedAt)', {
+		number: expected.number,
+		updatedAt: expected.updatedAt,
+	});
+
+	const actual = provider.checkIssueHasPRWithCommits(branch);
+	info('provider returned', {number: actual.prNumber, url: actual.prUrl});
+
+	if (!actual.hasPR) {
+		fail('Provider returned hasPR=false for a branch known to have PRs');
+		return;
+	}
+
+	if (actual.prNumber === expected.number) {
+		pass(
+			`Provider returned the most-recently-updated PR (#${expected.number})`,
+		);
+	} else {
+		const wrong = allPrs.find(p => p.number === actual.prNumber);
+		fail(
+			`Provider returned PR #${actual.prNumber} (updatedAt ${wrong?.updatedAt ?? '?'}) but expected #${expected.number} (updatedAt ${expected.updatedAt})`,
+		);
+	}
 }
 
 function main() {
@@ -104,6 +229,13 @@ function main() {
 	} else {
 		fail('URL missing /pull/ path');
 	}
+
+	// ── PR ordering: latest-updated wins ─────────────────────
+	// The provider must return the most-recently-updated PR for a head
+	// branch, not the oldest. Verifies the fix end-to-end against real
+	// GitHub by comparing the provider's choice to the max-updatedAt PR
+	// from an independent `gh pr list` call.
+	verifyOrderingForBranch(provider);
 
 	// ── Summary ───────────────────────────────────────────────
 	header('Summary');

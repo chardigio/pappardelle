@@ -55,12 +55,14 @@ keybindings:
     run: "curl -d '${ISSUE_KEY} Linear Issue' -H 'Click: https://linear.app/stardust-labs/issue/${ISSUE_KEY}' ntfy.sh/${NTFY_TOPIC}"
   - key: "z"
     name: "Zap PR"
-    run: "PR_NUM=$(gh pr list --head ${ISSUE_KEY} --state all --json number -q '.[0].number' 2>/dev/null); if [ -n \"$PR_NUM\" ]; then curl -d \"${ISSUE_KEY} GitHub PR #$PR_NUM\" -H \"Click: $(gh pr list --head ${ISSUE_KEY} --state all --json url -q '.[0].url')\" ntfy.sh/${NTFY_TOPIC}; else REPO_URL=$(gh repo view --json url -q '.url'); curl -d \"${REPO_NAME}\" -H \"Click: $REPO_URL\" ntfy.sh/${NTFY_TOPIC}; fi"
+    # Sort by updatedAt desc so reused branch names surface the PR you're
+    # actively working on, not the oldest stale match.
+    run: "PR_JSON=$(gh pr list --head ${ISSUE_KEY} --state all --json number,url,updatedAt -q 'sort_by(.updatedAt) | reverse | .[0]' 2>/dev/null); PR_NUM=$(echo \"$PR_JSON\" | jq -r '.number // empty'); PR_URL=$(echo \"$PR_JSON\" | jq -r '.url // empty'); if [ -n \"$PR_NUM\" ]; then curl -d \"${ISSUE_KEY} GitHub PR #$PR_NUM\" -H \"Click: $PR_URL\" ntfy.sh/${NTFY_TOPIC}; else REPO_URL=$(gh repo view --json url -q '.url'); curl -d \"${REPO_NAME}\" -H \"Click: $REPO_URL\" ntfy.sh/${NTFY_TOPIC}; fi"
 
   # GitHub workflow triggers — kick off CI actions from the TUI
   - key: "r"
     name: "Request Claude code review"
-    run: "PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number -q '.[0].number') && gh pr edit $PR_NUM --remove-label claude-reviewed 2>/dev/null; gh workflow run claude-code-review.yml -f pr_number=$PR_NUM && gh pr comment $PR_NUM --body '> Code review requested. Workflow triggered.'"
+    run: "PR_NUM=$(gh pr list --head ${ISSUE_KEY} --json number,updatedAt -q 'sort_by(.updatedAt) | reverse | .[0].number') && gh pr edit $PR_NUM --remove-label claude-reviewed 2>/dev/null; gh workflow run claude-code-review.yml -f pr_number=$PR_NUM && gh pr comment $PR_NUM --body '> Code review requested. Workflow triggered.'"
 
   # Open a new iTerm window for long-running commands
   - key: "P"

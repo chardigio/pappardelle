@@ -353,11 +353,20 @@ test('getBulkRailStatus: StatusContext nodes supported', async t => {
 // checkIssueHasPRWithCommits
 // ============================================================================
 
+// Build the GraphQL response shape returned by checkIssueHasPRWithCommits' query.
+function makePrListResponse(
+	prs: Array<{number: number; url: string; changedFiles: number}>,
+): string {
+	return JSON.stringify({
+		data: {repository: {pullRequests: {nodes: prs}}},
+	});
+}
+
 test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and number', t => {
 	let capturedArgs: string[] = [];
 	const syncExec: SyncGhExecutor = (args: string[]) => {
 		capturedArgs = args;
-		return JSON.stringify([
+		return makePrListResponse([
 			{
 				number: 42,
 				url: 'https://github.com/owner/repo/pull/42',
@@ -374,19 +383,19 @@ test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and 
 	t.is(result.prNumber, 42);
 	t.is(result.prUrl, 'https://github.com/owner/repo/pull/42');
 
-	// Pin the gh invocation so we don't regress to OPEN-only matching.
-	t.true(capturedArgs.includes('--state'));
-	t.is(capturedArgs[capturedArgs.indexOf('--state') + 1], 'all');
-	t.true(capturedArgs.includes('--head'));
-	t.is(capturedArgs[capturedArgs.indexOf('--head') + 1], 'STA-100');
+	// Pin the gh invocation: GraphQL query with the branch name forwarded
+	// as a string variable.
+	t.is(capturedArgs[0], 'api');
+	t.is(capturedArgs[1], 'graphql');
+	t.true(capturedArgs.includes('branch=STA-100'));
 });
 
 test('checkIssueHasPRWithCommits: merged PR is found', t => {
-	// Simulate a branch whose only PR has already been merged. Without
-	// `--state all` this list comes back empty and pappardelle reports
-	// "No PR found"; this test pins the fix.
+	// Simulate a branch whose only PR has already been merged. The GraphQL
+	// query intentionally omits a `states:` filter so merged PRs still
+	// surface; this test pins that behavior.
 	const syncExec: SyncGhExecutor = () =>
-		JSON.stringify([
+		makePrListResponse([
 			{
 				number: 1092,
 				url: 'https://github.com/owner/repo/pull/1092',
@@ -404,7 +413,7 @@ test('checkIssueHasPRWithCommits: merged PR is found', t => {
 });
 
 test('checkIssueHasPRWithCommits: no PR found returns hasPR false', t => {
-	const syncExec: SyncGhExecutor = () => JSON.stringify([]);
+	const syncExec: SyncGhExecutor = () => makePrListResponse([]);
 
 	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
 	const result = provider.checkIssueHasPRWithCommits('STA-404');
@@ -417,7 +426,7 @@ test('checkIssueHasPRWithCommits: no PR found returns hasPR false', t => {
 
 test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits false', t => {
 	const syncExec: SyncGhExecutor = () =>
-		JSON.stringify([
+		makePrListResponse([
 			{
 				number: 7,
 				url: 'https://github.com/owner/repo/pull/7',
@@ -442,4 +451,103 @@ test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', t => {
 
 	t.false(result.hasPR);
 	t.false(result.hasCommits);
+});
+
+test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calling executor', t => {
+	let called = false;
+	const syncExec: SyncGhExecutor = () => {
+		called = true;
+		return '';
+	};
+	// null forces the "no slug" path — simulates running outside a GitHub repo
+	const provider = new GitHubProvider(undefined, null, syncExec);
+	const result = provider.checkIssueHasPRWithCommits('STA-100');
+
+	t.false(result.hasPR);
+	t.false(result.hasCommits);
+	t.false(called);
+});
+
+test('checkIssueHasPRWithCommits: query orders pull requests by UPDATED_AT DESC', t => {
+	// When a branch matches multiple PRs (e.g. a reused branch name where the
+	// first PR was merged long ago and a new PR was just opened), the `g`
+	// shortcut would jump to the oldest PR. GitHub's GraphQL `pullRequests`
+	// field defaults to CREATED_AT ASC, so without an explicit `orderBy` we
+	// surface the oldest match. The query must request UPDATED_AT DESC so we
+	// open the PR the user actually worked on most recently.
+	let capturedArgs: string[] = [];
+	const syncExec: SyncGhExecutor = (args: string[]) => {
+		capturedArgs = args;
+		return makePrListResponse([
+			{
+				number: 999,
+				url: 'https://github.com/owner/repo/pull/999',
+				changedFiles: 3,
+			},
+		]);
+	};
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	provider.checkIssueHasPRWithCommits('STA-reused-branch');
+
+	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
+	t.true(
+		queryArg.includes('orderBy'),
+		`expected query to include orderBy clause: ${queryArg}`,
+	);
+	t.true(
+		queryArg.includes('UPDATED_AT'),
+		`expected orderBy field UPDATED_AT: ${queryArg}`,
+	);
+	t.true(
+		queryArg.includes('DESC'),
+		`expected orderBy direction DESC: ${queryArg}`,
+	);
+});
+
+// ============================================================================
+// getRailStatus / getBulkRailStatus — ordering
+// ============================================================================
+
+test('getRailStatus: query orders pull requests by UPDATED_AT DESC', async t => {
+	// Rail status (pipeline, unresolved comments, merge conflict) must reflect
+	// the most recently updated PR for a branch, not the oldest one (which is
+	// often a long-ago merged reuse of the same branch name).
+	let capturedArgs: string[] = [];
+	const exec: GhExecutor = async (args: string[]) => {
+		capturedArgs = args;
+		return makeGhResponse({pr0: null});
+	};
+
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	await provider.getRailStatus('STA-branch-reuse');
+
+	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
+	t.true(queryArg.includes('orderBy'));
+	t.true(queryArg.includes('UPDATED_AT'));
+	t.true(queryArg.includes('DESC'));
+});
+
+test('getBulkRailStatus: each aliased query orders pull requests by UPDATED_AT DESC', async t => {
+	let capturedArgs: string[] = [];
+	const exec: GhExecutor = async (args: string[]) => {
+		capturedArgs = args;
+		return makeGhResponse({pr0: null, pr1: null});
+	};
+
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	await provider.getBulkRailStatus(['STA-1', 'STA-2']);
+
+	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
+	// Every aliased pullRequests(...) call must include the orderBy clause;
+	// matching the substring twice guarantees we didn't only sort the first
+	// alias.
+	const orderByOccurrences = queryArg.split('orderBy').length - 1;
+	t.is(
+		orderByOccurrences,
+		2,
+		`expected orderBy in both aliased queries, found ${orderByOccurrences}: ${queryArg}`,
+	);
+	t.true(queryArg.includes('UPDATED_AT'));
+	t.true(queryArg.includes('DESC'));
 });

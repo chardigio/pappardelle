@@ -100,6 +100,13 @@ const PR_FIELDS = `
 	}
 `;
 
+// Pin to the most-recently-updated PR for a branch. GitHub's GraphQL
+// `pullRequests` field defaults to CREATED_AT ASC (oldest first), which
+// surfaces stale PRs when a branch name has been reused (e.g. an old merged
+// PR + a freshly opened one share `head: STA-XXX`). Every PR lookup in this
+// file goes through this clause.
+const PR_ORDER_BY = 'orderBy: {field: UPDATED_AT, direction: DESC}';
+
 export class GitHubProvider implements VcsHostProvider {
 	readonly name = 'github';
 	// undefined = not yet fetched; null = fetched but not in a GitHub repo
@@ -147,41 +154,72 @@ export class GitHubProvider implements VcsHostProvider {
 	}
 
 	checkIssueHasPRWithCommits(issueKey: string): PRInfo {
-		try {
-			// Discover PR by branch name (branch name matches issue key).
-			// This approach is tracker-agnostic — no dependency on linctl or any
-			// issue tracker. Works for Linear + GitHub and Jira + GitHub alike.
-			//
-			// `--state all` so a merged PR still resolves. The ordering `gh pr list`
-			// uses isn't formally documented, but in practice it surfaces the
-			// most-recently-updated PR first (inherited from GitHub's GraphQL
-			// default), which means `--limit 1` returns the open PR when one
-			// exists and falls back to the latest merged PR otherwise. The two
-			// observable cases (open exists / only merged exists) are both
-			// pinned in github-provider.test.ts.
-			const prOutput = this.syncExecutor([
-				'pr',
-				'list',
-				'--head',
-				issueKey,
-				'--state',
-				'all',
-				'--json',
-				'number,url,changedFiles',
-				'--limit',
-				'1',
-			]);
-			const prs = JSON.parse(prOutput) as Array<{
-				number: number;
-				url: string;
-				changedFiles: number;
-			}>;
+		// Discover PR by branch name (branch name matches issue key). This
+		// approach is tracker-agnostic — no dependency on linctl or any
+		// issue tracker. Works for Linear + GitHub and Jira + GitHub alike.
+		//
+		// Uses `gh api graphql` rather than `gh pr list` so we can pin
+		// `orderBy: UPDATED_AT DESC` (the default is CREATED_AT ASC, which
+		// surfaces the oldest PR when a branch name has been reused — see
+		// PR_ORDER_BY) and omit a `states:` filter to keep merged PRs
+		// resolvable when no open PR exists.
+		const slug = this.getRepoSlug();
+		if (!slug) {
+			return {hasPR: false, hasCommits: false};
+		}
 
-			if (prs.length === 0) {
+		const [owner, name] = slug.split('/');
+		if (!owner || !name) {
+			return {hasPR: false, hasCommits: false};
+		}
+
+		try {
+			const query = `
+				query($owner: String!, $name: String!, $branch: String!) {
+					repository(owner: $owner, name: $name) {
+						pullRequests(headRefName: $branch, first: 1, ${PR_ORDER_BY}) {
+							nodes {
+								number
+								url
+								changedFiles
+							}
+						}
+					}
+				}
+			`;
+
+			const stdout = this.syncExecutor([
+				'api',
+				'graphql',
+				'-F',
+				`owner=${owner}`,
+				'-F',
+				`name=${name}`,
+				'-F',
+				`branch=${issueKey}`,
+				'-f',
+				`query=${query}`,
+			]);
+
+			const parsed = JSON.parse(stdout) as {
+				data?: {
+					repository?: {
+						pullRequests?: {
+							nodes?: Array<{
+								number: number;
+								url: string;
+								changedFiles: number;
+							}>;
+						};
+					};
+				};
+			};
+
+			const pr = parsed.data?.repository?.pullRequests?.nodes?.[0];
+			if (!pr) {
 				return {hasPR: false, hasCommits: false};
 			}
 
-			const pr = prs[0]!;
 			log.debug(
 				`Issue ${issueKey} has PR #${pr.number} with ${pr.changedFiles} files changed`,
 			);
@@ -222,7 +260,7 @@ export class GitHubProvider implements VcsHostProvider {
 			const query = `
 				query($owner: String!, $name: String!, $branch: String!) {
 					repository(owner: $owner, name: $name) {
-						pullRequests(headRefName: $branch, first: 1, states: OPEN) {
+						pullRequests(headRefName: $branch, first: 1, states: OPEN, ${PR_ORDER_BY}) {
 							${PR_FIELDS}
 						}
 					}
@@ -286,7 +324,7 @@ export class GitHubProvider implements VcsHostProvider {
 		const aliases = issueKeys
 			.map(
 				(key, i) =>
-					`pr${i}: pullRequests(headRefName: ${JSON.stringify(key)}, first: 1, states: OPEN) {\n${PR_FIELDS}\n}`,
+					`pr${i}: pullRequests(headRefName: ${JSON.stringify(key)}, first: 1, states: OPEN, ${PR_ORDER_BY}) {\n${PR_FIELDS}\n}`,
 			)
 			.join('\n');
 
