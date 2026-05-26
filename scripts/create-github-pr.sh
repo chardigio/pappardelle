@@ -123,9 +123,6 @@ Generated with [Claude Code](https://claude.com/claude-code)"
 # Build command args as an array to avoid quoting issues with special characters
 PR_CREATE_ARGS=(gh pr create --title "$PR_TITLE" --body "$PR_BODY")
 
-# Always add placeholder label (to skip Claude review until real commits)
-PR_CREATE_ARGS+=(--label "placeholder")
-
 # Add additional label if provided (e.g., project-specific label)
 if [[ -n "$LABEL" ]]; then
     PR_CREATE_ARGS+=(--label "$LABEL")
@@ -156,8 +153,11 @@ fi
 # Extract PR number from URL
 PR_NUMBER=$(echo "$PR_URL" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+')
 
-# Note: The placeholder label is removed by CI workflow (.github/workflows/remove-placeholder-label.yml)
-# This ensures the removal happens on the same timeline as other CI jobs like Claude review
+# Note: Placeholder PRs are detected by CI (claude-code-review.yml,
+# standard_lint.yml) via `gh pr view --json changedFiles` — a PR with 0 changed
+# files is treated as a placeholder and skipped. No label is involved; using
+# git state avoids the race where `gh pr create --label` fires the
+# `pull_request.opened` webhook before the label call lands (STA-1290).
 
 # Output JSON
 echo "{\"pr_url\":\"$PR_URL\",\"pr_number\":\"$PR_NUMBER\",\"branch\":\"$BRANCH\"}"
