@@ -97,6 +97,7 @@ import {
 	extractRecapFromJsonl,
 } from './space-state.ts';
 import {resolveSpaceEmoji} from './space-emoji.ts';
+import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
 import {
 	watchHighlightTarget,
 	findSpaceIndexByIssueKey,
@@ -413,7 +414,7 @@ export default function App({
 			}
 
 			// Merge in any previously-fetched railStatus so the 10s loadSpaces
-			// rebuild doesn't wipe data set by the slower 30s rail poller.
+			// rebuild doesn't wipe data set by the slower 60s rail poller.
 			setSpaces(prev => {
 				const prevRailByName = new Map(
 					prev
@@ -1160,10 +1161,11 @@ export default function App({
 	}, [watchlistConfig]);
 
 	// Rail-status polling — fetch each space's PR pipeline state + unresolved
-	// review-comment count from the VCS host every 30s. First poll fires
-	// ~1s after mount so the icons appear quickly; subsequent polls are
-	// throttled. Skips the main worktree and pending placeholder rows. Uses
-	// spacesRef so the effect doesn't re-subscribe on every space mutation.
+	// review-comment count from the VCS host on RAIL_STATUS_POLL_INTERVAL_MS
+	// (60s). First poll fires ~1s after mount so the icons appear quickly;
+	// subsequent polls are throttled to spare gh's per-token rate limit.
+	// Skips the main worktree and pending placeholder rows. Uses spacesRef
+	// so the effect doesn't re-subscribe on every space mutation.
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 
@@ -1249,7 +1251,7 @@ export default function App({
 		};
 
 		const initialTimer = setTimeout(poll, 1_000);
-		const interval = setInterval(poll, 30_000);
+		const interval = setInterval(poll, RAIL_STATUS_POLL_INTERVAL_MS);
 
 		return () => {
 			clearTimeout(initialTimer);

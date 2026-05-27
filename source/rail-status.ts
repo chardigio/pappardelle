@@ -11,6 +11,20 @@ import type {PipelineStatus} from './providers/types.ts';
 export type {PipelineStatus, RailStatus} from './providers/types.ts';
 
 /**
+ * How often app.tsx's rail-status useEffect issues its bulk GraphQL request.
+ *
+ * Each tick is one aliased `pullRequests` query covering every active
+ * workspace, so the cost scales with the *number of ticks*, not the number
+ * of workspaces. At 60s a ten-workspace desk burns ~60 requests/hour
+ * against gh's 5000/hr personal-token limit — comfortably under, and leaves
+ * headroom for the synchronous PR-lookup the watchlist also makes.
+ *
+ * Lives next to `classifyPipeline` so the regression test can import it
+ * without pulling in app.tsx's Ink/React surface.
+ */
+export const RAIL_STATUS_POLL_INTERVAL_MS = 60_000;
+
+/**
  * A single pipeline check, as returned by GitHub's statusCheckRollup.
  * - CheckRun rows have {status, conclusion}
  * - StatusContext rows have {state}

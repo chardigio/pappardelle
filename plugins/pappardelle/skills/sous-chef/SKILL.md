@@ -50,7 +50,7 @@ Each space entry from `gather-spaces.sh` may include pre-cached data written by 
 - `recap.lastAssistantExcerpt` — up to 500 chars of the most recent assistant reply
 - `spaceStateUpdatedAt` — ISO timestamp of the last rail-status poll
 
-Prefer `recap.customTitle` over linctl for the gist line; it is already condensed. Surface a trailing flag when the pipeline is failing ("pipeline red") or `unresolvedCommentCount` is non-zero ("3 unresolved"). These fields are best-effort — the Pappardelle TUI refreshes them every ~30s while running; if the TUI has not been open recently, they may be stale or absent.
+Prefer `recap.customTitle` over linctl for the gist line; it is already condensed. Surface a trailing flag when the pipeline is failing ("pipeline red") or `unresolvedCommentCount` is non-zero ("3 unresolved"). These fields are best-effort — the Pappardelle TUI refreshes them every ~60s while running; if the TUI has not been open recently, they may be stale or absent.
 
 **Step 3: Present the board**
 

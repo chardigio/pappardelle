@@ -2,6 +2,7 @@ import test from 'ava';
 import {
 	classifyPipeline,
 	pipelineIconCells,
+	RAIL_STATUS_POLL_INTERVAL_MS,
 	type CheckContext,
 } from './rail-status.ts';
 
@@ -169,4 +170,17 @@ test('pipelineIconCells: passing/failing/progressing_clean → 1', t => {
 
 test('pipelineIconCells: progressing_dirty → 2 (two-char ◐◑)', t => {
 	t.is(pipelineIconCells('progressing_dirty'), 2);
+});
+
+// ============================================================================
+// RAIL_STATUS_POLL_INTERVAL_MS — regression pin
+// ============================================================================
+
+// The rail-status useEffect in app.tsx issues one bulk GraphQL request per
+// tick. With ~10 active workspaces that's ~6 requests/min against the 5000/hr
+// personal-token rate limit. The interval was halved from 30s → 60s; this
+// test pins the value so a future "tighten the loop" change has to face the
+// rate-limit math before flipping it back.
+test('RAIL_STATUS_POLL_INTERVAL_MS: 60 seconds (kept low-frequency to spare gh rate limits)', t => {
+	t.is(RAIL_STATUS_POLL_INTERVAL_MS, 60_000);
 });
