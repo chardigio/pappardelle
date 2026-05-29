@@ -67,45 +67,63 @@ function parsePrNode(pr: PrNodeRaw): RailStatus {
 	return {pipeline, unresolvedCommentCount, prNumber: pr.number, hasConflict};
 }
 
-// Shared GraphQL fragment for the PR fields we need
-const PR_FIELDS = `
-	nodes {
-		number
-		mergeable
-		commits(last: 1) {
-			nodes {
-				commit {
-					statusCheckRollup {
-						contexts(first: 100) {
-							nodes {
-								__typename
-								... on CheckRun {
-									status
-									conclusion
-								}
-								... on StatusContext {
-									state
-								}
+// Selection set for PR fields used inside `... on PullRequest { ... }`.
+const PR_FIELDS_INNER = `
+	number
+	mergeable
+	commits(last: 1) {
+		nodes {
+			commit {
+				statusCheckRollup {
+					contexts(first: 100) {
+						nodes {
+							__typename
+							... on CheckRun {
+								status
+								conclusion
+							}
+							... on StatusContext {
+								state
 							}
 						}
 					}
 				}
 			}
 		}
-		reviewThreads(first: 100) {
-			nodes {
-				isResolved
-			}
+	}
+	reviewThreads(first: 100) {
+		nodes {
+			isResolved
 		}
 	}
 `;
 
-// Pin to the most-recently-updated PR for a branch. GitHub's GraphQL
-// `pullRequests` field defaults to CREATED_AT ASC (oldest first), which
-// surfaces stale PRs when a branch name has been reused (e.g. an old merged
-// PR + a freshly opened one share `head: STA-XXX`). Every PR lookup in this
-// file goes through this clause.
-const PR_ORDER_BY = 'orderBy: {field: UPDATED_AT, direction: DESC}';
+// Pin to the most-recently-updated PR for a branch. PR lookups use GitHub's
+// `search()` API with a `head:X` qualifier rather than
+// `pullRequests(headRefName: X)`. Two reasons:
+//   1. `headRefName:` is an exact match on branch name, so follow-up PRs on
+//      derived branches (e.g. `X-FOLLOW-1` for issue X) are invisible. The
+//      search qualifier `head:X` does tokenized prefix matching and catches
+//      both the parent branch and any siblings.
+//   2. `pullRequests` defaults to CREATED_AT ASC (oldest first); search's
+//      `sort:updated-desc` puts the most recently active PR first, so the
+//      `g` shortcut and rail status reflect what the user is actually
+//      working on rather than a long-ago merged reuse of the same name.
+const PR_SORT = 'sort:updated-desc';
+
+function buildPRSearchQuery(
+	slug: string,
+	issueKey: string,
+	openOnly: boolean,
+): string {
+	const base = `repo:${slug} head:${issueKey} is:pr`;
+	return openOnly ? `${base} is:open ${PR_SORT}` : `${base} ${PR_SORT}`;
+}
+
+function isValidSlug(slug: string): boolean {
+	const parts = slug.split('/');
+	return parts.length === 2 && Boolean(parts[0]) && Boolean(parts[1]);
+}
 
 export class GitHubProvider implements VcsHostProvider {
 	readonly name = 'github';
@@ -154,31 +172,28 @@ export class GitHubProvider implements VcsHostProvider {
 	}
 
 	checkIssueHasPRWithCommits(issueKey: string): PRInfo {
-		// Discover PR by branch name (branch name matches issue key). This
-		// approach is tracker-agnostic — no dependency on linctl or any
-		// issue tracker. Works for Linear + GitHub and Jira + GitHub alike.
+		// Discover PR by branch name (branch name matches issue key, or a
+		// prefix of it for follow-up branches). This approach is
+		// tracker-agnostic — no dependency on linctl or any issue tracker.
+		// Works for Linear + GitHub and Jira + GitHub alike.
 		//
-		// Uses `gh api graphql` rather than `gh pr list` so we can pin
-		// `orderBy: UPDATED_AT DESC` (the default is CREATED_AT ASC, which
-		// surfaces the oldest PR when a branch name has been reused — see
-		// PR_ORDER_BY) and omit a `states:` filter to keep merged PRs
-		// resolvable when no open PR exists.
+		// Uses GraphQL `search()` with a `head:X` qualifier rather than
+		// `pullRequests(headRefName: X)` so follow-up branches like
+		// `X-FOLLOW-1` resolve from the parent issue key X. No state filter
+		// — merged PRs stay resolvable when no open PR exists. See PR_SORT
+		// for ordering rationale.
 		const slug = this.getRepoSlug();
-		if (!slug) {
-			return {hasPR: false, hasCommits: false};
-		}
-
-		const [owner, name] = slug.split('/');
-		if (!owner || !name) {
+		if (!slug || !isValidSlug(slug)) {
 			return {hasPR: false, hasCommits: false};
 		}
 
 		try {
+			const searchQuery = buildPRSearchQuery(slug, issueKey, false);
 			const query = `
-				query($owner: String!, $name: String!, $branch: String!) {
-					repository(owner: $owner, name: $name) {
-						pullRequests(headRefName: $branch, first: 1, ${PR_ORDER_BY}) {
-							nodes {
+				query {
+					search(query: ${JSON.stringify(searchQuery)}, type: ISSUE, first: 1) {
+						nodes {
+							... on PullRequest {
 								number
 								url
 								changedFiles
@@ -191,31 +206,23 @@ export class GitHubProvider implements VcsHostProvider {
 			const stdout = this.syncExecutor([
 				'api',
 				'graphql',
-				'-F',
-				`owner=${owner}`,
-				'-F',
-				`name=${name}`,
-				'-F',
-				`branch=${issueKey}`,
 				'-f',
 				`query=${query}`,
 			]);
 
 			const parsed = JSON.parse(stdout) as {
 				data?: {
-					repository?: {
-						pullRequests?: {
-							nodes?: Array<{
-								number: number;
-								url: string;
-								changedFiles: number;
-							}>;
-						};
+					search?: {
+						nodes?: Array<{
+							number: number;
+							url: string;
+							changedFiles: number;
+						}>;
 					};
 				};
 			};
 
-			const pr = parsed.data?.repository?.pullRequests?.nodes?.[0];
+			const pr = parsed.data?.search?.nodes?.[0];
 			if (!pr) {
 				return {hasPR: false, hasCommits: false};
 			}
@@ -251,17 +258,17 @@ export class GitHubProvider implements VcsHostProvider {
 	async getRailStatus(issueKey: string): Promise<RailStatus> {
 		const empty: RailStatus = {pipeline: null, unresolvedCommentCount: 0};
 		const slug = this.getRepoSlug();
-		if (!slug) return empty;
-
-		const [owner, name] = slug.split('/');
-		if (!owner || !name) return empty;
+		if (!slug || !isValidSlug(slug)) return empty;
 
 		try {
+			const searchQuery = buildPRSearchQuery(slug, issueKey, true);
 			const query = `
-				query($owner: String!, $name: String!, $branch: String!) {
-					repository(owner: $owner, name: $name) {
-						pullRequests(headRefName: $branch, first: 1, states: OPEN, ${PR_ORDER_BY}) {
-							${PR_FIELDS}
+				query {
+					search(query: ${JSON.stringify(searchQuery)}, type: ISSUE, first: 1) {
+						nodes {
+							... on PullRequest {
+								${PR_FIELDS_INNER}
+							}
 						}
 					}
 				}
@@ -273,27 +280,19 @@ export class GitHubProvider implements VcsHostProvider {
 			const stdout = await this.executor([
 				'api',
 				'graphql',
-				'-F',
-				`owner=${owner}`,
-				'-F',
-				`name=${name}`,
-				'-F',
-				`branch=${issueKey}`,
 				'-f',
 				`query=${query}`,
 			]);
 
 			const parsed = JSON.parse(stdout) as {
 				data?: {
-					repository?: {
-						pullRequests?: {
-							nodes?: PrNodeRaw[];
-						};
+					search?: {
+						nodes?: PrNodeRaw[];
 					};
 				};
 			};
 
-			const pr = parsed.data?.repository?.pullRequests?.nodes?.[0];
+			const pr = parsed.data?.search?.nodes?.[0];
 			if (!pr) return empty;
 
 			return parsePrNode(pr);
@@ -313,26 +312,21 @@ export class GitHubProvider implements VcsHostProvider {
 		if (issueKeys.length === 0) return result;
 
 		const slug = this.getRepoSlug();
-		if (!slug) return result;
+		if (!slug || !isValidSlug(slug)) return result;
 
-		const [owner, name] = slug.split('/');
-		if (!owner || !name) return result;
-
-		// Build one aliased pullRequests field per branch so a single GraphQL
+		// Build one aliased search() field per branch so a single GraphQL
 		// request fetches all PR states. Alias names are pr0, pr1, … and we
 		// keep issueKeys as the index-to-key mapping.
 		const aliases = issueKeys
-			.map(
-				(key, i) =>
-					`pr${i}: pullRequests(headRefName: ${JSON.stringify(key)}, first: 1, states: OPEN, ${PR_ORDER_BY}) {\n${PR_FIELDS}\n}`,
-			)
+			.map((key, i) => {
+				const searchQuery = buildPRSearchQuery(slug, key, true);
+				return `pr${i}: search(query: ${JSON.stringify(searchQuery)}, type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n${PR_FIELDS_INNER}\n\t\t}\n\t}\n}`;
+			})
 			.join('\n');
 
 		const query = `
-			query($owner: String!, $name: String!) {
-				repository(owner: $owner, name: $name) {
-					${aliases}
-				}
+			query {
+				${aliases}
 			}
 		`;
 
@@ -340,18 +334,12 @@ export class GitHubProvider implements VcsHostProvider {
 			const stdout = await this.executor([
 				'api',
 				'graphql',
-				'-F',
-				`owner=${owner}`,
-				'-F',
-				`name=${name}`,
 				'-f',
 				`query=${query}`,
 			]);
 
 			const parsed = JSON.parse(stdout) as {
-				data?: {
-					repository?: Record<string, {nodes?: PrNodeRaw[]} | undefined>;
-				};
+				data?: Record<string, {nodes?: PrNodeRaw[]} | undefined>;
 				errors?: Array<{message: string}>;
 			};
 
@@ -368,7 +356,7 @@ export class GitHubProvider implements VcsHostProvider {
 
 			for (let i = 0; i < issueKeys.length; i++) {
 				const key = issueKeys[i]!;
-				const prData = parsed.data?.repository?.[`pr${i}`];
+				const prData = parsed.data?.[`pr${i}`];
 				const pr = prData?.nodes?.[0];
 				if (!pr) {
 					result.set(key, {pipeline: null, unresolvedCommentCount: 0});

@@ -73,7 +73,7 @@ function makeGhResponse(
 		};
 	}
 
-	return JSON.stringify({data: {repository: nodes}});
+	return JSON.stringify({data: nodes});
 }
 
 // ============================================================================
@@ -246,12 +246,12 @@ test('getBulkRailStatus: passes all branch names in single query', async t => {
 	t.is(capturedArgs[0], 'api');
 	t.is(capturedArgs[1], 'graphql');
 
-	// Query should contain both branch names as aliases
+	// Query should contain both branch names inside aliased search() qualifiers
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
 	t.true(queryArg.includes('pr0:'));
 	t.true(queryArg.includes('pr1:'));
-	t.true(queryArg.includes('"branch-a"'));
-	t.true(queryArg.includes('"branch-b"'));
+	t.true(queryArg.includes('head:branch-a'));
+	t.true(queryArg.includes('head:branch-b'));
 });
 
 test('getBulkRailStatus: total API failure returns empty Map', async t => {
@@ -274,37 +274,35 @@ test.serial(
 		const exec: GhExecutor = async () =>
 			JSON.stringify({
 				data: {
-					repository: {
-						pr0: {
-							nodes: [
-								{
-									number: 42,
-									mergeable: 'MERGEABLE',
-									commits: {
-										nodes: [
-											{
-												commit: {
-													statusCheckRollup: {
-														contexts: {
-															nodes: [
-																{
-																	__typename: 'CheckRun',
-																	status: 'COMPLETED',
-																	conclusion: 'SUCCESS',
-																},
-															],
-														},
+					pr0: {
+						nodes: [
+							{
+								number: 42,
+								mergeable: 'MERGEABLE',
+								commits: {
+									nodes: [
+										{
+											commit: {
+												statusCheckRollup: {
+													contexts: {
+														nodes: [
+															{
+																__typename: 'CheckRun',
+																status: 'COMPLETED',
+																conclusion: 'SUCCESS',
+															},
+														],
 													},
 												},
 											},
-										],
-									},
-									reviewThreads: {nodes: []},
+										},
+									],
 								},
-							],
-						},
-						pr1: {nodes: []}, // aliased field empty due to partial error
+								reviewThreads: {nodes: []},
+							},
+						],
 					},
+					pr1: {nodes: []}, // aliased field empty due to partial error
 				},
 				errors: [{message: 'Field-level permission denied for STA-2'}],
 			});
@@ -358,7 +356,7 @@ function makePrListResponse(
 	prs: Array<{number: number; url: string; changedFiles: number}>,
 ): string {
 	return JSON.stringify({
-		data: {repository: {pullRequests: {nodes: prs}}},
+		data: {search: {nodes: prs}},
 	});
 }
 
@@ -383,11 +381,14 @@ test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and 
 	t.is(result.prNumber, 42);
 	t.is(result.prUrl, 'https://github.com/owner/repo/pull/42');
 
-	// Pin the gh invocation: GraphQL query with the branch name forwarded
-	// as a string variable.
+	// Pin the gh invocation: GraphQL query inlines the branch name into a
+	// `head:` search qualifier (prefix match) so follow-up branches resolve
+	// from the parent issue key.
 	t.is(capturedArgs[0], 'api');
 	t.is(capturedArgs[1], 'graphql');
-	t.true(capturedArgs.includes('branch=STA-100'));
+	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
+	t.true(queryArg.includes('search('));
+	t.true(queryArg.includes('head:STA-100'));
 });
 
 test('checkIssueHasPRWithCommits: merged PR is found', t => {
@@ -468,13 +469,13 @@ test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calli
 	t.false(called);
 });
 
-test('checkIssueHasPRWithCommits: query orders pull requests by UPDATED_AT DESC', t => {
+test('checkIssueHasPRWithCommits: query sorts results by updated-desc', t => {
 	// When a branch matches multiple PRs (e.g. a reused branch name where the
 	// first PR was merged long ago and a new PR was just opened), the `g`
-	// shortcut would jump to the oldest PR. GitHub's GraphQL `pullRequests`
-	// field defaults to CREATED_AT ASC, so without an explicit `orderBy` we
-	// surface the oldest match. The query must request UPDATED_AT DESC so we
-	// open the PR the user actually worked on most recently.
+	// shortcut would jump to the oldest PR. GitHub's search defaults to
+	// best-match ordering, so without an explicit sort we surface stale
+	// PRs. The query must include `sort:updated-desc` so we open the PR the
+	// user actually worked on most recently.
 	let capturedArgs: string[] = [];
 	const syncExec: SyncGhExecutor = (args: string[]) => {
 		capturedArgs = args;
@@ -492,16 +493,39 @@ test('checkIssueHasPRWithCommits: query orders pull requests by UPDATED_AT DESC'
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
 	t.true(
-		queryArg.includes('orderBy'),
-		`expected query to include orderBy clause: ${queryArg}`,
+		queryArg.includes('sort:updated-desc'),
+		`expected query to include sort:updated-desc: ${queryArg}`,
+	);
+});
+
+test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches resolve', t => {
+	// Issues often spawn follow-up branches like X-FOLLOW-1 for incremental
+	// PRs after the original lands. GraphQL `pullRequests(headRefName: X)`
+	// is exact-match on branch name, so those follow-ups would be invisible
+	// from the parent issue key. The query must use search's `head:X`
+	// qualifier (tokenized prefix match) instead — and must NOT use the
+	// exact-match `headRefName:` form.
+	let capturedArgs: string[] = [];
+	const syncExec: SyncGhExecutor = (args: string[]) => {
+		capturedArgs = args;
+		return makePrListResponse([]);
+	};
+
+	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
+	provider.checkIssueHasPRWithCommits('STA-1079');
+
+	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
+	t.true(
+		queryArg.includes('search('),
+		`expected GraphQL search() field: ${queryArg}`,
 	);
 	t.true(
-		queryArg.includes('UPDATED_AT'),
-		`expected orderBy field UPDATED_AT: ${queryArg}`,
+		queryArg.includes('head:STA-1079'),
+		`expected head:STA-1079 qualifier: ${queryArg}`,
 	);
-	t.true(
-		queryArg.includes('DESC'),
-		`expected orderBy direction DESC: ${queryArg}`,
+	t.false(
+		queryArg.includes('headRefName:'),
+		`expected no headRefName: (exact match) clause: ${queryArg}`,
 	);
 });
 
@@ -509,10 +533,11 @@ test('checkIssueHasPRWithCommits: query orders pull requests by UPDATED_AT DESC'
 // getRailStatus / getBulkRailStatus — ordering
 // ============================================================================
 
-test('getRailStatus: query orders pull requests by UPDATED_AT DESC', async t => {
+test('getRailStatus: query sorts results by updated-desc and uses head: prefix', async t => {
 	// Rail status (pipeline, unresolved comments, merge conflict) must reflect
 	// the most recently updated PR for a branch, not the oldest one (which is
-	// often a long-ago merged reuse of the same branch name).
+	// often a long-ago merged reuse of the same branch name). It must also
+	// use search's `head:X` prefix qualifier so follow-up branches resolve.
 	let capturedArgs: string[] = [];
 	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
@@ -523,12 +548,13 @@ test('getRailStatus: query orders pull requests by UPDATED_AT DESC', async t => 
 	await provider.getRailStatus('STA-branch-reuse');
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	t.true(queryArg.includes('orderBy'));
-	t.true(queryArg.includes('UPDATED_AT'));
-	t.true(queryArg.includes('DESC'));
+	t.true(queryArg.includes('search('));
+	t.true(queryArg.includes('head:STA-branch-reuse'));
+	t.true(queryArg.includes('is:open'));
+	t.true(queryArg.includes('sort:updated-desc'));
 });
 
-test('getBulkRailStatus: each aliased query orders pull requests by UPDATED_AT DESC', async t => {
+test('getBulkRailStatus: every aliased search sorts by updated-desc and uses head:', async t => {
 	let capturedArgs: string[] = [];
 	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
@@ -539,15 +565,14 @@ test('getBulkRailStatus: each aliased query orders pull requests by UPDATED_AT D
 	await provider.getBulkRailStatus(['STA-1', 'STA-2']);
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	// Every aliased pullRequests(...) call must include the orderBy clause;
-	// matching the substring twice guarantees we didn't only sort the first
-	// alias.
-	const orderByOccurrences = queryArg.split('orderBy').length - 1;
+	// Each aliased search() must independently sort + use head: — matching
+	// the substrings twice guarantees we didn't only fix the first alias.
+	const sortOccurrences = queryArg.split('sort:updated-desc').length - 1;
 	t.is(
-		orderByOccurrences,
+		sortOccurrences,
 		2,
-		`expected orderBy in both aliased queries, found ${orderByOccurrences}: ${queryArg}`,
+		`expected sort:updated-desc in both aliased queries, found ${sortOccurrences}: ${queryArg}`,
 	);
-	t.true(queryArg.includes('UPDATED_AT'));
-	t.true(queryArg.includes('DESC'));
+	t.true(queryArg.includes('head:STA-1'));
+	t.true(queryArg.includes('head:STA-2'));
 });

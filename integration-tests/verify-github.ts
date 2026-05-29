@@ -87,13 +87,16 @@ function findMultiPrBranch(): string | null {
 }
 
 function listPrsForBranch(branch: string): PrListEntry[] {
+	// Use `--search "head:X"` (tokenized prefix match) to mirror the
+	// provider's lookup behavior. `--head` is exact-match and would miss
+	// follow-up branches like X-FOLLOW-1, which the provider now includes.
 	const stdout = execFileSync(
 		'gh',
 		[
 			'pr',
 			'list',
-			'--head',
-			branch,
+			'--search',
+			`head:${branch}`,
 			'--state',
 			'all',
 			'--json',

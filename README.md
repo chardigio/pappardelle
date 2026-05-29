@@ -212,11 +212,14 @@ When you're doom-coding from your phone, you want one-tap access to open the PR 
 keybindings:
   - key: 'z'
     name: 'Zap PR'
+    # Use `--search "head:${ISSUE_KEY}"` (tokenized prefix match) rather than
+    # `--head ${ISSUE_KEY}` (exact match) so follow-up branches like
+    # ${ISSUE_KEY}-FOLLOW-1 are also discoverable from the parent issue key.
     # Sort by updatedAt desc — when a branch name has been reused (e.g. an
     # old merged PR + a freshly opened one), surface the PR you're actually
     # working on, not the oldest stale match.
     run: >
-      PR_JSON=$(gh pr list --head ${ISSUE_KEY} --state all --json number,url,updatedAt
+      PR_JSON=$(gh pr list --search "head:${ISSUE_KEY}" --state all --json number,url,updatedAt
         -q 'sort_by(.updatedAt) | reverse | .[0]' 2>/dev/null);
       PR_NUM=$(echo "$PR_JSON" | jq -r '.number // empty');
       PR_URL=$(echo "$PR_JSON" | jq -r '.url // empty');
