@@ -31,6 +31,11 @@ post_workspace_init:
     run: "cd ${WORKTREE_PATH} && uv sync --quiet"
     continue_on_error: true
 
+# Drop a space off the rail as soon as Linear flips its issue to Done or Cancelled.
+# Same teardown as pressing `d`: pre_workspace_deinit hooks run, the registry +
+# tmux sessions are cleaned up, the worktree on disk is left in place.
+auto_remove_when_done: true
+
 # Terminal application for workspace windows (default: iTerm)
 terminal:
   app: "iTerm"

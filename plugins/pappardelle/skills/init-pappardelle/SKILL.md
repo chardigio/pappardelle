@@ -258,7 +258,7 @@ What happens when you create a workspace:
   • A lazygit session is spawned for that worktree
   • The TUI's center and right panes attach to those sessions
 
-For customizing keybindings, post-init hooks, issue watchlists, etc., see
+For customizing keybindings, post-init hooks, issue watchlists, auto-remove-when-done, etc., see
 [pappardelle-config.md](pappardelle-config.md) or run `/configure-pappardelle`.
 ```
 

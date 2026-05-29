@@ -123,6 +123,14 @@ export interface PappardelleConfig {
 	claude?: ClaudeConfig;
 	/** Poll the issue tracker for issues assigned to a user with matching statuses. */
 	issue_watchlist?: IssueWatchlistConfig;
+	/**
+	 * When true, remove a space from the ticket rail as soon as the issue
+	 * tracker reports its issue as completed or canceled. Runs the same flow
+	 * as pressing `d` (pre_workspace_deinit hooks + registry removal + tmux
+	 * kill); the on-disk worktree is left untouched. Off by default — legacy
+	 * behavior is identical to master when the field is absent or false.
+	 */
+	auto_remove_when_done?: boolean;
 	/** Commands to run after git worktree is created. Same format as profile commands. */
 	post_workspace_init?: CommandConfig[];
 	/** @deprecated Use post_workspace_init instead. Accepted for backwards compat. */
@@ -642,6 +650,14 @@ export function validateConfig(
 				}
 			}
 		}
+	}
+
+	// Check auto_remove_when_done (optional, off by default)
+	if (
+		cfg['auto_remove_when_done'] !== undefined &&
+		typeof cfg['auto_remove_when_done'] !== 'boolean'
+	) {
+		errors.push('auto_remove_when_done: must be a boolean');
 	}
 
 	// Check post_workspace_init / post_worktree_init (optional, mutually exclusive)
@@ -1461,6 +1477,15 @@ export function getIssueWatchlist(
 	config: PappardelleConfig,
 ): IssueWatchlistConfig | undefined {
 	return config.issue_watchlist;
+}
+
+/**
+ * Whether to auto-remove spaces from the rail when their tracker issue
+ * reports state.type === 'completed' or 'canceled'. Defaults to false so
+ * legacy configs behave identically to master.
+ */
+export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
+	return config.auto_remove_when_done ?? false;
 }
 
 /**

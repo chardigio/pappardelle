@@ -47,6 +47,7 @@ import {
 	qualifyMainBranch,
 	getKeybindings,
 	getIssueWatchlist,
+	getAutoRemoveWhenDone,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	matchProfiles,
@@ -56,6 +57,7 @@ import {
 	type IssueWatchlistConfig,
 	type CommandConfig,
 } from './config.ts';
+import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import {
@@ -84,7 +86,7 @@ import {
 	calculateListClickRow,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {computePostDeleteState, filterSpaces} from './space-utils.ts';
+import {filterSpaces} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
 	addSpace,
@@ -1169,6 +1171,147 @@ export default function App({
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 
+	// Tear down a single space: run pre_workspace_deinit hooks, then remove
+	// from the persisted registry, kill its tmux sessions, clear the viewer
+	// panes if it was current, and optimistically prune it from local state.
+	// Returns true on success, false if deinit aborted the removal.
+	//
+	// Shared by the user-pressed-`d` flow (handleDeleteSpace) and the
+	// auto-remove-on-done flow.
+	const deleteSpace = useCallback(
+		async (space: SpaceData): Promise<boolean> => {
+			// Run pre_workspace_deinit commands before deletion
+			try {
+				const config = loadConfig();
+				const deinitCommands: CommandConfig[] = [];
+
+				if (config.pre_workspace_deinit) {
+					deinitCommands.push(...config.pre_workspace_deinit);
+				}
+
+				const trackerIssue = space.trackerIssue ?? space.linearIssue;
+				let matchedProfile:
+					| {profile: {pre_workspace_deinit?: CommandConfig[]}}
+					| undefined;
+
+				if (trackerIssue?.project?.name) {
+					const projectMatch = matchProfileByProject(
+						config,
+						trackerIssue.project.name,
+					);
+					if (projectMatch) {
+						matchedProfile = projectMatch;
+					}
+				}
+
+				if (!matchedProfile && trackerIssue?.title) {
+					const profileMatches = matchProfiles(config, trackerIssue.title);
+					if (profileMatches.length > 0) {
+						matchedProfile = profileMatches[0]!;
+					}
+				}
+
+				if (matchedProfile?.profile.pre_workspace_deinit) {
+					deinitCommands.push(...matchedProfile.profile.pre_workspace_deinit);
+				}
+
+				if (deinitCommands.length > 0 && space.worktreePath) {
+					const result = await runPreWorkspaceDeinit(
+						deinitCommands,
+						space.worktreePath,
+						{
+							issueKey: space.name,
+							repoRoot: getRepoRoot(),
+							repoName: getRepoName(),
+						},
+					);
+					if (!result.success) {
+						setHeaderWithTimeout(
+							`Deinit failed: ${result.failedCommand ?? 'unknown'} — deletion aborted`,
+							5000,
+						);
+						return false;
+					}
+				}
+			} catch (err) {
+				log.error(
+					'pre_workspace_deinit error',
+					err instanceof Error ? err : undefined,
+				);
+				// Config load failure shouldn't block deletion
+			}
+
+			removeSpace(space.name);
+			killSpaceSessions(space.name);
+
+			if (paneLayout && currentSpace === space.name) {
+				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
+				displayMessageInPane(paneLayout.lazygitViewerPaneId, 'Session closed');
+				setCurrentSpace(null);
+			}
+
+			// Optimistically prune from local state so the reattach useEffect
+			// never sees the deleted space (loadSpaces is async, so relying on
+			// it alone leaves a window where attachToSpace would respawn the
+			// killed session).
+			setSpaces(prev => prev.filter(s => s.name !== space.name));
+			return true;
+		},
+		[currentSpace, paneLayout, setHeaderWithTimeout],
+	);
+
+	// Auto-remove spaces whose tracker issue has reached a terminal state
+	// (completed / canceled). Opt-in via top-level `auto_remove_when_done`.
+	// Off by default; legacy behavior is preserved when the flag is absent.
+	// Piggybacks on the 10s loadSpaces refresh so newly-Done tickets
+	// disappear within a poll cycle. The in-flight ref prevents the same
+	// space from being scheduled for removal twice while its deinit is
+	// still running; the failed ref blocks retry storms when a space's
+	// pre_workspace_deinit hook keeps failing — the tracker state stays
+	// terminal across polls, so without this we'd re-fire deinit every cycle.
+	const autoRemoveInFlightRef = useRef(new Set<string>());
+	const autoRemoveFailedRef = useRef(new Set<string>());
+	useEffect(() => {
+		const autoRemoveWhenDone = configMemo
+			? getAutoRemoveWhenDone(configMemo)
+			: false;
+		if (!autoRemoveWhenDone) return;
+
+		const candidates = findSpacesToAutoRemove(spaces, true);
+		for (const space of candidates) {
+			if (autoRemoveInFlightRef.current.has(space.name)) continue;
+			if (autoRemoveFailedRef.current.has(space.name)) continue;
+			autoRemoveInFlightRef.current.add(space.name);
+			const stateName =
+				space.trackerIssue?.state.name ??
+				space.linearIssue?.state.name ??
+				'done';
+			log.info(`Auto-removing ${space.name} (tracker state: ${stateName})`);
+			deleteSpace(space)
+				.then(ok => {
+					if (!ok) {
+						autoRemoveFailedRef.current.add(space.name);
+						return;
+					}
+					setHeaderWithTimeout(
+						`Auto-removed ${space.name} (${stateName})`,
+						4000,
+					);
+					// Mirror handleDeleteSpace: if the selection now points past
+					// the end of the shrunken list, walk it back one row.
+					// spacesRef.current reflects the post-removal list because
+					// deleteSpace's setSpaces has already committed by the time
+					// this .then runs.
+					setSelectedIndex(prev =>
+						prev > 0 && prev >= spacesRef.current.length ? prev - 1 : prev,
+					);
+				})
+				.finally(() => {
+					autoRemoveInFlightRef.current.delete(space.name);
+				});
+		}
+	}, [spaces, configMemo, deleteSpace, setHeaderWithTimeout]);
+
 	useEffect(() => {
 		let pollInFlight = false;
 		const vcs = createVcsHost();
@@ -1332,101 +1475,20 @@ export default function App({
 		spawnSession(pending);
 	};
 
-	// Handle space deletion (runs pre_workspace_deinit, then kills tmux sessions)
+	// Handle user-triggered space deletion (the 'd' key with confirm dialog).
 	const handleDeleteSpace = async () => {
 		setShowDeleteConfirm(false);
 
 		const space = spaces[selectedIndex];
 		if (!space) return;
 
-		// Run pre_workspace_deinit commands before deletion
-		try {
-			const config = loadConfig();
-			const deinitCommands: CommandConfig[] = [];
+		const ok = await deleteSpace(space);
+		if (!ok) return;
 
-			// Global pre_workspace_deinit commands
-			if (config.pre_workspace_deinit) {
-				deinitCommands.push(...config.pre_workspace_deinit);
-			}
-
-			// Profile-specific pre_workspace_deinit commands
-			// Try project-based matching first, then fall back to keyword matching
-			const trackerIssue = space.trackerIssue ?? space.linearIssue;
-			let matchedProfile:
-				| {profile: {pre_workspace_deinit?: CommandConfig[]}}
-				| undefined;
-
-			if (trackerIssue?.project?.name) {
-				const projectMatch = matchProfileByProject(
-					config,
-					trackerIssue.project.name,
-				);
-				if (projectMatch) {
-					matchedProfile = projectMatch;
-				}
-			}
-
-			if (!matchedProfile && trackerIssue?.title) {
-				const profileMatches = matchProfiles(config, trackerIssue.title);
-				if (profileMatches.length > 0) {
-					matchedProfile = profileMatches[0]!;
-				}
-			}
-
-			if (matchedProfile?.profile.pre_workspace_deinit) {
-				deinitCommands.push(...matchedProfile.profile.pre_workspace_deinit);
-			}
-
-			if (deinitCommands.length > 0 && space.worktreePath) {
-				const result = await runPreWorkspaceDeinit(
-					deinitCommands,
-					space.worktreePath,
-					{
-						issueKey: space.name,
-						repoRoot: getRepoRoot(),
-						repoName: getRepoName(),
-					},
-				);
-				if (!result.success) {
-					setHeaderWithTimeout(
-						`Deinit failed: ${result.failedCommand ?? 'unknown'} — deletion aborted`,
-						5000,
-					);
-					return;
-				}
-			}
-		} catch (err) {
-			log.error(
-				'pre_workspace_deinit error',
-				err instanceof Error ? err : undefined,
-			);
-			// Config load failure shouldn't block deletion
-		}
-
-		// Remove from persisted registry and kill tmux sessions
-		removeSpace(space.name);
-		killSpaceSessions(space.name);
-
-		// Clear the viewer panes since we killed the sessions
-		if (paneLayout && currentSpace === space.name) {
-			displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
-			displayMessageInPane(paneLayout.lazygitViewerPaneId, 'Session closed');
-			setCurrentSpace(null);
-		}
-
-		// Optimistically remove the space from state immediately so the
-		// reattach useEffect never sees the deleted space (loadSpaces is async,
-		// so relying on it alone would leave a window where the old spaces array
-		// is still in state, causing attachToSpace to respawn the killed session).
-		const {filteredSpaces} = computePostDeleteState(
-			spaces,
-			space.name,
-			selectedIndex,
-		);
-		setSpaces(filteredSpaces);
-		setSelectedIndex(prev =>
-			prev >= filteredSpaces.length && prev > 0 ? prev - 1 : prev,
-		);
+		setSelectedIndex(prev => {
+			const remaining = spaces.length - 1;
+			return prev >= remaining && prev > 0 ? prev - 1 : prev;
+		});
 
 		// Reconcile with tmux reality in the background
 		loadSpaces();

@@ -728,6 +728,26 @@ issue_watchlist:
 
 **Note:** The `assignee: me` value uses `currentUser()` in Jira JQL and `me` in linctl, both of which resolve to the authenticated user automatically. When `assignee` is omitted, issues from all assignees matching the configured statuses will be watched.
 
+## Auto-Remove When Done
+
+The top-level `auto_remove_when_done` flag tells pappardelle to remove a space from the ticket rail as soon as its tracker issue reaches a terminal state (`completed` or `canceled`). Off by default — when the field is absent or `false`, behavior is identical to master.
+
+```yaml
+auto_remove_when_done: true # default: false
+```
+
+```typescript
+auto_remove_when_done?: boolean;
+```
+
+**How it works:**
+
+- Triggered by the tracker's normalized `state.type` — `completed` (Linear "Done", Jira "Done") and `canceled` (Linear "Cancelled").
+- Runs the same teardown as pressing `d`: executes `pre_workspace_deinit` hooks (global + profile-matched), removes the space from the persisted registry, kills its tmux sessions, and clears the viewer panes if it was active.
+- The on-disk worktree is **not** deleted — same as the manual `d` flow.
+- No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
+- Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
+
 ## Built-in File Copies
 
 When creating a new worktree, `idow` automatically copies these gitignored files from the main repo root to the new worktree (if they exist). This happens before any `post_workspace_init` commands run.

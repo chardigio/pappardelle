@@ -33,6 +33,12 @@ team_prefix: ENG
 #   initialization_command: "/idow"        # Command passed to Claude when a new session opens
 #   dangerously_skip_permissions: false     # Pass --dangerously-skip-permissions to Claude (default: false)
 
+# Auto-remove spaces from the rail when the tracker reports their issue as
+# completed or canceled. Same teardown as pressing `d` (runs pre_workspace_deinit,
+# unregisters the space, kills tmux); the on-disk worktree is left alone.
+# Off by default.
+# auto_remove_when_done: true
+
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
 # Uses the same CommandConfig format as profile commands.

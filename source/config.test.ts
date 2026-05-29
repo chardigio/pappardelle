@@ -14,6 +14,7 @@ import {
 	getKeybindings,
 	getDefaultProfile,
 	getIssueWatchlist,
+	getAutoRemoveWhenDone,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
@@ -3235,6 +3236,90 @@ test('validateConfig accepts issue_watchlist with empty labels array', t => {
 		},
 	};
 	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// auto_remove_when_done Validation Tests
+// ============================================================================
+
+test('validateConfig accepts auto_remove_when_done set to true', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		auto_remove_when_done: true,
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts auto_remove_when_done set to false', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		auto_remove_when_done: false,
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts config without auto_remove_when_done (off by default)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects auto_remove_when_done with a non-boolean value', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		auto_remove_when_done: 'yes',
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('auto_remove_when_done: must be a boolean'));
+});
+
+test('validateConfig rejects auto_remove_when_done with a numeric value', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		auto_remove_when_done: 1,
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('auto_remove_when_done: must be a boolean'));
+});
+
+// ============================================================================
+// getAutoRemoveWhenDone Tests
+// ============================================================================
+
+test('getAutoRemoveWhenDone defaults to false when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.false(getAutoRemoveWhenDone(config));
+});
+
+test('getAutoRemoveWhenDone returns true when configured true', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.auto_remove_when_done = true;
+	t.true(getAutoRemoveWhenDone(config));
+});
+
+test('getAutoRemoveWhenDone returns false when configured false', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.auto_remove_when_done = false;
+	t.false(getAutoRemoveWhenDone(config));
 });
 
 // ============================================================================
