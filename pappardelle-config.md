@@ -313,8 +313,8 @@ When the input is a description (not an issue key):
    match). If the name doesn't resolve (typo, archived project), pappardelle
    warns and creates the issue unassigned — same as pre-STA-959 behavior.
    Profiles without `tracker_projects` always create unassigned issues.
-4. **No Match**: User is prompted to select from all profiles
-5. **Explicit Override**: User can always type a different profile name
+5. **No Match**: User is prompted to select from all profiles
+6. **Explicit Override**: User can always type a different profile name
 
 ### Selection Flow
 
@@ -709,22 +709,26 @@ issue_watchlist:
   labels: # Optional: only watch issues with any of these labels
     - pappardelle
     - platform
+  key_prefixes: # Optional: only watch these issue-key prefixes (e.g. STA-*, not WAB-*)
+    - STA
 ```
 
-| Field      | Type       | Required | Description                                                                                                                                               |
-| ---------- | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assignee` | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees.                       |
-| `statuses` | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation.                                    |
-| `labels`   | `string[]` | No       | When set, only issues with at least one matching label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels. |
+| Field          | Type       | Required | Description                                                                                                                                                                                                                                                                        |
+| -------------- | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assignee`     | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees.                                                                                                                                                |
+| `statuses`     | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation.                                                                                                                                                             |
+| `labels`       | `string[]` | No       | When set, only issues with at least one matching label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels.                                                                                                                          |
+| `key_prefixes` | `string[]` | No       | When set, only issues whose key prefix (the part before the first `-`, e.g. `STA` in `STA-123`) is in the list are watched. Useful when one tracker account spans multiple workspaces — watch `STA-*` but not `WAB-*`. Case-insensitive. Omit (or use `[]`) to watch every prefix. |
 
 **How it works:**
 
 1. Pappardelle polls the issue tracker every 30 seconds using the configured statuses (and optionally assignee)
 2. For Linear: calls `linctl issue list --state <status>` per status (adds `--assignee <user>` when configured)
 3. For Jira: uses JQL `status IN ("To Do", "In Progress")` (adds `assignee = currentUser()` when configured)
-4. If `labels` is configured, results are filtered client-side to only include issues with at least one matching label
-5. New issues (not already in the space list) are auto-spawned as full workspaces via `idow`
-6. Each issue is only spawned once per Pappardelle session (tracked in memory)
+4. If `key_prefixes` is configured, results are filtered client-side to only issues whose key prefix is in the allowlist
+5. If `labels` is configured, results are filtered client-side to only include issues with at least one matching label
+6. New issues (not already in the space list) are auto-spawned as full workspaces via `idow`
+7. Each issue is only spawned once per Pappardelle session (tracked in memory)
 
 **Note:** The `assignee: me` value uses `currentUser()` in Jira JQL and `me` in linctl, both of which resolve to the authenticated user automatically. When `assignee` is omitted, issues from all assignees matching the configured statuses will be watched.
 

@@ -213,7 +213,11 @@ issue_watchlist:
     - In Progress
   labels:                   # Optional: filter by label
     - pappardelle
+  key_prefixes:             # Optional: only these issue-key prefixes (STA-*, not WAB-*)
+    - STA
 ```
+
+`key_prefixes` is an allowlist of issue-key prefixes (the part before the first `-`, e.g. `STA` in `STA-123`); case-insensitive, AND-ed with `labels`. Only prompt for it when the user's tracker account spans multiple workspaces and they want a subset — otherwise omit it, since the default already watches every prefix.
 
 Ask with `AskUserQuestion`:
 1. Which issue statuses should trigger workspace creation?

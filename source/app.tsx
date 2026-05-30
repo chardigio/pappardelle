@@ -21,7 +21,11 @@ const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
 import {getIssueCached, getIssues, searchAssignedIssues} from './tracker.ts';
-import {filterByLabels, getNewWatchlistIssues} from './watchlist.ts';
+import {
+	filterByLabels,
+	filterByKeyPrefixes,
+	getNewWatchlistIssues,
+} from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
 	getClaudeStatusInfo,
@@ -237,8 +241,11 @@ export default function App({
 				const labelInfo = wl.labels?.length
 					? `, labels=[${wl.labels.join(', ')}]`
 					: '';
+				const prefixInfo = wl.key_prefixes?.length
+					? `, key_prefixes=[${wl.key_prefixes.join(', ')}]`
+					: '';
 				log.info(
-					`Issue watchlist configured: ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}`,
+					`Issue watchlist configured: ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}`,
 				);
 			} else {
 				log.debug('No issue_watchlist configured — watchlist polling disabled');
@@ -1089,7 +1096,12 @@ export default function App({
 	useEffect(() => {
 		if (!watchlistConfig) return;
 
-		const {assignee, statuses, labels: watchLabels} = watchlistConfig;
+		const {
+			assignee,
+			statuses,
+			labels: watchLabels,
+			key_prefixes: watchPrefixes,
+		} = watchlistConfig;
 
 		// Poll immediately on first load, then every 30 seconds
 		let pollInFlight = false;
@@ -1101,6 +1113,11 @@ export default function App({
 
 			try {
 				let issues = await searchAssignedIssues(assignee, statuses);
+
+				// Restrict to configured issue-key prefixes (e.g. only STA-*)
+				if (watchPrefixes && watchPrefixes.length > 0) {
+					issues = filterByKeyPrefixes(issues, watchPrefixes);
+				}
 
 				// Apply label filter if configured
 				if (watchLabels && watchLabels.length > 0) {

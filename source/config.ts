@@ -73,6 +73,15 @@ export interface IssueWatchlistConfig {
 	assignee?: string; // Optional: username/email, or 'me' to auto-detect. Omit to match all assignees.
 	statuses: string[]; // Issue statuses to match (e.g., ['To Do', 'In Progress'])
 	labels?: string[]; // Optional: only match issues with any of these labels
+	/**
+	 * Optional allowlist of issue-key prefixes (the part before the first '-',
+	 * e.g. 'STA' in 'STA-123'). When set, only issues whose key prefix is in
+	 * this list are watched — useful when one tracker account spans multiple
+	 * workspaces (e.g. watch STA-* but not WAB-*). Matching is case-insensitive.
+	 * Omit (or use an empty array) to watch every prefix — identical to legacy
+	 * behavior.
+	 */
+	key_prefixes?: string[];
 }
 
 export interface TerminalConfig {
@@ -645,6 +654,26 @@ export function validateConfig(
 					for (let i = 0; i < labels.length; i++) {
 						if (typeof labels[i] !== 'string') {
 							errors.push(`issue_watchlist.labels[${i}]: must be a string`);
+						}
+					}
+				}
+			}
+
+			if (wl['key_prefixes'] !== undefined) {
+				if (!Array.isArray(wl['key_prefixes'])) {
+					errors.push('issue_watchlist.key_prefixes: must be an array');
+				} else {
+					const prefixes = wl['key_prefixes'] as unknown[];
+					for (let i = 0; i < prefixes.length; i++) {
+						const prefix = prefixes[i];
+						if (typeof prefix !== 'string') {
+							errors.push(
+								`issue_watchlist.key_prefixes[${i}]: must be a string`,
+							);
+						} else if (prefix.trim() === '') {
+							errors.push(
+								`issue_watchlist.key_prefixes[${i}]: must not be empty`,
+							);
 						}
 					}
 				}

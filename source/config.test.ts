@@ -3239,6 +3239,142 @@ test('validateConfig accepts issue_watchlist with empty labels array', t => {
 });
 
 // ============================================================================
+// issue_watchlist key_prefixes Validation Tests
+// ============================================================================
+
+test('validateConfig accepts issue_watchlist with key_prefixes', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			key_prefixes: ['STA', 'ENG'],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts issue_watchlist without key_prefixes (optional)', t => {
+	// Off-by-default regression: the field is optional and absence is valid.
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts issue_watchlist with empty key_prefixes array', t => {
+	// Empty array means "watch every prefix" — same as omitting the field.
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			key_prefixes: [],
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects issue_watchlist with non-array key_prefixes', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			key_prefixes: 'not-an-array',
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('issue_watchlist.key_prefixes: must be an array'),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with non-string key_prefix entries', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			key_prefixes: ['STA', 123],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'issue_watchlist.key_prefixes[1]: must be a string',
+		),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with empty-string key_prefix', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			key_prefixes: ['STA', ''],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'issue_watchlist.key_prefixes[1]: must not be empty',
+		),
+	);
+});
+
+test('validateConfig rejects issue_watchlist with whitespace-only key_prefix', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['To Do'],
+			key_prefixes: ['   '],
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'issue_watchlist.key_prefixes[0]: must not be empty',
+		),
+	);
+});
+
+test('getIssueWatchlist returns key_prefixes when configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.issue_watchlist = {
+		assignee: 'me',
+		statuses: ['To Do'],
+		key_prefixes: ['STA'],
+	};
+	const watchlist = getIssueWatchlist(config);
+	t.deepEqual(watchlist!.key_prefixes, ['STA']);
+});
+
+// ============================================================================
 // auto_remove_when_done Validation Tests
 // ============================================================================
 

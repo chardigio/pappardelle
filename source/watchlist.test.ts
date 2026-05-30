@@ -1,5 +1,9 @@
 import test from 'ava';
-import {getNewWatchlistIssues, filterByLabels} from './watchlist.ts';
+import {
+	getNewWatchlistIssues,
+	filterByLabels,
+	filterByKeyPrefixes,
+} from './watchlist.ts';
 import type {TrackerIssue} from './providers/types.ts';
 
 // ============================================================================
@@ -153,4 +157,97 @@ test('filterByLabels returns empty array when no issues match', t => {
 
 	const result = filterByLabels(issues, ['pappardelle']);
 	t.deepEqual(result, []);
+});
+
+// ============================================================================
+// filterByKeyPrefixes
+// ============================================================================
+
+test('filterByKeyPrefixes returns all issues when prefixes array is empty', t => {
+	// Off-by-default regression: an absent/empty config must watch every prefix,
+	// identical to behavior before this option existed.
+	const issues = [makeIssue('STA-1'), makeIssue('WAB-2')];
+
+	const result = filterByKeyPrefixes(issues, []);
+	t.deepEqual(result, issues);
+});
+
+test('filterByKeyPrefixes returns all issues when prefixes are only blanks', t => {
+	const issues = [makeIssue('STA-1'), makeIssue('WAB-2')];
+
+	const result = filterByKeyPrefixes(issues, ['', '   ']);
+	t.deepEqual(result, issues);
+});
+
+test('filterByKeyPrefixes keeps only issues whose prefix is allowed', t => {
+	const issues = [
+		makeIssue('STA-1'),
+		makeIssue('WAB-2'),
+		makeIssue('STA-3'),
+		makeIssue('ENG-4'),
+	];
+
+	const result = filterByKeyPrefixes(issues, ['STA']);
+	t.is(result.length, 2);
+	t.is(result[0]!.identifier, 'STA-1');
+	t.is(result[1]!.identifier, 'STA-3');
+});
+
+test('filterByKeyPrefixes supports multiple allowed prefixes', t => {
+	const issues = [makeIssue('STA-1'), makeIssue('WAB-2'), makeIssue('ENG-3')];
+
+	const result = filterByKeyPrefixes(issues, ['STA', 'ENG']);
+	t.is(result.length, 2);
+	t.is(result[0]!.identifier, 'STA-1');
+	t.is(result[1]!.identifier, 'ENG-3');
+});
+
+test('filterByKeyPrefixes is case-insensitive for config prefixes', t => {
+	const issues = [makeIssue('STA-1'), makeIssue('WAB-2')];
+
+	const result = filterByKeyPrefixes(issues, ['sta']);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-1');
+});
+
+test('filterByKeyPrefixes is case-insensitive for issue identifiers', t => {
+	const issues = [makeIssue('sta-1'), makeIssue('wab-2')];
+
+	const result = filterByKeyPrefixes(issues, ['STA']);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'sta-1');
+});
+
+test('filterByKeyPrefixes trims whitespace around config prefixes', t => {
+	const issues = [makeIssue('STA-1'), makeIssue('WAB-2')];
+
+	const result = filterByKeyPrefixes(issues, ['  STA  ']);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-1');
+});
+
+test('filterByKeyPrefixes returns empty array when no issues match', t => {
+	const issues = [makeIssue('WAB-1'), makeIssue('ENG-2')];
+
+	const result = filterByKeyPrefixes(issues, ['STA']);
+	t.deepEqual(result, []);
+});
+
+test('filterByKeyPrefixes only matches the full prefix, not a substring', t => {
+	// "ST" must not match "STA-1"; the prefix token is compared whole.
+	const issues = [makeIssue('STA-1'), makeIssue('ST-2')];
+
+	const result = filterByKeyPrefixes(issues, ['ST']);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'ST-2');
+});
+
+test('filterByKeyPrefixes excludes hyphenless (malformed) identifiers', t => {
+	// A key with no '-' yields its whole string as the prefix, which won't match
+	// a normal allowlist entry — conservative allowlist behavior: don't spawn it.
+	const issues = [makeIssue('STA-1'), makeIssue('MALFORMED')];
+
+	const result = filterByKeyPrefixes(issues, ['STA']);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-1');
 });
