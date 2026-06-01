@@ -1493,22 +1493,31 @@ export default function App({
 	};
 
 	// Handle user-triggered space deletion (the 'd' key with confirm dialog).
+	// STA-1373: keep the dialog mounted across the await so it can render its
+	// "Closing space…" loading state — the pre_workspace_deinit hooks can run
+	// for several seconds, and hiding the dialog up front made the TUI look
+	// frozen.
 	const handleDeleteSpace = async () => {
-		setShowDeleteConfirm(false);
-
 		const space = spaces[selectedIndex];
-		if (!space) return;
+		if (!space) {
+			setShowDeleteConfirm(false);
+			return;
+		}
 
-		const ok = await deleteSpace(space);
-		if (!ok) return;
+		try {
+			const ok = await deleteSpace(space);
+			if (!ok) return;
 
-		setSelectedIndex(prev => {
-			const remaining = spaces.length - 1;
-			return prev >= remaining && prev > 0 ? prev - 1 : prev;
-		});
+			setSelectedIndex(prev => {
+				const remaining = spaces.length - 1;
+				return prev >= remaining && prev > 0 ? prev - 1 : prev;
+			});
 
-		// Reconcile with tmux reality in the background
-		loadSpaces();
+			// Reconcile with tmux reality in the background
+			loadSpaces();
+		} finally {
+			setShowDeleteConfirm(false);
+		}
 	};
 
 	// Get space to delete (for confirmation dialog)
@@ -1780,6 +1789,7 @@ export default function App({
 						title="Close Space"
 						message={`Close space ${spaceToDelete.name}?`}
 						detail="The worktree and git branch will remain on disk."
+						processingMessage={`Closing space ${spaceToDelete.name}…`}
 						onConfirm={handleDeleteSpace}
 						onCancel={() => setShowDeleteConfirm(false)}
 					/>
