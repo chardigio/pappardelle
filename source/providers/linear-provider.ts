@@ -3,7 +3,6 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
-import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
 import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
 
@@ -57,6 +56,21 @@ export type CliExecutor = (
 
 export type SleepFn = (ms: number) => Promise<void>;
 
+/**
+ * Bulk-fetch issue tracker data through Linear's GraphQL API in a single
+ * HTTP request. Returns a Map keyed by the requested issue identifier;
+ * keys may be absent (no entry) or map to `null` when the API returned no
+ * data for that key (deleted, no permission, etc.) — in either case the
+ * caller fills the gap from the per-issue CLI path.
+ *
+ * Returning `null` from the client itself signals a total failure (network
+ * error, auth missing, malformed response). The caller then falls back to
+ * CLI for every requested key.
+ */
+export type LinearGraphQLClient = (
+	issueKeys: readonly string[],
+) => Promise<Map<string, TrackerIssue | null> | null>;
+
 interface CacheEntry {
 	issue: TrackerIssue | null;
 	timestamp: number;
@@ -68,12 +82,14 @@ export class LinearProvider implements IssueTrackerProvider {
 	private readonly stateColors: StateColorCache;
 	private readonly execCli: CliExecutor;
 	private readonly sleepFn: SleepFn;
+	private readonly graphql: LinearGraphQLClient | undefined;
 	private linctlMissing = false;
 
 	constructor(
 		execCli?: CliExecutor,
 		sleepFn?: SleepFn,
 		stateColorCache?: StateColorCache,
+		graphql?: LinearGraphQLClient,
 	) {
 		this.execCli =
 			execCli ??
@@ -83,6 +99,7 @@ export class LinearProvider implements IssueTrackerProvider {
 			});
 		this.sleepFn = sleepFn ?? defaultSleep;
 		this.stateColors = stateColorCache ?? new StateColorCache();
+		this.graphql = graphql;
 	}
 
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
@@ -150,24 +167,58 @@ export class LinearProvider implements IssueTrackerProvider {
 		const results = new Map<string, TrackerIssue | null>();
 		if (issueKeys.length === 0) return results;
 
-		if (this.linctlMissing) {
-			for (const key of issueKeys) {
-				results.set(key, this.issueCache.get(key)?.issue ?? null);
-			}
+		// Bulk fetch is GraphQL-only: per-workspace CLI fan-out is intentionally
+		// not a fallback. A desk with 30+ active worktrees would otherwise spawn
+		// 30+ `linctl issue get` subprocesses on every poll, freezing startup
+		// for seconds — we'd rather take the loss on a particular tick than pay
+		// that bill. linctlMissing, cache-fresh keys, and "no graphql client"
+		// all collapse into the same shape: serve what the cache has, mark the
+		// rest null. Singletons that genuinely need an issue still go via
+		// `getIssue()` (which is still CLI-backed).
+		const now = Date.now();
+		const missing: string[] = [];
+		for (const key of issueKeys) {
+			const cached = this.issueCache.get(key);
+			if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+				if (cached.issue) {
+					this.stateColors.update(
+						cached.issue.state.name,
+						cached.issue.state.color,
+					);
+				}
 
+				results.set(key, cached.issue);
+			} else {
+				missing.push(key);
+			}
+		}
+
+		if (missing.length === 0) return results;
+
+		if (!this.graphql) {
+			for (const key of missing) results.set(key, null);
 			return results;
 		}
 
-		// Concurrent individual calls with concurrency limit of 5
-		const tasks = issueKeys.map(
-			key => async () =>
-				this.getIssue(key).then(
-					issue => [key, issue] as [string, TrackerIssue | null],
-				),
-		);
-		const fetched = await pLimit(tasks, 5);
-		for (const entry of fetched) {
-			if (entry) results.set(entry[0], entry[1]);
+		let bulk: Map<string, TrackerIssue | null> | null = null;
+		try {
+			bulk = await this.graphql(missing);
+		} catch (err) {
+			log.warn(
+				'Bulk Linear GraphQL fetch threw — leaving missing keys null',
+				sanitizeSubprocessError(err),
+			);
+			bulk = null;
+		}
+
+		for (const key of missing) {
+			const issue = bulk?.get(key) ?? null;
+			if (issue) {
+				this.issueCache.set(key, {issue, timestamp: Date.now()});
+				this.stateColors.update(issue.state.name, issue.state.color);
+			}
+
+			results.set(key, issue);
 		}
 
 		return results;

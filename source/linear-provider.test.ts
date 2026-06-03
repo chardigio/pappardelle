@@ -6,8 +6,10 @@ import {
 	LinearProvider,
 	MAX_RETRIES,
 	type CliExecutor,
+	type LinearGraphQLClient,
 	type SleepFn,
 } from './providers/linear-provider.ts';
+import type {TrackerIssue} from './providers/types.ts';
 import {StateColorCache} from './providers/state-color-cache.ts';
 
 // ============================================================================
@@ -468,7 +470,13 @@ test('persisted cache with invalid JSON is silently ignored', t => {
 });
 
 // ============================================================================
-// getIssues: batch fetching with concurrency (STA-608)
+// getIssues: GraphQL-only bulk fetching (STA-1377)
+//
+// Per-workspace CLI fan-out is intentionally NOT a fallback — see the doc in
+// LinearProvider.getIssues. Without a wired GraphQL client (or when the
+// client returns null), uncached keys resolve to null. The provider never
+// shells out to linctl from inside getIssues; only the singular `getIssue()`
+// path keeps a CLI implementation.
 // ============================================================================
 
 test('getIssues returns empty map for empty keys array', async t => {
@@ -477,99 +485,39 @@ test('getIssues returns empty map for empty keys array', async t => {
 	t.is(result.size, 0);
 });
 
-test('getIssues fetches multiple issues with concurrent calls', async t => {
-	let callCount = 0;
-	const exec: CliExecutor = async (_cmd, args) => {
-		callCount++;
-		const key = args[2]!;
-		return makeIssueJson(key, `Issue ${key}`);
+test('getIssues without GraphQL client returns null for every uncached key (no CLI)', async t => {
+	let cliCallCount = 0;
+	const exec: CliExecutor = async () => {
+		cliCallCount++;
+		return makeIssueJson('STA-X', 'should not be called');
 	};
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
 
-	t.is(callCount, 3, 'should make one call per issue');
+	t.is(cliCallCount, 0, 'getIssues must never shell out to linctl');
 	t.is(result.size, 3);
-	t.is(result.get('STA-1')!.title, 'Issue STA-1');
-	t.is(result.get('STA-2')!.title, 'Issue STA-2');
-	t.is(result.get('STA-3')!.title, 'Issue STA-3');
+	t.is(result.get('STA-1'), null);
+	t.is(result.get('STA-2'), null);
+	t.is(result.get('STA-3'), null);
 });
 
-test('getIssues respects concurrency limit', async t => {
-	let concurrent = 0;
-	let maxConcurrent = 0;
-	const exec: CliExecutor = async (_cmd, args) => {
-		concurrent++;
-		if (concurrent > maxConcurrent) maxConcurrent = concurrent;
-		// Simulate async work
-		await new Promise(resolve => {
-			setTimeout(resolve, 10);
-		});
-		concurrent--;
-		const key = args[2]!;
-		return makeIssueJson(key, `Issue ${key}`);
-	};
-
-	const provider = new LinearProvider(exec, noopSleep, tempCache());
-	const keys = Array.from({length: 10}, (_, i) => `STA-${i + 1}`);
-	const result = await provider.getIssues(keys);
-
-	t.is(result.size, 10);
-	t.true(
-		maxConcurrent <= 5,
-		`max concurrency should be <= 5, got ${maxConcurrent}`,
-	);
-});
-
-test('getIssues populates cache and stateColors', async t => {
-	const exec: CliExecutor = async () =>
-		makeIssueJson('STA-60', 'Color batch', 'Done', '#74d09f');
-
-	const provider = new LinearProvider(exec, noopSleep, tempCache());
-	await provider.getIssues(['STA-60']);
-
-	t.is(provider.getIssueCached('STA-60')!.title, 'Color batch');
-	t.is(provider.getWorkflowStateColor('Done'), '#74d09f');
-});
-
-test('getIssues returns cached values when linctlMissing', async t => {
-	let callCount = 0;
+test('getIssues without GraphQL client still serves cache-fresh keys', async t => {
+	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
-		callCount++;
-		throw makeEnoentError();
+		cliCallCount++;
+		return makeIssueJson('STA-90', 'Cached via getIssue', 'Done', '#74d09f');
 	};
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
-	// Trigger linctlMissing
-	await provider.getIssue('STA-70');
-	t.is(callCount, 1);
+	// Prime the cache via the singular path (which is still CLI-backed).
+	await provider.getIssue('STA-90');
+	t.is(cliCallCount, 1);
 
-	// getIssues should not make any CLI calls
-	const result = await provider.getIssues(['STA-70', 'STA-71']);
-	t.is(callCount, 1, 'should not make CLI calls when linctlMissing');
-	t.is(result.get('STA-70'), null);
-	t.is(result.get('STA-71'), null);
-});
-
-test('getIssues handles mixed success and failure', async t => {
-	let callCount = 0;
-	const exec: CliExecutor = async (_cmd, args) => {
-		callCount++;
-		const key = args[2]!;
-		if (key === 'STA-82') {
-			throw new Error('Network error');
-		}
-
-		return makeIssueJson(key, `Issue ${key}`);
-	};
-
-	const provider = new LinearProvider(exec, noopSleep, tempCache());
-	const result = await provider.getIssues(['STA-81', 'STA-82', 'STA-83']);
-
-	t.is(result.size, 3);
-	t.truthy(result.get('STA-81'));
-	t.is(result.get('STA-82'), null, 'failed issue should be null');
-	t.truthy(result.get('STA-83'));
+	const result = await provider.getIssues(['STA-90', 'STA-91']);
+	t.is(cliCallCount, 1, 'getIssues must not call CLI even for the miss');
+	t.is(result.get('STA-90')!.title, 'Cached via getIssue');
+	t.is(result.get('STA-91'), null);
 });
 
 // ============================================================================
@@ -793,6 +741,188 @@ test('searchAssignedIssues parses labels from list results', async t => {
 	t.is(result.length, 2);
 	t.deepEqual(result[0]!.labels, ['pappardelle', 'urgent']);
 	t.deepEqual(result[1]!.labels, []);
+});
+
+// ============================================================================
+// getIssues: bulk GraphQL path (STA-1377)
+//
+// When a LinearGraphQLClient is wired in, getIssues should resolve every key
+// from one batched request instead of N concurrent linctl subprocesses. The
+// CLI path stays as a fallback for: missing GraphQL client (e.g. CI without
+// the auth file), client returning null (network/auth failure), and any
+// individual aliased issue resolving to null in the response.
+// ============================================================================
+
+function fakeIssue(
+	identifier: string,
+	title = `Issue ${identifier}`,
+	stateName = 'In Progress',
+	stateColor = '#f2c94c',
+): TrackerIssue {
+	return {
+		identifier,
+		title,
+		state: {name: stateName, type: 'started', color: stateColor},
+		project: null,
+		labels: [],
+	};
+}
+
+test('getIssues uses GraphQL client when provided — one batched call, no CLI', async t => {
+	let cliCallCount = 0;
+	const exec: CliExecutor = async () => {
+		cliCallCount++;
+		return makeIssueJson('STA-1', 'CLI fallback');
+	};
+
+	let graphqlCallCount = 0;
+	let receivedKeys: string[] | null = null;
+	const graphql: LinearGraphQLClient = async keys => {
+		graphqlCallCount++;
+		receivedKeys = [...keys];
+		const map = new Map<string, TrackerIssue | null>();
+		for (const k of keys) map.set(k, fakeIssue(k));
+		return map;
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
+
+	t.is(graphqlCallCount, 1, 'GraphQL client should be called exactly once');
+	t.is(cliCallCount, 0, 'CLI should not be called when GraphQL succeeds');
+	t.deepEqual(receivedKeys, ['STA-1', 'STA-2', 'STA-3']);
+	t.is(result.size, 3);
+	t.is(result.get('STA-1')!.title, 'Issue STA-1');
+	t.is(result.get('STA-3')!.title, 'Issue STA-3');
+});
+
+test('getIssues returns null for every key when GraphQL client returns null (no CLI)', async t => {
+	let cliCallCount = 0;
+	const exec: CliExecutor = async () => {
+		cliCallCount++;
+		return makeIssueJson('STA-X', 'must not be called');
+	};
+
+	const graphql: LinearGraphQLClient = async () => null;
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	const result = await provider.getIssues(['STA-1', 'STA-2']);
+
+	t.is(cliCallCount, 0, 'getIssues must never shell out');
+	t.is(result.size, 2);
+	t.is(result.get('STA-1'), null);
+	t.is(result.get('STA-2'), null);
+});
+
+test('getIssues leaves partial-response gaps as null (no per-key CLI rescue)', async t => {
+	let cliCallCount = 0;
+	const exec: CliExecutor = async () => {
+		cliCallCount++;
+		return makeIssueJson('STA-X', 'must not be called');
+	};
+
+	const graphql: LinearGraphQLClient = async keys => {
+		const map = new Map<string, TrackerIssue | null>();
+		for (const k of keys) {
+			// Only STA-1 resolved; STA-2 is missing entirely, STA-3 is explicitly null.
+			if (k === 'STA-1') map.set(k, fakeIssue(k, `GQL-${k}`));
+			else if (k === 'STA-3') map.set(k, null);
+		}
+
+		return map;
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
+
+	t.is(cliCallCount, 0, 'getIssues must never shell out');
+	t.is(result.size, 3);
+	t.is(result.get('STA-1')!.title, 'GQL-STA-1');
+	t.is(result.get('STA-2'), null);
+	t.is(result.get('STA-3'), null);
+});
+
+test('getIssues returns null for every key when GraphQL client throws (no CLI)', async t => {
+	let cliCallCount = 0;
+	const exec: CliExecutor = async () => {
+		cliCallCount++;
+		return makeIssueJson('STA-X', 'must not be called');
+	};
+
+	const graphql: LinearGraphQLClient = async () => {
+		throw new Error('Linear API 500');
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	const result = await provider.getIssues(['STA-1', 'STA-2']);
+
+	t.is(cliCallCount, 0, 'thrown GraphQL errors must not trigger CLI fan-out');
+	t.is(result.size, 2);
+	t.is(result.get('STA-1'), null);
+	t.is(result.get('STA-2'), null);
+});
+
+test('getIssues GraphQL path populates cache and stateColors', async t => {
+	const exec: CliExecutor = async () => {
+		t.fail('CLI should not be called');
+		return '';
+	};
+
+	const graphql: LinearGraphQLClient = async keys => {
+		const map = new Map<string, TrackerIssue | null>();
+		for (const k of keys) map.set(k, fakeIssue(k, 'GQL', 'Done', '#74d09f'));
+		return map;
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	await provider.getIssues(['STA-50']);
+
+	t.is(provider.getIssueCached('STA-50')!.title, 'GQL');
+	t.is(provider.getWorkflowStateColor('Done'), '#74d09f');
+});
+
+test('getIssues GraphQL path respects per-key TTL cache', async t => {
+	let graphqlCalls = 0;
+	const seenKeys: string[][] = [];
+	const exec: CliExecutor = async () => makeIssueJson('STA-X', 'noop');
+
+	const graphql: LinearGraphQLClient = async keys => {
+		graphqlCalls++;
+		seenKeys.push([...keys]);
+		const map = new Map<string, TrackerIssue | null>();
+		for (const k of keys) map.set(k, fakeIssue(k));
+		return map;
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	await provider.getIssues(['STA-1', 'STA-2']);
+	await provider.getIssues(['STA-2', 'STA-3']);
+
+	t.is(
+		graphqlCalls,
+		2,
+		'GraphQL called once per getIssues invocation (TTL not yet exceeded)',
+	);
+	// Second batch should skip STA-2 (cached, fresh) and only ask for STA-3
+	t.deepEqual(seenKeys[1], ['STA-3']);
+});
+
+test('getIssues GraphQL path skips entirely when all keys are cache-fresh', async t => {
+	let graphqlCalls = 0;
+	const exec: CliExecutor = async () => makeIssueJson('STA-X', 'noop');
+
+	const graphql: LinearGraphQLClient = async keys => {
+		graphqlCalls++;
+		const map = new Map<string, TrackerIssue | null>();
+		for (const k of keys) map.set(k, fakeIssue(k));
+		return map;
+	};
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
+	await provider.getIssues(['STA-1', 'STA-2']);
+	await provider.getIssues(['STA-1', 'STA-2']);
+
+	t.is(graphqlCalls, 1, 'second call should be served entirely from cache');
 });
 
 test('persistence does not write when color unchanged', async t => {

@@ -2,6 +2,7 @@
 import {GitHubProvider} from './github-provider.ts';
 import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
+import {createDefaultLinearGraphQLClient} from './linear-graphql.ts';
 import {LinearProvider} from './linear-provider.ts';
 import type {IssueTrackerProvider, VcsHostProvider} from './types.ts';
 
@@ -70,7 +71,12 @@ export function createIssueTracker(
 
 	switch (provider) {
 		case 'linear': {
-			issueTrackerInstance = new LinearProvider();
+			issueTrackerInstance = new LinearProvider(
+				undefined,
+				undefined,
+				undefined,
+				createDefaultLinearGraphQLClient(),
+			);
 			break;
 		}
 
