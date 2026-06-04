@@ -73,7 +73,6 @@ import {
 	sendToPane,
 	killSession,
 	killSpaceSessions,
-	getLinearIssuesFromTmux,
 	zoomPane,
 	unzoomPane,
 	resizeListPaneForSessionCount,
@@ -91,12 +90,7 @@ import {
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
 import {filterSpaces} from './space-utils.ts';
-import {
-	getRegisteredSpaces,
-	addSpace,
-	removeSpace,
-	seedFromTmux,
-} from './space-registry.ts';
+import {getRegisteredSpaces, addSpace, removeSpace} from './space-registry.ts';
 import {
 	writeSpaceState,
 	findLatestSessionJsonl,
@@ -472,18 +466,6 @@ export default function App({
 	// Initial load
 	useEffect(() => {
 		ensureStatusDir();
-
-		// Migrate: seed registry from any active tmux sessions not yet tracked.
-		// This ensures a smooth transition from tmux-based to registry-based discovery.
-		try {
-			const tmuxKeys = getLinearIssuesFromTmux();
-			if (tmuxKeys.length > 0) {
-				seedFromTmux(tmuxKeys);
-			}
-		} catch {
-			// getLinearIssuesFromTmux already swallows its own errors; this
-			// catch is belt-and-suspenders in case seedFromTmux throws.
-		}
 		loadSpaces();
 
 		// Refresh every 10 seconds (Claude status updates arrive via file watcher

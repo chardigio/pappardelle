@@ -128,19 +128,6 @@ export function isSpaceRegistered(issueKey: string): boolean {
 	return getRegisteredSpaces().includes(issueKey);
 }
 
-/**
- * Seed the registry from active tmux sessions.
- * Adds any issue keys that have active sessions but aren't in the registry.
- * Used for migration from tmux-based discovery to persisted registry.
- */
-export function seedFromTmux(tmuxIssueKeys: string[]): void {
-	const keys = getRegisteredSpaces();
-	const toAdd = tmuxIssueKeys.filter(k => !keys.includes(k));
-	if (toAdd.length === 0) return;
-	cachedKeys = [...keys, ...toAdd];
-	persistToDisk();
-}
-
 function persistToDisk(): void {
 	try {
 		const dir = path.dirname(registryPath);

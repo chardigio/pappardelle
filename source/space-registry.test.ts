@@ -7,7 +7,6 @@ import {
 	addSpace,
 	removeSpace,
 	isSpaceRegistered,
-	seedFromTmux,
 	setRegistryPath,
 	resetRegistryPath,
 	getRegistryPathForRepo,
@@ -115,36 +114,33 @@ test.serial('filters out non-string values from disk', t => {
 	t.deepEqual(getRegisteredSpaces(), ['STA-1', 'STA-2']);
 });
 
-test.serial('seedFromTmux adds missing keys', t => {
-	const p = tempRegistryPath();
-	setRegistryPath(p);
+// STA-1416 regression: a removed space must stay removed across restarts, even
+// if a stale inner-socket tmux session for that issue key is still around. The
+// old startup migration (`seedFromTmux(getLinearIssuesFromTmux())`) used to
+// resurrect such keys; removing it means the on-disk registry is now the sole
+// source of truth and surviving tmux sessions cannot leak back into the rail.
+test.serial(
+	'removed space stays removed across simulated restart even if tmux session lingers',
+	t => {
+		const p = tempRegistryPath();
+		setRegistryPath(p);
 
-	addSpace('STA-100');
-	seedFromTmux(['STA-100', 'STA-200', 'STA-300']);
+		// First "run": user opens two spaces, then closes STA-100.
+		addSpace('STA-100');
+		addSpace('STA-200');
+		removeSpace('STA-100');
+		t.deepEqual(getRegisteredSpaces(), ['STA-200']);
 
-	t.deepEqual(getRegisteredSpaces(), ['STA-100', 'STA-200', 'STA-300']);
-});
+		// Simulate quit + relaunch: drop in-memory cache, re-read from disk.
+		// (A lingering tmux session for STA-100 — whether `killSpaceSessions`
+		// failed or a previous session was never torn down — would previously
+		// be re-seeded into the registry here. It must not.)
+		setRegistryPath(p);
 
-test.serial('seedFromTmux is a no-op when all keys already present', t => {
-	const p = tempRegistryPath();
-	setRegistryPath(p);
-
-	addSpace('STA-100');
-	addSpace('STA-200');
-
-	const stat1 = fs.statSync(p);
-	seedFromTmux(['STA-100', 'STA-200']);
-	const stat2 = fs.statSync(p);
-
-	t.is(stat1.mtimeMs, stat2.mtimeMs);
-});
-
-test.serial('seedFromTmux works on empty registry', t => {
-	setRegistryPath(tempRegistryPath());
-
-	seedFromTmux(['STA-50', 'STA-60']);
-	t.deepEqual(getRegisteredSpaces(), ['STA-50', 'STA-60']);
-});
+		t.deepEqual(getRegisteredSpaces(), ['STA-200']);
+		t.false(isSpaceRegistered('STA-100'));
+	},
+);
 
 // ============================================================================
 // Repo-namespaced registry paths

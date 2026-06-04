@@ -233,38 +233,6 @@ export function listClaudeSessions(): string[] {
 }
 
 /**
- * Get issue keys from active claude tmux sessions for this repo.
- * Extracts issue keys by removing the repo-qualified prefix from session names.
- * Queries the inner socket.
- *
- * Synchronous for consistency with `listClaudeSessions` — wrapping `spawnSync`
- * in a Promise executor only gives the function async *shape*, not async
- * *behavior* (the executor runs synchronously and still blocks the event
- * loop).
- */
-export function getLinearIssuesFromTmux(): string[] {
-	try {
-		const prefix = getSessionPrefix('claude');
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['list-sessions', '-F', '#{session_name}']),
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return [];
-		}
-		return result.stdout
-			.trim()
-			.split('\n')
-			.filter(name => name.startsWith(prefix))
-			.map(session => session.slice(prefix.length))
-			.filter(issueKey => /^[A-Z][A-Z0-9]*-\d+$/.test(issueKey));
-	} catch {
-		return [];
-	}
-}
-
-/**
  * Get the TTY device for a pane
  * This is used to identify the nested tmux client running in a viewer pane
  */
