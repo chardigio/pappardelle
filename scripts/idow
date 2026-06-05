@@ -116,6 +116,18 @@ else
 fi
 CONFIG_PATH="$REPO_ROOT/.pappardelle.yml"
 
+# Source $REPO_ROOT/.envrc if present so per-repo env vars (e.g. a non-default
+# LINCTL_API_KEY for a separate Linear workspace) reach downstream tools like
+# linctl. Mirrors what direnv does, but works even when pappardelle was
+# launched from a shell or long-running tmux server that didn't have direnv
+# hooked. Plain `export FOO=bar` only; the direnv stdlib is not supported.
+if [[ -f "$REPO_ROOT/.envrc" ]]; then
+    set +e
+    # shellcheck source=/dev/null
+    source "$REPO_ROOT/.envrc"
+    set -e
+fi
+
 # Check for config file
 if [[ ! -f "$CONFIG_PATH" ]]; then
     echo -e "${YELLOW}Error: No .pappardelle.yml found at repository root.${NC}" >&2
