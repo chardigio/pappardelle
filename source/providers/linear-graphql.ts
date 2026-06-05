@@ -39,6 +39,7 @@ export const BULK_BATCH_SIZE = 25;
 const ISSUE_FIELDS = `
 	identifier
 	title
+	url
 	state { name type color }
 	project { name }
 	labels(first: 50) { nodes { name } }
@@ -82,6 +83,7 @@ export function resolveApiKey(
 type IssueResponseShape = {
 	identifier?: string;
 	title?: string;
+	url?: string;
 	state?: {name?: string; type?: string; color?: string};
 	project?: {name?: string} | null;
 	labels?: {nodes?: Array<{name?: string}>};
@@ -104,6 +106,9 @@ function parseGraphQLIssue(
 		labels: labelNodes
 			.map(n => n.name)
 			.filter((name): name is string => typeof name === 'string'),
+		...(typeof raw.url === 'string' && raw.url.length > 0
+			? {url: raw.url}
+			: {}),
 	};
 }
 

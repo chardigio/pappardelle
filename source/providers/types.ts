@@ -17,6 +17,10 @@ export interface TrackerIssue {
 		name: string;
 	} | null;
 	labels?: string[]; // Label names (e.g., ["bug", "feature"])
+	// Canonical web URL as returned by the issue tracker — preferred over any
+	// reconstruction because it embeds the correct workspace slug (Linear) and
+	// the actual issue slug suffix.
+	url?: string;
 }
 
 /**

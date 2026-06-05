@@ -71,11 +71,34 @@ test('getIssueCached returns null for uncached issues', t => {
 	t.is(provider.getIssueCached('STA-999'), null);
 });
 
-test('buildIssueUrl constructs Linear URL', t => {
+test('buildIssueUrl falls back to hardcoded slug when cache is empty', t => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
 	t.is(
 		provider.buildIssueUrl('STA-123'),
 		'https://linear.app/stardust-labs/issue/STA-123',
+	);
+});
+
+test('buildIssueUrl prefers cached issue.url so cross-workspace issues open correctly', async t => {
+	// Real failure mode the fallback alone can't catch: a WAB-* issue (in the
+	// wabo-ventures workspace) was being advertised as linear.app/stardust-labs/
+	// because buildIssueUrl ignored the API-provided URL on the cached issue.
+	const fetchOnce: CliExecutor = async () =>
+		JSON.stringify({
+			identifier: 'WAB-10',
+			title: 'Cross-workspace issue',
+			state: {name: 'In Progress', type: 'started', color: '#f2c94c'},
+			project: null,
+			labels: {nodes: []},
+			url: 'https://linear.app/wabo-ventures/issue/WAB-10/cross-workspace-issue',
+		});
+
+	const provider = new LinearProvider(fetchOnce, noopSleep, tempCache());
+	const issue = await provider.getIssue('WAB-10');
+	t.truthy(issue);
+	t.is(
+		provider.buildIssueUrl('WAB-10'),
+		'https://linear.app/wabo-ventures/issue/WAB-10/cross-workspace-issue',
 	);
 });
 

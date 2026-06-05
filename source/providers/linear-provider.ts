@@ -13,7 +13,9 @@ const CACHE_TTL_MS = 60_000; // 60 seconds
 
 /**
  * Parse a raw linctl JSON object into a TrackerIssue, extracting label names
- * from the `labels.nodes[].name` structure.
+ * from the `labels.nodes[].name` structure and preserving the canonical `url`
+ * field returned by Linear so buildIssueUrl resolves to the right workspace
+ * slug rather than a hardcoded one.
  */
 function parseLinearIssue(raw: Record<string, unknown>): TrackerIssue {
 	const issue = raw as unknown as TrackerIssue;
@@ -27,6 +29,13 @@ function parseLinearIssue(raw: Record<string, unknown>): TrackerIssue {
 			.filter((name): name is string => typeof name === 'string');
 	} else {
 		issue.labels = undefined;
+	}
+
+	const rawUrl = raw['url'];
+	if (typeof rawUrl === 'string' && rawUrl.length > 0) {
+		issue.url = rawUrl;
+	} else {
+		issue.url = undefined;
 	}
 
 	return issue;
@@ -237,6 +246,12 @@ export class LinearProvider implements IssueTrackerProvider {
 	}
 
 	buildIssueUrl(issueKey: string): string {
+		// Prefer the canonical URL returned by Linear (correct workspace slug
+		// and the full issue-title suffix). Falls back to the legacy hardcoded
+		// slug only when we have no cached issue yet — current behavior for
+		// any code path that builds a URL before the issue has been fetched.
+		const cachedUrl = this.issueCache.get(issueKey)?.issue?.url;
+		if (cachedUrl) return cachedUrl;
 		return `https://linear.app/stardust-labs/issue/${issueKey}`;
 	}
 

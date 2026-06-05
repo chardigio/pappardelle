@@ -100,6 +100,40 @@ test('single batch — parses every alias and maps back to its key', async t => 
 	t.deepEqual(result!.get('STA-1')!.labels, ['bug']);
 });
 
+test('url field passes through bulk-fetch onto the cached TrackerIssue', async t => {
+	// Without this, LinearProvider.buildIssueUrl can't resolve a cross-
+	// workspace URL from the bulk path's cache and silently falls back to
+	// the hardcoded stardust-labs slug for WAB-* spaces.
+	const fetchImpl: FetchLike = async () =>
+		okJsonResponse({
+			i0: {
+				...fakeIssuePayload('WAB-5'),
+				url: 'https://linear.app/wabo-ventures/issue/WAB-5/add-new-ads-tab',
+			},
+		});
+
+	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
+	const result = await client(['WAB-5']);
+
+	t.is(
+		result!.get('WAB-5')!.url,
+		'https://linear.app/wabo-ventures/issue/WAB-5/add-new-ads-tab',
+	);
+});
+
+test('url field absent from bulk-fetch response → issue.url is undefined', async t => {
+	// The conditional spread in parseGraphQLIssue should leave url unset
+	// when the API didn't include it, so buildIssueUrl can fall back to
+	// its hardcoded-slug branch instead of using a stale or empty URL.
+	const fetchImpl: FetchLike = async () =>
+		okJsonResponse({i0: fakeIssuePayload('STA-1')});
+
+	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
+	const result = await client(['STA-1']);
+
+	t.is(result!.get('STA-1')!.url, undefined);
+});
+
 test('sends the API key in the Authorization header', async t => {
 	let captured: Record<string, string> | null = null;
 	const fetchImpl: FetchLike = async (_url, init) => {
