@@ -98,17 +98,22 @@ extract_issue_description() {
     esac
 }
 
-# Build the web URL for an issue
-# Args: $1=issue_key, $2=config_path
-build_issue_url() {
-    local issue_key="$1"
+# Extract the issue's canonical web URL from tracker JSON.
+# For Linear, prefers the API-provided `.url` so the slug matches the actual
+# workspace (was previously hardcoded to "stardust-labs", breaking issues in
+# any other Linear workspace). For Jira, reconstructs from the configured
+# base URL since the API response doesn't include a browse URL.
+# Args: $1=json, $2=config_path, $3=issue_key (only used by Jira)
+extract_issue_url() {
+    local json="$1"
     local config_path="$2"
+    local issue_key="$3"
     local provider
     provider=$(get_issue_tracker_provider "$config_path")
 
     case "$provider" in
         linear)
-            echo "https://linear.app/stardust-labs/issue/$issue_key"
+            echo "$json" | jq -r '.url // ""'
             ;;
         jira)
             local base_url

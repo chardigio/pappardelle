@@ -103,8 +103,17 @@ fi
 # Extract just the number from the issue key
 ISSUE_NUMBER=$(echo "$ISSUE_KEY" | sed "s/${TEAM}-//")
 
-# Build the Linear URL
-ISSUE_URL="https://linear.app/stardust-labs/issue/$ISSUE_KEY"
+# Fetch the issue's canonical URL from Linear. linctl's `issue create` mutation
+# does not request the `url` field today (it returns "" for it), so we re-fetch
+# via `issue get`. This makes us workspace-agnostic — issues in any Linear
+# workspace get the correct `linear.app/<urlKey>/issue/...` slug rather than
+# hardcoded "stardust-labs".
+ISSUE_URL=$(linctl issue get "$ISSUE_KEY" --json 2>/dev/null | jq -r '.url // ""')
+
+if [[ -z "$ISSUE_URL" ]]; then
+    echo "Error: Could not resolve URL for $ISSUE_KEY (linctl issue get returned no .url)" >&2
+    exit 1
+fi
 
 # Output JSON
 echo "{\"issue_key\":\"$ISSUE_KEY\",\"issue_number\":\"$ISSUE_NUMBER\",\"issue_url\":\"$ISSUE_URL\"}"

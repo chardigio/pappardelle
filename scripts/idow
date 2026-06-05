@@ -476,7 +476,7 @@ else
     ISSUE_JSON=$(fetch_issue_json "$ISSUE_KEY" "$CONFIG_PATH") || error "Failed to fetch issue $ISSUE_KEY"
     TITLE=$(extract_issue_title "$ISSUE_JSON" "$CONFIG_PATH")
     DESCRIPTION=$(extract_issue_description "$ISSUE_JSON" "$CONFIG_PATH")
-    ISSUE_URL=$(build_issue_url "$ISSUE_KEY" "$CONFIG_PATH")
+    ISSUE_URL=$(extract_issue_url "$ISSUE_JSON" "$CONFIG_PATH" "$ISSUE_KEY")
 
     if [[ -z "$TITLE" ]]; then
         error "Issue $ISSUE_KEY not found"
