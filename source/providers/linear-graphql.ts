@@ -50,9 +50,24 @@ function aliasFor(index: number): string {
 	return `i${index}`;
 }
 
-function readApiKeyFromDisk(): string | null {
+/**
+ * Resolve the Linear API key for the bulk GraphQL fetch.
+ *
+ * Precedence matches upstream linctl (v0.1.2+): `LINCTL_API_KEY` env var first,
+ * then `~/.linctl-auth.json`. The env-var path is what lets pappardelle target
+ * a non-default Linear workspace per-repo (e.g. a `.envrc` exports the wabo
+ * workspace key in homebase while the global auth file still points at the
+ * default workspace).
+ */
+export function resolveApiKey(
+	env: NodeJS.ProcessEnv = process.env,
+	authPath: string = LINCTL_AUTH_PATH,
+): string | null {
+	const envKey = env['LINCTL_API_KEY']?.trim();
+	if (envKey) return envKey;
+
 	try {
-		const raw = fs.readFileSync(LINCTL_AUTH_PATH, 'utf-8');
+		const raw = fs.readFileSync(authPath, 'utf-8');
 		const parsed = JSON.parse(raw) as {api_key?: unknown};
 		if (typeof parsed.api_key === 'string' && parsed.api_key.length > 0) {
 			return parsed.api_key;
@@ -238,10 +253,10 @@ export function makeLinearGraphQLClient(
 export function createDefaultLinearGraphQLClient():
 	| LinearGraphQLClient
 	| undefined {
-	const apiKey = readApiKeyFromDisk();
+	const apiKey = resolveApiKey();
 	if (!apiKey) {
 		log.debug(
-			`No ${LINCTL_AUTH_PATH} — bulk Linear fetch disabled, will use linctl CLI.`,
+			`No LINCTL_API_KEY env var and no ${LINCTL_AUTH_PATH} — bulk Linear fetch disabled, will use linctl CLI.`,
 		);
 		return undefined;
 	}

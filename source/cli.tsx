@@ -28,6 +28,7 @@ import {captureStderr} from './logger.ts';
 
 // Capture stderr early so Ink/React rendering errors go to the log file
 captureStderr();
+import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
@@ -147,6 +148,15 @@ function checkConfig(): void {
 }
 
 checkConfig();
+
+// Load $REPO_ROOT/.envrc (plain `export KEY=VAL` lines) into process.env so
+// per-repo Linear credentials and similar reach the providers even when
+// pappardelle was launched from a shell or tmux server that didn't have
+// direnv hooked. Mirrors STA-1422's idow-level fix one layer up so the TUI's
+// bulk GraphQL fetch — which reads LINCTL_API_KEY from process.env — uses
+// the right workspace's key instead of falling back to ~/.linctl-auth.json.
+// Existing process.env values win; .envrc only fills gaps.
+loadEnvrcIntoProcessEnv(getRepoRoot());
 
 // Initialize per-repo state directories so state is kept separate
 // from other repos that may also use pappardelle.

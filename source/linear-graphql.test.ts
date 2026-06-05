@@ -1,7 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'ava';
 import {
 	BULK_BATCH_SIZE,
 	makeLinearGraphQLClient,
+	resolveApiKey,
 	type FetchLike,
 } from './providers/linear-graphql.ts';
 
@@ -269,4 +273,52 @@ test('alias with missing required fields parses to null', async t => {
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1']);
 	t.is(result!.get('STA-1'), null);
+});
+
+// ============================================================================
+// resolveApiKey precedence — env var > disk
+// ============================================================================
+
+let resolveTmpCounter = 0;
+function tmpAuthFile(contents: string): string {
+	const p = path.join(
+		os.tmpdir(),
+		`pappardelle-test-auth-${process.pid}-${Date.now()}-${resolveTmpCounter++}.json`,
+	);
+	fs.writeFileSync(p, contents);
+	return p;
+}
+
+test('resolveApiKey prefers LINCTL_API_KEY env var over disk', t => {
+	const disk = tmpAuthFile(JSON.stringify({api_key: 'disk-key'}));
+	t.is(resolveApiKey({LINCTL_API_KEY: 'env-key'}, disk), 'env-key');
+});
+
+test('resolveApiKey trims whitespace around env var', t => {
+	const disk = tmpAuthFile(JSON.stringify({api_key: 'disk-key'}));
+	t.is(resolveApiKey({LINCTL_API_KEY: '  env-key  '}, disk), 'env-key');
+});
+
+test('resolveApiKey falls back to disk when env var is unset or empty', t => {
+	const disk = tmpAuthFile(JSON.stringify({api_key: 'disk-key'}));
+	t.is(resolveApiKey({}, disk), 'disk-key');
+	t.is(resolveApiKey({LINCTL_API_KEY: ''}, disk), 'disk-key');
+});
+
+test('resolveApiKey returns null when neither env nor disk has a key', t => {
+	const missing = path.join(
+		os.tmpdir(),
+		`pappardelle-test-auth-missing-${process.pid}-${Date.now()}-${resolveTmpCounter++}.json`,
+	);
+	t.is(resolveApiKey({}, missing), null);
+});
+
+test('resolveApiKey returns null on malformed disk file (and no env var)', t => {
+	const disk = tmpAuthFile('not json at all');
+	t.is(resolveApiKey({}, disk), null);
+});
+
+test('resolveApiKey returns null when disk has no api_key field', t => {
+	const disk = tmpAuthFile(JSON.stringify({something: 'else'}));
+	t.is(resolveApiKey({}, disk), null);
 });
