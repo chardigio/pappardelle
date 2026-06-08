@@ -6,9 +6,23 @@ disable-model-invocation: true
 
 # /init-pappardelle — Set Up Pappardelle in This Repo
 
-Interactive setup wizard that installs Pappardelle, gathers your configuration preferences, checks prerequisites, and generates a `.pappardelle.yml` file.
+Interactive setup wizard that gets a repo from zero to "I can launch `pappardelle` and create a workspace." It is **not** just a `.pappardelle.yml` generator — the wizard owns the whole onboarding surface: explainer, config, CLI install, prerequisite verification, and tmux configuration.
 
-Before running any of the steps below, print the "What is a Workspace?" section verbatim so the user has a shared vocabulary before the wizard starts asking questions. This is important — the rest of the wizard uses the word "workspace" throughout.
+## Setup Checklist (do not stop until ALL are verified)
+
+This skill must satisfy **every** item below before printing the final summary. Even if the user already has `.pappardelle.yml` in the repo, **do not assume the rest is in place** — finding a config file is not a green light to bail. Walk the list top to bottom. If a step succeeds (already done / user declines / not applicable), check it off out loud and move on. Do not stop early.
+
+1. **Workspaces explained.** The user has seen the "What is a Workspace?" section, so the wizard's vocabulary makes sense.
+2. **`.pappardelle.yml` reflects the user's needs.** Either created from scratch (new install) or reviewed/personalized (existing install).
+3. **`.pappardelle.local.yml` exists if local overrides were chosen.** Only when Step 1 collected per-machine overrides (default profile, yolo mode, etc.).
+4. **Pappardelle CLI is installed.** `command -v pappardelle` succeeds.
+5. **Required prerequisites are installed.** `node`, `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
+6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl` or `acli` for tracker, plus `lazygit`. Warn about missing ones but do not block on them.
+7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
+
+If the user interrupts mid-flow, that's their call — but never *you* deciding the work is done before the checklist is complete. The friend who triggered this skill once with `.pappardelle.yml` already in the repo had to write **three follow-up prompts** to get prerequisites, the Pappardelle CLI, and tmux config installed — that's the failure mode this checklist exists to prevent.
+
+Before any other output, print the "What is a Workspace?" section verbatim so the user has shared vocabulary before the wizard starts asking questions.
 
 ## What is a Workspace?
 
@@ -24,75 +38,26 @@ The Pappardelle TUI is a 3-pane tmux layout that lets you list, switch between, 
 
 Everything the wizard asks — providers, profiles, init command, post-init hooks — is about configuring what happens **each time a new workspace is created**.
 
-## Step 0: Check for Existing Configuration
+## Step 1: Configuration File
 
-Before starting the wizard, check if a `.pappardelle.yml` already exists:
+Check whether a `.pappardelle.yml` already exists at the repo root:
 
 ```bash
 test -f "$(git rev-parse --show-toplevel)/.pappardelle.yml" && echo "EXISTS" || echo "NOT_FOUND"
 ```
 
-If `NOT_FOUND`, skip to Step 1.
+Branch on the result:
 
-If `EXISTS`, read and parse the config file to extract the current configuration, then walk the user through personalization. Use `AskUserQuestion` for each sub-step — ask them one at a time, don't bundle questions.
+- **NOT_FOUND** → run the **fresh-install** flow (Step 1A) to gather answers and write `.pappardelle.yml`.
+- **EXISTS** → run the **personalization** flow (Step 1B) to review and tweak the existing config.
 
-### 0a. Show Current Configuration
+Either way, when Step 1 ends you **fall through to Step 2** — do not skip ahead to the summary.
 
-Present a summary of the existing config:
+### Step 1A: Fresh Install — Gather Configuration
 
-> **Pappardelle is already configured in this repository.**
->
-> **Current configuration:**
->
-> - VCS Host: {provider}
-> - Issue Tracker: {provider}
-> - Team Prefix: {prefix}
-> - Profiles:
->   - **{display_name}** — keywords: {comma-separated keywords}
->   - **{display_name}** — keywords: {comma-separated keywords}
->   - _(repeat for each profile)_
+Use `AskUserQuestion` for each of the following. Ask them one at a time — don't bundle questions.
 
-### 0b. Add a New Profile?
-
-Ask: "Do any of the existing profiles fit your use case, or would you like to add a new one?"
-
-- If they're happy with existing profiles, move on.
-- If they want a new profile, gather the same info as Step 1c (display name, keywords, project type, commands) and add it to `.pappardelle.yml`.
-
-### 0c. Default Profile
-
-Ask: "Which profile should be your default? (This is the profile used when no keywords match your issue.)"
-
-List the available profiles by name. If they pick one that differs from the current `default_profile`, write/update `.pappardelle.local.yml` with the override:
-
-```yaml
-default_profile: their-choice
-```
-
-If they pick the one that's already the default, skip writing.
-
-### 0d. Dangerously Skip Permissions
-
-Show the current `dangerously_skip_permissions` value and ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls? (Currently: {yes/no})"
-
-- If they want to change it, write/update `.pappardelle.local.yml` with the override:
-  ```yaml
-  claude:
-    dangerously_skip_permissions: true # or false
-  ```
-- If they're happy with the current value, skip.
-
-### 0e. Write Local Overrides
-
-If any local overrides were collected in 0c–0d, write or update `.pappardelle.local.yml`. Preserve any existing content (e.g., `keybindings`, `issue_watchlist`) — only add/update the fields that changed.
-
-After this, skip to Step 6 (Summary) — print a summary of what was configured and launch instructions.
-
-## Step 1: Gather Configuration
-
-Use `AskUserQuestion` for each of these. Ask them one at a time — don't bundle questions.
-
-### 1a. VCS Host
+#### 1A.i. VCS Host
 
 Ask: "Which VCS host do you use?"
 
@@ -102,7 +67,7 @@ Options:
 - **GitLab** — requires `glab` CLI. If selected, follow up asking if it's gitlab.com or self-hosted (get the `host` value).
 - **Other** — Pappardelle only supports GitHub and GitLab. Let the user know and stop.
 
-### 1b. Issue Tracker
+#### 1A.ii. Issue Tracker
 
 Ask: "Which issue tracker do you use?"
 
@@ -112,7 +77,7 @@ Options:
 - **Jira** — requires `acli` CLI. If selected, follow up asking for their Jira base URL (e.g., `https://mycompany.atlassian.net`).
 - **Neither / Other** — Pappardelle requires Linear or Jira. Let the user know and stop.
 
-### 1c. Team Prefix & Profiles
+#### 1A.iii. Team Prefix & Profiles
 
 Ask: "What are your issue key prefixes? For example, if your issues look like PROJ-123, the prefix is PROJ. If you have multiple teams/projects with different prefixes (e.g., FE-123, BE-456), list them all."
 
@@ -135,7 +100,7 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
   - `tracker_projects`: Linear-only — the names of the Linear project(s) this profile lives in. The first entry doubles as the default project for issues created under this profile (STA-959). Skip for Jira; defer to `/configure-pappardelle` if the user doesn't already know their project names.
 - Set `default_profile` to the most common one
 
-### 1d. Claude initialization command
+#### 1A.iv. Claude Initialization Command
 
 Ask: "Would you like Claude to run a skill automatically when a new workspace is created? The default is `/do` which starts planning and implementing the issue."
 
@@ -151,7 +116,7 @@ If they chose `/do`, also offer to install the starter `/do` skill:
 mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
 ```
 
-### 1e. Dangerously Skip Permissions ("Yolo Mode")
+#### 1A.v. Dangerously Skip Permissions ("Yolo Mode")
 
 Ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
 
@@ -160,9 +125,84 @@ Options:
 - **No** (default) — set `dangerously_skip_permissions: false`
 - **Yes** — set `dangerously_skip_permissions: true`. Warn the user: "This means Claude can read, write, and execute anything without confirmation. Only enable this if you trust the skills and prompts being used in your workspaces."
 
-This setting is only relevant if a `claude` section exists (i.e., the user chose an initialization command in 1d). If they opted out of `claude` in 1d, skip this question.
+This setting is only relevant if a `claude` section exists (i.e., the user chose an initialization command in 1A.iv). If they opted out of `claude` in 1A.iv, skip this question.
 
-## Step 2: Install Pappardelle
+#### 1A.vi. Write `.pappardelle.yml`
+
+Based on the answers, generate a `.pappardelle.yml` file at the repository root. Use the full config format from the [configuration reference](pappardelle-config.md).
+
+Rules:
+
+- Always include `version: 1`
+- Always `issue_tracker`
+- Always `vcs_host`
+- Always include `team_prefix`
+- **Single prefix**: one profile with no `keywords`, set as `default_profile`
+- **Multiple prefixes**: one profile per prefix, each with `keywords: ["PREFIX-"]` (include the hyphen) and a per-profile `team_prefix` override. Set `default_profile` to the most common one
+
+Then **continue to Step 2** — do not stop here.
+
+### Step 1B: Existing Install — Personalize
+
+The repo already has `.pappardelle.yml`. Read and parse it, then walk the user through personalization with `AskUserQuestion` (one question at a time, don't bundle).
+
+This branch is **personalization only** — it does not let you skip the rest of the checklist. When you finish here, you still **fall through to Step 2** to verify the CLI is installed, prereqs are present, and tmux is configured.
+
+#### 1B.i. Show Current Configuration
+
+Present a summary of the existing config:
+
+> **Pappardelle is already configured in this repository.**
+>
+> **Current configuration:**
+>
+> - VCS Host: {provider}
+> - Issue Tracker: {provider}
+> - Team Prefix: {prefix}
+> - Profiles:
+>   - **{display_name}** — keywords: {comma-separated keywords}
+>   - **{display_name}** — keywords: {comma-separated keywords}
+>   - _(repeat for each profile)_
+>
+> I'll quickly check whether you'd like any local tweaks, and then I'll verify the Pappardelle CLI, your prerequisites, and your tmux config are all set up — even if Pappardelle is already configured here, those pieces may not be in place yet on this machine.
+
+#### 1B.ii. Add a New Profile?
+
+Ask: "Do any of the existing profiles fit your use case, or would you like to add a new one?"
+
+- If they're happy with existing profiles, move on.
+- If they want a new profile, gather the same info as 1A.iii (display name, keywords, project type, commands) and add it to `.pappardelle.yml`.
+
+#### 1B.iii. Default Profile
+
+Ask: "Which profile should be your default? (This is the profile used when no keywords match your issue.)"
+
+List the available profiles by name. If they pick one that differs from the current `default_profile`, queue a local override (written in 1B.v):
+
+```yaml
+default_profile: their-choice
+```
+
+If they pick the one that's already the default, skip.
+
+#### 1B.iv. Dangerously Skip Permissions
+
+Show the current `dangerously_skip_permissions` value and ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls? (Currently: {yes/no})"
+
+- If they want to change it, queue a local override:
+  ```yaml
+  claude:
+    dangerously_skip_permissions: true # or false
+  ```
+- If they're happy with the current value, skip.
+
+#### 1B.v. Write `.pappardelle.local.yml` (if needed)
+
+If any local overrides were collected in 1B.iii–1B.iv, write or update `.pappardelle.local.yml`. Preserve any existing content (e.g., `keybindings`, `issue_watchlist`) — only add/update the fields that changed.
+
+Then **continue to Step 2** — the checklist is not finished.
+
+## Step 2: Install Pappardelle CLI
 
 Check if Pappardelle is already installed:
 
@@ -180,9 +220,11 @@ The install script checks base prerequisites (Node.js >= 18, npm, git, tmux, jq)
 
 - If **already installed**, print "Pappardelle is already installed" and move on.
 
-## Step 3: Check Prerequisites & Provider CLIs
+Do not skip this step just because `.pappardelle.yml` already exists in the repo — config presence says nothing about whether the CLI is on this machine.
 
-Now that you know which providers they chose, check the required tools and provider-specific CLIs. Run these checks in a single bash command:
+## Step 3: Verify Prerequisites & Provider CLIs
+
+Now check the required tools and the provider-specific CLIs from the user's configuration. Run these checks in a single bash command:
 
 ```bash
 echo "=== Required ===" && \
@@ -191,7 +233,7 @@ echo "=== Provider CLIs ===" && \
 for cmd in <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
-Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira) based on the answers from Step 1.
+Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira). When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
 
 - If any **required** tools are missing, **stop and do not proceed** to Step 4. Tell the user which ones are missing and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
 - If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
@@ -209,24 +251,11 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples
 
 Check if `~/.tmux.conf` exists first and read it — if settings already exist, skip the duplicates rather than appending blindly.
 
-If they decline, move on.
+If they decline, record that and move on — declining counts as the step being done; do not re-prompt later.
 
-## Step 5: Generate .pappardelle.yml
+## Step 5: Summary
 
-Based on the answers, generate a `.pappardelle.yml` file at the repository root. Use the full config format from the [configuration reference](pappardelle-config.md).
-
-Rules:
-
-- Always include `version: 1`
-- Always `issue_tracker`
-- Always `vcs_host`
-- Always include `team_prefix`
-- **Single prefix**: one profile with no `keywords`, set as `default_profile`
-- **Multiple prefixes**: one profile per prefix, each with `keywords: ["PREFIX-"]` (include the hyphen) and a per-profile `team_prefix` override. Set `default_profile` to the most common one
-
-## Step 6: Summary
-
-After writing the file, print a clear "you're done" summary. The goal is to leave the user with (a) exactly what was written where, (b) a concrete next command to run, and (c) a heads-up of what creating their first workspace will actually do.
+Only run this step after every item in the **Setup Checklist** at the top is verified. The goal is to leave the user with (a) exactly what was written where, (b) a concrete next command to run, and (c) a heads-up of what creating their first workspace will actually do.
 
 Format it like this, filling in the real values from what you just collected:
 
@@ -242,9 +271,15 @@ Wrote /path/to/repo/.pappardelle.yml:
   • Yolo mode:     {on | off}
 
 Wrote /path/to/repo/.pappardelle.local.yml:
-  • {only include this block if local overrides were written in 0c–0e or 1e}
+  • {only include this block if local overrides were written in 1B.iii–1B.v or 1A.v}
   • default_profile: <name>
   • dangerously_skip_permissions: <value>
+
+Verified:
+  • Pappardelle CLI installed:  ✓
+  • Required prerequisites:     ✓ (node, npm, git, tmux, jq, yq, claude)
+  • Provider CLIs:              {✓ all present | ⚠ missing: <list> — degraded features}
+  • tmux config:                {✓ appended | ✓ already present | — user declined}
 
 Next steps:
   1. Launch the TUI:            pappardelle
@@ -262,7 +297,7 @@ For customizing keybindings, post-init hooks, issue watchlists, auto-remove-when
 [pappardelle-config.md](pappardelle-config.md) or run `/configure-pappardelle`.
 ```
 
-Keep the summary grounded in what was actually written — don't list a `.pappardelle.local.yml` block if no local overrides were set, and don't mention yolo mode if the user skipped the `claude` section entirely.
+Keep the summary grounded in what was actually written and verified — don't list a `.pappardelle.local.yml` block if no local overrides were set, don't mention yolo mode if the user skipped the `claude` section entirely, and don't claim tmux was configured if the user declined.
 
 ## Example Outputs
 
