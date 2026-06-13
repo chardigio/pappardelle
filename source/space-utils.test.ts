@@ -3,6 +3,7 @@ import {
 	computePostDeleteState,
 	filterSpaces,
 	shouldShowLoadingTitle,
+	tearDownSpace,
 } from './space-utils.ts';
 import type {SpaceData} from './types.ts';
 
@@ -260,4 +261,79 @@ test('filterSpaces: index map correctly maps back to original positions', t => {
 		['STA-3'],
 	);
 	t.deepEqual(indexMap, [2]);
+});
+
+// ============================================================================
+// tearDownSpace
+//
+// Locks in STA-1420 Layer 1: the close path must kill tmux sessions BEFORE
+// removing the space from the persisted registry. If the kill fails, the
+// registry stays untouched so the user can retry — otherwise the registry
+// silently advertises "closed" for a session still living on the inner socket
+// (which post-STA-1416 has no `seedFromTmux` reaper to mop it up).
+// ============================================================================
+
+type TearDownCalls = {
+	killed: string[];
+	removed: string[];
+	killFailures: string[];
+};
+
+function makeTearDownDeps(killReturns: boolean): {
+	deps: Parameters<typeof tearDownSpace>[1];
+	calls: TearDownCalls;
+} {
+	const calls: TearDownCalls = {killed: [], removed: [], killFailures: []};
+	const deps = {
+		killSpaceSessions(key: string) {
+			calls.killed.push(key);
+			return killReturns;
+		},
+		removeSpace(key: string) {
+			calls.removed.push(key);
+		},
+		onKillFailure(key: string) {
+			calls.killFailures.push(key);
+		},
+	};
+	return {deps, calls};
+}
+
+test('tearDownSpace: kill succeeds → remove called, returns true', t => {
+	const {deps, calls} = makeTearDownDeps(true);
+	const ok = tearDownSpace('STA-100', deps);
+	t.true(ok);
+	t.deepEqual(calls.killed, ['STA-100']);
+	t.deepEqual(calls.removed, ['STA-100']);
+	t.deepEqual(calls.killFailures, []);
+});
+
+test('tearDownSpace: kill fails → remove NOT called, onKillFailure surfaced, returns false', t => {
+	const {deps, calls} = makeTearDownDeps(false);
+	const ok = tearDownSpace('STA-100', deps);
+	t.false(ok);
+	t.deepEqual(calls.killed, ['STA-100']);
+	t.deepEqual(calls.removed, []);
+	t.deepEqual(calls.killFailures, ['STA-100']);
+});
+
+test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', t => {
+	// If remove ran first and kill then failed, the registry would advertise
+	// "closed" while the inner socket still has the session — exactly the bug
+	// STA-1420 fixes. Pin the order with a sequence tape.
+	const sequence: string[] = [];
+	const ok = tearDownSpace('STA-7', {
+		killSpaceSessions() {
+			sequence.push('kill');
+			return true;
+		},
+		removeSpace() {
+			sequence.push('remove');
+		},
+		onKillFailure() {
+			sequence.push('failure');
+		},
+	});
+	t.true(ok);
+	t.deepEqual(sequence, ['kill', 'remove']);
 });

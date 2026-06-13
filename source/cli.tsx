@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import App from './app.tsx';
 import {
+	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
 	isInTmux,
 	sessionExists,
@@ -32,7 +33,7 @@ import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {initForRepo} from './space-registry.ts';
+import {getRegisteredSpaces, initForRepo} from './space-registry.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveInstalledVersion, safeCheckForUpdate} from './update-check.ts';
@@ -237,7 +238,9 @@ if (!isInTmux() && cli.flags.layout) {
 	// user just ran (via process.execPath + process.argv[1]) so side-by-side
 	// installs (e.g. a dev build at ~/.local/bin/pappardelle-sta862) don't
 	// silently fall back to the global `pappardelle` binary on PATH.
-	const selfCmd = `${shellQuote(process.execPath)} ${shellQuote(process.argv[1] ?? 'pappardelle')}`;
+	const selfCmd = `${shellQuote(process.execPath)} ${shellQuote(
+		process.argv[1] ?? 'pappardelle',
+	)}`;
 	const args = process.argv.slice(2).join(' ');
 	const cmd = args ? `${selfCmd} ${args}` : selfCmd;
 
@@ -262,6 +265,21 @@ if (isInTmux() && cli.flags.layout) {
 	if (killed > 0) {
 		console.error(
 			`\x1b[33mPappardelle: cleared ${killed} stale outer-socket session(s) — they'll be recreated on the inner socket.\x1b[0m`,
+		);
+	}
+
+	// STA-1420: also reap inner-socket orphans whose key isn't in the registry
+	// and isn't the main worktree. These accumulate when Pappardelle is
+	// hard-quit between unregistering and the tmux kill (or when a slow
+	// pre_workspace_deinit is Ctrl-C'd mid-flow). Symmetric to the outer reap
+	// above; without it, dead `claude-pappa-STA-*` sessions linger forever now
+	// that STA-1416 removed seedFromTmux.
+	const innerReaped = cleanupOrphanedInnerSessions(
+		new Set(getRegisteredSpaces()),
+	);
+	if (innerReaped > 0) {
+		console.error(
+			`\x1b[33mPappardelle: reaped ${innerReaped} orphaned inner-socket session(s).\x1b[0m`,
 		);
 	}
 

@@ -12,6 +12,7 @@ import {fileURLToPath} from 'node:url';
 import test from 'ava';
 import {
 	INNER_SOCKET,
+	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
 	innerTmuxArgs,
 	type OuterTmuxRunner,
@@ -259,4 +260,100 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 	});
 	// 3 matched orphans, 1 kill fails → return 2.
 	t.is(cleanupOrphanedOuterSessions('repo', runner), 2);
+});
+
+// ============================================================================
+// cleanupOrphanedInnerSessions
+//
+// STA-1420 Layer 2: symmetric to cleanupOrphanedOuterSessions but on the
+// inner socket. Reaps `claude-{repo}-*` / `lazygit-{repo}-*` sessions whose
+// key is NOT in the registry and isn't the main worktree, which is what
+// hard-quit (SIGKILL, terminal close, Ctrl-C mid-deinit) leaves behind now
+// that STA-1416 removed seedFromTmux. Without this, orphans accumulate
+// silently on the inner socket forever.
+//
+// `'main'` is the hardcoded key for the main worktree row (see app.tsx) — its
+// sessions are legitimate and must never be reaped.
+// ============================================================================
+
+test('cleanupOrphanedInnerSessions returns 0 when no sessions match', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: 'pappardelle-repo\nsome-other-session\n',
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(calls.length, 1);
+	t.deepEqual(calls[0], ['list-sessions', '-F', '#{session_name}']);
+});
+
+test('cleanupOrphanedInnerSessions returns 0 when list-sessions errors', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStatus: 1,
+		listSessionsStdout: '',
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(calls.length, 1);
+});
+
+test('cleanupOrphanedInnerSessions returns 0 when list-sessions throws', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsError: new Error('tmux not found'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(calls.length, 1);
+});
+
+test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-STA-1', // registered → keep
+			'lazygit-repo-STA-1', // registered → keep
+			'claude-repo-STA-999', // orphan → kill
+			'lazygit-repo-STA-999', // orphan → kill
+			'claude-repo-main', // main worktree → keep
+			'lazygit-repo-main', // main worktree → keep
+			'claude-otherrepo-STA-2', // different repo → keep
+			'pappardelle-repo', // outer root → keep
+		].join('\n'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 2);
+
+	const killed = calls
+		.filter(c => c[0] === 'kill-session')
+		.map(c => c[2] ?? '')
+		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+	t.deepEqual(killed, ['claude-repo-STA-999', 'lazygit-repo-STA-999']);
+});
+
+test('cleanupOrphanedInnerSessions never touches main-worktree sessions', t => {
+	// Empty registry — only main sessions exist. None should be killed.
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: ['claude-repo-main', 'lazygit-repo-main'].join('\n'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	const killAttempts = calls.filter(c => c[0] === 'kill-session');
+	t.is(killAttempts.length, 0);
+});
+
+test('cleanupOrphanedInnerSessions counts only successful kills', t => {
+	const {runner} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-STA-1',
+			'claude-repo-STA-2',
+			'lazygit-repo-STA-1',
+		].join('\n'),
+		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
+	});
+	// 3 orphans (empty registry), 1 kill fails → return 2.
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
+});
+
+test('cleanupOrphanedInnerSessions handles a partial pair (only claude or lazygit)', t => {
+	// Hard-quit can leave just one of the pair behind. Each session is reaped
+	// independently of whether its sibling is still alive.
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: ['claude-repo-STA-999'].join('\n'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 1);
+	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
+	t.deepEqual(killed, ['claude-repo-STA-999']);
 });

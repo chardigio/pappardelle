@@ -89,7 +89,7 @@ import {
 	calculateListClickRow,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {filterSpaces} from './space-utils.ts';
+import {filterSpaces, MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {getRegisteredSpaces, addSpace, removeSpace} from './space-registry.ts';
 import {
 	writeSpaceState,
@@ -397,15 +397,17 @@ export default function App({
 			// Prepend the main worktree (always first, non-deletable)
 			const mainInfo = await getMainWorktreeInfo();
 			if (mainInfo) {
-				// name is always "main" regardless of actual branch name.
+				// name is always MAIN_WORKTREE_KEY regardless of actual branch name.
 				// This ensures stable tmux session names (claude-<repo>-main) that don't
-				// change if the default branch is renamed.
+				// change if the default branch is renamed. The inner-socket orphan
+				// reaper in tmux.ts uses the same constant to exempt the main worktree
+				// from being killed at startup (STA-1420).
 				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-master")
 				const repoName = getRepoName();
 				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);
 				const mainClaudeInfo = getClaudeStatusInfo(statusKey);
 				spaceData.unshift({
-					name: 'main',
+					name: MAIN_WORKTREE_KEY,
 					statusKey,
 					worktreePath: mainInfo.path,
 					isMainWorktree: true,
@@ -1240,8 +1242,21 @@ export default function App({
 				// Config load failure shouldn't block deletion
 			}
 
-			removeSpace(space.name);
-			killSpaceSessions(space.name);
+			// STA-1420: kill tmux first, then update the registry. If the kill
+			// fails (tmux hiccup, socket gone, race), leave the registry alone
+			// so the user can retry — otherwise it advertises "closed" while
+			// the inner-socket session is still alive, and post-STA-1416 there
+			// is no `seedFromTmux` reaper to recover from that mismatch.
+			const tornDown = tearDownSpace(space.name, {
+				killSpaceSessions,
+				removeSpace,
+				onKillFailure: key =>
+					setHeaderWithTimeout(
+						`Failed to kill tmux sessions for ${key} — try again`,
+						5000,
+					),
+			});
+			if (!tornDown) return false;
 
 			if (paneLayout && currentSpace === space.name) {
 				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');

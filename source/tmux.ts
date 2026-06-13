@@ -15,6 +15,7 @@ import {
 import {createLogger} from './logger.ts';
 import {getRegisteredSpaces} from './space-registry.ts';
 import {isSimctlUnavailableError} from './simctl-check.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
 	calculateLayoutForSize,
@@ -440,6 +441,86 @@ export function cleanupOrphanedOuterSessions(
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned outer-socket session: ${name}`);
+			}
+		}
+		return killed;
+	} catch {
+		return 0;
+	}
+}
+
+/**
+ * Inner-socket runner: routes through `innerTmuxArgs` so calls hit
+ * `tmux -L pappardelle_inner`. Same shape as `OuterTmuxRunner` so
+ * `cleanupOrphanedInnerSessions` can share the injectable-runner test
+ * harness without duplicating the fake-runner plumbing.
+ */
+const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
+	const r = spawnSync('tmux', innerTmuxArgs(args), {
+		encoding: 'utf-8',
+		timeout: 5000,
+		stdio: ['pipe', 'pipe', 'pipe'],
+	});
+	return {
+		error: r.error,
+		status: r.status,
+		stdout: r.stdout ?? '',
+	};
+};
+
+/**
+ * STA-1420 layer 2: reap orphaned `claude-{repo}-*` / `lazygit-{repo}-*`
+ * sessions on the inner socket whose key is neither in the registry nor the
+ * main worktree (`'main'`). Symmetric to `cleanupOrphanedOuterSessions` but
+ * for inner-socket leftovers — these accumulate when Pappardelle is hard-quit
+ * (SIGKILL, terminal close, Ctrl-C during a slow `pre_workspace_deinit`)
+ * between unregistering and killing. STA-1416 removed the `seedFromTmux`
+ * resurrection helper that used to mop these up as a side effect, so without
+ * this reaper they'd linger forever on the inner socket.
+ *
+ * Conservative on purpose: only kills sessions whose key is missing from the
+ * registry AND isn't `MAIN_WORKTREE_KEY`. The main worktree row in app.tsx
+ * uses the same constant, so its sessions (`claude-{repo}-main`,
+ * `lazygit-{repo}-main`) are legitimate but never appear in the registry —
+ * the constant keeps the "never reap main" coupling explicit on both sides.
+ *
+ * `runner` is exposed for tests only; production uses the spawnSync default.
+ */
+export function cleanupOrphanedInnerSessions(
+	registeredKeys: Set<string>,
+	repoName?: string,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): number {
+	try {
+		const claudePrefix = getSessionPrefix('claude', repoName);
+		const lazygitPrefix = getSessionPrefix('lazygit', repoName);
+
+		const result = runner(['list-sessions', '-F', '#{session_name}']);
+		if (result.error || result.status !== 0) {
+			return 0;
+		}
+
+		const orphans: string[] = [];
+		for (const name of result.stdout.trim().split('\n')) {
+			let key: string | null = null;
+			if (name.startsWith(claudePrefix)) {
+				key = name.slice(claudePrefix.length);
+			} else if (name.startsWith(lazygitPrefix)) {
+				key = name.slice(lazygitPrefix.length);
+			} else {
+				continue;
+			}
+			if (key === MAIN_WORKTREE_KEY) continue;
+			if (registeredKeys.has(key)) continue;
+			orphans.push(name);
+		}
+
+		let killed = 0;
+		for (const name of orphans) {
+			const k = runner(['kill-session', '-t', name]);
+			if (!k.error && k.status === 0) {
+				killed++;
+				log.info(`Killed orphaned inner-socket session: ${name}`);
 			}
 		}
 		return killed;
