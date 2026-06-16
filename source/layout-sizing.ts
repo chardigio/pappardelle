@@ -16,8 +16,8 @@ export const NARROW_SCREEN_THRESHOLD = 100;
 export const MIN_LIST_WIDTH = 15;
 export const MAX_LIST_WIDTH = 40;
 export const MIN_CLAUDE_WIDTH = 40;
-export const MIN_LAZYGIT_WIDTH = 20; // Lazygit can be squished but needs at least this much
-export const MAX_LAZYGIT_WIDTH = 86; // 85 is the supposed breakpoint, but rounding errors sometimes cause vertical rendering at exactly 85, so we use 86 conservatively
+export const MIN_COMPANION_WIDTH = 20; // Companion can be squished but needs at least this much
+export const MAX_COMPANION_WIDTH = 86; // 85 is the supposed breakpoint, but rounding errors sometimes cause vertical rendering at exactly 85, so we use 86 conservatively
 
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 12;
@@ -38,7 +38,7 @@ export interface LayoutConfig {
 	// For horizontal layout: widths
 	listWidth?: number;
 	claudeWidth?: number;
-	lazygitWidth?: number;
+	companionWidth?: number;
 	// For vertical layout: heights
 	listHeight?: number;
 	claudeHeight?: number;
@@ -92,8 +92,8 @@ export function calculateIdealListHeightForCount(sessionCount: number): number {
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
- * - Narrow screens (< 100 chars): Vertical layout with list on top, claude below, no lazygit
- * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [lazygit]
+ * - Narrow screens (< 100 chars): Vertical layout with list on top, claude below, no companion
+ * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
  */
 export function calculateLayoutForSize(
 	totalWidth: number,
@@ -128,20 +128,20 @@ export function calculateLayoutForSize(
 	const usableWidth = totalWidth - 2;
 
 	// Minimum total required
-	const minTotal = MIN_LIST_WIDTH + MIN_CLAUDE_WIDTH + MIN_LAZYGIT_WIDTH;
+	const minTotal = MIN_LIST_WIDTH + MIN_CLAUDE_WIDTH + MIN_COMPANION_WIDTH;
 
 	if (usableWidth <= minTotal) {
-		// Very narrow: give each the minimum, lazygit may get nothing
+		// Very narrow: give each the minimum, companion may get nothing
 		const remaining = usableWidth - MIN_LIST_WIDTH - MIN_CLAUDE_WIDTH;
 		return {
 			direction: 'horizontal',
 			listWidth: MIN_LIST_WIDTH,
 			claudeWidth: MIN_CLAUDE_WIDTH,
-			lazygitWidth: Math.max(0, remaining),
+			companionWidth: Math.max(0, remaining),
 		};
 	}
 
-	// Target proportions: list ~24%, claude ~38%, lazygit ~38%
+	// Target proportions: list ~24%, claude ~38%, companion ~38%
 	// Calculate ideal widths as proportions of the total usable space,
 	// but clamp between min/max constraints.
 	let listWidth = Math.min(
@@ -149,13 +149,13 @@ export function calculateLayoutForSize(
 		Math.max(MIN_LIST_WIDTH, Math.floor(usableWidth * 0.24)),
 	);
 	let claudeWidth = Math.max(MIN_CLAUDE_WIDTH, Math.floor(usableWidth * 0.38));
-	let lazygitWidth = usableWidth - listWidth - claudeWidth;
+	let companionWidth = usableWidth - listWidth - claudeWidth;
 
-	// Ensure lazygit doesn't go below minimum (give back from largest panes)
-	if (lazygitWidth < MIN_LAZYGIT_WIDTH) {
-		lazygitWidth = MIN_LAZYGIT_WIDTH;
+	// Ensure companion doesn't go below minimum (give back from largest panes)
+	if (companionWidth < MIN_COMPANION_WIDTH) {
+		companionWidth = MIN_COMPANION_WIDTH;
 		// Redistribute remaining between list and claude proportionally
-		const remaining = usableWidth - lazygitWidth;
+		const remaining = usableWidth - companionWidth;
 		listWidth = Math.min(
 			MAX_LIST_WIDTH,
 			Math.max(MIN_LIST_WIDTH, Math.floor((remaining * 0.24) / 0.62)),
@@ -163,10 +163,10 @@ export function calculateLayoutForSize(
 		claudeWidth = remaining - listWidth;
 	}
 
-	// Cap lazygit at maximum, give excess to claude
-	if (lazygitWidth > MAX_LAZYGIT_WIDTH) {
-		const excess = lazygitWidth - MAX_LAZYGIT_WIDTH;
-		lazygitWidth = MAX_LAZYGIT_WIDTH;
+	// Cap companion at maximum, give excess to claude
+	if (companionWidth > MAX_COMPANION_WIDTH) {
+		const excess = companionWidth - MAX_COMPANION_WIDTH;
+		companionWidth = MAX_COMPANION_WIDTH;
 		claudeWidth += excess;
 	}
 
@@ -174,6 +174,6 @@ export function calculateLayoutForSize(
 		direction: 'horizontal',
 		listWidth,
 		claudeWidth,
-		lazygitWidth,
+		companionWidth,
 	};
 }

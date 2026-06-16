@@ -12,6 +12,7 @@
  */
 
 import {useEffect} from 'react';
+import {type Buffer} from 'node:buffer';
 
 export interface MouseEvent {
 	/** 0-based column */
@@ -24,13 +25,16 @@ export interface MouseEvent {
 type MouseCallback = (event: MouseEvent) => void;
 
 // SGR mouse sequence regex: ESC [ < button ; col ; row M/m
+// eslint-disable-next-line no-control-regex
 const SGR_MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 
 function parseButton(
 	code: number,
 ): 'left' | 'right' | 'middle' | 'scrollUp' | 'scrollDown' | null {
 	// Low 2 bits encode button, bit 6 (64) marks scroll events
+	// eslint-disable-next-line no-bitwise
 	const base = code & 0x03;
+	// eslint-disable-next-line no-bitwise
 	const isScroll = (code & 64) !== 0;
 
 	if (isScroll) {
@@ -38,14 +42,18 @@ function parseButton(
 	}
 
 	switch (base) {
-		case 0:
+		case 0: {
 			return 'left';
-		case 1:
+		}
+		case 1: {
 			return 'middle';
-		case 2:
+		}
+		case 2: {
 			return 'right';
-		default:
+		}
+		default: {
 			return null;
+		}
 	}
 }
 

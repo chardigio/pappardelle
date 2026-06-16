@@ -88,7 +88,7 @@ export function getSpaceCount(
 
 /**
  * Build idow args for creating a new session.
- * idow always creates Claude/lazygit tmux sessions.
+ * idow always creates Claude/companion tmux sessions.
  * Pass --open to also open iTerm, apps, links, etc.
  *
  * When the caller has already decided which profile to use, forward it as

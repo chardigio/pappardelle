@@ -45,6 +45,7 @@ export interface ClaudeSessionState {
 export interface SpaceData {
 	name: string; // Issue key (e.g., STA-123) or branch name for main worktree
 	statusKey?: string; // Repo-qualified key for status file lookups (e.g., "pappa-chex-main"); defaults to name
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	linearIssue?: LinearIssue;
 	/** Provider-agnostic alias for linearIssue. Prefer this in new code. */
 	trackerIssue?: TrackerIssue;
@@ -65,7 +66,7 @@ export interface SpaceData {
 export interface PaneLayout {
 	listPaneId: string;
 	claudeViewerPaneId: string; // Viewer pane that attaches to claude-STA-XXX session
-	lazygitViewerPaneId: string; // Viewer pane that attaches to lazygit-STA-XXX session
+	companionViewerPaneId: string; // Viewer pane that attaches to companion-STA-XXX session
 }
 
 // Statuses that are stable and should never become stale

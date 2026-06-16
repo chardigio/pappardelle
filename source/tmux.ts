@@ -1,5 +1,5 @@
 // Tmux session attachment for pappardelle
-// Attaches to existing claude-STA-XXX and lazygit-STA-XXX sessions created by idow
+// Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execSync, spawnSync} from 'node:child_process';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -8,6 +8,8 @@ import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
 import {
+	DEFAULT_COMPANION_COMMAND,
+	getCompanionCommand,
 	getDangerouslySkipPermissions,
 	getRepoName,
 	loadConfig,
@@ -19,7 +21,7 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
 	calculateLayoutForSize,
-	MIN_LAZYGIT_WIDTH,
+	MIN_COMPANION_WIDTH,
 	NARROW_SCREEN_THRESHOLD,
 	type LayoutConfig,
 } from './layout-sizing.ts';
@@ -31,7 +33,7 @@ export {
 	NARROW_SCREEN_THRESHOLD,
 	MIN_LIST_WIDTH,
 	MIN_CLAUDE_WIDTH,
-	MIN_LAZYGIT_WIDTH,
+	MIN_COMPANION_WIDTH,
 	MAX_LIST_HEIGHT,
 	DEFAULT_MIN_LIST_HEIGHT,
 	type LayoutConfig,
@@ -39,7 +41,7 @@ export {
 
 const log = createLogger('tmux');
 
-// Dedicated tmux socket for per-issue claude/lazygit sessions. The root
+// Dedicated tmux socket for per-issue claude/companion sessions. The root
 // `pappardelle-{repo}` session and its layout panes stay on the default
 // socket; everything the viewer panes attach to lives here. Routing inner
 // sessions onto a distinct socket lets the nested attach succeed without
@@ -64,7 +66,7 @@ export function innerTmuxArgs(args: readonly string[]): string[] {
  * e.g. getSessionPrefix('claude', 'pappa-chex') → 'claude-pappa-chex-'
  */
 export function getSessionPrefix(
-	type: 'claude' | 'lazygit',
+	type: 'claude' | 'companion',
 	repoName?: string,
 ): string {
 	const repo = repoName ?? getRepoName();
@@ -90,11 +92,11 @@ let currentlyViewingSpace: string | null = null;
 
 // Track if panes have active nested tmux clients (vs just shell)
 let claudeViewerHasClient = false;
-let lazygitViewerHasClient = false;
+let companionViewerHasClient = false;
 
 // Cache pane TTYs for fast client switching
 let claudeViewerTty: string | null = null;
-let lazygitViewerTty: string | null = null;
+let companionViewerTty: string | null = null;
 
 /**
  * Check if running inside tmux
@@ -105,7 +107,7 @@ export function isInTmux(): boolean {
 
 /**
  * Check if a tmux session exists on the default socket. Used for the outer
- * `pappardelle-{repo}` session. Do not call for per-issue claude/lazygit
+ * `pappardelle-{repo}` session. Do not call for per-issue claude/companion
  * sessions — those live on the inner socket; use `innerSessionExists` instead.
  */
 export function sessionExists(sessionName: string): boolean {
@@ -151,13 +153,13 @@ export function getSessionNames(
 	repoName?: string,
 ): {
 	claude: string;
-	lazygit: string;
+	companion: string;
 } {
 	const claudePrefix = getSessionPrefix('claude', repoName);
-	const lazygitPrefix = getSessionPrefix('lazygit', repoName);
+	const companionPrefix = getSessionPrefix('companion', repoName);
 	return {
 		claude: `${claudePrefix}${issueKey}`,
-		lazygit: `${lazygitPrefix}${issueKey}`,
+		companion: `${companionPrefix}${issueKey}`,
 	};
 }
 
@@ -199,12 +201,12 @@ export function buildClaudeResumeCommand(
  */
 export function spaceHasSessions(issueKey: string): {
 	claude: boolean;
-	lazygit: boolean;
+	companion: boolean;
 } {
 	const names = getSessionNames(issueKey);
 	return {
 		claude: innerSessionExists(names.claude),
-		lazygit: innerSessionExists(names.lazygit),
+		companion: innerSessionExists(names.companion),
 	};
 }
 
@@ -341,7 +343,7 @@ export function killSession(sessionName: string): boolean {
 
 /**
  * Kill a tmux session by name on the inner socket. Used for per-issue
- * claude/lazygit sessions.
+ * claude/companion sessions.
  */
 export function innerKillSession(sessionName: string): boolean {
 	try {
@@ -401,7 +403,7 @@ const defaultOuterTmuxRunner: OuterTmuxRunner = args => {
 };
 
 /**
- * Kill any leftover `claude-{repo}-*` and `lazygit-{repo}-*` sessions still
+ * Kill any leftover `claude-{repo}-*` and `companion-{repo}-*` sessions still
  * living on the default tmux socket from a pre-STA-860 Pappardelle run. They
  * can't be migrated (tmux doesn't move sessions between servers), so we drop
  * them and let idow/Pappardelle recreate them on the inner socket.
@@ -421,7 +423,11 @@ export function cleanupOrphanedOuterSessions(
 ): number {
 	try {
 		const claudePrefix = getSessionPrefix('claude', repoName);
-		const lazygitPrefix = getSessionPrefix('lazygit', repoName);
+		const companionPrefix = getSessionPrefix('companion', repoName);
+		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Sweep that
+		// legacy prefix too so an upgrade doesn't strand old git-UI sessions.
+		const repo = repoName ?? getRepoName();
+		const legacyCompanionPrefix = `lazygit-${repo}-`;
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -432,7 +438,10 @@ export function cleanupOrphanedOuterSessions(
 			.trim()
 			.split('\n')
 			.filter(
-				name => name.startsWith(claudePrefix) || name.startsWith(lazygitPrefix),
+				name =>
+					name.startsWith(claudePrefix) ||
+					name.startsWith(companionPrefix) ||
+					name.startsWith(legacyCompanionPrefix),
 			);
 
 		let killed = 0;
@@ -469,8 +478,9 @@ const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
 };
 
 /**
- * STA-1420 layer 2: reap orphaned `claude-{repo}-*` / `lazygit-{repo}-*`
- * sessions on the inner socket whose key is neither in the registry nor the
+ * STA-1420 layer 2: reap orphaned `claude-{repo}-*` / `companion-{repo}-*`
+ * (and legacy `lazygit-{repo}-*`) sessions on the inner socket whose key is
+ * neither in the registry nor the
  * main worktree (`'main'`). Symmetric to `cleanupOrphanedOuterSessions` but
  * for inner-socket leftovers — these accumulate when Pappardelle is hard-quit
  * (SIGKILL, terminal close, Ctrl-C during a slow `pre_workspace_deinit`)
@@ -481,7 +491,7 @@ const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
  * Conservative on purpose: only kills sessions whose key is missing from the
  * registry AND isn't `MAIN_WORKTREE_KEY`. The main worktree row in app.tsx
  * uses the same constant, so its sessions (`claude-{repo}-main`,
- * `lazygit-{repo}-main`) are legitimate but never appear in the registry —
+ * `companion-{repo}-main`) are legitimate but never appear in the registry —
  * the constant keeps the "never reap main" coupling explicit on both sides.
  *
  * `runner` is exposed for tests only; production uses the spawnSync default.
@@ -493,7 +503,12 @@ export function cleanupOrphanedInnerSessions(
 ): number {
 	try {
 		const claudePrefix = getSessionPrefix('claude', repoName);
-		const lazygitPrefix = getSessionPrefix('lazygit', repoName);
+		const companionPrefix = getSessionPrefix('companion', repoName);
+		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Reap that
+		// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
+		// git-UI sessions on the inner socket. Mirrors cleanupOrphanedOuterSessions.
+		const repo = repoName ?? getRepoName();
+		const legacyCompanionPrefix = `lazygit-${repo}-`;
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -505,8 +520,10 @@ export function cleanupOrphanedInnerSessions(
 			let key: string | null = null;
 			if (name.startsWith(claudePrefix)) {
 				key = name.slice(claudePrefix.length);
-			} else if (name.startsWith(lazygitPrefix)) {
-				key = name.slice(lazygitPrefix.length);
+			} else if (name.startsWith(companionPrefix)) {
+				key = name.slice(companionPrefix.length);
+			} else if (name.startsWith(legacyCompanionPrefix)) {
+				key = name.slice(legacyCompanionPrefix.length);
 			} else {
 				continue;
 			}
@@ -612,13 +629,13 @@ export function deleteQaSimulator(issueKey: string): boolean {
 }
 
 /**
- * Kill both claude and lazygit sessions for a space, and delete the QA simulator
+ * Kill both claude and companion sessions for a space, and delete the QA simulator
  * Returns true if all sessions were killed successfully
  */
 export function killSpaceSessions(issueKey: string): boolean {
 	const sessions = getSessionNames(issueKey);
 	const claudeKilled = innerKillSession(sessions.claude);
-	const lazygitKilled = innerKillSession(sessions.lazygit);
+	const companionKilled = innerKillSession(sessions.companion);
 
 	// Delete the QA simulator (runs in background, doesn't block)
 	deleteQaSimulator(issueKey);
@@ -627,10 +644,10 @@ export function killSpaceSessions(issueKey: string): boolean {
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
 		claudeViewerHasClient = false;
-		lazygitViewerHasClient = false;
+		companionViewerHasClient = false;
 	}
 
-	return claudeKilled && lazygitKilled;
+	return claudeKilled && companionKilled;
 }
 
 /**
@@ -870,16 +887,16 @@ export function isVerticalLayout(): boolean {
 
 /**
  * Set up the pane layout for pappardelle
- * Returns pane IDs for [list, claudeViewer, lazygitViewer]
+ * Returns pane IDs for [list, claudeViewer, companionViewer]
  *
  * Layout depends on screen width:
- * - Narrow screens (< 100 chars): Vertical layout [list on top] [claude below], no lazygit
- * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [lazygit]
+ * - Narrow screens (< 100 chars): Vertical layout [list on top] [claude below], no companion
+ * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
  */
 export function setupPappardellLayout(): {
 	listPaneId: string;
 	claudeViewerPaneId: string;
-	lazygitViewerPaneId: string;
+	companionViewerPaneId: string;
 } | null {
 	try {
 		// Get current pane from TMUX_PANE env var
@@ -901,10 +918,10 @@ export function setupPappardellLayout(): {
 		);
 
 		let claudeViewerPaneId: string;
-		let lazygitViewerPaneId = ''; // Empty by default (not created for vertical layout)
+		let companionViewerPaneId = ''; // Empty by default (not created for vertical layout)
 
 		if (layout.direction === 'vertical') {
-			// VERTICAL LAYOUT: list on top, claude below, no lazygit
+			// VERTICAL LAYOUT: list on top, claude below, no companion
 			// Use -v for vertical split (top/bottom)
 			const claudeResult = spawnSync(
 				'tmux',
@@ -937,10 +954,10 @@ export function setupPappardellLayout(): {
 				`Vertical layout: list=${layout.listHeight} rows, claude=${layout.claudeHeight} rows`,
 			);
 		} else {
-			// HORIZONTAL LAYOUT: list | claude | lazygit (existing logic)
-			// Create the right portion (claude + lazygit combined)
+			// HORIZONTAL LAYOUT: list | claude | companion (existing logic)
+			// Create the right portion (claude + companion combined)
 			const rightPortionWidth =
-				(layout.claudeWidth ?? 40) + (layout.lazygitWidth ?? 0) + 1; // +1 for border
+				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
 
 			const claudeResult = spawnSync(
 				'tmux',
@@ -969,10 +986,10 @@ export function setupPappardellLayout(): {
 
 			claudeViewerPaneId = claudeResult.stdout.trim();
 
-			// Create right pane (lazygit viewer) from the claude pane
-			// Only create if we have space for lazygit
-			if ((layout.lazygitWidth ?? 0) >= MIN_LAZYGIT_WIDTH) {
-				const lazygitResult = spawnSync(
+			// Create right pane (companion viewer) from the claude pane
+			// Only create if we have space for companion
+			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
+				const companionResult = spawnSync(
 					'tmux',
 					[
 						'split-window',
@@ -982,7 +999,7 @@ export function setupPappardellLayout(): {
 						'-c',
 						cwd,
 						'-l',
-						String(layout.lazygitWidth),
+						String(layout.companionWidth),
 						'-P',
 						'-F',
 						'#{pane_id}',
@@ -990,22 +1007,22 @@ export function setupPappardellLayout(): {
 					{encoding: 'utf-8', timeout: 10000},
 				);
 
-				if (lazygitResult.error || lazygitResult.status !== 0) {
+				if (companionResult.error || companionResult.status !== 0) {
 					log.error(
-						`Failed to create lazygit viewer pane: ${lazygitResult.stderr}`,
+						`Failed to create companion viewer pane: ${companionResult.stderr}`,
 					);
-					// Continue without lazygit pane
+					// Continue without companion pane
 				} else {
-					lazygitViewerPaneId = lazygitResult.stdout.trim();
+					companionViewerPaneId = companionResult.stdout.trim();
 				}
 			} else {
 				log.info(
-					`Not enough space for lazygit pane (need ${MIN_LAZYGIT_WIDTH}, have ${layout.lazygitWidth})`,
+					`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
 				);
 			}
 
 			log.info(
-				`Horizontal layout: list=${layout.listWidth}, claude=${layout.claudeWidth}, lazygit=${layout.lazygitWidth}`,
+				`Horizontal layout: list=${layout.listWidth}, claude=${layout.claudeWidth}, companion=${layout.companionWidth}`,
 			);
 		}
 
@@ -1018,9 +1035,9 @@ export function setupPappardellLayout(): {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
-		if (lazygitViewerPaneId) {
+		if (companionViewerPaneId) {
 			execSync(
-				`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`,
+				`tmux select-pane -t "${companionViewerPaneId}" -T "companion-viewer"`,
 				{
 					encoding: 'utf-8',
 					timeout: 5000,
@@ -1046,12 +1063,12 @@ export function setupPappardellLayout(): {
 		});
 
 		log.info(
-			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, lazygit=${
-				lazygitViewerPaneId || '(none)'
+			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, companion=${
+				companionViewerPaneId || '(none)'
 			}`,
 		);
 
-		return {listPaneId, claudeViewerPaneId, lazygitViewerPaneId};
+		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
 			'Failed to set up pappardelle layout',
@@ -1073,10 +1090,11 @@ export function setupPappardellLayout(): {
  */
 export function attachToSpace(
 	claudeViewerPaneId: string,
-	lazygitViewerPaneId: string,
+	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
 	mainWorktreePath?: string,
+	issueTitle?: string,
 ): boolean {
 	// If already viewing this space, nothing to do
 	if (currentlyViewingSpace === issueKey) {
@@ -1085,33 +1103,39 @@ export function attachToSpace(
 
 	const sessions = getSessionNames(issueKey);
 
-	// Load config once for all session creation
+	// Load config once for all session creation. The companion command is
+	// resolved profile-aware (via the issue title) so a per-project profile can
+	// override the default git UI — this matters only when the companion session
+	// doesn't already exist (idow creates it with the same resolution at
+	// workspace-create time).
 	let skipPermissions = false;
+	let companionCommand = DEFAULT_COMPANION_COMMAND;
 	try {
 		const config = loadConfig();
 		skipPermissions = getDangerouslySkipPermissions(config);
+		companionCommand = getCompanionCommand(config, issueTitle);
 	} catch {
-		// Config load failed — use safe default
+		// Config load failed — use safe defaults
 	}
 
 	// Ensure sessions exist (create if needed)
 	if (mainWorktreePath) {
 		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions);
-		ensureLazygitSession(issueKey, mainWorktreePath);
+		ensureCompanionSession(issueKey, mainWorktreePath, companionCommand);
 	} else {
 		ensureClaudeSession(issueKey, undefined, skipPermissions);
-		ensureLazygitSession(issueKey);
+		ensureCompanionSession(issueKey, undefined, companionCommand);
 	}
 
 	const hasClaudeSession = innerSessionExists(sessions.claude);
-	const hasLazygitSession = innerSessionExists(sessions.lazygit);
+	const hasCompanionSession = innerSessionExists(sessions.companion);
 
 	// Cache pane TTYs if we haven't yet (needed for switch-client)
 	if (!claudeViewerTty) {
 		claudeViewerTty = getPaneTty(claudeViewerPaneId);
 	}
-	if (!lazygitViewerTty && lazygitViewerPaneId) {
-		lazygitViewerTty = getPaneTty(lazygitViewerPaneId);
+	if (!companionViewerTty && companionViewerPaneId) {
+		companionViewerTty = getPaneTty(companionViewerPaneId);
 	}
 
 	try {
@@ -1153,43 +1177,43 @@ export function attachToSpace(
 			);
 		}
 
-		// Handle lazygit viewer pane (only if we have one - may not exist on narrow screens)
-		if (lazygitViewerPaneId) {
-			if (hasLazygitSession) {
+		// Handle companion viewer pane (only if we have one - may not exist on narrow screens)
+		if (companionViewerPaneId) {
+			if (hasCompanionSession) {
 				// Check if we already have a nested client running in this pane
 				const hasExistingClient =
-					lazygitViewerTty && clientExistsOnTty(lazygitViewerTty);
+					companionViewerTty && clientExistsOnTty(companionViewerTty);
 
-				if (hasExistingClient && lazygitViewerHasClient) {
+				if (hasExistingClient && companionViewerHasClient) {
 					// Fast path: switch the existing client to the new session
-					switchClientToSession(lazygitViewerTty!, sessions.lazygit);
+					switchClientToSession(companionViewerTty!, sessions.companion);
 					log.debug(
-						`Switched lazygit viewer to ${sessions.lazygit} via switch-client`,
+						`Switched companion viewer to ${sessions.companion} via switch-client`,
 					);
 				} else {
 					// Slow path: create a new nested client on the inner socket.
 					sendToPane(
-						lazygitViewerPaneId,
-						`tmux -L ${INNER_SOCKET} attach -t "${sessions.lazygit}"`,
+						companionViewerPaneId,
+						`tmux -L ${INNER_SOCKET} attach -t "${sessions.companion}"`,
 					);
-					lazygitViewerHasClient = true;
+					companionViewerHasClient = true;
 					log.info(
-						`Attached lazygit viewer to ${sessions.lazygit} via send-keys`,
+						`Attached companion viewer to ${sessions.companion} via send-keys`,
 					);
 				}
 			} else {
 				// No session - show message
-				if (lazygitViewerHasClient && lazygitViewerTty) {
-					detachInPane(lazygitViewerPaneId);
-					lazygitViewerHasClient = false;
+				if (companionViewerHasClient && companionViewerTty) {
+					detachInPane(companionViewerPaneId);
+					companionViewerHasClient = false;
 				}
 				sendToPane(
-					lazygitViewerPaneId,
-					`clear && echo "No lazygit session for ${issueKey}"`,
+					companionViewerPaneId,
+					`clear && echo "No companion session for ${issueKey}"`,
 				);
 			}
 		} else {
-			lazygitViewerHasClient = false;
+			companionViewerHasClient = false;
 		}
 
 		// Return focus to the list pane
@@ -1289,11 +1313,11 @@ function killPane(paneId: string): boolean {
 export function rebuildLayout(
 	listPaneId: string,
 	oldClaudeViewerPaneId: string,
-	oldLazygitViewerPaneId: string,
+	oldCompanionViewerPaneId: string,
 ): {
 	listPaneId: string;
 	claudeViewerPaneId: string;
-	lazygitViewerPaneId: string;
+	companionViewerPaneId: string;
 } | null {
 	try {
 		// Detach any nested clients before killing panes
@@ -1303,18 +1327,18 @@ export function rebuildLayout(
 			}
 			killPane(oldClaudeViewerPaneId);
 		}
-		if (oldLazygitViewerPaneId) {
-			if (lazygitViewerHasClient) {
-				detachInPane(oldLazygitViewerPaneId);
+		if (oldCompanionViewerPaneId) {
+			if (companionViewerHasClient) {
+				detachInPane(oldCompanionViewerPaneId);
 			}
-			killPane(oldLazygitViewerPaneId);
+			killPane(oldCompanionViewerPaneId);
 		}
 
 		// Reset cached state since panes are destroyed
 		claudeViewerHasClient = false;
-		lazygitViewerHasClient = false;
+		companionViewerHasClient = false;
 		claudeViewerTty = null;
-		lazygitViewerTty = null;
+		companionViewerTty = null;
 		currentlyViewingSpace = null;
 
 		const cwd = process.cwd();
@@ -1334,7 +1358,7 @@ export function rebuildLayout(
 		);
 
 		let claudeViewerPaneId: string;
-		let lazygitViewerPaneId = '';
+		let companionViewerPaneId = '';
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL: list on top, claude below
@@ -1368,9 +1392,9 @@ export function rebuildLayout(
 				`Rebuilt vertical: list=${layout.listHeight}, claude=${layout.claudeHeight}`,
 			);
 		} else {
-			// HORIZONTAL: list | claude | lazygit
+			// HORIZONTAL: list | claude | companion
 			const rightPortionWidth =
-				(layout.claudeWidth ?? 40) + (layout.lazygitWidth ?? 0) + 1;
+				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
 
 			const claudeResult = spawnSync(
 				'tmux',
@@ -1398,8 +1422,8 @@ export function rebuildLayout(
 			}
 			claudeViewerPaneId = claudeResult.stdout.trim();
 
-			if ((layout.lazygitWidth ?? 0) >= MIN_LAZYGIT_WIDTH) {
-				const lazygitResult = spawnSync(
+			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
+				const companionResult = spawnSync(
 					'tmux',
 					[
 						'split-window',
@@ -1409,7 +1433,7 @@ export function rebuildLayout(
 						'-c',
 						cwd,
 						'-l',
-						String(layout.lazygitWidth),
+						String(layout.companionWidth),
 						'-P',
 						'-F',
 						'#{pane_id}',
@@ -1417,13 +1441,13 @@ export function rebuildLayout(
 					{encoding: 'utf-8', timeout: 10000},
 				);
 
-				if (!lazygitResult.error && lazygitResult.status === 0) {
-					lazygitViewerPaneId = lazygitResult.stdout.trim();
+				if (!companionResult.error && companionResult.status === 0) {
+					companionViewerPaneId = companionResult.stdout.trim();
 				}
 			}
 
 			log.info(
-				`Rebuilt horizontal: list=${layout.listWidth}, claude=${layout.claudeWidth}, lazygit=${layout.lazygitWidth}`,
+				`Rebuilt horizontal: list=${layout.listWidth}, claude=${layout.claudeWidth}, companion=${layout.companionWidth}`,
 			);
 		}
 
@@ -1433,9 +1457,9 @@ export function rebuildLayout(
 				`tmux select-pane -t "${claudeViewerPaneId}" -T "claude-viewer"`,
 				{encoding: 'utf-8', timeout: 5000},
 			);
-			if (lazygitViewerPaneId) {
+			if (companionViewerPaneId) {
 				execSync(
-					`tmux select-pane -t "${lazygitViewerPaneId}" -T "lazygit-viewer"`,
+					`tmux select-pane -t "${companionViewerPaneId}" -T "companion-viewer"`,
 					{encoding: 'utf-8', timeout: 5000},
 				);
 			}
@@ -1450,10 +1474,10 @@ export function rebuildLayout(
 		});
 
 		log.info(
-			`Layout rebuilt: claude=${claudeViewerPaneId}, lazygit=${lazygitViewerPaneId || '(none)'}`,
+			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		return {listPaneId, claudeViewerPaneId, lazygitViewerPaneId};
+		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
 			'Failed to rebuild layout',
@@ -1467,7 +1491,7 @@ export function rebuildLayout(
  * Relayout tmux panes based on current terminal dimensions.
  * Call this when the terminal is resized to keep panes properly proportioned.
  *
- * For horizontal layout: resizes list and lazygit widths (claude gets remainder)
+ * For horizontal layout: resizes list and companion widths (claude gets remainder)
  * For vertical layout: resizes list height (claude gets remainder)
  *
  * This only re-proportions within the current layout mode. For switching between
@@ -1475,7 +1499,7 @@ export function rebuildLayout(
  */
 export function relayoutPanes(
 	listPaneId: string,
-	lazygitViewerPaneId: string,
+	companionViewerPaneId: string,
 ): boolean {
 	try {
 		// Get current terminal dimensions from the window (not individual panes)
@@ -1494,7 +1518,7 @@ export function relayoutPanes(
 
 		if (layout.direction === 'vertical') {
 			// Vertical: resize list pane height, claude gets remainder
-			if (layout.listHeight != null) {
+			if (layout.listHeight !== undefined) {
 				const result = spawnSync(
 					'tmux',
 					['resize-pane', '-t', listPaneId, '-y', String(layout.listHeight)],
@@ -1506,8 +1530,8 @@ export function relayoutPanes(
 				}
 			}
 		} else {
-			// Horizontal: resize list width and lazygit width, claude gets remainder
-			if (layout.listWidth != null) {
+			// Horizontal: resize list width and companion width, claude gets remainder
+			if (layout.listWidth !== undefined) {
 				const result = spawnSync(
 					'tmux',
 					['resize-pane', '-t', listPaneId, '-x', String(layout.listWidth)],
@@ -1519,20 +1543,20 @@ export function relayoutPanes(
 				}
 			}
 
-			if (lazygitViewerPaneId && layout.lazygitWidth != null) {
+			if (companionViewerPaneId && layout.companionWidth !== undefined) {
 				const result = spawnSync(
 					'tmux',
 					[
 						'resize-pane',
 						'-t',
-						lazygitViewerPaneId,
+						companionViewerPaneId,
 						'-x',
-						String(layout.lazygitWidth),
+						String(layout.companionWidth),
 					],
 					{encoding: 'utf-8', timeout: 5000},
 				);
 				if (result.error || result.status !== 0) {
-					log.error(`Failed to resize lazygit pane width: ${result.stderr}`);
+					log.error(`Failed to resize companion pane width: ${result.stderr}`);
 					// Non-fatal, continue
 				}
 			}
@@ -1807,17 +1831,23 @@ export function ensureClaudeSession(
 }
 
 /**
- * Create a lazygit session for an issue if it doesn't exist
+ * Create a companion session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
- * Creates a shell-based session (not running lazygit directly) so the session
- * persists even if lazygit exits. This matches how claude sessions work.
+ * Creates a shell-based session (not running the companion command directly) so
+ * the session persists even if that command exits. This matches how claude
+ * sessions work.
+ *
+ * `companionCommand` is the shell command run in the pane — defaults to gitui
+ * (see DEFAULT_COMPANION_COMMAND) and is overridable via the `companion_command`
+ * config field. An empty/whitespace-only command leaves a plain shell.
  */
-export function ensureLazygitSession(
+export function ensureCompanionSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
+	companionCommand: string = DEFAULT_COMPANION_COMMAND,
 ): boolean {
-	const sessionName = getSessionNames(issueKey).lazygit;
+	const sessionName = getSessionNames(issueKey).companion;
 
 	// Already exists on the inner socket?
 	if (innerSessionExists(sessionName)) {
@@ -1827,14 +1857,14 @@ export function ensureLazygitSession(
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
 		log.warn(
-			`Cannot create lazygit session for ${issueKey}: no worktree found`,
+			`Cannot create companion session for ${issueKey}: no worktree found`,
 		);
 		return false;
 	}
 
 	try {
-		// Detached shell-based session (not running lazygit directly) so it
-		// persists even if lazygit exits.
+		// Detached shell-based session (not running the companion command directly)
+		// so it persists even if that command exits.
 		const result = spawnSync(
 			'tmux',
 			innerTmuxArgs([
@@ -1849,33 +1879,38 @@ export function ensureLazygitSession(
 		);
 
 		if (result.error || result.status !== 0) {
-			log.error(`Failed to create lazygit session: ${result.stderr}`);
+			log.error(`Failed to create companion session: ${result.stderr}`);
 			return false;
 		}
 
-		// GIT_OPTIONAL_LOCKS=0 prevents git from acquiring locks for read-only
-		// operations like `git status`, avoiding lock contention when other
-		// tools (e.g. Claude Code) are running git concurrently.
-		spawnSync(
-			'tmux',
-			innerTmuxArgs([
-				'send-keys',
-				'-t',
-				sessionName,
-				'GIT_OPTIONAL_LOCKS=0 lazygit',
-				'Enter',
-			]),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-			},
-		);
+		// An empty command means "leave a plain shell" — create the session but
+		// don't launch anything into it.
+		if (companionCommand.trim() !== '') {
+			// The default command carries GIT_OPTIONAL_LOCKS=0, which keeps the git
+			// UI from acquiring locks for read-only ops like `git status`, avoiding
+			// contention with Claude's concurrent git calls. Custom commands run
+			// verbatim.
+			spawnSync(
+				'tmux',
+				innerTmuxArgs([
+					'send-keys',
+					'-t',
+					sessionName,
+					companionCommand,
+					'Enter',
+				]),
+				{
+					encoding: 'utf-8',
+					timeout: 5000,
+				},
+			);
+		}
 
-		log.info(`Created lazygit session: ${sessionName}`);
+		log.info(`Created companion session: ${sessionName}`);
 		return true;
 	} catch (err) {
 		log.error(
-			`Failed to create lazygit session for ${issueKey}`,
+			`Failed to create companion session for ${issueKey}`,
 			err instanceof Error ? err : undefined,
 		);
 		return false;

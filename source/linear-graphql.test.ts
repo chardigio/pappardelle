@@ -239,7 +239,6 @@ test('fetch throw returns null (network error → CLI fallback)', async t => {
 test('aborts when timeout fires before fetch resolves', async t => {
 	let abortFired = false;
 	const fetchImpl: FetchLike = async (_url, init) =>
-		// eslint-disable-next-line no-promise-executor-return
 		new Promise((_resolve, reject) => {
 			init.signal.addEventListener('abort', () => {
 				abortFired = true;

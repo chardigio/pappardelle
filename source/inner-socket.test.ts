@@ -1,4 +1,4 @@
-// Tests for the inner-socket routing that isolates per-issue claude/lazygit
+// Tests for the inner-socket routing that isolates per-issue claude/companion
 // sessions onto `tmux -L pappardelle_inner`. See STA-860.
 //
 // The point of these tests is not to exercise real tmux (that belongs in the
@@ -55,13 +55,39 @@ test('innerTmuxArgs does not mutate the input array', t => {
 // ============================================================================
 
 test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
-	// The two call sites that create claude/lazygit sessions (ensureClaudeSession
-	// and ensureLazygitSession) both call innerTmuxArgs with 'new-session'.
+	// The two call sites that create claude/companion sessions (ensureClaudeSession
+	// and ensureCompanionSession) both call innerTmuxArgs with 'new-session'.
 	const matches =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"]/g) ?? [];
 	t.true(
 		matches.length >= 2,
 		`expected >=2 innerTmuxArgs(['new-session', ...]) call sites, got ${matches.length}`,
+	);
+});
+
+test('companion session launches the configurable command, never a hardcoded git UI', t => {
+	// STA-1464: the companion pane runs `companionCommand` (resolved from
+	// config, default gitui) — not a hardcoded tool. Guard against a regression
+	// that reintroduces a literal `lazygit`/`gitui` invocation here.
+	t.regex(
+		TMUX_SOURCE,
+		/send-keys[\s\S]{0,80}?companionCommand/,
+		'ensureCompanionSession must send the companionCommand variable',
+	);
+	t.notRegex(
+		TMUX_SOURCE,
+		/GIT_OPTIONAL_LOCKS=0 (lazygit|gitui)/,
+		'the companion command must come from config (DEFAULT_COMPANION_COMMAND lives in config.ts), not a tmux.ts literal',
+	);
+});
+
+test('companion session skips send-keys when the command is empty (plain shell)', t => {
+	// An empty companion_command means "leave a plain shell" — the send-keys must
+	// be guarded so we do not type an empty command into the pane.
+	t.regex(
+		TMUX_SOURCE,
+		/companionCommand\.trim\(\)\s*!==\s*''/,
+		'ensureCompanionSession must guard the command send on a non-empty companionCommand',
 	);
 });
 
@@ -225,12 +251,12 @@ test('cleanupOrphanedOuterSessions returns 0 when list-sessions throws', t => {
 	t.is(calls.length, 1);
 });
 
-test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / lazygit-{repo}-*', t => {
+test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / companion-{repo}-*', t => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'pappardelle-repo', // outer root — keep
 			'claude-repo-STA-1', // kill
-			'lazygit-repo-STA-1', // kill
+			'companion-repo-STA-1', // kill
 			'claude-otherrepo-STA-2', // different repo — keep
 			'claude-repo-foo', // kill (matches prefix even without issue-key shape)
 			'unrelated-session', // keep
@@ -245,8 +271,27 @@ test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / lazygit-{repo}-*
 	t.deepEqual(killed, [
 		'claude-repo-STA-1',
 		'claude-repo-foo',
-		'lazygit-repo-STA-1',
+		'companion-repo-STA-1',
 	]);
+});
+
+test('cleanupOrphanedOuterSessions sweeps legacy lazygit-{repo}-* sessions (STA-1464 upgrade)', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'pappardelle-repo', // outer root — keep
+			'companion-repo-STA-1', // kill (new name)
+			'lazygit-repo-STA-1', // kill (pre-STA-1464 companion name)
+			'lazygit-otherrepo-STA-2', // different repo — keep
+			'unrelated-session', // keep
+		].join('\n'),
+	});
+	t.is(cleanupOrphanedOuterSessions('repo', runner), 2);
+
+	const killed = calls
+		.filter(c => c[0] === 'kill-session')
+		.map(c => c[2] ?? '')
+		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+	t.deepEqual(killed, ['companion-repo-STA-1', 'lazygit-repo-STA-1']);
 });
 
 test('cleanupOrphanedOuterSessions counts only successful kills', t => {
@@ -254,7 +299,7 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 		listSessionsStdout: [
 			'claude-repo-STA-1',
 			'claude-repo-STA-2',
-			'lazygit-repo-STA-1',
+			'companion-repo-STA-1',
 		].join('\n'),
 		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
 	});
@@ -266,7 +311,8 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 // cleanupOrphanedInnerSessions
 //
 // STA-1420 Layer 2: symmetric to cleanupOrphanedOuterSessions but on the
-// inner socket. Reaps `claude-{repo}-*` / `lazygit-{repo}-*` sessions whose
+// inner socket. Reaps `claude-{repo}-*` / `companion-{repo}-*` (and legacy
+// `lazygit-{repo}-*`) sessions whose
 // key is NOT in the registry and isn't the main worktree, which is what
 // hard-quit (SIGKILL, terminal close, Ctrl-C mid-deinit) leaves behind now
 // that STA-1416 removed seedFromTmux. Without this, orphans accumulate
@@ -306,11 +352,11 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'claude-repo-STA-1', // registered → keep
-			'lazygit-repo-STA-1', // registered → keep
+			'companion-repo-STA-1', // registered → keep
 			'claude-repo-STA-999', // orphan → kill
-			'lazygit-repo-STA-999', // orphan → kill
+			'companion-repo-STA-999', // orphan → kill
 			'claude-repo-main', // main worktree → keep
-			'lazygit-repo-main', // main worktree → keep
+			'companion-repo-main', // main worktree → keep
 			'claude-otherrepo-STA-2', // different repo → keep
 			'pappardelle-repo', // outer root → keep
 		].join('\n'),
@@ -321,13 +367,33 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['claude-repo-STA-999', 'lazygit-repo-STA-999']);
+	t.deepEqual(killed, ['claude-repo-STA-999', 'companion-repo-STA-999']);
+});
+
+test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {
+	// A hard-quit straddling the STA-1464 upgrade can leave the old
+	// `lazygit-{repo}-*` companion sessions behind on the inner socket. They
+	// must be reaped on the same not-registered / not-main terms as the new
+	// `companion-{repo}-*` name. Mirrors the outer-socket legacy-sweep test.
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'lazygit-repo-STA-1', // registered → keep
+			'lazygit-repo-STA-999', // orphan → kill
+			'lazygit-repo-main', // main worktree → keep
+			'lazygit-otherrepo-STA-2', // different repo → keep
+			'pappardelle-repo', // outer root → keep
+		].join('\n'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 1);
+
+	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
+	t.deepEqual(killed, ['lazygit-repo-STA-999']);
 });
 
 test('cleanupOrphanedInnerSessions never touches main-worktree sessions', t => {
 	// Empty registry — only main sessions exist. None should be killed.
 	const {runner, calls} = makeFakeRunner({
-		listSessionsStdout: ['claude-repo-main', 'lazygit-repo-main'].join('\n'),
+		listSessionsStdout: ['claude-repo-main', 'companion-repo-main'].join('\n'),
 	});
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
 	const killAttempts = calls.filter(c => c[0] === 'kill-session');
@@ -339,7 +405,7 @@ test('cleanupOrphanedInnerSessions counts only successful kills', t => {
 		listSessionsStdout: [
 			'claude-repo-STA-1',
 			'claude-repo-STA-2',
-			'lazygit-repo-STA-1',
+			'companion-repo-STA-1',
 		].join('\n'),
 		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
 	});
@@ -347,7 +413,7 @@ test('cleanupOrphanedInnerSessions counts only successful kills', t => {
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
 });
 
-test('cleanupOrphanedInnerSessions handles a partial pair (only claude or lazygit)', t => {
+test('cleanupOrphanedInnerSessions handles a partial pair (only claude or companion)', t => {
 	// Hard-quit can leave just one of the pair behind. Each session is reaped
 	// independently of whether its sibling is still alive.
 	const {runner, calls} = makeFakeRunner({

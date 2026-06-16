@@ -56,7 +56,7 @@ const cli = meow(
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
 	  Displays worktree spaces in an fzf-style list with Claude and
-	  lazygit panes for the selected space.
+	  companion panes for the selected space.
 
 	  If a prompt is provided, creates a new session directly without
 	  entering the interactive TUI.
@@ -256,7 +256,7 @@ if (!isInTmux() && cli.flags.layout) {
 let paneLayout: PaneLayout | null = null;
 
 if (isInTmux() && cli.flags.layout) {
-	// On startup, kill any leftover claude-{repo}-* / lazygit-{repo}-* sessions
+	// On startup, kill any leftover claude-{repo}-* / companion-{repo}-* sessions
 	// on the default socket from a pre-STA-860 run. tmux can't migrate sessions
 	// between servers, so we drop them; idow / Pappardelle recreates them on
 	// the inner socket on demand. Runs every startup (fast no-op once drained);

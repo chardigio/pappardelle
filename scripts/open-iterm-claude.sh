@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# open-iterm-claude.sh - Open iTerm with tmux/Claude and lazygit
+# open-iterm-claude.sh - Open iTerm with tmux/Claude and the companion pane
 #
-# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--skip-permissions]
+# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions]
 #
 # Opens a new iTerm window with:
 #   1. A tmux session running Claude (with --dangerously-skip-permissions if --skip-permissions is set)
 #   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow)
-#   3. A split pane running lazygit
+#   3. A split pane running the companion command (default: gitui; see --companion-command)
 #
 # The window title is set to include the issue key.
 #
@@ -30,6 +30,9 @@ ISSUE_KEY=""
 REPO_NAME=""
 PROMPT=""
 SKIP_PERMISSIONS=false
+# Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
+# An empty value leaves a plain shell in the split pane.
+COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -49,14 +52,18 @@ while [[ $# -gt 0 ]]; do
             PROMPT="$2"
             shift 2
             ;;
+        --companion-command)
+            COMPANION_COMMAND="$2"
+            shift 2
+            ;;
         --skip-permissions)
             SKIP_PERMISSIONS=true
             shift
             ;;
         --help|-h)
-            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--skip-permissions]"
+            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions]"
             echo ""
-            echo "Opens iTerm with tmux/Claude and lazygit in split panes."
+            echo "Opens iTerm with tmux/Claude and the companion pane (default gitui) in split panes."
             exit 0
             ;;
         *)
@@ -84,7 +91,7 @@ fi
 # Create the tmux session name based on repo and issue key
 TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
 
-# Per-issue claude/lazygit sessions live on a dedicated tmux socket so the
+# Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 
@@ -112,9 +119,10 @@ on run argv
     set repoName to item 5 of argv
     set dspFlag to item 6 of argv
     set tmuxSocket to item 7 of argv
+    set companionCommand to item 8 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (claude /
-    -- lazygit) live on a dedicated socket so Pappardelle's nested viewer
+    -- companion) live on a dedicated socket so Pappardelle's nested viewer
     -- pane can attach without TMUX=. See STA-860.
     set tmuxL to "tmux -L " & tmuxSocket
 
@@ -149,16 +157,28 @@ on run argv
                 delay 2
             end tell
 
-            -- Create a vertical split for lazygit (in its own tmux session)
-            -- Create shell-based session so it persists even if lazygit exits (like claude sessions)
+            -- Create a vertical split for the companion command (in its own tmux session)
+            -- Create shell-based session so it persists even if the command exits (like claude sessions)
             tell current session
                 set newSession to (split vertically with default profile)
                 tell newSession
-                    set name to issueKey & " - lazygit"
-                    -- Create session with shell (not lazygit directly), send lazygit command, then attach.
+                    set name to issueKey & " - companion"
+                    set companionSession to "companion-" & repoName & "-" & issueKey
+                    -- Create session with shell (not the command directly), send the
+                    -- companion command (skipped when empty → plain shell), then attach.
                     -- All three commands target the same inner tmux socket so the attach
                     -- doesn't need TMUX= (different socket → no nesting check).
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -d -s 'lazygit-" & repoName & "-" & issueKey & "' 2>/dev/null; " & tmuxL & " send-keys -t 'lazygit-" & repoName & "-" & issueKey & "' 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter 2>/dev/null; " & tmuxL & " attach -t 'lazygit-" & repoName & "-" & issueKey & "'"
+                    -- The companion command is an arbitrary user-authored shell string,
+                    -- so route it through a shell variable via `quoted form of` rather
+                    -- than embedding it in a single-quoted string — that way an embedded
+                    -- single quote (e.g. DESTDIR='/tmp') can't break out. send-keys then
+                    -- receives the value as one double-quoted arg, matching the safe
+                    -- pattern in start-claude-session.sh.
+                    set sendPart to ""
+                    if companionCommand is not equal to "" then
+                        set sendPart to "COMPANION_CMD=" & quoted form of companionCommand & "; " & tmuxL & " send-keys -t '" & companionSession & "' \"$COMPANION_CMD\" Enter 2>/dev/null; "
+                    end if
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -d -s '" & companionSession & "' 2>/dev/null; " & sendPart & tmuxL & " attach -t '" & companionSession & "'"
                 end tell
             end tell
         end tell
@@ -167,7 +187,7 @@ end run
 APPLESCRIPT_END
 
 # Run the AppleScript with arguments
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG" "$PAPPARDELLE_TMUX_SOCKET"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND"
 rm -f "$APPLESCRIPT"
 
-echo "iTerm window opened with Claude and lazygit for $ISSUE_KEY"
+echo "iTerm window opened with Claude and companion pane for $ISSUE_KEY"

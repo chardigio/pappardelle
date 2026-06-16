@@ -108,6 +108,7 @@
 			"@typescript-eslint/restrict-template-expressions": "off",
 			"@typescript-eslint/member-ordering": "off",
 			"unicorn/no-for-loop": "off",
+			"@typescript-eslint/parameter-properties": "off",
 			"unicorn/prefer-string-replace-all": "off",
 			"unicorn/prefer-includes": "off",
 			"no-negated-condition": "off"

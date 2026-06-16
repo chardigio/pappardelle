@@ -1005,7 +1005,7 @@ test('searchAssignedIssues returns empty array on CLI error', async t => {
 	t.deepEqual(result, []);
 });
 
-test('new Jira provider loads persisted state colors from disk', async t => {
+test('new Jira provider loads persisted state colors from disk', t => {
 	const cachePath = tempCachePath();
 	fs.writeFileSync(
 		cachePath,

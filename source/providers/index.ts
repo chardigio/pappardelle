@@ -91,6 +91,7 @@ export function createIssueTracker(
 			break;
 		}
 
+		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 		default: {
 			throw new Error(
 				`Unknown issue tracker provider: "${provider as string}"`,
@@ -140,6 +141,7 @@ export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
 			break;
 		}
 
+		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 		default: {
 			throw new Error(`Unknown VCS host provider: "${provider as string}"`);
 		}

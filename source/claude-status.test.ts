@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
 import type {ClaudeStatus, ClaudeSessionState} from './types.ts';
 import {
 	STABLE_STATUSES,
@@ -331,7 +331,7 @@ test('findSpaceByStatusKey prevents cross-repo main branch collision', t => {
 // reader side.
 // ============================================================================
 
-function withStatusDir(t: import('ava').ExecutionContext): string {
+function withStatusDir(t: ExecutionContext): string {
 	const dir = mkdtempSync(path.join(tmpdir(), 'papp-claude-status-'));
 	const previous = process.env['PAPPARDELLE_STATUS_DIR'];
 	process.env['PAPPARDELLE_STATUS_DIR'] = dir;
@@ -452,7 +452,9 @@ test('watchStatuses ignores .tmp.<pid> filesystem events (only .json events reac
 	setClaudeStatus('STA-9010', 'running_tool');
 
 	// fs.watch delivers events on the next tick; give it a beat to flush.
-	await new Promise<void>(resolve => setTimeout(resolve, 50));
+	await new Promise<void>(resolve => {
+		setTimeout(resolve, 50);
+	});
 
 	t.true(
 		callbackArgs.every(ws => !ws.includes('.tmp.')),

@@ -701,9 +701,14 @@ else
     fi
 fi
 
-# Step 7: Ensure Claude and lazygit tmux sessions exist (always, regardless of --open)
+# Resolve the companion-pane command: per-profile override → top-level → gitui
+# default. yq's // keeps an explicit empty string ("plain shell") and only falls
+# through on a missing/null key. Mirrors getCompanionCommand() in config.ts.
+COMPANION_COMMAND=$(yq -r "(.profiles.$SELECTED_PROFILE.companion_command // .companion_command) // \"GIT_OPTIONAL_LOCKS=0 gitui\"" "$CONFIG_PATH" 2>/dev/null)
+
+# Step 7: Ensure Claude and companion tmux sessions exist (always, regardless of --open)
 print_step 7 "Starting Claude tmux session..."
-CLAUDE_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH")
+CLAUDE_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND")
 if [[ -n "$INIT_CMD" && "$RESUME_MODE" != true ]]; then
     CLAUDE_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
 fi
@@ -711,7 +716,7 @@ if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     CLAUDE_SESSION_ARGS+=(--skip-permissions)
 fi
 CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
-# Per-issue claude/lazygit sessions live on a dedicated tmux socket so the
+# Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 export PAPPARDELLE_TMUX_SOCKET
@@ -755,7 +760,7 @@ fi
 # Step 9: Open terminal
 print_step 9 "Opening terminal..."
 if [[ "$TERMINAL_APP" == "iTerm" ]]; then
-    ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME")
+    ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --companion-command "$COMPANION_COMMAND")
     if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
         ITERM_ARGS+=(--skip-permissions)
     fi

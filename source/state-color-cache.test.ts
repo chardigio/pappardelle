@@ -88,9 +88,9 @@ test('multiple updates accumulate in the persisted file', t => {
 	cache.update('Todo', '#ccc');
 
 	const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
-	t.is(data['Done'], '#aaa');
+	t.is(data.Done, '#aaa');
 	t.is(data['In Progress'], '#bbb');
-	t.is(data['Todo'], '#ccc');
+	t.is(data.Todo, '#ccc');
 });
 
 // ============================================================================

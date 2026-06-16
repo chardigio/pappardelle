@@ -16,28 +16,28 @@ test('getSessionPrefix includes repo name for claude', t => {
 	t.is(prefix, 'claude-pappa-chex-');
 });
 
-test('getSessionPrefix includes repo name for lazygit', t => {
-	const prefix = getSessionPrefix('lazygit', 'pappa-chex');
-	t.is(prefix, 'lazygit-pappa-chex-');
+test('getSessionPrefix includes repo name for companion', t => {
+	const prefix = getSessionPrefix('companion', 'pappa-chex');
+	t.is(prefix, 'companion-pappa-chex-');
 });
 
 // getSessionNames: repo-qualified session names
 test('getSessionNames qualifies issue key with repo name', t => {
 	const names = getSessionNames('CHEX-313', 'pappa-chex');
 	t.is(names.claude, 'claude-pappa-chex-CHEX-313');
-	t.is(names.lazygit, 'lazygit-pappa-chex-CHEX-313');
+	t.is(names.companion, 'companion-pappa-chex-CHEX-313');
 });
 
 test('getSessionNames qualifies main branch with repo name', t => {
 	const names = getSessionNames('main', 'pappa-chex');
 	t.is(names.claude, 'claude-pappa-chex-main');
-	t.is(names.lazygit, 'lazygit-pappa-chex-main');
+	t.is(names.companion, 'companion-pappa-chex-main');
 });
 
 test('getSessionNames works with different repo names', t => {
 	const names = getSessionNames('STA-100', 'stardust-labs');
 	t.is(names.claude, 'claude-stardust-labs-STA-100');
-	t.is(names.lazygit, 'lazygit-stardust-labs-STA-100');
+	t.is(names.companion, 'companion-stardust-labs-STA-100');
 });
 
 // extractIssueKeyFromSession: strips repo-qualified prefix

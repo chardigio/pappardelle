@@ -15,6 +15,8 @@ import {
 	getDefaultProfile,
 	getIssueWatchlist,
 	getAutoRemoveWhenDone,
+	getCompanionCommand,
+	DEFAULT_COMPANION_COMMAND,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
@@ -2684,6 +2686,7 @@ test('validateConfig accepts global post_workspace_init as replacement for post_
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		post_workspace_init: [
+			// eslint-disable-next-line no-template-curly-in-string
 			{name: 'Copy env', run: 'cp .env ${WORKTREE_PATH}/.env'},
 		],
 	};
@@ -2765,6 +2768,7 @@ test('validateConfig accepts global pre_workspace_deinit array', t => {
 		pre_workspace_deinit: [
 			{
 				name: 'Close issue',
+				// eslint-disable-next-line no-template-curly-in-string
 				run: 'linctl issue update ${ISSUE_KEY} --state Done',
 			},
 			{run: 'echo cleanup'},
@@ -3456,6 +3460,155 @@ test('getAutoRemoveWhenDone returns false when configured false', t => {
 	);
 	config.auto_remove_when_done = false;
 	t.false(getAutoRemoveWhenDone(config));
+});
+
+// ============================================================================
+// companion_command Validation Tests
+// ============================================================================
+
+test('validateConfig accepts top-level companion_command string', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		companion_command: 'gitui',
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts an empty-string companion_command (plain shell)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		companion_command: '',
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts config without companion_command (default applies)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects non-string companion_command', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		companion_command: 42,
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('companion_command: must be a string'));
+});
+
+test('validateConfig accepts a per-profile companion_command string', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			backend: {display_name: 'Backend', companion_command: 'make run'},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects a non-string per-profile companion_command', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			backend: {display_name: 'Backend', companion_command: ['make', 'run']},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'profiles.backend.companion_command: must be a string',
+		),
+	);
+});
+
+// ============================================================================
+// getCompanionCommand Tests
+// ============================================================================
+
+test('getCompanionCommand defaults to gitui when nothing is configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.is(getCompanionCommand(config), DEFAULT_COMPANION_COMMAND);
+	t.true(getCompanionCommand(config).includes('gitui'));
+});
+
+test('getCompanionCommand returns the top-level command when set', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.companion_command = 'lazygit';
+	t.is(getCompanionCommand(config), 'lazygit');
+});
+
+test('getCompanionCommand preserves an explicit empty top-level command', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.companion_command = '';
+	t.is(getCompanionCommand(config), '');
+});
+
+test('getCompanionCommand prefers a matched profile override over top-level', t => {
+	const config = createConfig(
+		{
+			backend: {
+				...createProfile(['backend'], 'Backend'),
+				companion_command: 'make run',
+			},
+		},
+		'backend',
+	);
+	config.companion_command = 'gitui';
+	t.is(getCompanionCommand(config, 'fix backend timeout'), 'make run');
+});
+
+test('getCompanionCommand falls back to top-level when the matched profile has no override', t => {
+	const config = createConfig(
+		{backend: createProfile(['backend'], 'Backend')},
+		'backend',
+	);
+	config.companion_command = 'lazygit';
+	t.is(getCompanionCommand(config, 'fix backend timeout'), 'lazygit');
+});
+
+test('getCompanionCommand falls back to default when neither profile nor top-level set', t => {
+	const config = createConfig(
+		{backend: createProfile(['backend'], 'Backend')},
+		'backend',
+	);
+	t.is(
+		getCompanionCommand(config, 'fix backend timeout'),
+		DEFAULT_COMPANION_COMMAND,
+	);
+});
+
+test('getCompanionCommand uses top-level when the title matches no profile', t => {
+	const config = createConfig(
+		{
+			backend: {
+				...createProfile(['backend'], 'Backend'),
+				companion_command: 'make run',
+			},
+		},
+		'backend',
+	);
+	config.companion_command = 'gitui';
+	// "unrelated" matches no keyword, so the backend override must NOT apply.
+	t.is(getCompanionCommand(config, 'unrelated task'), 'gitui');
 });
 
 // ============================================================================

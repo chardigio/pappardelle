@@ -175,17 +175,28 @@ export function extractRecapFromJsonl(jsonlPath: string): SpaceRecap | null {
 		if (!entry || typeof entry !== 'object') continue;
 
 		const t = entry.type;
-		if (t === 'custom-title') {
-			if (typeof entry.customTitle === 'string' && entry.customTitle) {
-				customTitle = entry.customTitle;
+		switch (t) {
+			case 'custom-title': {
+				if (typeof entry.customTitle === 'string' && entry.customTitle) {
+					customTitle = entry.customTitle;
+				}
+
+				break;
 			}
-		} else if (t === 'last-prompt') {
-			if (typeof entry.lastPrompt === 'string' && entry.lastPrompt) {
-				lastPrompt = entry.lastPrompt;
+			case 'last-prompt': {
+				if (typeof entry.lastPrompt === 'string' && entry.lastPrompt) {
+					lastPrompt = entry.lastPrompt;
+				}
+
+				break;
 			}
-		} else if (t === 'assistant') {
-			const text = extractAssistantText(entry);
-			if (text) lastAssistantExcerpt = text.slice(0, MAX_EXCERPT_LEN);
+			case 'assistant': {
+				const text = extractAssistantText(entry);
+				if (text) lastAssistantExcerpt = text.slice(0, MAX_EXCERPT_LEN);
+
+				break;
+			}
+			// No default
 		}
 	}
 
@@ -201,7 +212,7 @@ export function extractRecapFromJsonl(jsonlPath: string): SpaceRecap | null {
 function extractAssistantText(entry: any): string | undefined {
 	const msg = entry.message;
 	if (!msg) return undefined;
-	const content = msg.content;
+	const {content} = msg;
 	if (typeof content === 'string') {
 		return content.trim() || undefined;
 	}

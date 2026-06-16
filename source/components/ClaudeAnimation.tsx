@@ -8,6 +8,7 @@ const CLAUDE_FRAMES = ['·', '✢', '✳', '∗', '✻', '✽'];
 
 interface Props {
 	color?: string;
+	// eslint-disable-next-line react/boolean-prop-naming
 	inverse?: boolean;
 }
 

@@ -86,7 +86,10 @@ interface CacheEntry {
 }
 
 export class LinearProvider implements IssueTrackerProvider {
-	readonly name = 'linear';
+	get name() {
+		return 'linear';
+	}
+
 	private readonly issueCache = new Map<string, CacheEntry>();
 	private readonly stateColors: StateColorCache;
 	private readonly execCli: CliExecutor;
@@ -282,7 +285,7 @@ export class LinearProvider implements IssueTrackerProvider {
 				const rawList = Array.isArray(parsed)
 					? (parsed as Array<Record<string, unknown>>)
 					: [];
-				const issues = rawList.map(parseLinearIssue);
+				const issues = rawList.map(raw => parseLinearIssue(raw));
 				for (const issue of issues) {
 					if (!seen.has(issue.identifier)) {
 						seen.add(issue.identifier);

@@ -84,7 +84,10 @@ export type CliExecutor = (
 export type SleepFn = (ms: number) => Promise<void>;
 
 export class JiraProvider implements IssueTrackerProvider {
-	readonly name = 'jira';
+	get name() {
+		return 'jira';
+	}
+
 	private readonly baseUrl: string;
 	private readonly issueCache = new Map<string, CacheEntry>();
 	private readonly stateColors: StateColorCache;

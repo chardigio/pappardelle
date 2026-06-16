@@ -226,7 +226,7 @@ export function makeLinearGraphQLClient(
 
 		const batches: string[][] = [];
 		for (let start = 0; start < issueKeys.length; start += batchSize) {
-			batches.push([...issueKeys.slice(start, start + batchSize)]);
+			batches.push(issueKeys.slice(start, start + batchSize));
 		}
 
 		// Total failure in any batch returns null — the caller's CLI fallback

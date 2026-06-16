@@ -6,8 +6,8 @@ import {
 	MIN_LIST_WIDTH,
 	MAX_LIST_WIDTH,
 	MIN_CLAUDE_WIDTH,
-	MIN_LAZYGIT_WIDTH,
-	MAX_LAZYGIT_WIDTH,
+	MIN_COMPANION_WIDTH,
+	MAX_COMPANION_WIDTH,
 	MAX_LIST_HEIGHT,
 	DEFAULT_MIN_LIST_HEIGHT,
 	MAX_LIST_HEIGHT_RATIO,
@@ -22,7 +22,7 @@ import {
  * Render a full viewport ASCII representation of a horizontal layout.
  * Each character represents one cell. Pipes (|) represent tmux borders.
  *
- * Example for 30x5 with list=8, claude=12, lazygit=8:
+ * Example for 30x5 with list=8, claude=12, companion=8:
  * LLLLLLLL|CCCCCCCCCCCC|GGGGGGGG
  * LLLLLLLL|CCCCCCCCCCCC|GGGGGGGG
  * LLLLLLLL|CCCCCCCCCCCC|GGGGGGGG
@@ -32,7 +32,7 @@ import {
 function renderHorizontalViewport(
 	listWidth: number,
 	claudeWidth: number,
-	lazygitWidth: number,
+	companionWidth: number,
 	height: number,
 ): string {
 	const row =
@@ -40,7 +40,7 @@ function renderHorizontalViewport(
 		'|' +
 		'C'.repeat(claudeWidth) +
 		'|' +
-		'G'.repeat(lazygitWidth);
+		'G'.repeat(companionWidth);
 	const rows: string[] = [];
 	for (let i = 0; i < height; i++) {
 		rows.push(row);
@@ -91,7 +91,7 @@ function renderVerticalViewport(
 function parseHorizontalViewport(ascii: string): {
 	listWidth: number;
 	claudeWidth: number;
-	lazygitWidth: number;
+	companionWidth: number;
 	height: number;
 } {
 	const lines = ascii.trim().split('\n');
@@ -105,7 +105,7 @@ function parseHorizontalViewport(ascii: string): {
 	return {
 		listWidth: parts[0]!.length,
 		claudeWidth: parts[1]!.length,
-		lazygitWidth: parts[2]!.length,
+		companionWidth: parts[2]!.length,
 		height: lines.length,
 	};
 }
@@ -149,7 +149,7 @@ function assertViewport(
 		const actual = renderHorizontalViewport(
 			layout.listWidth!,
 			layout.claudeWidth!,
-			layout.lazygitWidth!,
+			layout.companionWidth!,
 			expected.height,
 		);
 
@@ -160,13 +160,17 @@ function assertViewport(
 			t.log('\nActual:');
 			t.log(actual);
 			t.log(
-				`\nDimensions: list=${layout.listWidth}, claude=${layout.claudeWidth}, lazygit=${layout.lazygitWidth}`,
+				`\nDimensions: list=${layout.listWidth}, claude=${layout.claudeWidth}, companion=${layout.companionWidth}`,
 			);
 		}
 
 		t.is(layout.listWidth, expected.listWidth, `${label}: list width`);
 		t.is(layout.claudeWidth, expected.claudeWidth, `${label}: claude width`);
-		t.is(layout.lazygitWidth, expected.lazygitWidth, `${label}: lazygit width`);
+		t.is(
+			layout.companionWidth,
+			expected.companionWidth,
+			`${label}: companion width`,
+		);
 	} else {
 		const expected = parseVerticalViewport(trimmedExpected);
 		const actual = renderVerticalViewport(
@@ -200,8 +204,8 @@ test('layout constants', t => {
 	t.is(MIN_LIST_WIDTH, 15);
 	t.is(MAX_LIST_WIDTH, 40);
 	t.is(MIN_CLAUDE_WIDTH, 40);
-	t.is(MIN_LAZYGIT_WIDTH, 20);
-	t.is(MAX_LAZYGIT_WIDTH, 86);
+	t.is(MIN_COMPANION_WIDTH, 20);
+	t.is(MAX_COMPANION_WIDTH, 86);
 	t.is(MAX_LIST_HEIGHT, 12);
 	t.is(DEFAULT_MIN_LIST_HEIGHT, 6);
 	t.is(MAX_LIST_HEIGHT_RATIO, 0.25);
@@ -686,7 +690,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 test('horizontal 100x10, 5 sessions (at threshold)', t => {
 	// usable = 100-2 = 98
-	// list=floor(98*0.24)=23, claude=max(40,floor(98*0.38))=40, lazygit=98-23-40=35
+	// list=floor(98*0.24)=23, claude=max(40,floor(98*0.38))=40, companion=98-23-40=35
 	const layout = calculateLayoutForSize(100, 10, 5);
 	t.is(layout.direction, 'horizontal');
 
@@ -711,7 +715,7 @@ LLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGG
 
 test('horizontal 120x15, 5 sessions', t => {
 	// usable = 120-2 = 118
-	// list=floor(118*0.24)=28, claude=floor(118*0.38)=44, lazygit=118-28-44=46
+	// list=floor(118*0.24)=28, claude=floor(118*0.38)=44, companion=118-28-44=46
 	const layout = calculateLayoutForSize(120, 15, 5);
 	t.is(layout.direction, 'horizontal');
 
@@ -741,7 +745,7 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGG
 
 test('horizontal 140x12, 5 sessions', t => {
 	// usable = 140-2 = 138
-	// list=floor(138*0.24)=33, claude=floor(138*0.38)=52, lazygit=138-33-52=53
+	// list=floor(138*0.24)=33, claude=floor(138*0.38)=52, companion=138-33-52=53
 	const layout = calculateLayoutForSize(140, 12, 5);
 	t.is(layout.direction, 'horizontal');
 
@@ -768,7 +772,7 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 test('horizontal 160x10, 5 sessions', t => {
 	// usable = 160-2 = 158
-	// list=floor(158*0.24)=37, claude=floor(158*0.38)=60, lazygit=158-37-60=61
+	// list=floor(158*0.24)=37, claude=floor(158*0.38)=60, companion=158-37-60=61
 	const layout = calculateLayoutForSize(160, 10, 5);
 	t.is(layout.direction, 'horizontal');
 
@@ -793,7 +797,7 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 test('horizontal 180x8, 5 sessions', t => {
 	// usable = 180-2 = 178
-	// list=floor(178*0.24)=42 → capped at 40, claude=floor(178*0.38)=67, lazygit=178-40-67=71
+	// list=floor(178*0.24)=42 → capped at 40, claude=floor(178*0.38)=67, companion=178-40-67=71
 	const layout = calculateLayoutForSize(180, 8, 5);
 	t.is(layout.direction, 'horizontal');
 
@@ -816,7 +820,7 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 test('horizontal 200x8, 5 sessions', t => {
 	// usable = 200-2 = 198
-	// list=floor(198*0.24)=47 → capped at 40, claude=floor(198*0.38)=75, lazygit=198-40-75=83
+	// list=floor(198*0.24)=47 → capped at 40, claude=floor(198*0.38)=75, companion=198-40-75=83
 	const layout = calculateLayoutForSize(200, 8, 5);
 	t.is(layout.direction, 'horizontal');
 
@@ -845,7 +849,7 @@ test('MacBook Pro 14" fullscreen: 160x45, 5 sessions', t => {
 	const layout = calculateLayoutForSize(160, 45, 5);
 	t.is(layout.direction, 'horizontal');
 
-	// list=37, claude=60, lazygit=61
+	// list=37, claude=60, companion=61
 	assertViewport(
 		t,
 		layout,
@@ -928,7 +932,7 @@ test('External 27" monitor: 200x60, 8 sessions', t => {
 	const layout = calculateLayoutForSize(200, 60, 8);
 	t.is(layout.direction, 'horizontal');
 
-	// list=40, claude=75, lazygit=83
+	// list=40, claude=75, companion=83
 	assertViewport(
 		t,
 		layout,
@@ -986,7 +990,7 @@ test('iPad SSH: 100x30, 3 sessions (at threshold)', t => {
 	const layout = calculateLayoutForSize(100, 30, 3);
 	t.is(layout.direction, 'horizontal');
 
-	// list=23, claude=40, lazygit=35
+	// list=23, claude=40, companion=35
 	assertViewport(
 		t,
 		layout,
@@ -1022,17 +1026,18 @@ test('edge: very large terminal 500x100', t => {
 
 	// usable = 498
 	// list=floor(498*0.24)=119 → capped at MAX_LIST_WIDTH=40
-	// claude=floor(498*0.38)=189, lazygit=498-40-189=269 → capped at MAX_LAZYGIT_WIDTH=86
+	// claude=floor(498*0.38)=189, companion=498-40-189=269 → capped at MAX_COMPANION_WIDTH=86
 	// excess 269-86=183 → claude=189+183=372
-	const total = layout.listWidth! + layout.claudeWidth! + layout.lazygitWidth!;
+	const total =
+		layout.listWidth! + layout.claudeWidth! + layout.companionWidth!;
 	t.is(total, 498);
 
 	// List is capped at MAX_LIST_WIDTH
 	t.is(layout.listWidth, MAX_LIST_WIDTH);
-	// Lazygit is capped at MAX_LAZYGIT_WIDTH
-	t.is(layout.lazygitWidth, MAX_LAZYGIT_WIDTH);
+	// Companion is capped at MAX_COMPANION_WIDTH
+	t.is(layout.companionWidth, MAX_COMPANION_WIDTH);
 	// Claude gets all the excess
-	t.true(layout.claudeWidth! > layout.lazygitWidth!);
+	t.true(layout.claudeWidth! > layout.companionWidth!);
 });
 
 test('edge: single column', t => {

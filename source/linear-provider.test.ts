@@ -396,7 +396,7 @@ test('getIssue persists state colors to disk', async t => {
 	t.is(data['In Progress'], '#f2c94c');
 });
 
-test('new provider loads persisted state colors from disk', async t => {
+test('new provider loads persisted state colors from disk', t => {
 	const cachePath = tempCachePath();
 
 	// Seed the cache file with state colors

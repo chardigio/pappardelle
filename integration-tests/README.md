@@ -47,31 +47,31 @@ npx tsx integration-tests/verify-watchlist.ts
 
 ## Scripts
 
-| Script | What it verifies |
-|--------|-----------------|
-| `verify-linear.ts` | getIssue, searchAssignedIssues, label parsing, caching, batch fetch, state colors |
-| `verify-jira.ts` | Same as Linear but via acli CLI |
-| `verify-github.ts` | PR detection by branch name, changedFiles count, buildPRUrl |
-| `verify-gitlab.ts` | MR detection by branch name, diff file count, buildPRUrl |
-| `verify-config.ts` | Config loading, validation, profiles, watchlist, keybindings, Claude config |
-| `verify-watchlist.ts` | Full pipeline: config → provider fetch → label filter → workspace decision |
-| `verify-comments.ts` | createComment on Linear and/or Jira (posts real comments) |
-| `verify-workspace-deinit.ts` | Command execution, variable expansion, continue_on_error, cwd fallback |
+| Script                            | What it verifies                                                                       |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `verify-linear.ts`                | getIssue, searchAssignedIssues, label parsing, caching, batch fetch, state colors      |
+| `verify-jira.ts`                  | Same as Linear but via acli CLI                                                        |
+| `verify-github.ts`                | PR detection by branch name, changedFiles count, buildPRUrl                            |
+| `verify-gitlab.ts`                | MR detection by branch name, diff file count, buildPRUrl                               |
+| `verify-config.ts`                | Config loading, validation, profiles, watchlist, keybindings, Claude config            |
+| `verify-watchlist.ts`             | Full pipeline: config → provider fetch → label filter → workspace decision             |
+| `verify-comments.ts`              | createComment on Linear and/or Jira (posts real comments)                              |
+| `verify-workspace-deinit.ts`      | Command execution, variable expansion, continue_on_error, cwd fallback                 |
 | `verify-bash-keyword-matching.sh` | Bash `match_profiles()` in idow: word boundaries, multi-word keywords, false positives |
 
 ## Environment Variables
 
-| Variable | Used by | Default |
-|----------|---------|---------|
-| `LINEAR_ISSUE` | verify-linear, verify-comments | `STA-683` |
-| `LINEAR_STATUSES` | verify-linear | `Todo,In Progress` |
-| `JIRA_BASE_URL` | verify-jira, verify-comments | (required for Jira scripts) |
-| `JIRA_ISSUE` | verify-jira, verify-comments | (auto-detected or required) |
-| `JIRA_STATUSES` | verify-jira | `To Do,In Progress` |
-| `GITHUB_ISSUE` | verify-github | `STA-683` |
-| `GITHUB_PR` | verify-github | (auto-detected) |
-| `GITLAB_HOST` | verify-gitlab | `gitlab.com` |
-| `GITLAB_ISSUE` | verify-gitlab | (required) |
-| `EXISTING_SPACES` | verify-watchlist | (empty) |
+| Variable          | Used by                        | Default                     |
+| ----------------- | ------------------------------ | --------------------------- |
+| `LINEAR_ISSUE`    | verify-linear, verify-comments | `STA-683`                   |
+| `LINEAR_STATUSES` | verify-linear                  | `Todo,In Progress`          |
+| `JIRA_BASE_URL`   | verify-jira, verify-comments   | (required for Jira scripts) |
+| `JIRA_ISSUE`      | verify-jira, verify-comments   | (auto-detected or required) |
+| `JIRA_STATUSES`   | verify-jira                    | `To Do,In Progress`         |
+| `GITHUB_ISSUE`    | verify-github                  | `STA-683`                   |
+| `GITHUB_PR`       | verify-github                  | (auto-detected)             |
+| `GITLAB_HOST`     | verify-gitlab                  | `gitlab.com`                |
+| `GITLAB_ISSUE`    | verify-gitlab                  | (required)                  |
+| `EXISTING_SPACES` | verify-watchlist               | (empty)                     |
 
 A non-zero exit code means something failed.

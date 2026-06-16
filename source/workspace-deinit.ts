@@ -16,7 +16,7 @@ export interface DeinitContext {
 	repoName?: string;
 }
 
-function runCommand(
+async function runCommand(
 	command: string,
 	cwd: string,
 ): Promise<{exitCode: number | null}> {

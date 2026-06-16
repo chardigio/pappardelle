@@ -138,9 +138,12 @@ function verifyOrderingForBranch(provider: GitHubProvider) {
 		return;
 	}
 
-	const expected = allPrs.reduce((newest, current) =>
-		current.updatedAt > newest.updatedAt ? current : newest,
-	);
+	let expected = allPrs[0];
+	for (const current of allPrs) {
+		if (current.updatedAt > expected.updatedAt) {
+			expected = current;
+		}
+	}
 	info('expected (max updatedAt)', {
 		number: expected.number,
 		updatedAt: expected.updatedAt,

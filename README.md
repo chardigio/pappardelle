@@ -6,7 +6,7 @@
 
 A TUI for multi-clauding without losing your marbles.
 
-You type a description, it reads or creates an issue in Linear/Jira, spawns a configured git worktree, builds a PR/MR, and starts a Claude Code session alongside a lazygit session — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
+You type a description, it reads or creates an issue in Linear/Jira, spawns a configured git worktree, builds a PR/MR, and starts a Claude Code session alongside a companion pane (gitui by default, configurable to any command) — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
 **Video:**
 
@@ -69,14 +69,14 @@ When you launch `pappardelle`, it creates a tmux session with three panes:
 
 - **Left pane** shows the ticket rail. This is where you navigate workspaces, create new ones, and trigger actions.
 - **Center pane** shows the Claude Code session for whichever workspace is highlighted.
-- **Right pane** shows [lazygit](https://github.com/jesseduffield/lazygit) for the highlighted workspace's worktree.
+- **Right pane** runs the **companion command** for the highlighted workspace's worktree — [gitui](https://github.com/gitui-org/gitui) by default, or any command you set via `companion_command` (a different git UI, a dev server, a log tailer, …).
 
 ### How nested sessions work
 
 Each workspace creates two independent tmux sessions:
 
 - `claude-{repo}-{issue-key}` — runs Claude Code
-- `lazygit-{repo}-{issue-key}` — runs lazygit
+- `companion-{repo}-{issue-key}` — runs the companion command (gitui by default)
 
 The center and right panes in the Pappardelle session are "viewers" — they run nested tmux clients that attach to these independent sessions. When you highlight a different workspace in the list, Pappardelle uses `tmux switch-client` to instantly swap which session the viewer pane displays.
 
@@ -96,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples
 
 ### Exiting Pappardelle
 
-Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux session and all its viewer panes, returning you to your original terminal. Your Claude and lazygit workspace sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
+Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux session and all its viewer panes, returning you to your original terminal. Your Claude and companion workspace sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
 
 To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting, or nuke everything with:
 
@@ -128,7 +128,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
-6. **Claude & lazygit sessions spawned** — A named tmux session is created and Claude Code is launched inside it. If `claude.initialization_command` is set in `.pappardelle.yml` (e.g., `/do`), that command is passed to Claude along with the issue key. A lazygit session rooted at the worktree dir is also spawned.
+6. **Claude & companion sessions spawned** — A named tmux session is created and Claude Code is launched inside it. If `claude.initialization_command` is set in `.pappardelle.yml` (e.g., `/do`), that command is passed to Claude along with the issue key. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
 
 ---
 
@@ -160,6 +160,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues. Filter by status, labels, or `key_prefixes` (e.g. watch `STA-*` but not `WAB-*` when one account spans multiple workspaces).
 - **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched.
+- **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
 - **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile and (Linear only) lands brand-new issues in `tracker_projects[0]`.
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
@@ -473,5 +474,5 @@ Because `/configure-pappardelle` is model-invocable, Claude will automatically o
 
 - [Ink](https://github.com/vadimdemedes/ink) — React for CLIs
 - [tmux](https://github.com/tmux/tmux) — Terminal multiplexer
-- [lazygit](https://github.com/jesseduffield/lazygit) — Terminal git UI
+- [gitui](https://github.com/gitui-org/gitui) — Terminal git UI (default companion pane; swap via `companion_command`)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) — AI coding assistant

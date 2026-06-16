@@ -51,6 +51,7 @@ test('stops at first failure when continue_on_error is not set', async t => {
 
 test('expands template variables in commands', async t => {
 	const commands: CommandConfig[] = [
+		// eslint-disable-next-line no-template-curly-in-string
 		{name: 'Check expansion', run: 'test "${ISSUE_KEY}" = "STA-123"'},
 	];
 	const result = await runPreWorkspaceDeinit(commands, '/tmp', {
@@ -63,6 +64,7 @@ test('expands WORKTREE_PATH template variable', async t => {
 	const commands: CommandConfig[] = [
 		{
 			name: 'Check worktree path',
+			// eslint-disable-next-line no-template-curly-in-string
 			run: 'test "${WORKTREE_PATH}" = "/tmp"',
 		},
 	];

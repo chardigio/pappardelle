@@ -61,7 +61,7 @@ WORKTREE_PATH="$TMPDIR_ROOT/worktree"
 mkdir -p "$WORKTREE_PATH"
 
 CLAUDE_SESSION="claude-${TEST_REPO}-${ISSUE_KEY}"
-LAZYGIT_SESSION="lazygit-${TEST_REPO}-${ISSUE_KEY}"
+COMPANION_SESSION="companion-${TEST_REPO}-${ISSUE_KEY}"
 
 # Precondition: no session
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
@@ -110,28 +110,28 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$CLAUDE_SESSION" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$LAZYGIT_SESSION" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION" 2>/dev/null || true
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: also creates repo-qualified lazygit session${RESET}"
+echo -e "\n${BOLD}Test: also creates repo-qualified companion session${RESET}"
 ISSUE_KEY2="${TEST_PREFIX}-200"
 WORKTREE_PATH2="$TMPDIR_ROOT/worktree2"
 mkdir -p "$WORKTREE_PATH2"
 
 "$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY2" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH2" --no-claude 2>/dev/null
 
-LAZYGIT_SESSION2="lazygit-${TEST_REPO}-${ISSUE_KEY2}"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$LAZYGIT_SESSION2" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} lazygit session created with repo-qualified name"
+COMPANION_SESSION2="companion-${TEST_REPO}-${ISSUE_KEY2}"
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION2" 2>/dev/null; then
+    echo -e "  ${GREEN}PASS${RESET} companion session created with repo-qualified name"
     PASS=$((PASS + 1))
 else
-    echo -e "  ${RED}FAIL${RESET} lazygit session created with repo-qualified name ($LAZYGIT_SESSION2)"
+    echo -e "  ${RED}FAIL${RESET} companion session created with repo-qualified name ($COMPANION_SESSION2)"
     FAIL=$((FAIL + 1))
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY2}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$LAZYGIT_SESSION2" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION2" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -173,7 +173,7 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -198,7 +198,7 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -225,7 +225,7 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -257,7 +257,7 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "lazygit-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
 
 # ==========================================================================
 

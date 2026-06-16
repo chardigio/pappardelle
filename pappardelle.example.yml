@@ -39,16 +39,22 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Command run in the companion pane (the right pane, next to Claude).
+# Defaults to gitui. Set it to any shell command — a different git UI, a dev
+# server, a log tailer, etc. — or "" to leave a plain shell. A profile can
+# override this (see profiles below). Restore the old default with `lazygit`.
+# companion_command: gitui
+
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
 # Uses the same CommandConfig format as profile commands.
 # Template variables (${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_NUMBER}, etc.) are expanded.
 # Note: `post_worktree_init` is also accepted for backwards compatibility.
 post_workspace_init:
-  - name: "Copy .env"
-    run: "cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true"
-  - name: "Install dependencies"
-    run: "cd ${WORKTREE_PATH} && npm install"
+  - name: 'Copy .env'
+    run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'
+  - name: 'Install dependencies'
+    run: 'cd ${WORKTREE_PATH} && npm install'
     continue_on_error: true
 
 # Commands to run before workspace deletion (optional).
@@ -126,9 +132,12 @@ profiles:
       - api
       - server
       - database
-      - db migration  # Multi-word keywords match adjacent words in the input
+      - db migration # Multi-word keywords match adjacent words in the input
     display_name: 'Backend'
     emoji: '⚙️'
+    # Per-profile companion-pane command. Overrides the top-level
+    # `companion_command` — e.g. boot the API server instead of a git UI.
+    # companion_command: 'make run'
     github:
       label: 'backend'
     links:

@@ -116,6 +116,15 @@ export interface Profile {
 	/** Commands to run before workspace deletion. If any fails, deletion is aborted. */
 	pre_workspace_deinit?: CommandConfig[];
 	commands?: CommandConfig[];
+	/**
+	 * Command run in the companion pane for spaces matched to this profile.
+	 * Overrides the top-level `companion_command`. Lets a per-project profile
+	 * launch something project-specific (e.g. a dev server) instead of the git
+	 * UI. An empty string means "run nothing — leave a plain shell". When unset,
+	 * falls back to the top-level `companion_command`, then to the built-in
+	 * default (`gitui`).
+	 */
+	companion_command?: string;
 }
 
 export interface PappardelleConfig {
@@ -140,6 +149,16 @@ export interface PappardelleConfig {
 	 * behavior is identical to master when the field is absent or false.
 	 */
 	auto_remove_when_done?: boolean;
+	/**
+	 * Command launched in the pane beside Claude (the pane that historically ran
+	 * lazygit). Defaults to `gitui`. Accepts any shell command — a different git
+	 * UI, a dev server, a log tailer, etc. Set to an empty string to leave a
+	 * plain shell. A profile's own `companion_command` overrides this value.
+	 *
+	 * Absent ⇒ `gitui` (the post-STA-1464 default). The pre-STA-1464 behavior of
+	 * lazygit is restorable with `companion_command: lazygit`.
+	 */
+	companion_command?: string;
 	/** Commands to run after git worktree is created. Same format as profile commands. */
 	post_workspace_init?: CommandConfig[];
 	/** @deprecated Use post_workspace_init instead. Accepted for backwards compat. */
@@ -579,7 +598,7 @@ export function validateConfig(
 			errors.push('issue_tracker: must be an object');
 		} else {
 			const it = cfg['issue_tracker'] as Record<string, unknown>;
-			const provider = it['provider'];
+			const {provider} = it;
 			if (provider !== 'linear' && provider !== 'jira') {
 				errors.push('issue_tracker.provider: must be "linear" or "jira"');
 			} else if (provider === 'jira' && typeof it['base_url'] !== 'string') {
@@ -594,7 +613,7 @@ export function validateConfig(
 			errors.push('vcs_host: must be an object');
 		} else {
 			const vh = cfg['vcs_host'] as Record<string, unknown>;
-			const provider = vh['provider'];
+			const {provider} = vh;
 			if (provider !== 'github' && provider !== 'gitlab') {
 				errors.push('vcs_host.provider: must be "github" or "gitlab"');
 			}
@@ -687,6 +706,15 @@ export function validateConfig(
 		typeof cfg['auto_remove_when_done'] !== 'boolean'
 	) {
 		errors.push('auto_remove_when_done: must be a boolean');
+	}
+
+	// Check companion_command (optional, free-form shell command). Any string is
+	// accepted — including the empty string, which means "leave a plain shell".
+	if (
+		cfg['companion_command'] !== undefined &&
+		typeof cfg['companion_command'] !== 'string'
+	) {
+		errors.push('companion_command: must be a string');
 	}
 
 	// Check post_workspace_init / post_worktree_init (optional, mutually exclusive)
@@ -904,6 +932,14 @@ function validateProfile(name: string, profile: unknown): string[] {
 	// Optional team_prefix
 	if (p['team_prefix'] !== undefined && typeof p['team_prefix'] !== 'string') {
 		errors.push(`${prefix}.team_prefix: must be a string`);
+	}
+
+	// Optional per-profile companion_command override (any string, incl. empty)
+	if (
+		p['companion_command'] !== undefined &&
+		typeof p['companion_command'] !== 'string'
+	) {
+		errors.push(`${prefix}.companion_command: must be a string`);
 	}
 
 	// Optional vars
@@ -1515,6 +1551,39 @@ export function getIssueWatchlist(
  */
 export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
 	return config.auto_remove_when_done ?? false;
+}
+
+/**
+ * The command the companion pane runs when nothing is configured. gitui
+ * replaced lazygit as the default in STA-1464. GIT_OPTIONAL_LOCKS=0 keeps the
+ * git UI from taking lock files for read-only ops, avoiding contention with
+ * Claude's concurrent git calls (the same hygiene the old lazygit default had).
+ */
+export const DEFAULT_COMPANION_COMMAND = 'GIT_OPTIONAL_LOCKS=0 gitui';
+
+/**
+ * Resolve the command for a space's companion pane.
+ *
+ * Resolution order (first defined wins): the matched profile's
+ * `companion_command` → the top-level `companion_command` → the built-in
+ * default (`gitui`). `issueTitle` is matched against profile keywords to find
+ * the per-profile override; omit it to resolve top-level/default only.
+ *
+ * An explicitly configured empty string is preserved (it means "run nothing,
+ * leave a plain shell") — only an *absent* value falls through to the next
+ * level. `undefined` checks (not `??`) make that distinction.
+ */
+export function getCompanionCommand(
+	config: PappardelleConfig,
+	issueTitle?: string,
+): string {
+	if (issueTitle) {
+		const profile = matchProfiles(config, issueTitle)[0]?.profile;
+		if (profile?.companion_command !== undefined) {
+			return profile.companion_command;
+		}
+	}
+	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
 }
 
 /**

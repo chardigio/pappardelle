@@ -6,7 +6,10 @@ import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
 const log = createLogger('gitlab-provider');
 
 export class GitLabProvider implements VcsHostProvider {
-	readonly name = 'gitlab';
+	get name() {
+		return 'gitlab';
+	}
+
 	private readonly host?: string;
 
 	constructor(host?: string) {

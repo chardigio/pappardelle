@@ -17,10 +17,10 @@ This skill must satisfy **every** item below before printing the final summary. 
 3. **`.pappardelle.local.yml` exists if local overrides were chosen.** Only when Step 1 collected per-machine overrides (default profile, yolo mode, etc.).
 4. **Pappardelle CLI is installed.** `command -v pappardelle` succeeds.
 5. **Required prerequisites are installed.** `node`, `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
-6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl` or `acli` for tracker, plus `lazygit`. Warn about missing ones but do not block on them.
+6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl` or `acli` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
 7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
 
-If the user interrupts mid-flow, that's their call — but never *you* deciding the work is done before the checklist is complete. The friend who triggered this skill once with `.pappardelle.yml` already in the repo had to write **three follow-up prompts** to get prerequisites, the Pappardelle CLI, and tmux config installed — that's the failure mode this checklist exists to prevent.
+If the user interrupts mid-flow, that's their call — but never _you_ deciding the work is done before the checklist is complete. The friend who triggered this skill once with `.pappardelle.yml` already in the repo had to write **three follow-up prompts** to get prerequisites, the Pappardelle CLI, and tmux config installed — that's the failure mode this checklist exists to prevent.
 
 Before any other output, print the "What is a Workspace?" section verbatim so the user has shared vocabulary before the wizard starts asking questions.
 
@@ -32,9 +32,9 @@ A **workspace** in Pappardelle is the per-issue environment Pappardelle creates 
 - A tracked **issue** in your issue tracker (Linear or Jira) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123`.
 - A draft **PR/MR** against the main branch for that worktree.
 - Its own **Claude Code session** (a named tmux session: `claude-{repo}-{issue-key}`) where you drive the work.
-- Its own **lazygit session** (tmux session: `lazygit-{repo}-{issue-key}`) pointed at that worktree.
+- Its own **companion session** (tmux session: `companion-{repo}-{issue-key}`) pointed at that worktree, running the `companion_command` (gitui by default).
 
-The Pappardelle TUI is a 3-pane tmux layout that lets you list, switch between, and operate on workspaces — the left pane is the list, the center attaches to the highlighted workspace's Claude session, and the right attaches to its lazygit. Workspaces run in independent tmux sessions, so they survive even if the TUI is closed or restarted.
+The Pappardelle TUI is a 3-pane tmux layout that lets you list, switch between, and operate on workspaces — the left pane is the list, the center attaches to the highlighted workspace's Claude session, and the right attaches to its companion pane. Workspaces run in independent tmux sessions, so they survive even if the TUI is closed or restarted.
 
 Everything the wizard asks — providers, profiles, init command, post-init hooks — is about configuring what happens **each time a new workspace is created**.
 
@@ -230,10 +230,10 @@ Now check the required tools and the provider-specific CLIs from the user's conf
 echo "=== Required ===" && \
 for cmd in node npm git tmux jq yq claude; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done && \
 echo "=== Provider CLIs ===" && \
-for cmd in <VCS_CLI> <TRACKER_CLI> lazygit; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
+for cmd in <VCS_CLI> <TRACKER_CLI> gitui; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
-Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira). When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
+Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
 
 - If any **required** tools are missing, **stop and do not proceed** to Step 4. Tell the user which ones are missing and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
 - If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
@@ -290,7 +290,7 @@ What happens when you create a workspace:
   • A git worktree is created at ~/.worktrees/{repo}/{issue-key}/
   • A draft PR/MR is opened from the new branch
   • A named tmux session spins up Claude Code (with `{initialization_command}` if set)
-  • A lazygit session is spawned for that worktree
+  • A companion session runs the `companion_command` (gitui by default) for that worktree
   • The TUI's center and right panes attach to those sessions
 
 For customizing keybindings, post-init hooks, issue watchlists, auto-remove-when-done, etc., see

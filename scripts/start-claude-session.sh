@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# start-claude-session.sh - Ensure Claude and lazygit tmux sessions exist for an issue
+# start-claude-session.sh - Ensure Claude and companion tmux sessions exist for an issue
 #
-# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-claude] [--skip-permissions]
+# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--skip-permissions]
 #
 # Creates detached tmux sessions (repo-qualified):
-#   claude-<REPO>-<KEY>   — runs Claude (with --dangerously-skip-permissions if --skip-permissions is set)
-#   lazygit-<REPO>-<KEY>  — runs lazygit
+#   claude-<REPO>-<KEY>     — runs Claude (with --dangerously-skip-permissions if --skip-permissions is set)
+#   companion-<REPO>-<KEY>  — runs the companion command (default: gitui; see --companion-command)
 #
 # Idempotent: if sessions already exist, does nothing.
-# --no-claude: create sessions but don't launch claude/lazygit (for testing)
+# --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
+#                      An empty string leaves a plain shell. Resolved per-profile by idow.
+# --no-claude: create sessions but don't launch claude/the companion command (for testing)
 # --skip-permissions: pass --dangerously-skip-permissions to claude
 
 set -e
@@ -20,6 +22,10 @@ WORKTREE_PATH=""
 INIT_CMD=""
 NO_CLAUDE=false
 SKIP_PERMISSIONS=false
+# Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
+# An empty value (passed explicitly via --companion-command "") leaves a plain
+# shell; the non-empty default means the companion command is sent.
+COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -37,6 +43,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --init-cmd)
             INIT_CMD="$2"
+            shift 2
+            ;;
+        --companion-command)
+            COMPANION_COMMAND="$2"
             shift 2
             ;;
         --no-claude)
@@ -70,9 +80,9 @@ if [[ -z "$WORKTREE_PATH" ]]; then
 fi
 
 CLAUDE_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
-LAZYGIT_SESSION="lazygit-${REPO_NAME}-${ISSUE_KEY}"
+COMPANION_SESSION="companion-${REPO_NAME}-${ISSUE_KEY}"
 
-# Per-issue claude/lazygit sessions live on a dedicated tmux socket so the
+# Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=` (which would
 # otherwise defeat $TMUX propagation to subprocesses like Claude Code's
 # Agent Teams feature). See STA-860 for the full rationale and the matching
@@ -127,10 +137,12 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/
     fi
 fi
 
-# Ensure lazygit tmux session
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$LAZYGIT_SESSION" 2>/dev/null; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LAZYGIT_SESSION" -c "$WORKTREE_PATH"
-    if [[ "$NO_CLAUDE" != true ]]; then
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$LAZYGIT_SESSION" 'GIT_OPTIONAL_LOCKS=0 lazygit' Enter
+# Ensure companion tmux session (default: gitui; overridable via --companion-command).
+# A shell-based session is created first so the pane persists even if the
+# command exits; an empty command leaves that plain shell untouched.
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION" 2>/dev/null; then
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$COMPANION_SESSION" -c "$WORKTREE_PATH"
+    if [[ "$NO_CLAUDE" != true && -n "$COMPANION_COMMAND" ]]; then
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$COMPANION_SESSION" "$COMPANION_COMMAND" Enter
     fi
 fi

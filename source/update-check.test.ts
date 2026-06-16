@@ -298,9 +298,18 @@ function setupFakeInstall(installed: string): {
 	// Build a fake installed tree under ~/.pappardelle/repo/ so LOCAL_MODE
 	// detection passes. We don't write outside of a tmpdir otherwise — we just
 	// use mkdtempSync under the real home path and pass that absolute path in.
+	//
+	// On a machine where pappardelle is actually installed, ~/.pappardelle/repo
+	// is itself a git clone, so `git describe` run from this nested dir would
+	// walk UP and resolve the *real* installed tag instead of our fake
+	// package.json version — making these orchestration tests pass in CI (no
+	// clone present) but fail locally. git-init the fake dir so it is its own
+	// git boundary: `git describe` finds this empty (untagged) repo, returns
+	// null, and resolveInstalledVersion falls back to the package.json below.
 	const installedRoot = path.join(homedir(), '.pappardelle', 'repo');
 	mkdirSync(installedRoot, {recursive: true});
 	const dir = mkdtempSync(path.join(installedRoot, '_test-'));
+	initRepoWithTag(dir, null);
 	writeFileSync(
 		path.join(dir, 'package.json'),
 		JSON.stringify({name: 'pappardelle', version: installed}),

@@ -126,7 +126,10 @@ function isValidSlug(slug: string): boolean {
 }
 
 export class GitHubProvider implements VcsHostProvider {
-	readonly name = 'github';
+	get name() {
+		return 'github';
+	}
+
 	// undefined = not yet fetched; null = fetched but not in a GitHub repo
 	private repoSlug: string | null | undefined = undefined;
 	private readonly executor: GhExecutor;

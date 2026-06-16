@@ -15,8 +15,7 @@ import {LinearProvider} from '../source/providers/linear-provider.ts';
 import {JiraProvider} from '../source/providers/jira-provider.ts';
 
 const LINEAR_ISSUE = process.env['LINEAR_ISSUE'] ?? 'STA-683';
-const JIRA_ISSUE = process.env['JIRA_ISSUE'];
-const JIRA_BASE_URL = process.env['JIRA_BASE_URL'];
+const {JIRA_ISSUE, JIRA_BASE_URL} = process.env;
 
 const TIMESTAMP = new Date().toISOString();
 const TEST_COMMENT = `\u{1f9ea} Integration test comment — posted at ${TIMESTAMP} by verify-comments.ts. Safe to delete.`;
@@ -117,7 +116,9 @@ async function main() {
 	}
 }
 
-main().catch(err => {
-	console.error('Unhandled error:', err);
+try {
+	await main();
+} catch (error) {
+	console.error('Unhandled error:', error);
 	process.exit(1);
-});
+}

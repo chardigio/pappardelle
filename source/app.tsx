@@ -341,7 +341,7 @@ export default function App({
 					const newLayout = rebuildLayout(
 						paneLayout.listPaneId,
 						paneLayout.claudeViewerPaneId,
-						paneLayout.lazygitViewerPaneId,
+						paneLayout.companionViewerPaneId,
 					);
 					if (newLayout) {
 						setPaneLayout(newLayout);
@@ -350,7 +350,10 @@ export default function App({
 					}
 				} else {
 					// Same direction — just re-proportion within current mode
-					relayoutPanes(paneLayout.listPaneId, paneLayout.lazygitViewerPaneId);
+					relayoutPanes(
+						paneLayout.listPaneId,
+						paneLayout.companionViewerPaneId,
+					);
 				}
 			}, 150);
 		};
@@ -572,15 +575,18 @@ export default function App({
 		// Don't switch if already showing this space
 		if (currentSpace === selectedSpace.name) return;
 
-		// Attach to sessions (creates them on-demand if they don't exist)
+		// Attach to sessions (creates them on-demand if they don't exist).
+		// The issue title lets attachToSpace resolve a per-profile companion_command
+		// when it has to create the companion session itself.
 		const success = attachToSpace(
 			paneLayout.claudeViewerPaneId,
-			paneLayout.lazygitViewerPaneId,
+			paneLayout.companionViewerPaneId,
 			selectedSpace.name,
 			paneLayout.listPaneId, // Keep focus on list pane
 			selectedSpace.isMainWorktree
 				? (selectedSpace.worktreePath ?? undefined)
 				: undefined,
+			selectedSpace.trackerIssue?.title ?? selectedSpace.linearIssue?.title,
 		);
 		if (success) {
 			setCurrentSpace(selectedSpace.name);
@@ -599,9 +605,9 @@ export default function App({
 				paneLayout.claudeViewerPaneId,
 				'No spaces found. Press n to create a new space.',
 			);
-			// Only clear lazygit pane if it exists (may not on narrow screens)
-			if (paneLayout.lazygitViewerPaneId) {
-				displayMessageInPane(paneLayout.lazygitViewerPaneId, '');
+			// Only clear companion pane if it exists (may not on narrow screens)
+			if (paneLayout.companionViewerPaneId) {
+				displayMessageInPane(paneLayout.companionViewerPaneId, '');
 			}
 			panesInitialized.current = true;
 		}
@@ -710,7 +716,7 @@ export default function App({
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending) return;
 
-		const worktreePath = space.worktreePath;
+		const {worktreePath} = space;
 		if (!worktreePath) {
 			setHeaderWithTimeout('No worktree path found', 2000);
 			return;
@@ -735,7 +741,7 @@ export default function App({
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending) return;
 
-		const worktreePath = space.worktreePath;
+		const {worktreePath} = space;
 		if (!worktreePath) {
 			setHeaderWithTimeout('No worktree path for this space', 2000);
 			return;
@@ -808,7 +814,7 @@ export default function App({
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending) return;
 
-		const worktreePath = space.worktreePath;
+		const {worktreePath} = space;
 		if (!worktreePath) {
 			setHeaderWithTimeout('No worktree path for this space', 2000);
 			return;
@@ -905,65 +911,99 @@ export default function App({
 				} else if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
 				}
-			} else if (input === '/') {
-				// Start searching spaces
-				setIsSearching(true);
-				setSearchQuery('');
-				setSearchSelectedIndex(0);
-			} else if (input === 'q') {
-				// Quit Pappardelle — kill the tmux session so viewer panes
-				// are cleaned up too (workspace sessions stay alive).
-				if (paneLayout) {
-					killSession(`pappardelle-${repoName}`);
-				}
-				process.exit(0);
-			} else if (input === '?') {
-				// Show help overlay
-				setShowHelp(true);
+			} else
+				switch (input) {
+					case '/': {
+						// Start searching spaces
+						setIsSearching(true);
+						setSearchQuery('');
+						setSearchSelectedIndex(0);
 
-				// Default behaviors for overridable keys (only reached if not custom-bound)
-			} else if (input === 'g') {
-				handleOpenPR();
-			} else if (input === 'i') {
-				handleOpenIssue();
-			} else if (input === 'd') {
-				handleOpenIDE();
-			} else if (input === 'o') {
-				handleOpenWorkspace();
-			} else if (input === 'e') {
-				if (errorCount > 0) {
-					setShowErrorDialog(true);
+						break;
+					}
+					case 'q': {
+						// Quit Pappardelle — kill the tmux session so viewer panes
+						// are cleaned up too (workspace sessions stay alive).
+						if (paneLayout) {
+							killSession(`pappardelle-${repoName}`);
+						}
+						// eslint-disable-next-line unicorn/no-process-exit
+						process.exit(0);
+
+						break;
+					}
+					case '?': {
+						// Show help overlay
+						setShowHelp(true);
+
+						// Default behaviors for overridable keys (only reached if not custom-bound)
+
+						break;
+					}
+					case 'g': {
+						handleOpenPR();
+
+						break;
+					}
+					case 'i': {
+						handleOpenIssue();
+
+						break;
+					}
+					case 'd': {
+						handleOpenIDE();
+
+						break;
+					}
+					case 'o': {
+						handleOpenWorkspace();
+
+						break;
+					}
+					case 'e': {
+						if (errorCount > 0) {
+							setShowErrorDialog(true);
+						}
+
+						break;
+					}
+					case 'p': {
+						handleGitPull();
+
+						break;
+					}
+					default: {
+						if (updateInfo && (input === 'U' || input === 'u')) {
+							// Order matters: if we kill the outer tmux session first,
+							// tmux SIGHUPs pappardelle (its root command) before
+							// spawnSync can even fork bash, so the installer never
+							// runs and the user just sees the TUI quit (STA-873).
+							// Instead: release the alt screen + mouse tracking so the
+							// installer's stdout is visible in the list pane, run it
+							// to completion with inherited stdio, and only then tear
+							// down the outer session.
+							log.info('Update keybinding triggered — running install.sh');
+							process.stdout.write('\x1b[?1006l'); // disable SGR mouse
+							process.stdout.write('\x1b[?1000l'); // disable basic mouse
+							process.stdout.write('\x1b[?1049l'); // exit alt screen
+							spawnSync('bash', ['-c', pappardelleInstallCommand()], {
+								stdio: 'inherit',
+							});
+							if (paneLayout) {
+								killSession(`pappardelle-${repoName}`);
+							}
+							// eslint-disable-next-line unicorn/no-process-exit
+							process.exit(0);
+						} else if (updateInfo && (input === 'X' || input === 'x')) {
+							// Dismiss the banner for this session. Next launch re-checks
+							// against the cache on disk. Reset the measured height so
+							// the mouse hit-test stops compensating for a banner that
+							// is no longer rendered.
+							setUpdateInfo(null);
+							setBannerHeight(0);
+						}
+					}
 				}
-			} else if (input === 'p') {
-				handleGitPull();
-			} else if (updateInfo && (input === 'U' || input === 'u')) {
-				// Order matters: if we kill the outer tmux session first,
-				// tmux SIGHUPs pappardelle (its root command) before
-				// spawnSync can even fork bash, so the installer never
-				// runs and the user just sees the TUI quit (STA-873).
-				// Instead: release the alt screen + mouse tracking so the
-				// installer's stdout is visible in the list pane, run it
-				// to completion with inherited stdio, and only then tear
-				// down the outer session.
-				log.info('Update keybinding triggered — running install.sh');
-				process.stdout.write('\x1b[?1006l'); // disable SGR mouse
-				process.stdout.write('\x1b[?1000l'); // disable basic mouse
-				process.stdout.write('\x1b[?1049l'); // exit alt screen
-				spawnSync('bash', ['-c', pappardelleInstallCommand()], {
-					stdio: 'inherit',
-				});
-				if (paneLayout) {
-					killSession(`pappardelle-${repoName}`);
-				}
-				process.exit(0);
-			} else if (updateInfo && (input === 'X' || input === 'x')) {
-				// Dismiss the banner for this session. Next launch re-checks
-				// against the cache on disk. Reset the measured height so
-				// the mouse hit-test stops compensating for a banner that
-				// is no longer rendered.
-				setUpdateInfo(null);
-				setBannerHeight(0);
-			}
 		},
 		{
 			isActive:
@@ -1260,7 +1300,10 @@ export default function App({
 
 			if (paneLayout && currentSpace === space.name) {
 				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
-				displayMessageInPane(paneLayout.lazygitViewerPaneId, 'Session closed');
+				displayMessageInPane(
+					paneLayout.companionViewerPaneId,
+					'Session closed',
+				);
 				setCurrentSpace(null);
 			}
 
