@@ -20,3 +20,28 @@ test('formatVersionLine: falls back to sha-only line when version is undefined',
 test('formatVersionLine: falls back to sha-only line when version is empty string', t => {
 	t.is(formatVersionLine('', 'abc1234'), 'pappardelle (abc1234)');
 });
+
+test('formatVersionLine: appends -dev marker for dev builds (tag already has v)', t => {
+	t.is(
+		formatVersionLine('v0.7.9', 'abc1234', true),
+		'pappardelle v0.7.9-dev (abc1234)',
+	);
+});
+
+test('formatVersionLine: appends -dev marker for dev builds (bare semver)', t => {
+	t.is(
+		formatVersionLine('0.7.9', 'abc1234', true),
+		'pappardelle v0.7.9-dev (abc1234)',
+	);
+});
+
+test('formatVersionLine: isDev=false renders the plain release line', t => {
+	t.is(
+		formatVersionLine('v0.7.9', 'abc1234', false),
+		'pappardelle v0.7.9 (abc1234)',
+	);
+});
+
+test('formatVersionLine: isDev is ignored when there is no version (still sha-only)', t => {
+	t.is(formatVersionLine(null, 'abc1234', true), 'pappardelle (abc1234)');
+});

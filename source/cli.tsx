@@ -36,7 +36,7 @@ import {buildSpawnEnv} from './spawn-env.ts';
 import {getRegisteredSpaces, initForRepo} from './space-registry.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {writeHighlightTarget} from './highlight.ts';
-import {resolveInstalledVersion, safeCheckForUpdate} from './update-check.ts';
+import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -334,10 +334,12 @@ try {
 	// Not in a git repo or git not available - leave as 'unknown'
 }
 
-// Resolve the installed semver version for display in the help overlay.
-// Git tag (vX.Y.Z) preferred, package.json fallback, null when neither exists
-// (fresh clone before first release, or not a git repo).
-const installedVersion = resolveInstalledVersion(pappardelleDir);
+// Resolve the version for display in the help overlay. A real release checkout
+// reports its own vX.Y.Z tag; a dev/worktree build (run from the monorepo, where
+// no release tag exists) reports the latest installed release flagged `-dev`;
+// neither resolvable → null, and the help line degrades to sha-only (STA-1494).
+const {version: installedVersion, isDev: isDevBuild} =
+	resolveDisplayVersion(pappardelleDir);
 
 // Kick off the update check asynchronously — never blocks startup, fails silent.
 // safeCheckForUpdate swallows all errors, so the promise will only ever
@@ -351,6 +353,7 @@ render(
 		paneLayout={paneLayout}
 		commitSha={commitSha}
 		installedVersion={installedVersion}
+		isDevBuild={isDevBuild}
 		updateCheckPromise={updateCheckPromise}
 	/>,
 );

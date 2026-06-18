@@ -8,6 +8,9 @@ interface Props {
 	customKeybindings?: KeybindingConfig[];
 	commitSha: string;
 	installedVersion?: string | null;
+	// When true, the version line is rendered with a `-dev` marker (dev/worktree
+	// build running ahead of the latest installed release — STA-1494).
+	isDevBuild?: boolean;
 }
 
 /** Default descriptions for overridable keys. */
@@ -36,6 +39,7 @@ export default function HelpOverlay({
 	customKeybindings,
 	commitSha,
 	installedVersion,
+	isDevBuild,
 }: Props) {
 	useInput((_input, key) => {
 		if (key.escape || _input === '?' || key.return) {
@@ -101,7 +105,9 @@ export default function HelpOverlay({
 				<Text bold color="cyan">
 					Keyboard Shortcuts
 				</Text>
-				<Text dimColor>{formatVersionLine(installedVersion, commitSha)}</Text>
+				<Text dimColor>
+					{formatVersionLine(installedVersion, commitSha, isDevBuild)}
+				</Text>
 			</Box>
 
 			{fixedShortcuts.map(s => (

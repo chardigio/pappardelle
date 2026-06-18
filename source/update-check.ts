@@ -102,6 +102,45 @@ export function resolveInstalledVersion(projectDir: string): string | null {
 	);
 }
 
+export type DisplayVersion = {
+	// The semver tag to show (e.g. "v0.7.9"), or null when nothing is
+	// resolvable and the help line should degrade to the sha-only form.
+	version: string | null;
+	// True when running outside a tagged release checkout — the version is the
+	// latest *installed* release and the running code is ahead of it, so the
+	// help line is rendered with a `-dev` marker.
+	isDev: boolean;
+};
+
+// Resolve the version to display in the help (?) overlay.
+//
+// Release tags (vX.Y.Z) live only on the standalone chardigio/pappardelle repo,
+// never in the stardust-labs monorepo. So:
+//   1. A real release checkout (run from ~/.pappardelle/repo) carries the tag in
+//      its own git tree → report it as the released version (isDev: false).
+//   2. A dev/worktree build (run from the monorepo, where no release tag is
+//      reachable) reports the latest release the user has installed at
+//      `installedRoot`, flagged isDev: true → "ahead of <that release>". This
+//      replaces the old package.json fallback, which always leaked the stale,
+//      never-bumped 0.1.0 for such builds (STA-1494).
+//   3. When neither is resolvable, returns {version: null} so the help line
+//      degrades to the sha-only form.
+//
+// Note this deliberately does NOT fall back to package.json: release.yml never
+// bumps it, so its version is always a lie for display purposes.
+export function resolveDisplayVersion(
+	projectDir: string,
+	installedRoot: string = path.join(homedir(), '.pappardelle', 'repo'),
+): DisplayVersion {
+	const own = readInstalledVersionFromGit(projectDir);
+	if (own) return {version: own, isDev: false};
+
+	const installed = readInstalledVersionFromGit(installedRoot);
+	if (installed) return {version: installed, isDev: true};
+
+	return {version: null, isDev: false};
+}
+
 export function readCachedCheck(cachePath: string): CacheEntry | null {
 	try {
 		const raw = readFileSync(cachePath, 'utf8');

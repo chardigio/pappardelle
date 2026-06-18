@@ -9,6 +9,7 @@ import {
 	readInstalledVersion,
 	readInstalledVersionFromGit,
 	resolveInstalledVersion,
+	resolveDisplayVersion,
 	readCachedCheck,
 	writeCachedCheck,
 	isLocalMode,
@@ -201,6 +202,92 @@ test('resolveInstalledVersion: returns null when neither source works', t => {
 		t.is(resolveInstalledVersion(dir), null);
 	} finally {
 		rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+// ============================================================================
+// resolveDisplayVersion (help-overlay version: real tag vs -dev build)
+// ============================================================================
+
+test('resolveDisplayVersion: real release checkout reports the tag, not dev', t => {
+	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+	try {
+		initRepoWithTag(proj, 'v0.7.9');
+		initRepoWithTag(install, 'v0.7.9');
+		t.deepEqual(resolveDisplayVersion(proj, install), {
+			version: 'v0.7.9',
+			isDev: false,
+		});
+	} finally {
+		rmSync(proj, {recursive: true, force: true});
+		rmSync(install, {recursive: true, force: true});
+	}
+});
+
+test('resolveDisplayVersion: monorepo/worktree build reports the installed clone tag, flagged -dev', t => {
+	// projectDir has no vX.Y.Z tag (mirrors the monorepo); installed clone does.
+	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+	try {
+		initRepoWithTag(proj, null);
+		initRepoWithTag(install, 'v0.7.9');
+		t.deepEqual(resolveDisplayVersion(proj, install), {
+			version: 'v0.7.9',
+			isDev: true,
+		});
+	} finally {
+		rmSync(proj, {recursive: true, force: true});
+		rmSync(install, {recursive: true, force: true});
+	}
+});
+
+test('resolveDisplayVersion: NEVER reports the stale package.json 0.1.0 for a dev build', t => {
+	// Regression guard for STA-1494: a worktree build whose package.json says
+	// 0.1.0 must surface the installed clone's real tag (as -dev), not 0.1.0.
+	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+	try {
+		initRepoWithTag(proj, null);
+		writeFileSync(
+			path.join(proj, 'package.json'),
+			JSON.stringify({version: '0.1.0'}),
+		);
+		initRepoWithTag(install, 'v0.7.9');
+		const result = resolveDisplayVersion(proj, install);
+		t.not(result.version, '0.1.0');
+		t.deepEqual(result, {version: 'v0.7.9', isDev: true});
+	} finally {
+		rmSync(proj, {recursive: true, force: true});
+		rmSync(install, {recursive: true, force: true});
+	}
+});
+
+test('resolveDisplayVersion: returns null version (sha-only) when nothing is resolvable', t => {
+	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+	try {
+		initRepoWithTag(proj, null);
+		initRepoWithTag(install, null);
+		t.deepEqual(resolveDisplayVersion(proj, install), {
+			version: null,
+			isDev: false,
+		});
+	} finally {
+		rmSync(proj, {recursive: true, force: true});
+		rmSync(install, {recursive: true, force: true});
+	}
+});
+
+test('resolveDisplayVersion: defaults installedRoot to ~/.pappardelle/repo', t => {
+	// When projectDir itself carries the tag, the default installedRoot is never
+	// consulted, so this is safe to run without touching the real home dir.
+	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+	try {
+		initRepoWithTag(proj, 'v1.2.3');
+		t.deepEqual(resolveDisplayVersion(proj), {version: 'v1.2.3', isDev: false});
+	} finally {
+		rmSync(proj, {recursive: true, force: true});
 	}
 });
 

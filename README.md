@@ -401,9 +401,15 @@ On startup, the TUI checks the GitHub Releases API (cached for 24h at `~/.pappar
 Update available: v0.1.0 → v0.2.0 · U to update · X to dismiss
 ```
 
-The installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone, with `package.json` as a fallback for the pre-release window. Press `U` to exit the TUI and re-run the install script in-place. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
+The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to exit the TUI and re-run the install script in-place. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
 
-When running out of the stardust-labs monorepo (LOCAL_MODE), the check is skipped entirely; the monorepo is the source of truth and must not be clobbered by `curl | bash`.
+The version shown in the help (`?`) overlay follows the same source-of-truth but degrades differently, since `package.json` is never bumped on release and so is always a stale `0.1.0`:
+
+- **Released install** (run from `~/.pappardelle/repo`, which carries the tag) → `pappardelle v0.7.9 (<sha>)`.
+- **Dev / worktree build** (run from the monorepo, where no `v*.*.*` tag is reachable) → reports the latest release you have installed, flagged `-dev`: `pappardelle v0.7.9-dev (<sha>)`. This signals "ahead of v0.7.9" rather than leaking the stale `0.1.0`.
+- **Neither resolvable** → the line degrades to the sha-only form `pappardelle (<sha>)`.
+
+When running out of the stardust-labs monorepo (LOCAL_MODE), the update check is skipped entirely; the monorepo is the source of truth and must not be clobbered by `curl | bash`.
 
 ### Logging
 

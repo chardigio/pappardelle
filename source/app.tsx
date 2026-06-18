@@ -110,6 +110,9 @@ interface AppProps {
 	paneLayout: PaneLayout | null;
 	commitSha: string;
 	installedVersion: string | null;
+	// True when running a dev/worktree build (no reachable release tag); renders
+	// the help-overlay version with a `-dev` marker (STA-1494).
+	isDevBuild?: boolean;
 	updateCheckPromise?: Promise<UpdateInfo | null>;
 }
 
@@ -119,6 +122,7 @@ export default function App({
 	paneLayout: initialPaneLayout,
 	commitSha,
 	installedVersion,
+	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
 	const {stdout} = useStdout();
@@ -1839,6 +1843,7 @@ export default function App({
 						customKeybindings={keybindings}
 						commitSha={commitSha}
 						installedVersion={installedVersion}
+						isDevBuild={isDevBuild}
 					/>
 				) : showErrorDialog ? (
 					<ErrorDialog onClose={() => setShowErrorDialog(false)} />
