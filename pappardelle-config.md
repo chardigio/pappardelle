@@ -784,6 +784,27 @@ companion_command?: string; // top-level and per-profile
 - **Honored on every launch path** — the Pappardelle TUI, `idow`/`start-claude-session.sh`, and the iTerm opener all resolve the same value, so a session launched from any of them runs the same companion command.
 - **Default change (STA-1464):** the default companion tool changed from `lazygit` to `gitui`. Restore the old behavior with `companion_command: lazygit`.
 
+### Recipe: split the pane into two tools
+
+`companion_command` is just a shell command, so you can compose several tools in one pane by having the command split itself with `tmux split-window` before launching its main process. This recipe runs **gitui on top (focused) and a plain shell on the bottom**, 70/30 — gitui gets the larger share:
+
+```yaml
+companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GIT_OPTIONAL_LOCKS=0 gitui'
+```
+
+The `split-window` flags:
+
+- `-v` — stack the new pane **below** (a horizontal divider).
+- `-d` — keep focus on the original (top) pane, so gitui stays focused once it launches.
+- `-l 30%` — size the new bottom pane to 30% of the height, leaving the top gitui pane the other 70%.
+- `-c "#{pane_current_path}"` — open the bottom shell in the same worktree dir as the companion pane.
+
+After the split returns, `gitui` launches in the top pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the built-in default — custom commands don't get it for free, and gitui's read-only git calls would otherwise contend with Claude's concurrent git. The bottom shell needs no such guard.
+
+**Why it's safe:** the companion runs in its own tmux session whose sole pane executes this command (see `ensureCompanionSession` in `source/tmux.ts`), so `tmux split-window` only carves _that_ pane in two — it never touches the Claude pane, which lives in a separate session.
+
+**Caveat — only new workspaces re-split:** a companion session is created once and reused (`ensureCompanionSession` early-returns when the session already exists), so editing `companion_command` won't re-split a workspace whose companion session is already running. The split shows up on **newly-created** workspaces; to apply it to an existing one, remove and recreate the workspace (or kill its companion session so it gets rebuilt).
+
 ## Built-in File Copies
 
 When creating a new worktree, `idow` automatically copies these gitignored files from the main repo root to the new worktree (if they exist). This happens before any `post_workspace_init` commands run.

@@ -279,7 +279,15 @@ profiles:
 
 **Resolution order** (first defined wins): the matched profile's `companion_command` → the top-level `companion_command` → the built-in default `GIT_OPTIONAL_LOCKS=0 gitui`. An explicit empty string (`""`) means "leave a plain shell" and stops the fallthrough; an absent key falls through to the next level. The command runs verbatim — any tool works (a different git UI, a dev server, a log tailer).
 
-**When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
+**Compose multiple tools** by having the command split its own pane first. E.g. gitui on top (focused) + a plain shell on the bottom, 70/30 (gitui bigger):
+
+```yaml
+companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GIT_OPTIONAL_LOCKS=0 gitui'
+```
+
+`-v` stacks the new pane below, `-d` keeps focus on the top (gitui) pane, `-l 30%` sizes the bottom shell (gitui keeps the other 70%), `-c "#{pane_current_path}"` opens it in the worktree dir. The split runs inside the companion's own tmux session, so it never touches the Claude pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the default — custom commands don't get it for free. Only newly-created workspaces pick up a changed `companion_command` (existing companion sessions persist).
+
+**When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), a split pane (recipe above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
 
 Available in all command templates, link URLs, and app paths:
 
