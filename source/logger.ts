@@ -208,6 +208,35 @@ export function getLogDir(): string {
 // Call once at startup (idempotent).
 let stderrCaptured = false;
 
+// Whether intercepted stderr is also forwarded to the real terminal.
+//
+// While the TUI owns the alternate screen, it must NOT be: a stray stderr write
+// — e.g. a `gh`/`git` subprocess whose stderr we inherit printing "no git
+// remotes found" — lands mid-frame inside Ink's managed alt-screen output and
+// shifts every subsequent line down a row, leaving a ghost (the reported
+// symptom was a duplicated top status-header line in QA screenshots, STA-1496).
+// The bytes are still logged to the file and surfaced in the in-app error
+// overlay, so suppressing the terminal copy loses nothing while the TUI is up.
+//
+// Defaults to "forward" so diagnostics print normally before the TUI mounts and
+// after it tears down. cli.tsx flips it off when it enters the alt screen and
+// back on during teardown (see setStderrTerminalPassthrough call sites).
+let stderrTerminalPassthrough = true;
+
+export function setStderrTerminalPassthrough(enabled: boolean): void {
+	stderrTerminalPassthrough = enabled;
+}
+
+export function getStderrTerminalPassthrough(): boolean {
+	return stderrTerminalPassthrough;
+}
+
+type StderrWrite = (
+	chunk: Uint8Array | string,
+	encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+	cb?: (err?: Error | null) => void,
+) => boolean;
+
 /* eslint-disable no-control-regex */
 // Strip all ANSI escape sequences from a string
 const ANSI_RE =
@@ -218,27 +247,53 @@ function isStderrNoise(text: string): boolean {
 	return text.replace(ANSI_RE, '').trim() === '';
 }
 
-export function captureStderr(): void {
-	if (stderrCaptured) return;
-	stderrCaptured = true;
-
-	const originalWrite = process.stderr.write.bind(process.stderr);
-	const stderrLog = createLogger('stderr');
-
-	process.stderr.write = (
-		chunk: Uint8Array | string,
-		encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
-		cb?: (err?: Error | null) => void,
-	): boolean => {
+// Build the replacement for process.stderr.write. Extracted (and exported) so
+// the passthrough/suppression behavior is unit-testable without mutating the
+// real process.stderr. Meaningful stderr is always mirrored to `logError`; the
+// raw bytes are forwarded to `originalWrite` (the terminal) only when
+// `shouldPassthrough()` is true.
+export function makeStderrInterceptor(
+	originalWrite: StderrWrite,
+	logError: (text: string) => void,
+	shouldPassthrough: () => boolean,
+): StderrWrite {
+	return (chunk, encodingOrCb, cb) => {
 		const text =
 			typeof chunk === 'string'
 				? chunk.trim()
 				: Buffer.from(chunk).toString('utf-8').trim();
 		if (text && !isStderrNoise(text)) {
-			stderrLog.error(text);
+			logError(text);
 		}
-		return originalWrite(chunk, encodingOrCb as BufferEncoding, cb);
+
+		if (!shouldPassthrough()) {
+			// Swallow the terminal write but honor the stream contract: invoke any
+			// completion callback so awaiting writers don't hang, and report success.
+			const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+			callback?.();
+			return true;
+		}
+
+		return originalWrite(chunk, encodingOrCb, cb);
 	};
+}
+
+export function captureStderr(): void {
+	if (stderrCaptured) return;
+	stderrCaptured = true;
+
+	const originalWrite = process.stderr.write.bind(
+		process.stderr,
+	) as StderrWrite;
+	const stderrLog = createLogger('stderr');
+
+	process.stderr.write = makeStderrInterceptor(
+		originalWrite,
+		text => {
+			stderrLog.error(text);
+		},
+		() => stderrTerminalPassthrough,
+	) as typeof process.stderr.write;
 }
 
 // Export a default logger for general use

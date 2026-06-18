@@ -25,7 +25,7 @@ import {
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
-import {captureStderr} from './logger.ts';
+import {captureStderr, setStderrTerminalPassthrough} from './logger.ts';
 
 // Capture stderr early so Ink/React rendering errors go to the log file
 captureStderr();
@@ -301,9 +301,16 @@ const clearScreen = () => {
 // Enter alternate screen buffer for full-screen mode
 process.stdout.write('\x1b[?1049h'); // Enter alt screen
 clearScreen();
+// Now that we own the alt screen, stop forwarding intercepted stderr to the
+// terminal — a stray subprocess stderr write here corrupts Ink's frame (STA-1496).
+// It's still logged + shown in the in-app error overlay. Re-enabled on teardown.
+setStderrTerminalPassthrough(false);
 
 // Cleanup on exit
 const cleanup = () => {
+	// Restore stderr→terminal forwarding before we leave the alt screen so any
+	// teardown/exit diagnostics are visible to the user again.
+	setStderrTerminalPassthrough(true);
 	// Disable mouse tracking before exiting
 	process.stdout.write('\x1b[?1006l');
 	process.stdout.write('\x1b[?1000l');

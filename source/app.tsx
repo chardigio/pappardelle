@@ -12,7 +12,12 @@ import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import {pappardelleInstallCommand, type UpdateInfo} from './update-check.ts';
-import {createLogger, subscribeToErrors, type LogEntry} from './logger.ts';
+import {
+	createLogger,
+	subscribeToErrors,
+	setStderrTerminalPassthrough,
+	type LogEntry,
+} from './logger.ts';
 
 const log = createLogger('app');
 
@@ -987,6 +992,10 @@ export default function App({
 							// to completion with inherited stdio, and only then tear
 							// down the outer session.
 							log.info('Update keybinding triggered — running install.sh');
+							// Leaving the alt screen: restore stderr→terminal forwarding
+							// (suppressed while the TUI owned the screen, STA-1496) so the
+							// installer's diagnostics are visible.
+							setStderrTerminalPassthrough(true);
 							process.stdout.write('\x1b[?1006l'); // disable SGR mouse
 							process.stdout.write('\x1b[?1000l'); // disable basic mouse
 							process.stdout.write('\x1b[?1049l'); // exit alt screen
