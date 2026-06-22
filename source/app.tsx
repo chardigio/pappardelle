@@ -1775,7 +1775,18 @@ export default function App({
 	}
 
 	return (
-		<Box flexDirection="column" height="100%">
+		// Pin the root to the measured terminal height — NOT `height="100%"`.
+		// Ink full-repaints only when the rendered output is at least as tall as
+		// the terminal (build/ink.js: `outputHeight >= stdout.rows` → clearTerminal);
+		// otherwise it uses a cursor-relative log-update diff whose line count goes
+		// stale across the `/`-search pane zoom. `height="100%"` does NOT fill the
+		// screen (Ink never sets the root node's height, so it resolves against
+		// `auto` and collapses to the content height) — so after the zoom grew the
+		// pane and the query filtered the list short, Ink stranded the old rows and
+		// pinned the query + matches to the bottom (STA-1539). A concrete height
+		// keeps outputHeight === stdout.rows, so every paint is a clean full-screen
+		// repaint. See app-fullscreen-height.test.ts + qa-tui.md for the proof.
+		<Box flexDirection="column" height={termHeight}>
 			{/* Update banner (only shown if an update is available and not dismissed) */}
 			{updateInfo && (
 				<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
