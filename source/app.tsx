@@ -13,6 +13,10 @@ import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import {pappardelleInstallCommand, type UpdateInfo} from './update-check.ts';
 import {
+	resolveUpdateKeyAction,
+	buildUpdateConfirmContent,
+} from './update-action.ts';
+import {
 	createLogger,
 	subscribeToErrors,
 	setStderrTerminalPassthrough,
@@ -158,6 +162,10 @@ export default function App({
 	const [searchQuery, setSearchQuery] = useState('');
 	const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
 	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+	// Whether the "Update Pappardelle?" confirm dialog is open. Reached via the
+	// always-available U key (STA-1548) — the banner's U routes here too, so the
+	// installer only ever runs after an explicit confirm.
+	const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
 	// Measured footprint of the update banner (outer Box height + its
 	// marginBottom). Reported by UpdateBanner via onMeasure — the content
 	// wraps at narrow pane widths so a fixed constant is wrong. Stays at 0
@@ -279,6 +287,35 @@ export default function App({
 		initialPaneLayout,
 	);
 
+	// Run the installer to update to the latest release, then quit. Invoked from
+	// the update confirm dialog's onConfirm (STA-1548) — both the banner's U and
+	// the always-available U funnel through that dialog.
+	//
+	// Order matters: if we kill the outer tmux session first, tmux SIGHUPs
+	// pappardelle (its root command) before spawnSync can even fork bash, so the
+	// installer never runs and the user just sees the TUI quit (STA-873).
+	// Instead: release the alt screen + mouse tracking so the installer's stdout
+	// is visible in the list pane, run it to completion with inherited stdio, and
+	// only then tear down the outer session.
+	const handleUpdateConfirmed = useCallback(() => {
+		log.info('Update keybinding triggered — running install.sh');
+		// Leaving the alt screen: restore stderr→terminal forwarding (suppressed
+		// while the TUI owned the screen, STA-1496) so the installer's diagnostics
+		// are visible.
+		setStderrTerminalPassthrough(true);
+		process.stdout.write('\x1b[?1006l'); // disable SGR mouse
+		process.stdout.write('\x1b[?1000l'); // disable basic mouse
+		process.stdout.write('\x1b[?1049l'); // exit alt screen
+		spawnSync('bash', ['-c', pappardelleInstallCommand()], {
+			stdio: 'inherit',
+		});
+		if (paneLayout) {
+			killSession(`pappardelle-${repoName}`);
+		}
+		// eslint-disable-next-line unicorn/no-process-exit
+		process.exit(0);
+	}, [paneLayout, repoName]);
+
 	// Track current layout direction to detect mode switches
 	const layoutDirectionRef = useRef<'horizontal' | 'vertical' | null>(
 		getCurrentLayoutDirection(),
@@ -308,6 +345,7 @@ export default function App({
 	const anyDialogOpen =
 		showPromptDialog ||
 		showDeleteConfirm ||
+		showUpdateConfirm ||
 		showHelp ||
 		showErrorDialog ||
 		isSearching;
@@ -882,6 +920,7 @@ export default function App({
 			if (
 				showPromptDialog ||
 				showDeleteConfirm ||
+				showUpdateConfirm ||
 				showHelp ||
 				showErrorDialog
 			) {
@@ -984,32 +1023,16 @@ export default function App({
 						break;
 					}
 					default: {
-						if (updateInfo && (input === 'U' || input === 'u')) {
-							// Order matters: if we kill the outer tmux session first,
-							// tmux SIGHUPs pappardelle (its root command) before
-							// spawnSync can even fork bash, so the installer never
-							// runs and the user just sees the TUI quit (STA-873).
-							// Instead: release the alt screen + mouse tracking so the
-							// installer's stdout is visible in the list pane, run it
-							// to completion with inherited stdio, and only then tear
-							// down the outer session.
-							log.info('Update keybinding triggered — running install.sh');
-							// Leaving the alt screen: restore stderr→terminal forwarding
-							// (suppressed while the TUI owned the screen, STA-1496) so the
-							// installer's diagnostics are visible.
-							setStderrTerminalPassthrough(true);
-							process.stdout.write('\x1b[?1006l'); // disable SGR mouse
-							process.stdout.write('\x1b[?1000l'); // disable basic mouse
-							process.stdout.write('\x1b[?1049l'); // exit alt screen
-							spawnSync('bash', ['-c', pappardelleInstallCommand()], {
-								stdio: 'inherit',
-							});
-							if (paneLayout) {
-								killSession(`pappardelle-${repoName}`);
-							}
-							// eslint-disable-next-line unicorn/no-process-exit
-							process.exit(0);
-						} else if (updateInfo && (input === 'X' || input === 'x')) {
+						const updateAction = resolveUpdateKeyAction(
+							input,
+							updateInfo !== null,
+						);
+						if (updateAction === 'open-confirm') {
+							// U is always live (STA-1548): open the "are you sure?"
+							// confirm dialog. The installer only runs once the user
+							// confirms (handleUpdateConfirmed).
+							setShowUpdateConfirm(true);
+						} else if (updateAction === 'dismiss-banner') {
 							// Dismiss the banner for this session. Next launch re-checks
 							// against the cache on disk. Reset the measured height so
 							// the mouse hit-test stops compensating for a banner that
@@ -1024,6 +1047,7 @@ export default function App({
 			isActive:
 				!showPromptDialog &&
 				!showDeleteConfirm &&
+				!showUpdateConfirm &&
 				!showHelp &&
 				!showErrorDialog &&
 				!isSearching,
@@ -1594,6 +1618,14 @@ export default function App({
 	// Get space to delete (for confirmation dialog)
 	const spaceToDelete = spaces[selectedIndex];
 
+	// Copy for the update confirm dialog (STA-1548). Shows the detected
+	// installed→latest delta when the banner surfaced one, else the current
+	// version as a fallback.
+	const updateConfirmContent = buildUpdateConfirmContent(
+		updateInfo,
+		installedVersion,
+	);
+
 	// Build display list: real spaces + pending row (if any) at the correct position.
 	// Also track the insert index so we can offset selectedIndex correctly.
 	const {displaySpaces, pendingInsertIndex} = React.useMemo((): {
@@ -1697,7 +1729,13 @@ export default function App({
 	const handleMouse = useCallback(
 		(event: {x: number; y: number; button: string}) => {
 			if (event.button !== 'left') return;
-			if (showPromptDialog || showDeleteConfirm || showErrorDialog) return;
+			if (
+				showPromptDialog ||
+				showDeleteConfirm ||
+				showUpdateConfirm ||
+				showErrorDialog
+			)
+				return;
 			if (displaySpaces.length === 0) return;
 
 			// Map the raw mouse y into a visible-list row index. `bannerHeight`
@@ -1734,6 +1772,7 @@ export default function App({
 			spaces.length,
 			showPromptDialog,
 			showDeleteConfirm,
+			showUpdateConfirm,
 			showErrorDialog,
 			scrollOffset,
 			visibleDisplaySpaces.length,
@@ -1746,6 +1785,7 @@ export default function App({
 		handleMouse,
 		!showPromptDialog &&
 			!showDeleteConfirm &&
+			!showUpdateConfirm &&
 			!showHelp &&
 			!showErrorDialog &&
 			!isSearching,
@@ -1861,7 +1901,15 @@ export default function App({
 
 			{/* Main content */}
 			<Box flexDirection="column">
-				{isZooming ? null : showPromptDialog ? (
+				{isZooming ? null : showUpdateConfirm ? (
+					<ConfirmDialog
+						title={updateConfirmContent.title}
+						message={updateConfirmContent.message}
+						detail={updateConfirmContent.detail}
+						onConfirm={handleUpdateConfirmed}
+						onCancel={() => setShowUpdateConfirm(false)}
+					/>
+				) : showPromptDialog ? (
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}

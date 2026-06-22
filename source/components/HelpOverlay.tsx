@@ -30,6 +30,7 @@ const fixedShortcuts = [
 	{key: 'n', description: 'New space'},
 	{key: 'Del', description: 'Close space'},
 	{key: '/', description: 'Search spaces'},
+	{key: 'U', description: 'Update to latest release'},
 	{key: 'q', description: 'Quit'},
 	{key: '?', description: 'Show this help'},
 ];

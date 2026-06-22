@@ -401,7 +401,7 @@ On startup, the TUI checks the GitHub Releases API (cached for 24h at `~/.pappar
 Update available: v0.1.0 → v0.2.0 · U to update · X to dismiss
 ```
 
-The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to exit the TUI and re-run the install script in-place. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
+The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to update to the latest release. `U` is **always live** — not just while the banner is showing: the 24h cache can lag a fresh release by hours, so you can pull a release that landed minutes ago without restarting and waiting out the cache. `U` opens an "are you sure?" confirm dialog (same style as closing a space); confirming exits the TUI, re-runs the install script in-place, and relaunches. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
 
 The version shown in the help (`?`) overlay follows the same source-of-truth but degrades differently, since `package.json` is never bumped on release and so is always a stale `0.1.0`:
 
@@ -409,7 +409,7 @@ The version shown in the help (`?`) overlay follows the same source-of-truth but
 - **Dev / worktree build** (run from the monorepo, where no `v*.*.*` tag is reachable) → reports the latest release you have installed, flagged `-dev`: `pappardelle v0.7.9-dev (<sha>)`. This signals "ahead of v0.7.9" rather than leaking the stale `0.1.0`.
 - **Neither resolvable** → the line degrades to the sha-only form `pappardelle (<sha>)`.
 
-When running out of the stardust-labs monorepo (LOCAL_MODE), the update check is skipped entirely; the monorepo is the source of truth and must not be clobbered by `curl | bash`.
+When running out of the stardust-labs monorepo (`LOCAL_MODE`), the **automatic** update check (and its banner) is skipped — the monorepo's version is a dev placeholder, so the comparison would false-positive on every launch. The manual `U` update still works everywhere: the installer writes to `~/.pappardelle/repo`, never to your monorepo checkout, so it can't clobber unpushed work there.
 
 ### Logging
 

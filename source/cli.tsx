@@ -72,6 +72,7 @@ const cli = meow(
 	  o              Open workspace (apps, links, iTerm, etc.)
 	  d              Delete selected space
 	  r              Refresh list
+	  U              Update Pappardelle to the latest release
 	  q/Ctrl+C       Quit
 
 	Options
