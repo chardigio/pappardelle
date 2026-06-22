@@ -55,7 +55,7 @@ import {
 	getRepoName,
 	qualifyMainBranch,
 	getKeybindings,
-	getIssueWatchlist,
+	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
@@ -63,7 +63,7 @@ import {
 	matchProfileByProject,
 	resolvePendingProfileEmoji,
 	type KeybindingConfig,
-	type IssueWatchlistConfig,
+	type ResolvedWatchlist,
 	type CommandConfig,
 } from './config.ts';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
@@ -232,34 +232,36 @@ export default function App({
 		[configMemo, repoName],
 	);
 
-	// Load issue watchlist config (once at startup)
-	const watchlistConfig = React.useMemo<
-		IssueWatchlistConfig | undefined
-	>(() => {
+	// Load issue watchlists (once at startup): the top-level issue_watchlist plus
+	// each profile's own issue_watchlist, all polled additively.
+	const watchlists = React.useMemo<ResolvedWatchlist[]>(() => {
 		try {
 			const config = loadConfig();
-			const wl = getIssueWatchlist(config);
-			if (wl) {
-				const assigneeInfo = wl.assignee ? `assignee=${wl.assignee}, ` : '';
-				const labelInfo = wl.labels?.length
-					? `, labels=[${wl.labels.join(', ')}]`
-					: '';
-				const prefixInfo = wl.key_prefixes?.length
-					? `, key_prefixes=[${wl.key_prefixes.join(', ')}]`
-					: '';
-				log.info(
-					`Issue watchlist configured: ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}`,
-				);
-			} else {
+			const resolved = getResolvedWatchlists(config);
+			if (resolved.length === 0) {
 				log.debug('No issue_watchlist configured — watchlist polling disabled');
+			} else {
+				for (const {profileName, watchlist: wl} of resolved) {
+					const source = profileName ? `profile "${profileName}"` : 'top-level';
+					const assigneeInfo = wl.assignee ? `assignee=${wl.assignee}, ` : '';
+					const labelInfo = wl.labels?.length
+						? `, labels=[${wl.labels.join(', ')}]`
+						: '';
+					const prefixInfo = wl.key_prefixes?.length
+						? `, key_prefixes=[${wl.key_prefixes.join(', ')}]`
+						: '';
+					log.info(
+						`Issue watchlist (${source}): ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}`,
+					);
+				}
 			}
 
-			return wl;
+			return resolved;
 		} catch (err) {
 			log.debug(
 				`Failed to load watchlist config: ${err instanceof Error ? err.message : String(err)}`,
 			);
-			return undefined;
+			return [];
 		}
 	}, []);
 
@@ -1131,14 +1133,7 @@ export default function App({
 	spacesLengthRef.current = spaces.length;
 
 	useEffect(() => {
-		if (!watchlistConfig) return;
-
-		const {
-			assignee,
-			statuses,
-			labels: watchLabels,
-			key_prefixes: watchPrefixes,
-		} = watchlistConfig;
+		if (watchlists.length === 0) return;
 
 		// Poll immediately on first load, then every 30 seconds
 		let pollInFlight = false;
@@ -1149,52 +1144,75 @@ export default function App({
 			log.debug('Watchlist: polling for assigned issues…');
 
 			try {
-				let issues = await searchAssignedIssues(assignee, statuses);
-
-				// Restrict to configured issue-key prefixes (e.g. only STA-*)
-				if (watchPrefixes && watchPrefixes.length > 0) {
-					issues = filterByKeyPrefixes(issues, watchPrefixes);
-				}
-
-				// Apply label filter if configured
-				if (watchLabels && watchLabels.length > 0) {
-					issues = filterByLabels(issues, watchLabels);
-				}
-
-				if (issues.length === 0) {
-					log.debug('Watchlist: no matching issues found');
-					return;
-				}
-
-				// Get current space names to determine what's new
+				// Fetch the registered space set once per poll cycle; the
+				// per-issue spawn guard (watchlistSpawnedRef) handles dedup both
+				// across watchlists and across cycles.
 				const currentSpaceNames = getRegisteredSpaces();
-				const newIssues = getNewWatchlistIssues(issues, currentSpaceNames);
-				log.debug(
-					`Watchlist: found ${issues.length} assigned issue(s), ${newIssues.length} new`,
-				);
 
-				for (const issue of newIssues) {
-					// Skip if we already attempted to spawn this issue
-					if (watchlistSpawnedRef.current.has(issue.identifier.toUpperCase())) {
-						continue;
+				for (const {profileName, watchlist} of watchlists) {
+					const {
+						assignee,
+						statuses,
+						labels: watchLabels,
+						key_prefixes: watchPrefixes,
+					} = watchlist;
+
+					let issues = await searchAssignedIssues(assignee, statuses);
+
+					// Restrict to configured issue-key prefixes (e.g. only STA-*).
+					// For profile watchlists this is auto-derived from team_prefix.
+					if (watchPrefixes && watchPrefixes.length > 0) {
+						issues = filterByKeyPrefixes(issues, watchPrefixes);
 					}
 
-					watchlistSpawnedRef.current.add(issue.identifier.toUpperCase());
-					log.info(
-						`Watchlist: spawning workspace for ${issue.identifier} (${issue.title})`,
+					// Apply label filter if configured
+					if (watchLabels && watchLabels.length > 0) {
+						issues = filterByLabels(issues, watchLabels);
+					}
+
+					if (issues.length === 0) continue;
+
+					const newIssues = getNewWatchlistIssues(issues, currentSpaceNames);
+					const source = profileName ? `profile "${profileName}"` : 'top-level';
+					log.debug(
+						`Watchlist (${source}): found ${issues.length} assigned issue(s), ${newIssues.length} new`,
 					);
 
-					spawnSession({
-						type: 'issue',
-						name: issue.identifier,
-						idowArg: issue.identifier,
-						pendingTitle: `Watchlist: ${issue.title}`,
-						prevSpaceCount: spacesLengthRef.current,
-						// No profileName upfront — the watchlist doesn't pre-pick
-						// a profile. Falls back to default_emoji or "" blank slot
-						// when emoji machinery is configured, undefined otherwise.
-						profileEmoji: resolvePendingProfileEmoji(configMemo, null),
-					});
+					for (const issue of newIssues) {
+						// Skip if we already attempted to spawn this issue (e.g. it
+						// also matched another watchlist this cycle, or a prior one).
+						// First match wins by iteration order — the top-level watchlist
+						// precedes profile watchlists (see getResolvedWatchlists), so on
+						// the rare overlap (a profile watching the same status as the
+						// top-level) the issue keeps the top-level's no-profile spawn.
+						if (
+							watchlistSpawnedRef.current.has(issue.identifier.toUpperCase())
+						) {
+							log.debug(
+								`Watchlist (${source}): ${issue.identifier} already claimed by an earlier watchlist this cycle — skipping`,
+							);
+							continue;
+						}
+
+						watchlistSpawnedRef.current.add(issue.identifier.toUpperCase());
+						log.info(
+							`Watchlist (${source}): spawning workspace for ${issue.identifier} (${issue.title})`,
+						);
+
+						spawnSession({
+							type: 'issue',
+							name: issue.identifier,
+							idowArg: issue.identifier,
+							pendingTitle: `Watchlist: ${issue.title}`,
+							prevSpaceCount: spacesLengthRef.current,
+							// Force the owning profile so idow runs the right
+							// profile-specific setup and the pending row shows its
+							// emoji. null (top-level watchlist) keeps the legacy
+							// behavior: no --profile, idow resolves by project.
+							profileName: profileName ?? undefined,
+							profileEmoji: resolvePendingProfileEmoji(configMemo, profileName),
+						});
+					}
 				}
 			} catch (err) {
 				log.warn(
@@ -1214,7 +1232,7 @@ export default function App({
 			clearTimeout(initialTimer);
 			clearInterval(interval);
 		};
-	}, [watchlistConfig]);
+	}, [watchlists]);
 
 	// Rail-status polling — fetch each space's PR pipeline state + unresolved
 	// review-comment count from the VCS host on RAIL_STATUS_POLL_INTERVAL_MS

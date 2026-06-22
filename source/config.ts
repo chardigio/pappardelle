@@ -125,6 +125,24 @@ export interface Profile {
 	 * default (`gitui`).
 	 */
 	companion_command?: string;
+	/**
+	 * Per-profile issue watchlist, polled in *addition* to the top-level
+	 * `issue_watchlist` (not instead of it). Lets a single profile watch a
+	 * different set of statuses/labels than the global watchlist — e.g. a
+	 * personal project that should spawn workspaces on a bespoke
+	 * "For Pappardelle" status while the top-level watchlist keeps watching
+	 * "To Do" across every project.
+	 *
+	 * Auto-scoped to the profile's team: when this watchlist omits
+	 * `key_prefixes` but the profile (or the global config) has a `team_prefix`,
+	 * that prefix becomes the key-prefix filter so the profile watchlist only
+	 * pulls in its own team's issues. An explicit `key_prefixes` here wins; if
+	 * no `team_prefix` is configured anywhere, the watchlist matches every
+	 * prefix (same as the top-level watchlist). Workspaces it spawns are forced
+	 * to this profile (idow --profile <name>) so they get the right emoji and
+	 * profile-specific setup.
+	 */
+	issue_watchlist?: IssueWatchlistConfig;
 }
 
 export interface PappardelleConfig {
@@ -641,63 +659,12 @@ export function validateConfig(
 		}
 	}
 
-	// Check issue_watchlist (optional)
+	// Check issue_watchlist (optional). Same shape is also accepted per-profile,
+	// so the field checks live in a shared helper keyed by an error-message prefix.
 	if (cfg['issue_watchlist'] !== undefined) {
-		if (
-			typeof cfg['issue_watchlist'] !== 'object' ||
-			cfg['issue_watchlist'] === null
-		) {
-			errors.push('issue_watchlist: must be an object');
-		} else {
-			const wl = cfg['issue_watchlist'] as Record<string, unknown>;
-			if (wl['assignee'] !== undefined && typeof wl['assignee'] !== 'string') {
-				errors.push('issue_watchlist.assignee: must be a string');
-			}
-
-			if (!Array.isArray(wl['statuses']) || wl['statuses'].length === 0) {
-				errors.push('issue_watchlist.statuses: required non-empty array');
-			} else {
-				const statuses = wl['statuses'] as unknown[];
-				for (let i = 0; i < statuses.length; i++) {
-					if (typeof statuses[i] !== 'string') {
-						errors.push(`issue_watchlist.statuses[${i}]: must be a string`);
-					}
-				}
-			}
-
-			if (wl['labels'] !== undefined) {
-				if (!Array.isArray(wl['labels'])) {
-					errors.push('issue_watchlist.labels: must be an array');
-				} else {
-					const labels = wl['labels'] as unknown[];
-					for (let i = 0; i < labels.length; i++) {
-						if (typeof labels[i] !== 'string') {
-							errors.push(`issue_watchlist.labels[${i}]: must be a string`);
-						}
-					}
-				}
-			}
-
-			if (wl['key_prefixes'] !== undefined) {
-				if (!Array.isArray(wl['key_prefixes'])) {
-					errors.push('issue_watchlist.key_prefixes: must be an array');
-				} else {
-					const prefixes = wl['key_prefixes'] as unknown[];
-					for (let i = 0; i < prefixes.length; i++) {
-						const prefix = prefixes[i];
-						if (typeof prefix !== 'string') {
-							errors.push(
-								`issue_watchlist.key_prefixes[${i}]: must be a string`,
-							);
-						} else if (prefix.trim() === '') {
-							errors.push(
-								`issue_watchlist.key_prefixes[${i}]: must not be empty`,
-							);
-						}
-					}
-				}
-			}
-		}
+		errors.push(
+			...validateIssueWatchlist(cfg['issue_watchlist'], 'issue_watchlist'),
+		);
 	}
 
 	// Check auto_remove_when_done (optional, off by default)
@@ -883,6 +850,68 @@ export function validateConfig(
 	if (errors.length > 0) {
 		throw new ConfigValidationError(errors);
 	}
+}
+
+/**
+ * Validate a single issue_watchlist block. Shared by the top-level
+ * `issue_watchlist` and each profile's `issue_watchlist` so their field rules
+ * and error messages can never drift. `prefix` is the dotted path used in error
+ * messages (e.g. `issue_watchlist` or `profiles.chaz.issue_watchlist`).
+ */
+function validateIssueWatchlist(value: unknown, prefix: string): string[] {
+	const errors: string[] = [];
+
+	if (typeof value !== 'object' || value === null) {
+		errors.push(`${prefix}: must be an object`);
+		return errors;
+	}
+
+	const wl = value as Record<string, unknown>;
+	if (wl['assignee'] !== undefined && typeof wl['assignee'] !== 'string') {
+		errors.push(`${prefix}.assignee: must be a string`);
+	}
+
+	if (!Array.isArray(wl['statuses']) || wl['statuses'].length === 0) {
+		errors.push(`${prefix}.statuses: required non-empty array`);
+	} else {
+		const statuses = wl['statuses'] as unknown[];
+		for (let i = 0; i < statuses.length; i++) {
+			if (typeof statuses[i] !== 'string') {
+				errors.push(`${prefix}.statuses[${i}]: must be a string`);
+			}
+		}
+	}
+
+	if (wl['labels'] !== undefined) {
+		if (!Array.isArray(wl['labels'])) {
+			errors.push(`${prefix}.labels: must be an array`);
+		} else {
+			const labels = wl['labels'] as unknown[];
+			for (let i = 0; i < labels.length; i++) {
+				if (typeof labels[i] !== 'string') {
+					errors.push(`${prefix}.labels[${i}]: must be a string`);
+				}
+			}
+		}
+	}
+
+	if (wl['key_prefixes'] !== undefined) {
+		if (!Array.isArray(wl['key_prefixes'])) {
+			errors.push(`${prefix}.key_prefixes: must be an array`);
+		} else {
+			const prefixes = wl['key_prefixes'] as unknown[];
+			for (let i = 0; i < prefixes.length; i++) {
+				const p = prefixes[i];
+				if (typeof p !== 'string') {
+					errors.push(`${prefix}.key_prefixes[${i}]: must be a string`);
+				} else if (p.trim() === '') {
+					errors.push(`${prefix}.key_prefixes[${i}]: must not be empty`);
+				}
+			}
+		}
+	}
+
+	return errors;
 }
 
 function validateProfile(name: string, profile: unknown): string[] {
@@ -1073,6 +1102,16 @@ function validateProfile(name: string, profile: unknown): string[] {
 				}
 			}
 		}
+	}
+
+	// Optional per-profile issue_watchlist (same shape as the top-level one)
+	if (p['issue_watchlist'] !== undefined) {
+		errors.push(
+			...validateIssueWatchlist(
+				p['issue_watchlist'],
+				`${prefix}.issue_watchlist`,
+			),
+		);
 	}
 
 	return errors;
@@ -1542,6 +1581,74 @@ export function getIssueWatchlist(
 	config: PappardelleConfig,
 ): IssueWatchlistConfig | undefined {
 	return config.issue_watchlist;
+}
+
+/**
+ * A watchlist resolved for polling, tagged with the profile it belongs to.
+ * `profileName` is null for the top-level `issue_watchlist`; otherwise it names
+ * the owning profile (used to force `idow --profile <name>` and pick the right
+ * rail emoji for workspaces this watchlist spawns).
+ */
+export interface ResolvedWatchlist {
+	profileName: string | null;
+	watchlist: IssueWatchlistConfig;
+}
+
+/**
+ * Collect every watchlist the poller should run: the top-level
+ * `issue_watchlist` (if any) plus each profile's own `issue_watchlist` (if any).
+ * The lists are additive — a profile watchlist supplements, never replaces, the
+ * top-level one. This is what makes "watch To Do everywhere, but also watch a
+ * bespoke status for one project" expressible.
+ *
+ * Profile watchlists are auto-scoped to their team: when a profile watchlist
+ * omits `key_prefixes`, the profile's effective `team_prefix`
+ * (profile-level, else global) is injected as the sole key-prefix filter so it
+ * only pulls in that team's issues. An explicit `key_prefixes` is left
+ * untouched, and when no `team_prefix` is configured anywhere the watchlist is
+ * left unscoped (matches every prefix, like the top-level watchlist).
+ *
+ * Order is significant: the top-level watchlist comes first, then profiles in
+ * definition order. The poller spawns the first watchlist to match a given
+ * issue and skips later duplicates, so on the (rare, misconfigured) overlap of
+ * a profile watching the same status as the top-level, the top-level's spawn
+ * wins. Disjoint statuses — the intended setup — never collide.
+ *
+ * Off-by-default guarantee: when no profile defines `issue_watchlist`, the
+ * result is exactly `[{profileName: null, watchlist: config.issue_watchlist}]`
+ * (or `[]` when there's no top-level watchlist either) — byte-identical to the
+ * single-watchlist behavior that predated this function.
+ */
+export function getResolvedWatchlists(
+	config: PappardelleConfig,
+): ResolvedWatchlist[] {
+	const resolved: ResolvedWatchlist[] = [];
+
+	if (config.issue_watchlist) {
+		// The top-level watchlist is intentionally never auto-scoped — it is the
+		// "watch every project" catch-all.
+		resolved.push({profileName: null, watchlist: config.issue_watchlist});
+	}
+
+	for (const [name, profile] of Object.entries(config.profiles)) {
+		const wl = profile.issue_watchlist;
+		if (!wl) continue;
+
+		const hasExplicitPrefixes =
+			Array.isArray(wl.key_prefixes) && wl.key_prefixes.length > 0;
+		// Effective team prefix without getProfileTeamPrefix's hard 'STA' default:
+		// we only auto-scope when a team_prefix is actually configured.
+		const teamPrefix = profile.team_prefix ?? config.team_prefix;
+
+		const watchlist =
+			!hasExplicitPrefixes && teamPrefix
+				? {...wl, key_prefixes: [teamPrefix]}
+				: wl;
+
+		resolved.push({profileName: name, watchlist});
+	}
+
+	return resolved;
 }
 
 /**

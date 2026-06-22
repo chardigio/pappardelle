@@ -223,6 +223,20 @@ issue_watchlist:
 
 `key_prefixes` is an allowlist of issue-key prefixes (the part before the first `-`, e.g. `STA` in `STA-123`); case-insensitive, AND-ed with `labels`. Only prompt for it when the user's tracker account spans multiple workspaces and they want a subset — otherwise omit it, since the default already watches every prefix.
 
+**Per-profile watchlists.** A profile may carry its own `issue_watchlist` (identical fields). Resolution order: the top-level watchlist and every profile watchlist are polled **additively** — a profile one supplements, never replaces, the top-level one. A profile watchlist with no `key_prefixes` is auto-scoped to that profile's effective `team_prefix` (profile-level, else global); an explicit `key_prefixes` wins, and with no `team_prefix` anywhere it stays unscoped. Issues it spawns are forced to that profile (`idow --profile <name>`).
+
+```yaml
+profiles:
+  chaz:
+    team_prefix: CHAZ
+    issue_watchlist: # watched on top of the top-level one, scoped to CHAZ-*
+      assignee: me
+      statuses:
+        - For Pappardelle
+```
+
+Only prompt for a per-profile watchlist when the user explicitly wants a project that watches a _different_ status/label than the global watchlist — the common case is a single top-level watchlist, so don't offer this unless they ask or describe that split.
+
 Ask with `AskUserQuestion`:
 
 1. Which issue statuses should trigger workspace creation?

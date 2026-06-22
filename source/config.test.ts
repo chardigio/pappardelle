@@ -14,6 +14,7 @@ import {
 	getKeybindings,
 	getDefaultProfile,
 	getIssueWatchlist,
+	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	getCompanionCommand,
 	DEFAULT_COMPANION_COMMAND,
@@ -3164,6 +3165,259 @@ test('getIssueWatchlist returns labels when configured', t => {
 	};
 	const watchlist = getIssueWatchlist(config);
 	t.deepEqual(watchlist!.labels, ['pappardelle', 'platform']);
+});
+
+// ============================================================================
+// getResolvedWatchlists Tests (per-profile issue_watchlist)
+// ============================================================================
+
+test('getResolvedWatchlists returns [] when nothing is configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.deepEqual(getResolvedWatchlists(config), []);
+});
+
+test('getResolvedWatchlists returns only the top-level watchlist when no profile defines one (off-by-default regression)', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+	t.deepEqual(getResolvedWatchlists(config), [
+		{profileName: null, watchlist: {assignee: 'me', statuses: ['To Do']}},
+	]);
+});
+
+test('getResolvedWatchlists never auto-scopes the top-level watchlist even when team_prefix is set', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+		'STA',
+	);
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+	const resolved = getResolvedWatchlists(config);
+	t.is(resolved.length, 1);
+	t.is(resolved[0]!.profileName, null);
+	t.is(resolved[0]!.watchlist.key_prefixes, undefined);
+});
+
+test('getResolvedWatchlists includes profile watchlists additively after the top-level one', t => {
+	const chaz: Profile = {
+		keywords: ['chaz'],
+		display_name: 'Charlie Personal',
+		team_prefix: 'CHAZ',
+		issue_watchlist: {assignee: 'me', statuses: ['For Pappardelle']},
+	};
+	const config = createConfig({chaz}, 'chaz');
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+	const resolved = getResolvedWatchlists(config);
+	t.is(resolved.length, 2);
+	t.is(resolved[0]!.profileName, null);
+	t.is(resolved[1]!.profileName, 'chaz');
+});
+
+test('getResolvedWatchlists includes every profile that defines a watchlist', t => {
+	const chaz: Profile = {
+		keywords: ['chaz'],
+		display_name: 'CHAZ',
+		team_prefix: 'CHAZ',
+		issue_watchlist: {assignee: 'me', statuses: ['For Pappardelle']},
+	};
+	const jams: Profile = {
+		keywords: ['jams'],
+		display_name: 'Jams',
+		team_prefix: 'STA',
+		issue_watchlist: {assignee: 'me', statuses: ['Ready for Pappardelle']},
+	};
+	// A third profile with NO watchlist must not appear in the result.
+	const idle = createProfile(['idle'], 'Idle');
+	const config = createConfig({chaz, jams, idle}, 'chaz');
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+	const resolved = getResolvedWatchlists(config);
+	t.is(resolved.length, 3);
+	t.deepEqual(
+		new Set(resolved.map(r => r.profileName)),
+		new Set([null, 'chaz', 'jams']),
+	);
+});
+
+test('getResolvedWatchlists orders the top-level watchlist first, then profiles in definition order', t => {
+	// The poller dedups by "first match wins", so this ordering is the contract
+	// that decides which watchlist claims an issue on overlap. Pin it so a future
+	// refactor cannot silently invert the priority.
+	const bravo: Profile = {
+		keywords: ['bravo'],
+		display_name: 'Bravo',
+		team_prefix: 'BRA',
+		issue_watchlist: {assignee: 'me', statuses: ['X']},
+	};
+	const alpha: Profile = {
+		keywords: ['alpha'],
+		display_name: 'Alpha',
+		team_prefix: 'ALP',
+		issue_watchlist: {assignee: 'me', statuses: ['Y']},
+	};
+	const config = createConfig({bravo, alpha}, 'bravo');
+	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
+	const resolved = getResolvedWatchlists(config);
+	t.deepEqual(
+		resolved.map(r => r.profileName),
+		[null, 'bravo', 'alpha'],
+	);
+});
+
+test('getResolvedWatchlists auto-scopes a profile watchlist to the profile team_prefix', t => {
+	const chaz: Profile = {
+		keywords: ['chaz'],
+		display_name: 'Charlie Personal',
+		team_prefix: 'CHAZ',
+		issue_watchlist: {assignee: 'me', statuses: ['For Pappardelle']},
+	};
+	const config = createConfig({chaz}, 'chaz');
+	const resolved = getResolvedWatchlists(config);
+	t.is(resolved.length, 1);
+	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
+	// The source config object must not be mutated by resolution.
+	t.is(chaz.issue_watchlist!.key_prefixes, undefined);
+});
+
+test('getResolvedWatchlists auto-scopes a profile watchlist to the global team_prefix when the profile has none', t => {
+	const foo: Profile = {
+		keywords: ['foo'],
+		display_name: 'Foo',
+		issue_watchlist: {assignee: 'me', statuses: ['For Pappardelle']},
+	};
+	const config = createConfig({foo}, 'foo', 'STA');
+	const resolved = getResolvedWatchlists(config);
+	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['STA']);
+});
+
+test('getResolvedWatchlists leaves an explicit profile key_prefixes untouched (explicit wins over auto-scope)', t => {
+	const chaz: Profile = {
+		keywords: ['chaz'],
+		display_name: 'Charlie Personal',
+		team_prefix: 'CHAZ',
+		issue_watchlist: {
+			assignee: 'me',
+			statuses: ['For Pappardelle'],
+			key_prefixes: ['WAB'],
+		},
+	};
+	const config = createConfig({chaz}, 'chaz');
+	const resolved = getResolvedWatchlists(config);
+	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['WAB']);
+});
+
+test('getResolvedWatchlists treats an empty profile key_prefixes as omitted and auto-scopes', t => {
+	const chaz: Profile = {
+		keywords: ['chaz'],
+		display_name: 'Charlie Personal',
+		team_prefix: 'CHAZ',
+		issue_watchlist: {assignee: 'me', statuses: ['X'], key_prefixes: []},
+	};
+	const config = createConfig({chaz}, 'chaz');
+	const resolved = getResolvedWatchlists(config);
+	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
+});
+
+test('getResolvedWatchlists leaves a profile watchlist unscoped when no team_prefix is configured anywhere', t => {
+	const foo: Profile = {
+		keywords: ['foo'],
+		display_name: 'Foo',
+		issue_watchlist: {assignee: 'me', statuses: ['X']},
+	};
+	const config = createConfig({foo}, 'foo');
+	const resolved = getResolvedWatchlists(config);
+	// No explicit prefixes and nothing to derive from → unscoped (matches all).
+	t.is(resolved[0]!.watchlist.key_prefixes, undefined);
+});
+
+// ============================================================================
+// Per-profile issue_watchlist Validation Tests
+// ============================================================================
+
+test('validateConfig accepts a profile-level issue_watchlist', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			chaz: {
+				display_name: 'Charlie Personal',
+				team_prefix: 'CHAZ',
+				issue_watchlist: {assignee: 'me', statuses: ['For Pappardelle']},
+			},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects a profile issue_watchlist that is not an object', t => {
+	const raw = {
+		version: 1,
+		profiles: {chaz: {display_name: 'X', issue_watchlist: 'nope'}},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('profiles.chaz.issue_watchlist: must be an object'),
+	);
+});
+
+test('validateConfig rejects a profile issue_watchlist without statuses', t => {
+	const raw = {
+		version: 1,
+		profiles: {chaz: {display_name: 'X', issue_watchlist: {assignee: 'me'}}},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'profiles.chaz.issue_watchlist.statuses: required non-empty array',
+		),
+	);
+});
+
+test('validateConfig rejects a profile issue_watchlist with non-string assignee', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			chaz: {
+				display_name: 'X',
+				issue_watchlist: {assignee: 5, statuses: ['To Do']},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'profiles.chaz.issue_watchlist.assignee: must be a string',
+		),
+	);
+});
+
+test('validateConfig rejects a profile issue_watchlist with an empty key_prefix', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			chaz: {
+				display_name: 'X',
+				issue_watchlist: {statuses: ['To Do'], key_prefixes: ['STA', '']},
+			},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'profiles.chaz.issue_watchlist.key_prefixes[1]: must not be empty',
+		),
+	);
 });
 
 // ============================================================================

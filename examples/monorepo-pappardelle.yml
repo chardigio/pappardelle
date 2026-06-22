@@ -36,6 +36,18 @@ post_workspace_init:
 # tmux sessions are cleaned up, the worktree on disk is left in place.
 auto_remove_when_done: true
 
+# Issue watchlist — poll Linear every 30s and auto-spawn a workspace for each
+# assigned issue in these statuses that doesn't already have one. This is the
+# "watch everything" catch-all; individual profiles can add their own watchlist
+# below (polled additively) to also watch a project-specific status.
+issue_watchlist:
+  assignee: me
+  statuses:
+    - To Do
+    - In Progress
+  labels:
+    - pappardelle
+
 # Command run in the companion pane (right of Claude). gitui is the default;
 # this line is explicit for clarity. Set it to any command, or override it
 # per-profile below (e.g. a profile that boots a dev server instead of a git UI).
@@ -121,6 +133,15 @@ profiles:
       - 'Stardust Jams MVP'
     display_name: 'Stardust Jams'
     emoji: '🎸' # Shown in the ticket rail (STA-924)
+    # Per-profile watchlist, polled IN ADDITION to the top-level one. Here it
+    # watches a bespoke "Ready for Pappardelle" status that only Stardust Jams
+    # uses. With no key_prefixes it auto-scopes to this profile's team_prefix
+    # (here the global STA), and any workspace it spawns is forced to this
+    # profile (idow --profile stardust-jams) so it gets the 🎸 + /do-stardust setup.
+    issue_watchlist:
+      assignee: me
+      statuses:
+        - Ready for Pappardelle
     claude:
       initialization_command: '/do-stardust' # Profile-level override for Claude init
     vars:

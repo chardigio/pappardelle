@@ -734,6 +734,36 @@ issue_watchlist:
 
 **Note:** The `assignee: me` value uses `currentUser()` in Jira JQL and `me` in linctl, both of which resolve to the authenticated user automatically. When `assignee` is omitted, issues from all assignees matching the configured statuses will be watched.
 
+### Per-profile watchlists
+
+A profile may declare its own `issue_watchlist` with the **same shape** as the top-level one. Profile watchlists are polled _in addition_ to the top-level one (additive, never a replacement) — so you can watch one set of statuses everywhere and a different, bespoke status for a single project:
+
+```yaml
+issue_watchlist: # watches "To Do" across every project
+  assignee: me
+  statuses:
+    - To Do
+  labels:
+    - pappardelle
+
+profiles:
+  chaz:
+    display_name: Charlie Personal
+    team_prefix: CHAZ
+    tracker_projects:
+      - CHAZ
+    issue_watchlist: # ALSO watch a project-specific status, scoped to CHAZ-*
+      assignee: me
+      statuses:
+        - For Pappardelle
+```
+
+**Auto-scoping to the profile's team:** when a profile watchlist omits `key_prefixes`, pappardelle injects the profile's effective `team_prefix` (the profile's own, else the global `team_prefix`) as the sole key-prefix filter, so the watchlist only pulls in that team's issues. An explicit `key_prefixes` on the profile watchlist always wins, and if no `team_prefix` is configured anywhere the watchlist stays unscoped (matches every prefix, exactly like the top-level one). The top-level watchlist is **never** auto-scoped — it's the "watch every project" catch-all.
+
+**Spawned profile:** workspaces created by a profile watchlist are forced to that profile (`idow --profile <name>`), so they run the right profile-specific setup and show its rail emoji immediately. (The top-level watchlist passes no profile, so `idow` resolves it from the issue's tracker project — unchanged from before.)
+
+**Off-by-default:** when no profile defines `issue_watchlist`, behavior is byte-identical to a single top-level watchlist — see the `getResolvedWatchlists` regression tests in `source/config.test.ts`.
+
 ## Auto-Remove When Done
 
 The top-level `auto_remove_when_done` flag tells pappardelle to remove a space from the ticket rail as soon as its tracker issue reaches a terminal state (`completed` or `canceled`). Off by default — when the field is absent or `false`, behavior is identical to master.

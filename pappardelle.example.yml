@@ -39,6 +39,20 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Issue watchlist (optional): poll the tracker every 30s and auto-spawn a
+# workspace for each assigned, matching issue that doesn't already have one.
+# A profile can also declare its own `issue_watchlist` (see ios-app below) —
+# profile watchlists are polled IN ADDITION to this top-level one.
+# issue_watchlist:
+#   assignee: me            # 'me' auto-detects; or an explicit username/email; omit to match all
+#   statuses:
+#     - To Do
+#     - In Progress
+#   labels:                 # Optional: only watch issues carrying one of these labels
+#     - pappardelle
+#   key_prefixes:           # Optional: only watch these key prefixes (e.g. ENG-*, not WAB-*)
+#     - ENG
+
 # Command run in the companion pane (the right pane, next to Claude).
 # Defaults to gitui. Set it to any shell command — a different git UI, a dev
 # server, a log tailer, etc. — or "" to leave a plain shell. A profile can
@@ -107,6 +121,15 @@ profiles:
     # Per-profile team prefix override (optional).
     # Issues created under this profile will use this prefix instead of the global one.
     # team_prefix: IOS
+    # Per-profile issue watchlist (optional), polled in ADDITION to the
+    # top-level one. Watch a bespoke status just for this project's issues.
+    # When key_prefixes is omitted it's auto-scoped to this profile's
+    # team_prefix (IOS here, else the global ENG), so it only pulls in that
+    # team's issues. Workspaces it spawns are forced to this profile.
+    # issue_watchlist:
+    #   assignee: me
+    #   statuses:
+    #     - For Pappardelle
     # Per-profile Jira issue type override (optional).
     # Falls back to issue_tracker.default_issue_type, then "Task".
     # jira:
