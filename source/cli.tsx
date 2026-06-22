@@ -37,6 +37,7 @@ import {getRegisteredSpaces, initForRepo} from './space-registry.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
+import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -354,7 +355,15 @@ const {version: installedVersion, isDev: isDevBuild} =
 // isn't blocked on the network.
 const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
 
-// Render the app
+// Render the app. We feed Ink a CSI-u-normalizing wrapper around stdin so the
+// Kitty keyboard protocol (e.g. Esc arriving as `ESC [ 27 u` under tmux
+// extended-keys) is translated back to legacy bytes before either Ink's
+// `useInput` or our `useRawInput` ever sees it (STA-1545). On a non-TTY stdin
+// (no raw keyboard input to normalize) we pass it through untouched.
+const inkStdin = process.stdin.isTTY
+	? createNormalizingStdin(process.stdin)
+	: process.stdin;
+
 render(
 	<App
 		paneLayout={paneLayout}
@@ -363,6 +372,7 @@ render(
 		isDevBuild={isDevBuild}
 		updateCheckPromise={updateCheckPromise}
 	/>,
+	{stdin: inkStdin},
 );
 
 // NOTE: Screen clearing on resize is handled inside app.tsx's resize handler,
