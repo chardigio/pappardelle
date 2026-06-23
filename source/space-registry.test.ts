@@ -11,7 +11,10 @@ import {
 	resetRegistryPath,
 	getRegistryPathForRepo,
 	initForRepo,
+	setLockTimingForTests,
+	resetLockTimingForTests,
 } from './space-registry.ts';
+import {getRecentErrors, clearRecentErrors} from './logger.ts';
 
 let tempCounter = 0;
 function tempRegistryPath(): string {
@@ -272,3 +275,154 @@ test.serial('initForRepo works cleanly when no legacy file exists', t => {
 	addSpace('FRESH-1');
 	t.deepEqual(getRegisteredSpaces(), ['FRESH-1']);
 });
+
+// ============================================================================
+// STA-1553: concurrency safety — disk is the source of truth, writes merge
+//
+// The registry is shared by every Pappardelle instance running against the same
+// repo (multiple windows + each instance's independent watchlist auto-spawn
+// loop). The old design read disk once into a process-lifetime cache and then
+// persisted via full-array overwrite, so a stale instance would clobber another
+// instance's additions — silently dropping live spaces from open-spaces.json
+// while their inner-socket sessions + worktrees stayed alive, which the startup
+// reaper then killed ("reaped N orphaned inner-socket session(s)"). These tests
+// pin the read-modify-write-under-lock fix: each mutation re-reads fresh disk
+// state and applies only its own delta.
+// ============================================================================
+
+test.serial(
+	'getRegisteredSpaces reflects out-of-band disk writes (no stale cache)',
+	t => {
+		const p = tempRegistryPath();
+		setRegistryPath(p);
+
+		addSpace('STA-100');
+		t.deepEqual(getRegisteredSpaces(), ['STA-100']);
+
+		// Another instance adds STA-200 directly to disk. We must see it on the
+		// next read — the old in-memory cache would have hidden it.
+		fs.writeFileSync(p, JSON.stringify(['STA-100', 'STA-200']) + '\n');
+		t.deepEqual(getRegisteredSpaces(), ['STA-100', 'STA-200']);
+	},
+);
+
+test.serial(
+	'addSpace merges with out-of-band additions instead of clobbering them',
+	t => {
+		const p = tempRegistryPath();
+		setRegistryPath(p);
+
+		addSpace('STA-100');
+
+		// Simulate a concurrent instance adding STA-200 between our reads.
+		fs.writeFileSync(p, JSON.stringify(['STA-100', 'STA-200']) + '\n');
+
+		// Our instance now opens STA-300. It must re-read the fresh disk state
+		// and append, preserving STA-200 rather than writing a stale [STA-100,…].
+		addSpace('STA-300');
+
+		const onDisk = JSON.parse(fs.readFileSync(p, 'utf-8'));
+		t.deepEqual(new Set(onDisk), new Set(['STA-100', 'STA-200', 'STA-300']));
+	},
+);
+
+test.serial(
+	'removeSpace preserves out-of-band additions from another instance',
+	t => {
+		const p = tempRegistryPath();
+		setRegistryPath(p);
+
+		addSpace('STA-100');
+		addSpace('STA-200');
+
+		// Concurrent instance auto-spawns STA-300.
+		fs.writeFileSync(
+			p,
+			JSON.stringify(['STA-100', 'STA-200', 'STA-300']) + '\n',
+		);
+
+		// We close STA-100. STA-300 must survive — only our own delta applies.
+		removeSpace('STA-100');
+
+		const onDisk = JSON.parse(fs.readFileSync(p, 'utf-8'));
+		t.deepEqual(new Set(onDisk), new Set(['STA-200', 'STA-300']));
+	},
+);
+
+test.serial(
+	'removeSpace honors an out-of-band removal of the same key (idempotent)',
+	t => {
+		const p = tempRegistryPath();
+		setRegistryPath(p);
+
+		addSpace('STA-100');
+		addSpace('STA-200');
+
+		// Another instance already closed STA-100.
+		fs.writeFileSync(p, JSON.stringify(['STA-200']) + '\n');
+
+		// Our close of STA-100 should be a clean no-op that leaves STA-200 intact.
+		removeSpace('STA-100');
+
+		const onDisk = JSON.parse(fs.readFileSync(p, 'utf-8'));
+		t.deepEqual(onDisk, ['STA-200']);
+	},
+);
+
+test.serial('writes leave no leftover temp or lock files behind', t => {
+	const dir = tempDir();
+	const p = path.join(dir, 'open-spaces.json');
+	setRegistryPath(p);
+
+	addSpace('STA-1');
+	addSpace('STA-2');
+	removeSpace('STA-1');
+
+	// Atomic temp files (rename target) and the advisory lock must be cleaned up.
+	const leftovers = fs
+		.readdirSync(dir)
+		.filter(f => f !== 'open-spaces.json')
+		.sort();
+	t.deepEqual(leftovers, []);
+});
+
+test.serial(
+	'a persistently-held lock falls back to a lock-less write and warns',
+	t => {
+		const dir = tempDir();
+		const p = path.join(dir, 'open-spaces.json');
+		setRegistryPath(p);
+
+		// Simulate another instance holding the lock: a fresh lock file that the
+		// stale-steal threshold (set high below) will never reclaim.
+		const lockPath = `${p}.lock`;
+		fs.writeFileSync(lockPath, '');
+
+		// Exercise the fallback in milliseconds instead of the real ~5s timeout.
+		setLockTimingForTests({timeoutMs: 40, retryMs: 5, staleMs: 60_000});
+		clearRecentErrors();
+
+		try {
+			addSpace('STA-1');
+
+			// The write must still land — the UI never deadlocks on a wedged holder.
+			t.deepEqual(getRegisteredSpaces(), ['STA-1']);
+
+			// …and the lost-update-reopening fallback must be surfaced as a warning.
+			const warned = getRecentErrors().some(
+				e => e.level === 'warn' && e.message.includes('proceeding without it'),
+			);
+			t.true(warned);
+
+			// The foreign lock was never ours; the fallback must leave it intact.
+			t.true(fs.existsSync(lockPath));
+		} finally {
+			resetLockTimingForTests();
+			try {
+				fs.unlinkSync(lockPath);
+			} catch {
+				// Already gone — fine.
+			}
+		}
+	},
+);

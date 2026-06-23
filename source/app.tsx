@@ -98,7 +98,12 @@ import {
 	calculateListClickRow,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {filterSpaces, MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
+import {
+	filterSpaces,
+	MAIN_WORKTREE_KEY,
+	shouldAttachOnSelection,
+	tearDownSpace,
+} from './space-utils.ts';
 import {getRegisteredSpaces, addSpace, removeSpace} from './space-registry.ts';
 import {
 	writeSpaceState,
@@ -323,6 +328,11 @@ export default function App({
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
+
+	// STA-1553: spaces whose teardown is in flight. The selection-change effect
+	// must not reattach to (and thereby respawn the just-killed sessions of) a
+	// space being closed. Cleared once the space leaves the list (effect below).
+	const closingSpacesRef = useRef(new Set<string>());
 
 	// Track terminal dimensions with resize handling.
 	// Use a lazy initializer that queries tmux directly for accurate pane
@@ -621,8 +631,19 @@ export default function App({
 		const selectedSpace = spaces[selectedIndex];
 		if (!selectedSpace) return;
 
-		// Don't switch if already showing this space
-		if (currentSpace === selectedSpace.name) return;
+		// Don't switch if already showing this space, and never reattach to a
+		// space whose teardown is in flight — attachToSpace recreates inner
+		// sessions on demand, which would respawn the ones close just killed and
+		// strand them as orphans for the next startup's reaper (STA-1553).
+		if (
+			!shouldAttachOnSelection({
+				selectedSpaceName: selectedSpace.name,
+				currentSpace,
+				closingSpaces: closingSpacesRef.current,
+			})
+		) {
+			return;
+		}
 
 		// Attach to sessions (creates them on-demand if they don't exist).
 		// The issue title lets attachToSpace resolve a per-profile companion_command
@@ -1337,6 +1358,12 @@ export default function App({
 				// Config load failure shouldn't block deletion
 			}
 
+			// STA-1553: mark as closing BEFORE killing sessions so the
+			// selection-change effect won't respawn them during the render window
+			// where currentSpace has been nulled but the prune below hasn't landed
+			// yet. Cleared once the space leaves `spaces` (effect after loadSpaces).
+			closingSpacesRef.current.add(space.name);
+
 			// STA-1420: kill tmux first, then update the registry. If the kill
 			// fails (tmux hiccup, socket gone, race), leave the registry alone
 			// so the user can retry — otherwise it advertises "closed" while
@@ -1351,7 +1378,12 @@ export default function App({
 						5000,
 					),
 			});
-			if (!tornDown) return false;
+			if (!tornDown) {
+				// Kill failed — the space stays open, so stop guarding it or its
+				// legitimate reattach would be blocked forever.
+				closingSpacesRef.current.delete(space.name);
+				return false;
+			}
 
 			if (paneLayout && currentSpace === space.name) {
 				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
@@ -1365,12 +1397,25 @@ export default function App({
 			// Optimistically prune from local state so the reattach useEffect
 			// never sees the deleted space (loadSpaces is async, so relying on
 			// it alone leaves a window where attachToSpace would respawn the
-			// killed session).
+			// killed session). The closingSpacesRef guard above covers the same
+			// window belt-and-suspenders, in case these state updates don't batch.
 			setSpaces(prev => prev.filter(s => s.name !== space.name));
 			return true;
 		},
 		[currentSpace, paneLayout, setHeaderWithTimeout],
 	);
+
+	// STA-1553: once a closed space has actually left the list, drop its closing
+	// tombstone. Tying cleanup to the space leaving `spaces` (rather than a timer)
+	// keeps the guard active for exactly the respawn-prone window, while ensuring
+	// a later genuine re-open of the same key isn't blocked.
+	useEffect(() => {
+		if (closingSpacesRef.current.size === 0) return;
+		const live = new Set(spaces.map(s => s.name));
+		for (const key of closingSpacesRef.current) {
+			if (!live.has(key)) closingSpacesRef.current.delete(key);
+		}
+	}, [spaces]);
 
 	// Auto-remove spaces whose tracker issue has reached a terminal state
 	// (completed / canceled). Opt-in via top-level `auto_remove_when_done`.

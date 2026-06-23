@@ -75,6 +75,32 @@ export function computePostDeleteState(
 }
 
 /**
+ * Whether the selection-change effect should (re)attach to `selectedSpaceName`.
+ *
+ * STA-1553 teardown→respawn guard. When the user closes the space they're
+ * currently viewing, the close handler nulls `currentSpace` and prunes the
+ * spaces list in separate renders. In the window between those two updates the
+ * effect would otherwise see `currentSpace === null` with the just-closed space
+ * still selected — and `attachToSpace`, which recreates inner sessions on
+ * demand, would respawn the sessions teardown just killed, leaving them
+ * orphaned for the next startup's reaper (the "reaped N…" banner). A space whose
+ * teardown is in flight is held in `closingSpaces` and must never be reattached;
+ * we also skip when it's already the shown space (nothing to do).
+ *
+ * Pure function — no side effects, easy to test.
+ */
+export function shouldAttachOnSelection(params: {
+	selectedSpaceName: string;
+	currentSpace: string | null;
+	closingSpaces: ReadonlySet<string>;
+}): boolean {
+	const {selectedSpaceName, currentSpace, closingSpaces} = params;
+	if (currentSpace === selectedSpaceName) return false;
+	if (closingSpaces.has(selectedSpaceName)) return false;
+	return true;
+}
+
+/**
  * Kill a space's tmux sessions, then unregister it. STA-1420: the order is
  * load-bearing — if the kill fails we must NOT touch the registry, otherwise
  * it advertises "closed" while the inner-socket session is still alive.

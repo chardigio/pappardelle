@@ -2,6 +2,7 @@ import test from 'ava';
 import {
 	computePostDeleteState,
 	filterSpaces,
+	shouldAttachOnSelection,
 	shouldShowLoadingTitle,
 	tearDownSpace,
 } from './space-utils.ts';
@@ -336,4 +337,53 @@ test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', t =>
 	});
 	t.true(ok);
 	t.deepEqual(sequence, ['kill', 'remove']);
+});
+
+// ============================================================================
+// shouldAttachOnSelection — STA-1553 teardown→respawn guard
+// ============================================================================
+
+test('attaches when selecting a different, non-closing space', t => {
+	t.true(
+		shouldAttachOnSelection({
+			selectedSpaceName: 'STA-2',
+			currentSpace: 'STA-1',
+			closingSpaces: new Set(),
+		}),
+	);
+});
+
+test('does not re-attach to the space already being shown', t => {
+	t.false(
+		shouldAttachOnSelection({
+			selectedSpaceName: 'STA-1',
+			currentSpace: 'STA-1',
+			closingSpaces: new Set(),
+		}),
+	);
+});
+
+// The race the guard exists for: closing the currently-viewed space nulls
+// currentSpace in one render and prunes the list in the next. In that window the
+// effect sees currentSpace=null with the just-closed space still selected; without
+// the guard it would call attachToSpace, which recreates the inner sessions
+// teardown just killed — stranding them for the next startup's reaper.
+test('does NOT re-attach to a space whose teardown is in flight (currentSpace already null)', t => {
+	t.false(
+		shouldAttachOnSelection({
+			selectedSpaceName: 'STA-1478',
+			currentSpace: null,
+			closingSpaces: new Set(['STA-1478']),
+		}),
+	);
+});
+
+test('still attaches to a normal space while an unrelated space is closing', t => {
+	t.true(
+		shouldAttachOnSelection({
+			selectedSpaceName: 'STA-2',
+			currentSpace: null,
+			closingSpaces: new Set(['STA-1478']),
+		}),
+	);
 });
