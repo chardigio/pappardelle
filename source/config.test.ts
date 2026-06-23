@@ -755,7 +755,7 @@ const templateVarsTestConfig = createConfig(
 			display_name: 'Stardust Jams',
 			vars: {
 				IOS_APP_DIR: '_ios/stardust-jams',
-				BUNDLE_ID: 'com.cd17822.stardust-jams',
+				BUNDLE_ID: 'io.stardustlabs.stardust',
 				SCHEME: 'stardust-jams',
 			},
 			vcs: {label: 'stardust_jams'},
@@ -792,7 +792,7 @@ test('buildWorkspaceTemplateVars merges profile vars when title matches', t => {
 	);
 	// Profile vars from stardust-jams profile should be merged
 	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
-	t.is(vars['BUNDLE_ID'], 'com.cd17822.stardust-jams');
+	t.is(vars['BUNDLE_ID'], 'io.stardustlabs.stardust');
 	t.is(vars['SCHEME'], 'stardust-jams');
 });
 

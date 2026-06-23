@@ -144,7 +144,7 @@ profiles:
     # Keys become available as ${KEY} in templates.
     vars:
       IOS_APP_DIR: '_ios/stardust-jams'
-      BUNDLE_ID: 'com.cd17822.stardust-jams'
+      BUNDLE_ID: 'io.stardustlabs.stardust'
       SCHEME: 'stardust-jams'
 
     # VCS label for PRs/MRs (provider-agnostic, preferred)
