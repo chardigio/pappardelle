@@ -7,6 +7,8 @@ import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
 import {railPrefixWidth, rowPrefixWidth} from '../list-view-sizing.ts';
+import {inkRenderPad, railEmojiIsInkPadded} from '../emoji-rail-width.ts';
+import {truncateToWidth} from '../truncate-to-width.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
@@ -103,6 +105,12 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	const emojiPrefixCells = rowPrefixWidth(
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
+	// Whether to emit our own separator space after the emoji. For most emoji
+	// we do — but for single-BMP default-emoji symbols (✨ ⭐ ✅ …) Ink draws
+	// the glyph one cell narrower than `string-width` reserved and pads the box
+	// with a trailing space. That pad already separates the emoji from the
+	// status icon, so emitting a second space here would double it (STA-1565).
+	const emojiNeedsSeparator = emoji ? !railEmojiIsInkPadded(emoji) : false;
 
 	// Calculate available width for title
 	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]" — emoji on the
@@ -123,10 +131,35 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		space.pendingTitle ??
 		space.linearIssue?.title ??
 		(shouldShowLoadingTitle(space) ? 'Loading…' : '');
-	const truncatedTitle =
-		title.length > availableTitleWidth
-			? title.slice(0, availableTitleWidth - 1) + '…'
-			: title;
+	// The crux of STA-1565. A bare-BMP default-emoji symbol (✨ ⭐ ✅) is laid
+	// out by Ink one cell narrower than the terminal actually renders it, so the
+	// terminal expands every such glyph by a cell *beyond* Ink's layout — both
+	// in the prefix and anywhere in the title. Two consequences, both handled
+	// here:
+	//   1. Truncate the title by *display width* (`truncateToWidth`), not UTF-16
+	//      code units, then trim it the extra cell each kept emoji will expand by
+	//      so it still fits its budget once rendered.
+	//   2. Shrink the whole row by the row's total expansion (`rowInkPad`) so the
+	//      right-aligned rail anchors that many columns in from the edge. Without
+	//      this the rail's flex spacer refills to the full width in Ink's model
+	//      and the terminal expansion pushes the rail icons onto the next line.
+	const prefixInkPad = emoji ? inkRenderPad(emoji) : 0;
+	let truncatedTitle = truncateToWidth(
+		title,
+		availableTitleWidth - prefixInkPad,
+	);
+	const firstTitleInkPad = inkRenderPad(truncatedTitle);
+	if (firstTitleInkPad > 0) {
+		truncatedTitle = truncateToWidth(
+			title,
+			availableTitleWidth - prefixInkPad - firstTitleInkPad,
+		);
+	}
+	const rowInkPad = prefixInkPad + inkRenderPad(truncatedTitle);
+	// Width the row's outer Box is given. Equals `width` when nothing expands
+	// (byte-identical to master), otherwise `width − rowInkPad` so the terminal
+	// expansion fills the row exactly to the pane edge instead of past it.
+	const rowWidth = rowInkPad > 0 ? Math.max(0, width - rowInkPad) : undefined;
 
 	// Linear state color (applied to issue key)
 	// Uses the exact color from Linear's API so pappardelle always matches
@@ -233,7 +266,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	};
 
 	return (
-		<Box>
+		<Box width={rowWidth}>
 			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
 			    Followed by a single space separator so it doesn't crash into the
 			    Claude status icon. */}
@@ -242,9 +275,11 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 					<Text inverse={useBlinkInverse} color={textColor}>
 						{emoji}
 					</Text>
-					<Text inverse={useBlinkInverse} color={textColor}>
-						{' '}
-					</Text>
+					{emojiNeedsSeparator ? (
+						<Text inverse={useBlinkInverse} color={textColor}>
+							{' '}
+						</Text>
+					) : null}
 				</>
 			) : null}
 			{/* Status icon (NOT highlighted, always shows its own color) */}
