@@ -690,16 +690,23 @@ test('getIssues populates cache and stateColors', async t => {
 });
 
 test('getIssues caches null for keys not found in results', async t => {
-	const exec: CliExecutor = async () =>
-		JSON.stringify([
-			{
-				key: 'CHEX-20',
-				fields: {
-					summary: 'Found',
-					status: {name: 'Done', statusCategory: {name: 'Done'}},
+	const exec: CliExecutor = async (_cmd, args) => {
+		if (args.includes('search')) {
+			return JSON.stringify([
+				{
+					key: 'CHEX-20',
+					fields: {
+						summary: 'Found',
+						status: {name: 'Done', statusCategory: {name: 'Done'}},
+					},
 				},
-			},
-		]);
+			]);
+		}
+
+		// Unmatched keys fall back to an individual `view`. A genuinely-missing
+		// key fails with no stdout, so getIssue() resolves it to null.
+		throw new Error('Issue does not exist');
+	};
 
 	const provider = new JiraProvider(
 		'https://example.com',
@@ -712,6 +719,150 @@ test('getIssues caches null for keys not found in results', async t => {
 	t.truthy(result.get('CHEX-20'));
 	t.is(result.get('CHEX-21'), null);
 	t.is(provider.getIssueCached('CHEX-21'), null);
+});
+
+// ============================================================================
+// Moved issues (CHAZ-22)
+//
+// When a Jira issue is moved between projects (e.g. CHAZ-7 → FXAI-54), acli
+// transparently follows the move: `view CHAZ-7` and `search "key in (CHAZ-7)"`
+// both return the *destination* issue, keyed by its new identifier (FXAI-54).
+// Pappardelle tracks worktrees by their original key, so we alias the moved
+// issue's data back to the requested key.
+// ============================================================================
+
+test('getIssue aliases a moved issue back to the requested key', async t => {
+	// `view CHAZ-7` follows the move, returning the destination keyed FXAI-54.
+	const json = makeJiraResponse('FXAI-54', 'Moved issue title');
+	const provider = new JiraProvider(
+		'https://example.com',
+		async () => json,
+		noopSleep,
+		tempCache(),
+	);
+
+	const issue = await provider.getIssue('CHAZ-7');
+	t.truthy(issue);
+	t.is(
+		issue!.identifier,
+		'CHAZ-7',
+		'identifier should be aliased to the requested key',
+	);
+	t.is(issue!.title, 'Moved issue title');
+	t.is(
+		provider.getIssueCached('CHAZ-7')!.identifier,
+		'CHAZ-7',
+		'cache should be keyed and aliased to the requested key',
+	);
+});
+
+test('getIssue aliases a moved issue from non-zero exit stdout', async t => {
+	// `view --json` on a moved issue prints valid JSON to stdout but exits 1.
+	const json = makeJiraResponse('FXAI-54', 'Moved via stderr exit');
+	const provider = new JiraProvider(
+		'https://example.com',
+		async () => {
+			const err = new Error('Command failed: exit code 1') as Error & {
+				stdout: string;
+				status: number;
+			};
+			err.stdout = json;
+			err.status = 1;
+			throw err;
+		},
+		noopSleep,
+		tempCache(),
+	);
+
+	const issue = await provider.getIssue('CHAZ-7');
+	t.truthy(issue);
+	t.is(issue!.identifier, 'CHAZ-7');
+	t.is(issue!.title, 'Moved via stderr exit');
+});
+
+test('getIssues resolves a moved issue back to the requested key', async t => {
+	const exec: CliExecutor = async (_cmd, args) => {
+		if (args.includes('search')) {
+			// JQL `key in (CHAZ-7)` follows the move → destination key FXAI-54.
+			return JSON.stringify([
+				{
+					key: 'FXAI-54',
+					fields: {
+						summary: 'Moved batch issue',
+						status: {
+							name: 'In Review',
+							statusCategory: {name: 'In Progress'},
+						},
+					},
+				},
+			]);
+		}
+
+		// Per-key `view` fallback for the unmatched requested key.
+		return makeJiraResponse(
+			'FXAI-54',
+			'Moved batch issue',
+			'In Review',
+			'In Progress',
+		);
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues(['CHAZ-7']);
+
+	const issue = result.get('CHAZ-7');
+	t.truthy(issue, 'moved issue should resolve under the requested key');
+	t.is(issue!.identifier, 'CHAZ-7');
+	t.is(issue!.title, 'Moved batch issue');
+	t.is(
+		result.get('FXAI-54'),
+		undefined,
+		'should not pollute results with the destination key',
+	);
+});
+
+test('getIssues resolves mixed direct and moved issues', async t => {
+	const exec: CliExecutor = async (_cmd, args) => {
+		if (args.includes('search')) {
+			return JSON.stringify([
+				{
+					key: 'CHEX-1',
+					fields: {
+						summary: 'Direct',
+						status: {name: 'Done', statusCategory: {name: 'Done'}},
+					},
+				},
+				{
+					key: 'FXAI-54',
+					fields: {
+						summary: 'Moved',
+						status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+					},
+				},
+			]);
+		}
+
+		// `view` fallback for the unmatched requested key (CHAZ-7).
+		return makeJiraResponse('FXAI-54', 'Moved');
+	};
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.getIssues(['CHEX-1', 'CHAZ-7']);
+
+	t.is(result.get('CHEX-1')!.title, 'Direct');
+	t.is(result.get('CHEX-1')!.identifier, 'CHEX-1');
+	t.is(result.get('CHAZ-7')!.title, 'Moved');
+	t.is(result.get('CHAZ-7')!.identifier, 'CHAZ-7');
 });
 
 test('getIssues falls back to individual calls when search fails', async t => {

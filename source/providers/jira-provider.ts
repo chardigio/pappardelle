@@ -113,6 +113,21 @@ export class JiraProvider implements IssueTrackerProvider {
 		this.stateColors = stateColorCache ?? new StateColorCache();
 	}
 
+	// Jira follows moved issues transparently: fetching a moved key (e.g.
+	// CHAZ-7) returns the destination issue keyed by its new identifier
+	// (e.g. FXAI-54). Pappardelle tracks worktrees by their original key, so
+	// alias the resolved issue's identifier back to the key we asked for.
+	private aliasToRequestedKey(
+		issue: TrackerIssue,
+		requestedKey: string,
+	): TrackerIssue {
+		if (issue.identifier === requestedKey) return issue;
+		log.debug(
+			`Issue ${requestedKey} has moved to ${issue.identifier}; aliasing back to requested key`,
+		);
+		return {...issue, identifier: requestedKey};
+	}
+
 	async getIssue(issueKey: string): Promise<TrackerIssue | null> {
 		if (this.acliMissing) {
 			return this.issueCache.get(issueKey)?.issue ?? null;
@@ -147,7 +162,7 @@ export class JiraProvider implements IssueTrackerProvider {
 					{encoding: 'utf-8', timeout: 15_000},
 				);
 				const raw = JSON.parse(output) as Record<string, unknown>;
-				const issue = mapJiraIssue(raw);
+				const issue = this.aliasToRequestedKey(mapJiraIssue(raw), issueKey);
 				this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
 				this.stateColors.update(issue.state.name, issue.state.color);
 				log.debug(`Fetched Jira issue ${issueKey}: ${issue.title}`);
@@ -169,7 +184,7 @@ export class JiraProvider implements IssueTrackerProvider {
 					if (typeof stdout === 'string' && stdout.trim().startsWith('{')) {
 						try {
 							const raw = JSON.parse(stdout) as Record<string, unknown>;
-							const issue = mapJiraIssue(raw);
+							const issue = this.aliasToRequestedKey(mapJiraIssue(raw), issueKey);
 							this.issueCache.set(issueKey, {issue, timestamp: Date.now()});
 							this.stateColors.update(issue.state.name, issue.state.color);
 							log.debug(
@@ -232,10 +247,17 @@ export class JiraProvider implements IssueTrackerProvider {
 				{encoding: 'utf-8', timeout: 30_000},
 			);
 			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
+			const requested = new Set(issueKeys);
 			const found = new Set<string>();
 
 			for (const raw of rawList) {
 				const issue = mapJiraIssue(raw);
+				// A batch `key in (...)` search follows moved issues and returns
+				// them under their *new* key. Only accept direct matches here;
+				// moved issues (whose returned key we never asked for) are
+				// resolved per-key below, where each can be aliased back to the
+				// requested key unambiguously.
+				if (!requested.has(issue.identifier)) continue;
 				found.add(issue.identifier);
 				results.set(issue.identifier, issue);
 				this.issueCache.set(issue.identifier, {
@@ -245,11 +267,20 @@ export class JiraProvider implements IssueTrackerProvider {
 				this.stateColors.update(issue.state.name, issue.state.color);
 			}
 
-			// Keys not in results → cache as null
-			for (const key of issueKeys) {
-				if (!found.has(key)) {
-					results.set(key, null);
-					this.issueCache.set(key, {issue: null, timestamp: Date.now()});
+			// Unmatched keys are either moved (acli resolves the destination via
+			// a single `view`) or genuinely missing. Resolve each individually so
+			// moves get aliased back to the requested key, and misses cache null.
+			const unresolved = issueKeys.filter(key => !found.has(key));
+			if (unresolved.length > 0) {
+				const tasks = unresolved.map(
+					key => async () =>
+						this.getIssue(key).then(
+							issue => [key, issue] as [string, TrackerIssue | null],
+						),
+				);
+				const fetched = await pLimit(tasks, 3);
+				for (const entry of fetched) {
+					if (entry) results.set(entry[0], entry[1]);
 				}
 			}
 
