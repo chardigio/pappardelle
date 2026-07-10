@@ -106,11 +106,13 @@ profiles:
       - app
       - mobile
       - swift
-    # Linear project names that map to this profile. Existing issues fetched
-    # by key are routed here when their project matches (case-insensitive).
-    # On Linear, `tracker_projects[0]` is also the default project for issues
-    # CREATED under this profile (e.g. via `idow "fix login bug"`). Reorder
-    # this list so the project where new work should land is first.
+    # Tracker projects that map to this profile. Existing issues fetched by
+    # key are routed here when their project matches (case-insensitive) —
+    # Linear matches project names; Jira matches the project's display name
+    # or its key (e.g. "KAN"). On Linear, `tracker_projects[0]` is also the
+    # default project for issues CREATED under this profile (e.g. via
+    # `idow "fix login bug"`). Reorder this list so the project where new
+    # work should land is first.
     tracker_projects:
       - 'iOS App Quality'
       - 'iOS App MVP'

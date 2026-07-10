@@ -68,6 +68,35 @@ test('mapJiraIssue handles missing project field', t => {
 	t.is(issue.project, null);
 });
 
+test('mapJiraIssue carries the Jira project key alongside its name', t => {
+	// STA-1649: profile resolution matches tracker_projects against the Jira
+	// project key as well as its name, so both must survive the mapping.
+	const raw = {
+		key: 'KAN-9',
+		fields: {
+			summary: 'Task',
+			status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+			project: {key: 'KAN', name: 'Pappardelle Testing'},
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.deepEqual(issue.project, {name: 'Pappardelle Testing', key: 'KAN'});
+});
+
+test('mapJiraIssue leaves project key undefined when the response lacks it', t => {
+	const raw = {
+		key: 'KAN-9',
+		fields: {
+			summary: 'Task',
+			status: {name: 'To Do', statusCategory: {name: 'To Do'}},
+			project: {name: 'Pappardelle Testing'},
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.is(issue.project?.name, 'Pappardelle Testing');
+	t.is(issue.project?.key, undefined);
+});
+
 test('mapJiraIssue maps statusCategory to color', t => {
 	const raw = {
 		key: 'CHEX-1',

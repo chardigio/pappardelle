@@ -1315,6 +1315,7 @@ export default function App({
 					const projectMatch = matchProfileByProject(
 						config,
 						trackerIssue.project.name,
+						trackerIssue.project.key,
 					);
 					if (projectMatch) {
 						matchedProfile = projectMatch;

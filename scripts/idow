@@ -483,20 +483,18 @@ else
     fi
     print_success "Issue: $TITLE"
 
-    # Get project info from issue if available
+    # Get project info from issue if available. Candidates are provider-aware:
+    # Linear yields the project name; Jira yields the name AND the project key
+    # so tracker_projects entries can be either (STA-1649).
     print_step 4 "Checking project..."
-    LINEAR_PROJECT=$(echo "$ISSUE_JSON" | jq -r '.project.name // empty')
-    if [[ -n "$LINEAR_PROJECT" ]]; then
-        print_success "Project: $LINEAR_PROJECT"
+    PROJECT_CANDIDATES=$(extract_issue_project_candidates "$ISSUE_JSON" "$CONFIG_PATH")
+    TRACKER_PROJECT=$(echo "$PROJECT_CANDIDATES" | head -1)
+    if [[ -n "$TRACKER_PROJECT" ]]; then
+        print_success "Project: $TRACKER_PROJECT"
 
-        # Try to match a profile by tracker project name (if not already forced)
+        # Try to match a profile by tracker project (if not already forced)
         if [[ -z "$FORCED_PROFILE" ]]; then
-            export LINEAR_PROJECT
-            PROJECT_MATCHED_PROFILE=$(yq -r '
-                .profiles | to_entries[] |
-                select(.value.tracker_projects != null) |
-                select([.value.tracker_projects[] | downcase] | any_c(. == (env(LINEAR_PROJECT) | downcase))) |
-                .key' "$CONFIG_PATH" 2>/dev/null | head -1)
+            PROJECT_MATCHED_PROFILE=$(match_profile_by_tracker_project "$PROJECT_CANDIDATES" "$CONFIG_PATH")
             if [[ -n "$PROJECT_MATCHED_PROFILE" ]]; then
                 SELECTED_PROFILE="$PROJECT_MATCHED_PROFILE"
                 print_success "Profile matched by project: $(get_profile_display_name "$SELECTED_PROFILE")"

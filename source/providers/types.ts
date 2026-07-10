@@ -15,6 +15,12 @@ export interface TrackerIssue {
 	};
 	project?: {
 		name: string;
+		/**
+		 * Jira project key (e.g. "KAN"). Linear projects have no key. Carried so
+		 * profile resolution can match `tracker_projects` entries written as
+		 * either the display name or the key (STA-1649).
+		 */
+		key?: string;
 	} | null;
 	labels?: string[]; // Label names (e.g., ["bug", "feature"])
 	// Canonical web URL as returned by the issue tracker — preferred over any

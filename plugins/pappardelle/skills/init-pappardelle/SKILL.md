@@ -97,7 +97,7 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
   - `team_prefix`: set per-profile to override the global prefix for issue creation
   - `commands`: reasonable setup commands based on project type (e.g., `npm install` for Node.js, `xcodegen generate` for iOS)
   - `emoji`: optional — suggest one via `/configure-pappardelle`'s emoji flow. With 3+ profiles, offer to bulk-assign now.
-  - `tracker_projects`: Linear-only — the names of the Linear project(s) this profile lives in. The first entry doubles as the default project for issues created under this profile (STA-959). Skip for Jira; defer to `/configure-pappardelle` if the user doesn't already know their project names.
+  - `tracker_projects`: the tracker project(s) this profile lives in — Linear project names, or Jira project names/keys (either matches, STA-1649). Routes existing issues to the profile; on Linear the first entry also doubles as the default project for issues created under this profile (STA-959). Defer to `/configure-pappardelle` if the user doesn't already know their project names.
 - Set `default_profile` to the most common one
 
 #### 1A.iv. Claude Initialization Command

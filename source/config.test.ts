@@ -4004,6 +4004,84 @@ test('matchProfileByProject returns null for empty project name', t => {
 	t.is(matchProfileByProject(config, ''), null);
 });
 
+// STA-1649: Jira issues carry a project key ("KAN") alongside the display
+// name ("Pappardelle Testing"); tracker_projects entries may be either.
+
+test('matchProfileByProject matches the Jira project key via the optional projectKey arg', t => {
+	const config = createConfig({
+		testing: {
+			display_name: 'Pappardelle Testing',
+			keywords: ['testing'],
+			tracker_projects: ['KAN'],
+		},
+	});
+	const match = matchProfileByProject(config, 'Pappardelle Testing', 'KAN');
+	t.truthy(match);
+	t.is(match!.name, 'testing');
+});
+
+test('matchProfileByProject key matching is case-insensitive', t => {
+	const config = createConfig({
+		testing: {
+			display_name: 'Pappardelle Testing',
+			keywords: ['testing'],
+			tracker_projects: ['kan'],
+		},
+	});
+	const match = matchProfileByProject(config, 'Pappardelle Testing', 'KAN');
+	t.truthy(match);
+	t.is(match!.name, 'testing');
+});
+
+test('matchProfileByProject matches by key even when the project name is empty', t => {
+	const config = createConfig({
+		testing: {
+			display_name: 'Pappardelle Testing',
+			keywords: ['testing'],
+			tracker_projects: ['KAN'],
+		},
+	});
+	const match = matchProfileByProject(config, '', 'KAN');
+	t.truthy(match);
+	t.is(match!.name, 'testing');
+});
+
+test('matchProfileByProject without a projectKey never matches key-style entries (regression pin)', t => {
+	// A config listing only the Jira key must not match when callers pass just
+	// a name — the Linear path (name-only) behaves exactly as before STA-1649.
+	const config = createConfig({
+		testing: {
+			display_name: 'Pappardelle Testing',
+			keywords: ['testing'],
+			tracker_projects: ['KAN'],
+		},
+	});
+	t.is(matchProfileByProject(config, 'Pappardelle Testing'), null);
+});
+
+test('matchProfileByProject returns null when neither name nor key matches', t => {
+	const config = createConfig({
+		testing: {
+			display_name: 'Pappardelle Testing',
+			keywords: ['testing'],
+			tracker_projects: ['Some Other Project'],
+		},
+	});
+	t.is(matchProfileByProject(config, 'Pappardelle Testing', 'KAN'), null);
+});
+
+test('matchProfileByProject returns null when both name and key are empty', t => {
+	const config = createConfig({
+		testing: {
+			display_name: 'Pappardelle Testing',
+			keywords: ['testing'],
+			tracker_projects: ['KAN'],
+		},
+	});
+	t.is(matchProfileByProject(config, '', ''), null);
+	t.is(matchProfileByProject(config, ''), null);
+});
+
 test('matchProfileByProject returns null when no profiles have tracker_projects', t => {
 	const config = createConfig({
 		hive: {

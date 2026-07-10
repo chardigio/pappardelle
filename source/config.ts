@@ -90,7 +90,11 @@ export interface TerminalConfig {
 
 export interface Profile {
 	keywords?: string[];
-	/** Issue tracker project names that map to this profile (case-insensitive match). */
+	/**
+	 * Issue tracker projects that map to this profile (case-insensitive match).
+	 * Linear: project names. Jira: project names or keys — an issue's project
+	 * key ("KAN") matches just like its display name (STA-1649).
+	 */
 	tracker_projects?: string[];
 	display_name: string;
 	/**
@@ -1310,21 +1314,33 @@ export function matchProfiles(
 }
 
 /**
- * Find a profile that matches the given issue tracker project name.
+ * Find a profile that matches the given issue tracker project.
  * Uses case-insensitive exact matching against each profile's `tracker_projects` list.
  * Returns the first matching profile, or null if no profile matches.
+ *
+ * Jira issues carry a project key (e.g. "KAN") alongside the display name
+ * ("Pappardelle Testing"), and users naturally write either into
+ * `tracker_projects` — so when a key is supplied, an entry matching it counts
+ * too (STA-1649). Linear callers pass no key, keeping their behavior
+ * byte-identical to name-only matching.
  */
 export function matchProfileByProject(
 	config: PappardelleConfig,
 	projectName: string,
+	projectKey?: string,
 ): {name: string; profile: Profile} | null {
-	if (!projectName) return null;
+	const candidates: string[] = [];
+	for (const candidate of [projectName, projectKey]) {
+		if (candidate) candidates.push(candidate.toLowerCase());
+	}
 
-	const projectLower = projectName.toLowerCase();
+	if (candidates.length === 0) return null;
 
 	for (const [name, profile] of Object.entries(config.profiles)) {
 		if (
-			profile.tracker_projects?.some(tp => tp.toLowerCase() === projectLower)
+			profile.tracker_projects?.some(tp =>
+				candidates.includes(tp.toLowerCase()),
+			)
 		) {
 			return {name, profile};
 		}

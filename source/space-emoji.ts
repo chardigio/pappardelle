@@ -48,7 +48,7 @@ export function resolveSpaceEmoji({
 		if (!profileName) {
 			const projectName = cachedIssue?.project?.name;
 			const matched = projectName
-				? matchProfileByProject(config, projectName)
+				? matchProfileByProject(config, projectName, cachedIssue?.project?.key)
 				: null;
 			if (matched) {
 				writeSpaceState(repoName, issueKey, {profile: matched.name}, baseDir);

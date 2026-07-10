@@ -53,7 +53,10 @@ fetch_issue_json() {
             linctl issue get "$issue_key" --json 2>/dev/null
             ;;
         jira)
-            acli jira workitem view "$issue_key" --json 2>/dev/null
+            # --fields '*all' matches the TS provider: acli's default view
+            # field set (assignee, description, issuetype, status, summary)
+            # omits `project`, which profile matching needs (STA-1649).
+            acli jira workitem view "$issue_key" --fields '*all' --json 2>/dev/null
             ;;
         *)
             echo "Error: Unknown issue tracker provider: $provider" >&2
@@ -121,6 +124,53 @@ extract_issue_url() {
             echo "${base_url}/browse/$issue_key"
             ;;
     esac
+}
+
+# Extract the issue's tracker-project identifiers for profile matching.
+# Emits one candidate per line, most-specific display value first: Linear
+# projects have only a name; Jira issues carry a display name AND a project
+# key ("Pappardelle Testing" / "KAN"), and a profile's tracker_projects may
+# list either (STA-1649). Empty output when the issue has no project.
+# Args: $1=json, $2=config_path
+extract_issue_project_candidates() {
+    local json="$1"
+    local config_path="$2"
+    local provider
+    provider=$(get_issue_tracker_provider "$config_path")
+
+    case "$provider" in
+        linear)
+            echo "$json" | jq -r '.project.name // empty'
+            ;;
+        jira)
+            echo "$json" | jq -r '(.fields.project.name // empty), (.fields.project.key // empty)'
+            ;;
+    esac
+}
+
+# Resolve a profile from tracker-project candidates (newline-separated, as
+# emitted by extract_issue_project_candidates). Candidates are tried in
+# order; for each, the first profile whose tracker_projects contains it
+# (case-insensitive) wins. Empty stdout when nothing matches.
+# Args: $1=candidates, $2=config_path
+match_profile_by_tracker_project() {
+    local candidates="$1"
+    local config_path="$2"
+    local candidate profile
+
+    while IFS= read -r candidate; do
+        [[ -z "$candidate" ]] && continue
+        export TRACKER_PROJECT_CANDIDATE="$candidate"
+        profile=$(yq -r '
+            .profiles | to_entries[] |
+            select(.value.tracker_projects != null) |
+            select([.value.tracker_projects[] | downcase] | any_c(. == (env(TRACKER_PROJECT_CANDIDATE) | downcase))) |
+            .key' "$config_path" 2>/dev/null | head -1)
+        if [[ -n "$profile" ]]; then
+            echo "$profile"
+            return 0
+        fi
+    done <<< "$candidates"
 }
 
 # Check for existing PR/MR on current branch

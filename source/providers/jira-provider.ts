@@ -70,7 +70,12 @@ export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 			type: categoryName.toLowerCase().replace(/\s+/g, '_'),
 			color: STATUS_CATEGORY_COLORS[categoryName] ?? '#95a2b3',
 		},
-		project: project['name'] ? {name: project['name'] as string} : null,
+		project: project['name']
+			? {
+					name: project['name'] as string,
+					...(typeof project['key'] === 'string' ? {key: project['key']} : {}),
+				}
+			: null,
 		labels,
 	};
 }

@@ -111,9 +111,12 @@ profiles:
       - spotify
       - playlist
 
-    # Issue tracker project names that map to this profile (case-insensitive).
+    # Issue tracker projects that map to this profile (case-insensitive).
     # When a user enters an issue key (e.g., STA-123), the issue's project
-    # is checked against these names to auto-select the profile.
+    # is checked against these entries to auto-select the profile. On Linear,
+    # entries are project names; on Jira, an entry may be either the project's
+    # display name ("Pappardelle Testing") or its key ("KAN") — both match
+    # (STA-1649).
     #
     # The FIRST entry doubles as the default project for newly-created issues:
     # `idow "add dark mode"` resolves the matched profile, takes
@@ -121,8 +124,9 @@ profiles:
     # new issue to it. Reorder the list when the active project for new work
     # changes (e.g. once an MVP project completes, move 'Stardust Jams Quality'
     # to position 0). Profiles with no `tracker_projects` create unassigned
-    # issues, matching the pre-STA-959 default. Linear-only — Jira's
-    # `--project KEY` is the team prefix, already per-profile-overridable.
+    # issues, matching the pre-STA-959 default. This create-time default is
+    # Linear-only — Jira's `--project KEY` is the team prefix, already
+    # per-profile-overridable.
     tracker_projects:
       - 'Stardust Jams MVP'
       - 'Stardust Jams Quality'
@@ -294,9 +298,9 @@ Profile selection uses two complementary strategies depending on the input type:
 
 ### Existing Issue Key (e.g., `STA-123` or `123`)
 
-When the input is an existing issue key, the issue is fetched from the tracker and its **project name** is used for matching:
+When the input is an existing issue key, the issue is fetched from the tracker and its **project** is used for matching:
 
-1. **Project Matching**: The issue's project name (e.g., "The Hive Quality") is checked against each profile's `tracker_projects` list (case-insensitive)
+1. **Project Matching**: The issue's project is checked against each profile's `tracker_projects` list (case-insensitive). On Linear the candidate is the project name (e.g., "The Hive Quality"); on Jira both the project's display name ("Pappardelle Testing") and its key ("KAN") are tried (STA-1649)
 2. **Auto-selection**: If a profile matches, it's auto-selected
 3. **Fallback**: If no project match is found, the default profile is used
 
@@ -420,7 +424,7 @@ interface PappardelleConfig {
 
 interface Profile {
 	keywords: string[];
-	tracker_projects?: string[]; // Issue tracker project names. Used for project-based matching when fetching an existing issue, and `tracker_projects[0]` is used as the default Linear project for issues created under this profile (STA-959).
+	tracker_projects?: string[]; // Issue tracker projects. Used for project-based matching when fetching an existing issue — Linear project names; Jira project names or keys (STA-1649) — and `tracker_projects[0]` is used as the default Linear project for issues created under this profile (STA-959).
 	display_name: string;
 	emoji?: string; // Shown in the TUI ticket rail to the left of the Claude status icon
 	team_prefix?: string; // Override global team_prefix for issue creation
