@@ -38,6 +38,10 @@ REPO_DIR="$PAPPARDELLE_DIR/repo"
 LOCAL_BIN="$HOME/.local/bin"
 WORKTREES_DIR="$HOME/.worktrees"
 REPO_URL="https://github.com/chardigio/pappardelle.git"
+# Single source of the Node floor: enforced by the preflight below AND baked
+# into the pappardelle shim's runtime guard. node-engine-compat.test.ts fails
+# if this drifts from engines.node in package.json or the README badge.
+MIN_NODE_MAJOR=18
 
 # Determine if running from a local clone (the repo already)
 # When run via `curl | bash`, BASH_SOURCE[0] is empty so SCRIPT_DIR becomes ""
@@ -63,14 +67,21 @@ echo ""
 
 MISSING=()
 
-# Check node >= 18
+# Check node >= MIN_NODE_MAJOR
+NODE_BIN=""
 if command -v node &>/dev/null; then
     NODE_VERSION=$(node --version | sed 's/v//' | cut -d. -f1)
-    if [[ "$NODE_VERSION" -ge 18 ]]; then
-        print_status "Node.js v$(node --version | sed 's/v//') (>= 18 required)"
+    if [[ "$NODE_VERSION" -ge "$MIN_NODE_MAJOR" ]]; then
+        print_status "Node.js v$(node --version | sed 's/v//') (>= $MIN_NODE_MAJOR required)"
+        # Resolve the node we just verified to its real binary (through nvm/volta
+        # shims and symlinks) so the pappardelle shim can pin it. PATH at runtime
+        # is NOT PATH at install time — the shim runs in non-interactive shells
+        # where version managers never load, and a bare `node` there can bind to
+        # a stale system node that this preflight never saw (STA-1682).
+        NODE_BIN="$(node -p 'process.execPath' 2>/dev/null || command -v node)"
     else
-        print_error "Node.js $(node --version) too old (>= 18 required)"
-        MISSING+=("node>=18")
+        print_error "Node.js $(node --version) too old (>= $MIN_NODE_MAJOR required)"
+        MISSING+=("node>=$MIN_NODE_MAJOR")
     fi
 else
     print_error "Node.js not found"
@@ -193,13 +204,23 @@ print_status "Built successfully"
 # Link pappardelle and idow to ~/.local/bin/
 mkdir -p "$LOCAL_BIN"
 
-# pappardelle — wrapper script instead of npm link (avoids Volta shim issues)
-cat > "$LOCAL_BIN/pappardelle" <<WRAPPER
-#!/usr/bin/env bash
-exec node "$REPO_DIR/dist/cli.js" "\$@"
-WRAPPER
+# pappardelle — wrapper script instead of npm link (avoids Volta shim issues).
+# Rendered from a template so the shim's behavior is unit-tested
+# (install-shim.test.ts); the node binary is pinned to the one preflight
+# verified rather than PATH-resolved at runtime (STA-1682).
+SHIM_TEMPLATE="$REPO_DIR/scripts/pappardelle-shim-template.sh"
+if [[ ! -f "$SHIM_TEMPLATE" ]]; then
+    print_error "Shim template not found at $SHIM_TEMPLATE"
+    exit 1
+fi
+CLI_JS="$REPO_DIR/dist/cli.js"
+SHIM_CONTENT="$(<"$SHIM_TEMPLATE")"
+SHIM_CONTENT="${SHIM_CONTENT//__NODE_BIN__/$NODE_BIN}"
+SHIM_CONTENT="${SHIM_CONTENT//__CLI_JS__/$CLI_JS}"
+SHIM_CONTENT="${SHIM_CONTENT//__MIN_NODE_MAJOR__/$MIN_NODE_MAJOR}"
+printf '%s\n' "$SHIM_CONTENT" > "$LOCAL_BIN/pappardelle"
 chmod +x "$LOCAL_BIN/pappardelle"
-print_status "Linked 'pappardelle' command globally"
+print_status "Linked 'pappardelle' command globally (node pinned to $NODE_BIN)"
 
 # idow
 IDOW_SRC="$REPO_DIR/scripts/idow"

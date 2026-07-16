@@ -51,6 +51,33 @@ const floorMajor = declaredNode
 	: undefined;
 const floorRange = floorMajor === undefined ? undefined : `${floorMajor}.x`;
 
+// The floor is advertised in two more places that can't import package.json:
+// install.sh bakes MIN_NODE_MAJOR into both its preflight and the pappardelle
+// shim's runtime guard (STA-1682), and the README badge shows it to humans.
+// Pin all three to engines.node so a floor bump can't leave a stale copy.
+
+test('install.sh MIN_NODE_MAJOR matches the engines.node floor', t => {
+	const installSh = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+	const declared = /^MIN_NODE_MAJOR=(\d+)$/m.exec(installSh)?.[1];
+	t.truthy(declared, 'install.sh must declare MIN_NODE_MAJOR=<major>');
+	t.is(
+		declared === undefined ? undefined : Number(declared),
+		floorMajor,
+		'install.sh MIN_NODE_MAJOR drifted from engines.node — update both together',
+	);
+});
+
+test('README badge advertises the engines.node floor', t => {
+	const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+	const badged = /node-%3E%3D(\d+)-/.exec(readme)?.[1];
+	t.truthy(badged, 'README must carry the node->=N shields.io badge');
+	t.is(
+		badged === undefined ? undefined : Number(badged),
+		floorMajor,
+		'README node badge drifted from engines.node — update both together',
+	);
+});
+
 for (const dep of Object.keys(rootPkg.dependencies ?? {})) {
 	test(`direct dependency ${dep} supports Node ${floorRange ?? '?'}`, t => {
 		if (floorRange === undefined) {

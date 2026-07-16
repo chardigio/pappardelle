@@ -28,3 +28,5 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.
 4. After success, tell the user:
    - Pappardelle has been updated
    - Any running Pappardelle TUI must be restarted to pick up the changes — press `q` to quit, then re-launch with `pappardelle`
+
+Note: the installer also re-pins the `pappardelle` shim to the node binary currently on PATH, so re-running it is the fix when the shim complains about a missing or too-old node (e.g. after `nvm uninstall`).

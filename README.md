@@ -343,6 +343,13 @@ cd pappardelle
 ./install.sh
 ```
 
+> **Node pinning:** the installer pins the `pappardelle` command to the node binary it
+> verified at install time — PATH in non-interactive shells often differs (nvm/volta
+> don't load there), which used to silently bind the shim to a stale system node. If
+> you later remove that node version (e.g. `nvm uninstall`), the shim falls back to
+> PATH and refuses to run anything below Node 18 — just re-run the installer (or press
+> `U` in the TUI) to re-pin.
+
 **Manual install:**
 
 ```bash
