@@ -118,6 +118,27 @@ mkdir -p .claude/skills/do \
   && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/TODO-TEMPLATE.md -o .claude/skills/do/TODO-TEMPLATE.md
 ```
 
+After installing, check whether `.claude/skills` is tracked:
+
+```bash
+git ls-files --error-unmatch .claude/skills > /dev/null 2>&1
+```
+
+If it isn't, the skill is invisible in exactly the place `initialization_command` runs — worktrees only receive tracked files, so `/do` won't exist in any workspace pappardelle creates. Tell the user this and offer two fixes:
+
+- **Commit it** (recommended when the checklist is shared with the team) — `git add .claude/skills/do`
+- **Keep it untracked** — add a `post_workspace_init` entry that links the main checkout's skills into each new worktree:
+
+  ```yaml
+  post_workspace_init:
+    - name: 'Link local skills'
+      run: '[ -e ${WORKTREE_PATH}/.claude/skills ] || { mkdir -p ${WORKTREE_PATH}/.claude && ln -sfn ${REPO_ROOT}/.claude/skills ${WORKTREE_PATH}/.claude/skills; }'
+  ```
+
+  The `[ -e ]` guard is not optional: `ln -sfn` pointed at an existing directory creates the link _inside_ it (`.claude/skills/skills`) rather than replacing it, so an unguarded version corrupts any repo that later commits a skill.
+
+Either way, existing worktrees predate the fix and need the link applied by hand.
+
 #### 1A.v. Dangerously Skip Permissions ("Yolo Mode")
 
 Ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
