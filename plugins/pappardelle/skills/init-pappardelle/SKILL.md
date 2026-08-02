@@ -110,10 +110,12 @@ Options:
 - **Custom** — let them type a skill name
 - **No** — omit the `claude` section
 
-If they chose `/do`, also offer to install the starter `/do` skill:
+If they chose `/do`, also offer to install the starter `/do` skill. Both files are required — `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
 
 ```bash
-mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
+mkdir -p .claude/skills/do \
+  && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md \
+  && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/TODO-TEMPLATE.md -o .claude/skills/do/TODO-TEMPLATE.md
 ```
 
 #### 1A.v. Dangerously Skip Permissions ("Yolo Mode")
