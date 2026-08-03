@@ -111,7 +111,7 @@ Options:
 - **Custom** — let them type a skill name
 - **No** — omit the `claude` section
 
-If they chose `/do`, also offer to install the starter `/do` skill. Both files are required — `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
+If they chose `/do`, also offer to install the starter `/do` skill. Both files are required: `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
 
 ```bash
 mkdir -p .claude/skills/do \
@@ -125,7 +125,7 @@ After installing, check whether `.claude/skills` is tracked:
 git ls-files --error-unmatch .claude/skills > /dev/null 2>&1
 ```
 
-If it isn't, the skill is invisible in exactly the place `initialization_command` runs — worktrees only receive tracked files, so `/do` won't exist in any workspace pappardelle creates. Tell the user this and offer two fixes:
+If it isn't, the skill is invisible in exactly the place `initialization_command` runs. Worktrees only receive tracked files, so `/do` won't exist in any workspace pappardelle creates. Tell the user this and offer two fixes:
 
 - **Commit it** (recommended when the checklist is shared with the team) — `git add .claude/skills/do`
 - **Keep it untracked** — add a `post_workspace_init` entry that links the main checkout's skills into each new worktree:
@@ -283,10 +283,10 @@ If they decline, record that and move on — declining counts as the step being 
 
 tmux sets no terminal capabilities by default. Two consequences hurt Pappardelle specifically, since its whole UI is full-screen TUIs (the Pappardelle list pane, Claude Code, gitui) repainting inside tmux:
 
-- **No synchronized output.** Terminals like Ghostty support DECSET 2026 — an app brackets a repaint so the terminal presents it as one frame. tmux only forwards that to the outer terminal when the `sync` terminal feature is enabled, so without it every partial repaint hits the screen directly. That is the flicker/tearing users report while Claude streams output.
-- **`default-terminal` is unset**, so tmux advertises `screen` to inner apps — no truecolor, no italics, and a capability set weak enough that TUIs fall back to coarse full-screen redraws.
+- **No synchronized output.** Terminals like Ghostty support DECSET 2026, where an app brackets a repaint so the terminal presents it as one frame. tmux only forwards that to the outer terminal when the `sync` terminal feature is enabled, so without it every partial repaint hits the screen directly. That is the flicker/tearing users report while Claude streams output.
+- **`default-terminal` is unset**, so tmux advertises `screen` to inner apps: no truecolor, no italics, and a capability set weak enough that TUIs fall back to coarse full-screen redraws.
 
-These settings are **only correct when the outer terminal actually supports them**, so detect before writing. The detection has to resolve the *real* terminal, which takes some care: `$TERM` inside tmux describes what tmux advertises to inner apps, and `#{client_termname}` on the current server is no better inside a Pappardelle pane — that pane hosts a nested `tmux -L pappardelle_inner` client, so the current server's client is the *outer tmux*, reporting `tmux-256color`. Taking either at face value under-reports support and silently skips the offer on a terminal that handles it fine. The loop below walks out through each client's own `$TMUX` until it reaches a real terminal.
+These settings are **only correct when the outer terminal actually supports them**, so detect before writing. Resolving the *real* terminal takes some care. `$TERM` inside tmux describes what tmux advertises to inner apps, and `#{client_termname}` on the current server is no better inside a Pappardelle pane: that pane hosts a nested `tmux -L pappardelle_inner` client, so the current server's client is the *outer tmux*, reporting `tmux-256color`. Taking either at face value under-reports support and silently skips the offer on a terminal that handles it fine. The loop below walks out through each client's own `$TMUX` until it reaches a real terminal.
 
 Run this check:
 
@@ -345,14 +345,14 @@ Interpret the result:
 
 - **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and tell the user upgrading tmux (`brew install tmux`) would fix TUI flicker.
 - **`sync_ok=no` and `rgb_ok=no`** — the terminal genuinely does not support these. Skip silently; adding the settings would be wrong.
-- **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when *either* is yes, so build the phrase from the flags: both yes → "synchronized output and truecolor"; only `sync_ok` → "synchronized output"; only `rgb_ok` → "truecolor". Ask: "Your terminal ({outer}) supports {capabilities}. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Never name a capability the detection reported `no` for — the config below already drops it, and the claim is the one part the user cannot check for themselves.
+- **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when *either* is yes, so build the phrase from the flags: both yes gives "synchronized output and truecolor", `sync_ok` alone gives "synchronized output", `rgb_ok` alone gives "truecolor". Ask: "Your terminal ({outer}) supports {capabilities}. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Never name a capability the detection reported `no` for. The config below already drops it, and the claim is the one part the user cannot check for themselves.
 
-If they accept, **read `~/.tmux.conf` first** and skip any of these settings that are already present, exactly as Step 4.i does — do not append blindly. Re-running this wizard on a machine that already has the block must not duplicate it, and `✓ already present` is a state Step 5 asks you to report, so the check is what earns the right to report it. If every applicable setting is already there, report it as already present and write nothing.
+If they accept, **read `~/.tmux.conf` first** and skip any of these settings that are already present, exactly as Step 4.i does. Do not append blindly: re-running this wizard on a machine that already has the block must not duplicate it, and Step 5 asks you to report `✓ already present`, which you cannot do truthfully without checking. If every applicable setting is already there, report it as already present and write nothing.
 
-Otherwise prepend the missing lines to `~/.tmux.conf` (order does not matter, but keeping them above the Pappardelle block reads better). Include only the lines the detection supports — drop `*:RGB` if `rgb_ok=no`, drop `*:sync` if `sync_ok=no`, drop the `usstyle` line if `usstyle_ok=no`, and drop `default-terminal` if `ti_ok=no` (use `screen-256color` instead, or leave it out):
+Otherwise prepend the missing lines to `~/.tmux.conf` (order does not matter, but keeping them above the Pappardelle block reads better). Include only the lines the detection supports: drop `*:RGB` if `rgb_ok=no`, drop `*:sync` if `sync_ok=no`, drop the `usstyle` line if `usstyle_ok=no`, and drop `default-terminal` if `ti_ok=no` (use `screen-256color` instead, or leave it out):
 
 ```tmux
-# Advertise a real terminfo to inner apps — the default (`screen`) costs
+# Advertise a real terminfo to inner apps. The default (`screen`) costs
 # truecolor and italics, and pushes TUIs toward full-screen redraws
 set -g default-terminal "tmux-256color"
 
@@ -370,15 +370,15 @@ set -sg escape-time 10
 
 Replace `<TERM>` with the detected `outer` value (e.g. `xterm-ghostty`).
 
-**Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:` — writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
+**Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:`. Writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
 
-Then tell the user the settings need a **new tmux server** to take effect — `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Do **not** run `tmux kill-server` yourself; it would kill any session they are attached to, possibly the one running this skill. Tell them to run it when convenient, then verify:
+Then tell the user the settings need a **new tmux server** to take effect: `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Do **not** run `tmux kill-server` yourself; it would kill any session they are attached to, possibly the one running this skill. Tell them to run it when convenient, then verify:
 
 ```bash
 tmux display -p '#{client_termfeatures}'   # should list whichever features you added
 ```
 
-If they decline, record it and move on — do not re-prompt.
+If they decline, record it and move on; do not re-prompt.
 
 ## Step 5: Summary
 

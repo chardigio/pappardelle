@@ -2,17 +2,17 @@
 // flickering while you type.
 //
 // Root cause, established by measurement against a real captured tmux client
-// (`script -q … tmux attach`): tmux only wraps a redraw in `ESC [ ? 2026 h/l`
+// (`script -q ... tmux attach`): tmux only wraps a redraw in `ESC [ ? 2026 h/l`
 // when it believes the client's terminal supports Sync, and it infers that from
 // the client's TERM. Pappardelle's clients routinely report `tmux-256color`
-// (nested tmux is this app's normal shape — the claude and companion panes each
+// (nested tmux is this app's normal shape; the claude and companion panes each
 // host a `tmux -L pappardelle_inner attach`), which advertises no Sync. With
-// `terminal-features` left at tmux's defaults a typing burst produced **0**
+// `terminal-features` left at tmux's defaults a typing burst produced 0
 // synchronized updates downstream; with `*:Sync` appended the same burst
 // produced 11. Unbatched repaints let the outer terminal present a half-drawn
 // frame, which is the flicker.
 //
-// These tests don't exercise real tmux (that's integration-tests/) — they lock
+// These tests don't exercise real tmux (that's integration-tests/). They lock
 // down the argv shape, because the whole fix is one option and getting `-ga`
 // wrong silently reintroduces the bug or destroys the user's config.
 import {readFileSync} from 'node:fs';

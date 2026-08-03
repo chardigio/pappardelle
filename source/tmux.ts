@@ -488,19 +488,19 @@ export const SYNC_TERMINAL_FEATURE = '*:Sync';
  *
  * tmux only wraps a redraw in DEC 2026 when it believes the attached client's
  * terminal supports Sync, and it decides that from the client's TERM. Our panes
- * routinely run clients whose TERM is `tmux-256color` — a client attached from
- * inside another tmux, which is the *normal* shape here, since the claude and
- * companion panes each host a nested `tmux -L pappardelle_inner attach` — and
- * that TERM advertises no Sync. tmux then streams every repaint out unbatched,
+ * routinely run clients whose TERM is `tmux-256color`, which advertises no
+ * Sync. That is the normal shape here: the claude and companion panes each host
+ * a nested `tmux -L pappardelle_inner attach`, so the client is attached from
+ * inside another tmux. tmux then streams every repaint out unbatched,
  * so the outer terminal can present a half-drawn frame. That is the flicker seen
  * while typing, worst when the zoomed list pane repaints full-screen per
  * keystroke.
  *
  * `terminal-features` is server-scope; tmux offers no session or window scope
  * for it, so on the outer socket this necessarily touches the whole tmux server.
- * Two things keep that honest: we append (`-ga`) instead of assigning, so any
+ * Two things keep that safe: we append (`-ga`) instead of assigning, so any
  * user-configured features survive, and terminals that don't implement DEC 2026
- * ignore the private mode — which is what makes the blanket `*` safe.
+ * ignore the private mode, which is what makes the blanket `*` workable.
  *
  * Runners are exposed for tests only; production uses the spawnSync defaults.
  */
