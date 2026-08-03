@@ -345,9 +345,11 @@ Interpret the result:
 
 - **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and tell the user upgrading tmux (`brew install tmux`) would fix TUI flicker.
 - **`sync_ok=no` and `rgb_ok=no`** — the terminal genuinely does not support these. Skip silently; adding the settings would be wrong.
-- **Otherwise** — offer the block. Ask: "Your terminal ({outer}) supports synchronized output and truecolor. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux."
+- **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when *either* is yes, so build the phrase from the flags: both yes → "synchronized output and truecolor"; only `sync_ok` → "synchronized output"; only `rgb_ok` → "truecolor". Ask: "Your terminal ({outer}) supports {capabilities}. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Never name a capability the detection reported `no` for — the config below already drops it, and the claim is the one part the user cannot check for themselves.
 
-If they accept, prepend to `~/.tmux.conf` (order does not matter, but keeping it above the Pappardelle block reads better). Include only the lines the detection supports — drop `*:RGB` if `rgb_ok=no`, drop `*:sync` if `sync_ok=no`, drop the `usstyle` line if `usstyle_ok=no`, and drop `default-terminal` if `ti_ok=no` (use `screen-256color` instead, or leave it out):
+If they accept, **read `~/.tmux.conf` first** and skip any of these settings that are already present, exactly as Step 4.i does — do not append blindly. Re-running this wizard on a machine that already has the block must not duplicate it, and `✓ already present` is a state Step 5 asks you to report, so the check is what earns the right to report it. If every applicable setting is already there, report it as already present and write nothing.
+
+Otherwise prepend the missing lines to `~/.tmux.conf` (order does not matter, but keeping them above the Pappardelle block reads better). Include only the lines the detection supports — drop `*:RGB` if `rgb_ok=no`, drop `*:sync` if `sync_ok=no`, drop the `usstyle` line if `usstyle_ok=no`, and drop `default-terminal` if `ti_ok=no` (use `screen-256color` instead, or leave it out):
 
 ```tmux
 # Advertise a real terminfo to inner apps — the default (`screen`) costs
@@ -373,7 +375,7 @@ Replace `<TERM>` with the detected `outer` value (e.g. `xterm-ghostty`).
 Then tell the user the settings need a **new tmux server** to take effect — `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Do **not** run `tmux kill-server` yourself; it would kill any session they are attached to, possibly the one running this skill. Tell them to run it when convenient, then verify:
 
 ```bash
-tmux display -p '#{client_termfeatures}'   # should list sync and RGB
+tmux display -p '#{client_termfeatures}'   # should list whichever features you added
 ```
 
 If they decline, record it and move on — do not re-prompt.
@@ -405,7 +407,7 @@ Verified:
   • Required prerequisites:     ✓ (node, npm, git, tmux, jq, yq, claude)
   • Provider CLIs:              {✓ all present | ⚠ missing: <list> — degraded features}
   • tmux config:                {✓ appended | ✓ already present | — user declined}
-  • Terminal passthrough:       {✓ added (sync, RGB) — restart tmux server to apply | ✓ already present | — user declined | — not supported by <TERM>}
+  • Terminal passthrough:       {✓ added (<features actually written>) — restart tmux server to apply | ✓ already present | — user declined | — not supported by <TERM>}
 
 Next steps:
   1. Launch the TUI:            pappardelle
