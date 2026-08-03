@@ -478,6 +478,57 @@ const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
 };
 
 /**
+ * DEC 2026 "synchronized output": the terminal buffers everything between
+ * `ESC [ ? 2026 h` and `ESC [ ? 2026 l` and presents it as one frame.
+ */
+export const SYNC_TERMINAL_FEATURE = '*:Sync';
+
+/**
+ * Make tmux batch each repaint into a single atomic frame.
+ *
+ * tmux only wraps a redraw in DEC 2026 when it believes the attached client's
+ * terminal supports Sync, and it decides that from the client's TERM. Our panes
+ * routinely run clients whose TERM is `tmux-256color` — a client attached from
+ * inside another tmux, which is the *normal* shape here, since the claude and
+ * companion panes each host a nested `tmux -L pappardelle_inner attach` — and
+ * that TERM advertises no Sync. tmux then streams every repaint out unbatched,
+ * so the outer terminal can present a half-drawn frame. That is the flicker seen
+ * while typing, worst when the zoomed list pane repaints full-screen per
+ * keystroke.
+ *
+ * `terminal-features` is server-scope; tmux offers no session or window scope
+ * for it, so on the outer socket this necessarily touches the whole tmux server.
+ * Two things keep that honest: we append (`-ga`) instead of assigning, so any
+ * user-configured features survive, and terminals that don't implement DEC 2026
+ * ignore the private mode — which is what makes the blanket `*` safe.
+ *
+ * Runners are exposed for tests only; production uses the spawnSync defaults.
+ */
+export function enableSynchronizedOutput(
+	outerRunner: OuterTmuxRunner = defaultOuterTmuxRunner,
+	innerRunner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): void {
+	for (const [label, run] of [
+		['outer', outerRunner],
+		['inner', innerRunner],
+	] as const) {
+		try {
+			const {error, status} = run([
+				'set-option',
+				'-ga',
+				'terminal-features',
+				`,${SYNC_TERMINAL_FEATURE}`,
+			]);
+			if (error || status !== 0) {
+				log.debug(`Could not enable synchronized output on ${label} socket`);
+			}
+		} catch {
+			// Purely a rendering nicety — never let it break layout setup.
+		}
+	}
+}
+
+/**
  * STA-1420 layer 2: reap orphaned `claude-{repo}-*` / `companion-{repo}-*`
  * (and legacy `lazygit-{repo}-*`) sessions on the inner socket whose key is
  * neither in the registry nor the
@@ -1055,6 +1106,8 @@ export function setupPappardellLayout(): {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
+
+		enableSynchronizedOutput();
 
 		// Return focus to list pane
 		execSync(`tmux select-pane -t "${listPaneId}"`, {
