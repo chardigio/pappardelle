@@ -138,8 +138,6 @@ If it isn't, the skill is invisible in exactly the place `initialization_command
 
   The `[ -e ]` guard is not optional: `ln -sfn` pointed at an existing directory creates the link _inside_ it (`.claude/skills/skills`) rather than replacing it, so an unguarded version corrupts any repo that later commits a skill.
 
-Either way, existing worktrees predate the fix and need the link applied by hand.
-
 #### 1A.v. Dangerously Skip Permissions ("Yolo Mode")
 
 Ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
@@ -281,71 +279,19 @@ If they decline, record that and move on — declining counts as the step being 
 
 ### 4.ii. Terminal Capability Passthrough (conditional)
 
-tmux sets no terminal capabilities by default. Two consequences hurt Pappardelle specifically, since its whole UI is full-screen TUIs (the Pappardelle list pane, Claude Code, gitui) repainting inside tmux:
+tmux does not forward the outer terminal's synchronized-output and truecolor support to inner apps unless told to, which is what makes full-screen TUIs flicker and tear while repainting. Offer these settings only when the terminal actually supports them, so run the detection first — never write the block based on `$TERM`, which inside tmux reports what tmux advertises rather than what the real terminal is.
 
-- **No synchronized output.** Terminals like Ghostty support DECSET 2026, where an app brackets a repaint so the terminal presents it as one frame. tmux only forwards that to the outer terminal when the `sync` terminal feature is enabled, so without it every partial repaint hits the screen directly. That is the flicker/tearing users report while Claude streams output.
-- **`default-terminal` is unset**, so tmux advertises `screen` to inner apps: no truecolor, no italics, and a capability set weak enough that TUIs fall back to coarse full-screen redraws.
-
-These settings are **only correct when the outer terminal actually supports them**, so detect before writing. Resolving the *real* terminal takes some care. `$TERM` inside tmux describes what tmux advertises to inner apps, and `#{client_termname}` on the current server is no better inside a Pappardelle pane: that pane hosts a nested `tmux -L pappardelle_inner` client, so the current server's client is the *outer tmux*, reporting `tmux-256color`. Taking either at face value under-reports support and silently skips the offer on a terminal that handles it fine. The loop below walks out through each client's own `$TMUX` until it reaches a real terminal.
-
-Run this check:
+Run the probe:
 
 ```bash
-# Resolve the outermost terminal. $TERM inside tmux is what tmux advertises to
-# inner apps, and in a Pappardelle pane this server's client is itself a nested
-# tmux, so #{client_termname} here is another tmux TERM. Walk out via each
-# client's own $TMUX until the termname belongs to a real terminal.
-outer="$TERM"
-if [ -n "$TMUX" ]; then
-  sock=${TMUX%%,*}
-  hops=0
-  while [ "$hops" -lt 5 ]; do
-    name=$(tmux -S "$sock" display -p '#{client_termname}' 2>/dev/null) || break
-    [ -n "$name" ] || break
-    outer="$name"
-    case "$outer" in
-      screen*|tmux*) ;;   # still inside tmux — keep walking
-      *) break ;;
-    esac
-    cpid=$(tmux -S "$sock" display -p '#{client_pid}' 2>/dev/null) || break
-    up=$(ps eww -p "$cpid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^TMUX=//p' | head -1)
-    [ -n "$up" ] || break
-    sock=${up%%,*}
-    hops=$((hops + 1))
-  done
-fi
-
-sync_ok=no
-if infocmp -x "$outer" 2>/dev/null | grep -q 'Sync='; then
-  sync_ok=yes
-else
-  # Some terminfo entries shipped by the OS lag the terminal's real support
-  case "$outer" in
-    *ghostty*|*kitty*|*wezterm*|foot*|*alacritty*|contour*|rio*) sync_ok=yes ;;
-  esac
-fi
-
-rgb_ok=no
-if infocmp -x "$outer" 2>/dev/null | grep -qE '\b(Tc|RGB)\b'; then
-  rgb_ok=yes
-elif [ "$COLORTERM" = truecolor ] || [ "$COLORTERM" = 24bit ]; then
-  rgb_ok=yes
-fi
-
-ver=$(tmux -V | sed 's/[^0-9.]//g')
-[ "$(printf '%s\n3.2\n' "$ver" | sort -V | head -1)" = "3.2" ] && tmux_ok=yes || tmux_ok=no
-infocmp tmux-256color >/dev/null 2>&1 && ti_ok=yes || ti_ok=no
-infocmp -x "$outer" 2>/dev/null | grep -q 'Smulx=' && usstyle_ok=yes || usstyle_ok=no
-
-printf 'TERM=%s tmux>=3.2=%s(%s) sync=%s rgb=%s tmux-256color=%s usstyle=%s\n' \
-  "$outer" "$tmux_ok" "$ver" "$sync_ok" "$rgb_ok" "$ti_ok" "$usstyle_ok"
+bash ~/.pappardelle/scripts/init-pappardelle/detect-terminal-capabilities.sh
 ```
 
-Interpret the result:
+It prints one line, e.g. `TERM=xterm-ghostty tmux_ok=yes(3.7) sync_ok=yes rgb_ok=yes ti_ok=yes usstyle_ok=yes`. Interpret it:
 
 - **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and tell the user upgrading tmux (`brew install tmux`) would fix TUI flicker.
 - **`sync_ok=no` and `rgb_ok=no`** — the terminal genuinely does not support these. Skip silently; adding the settings would be wrong.
-- **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when *either* is yes, so build the phrase from the flags: both yes gives "synchronized output and truecolor", `sync_ok` alone gives "synchronized output", `rgb_ok` alone gives "truecolor". Ask: "Your terminal ({outer}) supports {capabilities}. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Never name a capability the detection reported `no` for. The config below already drops it, and the claim is the one part the user cannot check for themselves.
+- **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when *either* is yes, so build the phrase from the flags: both yes gives "synchronized output and truecolor", `sync_ok` alone gives "synchronized output", `rgb_ok` alone gives "truecolor". Never name a capability the detection reported `no` for. Use **AskUserQuestion** to ask: "Your terminal ({TERM}) supports {capabilities}. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Options: **Yes** — add the settings; **No** — skip them.
 
 If they accept, **read `~/.tmux.conf` first** and skip any of these settings that are already present, exactly as Step 4.i does. Do not append blindly: re-running this wizard on a machine that already has the block must not duplicate it, and Step 5 asks you to report `✓ already present`, which you cannot do truthfully without checking. If every applicable setting is already there, report it as already present and write nothing.
 
@@ -368,7 +314,7 @@ set -ga terminal-features "<TERM>:usstyle:hyperlinks"
 set -sg escape-time 10
 ```
 
-Replace `<TERM>` with the detected `outer` value (e.g. `xterm-ghostty`).
+Replace `<TERM>` with the `TERM=` value the probe reported (e.g. `xterm-ghostty`), not `$TERM`.
 
 **Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:`. Writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
 
