@@ -19,6 +19,7 @@ This skill must satisfy **every** item below before printing the final summary. 
 5. **Required prerequisites are installed.** `node`, `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
 6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl` or `acli` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
 7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
+8. **Terminal capabilities are configured** — offered and accepted, declined, or skipped because the terminal or tmux version does not support them. Never skip the detection itself.
 
 If the user interrupts mid-flow, that's their call — but never _you_ deciding the work is done before the checklist is complete. The friend who triggered this skill once with `.pappardelle.yml` already in the repo had to write **three follow-up prompts** to get prerequisites, the Pappardelle CLI, and tmux config installed — that's the failure mode this checklist exists to prevent.
 
@@ -110,11 +111,32 @@ Options:
 - **Custom** — let them type a skill name
 - **No** — omit the `claude` section
 
-If they chose `/do`, also offer to install the starter `/do` skill:
+If they chose `/do`, also offer to install the starter `/do` skill. Both files are required: `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
 
 ```bash
-mkdir -p .claude/skills/do && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md
+mkdir -p .claude/skills/do \
+  && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/SKILL.md -o .claude/skills/do/SKILL.md \
+  && curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/skills/do/TODO-TEMPLATE.md -o .claude/skills/do/TODO-TEMPLATE.md
 ```
+
+After installing, check whether `.claude/skills` is tracked:
+
+```bash
+git ls-files --error-unmatch .claude/skills > /dev/null 2>&1
+```
+
+If it isn't, the skill is invisible in exactly the place `initialization_command` runs. Worktrees only receive tracked files, so `/do` won't exist in any workspace pappardelle creates. Tell the user this and offer two fixes:
+
+- **Commit it** (recommended when the checklist is shared with the team) — `git add .claude/skills/do`
+- **Keep it untracked** — add a `post_workspace_init` entry that links the main checkout's skills into each new worktree:
+
+  ```yaml
+  post_workspace_init:
+    - name: 'Link local skills'
+      run: '[ -e ${WORKTREE_PATH}/.claude/skills ] || { mkdir -p ${WORKTREE_PATH}/.claude && ln -sfn ${REPO_ROOT}/.claude/skills ${WORKTREE_PATH}/.claude/skills; }'
+  ```
+
+  The `[ -e ]` guard is not optional: `ln -sfn` pointed at an existing directory creates the link _inside_ it (`.claude/skills/skills`) rather than replacing it, so an unguarded version corrupts any repo that later commits a skill.
 
 #### 1A.v. Dangerously Skip Permissions ("Yolo Mode")
 
@@ -241,6 +263,8 @@ Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` w
 
 ## Step 4: tmux Configuration
 
+### 4.i. Base Config
+
 Ask: "Would you like me to add the recommended tmux config? It enables mouse support, pane navigation with Ctrl+Shift+arrow keys, and a clean status bar. (I'll append to ~/.tmux.conf)"
 
 If yes, fetch the recommended config and append it to `~/.tmux.conf` (skip any settings that already exist):
@@ -252,6 +276,55 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples
 Check if `~/.tmux.conf` exists first and read it — if settings already exist, skip the duplicates rather than appending blindly.
 
 If they decline, record that and move on — declining counts as the step being done; do not re-prompt later.
+
+### 4.ii. Terminal Capabilities (conditional)
+
+tmux does not forward the outer terminal's synchronized-output and truecolor support to inner apps unless told to, which is what makes full-screen TUIs flicker and tear while repainting. Offer these settings only when the terminal actually supports them, so run the detection first — never write the block based on `$TERM`, which inside tmux reports what tmux advertises rather than what the real terminal is.
+
+Run the probe:
+
+```bash
+bash ~/.pappardelle/scripts/init-pappardelle/detect-terminal-capabilities.sh
+```
+
+It prints one line, e.g. `TERM=xterm-ghostty tmux_ok=yes(3.7) sync_ok=yes rgb_ok=yes ti_ok=yes usstyle_ok=yes`. Interpret it:
+
+- **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and tell the user upgrading tmux (`brew install tmux`) would fix TUI flicker.
+- **`sync_ok=no` and `rgb_ok=no`** — the terminal genuinely does not support these. Skip silently; adding the settings would be wrong.
+- **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when *either* is yes, so build the phrase from the flags: both yes gives "synchronized output and truecolor", `sync_ok` alone gives "synchronized output", `rgb_ok` alone gives "truecolor". Never name a capability the detection reported `no` for. Use **AskUserQuestion** to ask: "Your terminal ({TERM}) supports {capabilities}. Want me to add the tmux settings that make use of them? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Options: **Yes** — add the settings; **No** — skip them.
+
+If they accept, **read `~/.tmux.conf` first** and skip any of these settings that are already present, exactly as Step 4.i does. Do not append blindly: re-running this wizard on a machine that already has the block must not duplicate it, and Step 5 asks you to report `✓ already present`, which you cannot do truthfully without checking. If every applicable setting is already there, report it as already present and write nothing.
+
+Otherwise prepend the missing lines to `~/.tmux.conf` (order does not matter, but keeping them above the Pappardelle block reads better). Include only the lines the detection supports: drop `*:RGB` if `rgb_ok=no`, drop `*:sync` if `sync_ok=no`, drop the `usstyle` line if `usstyle_ok=no`, and drop `default-terminal` if `ti_ok=no` (use `screen-256color` instead, or leave it out):
+
+```tmux
+# Advertise a real terminfo to inner apps. The default (`screen`) costs
+# truecolor and italics, and pushes TUIs toward full-screen redraws
+set -g default-terminal "tmux-256color"
+
+# Forward the outer terminal's synchronized-update (DECSET 2026) and truecolor
+# support so TUI repaints land as one frame instead of tearing mid-update
+set -ga terminal-features "*:RGB"
+set -ga terminal-features "*:sync"
+
+# Styled/colored underlines and OSC 8 hyperlinks, when the terminal has them
+set -ga terminal-features "<TERM>:usstyle:hyperlinks"
+
+# The 500ms default makes Esc-heavy apps (nvim) feel laggy
+set -sg escape-time 10
+```
+
+Replace `<TERM>` with the `TERM=` value the probe reported (e.g. `xterm-ghostty`), not `$TERM`.
+
+**Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:`. Writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
+
+Then tell the user the settings need a **new tmux server** to take effect: `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Do **not** run `tmux kill-server` yourself; it would kill any session they are attached to, possibly the one running this skill. Tell them to run it when convenient, then verify:
+
+```bash
+tmux display -p '#{client_termfeatures}'   # should list whichever features you added
+```
+
+If they decline, record it and move on; do not re-prompt.
 
 ## Step 5: Summary
 
@@ -280,6 +353,7 @@ Verified:
   • Required prerequisites:     ✓ (node, npm, git, tmux, jq, yq, claude)
   • Provider CLIs:              {✓ all present | ⚠ missing: <list> — degraded features}
   • tmux config:                {✓ appended | ✓ already present | — user declined}
+  • Terminal capabilities:      {✓ added (<features actually written>) — restart tmux server to apply | ✓ already present | — user declined | — not supported by <TERM>}
 
 Next steps:
   1. Launch the TUI:            pappardelle
