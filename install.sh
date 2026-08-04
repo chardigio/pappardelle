@@ -283,26 +283,20 @@ print_status "Created directories (~/.pappardelle/, ~/.worktrees/)"
 # Install Skill Scripts
 # ============================================================================
 
-install_skill_scripts() {
-    local skill="$1"
-    local src="$REPO_DIR/plugins/pappardelle/skills/$skill/scripts"
+SOUS_CHEF_SRC="$REPO_DIR/plugins/pappardelle/skills/sous-chef/scripts"
 
-    if [[ ! -d "$src" ]]; then
-        print_warning "$skill scripts not found at $src — /$skill skill will be non-functional"
-        return
-    fi
-
-    mkdir -p "$PAPPARDELLE_DIR/scripts/$skill"
-    for script in "$src"/*.sh; do
-        [[ -f "$script" ]] || continue
-        cp "$script" "$PAPPARDELLE_DIR/scripts/$skill/"
-        chmod +x "$PAPPARDELLE_DIR/scripts/$skill/$(basename "$script")"
+if [[ -d "$SOUS_CHEF_SRC" ]]; then
+    mkdir -p "$PAPPARDELLE_DIR/scripts/sous-chef"
+    for script in gather-spaces.sh read-conversation.sh; do
+        if [[ -f "$SOUS_CHEF_SRC/$script" ]]; then
+            cp "$SOUS_CHEF_SRC/$script" "$PAPPARDELLE_DIR/scripts/sous-chef/"
+            chmod +x "$PAPPARDELLE_DIR/scripts/sous-chef/$script"
+        fi
     done
-    print_status "Installed $skill scripts to $PAPPARDELLE_DIR/scripts/$skill/"
-}
-
-install_skill_scripts sous-chef
-install_skill_scripts init-pappardelle
+    print_status "Installed sous-chef scripts to $PAPPARDELLE_DIR/scripts/sous-chef/"
+else
+    print_warning "sous-chef scripts not found at $SOUS_CHEF_SRC — /sous-chef skill will be non-functional"
+fi
 
 # ============================================================================
 # Check PATH
