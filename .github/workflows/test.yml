@@ -27,6 +27,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Formatting and lint are checked here, not just in the monorepo, because
+      # sync-back pushes a merged PR's diff *directly to monorepo master* — no
+      # PR, no gate. When this workflow only ran ava, a chardigio-side PR could
+      # (and did, in #5) land a prettier violation straight onto a red master
+      # with every check green here. These steps have to mirror the monorepo's
+      # .github/workflows/pappardelle.yml or that hole reopens.
+      - name: Check formatting (prettier)
+        run: npx prettier --check .
+
+      - name: Lint (xo)
+        run: npx xo
+
       - name: Run tests
         run: npx ava 'source/**/*.test.ts'
 

@@ -31,18 +31,18 @@ const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');
 
 type Call = readonly string[];
 
-const recorder = (
-	result: {error?: Error; status: number | null; stdout: string} = {
-		status: 0,
-		stdout: '',
-	},
-): {calls: Call[]; runner: OuterTmuxRunner} => {
+const recorder = (result?: {
+	error?: Error;
+	status: number | null;
+	stdout: string;
+}): {calls: Call[]; runner: OuterTmuxRunner} => {
+	const outcome = result ?? {status: 0, stdout: ''};
 	const calls: Call[] = [];
 	return {
 		calls,
-		runner: args => {
+		runner(args) {
 			calls.push(args);
-			return result;
+			return outcome;
 		},
 	};
 };
