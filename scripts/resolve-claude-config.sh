@@ -2,7 +2,7 @@
 
 # resolve-claude-config.sh - Resolve claude config values with layered override support
 #
-# Usage: resolve-claude-config.sh --config <path> [--local-config <path>] [--home-config <path>]
+# Usage: resolve-claude-config.sh --config <path> [--local-config <path>] [--home-config <path>] [--profile <name>]
 #
 # Layers (lowest → highest priority):
 #   1. Home config   (~/.pappardelle.yml)     — personal defaults across all repos
@@ -12,14 +12,27 @@
 # Uses yq deep merge so ANY field in the claude section (or any future section)
 # is automatically resolved without per-field override logic.
 #
+# --profile <name> additionally resolves the pass-through launch flags
+# (model, effort) profile-first: profiles.<name>.claude.<field> beats the
+# top-level claude.<field>. An explicit empty string at the profile level is
+# preserved, which is how a profile opts out of an inherited value — same
+# empty-string-is-meaningful convention companion_command uses.
+#
+# init_cmd and skip_permissions stay top-level-only here even when --profile is
+# given: idow layers the per-profile initialization_command itself (and has
+# since before this script was profile-aware), so resolving it here too would
+# change which layer wins. Mirrored by getClaudeModel()/getClaudeEffort() in
+# source/config.ts and pinned by scripts/test-claude-model-effort.sh.
+#
 # Output: JSON object with resolved values:
-#   {"init_cmd": "...", "skip_permissions": "true|false"}
+#   {"init_cmd": "...", "skip_permissions": "true|false", "model": "...", "effort": "..."}
 
 set -e
 
 CONFIG_PATH=""
 LOCAL_CONFIG_PATH=""
 HOME_CONFIG_PATH=""
+PROFILE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --home-config)
             HOME_CONFIG_PATH="$2"
+            shift 2
+            ;;
+        --profile)
+            PROFILE="$2"
             shift 2
             ;;
         *)
@@ -85,6 +102,26 @@ if [[ "$SKIP_PERMISSIONS" != "true" && "$SKIP_PERMISSIONS" != "false" ]]; then
     SKIP_PERMISSIONS="false"
 fi
 
+# Resolve a pass-through launch flag (model/effort) profile-first.
+# yq's `//` only falls through on null/missing, so an explicit "" at the
+# profile level is preserved and clears the inherited top-level value. The
+# profile name is injected via strenv so hyphens and other characters that
+# would break a bare path expression are handled as a plain map key.
+export PAPPARDELLE_PROFILE="$PROFILE"
+resolve_launch_field() {
+    local field="$1"
+    if [[ -n "$PROFILE" ]]; then
+        echo "$RESOLVED" | yq -r \
+            "(.profiles[strenv(PAPPARDELLE_PROFILE)].claude.$field // .claude.$field) // \"\""
+    else
+        echo "$RESOLVED" | yq -r ".claude.$field // \"\""
+    fi
+}
+
+MODEL=$(resolve_launch_field model)
+EFFORT=$(resolve_launch_field effort)
+
 # Output as JSON (use jq to handle escaping of special characters)
 jq -n --arg init_cmd "$INIT_CMD" --arg skip_permissions "$SKIP_PERMISSIONS" \
-  '{init_cmd: $init_cmd, skip_permissions: $skip_permissions}'
+  --arg model "$MODEL" --arg effort "$EFFORT" \
+  '{init_cmd: $init_cmd, skip_permissions: $skip_permissions, model: $model, effort: $effort}'

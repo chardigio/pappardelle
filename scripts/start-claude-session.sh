@@ -2,7 +2,7 @@
 
 # start-claude-session.sh - Ensure Claude and companion tmux sessions exist for an issue
 #
-# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--skip-permissions]
+# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>]
 #
 # Creates detached tmux sessions (repo-qualified):
 #   claude-<REPO>-<KEY>     — runs Claude (with --dangerously-skip-permissions if --skip-permissions is set)
@@ -13,6 +13,10 @@
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
 # --no-claude: create sessions but don't launch claude/the companion command (for testing)
 # --skip-permissions: pass --dangerously-skip-permissions to claude
+# --model / --effort: pass --model / --effort to claude. Empty or omitted means
+#                     the flag isn't passed at all (Claude's own default wins).
+#                     Resolved per-profile by idow; mirrored by
+#                     buildClaudeResumeCommand() in pappardelle/source/tmux.ts.
 
 set -e
 
@@ -22,6 +26,8 @@ WORKTREE_PATH=""
 INIT_CMD=""
 NO_CLAUDE=false
 SKIP_PERMISSIONS=false
+CLAUDE_MODEL=""
+CLAUDE_EFFORT=""
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
 # shell; the non-empty default means the companion command is sent.
@@ -56,6 +62,14 @@ while [[ $# -gt 0 ]]; do
         --skip-permissions)
             SKIP_PERMISSIONS=true
             shift
+            ;;
+        --model)
+            CLAUDE_MODEL="$2"
+            shift 2
+            ;;
+        --effort)
+            CLAUDE_EFFORT="$2"
+            shift 2
             ;;
         *)
             echo "Error: Unknown option: $1" >&2
@@ -116,14 +130,25 @@ if not projects[path].get('hasTrustDialogAccepted'):
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
     tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
     if [[ "$NO_CLAUDE" != true ]]; then
-        # Build the Claude command with optional --dangerously-skip-permissions
-        # and --name set to the issue key so the session is findable via /resume
-        # and shows up in the terminal title.
+        # Build the Claude command with optional --dangerously-skip-permissions,
+        # --model / --effort, and --name set to the issue key so the session is
+        # findable via /resume and shows up in the terminal title.
+        # Flag order matches buildClaudeResumeCommand() in source/tmux.ts:
+        #   --dangerously-skip-permissions → --model → --effort → --name
+        # printf %q quotes the config-supplied values so model ids with shell
+        # metacharacters (e.g. claude-opus-5[1m]) survive the send-keys round-trip.
         SAFE_NAME=$(printf '%q' "$ISSUE_KEY")
-        CLAUDE_CMD="claude --name ${SAFE_NAME}"
+        CLAUDE_CMD="claude"
         if [[ "$SKIP_PERMISSIONS" == true ]]; then
-            CLAUDE_CMD="claude --dangerously-skip-permissions --name ${SAFE_NAME}"
+            CLAUDE_CMD="${CLAUDE_CMD} --dangerously-skip-permissions"
         fi
+        if [[ -n "$CLAUDE_MODEL" ]]; then
+            CLAUDE_CMD="${CLAUDE_CMD} --model $(printf '%q' "$CLAUDE_MODEL")"
+        fi
+        if [[ -n "$CLAUDE_EFFORT" ]]; then
+            CLAUDE_CMD="${CLAUDE_CMD} --effort $(printf '%q' "$CLAUDE_EFFORT")"
+        fi
+        CLAUDE_CMD="${CLAUDE_CMD} --name ${SAFE_NAME}"
 
         # Build the Claude prompt argument, quoting it to handle special characters
         if [[ -n "$INIT_CMD" ]]; then

@@ -41,6 +41,25 @@ export interface KeybindingConfig {
 export interface ClaudeConfig {
 	initialization_command?: string;
 	dangerously_skip_permissions?: boolean;
+	/**
+	 * Model to launch Claude with, forwarded verbatim to `claude --model`.
+	 * Accepts an alias ("opus", "sonnet", "fable") or a full model id
+	 * ("claude-opus-5[1m]") — deliberately unvalidated beyond "is a string",
+	 * since the set of valid names changes faster than this config schema.
+	 *
+	 * Absent ⇒ no `--model` flag is passed at all and Claude picks its own
+	 * default. Settable top-level and per-profile; see `getClaudeModel`.
+	 */
+	model?: string;
+	/**
+	 * Reasoning effort to launch Claude with, forwarded verbatim to
+	 * `claude --effort` (low, medium, high, xhigh, max at time of writing).
+	 * Unvalidated for the same reason as `model` — new levels ship on Claude
+	 * Code's schedule, not ours.
+	 *
+	 * Absent ⇒ no `--effort` flag is passed at all.
+	 */
+	effort?: string;
 }
 
 export interface HooksConfig {
@@ -660,6 +679,7 @@ export function validateConfig(
 			) {
 				errors.push('claude.dangerously_skip_permissions: must be a boolean');
 			}
+			errors.push(...validateClaudeLaunchFields(cl, 'claude'));
 		}
 	}
 
@@ -857,6 +877,43 @@ export function validateConfig(
 }
 
 /**
+ * Claude launch fields that exist identically on the top-level `claude:` block
+ * and on each profile's. Kept as a list so adding a third pass-through flag is
+ * a one-line change in both the validator and the resolvers below.
+ */
+const CLAUDE_LAUNCH_FIELDS = ['model', 'effort'] as const;
+
+type ClaudeLaunchField = (typeof CLAUDE_LAUNCH_FIELDS)[number];
+
+/**
+ * Validate the pass-through launch flags in a `claude:` block.
+ *
+ * Type-only on purpose: these values are handed straight to `claude --model` /
+ * `claude --effort`, and any allowlist we bake in here would rot the moment a
+ * new model alias or effort level ships. A typo therefore surfaces when Claude
+ * Code itself rejects the flag, not at config load. Every consumer
+ * shell-quotes the value, so "loose" costs nothing in safety.
+ *
+ * An empty string is explicitly legal and meaningful: at profile level it
+ * clears a value inherited from the top-level block.
+ */
+function validateClaudeLaunchFields(
+	claudeBlock: Record<string, unknown>,
+	prefix: string,
+): string[] {
+	const errors: string[] = [];
+	for (const field of CLAUDE_LAUNCH_FIELDS) {
+		if (
+			claudeBlock[field] !== undefined &&
+			typeof claudeBlock[field] !== 'string'
+		) {
+			errors.push(`${prefix}.${field}: must be a string`);
+		}
+	}
+	return errors;
+}
+
+/**
  * Validate a single issue_watchlist block. Shared by the top-level
  * `issue_watchlist` and each profile's `issue_watchlist` so their field rules
  * and error messages can never drift. `prefix` is the dotted path used in error
@@ -1021,6 +1078,7 @@ function validateProfile(name: string, profile: unknown): string[] {
 					`${prefix}.claude.initialization_command: must be a string`,
 				);
 			}
+			errors.push(...validateClaudeLaunchFields(cl, `${prefix}.claude`));
 		}
 	}
 
@@ -1596,6 +1654,59 @@ export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
 ): boolean {
 	return config.claude?.dangerously_skip_permissions ?? false;
+}
+
+/**
+ * Resolve one of the pass-through Claude launch flags for a workspace.
+ *
+ * Resolution order — per-profile value → top-level value → `''`. The profile is
+ * matched from `issueTitle` the same way `getCompanionCommand` does it, so a
+ * space with no title (the main worktree, or a call site that doesn't have one
+ * handy) simply gets the top-level value.
+ *
+ * The profile layer wins whenever the *key is present*, not merely when it's
+ * truthy. That's what makes `model: ""` on a profile mean "ignore the global
+ * model, launch with Claude's default" rather than "no opinion" — the same
+ * empty-string-is-meaningful convention `companion_command` uses.
+ *
+ * `''` is the universal "don't pass this flag" signal: callers omit the flag
+ * entirely rather than passing an empty value through to `claude`.
+ */
+function resolveClaudeLaunchField(
+	config: PappardelleConfig,
+	field: ClaudeLaunchField,
+	issueTitle?: string,
+): string {
+	if (issueTitle) {
+		const profile = matchProfiles(config, issueTitle)[0]?.profile;
+		const profileValue = profile?.claude?.[field];
+		if (profileValue !== undefined) {
+			return profileValue;
+		}
+	}
+	return config.claude?.[field] ?? '';
+}
+
+/**
+ * Get the Claude model to launch a workspace with (`claude --model <value>`).
+ * Returns '' when no model is configured — pass no flag at all in that case.
+ */
+export function getClaudeModel(
+	config: PappardelleConfig,
+	issueTitle?: string,
+): string {
+	return resolveClaudeLaunchField(config, 'model', issueTitle);
+}
+
+/**
+ * Get the Claude reasoning effort to launch a workspace with
+ * (`claude --effort <value>`). Returns '' when unconfigured.
+ */
+export function getClaudeEffort(
+	config: PappardelleConfig,
+	issueTitle?: string,
+): string {
+	return resolveClaudeLaunchField(config, 'effort', issueTitle);
 }
 
 /**

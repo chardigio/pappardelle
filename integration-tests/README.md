@@ -38,6 +38,10 @@ npx tsx integration-tests/verify-workspace-deinit.ts
 # Bash keyword matching (idow match_profiles function)
 bash integration-tests/verify-bash-keyword-matching.sh
 
+# claude.model / claude.effort, config → both resolvers → real launch → live claude
+# (--no-live skips the one real `claude --print` call)
+npx tsx integration-tests/verify-claude-model-effort.ts
+
 # Run all (that apply to your setup)
 npx tsx integration-tests/verify-linear.ts && \
 npx tsx integration-tests/verify-github.ts && \
@@ -47,17 +51,18 @@ npx tsx integration-tests/verify-watchlist.ts
 
 ## Scripts
 
-| Script                            | What it verifies                                                                       |
-| --------------------------------- | -------------------------------------------------------------------------------------- |
-| `verify-linear.ts`                | getIssue, searchAssignedIssues, label parsing, caching, batch fetch, state colors      |
-| `verify-jira.ts`                  | Same as Linear but via acli CLI                                                        |
-| `verify-github.ts`                | PR detection by branch name, changedFiles count, buildPRUrl                            |
-| `verify-gitlab.ts`                | MR detection by branch name, diff file count, buildPRUrl                               |
-| `verify-config.ts`                | Config loading, validation, profiles, watchlist, keybindings, Claude config            |
-| `verify-watchlist.ts`             | Full pipeline: config → provider fetch → label filter → workspace decision             |
-| `verify-comments.ts`              | createComment on Linear and/or Jira (posts real comments)                              |
-| `verify-workspace-deinit.ts`      | Command execution, variable expansion, continue_on_error, cwd fallback                 |
-| `verify-bash-keyword-matching.sh` | Bash `match_profiles()` in idow: word boundaries, multi-word keywords, false positives |
+| Script                            | What it verifies                                                                                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `verify-linear.ts`                | getIssue, searchAssignedIssues, label parsing, caching, batch fetch, state colors                                                                            |
+| `verify-jira.ts`                  | Same as Linear but via acli CLI                                                                                                                              |
+| `verify-github.ts`                | PR detection by branch name, changedFiles count, buildPRUrl                                                                                                  |
+| `verify-gitlab.ts`                | MR detection by branch name, diff file count, buildPRUrl                                                                                                     |
+| `verify-config.ts`                | Config loading, validation, profiles, watchlist, keybindings, Claude config                                                                                  |
+| `verify-watchlist.ts`             | Full pipeline: config → provider fetch → label filter → workspace decision                                                                                   |
+| `verify-comments.ts`              | createComment on Linear and/or Jira (posts real comments)                                                                                                    |
+| `verify-workspace-deinit.ts`      | Command execution, variable expansion, continue_on_error, cwd fallback                                                                                       |
+| `verify-bash-keyword-matching.sh` | Bash `match_profiles()` in idow: word boundaries, multi-word keywords, false positives                                                                       |
+| `verify-claude-model-effort.ts`   | `claude.model`/`claude.effort` across all 3 config layers: bash and TS resolvers agree, flags reach the real `claude` command line, live claude accepts them |
 
 ## Environment Variables
 

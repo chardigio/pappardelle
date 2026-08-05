@@ -31,7 +31,7 @@ Options:
 - **Configure issue watchlist** — auto-create workspaces for assigned issues
 - **Edit local overrides** — personal keybinding overrides in `.pappardelle.local.yml`
 - **Change providers** — switch issue tracker or VCS host
-- **Configure Claude settings** — initialization command, permissions
+- **Configure Claude settings** — initialization command, permissions, model, effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
 
 Then follow the appropriate section below based on their choice.
@@ -267,6 +267,8 @@ vcs_host:
 claude:
   initialization_command: '/do' # Skill to run on new sessions
   dangerously_skip_permissions: false # 'yolo mode'
+  model: opus # Optional — passed to `claude --model`
+  effort: high # Optional — passed to `claude --effort`
 ```
 
 Per-profile overrides take precedence:
@@ -276,7 +278,25 @@ profiles:
   my-profile:
     claude:
       initialization_command: '/do-custom'
+      model: sonnet
+      effort: medium
 ```
+
+### model / effort
+
+Resolution order is profile → top-level → unset, and unset means the flag isn't
+passed at all (Claude picks its own default). An explicit `model: ''` on a
+profile _clears_ an inherited global value rather than falling through to it —
+that's how a profile opts out of a repo-wide model. Values aren't validated
+against a list, so pass whatever the installed Claude Code accepts: an alias
+(`opus`, `sonnet`, `fable`), a full id (`claude-opus-5[1m]`), and
+`low|medium|high|xhigh|max` for effort.
+
+Only prompt for these when the user asks about model/effort, or when they're
+already editing the `claude` section — most repos are happy on the default, and
+an unset field is strictly cheaper than a wrong one. Suggest a per-profile
+value (not a global) when the user's stated reason is project-specific, e.g. "I
+want the docs profile to be cheap and fast."
 
 ## Configuring the Companion Pane Command
 

@@ -43,6 +43,8 @@ vcs_host:
 claude:
   initialization_command: '/idow' # Command passed to Claude on new sessions
   dangerously_skip_permissions: true # Pass --dangerously-skip-permissions to Claude (default: false)
+  model: opus # Pass --model to Claude (default: Claude's own default)
+  effort: high # Pass --effort to Claude (default: Claude's own default)
 
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
@@ -423,6 +425,12 @@ interface PappardelleConfig {
 		app?: string; // Terminal app name (default: iTerm)
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
+	claude?: {
+		initialization_command?: string; // Command passed to Claude on new sessions (e.g. "/idow")
+		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions
+		model?: string; // Launch with --model <value>. Omit for Claude's default. Per-profile overridable.
+		effort?: string; // Launch with --effort <value>. Omit for Claude's default. Per-profile overridable.
+	};
 	profiles: Record<string, Profile>;
 }
 
@@ -437,6 +445,8 @@ interface Profile {
 	};
 	claude?: {
 		initialization_command?: string; // Override global init command for this profile
+		model?: string; // Override global claude.model for this profile. "" = clear the global, launch with Claude's default.
+		effort?: string; // Override global claude.effort for this profile. "" = clear the global.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
 	vars?: Record<string, string>; // Generic template variables
@@ -688,22 +698,46 @@ The `claude` section configures how Claude is initialized when opening a new wor
 claude:
   initialization_command: '/idow' # Optional, default: empty
   dangerously_skip_permissions: true # Optional, default: false
+  model: opus # Optional, default: Claude's own default
+  effort: high # Optional, default: Claude's own default
 
 profiles:
   stardust-jams:
     # Per-profile override (takes precedence over global)
     claude:
       initialization_command: '/do-stardust'
+      model: sonnet
+      effort: medium
 ```
 
-| Field                          | Type      | Default | Description                                                                                                                                                  |
-| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
-| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.            |
+| Field                          | Type      | Default | Description                                                                                                                                                                                                  |
+| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command.                                                 |
+| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                            |
+| `model`                        | `string`  | `""`    | Passed through as `claude --model <value>`. Accepts an alias (`opus`, `sonnet`, `fable`) or a full model id (`claude-opus-5[1m]`). When empty, no `--model` flag is passed and Claude picks its own default. |
+| `effort`                       | `string`  | `""`    | Passed through as `claude --effort <value>` — `low`, `medium`, `high`, `xhigh`, `max` at time of writing. When empty, no `--effort` flag is passed.                                                          |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 
 **Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
+
+**Model and effort** work the same way — a profile's value wins over the global one — with one extra rule: an explicit empty string at the profile level _clears_ an inherited global value rather than falling through to it.
+
+```yaml
+claude:
+  model: opus
+  effort: high
+
+profiles:
+  docs:
+    # Launches with Claude's own default model, ignoring the global `opus`.
+    claude:
+      model: ''
+```
+
+`model` and `effort` are deliberately not validated against a list of known values — model aliases and effort levels ship on Claude Code's schedule, not Pappardelle's — so a typo surfaces when Claude Code rejects the flag at launch rather than at config load. Both fields apply everywhere a workspace's Claude session is created: `idow`, the TUI's session-create path, and the iTerm launcher.
+
+Omitting both fields leaves the launch command byte-identical to a config that predates them; nothing is passed to `claude` unless you ask for it.
 
 ## Issue Watchlist
 

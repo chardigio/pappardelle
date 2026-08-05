@@ -261,6 +261,100 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 
 # ==========================================================================
 
+# STA-1829: --model / --effort are forwarded to the real claude invocation.
+# A shim named `claude` on PATH records its argv, so these assertions read the
+# actual command line claude was launched with rather than a pane transcript.
+# The shim exits 0, so the `--continue` branch succeeds and runs exactly once.
+#
+# HOME is redirected to a throwaway dir for these two cases: the interactive
+# shell tmux spawns would otherwise source the developer's ~/.zshrc and put the
+# real claude ahead of the shim on PATH. It also keeps the pre-trust step out of
+# the real ~/.claude.json.
+echo -e "\n${BOLD}Test: --model / --effort reach the claude command line${RESET}"
+ISSUE_KEY7="${TEST_PREFIX}-700"
+WORKTREE_PATH7="$TMPDIR_ROOT/worktree7"
+SHIM_DIR="$TMPDIR_ROOT/shim"
+SHIM_HOME="$TMPDIR_ROOT/shim-home"
+ARGV_LOG="$TMPDIR_ROOT/claude-argv.log"
+mkdir -p "$WORKTREE_PATH7" "$SHIM_DIR" "$SHIM_HOME"
+cat > "$SHIM_DIR/claude" <<SHIM
+#!/bin/bash
+printf '%s\n' "\$*" >> "$ARGV_LOG"
+exit 0
+SHIM
+chmod +x "$SHIM_DIR/claude"
+
+# The sessions below need a server whose environment already has the shim on
+# PATH, so they get their own socket (the shared one may already be running).
+SHIM_SOCKET="pappardelle_inner_shim_$$"
+PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET" \
+    "$SCRIPT_DIR/start-claude-session.sh" \
+    --issue-key "$ISSUE_KEY7" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH7" \
+    --model sonnet --effort high 2>/dev/null
+
+sleep 1
+ARGV=$(head -1 "$ARGV_LOG" 2>/dev/null || echo "")
+
+if [[ "$ARGV" == *"--model sonnet"* ]]; then
+    echo -e "  ${GREEN}PASS${RESET} --model reached claude ($ARGV)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} --model reached claude"
+    echo "    argv: $ARGV"
+    FAIL=$((FAIL + 1))
+fi
+
+if [[ "$ARGV" == *"--effort high"* ]]; then
+    echo -e "  ${GREEN}PASS${RESET} --effort reached claude"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} --effort reached claude"
+    echo "    argv: $ARGV"
+    FAIL=$((FAIL + 1))
+fi
+
+if [[ "$ARGV" == "--model sonnet --effort high --name $ISSUE_KEY7 --continue" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} exact flag order: model → effort → name"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} exact flag order: model → effort → name"
+    echo "    Expected: --model sonnet --effort high --name $ISSUE_KEY7 --continue"
+    echo "    Actual:   $ARGV"
+    FAIL=$((FAIL + 1))
+fi
+
+tmux -L "$SHIM_SOCKET" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
+# Off-by-default regression: omit both flags and the command line must be
+# exactly what it was before STA-1829.
+echo -e "\n${BOLD}Test: no --model/--effort → command line unchanged${RESET}"
+ISSUE_KEY8="${TEST_PREFIX}-800"
+WORKTREE_PATH8="$TMPDIR_ROOT/worktree8"
+ARGV_LOG8="$TMPDIR_ROOT/claude-argv-8.log"
+mkdir -p "$WORKTREE_PATH8"
+cat > "$SHIM_DIR/claude" <<SHIM
+#!/bin/bash
+printf '%s\n' "\$*" >> "$ARGV_LOG8"
+exit 0
+SHIM
+chmod +x "$SHIM_DIR/claude"
+
+SHIM_SOCKET8="pappardelle_inner_shim8_$$"
+PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET8" \
+    "$SCRIPT_DIR/start-claude-session.sh" \
+    --issue-key "$ISSUE_KEY8" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH8" \
+    2>/dev/null
+
+sleep 1
+ARGV8=$(head -1 "$ARGV_LOG8" 2>/dev/null || echo "")
+assert_eq "bare launch is --name + --continue only" "--name $ISSUE_KEY8 --continue" "$ARGV8"
+
+tmux -L "$SHIM_SOCKET8" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
 rm -rf "$TMPDIR_ROOT"
 
 echo ""

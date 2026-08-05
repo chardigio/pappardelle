@@ -144,12 +144,33 @@ if ! command -v yq &> /dev/null; then
     error "yq is required but not installed. Install with: brew install yq"
 fi
 
-# Resolve claude config values (initialization_command and dangerously_skip_permissions)
-# with local override support from .pappardelle.local.yml
+# Resolve claude config values (initialization_command, dangerously_skip_permissions,
+# model, effort) with local override support from .pappardelle.local.yml.
+# These are the top-level values; once a profile is selected, the launch flags
+# are re-resolved profile-first via resolve_claude_launch_flags below.
 LOCAL_CONFIG_PATH="$REPO_ROOT/.pappardelle.local.yml"
 CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH")
 INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
 SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
+CLAUDE_MODEL=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.model')
+CLAUDE_EFFORT=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.effort')
+
+# Re-resolve the Claude launch flags (model/effort) for the selected profile.
+# profiles.<name>.claude.<field> beats the top-level claude.<field>; an explicit
+# empty string at the profile level clears the inherited value. Called at each
+# point where SELECTED_PROFILE is assigned or changed. Empty ⇒ the flag is
+# omitted entirely, which is what keeps the launch identical for configs that
+# never mention model or effort (STA-1829).
+resolve_claude_launch_flags() {
+    local profile="$1"
+    local json
+    json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --profile "$profile")
+    CLAUDE_MODEL=$(echo "$json" | jq -r '.model')
+    CLAUDE_EFFORT=$(echo "$json" | jq -r '.effort')
+    [[ -n "$CLAUDE_MODEL" ]] && log "Claude model: $CLAUDE_MODEL"
+    [[ -n "$CLAUDE_EFFORT" ]] && log "Claude effort: $CLAUDE_EFFORT"
+    return 0
+}
 
 # Source provider-agnostic helpers
 # shellcheck source=provider-helpers.sh
@@ -440,6 +461,8 @@ if [[ -n "$PROFILE_INIT_CMD" ]]; then
     log "Using per-profile initialization_command: $INIT_CMD"
 fi
 
+resolve_claude_launch_flags "$SELECTED_PROFILE"
+
 log "Profile: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
 
 # Step 2: Get or create issue
@@ -520,6 +543,8 @@ else
                     INIT_CMD="$PROFILE_INIT_CMD"
                     log "Using per-profile initialization_command: $INIT_CMD"
                 fi
+
+                resolve_claude_launch_flags "$SELECTED_PROFILE"
 
                 log "Profile updated: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
             fi
@@ -713,6 +738,12 @@ fi
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     CLAUDE_SESSION_ARGS+=(--skip-permissions)
 fi
+if [[ -n "$CLAUDE_MODEL" ]]; then
+    CLAUDE_SESSION_ARGS+=(--model "$CLAUDE_MODEL")
+fi
+if [[ -n "$CLAUDE_EFFORT" ]]; then
+    CLAUDE_SESSION_ARGS+=(--effort "$CLAUDE_EFFORT")
+fi
 CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
@@ -761,6 +792,12 @@ if [[ "$TERMINAL_APP" == "iTerm" ]]; then
     ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --companion-command "$COMPANION_COMMAND")
     if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
         ITERM_ARGS+=(--skip-permissions)
+    fi
+    if [[ -n "$CLAUDE_MODEL" ]]; then
+        ITERM_ARGS+=(--model "$CLAUDE_MODEL")
+    fi
+    if [[ -n "$CLAUDE_EFFORT" ]]; then
+        ITERM_ARGS+=(--effort "$CLAUDE_EFFORT")
     fi
     # In resume mode, start Claude without any prompt; otherwise use configured init command
     if [[ "$RESUME_MODE" == true ]]; then

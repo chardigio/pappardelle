@@ -18,6 +18,8 @@ team_prefix: STA
 claude:
   initialization_command: '/idow' # Slash command passed to Claude when session opens
   dangerously_skip_permissions: true # Skip permission prompts (use with caution)
+  model: opus # Default model for every workspace (--model). Omit for Claude's default.
+  effort: high # Default reasoning effort (--effort). Omit for Claude's default.
 
 # Commands to run after a git worktree is created.
 # Template variables: ${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_KEY},
@@ -144,6 +146,8 @@ profiles:
         - Ready for Pappardelle
     claude:
       initialization_command: '/do-stardust' # Profile-level override for Claude init
+      model: sonnet # Profile-level model override — beats the global `opus`
+      effort: medium # …and its own effort level
     vars:
       IOS_APP_DIR: '_ios/stardust-jams'
       BUNDLE_ID: 'io.stardustlabs.stardust'
@@ -224,6 +228,9 @@ profiles:
     emoji: '🍝'
     claude:
       initialization_command: '/do-pappardelle'
+      # An explicit "" clears the global model, so this profile launches with
+      # Claude's own default instead of the top-level `opus`.
+      model: ''
     github:
       label: 'pappardelle'
     links:

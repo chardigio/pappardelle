@@ -9,6 +9,8 @@ import {promisify} from 'node:util';
 const execAsync = promisify(exec);
 import {
 	DEFAULT_COMPANION_COMMAND,
+	getClaudeEffort,
+	getClaudeModel,
 	getCompanionCommand,
 	getDangerouslySkipPermissions,
 	getRepoName,
@@ -173,6 +175,29 @@ function shellQuote(value: string): string {
 }
 
 /**
+ * Pass-through flags resolved from the `claude:` config block (top-level or
+ * per-profile). An empty/absent value means "don't pass the flag at all", which
+ * is what keeps the launch command byte-identical for configs that never
+ * mention model or effort.
+ */
+export interface ClaudeLaunchOptions {
+	model?: string;
+	effort?: string;
+}
+
+/**
+ * Render a `--flag value` pair for the claude command line, or '' when the
+ * value is unset. Values come from user config, so anything that isn't a bare
+ * token gets single-quoted (model ids like `claude-opus-5[1m]` contain glob
+ * characters the shell would otherwise try to expand).
+ */
+function claudeFlag(flag: string, value?: string): string {
+	if (!value) return '';
+	const safe = /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
+	return ` ${flag} ${safe}`;
+}
+
+/**
  * Build the shell command for starting Claude with --continue fallback.
  * Tries to resume the most recent conversation in the worktree directory,
  * falling back to bare claude if no prior conversation exists.
@@ -180,10 +205,15 @@ function shellQuote(value: string): string {
  *
  * `--name <issueKey>` is included on both branches so the session shows up
  * under the issue key in `/resume` and in the terminal title.
+ *
+ * Flag order (`--dangerously-skip-permissions --model --effort --name`) is
+ * mirrored by start-claude-session.sh; keep the two in sync so a session
+ * created by the TUI and one created by idow are indistinguishable.
  */
 export function buildClaudeResumeCommand(
 	issueKey: string,
 	skipPermissions = false,
+	launch: ClaudeLaunchOptions = {},
 ): string {
 	const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
 		? issueKey
@@ -191,7 +221,10 @@ export function buildClaudeResumeCommand(
 	const base = skipPermissions
 		? 'claude --dangerously-skip-permissions'
 		: 'claude';
-	const claudeCmd = `${base} --name ${safeKey}`;
+	const claudeCmd = `${base}${claudeFlag('--model', launch.model)}${claudeFlag(
+		'--effort',
+		launch.effort,
+	)} --name ${safeKey}`;
 	return `${claudeCmd} --continue || { printf '\\033[A\\033[2K'; false; } || ${claudeCmd}`;
 }
 
@@ -1156,27 +1189,32 @@ export function attachToSpace(
 
 	const sessions = getSessionNames(issueKey);
 
-	// Load config once for all session creation. The companion command is
-	// resolved profile-aware (via the issue title) so a per-project profile can
-	// override the default git UI — this matters only when the companion session
-	// doesn't already exist (idow creates it with the same resolution at
-	// workspace-create time).
+	// Load config once for all session creation. The companion command and the
+	// Claude launch flags are resolved profile-aware (via the issue title) so a
+	// per-project profile can override the default git UI / model / effort —
+	// this matters only when the sessions don't already exist (idow creates
+	// them with the same resolution at workspace-create time).
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
+	let launch: ClaudeLaunchOptions = {};
 	try {
 		const config = loadConfig();
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle);
+		launch = {
+			model: getClaudeModel(config, issueTitle),
+			effort: getClaudeEffort(config, issueTitle),
+		};
 	} catch {
 		// Config load failed — use safe defaults
 	}
 
 	// Ensure sessions exist (create if needed)
 	if (mainWorktreePath) {
-		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions);
+		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions, launch);
 		ensureCompanionSession(issueKey, mainWorktreePath, companionCommand);
 	} else {
-		ensureClaudeSession(issueKey, undefined, skipPermissions);
+		ensureClaudeSession(issueKey, undefined, skipPermissions, launch);
 		ensureCompanionSession(issueKey, undefined, companionCommand);
 	}
 
@@ -1823,6 +1861,7 @@ export function ensureClaudeSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	skipPermissions = false,
+	launch: ClaudeLaunchOptions = {},
 ): boolean {
 	const sessionName = getSessionNames(issueKey).claude;
 
@@ -1861,7 +1900,7 @@ export function ensureClaudeSession(
 
 		// Send claude command to the session. Try --continue first to resume an
 		// existing conversation, falling back to bare claude if none exists.
-		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions);
+		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions, launch);
 
 		spawnSync(
 			'tmux',

@@ -32,6 +32,10 @@ team_prefix: ENG
 # claude:
 #   initialization_command: "/idow"        # Command passed to Claude when a new session opens
 #   dangerously_skip_permissions: false     # Pass --dangerously-skip-permissions to Claude (default: false)
+#   model: opus                             # Pass --model to Claude (alias or full id). Omit for Claude's default.
+#   effort: high                            # Pass --effort to Claude (low|medium|high|xhigh|max). Omit for Claude's default.
+# model/effort are also settable per-profile (see ios-app below); the profile
+# value wins, and an explicit "" there clears an inherited global value.
 
 # Auto-remove spaces from the rail when the tracker reports their issue as
 # completed or canceled. Same teardown as pressing `d` (runs pre_workspace_deinit,
@@ -136,6 +140,14 @@ profiles:
     # Falls back to issue_tracker.default_issue_type, then "Task".
     # jira:
     #   issue_type: Feature
+    # Per-profile Claude overrides (optional). Each field falls back to the
+    # top-level `claude:` section. An explicit "" clears an inherited value —
+    # e.g. `model: ""` here launches with Claude's default even when the
+    # top-level config pins a model.
+    # claude:
+    #   initialization_command: '/do-ios'
+    #   model: sonnet
+    #   effort: medium
     vars:
       IOS_APP_DIR: 'ios/MyApp'
       BUNDLE_ID: 'com.example.myapp'

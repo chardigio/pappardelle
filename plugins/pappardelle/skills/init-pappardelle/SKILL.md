@@ -149,6 +149,11 @@ Options:
 
 This setting is only relevant if a `claude` section exists (i.e., the user chose an initialization command in 1A.iv). If they opted out of `claude` in 1A.iv, skip this question.
 
+Don't ask about `claude.model` / `claude.effort` at first setup — omitting them
+launches with Claude's own default, which is the right answer for nearly every
+new repo. Mention in the wrap-up that both exist (globally and per-profile) and
+that `/configure-pappardelle` can set them later.
+
 #### 1A.vi. Write `.pappardelle.yml`
 
 Based on the answers, generate a `.pappardelle.yml` file at the repository root. Use the full config format from the [configuration reference](pappardelle-config.md).
