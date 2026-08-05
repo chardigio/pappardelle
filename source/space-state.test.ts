@@ -8,6 +8,8 @@ import {
 	writeSpaceState,
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
+	extractRecapFromCodexRollout,
+	findLatestCodexRollout,
 	type SpaceState,
 } from './space-state.ts';
 
@@ -320,4 +322,187 @@ test('extractRecapFromJsonl returns null when no recap-worthy entries exist', t 
 		{type: 'permission-mode', mode: 'default'},
 	]);
 	t.is(extractRecapFromJsonl(p), null);
+});
+
+// ============================================================================
+// Codex transcripts (STA-1850)
+// ============================================================================
+
+/**
+ * Write a Codex rollout. Codex partitions rollouts by date and records the cwd
+ * in each file's session_meta header, so the lookup depends on both.
+ */
+function writeCodexRollout(
+	sessionsDir: string,
+	stamp: string,
+	cwd: string,
+	entries: Array<Record<string, unknown>>,
+	name = 'rollout-a.jsonl',
+): string {
+	const dir = path.join(sessionsDir, ...stamp.split('/'));
+	fs.mkdirSync(dir, {recursive: true});
+	const file = path.join(dir, name);
+	const body = [{type: 'session_meta', payload: {id: 'x', cwd}}, ...entries]
+		.map(e => JSON.stringify(e))
+		.join('\n');
+	fs.writeFileSync(file, body + '\n');
+	return file;
+}
+
+test('findLatestCodexRollout matches a rollout by its session_meta cwd', t => {
+	const sessions = tempDir();
+	const wanted = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', []);
+	writeCodexRollout(sessions, '2026/08/04', '/wt/OTHER', [], 'rollout-b.jsonl');
+
+	t.is(findLatestCodexRollout('/wt/STA-1', sessions), wanted);
+});
+
+test('findLatestCodexRollout returns null when no rollout matches', t => {
+	const sessions = tempDir();
+	writeCodexRollout(sessions, '2026/08/04', '/wt/OTHER', []);
+	t.is(findLatestCodexRollout('/wt/STA-1', sessions), null);
+});
+
+test('findLatestCodexRollout returns null when the sessions dir is missing', t => {
+	t.is(findLatestCodexRollout('/wt/STA-1', '/nope/not/here'), null);
+});
+
+test('findLatestCodexRollout prefers the newest matching day', t => {
+	const sessions = tempDir();
+	const old = writeCodexRollout(sessions, '2026/07/01', '/wt/STA-1', []);
+	const recent = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', []);
+	// Days are walked newest-first, so the August rollout wins regardless of
+	// the order the directories happen to be listed in.
+	t.is(findLatestCodexRollout('/wt/STA-1', sessions), recent);
+	t.not(findLatestCodexRollout('/wt/STA-1', sessions), old);
+});
+
+test('findLatestCodexRollout ignores a file with no session_meta header', t => {
+	const sessions = tempDir();
+	const dir = path.join(sessions, '2026', '08', '04');
+	fs.mkdirSync(dir, {recursive: true});
+	fs.writeFileSync(path.join(dir, 'rollout-x.jsonl'), '{"type":"event_msg"}\n');
+	t.is(findLatestCodexRollout('/wt/STA-1', sessions), null);
+});
+
+test('extractRecapFromCodexRollout pulls title, last prompt, and final answer', t => {
+	const sessions = tempDir();
+	const file = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', [
+		{
+			type: 'event_msg',
+			payload: {type: 'user_message', message: 'add a venue'},
+		},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'poking around',
+				phase: 'commentary',
+			},
+		},
+		{
+			type: 'event_msg',
+			payload: {type: 'user_message', message: 'now ship it'},
+		},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'shipped',
+				phase: 'final_answer',
+			},
+		},
+	]);
+
+	const recap = extractRecapFromCodexRollout(file);
+	// The title mirrors what Codex's own thread list shows: the first prompt.
+	t.is(recap?.customTitle, 'add a venue');
+	t.is(recap?.lastPrompt, 'now ship it');
+	t.is(recap?.lastAssistantExcerpt, 'shipped');
+});
+
+test('extractRecapFromCodexRollout prefers a final answer over later commentary', t => {
+	const sessions = tempDir();
+	const file = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', [
+		{type: 'event_msg', payload: {type: 'user_message', message: 'go'}},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'the real answer',
+				phase: 'final_answer',
+			},
+		},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'still poking',
+				phase: 'commentary',
+			},
+		},
+	]);
+
+	// Surfacing trailing commentary as "the last thing the agent said" would
+	// routinely show a half-thought instead of the actual reply.
+	t.is(
+		extractRecapFromCodexRollout(file)?.lastAssistantExcerpt,
+		'the real answer',
+	);
+});
+
+test('extractRecapFromCodexRollout falls back to commentary when there is no final answer', t => {
+	const sessions = tempDir();
+	const file = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', [
+		{type: 'event_msg', payload: {type: 'user_message', message: 'go'}},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'mid-turn',
+				phase: 'commentary',
+			},
+		},
+	]);
+
+	t.is(extractRecapFromCodexRollout(file)?.lastAssistantExcerpt, 'mid-turn');
+});
+
+test('extractRecapFromCodexRollout returns null for a rollout with no messages', t => {
+	const sessions = tempDir();
+	const file = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', [
+		{type: 'turn_context', payload: {turn_id: 'x'}},
+	]);
+	t.is(extractRecapFromCodexRollout(file), null);
+});
+
+test('extractRecapFromCodexRollout skips malformed lines without throwing', t => {
+	const sessions = tempDir();
+	const dir = path.join(sessions, '2026', '08', '04');
+	fs.mkdirSync(dir, {recursive: true});
+	const file = path.join(dir, 'rollout-x.jsonl');
+	fs.writeFileSync(
+		file,
+		[
+			'{"type":"session_meta","payload":{"cwd":"/wt/STA-1"}}',
+			'not json at all{{{',
+			'',
+			'{"type":"event_msg","payload":{"type":"user_message","message":"survived"}}',
+		].join('\n'),
+	);
+
+	t.notThrows(() => extractRecapFromCodexRollout(file));
+	t.is(extractRecapFromCodexRollout(file)?.lastPrompt, 'survived');
+});
+
+test('extractRecapFromCodexRollout returns null for an unreadable file', t => {
+	t.is(extractRecapFromCodexRollout('/nope/not/here.jsonl'), null);
+});
+
+test('extractRecapFromCodexRollout ignores blank messages', t => {
+	const sessions = tempDir();
+	const file = writeCodexRollout(sessions, '2026/08/04', '/wt/STA-1', [
+		{type: 'event_msg', payload: {type: 'user_message', message: '   '}},
+	]);
+	t.is(extractRecapFromCodexRollout(file), null);
 });

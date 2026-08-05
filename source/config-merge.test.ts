@@ -526,6 +526,7 @@ test('profiles from home config work with all profile features', t => {
 	t.is(profile.display_name, 'Music');
 	t.deepEqual(profile.keywords, ['music', 'jams']);
 	t.is(profile.team_prefix, 'MUS');
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	t.is(profile.claude!.initialization_command, '/idow');
 	t.is(profile.vars!['APP_DIR'], '_ios/stardust-jams');
 	t.is(profile.vcs!.label, 'stardust_jams');

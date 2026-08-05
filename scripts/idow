@@ -150,6 +150,10 @@ LOCAL_CONFIG_PATH="$REPO_ROOT/.pappardelle.local.yml"
 CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH")
 INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
 SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
+# Top-level agent only, for now — the profile isn't selected until later, at
+# which point AGENT_CLI is re-resolved with --profile so a profile-level
+# `agent_cli` can override it.
+AGENT_CLI=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.agent_cli')
 
 # Source provider-agnostic helpers
 # shellcheck source=provider-helpers.sh
@@ -416,6 +420,10 @@ while IFS='=' read -r key value; do
 done < <(yq -r '.profiles.'"$SELECTED_PROFILE"'.vars // {} | to_entries[] | .key + "=" + .value' "$CONFIG_PATH")
 
 # Read per-profile team prefix (falls back to global TEAM_PREFIX)
+# Re-resolve the agent now that a profile is selected: a profile's `agent_cli`
+# overrides the top-level one.
+AGENT_CLI=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --profile "$SELECTED_PROFILE" | jq -r '.agent_cli')
+
 PROFILE_TEAM_PREFIX=$(yq -r ".profiles.$SELECTED_PROFILE.team_prefix // \"\"" "$CONFIG_PATH" | tr '[:lower:]' '[:upper:]')
 if [[ -n "$PROFILE_TEAM_PREFIX" ]]; then
     EFFECTIVE_TEAM_PREFIX="$PROFILE_TEAM_PREFIX"
@@ -705,8 +713,8 @@ fi
 COMPANION_COMMAND=$(yq -r "(.profiles.$SELECTED_PROFILE.companion_command // .companion_command) // \"GIT_OPTIONAL_LOCKS=0 gitui\"" "$CONFIG_PATH" 2>/dev/null)
 
 # Step 7: Ensure Claude and companion tmux sessions exist (always, regardless of --open)
-print_step 7 "Starting Claude tmux session..."
-CLAUDE_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND")
+print_step 7 "Starting $AGENT_CLI tmux session..."
+CLAUDE_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND" --agent "$AGENT_CLI")
 if [[ -n "$INIT_CMD" && "$RESUME_MODE" != true ]]; then
     CLAUDE_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
 fi
@@ -758,7 +766,7 @@ fi
 # Step 9: Open terminal
 print_step 9 "Opening terminal..."
 if [[ "$TERMINAL_APP" == "iTerm" ]]; then
-    ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --companion-command "$COMPANION_COMMAND")
+    ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --companion-command "$COMPANION_COMMAND" --agent "$AGENT_CLI")
     if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
         ITERM_ARGS+=(--skip-permissions)
     fi

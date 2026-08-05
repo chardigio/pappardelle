@@ -13,8 +13,15 @@ import {
 	getDangerouslySkipPermissions,
 	getRepoName,
 	loadConfig,
+	resolveAgentCli,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {
+	buildAgentResumeCommand,
+	getAgentDescriptor,
+} from './agents/registry.ts';
+import {readSpaceState} from './space-state.ts';
+import type {AgentCli} from './types.ts';
 import {getRegisteredSpaces} from './space-registry.ts';
 import {isSimctlUnavailableError} from './simctl-check.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -145,6 +152,65 @@ export function innerSessionExists(sessionName: string): boolean {
 }
 
 /**
+ * Foreground command of every live pane on the inner socket, keyed by session
+ * name — one tmux fork for the whole list rather than one per space.
+ *
+ * This is the raw input to the Tier-3 liveness fallback. Returns an empty map
+ * when tmux isn't running or the socket has no sessions.
+ */
+export function getInnerSessionForegroundCommands(): Map<string, string> {
+	const commands = new Map<string, string>();
+	try {
+		const result = spawnSync(
+			'tmux',
+			innerTmuxArgs([
+				'list-panes',
+				'-a',
+				'-F',
+				'#{session_name}\t#{pane_current_command}',
+			]),
+			{encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe']},
+		);
+		if (result.error || result.status !== 0) return commands;
+
+		for (const line of result.stdout.split('\n')) {
+			const [session, command] = line.split('\t');
+			if (session && command && !commands.has(session)) {
+				commands.set(session, command);
+			}
+		}
+	} catch {
+		// tmux missing or the socket is gone — no liveness info, which the
+		// caller treats the same as "not running".
+	}
+
+	return commands;
+}
+
+/**
+ * Tier-3 liveness: is the agent binary the foreground process in this space's
+ * session?
+ *
+ * This is the floor of the adapter contract, used only when a harness can't do
+ * better and as the safety net when `~/.pappardelle/agent-status/` is missing
+ * entirely. It is deliberately coarse — an agent sitting idle at its own prompt
+ * is still its session's foreground process, so this reports `working` for it.
+ * That's the documented Tier-3 semantic ("working if the session has a live
+ * foreground process"), and it's why any harness that can do better should.
+ */
+export function isAgentForegroundInSession(
+	agent: AgentCli,
+	issueKey: string,
+	foregroundCommands: Map<string, string>,
+	repoName?: string,
+): boolean {
+	const sessionName = getSessionNames(issueKey, repoName).claude;
+	const command = foregroundCommands.get(sessionName);
+	if (!command) return false;
+	return command === getAgentDescriptor(agent).command;
+}
+
+/**
  * Get session names for a space.
  * Optional repoName parameter for testing; defaults to getRepoName().
  */
@@ -164,35 +230,19 @@ export function getSessionNames(
 }
 
 /**
- * Single-quote a string for safe use as a shell argument. Wraps the value in
- * single quotes and escapes any embedded single quotes via the classic
- * `'\''` trick.
+ * Which agent CLI drives a space, resolved through the profile persisted by
+ * `idow` at workspace-creation time (the same source the ticket-rail emoji
+ * uses). Falls back to the top-level `agent_cli`, then to Claude — so a config
+ * that never mentions the field behaves exactly as it did pre-STA-1850.
  */
-function shellQuote(value: string): string {
-	return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-/**
- * Build the shell command for starting Claude with --continue fallback.
- * Tries to resume the most recent conversation in the worktree directory,
- * falling back to bare claude if no prior conversation exists.
- * The ANSI escape clears the "No conversation found" error line on failure.
- *
- * `--name <issueKey>` is included on both branches so the session shows up
- * under the issue key in `/resume` and in the terminal title.
- */
-export function buildClaudeResumeCommand(
-	issueKey: string,
-	skipPermissions = false,
-): string {
-	const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
-		? issueKey
-		: shellQuote(issueKey);
-	const base = skipPermissions
-		? 'claude --dangerously-skip-permissions'
-		: 'claude';
-	const claudeCmd = `${base} --name ${safeKey}`;
-	return `${claudeCmd} --continue || { printf '\\033[A\\033[2K'; false; } || ${claudeCmd}`;
+export function resolveAgentForSpace(issueKey: string): AgentCli {
+	try {
+		const config = loadConfig();
+		const profileName = readSpaceState(getRepoName(), issueKey)?.profile;
+		return resolveAgentCli(config, profileName);
+	} catch {
+		return 'claude';
+	}
 }
 
 /**
@@ -1163,20 +1213,23 @@ export function attachToSpace(
 	// workspace-create time).
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
+	let agent: AgentCli = 'claude';
 	try {
 		const config = loadConfig();
-		skipPermissions = getDangerouslySkipPermissions(config);
+		const profileName = readSpaceState(getRepoName(), issueKey)?.profile;
+		skipPermissions = getDangerouslySkipPermissions(config, profileName);
 		companionCommand = getCompanionCommand(config, issueTitle);
+		agent = resolveAgentCli(config, profileName);
 	} catch {
 		// Config load failed — use safe defaults
 	}
 
 	// Ensure sessions exist (create if needed)
 	if (mainWorktreePath) {
-		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions);
+		ensureAgentSession(issueKey, mainWorktreePath, skipPermissions, agent);
 		ensureCompanionSession(issueKey, mainWorktreePath, companionCommand);
 	} else {
-		ensureClaudeSession(issueKey, undefined, skipPermissions);
+		ensureAgentSession(issueKey, undefined, skipPermissions, agent);
 		ensureCompanionSession(issueKey, undefined, companionCommand);
 	}
 
@@ -1773,6 +1826,10 @@ export async function getMainWorktreeInfo(): Promise<{
  *
  * This trust dialog was introduced in Claude Code v2.1.53 for directories
  * with risky project settings (e.g. .claude/commands/ with Bash tool access).
+ *
+ * Claude-specific by nature — it writes Claude's own config file. Callers go
+ * through `pretrustDirectoryForAgent`, which consults the registry rather than
+ * assuming every harness has a trust prompt.
  */
 export function pretrustDirectoryForClaude(
 	worktreePath: string,
@@ -1813,16 +1870,36 @@ export function pretrustDirectoryForClaude(
 }
 
 /**
- * Create a claude session for an issue if it doesn't exist
- * Returns true if session exists or was created successfully
+ * Pre-trust a worktree for whichever harness is about to run in it.
  *
- * Creates a shell-based session (not running claude directly) so the session
- * persists even if claude exits.
+ * A no-op for agents whose descriptor sets `needsPretrust: false` — Codex has
+ * no workspace-trust prompt, so there is nothing to accept on its behalf and
+ * writing to ~/.claude.json for it would be meaningless.
  */
-export function ensureClaudeSession(
+export function pretrustDirectoryForAgent(
+	agent: AgentCli,
+	worktreePath: string,
+	configPath?: string,
+): void {
+	if (!getAgentDescriptor(agent).needsPretrust) return;
+	pretrustDirectoryForClaude(worktreePath, configPath);
+}
+
+/**
+ * Create an agent session for an issue if it doesn't exist.
+ * Returns true if the session exists or was created successfully.
+ *
+ * Creates a shell-based session (not running the agent directly) so the session
+ * persists even if the agent exits. The tmux session name keeps its historical
+ * `claude-<repo>-<key>` shape regardless of harness — renaming it would be pure
+ * churn, and every consumer (viewer panes, the orphan reaper, sous-chef) keys
+ * off that prefix.
+ */
+export function ensureAgentSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	skipPermissions = false,
+	agent: AgentCli = resolveAgentForSpace(issueKey),
 ): boolean {
 	const sessionName = getSessionNames(issueKey).claude;
 
@@ -1833,12 +1910,13 @@ export function ensureClaudeSession(
 
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
-		log.warn(`Cannot create claude session for ${issueKey}: no worktree found`);
+		log.warn(`Cannot create agent session for ${issueKey}: no worktree found`);
 		return false;
 	}
 
-	// Pre-trust the worktree directory so Claude doesn't ask "do you trust this folder?"
-	pretrustDirectoryForClaude(worktreePath);
+	// Pre-trust the worktree so Claude doesn't ask "do you trust this folder?".
+	// Skipped entirely for harnesses that have no such prompt.
+	pretrustDirectoryForAgent(agent, worktreePath);
 
 	try {
 		const result = spawnSync(
@@ -1855,13 +1933,14 @@ export function ensureClaudeSession(
 		);
 
 		if (result.error || result.status !== 0) {
-			log.error(`Failed to create claude session: ${result.stderr}`);
+			log.error(`Failed to create agent session: ${result.stderr}`);
 			return false;
 		}
 
-		// Send claude command to the session. Try --continue first to resume an
-		// existing conversation, falling back to bare claude if none exists.
-		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions);
+		// Send the agent's launch command. Each harness's descriptor supplies a
+		// resume-first chain that falls back to a fresh session when there's no
+		// prior conversation in this worktree.
+		const fullCmd = buildAgentResumeCommand(agent, issueKey, skipPermissions);
 
 		spawnSync(
 			'tmux',
@@ -1872,11 +1951,11 @@ export function ensureClaudeSession(
 			},
 		);
 
-		log.info(`Created claude session: ${sessionName}`);
+		log.info(`Created ${agent} session: ${sessionName}`);
 		return true;
 	} catch (err) {
 		log.error(
-			`Failed to create claude session for ${issueKey}`,
+			`Failed to create agent session for ${issueKey}`,
 			err instanceof Error ? err : undefined,
 		);
 		return false;

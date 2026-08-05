@@ -171,7 +171,8 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
 - **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
-- **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
+- **Custom keybindings** — Bind single keys to bash commands (`run`) or agent directives (`send_to_agent`; the old `send_to_claude` spelling still works).
+- **Agent CLI** — `agent_cli: claude | codex` picks which agent drives a space, globally or per-profile (profile wins). Absent ⇒ `claude`, so existing configs are unchanged. Whichever harness runs, the rail shows the same five states — `idle`, `working`, `needs-approval`, `needs-answer`, `done` — and blocked spaces blink and zap your phone identically. Pappardelle only signals: press Enter to attach and answer in the agent's own TUI.
 - **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
 - **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
@@ -373,10 +374,10 @@ npm link                # makes `pappardelle` available globally
 
 | Directory / File                                   | Purpose                                                   |
 | -------------------------------------------------- | --------------------------------------------------------- |
-| `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files              |
+| `~/.pappardelle/`                                  | Config, hooks, logs, and agent status files               |
 | `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots) |
 | `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)               |
-| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks             |
+| `~/.pappardelle/agent-status/`                     | Real-time normalized status JSON, one file per space      |
 | `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                         |
 | `~/.worktrees/`                                    | Git worktrees for all your workspaces                     |
 
@@ -384,15 +385,19 @@ npm link                # makes `pappardelle` available globally
 > Running pappardelle in two different repos keeps their workspace registries completely separate.
 > On first run, existing state is automatically migrated from the legacy global location.
 
-### Claude Code hooks
+### Agent hooks
 
-Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
+Pappardelle installs three hooks that connect an agent session to the TUI. Claude Code and Codex publish the same lifecycle events, so each hook is invoked with `--agent <claude|codex>` and the rest is shared:
 
-| Hook                           | Trigger                             | What it does                                                                  |
-| ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
-| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
-| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                |
+| Hook                           | Trigger                           | What it does                                                                                           |
+| ------------------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `update-agent-status.py`       | every lifecycle event             | Normalizes the event into one of the five states and writes `~/.pappardelle/agent-status/<space>.json` |
+| `comment-question-answered.py` | `PostToolUse` (the question tool) | Posts Q&A exchanges as comments on the issue (Linear or Jira)                                          |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest` | Sends push notifications via ntfy when the agent is blocked on you                                     |
+
+`hooks/install.sh` writes Claude's config to `~/.claude/settings.json` and, when Codex is installed, Codex's to `~/.codex/hooks.json`. (`update-status.py` remains as a shim forwarding the pre-STA-1850 hook name to `update-agent-status.py --agent claude`, so an install that hasn't been re-run keeps reporting.)
+
+A space whose harness has no hooks installed falls back to coarse liveness — `working` while the agent is its tmux session's foreground process, unknown otherwise. Deleting `~/.pappardelle/agent-status/` degrades to that fallback rather than breaking.
 
 ### Versioning and updates
 

@@ -1,0 +1,139 @@
+{
+	"hooks": {
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": ".*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			},
+			{
+				"matcher": "request_user_input",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/zap-notification.py --agent codex"
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": ".*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			},
+			{
+				"matcher": "request_user_input",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/comment-question-answered.py --agent codex"
+					}
+				]
+			}
+		],
+		"PermissionRequest": [
+			{
+				"matcher": ".*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					},
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/zap-notification.py --agent codex"
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"SubagentStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"SubagentStop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"PreCompact": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		],
+		"PostCompact": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent codex"
+					}
+				]
+			}
+		]
+	}
+}

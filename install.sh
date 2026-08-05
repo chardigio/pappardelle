@@ -14,7 +14,7 @@
 # 3. Builds and links the npm package (makes `pappardelle` available globally)
 # 4. Symlinks `idow` to ~/.local/bin/
 # 5. Installs Claude Code hooks for status tracking
-# 6. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
+# 6. Creates required directories (~/.worktrees/, ~/.pappardelle/agent-status/)
 # 7. Installs skill helper scripts to ~/.pappardelle/scripts/
 
 set -e
@@ -241,18 +241,21 @@ fi
 HOOKS_DIR="$PAPPARDELLE_DIR/hooks"
 HOOKS_SRC="$REPO_DIR/hooks"
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+CODEX_HOOKS="$HOME/.codex/hooks.json"
 
 if [[ -d "$HOOKS_SRC" ]]; then
     mkdir -p "$HOOKS_DIR"
 
-    # Copy hook scripts
-    for hook in update-status.py comment-question-answered.py zap-notification.py; do
+    # Copy hook scripts. update-status.py is a back-compat shim for settings
+    # files still naming the pre-STA-1850 hook; the real normalizer is
+    # update-agent-status.py, which every harness invokes with --agent.
+    for hook in update-agent-status.py update-status.py comment-question-answered.py zap-notification.py; do
         if [[ -f "$HOOKS_SRC/$hook" ]]; then
             cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
             chmod +x "$HOOKS_DIR/$hook"
         fi
     done
-    print_status "Installed Claude Code hooks to $HOOKS_DIR/"
+    print_status "Installed agent hooks to $HOOKS_DIR/"
 
     # Show instructions for Claude settings
     if [[ -f "$CLAUDE_SETTINGS" ]]; then
@@ -265,6 +268,18 @@ if [[ -d "$HOOKS_SRC" ]]; then
             print_status "Created $CLAUDE_SETTINGS with Pappardelle hooks"
         fi
     fi
+
+    # Codex hooks, only when Codex is actually present.
+    if command -v codex > /dev/null 2>&1 || [[ -d "$HOME/.codex" ]]; then
+        if [[ -f "$CODEX_HOOKS" ]]; then
+            print_info "Codex hooks exist at $CODEX_HOOKS"
+            print_info "Merge hooks config from: $HOOKS_SRC/codex-hooks.json.example"
+        elif [[ -f "$HOOKS_SRC/codex-hooks.json.example" ]]; then
+            mkdir -p "$(dirname "$CODEX_HOOKS")"
+            cp "$HOOKS_SRC/codex-hooks.json.example" "$CODEX_HOOKS"
+            print_status "Created $CODEX_HOOKS with Pappardelle hooks"
+        fi
+    fi
 else
     print_warning "Hooks directory not found at $HOOKS_SRC"
 fi
@@ -273,7 +288,7 @@ fi
 # Create Required Directories
 # ============================================================================
 
-mkdir -p "$PAPPARDELLE_DIR/claude-status"
+mkdir -p "$PAPPARDELLE_DIR/agent-status"
 mkdir -p "$PAPPARDELLE_DIR/repos"
 mkdir -p "$PAPPARDELLE_DIR/logs"
 mkdir -p "$WORKTREES_DIR"

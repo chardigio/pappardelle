@@ -260,6 +260,90 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
 
 # ==========================================================================
+# STA-1850: --agent selects which harness launches
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: --agent codex launches codex, not claude${RESET}"
+ISSUE_KEY7="${TEST_PREFIX}-700"
+WORKTREE_PATH7="$TMPDIR_ROOT/worktree7"
+mkdir -p "$WORKTREE_PATH7"
+
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY7" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH7" --agent codex 2>/dev/null
+sleep 0.3
+
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY7}" -p -S - 2>/dev/null || echo "")
+if echo "$PANE_CONTENT" | grep -qF "codex resume --last"; then
+    echo -e "  ${GREEN}PASS${RESET} codex resume command sent"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} codex resume command sent"
+    echo "    Pane content: $(echo "$PANE_CONTENT" | head -5)"
+    FAIL=$((FAIL + 1))
+fi
+
+if echo "$PANE_CONTENT" | grep -qF -- "--name"; then
+    echo -e "  ${RED}FAIL${RESET} codex must not be given Claude's --name flag"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${RESET} codex not given Claude-only flags"
+    PASS=$((PASS + 1))
+fi
+
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY7}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY7}" 2>/dev/null || true
+
+echo -e "\n${BOLD}Test: --agent codex --skip-permissions uses codex's bypass flag${RESET}"
+ISSUE_KEY8="${TEST_PREFIX}-800"
+WORKTREE_PATH8="$TMPDIR_ROOT/worktree8"
+mkdir -p "$WORKTREE_PATH8"
+
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY8" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH8" --agent codex --skip-permissions 2>/dev/null
+sleep 0.3
+
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY8}" -p -S - 2>/dev/null || echo "")
+if echo "$PANE_CONTENT" | grep -qF -- "--dangerously-bypass-approvals-and-sandbox"; then
+    echo -e "  ${GREEN}PASS${RESET} codex bypass flag used"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} codex bypass flag used"
+    echo "    Pane content: $(echo "$PANE_CONTENT" | head -5)"
+    FAIL=$((FAIL + 1))
+fi
+
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY8}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY8}" 2>/dev/null || true
+
+echo -e "\n${BOLD}Test: --agent defaults to claude when omitted${RESET}"
+ISSUE_KEY9="${TEST_PREFIX}-900"
+WORKTREE_PATH9="$TMPDIR_ROOT/worktree9"
+mkdir -p "$WORKTREE_PATH9"
+
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" 2>/dev/null
+sleep 0.3
+
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY9}" -p -S - 2>/dev/null || echo "")
+if echo "$PANE_CONTENT" | grep -qF -- "claude --name"; then
+    echo -e "  ${GREEN}PASS${RESET} defaults to claude (byte-identical to pre-STA-1850)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} defaults to claude"
+    echo "    Pane content: $(echo "$PANE_CONTENT" | head -5)"
+    FAIL=$((FAIL + 1))
+fi
+
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "claude-${TEST_REPO}-${ISSUE_KEY9}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY9}" 2>/dev/null || true
+
+echo -e "\n${BOLD}Test: an unknown --agent is rejected${RESET}"
+if "$SCRIPT_DIR/start-claude-session.sh" --issue-key "${TEST_PREFIX}-901" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" --agent cursor 2>/dev/null; then
+    echo -e "  ${RED}FAIL${RESET} should reject an unknown agent"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${RESET} rejects an unknown agent"
+    PASS=$((PASS + 1))
+fi
+
+# ==========================================================================
 
 rm -rf "$TMPDIR_ROOT"
 

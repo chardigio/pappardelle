@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Gather Pappardelle space data for the sous-chef skill.
-# Reads open spaces, claude statuses, issue metadata, and session info.
+# Reads open spaces, agent statuses, issue metadata, and session info.
 # Outputs a JSON summary of all spaces with their current state.
+#
+# Agent-neutral since STA-1850: the status file names the harness that wrote it
+# and carries a normalized `state`, and conversation logs are located per agent
+# (Claude: ~/.claude/projects/<encoded-cwd>/; Codex: ~/.codex/sessions/**/).
 set -euo pipefail
 
 REPO_NAME="${1:?Error: repo name argument required. Usage: gather-spaces.sh <REPO-NAME>}"
@@ -16,11 +20,12 @@ fi
 # Pass all values via environment variables to avoid shell injection into Python
 export SC_REPO_NAME="$REPO_NAME"
 export SC_OPEN_SPACES_FILE="$OPEN_SPACES_FILE"
-export SC_STATUS_DIR="$HOME/.pappardelle/claude-status"
+export SC_STATUS_DIR="$HOME/.pappardelle/agent-status"
 export SC_META_DIR="$HOME/.pappardelle/repos/$REPO_NAME/issue-meta"
 export SC_SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
 export SC_SESSIONS_DIR="$HOME/.claude/sessions"
 export SC_PROJECTS_DIR="$HOME/.claude/projects"
+export SC_CODEX_SESSIONS_DIR="$HOME/.codex/sessions"
 
 python3 -c "
 import json, os, glob, time, sys
@@ -32,6 +37,7 @@ meta_dir = os.environ['SC_META_DIR']
 space_state_dir = os.environ['SC_SPACE_STATE_DIR']
 sessions_dir = os.environ['SC_SESSIONS_DIR']
 projects_dir = os.environ['SC_PROJECTS_DIR']
+codex_sessions_dir = os.environ['SC_CODEX_SESSIONS_DIR']
 
 with open(open_spaces_file) as f:
     spaces = json.load(f)
@@ -63,18 +69,66 @@ for sf in glob.glob(os.path.join(sessions_dir, '*.json')):
     except Exception as e:
         print(f'Warning: could not read session {sf}: {e}', file=sys.stderr)
 
+def find_claude_log(worktree_path):
+    # Claude Code encodes project paths by replacing / and . with - (including
+    # the leading /). e.g. /Users/me/.worktrees/repo/STA-123 →
+    # -Users-me--worktrees-repo-STA-123. Verified empirically.
+    encoded_path = worktree_path.replace('/', '-').replace('.', '-')
+    project_dir = os.path.join(projects_dir, encoded_path)
+    if not os.path.isdir(project_dir):
+        return None
+    jsonl_files = glob.glob(os.path.join(project_dir, '*.jsonl'))
+    return max(jsonl_files, key=os.path.getmtime) if jsonl_files else None
+
+
+def find_codex_log(worktree_path):
+    # Codex rollouts are filed by date, not cwd, so the cwd lives in each
+    # file's session_meta header. Newest-first with a scan cap keeps this
+    # cheap on an old sessions/ tree.
+    rollouts = sorted(
+        glob.glob(os.path.join(codex_sessions_dir, '*', '*', '*', '*.jsonl')),
+        key=os.path.getmtime,
+        reverse=True,
+    )[:250]
+    for path in rollouts:
+        try:
+            with open(path) as f:
+                header = json.loads(f.readline())
+        except Exception:
+            continue
+        if header.get('type') != 'session_meta':
+            continue
+        if (header.get('payload') or {}).get('cwd') == worktree_path:
+            return path
+    return None
+
+
+def find_conversation_log(agent, worktree_path):
+    try:
+        if agent == 'codex':
+            return find_codex_log(worktree_path)
+        return find_claude_log(worktree_path)
+    except Exception as e:
+        print(f'Warning: could not locate conversation log: {e}', file=sys.stderr)
+        return None
+
+
 results = []
 for space in spaces:
     entry = {'name': space}
 
-    # Claude status
+    # Normalized agent status. The state is one of the five values every harness
+    # maps into: idle | working | needs-approval | needs-answer | done.
     status_file = os.path.join(status_dir, f'{space}.json')
     if os.path.exists(status_file):
         try:
             with open(status_file) as f:
                 status = json.load(f)
-            entry['status'] = status.get('status', 'unknown')
-            entry['currentTool'] = status.get('currentTool')
+            entry['state'] = status.get('state', 'unknown')
+            entry['agent'] = status.get('agent')
+            decoration = status.get('decoration') or {}
+            entry['currentTool'] = decoration.get('tool')
+            entry['model'] = decoration.get('model')
             entry['lastUpdate'] = status.get('lastUpdate')
             if entry['lastUpdate']:
                 age_min = (now_ms - entry['lastUpdate']) / 60000
@@ -82,9 +136,9 @@ for space in spaces:
             entry['sessionId'] = status.get('sessionId')
         except Exception as e:
             print(f'Warning: could not read status for {space}: {e}', file=sys.stderr)
-            entry['status'] = 'unknown'
+            entry['state'] = 'unknown'
     else:
-        entry['status'] = 'no_status'
+        entry['state'] = 'no_status'
 
     # Issue metadata from pappardelle cache
     meta_file = os.path.join(meta_dir, f'{space}.json')
@@ -118,24 +172,17 @@ for space in spaces:
         entry['pid'] = sess.get('pid')
         entry['worktreePath'] = sess.get('cwd')
 
-    # Check for conversation log
-    # Claude Code encodes project paths by replacing / and . with - (including the leading /).
-    # e.g. /Users/me/.worktrees/repo/STA-123 → -Users-me--worktrees-repo-STA-123
-    # This is Claude Code's internal convention — verified empirically.
+    # Check for a conversation log, dispatched by the agent that wrote the
+    # status file (defaulting to Claude when there's no status file yet).
     worktree_path = os.path.expanduser(f'~/.worktrees/{repo_name}/{space}')
-    encoded_path = worktree_path.replace('/', '-').replace('.', '-')
-    project_dir = os.path.join(projects_dir, encoded_path)
-    if os.path.isdir(project_dir):
-        jsonl_files = glob.glob(os.path.join(project_dir, '*.jsonl'))
-        if jsonl_files:
-            # Get most recent by mtime
-            newest = max(jsonl_files, key=os.path.getmtime)
-            entry['conversationLog'] = newest
-            entry['logModified'] = os.path.getmtime(newest)
-            log_age_min = (time.time() - os.path.getmtime(newest)) / 60
-            entry['logMinutesAgo'] = round(log_age_min, 1)
+    newest = find_conversation_log(entry.get('agent') or 'claude', worktree_path)
+    if newest:
+        entry['conversationLog'] = newest
+        entry['logModified'] = os.path.getmtime(newest)
+        log_age_min = (time.time() - os.path.getmtime(newest)) / 60
+        entry['logMinutesAgo'] = round(log_age_min, 1)
 
-    # tmux session check
+    # tmux session check. The claude- prefix is historical and harness-neutral.
     tmux_name = f'claude-{repo_name}-{space}'
     entry['tmuxSession'] = tmux_name
 

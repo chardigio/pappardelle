@@ -14,10 +14,16 @@ default_profile: pappardelle
 # Pappardelle will prepend this to get 'STA-400'.
 team_prefix: STA
 
-# Claude configuration — controls how Claude Code is launched in new workspaces.
-claude:
-  initialization_command: '/idow' # Slash command passed to Claude when session opens
-  dangerously_skip_permissions: true # Skip permission prompts (use with caution)
+# Agent configuration — which agent CLI is launched in new workspaces, and how.
+#
+# Absent ⇒ claude, so `agent_cli` is optional. A profile can override it (see
+# the pappardelle profile below).
+agent_cli: claude
+
+# Agent settings. Formerly spelled `claude:`, which still works.
+agent:
+  initialization_command: '/idow' # Slash command passed to the agent when a session opens
+  dangerously_skip_permissions: true # Bypass approval prompts (use with caution)
 
 # Commands to run after a git worktree is created.
 # Template variables: ${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_KEY},
@@ -48,7 +54,7 @@ issue_watchlist:
   labels:
     - pappardelle
 
-# Command run in the companion pane (right of Claude). gitui is the default;
+# Command run in the companion pane (right of the agent). gitui is the default;
 # this line is explicit for clarity. Set it to any command, or override it
 # per-profile below (e.g. a profile that boots a dev server instead of a git UI).
 companion_command: gitui
@@ -101,16 +107,16 @@ keybindings:
           end tell
         end tell'
 
-  # send_to_claude — send a slash command to the active Claude session
+  # send_to_agent — send a slash command to the active agent session
   - key: 'a'
     name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
+    send_to_agent: '/address-pr-feedback'
   - key: 'f'
     name: 'Fix PR pipeline'
-    send_to_claude: '/fix-pr-pipeline'
+    send_to_agent: '/fix-pr-pipeline'
   - key: 'c'
     name: 'Clear context'
-    send_to_claude: '/clear'
+    send_to_agent: '/clear'
 
 profiles:
   # iOS music app — full Xcode + simulator setup
@@ -142,8 +148,8 @@ profiles:
       assignee: me
       statuses:
         - Ready for Pappardelle
-    claude:
-      initialization_command: '/do-stardust' # Profile-level override for Claude init
+    agent:
+      initialization_command: '/do-stardust' # Profile-level override for the init command
     vars:
       IOS_APP_DIR: '_ios/stardust-jams'
       BUNDLE_ID: 'io.stardustlabs.stardust'
@@ -184,8 +190,8 @@ profiles:
       - guess
     display_name: 'King Bee'
     emoji: '🐝'
-    claude:
-      initialization_command: '/do-king-bee' # Each profile can have its own Claude init command
+    agent:
+      initialization_command: '/do-king-bee' # Each profile can have its own init command
     vars:
       IOS_APP_DIR: '_ios/King Bee'
       BUNDLE_ID: 'com.cd17822.King-Bee'
@@ -222,7 +228,11 @@ profiles:
       - workspace
     display_name: 'Pappardelle'
     emoji: '🍝'
-    claude:
+    # Per-profile agent override: these spaces run Codex instead of the
+    # top-level claude. Everything downstream — status, blink, zaps, recaps —
+    # is identical; only the harness changes.
+    agent_cli: codex
+    agent:
       initialization_command: '/do-pappardelle'
     github:
       label: 'pappardelle'

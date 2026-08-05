@@ -5,7 +5,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}
@@ -16,7 +16,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			},
@@ -25,7 +25,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/zap-notification.py"
+						"command": "python3 ~/.pappardelle/hooks/zap-notification.py --agent claude"
 					}
 				]
 			}
@@ -36,7 +36,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			},
@@ -45,7 +45,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/comment-question-answered.py"
+						"command": "python3 ~/.pappardelle/hooks/comment-question-answered.py --agent claude"
 					}
 				]
 			}
@@ -55,7 +55,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}
@@ -65,7 +65,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}
@@ -75,7 +75,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}
@@ -86,7 +86,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}
@@ -97,11 +97,11 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					},
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/zap-notification.py"
+						"command": "python3 ~/.pappardelle/hooks/zap-notification.py --agent claude"
 					}
 				]
 			}
@@ -111,7 +111,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}
@@ -122,7 +122,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			},
@@ -131,7 +131,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/update-status.py"
+						"command": "python3 ~/.pappardelle/hooks/update-agent-status.py --agent claude"
 					}
 				]
 			}

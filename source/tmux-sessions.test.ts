@@ -7,8 +7,11 @@ import {
 	extractIssueKeyFromSession,
 	getSessionPrefix,
 	pretrustDirectoryForClaude,
-	buildClaudeResumeCommand,
+	pretrustDirectoryForAgent,
+	isAgentForegroundInSession,
+	getInnerSessionForegroundCommands,
 } from './tmux.ts';
+import {buildAgentResumeCommand} from './agents/registry.ts';
 
 // getSessionPrefix: returns repo-qualified prefix
 test('getSessionPrefix includes repo name for claude', t => {
@@ -138,25 +141,25 @@ test('pretrustDirectoryForClaude handles corrupt JSON gracefully', t => {
 	});
 });
 
-// buildClaudeResumeCommand: generates --continue fallback chain
+// buildAgentResumeCommand: generates --continue fallback chain
 
-test('buildClaudeResumeCommand tries --continue first', t => {
-	const cmd = buildClaudeResumeCommand('STA-806');
+test('buildAgentResumeCommand tries --continue first', t => {
+	const cmd = buildAgentResumeCommand('claude', 'STA-806');
 	t.true(cmd.startsWith('claude --name STA-806 --continue'));
 });
 
-test('buildClaudeResumeCommand falls back to bare claude with --name', t => {
-	const cmd = buildClaudeResumeCommand('STA-806');
+test('buildAgentResumeCommand falls back to bare claude with --name', t => {
+	const cmd = buildAgentResumeCommand('claude', 'STA-806');
 	t.true(cmd.endsWith('|| claude --name STA-806'));
 });
 
-test('buildClaudeResumeCommand includes ANSI escape to clear error line', t => {
-	const cmd = buildClaudeResumeCommand('STA-806');
+test('buildAgentResumeCommand includes ANSI escape to clear error line', t => {
+	const cmd = buildAgentResumeCommand('claude', 'STA-806');
 	t.true(cmd.includes("printf '\\033[A\\033[2K'"));
 });
 
-test('buildClaudeResumeCommand with skipPermissions includes flag in both branches', t => {
-	const cmd = buildClaudeResumeCommand('STA-806', true);
+test('buildAgentResumeCommand with skipPermissions includes flag in both branches', t => {
+	const cmd = buildAgentResumeCommand('claude', 'STA-806', true);
 	// --continue attempt should have both flags
 	t.true(
 		cmd.startsWith(
@@ -169,30 +172,115 @@ test('buildClaudeResumeCommand with skipPermissions includes flag in both branch
 	);
 });
 
-test('buildClaudeResumeCommand without skipPermissions has no permission flag', t => {
-	const cmd = buildClaudeResumeCommand('STA-806', false);
+test('buildAgentResumeCommand without skipPermissions has no permission flag', t => {
+	const cmd = buildAgentResumeCommand('claude', 'STA-806', false);
 	t.false(cmd.includes('--dangerously-skip-permissions'));
 });
 
-test('buildClaudeResumeCommand default is skipPermissions=false', t => {
+test('buildAgentResumeCommand default is skipPermissions=false', t => {
 	t.is(
-		buildClaudeResumeCommand('STA-806'),
-		buildClaudeResumeCommand('STA-806', false),
+		buildAgentResumeCommand('claude', 'STA-806'),
+		buildAgentResumeCommand('claude', 'STA-806', false),
 	);
 });
 
-test('buildClaudeResumeCommand sets --name to the issue key on both branches', t => {
-	const cmd = buildClaudeResumeCommand('CHEX-42');
+test('buildAgentResumeCommand sets --name to the issue key on both branches', t => {
+	const cmd = buildAgentResumeCommand('claude', 'CHEX-42');
 	// --name appears in both the --continue attempt and the fallback
 	const occurrences = cmd.match(/--name CHEX-42/g) ?? [];
 	t.is(occurrences.length, 2);
 });
 
-test('buildClaudeResumeCommand shell-quotes non-standard issue keys', t => {
+test('buildAgentResumeCommand shell-quotes non-standard issue keys', t => {
 	// An issue key with shell metacharacters should be safely quoted.
-	const cmd = buildClaudeResumeCommand('weird key; rm -rf /');
+	const cmd = buildAgentResumeCommand('claude', 'weird key; rm -rf /');
 	// Must not contain the raw unquoted metacharacters inline as an arg.
 	t.false(cmd.includes('--name weird key; rm -rf /'));
 	// Must still reference --name twice.
 	t.is((cmd.match(/--name /g) ?? []).length, 2);
+});
+
+// pretrustDirectoryForAgent: registry-gated, not assumed for every harness
+
+test('pretrustDirectoryForAgent pre-trusts for Claude', t => {
+	const configPath = join(
+		mkdtempSync(join(tmpdir(), 'papp-trust-')),
+		'.claude.json',
+	);
+	pretrustDirectoryForAgent('claude', '/tmp/worktree/STA-400', configPath);
+
+	const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+	t.true(config.projects['/tmp/worktree/STA-400'].hasTrustDialogAccepted);
+});
+
+test('pretrustDirectoryForAgent is a no-op for Codex — it has no trust prompt', t => {
+	const dir = mkdtempSync(join(tmpdir(), 'papp-trust-'));
+	const configPath = join(dir, '.claude.json');
+	pretrustDirectoryForAgent('codex', '/tmp/worktree/STA-401', configPath);
+
+	// Writing Claude's trust file on Codex's behalf would be meaningless, so
+	// the file must not be created at all.
+	t.throws(() => readFileSync(configPath, 'utf-8'));
+});
+
+test('pretrustDirectoryForAgent leaves an existing Claude config untouched for Codex', t => {
+	const configPath = join(
+		mkdtempSync(join(tmpdir(), 'papp-trust-')),
+		'.claude.json',
+	);
+	writeFileSync(configPath, JSON.stringify({projects: {}, other: 'keep'}));
+
+	pretrustDirectoryForAgent('codex', '/tmp/worktree/STA-402', configPath);
+
+	const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+	t.deepEqual(config, {projects: {}, other: 'keep'});
+});
+
+// Tier-3 liveness fallback: the floor of the adapter contract, and the safety
+// net when ~/.pappardelle/agent-status/ is missing entirely.
+
+test('isAgentForegroundInSession reports the agent as running when it owns the pane', t => {
+	const session = getSessionNames('STA-500', 'my-repo').claude;
+	const commands = new Map([[session, 'claude']]);
+	t.true(isAgentForegroundInSession('claude', 'STA-500', commands, 'my-repo'));
+});
+
+test('isAgentForegroundInSession is false when a shell owns the pane', t => {
+	const session = getSessionNames('STA-501', 'my-repo').claude;
+	const commands = new Map([[session, 'zsh']]);
+	t.false(isAgentForegroundInSession('claude', 'STA-501', commands, 'my-repo'));
+});
+
+test('isAgentForegroundInSession is false when the session has no live pane', t => {
+	t.false(
+		isAgentForegroundInSession('claude', 'STA-502', new Map(), 'my-repo'),
+	);
+});
+
+test('isAgentForegroundInSession does not mistake one harness for another', t => {
+	// A Codex space whose session is somehow running claude must not read as a
+	// live Codex session — same guard as the status file's `agent` field, at
+	// the liveness tier.
+	const session = getSessionNames('STA-503', 'my-repo').claude;
+	t.false(
+		isAgentForegroundInSession(
+			'codex',
+			'STA-503',
+			new Map([[session, 'claude']]),
+			'my-repo',
+		),
+	);
+	t.true(
+		isAgentForegroundInSession(
+			'codex',
+			'STA-503',
+			new Map([[session, 'codex']]),
+			'my-repo',
+		),
+	);
+});
+
+test('getInnerSessionForegroundCommands never throws, even with no tmux server', t => {
+	t.notThrows(() => getInnerSessionForegroundCommands());
+	t.true(getInnerSessionForegroundCommands() instanceof Map);
 });

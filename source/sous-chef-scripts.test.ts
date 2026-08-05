@@ -24,12 +24,40 @@ function setupDirs(home: string, repoName: string): void {
 		path.join(home, '.pappardelle', 'repos', repoName, 'issue-meta'),
 		{recursive: true},
 	);
-	fs.mkdirSync(path.join(home, '.pappardelle', 'claude-status'), {
+	fs.mkdirSync(path.join(home, '.pappardelle', 'agent-status'), {
 		recursive: true,
 	});
 	fs.mkdirSync(path.join(home, '.claude', 'sessions'), {recursive: true});
 	fs.mkdirSync(path.join(home, '.claude', 'projects'), {recursive: true});
+	fs.mkdirSync(path.join(home, '.codex', 'sessions'), {recursive: true});
 	fs.mkdirSync(path.join(home, '.worktrees', repoName), {recursive: true});
+}
+
+/**
+ * Write a Codex rollout for a worktree. Codex files rollouts under a
+ * date-partitioned tree and records the cwd in the session_meta header, so both
+ * the directory shape and the header matter to the lookup.
+ */
+function writeCodexRollout(
+	home: string,
+	worktreePath: string,
+	lines: Array<Record<string, unknown>>,
+	stamp = '2026/08/04',
+): string {
+	const dir = path.join(home, '.codex', 'sessions', ...stamp.split('/'));
+	fs.mkdirSync(dir, {recursive: true});
+	const file = path.join(
+		dir,
+		`rollout-${stamp.replaceAll('/', '-')}-abc.jsonl`,
+	);
+	const body = [
+		{type: 'session_meta', payload: {id: 'abc', cwd: worktreePath}},
+		...lines,
+	]
+		.map(l => JSON.stringify(l))
+		.join('\n');
+	fs.writeFileSync(file, body + '\n');
+	return file;
 }
 
 function writeJson(filePath: string, data: unknown): void {
@@ -121,28 +149,59 @@ test.serial('gather: returns empty spaces for empty open-spaces array', t => {
 	t.truthy(result['timestamp']);
 });
 
-test.serial('gather: populates status from claude-status files', t => {
+test.serial('gather: populates normalized state from agent-status files', t => {
 	const home = createTempHome();
 	setupDirs(home, 'test-repo');
 	writeJson(
 		path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
 		['STA-100'],
 	);
-	writeJson(path.join(home, '.pappardelle', 'claude-status', 'STA-100.json'), {
-		status: 'waiting_for_input',
-		currentTool: 'AskUserQuestion',
+	writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-100.json'), {
+		schema: 1,
+		agent: 'claude',
+		state: 'needs-answer',
+		statusKey: 'STA-100',
 		lastUpdate: Date.now(),
 		sessionId: 'sess-abc',
+		decoration: {tool: 'AskUserQuestion', model: 'claude-opus-5'},
 	});
 
 	const result = runGather(home);
 	const spaces = result['spaces'] as Array<Record<string, unknown>>;
 	t.is(spaces.length, 1);
-	t.is(spaces[0]!['status'], 'waiting_for_input');
+	t.is(spaces[0]!['state'], 'needs-answer');
+	t.is(spaces[0]!['agent'], 'claude');
 	t.is(spaces[0]!['currentTool'], 'AskUserQuestion');
+	t.is(spaces[0]!['model'], 'claude-opus-5');
 	t.is(spaces[0]!['sessionId'], 'sess-abc');
 	t.is(typeof spaces[0]!['minutesAgo'], 'number');
 });
+
+test.serial(
+	'gather: reports a Codex space with the same normalized shape',
+	t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		writeJson(
+			path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
+			['STA-101'],
+		);
+		writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-101.json'), {
+			schema: 1,
+			agent: 'codex',
+			state: 'needs-approval',
+			statusKey: 'STA-101',
+			lastUpdate: Date.now(),
+			decoration: {tool: 'shell'},
+		});
+
+		const result = runGather(home);
+		const spaces = result['spaces'] as Array<Record<string, unknown>>;
+		t.is(spaces[0]!['state'], 'needs-approval');
+		t.is(spaces[0]!['agent'], 'codex');
+		t.is(spaces[0]!['currentTool'], 'shell');
+	},
+);
 
 test.serial('gather: reports no_status when status file is missing', t => {
 	const home = createTempHome();
@@ -154,7 +213,7 @@ test.serial('gather: reports no_status when status file is missing', t => {
 
 	const result = runGather(home);
 	const spaces = result['spaces'] as Array<Record<string, unknown>>;
-	t.is(spaces[0]!['status'], 'no_status');
+	t.is(spaces[0]!['state'], 'no_status');
 });
 
 test.serial('gather: includes issue metadata when present', t => {
@@ -345,16 +404,19 @@ test.serial('gather: sorts spaces by lastUpdate descending', t => {
 		path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
 		['STA-OLD', 'STA-NEW', 'STA-MID'],
 	);
-	writeJson(path.join(home, '.pappardelle', 'claude-status', 'STA-OLD.json'), {
-		status: 'ended',
+	writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-OLD.json'), {
+		agent: 'claude',
+		state: 'done',
 		lastUpdate: now - 60_000,
 	});
-	writeJson(path.join(home, '.pappardelle', 'claude-status', 'STA-NEW.json'), {
-		status: 'processing',
+	writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-NEW.json'), {
+		agent: 'claude',
+		state: 'working',
 		lastUpdate: now,
 	});
-	writeJson(path.join(home, '.pappardelle', 'claude-status', 'STA-MID.json'), {
-		status: 'waiting_for_input',
+	writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-MID.json'), {
+		agent: 'codex',
+		state: 'idle',
 		lastUpdate: now - 30_000,
 	});
 
@@ -386,13 +448,13 @@ test.serial('gather: handles malformed status file gracefully', t => {
 		['STA-700'],
 	);
 	fs.writeFileSync(
-		path.join(home, '.pappardelle', 'claude-status', 'STA-700.json'),
+		path.join(home, '.pappardelle', 'agent-status', 'STA-700.json'),
 		'not valid json{{{',
 	);
 
 	const result = runGather(home);
 	const spaces = result['spaces'] as Array<Record<string, unknown>>;
-	t.is(spaces[0]!['status'], 'unknown');
+	t.is(spaces[0]!['state'], 'unknown');
 });
 
 test.serial('gather: finds conversation log in projects dir', t => {
@@ -443,7 +505,7 @@ test.serial('read-conversation: returns error when no JSONL files exist', t => {
 	fs.mkdirSync(projectDir, {recursive: true});
 
 	const result = runReadConversation(home, 'STA-100');
-	t.is(result['error'], 'No JSONL conversation file found');
+	t.is(result['error'], 'No conversation log found for STA-100');
 });
 
 test.serial('read-conversation: extracts user and assistant messages', t => {
@@ -628,5 +690,111 @@ test.serial(
 		const result = runReadConversation(home, 'STA-700');
 		const msgs = result['recentMessages'] as Array<Record<string, unknown>>;
 		t.is((msgs[0]!['text'] as string).length, 500);
+	},
+);
+
+// ============================================================================
+// Codex transcripts (STA-1850)
+// ============================================================================
+
+test.serial('gather: finds a Codex rollout by its session_meta cwd', t => {
+	const home = createTempHome();
+	setupDirs(home, 'test-repo');
+	writeJson(
+		path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
+		['STA-800'],
+	);
+	writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-800.json'), {
+		agent: 'codex',
+		state: 'working',
+		lastUpdate: Date.now(),
+	});
+	const worktree = path.join(home, '.worktrees', 'test-repo', 'STA-800');
+	const rollout = writeCodexRollout(home, worktree, [
+		{type: 'event_msg', payload: {type: 'user_message', message: 'hi'}},
+	]);
+
+	const result = runGather(home);
+	const spaces = result['spaces'] as Array<Record<string, unknown>>;
+	t.is(spaces[0]!['conversationLog'], rollout);
+});
+
+test.serial(
+	'gather: ignores a Codex rollout belonging to a different worktree',
+	t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		writeJson(
+			path.join(home, '.pappardelle', 'repos', 'test-repo', 'open-spaces.json'),
+			['STA-801'],
+		);
+		writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-801.json'), {
+			agent: 'codex',
+			state: 'working',
+			lastUpdate: Date.now(),
+		});
+		writeCodexRollout(home, '/somewhere/else/entirely', [
+			{type: 'event_msg', payload: {type: 'user_message', message: 'hi'}},
+		]);
+
+		const result = runGather(home);
+		const spaces = result['spaces'] as Array<Record<string, unknown>>;
+		t.is(spaces[0]!['conversationLog'], undefined);
+	},
+);
+
+test.serial('read-conversation: parses a Codex rollout', t => {
+	const home = createTempHome();
+	setupDirs(home, 'test-repo');
+	writeJson(path.join(home, '.pappardelle', 'agent-status', 'STA-802.json'), {
+		agent: 'codex',
+		state: 'done',
+		lastUpdate: Date.now(),
+	});
+	const worktree = path.join(home, '.worktrees', 'test-repo', 'STA-802');
+	writeCodexRollout(home, worktree, [
+		{
+			type: 'event_msg',
+			payload: {type: 'user_message', message: 'fix the bug'},
+		},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'looking at it now',
+				phase: 'commentary',
+			},
+		},
+		{
+			type: 'event_msg',
+			payload: {
+				type: 'agent_message',
+				message: 'fixed it',
+				phase: 'final_answer',
+			},
+		},
+	]);
+
+	const result = runReadConversation(home, 'STA-802');
+	t.is(result['agent'], 'codex');
+	const messages = result['recentMessages'] as Array<Record<string, unknown>>;
+	// Mid-turn `commentary` narration is dropped — only final answers count as
+	// something the agent actually said to the human.
+	t.deepEqual(
+		messages.map(m => [m['role'], m['text']]),
+		[
+			['user', 'fix the bug'],
+			['assistant', 'fixed it'],
+		],
+	);
+});
+
+test.serial(
+	'read-conversation: defaults to Claude when there is no status file',
+	t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		const result = runReadConversation(home, 'STA-803');
+		t.is(result['agent'], 'claude');
 	},
 );

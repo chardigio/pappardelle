@@ -32,7 +32,7 @@ A **workspace** in Pappardelle is the per-issue environment Pappardelle creates 
 - A dedicated **git worktree** at `~/.worktrees/{repo}/{issue-key}/` — an isolated checkout on a fresh branch, so you can have many in-flight tickets without stashing or switching branches.
 - A tracked **issue** in your issue tracker (Linear or Jira) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123`.
 - A draft **PR/MR** against the main branch for that worktree.
-- Its own **Claude Code session** (a named tmux session: `claude-{repo}-{issue-key}`) where you drive the work.
+- Its own **agent session** (a named tmux session: `claude-{repo}-{issue-key}` — the prefix is historical and used for every agent) where you drive the work.
 - Its own **companion session** (tmux session: `companion-{repo}-{issue-key}`) pointed at that worktree, running the `companion_command` (gitui by default).
 
 The Pappardelle TUI is a 3-pane tmux layout that lets you list, switch between, and operate on workspaces — the left pane is the list, the center attaches to the highlighted workspace's Claude session, and the right attaches to its companion pane. Workspaces run in independent tmux sessions, so they survive even if the TUI is closed or restarted.
@@ -101,15 +101,17 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
   - `tracker_projects`: the tracker project(s) this profile lives in — Linear project names, or Jira project names/keys (either matches, STA-1649). Routes existing issues to the profile; on Linear the first entry also doubles as the default project for issues created under this profile (STA-959). Defer to `/configure-pappardelle` if the user doesn't already know their project names.
 - Set `default_profile` to the most common one
 
-#### 1A.iv. Claude Initialization Command
+#### 1A.iv. Agent Initialization Command
 
-Ask: "Would you like Claude to run a skill automatically when a new workspace is created? The default is `/do` which starts planning and implementing the issue."
+Ask: "Would you like the agent to run a skill automatically when a new workspace is created? The default is `/do` which starts planning and implementing the issue."
 
 Options:
 
 - **Yes, use `/do`** (default) — set `initialization_command: '/do'`
 - **Custom** — let them type a skill name
-- **No** — omit the `claude` section
+- **No** — omit the `agent` section
+
+Don't ask about `agent_cli` here. It defaults to `claude` and most setups never touch it; `/configure-pappardelle` covers switching a space or profile to Codex.
 
 If they chose `/do`, also offer to install the starter `/do` skill. Both files are required: `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
 
@@ -140,14 +142,14 @@ If it isn't, the skill is invisible in exactly the place `initialization_command
 
 #### 1A.v. Dangerously Skip Permissions ("Yolo Mode")
 
-Ask: "Should Claude start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
+Ask: "Should the agent start in 'yolo mode' — automatically approving all tool calls without asking for permission? (This sets `dangerously_skip_permissions: true` in your config)"
 
 Options:
 
 - **No** (default) — set `dangerously_skip_permissions: false`
-- **Yes** — set `dangerously_skip_permissions: true`. Warn the user: "This means Claude can read, write, and execute anything without confirmation. Only enable this if you trust the skills and prompts being used in your workspaces."
+- **Yes** — set `dangerously_skip_permissions: true`. Warn the user: "This means the agent can read, write, and execute anything without confirmation. Only enable this if you trust the skills and prompts being used in your workspaces."
 
-This setting is only relevant if a `claude` section exists (i.e., the user chose an initialization command in 1A.iv). If they opted out of `claude` in 1A.iv, skip this question.
+This setting is only relevant if an `agent` section exists (i.e., the user chose an initialization command in 1A.iv). If they opted out of `agent` in 1A.iv, skip this question.
 
 #### 1A.vi. Write `.pappardelle.yml`
 
@@ -213,7 +215,7 @@ Show the current `dangerously_skip_permissions` value and ask: "Should Claude st
 
 - If they want to change it, queue a local override:
   ```yaml
-  claude:
+  agent:
     dangerously_skip_permissions: true # or false
   ```
 - If they're happy with the current value, skip.
@@ -392,7 +394,7 @@ issue_tracker:
   provider: linear
 
 # Claude configuration
-claude:
+agent:
   initialization_command: '/do'
   dangerously_skip_permissions: false
 
@@ -405,7 +407,7 @@ post_workspace_init:
 keybindings:
   - key: 'c'
     name: 'Clear context'
-    send_to_claude: '/clear'
+    send_to_agent: '/clear'
 
 # Profiles
 profiles:
@@ -438,7 +440,7 @@ issue_tracker:
   base_url: https://mycompany.atlassian.net
 
 # Claude configuration
-claude:
+agent:
   initialization_command: '/do'
   dangerously_skip_permissions: false
 
@@ -451,7 +453,7 @@ post_workspace_init:
 keybindings:
   - key: 'c'
     name: 'Clear context'
-    send_to_claude: '/clear'
+    send_to_agent: '/clear'
 
 # Profiles
 profiles:

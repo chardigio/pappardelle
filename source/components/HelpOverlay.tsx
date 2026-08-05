@@ -1,6 +1,7 @@
 import React from 'react';
 import {Box, Text, useInput} from 'ink';
 import type {KeybindingConfig} from '../config.ts';
+import {getSendToAgent} from '../config.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 
 interface Props {
@@ -26,7 +27,7 @@ const defaultKeyDescriptions: Record<string, string> = {
 const fixedShortcuts = [
 	{key: 'j / ↓', description: 'Move down'},
 	{key: 'k / ↑', description: 'Move up'},
-	{key: 'Enter', description: 'Focus Claude pane'},
+	{key: 'Enter', description: 'Focus agent pane'},
 	{key: 'n', description: 'New space'},
 	{key: 'Del', description: 'Close space'},
 	{key: '/', description: 'Search spaces'},
@@ -66,7 +67,7 @@ export default function HelpOverlay({
 		if (custom) {
 			overridableShortcuts.push({
 				key,
-				description: custom.name + (custom.send_to_claude ? ' → Claude' : ''),
+				description: custom.name + (getSendToAgent(custom) ? ' → agent' : ''),
 				isCustom: true,
 			});
 		} else {
@@ -89,7 +90,7 @@ export default function HelpOverlay({
 		...overridableShortcuts,
 		...extraCustom.map(kb => ({
 			key: kb.key,
-			description: kb.name + (kb.send_to_claude ? ' → Claude' : ''),
+			description: kb.name + (getSendToAgent(kb) ? ' → agent' : ''),
 		})),
 	];
 	const maxKeyLen = Math.max(...allShortcuts.map(s => s.key.length));
@@ -144,7 +145,7 @@ export default function HelpOverlay({
 							<Text>
 								{' '}
 								{kb.name}
-								{kb.send_to_claude ? ' → Claude' : ''}
+								{getSendToAgent(kb) ? ' → agent' : ''}
 							</Text>
 						</Box>
 					))}
