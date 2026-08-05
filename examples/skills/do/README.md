@@ -17,7 +17,7 @@ Just point your profile at the skill — that's it:
 **Global** (applies to all profiles):
 
 ```yaml
-claude:
+agent:
   initialization_command: '/do'
 ```
 
@@ -26,7 +26,7 @@ claude:
 ```yaml
 profiles:
   my-profile:
-    claude:
+    agent:
       initialization_command: '/do'
 ```
 

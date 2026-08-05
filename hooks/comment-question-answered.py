@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
 """
-Claude Code hook to comment on issues when AskUserQuestion is answered.
+Comment on the issue when the agent's question tool is answered.
 
-This script is called by Claude Code PostToolUse hook after AskUserQuestion completes.
-It creates a comment on the issue (Linear or Jira) with the question and answer for
-documentation.
+Called from a PostToolUse hook. It creates a comment on the issue (Linear or
+Jira) recording the question and the answer, so the decision is documented
+where the work is tracked rather than only in a scrollback buffer.
 
 Supports:
 - Linear (linctl): default provider
 - Jira (acli): when .pappardelle.yml has issue_tracker.provider: jira
 
-Usage:
-    Called automatically by Claude Code hooks when AskUserQuestion tool completes.
-    Reads JSON from stdin containing tool_input (questions) and tool_response (answers).
+Per-agent behavior lives in QUESTION_TOOLS + the FORMATTERS shim below. Claude's
+AskUserQuestion payload is fully understood and renders the multiple-choice
+options with the chosen one checked. Codex's request_user_input payload shape
+isn't pinned down yet, so its formatter is deliberately best-effort: when it
+can't recognize the shape it returns nothing and the hook no-ops, which is the
+correct degradation — a Codex space simply doesn't get the comment rather than
+the hook erroring or posting garbage into the issue.
+
+Usage (from a hook config):
+    comment-question-answered.py --agent claude
+    comment-question-answered.py --agent codex
 """
 
+import argparse
 import importlib.util
 import json
 import os
@@ -23,7 +32,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Import shared helpers from sibling modules (same directory)
 _hooks_dir = Path(__file__).parent
@@ -68,6 +77,59 @@ def get_issue_key() -> Optional[str]:
                 return part
 
     return None
+
+
+# Which tool means "the agent is asking the human a question", per harness.
+# Mirrors `questionTool` in source/agents/registry.ts.
+QUESTION_TOOLS = {
+    "claude": "AskUserQuestion",
+    "codex": "request_user_input",
+}
+
+
+# Annotated Any rather than dict/str: this is hook payload off a wire we do not
+# control, so the runtime isinstance guards below are the real contract. Typing
+# it tighter would make mypy prune those guards as unreachable.
+def format_codex_question_answer(tool_input: Any, tool_response: Any) -> str:
+    """Best-effort rendering of Codex's request_user_input payload.
+
+    Codex's exact payload shape isn't documented, so this recognizes the two
+    plausible spellings and otherwise returns "" so the caller no-ops. It must
+    never raise or guess: a wrong comment on the issue is worse than no comment.
+    """
+    if not isinstance(tool_input, dict):
+        return ""
+
+    # Shape A: the same {"questions": [...]} envelope Claude uses.
+    if isinstance(tool_input.get("questions"), list):
+        return format_question_answer(tool_input, tool_response)
+
+    # Shape B: a single free-text prompt.
+    prompt = tool_input.get("prompt") or tool_input.get("question")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return ""
+
+    # Typed as object, not str: the annotation says dict | str but this is hook
+    # input off a wire we don't control, and a dict .get() can hand back
+    # anything. Narrowing with isinstance is the check that makes it a str.
+    raw_answer: object
+    if isinstance(tool_response, dict):
+        raw_answer = tool_response.get("answer") or tool_response.get("response")
+    else:
+        raw_answer = tool_response
+    if not isinstance(raw_answer, str) or not raw_answer.strip():
+        return ""
+    answer = raw_answer
+
+    return "\n".join(
+        [
+            "### 💬 Clarifying Question Answered",
+            "",
+            f"❓ {prompt.strip()}",
+            "",
+            f"💡 **Answer**: {answer.strip()}",
+        ]
+    )
 
 
 def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:
@@ -258,17 +320,21 @@ def post_comment(issue_key: str, body: str) -> bool:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--agent", default="claude", choices=sorted(QUESTION_TOOLS))
+    args, _unknown = parser.parse_known_args()
+
     # Read hook input from stdin
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
         sys.exit(0)  # Silent exit on invalid input
 
-    # Only process PostToolUse events for AskUserQuestion
+    # Only process PostToolUse events for this agent's question tool
     hook_event = input_data.get("hook_event_name", "")
     tool_name = input_data.get("tool_name", "")
 
-    if hook_event != "PostToolUse" or tool_name != "AskUserQuestion":
+    if hook_event != "PostToolUse" or tool_name != QUESTION_TOOLS[args.agent]:
         sys.exit(0)
 
     # Get the issue key from the workspace path
@@ -282,8 +348,11 @@ def main() -> None:
     tool_response = input_data.get("tool_response", "")
 
     # Format the comment - pass tool_response directly (may be dict or string)
-    comment_body = format_question_answer(tool_input, tool_response)
+    formatter = FORMATTERS[args.agent]
+    comment_body = formatter(tool_input, tool_response)
     if not comment_body:
+        # Unrecognized payload shape (expected for Codex today) — degrade to a
+        # no-op rather than posting something half-parsed.
         sys.exit(0)
 
     # Post to Linear
@@ -295,9 +364,18 @@ def main() -> None:
     sys.exit(0)
 
 
+# Per-agent payload formatters. Declared after both functions exist.
+FORMATTERS = {
+    "claude": format_question_answer,
+    "codex": format_codex_question_answer,
+}
+
+
 if __name__ == "__main__":
     try:
         main()
+    except SystemExit:
+        raise
     except Exception:
-        # Never let hook failures propagate to Claude Code
+        # Never let hook failures propagate to the agent.
         sys.exit(0)

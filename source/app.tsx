@@ -37,11 +37,11 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
-	getClaudeStatusInfo,
+	getAgentStatus,
 	watchStatuses,
 	ensureStatusDir,
 	findSpaceByStatusKey,
-} from './claude-status.ts';
+} from './agent-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {
 	routeSession,
@@ -69,6 +69,8 @@ import {
 	type KeybindingConfig,
 	type ResolvedWatchlist,
 	type CommandConfig,
+	resolveAgentCli,
+	getSendToAgent,
 } from './config.ts';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
@@ -76,6 +78,8 @@ import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import {
 	isInTmux,
 	getWorktreePath,
+	getInnerSessionForegroundCommands,
+	isAgentForegroundInSession,
 	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
@@ -105,19 +109,17 @@ import {
 	tearDownSpace,
 } from './space-utils.ts';
 import {getRegisteredSpaces, addSpace, removeSpace} from './space-registry.ts';
-import {
-	writeSpaceState,
-	findLatestSessionJsonl,
-	extractRecapFromJsonl,
-} from './space-state.ts';
+import {writeSpaceState, readSpaceRecap} from './space-state.ts';
 import {resolveSpaceEmoji} from './space-emoji.ts';
+import {resolveSpaceProfileName} from './space-profile.ts';
+import {getAgentDescriptor} from './agents/registry.ts';
 import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
 import {
 	watchHighlightTarget,
 	findSpaceIndexByIssueKey,
 	clearHighlightTarget,
 } from './highlight.ts';
-import type {SpaceData, PaneLayout} from './types.ts';
+import type {AgentCli, SpaceData, PaneLayout} from './types.ts';
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
@@ -242,6 +244,27 @@ export default function App({
 				issueKey,
 				cachedIssue,
 			}),
+		[configMemo, repoName],
+	);
+
+	// Which agent CLI drives a space, resolved through the same persisted
+	// profile the emoji uses: profile `agent_cli` → top-level `agent_cli` →
+	// `claude`. Feeding this into the status read is what stops a stale status
+	// file written by one harness from coloring a row now driven by another.
+	const resolveAgentForSpace = React.useCallback(
+		(
+			issueKey: string | undefined,
+			cachedIssue: ReturnType<typeof getIssueCached>,
+		): AgentCli =>
+			resolveAgentCli(
+				configMemo,
+				resolveSpaceProfileName({
+					config: configMemo,
+					repoName,
+					issueKey,
+					cachedIssue,
+				}),
+			),
 		[configMemo, repoName],
 	);
 
@@ -434,16 +457,30 @@ export default function App({
 			const workspaceNames = getRegisteredSpaces();
 
 			// Build space data using cached issues for immediate display
+			// Tier-3 liveness fallback, gathered once per tick (one tmux fork for
+			// the whole list). Only consulted for spaces with no readable status
+			// file — if the status dir is wiped or a harness's hooks aren't
+			// installed, rows degrade to "is the agent running?" instead of all
+			// going gray.
+			const foregroundCommands = getInnerSessionForegroundCommands();
+
 			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
-				const claudeInfo = getClaudeStatusInfo(issueKey);
 				const worktreePath = getWorktreePath(issueKey);
 				const cached = getIssueCached(issueKey);
+				const agentCli = resolveAgentForSpace(issueKey, cached);
+				const status = getAgentStatus(issueKey, agentCli);
+				const agentState =
+					status?.state ??
+					(isAgentForegroundInSession(agentCli, issueKey, foregroundCommands)
+						? 'working'
+						: undefined);
 
 				return {
 					name: issueKey,
 					linearIssue: cached ?? undefined,
-					claudeStatus: claudeInfo.status,
-					claudeTool: claudeInfo.tool,
+					agentCli,
+					agentState,
+					agentDecoration: status?.decoration,
 					worktreePath,
 					profileEmoji: resolveProfileEmojiForSpace(issueKey, cached),
 				};
@@ -467,15 +504,19 @@ export default function App({
 				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-master")
 				const repoName = getRepoName();
 				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);
-				const mainClaudeInfo = getClaudeStatusInfo(statusKey);
+				// The main worktree has no issue and so no profile — it always
+				// gets the top-level agent.
+				const mainAgentCli = resolveAgentCli(configMemo);
+				const mainStatus = getAgentStatus(statusKey, mainAgentCli);
 				spaceData.unshift({
 					name: MAIN_WORKTREE_KEY,
 					statusKey,
 					worktreePath: mainInfo.path,
 					isMainWorktree: true,
 					isDirty: await isWorktreeDirty(mainInfo.path),
-					claudeStatus: mainClaudeInfo.status,
-					claudeTool: mainClaudeInfo.tool,
+					agentCli: mainAgentCli,
+					agentState: mainStatus?.state,
+					agentDecoration: mainStatus?.decoration,
 					profileEmoji: resolveProfileEmojiForSpace(undefined, null),
 				});
 			}
@@ -550,15 +591,26 @@ export default function App({
 		return () => clearInterval(interval);
 	}, [loadSpaces]);
 
-	// Watch for Claude status changes
+	// Watch for agent status changes
 	useEffect(() => {
-		const unwatch = watchStatuses((workspaceName, info) => {
+		const unwatch = watchStatuses((statusKey, info) => {
 			setSpaces(prev => {
-				const idx = findSpaceByStatusKey(prev, workspaceName);
+				const idx = findSpaceByStatusKey(prev, statusKey);
 				if (idx === -1) return prev;
+				const space = prev[idx]!;
+				// Cross-harness bleed guard: a status file written by an agent
+				// other than the one this space runs is treated as absent. The
+				// watcher can't do this check itself — only the row knows which
+				// harness it's configured for.
+				const applies =
+					info !== null && info.agent === (space.agentCli ?? 'claude');
 				return prev.map((s, i) =>
 					i === idx
-						? {...s, claudeStatus: info.status, claudeTool: info.tool}
+						? {
+								...s,
+								agentState: applies ? info.state : undefined,
+								agentDecoration: applies ? info.decoration : undefined,
+							}
 						: s,
 				);
 			});
@@ -853,31 +905,30 @@ export default function App({
 		child.unref();
 	};
 
-	// Send text to the Claude pane for the selected workspace
-	const handleSendToClaude = (
-		kb: KeybindingConfig & {send_to_claude: string},
-	) => {
+	// Send text to the agent pane for the selected workspace
+	const handleSendToAgent = (text: string) => {
 		if (!paneLayout) {
 			setHeaderWithTimeout('No pane layout available', 2000);
 			return;
 		}
 
-		const success = sendToPane(
-			paneLayout.claudeViewerPaneId,
-			kb.send_to_claude,
-		);
+		const agentName = getAgentDescriptor(
+			spaces[selectedIndex]?.agentCli ?? 'claude',
+		).displayName;
+		const success = sendToPane(paneLayout.claudeViewerPaneId, text);
 		if (success) {
-			setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
+			setHeaderWithTimeout(`${agentName}: ${text}`, 3000);
 		} else {
-			setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
+			setHeaderWithTimeout(`✗ Failed to send to ${agentName}`, 3000);
 		}
 	};
 
 	// Execute a custom keybinding command for the selected workspace
 	const handleCustomKeybinding = (kb: KeybindingConfig) => {
-		// Handle send_to_claude keybindings
-		if (kb.send_to_claude) {
-			handleSendToClaude(kb as KeybindingConfig & {send_to_claude: string});
+		// Handle send_to_agent keybindings (and their legacy send_to_claude spelling)
+		const sendText = getSendToAgent(kb);
+		if (sendText) {
+			handleSendToAgent(sendText);
 			return;
 		}
 
@@ -1528,10 +1579,14 @@ export default function App({
 				queueMicrotask(() => {
 					for (const [name, rail] of lookup) {
 						const worktreePath = getWorktreePath(name);
-						const jsonl = worktreePath
-							? findLatestSessionJsonl(worktreePath)
+						// Recaps come from whichever harness owns the transcript —
+						// readSpaceRecap returns the same shape either way.
+						const recap = worktreePath
+							? readSpaceRecap(
+									resolveAgentForSpace(name, getIssueCached(name)),
+									worktreePath,
+								)
 							: null;
-						const recap = jsonl ? extractRecapFromJsonl(jsonl) : null;
 						writeSpaceState(repoName, name, {
 							pipeline: rail.pipeline,
 							unresolvedCommentCount: rail.unresolvedCommentCount,

@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# open-iterm-claude.sh - Open iTerm with tmux/Claude and the companion pane
+# open-iterm-claude.sh - Open iTerm with tmux/the agent and the companion pane
 #
-# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions]
+# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--agent <claude|codex>] [--skip-permissions]
 #
 # Opens a new iTerm window with:
-#   1. A tmux session running Claude (with --dangerously-skip-permissions if --skip-permissions is set)
-#   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow)
+#   1. A tmux session running the agent CLI (see --agent; --skip-permissions maps
+#      to whichever approval-bypass flag that harness uses)
+#   2. The prompt is sent to the agent as-is (caller should include skill prefix like /idow)
 #   3. A split pane running the companion command (default: gitui; see --companion-command)
 #
 # The window title is set to include the issue key.
@@ -29,6 +30,7 @@ WORKTREE=""
 ISSUE_KEY=""
 REPO_NAME=""
 PROMPT=""
+AGENT_CLI="claude"
 SKIP_PERMISSIONS=false
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value leaves a plain shell in the split pane.
@@ -56,14 +58,18 @@ while [[ $# -gt 0 ]]; do
             COMPANION_COMMAND="$2"
             shift 2
             ;;
+        --agent)
+            AGENT_CLI="$2"
+            shift 2
+            ;;
         --skip-permissions)
             SKIP_PERMISSIONS=true
             shift
             ;;
         --help|-h)
-            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions]"
+            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--agent <claude|codex>] [--skip-permissions]"
             echo ""
-            echo "Opens iTerm with tmux/Claude and the companion pane (default gitui) in split panes."
+            echo "Opens iTerm with tmux/the agent and the companion pane (default gitui) in split panes."
             exit 0
             ;;
         *)
@@ -88,6 +94,11 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
+if [[ "$AGENT_CLI" != "claude" && "$AGENT_CLI" != "codex" ]]; then
+    echo "Error: --agent must be \"claude\" or \"codex\" (got: $AGENT_CLI)" >&2
+    exit 1
+fi
+
 # Create the tmux session name based on repo and issue key
 TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
 
@@ -100,12 +111,28 @@ PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 # In both cases, --continue is tried first to resume an existing Claude conversation
 CLAUDE_PROMPT="$PROMPT"
 
-# Build the --dangerously-skip-permissions flag string (or empty).
-# Leading space is intentional — the value is concatenated directly into AppleScript
-# command strings (e.g., "claude" & dspFlag), so the space separates the flag cleanly.
-DSP_FLAG=""
-if [[ "$SKIP_PERMISSIONS" == true ]]; then
-    DSP_FLAG=" --dangerously-skip-permissions"
+# Build the agent's resume and fresh-start commands here rather than in
+# AppleScript. Mirrors buildAgentResumeCommand() in source/agents/registry.ts and
+# the equivalent block in start-claude-session.sh; keeping the assembly in bash
+# is what lets the AppleScript below stay harness-neutral.
+#
+# issueKey is always PROJECT-NUMBER format (validated upstream), so direct
+# interpolation is safe here.
+if [[ "$AGENT_CLI" == "codex" ]]; then
+    AGENT_BASE="codex"
+    if [[ "$SKIP_PERMISSIONS" == true ]]; then
+        AGENT_BASE="codex --dangerously-bypass-approvals-and-sandbox"
+    fi
+    # Codex has no --name; threads are keyed by cwd + rollout file.
+    AGENT_RESUME_CMD="$AGENT_BASE resume --last"
+    AGENT_FRESH_CMD="$AGENT_BASE"
+else
+    AGENT_BASE="claude"
+    if [[ "$SKIP_PERMISSIONS" == true ]]; then
+        AGENT_BASE="claude --dangerously-skip-permissions"
+    fi
+    AGENT_RESUME_CMD="$AGENT_BASE --name $ISSUE_KEY --continue"
+    AGENT_FRESH_CMD="$AGENT_BASE --name $ISSUE_KEY"
 fi
 
 # Write the AppleScript to a temp file to avoid heredoc escaping issues
@@ -117,9 +144,10 @@ on run argv
     set tmuxSession to item 3 of argv
     set claudePrompt to item 4 of argv
     set repoName to item 5 of argv
-    set dspFlag to item 6 of argv
+    set agentResumeCmd to item 6 of argv
     set tmuxSocket to item 7 of argv
     set companionCommand to item 8 of argv
+    set agentFreshCmd to item 9 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (claude /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -137,20 +165,19 @@ on run argv
                 -- Set the session name/title to include the issue key
                 set name to issueKey
 
-                -- Change to worktree directory and start tmux with Claude
-                -- Always try --continue first to resume an existing Claude conversation.
-                -- If --continue fails (no prior session or crash), fall back to:
-                --   resume mode (empty prompt): bare Claude
-                --   normal mode: Claude with the skill prompt
-                -- issueKey is always PROJECT-NUMBER format (safe for direct interpolation).
-                -- The TS helper and start-claude-session.sh shell-quote for defense-in-depth;
-                -- AppleScript string assembly makes quoting awkward, so we rely on caller
-                -- validation here instead.
-                set nameFlag to " --name " & issueKey
+                -- Change to worktree directory and start tmux with the agent.
+                -- Always try the resume command first to pick up an existing
+                -- conversation in this worktree. If it fails (no prior session
+                -- or a crash), fall back to:
+                --   resume mode (empty prompt): a bare fresh session
+                --   normal mode: a fresh session seeded with the skill prompt
+                -- Both command strings are assembled by the shell above, so this
+                -- block is identical for every harness.
+                set agentChain to agentResumeCmd & " || { printf '\\033[A\\033[2K'; false; } || " & agentFreshCmd
                 if claudePrompt is equal to "" then
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & "\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"" & agentChain & "\""
                 else
-                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"claude" & dspFlag & nameFlag & " --continue || { printf '\\033[A\\033[2K'; false; } || claude" & dspFlag & nameFlag & " '" & claudePrompt & "'\""
+                    write text "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"" & agentChain & " '" & claudePrompt & "'\""
                 end if
 
                 -- Wait for Claude to start
@@ -187,7 +214,7 @@ end run
 APPLESCRIPT_END
 
 # Run the AppleScript with arguments
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$DSP_FLAG" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$AGENT_RESUME_CMD" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$AGENT_FRESH_CMD"
 rm -f "$APPLESCRIPT"
 
-echo "iTerm window opened with Claude and companion pane for $ISSUE_KEY"
+echo "iTerm window opened with $AGENT_CLI and companion pane for $ISSUE_KEY"

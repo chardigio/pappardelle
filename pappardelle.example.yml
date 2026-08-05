@@ -28,10 +28,16 @@ team_prefix: ENG
 #   base_url: https://mycompany.atlassian.net
 #   default_issue_type: Task
 
-# Claude configuration (optional)
-# claude:
-#   initialization_command: "/idow"        # Command passed to Claude when a new session opens
-#   dangerously_skip_permissions: false     # Pass --dangerously-skip-permissions to Claude (default: false)
+# Which agent CLI to launch (optional). Defaults to "claude" when omitted, so a
+# config that never mentions this behaves exactly as it always has. A profile
+# can override it (see below) to run a different harness for its spaces.
+# agent_cli: claude                         # "claude" or "codex"
+
+# Agent configuration (optional). The old name for this section was `claude:`,
+# which is still accepted — but don't set both.
+# agent:
+#   initialization_command: "/idow"        # Command passed to the agent when a new session opens
+#   dangerously_skip_permissions: false     # Bypass the agent's approval prompts (default: false)
 
 # Auto-remove spaces from the rail when the tracker reports their issue as
 # completed or canceled. Same teardown as pressing `d` (runs pre_workspace_deinit,

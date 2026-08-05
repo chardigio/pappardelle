@@ -2,7 +2,12 @@ import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
-import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
+import {
+	AGENT_STATE_DISPLAY,
+	UNKNOWN_STATE_DISPLAY,
+	stateNeedsAttention,
+} from '../types.ts';
+import {getAgentSpinnerColor} from '../agents/registry.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
@@ -34,26 +39,25 @@ const PIPELINE_SINGLE: Record<
 };
 
 export default function SpaceListItem({space, isSelected, width}: Props) {
-	const baseStatusInfo = space.claudeStatus
-		? CLAUDE_STATUS_DISPLAY[space.claudeStatus]
-		: CLAUDE_STATUS_DISPLAY.unknown;
+	// A space with no readable status file has no state at all — that's the
+	// unknown case, rendered as the gray '?'.
+	const statusInfo = space.agentState
+		? AGENT_STATE_DISPLAY[space.agentState]
+		: UNKNOWN_STATE_DISPLAY;
 
-	// AskUserQuestion is a question (blue '?'), not a permission approval (red '!')
-	const isQuestion =
-		space.claudeStatus === 'waiting_for_approval' &&
-		space.claudeTool === 'AskUserQuestion';
-
-	const statusInfo = isQuestion ? {color: 'blue', icon: '?'} : baseStatusInfo;
+	// A question blinks blue; an approval blinks red. Post-STA-1850 this is a
+	// first-class state rather than an approval-plus-tool-name inference.
+	const isQuestion = space.agentState === 'needs-answer';
 
 	// Pending rows always show the animation spinner
-	const isWorking =
-		space.isPending ||
-		space.claudeStatus === 'processing' ||
-		space.claudeStatus === 'running_tool';
+	const isWorking = space.isPending || space.agentState === 'working';
 
-	// Determine if row needs attention (blinking background)
-	// Both approval requests and questions blink, but with different colors
-	const needsAttention = space.claudeStatus === 'waiting_for_approval';
+	// Rows blink for both blocked states. Before STA-1850 only approvals were
+	// checked, so a space blocked on a question never flagged.
+	const needsAttention = stateNeedsAttention(space.agentState);
+
+	// Spinner color is per-agent so a Codex row doesn't pulse Claude orange.
+	const spinnerColor = getAgentSpinnerColor(space.agentCli);
 
 	// Blink state for rows that need attention
 	const [blinkOn, setBlinkOn] = useState(true);
@@ -89,7 +93,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		hasConflict,
 	});
 
-	// Optional profile emoji rendered to the left of the Claude status icon.
+	// Optional profile emoji rendered to the left of the agent status icon.
 	//
 	// Three states:
 	//   - undefined: user has no emoji config at all → render no prefix,
@@ -268,7 +272,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		<Box width={rowWidth}>
 			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
 			    Followed by a single space separator so it doesn't crash into the
-			    Claude status icon. */}
+			    agent status icon. */}
 			{emoji ? (
 				<>
 					<Text inverse={useBlinkInverse} color={textColor}>
@@ -284,13 +288,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			{/* Status icon (NOT highlighted, always shows its own color) */}
 			{isWorking ? (
 				<ClaudeAnimation
-					color={
-						useBlinkInverse
-							? textColor
-							: space.isPending
-								? COLORS.CLAUDE_ORANGE
-								: statusInfo.color
-					}
+					color={useBlinkInverse ? textColor : spinnerColor}
 					inverse={useBlinkInverse}
 				/>
 			) : (

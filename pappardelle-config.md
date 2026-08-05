@@ -39,10 +39,14 @@ vcs_host:
   provider: github # "github" or "gitlab"
   # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 
-# Claude configuration (optional)
-claude:
-  initialization_command: '/idow' # Command passed to Claude on new sessions
-  dangerously_skip_permissions: true # Pass --dangerously-skip-permissions to Claude (default: false)
+# Which agent CLI to launch (optional, default: claude)
+agent_cli: claude # "claude" or "codex"
+
+# Agent configuration (optional). `claude:` is the old name for this section
+# and is still accepted.
+agent:
+  initialization_command: '/idow' # Command passed to the agent on new sessions
+  dangerously_skip_permissions: true # Bypass the agent's approval prompts (default: false)
 
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
@@ -679,31 +683,71 @@ profiles:
 | GitHub   | `gh`     | `brew install gh`                                                                      |
 | GitLab   | `glab`   | `brew install glab`                                                                    |
 
-## Claude Configuration
+## Agent Configuration
 
-The `claude` section configures how Claude is initialized when opening a new workspace session. It can be set globally and/or per-profile.
+The `agent` section configures how the agent CLI is initialized when opening a new workspace session. It can be set globally and/or per-profile.
+
+> **Renamed in STA-1850.** This section used to be called `claude:`. That spelling still works exactly as before — nothing needs changing. Setting _both_ `agent:` and `claude:` is rejected at validation time rather than silently picking one, so a half-finished rename can't leave you editing the section that isn't winning.
 
 ```yaml
 # Global (applies to all profiles unless overridden)
-claude:
+agent:
   initialization_command: '/idow' # Optional, default: empty
   dangerously_skip_permissions: true # Optional, default: false
 
 profiles:
   stardust-jams:
     # Per-profile override (takes precedence over global)
-    claude:
+    agent:
       initialization_command: '/do-stardust'
 ```
 
-| Field                          | Type      | Default | Description                                                                                                                                                  |
-| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command. |
-| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.            |
+| Field                          | Type      | Default | Description                                                                                                                                                                                                  |
+| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `initialization_command`       | `string`  | `""`    | Command passed to the agent when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, the agent opens with no initialization command.                                           |
+| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, the agent is launched with its approval-bypass flag (`--dangerously-skip-permissions` for Claude, `--dangerously-bypass-approvals-and-sandbox` for Codex). Only enable in trusted repositories. |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 
-**Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
+**Per-profile overrides**: When a profile defines `agent.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
+
+## Agent CLI (`agent_cli`)
+
+Which agent CLI Pappardelle launches for a space.
+
+```yaml
+agent_cli: claude # global default
+
+profiles:
+  experiments:
+    display_name: Experiments
+    agent_cli: codex # this profile's spaces run Codex instead
+```
+
+| Value    | Agent                                          |
+| -------- | ---------------------------------------------- |
+| `claude` | Claude Code (default when the field is absent) |
+| `codex`  | Codex CLI                                      |
+
+**Resolution order**: profile `agent_cli` → top-level `agent_cli` → `claude`.
+
+**Off by default.** A config that never mentions `agent_cli` resolves to `claude` for every space, exactly as it did before the field existed. An unrecognized value is rejected at validation time rather than silently falling back.
+
+### What the agent has to supply
+
+Pappardelle only cares about five states, and every agent maps into exactly them:
+
+| State            | Meaning                                                    |
+| ---------------- | ---------------------------------------------------------- |
+| `idle`           | The space exists; the agent is neither working nor blocked |
+| `working`        | The agent has the ball — thinking or running a tool        |
+| `needs-approval` | Blocked on a permission decision                           |
+| `needs-answer`   | Blocked on a question to you                               |
+| `done`           | The turn ended; output is waiting to be read               |
+
+The two blocked states blink the row and zap your phone. Pappardelle only ever _signals_ — press Enter to attach and answer in the agent's own TUI. It never synthesizes keystrokes into a pane.
+
+Status is reported by hooks writing `~/.pappardelle/agent-status/<space>.json`. Install them with `hooks/install.sh`, which wires up Claude's `~/.claude/settings.json` and (when Codex is present) `~/.codex/hooks.json`. Without hooks a space falls back to coarse liveness — `working` while the agent is the session's foreground process, unknown otherwise.
 
 ## Issue Watchlist
 
@@ -1058,17 +1102,17 @@ keybindings:
     run: 'cd ${WORKTREE_PATH} && uv run pytest'
   - key: 'a'
     name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
+    send_to_agent: '/address-pr-feedback'
 ```
 
 ### Keybinding Fields
 
-| Field            | Type     | Description                                                                              |
-| ---------------- | -------- | ---------------------------------------------------------------------------------------- |
-| `key`            | `string` | Single character key to bind (must not conflict with built-in shortcuts)                 |
-| `name`           | `string` | Human-readable name shown in help overlay and status messages                            |
-| `run`            | `string` | Command to execute (supports template variables). Use either `run` or `send_to_claude`.  |
-| `send_to_claude` | `string` | Text to send to the Claude pane (sent with Enter). Use either `run` or `send_to_claude`. |
+| Field           | Type     | Description                                                                                                                                |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `key`           | `string` | Single character key to bind (must not conflict with built-in shortcuts)                                                                   |
+| `name`          | `string` | Human-readable name shown in help overlay and status messages                                                                              |
+| `run`           | `string` | Command to execute (supports template variables). Use either `run` or `send_to_agent`.                                                     |
+| `send_to_agent` | `string` | Text to send to the agent pane (sent with Enter). Use either `run` or `send_to_agent`. Formerly `send_to_claude`, which is still accepted. |
 
 ### Reserved Keys
 
@@ -1081,8 +1125,8 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 ### Behavior
 
 - **`run` keybindings**: Commands run with `cwd` set to the selected workspace's worktree path. Status is shown in the header: "Running: {name}..." then "✓ {name} ({time})" or "✗ {name} failed". Only one custom command can run at a time. Template variables are expanded using the selected workspace's context.
-- **`send_to_claude` keybindings**: Text is sent directly to the Claude viewer pane (with Enter). Any partial input in the Claude prompt is cleared first. Useful for sending slash commands like `/address-pr-feedback`.
-- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section. `send_to_claude` keybindings show "→ Claude" to indicate they target the Claude pane.
+- **`send_to_agent` keybindings**: Text is sent directly to the agent viewer pane (with Enter). Any partial input in the agent's prompt is cleared first. Useful for sending slash commands like `/address-pr-feedback`. The old `send_to_claude` spelling still works; setting both on one binding is rejected.
+- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section. `send_to_agent` keybindings show "→ agent" to indicate they target the agent pane.
 
 ### Template Variables in Keybindings
 

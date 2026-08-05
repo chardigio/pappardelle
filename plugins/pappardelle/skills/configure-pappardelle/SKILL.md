@@ -31,7 +31,7 @@ Options:
 - **Configure issue watchlist** — auto-create workspaces for assigned issues
 - **Edit local overrides** — personal keybinding overrides in `.pappardelle.local.yml`
 - **Change providers** — switch issue tracker or VCS host
-- **Configure Claude settings** — initialization command, permissions
+- **Configure agent settings** — which agent CLI (`agent_cli`), initialization command, permissions
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
 
 Then follow the appropriate section below based on their choice.
@@ -71,7 +71,8 @@ profiles:
     display_name: 'My Profile'
     emoji: '🎸' # Optional — shown in the ticket rail (STA-924)
     team_prefix: PREFIX # Optional per-profile override
-    claude:
+    agent_cli: claude # Optional per-profile override — 'claude' or 'codex'
+    agent:
       initialization_command: '/do' # Optional per-profile override
     vars: # Custom template variables
       KEY: 'value'
@@ -131,7 +132,7 @@ Remind the user to quit and relaunch the TUI to see the change.
 Keybindings are single-key shortcuts in the Pappardelle TUI. Ask with `AskUserQuestion`:
 
 1. **Which key?** — single character. Warn about reserved keys: `j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?`
-2. **What should it do?** — run a bash command (`run`) or send text to Claude (`send_to_claude`)
+2. **What should it do?** — run a bash command (`run`) or send text to the agent (`send_to_agent`)
 3. **Display name** — shown in the help overlay
 4. **Shared or personal?** — shared goes in `.pappardelle.yml`, personal goes in `.pappardelle.local.yml`
 
@@ -142,7 +143,7 @@ keybindings:
     run: 'cd ${WORKTREE_PATH} && make build'
   - key: 'a'
     name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
+    send_to_agent: '/address-pr-feedback'
 ```
 
 ### Local overrides (`.pappardelle.local.yml`)
@@ -261,10 +262,12 @@ vcs_host:
   # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 ```
 
-## Configuring Claude Settings
+## Configuring Agent Settings
 
 ```yaml
-claude:
+agent_cli: claude # which agent CLI to launch: 'claude' or 'codex'
+
+agent:
   initialization_command: '/do' # Skill to run on new sessions
   dangerously_skip_permissions: false # 'yolo mode'
 ```
@@ -274,13 +277,24 @@ Per-profile overrides take precedence:
 ```yaml
 profiles:
   my-profile:
-    claude:
+    agent_cli: codex
+    agent:
       initialization_command: '/do-custom'
 ```
 
+### `agent_cli` resolution order
+
+Profile `agent_cli` → top-level `agent_cli` → `claude`. Absent everywhere means every space runs Claude, exactly as before the field existed, so **don't prompt about it during routine config edits** — only when the user asks to run a different agent, or asks what `agent_cli` does. An unrecognized value fails validation rather than falling back silently.
+
+Both agents get the full experience: the same five row states (`idle`, `working`, `needs-approval`, `needs-answer`, `done`), the same blink on the two blocked states, the same phone zap. Status comes from hooks — re-run `hooks/install.sh` after switching a space to Codex so `~/.codex/hooks.json` exists, otherwise that space falls back to coarse foreground-process liveness.
+
+### `agent:` vs `claude:`
+
+`agent:` is the current name for the settings section; `claude:` is the old name and still works untouched. Setting both is a validation error, so when migrating a config, rename rather than duplicate. Same for keybindings: `send_to_agent` is current, `send_to_claude` still accepted, both-at-once rejected.
+
 ## Configuring the Companion Pane Command
 
-`companion_command` is the shell command run in the right pane (next to Claude). It defaults to `gitui`.
+`companion_command` is the shell command run in the right pane (next to the agent). It defaults to `gitui`.
 
 ```yaml
 companion_command: gitui # top-level default for every space

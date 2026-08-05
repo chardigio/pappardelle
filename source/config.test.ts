@@ -30,6 +30,9 @@ import {
 	mergeKeybindings,
 	determineProfileForInput,
 	DEFERRED_PROFILE_DISPLAY_NAME,
+	resolveAgentCli,
+	getAgentConfig,
+	getSendToAgent,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -1933,6 +1936,7 @@ test('getDangerouslySkipPermissions returns true when configured', t => {
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	config.claude = {dangerously_skip_permissions: true};
 	t.is(getDangerouslySkipPermissions(config), true);
 });
@@ -1942,6 +1946,7 @@ test('getDangerouslySkipPermissions returns false when configured', t => {
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	config.claude = {dangerously_skip_permissions: false};
 	t.is(getDangerouslySkipPermissions(config), false);
 });
@@ -1959,6 +1964,7 @@ test('getDangerouslySkipPermissions returns false when claude section exists but
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	config.claude = {initialization_command: '/idow'};
 	t.is(getDangerouslySkipPermissions(config), false);
 });
@@ -2181,7 +2187,7 @@ test('validateConfig rejects keybinding missing name', t => {
 	t.truthy(error?.message.includes('name: required string field'));
 });
 
-test('validateConfig rejects keybinding with neither run nor send_to_claude', t => {
+test('validateConfig rejects keybinding with neither run nor send_to_agent', t => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -2197,7 +2203,7 @@ test('validateConfig rejects keybinding with neither run nor send_to_claude', t 
 		instanceOf: ConfigValidationError,
 	});
 	t.truthy(
-		error?.message.includes("must have either 'run' or 'send_to_claude'"),
+		error?.message.includes("must have either 'run' or 'send_to_agent'"),
 	);
 });
 
@@ -2238,6 +2244,7 @@ test('getKeybindings returns send_to_claude keybindings', t => {
 	const bindings = getKeybindings(config);
 	t.is(bindings.length, 2);
 	t.is(bindings[1]!.key, 'a');
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	t.is(bindings[1]!.send_to_claude, '/address-pr-feedback');
 	t.is(bindings[1]!.run, undefined);
 });
@@ -4409,4 +4416,278 @@ test('determineProfileForInput emoji survives the default-profile fallback', t =
 		t.true(info.isDefault);
 		t.is(info.emoji, '🎸');
 	}
+});
+
+// ============================================================================
+// agent_cli (STA-1850)
+// ============================================================================
+
+test('resolveAgentCli defaults to claude when the field appears nowhere', t => {
+	// The off-by-default regression. A config that predates agent_cli must
+	// resolve to exactly the harness it always used, for every space.
+	const config: PappardelleConfig = {
+		version: 1,
+		profiles: {bee: {display_name: 'Bee'}, jams: {display_name: 'Jams'}},
+	};
+	t.is(resolveAgentCli(config), 'claude');
+	t.is(resolveAgentCli(config, 'bee'), 'claude');
+	t.is(resolveAgentCli(config, 'jams'), 'claude');
+});
+
+test('resolveAgentCli reads the top-level value', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		agent_cli: 'codex',
+		profiles: {bee: {display_name: 'Bee'}},
+	};
+	t.is(resolveAgentCli(config), 'codex');
+	t.is(resolveAgentCli(config, 'bee'), 'codex');
+});
+
+test('a profile agent_cli overrides the top-level one', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		agent_cli: 'claude',
+		profiles: {
+			bee: {display_name: 'Bee'},
+			jams: {display_name: 'Jams', agent_cli: 'codex'},
+		},
+	};
+	t.is(resolveAgentCli(config, 'jams'), 'codex');
+	t.is(resolveAgentCli(config, 'bee'), 'claude');
+	// The top level is unaffected by a profile override.
+	t.is(resolveAgentCli(config), 'claude');
+});
+
+test('resolveAgentCli survives a null config and an unknown profile name', t => {
+	t.is(resolveAgentCli(null), 'claude');
+	t.is(resolveAgentCli(undefined), 'claude');
+	const config: PappardelleConfig = {
+		version: 1,
+		agent_cli: 'codex',
+		profiles: {bee: {display_name: 'Bee'}},
+	};
+	t.is(resolveAgentCli(config, 'nonexistent'), 'codex');
+});
+
+test('validateConfig accepts every known agent_cli value', t => {
+	for (const agent of ['claude', 'codex']) {
+		t.notThrows(() =>
+			validateConfig({
+				version: 1,
+				agent_cli: agent,
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		);
+	}
+});
+
+test('validateConfig rejects an unknown agent_cli rather than silently defaulting', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				agent_cli: 'cursor',
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('agent_cli'));
+});
+
+test('validateConfig rejects an unknown per-profile agent_cli', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test', agent_cli: 'nope'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('profiles.test.agent_cli'));
+});
+
+test('validateConfig accepts a config with no agent_cli at all', t => {
+	t.notThrows(() =>
+		validateConfig({version: 1, profiles: {test: {display_name: 'Test'}}}),
+	);
+});
+
+// ============================================================================
+// agent: / claude: section aliasing (STA-1850)
+// ============================================================================
+
+test('getAgentConfig reads the agent: section', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		agent: {initialization_command: '/do', dangerously_skip_permissions: true},
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.is(getInitializationCommand(config), '/do');
+	t.true(getDangerouslySkipPermissions(config));
+});
+
+test('the legacy claude: section still resolves when agent: is absent', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		claude: {
+			initialization_command: '/idow',
+			dangerously_skip_permissions: true,
+		},
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.is(getInitializationCommand(config), '/idow');
+	t.true(getDangerouslySkipPermissions(config));
+});
+
+test('a profile agent: section overrides the top level', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		agent: {initialization_command: '/global'},
+		profiles: {
+			bee: {display_name: 'Bee'},
+			jams: {display_name: 'Jams', agent: {initialization_command: '/jams'}},
+		},
+	};
+	t.is(getInitializationCommand(config, 'jams'), '/jams');
+	t.is(getInitializationCommand(config, 'bee'), '/global');
+});
+
+test("a profile's legacy claude: section still overrides the top level", t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		agent: {initialization_command: '/global'},
+		profiles: {
+			jams: {display_name: 'Jams', claude: {initialization_command: '/jams'}},
+		},
+	};
+	t.is(getInitializationCommand(config, 'jams'), '/jams');
+});
+
+test('getAgentConfig returns undefined when neither section exists', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.is(getAgentConfig(config), undefined);
+	t.is(getInitializationCommand(config), '');
+	t.false(getDangerouslySkipPermissions(config));
+});
+
+test('validateConfig rejects setting both agent: and claude:', t => {
+	// Silently picking a winner would leave a half-migrated user editing the
+	// losing section and seeing no effect.
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				agent: {initialization_command: '/a'},
+				claude: {initialization_command: '/b'},
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('cannot both be specified'));
+});
+
+test('validateConfig rejects setting both agent: and claude: on a profile', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {
+					test: {
+						display_name: 'Test',
+						agent: {initialization_command: '/a'},
+						claude: {initialization_command: '/b'},
+					},
+				},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('profiles.test.agent'));
+});
+
+test('validateConfig type-checks the agent: section fields', t => {
+	t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				agent: {initialization_command: 123},
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				agent: {dangerously_skip_permissions: 'yes'},
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+});
+
+// ============================================================================
+// send_to_agent / send_to_claude aliasing (STA-1850)
+// ============================================================================
+
+test('getSendToAgent reads the new field', t => {
+	const kb: KeybindingConfig = {key: 'x', name: 'Ship', send_to_agent: '/ship'};
+	t.is(getSendToAgent(kb), '/ship');
+});
+
+test('getSendToAgent falls back to the legacy send_to_claude field', t => {
+	const kb: KeybindingConfig = {
+		key: 'x',
+		name: 'Ship',
+		send_to_claude: '/ship',
+	};
+	t.is(getSendToAgent(kb), '/ship');
+});
+
+test('getSendToAgent returns undefined for a run-only binding', t => {
+	const kb: KeybindingConfig = {key: 'x', name: 'Build', run: 'make'};
+	t.is(getSendToAgent(kb), undefined);
+});
+
+test('validateConfig accepts a keybinding using either spelling', t => {
+	for (const field of ['send_to_agent', 'send_to_claude']) {
+		t.notThrows(() =>
+			validateConfig({
+				version: 1,
+				keybindings: [{key: 'x', name: 'Ship', [field]: '/ship'}],
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		);
+	}
+});
+
+test('validateConfig rejects a keybinding setting both spellings', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				keybindings: [
+					{key: 'x', name: 'Ship', send_to_agent: '/a', send_to_claude: '/b'},
+				],
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('cannot both be specified'));
+});
+
+test('validateConfig still requires run or send_to_agent on a keybinding', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				keybindings: [{key: 'x', name: 'Nothing'}],
+				profiles: {test: {display_name: 'Test'}},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('send_to_agent'));
 });

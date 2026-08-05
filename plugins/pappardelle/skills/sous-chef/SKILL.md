@@ -45,7 +45,7 @@ Each space entry from `gather-spaces.sh` may include pre-cached data written by 
 - `pipeline` — `passing` / `failing` / `progressing_clean` / `progressing_dirty` / `null`
 - `unresolvedCommentCount` — integer count of unresolved PR review threads
 - `prNumber` — the open PR number (if any)
-- `recap.customTitle` — Claude Code's auto-generated 3-6 word session label
+- `recap.customTitle` — a short session label (Claude's auto-generated one; for Codex, the thread's opening prompt)
 - `recap.lastPrompt` — the most recent user prompt in that space
 - `recap.lastAssistantExcerpt` — up to 500 chars of the most recent assistant reply
 - `spaceStateUpdatedAt` — ISO timestamp of the last rail-status poll
@@ -56,10 +56,12 @@ Prefer `recap.customTitle` over linctl for the gist line; it is already condense
 
 Show a concise overview. Prioritize by urgency:
 
-1. **FIRE** — `waiting_for_approval`
-2. **HEARD** — `waiting_for_input`
-3. **WORKING** — `processing`, `running_tool`, `compacting`
-4. **IDLE** — `ended`, `error`, `unknown`, `no_status`
+Each space's `state` is one of five normalized values, identical across agents (the `agent` field says which harness produced it):
+
+1. **FIRE** — `needs-approval`
+2. **HEARD** — `needs-answer`, `done`
+3. **WORKING** — `working`
+4. **IDLE** — `idle`, `unknown`, `no_status`
 
 Format example:
 
@@ -183,6 +185,6 @@ When the user asks to trigger or request a review on a space, run this command d
 The repo name and worktree base are auto-detected from the current git repository. The standard conventions are:
 
 - **Worktree base**: `~/.worktrees/{repo-name}/`
-- **tmux session pattern**: `claude-{repo-name}-{ISSUE-KEY}`
-- **Status dir**: `~/.pappardelle/claude-status/`
+- **tmux session pattern**: `claude-{repo-name}-{ISSUE-KEY}` (the `claude-` prefix is historical; it's used for every agent)
+- **Status dir**: `~/.pappardelle/agent-status/`
 - **Open spaces**: `~/.pappardelle/repos/{repo-name}/open-spaces.json`

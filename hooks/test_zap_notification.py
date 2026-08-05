@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 _module_path = Path(__file__).parent / "zap-notification.py"
 _spec = importlib.util.spec_from_file_location("zap_notification", _module_path)
 assert _spec is not None
@@ -92,7 +94,11 @@ class TestMainLogic:
     """Test the main() dispatch logic by simulating stdin and env."""
 
     def _run_main(
-        self, input_data: dict, ntfy_topic: str | None = "test-topic", tailscale_active: bool = True
+        self,
+        input_data: dict,
+        agent: str = "claude",
+        ntfy_topic: str | None = "test-topic",
+        tailscale_active: bool = True,
     ) -> MagicMock:
         """Helper to run main() with mocked stdin, env, and tailscale detection."""
         import io
@@ -104,6 +110,7 @@ class TestMainLogic:
             patch.object(zap_mod, "is_tailscale_ssh_active", return_value=tailscale_active),
             patch.object(zap_mod, "send_zap") as mock_zap,
             patch("sys.stdin", stdin_mock),
+            patch("sys.argv", ["zap-notification.py", "--agent", agent]),
         ):
             try:
                 zap_mod.main()
@@ -111,21 +118,61 @@ class TestMainLogic:
                 pass
             return mock_zap
 
-    def test_permission_request_sends_zap(self):
-        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "Bash"})
-        mock_zap.assert_called_once_with("Claude needs permission for Bash")
+    # -- needs-approval ----------------------------------------------------
 
-    def test_permission_request_without_tool_name(self):
-        mock_zap = self._run_main({"hook_event_name": "PermissionRequest"})
-        mock_zap.assert_called_once_with("Claude needs permission")
+    @pytest.mark.parametrize("agent,name", [("claude", "Claude"), ("codex", "Codex")])
+    def test_permission_request_sends_zap(self, agent, name):
+        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "Bash"}, agent=agent)
+        mock_zap.assert_called_once_with(f"{name} needs permission for Bash")
 
-    def test_permission_request_skips_ask_user_question(self):
-        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion"})
+    @pytest.mark.parametrize("agent,name", [("claude", "Claude"), ("codex", "Codex")])
+    def test_permission_request_without_tool_name(self, agent, name):
+        mock_zap = self._run_main({"hook_event_name": "PermissionRequest"}, agent=agent)
+        mock_zap.assert_called_once_with(f"{name} needs permission")
+
+    # -- needs-answer ------------------------------------------------------
+
+    @pytest.mark.parametrize("agent,name", [("claude", "Claude"), ("codex", "Codex")])
+    def test_pre_tool_use_question_tool_sends_zap(self, agent, name):
+        tool = zap_mod.AGENTS[agent]["question_tool"]
+        mock_zap = self._run_main({"hook_event_name": "PreToolUse", "tool_name": tool}, agent=agent)
+        mock_zap.assert_called_once_with(f"{name} is asking a question")
+
+    @pytest.mark.parametrize("agent", ["claude", "codex"])
+    def test_permission_request_for_question_tool_is_deduped(self, agent):
+        """PreToolUse owns the question zap; PermissionRequest must stay silent
+        so one question doesn't buzz the phone twice."""
+        tool = zap_mod.AGENTS[agent]["question_tool"]
+        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": tool}, agent=agent)
         mock_zap.assert_not_called()
 
-    def test_pre_tool_use_ask_user_question_sends_zap(self):
-        mock_zap = self._run_main({"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion"})
-        mock_zap.assert_called_once_with("Claude is asking a question")
+    @pytest.mark.parametrize("agent", ["claude", "codex"])
+    def test_the_other_agents_question_tool_does_not_trigger(self, agent):
+        other = "codex" if agent == "claude" else "claude"
+        foreign = zap_mod.AGENTS[other]["question_tool"]
+        mock_zap = self._run_main({"hook_event_name": "PreToolUse", "tool_name": foreign}, agent=agent)
+        mock_zap.assert_not_called()
+
+    # -- silence -----------------------------------------------------------
+
+    @pytest.mark.parametrize("agent", ["claude", "codex"])
+    @pytest.mark.parametrize(
+        "event",
+        [
+            "UserPromptSubmit",
+            "PostToolUse",
+            "PreCompact",
+            "PostCompact",
+            "Stop",
+            "SubagentStop",
+            "SessionStart",
+            "SessionEnd",
+            "Nonsense",
+        ],
+    )
+    def test_non_blocked_states_are_silent(self, agent, event):
+        mock_zap = self._run_main({"hook_event_name": event}, agent=agent)
+        mock_zap.assert_not_called()
 
     def test_pre_tool_use_other_tool_no_zap(self):
         mock_zap = self._run_main({"hook_event_name": "PreToolUse", "tool_name": "Bash"})
@@ -143,8 +190,4 @@ class TestMainLogic:
             {"hook_event_name": "PermissionRequest", "tool_name": "Bash"},
             tailscale_active=False,
         )
-        mock_zap.assert_not_called()
-
-    def test_unknown_event_no_zap(self):
-        mock_zap = self._run_main({"hook_event_name": "SessionStart"})
         mock_zap.assert_not_called()

@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
+import type {AgentCli} from './types.ts';
+import {AGENT_CLIS, isAgentCli} from './types.ts';
 
 // ============================================================================
 // Types
@@ -34,14 +36,25 @@ export interface KeybindingConfig {
 	key: string;
 	name: string;
 	run?: string;
+	/** Text typed into the agent's pane when the key is pressed. */
+	send_to_agent?: string;
+	/** @deprecated Renamed to `send_to_agent` in STA-1850; still accepted. */
 	send_to_claude?: string;
 	disabled?: boolean;
 }
 
-export interface ClaudeConfig {
+/**
+ * Settings for whichever agent CLI drives a space. Named `agent:` in config;
+ * the original `claude:` key is still accepted verbatim so existing configs
+ * keep working untouched.
+ */
+export interface AgentConfig {
 	initialization_command?: string;
 	dangerously_skip_permissions?: boolean;
 }
+
+/** @deprecated Renamed to AgentConfig in STA-1850. */
+export type ClaudeConfig = AgentConfig;
 
 export interface HooksConfig {
 	post_workspace_create?: CommandConfig[];
@@ -104,8 +117,15 @@ export interface Profile {
 	emoji?: string;
 	/** Per-profile team prefix override. Falls back to the global `team_prefix`. */
 	team_prefix?: string;
-	/** Per-profile Claude config override. Falls back to the global `claude` section. */
-	claude?: ClaudeConfig;
+	/** Per-profile agent config override. Falls back to the global `agent` section. */
+	agent?: AgentConfig;
+	/** @deprecated Renamed to `agent` in STA-1850; still accepted as a silent alias. */
+	claude?: AgentConfig;
+	/**
+	 * Which agent CLI to launch for spaces matched to this profile. Overrides
+	 * the top-level `agent_cli`. Absent ⇒ inherit.
+	 */
+	agent_cli?: AgentCli;
 	/** Generic template variables injected into the workspace context. */
 	vars?: Record<string, string>;
 	github?: GitHubConfig;
@@ -160,7 +180,15 @@ export interface PappardelleConfig {
 	team_prefix?: string;
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
-	claude?: ClaudeConfig;
+	agent?: AgentConfig;
+	/** @deprecated Renamed to `agent` in STA-1850; still accepted as a silent alias. */
+	claude?: AgentConfig;
+	/**
+	 * Which agent CLI Pappardelle launches for a space. Defaults to `claude`
+	 * when absent, so a config that has never heard of this field behaves
+	 * exactly as it did before STA-1850. A profile's own `agent_cli` wins.
+	 */
+	agent_cli?: AgentCli;
 	/** Poll the issue tracker for issues assigned to a user with matching statuses. */
 	issue_watchlist?: IssueWatchlistConfig;
 	/**
@@ -642,26 +670,11 @@ export function validateConfig(
 		}
 	}
 
-	// Check claude (optional)
-	if (cfg['claude'] !== undefined) {
-		if (typeof cfg['claude'] !== 'object' || cfg['claude'] === null) {
-			errors.push('claude: must be an object');
-		} else {
-			const cl = cfg['claude'] as Record<string, unknown>;
-			if (
-				cl['initialization_command'] !== undefined &&
-				typeof cl['initialization_command'] !== 'string'
-			) {
-				errors.push('claude.initialization_command: must be a string');
-			}
-			if (
-				cl['dangerously_skip_permissions'] !== undefined &&
-				typeof cl['dangerously_skip_permissions'] !== 'boolean'
-			) {
-				errors.push('claude.dangerously_skip_permissions: must be a boolean');
-			}
-		}
-	}
+	// Check agent / claude (optional). `claude:` is the pre-STA-1850 spelling,
+	// still accepted verbatim; setting both is rejected rather than silently
+	// resolved so nobody edits the section that isn't winning.
+	// Check agent_cli (optional, defaults to claude)
+	errors.push(...validateAgentSection(cfg, ''), ...validateAgentCli(cfg, ''));
 
 	// Check issue_watchlist (optional). Same shape is also accepted per-profile,
 	// so the field checks live in a shared helper keyed by an error-message prefix.
@@ -809,10 +822,17 @@ export function validateConfig(
 					errors.push(`keybindings[${i}].name: required string field`);
 				}
 				const hasRun = typeof binding['run'] === 'string';
+				// `send_to_claude` is the pre-STA-1850 spelling of `send_to_agent`.
+				const hasSendToAgent = typeof binding['send_to_agent'] === 'string';
 				const hasSendToClaude = typeof binding['send_to_claude'] === 'string';
-				if (!hasRun && !hasSendToClaude) {
+				if (hasSendToAgent && hasSendToClaude) {
 					errors.push(
-						`keybindings[${i}]: must have either 'run' or 'send_to_claude'`,
+						`keybindings[${i}]: send_to_agent and send_to_claude cannot both be specified (use send_to_agent)`,
+					);
+				}
+				if (!hasRun && !hasSendToAgent && !hasSendToClaude) {
+					errors.push(
+						`keybindings[${i}]: must have either 'run' or 'send_to_agent'`,
 					);
 				}
 			}
@@ -854,6 +874,70 @@ export function validateConfig(
 	if (errors.length > 0) {
 		throw new ConfigValidationError(errors);
 	}
+}
+
+/**
+ * Validate an `agent:` settings block, accepting the legacy `claude:` spelling.
+ * Shared by the top level and each profile so their rules can't drift.
+ *
+ * Setting both keys is an error rather than a silent precedence decision: a
+ * user who has half-migrated would otherwise edit the losing section and see no
+ * effect, which is exactly the class of quiet misbehavior this field must not
+ * ship with. `prefix` is the dotted path used in messages ('' at top level).
+ */
+function validateAgentSection(
+	container: Record<string, unknown>,
+	prefix: string,
+): string[] {
+	const errors: string[] = [];
+	const at = (key: string): string => (prefix ? `${prefix}.${key}` : key);
+
+	if (container['agent'] !== undefined && container['claude'] !== undefined) {
+		errors.push(
+			`${at('agent')} and ${at('claude')} cannot both be specified (use ${at('agent')}; "claude" is the old name for the same section)`,
+		);
+	}
+
+	for (const key of ['agent', 'claude'] as const) {
+		const value = container[key];
+		if (value === undefined) continue;
+		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+			errors.push(`${at(key)}: must be an object`);
+			continue;
+		}
+
+		const section = value as Record<string, unknown>;
+		if (
+			section['initialization_command'] !== undefined &&
+			typeof section['initialization_command'] !== 'string'
+		) {
+			errors.push(`${at(key)}.initialization_command: must be a string`);
+		}
+		if (
+			section['dangerously_skip_permissions'] !== undefined &&
+			typeof section['dangerously_skip_permissions'] !== 'boolean'
+		) {
+			errors.push(`${at(key)}.dangerously_skip_permissions: must be a boolean`);
+		}
+	}
+
+	return errors;
+}
+
+/**
+ * Validate an `agent_cli` value. Absent is always fine — that's the Claude
+ * default that keeps legacy configs unchanged — but a present value must name a
+ * harness we actually have a descriptor for, or the space would launch nothing.
+ */
+function validateAgentCli(
+	container: Record<string, unknown>,
+	prefix: string,
+): string[] {
+	const value = container['agent_cli'];
+	if (value === undefined) return [];
+	const at = prefix ? `${prefix}.agent_cli` : 'agent_cli';
+	if (isAgentCli(value)) return [];
+	return [`${at}: must be one of ${AGENT_CLIS.map(a => `"${a}"`).join(', ')}`];
 }
 
 /**
@@ -1007,22 +1091,12 @@ function validateProfile(name: string, profile: unknown): string[] {
 		}
 	}
 
-	// Optional per-profile claude config
-	if (p['claude'] !== undefined) {
-		if (typeof p['claude'] !== 'object' || p['claude'] === null) {
-			errors.push(`${prefix}.claude: must be an object`);
-		} else {
-			const cl = p['claude'] as Record<string, unknown>;
-			if (
-				cl['initialization_command'] !== undefined &&
-				typeof cl['initialization_command'] !== 'string'
-			) {
-				errors.push(
-					`${prefix}.claude.initialization_command: must be a string`,
-				);
-			}
-		}
-	}
+	// Optional per-profile agent config (or its legacy `claude:` spelling) and
+	// per-profile agent_cli override
+	errors.push(
+		...validateAgentSection(p, prefix),
+		...validateAgentCli(p, prefix),
+	);
 
 	// Optional per-profile post_workspace_init / post_worktree_init (mutually exclusive)
 	if (
@@ -1581,21 +1655,76 @@ export function resolvePendingProfileEmoji(
 }
 
 /**
- * Get the Claude initialization command from config.
- * Returns the command string (e.g., "/idow") or empty string if not configured.
+ * Resolve the agent settings section, preferring the current `agent:` key and
+ * falling back to the legacy `claude:` key. Validation rejects configs that set
+ * both, so this can't silently pick a winner behind the user's back.
  */
-export function getInitializationCommand(config: PappardelleConfig): string {
-	return config.claude?.initialization_command ?? '';
+export function getAgentConfig(
+	config: PappardelleConfig,
+	profileName?: string | null,
+): AgentConfig | undefined {
+	const profile = profileName ? getProfile(config, profileName) : undefined;
+	// Reading the deprecated `claude` key is the entire point of this function.
+	/* eslint-disable @typescript-eslint/no-deprecated */
+	return (
+		profile?.agent ??
+		profile?.claude ??
+		config.agent ??
+		config.claude ??
+		undefined
+	);
+	/* eslint-enable @typescript-eslint/no-deprecated */
 }
 
 /**
- * Get the Claude dangerously_skip_permissions flag from config.
+ * Which agent CLI drives a space: the profile's `agent_cli` if it has one,
+ * otherwise the top-level one, otherwise Claude.
+ *
+ * The Claude default is what keeps every pre-STA-1850 config byte-identical in
+ * behavior — a config with no `agent_cli` anywhere resolves to `claude` for
+ * every space, exactly as before the field existed.
+ */
+export function resolveAgentCli(
+	config: PappardelleConfig | null | undefined,
+	profileName?: string | null,
+): AgentCli {
+	if (!config) return 'claude';
+	const profile = profileName ? getProfile(config, profileName) : undefined;
+	return profile?.agent_cli ?? config.agent_cli ?? 'claude';
+}
+
+/**
+ * Text a keybinding sends to the agent pane, accepting either the current
+ * `send_to_agent` field or the legacy `send_to_claude` spelling.
+ */
+export function getSendToAgent(binding: KeybindingConfig): string | undefined {
+	// Reading the deprecated spelling is the entire point of this function.
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
+	return binding.send_to_agent ?? binding.send_to_claude;
+}
+
+/**
+ * Get the agent initialization command from config.
+ * Returns the command string (e.g., "/idow") or empty string if not configured.
+ */
+export function getInitializationCommand(
+	config: PappardelleConfig,
+	profileName?: string | null,
+): string {
+	return getAgentConfig(config, profileName)?.initialization_command ?? '';
+}
+
+/**
+ * Get the agent's dangerously_skip_permissions flag from config.
  * Returns false if not configured (safe default).
  */
 export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
+	profileName?: string | null,
 ): boolean {
-	return config.claude?.dangerously_skip_permissions ?? false;
+	return (
+		getAgentConfig(config, profileName)?.dangerously_skip_permissions ?? false
+	);
 }
 
 /**
