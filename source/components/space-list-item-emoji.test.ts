@@ -18,7 +18,11 @@ import test from 'ava';
 import React from 'react';
 import {Box, Text} from 'ink';
 import {render} from 'ink-testing-library';
-import {inkRenderPad, railEmojiIsInkPadded} from '../emoji-rail-width.ts';
+import {
+	inkRenderPad,
+	railEmojiIsInkPadded,
+	resolveEmojiSlot,
+} from '../emoji-rail-width.ts';
 import {rowPrefixWidth, railPrefixWidth} from '../list-view-sizing.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 
@@ -27,10 +31,15 @@ const STATUS_ICON = '●';
 /**
  * Mirror of SpaceListItem's leading cells: the emoji <Text>, the separator
  * (conditional, exactly as the component decides it), then the status icon.
- * `forceSeparator` reproduces the pre-fix "always emit a separator" behavior.
+ * Goes through `resolveEmojiSlot` because that's where the component gets both
+ * the glyph and the separator decision — including the STA-1861 normalization.
+ * `forceSeparator` reproduces the pre-fix "always emit a separator" behavior on
+ * the raw glyph.
  */
 function renderEmojiPrefix(emoji: string, forceSeparator = false): string {
-	const needsSeparator = forceSeparator || !railEmojiIsInkPadded(emoji);
+	const slot = resolveEmojiSlot(emoji)!;
+	const text = forceSeparator ? emoji : slot.text;
+	const needsSeparator = forceSeparator || slot.needsSeparator;
 	// The mirrored <Text> nodes carry no color/inverse styling, so Ink emits no
 	// ANSI escapes — `lastFrame()` is already plain text, nothing to strip.
 	return (
@@ -38,7 +47,7 @@ function renderEmojiPrefix(emoji: string, forceSeparator = false): string {
 			React.createElement(
 				Box,
 				null,
-				React.createElement(Text, null, emoji),
+				React.createElement(Text, null, text),
 				needsSeparator ? React.createElement(Text, null, ' ') : null,
 				React.createElement(Text, null, STATUS_ICON),
 			),
@@ -119,7 +128,7 @@ function computeRow(emoji: string | undefined, title: string, width: number) {
 		railPrefixWidth({pipelineIcon: '✓'});
 	const availableTitleWidth = Math.max(0, width - fixedWidth);
 
-	const prefixInkPad = emoji ? inkRenderPad(emoji) : 0;
+	const prefixInkPad = emoji ? resolveEmojiSlot(emoji)!.overflowCells : 0;
 	let truncatedTitle = truncateToWidth(
 		title,
 		availableTitleWidth - prefixInkPad,
@@ -144,9 +153,10 @@ test('rowInkPad counts the row’s total emoji expansion (prefix + title)', t =>
 	for (let width = 40; width <= 80; width++) {
 		for (const emoji of [undefined, '🍝', '✨']) {
 			const {truncatedTitle, rowInkPad} = computeRow(emoji, EMOJI_TITLE, width);
-			const expected =
-				(emoji ? inkRenderPad(emoji) : 0) + inkRenderPad(truncatedTitle);
-			t.is(rowInkPad, expected, `width ${width}, emoji ${emoji}`);
+			// Since STA-1861 the prefix contributes nothing — `resolveEmojiSlot`
+			// normalizes ✨ so Ink writes it at its painted width. Only the title,
+			// which is arbitrary user text, can still expand.
+			t.is(rowInkPad, inkRenderPad(truncatedTitle), `w ${width}, ${emoji}`);
 		}
 	}
 });

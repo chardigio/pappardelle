@@ -137,7 +137,11 @@ profiles:
     display_name: 'Stardust Jams (iOS Music App)'
 
     # Optional emoji shown in the TUI ticket rail (left of the Claude status
-    # icon). Falls back to the top-level `default_emoji` when omitted.
+    # icon) and in the new-session profile picker. Falls back to the top-level
+    # `default_emoji` when omitted. Symbols that are emoji by default but only
+    # one code point (✨ ⭐ ✅ ⚡ …) are rendered with a variation selector
+    # appended, which is how the terminal draws them anyway — without it Ink
+    # emits a row one column too wide and the frame border wraps (STA-1861).
     emoji: '🎵'
 
     # Per-profile team prefix override (optional)

@@ -1,8 +1,10 @@
 import test from 'ava';
+import stringWidth from 'string-width';
 import widestLine from 'widest-line';
 import {
 	inkRenderPad,
 	inkRenderWidth,
+	normalizeRailEmoji,
 	railEmojiIsInkPadded,
 	resolveEmojiSlot,
 } from './emoji-rail-width.ts';
@@ -82,29 +84,57 @@ test('resolveEmojiSlot returns null when the user has no emoji configured at all
 });
 
 test('resolveEmojiSlot reserves a blank two-cell slot for an empty string', t => {
-	t.deepEqual(resolveEmojiSlot(''), {text: '  ', needsSeparator: true});
+	t.deepEqual(resolveEmojiSlot(''), {
+		text: '  ',
+		needsSeparator: true,
+		overflowCells: 0,
+	});
 });
 
 test('resolveEmojiSlot emits its own separator for emoji Ink does not pad', t => {
+	// None of these is padded, so STA-1861's normalization leaves every one of
+	// them exactly as configured — `normalizeRailEmoji` in the expectation is
+	// the identity here, and pins that it stays that way.
 	for (const emoji of wellBehavedEmoji) {
 		t.deepEqual(resolveEmojiSlot(emoji), {
-			text: emoji,
+			text: normalizeRailEmoji(emoji),
 			needsSeparator: true,
+			overflowCells: 0,
 		});
 	}
 });
 
-test('resolveEmojiSlot suppresses the separator for emoji Ink already pads', t => {
+test('resolveEmojiSlot widens the bug class and lets Ink’s pad separate it', t => {
 	for (const emoji of inkPaddedEmoji) {
 		t.deepEqual(resolveEmojiSlot(emoji), {
-			text: emoji,
+			text: emoji + '️',
 			needsSeparator: false,
+			overflowCells: 0,
 		});
 	}
 });
 
 test('resolveEmojiSlot agrees with railEmojiIsInkPadded for every sample', t => {
 	for (const emoji of [...wellBehavedEmoji, ...inkPaddedEmoji]) {
-		t.is(resolveEmojiSlot(emoji)!.needsSeparator, !railEmojiIsInkPadded(emoji));
+		// The predicate is asked about the glyph the slot actually renders, not
+		// the raw config value — those differ for anything normalization touched.
+		const slot = resolveEmojiSlot(emoji)!;
+		t.is(slot.needsSeparator, !railEmojiIsInkPadded(slot.text));
 	}
+});
+
+test('the normalized glyph still measures 2 cells to `string-width` too', t => {
+	// `SpaceListItem` budgets the ticket-rail title with the npm `string-width`
+	// package — a different width table from the `widest-line`/`ansi-tokenize`
+	// pair everything else here measures with, and one this file's own header
+	// warns disagrees with Ink's bundled copy for exactly this symbol class. The
+	// normalized glyph has to read as 2 cells to *both* or the rail's title
+	// budget silently drifts a column. Pinned so a `string-width` bump that
+	// starts counting U+FE0F as its own cell fails here rather than in the rail.
+	for (const emoji of inkPaddedEmoji) {
+		t.is(stringWidth(resolveEmojiSlot(emoji)!.text), 2, `${emoji} normalized`);
+	}
+
+	// The blank slot holds the same two columns.
+	t.is(stringWidth(resolveEmojiSlot('')!.text), 2);
 });

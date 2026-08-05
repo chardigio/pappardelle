@@ -142,7 +142,11 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	//      right-aligned rail anchors that many columns in from the edge. Without
 	//      this the rail's flex spacer refills to the full width in Ink's model
 	//      and the terminal expansion pushes the rail icons onto the next line.
-	const prefixInkPad = emoji ? inkRenderPad(emoji) : 0;
+	// The prefix emoji is normalized by `resolveEmojiSlot` (STA-1861), so it no
+	// longer expands past its layout — the slot reports what's left, which is 0
+	// for every glyph a variation selector can rescue. Titles are arbitrary user
+	// text and get no such treatment, so they still expand and still need (2).
+	const prefixInkPad = emojiSlot?.overflowCells ?? 0;
 	let truncatedTitle = truncateToWidth(
 		title,
 		availableTitleWidth - prefixInkPad,

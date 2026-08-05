@@ -21,6 +21,15 @@
 // separator: when Ink already pads, that pad cell *is* the separator, so a
 // second explicit space would double it up (STA-1565).
 //
+// The pad is not just cosmetic, though: it is a real character the terminal
+// draws *in addition to* the two columns it paints the glyph in, so the emitted
+// row runs one column past the box it was laid out in. STA-1861 closes that gap
+// at the source — `resolveEmojiSlot` runs the glyph through
+// `normalizeRailEmoji`, which appends U+FE0F so the writer advances the full
+// two cells and leaves nothing behind. Rail emoji therefore no longer expand
+// past their layout; arbitrary text (issue titles) still can, which is why
+// `inkRenderPad` remains in use for those.
+//
 // Both sides are measured the way Ink itself measures them — `widest-line` for
 // the layout box and `@alcalzone/ansi-tokenize` for the writer — rather than
 // pappardelle's own (newer) `string-width`, whose width tables differ from
@@ -65,6 +74,37 @@ export function railEmojiIsInkPadded(emoji: string): boolean {
 	return inkRenderPad(emoji) > 0;
 }
 
+/** U+FE0F — asks for emoji presentation; visually a no-op on emoji defaults. */
+const VARIATION_SELECTOR_16 = '️';
+
+/**
+ * Widen an Ink-padded emoji so the writer advances the whole box it reserved.
+ *
+ * The pad is not free: it's a literal space Ink leaves behind in a cell the
+ * terminal is *also* going to paint the glyph over, so the emitted row carries
+ * one character more than its layout box is wide. Inside a bordered frame that
+ * surplus column pushes the closing border past the pane edge, and the terminal
+ * wraps it onto a line of its own — the phantom blank row under a ✨ profile in
+ * the new-session picker (STA-1861).
+ *
+ * Appending U+FE0F takes the grapheme to `value.length === 2`, so the writer
+ * consumes the cell instead of skipping it. VS16 is what the glyph already
+ * renders as (these are emoji-presentation-by-default symbols), so nothing about
+ * the drawn character changes — only how many cells Ink admits to using.
+ *
+ * The guard re-measures rather than trusting the rule, so a sequence a variation
+ * selector can't rescue falls through untouched instead of gaining a stray code
+ * point. Deliberately scoped to `railEmojiIsInkPadded`: text-presentation
+ * defaults (❤ U+2764, ✂ U+2702) are *not* padded, and real terminals paint them
+ * one cell wide exactly as Ink lays them out — widening those would change the
+ * glyph the user configured to fix a bug they don't have.
+ */
+export function normalizeRailEmoji(emoji: string): string {
+	if (!railEmojiIsInkPadded(emoji)) return emoji;
+	const widened = emoji + VARIATION_SELECTOR_16;
+	return inkRenderWidth(widened) >= widestLine(emoji) ? widened : emoji;
+}
+
 /**
  * The rail's three-state emoji slot, shared so the ticket rail and the
  * new-session profile picker can't drift apart:
@@ -75,11 +115,27 @@ export function railEmojiIsInkPadded(emoji: string): boolean {
  *     hold the column so emoji-bearing siblings still line up.
  *   - a glyph — render it, and emit a separator unless Ink's own pad already
  *     is one (see `railEmojiIsInkPadded`).
+ *
+ * `text` is the *normalized* glyph, so the slot is the single place a rail
+ * emoji is made safe to draw — nothing downstream has to know about U+FE0F.
+ *
+ * `overflowCells` is how far the drawn row runs past the box Ink laid out for
+ * it: the columns the terminal paints (`widest-line` on the configured glyph —
+ * the measure that matched a real tmux pane during STA-1861's TUI QA) minus the
+ * columns Ink's writer emits for what we hand it. Normalization drives this to
+ * zero for the whole padded class, but callers that right-align content still
+ * subtract it, so an emoji no variation selector can rescue can't silently push
+ * their rail off the pane edge (STA-1565).
  */
 export function resolveEmojiSlot(
 	rawEmoji: string | undefined,
-): {text: string; needsSeparator: boolean} | null {
+): {text: string; needsSeparator: boolean; overflowCells: number} | null {
 	if (rawEmoji === undefined) return null;
-	const text = rawEmoji === '' ? '  ' : rawEmoji;
-	return {text, needsSeparator: !railEmojiIsInkPadded(text)};
+	const raw = rawEmoji === '' ? '  ' : rawEmoji;
+	const text = normalizeRailEmoji(raw);
+	return {
+		text,
+		needsSeparator: !railEmojiIsInkPadded(text),
+		overflowCells: Math.max(0, widestLine(raw) - inkRenderWidth(text)),
+	};
 }
