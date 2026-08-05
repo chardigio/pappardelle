@@ -7,7 +7,7 @@ import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
 import {railPrefixWidth, rowPrefixWidth} from '../list-view-sizing.ts';
-import {inkRenderPad, railEmojiIsInkPadded} from '../emoji-rail-width.ts';
+import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
@@ -98,9 +98,8 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	//     two spaces so rows still line up with their emoji-bearing siblings.
 	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
 	//     so multi-cell emoji reserve the right number of cells.
-	const rawEmoji = space.profileEmoji;
-	const hasEmojiSlot = rawEmoji !== undefined;
-	const emoji = hasEmojiSlot ? (rawEmoji === '' ? '  ' : rawEmoji) : undefined;
+	const emojiSlot = resolveEmojiSlot(space.profileEmoji);
+	const emoji = emojiSlot?.text;
 	const emojiCells = emoji ? stringWidth(emoji) : 0;
 	const emojiPrefixCells = rowPrefixWidth(
 		emoji ? {emoji, width: emojiCells} : undefined,
@@ -110,7 +109,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	// the glyph one cell narrower than `string-width` reserved and pads the box
 	// with a trailing space. That pad already separates the emoji from the
 	// status icon, so emitting a second space here would double it (STA-1565).
-	const emojiNeedsSeparator = emoji ? !railEmojiIsInkPadded(emoji) : false;
+	const emojiNeedsSeparator = emojiSlot?.needsSeparator ?? false;
 
 	// Calculate available width for title
 	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]" — emoji on the

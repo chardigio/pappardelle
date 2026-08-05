@@ -1400,6 +1400,13 @@ export type ProfileSelection =
 			isDefault: boolean;
 			matchedKeywords: string[];
 			enforced: boolean;
+			/**
+			 * Ticket-rail emoji slot for the resolved profile, with the rail's
+			 * three-state semantics (`undefined` = nobody configured one, `''` =
+			 * slot reserved but blank). Carried here so the TUI's typing-stage hint
+			 * shows the same glyph the profile picker will show a keystroke later.
+			 */
+			emoji: string | undefined;
 	  };
 
 /**
@@ -1442,6 +1449,7 @@ export function determineProfileForInput(
 			isDefault: true,
 			matchedKeywords: [],
 			enforced: false,
+			emoji: getProfileEmoji(def.profile, config),
 		};
 	}
 
@@ -1453,6 +1461,7 @@ export function determineProfileForInput(
 		isDefault: false,
 		matchedKeywords: best.matchedKeywords,
 		enforced: best.enforced,
+		emoji: getProfileEmoji(best.profile, config),
 	};
 }
 

@@ -1959,6 +1959,7 @@ export default function App({
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
+						availableWidth={termDimensions.cols}
 					/>
 				) : showDeleteConfirm && spaceToDelete ? (
 					<ConfirmDialog

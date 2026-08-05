@@ -4,6 +4,7 @@ import {
 	inkRenderPad,
 	inkRenderWidth,
 	railEmojiIsInkPadded,
+	resolveEmojiSlot,
 } from './emoji-rail-width.ts';
 
 // The bug class: single-BMP default-emoji-presentation symbols. Ink's layout
@@ -70,4 +71,40 @@ test('railEmojiIsInkPadded leaves well-behaved emoji alone', t => {
 	// draw — no pad, so the explicit separator is kept (rows still line up).
 	t.false(railEmojiIsInkPadded('  '));
 	t.false(railEmojiIsInkPadded(''));
+});
+
+// ============================================================================
+// resolveEmojiSlot — the three-state slot shared by the rail and the picker
+// ============================================================================
+
+test('resolveEmojiSlot returns null when the user has no emoji configured at all', t => {
+	t.is(resolveEmojiSlot(undefined), null);
+});
+
+test('resolveEmojiSlot reserves a blank two-cell slot for an empty string', t => {
+	t.deepEqual(resolveEmojiSlot(''), {text: '  ', needsSeparator: true});
+});
+
+test('resolveEmojiSlot emits its own separator for emoji Ink does not pad', t => {
+	for (const emoji of wellBehavedEmoji) {
+		t.deepEqual(resolveEmojiSlot(emoji), {
+			text: emoji,
+			needsSeparator: true,
+		});
+	}
+});
+
+test('resolveEmojiSlot suppresses the separator for emoji Ink already pads', t => {
+	for (const emoji of inkPaddedEmoji) {
+		t.deepEqual(resolveEmojiSlot(emoji), {
+			text: emoji,
+			needsSeparator: false,
+		});
+	}
+});
+
+test('resolveEmojiSlot agrees with railEmojiIsInkPadded for every sample', t => {
+	for (const emoji of [...wellBehavedEmoji, ...inkPaddedEmoji]) {
+		t.is(resolveEmojiSlot(emoji)!.needsSeparator, !railEmojiIsInkPadded(emoji));
+	}
 });

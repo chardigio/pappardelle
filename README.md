@@ -114,11 +114,19 @@ Press `n` in the workspace list to open the prompt dialog.
 
 ![New session dialog](assets/new-session-dialog.png)
 
+Enter moves focus to a **profile picker** below the prompt, with the
+keyword-matched profile already selected — so `Enter`, `Enter` spawns exactly
+what the keyword would have chosen on its own. Arrow (or `j`/`k`) to any other
+profile to override it without rewording your prompt, and `Esc` to go back to
+editing. Issue keys, bare numbers, and Linear URLs skip the picker entirely and
+spawn on a single `Enter`, since their profile comes from the issue's tracker
+project rather than from your text.
+
 ### What gets provisioned
 
 When you create a workspace, Pappardelle runs through these steps:
 
-1. **Profile selection** — Your input is keyword-matched against a profile in `.pappardelle.yml`.
+1. **Profile selection** — Your input is keyword-matched against a profile in `.pappardelle.yml`, and you confirm (or override) the match in the picker.
 
 2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira) issue is created with a WIP title. For existing issue keys, the issue is fetched.
 

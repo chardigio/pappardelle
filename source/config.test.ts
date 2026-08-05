@@ -4347,3 +4347,66 @@ test('determineProfileForInput honors enforced (!) keywords', t => {
 		t.true(info.enforced);
 	}
 });
+
+// ============================================================================
+// determineProfileForInput — profile emoji (STA-1837)
+//
+// The typing-stage hint in PromptDialog shows the same glyph the picker will
+// show one keystroke later, so the emoji has to ride along with the selection
+// rather than be re-resolved by the component.
+// ============================================================================
+
+test('determineProfileForInput carries the matched profile emoji', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: {...createProfile(['trotbooks'], 'TrotBooks'), emoji: '🐎'},
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'fix trotbooks invoices');
+	t.is(info!.kind, 'resolved');
+	if (info!.kind === 'resolved') {
+		t.is(info.emoji, '🐎');
+	}
+});
+
+test('determineProfileForInput reserves a blank emoji slot when siblings have one', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: {...createProfile(['trotbooks'], 'TrotBooks'), emoji: '🐎'},
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'personal notes');
+	if (info!.kind === 'resolved') {
+		t.is(info.emoji, '');
+	}
+});
+
+test('determineProfileForInput leaves emoji undefined when nothing configures one', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'personal notes');
+	if (info!.kind === 'resolved') {
+		t.is(info.emoji, undefined);
+	}
+});
+
+test('determineProfileForInput emoji survives the default-profile fallback', t => {
+	const config = createConfig(
+		{
+			personal: {...createProfile(['personal'], 'Personal'), emoji: '🎸'},
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'something unmatched');
+	if (info!.kind === 'resolved') {
+		t.true(info.isDefault);
+		t.is(info.emoji, '🎸');
+	}
+});

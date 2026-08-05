@@ -309,16 +309,20 @@ When the input is an existing issue key, the issue is fetched from the tracker a
 When the input is a description (not an issue key):
 
 1. **Keyword Matching**: Each word in the input is checked against all profile keywords
-2. **Auto-selection**: If keywords match exactly one profile, it's auto-selected
-3. **Disambiguation**: If multiple profiles match, user is prompted to choose
+2. **Preselection**: The highest-scoring match is preselected in the TUI's profile picker
+3. **Confirmation** (STA-1837): Enter moves focus to the picker, which lists _every_
+   profile with the preselected one first; a second Enter accepts it, so
+   Enter-Enter reproduces the old auto-select. Arrow keys (or `j`/`k`) pick any
+   other profile without rewording the prompt; Esc returns to the prompt
 4. **Project assignment** (Linear, STA-959): The new issue is created in the
    profile's `tracker_projects[0]` Linear project. Resolved at create-time via
    `linctl project list --json --include-completed` (case-insensitive name
    match). If the name doesn't resolve (typo, archived project), pappardelle
    warns and creates the issue unassigned — same as pre-STA-959 behavior.
    Profiles without `tracker_projects` always create unassigned issues.
-5. **No Match**: User is prompted to select from all profiles
-6. **Explicit Override**: User can always type a different profile name
+5. **No Match**: The default profile is preselected; the picker still lists all of them
+6. **Explicit Override**: A trailing `!` on a keyword (e.g. `music!`) forces that
+   profile to the front of the picker
 
 ### Selection Flow
 
@@ -330,8 +334,8 @@ User input: "add playlist shuffle feature"
    - stardust-jams: "playlist" matches! (score: 1)
    - king-bee: no matches (score: 0)
    - backend: no matches (score: 0)
-3. Single winner → auto-select stardust-jams
-4. Proceed with workspace setup
+3. Single winner → stardust-jams preselected in the picker
+4. Enter accepts it (or arrow to another) → proceed with workspace setup
 
 User input: "fix api bug"
 
@@ -340,17 +344,17 @@ User input: "fix api bug"
    - stardust-jams: no matches
    - king-bee: no matches
    - backend: "api" matches! (score: 1)
-3. Single winner → auto-select backend
-4. Proceed with workspace setup
+3. Single winner → backend preselected in the picker
+4. Enter accepts it (or arrow to another) → proceed with workspace setup
 
 User input: "update homepage"
 
 1. Tokenize: ["update", "homepage"]
 2. Match against keywords: no matches
-3. Prompt user: "Select a project profile:"
-   [1] Stardust Jams (iOS Music App)
-   [2] King Bee (iOS Spelling Game)
-   [3] Backend Service
+3. Picker opens with the default profile first, then the rest in config order:
+   > Backend Service          (default)
+     Stardust Jams
+     King Bee
 ```
 
 ## Error Handling

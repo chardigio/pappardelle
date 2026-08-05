@@ -64,3 +64,22 @@ export function inkRenderPad(text: string): number {
 export function railEmojiIsInkPadded(emoji: string): boolean {
 	return inkRenderPad(emoji) > 0;
 }
+
+/**
+ * The rail's three-state emoji slot, shared so the ticket rail and the
+ * new-session profile picker can't drift apart:
+ *
+ *   - `undefined` — no profile anywhere configures an emoji. There is no slot;
+ *     rows render exactly as they did before emoji existed.
+ *   - `''` — the slot exists but this row has nothing to put in it. Two spaces
+ *     hold the column so emoji-bearing siblings still line up.
+ *   - a glyph — render it, and emit a separator unless Ink's own pad already
+ *     is one (see `railEmojiIsInkPadded`).
+ */
+export function resolveEmojiSlot(
+	rawEmoji: string | undefined,
+): {text: string; needsSeparator: boolean} | null {
+	if (rawEmoji === undefined) return null;
+	const text = rawEmoji === '' ? '  ' : rawEmoji;
+	return {text, needsSeparator: !railEmojiIsInkPadded(text)};
+}
