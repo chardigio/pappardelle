@@ -77,7 +77,7 @@ terminal:
 # Lifecycle hooks (optional)
 # Commands that run at specific points during workspace setup.
 hooks:
-  # Runs after the workspace is fully created (worktree, PR, apps opened)
+  # Runs after the workspace is fully created (worktree, PR if created, apps opened)
   post_workspace_create:
     - name: 'Run setup script'
       run: 'cd ${WORKTREE_PATH} && ./setup.sh'
@@ -282,8 +282,8 @@ Variables are expanded using `${VAR_NAME}` syntax. Environment variables are als
 
 ```yaml
 # All of these work:
-path: "${WORKTREE_PATH}"
-path: "${HOME}/.worktrees/${REPO_NAME}/${ISSUE_KEY}"
+path: '${WORKTREE_PATH}'
+path: '${HOME}/.worktrees/${REPO_NAME}/${ISSUE_KEY}'
 run: "echo ${ISSUE_KEY} | tr '[:upper:]' '[:lower:]'"
 ```
 
@@ -435,6 +435,7 @@ interface PappardelleConfig {
 		model?: string; // Launch with --model <value>. Omit for Claude's default. Per-profile overridable.
 		effort?: string; // Launch with --effort <value>. Omit for Claude's default. Per-profile overridable.
 	};
+	skip_default_pr?: boolean; // Skip creating the placeholder PR/MR at workspace setup. Per-profile overridable. Default: false.
 	profiles: Record<string, Profile>;
 }
 
@@ -453,6 +454,7 @@ interface Profile {
 		effort?: string; // Override global claude.effort for this profile. "" = clear the global.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
+	skip_default_pr?: boolean; // Override the top-level skip_default_pr for this profile.
 	vars?: Record<string, string>; // Generic template variables
 	vcs?: {
 		label: string; // Provider-agnostic VCS label for PRs/MRs
@@ -830,6 +832,32 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Skip Default PR/MR Creation
+
+By default, workspace setup creates a placeholder PR (GitHub) or MR (GitLab) for the new branch — an empty `[KEY] Placeholder commit...` commit, a push with upstream tracking, and a draft PR/MR. Set `skip_default_pr` to skip that step entirely. Off by default.
+
+```yaml
+# Top-level default for every profile.
+skip_default_pr: true # default: false
+
+profiles:
+  experiments:
+    display_name: Experiments
+    keywords: [experiment, spike]
+    # A profile can override the top-level value in either direction.
+    skip_default_pr: false
+```
+
+```typescript
+skip_default_pr?: boolean; // top-level and per-profile
+```
+
+**How it works:**
+
+- **Resolution order** (first defined wins): the selected profile's `skip_default_pr` → the top-level `skip_default_pr` → `false`. An explicit `false` on a profile overrides a top-level `true`. Mirrors `getSkipDefaultPr()` in `source/config.ts`.
+- **Skip means skip everything.** No placeholder commit, no `git push`, no PR/MR. The branch stays local until you push it yourself (it still tracks `origin/main` from worktree creation, so `git pull` keeps working).
+- **An existing PR/MR is still detected.** Step 6 always checks for an open PR/MR on the branch first; the flag only suppresses _creating_ one. `${PR_URL}`/`${MR_URL}` template variables stay empty when nothing exists, and `if_set`-gated links/apps skip cleanly.
+
 ## Companion Pane Command
 
 The right pane of the 3-pane layout (the one that historically ran lazygit) runs the **companion command**. It defaults to `gitui`; set `companion_command` to run anything else.
@@ -1033,9 +1061,9 @@ hooks:
 
 ### Hook Points
 
-| Hook                    | When it Runs                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------- |
-| `post_workspace_create` | After workspace setup is complete (worktree created, PR created, apps opened), before final summary |
+| Hook                    | When it Runs                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `post_workspace_create` | After workspace setup is complete (worktree created, PR created unless skipped, apps opened), before final summary |
 
 ### Hook Command Fields
 
@@ -1050,7 +1078,7 @@ Each hook entry uses the same `CommandConfig` structure as profile commands:
 
 ### Available Template Variables in Hooks
 
-All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}`, plus any profile `vars`.
+All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${PR_URL}` (may be empty), plus any profile `vars`.
 
 ## Local Overrides (`.pappardelle.local.yml`)
 

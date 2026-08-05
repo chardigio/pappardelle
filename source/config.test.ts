@@ -17,6 +17,7 @@ import {
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	getCompanionCommand,
+	getSkipDefaultPr,
 	DEFAULT_COMPANION_COMMAND,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
@@ -3863,6 +3864,134 @@ test('getCompanionCommand uses top-level when the title matches no profile', t =
 	config.companion_command = 'gitui';
 	// "unrelated" matches no keyword, so the backend override must NOT apply.
 	t.is(getCompanionCommand(config, 'unrelated task'), 'gitui');
+});
+
+// ============================================================================
+// skip_default_pr Validation Tests
+// ============================================================================
+
+test('validateConfig accepts top-level skip_default_pr set to true', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		skip_default_pr: true,
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts top-level skip_default_pr set to false', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		skip_default_pr: false,
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts config without skip_default_pr (off by default)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects top-level skip_default_pr with a non-boolean value', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		skip_default_pr: 'yes',
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('skip_default_pr: must be a boolean'));
+});
+
+test('validateConfig accepts a per-profile skip_default_pr boolean', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			backend: {display_name: 'Backend', skip_default_pr: true},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects a non-boolean per-profile skip_default_pr', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			backend: {display_name: 'Backend', skip_default_pr: 'yes'},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'profiles.backend.skip_default_pr: must be a boolean',
+		),
+	);
+});
+
+// ============================================================================
+// getSkipDefaultPr Tests
+// ============================================================================
+
+test('getSkipDefaultPr defaults to false when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.false(getSkipDefaultPr(config, 'test-profile'));
+	t.false(getSkipDefaultPr(config));
+});
+
+test('getSkipDefaultPr returns the top-level value when the profile has none', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.skip_default_pr = true;
+	t.true(getSkipDefaultPr(config, 'test-profile'));
+	t.true(getSkipDefaultPr(config));
+});
+
+test('getSkipDefaultPr prefers the profile value over top-level', t => {
+	const config = createConfig(
+		{
+			backend: {
+				...createProfile(['backend'], 'Backend'),
+				skip_default_pr: true,
+			},
+		},
+		'backend',
+	);
+	t.true(getSkipDefaultPr(config, 'backend'));
+});
+
+test('getSkipDefaultPr lets an explicit profile false override a top-level true', t => {
+	const config = createConfig(
+		{
+			backend: {
+				...createProfile(['backend'], 'Backend'),
+				skip_default_pr: false,
+			},
+		},
+		'backend',
+	);
+	config.skip_default_pr = true;
+	t.false(getSkipDefaultPr(config, 'backend'));
+});
+
+test('getSkipDefaultPr falls back to top-level for an unknown profile name', t => {
+	const config = createConfig(
+		{backend: createProfile(['backend'], 'Backend')},
+		'backend',
+	);
+	config.skip_default_pr = true;
+	t.true(getSkipDefaultPr(config, 'nonexistent'));
 });
 
 // ============================================================================
