@@ -5,9 +5,9 @@
 # Usage: resolve-claude-config.sh --config <path> [--local-config <path>] [--home-config <path>] [--profile <name>]
 #
 # Layers (lowest → highest priority):
-#   1. Home config   (~/.pappardelle.yml)     — personal defaults across all repos
-#   2. Project config (.pappardelle.yml)       — repo-level settings
-#   3. Local config   (.pappardelle.local.yml) — personal overrides (gitignored)
+#   1. Home config    (~/.pappardelle/.pappardelle.yml) — personal defaults across all repos
+#   2. Project config (.pappardelle.yml)                — repo-level settings
+#   3. Local config   (.pappardelle.local.yml)          — personal overrides (gitignored)
 #
 # Uses yq deep merge so ANY field in the claude section (or any future section)
 # is automatically resolved without per-field override logic.

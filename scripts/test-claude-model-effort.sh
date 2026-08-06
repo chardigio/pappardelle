@@ -258,6 +258,42 @@ cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: home and local both apply when the project config is silent${RESET}"
+setup_configs "version: 1
+$BASE_PROFILES" "version: 1
+claude:
+  effort: max" "version: 1
+claude:
+  model: haiku
+  effort: low"
+OUT=$(resolve --profile backend)
+assert_eq "home model survives — local is silent on it" "haiku" "$(echo "$OUT" | field model)"
+assert_eq "local effort beats home effort" "max" "$(echo "$OUT" | field effort)"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+# idow is the production caller and can't be run headlessly (needs tmux, a git
+# repo, and live providers), so pin its wiring by inspection instead. It shipped
+# without --home-config on either call site, which silently dropped the home
+# layer for everyone launching a workspace while the TUI's loadConfig() honored
+# it — the two resolvers disagreeing is the exact failure this file exists to
+# prevent.
+
+echo -e "\n${BOLD}Test: idow passes the home layer to the resolver${RESET}"
+# `|| true` on both counts: grep -c exits 1 when it matches nothing, and this
+# file runs under `set -e`. Without it the regression case this test exists to
+# catch — zero calls carrying --home-config — kills the suite mid-test instead
+# of failing it, printing no FAIL line, no summary, and silently skipping every
+# test block below.
+IDOW_CALLS=$(grep -c 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" || true)
+IDOW_HOME_CALLS=$(grep 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" | grep -c -- '--home-config' || true)
+assert_eq "every idow resolver call passes --home-config" "$IDOW_CALLS" "$IDOW_HOME_CALLS"
+assert_eq "idow's home path matches getDefaultHomeConfigDir()" \
+    'HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"' \
+    "$(grep -o 'HOME_CONFIG_PATH="\$HOME/[^"]*"' "$SCRIPT_DIR/idow" | head -1)"
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: exotic model ids survive the JSON round-trip${RESET}"
 setup_configs "version: 1
 claude:

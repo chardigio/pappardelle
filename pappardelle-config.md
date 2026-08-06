@@ -8,20 +8,23 @@ The `.pappardelle.yml` file replaces the previous `.git` directory requirement. 
 
 **Key Design Decisions:**
 
-- **Repository-wide configuration**: One `.pappardelle.yml` at the git repository root
+- **Layered configuration**: A personal home config, the repo's committed config, and a gitignored local override, deep-merged in that order
 - **Profile-based**: Different project types (iOS apps, backend services) have named profiles
-- **Required**: Pappardelle exits with an error if no config file is found
+- **Required**: Pappardelle exits with an error if no layer provides a config file
 - **Templated**: Supports variable expansion for dynamic values
 - **Provider-agnostic**: Supports multiple issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab)
 
 ## File Location
 
-Pappardelle searches for `.pappardelle.yml` at the git repository root only:
+Config is assembled from up to three files, deep-merged lowest → highest priority:
 
-```bash
-git rev-parse --show-toplevel  # Find repo root
-# Then look for: <repo-root>/.pappardelle.yml
-```
+| #   | Layer   | Path                                 | Purpose                                  | Committed?            |
+| --- | ------- | ------------------------------------ | ---------------------------------------- | --------------------- |
+| 1   | Home    | `~/.pappardelle/.pappardelle.yml`    | Your personal defaults across every repo | No (outside the repo) |
+| 2   | Project | `<repo-root>/.pappardelle.yml`       | Repo-level settings shared with the team | Yes                   |
+| 3   | Local   | `<repo-root>/.pappardelle.local.yml` | Your per-repo overrides                  | No (gitignored)       |
+
+Later layers override earlier ones key by key, so a home config setting `claude.model` still applies in a repo whose `.pappardelle.yml` never mentions it. Only the conflicting keys are replaced — `keybindings` are smart-merged rather than wholesale replaced.
 
 ## Configuration Schema
 
@@ -282,8 +285,8 @@ Variables are expanded using `${VAR_NAME}` syntax. Environment variables are als
 
 ```yaml
 # All of these work:
-path: "${WORKTREE_PATH}"
-path: "${HOME}/.worktrees/${REPO_NAME}/${ISSUE_KEY}"
+path: '${WORKTREE_PATH}'
+path: '${HOME}/.worktrees/${REPO_NAME}/${ISSUE_KEY}'
 run: "echo ${ISSUE_KEY} | tr '[:upper:]' '[:lower:]'"
 ```
 

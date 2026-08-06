@@ -375,6 +375,7 @@ npm link                # makes `pappardelle` available globally
 | Directory / File                                   | Purpose                                                   |
 | -------------------------------------------------- | --------------------------------------------------------- |
 | `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files              |
+| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                |
 | `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots) |
 | `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)               |
 | `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks             |
