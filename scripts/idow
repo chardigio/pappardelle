@@ -15,7 +15,7 @@
 #   2. Creates/fetches issue as needed
 #   3. Selects project profile from .pappardelle.yml
 #   4. Creates a git worktree at ~/.worktrees/<project>/<issue-key>
-#   5. Creates PR/MR (if new)
+#   5. Creates PR/MR (if new; skipped when skip_default_pr is set)
 #   6. Opens terminal with Claude (if --open)
 #   7. Opens profile-configured apps, links, and commands (if --open)
 
@@ -706,9 +706,26 @@ fi
 # Step 6: Create or find PR/MR
 print_step 6 "Setting up PR/MR ($VCS_PROVIDER)..."
 cd "$WORKTREE_PATH"
+
+# Per-profile skip_default_pr falls back to the top-level key, then false.
+# Two-step read instead of yq's // chain: // treats false itself as falsy, so
+# a chained read would lose an explicit `skip_default_pr: false` on a profile
+# under a top-level true. Mirrors getSkipDefaultPr() in config.ts.
+SKIP_DEFAULT_PR=$(yq -r ".profiles.$SELECTED_PROFILE.skip_default_pr" "$CONFIG_PATH" 2>/dev/null)
+if [[ -z "$SKIP_DEFAULT_PR" || "$SKIP_DEFAULT_PR" == "null" ]]; then
+    SKIP_DEFAULT_PR=$(yq -r ".skip_default_pr" "$CONFIG_PATH" 2>/dev/null)
+fi
+[[ "$SKIP_DEFAULT_PR" == "true" ]] || SKIP_DEFAULT_PR="false"
+
 PR_URL=$(check_existing_pr "$CONFIG_PATH")
 if [[ -n "$PR_URL" ]]; then
     print_success "Found PR/MR: $PR_URL"
+elif [[ "$SKIP_DEFAULT_PR" == "true" ]]; then
+    # Skip everything: no placeholder commit, no branch push, no PR/MR. The
+    # branch stays local until pushed manually.
+    print_success "Skipping PR/MR creation (skip_default_pr)"
+    PR_URL=""
+    PR_JSON="{}"
 else
     # Create placeholder PR/MR for any issue without one (new or existing)
     PR_JSON=$(create_pr \

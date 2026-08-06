@@ -43,6 +43,12 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Skip creating the default placeholder PR/MR at workspace setup — no
+# placeholder commit, no push; the branch stays local until you push it.
+# An existing PR/MR is still detected. A profile can override this (see
+# profiles below). Off by default.
+# skip_default_pr: true
+
 # Issue watchlist (optional): poll the tracker every 30s and auto-spawn a
 # workspace for each assigned, matching issue that doesn't already have one.
 # A profile can also declare its own `issue_watchlist` (see ios-app below) —
@@ -182,6 +188,9 @@ profiles:
     # Per-profile companion-pane command. Overrides the top-level
     # `companion_command` — e.g. boot the API server instead of a git UI.
     # companion_command: 'make run'
+    # Per-profile skip_default_pr. Overrides the top-level value in either
+    # direction — e.g. skip the placeholder PR only for this profile.
+    # skip_default_pr: true
     github:
       label: 'backend'
     links:

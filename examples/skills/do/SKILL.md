@@ -58,7 +58,7 @@ _Original prompt:_
 
 ### 4. Update GitHub PR
 
-Edit the PR body to add summary details, but **preserve the "Original prompt" section**:
+If the workspace has a PR/MR (check with `gh pr view`, or `glab mr view` on GitLab remotes), edit the PR body to add summary details, but **preserve the "Original prompt" section**:
 
 ```bash
 gh pr edit --body "## Summary

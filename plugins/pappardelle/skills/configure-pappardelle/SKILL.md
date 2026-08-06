@@ -33,6 +33,7 @@ Options:
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions, model, effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
+- **Skip the default PR/MR** — don't create the placeholder PR/MR at workspace setup (`skip_default_pr`; top-level or per-profile)
 
 Then follow the appropriate section below based on their choice.
 
@@ -322,6 +323,23 @@ companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GI
 `-v` stacks the new pane below, `-d` keeps focus on the top (gitui) pane, `-l 30%` sizes the bottom shell (gitui keeps the other 70%), `-c "#{pane_current_path}"` opens it in the worktree dir. The split runs inside the companion's own tmux session, so it never touches the Claude pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the default — custom commands don't get it for free. Only newly-created workspaces pick up a changed `companion_command` (existing companion sessions persist).
 
 **When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), a split pane (recipe above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
+
+## Skipping the Default PR/MR
+
+By default, workspace setup creates a placeholder PR/MR for the new branch. `skip_default_pr: true` skips that entirely: no placeholder commit, no push; the branch stays local until pushed manually. An existing PR/MR is still detected.
+
+```yaml
+skip_default_pr: true # top-level default for every profile
+
+profiles:
+  experiments:
+    display_name: Experiments
+    skip_default_pr: false # per-profile override, either direction
+```
+
+**Resolution order** (first defined wins): the selected profile's `skip_default_pr` → the top-level `skip_default_pr` → `false`. An explicit `false` on a profile overrides a top-level `true`.
+
+**When _not_ to prompt:** don't raise this unless the user asks. The placeholder PR/MR is the default workflow; reach for the flag only when the user says they don't want PRs/MRs opened automatically (e.g. experiments, private spikes, repos where drafts create noise) — and offer the per-profile override when the need is project-specific rather than global.
 
 Available in all command templates, link URLs, and app paths:
 

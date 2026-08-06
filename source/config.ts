@@ -149,6 +149,13 @@ export interface Profile {
 	 */
 	companion_command?: string;
 	/**
+	 * When true, workspace setup skips creating the default placeholder PR/MR
+	 * entirely — no placeholder commit, no branch push, no PR/MR. An existing
+	 * PR/MR for the branch is still detected and linked. Falls back to the
+	 * top-level `skip_default_pr`, then false.
+	 */
+	skip_default_pr?: boolean;
+	/**
 	 * Per-profile issue watchlist, polled in *addition* to the top-level
 	 * `issue_watchlist` (not instead of it). Lets a single profile watch a
 	 * different set of statuses/labels than the global watchlist — e.g. a
@@ -190,6 +197,13 @@ export interface PappardelleConfig {
 	 * behavior is identical to master when the field is absent or false.
 	 */
 	auto_remove_when_done?: boolean;
+	/**
+	 * Default for all profiles: skip creating the placeholder PR/MR during
+	 * workspace setup (no placeholder commit, no branch push, no PR/MR). An
+	 * existing PR/MR is still detected. A profile's own `skip_default_pr`
+	 * overrides this value. Off by default.
+	 */
+	skip_default_pr?: boolean;
 	/**
 	 * Command launched in the pane beside Claude (the pane that historically ran
 	 * lazygit). Defaults to `gitui`. Accepts any shell command — a different git
@@ -699,6 +713,14 @@ export function validateConfig(
 		errors.push('auto_remove_when_done: must be a boolean');
 	}
 
+	// Check skip_default_pr (optional, off by default)
+	if (
+		cfg['skip_default_pr'] !== undefined &&
+		typeof cfg['skip_default_pr'] !== 'boolean'
+	) {
+		errors.push('skip_default_pr: must be a boolean');
+	}
+
 	// Check companion_command (optional, free-form shell command). Any string is
 	// accepted — including the empty string, which means "leave a plain shell".
 	if (
@@ -1030,6 +1052,14 @@ function validateProfile(name: string, profile: unknown): string[] {
 		typeof p['companion_command'] !== 'string'
 	) {
 		errors.push(`${prefix}.companion_command: must be a string`);
+	}
+
+	// Optional per-profile skip_default_pr override
+	if (
+		p['skip_default_pr'] !== undefined &&
+		typeof p['skip_default_pr'] !== 'boolean'
+	) {
+		errors.push(`${prefix}.skip_default_pr: must be a boolean`);
 	}
 
 	// Optional vars
@@ -1827,6 +1857,28 @@ export function getCompanionCommand(
 		}
 	}
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
+}
+
+/**
+ * Whether workspace setup should skip creating the default placeholder PR/MR.
+ *
+ * Resolution order (first defined wins): the named profile's
+ * `skip_default_pr` → the top-level `skip_default_pr` → false. `undefined`
+ * checks (not `??` on the profile chain) let an explicit `false` on a profile
+ * override a top-level `true`. Mirrors the yq read in scripts/idow — the two
+ * resolvers must agree.
+ */
+export function getSkipDefaultPr(
+	config: PappardelleConfig,
+	profileName?: string,
+): boolean {
+	if (profileName) {
+		const profile = config.profiles?.[profileName];
+		if (profile?.skip_default_pr !== undefined) {
+			return profile.skip_default_pr;
+		}
+	}
+	return config.skip_default_pr ?? false;
 }
 
 /**
