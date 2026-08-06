@@ -164,9 +164,7 @@ Every `AskUserQuestion` exchange is automatically posted as a comment on the Lin
 
 Use `/configure-pappardelle` to interactively edit your config — it walks you through adding profiles, keybindings, hooks, and more using `AskUserQuestion`. Available via the [plugin marketplace](#plugin-marketplace) or by asking Claude directly (it's model-invocable).
 
-Pappardelle is configured via a `.pappardelle.yml` file at your repo root, optionally layered with personal settings from `~/.pappardelle/.pappardelle.yml` and per-repo overrides in `.pappardelle.local.yml`. The key concepts:
-
-- **Three config layers** — `~/.pappardelle/.pappardelle.yml` (your defaults everywhere) → `<repo>/.pappardelle.yml` (committed, team-wide) → `<repo>/.pappardelle.local.yml` (gitignored, yours). Deep-merged in that order, so a home-level `claude.model` applies in every repo that doesn't override it. Note the home config lives inside the `~/.pappardelle/` directory — a bare `~/.pappardelle.yml` is never read.
+Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The key concepts:
 
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues. Filter by status, labels, or `key_prefixes` (e.g. watch `STA-*` but not `WAB-*` when one account spans multiple workspaces). A profile can also declare its own `issue_watchlist`, polled _in addition_ to the top-level one and auto-scoped to that profile's `team_prefix` — so you can watch one status everywhere and a bespoke status (e.g. "For Pappardelle") for a single project.
 - **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched.
@@ -374,15 +372,15 @@ npm link                # makes `pappardelle` available globally
 
 **Directories created by the installer:**
 
-| Directory / File                                   | Purpose                                                                 |
-| -------------------------------------------------- | ----------------------------------------------------------------------- |
-| `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files                            |
-| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer — create it yourself; the installer does not |
-| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)               |
-| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                             |
-| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks                           |
-| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                                       |
-| `~/.worktrees/`                                    | Git worktrees for all your workspaces                                   |
+| Directory / File                                   | Purpose                                                   |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files              |
+| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                |
+| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots) |
+| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)               |
+| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks             |
+| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                         |
+| `~/.worktrees/`                                    | Git worktrees for all your workspaces                     |
 
 > **Multi-repo support:** State is namespaced per repository under `~/.pappardelle/repos/{repoName}/`.
 > Running pappardelle in two different repos keeps their workspace registries completely separate.

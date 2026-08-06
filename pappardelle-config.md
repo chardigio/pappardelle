@@ -24,13 +24,7 @@ Config is assembled from up to three files, deep-merged lowest → highest prior
 | 2   | Project | `<repo-root>/.pappardelle.yml`       | Repo-level settings shared with the team | Yes                   |
 | 3   | Local   | `<repo-root>/.pappardelle.local.yml` | Your per-repo overrides                  | No (gitignored)       |
 
-The repo root comes from `git rev-parse --show-toplevel`.
-
-> **The home config lives _inside_ `~/.pappardelle/`, not at `~/.pappardelle.yml`.** A bare `~/.pappardelle.yml` in your home directory is never read.
-
 Later layers override earlier ones key by key, so a home config setting `claude.model` still applies in a repo whose `.pappardelle.yml` never mentions it. Only the conflicting keys are replaced — `keybindings` are smart-merged rather than wholesale replaced.
-
-At least one layer must supply a file. A home config alone is enough for the TUI; note that `idow` additionally requires a project `.pappardelle.yml` to exist and errors out without one.
 
 ## Configuration Schema
 
@@ -291,8 +285,8 @@ Variables are expanded using `${VAR_NAME}` syntax. Environment variables are als
 
 ```yaml
 # All of these work:
-path: "${WORKTREE_PATH}"
-path: "${HOME}/.worktrees/${REPO_NAME}/${ISSUE_KEY}"
+path: '${WORKTREE_PATH}'
+path: '${HOME}/.worktrees/${REPO_NAME}/${ISSUE_KEY}'
 run: "echo ${ISSUE_KEY} | tr '[:upper:]' '[:lower:]'"
 ```
 
