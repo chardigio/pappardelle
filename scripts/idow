@@ -115,6 +115,9 @@ else
     REPO_ROOT=$(git rev-parse --show-toplevel)
 fi
 CONFIG_PATH="$REPO_ROOT/.pappardelle.yml"
+# Personal defaults shared across every repo. Must stay in step with
+# getDefaultHomeConfigDir() in source/config.ts, which is what the TUI reads.
+HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"
 
 # Source $REPO_ROOT/.envrc if present so per-repo env vars (e.g. a non-default
 # LINCTL_API_KEY for a separate Linear workspace) reach downstream tools like
@@ -149,7 +152,7 @@ fi
 # These are the top-level values; once a profile is selected, the launch flags
 # are re-resolved profile-first via resolve_claude_launch_flags below.
 LOCAL_CONFIG_PATH="$REPO_ROOT/.pappardelle.local.yml"
-CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH")
+CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
 INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
 SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
 CLAUDE_MODEL=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.model')
@@ -164,7 +167,7 @@ CLAUDE_EFFORT=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.effort')
 resolve_claude_launch_flags() {
     local profile="$1"
     local json
-    json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --profile "$profile")
+    json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
     CLAUDE_MODEL=$(echo "$json" | jq -r '.model')
     CLAUDE_EFFORT=$(echo "$json" | jq -r '.effort')
     [[ -n "$CLAUDE_MODEL" ]] && log "Claude model: $CLAUDE_MODEL"
