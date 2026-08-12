@@ -132,7 +132,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
-4. **PR/MR creation** — A placeholder PR (GitHub) or MR (GitLab) is created from the new branch.
+4. **PR/MR lookup** — If the branch already has a PR (GitHub) or MR (GitLab), it's linked into `${PR_URL}` for keybindings and profile `links`. Provisioning never _opens_ one: a workspace that hasn't produced a diff yet has nothing worth reviewing, so the agent opens the PR itself at its first real commit. Anything keyed off `${PR_URL}` should be gated with `if_set: PR_URL`.
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 

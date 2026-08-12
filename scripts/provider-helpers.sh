@@ -174,6 +174,15 @@ match_profile_by_tracker_project() {
 }
 
 # Check for existing PR/MR on current branch
+#
+# This is the *only* PR-aware step in provisioning. Pappardelle used to open a
+# zero-diff placeholder PR here so ${PR_URL} always resolved; that pushed an
+# empty commit to origin on every new workspace and left the branch diverged
+# from its own remote. The agent now opens the PR at its first real commit, so
+# a brand-new workspace legitimately has no PR and callers must treat the empty
+# string as normal (see `if_set: PR_URL` link gating). Reprovisioning an issue
+# that already has a PR still resolves it through here. See STA-1866.
+#
 # Args: $1=config_path
 # Outputs: PR/MR URL to stdout, or empty if none found
 check_existing_pr() {
@@ -183,9 +192,15 @@ check_existing_pr() {
 
     case "$provider" in
         github)
+            # Keep stderr OUT of the captured value and allowlist the URL shape.
+            # The old blocklist ("no pull requests" / "Could not") let every
+            # other gh failure through as if it were a PR URL — e.g. "none of
+            # the git remotes ... point to a known GitHub host" landed straight
+            # in ${PR_URL} and got handed to `open`. Since STA-1866 this is the
+            # only PR-resolution path, so a non-URL must resolve to empty.
             local pr_output
-            pr_output=$(gh pr view --json url -q ".url" 2>&1) || true
-            if [[ -n "$pr_output" && "$pr_output" != *"no pull requests"* && "$pr_output" != *"Could not"* ]]; then
+            pr_output=$(gh pr view --json url -q ".url" 2>/dev/null) || return 0
+            if [[ "$pr_output" =~ ^https?://[^[:space:]]+$ ]]; then
                 echo "$pr_output"
             fi
             ;;
@@ -306,93 +321,6 @@ $quoted_prompt"
     esac
 }
 
-# Create a PR/MR in the configured VCS host
-# Args: --issue-key <key> --title <title> --worktree <path> --config <config_path> [--label <label>] [--prompt <prompt>]
-# Outputs: JSON with pr_url/mr_url
-create_pr() {
-    local issue_key="" title="" worktree="" config_path="" label="" prompt=""
-
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --issue-key) issue_key="$2"; shift 2 ;;
-            --title) title="$2"; shift 2 ;;
-            --worktree) worktree="$2"; shift 2 ;;
-            --config) config_path="$2"; shift 2 ;;
-            --label) label="$2"; shift 2 ;;
-            --prompt) prompt="$2"; shift 2 ;;
-            *) shift ;;
-        esac
-    done
-
-    local provider
-    provider=$(get_vcs_host_provider "$config_path")
-
-    case "$provider" in
-        github)
-            # Delegate to existing script
-            local script_dir
-            script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            local args=(--issue-key "$issue_key" --title "$title" --worktree "$worktree")
-            [[ -n "$label" ]] && args+=(--label "$label")
-            [[ -n "$prompt" ]] && args+=(--prompt "$prompt")
-            "$script_dir/create-github-pr.sh" "${args[@]}"
-            ;;
-        gitlab)
-            cd "$worktree" || return 1
-            local branch
-            branch=$(git branch --show-current)
-
-            local gitlab_host
-            gitlab_host=$(get_gitlab_host "$config_path")
-            if [[ -n "$gitlab_host" ]]; then
-                export GITLAB_HOST="$gitlab_host"
-            fi
-
-            # Create empty commit for MR creation
-            git commit --allow-empty -m "[$issue_key] Placeholder commit for MR creation" >&2 2>&1
-            git push -u origin "$branch" >&2 2>&1 || {
-                echo "Error: Failed to push branch to origin" >&2
-                return 1
-            }
-
-            local mr_title="[$issue_key] $title"
-            local quoted_prompt
-            quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
-            local mr_body="👨‍🍳🍝 More details coming soon...
-
----
-
-_Original prompt:_
-
-$quoted_prompt
-
----
-Generated with [Claude Code](https://claude.com/claude-code)"
-
-            local mr_args=(glab mr create --title "$mr_title" --description "$mr_body" --source-branch "$branch")
-            [[ -n "$label" ]] && mr_args+=(--label "$label")
-
-            local mr_output
-            mr_output=$("${mr_args[@]}" 2>&1)
-            local mr_exit_code=$?
-
-            if [[ $mr_exit_code -ne 0 ]]; then
-                echo "Error: Failed to create MR: $mr_output" >&2
-                return 1
-            fi
-
-            # Reset placeholder commit locally
-            git reset HEAD~1 >&2 2>&1
-
-            local mr_url
-            mr_url=$(echo "$mr_output" | grep -oE 'https://[^ ]+merge_requests/[0-9]+' | head -1)
-            local mr_number
-            mr_number=$(echo "$mr_url" | grep -oE '[0-9]+$')
-
-            echo "{\"pr_url\":\"$mr_url\",\"pr_number\":\"$mr_number\",\"branch\":\"$branch\"}"
-            ;;
-    esac
-}
 
 # Get the VCS label for a profile (checks vcs.label then github.label)
 # Args: $1=profile_name, $2=config_path

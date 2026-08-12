@@ -31,7 +31,7 @@ A **workspace** in Pappardelle is the per-issue environment Pappardelle creates 
 
 - A dedicated **git worktree** at `~/.worktrees/{repo}/{issue-key}/` — an isolated checkout on a fresh branch, so you can have many in-flight tickets without stashing or switching branches.
 - A tracked **issue** in your issue tracker (Linear or Jira) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123`.
-- A draft **PR/MR** against the main branch for that worktree.
+- A **PR/MR** against the main branch — opened by the agent once it has a real diff, not at provisioning time. A fresh workspace legitimately has none.
 - Its own **Claude Code session** (a named tmux session: `claude-{repo}-{issue-key}`) where you drive the work.
 - Its own **companion session** (tmux session: `companion-{repo}-{issue-key}`) pointed at that worktree, running the `companion_command` (gitui by default).
 
@@ -367,7 +367,8 @@ Next steps:
 
 What happens when you create a workspace:
   • A git worktree is created at ~/.worktrees/{repo}/{issue-key}/
-  • A draft PR/MR is opened from the new branch
+  • An existing PR/MR for the branch is linked if there is one (provisioning
+    never opens one — your agent does that at its first real commit)
   • A named tmux session spins up Claude Code (with `{initialization_command}` if set)
   • A companion session runs the `companion_command` (gitui by default) for that worktree
   • The TUI's center and right panes attach to those sessions

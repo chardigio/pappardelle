@@ -301,6 +301,12 @@ links:
     if_set: 'PR_URL' # Only opens if PR_URL is not empty
 ```
 
+`PR_URL`/`MR_URL` are the ones that actually need this. Provisioning only
+_looks up_ an existing PR — it never opens one — so a freshly created workspace
+has an empty `${PR_URL}` until the agent pushes its first real commit and opens
+the PR itself. Anything consuming `${PR_URL}` (links, keybindings, hooks) must
+either carry `if_set: 'PR_URL'` or branch on the empty case in shell.
+
 ## Profile Selection Logic
 
 Profile selection uses two complementary strategies depending on the input type:
@@ -589,7 +595,6 @@ Pappardelle supports multiple issue tracker backends. Configure with the top-lev
 # These are equivalent:
 issue_tracker:
   provider: linear
-
 # Or simply omit the field entirely
 ```
 

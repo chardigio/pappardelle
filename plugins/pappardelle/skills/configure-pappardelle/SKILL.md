@@ -145,6 +145,15 @@ keybindings:
     send_to_claude: '/address-pr-feedback'
 ```
 
+### PR-dependent keybindings
+
+Provisioning never opens a PR — the agent does that at its first real commit —
+so a workspace often has none. Any `run` that resolves a PR must fall back to
+the empty string (`-q '... .number // empty'`, not `.number`, which yields the
+literal `"null"`) and branch on it, either by exiting non-zero so the TUI shows
+`✗ <name> failed`, or by degrading to the repo URL. Don't prompt about this
+unless the binding they're adding actually consumes a PR.
+
 ### Local overrides (`.pappardelle.local.yml`)
 
 The local file can add, override, or disable keybindings:
@@ -325,22 +334,22 @@ companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GI
 
 Available in all command templates, link URLs, and app paths:
 
-| Variable              | Description             | Example                    |
-| --------------------- | ----------------------- | -------------------------- |
-| `${ISSUE_KEY}`        | Issue key               | `STA-361`                  |
-| `${ISSUE_NUMBER}`     | Numeric part            | `361`                      |
-| `${ISSUE_URL}`        | Full issue URL          | `https://linear.app/...`   |
-| `${TITLE}`            | Issue title             | `Add dark mode`            |
-| `${DESCRIPTION}`      | Issue description       | (full text)                |
-| `${WORKTREE_PATH}`    | Worktree path           | `/Users/.../STA-361`       |
-| `${REPO_ROOT}`        | Git repo root           | `/Users/.../stardust-labs` |
-| `${REPO_NAME}`        | Repo directory name     | `stardust-labs`            |
-| `${PR_URL}`           | GitHub PR URL           | `https://github.com/...`   |
-| `${MR_URL}`           | GitLab MR URL           | `https://gitlab.com/...`   |
-| `${SCRIPT_DIR}`       | Pappardelle scripts dir | `/path/to/scripts`         |
-| `${VCS_LABEL}`        | VCS label from profile  | `stardust_jams`            |
-| `${TRACKER_PROVIDER}` | Issue tracker           | `linear` or `jira`         |
-| `${VCS_PROVIDER}`     | VCS host                | `github` or `gitlab`       |
+| Variable              | Description                  | Example                    |
+| --------------------- | ---------------------------- | -------------------------- |
+| `${ISSUE_KEY}`        | Issue key                    | `STA-361`                  |
+| `${ISSUE_NUMBER}`     | Numeric part                 | `361`                      |
+| `${ISSUE_URL}`        | Full issue URL               | `https://linear.app/...`   |
+| `${TITLE}`            | Issue title                  | `Add dark mode`            |
+| `${DESCRIPTION}`      | Issue description            | (full text)                |
+| `${WORKTREE_PATH}`    | Worktree path                | `/Users/.../STA-361`       |
+| `${REPO_ROOT}`        | Git repo root                | `/Users/.../stardust-labs` |
+| `${REPO_NAME}`        | Repo directory name          | `stardust-labs`            |
+| `${PR_URL}`           | GitHub PR URL (may be empty) | `https://github.com/...`   |
+| `${MR_URL}`           | GitLab MR URL (may be empty) | `https://gitlab.com/...`   |
+| `${SCRIPT_DIR}`       | Pappardelle scripts dir      | `/path/to/scripts`         |
+| `${VCS_LABEL}`        | VCS label from profile       | `stardust_jams`            |
+| `${TRACKER_PROVIDER}` | Issue tracker                | `linear` or `jira`         |
+| `${VCS_PROVIDER}`     | VCS host                     | `github` or `gitlab`       |
 
 Profile `vars` keys also become template variables (e.g., `vars: { APP_DIR: "src" }` → `${APP_DIR}`).
 

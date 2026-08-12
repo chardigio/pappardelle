@@ -703,28 +703,20 @@ else
     fi
 fi
 
-# Step 6: Create or find PR/MR
-print_step 6 "Setting up PR/MR ($VCS_PROVIDER)..."
+# Step 6: Find an existing PR/MR (never create one)
+#
+# Provisioning is read-only against the VCS host. A fresh workspace has no PR
+# and that's the expected steady state — the agent opens it once there's a real
+# diff to review. Everything downstream of $PR_URL already tolerates the empty
+# string (`if_set: PR_URL` link gating, `var_is_set`, the `o` keybinding's "No
+# PR found" path). See STA-1866.
+print_step 6 "Looking for an existing PR/MR ($VCS_PROVIDER)..."
 cd "$WORKTREE_PATH"
 PR_URL=$(check_existing_pr "$CONFIG_PATH")
 if [[ -n "$PR_URL" ]]; then
     print_success "Found PR/MR: $PR_URL"
 else
-    # Create placeholder PR/MR for any issue without one (new or existing)
-    PR_JSON=$(create_pr \
-        --issue-key "$ISSUE_KEY" \
-        --title "$TITLE" \
-        --worktree "$WORKTREE_PATH" \
-        --config "$CONFIG_PATH" \
-        --prompt "$DESCRIPTION") || {
-        print_warning "Failed to create PR/MR"
-        PR_URL=""
-        PR_JSON="{}"
-    }
-    PR_URL=$(echo "$PR_JSON" | jq -r '.pr_url // empty')
-    if [[ -n "$PR_URL" ]]; then
-        print_success "Created PR/MR: $PR_URL"
-    fi
+    print_success "No PR/MR yet (the agent opens one at its first real commit)"
 fi
 
 # Resolve the companion-pane command: per-profile override → top-level → gitui
