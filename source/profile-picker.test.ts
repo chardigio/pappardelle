@@ -77,6 +77,78 @@ test('buildProfileOptions orders secondary keyword matches ahead of non-matches'
 	t.deepEqual([options[2]!.name, options[3]!.name], ['platform', 'hive']);
 });
 
+// A default profile declared late in the config is the realistic case: Charlie's
+// own `default_profile: platform` is the 11th profile in the file, so a keyword
+// match used to bury it ten rows down.
+const LATE_DEFAULT_CONFIG = makeConfig(
+	{
+		personal: {display_name: 'Personal', keywords: ['personal']},
+		stardust: {display_name: 'Stardust Jams', keywords: ['stardust', 'jams']},
+		trotbooks: {display_name: 'TrotBooks', keywords: ['trotbooks', 'trot']},
+		platform: {display_name: 'Platform', keywords: ['platform', 'sllib']},
+		hive: {display_name: 'The Hive', keywords: ['hive', 'bee']},
+	},
+	'platform',
+);
+
+test('buildProfileOptions keeps the default second when a keyword matches', t => {
+	const options = buildProfileOptions(
+		LATE_DEFAULT_CONFIG,
+		'trotbooks invoices',
+	);
+	t.deepEqual(
+		options.map(o => o.name),
+		['trotbooks', 'platform', 'personal', 'stardust', 'hive'],
+	);
+	t.true(options[1]!.isDefault);
+});
+
+test('buildProfileOptions shifts the unmatched list down by exactly one row', t => {
+	// The baseline order is what a prompt with no keyword produces. A match must
+	// only insert one row at the top, never reshuffle what follows it.
+	const baseline = buildProfileOptions(LATE_DEFAULT_CONFIG, 'no keyword here');
+	const matched = buildProfileOptions(
+		LATE_DEFAULT_CONFIG,
+		'trotbooks invoices',
+	);
+	t.deepEqual(
+		matched.slice(1).map(o => o.name),
+		baseline.filter(o => o.name !== 'trotbooks').map(o => o.name),
+	);
+});
+
+test('buildProfileOptions keeps the default after several keyword matches', t => {
+	const options = buildProfileOptions(
+		LATE_DEFAULT_CONFIG,
+		'stardust and trot work',
+	);
+	t.deepEqual(
+		options.map(o => o.name),
+		['stardust', 'trotbooks', 'platform', 'personal', 'hive'],
+	);
+});
+
+test('buildProfileOptions keeps the default second behind an enforced match', t => {
+	const options = buildProfileOptions(LATE_DEFAULT_CONFIG, 'stardust trot!');
+	t.is(options[0]!.name, 'trotbooks');
+	t.true(options[0]!.enforced);
+	// Enforcement discards the soft `stardust` match entirely, so the tail is the
+	// plain baseline order: default first, then config declaration order.
+	t.deepEqual(
+		options.map(o => o.name),
+		['trotbooks', 'platform', 'personal', 'stardust', 'hive'],
+	);
+});
+
+test('buildProfileOptions does not duplicate the default when it is the match', t => {
+	const options = buildProfileOptions(LATE_DEFAULT_CONFIG, 'sllib cleanup');
+	t.deepEqual(
+		options.map(o => o.name),
+		['platform', 'personal', 'stardust', 'trotbooks', 'hive'],
+	);
+	t.true(options[0]!.isDefault);
+});
+
 test('buildProfileOptions preserves config order for the non-matching tail', t => {
 	const options = buildProfileOptions(CONFIG, 'hive stuff');
 	t.deepEqual(

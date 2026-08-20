@@ -42,7 +42,14 @@ export type ProfileOption = {
 /**
  * Order every profile for the picker: the profile that would have been chosen
  * automatically first, then any other keyword matches by descending score, then
- * the rest in config declaration order.
+ * the default profile, then the rest in config declaration order.
+ *
+ * The last three groups are the same list an unmatched prompt produces, so a
+ * keyword match only ever inserts rows at the top and pushes everything else
+ * down. Without the default's reserved slot the list would silently reshuffle
+ * the moment a keyword hit: a `default_profile` declared eleventh in the config
+ * sits first for a blank prompt and eleventh for a matched one, which puts the
+ * most-used fallback out of reach exactly when the guess is most likely wrong.
  *
  * The tail is deliberately *not* sorted alphabetically — config order is the
  * order the user wrote their profiles in, which is the closest thing we have to
@@ -89,9 +96,10 @@ export function buildProfileOptions(
 		}
 	}
 
-	// No keyword matched, so the automatic choice is the default profile — it
-	// leads the list to keep Enter-Enter equivalent to the old single Enter.
-	if (ordered.length === 0) {
+	// The default profile takes the next slot whether or not a keyword matched.
+	// With no match it leads the list, which keeps Enter-Enter equivalent to the
+	// old single Enter; with a match it is the first fallback under the guess.
+	if (!seen.has(defaultName)) {
 		const option = toOption(defaultName, [], false);
 		if (option) {
 			seen.add(defaultName);
