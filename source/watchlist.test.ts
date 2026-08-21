@@ -140,6 +140,16 @@ test('filterByLabels is case-insensitive', t => {
 	t.is(result[0]!.identifier, 'STA-1');
 });
 
+test('filterByLabels ignores blank and untrimmed configured labels', t => {
+	const issues = [
+		makeIssue('STA-1', 'A', 'To Do', ['pappardelle']),
+		makeIssue('STA-2', 'B', 'To Do', ['platform']),
+	];
+
+	t.is(filterByLabels(issues, [' pappardelle ', '']).length, 1);
+	t.is(filterByLabels(issues, ['', '  ']).length, 2);
+});
+
 test('filterByLabels ignores extra labels on the issue', t => {
 	const issues = [
 		makeIssue('STA-1', 'A', 'To Do', ['bug', 'pappardelle', 'urgent']),
