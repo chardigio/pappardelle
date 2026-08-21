@@ -18,7 +18,7 @@ export function getNewWatchlistIssues(
 }
 
 /**
- * Filter issues to only those with at least one of the specified labels.
+ * Filter issues to only those carrying every one of the specified labels.
  * Matching is case-insensitive.
  * Returns all issues if the labels array is empty.
  * Pure function — no side effects.
@@ -28,10 +28,11 @@ export function filterByLabels(
 	labels: string[],
 ): TrackerIssue[] {
 	if (labels.length === 0) return issues;
-	const labelSet = new Set(labels.map(l => l.toLowerCase()));
-	return issues.filter(issue =>
-		(issue.labels ?? []).some(l => labelSet.has(l.toLowerCase())),
-	);
+	const wanted = labels.map(l => l.toLowerCase());
+	return issues.filter(issue => {
+		const issueLabels = new Set((issue.labels ?? []).map(l => l.toLowerCase()));
+		return wanted.every(l => issueLabels.has(l));
+	});
 }
 
 /**

@@ -762,7 +762,7 @@ issue_watchlist:
     - To Do
     - In Progress
     - In Review
-  labels: # Optional: only watch issues with any of these labels
+  labels: # Optional: only watch issues carrying all of these labels
     - pappardelle
     - platform
   key_prefixes: # Optional: only watch these issue-key prefixes (e.g. STA-*, not WAB-*)
@@ -773,7 +773,7 @@ issue_watchlist:
 | -------------- | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `assignee`     | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees.                                                                                                                                                |
 | `statuses`     | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation.                                                                                                                                                             |
-| `labels`       | `string[]` | No       | When set, only issues with at least one matching label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels.                                                                                                                          |
+| `labels`       | `string[]` | No       | When set, only issues carrying every listed label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels.                                                                                                                               |
 | `key_prefixes` | `string[]` | No       | When set, only issues whose key prefix (the part before the first `-`, e.g. `STA` in `STA-123`) is in the list are watched. Useful when one tracker account spans multiple workspaces — watch `STA-*` but not `WAB-*`. Case-insensitive. Omit (or use `[]`) to watch every prefix. |
 
 **How it works:**
@@ -782,7 +782,7 @@ issue_watchlist:
 2. For Linear: calls `linctl issue list --state <status>` per status (adds `--assignee <user>` when configured)
 3. For Jira: uses JQL `status IN ("To Do", "In Progress")` (adds `assignee = currentUser()` when configured)
 4. If `key_prefixes` is configured, results are filtered client-side to only issues whose key prefix is in the allowlist
-5. If `labels` is configured, results are filtered client-side to only include issues with at least one matching label
+5. If `labels` is configured, results are filtered client-side to only include issues carrying every listed label
 6. New issues (not already in the space list) are auto-spawned as full workspaces via `idow`
 7. Each issue is only spawned once per Pappardelle session (tracked in memory)
 
