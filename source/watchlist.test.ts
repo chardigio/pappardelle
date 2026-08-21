@@ -105,17 +105,16 @@ test('filterByLabels returns all issues when labels array is empty', t => {
 	t.is(result.length, 2);
 });
 
-test('filterByLabels keeps issues matching any configured label', t => {
+test('filterByLabels keeps only issues carrying every configured label', t => {
 	const issues = [
-		makeIssue('STA-1', 'A', 'To Do', ['pappardelle']),
+		makeIssue('STA-1', 'A', 'To Do', ['pappardelle', 'platform']),
 		makeIssue('STA-2', 'B', 'To Do', ['platform']),
 		makeIssue('STA-3', 'C', 'To Do', ['stardust_jams']),
 	];
 
 	const result = filterByLabels(issues, ['pappardelle', 'platform']);
-	t.is(result.length, 2);
+	t.is(result.length, 1);
 	t.is(result[0]!.identifier, 'STA-1');
-	t.is(result[1]!.identifier, 'STA-2');
 });
 
 test('filterByLabels excludes issues with no labels', t => {
@@ -132,15 +131,26 @@ test('filterByLabels excludes issues with no labels', t => {
 
 test('filterByLabels is case-insensitive', t => {
 	const issues = [
-		makeIssue('STA-1', 'A', 'To Do', ['Pappardelle']),
+		makeIssue('STA-1', 'A', 'To Do', ['Pappardelle', 'PLATFORM']),
 		makeIssue('STA-2', 'B', 'To Do', ['PLATFORM']),
 	];
 
 	const result = filterByLabels(issues, ['pappardelle', 'platform']);
-	t.is(result.length, 2);
+	t.is(result.length, 1);
+	t.is(result[0]!.identifier, 'STA-1');
 });
 
-test('filterByLabels matches if issue has at least one matching label', t => {
+test('filterByLabels ignores blank and untrimmed configured labels', t => {
+	const issues = [
+		makeIssue('STA-1', 'A', 'To Do', ['pappardelle']),
+		makeIssue('STA-2', 'B', 'To Do', ['platform']),
+	];
+
+	t.is(filterByLabels(issues, [' pappardelle ', '']).length, 1);
+	t.is(filterByLabels(issues, ['', '  ']).length, 2);
+});
+
+test('filterByLabels ignores extra labels on the issue', t => {
 	const issues = [
 		makeIssue('STA-1', 'A', 'To Do', ['bug', 'pappardelle', 'urgent']),
 	];

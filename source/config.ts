@@ -91,7 +91,7 @@ export interface VcsHostConfig {
 export interface IssueWatchlistConfig {
 	assignee?: string; // Optional: username/email, or 'me' to auto-detect. Omit to match all assignees.
 	statuses: string[]; // Issue statuses to match (e.g., ['To Do', 'In Progress'])
-	labels?: string[]; // Optional: only match issues with any of these labels
+	labels?: string[]; // Optional: only match issues carrying all of these labels
 	/**
 	 * Optional allowlist of issue-key prefixes (the part before the first '-',
 	 * e.g. 'STA' in 'STA-123'). When set, only issues whose key prefix is in
