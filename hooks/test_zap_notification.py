@@ -18,57 +18,15 @@ zap_mod = importlib.util.module_from_spec(_spec)
 sys.modules["zap_notification"] = zap_mod
 _spec.loader.exec_module(zap_mod)
 
-is_tailscale_ssh_active = zap_mod.is_tailscale_ssh_active
 send_zap = zap_mod.send_zap
 
 
-W_OUTPUT_WITH_TAILSCALE = """\
- 4:24  up 16 days, 16:05, 16 users, load averages: 12.55 13.88 10.70
-USER       TTY      FROM            LOGIN@  IDLE WHAT
-charlie    console  -              14Feb26 17days -
-charlie    s000     100.104.115.1  Sun15       1 pappardelle
-charlie    s001     100.104.115.1  16Feb26     - tmux
-"""
-
-W_OUTPUT_WITHOUT_TAILSCALE = """\
+W_OUTPUT_WITHOUT_REMOTE_LOGIN = """\
  4:24  up 16 days, 16:05, 2 users, load averages: 12.55 13.88 10.70
 USER       TTY      FROM            LOGIN@  IDLE WHAT
 charlie    console  -              14Feb26 17days -
 charlie    s130     -              Thu12       - -zsh
 """
-
-W_OUTPUT_TAILSCALE_ALL_IDLE_DAYS = """\
- 4:24  up 16 days, 16:05, 2 users, load averages: 12.55 13.88 10.70
-USER       TTY      FROM            LOGIN@  IDLE WHAT
-charlie    console  -              14Feb26 17days -
-charlie    s011     100.104.115.1  22Feb26 5days -
-"""
-
-
-class TestIsTailscaleSshActive:
-    def test_detects_tailscale_session(self):
-        mock_result = MagicMock(returncode=0, stdout=W_OUTPUT_WITH_TAILSCALE)
-        with patch("subprocess.run", return_value=mock_result):
-            assert is_tailscale_ssh_active() is True
-
-    def test_no_tailscale_session(self):
-        mock_result = MagicMock(returncode=0, stdout=W_OUTPUT_WITHOUT_TAILSCALE)
-        with patch("subprocess.run", return_value=mock_result):
-            assert is_tailscale_ssh_active() is False
-
-    def test_tailscale_all_idle_days(self):
-        mock_result = MagicMock(returncode=0, stdout=W_OUTPUT_TAILSCALE_ALL_IDLE_DAYS)
-        with patch("subprocess.run", return_value=mock_result):
-            assert is_tailscale_ssh_active() is False
-
-    def test_w_command_fails(self):
-        mock_result = MagicMock(returncode=1, stdout="")
-        with patch("subprocess.run", return_value=mock_result):
-            assert is_tailscale_ssh_active() is False
-
-    def test_subprocess_exception(self):
-        with patch("subprocess.run", side_effect=OSError("command not found")):
-            assert is_tailscale_ssh_active() is False
 
 
 class TestSendZap:
@@ -91,17 +49,14 @@ class TestSendZap:
 class TestMainLogic:
     """Test the main() dispatch logic by simulating stdin and env."""
 
-    def _run_main(
-        self, input_data: dict, ntfy_topic: str | None = "test-topic", tailscale_active: bool = True
-    ) -> MagicMock:
-        """Helper to run main() with mocked stdin, env, and tailscale detection."""
+    def _run_main(self, input_data: dict, ntfy_topic: str | None = "test-topic") -> MagicMock:
+        """Helper to run main() with mocked stdin and env."""
         import io
         import json
 
         stdin_mock = io.StringIO(json.dumps(input_data))
         with (
             patch.object(zap_mod, "PAPPARDELLE_NTFY_TOPIC", ntfy_topic),
-            patch.object(zap_mod, "is_tailscale_ssh_active", return_value=tailscale_active),
             patch.object(zap_mod, "send_zap") as mock_zap,
             patch("sys.stdin", stdin_mock),
         ):
@@ -138,12 +93,20 @@ class TestMainLogic:
         )
         mock_zap.assert_not_called()
 
-    def test_no_zap_when_no_tailscale(self):
-        mock_zap = self._run_main(
-            {"hook_event_name": "PermissionRequest", "tool_name": "Bash"},
-            tailscale_active=False,
-        )
-        mock_zap.assert_not_called()
+    def test_zaps_without_any_ssh_session(self):
+        """Regression for STA-2041: the zap no longer needs a Tailscale SSH session.
+
+        `w` reports no remote login here. The hook must still send the push, because
+        PAPPARDELLE_NTFY_TOPIC is now the only switch that gates it.
+        """
+        no_remote_login = MagicMock(returncode=0, stdout=W_OUTPUT_WITHOUT_REMOTE_LOGIN)
+        with patch("subprocess.run", return_value=no_remote_login):
+            mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "Bash"})
+        mock_zap.assert_called_once_with("Claude needs permission for Bash")
+
+    def test_ssh_probe_is_gone(self):
+        """The SSH probe is deleted, so nothing can gate the zap again by accident."""
+        assert not hasattr(zap_mod, "is_tailscale_ssh_active")
 
     def test_unknown_event_no_zap(self):
         mock_zap = self._run_main({"hook_event_name": "SessionStart"})
