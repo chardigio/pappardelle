@@ -17,6 +17,7 @@ import {
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	getCompanionCommand,
+	getStateColors,
 	DEFAULT_COMPANION_COMMAND,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
@@ -4409,4 +4410,158 @@ test('determineProfileForInput emoji survives the default-profile fallback', t =
 		t.true(info.isDefault);
 		t.is(info.emoji, '🎸');
 	}
+});
+
+// ============================================================================
+// state_colors Validation Tests
+// ============================================================================
+
+test('validateConfig accepts config without state_colors (off by default)', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts an empty state_colors map', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts hex and ink color names in state_colors', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {
+			'In Progress': '#f2c94c',
+			'In Review': 'cyan',
+			Done: '#abc',
+			Blocked: 'redBright',
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects a non-object state_colors', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: 'cyan',
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('state_colors: must be an object'));
+});
+
+test('validateConfig rejects an array state_colors', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: ['cyan'],
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('state_colors: must be an object'));
+});
+
+test('validateConfig rejects an unknown color name', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {Done: 'chartreuse'},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'state_colors."Done": must be a hex color (#rgb or #rrggbb) or an ink color name',
+		),
+	);
+});
+
+test('validateConfig rejects malformed hex', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {Done: '#12345'},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('state_colors."Done"'));
+});
+
+test('validateConfig rejects a non-string color value', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {Done: 123},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('state_colors."Done"'));
+});
+
+test('validateConfig rejects an empty state name', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {'   ': 'cyan'},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes('state_colors: state names must not be empty'),
+	);
+});
+
+test('validateConfig rejects state names that differ only in case', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		state_colors: {'In Progress': 'cyan', 'in progress': 'red'},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(
+		error?.message.includes(
+			'state_colors: duplicate state name "in progress" (names are matched case-insensitively)',
+		),
+	);
+});
+
+// ============================================================================
+// getStateColors Tests
+// ============================================================================
+
+test('getStateColors returns undefined when not configured', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	t.is(getStateColors(config), undefined);
+});
+
+test('getStateColors returns undefined for a null config', t => {
+	t.is(getStateColors(null), undefined);
+});
+
+test('getStateColors returns the configured map', t => {
+	const config = createConfig(
+		{'test-profile': createProfile(['test'], 'Test')},
+		'test-profile',
+	);
+	config.state_colors = {'In Review': 'cyan'};
+	t.deepEqual(getStateColors(config), {'In Review': 'cyan'});
 });

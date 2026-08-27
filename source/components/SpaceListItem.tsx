@@ -5,6 +5,7 @@ import type {PipelineStatus, SpaceData} from '../types.ts';
 import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
+import {resolveStateColor} from '../state-color-override.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
 import {railPrefixWidth, rowPrefixWidth} from '../list-view-sizing.ts';
 import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
@@ -164,8 +165,10 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	// expansion fills the row exactly to the pane edge instead of past it.
 	const rowWidth = rowInkPad > 0 ? Math.max(0, width - rowInkPad) : undefined;
 
-	// Linear state color (applied to issue key)
-	// Uses the exact color from Linear's API so pappardelle always matches
+	// Issue state color (applied to issue key).
+	// Uses the exact color from the tracker's API so pappardelle always matches,
+	// unless the user listed this state in `state_colors:` — see STA-2070. The
+	// main-worktree branch below is deliberately left on raw tracker colors.
 	const getStateColor = (): string => {
 		if (space.isMainWorktree) {
 			return getMainWorktreeColor(
@@ -177,7 +180,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 
 		const state = space.linearIssue?.state;
 		if (!state) return space.isPending ? 'white' : 'gray';
-		return state.color;
+		return resolveStateColor(state.name, state.color);
 	};
 	const stateColor = getStateColor();
 

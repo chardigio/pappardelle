@@ -43,6 +43,14 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Override the ticket-rail color for named issue statuses. Names match
+# case-insensitively; values are hex (#rgb / #rrggbb) or an ink color name
+# (red, cyan, blueBright, ...). Any status you leave out keeps the color the
+# tracker reports. Most useful on Jira, where "In Progress" and "In Review"
+# usually share one color.
+# state_colors:
+#   In Review: cyan
+
 # Issue watchlist (optional): poll the tracker every 30s and auto-spawn a
 # workspace for each assigned, matching issue that doesn't already have one.
 # A profile can also declare its own `issue_watchlist` (see ios-app below) —

@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
+import {
+	INK_COLOR_NAMES,
+	isValidStateColor,
+	normalizeStateName,
+} from './state-color-override.ts';
 
 // ============================================================================
 // Types
@@ -190,6 +195,19 @@ export interface PappardelleConfig {
 	 * behavior is identical to master when the field is absent or false.
 	 */
 	auto_remove_when_done?: boolean;
+	/**
+	 * Optional per-status color overrides for the ticket rail, keyed by issue
+	 * status name (case-insensitive, surrounding space ignored). A listed status
+	 * is painted with this color instead of the color the tracker reports, which
+	 * lets a Jira workflow tell "In Progress" and "In Review" apart even though
+	 * Jira gives them the same color.
+	 *
+	 * Values are hex (`#rgb` or `#rrggbb`) or an Ink color name (`cyan`,
+	 * `redBright`, ...). Absent or empty ⇒ the rail uses tracker colors only,
+	 * identical to master. The main-worktree row is not affected; it keeps
+	 * deriving its color from the tracker's "In Progress" and "Done" colors.
+	 */
+	state_colors?: Record<string, string>;
 	/**
 	 * Command launched in the pane beside Claude (the pane that historically ran
 	 * lazygit). Defaults to `gitui`. Accepts any shell command — a different git
@@ -689,6 +707,11 @@ export function validateConfig(
 		errors.push(
 			...validateIssueWatchlist(cfg['issue_watchlist'], 'issue_watchlist'),
 		);
+	}
+
+	// Check state_colors (optional, off by default)
+	if (cfg['state_colors'] !== undefined) {
+		errors.push(...validateStateColors(cfg['state_colors']));
 	}
 
 	// Check auto_remove_when_done (optional, off by default)
@@ -1785,6 +1808,56 @@ export function getResolvedWatchlists(
 	}
 
 	return resolved;
+}
+
+/**
+ * Validate the top-level `state_colors` map.
+ *
+ * Names are rejected when blank, or when two of them normalize to the same
+ * string — the rail matches case-insensitively, so `In Progress` and
+ * `in progress` would otherwise be an unresolvable tie decided by key order.
+ */
+function validateStateColors(value: unknown): string[] {
+	const errors: string[] = [];
+
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		errors.push('state_colors: must be an object');
+		return errors;
+	}
+
+	const seen = new Set<string>();
+	for (const [name, color] of Object.entries(value)) {
+		const normalized = normalizeStateName(name);
+		if (normalized.length === 0) {
+			errors.push('state_colors: state names must not be empty');
+		} else if (seen.has(normalized)) {
+			errors.push(
+				`state_colors: duplicate state name "${normalized}" (names are matched case-insensitively)`,
+			);
+		} else {
+			seen.add(normalized);
+		}
+
+		if (!isValidStateColor(color)) {
+			errors.push(
+				`state_colors."${name}": must be a hex color (#rgb or #rrggbb) or an ink color name (${[
+					...INK_COLOR_NAMES,
+				].join(', ')})`,
+			);
+		}
+	}
+
+	return errors;
+}
+
+/**
+ * The configured issue-status color overrides for the ticket rail, or undefined
+ * when the config has none (or could not be loaded at all).
+ */
+export function getStateColors(
+	config: PappardelleConfig | null,
+): Record<string, string> | undefined {
+	return config?.state_colors;
 }
 
 /**

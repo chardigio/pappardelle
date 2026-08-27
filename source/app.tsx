@@ -30,6 +30,7 @@ const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
 import {getIssueCached, getIssues, searchAssignedIssues} from './tracker.ts';
+import {initStateColorOverrides} from './state-color-override.ts';
 import {
 	filterByLabels,
 	filterByKeyPrefixes,
@@ -54,6 +55,7 @@ import {
 } from './session-routing.ts';
 import {
 	loadConfig,
+	getStateColors,
 	getTeamPrefix,
 	getRepoRoot,
 	getRepoName,
@@ -217,6 +219,13 @@ export default function App({
 			return null;
 		}
 	}, []);
+
+	// Install the user's issue-status color overrides before anything renders,
+	// so the ticket rail's first paint already uses them (STA-2070). A useMemo
+	// runs during App's own render, which precedes every SpaceListItem child.
+	React.useMemo(() => {
+		initStateColorOverrides(getStateColors(configMemo));
+	}, [configMemo]);
 
 	// Load custom keybindings from config (once at startup)
 	const keybindings = React.useMemo<KeybindingConfig[]>(() => {

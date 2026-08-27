@@ -838,6 +838,32 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Issue Status Colors
+
+The ticket rail paints an issue key with the exact color the tracker reports for that issue's status. The top-level `state_colors` map replaces that color for the statuses it lists. This matters most on Jira, where one color often covers several statuses ("In Progress" and "In Review" are the usual pair) and the rail cannot tell them apart.
+
+```yaml
+state_colors:
+  In Progress: '#f2c94c'
+  In Review: cyan
+  Done: '#74d09f'
+```
+
+```typescript
+state_colors?: Record<string, string>;
+```
+
+**How it works:**
+
+- **Off by default.** With no `state_colors` key, every row keeps its tracker color. Pinned by the `resolveStateColor returns the tracker color when nothing is configured` test in `source/state-color-override.test.ts`.
+- **Names match case-insensitively**, and surrounding space is ignored, because a status name is prose a human copies out of a tracker UI. `in progress` matches `In Progress`.
+- **Two names that differ only in letter case are a validation error**, since the match could not choose between them.
+- **Accepted values**: hex (`#rgb` or `#rrggbb`) and the Ink color names (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`/`grey`, and their `*Bright` forms). Any other value fails validation at load time instead of falling back silently at render time.
+- **A status the map does not list keeps its tracker color.** The map is a set of overrides, not a full palette.
+- **The main-worktree row is not affected.** That row derives its color from the tracker's "In Progress" (dirty) and "Done" (clean) colors, and it keeps doing so.
+- **Config layers merge key by key**, so `.pappardelle.local.yml` can override one status without restating the whole map.
+- There is **no per-profile `state_colors`**. The tracker workflow is a property of the repo, not of a profile.
+
 ## Companion Pane Command
 
 The right pane of the 3-pane layout (the one that historically ran lazygit) runs the **companion command**. It defaults to `gitui`; set `companion_command` to run anything else.

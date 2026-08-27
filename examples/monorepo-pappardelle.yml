@@ -38,6 +38,12 @@ post_workspace_init:
 # tmux sessions are cleaned up, the worktree on disk is left in place.
 auto_remove_when_done: true
 
+# Give "In Review" its own rail color. Linear hands out distinct colors already,
+# but pinning them here keeps the rail readable if the workflow is retitled, and
+# it is what a Jira workflow needs to tell In Progress and In Review apart.
+state_colors:
+  In Review: cyan
+
 # Issue watchlist — poll Linear every 30s and auto-spawn a workspace for each
 # assigned issue in these statuses that doesn't already have one. This is the
 # "watch everything" catch-all; individual profiles can add their own watchlist

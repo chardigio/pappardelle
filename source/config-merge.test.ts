@@ -14,6 +14,7 @@ import {
 	getDangerouslySkipPermissions,
 	getKeybindings,
 	getIssueWatchlist,
+	getStateColors,
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
@@ -1228,6 +1229,142 @@ profiles:
 			{instanceOf: ConfigValidationError},
 		);
 		t.truthy(error?.message.includes('.pappardelle.local.yml'));
+	} finally {
+		cleanup();
+	}
+});
+
+// ============================================================================
+// state_colors layer merge
+// ============================================================================
+
+test('state_colors merges key by key across project and local layers', t => {
+	const {dir, cleanup} = setupTempDir({
+		'.pappardelle.yml': `version: 1
+state_colors:
+  In Progress: '#f2c94c'
+  In Review: '#f2c94c'
+profiles:
+  test:
+    display_name: Test
+`,
+		'.pappardelle.local.yml': `version: 1
+state_colors:
+  In Review: cyan
+  Done: '#74d09f'
+`,
+	});
+
+	try {
+		const config = loadConfigFromPaths({projectDir: dir});
+		t.deepEqual(getStateColors(config), {
+			'In Progress': '#f2c94c',
+			'In Review': 'cyan',
+			Done: '#74d09f',
+		});
+	} finally {
+		cleanup();
+	}
+});
+
+test('a local layer can add state_colors when the project layer has none', t => {
+	const {dir, cleanup} = setupTempDir({
+		'.pappardelle.yml': `version: 1
+profiles:
+  test:
+    display_name: Test
+`,
+		'.pappardelle.local.yml': `version: 1
+state_colors:
+  In Review: cyan
+`,
+	});
+
+	try {
+		const config = loadConfigFromPaths({projectDir: dir});
+		t.deepEqual(getStateColors(config), {'In Review': 'cyan'});
+	} finally {
+		cleanup();
+	}
+});
+
+test('an invalid color in a merged layer fails validation', t => {
+	const {dir, cleanup} = setupTempDir({
+		'.pappardelle.yml': `version: 1
+state_colors:
+  Done: '#74d09f'
+profiles:
+  test:
+    display_name: Test
+`,
+		'.pappardelle.local.yml': `version: 1
+state_colors:
+  Done: chartreuse
+`,
+	});
+
+	try {
+		t.throws(() => loadConfigFromPaths({projectDir: dir}), {
+			instanceOf: ConfigValidationError,
+		});
+	} finally {
+		cleanup();
+	}
+});
+
+test('a case-variant state name across layers fails the duplicate check', t => {
+	// deepMerge is generic and keys objects by their literal string, so
+	// "In Progress" in the project layer and "in progress" in the local layer
+	// survive as two entries rather than one overriding the other. The
+	// duplicate check then rejects the merged config. Documented here because
+	// hitting that error from two separate files is a surprising path: the fix
+	// is to spell the name the same way in both layers.
+	const {dir, cleanup} = setupTempDir({
+		'.pappardelle.yml': `version: 1
+state_colors:
+  In Progress: '#f2c94c'
+profiles:
+  test:
+    display_name: Test
+`,
+		'.pappardelle.local.yml': `version: 1
+state_colors:
+  in progress: cyan
+`,
+	});
+
+	try {
+		const error = t.throws(() => loadConfigFromPaths({projectDir: dir}), {
+			instanceOf: ConfigValidationError,
+		});
+		t.truthy(
+			error?.message.includes(
+				'state_colors: duplicate state name "in progress"',
+			),
+		);
+	} finally {
+		cleanup();
+	}
+});
+
+test('a layer that repeats a state name verbatim overrides it cleanly', t => {
+	const {dir, cleanup} = setupTempDir({
+		'.pappardelle.yml': `version: 1
+state_colors:
+  In Progress: '#f2c94c'
+profiles:
+  test:
+    display_name: Test
+`,
+		'.pappardelle.local.yml': `version: 1
+state_colors:
+  In Progress: cyan
+`,
+	});
+
+	try {
+		const config = loadConfigFromPaths({projectDir: dir});
+		t.deepEqual(getStateColors(config), {'In Progress': 'cyan'});
 	} finally {
 		cleanup();
 	}
