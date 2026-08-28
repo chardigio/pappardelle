@@ -27,6 +27,7 @@ import {
 	NARROW_SCREEN_THRESHOLD,
 	type LayoutConfig,
 } from './layout-sizing.ts';
+import {nextRailWidthOverride, type WindowSize} from './rail-width.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -36,6 +37,7 @@ export {
 	MIN_LIST_WIDTH,
 	MIN_CLAUDE_WIDTH,
 	MIN_COMPANION_WIDTH,
+	MIN_RAIL_OVERRIDE_WIDTH,
 	MAX_LIST_HEIGHT,
 	DEFAULT_MIN_LIST_HEIGHT,
 	type LayoutConfig,
@@ -99,6 +101,27 @@ let companionViewerHasClient = false;
 // Cache pane TTYs for fast client switching
 let claudeViewerTty: string | null = null;
 let companionViewerTty: string | null = null;
+
+/**
+ * Ticket-rail width the user set by hand, or null while the derived width
+ * still applies.
+ *
+ * Module state on purpose: STA-2040 asks for the choice to hold for the rest of
+ * the session and for every new pappardelle to open at the default, and process
+ * lifetime is exactly that. `rebuildLayout` must not clear it, because crossing
+ * the narrow/wide threshold and coming back is not the user changing their mind.
+ */
+let railWidthOverride: number | null = null;
+
+/**
+ * Window size and measured rail width at the end of the previous relayout.
+ *
+ * Together they let `nextRailWidthOverride` separate a window resize from a
+ * hand-drag of the rail/claude border. Measured, not requested, so tmux
+ * rounding never reads as a drag.
+ */
+let lastWindowSize: WindowSize | null = null;
+let lastRailWidth: number | null = null;
 
 /**
  * Check if running inside tmux
@@ -848,6 +871,27 @@ export function getTmuxPaneWidth(): number {
 }
 
 /**
+ * Get the width of a specific pane, or null when tmux cannot report it.
+ *
+ * Distinct from `getTmuxPaneWidth`, which asks about the calling pane. The rail
+ * override needs to measure the list pane by id, from whichever pane asks.
+ */
+function getPaneWidth(paneId: string): number | null {
+	try {
+		const result = spawnSync(
+			'tmux',
+			['display-message', '-p', '-t', paneId, '#{pane_width}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (result.error || result.status !== 0) return null;
+		const width = parseInt(result.stdout.trim(), 10);
+		return isNaN(width) ? null : width;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Get current terminal/pane height from tmux
  */
 export function getTmuxPaneHeight(): number {
@@ -911,7 +955,24 @@ export function calculateLayout(
 		totalWidth,
 		totalHeight,
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
+		railWidthOverride,
 	);
+}
+
+/**
+ * Remember the window size and the *measured* rail width, so the next relayout
+ * can tell a window resize from a hand-drag.
+ *
+ * Called after every operation that moves the panes. The rail width is measured
+ * rather than assumed because tmux rounds split sizes, and an assumed value
+ * would make the first harmless resize event look like a drag.
+ */
+function recordRailSample(
+	listPaneId: string,
+	windowDims: WindowSize | null,
+): void {
+	lastWindowSize = windowDims;
+	lastRailWidth = getPaneWidth(listPaneId);
 }
 
 /**
@@ -1153,6 +1214,8 @@ export function setupPappardellLayout(): {
 				companionViewerPaneId || '(none)'
 			}`,
 		);
+
+		recordRailSample(listPaneId, getTmuxWindowSize());
 
 		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1568,6 +1631,8 @@ export function rebuildLayout(
 			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
+		recordRailSample(listPaneId, getTmuxWindowSize());
+
 		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
@@ -1601,10 +1666,30 @@ export function relayoutPanes(
 		}
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
+
+		// Separate a window resize from a hand-drag of the rail/claude border
+		// *before* computing the layout, so a drag feeds its own width back in
+		// instead of being recomputed away. See rail-width.ts and STA-2040.
+		const measuredRailWidth = getPaneWidth(listPaneId);
+		const previousOverride = railWidthOverride;
+		railWidthOverride = nextRailWidthOverride({
+			previousWindow: lastWindowSize,
+			currentWindow: windowDims,
+			previousRailWidth: lastRailWidth,
+			currentRailWidth: measuredRailWidth,
+			currentOverride: railWidthOverride,
+		});
+		if (railWidthOverride !== previousOverride) {
+			log.info(
+				`Rail resized by hand: width=${railWidthOverride} (was ${previousOverride ?? 'default'})`,
+			);
+		}
+
 		const layout = calculateLayout(totalWidth, totalHeight);
 
 		log.info(
-			`Relayout: ${totalWidth}x${totalHeight}, mode=${layout.direction}`,
+			`Relayout: ${totalWidth}x${totalHeight}, mode=${layout.direction}` +
+				(railWidthOverride === null ? '' : `, rail=${railWidthOverride}`),
 		);
 
 		if (layout.direction === 'vertical') {
@@ -1652,6 +1737,8 @@ export function relayoutPanes(
 				}
 			}
 		}
+
+		recordRailSample(listPaneId, windowDims);
 
 		log.info('Relayout completed successfully');
 		return true;

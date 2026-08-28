@@ -175,6 +175,30 @@ export function railPrefixWidth(icons?: RailIcons): number {
 }
 
 /**
+ * Cells the status icon and its trailing space always occupy, before the key.
+ */
+export const ROW_ICON_CELLS = 2;
+
+/**
+ * Clip an issue key to the columns a very narrow rail leaves for it.
+ *
+ * The key normally fits with room to spare, so this is a no-op at every ordinary
+ * width. It matters once someone drags the rail down to the key alone (STA-2040):
+ * without a clip the key overflows its row and Ink wraps it onto a second line,
+ * which breaks the one-row-per-space alignment the click hit-test depends on.
+ *
+ * No ellipsis. A key is an identifier, so at these widths every column is better
+ * spent on characters of the key than on a marker.
+ *
+ * @param issueKey - e.g. "STA-2040"
+ * @param availableWidth - columns left after the emoji prefix and status icon
+ */
+export function clipIssueKey(issueKey: string, availableWidth: number): string {
+	if (availableWidth <= 0) return '';
+	return issueKey.slice(0, availableWidth);
+}
+
+/**
  * Calculate available width for the title text in a list row.
  *
  * Row format:

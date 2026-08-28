@@ -7,7 +7,12 @@ import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {resolveStateColor} from '../state-color-override.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
-import {railPrefixWidth, rowPrefixWidth} from '../list-view-sizing.ts';
+import {
+	clipIssueKey,
+	railPrefixWidth,
+	rowPrefixWidth,
+	ROW_ICON_CELLS,
+} from '../list-view-sizing.ts';
 import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
@@ -116,7 +121,19 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]" — emoji on the
 	// far left, rail icons right-aligned. They reserve space by shrinking
 	// the title budget.
-	const issueKey = space.name;
+	// A hand-narrowed rail (STA-2040) can leave fewer columns than the key
+	// needs. Clip it there, because an unclipped key wraps onto a second line
+	// and breaks the one-row-per-space alignment. At every ordinary width the
+	// clip is a no-op and the row is identical to master.
+	//
+	// `prefixCells` comes out of the budget too. Those rail icons are
+	// right-aligned in a flex box after the title, so a key that consumed the
+	// columns they need would push them off the row and wrap it again, which is
+	// the very thing the clip exists to prevent.
+	const issueKey = clipIssueKey(
+		space.name,
+		width - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
+	);
 	const hasIssueKey = issueKey.length > 0;
 	// emoji prefix + icon (1) + space (1) [+ issueKey (variable) + space (1)] + rail suffix
 	const fixedWidth =
@@ -319,6 +336,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 				<Text
 					color={useBlinkInverse ? textColor : stateColor}
 					bold
+					wrap="truncate"
 					inverse={useInverse}
 				>
 					{issueKey}

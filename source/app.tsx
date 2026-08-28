@@ -1905,52 +1905,95 @@ export default function App({
 				<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
 			)}
 
-			{/* Header */}
-			<Box>
-				<Text bold color="cyan">
-					🍝 {repoName}
-				</Text>
-				{!inTmux && (
-					<>
-						<Text dimColor> | </Text>
-						<Text color="yellow">Not in tmux</Text>
-					</>
-				)}
-				<Text dimColor> | </Text>
-				<Text dimColor>
-					{spaceCount} space{spaceCount !== 1 ? 's' : ''}
-					{visibleDisplaySpaces.length < activeSpaces.length &&
-						` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
-				</Text>
-				{errorCount > 0 && (
-					<>
-						<Text dimColor> | </Text>
-						<Text color="red">✗ {errorCount}</Text>
-						<Text dimColor> (e)</Text>
-					</>
-				)}
+			{/* Header, pinned to exactly one row.
+			    `LIST_CHROME_ROWS` (and with it `calculateListClickRow`) assumes
+			    the header is one row and the status line is one row. Once the
+			    rail can be dragged narrow (STA-2040), the header no longer fits,
+			    and a wrapped header would push every list row down and send
+			    mouse clicks to the wrong space. So: `flexShrink={0}` on an inner
+			    box keeps the segments at their natural widths, `truncate-end` on
+			    each segment stops Ink wrapping them, and `overflowX="hidden"`
+			    clips the line at the pane edge. At any ordinary width nothing is
+			    clipped and the output is identical to master. */}
+			<Box height={1} overflowX="hidden">
+				<Box flexShrink={0}>
+					<Text bold color="cyan" wrap="truncate-end">
+						🍝 {repoName}
+					</Text>
+					{!inTmux && (
+						<>
+							<Text dimColor wrap="truncate-end">
+								{' '}
+								|{' '}
+							</Text>
+							<Text color="yellow" wrap="truncate-end">
+								Not in tmux
+							</Text>
+						</>
+					)}
+					<Text dimColor wrap="truncate-end">
+						{' '}
+						|{' '}
+					</Text>
+					<Text dimColor wrap="truncate-end">
+						{spaceCount} space{spaceCount !== 1 ? 's' : ''}
+						{visibleDisplaySpaces.length < activeSpaces.length &&
+							` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
+					</Text>
+					{errorCount > 0 && (
+						<>
+							<Text dimColor wrap="truncate-end">
+								{' '}
+								|{' '}
+							</Text>
+							<Text color="red" wrap="truncate-end">
+								✗ {errorCount}
+							</Text>
+							<Text dimColor wrap="truncate-end">
+								{' '}
+								(e)
+							</Text>
+						</>
+					)}
+				</Box>
 			</Box>
 
-			{/* Status message line (occupies the row between header and list) */}
-			<Box>
+			{/* Status message line (occupies the row between header and list).
+			    Clipped for the same reason as the header above. */}
+			<Box height={1} overflowX="hidden">
 				{isSearching ? (
-					<>
-						<Text color="cyan">/</Text>
-						<TextInput
-							value={searchQuery}
-							onChange={setSearchQuery}
-							placeholder="filter by key or title..."
-						/>
-						{filteredDisplaySpaces.length !== displaySpaces.length && (
-							<Text dimColor>
-								{' '}
-								({filteredDisplaySpaces.length} match
-								{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+					/* Each segment gets its own `flexShrink={0}` box. Ink drops a
+					   one-cell Text outright when a sibling Text is truncated, so
+					   the `/` prefix vanished when the segments were bare Texts.
+					   Boxed, every segment keeps its natural width and the line
+					   clips left to right at the pane edge. */
+					<Box flexShrink={0}>
+						<Box flexShrink={0}>
+							<Text color="cyan" wrap="truncate-end">
+								/
 							</Text>
+						</Box>
+						<Box flexShrink={0}>
+							<TextInput
+								value={searchQuery}
+								onChange={setSearchQuery}
+								placeholder="filter by key or title..."
+							/>
+						</Box>
+						{filteredDisplaySpaces.length !== displaySpaces.length && (
+							<Box flexShrink={0}>
+								<Text dimColor wrap="truncate-end">
+									{' '}
+									({filteredDisplaySpaces.length} match
+									{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+								</Text>
+							</Box>
 						)}
-					</>
+					</Box>
 				) : (
-					<Text color="yellow">{headerMessage || ' '}</Text>
+					<Text color="yellow" wrap="truncate-end">
+						{headerMessage || ' '}
+					</Text>
 				)}
 			</Box>
 

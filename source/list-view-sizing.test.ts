@@ -13,6 +13,8 @@ import {
 	HEADER_ROWS,
 	LIST_CHROME_ROWS,
 	ROW_FIXED_OVERHEAD,
+	ROW_ICON_CELLS,
+	clipIssueKey,
 } from './list-view-sizing.ts';
 
 // ============================================================================
@@ -1307,4 +1309,49 @@ test('calculateListClickRow: banner shown — regression for pre-STA-873 miscalc
 		null,
 		'y=2 with banner must not select any list row',
 	);
+});
+
+// ============================================================================
+// Issue key clipping (STA-2040, hand-narrowed rail)
+// ============================================================================
+
+test('clipIssueKey leaves a key alone at ordinary widths', t => {
+	t.is(clipIssueKey('STA-2040', 35), 'STA-2040');
+	t.is(clipIssueKey('STA-2040', 8), 'STA-2040');
+});
+
+test('clipIssueKey clips a key that cannot fit', t => {
+	t.is(clipIssueKey('STA-2040', 6), 'STA-20');
+	t.is(clipIssueKey('STA-2040', 1), 'S');
+});
+
+test('clipIssueKey returns nothing when no columns remain', t => {
+	t.is(clipIssueKey('STA-2040', 0), '');
+	t.is(clipIssueKey('STA-2040', -4), '');
+});
+
+test('clipIssueKey keeps a row inside an 8-column rail', t => {
+	// 8 columns: icon(1) + space(1) leaves 6 for the key, so the row is 8 wide
+	// and never wraps onto a second line.
+	const clipped = clipIssueKey('STA-2040', 8 - ROW_ICON_CELLS);
+	t.is(ROW_ICON_CELLS + clipped.length, 8);
+});
+
+test('clipIssueKey leaves room for the trailing rail icons', t => {
+	// A space with an open PR: a passing pipeline plus 3 unresolved comments.
+	const icons = {pipelineIcon: '\u2713', commentCount: 3, hasConflict: false};
+	const trailing = railPrefixWidth(icons);
+	const width = 12;
+	const clipped = clipIssueKey('STA-2040', width - ROW_ICON_CELLS - trailing);
+	// icon + space + key + the right-aligned icons all fit inside the rail, so
+	// the row cannot wrap onto a second line.
+	t.true(ROW_ICON_CELLS + clipped.length + trailing <= width);
+	t.true(clipped.length > 0);
+});
+
+test('clipIssueKey with rail icons at the 8-column floor still fits', t => {
+	const icons = {pipelineIcon: '\u2713', commentCount: 0, hasConflict: true};
+	const trailing = railPrefixWidth(icons);
+	const clipped = clipIssueKey('STA-2040', 8 - ROW_ICON_CELLS - trailing);
+	t.true(ROW_ICON_CELLS + clipped.length + trailing <= 8);
 });
