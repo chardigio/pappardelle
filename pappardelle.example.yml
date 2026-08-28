@@ -60,7 +60,7 @@ team_prefix: ENG
 #   statuses:
 #     - To Do
 #     - In Progress
-#   labels:                 # Optional: only watch issues carrying one of these labels
+#   labels:                 # Optional: only watch issues carrying all of these labels
 #     - pappardelle
 #   key_prefixes:           # Optional: only watch these key prefixes (e.g. ENG-*, not WAB-*)
 #     - ENG

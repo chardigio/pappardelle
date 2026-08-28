@@ -224,7 +224,7 @@ issue_watchlist:
   statuses:
     - To Do
     - In Progress
-  labels: # Optional: filter by label
+  labels: # Optional: only issues carrying ALL of these labels
     - pappardelle
   key_prefixes: # Optional: only these issue-key prefixes (STA-*, not WAB-*)
     - STA
