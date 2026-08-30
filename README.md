@@ -122,6 +122,37 @@ editing. Issue keys, bare numbers, and Linear URLs skip the picker entirely and
 spawn on a single `Enter`, since their profile comes from the issue's tracker
 project rather than from your text.
 
+### Slash-command autocomplete
+
+Start the prompt with `/` and the **Profile** box gives way to a **Skills** box
+listing every skill and command Claude could run from this repo. The list
+narrows as you type. `↑`/`↓` move the selection, `Tab` completes the highlighted
+name and hands the prompt back to you, and `Esc` dismisses the list without
+clearing what you typed.
+
+`Enter` moves the focus into the **Skills** box instead of completing. That
+freezes the prompt, so `j`/`k` move the selection there too, `Enter` completes,
+and `Esc` returns the focus to the prompt with the list still open.
+
+Once the name you typed is one Pappardelle found on disk, the prompt paints it
+cyan. The color outlives the list: it is still there after the space that closes
+the list, so a finished `/do-pappardelle fix the picker` still shows you that
+the skill is real.
+
+Pappardelle reads four places, repo before user, and a repo entry hides a user
+entry of the same name:
+
+| Source        | Path                               |
+| ------------- | ---------------------------------- |
+| Repo skills   | `<repo>/.claude/skills/*/SKILL.md` |
+| Repo commands | `<repo>/.claude/commands/**/*.md`  |
+| User skills   | `~/.claude/skills/*/SKILL.md`      |
+| User commands | `~/.claude/commands/**/*.md`       |
+
+The completion is a typing aid. It does not change which profile your prompt
+matches, and it does not change the text sent to your tracker. A prompt that
+does not start with `/` behaves exactly as it always has.
+
 ### What gets provisioned
 
 When you create a workspace, Pappardelle runs through these steps:

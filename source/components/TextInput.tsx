@@ -1,8 +1,25 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {Text} from 'ink';
 import chalk from 'chalk';
 import {handleTextInputKey} from './text-input-key.ts';
+import {reconcileCursorOffset} from './cursor-reconcile.ts';
 import {useRawInput} from './use-raw-input.ts';
+
+/**
+ * Foreground colors a caller can ask for. A closed set rather than a free
+ * string so the lookup stays typed, and so the palette is visible from here.
+ */
+const HIGHLIGHT_COLORS = {
+	cyan: chalk.cyan,
+	green: chalk.green,
+	magenta: chalk.magenta,
+} as const;
+
+export type InputHighlight = {
+	/** Characters from the start of the value to paint. */
+	length: number;
+	color: keyof typeof HIGHLIGHT_COLORS;
+};
 
 type Props = {
 	value: string;
@@ -11,6 +28,12 @@ type Props = {
 	placeholder?: string;
 	isFocused?: boolean;
 	isShowingCursor?: boolean;
+	/**
+	 * Paint a run at the head of the value. The input itself has no opinion on
+	 * what that run means; the parent measures it. Composes with the cursor,
+	 * which keeps its inverse block wherever it lands.
+	 */
+	highlight?: InputHighlight;
 };
 
 /**
@@ -33,6 +56,7 @@ export default function TextInput({
 	placeholder = '',
 	isFocused = true,
 	isShowingCursor = true,
+	highlight,
 	onChange,
 	onSubmit,
 }: Props) {
@@ -40,23 +64,38 @@ export default function TextInput({
 		(originalValue || '').length,
 	);
 
+	// The last value this input emitted, so a parent-driven replacement can be
+	// told apart from the parent echoing back our own keystroke. See
+	// `reconcileCursorOffset`.
+	const lastEmittedRef = useRef(originalValue || '');
+
 	useEffect(() => {
 		setCursorOffset(prev => {
 			if (!isFocused || !isShowingCursor) {
 				return prev;
 			}
 
-			const newValue = originalValue || '';
-			if (prev > newValue.length - 1) {
-				return newValue.length;
-			}
-
-			return prev;
+			const next = reconcileCursorOffset({
+				incomingValue: originalValue || '',
+				lastEmittedValue: lastEmittedRef.current,
+				cursorOffset: prev,
+			});
+			lastEmittedRef.current = originalValue || '';
+			return next;
 		});
 	}, [originalValue, isFocused, isShowingCursor]);
 
 	const value = originalValue;
-	let renderedValue = value;
+	const paint = (char: string, index: number): string =>
+		highlight && index < highlight.length
+			? HIGHLIGHT_COLORS[highlight.color](char)
+			: char;
+
+	let renderedValue =
+		highlight && highlight.length > 0
+			? HIGHLIGHT_COLORS[highlight.color](value.slice(0, highlight.length)) +
+				value.slice(highlight.length)
+			: value;
 	let renderedPlaceholder = placeholder ? chalk.grey(placeholder) : undefined;
 
 	if (isShowingCursor && isFocused) {
@@ -68,7 +107,8 @@ export default function TextInput({
 
 		let i = 0;
 		for (const char of value) {
-			renderedValue += i === cursorOffset ? chalk.inverse(char) : char;
+			const painted = paint(char, i);
+			renderedValue += i === cursorOffset ? chalk.inverse(painted) : painted;
 			i++;
 		}
 
@@ -107,6 +147,7 @@ export default function TextInput({
 
 			setCursorOffset(result.cursorOffset);
 			if (valueChanged) {
+				lastEmittedRef.current = result.value;
 				onChange(result.value);
 			}
 		},
