@@ -98,7 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples
 
 Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux session and all its viewer panes, returning you to your original terminal. Your Claude and companion workspace sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
 
-To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting, or nuke everything with:
+To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting. `K` closes every workspace whose issue is already done or canceled in one confirmed step. Or nuke everything with:
 
 ```bash
 tmux kill-server
@@ -198,7 +198,7 @@ Use `/configure-pappardelle` to interactively edit your config — it walks you 
 Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The key concepts:
 
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues. Filter by status, labels, or `key_prefixes` (e.g. watch `STA-*` but not `WAB-*` when one account spans multiple workspaces). A profile can also declare its own `issue_watchlist`, polled _in addition_ to the top-level one and auto-scoped to that profile's `team_prefix` — so you can watch one status everywhere and a bespoke status (e.g. "For Pappardelle") for a single project.
-- **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched.
+- **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched. Leave the flag off and press `K` instead to clear the finished spaces on demand, behind a confirm dialog.
 - **Issue status colors** — Optional `state_colors:` map that overrides the ticket-rail color for named issue statuses (hex or an ink color name). Off by default, so the rail keeps the tracker's own colors. Most useful on Jira, where one color often covers both "In Progress" and "In Review".
 - **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
 - **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys) and (Linear only) lands brand-new issues in `tracker_projects[0]`.

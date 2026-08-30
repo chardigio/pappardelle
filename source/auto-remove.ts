@@ -11,6 +11,29 @@ import type {SpaceData} from './types.ts';
 export const AUTO_REMOVE_STATE_TYPES = new Set(['completed', 'canceled']);
 
 /**
+ * Return the spaces whose tracker issue is completed or canceled, in rail
+ * order. Pure — the caller runs the teardown.
+ *
+ * The main worktree is excluded because it can never be closed, and pending
+ * rows are excluded because they are placeholders for a workspace that does
+ * not exist on disk yet. A space with no issue attached is left alone: an
+ * absent issue is unknown state, not terminal state.
+ *
+ * Shared with the `K` shortcut (STA-2111), which closes the same set on
+ * demand. Keeping one predicate means the flag and the key can never disagree
+ * about what "done" means.
+ */
+export function findDoneSpaces(spaces: SpaceData[]): SpaceData[] {
+	return spaces.filter(space => {
+		if (space.isMainWorktree) return false;
+		if (space.isPending) return false;
+		const issue = space.trackerIssue ?? space.linearIssue;
+		if (!issue) return false;
+		return AUTO_REMOVE_STATE_TYPES.has(issue.state.type);
+	});
+}
+
+/**
  * Return the subset of `spaces` whose tracker issue has entered a terminal
  * state and should be auto-removed from the rail. Pure function — the caller
  * is responsible for actually invoking the removal flow.
@@ -25,11 +48,5 @@ export function findSpacesToAutoRemove(
 	autoRemoveWhenDone: boolean | undefined,
 ): SpaceData[] {
 	if (!autoRemoveWhenDone) return [];
-	return spaces.filter(space => {
-		if (space.isMainWorktree) return false;
-		if (space.isPending) return false;
-		const issue = space.trackerIssue ?? space.linearIssue;
-		if (!issue) return false;
-		return AUTO_REMOVE_STATE_TYPES.has(issue.state.type);
-	});
+	return findDoneSpaces(spaces);
 }

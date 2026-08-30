@@ -73,6 +73,12 @@ import {
 	type CommandConfig,
 } from './config.ts';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
+import {
+	buildKillDoneConfirmContent,
+	findDoneSpaces,
+	formatKillDoneResult,
+	KILL_DONE_EMPTY_MESSAGE,
+} from './kill-done-spaces.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import {
@@ -156,6 +162,14 @@ export default function App({
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+	// The batch of done/canceled spaces the `K` shortcut is asking about
+	// (STA-2111). Null means the dialog is closed. The list is snapshotted at
+	// keypress time rather than recomputed on render, because the 10s
+	// loadSpaces poll can land while the dialog is open — the user must close
+	// exactly the set the user was shown a count for.
+	const [killDoneTargets, setKillDoneTargets] = useState<SpaceData[] | null>(
+		null,
+	);
 	const [showHelp, setShowHelp] = useState(false);
 	const [showErrorDialog, setShowErrorDialog] = useState(false);
 	const [pendingSession, setPendingSession] = useState<PendingSession | null>(
@@ -364,6 +378,7 @@ export default function App({
 	const anyDialogOpen =
 		showPromptDialog ||
 		showDeleteConfirm ||
+		killDoneTargets !== null ||
 		showUpdateConfirm ||
 		showHelp ||
 		showErrorDialog ||
@@ -950,6 +965,7 @@ export default function App({
 			if (
 				showPromptDialog ||
 				showDeleteConfirm ||
+				killDoneTargets !== null ||
 				showUpdateConfirm ||
 				showHelp ||
 				showErrorDialog
@@ -990,6 +1006,16 @@ export default function App({
 					setHeaderWithTimeout('Cannot close main worktree', 2000);
 				} else if (selectedIndex < spaces.length) {
 					setShowDeleteConfirm(true);
+				}
+			} else if (input === 'K') {
+				// Shift+K closes every done/canceled space at once (STA-2111).
+				// Checked before the switch below so it can't be shadowed by the
+				// lowercase `k` navigation branch above.
+				const targets = findDoneSpaces(spaces);
+				if (targets.length === 0) {
+					setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
+				} else {
+					setKillDoneTargets(targets);
 				}
 			} else
 				switch (input) {
@@ -1077,6 +1103,7 @@ export default function App({
 			isActive:
 				!showPromptDialog &&
 				!showDeleteConfirm &&
+				killDoneTargets === null &&
 				!showUpdateConfirm &&
 				!showHelp &&
 				!showErrorDialog &&
@@ -1670,6 +1697,42 @@ export default function App({
 		}
 	};
 
+	// Close every done/canceled space in one pass (the `K` shortcut, STA-2111).
+	// Runs sequentially rather than in parallel: each deleteSpace shells out to
+	// the user's pre_workspace_deinit hooks, and firing a dozen of those at once
+	// would fight over the same git worktree lock and flood the tracker API.
+	const handleKillDoneSpaces = async () => {
+		const targets = killDoneTargets ?? [];
+		try {
+			let closed = 0;
+			for (const space of targets) {
+				// eslint-disable-next-line no-await-in-loop
+				const ok = await deleteSpace(space);
+				if (ok) closed++;
+			}
+
+			setHeaderWithTimeout(formatKillDoneResult(closed, targets.length), 4000);
+
+			// Walk the selection back if it now points past the end of the
+			// shrunken list. spacesRef reflects the post-removal list because
+			// deleteSpace's setSpaces has already committed.
+			setSelectedIndex(prev =>
+				prev > 0 && prev >= spacesRef.current.length
+					? Math.max(0, spacesRef.current.length - 1)
+					: prev,
+			);
+
+			// Reconcile with tmux reality in the background
+			loadSpaces();
+		} finally {
+			setKillDoneTargets(null);
+		}
+	};
+
+	const killDoneConfirmContent = buildKillDoneConfirmContent(
+		killDoneTargets?.length ?? 0,
+	);
+
 	// Get space to delete (for confirmation dialog)
 	const spaceToDelete = spaces[selectedIndex];
 
@@ -1787,6 +1850,7 @@ export default function App({
 			if (
 				showPromptDialog ||
 				showDeleteConfirm ||
+				killDoneTargets !== null ||
 				showUpdateConfirm ||
 				showErrorDialog
 			)
@@ -1827,6 +1891,7 @@ export default function App({
 			spaces.length,
 			showPromptDialog,
 			showDeleteConfirm,
+			killDoneTargets,
 			showUpdateConfirm,
 			showErrorDialog,
 			scrollOffset,
@@ -2012,6 +2077,15 @@ export default function App({
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
 						availableWidth={termDimensions.cols}
+					/>
+				) : killDoneTargets !== null ? (
+					<ConfirmDialog
+						title={killDoneConfirmContent.title}
+						message={killDoneConfirmContent.message}
+						detail={killDoneConfirmContent.detail}
+						processingMessage={killDoneConfirmContent.processingMessage}
+						onConfirm={handleKillDoneSpaces}
+						onCancel={() => setKillDoneTargets(null)}
 					/>
 				) : showDeleteConfirm && spaceToDelete ? (
 					<ConfirmDialog

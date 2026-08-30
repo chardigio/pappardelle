@@ -21,6 +21,7 @@ const defaultKeyDescriptions: Record<string, string> = {
 	o: 'Open workspace (apps, links, etc.)',
 	p: 'Git pull',
 	e: 'Show errors',
+	K: 'Close all done/canceled spaces',
 };
 
 const fixedShortcuts = [

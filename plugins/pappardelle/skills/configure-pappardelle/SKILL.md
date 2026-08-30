@@ -130,7 +130,7 @@ Remind the user to quit and relaunch the TUI to see the change.
 
 Keybindings are single-key shortcuts in the Pappardelle TUI. Ask with `AskUserQuestion`:
 
-1. **Which key?** — single character. Warn about reserved keys: `j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?`
+1. **Which key?** — single character. Blocked: `j`, `k`, `n`, `q`, `?`. Allowed but shadows a built-in default: `g`, `i`, `d`, `o`, `e`, `p`, `K`
 2. **What should it do?** — run a bash command (`run`) or send text to Claude (`send_to_claude`)
 3. **Display name** — shown in the help overlay
 4. **Shared or personal?** — shared goes in `.pappardelle.yml`, personal goes in `.pappardelle.local.yml`
@@ -359,7 +359,7 @@ Profile `vars` keys also become template variables (e.g., `vars: { APP_DIR: "src
 - **Use `AskUserQuestion` liberally** — don't guess what the user wants, ask
 - **Validate after editing** — check YAML syntax is correct
 - **Shared vs personal**: changes to `.pappardelle.yml` affect everyone on the team; `.pappardelle.local.yml` is gitignored and personal
-- **Reserved keybinding keys**: `j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?` — never assign these
+- **Reserved keybinding keys**: `j`, `k`, `n`, `q`, `?` — never assign these. `g`, `i`, `d`, `o`, `e`, `p`, `K` are assignable, but each replaces a built-in default; say which default the user is giving up
 - **Command fields**: every command needs `name` (string) and `run` (string). Optional: `continue_on_error` (bool), `background` (bool)
 - If the user's request matches the arguments passed to this skill (e.g., `/configure-pappardelle add a keybinding for running tests`), skip the initial "what do you want to configure" question and jump directly to the relevant section
 - **Restart required**: after making config changes, remind the user that any running Pappardelle TUI must be restarted to pick up the changes — press `q` to quit, then re-launch with `pappardelle`

@@ -1112,7 +1112,7 @@ keybindings:
     disabled: true
 ```
 
-Reserved keys (`j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `q`, `?`) remain blocked in both files. Duplicate detection applies across the merged result.
+Reserved keys (`j`, `k`, `n`, `q`, `?`) remain blocked in both files. Duplicate detection applies across the merged result.
 
 If the local file has syntax errors, config loading fails with an error message mentioning the local file.
 
@@ -1146,7 +1146,11 @@ keybindings:
 
 The following keys are reserved for built-in shortcuts and cannot be used for custom keybindings:
 
-`j`, `k`, `g`, `i`, `d`, `o`, `n`, `e`, `p`, `?`
+`j`, `k`, `n`, `q`, `?`
+
+These keys have built-in defaults that a custom keybinding **may** override (the custom binding replaces the default action entirely, and `disabled: true` suppresses the default without adding a replacement):
+
+`g`, `i`, `d`, `o`, `e`, `p`, `K`
 
 Additionally, `Enter` and `Delete` are reserved but use special key codes (not single characters).
 

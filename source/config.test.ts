@@ -2131,6 +2131,13 @@ test('validateConfig accepts disabled keybinding for a default key', t => {
 	}
 });
 
+test('K is an overridable default key, not a non-overridable one (STA-2111)', t => {
+	// The `K` shortcut closes every done/canceled space. It behaves like the
+	// other built-in defaults: a user `keybindings:` entry for `K` replaces it.
+	t.true(DEFAULT_KEYBINDING_KEYS.has('K'));
+	t.false(NON_OVERRIDABLE_KEYS.has('K'));
+});
+
 test('RESERVED_KEYS is the union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS', t => {
 	const union = new Set([...NON_OVERRIDABLE_KEYS, ...DEFAULT_KEYBINDING_KEYS]);
 	t.deepEqual(RESERVED_KEYS, union);

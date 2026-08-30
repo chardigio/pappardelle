@@ -275,7 +275,15 @@ export const NON_OVERRIDABLE_KEYS = new Set(['j', 'k', 'n', 'q', '?']);
  * When overridden, the custom binding replaces the default action entirely.
  * Use `disabled: true` to suppress a default without adding a replacement.
  */
-export const DEFAULT_KEYBINDING_KEYS = new Set(['g', 'i', 'd', 'o', 'e', 'p']);
+export const DEFAULT_KEYBINDING_KEYS = new Set([
+	'g',
+	'i',
+	'd',
+	'o',
+	'e',
+	'p',
+	'K',
+]);
 
 /**
  * Union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS.
