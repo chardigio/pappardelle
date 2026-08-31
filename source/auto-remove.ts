@@ -5,8 +5,12 @@ import type {SpaceData} from './types.ts';
 
 /**
  * The `state.type` values that count as "done" for auto-removal.
- * Mirrors Linear's workflow state types ('completed' | 'canceled') and Jira's
- * equivalents after the tracker provider normalizes them.
+ *
+ * The vocabulary is Linear's workflow state types ('completed' | 'canceled').
+ * Every other provider translates into it: `mapJiraIssue` turns Jira's Done
+ * status category into 'completed' (STA-2139). A provider that slugs its own
+ * words instead makes both `auto_remove_when_done` and `K` dead on that rig,
+ * so the translation belongs in the provider, not in a widened set here.
  */
 export const AUTO_REMOVE_STATE_TYPES = new Set(['completed', 'canceled']);
 

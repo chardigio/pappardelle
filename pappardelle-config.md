@@ -833,6 +833,7 @@ auto_remove_when_done?: boolean;
 **How it works:**
 
 - Triggered by the tracker's normalized `state.type` — `completed` (Linear "Done", Jira "Done") and `canceled` (Linear "Cancelled").
+- Jira has no separate canceled category. Pappardelle reads the locale-independent `statusCategory.key` (`new` / `indeterminate` / `done`), so every status in the Done category counts as `completed`, "Won't Do" included.
 - Runs the same teardown as pressing `d`: executes `pre_workspace_deinit` hooks (global + profile-matched), removes the space from the persisted registry, kills its tmux sessions, and clears the viewer panes if it was active.
 - The on-disk worktree is **not** deleted — same as the manual `d` flow.
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.

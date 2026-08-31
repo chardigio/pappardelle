@@ -1202,3 +1202,91 @@ test('new Jira provider loads persisted state colors from disk', t => {
 	t.is(provider.getWorkflowStateColor('Done'), '#custom00');
 	t.is(provider.getWorkflowStateColor('In Progress'), '#custom11');
 });
+
+// ============================================================================
+// mapJiraIssue — status category to state.type normalization (STA-2139)
+// ============================================================================
+
+test('mapJiraIssue normalizes the Done category to "completed"', t => {
+	const raw = {
+		key: 'CHEX-500',
+		fields: {
+			summary: 'Finished work',
+			status: {
+				name: 'Done',
+				statusCategory: {key: 'done', name: 'Done'},
+			},
+		},
+	};
+	t.is(mapJiraIssue(raw).state.type, 'completed');
+});
+
+test('mapJiraIssue normalizes the In Progress category to "started"', t => {
+	const raw = {
+		key: 'CHEX-501',
+		fields: {
+			summary: 'Ongoing work',
+			status: {
+				name: 'In Review',
+				statusCategory: {key: 'indeterminate', name: 'In Progress'},
+			},
+		},
+	};
+	t.is(mapJiraIssue(raw).state.type, 'started');
+});
+
+test('mapJiraIssue normalizes the To Do category to "unstarted"', t => {
+	const raw = {
+		key: 'CHEX-502',
+		fields: {
+			summary: 'Queued work',
+			status: {
+				name: 'To Do',
+				statusCategory: {key: 'new', name: 'To Do'},
+			},
+		},
+	};
+	t.is(mapJiraIssue(raw).state.type, 'unstarted');
+});
+
+test('mapJiraIssue normalizes by category name when the key is absent', t => {
+	const raw = {
+		key: 'CHEX-503',
+		fields: {
+			summary: 'Finished work, no category key',
+			status: {name: 'Shipped', statusCategory: {name: 'Done'}},
+		},
+	};
+	t.is(mapJiraIssue(raw).state.type, 'completed');
+});
+
+test('mapJiraIssue prefers the category key over a localized category name', t => {
+	const raw = {
+		key: 'CHEX-504',
+		fields: {
+			summary: 'Terminé',
+			status: {name: 'Terminé', statusCategory: {key: 'done', name: 'Terminé'}},
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.is(issue.state.type, 'completed');
+	t.is(issue.state.color, '#4caf50');
+});
+
+test('mapJiraIssue falls back to "unstarted" for an unknown category', t => {
+	const raw = {
+		key: 'CHEX-505',
+		fields: {
+			summary: 'Mystery category',
+			status: {name: 'Weird', statusCategory: {name: 'Some Other Thing'}},
+		},
+	};
+	const issue = mapJiraIssue(raw);
+	t.is(issue.state.type, 'unstarted');
+	t.is(issue.state.color, '#95a2b3');
+});
+
+test('mapJiraIssue defaults to "unstarted" when status is missing', t => {
+	const raw = {key: 'CHEX-506', fields: {summary: 'No status at all'}};
+	t.is(mapJiraIssue(raw).state.type, 'unstarted');
+});

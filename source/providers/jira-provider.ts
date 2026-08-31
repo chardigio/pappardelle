@@ -49,13 +49,67 @@ const STATUS_CATEGORY_COLORS: Record<string, string> = {
 	Done: '#4caf50', // green
 };
 
+/**
+ * Jira's three status categories, keyed by the locale-independent
+ * `statusCategory.key` that the REST API returns.
+ */
+const STATUS_CATEGORY_KEYS: Record<string, string> = {
+	new: 'To Do',
+	indeterminate: 'In Progress',
+	done: 'Done',
+};
+
+/**
+ * Translate a Jira status category into the Linear workflow-state vocabulary
+ * that `TrackerIssue.state.type` carries.
+ *
+ * Every consumer of `state.type` speaks Linear's words, because Linear was the
+ * first provider: `findDoneSpaces` looks for 'completed' or 'canceled'. Before
+ * STA-2139 this function slugged the category name instead ('Done' became
+ * 'done'), so no Jira issue ever counted as finished. The `K` shortcut and
+ * `auto_remove_when_done` were therefore dead on a Jira rig.
+ *
+ * Jira has no separate canceled category: a "Won't Do" status sits in the Done
+ * category, so it maps to 'completed' as well. Both words are terminal for
+ * every consumer, so the merge loses nothing.
+ */
+const STATUS_CATEGORY_STATE_TYPES: Record<string, string> = {
+	'To Do': 'unstarted',
+	'In Progress': 'started',
+	Done: 'completed',
+};
+
+/**
+ * Resolve the canonical category name for a status.
+ *
+ * The `key` wins over the `name` because the name is localized: a French Jira
+ * reports `{key: 'done', name: 'Terminé'}`. An unrecognized category falls
+ * back to 'To Do', the safe answer, because a wrong guess of 'Done' would let
+ * `auto_remove_when_done` close a live workspace.
+ */
+export function resolveStatusCategory(
+	statusCategory: Record<string, unknown>,
+): string {
+	const {key, name} = statusCategory;
+	if (typeof key === 'string') {
+		const byKey = STATUS_CATEGORY_KEYS[key.toLowerCase()];
+		if (byKey) return byKey;
+	}
+
+	if (typeof name === 'string' && name in STATUS_CATEGORY_STATE_TYPES) {
+		return name;
+	}
+
+	return 'To Do';
+}
+
 export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 	const fields = (raw['fields'] as Record<string, unknown>) ?? {};
 	const status = (fields['status'] as Record<string, unknown>) ?? {};
 	const statusCategory =
 		(status['statusCategory'] as Record<string, unknown>) ?? {};
 	const project = (fields['project'] as Record<string, unknown>) ?? {};
-	const categoryName = (statusCategory['name'] as string) ?? 'To Do';
+	const categoryName = resolveStatusCategory(statusCategory);
 
 	const rawLabels = fields['labels'];
 	const labels = Array.isArray(rawLabels)
@@ -67,7 +121,7 @@ export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 		title: (fields['summary'] as string) ?? '',
 		state: {
 			name: (status['name'] as string) ?? '',
-			type: categoryName.toLowerCase().replace(/\s+/g, '_'),
+			type: STATUS_CATEGORY_STATE_TYPES[categoryName] ?? 'unstarted',
 			color: STATUS_CATEGORY_COLORS[categoryName] ?? '#95a2b3',
 		},
 		project: project['name']

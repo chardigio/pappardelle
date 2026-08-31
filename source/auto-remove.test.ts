@@ -1,8 +1,10 @@
 import test from 'ava';
 import {
 	AUTO_REMOVE_STATE_TYPES,
+	findDoneSpaces,
 	findSpacesToAutoRemove,
 } from './auto-remove.ts';
+import {mapJiraIssue} from './providers/jira-provider.ts';
 import type {TrackerIssue} from './providers/types.ts';
 import type {SpaceData} from './types.ts';
 
@@ -132,4 +134,37 @@ test('also accepts the legacy linearIssue field', t => {
 
 test('AUTO_REMOVE_STATE_TYPES contains exactly completed and canceled', t => {
 	t.deepEqual([...AUTO_REMOVE_STATE_TYPES].sort(), ['canceled', 'completed']);
+});
+
+// ============================================================================
+// Cross-provider: Jira issues must reach the same predicate (STA-2139)
+// ============================================================================
+
+test('finds a Jira space whose status category is Done', t => {
+	const jiraIssue = mapJiraIssue({
+		key: 'CHEX-1',
+		fields: {
+			summary: 'Shipped it',
+			status: {name: 'Done', statusCategory: {key: 'done', name: 'Done'}},
+		},
+	});
+	const spaces: SpaceData[] = [makeSpace('CHEX-1', {trackerIssue: jiraIssue})];
+	const result = findDoneSpaces(spaces);
+	t.is(result.length, 1);
+	t.is(result[0]!.name, 'CHEX-1');
+});
+
+test('leaves a Jira space alone while its status category is In Progress', t => {
+	const jiraIssue = mapJiraIssue({
+		key: 'CHEX-2',
+		fields: {
+			summary: 'Still going',
+			status: {
+				name: 'In Progress',
+				statusCategory: {key: 'indeterminate', name: 'In Progress'},
+			},
+		},
+	});
+	const spaces: SpaceData[] = [makeSpace('CHEX-2', {trackerIssue: jiraIssue})];
+	t.deepEqual(findDoneSpaces(spaces), []);
 });
