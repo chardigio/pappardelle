@@ -196,3 +196,42 @@ test('buildClaudeResumeCommand shell-quotes non-standard issue keys', t => {
 	// Must still reference --name twice.
 	t.is((cmd.match(/--name /g) ?? []).length, 2);
 });
+
+// Session-name encoding for beads' hierarchical IDs
+test('getSessionNames encodes the dot in a beads child ID', t => {
+	// tmux rewrites '.' to '_' in session names, so a raw name could never be
+	// found again by has-session, and a space that always looks absent gets
+	// respawned forever.
+	const names = getSessionNames('bd-a3f8e9.1', 'pappa');
+	t.is(names.claude, 'claude-pappa-bd-a3f8e9_1');
+	t.is(names.companion, 'companion-pappa-bd-a3f8e9_1');
+});
+
+test('extractIssueKeyFromSession decodes a beads child ID', t => {
+	t.is(
+		extractIssueKeyFromSession('claude-pappa-bd-a3f8e9_1', 'pappa'),
+		'bd-a3f8e9.1',
+	);
+});
+
+test('session-name encoding survives an underscore in the key', t => {
+	// A beads prefix defaults to the repo directory name, so my_service-a1b2 is
+	// an ordinary ID. Decoding every '_' to '.' would hand back my.service-a1b2.
+	const {claude} = getSessionNames('my_service-a1b2', 'pappa');
+	t.is(claude, 'claude-pappa-my__service-a1b2');
+	t.is(extractIssueKeyFromSession(claude, 'pappa'), 'my_service-a1b2');
+});
+
+test('session-name encoding round-trips every tracker key shape', t => {
+	for (const key of [
+		'STA-123',
+		'bd-a1b2',
+		'bd-a3f8e9.1',
+		'bd-a3f8e9.1.2',
+		'my_service-a1b2',
+		'my_service-a3f8e9.1',
+	]) {
+		const {claude} = getSessionNames(key, 'pappa');
+		t.is(extractIssueKeyFromSession(claude, 'pappa'), key);
+	}
+});

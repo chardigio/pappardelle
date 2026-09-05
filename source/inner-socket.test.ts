@@ -370,6 +370,30 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 	t.deepEqual(killed, ['claude-repo-STA-999', 'companion-repo-STA-999']);
 });
 
+test('cleanupOrphanedInnerSessions decodes encoded keys before matching the registry', t => {
+	// Session names carry the '.'/'_' encoding; the registry holds keys as the
+	// tracker spells them. Comparing raw reaped every beads child issue and every
+	// underscored prefix out from under its live worktree on startup.
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-bd-a3f8e9_1', // registered as bd-a3f8e9.1 → keep
+			'companion-repo-my__service-a1b2', // registered as my_service-a1b2 → keep
+			'claude-repo-bd-dead_9', // orphan → kill
+		].join('\n'),
+	});
+	t.is(
+		cleanupOrphanedInnerSessions(
+			new Set(['bd-a3f8e9.1', 'my_service-a1b2']),
+			'repo',
+			runner,
+		),
+		1,
+	);
+
+	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
+	t.deepEqual(killed, ['claude-repo-bd-dead_9']);
+});
+
 test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {
 	// A hard-quit straddling the STA-1464 upgrade can leave the old
 	// `lazygit-{repo}-*` companion sessions behind on the inner socket. They

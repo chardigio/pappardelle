@@ -118,8 +118,11 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
-# Create the tmux session name based on repo and issue key
-TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
+# Create the tmux session name based on repo and issue key. The '.' → '_'
+# encoding matches start-claude-session.sh; see the comment there.
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+TMUX_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
@@ -131,16 +134,16 @@ PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 CLAUDE_PROMPT="$PROMPT"
 
 # Build the launch-flag string appended to every `claude` invocation below
-# (--dangerously-skip-permissions, --model, --effort — in that order, matching
+# (--dangerously-skip-permissions, --model, --effort, in that order, matching
 # start-claude-session.sh and buildClaudeResumeCommand() in source/tmux.ts).
-# Leading spaces are intentional — the value is concatenated onto the claude
+# Leading spaces are intentional: the value is concatenated onto the claude
 # command word, so each space separates its flag cleanly.
 #
 # Two layers of quoting, because the string crosses two shells:
 #   1. printf %q here makes each config-supplied value safe for the INNER shell
 #      (tmux runs the new-session command through sh -c).
 #   2. `quoted form of` in the AppleScript makes the whole string safe for the
-#      OUTER shell iTerm types it into — see the CLAUDE_FLAGS assignment below.
+#      OUTER shell iTerm types it into. See the CLAUDE_FLAGS assignment below.
 # That pairing is what lets any value through unharmed, so there's no charset
 # restriction and nothing is ever silently dropped; the tmux path
 # (start-claude-session.sh) reaches the same place with printf %q alone.
@@ -228,7 +231,7 @@ on run argv
     -- quote (e.g. DESTDIR='/tmp') can't break out. send-keys then receives the
     -- value as one double-quoted arg, matching the safe pattern in
     -- start-claude-session.sh.
-    set companionSession to "companion-" & repoName & "-" & issueKey
+    set companionSession to "companion-" & (text 8 thru -1 of tmuxSession)
     set sendPart to ""
     if companionCommand is not equal to "" then
         set sendPart to "COMPANION_CMD=" & quoted form of companionCommand & "; " & tmuxL & " send-keys -t '" & companionSession & "' \"$COMPANION_CMD\" Enter 2>/dev/null; "

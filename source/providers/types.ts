@@ -1,6 +1,10 @@
 // Provider interfaces for issue trackers and VCS hosts
 // These abstractions allow pappardelle to work with Linear/Jira and GitHub/GitLab
 
+export type TrackerProviderName = 'linear' | 'jira' | 'beads';
+
+export type VcsProviderName = 'github' | 'gitlab';
+
 /**
  * Provider-agnostic issue representation.
  * Maps to LinearIssue shape for backwards compatibility.
@@ -73,7 +77,7 @@ export interface RailStatus {
  * Issue tracker provider interface (Linear, Jira, etc.)
  */
 export interface IssueTrackerProvider {
-	readonly name: string;
+	readonly name: TrackerProviderName;
 
 	/** Fetch an issue by key, with caching */
 	getIssue(issueKey: string): Promise<TrackerIssue | null>;
@@ -93,6 +97,9 @@ export interface IssueTrackerProvider {
 	/** Build the web URL for an issue */
 	buildIssueUrl(issueKey: string): string;
 
+	/** Show the issue to the user in place. */
+	openIssue?(issueKey: string): boolean;
+
 	/** Post a comment on an issue */
 	createComment(issueKey: string, body: string): Promise<boolean>;
 
@@ -101,6 +108,21 @@ export interface IssueTrackerProvider {
 		assignee: string | undefined,
 		statuses: string[],
 	): Promise<TrackerIssue[]>;
+
+	/**
+	 * Unblocked, unstarted work the user could pick up right now, offered as
+	 * suggestions in the new-session prompt.
+	 */
+	listReadyIssues?(): Promise<TrackerIssue[]>;
+
+	/** Mark an issue done from inside the TUI. */
+	closeIssue?(issueKey: string): Promise<boolean>;
+
+	/**
+	 * Take ownership of an issue and move it out of the ready pool, called as a
+	 * workspace starts building.
+	 */
+	claimIssue?(issueKey: string): Promise<boolean>;
 }
 
 /**

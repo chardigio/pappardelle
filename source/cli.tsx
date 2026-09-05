@@ -18,9 +18,12 @@ import type {PaneLayout} from './types.ts';
 import {
 	configExists,
 	getRepoRoot,
+	getMainRepoRoot,
 	getRepoName,
 	loadConfig,
 	loadProviderConfigs,
+	getBeadsPrefixes,
+	readBeadsIssuePrefix,
 	getTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
@@ -206,7 +209,12 @@ if (cli.input.length > 0) {
 	}
 
 	const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-	const normalizedIssueKey = normalizeIssueIdentifier(prompt, teamPrefix);
+	const normalizedIssueKey = normalizeIssueIdentifier(
+		prompt,
+		teamPrefix,
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
 	const finalPrompt = normalizedIssueKey ?? prompt;
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
@@ -214,7 +222,7 @@ if (cli.input.length > 0) {
 	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
 		stdio: 'inherit',
 		cwd: getRepoRoot(),
-		env: buildSpawnEnv(getRepoRoot()),
+		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 	});
 
 	process.exit(result.status ?? 0);

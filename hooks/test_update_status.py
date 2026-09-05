@@ -205,6 +205,51 @@ class TestGetWorkspaceName:
         unknown_file = tmp_path / "unknown.json"
         assert not unknown_file.exists(), "Should NOT write to unknown.json when branch is detected"
 
+    def test_recovers_beads_key_from_a_worktree_with_no_config_of_its_own(self, tmp_path):
+        """A beads worktree resolves its key through the main checkout's config.
+
+        .pappardelle.yml and .beads/ are commonly excluded rather than committed,
+        so a linked worktree has neither and used to fall through to the branch
+        fallback — writing 'pappardelle-pap-a1b2.json' for issue 'pap-a1b2',
+        which the sidebar never reads.
+        """
+        import update_status as us
+
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+        (checkout / ".pappardelle.yml").write_text(
+            "version: 1\nteam_prefix: pap\nissue_tracker:\n  provider: beads\n"
+        )
+        linked = tmp_path / "worktrees" / "pap-a1b2"
+        linked.mkdir(parents=True)
+
+        with patch.object(us._tracker_mod, "get_main_repo_root", return_value=str(checkout)):
+            assert get_workspace_name(str(linked)) == "pap-a1b2"
+
+    def test_branch_fallback_asks_git_about_the_given_cwd(self):
+        """The fallback describes the workspace the hook was told about.
+
+        Without an explicit cwd, git answered for whatever directory the hook
+        process happened to inherit, which is not the workspace being reported.
+        """
+        seen = []
+
+        def mock_run(cmd, **kwargs):
+            seen.append(kwargs.get("cwd"))
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "feature-x\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/charlie/cs/myproj\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
+        with (
+            patch("os.getcwd", return_value="/somewhere/else"),
+            patch("subprocess.run", side_effect=mock_run),
+        ):
+            assert get_workspace_name("/Users/charlie/cs/myproj") == "myproj-feature-x"
+
+        assert seen == ["/Users/charlie/cs/myproj", "/Users/charlie/cs/myproj"]
+
 
 class TestStatusDetermination:
     """Tests for determining status from hook events.

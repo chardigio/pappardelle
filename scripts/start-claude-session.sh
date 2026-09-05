@@ -93,8 +93,10 @@ if [[ -z "$WORKTREE_PATH" ]]; then
     exit 1
 fi
 
-CLAUDE_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
-COMPANION_SESSION="companion-${REPO_NAME}-${ISSUE_KEY}"
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+CLAUDE_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
+COMPANION_SESSION="companion-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=` (which would
@@ -102,6 +104,15 @@ COMPANION_SESSION="companion-${REPO_NAME}-${ISSUE_KEY}"
 # Agent Teams feature). See STA-860 for the full rationale and the matching
 # INNER_SOCKET constant in pappardelle/source/tmux.ts.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
+
+# Set on the tmux session rather than exported here: these sessions are created
+# on a long-lived server that inherited its environment from whatever started
+# it, so a plain export would never reach the panes. Claude Code's hooks read
+# it to find the main checkout without walking back out of the worktree.
+SESSION_ENV=()
+if [[ -n "${PAPPARDELLE_MAIN_REPO_ROOT:-}" ]]; then
+    SESSION_ENV=(-e "PAPPARDELLE_MAIN_REPO_ROOT=$PAPPARDELLE_MAIN_REPO_ROOT")
+fi
 
 # Pre-trust the worktree directory for Claude Code
 # Claude Code stores workspace trust in ~/.claude.json under projects.<path>.hasTrustDialogAccepted
@@ -128,7 +139,7 @@ if not projects[path].get('hasTrustDialogAccepted'):
 
 # Ensure Claude tmux session
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH"
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
     if [[ "$NO_CLAUDE" != true ]]; then
         # Build the Claude command with optional --dangerously-skip-permissions,
         # --model / --effort, and --name set to the issue key so the session is
@@ -166,7 +177,7 @@ fi
 # A shell-based session is created first so the pane persists even if the
 # command exits; an empty command leaves that plain shell untouched.
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION" 2>/dev/null; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$COMPANION_SESSION" -c "$WORKTREE_PATH"
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$COMPANION_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
     if [[ "$NO_CLAUDE" != true && -n "$COMPANION_COMMAND" ]]; then
         tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$COMPANION_SESSION" "$COMPANION_COMMAND" Enter
     fi

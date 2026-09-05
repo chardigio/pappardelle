@@ -125,17 +125,26 @@ test('readInstalledVersion: returns null when version missing', t => {
 // readInstalledVersionFromGit
 // ============================================================================
 
-test('readInstalledVersionFromGit: returns the latest semver tag reachable from HEAD', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
-	try {
-		initRepoWithTag(dir, 'v1.2.3');
-		t.is(readInstalledVersionFromGit(dir), 'v1.2.3');
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
-});
+// These tests build real git repos via execFileSync, which blocks AVA's worker
+// thread on a synchronous OS wait. Running many of them concurrently (AVA's
+// default) starves AVA's IPC heartbeat for the whole batch's duration, which
+// exceeds its idle timeout and reports every test in the file — including
+// unrelated instant ones — as pending. Keeping these serial fixes that without
+// slowing down the rest of the file.
+test.serial(
+	'readInstalledVersionFromGit: returns the latest semver tag reachable from HEAD',
+	t => {
+		const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
+		try {
+			initRepoWithTag(dir, 'v1.2.3');
+			t.is(readInstalledVersionFromGit(dir), 'v1.2.3');
+		} finally {
+			rmSync(dir, {recursive: true, force: true});
+		}
+	},
+);
 
-test('readInstalledVersionFromGit: ignores non-semver tags', t => {
+test.serial('readInstalledVersionFromGit: ignores non-semver tags', t => {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
 	try {
 		initRepoWithTag(dir, 'not-a-version');
@@ -145,15 +154,18 @@ test('readInstalledVersionFromGit: ignores non-semver tags', t => {
 	}
 });
 
-test('readInstalledVersionFromGit: returns null when no tags exist', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
-	try {
-		initRepoWithTag(dir, null);
-		t.is(readInstalledVersionFromGit(dir), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'readInstalledVersionFromGit: returns null when no tags exist',
+	t => {
+		const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
+		try {
+			initRepoWithTag(dir, null);
+			t.is(readInstalledVersionFromGit(dir), null);
+		} finally {
+			rmSync(dir, {recursive: true, force: true});
+		}
+	},
+);
 
 test('readInstalledVersionFromGit: returns null when not a git repo', t => {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
@@ -168,7 +180,7 @@ test('readInstalledVersionFromGit: returns null when not a git repo', t => {
 // resolveInstalledVersion (git tag preferred, package.json fallback)
 // ============================================================================
 
-test('resolveInstalledVersion: uses the git tag when present', t => {
+test.serial('resolveInstalledVersion: uses the git tag when present', t => {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
 	try {
 		initRepoWithTag(dir, 'v2.0.0');
@@ -182,19 +194,22 @@ test('resolveInstalledVersion: uses the git tag when present', t => {
 	}
 });
 
-test('resolveInstalledVersion: falls back to package.json when no tags', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
-	try {
-		initRepoWithTag(dir, null);
-		writeFileSync(
-			path.join(dir, 'package.json'),
-			JSON.stringify({version: '0.1.0'}),
-		);
-		t.is(resolveInstalledVersion(dir), '0.1.0');
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'resolveInstalledVersion: falls back to package.json when no tags',
+	t => {
+		const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
+		try {
+			initRepoWithTag(dir, null);
+			writeFileSync(
+				path.join(dir, 'package.json'),
+				JSON.stringify({version: '0.1.0'}),
+			);
+			t.is(resolveInstalledVersion(dir), '0.1.0');
+		} finally {
+			rmSync(dir, {recursive: true, force: true});
+		}
+	},
+);
 
 test('resolveInstalledVersion: returns null when neither source works', t => {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
@@ -209,87 +224,105 @@ test('resolveInstalledVersion: returns null when neither source works', t => {
 // resolveDisplayVersion (help-overlay version: real tag vs -dev build)
 // ============================================================================
 
-test('resolveDisplayVersion: real release checkout reports the tag, not dev', t => {
-	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-	try {
-		initRepoWithTag(proj, 'v0.7.9');
-		initRepoWithTag(install, 'v0.7.9');
-		t.deepEqual(resolveDisplayVersion(proj, install), {
-			version: 'v0.7.9',
-			isDev: false,
-		});
-	} finally {
-		rmSync(proj, {recursive: true, force: true});
-		rmSync(install, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'resolveDisplayVersion: real release checkout reports the tag, not dev',
+	t => {
+		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+		try {
+			initRepoWithTag(proj, 'v0.7.9');
+			initRepoWithTag(install, 'v0.7.9');
+			t.deepEqual(resolveDisplayVersion(proj, install), {
+				version: 'v0.7.9',
+				isDev: false,
+			});
+		} finally {
+			rmSync(proj, {recursive: true, force: true});
+			rmSync(install, {recursive: true, force: true});
+		}
+	},
+);
 
-test('resolveDisplayVersion: monorepo/worktree build reports the installed clone tag, flagged -dev', t => {
-	// projectDir has no vX.Y.Z tag (mirrors the monorepo); installed clone does.
-	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-	try {
-		initRepoWithTag(proj, null);
-		initRepoWithTag(install, 'v0.7.9');
-		t.deepEqual(resolveDisplayVersion(proj, install), {
-			version: 'v0.7.9',
-			isDev: true,
-		});
-	} finally {
-		rmSync(proj, {recursive: true, force: true});
-		rmSync(install, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'resolveDisplayVersion: monorepo/worktree build reports the installed clone tag, flagged -dev',
+	t => {
+		// projectDir has no vX.Y.Z tag (mirrors the monorepo); installed clone does.
+		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+		try {
+			initRepoWithTag(proj, null);
+			initRepoWithTag(install, 'v0.7.9');
+			t.deepEqual(resolveDisplayVersion(proj, install), {
+				version: 'v0.7.9',
+				isDev: true,
+			});
+		} finally {
+			rmSync(proj, {recursive: true, force: true});
+			rmSync(install, {recursive: true, force: true});
+		}
+	},
+);
 
-test('resolveDisplayVersion: NEVER reports the stale package.json 0.1.0 for a dev build', t => {
-	// Regression guard for STA-1494: a worktree build whose package.json says
-	// 0.1.0 must surface the installed clone's real tag (as -dev), not 0.1.0.
-	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-	try {
-		initRepoWithTag(proj, null);
-		writeFileSync(
-			path.join(proj, 'package.json'),
-			JSON.stringify({version: '0.1.0'}),
-		);
-		initRepoWithTag(install, 'v0.7.9');
-		const result = resolveDisplayVersion(proj, install);
-		t.not(result.version, '0.1.0');
-		t.deepEqual(result, {version: 'v0.7.9', isDev: true});
-	} finally {
-		rmSync(proj, {recursive: true, force: true});
-		rmSync(install, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'resolveDisplayVersion: NEVER reports the stale package.json 0.1.0 for a dev build',
+	t => {
+		// Regression guard for STA-1494: a worktree build whose package.json says
+		// 0.1.0 must surface the installed clone's real tag (as -dev), not 0.1.0.
+		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+		try {
+			initRepoWithTag(proj, null);
+			writeFileSync(
+				path.join(proj, 'package.json'),
+				JSON.stringify({version: '0.1.0'}),
+			);
+			initRepoWithTag(install, 'v0.7.9');
+			const result = resolveDisplayVersion(proj, install);
+			t.not(result.version, '0.1.0');
+			t.deepEqual(result, {version: 'v0.7.9', isDev: true});
+		} finally {
+			rmSync(proj, {recursive: true, force: true});
+			rmSync(install, {recursive: true, force: true});
+		}
+	},
+);
 
-test('resolveDisplayVersion: returns null version (sha-only) when nothing is resolvable', t => {
-	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-	const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-	try {
-		initRepoWithTag(proj, null);
-		initRepoWithTag(install, null);
-		t.deepEqual(resolveDisplayVersion(proj, install), {
-			version: null,
-			isDev: false,
-		});
-	} finally {
-		rmSync(proj, {recursive: true, force: true});
-		rmSync(install, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'resolveDisplayVersion: returns null version (sha-only) when nothing is resolvable',
+	t => {
+		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
+		try {
+			initRepoWithTag(proj, null);
+			initRepoWithTag(install, null);
+			t.deepEqual(resolveDisplayVersion(proj, install), {
+				version: null,
+				isDev: false,
+			});
+		} finally {
+			rmSync(proj, {recursive: true, force: true});
+			rmSync(install, {recursive: true, force: true});
+		}
+	},
+);
 
-test('resolveDisplayVersion: defaults installedRoot to ~/.pappardelle/repo', t => {
-	// When projectDir itself carries the tag, the default installedRoot is never
-	// consulted, so this is safe to run without touching the real home dir.
-	const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-	try {
-		initRepoWithTag(proj, 'v1.2.3');
-		t.deepEqual(resolveDisplayVersion(proj), {version: 'v1.2.3', isDev: false});
-	} finally {
-		rmSync(proj, {recursive: true, force: true});
-	}
-});
+test.serial(
+	'resolveDisplayVersion: defaults installedRoot to ~/.pappardelle/repo',
+	t => {
+		// When projectDir itself carries the tag, the default installedRoot is never
+		// consulted, so this is safe to run without touching the real home dir.
+		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
+		try {
+			initRepoWithTag(proj, 'v1.2.3');
+			t.deepEqual(resolveDisplayVersion(proj), {
+				version: 'v1.2.3',
+				isDev: false,
+			});
+		} finally {
+			rmSync(proj, {recursive: true, force: true});
+		}
+	},
+);
 
 // ============================================================================
 // Cache IO
@@ -426,123 +459,138 @@ test('checkForUpdate: returns null when LOCAL_MODE', async t => {
 	}
 });
 
-test('checkForUpdate: returns null when cache says we are up to date', async t => {
-	const fake = setupFakeInstall('0.1.0');
-	try {
-		writeCachedCheck(fake.cachePath, {
-			checkedAt: Date.now(),
-			latestVersion: '0.1.0',
-		});
-		const result = await checkForUpdate({
-			projectDir: fake.projectDir,
-			cachePath: fake.cachePath,
-		});
-		t.is(result, null);
-	} finally {
-		fake.cleanup();
-	}
-});
+test.serial(
+	'checkForUpdate: returns null when cache says we are up to date',
+	async t => {
+		const fake = setupFakeInstall('0.1.0');
+		try {
+			writeCachedCheck(fake.cachePath, {
+				checkedAt: Date.now(),
+				latestVersion: '0.1.0',
+			});
+			const result = await checkForUpdate({
+				projectDir: fake.projectDir,
+				cachePath: fake.cachePath,
+			});
+			t.is(result, null);
+		} finally {
+			fake.cleanup();
+		}
+	},
+);
 
-test('checkForUpdate: surfaces update when cache shows a newer version', async t => {
-	const fake = setupFakeInstall('0.1.0');
-	try {
-		writeCachedCheck(fake.cachePath, {
-			checkedAt: Date.now(),
-			latestVersion: 'v0.2.0',
-		});
-		const result = await checkForUpdate({
-			projectDir: fake.projectDir,
-			cachePath: fake.cachePath,
-		});
-		t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
-	} finally {
-		fake.cleanup();
-	}
-});
+test.serial(
+	'checkForUpdate: surfaces update when cache shows a newer version',
+	async t => {
+		const fake = setupFakeInstall('0.1.0');
+		try {
+			writeCachedCheck(fake.cachePath, {
+				checkedAt: Date.now(),
+				latestVersion: 'v0.2.0',
+			});
+			const result = await checkForUpdate({
+				projectDir: fake.projectDir,
+				cachePath: fake.cachePath,
+			});
+			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
+		} finally {
+			fake.cleanup();
+		}
+	},
+);
 
-test('checkForUpdate: returns null when installed version is newer than cached', async t => {
-	// Can happen if you manually bump package.json locally.
-	const fake = setupFakeInstall('0.3.0');
-	try {
-		writeCachedCheck(fake.cachePath, {
-			checkedAt: Date.now(),
-			latestVersion: '0.2.0',
-		});
-		const result = await checkForUpdate({
-			projectDir: fake.projectDir,
-			cachePath: fake.cachePath,
-		});
-		t.is(result, null);
-	} finally {
-		fake.cleanup();
-	}
-});
+test.serial(
+	'checkForUpdate: returns null when installed version is newer than cached',
+	async t => {
+		// Can happen if you manually bump package.json locally.
+		const fake = setupFakeInstall('0.3.0');
+		try {
+			writeCachedCheck(fake.cachePath, {
+				checkedAt: Date.now(),
+				latestVersion: '0.2.0',
+			});
+			const result = await checkForUpdate({
+				projectDir: fake.projectDir,
+				cachePath: fake.cachePath,
+			});
+			t.is(result, null);
+		} finally {
+			fake.cleanup();
+		}
+	},
+);
 
-test('checkForUpdate: bypasses stale cache, calls fetchLatest, and rewrites the cache', async t => {
-	const fake = setupFakeInstall('0.1.0');
-	try {
-		const now = 1_800_000_000_000;
-		const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-		writeCachedCheck(fake.cachePath, {
-			checkedAt: now - STALE_TTL_MS,
-			latestVersion: 'v0.1.0',
-		});
+test.serial(
+	'checkForUpdate: bypasses stale cache, calls fetchLatest, and rewrites the cache',
+	async t => {
+		const fake = setupFakeInstall('0.1.0');
+		try {
+			const now = 1_800_000_000_000;
+			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
+			writeCachedCheck(fake.cachePath, {
+				checkedAt: now - STALE_TTL_MS,
+				latestVersion: 'v0.1.0',
+			});
 
-		let fetchCalls = 0;
-		const result = await checkForUpdate({
-			projectDir: fake.projectDir,
-			cachePath: fake.cachePath,
-			now,
-			async fetchLatest() {
-				fetchCalls += 1;
-				return 'v0.5.0';
-			},
-		});
+			let fetchCalls = 0;
+			const result = await checkForUpdate({
+				projectDir: fake.projectDir,
+				cachePath: fake.cachePath,
+				now,
+				async fetchLatest() {
+					fetchCalls += 1;
+					return 'v0.5.0';
+				},
+			});
 
-		t.is(fetchCalls, 1, 'stub should be called exactly once');
-		t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
+			t.is(fetchCalls, 1, 'stub should be called exactly once');
+			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
 
-		const refreshed = readCachedCheck(fake.cachePath);
-		t.deepEqual(
-			refreshed,
-			{checkedAt: now, latestVersion: 'v0.5.0'},
-			'cache should be rewritten with the new value and fresh timestamp',
-		);
-	} finally {
-		fake.cleanup();
-	}
-});
+			const refreshed = readCachedCheck(fake.cachePath);
+			t.deepEqual(
+				refreshed,
+				{checkedAt: now, latestVersion: 'v0.5.0'},
+				'cache should be rewritten with the new value and fresh timestamp',
+			);
+		} finally {
+			fake.cleanup();
+		}
+	},
+);
 
-test('checkForUpdate: stale cache + fetchLatest returning null does not corrupt the cache', async t => {
-	const fake = setupFakeInstall('0.1.0');
-	try {
-		const now = 1_800_000_000_000;
-		const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-		const staleEntry: CacheEntry = {
-			checkedAt: now - STALE_TTL_MS,
-			latestVersion: 'v0.1.0',
-		};
-		writeCachedCheck(fake.cachePath, staleEntry);
+test.serial(
+	'checkForUpdate: stale cache + fetchLatest returning null does not corrupt the cache',
+	async t => {
+		const fake = setupFakeInstall('0.1.0');
+		try {
+			const now = 1_800_000_000_000;
+			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
+			const staleEntry: CacheEntry = {
+				checkedAt: now - STALE_TTL_MS,
+				latestVersion: 'v0.1.0',
+			};
+			writeCachedCheck(fake.cachePath, staleEntry);
 
-		const result = await checkForUpdate({
-			projectDir: fake.projectDir,
-			cachePath: fake.cachePath,
-			now,
-			async fetchLatest() {
-				return null;
-			},
-		});
+			const result = await checkForUpdate({
+				projectDir: fake.projectDir,
+				cachePath: fake.cachePath,
+				now,
+				async fetchLatest() {
+					return null;
+				},
+			});
 
-		t.is(result, null);
-		t.deepEqual(
-			readCachedCheck(fake.cachePath),
-			staleEntry,
-			'cache must not be overwritten when fetchLatest yields null',
-		);
-	} finally {
-		fake.cleanup();
-	}
-});
+			t.is(result, null);
+			t.deepEqual(
+				readCachedCheck(fake.cachePath),
+				staleEntry,
+				'cache must not be overwritten when fetchLatest yields null',
+			);
+		} finally {
+			fake.cleanup();
+		}
+	},
+);
 
 // ============================================================================
 // safeCheckForUpdate contract — must never reject, regardless of input
@@ -562,21 +610,24 @@ test('safeCheckForUpdate: resolves to null for LOCAL_MODE', async t => {
 	}
 });
 
-test('safeCheckForUpdate: swallows a throwing fetchLatest and resolves to null', async t => {
-	const fake = setupFakeInstall('0.1.0');
-	try {
-		const now = 1_800_000_000_000;
-		// No cache written — orchestrator will go straight to fetchLatest.
-		const result = await safeCheckForUpdate({
-			projectDir: fake.projectDir,
-			cachePath: fake.cachePath,
-			now,
-			async fetchLatest() {
-				throw new Error('boom');
-			},
-		});
-		t.is(result, null, 'the wrapper must not propagate the throw');
-	} finally {
-		fake.cleanup();
-	}
-});
+test.serial(
+	'safeCheckForUpdate: swallows a throwing fetchLatest and resolves to null',
+	async t => {
+		const fake = setupFakeInstall('0.1.0');
+		try {
+			const now = 1_800_000_000_000;
+			// No cache written — orchestrator will go straight to fetchLatest.
+			const result = await safeCheckForUpdate({
+				projectDir: fake.projectDir,
+				cachePath: fake.cachePath,
+				now,
+				async fetchLatest() {
+					throw new Error('boom');
+				},
+			});
+			t.is(result, null, 'the wrapper must not propagate the throw');
+		} finally {
+			fake.cleanup();
+		}
+	},
+);

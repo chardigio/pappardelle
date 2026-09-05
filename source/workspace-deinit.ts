@@ -13,6 +13,7 @@ export interface DeinitResult {
 export interface DeinitContext {
 	issueKey?: string;
 	repoRoot?: string;
+	mainRepoRoot?: string;
 	repoName?: string;
 }
 
@@ -77,6 +78,9 @@ function expandVars(
 		ISSUE_KEY: context?.issueKey ?? '',
 		WORKTREE_PATH: worktreePath,
 		REPO_ROOT: context?.repoRoot ?? '',
+		// Falls back to REPO_ROOT: the two coincide outside a linked worktree,
+		// which is where deinit runs from in every case but a nested one.
+		MAIN_REPO_ROOT: context?.mainRepoRoot ?? context?.repoRoot ?? '',
 		REPO_NAME: context?.repoName ?? '',
 	};
 	if (context?.issueKey) {

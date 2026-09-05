@@ -1,5 +1,6 @@
 // Issue watchlist — polls the issue tracker for assigned issues with matching statuses
 // and determines which ones need new workspaces spawned.
+import {issueKeyPrefix} from './issue-utils.ts';
 import type {TrackerIssue} from './providers/types.ts';
 
 /**
@@ -56,6 +57,6 @@ export function filterByKeyPrefixes(
 	);
 	if (prefixSet.size === 0) return issues;
 	return issues.filter(issue =>
-		prefixSet.has(issue.identifier.split('-')[0]!.toUpperCase()),
+		prefixSet.has(issueKeyPrefix(issue.identifier).toUpperCase()),
 	);
 }

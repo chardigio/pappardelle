@@ -1,10 +1,16 @@
 // Provider factory — creates and caches provider singletons
+import {BeadsProvider} from './beads-provider.ts';
 import {GitHubProvider} from './github-provider.ts';
 import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
 import {createDefaultLinearGraphQLClient} from './linear-graphql.ts';
 import {LinearProvider} from './linear-provider.ts';
-import type {IssueTrackerProvider, VcsHostProvider} from './types.ts';
+import type {
+	IssueTrackerProvider,
+	TrackerProviderName,
+	VcsHostProvider,
+	VcsProviderName,
+} from './types.ts';
 
 export type {
 	TrackerIssue,
@@ -12,16 +18,18 @@ export type {
 	PipelineStatus,
 	RailStatus,
 	IssueTrackerProvider,
+	TrackerProviderName,
 	VcsHostProvider,
+	VcsProviderName,
 } from './types.ts';
 
 export interface IssueTrackerConfig {
-	provider: 'linear' | 'jira';
+	provider: TrackerProviderName;
 	base_url?: string; // Required for Jira
 }
 
 export interface VcsHostConfig {
-	provider: 'github' | 'gitlab';
+	provider: VcsProviderName;
 	host?: string; // For self-hosted GitLab
 }
 
@@ -32,7 +40,9 @@ let vcsHostConfigKey: string | null = null;
 
 function trackerKey(config?: IssueTrackerConfig): string {
 	const provider = config?.provider ?? 'linear';
-	return provider === 'jira' ? `jira:${config?.base_url ?? ''}` : 'linear';
+	if (provider === 'jira') return `jira:${config?.base_url ?? ''}`;
+	if (provider === 'beads') return 'beads';
+	return 'linear';
 }
 
 function vcsKey(config?: VcsHostConfig): string {
@@ -88,6 +98,11 @@ export function createIssueTracker(
 			}
 
 			issueTrackerInstance = new JiraProvider(config.base_url);
+			break;
+		}
+
+		case 'beads': {
+			issueTrackerInstance = new BeadsProvider();
 			break;
 		}
 

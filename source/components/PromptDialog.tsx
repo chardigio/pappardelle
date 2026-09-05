@@ -3,6 +3,7 @@ import React, {useState, useMemo} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
+import ConfirmDialog from './ConfirmDialog.tsx';
 import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {
@@ -12,6 +13,8 @@ import {
 	type PappardelleConfig,
 	type ProfileSelection,
 } from '../config.ts';
+import {createIssueTracker} from '../providers/index.ts';
+import type {IssueTrackerProvider} from '../providers/types.ts';
 import {
 	applySkillCompletion,
 	clampSelection,
@@ -33,13 +36,22 @@ import {
 	PICKER_MAX_VISIBLE,
 	type ProfileOption,
 } from '../profile-picker.ts';
+import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
+import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
+
+/** React key for the profile-less row, which has no profile name to use. */
+const DEFERRED_ROW_KEY = '__deferred__';
 
 interface Props {
-	onSubmit: (prompt: string, profileName: string | null) => void;
+	onSubmit: (
+		prompt: string,
+		profileName: string | null,
+		existingIssue: boolean,
+	) => void;
 	onCancel: () => void;
 	/**
 	 * Columns available to the dialog. Callers inside tmux should pass the pane
-	 * width — `stdout.columns` can be a full terminal-width stale value right
+	 * width; `stdout.columns` can be a full terminal-width stale value right
 	 * after a split, which would run the hand-drawn top border past the pane
 	 * edge and wrap it onto its own line.
 	 */
@@ -65,6 +77,17 @@ export default function PromptDialog({
 	// and buys back `j`/`k` and Enter itself. Tab never needs this: it accepts
 	// from wherever you are.
 	const [isPickingSkill, setIsPickingSkill] = useState(false);
+
+	// Resolved once. `createIssueTracker` throws when no provider is configured,
+	// and every capability the dialog gates on — ready listing, closing — is a
+	// question about this one object, so it is the only place that has to ask.
+	const tracker = useMemo((): IssueTrackerProvider | null => {
+		try {
+			return createIssueTracker();
+		} catch {
+			return null;
+		}
+	}, []);
 
 	const {stdout} = useStdout();
 	const width = dialogWidth(availableWidth, stdout?.columns);
@@ -121,22 +144,35 @@ export default function PromptDialog({
 		}
 	}, []);
 
+	const ready = useReadyWork(
+		tracker,
+		!isPicking && !isCompleting && !isSkillFocused,
+	);
+	// The close confirmation takes over the whole dialog, so every other keymap
+	// stands down while it is up.
+	const isPromptStage = !isPicking && ready.closeTarget === null;
+
+	const effectiveInput =
+		resolveSubmission(prompt, ready.identifiers, ready.index) ?? '';
+
 	// Live preview of what the first Enter will do. Deferred inputs (issue keys)
 	// still say so and still spawn on that one Enter; everything else advertises
 	// the profile the picker will preselect.
 	const preview = useMemo((): ProfileSelection | null => {
 		if (!config) return null;
-		return determineProfileForInput(config, prompt);
-	}, [config, prompt]);
-	const opensPicker = preview?.kind === 'resolved';
+		return determineProfileForInput(config, effectiveInput);
+	}, [config, effectiveInput]);
+	const opensPicker =
+		preview?.kind === 'resolved' ||
+		(preview?.kind === 'deferred' && preview.canPick);
 
 	// Derived from the current prompt rather than snapshotted on Enter, because
 	// the list is visible while you type and has to re-rank as you go. Once the
 	// picker takes focus the text input is frozen, so the list is stable for as
 	// long as a selection can move within it.
 	const options = useMemo(
-		() => (config ? buildProfileOptions(config, prompt) : []),
-		[config, prompt],
+		() => (config ? buildProfileOptions(config, effectiveInput) : []),
+		[config, effectiveInput],
 	);
 
 	// While typing, the preselected row IS the answer the old "Profile:" line
@@ -157,7 +193,7 @@ export default function PromptDialog({
 			}
 			onCancel();
 		},
-		{isActive: !isPicking && !isSkillFocused},
+		{isActive: isPromptStage && !isSkillFocused},
 	);
 
 	// Arrows and Tab. The text input keeps focus while the list is open, so
@@ -230,7 +266,7 @@ export default function PromptDialog({
 
 				case 'submit': {
 					const chosen = options[result.index];
-					if (chosen) onSubmit(prompt.trim(), chosen.name);
+					if (chosen) onSubmit(effectiveInput.trim(), chosen.name, ready.onRow);
 					break;
 				}
 
@@ -247,7 +283,7 @@ export default function PromptDialog({
 				}
 			}
 		},
-		{isActive: isPicking},
+		{isActive: isPicking && ready.closeTarget === null},
 	);
 
 	// The list re-ranks on every keystroke, so an index parked deep in a long
@@ -264,14 +300,17 @@ export default function PromptDialog({
 			return;
 		}
 
-		const decision = resolvePromptSubmit(config, value);
+		const resolved = resolveSubmission(value, ready.identifiers, ready.index);
+		if (resolved === null) return;
+
+		const decision = resolvePromptSubmit(config, resolved);
 		switch (decision.kind) {
 			case 'none': {
 				break;
 			}
 
 			case 'spawn': {
-				onSubmit(value.trim(), decision.profileName);
+				onSubmit(resolved, decision.profileName, ready.onRow);
 				break;
 			}
 
@@ -283,9 +322,25 @@ export default function PromptDialog({
 		}
 	};
 
+	if (ready.closeTarget) {
+		const {identifier, title} = ready.closeTarget.issue;
+		return (
+			<ConfirmDialog
+				title="Close Issue"
+				message={`Close ${identifier}?`}
+				detail={title}
+				processingMessage={`Closing ${identifier}…`}
+				onConfirm={ready.confirmClose}
+				onCancel={ready.cancelClose}
+			/>
+		);
+	}
+
 	// The heavy outline is the only thing saying where a keystroke lands, so the
 	// prompt gives it up to whichever picker took the focus from it.
-	const promptFrame = focusFrame(!isPicking && !isSkillFocused);
+	const promptFrame = focusFrame(
+		!isPicking && !isSkillFocused && ready.index === INPUT_INDEX,
+	);
 	const pickerFrame = focusFrame(isPicking);
 
 	return (
@@ -318,9 +373,16 @@ export default function PromptDialog({
 						onSubmit={handlePromptSubmit}
 						placeholder="STA-123, 123, or describe the task..."
 						isFocused={!isPicking && !isSkillFocused}
+						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
 					/>
 				</Box>
+
+				{ready.errorMessage && (
+					<Box marginTop={1}>
+						<Text color="red">{ready.errorMessage}</Text>
+					</Box>
+				)}
 
 				{!isPicking && !isSkillFocused && (
 					<Box marginTop={1}>
@@ -343,6 +405,12 @@ export default function PromptDialog({
 				)}
 			</TitledBox>
 
+			<ReadyWorkList
+				ready={ready}
+				width={width}
+				isFocused={!isPicking && ready.index >= 0}
+				hasHints={!isPicking}
+			/>
 			{isCompleting ? (
 				<SkillPicker
 					entries={completions}
@@ -359,7 +427,9 @@ export default function PromptDialog({
 					frame={pickerFrame}
 					isFocused={isPicking}
 					deferredLabel={
-						preview?.kind === 'deferred' ? preview.displayName : undefined
+						preview?.kind === 'deferred' && !preview.canPick
+							? preview.displayName
+							: undefined
 					}
 				/>
 			)}
@@ -381,9 +451,10 @@ function ProfilePicker({
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
 	/**
-	 * Set for issue-key / bare-number / Linear-URL inputs, where there is no
-	 * choice to make — the profile comes from the fetched issue's tracker
-	 * project. The box stays on screen (it always does) but shows a single
+	 * Set for bare numbers and for issue keys whose prefix no profile claims,
+	 * where there is no choice to make — the profile comes from the fetched
+	 * issue's tracker project. A claimed prefix gets the real list instead.
+	 * The box stays on screen (it always does) but shows a single
 	 * inert row instead of a list, so it's visibly not somewhere Enter stops.
 	 */
 	deferredLabel?: string;
@@ -423,7 +494,7 @@ function ProfilePicker({
 						// (which owns column 0 for every row) and left of the label.
 						const slot = resolveEmojiSlot(option.emoji);
 						return (
-							<Box key={option.name}>
+							<Box key={option.name ?? DEFERRED_ROW_KEY}>
 								<Text
 									color={isSelected ? 'green' : undefined}
 									bold={isSelected}
@@ -439,11 +510,15 @@ function ProfilePicker({
 								<Text
 									color={isSelected ? 'green' : undefined}
 									bold={isSelected}
+									italic={option.kind === 'deferred'}
 								>
 									{option.displayName}
 								</Text>
 								{option.matchedKeywords.length > 0 && (
 									<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
+								)}
+								{option.matchedPrefix && (
+									<Text dimColor> ← {option.matchedPrefix}</Text>
 								)}
 								{option.enforced && <Text color="magenta"> (enforced)</Text>}
 								{option.isDefault && option.matchedKeywords.length === 0 && (

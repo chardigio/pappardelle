@@ -38,3 +38,14 @@ export async function searchAssignedIssues(
 export function clearCache(): void {
 	tracker().clearCache();
 }
+
+/** Claim an issue, for trackers that support it. */
+export async function claimIssue(issueKey: string): Promise<boolean> {
+	try {
+		const provider = tracker();
+		if (!provider.claimIssue) return false;
+		return await provider.claimIssue(issueKey);
+	} catch {
+		return false;
+	}
+}

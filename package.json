@@ -50,8 +50,8 @@
 			"ts": "module",
 			"tsx": "module"
 		},
-		"nodeArguments": [
-			"--experimental-strip-types"
+		"require": [
+			"./test/helpers/register-tsx.cjs"
 		]
 	},
 	"xo": {

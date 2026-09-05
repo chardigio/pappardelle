@@ -1,6 +1,8 @@
 import test from 'ava';
 import {
 	calculateMaxVisibleItems,
+	twoLineTitleIndent,
+	titleSharesKeyLine,
 	calculateScrollOffset,
 	calculateVisibleWindow,
 	calculateAvailableTitleWidth,
@@ -1354,4 +1356,120 @@ test('clipIssueKey with rail icons at the 8-column floor still fits', t => {
 	const trailing = railPrefixWidth(icons);
 	const clipped = clipIssueKey('STA-2040', 8 - ROW_ICON_CELLS - trailing);
 	t.true(ROW_ICON_CELLS + clipped.length + trailing <= 8);
+});
+
+// ============================================================================
+// Two-line layout — each item occupies 2 terminal rows, which halves how many
+// spaces fit and makes both of an item's lines click through to that item.
+// ============================================================================
+
+test('calculateMaxVisibleItems: two-line items halve the capacity', t => {
+	t.is(calculateMaxVisibleItems(8), 6, 'single-line baseline');
+	t.is(calculateMaxVisibleItems(8, 2), 3, '6 rows of content fit 3 items');
+});
+
+test('calculateMaxVisibleItems: an odd leftover row is not a partial item', t => {
+	// 9 - 2 chrome = 7 content rows; the 7th can only hold half an item.
+	t.is(calculateMaxVisibleItems(9, 2), 3);
+});
+
+test('calculateMaxVisibleItems: always yields at least one item', t => {
+	t.is(calculateMaxVisibleItems(3, 2), 1);
+	t.is(calculateMaxVisibleItems(0, 2), 1);
+});
+
+test('calculateMaxVisibleItems: linesPerItem of 1 matches the default', t => {
+	t.is(calculateMaxVisibleItems(20, 1), calculateMaxVisibleItems(20));
+});
+
+test('calculateVisibleWindow: two-line layout shows half as many items', t => {
+	const single = calculateVisibleWindow(0, 20, 12);
+	const double = calculateVisibleWindow(0, 20, 12, 2);
+	t.is(single.visibleCount, 10);
+	t.is(double.visibleCount, 5);
+});
+
+test('calculateVisibleWindow: two-line layout still centers the selection', t => {
+	const {scrollOffset, adjustedSelectedIndex} = calculateVisibleWindow(
+		10,
+		20,
+		12,
+		2,
+	);
+	// maxVisible is 5, so centering puts the selection 2 rows down.
+	t.is(scrollOffset, 8);
+	t.is(adjustedSelectedIndex, 2);
+});
+
+test('calculateListClickRow: both lines of a two-line item select that item', t => {
+	const opts = {bannerHeight: 0, visibleRows: 5, linesPerItem: 2};
+	t.is(calculateListClickRow({...opts, y: 2}), 0, 'key line of item 0');
+	t.is(calculateListClickRow({...opts, y: 3}), 0, 'title line of item 0');
+	t.is(calculateListClickRow({...opts, y: 4}), 1, 'key line of item 1');
+	t.is(calculateListClickRow({...opts, y: 5}), 1, 'title line of item 1');
+});
+
+test('calculateListClickRow: two-line clicks past the last item are rejected', t => {
+	const opts = {bannerHeight: 0, visibleRows: 3, linesPerItem: 2};
+	t.is(calculateListClickRow({...opts, y: 7}), 2, 'title line of last item');
+	t.is(calculateListClickRow({...opts, y: 8}), null, 'one line past the list');
+});
+
+test('calculateListClickRow: two-line layout still rejects header clicks', t => {
+	const opts = {bannerHeight: 0, visibleRows: 5, linesPerItem: 2};
+	t.is(calculateListClickRow({...opts, y: 0}), null);
+	t.is(calculateListClickRow({...opts, y: 1}), null);
+});
+
+test('calculateListClickRow: two-line layout accounts for the banner', t => {
+	const opts = {bannerHeight: 4, visibleRows: 5, linesPerItem: 2};
+	t.is(calculateListClickRow({...opts, y: 6}), 0);
+	t.is(calculateListClickRow({...opts, y: 7}), 0);
+	t.is(calculateListClickRow({...opts, y: 8}), 1);
+});
+
+// ============================================================================
+// twoLineTitleIndent — the title row must start in the same column as the
+// issue key above it, or the two lines read as unrelated rows.
+// ============================================================================
+
+test('twoLineTitleIndent clears the status icon and its space', t => {
+	t.is(twoLineTitleIndent(), 2);
+});
+
+test('twoLineTitleIndent clears a 2-cell emoji prefix too', t => {
+	t.is(twoLineTitleIndent({emoji: '\u{1F35D}', width: 2}), 5);
+});
+
+test('twoLineTitleIndent aligns with where the issue key starts', t => {
+	// renderListRow lays out "<emoji> <icon> <key>"; the indent must equal the
+	// offset of the key within that row.
+	const prefix = {emoji: '\u{1F35D}', width: 2};
+	const row = renderListRow('sta-1', '\u25CF', 'title', 40, undefined, prefix);
+	t.is(row.indexOf('sta-1'), twoLineTitleIndent(prefix));
+});
+
+test('twoLineTitleIndent aligns with the key when there is no emoji', t => {
+	const row = renderListRow('sta-1', '\u25CF', 'title', 40);
+	t.is(row.indexOf('sta-1'), twoLineTitleIndent());
+});
+
+// ============================================================================
+// titleSharesKeyLine — a pending row's progress text ("Starting new session…")
+// has to sit beside the spinner on the first line, not on the indented title
+// line below it.
+// ============================================================================
+
+test('titleSharesKeyLine: single-line layout always shares the row', t => {
+	t.true(titleSharesKeyLine({isTwoLine: false}));
+	t.true(titleSharesKeyLine({isTwoLine: false, isPending: true}));
+});
+
+test('titleSharesKeyLine: two-line layout gives real spaces their own title row', t => {
+	t.false(titleSharesKeyLine({isTwoLine: true}));
+	t.false(titleSharesKeyLine({isTwoLine: true, isPending: false}));
+});
+
+test('titleSharesKeyLine: two-line pending rows keep the text on the key line', t => {
+	t.true(titleSharesKeyLine({isTwoLine: true, isPending: true}));
 });

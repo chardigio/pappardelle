@@ -42,6 +42,26 @@ jobs:
       - name: Run tests
         run: npx ava 'source/**/*.test.ts'
 
+  shell-tests:
+    name: Shell Tests
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: brew install yq
+
+      - name: Beads ID prefix matching
+        run: ./scripts/test-beads-id-prefixes.sh
+
+      - name: Issue project extraction
+        run: ./scripts/test-extract-issue-project.sh
+
+      - name: tmux session name encoding
+        run: ./scripts/test-session-name-encoding.sh
+
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest

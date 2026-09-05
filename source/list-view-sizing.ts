@@ -19,6 +19,8 @@ export const LIST_CHROME_ROWS = HEADER_ROWS;
 /** Fixed-width characters per row (excluding issue key): icon(1) + space(1) + space(1) = 3 */
 export const ROW_FIXED_OVERHEAD = 3;
 
+export type LinesPerItem = 1 | 2;
+
 // ============================================================================
 // Scrolling / visibility
 // ============================================================================
@@ -27,10 +29,17 @@ export const ROW_FIXED_OVERHEAD = 3;
  * Calculate how many list items can be displayed given the terminal height.
  *
  * @param termHeight - Height of the list pane in rows
+ * @param linesPerItem - Terminal rows each item occupies (2 in two-line layout)
  * @returns Maximum number of items that fit
  */
-export function calculateMaxVisibleItems(termHeight: number): number {
-	return Math.max(1, termHeight - LIST_CHROME_ROWS);
+export function calculateMaxVisibleItems(
+	termHeight: number,
+	linesPerItem: LinesPerItem = 1,
+): number {
+	return Math.max(
+		1,
+		Math.floor((termHeight - LIST_CHROME_ROWS) / linesPerItem),
+	);
 }
 
 /**
@@ -64,12 +73,13 @@ export function calculateVisibleWindow(
 	selectedIndex: number,
 	totalItems: number,
 	termHeight: number,
+	linesPerItem: LinesPerItem = 1,
 ): {
 	scrollOffset: number;
 	visibleCount: number;
 	adjustedSelectedIndex: number;
 } {
-	const maxVisible = calculateMaxVisibleItems(termHeight);
+	const maxVisible = calculateMaxVisibleItems(termHeight, linesPerItem);
 	const scrollOffset = calculateScrollOffset(
 		selectedIndex,
 		totalItems,
@@ -88,15 +98,22 @@ export function calculateVisibleWindow(
  * constant — the caller passes the current measured height (0 when the
  * banner is hidden). Returns null when the click is on chrome (banner /
  * header) or below the visible rows.
+ *
+ * `visibleRows` counts items, not terminal lines: with a `linesPerItem` of 2,
+ * a click on either of an item's two lines selects that one item.
  */
 export function calculateListClickRow(options: {
 	y: number;
 	bannerHeight: number;
 	visibleRows: number;
+	linesPerItem?: LinesPerItem;
 }): number | null {
+	const perItem = options.linesPerItem ?? 1;
 	const headerOffset = options.bannerHeight + HEADER_ROWS;
-	const row = options.y - headerOffset;
-	if (row < 0 || row >= options.visibleRows) return null;
+	const line = options.y - headerOffset;
+	if (line < 0) return null;
+	const row = Math.floor(line / perItem);
+	if (row >= options.visibleRows) return null;
 	return row;
 }
 
@@ -141,6 +158,21 @@ export function rowPrefixWidth(prefix?: RowPrefix): number {
 	if (!prefix?.emoji) return 0;
 	const width = prefix.width ?? 2;
 	return width + 1; // emoji + trailing space
+}
+
+/**
+ * Columns the two-line layout indents its title row by, so the title starts
+ * under the issue key rather than under the status icon.
+ */
+export function twoLineTitleIndent(prefix?: RowPrefix): number {
+	return rowPrefixWidth(prefix) + ROW_ICON_CELLS;
+}
+
+export function titleSharesKeyLine(options: {
+	isTwoLine: boolean;
+	isPending?: boolean;
+}): boolean {
+	return !options.isTwoLine || options.isPending === true;
 }
 
 /**

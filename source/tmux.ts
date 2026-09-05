@@ -1,6 +1,6 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execSync, spawnSync} from 'node:child_process';
+import {exec, execSync, spawn, spawnSync} from 'node:child_process';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -88,7 +88,7 @@ export function extractIssueKeyFromSession(
 ): string | null {
 	const prefix = getSessionPrefix('claude', repoName);
 	if (!sessionName.startsWith(prefix)) return null;
-	return sessionName.slice(prefix.length);
+	return fromSessionKey(sessionName.slice(prefix.length));
 }
 
 // Track which space is currently being viewed
@@ -169,6 +169,14 @@ export function innerSessionExists(sessionName: string): boolean {
 	}
 }
 
+export function toSessionKey(issueKey: string): string {
+	return issueKey.replaceAll('_', '__').replaceAll('.', '_');
+}
+
+export function fromSessionKey(sessionKey: string): string {
+	return sessionKey.replaceAll(/__|_/g, match => (match === '__' ? '_' : '.'));
+}
+
 /**
  * Get session names for a space.
  * Optional repoName parameter for testing; defaults to getRepoName().
@@ -182,9 +190,10 @@ export function getSessionNames(
 } {
 	const claudePrefix = getSessionPrefix('claude', repoName);
 	const companionPrefix = getSessionPrefix('companion', repoName);
+	const key = toSessionKey(issueKey);
 	return {
-		claude: `${claudePrefix}${issueKey}`,
-		companion: `${companionPrefix}${issueKey}`,
+		claude: `${claudePrefix}${key}`,
+		companion: `${companionPrefix}${key}`,
 	};
 }
 
@@ -218,6 +227,34 @@ function claudeFlag(flag: string, value?: string): string {
 	if (!value) return '';
 	const safe = /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
 	return ` ${flag} ${safe}`;
+}
+
+const POPUP_PAGER = 'less -R';
+
+/**
+ * Show a command's output in a dismissible tmux popup over the current client.
+ */
+export function buildPopupCommand(argv: string[]): string {
+	return `${argv.map(arg => shellQuote(arg)).join(' ')} | ${POPUP_PAGER}`;
+}
+
+export function displayPopup(argv: string[]): boolean {
+	if (argv.length === 0 || !process.env['TMUX']) return false;
+	const command = buildPopupCommand(argv);
+	try {
+		const child = spawn(
+			'tmux',
+			['display-popup', '-E', '-w', '80%', '-h', '80%', command],
+			{detached: true, stdio: 'ignore'},
+		);
+
+		child.on('error', () => {});
+		child.unref();
+		return true;
+	} catch (error) {
+		log.debug(`display-popup failed: ${String(error)}`);
+		return false;
+	}
 }
 
 /**
@@ -540,6 +577,28 @@ const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
 export const SYNC_TERMINAL_FEATURE = '*:Sync';
 
 /**
+ * Whether this socket's `terminal-features` already carries our Sync entry.
+ */
+function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
+	try {
+		const {error, status, stdout} = run([
+			'show-options',
+			'-gqv',
+			'terminal-features',
+		]);
+		if (error || status !== 0) {
+			return false;
+		}
+
+		return stdout
+			.split('\n')
+			.some(line => line.trim() === SYNC_TERMINAL_FEATURE);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Make tmux batch each repaint into a single atomic frame.
  *
  * tmux only wraps a redraw in DEC 2026 when it believes the attached client's
@@ -569,6 +628,10 @@ export function enableSynchronizedOutput(
 		['inner', innerRunner],
 	] as const) {
 		try {
+			if (hasSynchronizedOutputFeature(run)) {
+				continue;
+			}
+
 			const {error, status} = run([
 				'set-option',
 				'-ga',
@@ -626,11 +689,11 @@ export function cleanupOrphanedInnerSessions(
 		for (const name of result.stdout.trim().split('\n')) {
 			let key: string | null = null;
 			if (name.startsWith(claudePrefix)) {
-				key = name.slice(claudePrefix.length);
+				key = fromSessionKey(name.slice(claudePrefix.length));
 			} else if (name.startsWith(companionPrefix)) {
-				key = name.slice(companionPrefix.length);
+				key = fromSessionKey(name.slice(companionPrefix.length));
 			} else if (name.startsWith(legacyCompanionPrefix)) {
-				key = name.slice(legacyCompanionPrefix.length);
+				key = fromSessionKey(name.slice(legacyCompanionPrefix.length));
 			} else {
 				continue;
 			}
@@ -852,21 +915,28 @@ function getTmuxWindowSize(): {width: number; height: number} | null {
 }
 
 /**
- * Get current terminal/pane width from tmux
+ * Build the `tmux display-message` argv for reading a pane format variable.
  */
-export function getTmuxPaneWidth(): number {
+export function paneQueryArgs(format: string, paneId?: string): string[] {
+	const args = ['display-message', '-p'];
+	if (paneId) args.push('-t', paneId);
+	args.push(format);
+	return args;
+}
+
+function queryPaneDimension(format: string, fallback: number): number {
 	try {
 		const result = spawnSync(
 			'tmux',
-			['display-message', '-p', '#{pane_width}'],
+			paneQueryArgs(format, process.env['TMUX_PANE']),
 			{encoding: 'utf-8', timeout: 5000},
 		);
 		if (result.error || result.status !== 0) {
-			return 120; // Default fallback
+			return fallback;
 		}
-		return parseInt(result.stdout.trim(), 10) || 120;
+		return parseInt(result.stdout.trim(), 10) || fallback;
 	} catch {
-		return 120;
+		return fallback;
 	}
 }
 
@@ -892,22 +962,17 @@ function getPaneWidth(paneId: string): number | null {
 }
 
 /**
+ * Get current terminal/pane width from tmux
+ */
+export function getTmuxPaneWidth(): number {
+	return queryPaneDimension('#{pane_width}', 120);
+}
+
+/**
  * Get current terminal/pane height from tmux
  */
 export function getTmuxPaneHeight(): number {
-	try {
-		const result = spawnSync(
-			'tmux',
-			['display-message', '-p', '#{pane_height}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return 40; // Default fallback
-		}
-		return parseInt(result.stdout.trim(), 10) || 40;
-	} catch {
-		return 40;
-	}
+	return queryPaneDimension('#{pane_height}', 40);
 }
 
 /**
@@ -1254,8 +1319,8 @@ export function attachToSpace(
 
 	// Load config once for all session creation. The companion command and the
 	// Claude launch flags are resolved profile-aware (via the issue title) so a
-	// per-project profile can override the default git UI / model / effort —
-	// this matters only when the sessions don't already exist (idow creates
+	// per-project profile can override the default git UI, model, and effort.
+	// This matters only when the sessions don't already exist (idow creates
 	// them with the same resolution at workspace-create time).
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;

@@ -18,6 +18,7 @@ Status values:
     - error: An error occurred
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -25,6 +26,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+
+_tracker_module_path = Path(__file__).parent / "tracker_config.py"
+_tracker_spec = importlib.util.spec_from_file_location("tracker_config", _tracker_module_path)
+if _tracker_spec and _tracker_spec.loader:
+    _tracker_mod = importlib.util.module_from_spec(_tracker_spec)
+    _tracker_spec.loader.exec_module(_tracker_mod)
+    find_issue_key = _tracker_mod.find_issue_key
+else:
+    raise ImportError(f"Could not load tracker_config from {_tracker_module_path}")
 
 # Debug mode - logs all hook events to a file
 # Set PAPPARDELLE_DEBUG=1 environment variable to enable logging
@@ -53,17 +63,10 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
             cwd = os.getcwd()
         except OSError:
             return "unknown"
-    parts = cwd.split("/")
-
-    # Look for Linear issue pattern (e.g., STA-123) in path components
     # Expected path: ~/.worktrees/stardust-labs/STA-123/...
-    for part in parts:
-        if part and "-" in part:
-            prefix = part.split("-")[0]
-            suffix = part.split("-", 1)[1] if "-" in part else ""
-            # Check if it looks like a Linear issue (e.g., STA-123, ABC-45)
-            if prefix.isupper() and prefix.isalpha() and suffix.isdigit():
-                return part
+    issue_key = find_issue_key(cwd)
+    if issue_key:
+        return issue_key
 
     # No issue key found — likely the main worktree. Detect branch name via git
     # and qualify with repo name to avoid collisions across repos
@@ -74,6 +77,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=cwd,
         )
         if branch_result.returncode == 0:
             branch = branch_result.stdout.strip()
@@ -85,6 +89,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
                         capture_output=True,
                         text=True,
                         timeout=5,
+                        cwd=cwd,
                     )
                     if toplevel_result.returncode == 0:
                         repo_name = os.path.basename(toplevel_result.stdout.strip())

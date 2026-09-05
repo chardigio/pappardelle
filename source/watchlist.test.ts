@@ -251,3 +251,24 @@ test('filterByKeyPrefixes excludes hyphenless (malformed) identifiers', t => {
 	t.is(result.length, 1);
 	t.is(result[0]!.identifier, 'STA-1');
 });
+
+test('filterByKeyPrefixes matches a beads prefix containing hyphens', t => {
+	// Splitting on the first hyphen produced 'SEATGEEK', which matched nothing,
+	// so the watchlist silently spawned zero workspaces.
+	const issues = [
+		makeIssue('seatgeek-ticket-management-cli-bqm'),
+		makeIssue('other-hic'),
+	];
+	const filtered = filterByKeyPrefixes(issues, [
+		'seatgeek-ticket-management-cli',
+	]);
+	t.deepEqual(
+		filtered.map(i => i.identifier),
+		['seatgeek-ticket-management-cli-bqm'],
+	);
+});
+
+test('filterByKeyPrefixes ignores a beads child suffix', t => {
+	const issues = [makeIssue('pap-a3f8e9.1')];
+	t.is(filterByKeyPrefixes(issues, ['pap']).length, 1);
+});

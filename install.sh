@@ -145,6 +145,14 @@ else
     print_info "Install with: brew tap raegislabs/linctl && brew install linctl"
 fi
 
+# Optional: check bd
+if command -v bd &>/dev/null; then
+    print_status "bd installed (Beads integration)"
+else
+    print_info "bd not found (optional, for Beads integration)"
+    print_info "Install from: https://github.com/gastownhall/beads"
+fi
+
 # Optional: check gh
 if command -v gh &>/dev/null; then
     print_status "gh CLI installed (GitHub integration)"
@@ -250,6 +258,13 @@ if [[ -d "$HOOKS_SRC" ]]; then
         if [[ -f "$HOOKS_SRC/$hook" ]]; then
             cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
             chmod +x "$HOOKS_DIR/$hook"
+        fi
+    done
+
+    # Helper modules imported by the hooks above
+    for module in markdown_to_adf.py acli_helpers.py tracker_config.py; do
+        if [[ -f "$HOOKS_SRC/$module" ]]; then
+            cp "$HOOKS_SRC/$module" "$HOOKS_DIR/"
         fi
     done
     print_status "Installed Claude Code hooks to $HOOKS_DIR/"

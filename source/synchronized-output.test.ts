@@ -31,21 +31,36 @@ const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');
 
 type Call = readonly string[];
 
-const recorder = (result?: {
+type Outcome = {
 	error?: Error;
 	status: number | null;
 	stdout: string;
-}): {calls: Call[]; runner: OuterTmuxRunner} => {
+};
+
+const recorder = (
+	result?: Outcome | ((args: Call) => Outcome),
+): {calls: Call[]; runner: OuterTmuxRunner} => {
 	const outcome = result ?? {status: 0, stdout: ''};
 	const calls: Call[] = [];
 	return {
 		calls,
 		runner(args) {
 			calls.push(args);
-			return outcome;
+			return typeof outcome === 'function' ? outcome(args) : outcome;
 		},
 	};
 };
+
+/** A runner whose `show-options` reports the given terminal-features entries. */
+const withFeatures = (...entries: string[]) =>
+	recorder(args =>
+		args[0] === 'show-options'
+			? {status: 0, stdout: entries.join('\n') + '\n'}
+			: {status: 0, stdout: ''},
+	);
+
+const setOptionCalls = (calls: Call[]) =>
+	calls.filter(args => args[0] === 'set-option');
 
 test('sets terminal-features on both the outer and the inner socket', t => {
 	const outer = recorder();
@@ -59,8 +74,8 @@ test('sets terminal-features on both the outer and the inner socket', t => {
 		'terminal-features',
 		`,${SYNC_TERMINAL_FEATURE}`,
 	];
-	t.deepEqual(outer.calls, [expected]);
-	t.deepEqual(inner.calls, [expected]);
+	t.deepEqual(setOptionCalls(outer.calls), [expected]);
+	t.deepEqual(setOptionCalls(inner.calls), [expected]);
 });
 
 test('appends rather than assigns, so user-configured features survive', t => {
@@ -70,7 +85,7 @@ test('appends rather than assigns, so user-configured features survive', t => {
 	const outer = recorder();
 	enableSynchronizedOutput(outer.runner, recorder().runner);
 
-	const [args] = outer.calls;
+	const [args] = setOptionCalls(outer.calls);
 	t.true(args!.includes('-ga'), 'must append');
 	t.false(args!.includes('-g'), 'must not use a bare assigning -g');
 	t.true(
@@ -86,7 +101,7 @@ test('the inner-socket call routes through innerTmuxArgs (keeps the -L flag)', t
 	const inner = recorder();
 	enableSynchronizedOutput(recorder().runner, inner.runner);
 
-	t.deepEqual(innerTmuxArgs(inner.calls[0]!), [
+	t.deepEqual(innerTmuxArgs(setOptionCalls(inner.calls)[0]!), [
 		'-L',
 		'pappardelle_inner',
 		'set-option',
@@ -121,7 +136,82 @@ test('a failure on the outer socket still attempts the inner socket', t => {
 
 	enableSynchronizedOutput(throwing, inner.runner);
 
-	t.is(inner.calls.length, 1);
+	t.is(setOptionCalls(inner.calls).length, 1);
+});
+
+test('skips the append when the feature is already present', t => {
+	// `-ga` is unconditional and `terminal-features` is server-scope, so without
+	// this check every launch against a long-lived tmux server piles on another
+	// copy: 19 `*:Sync` entries were observed on a live pappardelle_inner socket.
+	// The duplicates don't change rendering (tmux unions the features) but they
+	// make the option unreadable for exactly the color/redraw debugging it exists
+	// to support.
+	const outer = withFeatures('xterm*:clipboard', SYNC_TERMINAL_FEATURE);
+
+	enableSynchronizedOutput(outer.runner, recorder().runner);
+
+	t.deepEqual(setOptionCalls(outer.calls), []);
+});
+
+test('still appends when other features are configured but Sync is not', t => {
+	const outer = withFeatures('xterm*:clipboard', '*:RGB');
+
+	enableSynchronizedOutput(outer.runner, recorder().runner);
+
+	t.is(setOptionCalls(outer.calls).length, 1);
+});
+
+test('the presence check reads the option from the same socket', t => {
+	const inner = withFeatures();
+
+	enableSynchronizedOutput(recorder().runner, inner.runner);
+
+	t.deepEqual(inner.calls[0], ['show-options', '-gqv', 'terminal-features']);
+});
+
+test('each socket is checked independently', t => {
+	// The outer and inner sockets are separate tmux servers with separate option
+	// tables; one already carrying Sync says nothing about the other.
+	const outer = withFeatures(SYNC_TERMINAL_FEATURE);
+	const inner = withFeatures();
+
+	enableSynchronizedOutput(outer.runner, inner.runner);
+
+	t.deepEqual(setOptionCalls(outer.calls), []);
+	t.is(setOptionCalls(inner.calls).length, 1);
+});
+
+test('appends when the presence check fails, rather than losing the feature', t => {
+	// A duplicate entry is cosmetic; a missing one brings the flicker back. When
+	// we can't read the option, prefer the old unconditional behaviour.
+	const failing = recorder(args =>
+		args[0] === 'show-options'
+			? {status: 1, stdout: ''}
+			: {status: 0, stdout: ''},
+	);
+	const throwing = recorder(args => {
+		if (args[0] === 'show-options') {
+			throw new Error('tmux not found');
+		}
+
+		return {status: 0, stdout: ''};
+	});
+
+	enableSynchronizedOutput(failing.runner, throwing.runner);
+
+	t.is(setOptionCalls(failing.calls).length, 1);
+	t.is(setOptionCalls(throwing.calls).length, 1);
+});
+
+test('a substring match does not count as the feature being present', t => {
+	// `*:Sync` must match a whole array entry. tmux prints one entry per line, and
+	// an entry like `xterm*:SyncSomething` is a different feature on a different
+	// terminal pattern.
+	const outer = withFeatures('xterm*:SyncSomething', 'foo*:Sync');
+
+	enableSynchronizedOutput(outer.runner, recorder().runner);
+
+	t.is(setOptionCalls(outer.calls).length, 1);
 });
 
 test('setupPappardellLayout enables synchronized output', t => {

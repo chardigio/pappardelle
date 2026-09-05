@@ -89,9 +89,11 @@ export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
 
 // Claude status display
 // Note: "processing" and "running_tool" use ClaudeAnimation instead of a static icon
+// `unknown` carries no color at all: the muted ANSI name it used to use is
+// bright black.
 export const CLAUDE_STATUS_DISPLAY: Record<
 	ClaudeStatus,
-	{color: string; icon?: string}
+	{color?: string; icon?: string; dim?: boolean}
 > = {
 	processing: {color: COLORS.CLAUDE_ORANGE},
 	running_tool: {color: COLORS.CLAUDE_ORANGE},
@@ -100,5 +102,5 @@ export const CLAUDE_STATUS_DISPLAY: Record<
 	compacting: {color: 'yellow', icon: '◇'},
 	ended: {color: 'green', icon: '●'},
 	error: {color: 'red', icon: '✗'},
-	unknown: {color: 'gray', icon: '?'},
+	unknown: {icon: '?', dim: true},
 };

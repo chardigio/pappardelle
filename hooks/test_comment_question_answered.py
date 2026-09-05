@@ -245,6 +245,97 @@ class TestPostCommentLinear:
             assert "Comment body" in cmd
 
 
+class TestPostCommentBeads:
+    def test_calls_bd_with_markdown_file(self):
+        with (
+            patch.object(mod, "get_tracker_provider", return_value="beads"),
+            patch.object(mod, "get_main_repo_root", return_value=None),
+            patch.object(mod, "subprocess") as mock_subprocess,
+        ):
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_subprocess.run.return_value = mock_result
+
+            result = post_comment("pap-a1b2", "## Q&A\n\nSome answer")
+
+            assert result is True
+            cmd = mock_subprocess.run.call_args[0][0]
+            assert cmd[:4] == ["bd", "comments", "add", "pap-a1b2"]
+            file_idx = cmd.index("-f") + 1
+            # Beads comments are plain markdown, with no ADF conversion.
+            assert cmd[file_idx].endswith(".md")
+
+    def test_pins_bd_to_the_main_repo_root(self):
+        # The hook's cwd is the worktree, which carries its own checked-out
+        # .beads/; without -C, bd writes into that copy and the comment never
+        # reaches the issue the rail is tracking.
+        with (
+            patch.object(mod, "get_tracker_provider", return_value="beads"),
+            patch.object(mod, "get_main_repo_root", return_value="/repos/myproj"),
+            patch.object(mod, "subprocess") as mock_subprocess,
+        ):
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_subprocess.run.return_value = mock_result
+
+            post_comment("pap-a1b2", "body")
+
+            cmd = mock_subprocess.run.call_args[0][0]
+            assert cmd[:3] == ["bd", "-C", "/repos/myproj"]
+            assert cmd[3:6] == ["comments", "add", "pap-a1b2"]
+
+    def test_body_file_holds_raw_markdown(self):
+        captured = {}
+
+        def capture(cmd, **_kwargs):
+            file_idx = cmd.index("-f") + 1
+            with open(cmd[file_idx]) as f:
+                captured["body"] = f.read()
+            result = MagicMock()
+            result.returncode = 0
+            return result
+
+        with (
+            patch.object(mod, "get_tracker_provider", return_value="beads"),
+            patch.object(mod, "get_main_repo_root", return_value=None),
+            patch.object(mod, "subprocess") as mock_subprocess,
+        ):
+            mock_subprocess.run.side_effect = capture
+            post_comment("pap-a1b2", "### Heading\n\n**bold** text")
+
+        assert captured["body"] == "### Heading\n\n**bold** text"
+
+    def test_temp_file_cleaned_up_on_success(self):
+        seen = {}
+
+        def capture(cmd, **_kwargs):
+            seen["path"] = cmd[cmd.index("-f") + 1]
+            result = MagicMock()
+            result.returncode = 0
+            return result
+
+        with (
+            patch.object(mod, "get_tracker_provider", return_value="beads"),
+            patch.object(mod, "get_main_repo_root", return_value=None),
+            patch.object(mod, "subprocess") as mock_subprocess,
+        ):
+            mock_subprocess.run.side_effect = capture
+            post_comment("pap-a1b2", "Comment body")
+
+        assert not os.path.exists(seen["path"])
+
+    def test_returns_false_when_bd_is_missing(self):
+        with (
+            patch.object(mod, "get_tracker_provider", return_value="beads"),
+            patch.object(mod, "get_main_repo_root", return_value=None),
+            patch.object(mod, "subprocess") as mock_subprocess,
+        ):
+            mock_subprocess.run.side_effect = FileNotFoundError
+            mock_subprocess.TimeoutExpired = subprocess.TimeoutExpired
+
+            assert post_comment("pap-a1b2", "Comment body") is False
+
+
 class TestMainExitsZero:
     def test_main_exits_zero_on_exception(self):
         """Top-level exception handler should always exit 0."""

@@ -8,6 +8,7 @@ export type {PRInfo} from './providers/types.ts';
 // Re-export pure utility functions for backwards compatibility
 export {
 	isLinearIssueKey,
+	isBeadsIssueKey,
 	isIssueNumber,
 	normalizeIssueIdentifier,
 } from './issue-utils.ts';

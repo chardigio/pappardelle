@@ -4,6 +4,7 @@ import {
 	createVcsHost,
 	resetProviders,
 } from './providers/index.ts';
+import {claimIssue} from './tracker.ts';
 
 // Tests must be serial because they share singleton state
 test.beforeEach(() => {
@@ -35,6 +36,39 @@ test.serial(
 			base_url: 'https://mycompany.atlassian.net',
 		});
 		t.is(provider.name, 'jira');
+	},
+);
+
+test.serial('createIssueTracker returns BeadsProvider for beads config', t => {
+	const provider = createIssueTracker({provider: 'beads'});
+	t.is(provider.name, 'beads');
+});
+
+test.serial('createIssueTracker needs no base_url for beads', t => {
+	// Beads is local — there is no host to point at.
+	t.notThrows(() => createIssueTracker({provider: 'beads'}));
+});
+
+test.serial(
+	'createIssueTracker throws when re-initialized from beads to jira',
+	t => {
+		createIssueTracker({provider: 'beads'});
+		t.throws(
+			() =>
+				createIssueTracker({
+					provider: 'jira',
+					base_url: 'https://example.com',
+				}),
+			{message: /already initialized as "beads"/},
+		);
+	},
+);
+
+test.serial(
+	'createIssueTracker with no config returns existing Beads singleton',
+	t => {
+		const beads = createIssueTracker({provider: 'beads'});
+		t.is(createIssueTracker(), beads);
 	},
 );
 
@@ -181,5 +215,33 @@ test.serial(
 			base_url: 'https://example.com',
 		});
 		t.is(b.name, 'jira');
+	},
+);
+
+// ============================================================================
+// claimIssue capability
+// ============================================================================
+
+test.serial('only beads advertises claimIssue', t => {
+	// Regression: an unconditional `bd update --claim` at the call site fired
+	// for Linear and Jira keys too, handing a remote tracker's key to a local
+	// database. Capability lives on the provider so the call site cannot guess.
+	t.truthy(createIssueTracker({provider: 'beads'}).claimIssue);
+
+	resetProviders();
+	t.falsy(createIssueTracker({provider: 'linear'}).claimIssue);
+
+	resetProviders();
+	t.falsy(
+		createIssueTracker({provider: 'jira', base_url: 'https://example.com'})
+			.claimIssue,
+	);
+});
+
+test.serial(
+	'claimIssue facade resolves false for a tracker without it',
+	async t => {
+		createIssueTracker({provider: 'linear'});
+		t.false(await claimIssue('STA-1234'));
 	},
 );
