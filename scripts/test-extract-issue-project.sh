@@ -346,24 +346,20 @@ assert_eq "warning on stderr stays out of the key" \
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: ISSUE_NUMBER derivation from an issue key${RESET}"
-# idow's `grep -oE '[0-9]+'` emits one line per digit run. Classic keys have
-# exactly one; beads IDs carry a content hash, so "bd-a1b2" yields "1\n2" and
-# any ${ISSUE_NUMBER} template it feeds becomes a broken multi-line command.
+# Everything after the last hyphen. Scanning left-to-right for the first digit
+# run instead turns the Jira key A1B-234 into "1", and emits one line per digit
+# run for a beads content hash, which makes any ${ISSUE_NUMBER} template it
+# feeds a broken multi-line command.
 issue_number_for() {
-    local provider="$1" key="$2"
-    if [[ "$provider" == "beads" ]]; then
-        echo ""
-    else
-        echo "$key" | grep -oE '[0-9]+' | head -1 || echo ""
-    fi
+    local key="$1"
+    echo "${key##*-}"
 }
 
-assert_eq "classic key → its number" "595" "$(issue_number_for linear STA-595)"
-assert_eq "beads hash ID → empty" "" "$(issue_number_for beads bd-a1b2)"
-assert_eq "beads child ID → empty" "" "$(issue_number_for beads bd-a3f8e9.1)"
-
-raw=$(echo "bd-a1b2" | grep -oE '[0-9]+' | tr '\n' '|')
-assert_eq "raw grep on a beads ID is multi-line (the bug this guards)" "1|2|" "$raw"
+assert_eq "classic key → its number" "595" "$(issue_number_for STA-595)"
+assert_eq "Jira key with digits in the project" "234" "$(issue_number_for A1B-234)"
+assert_eq "beads hash ID → its hash" "a1b2" "$(issue_number_for bd-a1b2)"
+assert_eq "beads child ID → hash and child" "a3f8e9.1" "$(issue_number_for bd-a3f8e9.1)"
+assert_eq "hyphenated beads prefix splits on the last hyphen" "wx0" "$(issue_number_for pappardelle-wx0)"
 
 # ==========================================================================
 

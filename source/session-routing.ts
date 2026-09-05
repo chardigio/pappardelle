@@ -56,9 +56,7 @@ export interface PendingSession {
 	profileName?: string | null;
 	/**
 	 * The key came from the tracker (watchlist poll, ready-work picker) rather
-	 * than from something the user typed, so idow is told to trust it instead of
-	 * re-deriving the input's kind from its shape. Also what gates the claim —
-	 * `--claim` reassigns and reopens, so it must never touch a typed key.
+	 * than from something the user typed.
 	 */
 	existingIssue: boolean;
 	/**
@@ -117,10 +115,6 @@ export function buildNewSessionArgs(
 /**
  * Build idow args for opening a workspace (apps, links, iTerm, etc.).
  * Uses --resume (no Claude prompt) + --open (enable open steps).
- *
- * --existing-issue because the key names a workspace that already exists;
- * without it a beads key whose prefix this repo doesn't list reads as prose and
- * idow files a duplicate issue instead of opening the space.
  */
 export function buildOpenWorkspaceArgs(issueKey: string): string[] {
 	return ['--resume', '--open', '--existing-issue', issueKey];

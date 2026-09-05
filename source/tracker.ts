@@ -39,12 +39,7 @@ export function clearCache(): void {
 	tracker().clearCache();
 }
 
-/**
- * Claim an issue, for trackers that support it. Resolves false rather than
- * throwing on every failure path — no tracker configured, tracker without the
- * capability, or the claim itself failing — because the sole caller is starting
- * a workspace and must not be blocked by a bookkeeping step.
- */
+/** Claim an issue, for trackers that support it. */
 export async function claimIssue(issueKey: string): Promise<boolean> {
 	try {
 		const provider = tracker();

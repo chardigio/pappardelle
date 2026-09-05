@@ -137,13 +137,6 @@ import {
 } from './highlight.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
-/**
- * Claim an issue without waiting for the answer. `claimIssue` resolves false on
- * every failure path rather than rejecting, so a tracker that is slow, missing,
- * or unable to claim at all cannot stall or break workspace creation — it only
- * leaves the issue in the ready pool, which is how things behaved before
- * claiming existed.
- */
 function claimIssueInBackground(issueKey: string): void {
 	void claimIssue(issueKey).then(claimed => {
 		if (claimed) log.info(`Claimed ${issueKey} — removed from ready work`);
@@ -1165,17 +1158,6 @@ export default function App({
 	const spawnSession = (pending: PendingSession) => {
 		setPendingSession(pending);
 
-		// Move the issue out of the ready pool before idow starts, so opening
-		// several workspaces back to back stops re-offering the ones already in
-		// flight. Deliberately not awaited: setup is the user's critical path and
-		// the claim is advisory. Description routes have no key yet — they get
-		// claimed from the close handler once idow reports one.
-		//
-		// Gated on existingIssue, which means the key came out of `bd ready` (the
-		// watchlist poll or the ready picker) and is therefore open and claimable.
-		// A key the user typed says nothing about its status: `--claim` reassigns
-		// and reopens, so claiming those silently stole a teammate's in-progress
-		// issue and resurrected closed ones you only meant to re-enter.
 		if (pending.name && pending.existingIssue) {
 			claimIssueInBackground(pending.name);
 		}
@@ -1190,7 +1172,7 @@ export default function App({
 				detached: true,
 				stdio: ['ignore', 'pipe', 'pipe'],
 				cwd: getRepoRoot(),
-				env: buildSpawnEnv(getRepoRoot()),
+				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 			},
 		);
 
@@ -1654,7 +1636,7 @@ export default function App({
 				detached: true,
 				stdio: ['ignore', 'pipe', 'pipe'],
 				cwd: getRepoRoot(),
-				env: buildSpawnEnv(getRepoRoot()),
+				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 			},
 		);
 
@@ -1879,8 +1861,6 @@ export default function App({
 		? searchSelectedIndex
 		: displaySelectedIndex;
 
-	// Two-line rows halve how many spaces fit on screen, so the layout has to
-	// feed the scroll math rather than being a purely cosmetic render choice.
 	const listLayout = getListLayout(configMemo);
 	const linesPerItem = listLayout === 'two_line' ? 2 : 1;
 

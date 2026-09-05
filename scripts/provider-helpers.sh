@@ -21,6 +21,10 @@ get_issue_tracker_provider() {
 # instead of whatever copy its branch happens to carry.
 beads_repo_root() {
     local common_dir
+    if [[ -n "${PAPPARDELLE_MAIN_REPO_ROOT:-}" ]]; then
+        echo "$PAPPARDELLE_MAIN_REPO_ROOT"
+        return
+    fi
     common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
         git rev-parse --show-toplevel 2>/dev/null
         return
@@ -32,22 +36,6 @@ run_bd() {
     (cd "$(beads_repo_root)" && BD_JSON_ENVELOPE=1 bd "$@")
 }
 
-# Every beads ID prefix this repo can mint keys under, one per line, lowercased.
-# Sources are the database's own issue-prefix, the global team_prefix, each
-# profile's team_prefix override, and each profile's tracker_projects (which
-# name beads prefixes the way they name Linear/Jira projects for the other
-# trackers).
-#
-# The database's issue-prefix is the one bd actually mints IDs under and need
-# not match team_prefix: a repo migrating off Linear keeps the old team prefix
-# while beads names issues after the repo directory.
-#
-# Mirrors getBeadsPrefixes in source/config.ts and get_beads_prefixes in
-# hooks/tracker_config.py; all three have to agree or the same input is a key in
-# one place and prose in another.
-#
-# $2 overrides the .beads/config.yaml path; exposed for tests, which must not
-# pick up the prefix of whatever repo they happen to run in.
 beads_id_prefixes() {
     local config_path="$1" beads_config="${2-}"
     [[ -n "$beads_config" ]] || beads_config="$(beads_repo_root)/.beads/config.yaml"
@@ -61,12 +49,6 @@ beads_id_prefixes() {
     } | tr '[:upper:]' '[:lower:]' | sort -u
 }
 
-# Whether $1 is a beads issue ID belonging to a prefix configured in $2.
-#
-# A beads suffix is a content hash, so it can be pure letters, and nothing about
-# the shape of `fix-crash` distinguishes it from an ID. Without anchoring to the
-# configured prefixes, every hyphenated description would be routed as an
-# existing issue and die on the bd lookup instead of creating one.
 is_beads_issue_key() {
     local input="$1" config_path="$2" beads_config="${3-}" prefix input_prefix
 
@@ -148,12 +130,6 @@ fetch_issue_json() {
     esac
 }
 
-# The jq expression that reads $2 out of $1's issue JSON. One table rather than
-# a provider case inside each extractor: every tracker shapes the same handful
-# of fields differently, so a new tracker is one block here instead of an arm in
-# four functions that have to be kept in step.
-#
-# Empty output means the field has no meaning for that provider.
 issue_field_jq() {
     case "$1:$2" in
         linear:title|beads:title)             echo '.title // empty' ;;

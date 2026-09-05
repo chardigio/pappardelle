@@ -152,9 +152,6 @@ export default function PromptDialog({
 	// stands down while it is up.
 	const isPromptStage = !isPicking && ready.closeTarget === null;
 
-	// What Enter would act on right now. Everything downstream (the profile
-	// preview and the option list) keys off this rather than the raw field, so
-	// arrowing into a suggestion re-aims them at the issue you are looking at.
 	const effectiveInput =
 		resolveSubmission(prompt, ready.identifiers, ready.index) ?? '';
 

@@ -229,26 +229,10 @@ function claudeFlag(flag: string, value?: string): string {
 	return ` ${flag} ${safe}`;
 }
 
-// No `-F`: it would let the pager exit on its own for output that fits the
-// popup, which is exactly the flash-and-vanish this pager exists to prevent.
 const POPUP_PAGER = 'less -R';
 
 /**
  * Show a command's output in a dismissible tmux popup over the current client.
- * Used by trackers whose issues have no web page to open: beads keeps
- * everything local, so `o` renders `bd show` here instead of launching a
- * browser. Runs on the outer socket, where the TUI's own client lives.
- *
- * Detached like the other `o`-key launchers (`open`, `cursor`): the popup owns
- * the terminal until the user dismisses it, and waiting on it here would stall
- * Ink's render loop. `argv` is quoted rather than interpolated because
- * display-popup takes a shell command string, not an argument vector.
- * Returns false when there's no tmux client to draw over.
- *
- * The output goes through a pager because `-E` tears the popup down the moment
- * the command exits, and the commands worth showing here print and exit
- * immediately, and without it the popup flashes for a frame. The pager also makes
- * an issue body taller than the popup scrollable instead of truncated.
  */
 export function buildPopupCommand(argv: string[]): string {
 	return `${argv.map(arg => shellQuote(arg)).join(' ')} | ${POPUP_PAGER}`;
@@ -264,11 +248,6 @@ export function displayPopup(argv: string[]): boolean {
 			{detached: true, stdio: 'ignore'},
 		);
 
-		// A tmux that isn't on this process's PATH surfaces asynchronously, after
-		// the try block has already returned success. With no listener Node
-		// rethrows it and takes the whole TUI down over a popup that didn't open,
-		// so swallow it the way launchBrowser does — the worst case is a popup the
-		// user can see for themselves never appeared.
 		child.on('error', () => {});
 		child.unref();
 		return true;
@@ -599,12 +578,6 @@ export const SYNC_TERMINAL_FEATURE = '*:Sync';
 
 /**
  * Whether this socket's `terminal-features` already carries our Sync entry.
- *
- * `-v` prints one array entry per line with no `name[i]` prefix, so a whole-line
- * comparison is the array-element test; a substring search would confuse us with
- * a different terminal pattern that happens to name the same feature. Any
- * failure reports "absent": a duplicate entry is cosmetic, a missing one brings
- * the flicker back.
  */
 function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
 	try {
@@ -643,10 +616,6 @@ function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
  * Two things keep that safe: we append (`-ga`) instead of assigning, so any
  * user-configured features survive, and terminals that don't implement DEC 2026
  * ignore the private mode, which is what makes the blanket `*` workable.
- *
- * The append is also guarded by a presence check. The tmux server outlives any
- * one Pappardelle run, so an unconditional `-ga` piles on another copy of the
- * entry per launch.
  *
  * Runners are exposed for tests only; production uses the spawnSync defaults.
  */
@@ -947,13 +916,6 @@ function getTmuxWindowSize(): {width: number; height: number} | null {
 
 /**
  * Build the `tmux display-message` argv for reading a pane format variable.
- *
- * `display-message` resolves an untargeted format against the *active* pane,
- * not the calling process's pane. pappardelle lives in a sidebar the user
- * spends most of their time focused away from, so an untargeted query reports
- * whatever pane the cursor happens to be in — usually the much wider claude
- * pane. `$TMUX_PANE` is the pane id tmux exports into every process it spawns,
- * so targeting it is what pins the answer to our own pane.
  */
 export function paneQueryArgs(format: string, paneId?: string): string[] {
 	const args = ['display-message', '-p'];

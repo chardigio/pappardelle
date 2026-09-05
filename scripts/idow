@@ -115,8 +115,15 @@ if [[ -n "${PAPPARDELLE_PROJECT_ROOT:-}" ]]; then
 else
     REPO_ROOT=$(git rev-parse --show-toplevel)
 fi
-GIT_COMMON_DIR=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)
-MAIN_REPO_ROOT=$(dirname "$GIT_COMMON_DIR")
+if [[ -n "${PAPPARDELLE_MAIN_REPO_ROOT:-}" ]]; then
+    MAIN_REPO_ROOT="$PAPPARDELLE_MAIN_REPO_ROOT"
+else
+    GIT_COMMON_DIR=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)
+    MAIN_REPO_ROOT=$(dirname "$GIT_COMMON_DIR")
+fi
+# Handed to the workspace's tmux sessions so the hooks running inside them read
+# it instead of walking back out to the main checkout on every tool use.
+export PAPPARDELLE_MAIN_REPO_ROOT="$MAIN_REPO_ROOT"
 
 # Untracked project config may exist only in the main checkout, while a linked
 # worktree can carry its own local overrides. Resolve each file independently.
@@ -588,15 +595,13 @@ else
     fi
 fi
 
-# Extract issue number for template variable expansion (e.g., STA-595 → 595).
-if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
-    ISSUE_NUMBER=""
-else
-    # Everything after the last hyphen, not the first digit run: Jira project
-    # keys may carry digits of their own, and scanning left-to-right turned
-    # A1B-234 into the plausible-looking but wrong "1".
-    ISSUE_NUMBER="${ISSUE_KEY##*-}"
-fi
+# Extract issue number for template variable expansion (e.g., STA-595 → 595,
+# pappardelle-wx0 → wx0).
+#
+# Everything after the last hyphen, not the first digit run: Jira project keys
+# may carry digits of their own, and scanning left-to-right turned A1B-234 into
+# the plausible-looking but wrong "1".
+ISSUE_NUMBER="${ISSUE_KEY##*-}"
 
 # Template expansion helpers for profile-driven steps
 # Defined here (before Step 5) because worktree config may use template variables.

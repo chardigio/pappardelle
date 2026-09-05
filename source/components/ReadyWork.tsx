@@ -19,18 +19,8 @@ const MAX_VISIBLE_SUGGESTIONS = 8;
 
 const CLOSE_KEY = 'x';
 
-// 'i' rather than 'o' to match the main list, where 'i' opens the issue and
-// 'o' opens the workspace.
 const OPEN_KEY = 'i';
 
-/**
- * The ready-work list under the new-session prompt: what `bd ready` offers, the
- * cursor the prompt shares with it, and the two row actions.
- *
- * Split out of PromptDialog because it is a self-contained surface with its own
- * fetch, its own keymap and its own confirm step — none of which the prompt,
- * the skill completer or the profile picker have any reason to be edited for.
- */
 export interface ReadyWork {
 	issues: TrackerIssue[];
 	loading: boolean;
@@ -48,12 +38,6 @@ export interface ReadyWork {
 	cancelClose: () => void;
 }
 
-/**
- * `isActive` gates the keymap on the conditions the caller owns — whichever of
- * its other boxes has the focus — so the skill completer can take the arrows
- * back while it is open. The confirmation step is gated here instead, since the
- * state it turns on belongs to this hook.
- */
 export function useReadyWork(
 	tracker: IssueTrackerProvider | null,
 	isActive: boolean,
@@ -74,8 +58,7 @@ export function useReadyWork(
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 	// Trackers that can't answer "what's ready" cheaply leave listReadyIssues
-	// undefined, which collapses the picker to nothing and leaves the dialog
-	// exactly as it was before.
+	// undefined, which collapses the picker to nothing.
 	useEffect(() => {
 		let cancelled = false;
 
@@ -109,8 +92,6 @@ export function useReadyWork(
 		typeof tracker?.closeIssue === 'function',
 		index,
 	);
-	// Every tracker can show an issue somehow — a popup for the local-only ones,
-	// a browser for the rest — so this needs no capability gate of its own.
 	const openKeyActive = hasHighlightedRow(index);
 
 	useInput(

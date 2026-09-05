@@ -231,13 +231,6 @@ on run argv
     -- quote (e.g. DESTDIR='/tmp') can't break out. send-keys then receives the
     -- value as one double-quoted arg, matching the safe pattern in
     -- start-claude-session.sh.
-    --
-    -- The name is derived from tmuxSession rather than rebuilt from issueKey:
-    -- start-claude-session.sh created both sessions from the encoded key, and a
-    -- second derivation here is a second chance to drift from that encoding.
-    -- Swapping the "claude-" prefix keeps the two suffixes identical by
-    -- construction. Getting this wrong is silent — new-session -d -s just
-    -- creates the name we ask for, orphaning the companion that already exists.
     set companionSession to "companion-" & (text 8 thru -1 of tmuxSession)
     set sendPart to ""
     if companionCommand is not equal to "" then

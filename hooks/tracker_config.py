@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Shared tracker detection for Pappardelle's Claude Code hooks.
-
-Hooks run on every tool use, so this module deliberately avoids PyYAML and any
-subprocess calls: config files are read with regexes and the results are cached
-per process.
-
-The workspace's issue key is recovered from the cwd, because pappardelle names
-each worktree after the issue it was created for. That is trivial for Linear and
-Jira (``STA-123``) but not for beads, whose IDs are lowercase with a content
-hash for a suffix (``bd-a1b2``) and therefore indistinguishable from an ordinary
-directory name like ``my-app``. For beads the match is anchored to the repo's
-configured issue prefixes so an arbitrary path component can never be mistaken
-for an issue.
-"""
+"""Shared tracker detection for Pappardelle's Claude Code hooks."""
 
 import os
 import re
@@ -103,18 +90,11 @@ def _read(path: Optional[str]) -> str:
 def find_repo_config(filename: str, start: Optional[str] = None) -> Optional[str]:
     """Locate a repo-level config file, resolving through linked worktrees.
 
-    `.pappardelle.yml` and `.beads/` are routinely listed in `.git/info/exclude`
-    rather than committed, so a linked worktree never receives a copy and only
-    the main checkout has one. `.pappardelle.local.yml` is the opposite:
-    workspace setup copies it *into* each worktree, so the worktree's own copy is
-    the one that should win. Resolving per file rather than per directory is what
-    lets both be true at once.
-
-    The working tree is searched first: it is pure filesystem work, it answers
-    for the main checkout, and it keeps `git` out of the common path on a hook
-    that runs on every tool use.
-
-    Mirrors `findRepoConfig` in source/config.ts.
+    `.pappardelle.yml` and `.beads/` are usually excluded rather than committed,
+    so only the main checkout has one; `.pappardelle.local.yml` is copied into
+    each worktree, so the worktree's copy wins. Resolving per file rather than
+    per directory lets both be true at once. Mirrors `findRepoConfig` in
+    source/config.ts.
     """
     try:
         origin = start if start is not None else os.getcwd()
@@ -221,6 +201,14 @@ def get_main_repo_root(start: Optional[str] = None) -> Optional[str]:
 
 
 def _resolve_main_repo_root(start: Optional[str]) -> Optional[str]:
+    # Set on the workspace's tmux session when pappardelle created it, so a hook
+    # running inside a worktree is told the main checkout instead of forking git
+    # for it on every tool use. An explicit `start` overrides: the caller is
+    # asking about some other directory, not this workspace.
+    injected = os.environ.get("PAPPARDELLE_MAIN_REPO_ROOT")
+    if start is None and injected:
+        return injected
+
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],

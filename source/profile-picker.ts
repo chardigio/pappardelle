@@ -25,23 +25,13 @@ import {
 export const PICKER_MAX_VISIBLE = 4;
 
 export type ProfileOption = {
-	/**
-	 * `profile` rows spawn under their own name. The single `deferred` row names
-	 * no profile and lets idow resolve one from the fetched issue's tracker
-	 * project (issue-key inputs only) — a distinct kind of row rather than a null
-	 * name, so the renderer never has to read "no name" as "not a profile".
-	 */
 	kind: 'profile' | 'deferred';
 	/** The `--profile` value this row spawns under; null for the deferred row. */
 	name: string | null;
 	displayName: string;
 	/** Keywords in the prompt that selected this profile; empty for non-matches. */
 	matchedKeywords: string[];
-	/**
-	 * The issue-key prefix this profile claims by name, when that is why it is
-	 * ranked where it is. Unset for keyword matches, for profiles that merely
-	 * inherit the global prefix, and for the tail of the list.
-	 */
+	/** The issue-key prefix this profile claims by name. */
 	matchedPrefix?: string;
 	/** True for the config's `default_profile`, wherever it lands in the list. */
 	isDefault: boolean;
@@ -56,11 +46,6 @@ export type ProfileOption = {
 	emoji: string | undefined;
 };
 
-/**
- * The row that names no profile, so idow resolves one from the fetched issue's
- * tracker project. It leads the list for issue-key inputs, which keeps
- * Enter-Enter on a key byte-identical to the single Enter it used to be.
- */
 export function deferredOption(config: PappardelleConfig): ProfileOption {
 	return {
 		kind: 'deferred',
@@ -69,9 +54,6 @@ export function deferredOption(config: PappardelleConfig): ProfileOption {
 		matchedKeywords: [],
 		isDefault: false,
 		enforced: false,
-		// Owns no profile, so it owns no emoji — but it still has to reserve the
-		// slot its emoji-bearing neighbors occupy, or the one row you land on
-		// first is the one hanging two columns left of the rest.
 		emoji: getProfileEmoji(undefined, config),
 	};
 }
@@ -212,10 +194,6 @@ export function resolvePromptSubmit(
 	const selection = determineProfileForInput(config, trimmed);
 	if (!selection) return {kind: 'spawn', profileName: null};
 
-	// A Linear/Jira key whose prefix nobody claims has nothing to choose between,
-	// so it keeps the one-Enter spawn it always had; anything else — a claimed
-	// prefix, or any beads key, where one database backs several profiles — goes
-	// to the picker with the current inference merely preselected.
 	if (selection.kind === 'deferred' && !selection.canPick) {
 		return {kind: 'spawn', profileName: null};
 	}

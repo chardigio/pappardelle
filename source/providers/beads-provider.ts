@@ -1,4 +1,3 @@
-// Beads issue tracker provider — wraps the `bd` CLI (git-native, local-first)
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,18 +27,6 @@ const RETRY_DELAY_MS = 500;
 // The rail and the watchlist both want the complete set.
 const NO_LIMIT = ['-n', '0'];
 
-/**
- * Types the watchlist must never auto-spawn a workspace for. A watchlist match
- * turns into a worktree plus a Claude session with no one in the loop, and none
- * of these is a thing to sit down and write code against: epic, convoy and
- * molecule are containers whose children are the real work, event rows are
- * audit records, and merge-request rows stand for a change that already exists.
- * Decisions/ADRs are absent on purpose — writing one produces a real diff.
- *
- * The new-session picker deliberately does not filter: a person is choosing
- * there, and opening a worktree against a container to poke at its children is
- * a legitimate thing to want.
- */
 const NON_WORK_TYPES = [
 	'--exclude-type',
 	'epic,convoy,molecule,event,merge-request',
@@ -90,31 +77,12 @@ function removeQuietly(dir: string | undefined): void {
 	}
 }
 
-/**
- * Fold a user-authored status onto the spelling beads stores it under.
- * Watchlists get carried over from Linear and Jira, so the same status arrives
- * as "In Progress", "in progress" or "in_progress" depending on where it was
- * copied from. The reachability warning and the filter that actually drops rows
- * both read these strings, and they used to normalize differently — one
- * spelling could be warned about as unreachable and matched anyway.
- */
 export function normalizeBeadsStatus(status: string): string {
 	return status.trim().toLowerCase().replace(/\s+/g, '_');
 }
 
-/**
- * What `bd ready` can actually return. Its help is explicit: "Excludes
- * in_progress, blocked, deferred, and hooked issues." Membership is always
- * tested through `normalizeBeadsStatus`, so the display spelling folds onto
- * this one entry rather than needing a listing of its own.
- */
 const READY_STATUSES = new Set(['open']);
 
-/**
- * Which of the configured watchlist statuses `bd ready` can never return.
- * A watchlist carried over from Linear or Jira ("In Progress") would otherwise
- * sit permanently empty with nothing to explain it.
- */
 export function unreachableReadyStatuses(statuses: string[]): string[] {
 	return statuses.filter(s => {
 		const normalized = normalizeBeadsStatus(s);
@@ -140,29 +108,11 @@ export function beadsStateName(status: string): string {
 		.join(' ');
 }
 
-/**
- * The issue-source prefix of a beads ID — everything ahead of the hash.
- *
- * Beads IDs are `<prefix>-<hash>` with an optional `.N` suffix per nesting
- * level (`sddamico-hic`, `seatgeek-ticket-management-cli-bqm`, `bd-a3f8e9.1`).
- * One database routinely holds several prefixes, which is what makes prefix
- * matching a usable stand-in for Linear/Jira's project field. Unlike the shared
- * `issueKeyPrefix`, a prefixless ID reports no prefix at all rather than
- * itself, so `mapBeadsIssue` can leave `project` null.
- */
 export function beadsIssuePrefix(issueId: string): string {
 	const prefix = issueKeyPrefix(issueId);
 	return prefix === issueId.split('.')[0] ? '' : prefix;
 }
 
-/**
- * Pull the payload out of `bd`'s JSON, tolerating every shape it ships.
- *
- * Current releases print the bare value; `BD_JSON_ENVELOPE=1` (and beads 2.0 by
- * default) wraps it as `{schema_version, data}`. Single-issue commands like
- * `bd show` return a one-element *array*, not an object, despite what the
- * schema doc says. Callers get a list either way.
- */
 export function unwrapBeadsJson(
 	stdout: string,
 ): Array<Record<string, unknown>> {
@@ -218,19 +168,11 @@ export function mapBeadsIssue(raw: Record<string, unknown>): TrackerIssue {
 			type: beadsStateType(status),
 			color: BEADS_STATUS_COLORS[status] ?? FALLBACK_STATUS_COLOR,
 		},
-		// Beads has no project field; the ID prefix is its issue-source
-		// partition, so it fills both slots that `tracker_projects` matches on.
 		project: prefix ? {name: prefix, key: prefix} : null,
 		labels,
 	};
 }
 
-/**
- * Argv for the issue-detail popup. `-C` for the same reason every other bd call
- * sets its cwd: the popup runs in the pane's directory, so from a worktree bd
- * would auto-discover that worktree's checked-out `.beads/` copy and show a
- * different database than the rail was reading.
- */
 export function buildIssuePopupArgv(
 	mainRoot: string,
 	issueKey: string,
@@ -298,14 +240,6 @@ export class BeadsProvider implements IssueTrackerProvider {
 		});
 	}
 
-	/**
-	 * Keyed under the requested spelling as well when the two differ. `getIssue`
-	 * deliberately accepts a row whose id is not what it asked for (bd resolves
-	 * aliases and folds case), and storing only bd's spelling left the requested
-	 * key permanently absent: every read re-forked bd, and `getIssueCached` —
-	 * which the space list calls on each render — answered null forever, so the
-	 * row never stopped saying "Loading…".
-	 */
 	private cache(issue: TrackerIssue, requestedKey?: string): void {
 		const entry = {issue, timestamp: Date.now()};
 		this.issueCache.set(issue.identifier, entry);
@@ -493,13 +427,6 @@ export class BeadsProvider implements IssueTrackerProvider {
 		return displayPopup(buildIssuePopupArgv(this.resolveCwd(), issueKey));
 	}
 
-	/**
-	 * Watchlist source. `bd ready` is beads' own notion of actionable work —
-	 * open issues whose blocking dependencies are all closed — which is a
-	 * stronger filter than a status query and the reason it's used here instead
-	 * of `bd list --status`. A configured `statuses` list narrows further;
-	 * omitting it takes every ready issue.
-	 */
 	async searchAssignedIssues(
 		assignee: string | undefined,
 		statuses: string[],
@@ -563,12 +490,6 @@ export class BeadsProvider implements IssueTrackerProvider {
 		}
 	}
 
-	/**
-	 * Suggestion source for the new-session prompt. Unlike the watchlist, this
-	 * takes no assignee filter: the picker exists to answer "what could I start
-	 * next", and beads issues are frequently unassigned until someone claims
-	 * them, so filtering by assignee would usually empty the list.
-	 */
 	async listReadyIssues(): Promise<TrackerIssue[]> {
 		if (this.bdMissing) return [];
 
@@ -598,11 +519,6 @@ export class BeadsProvider implements IssueTrackerProvider {
 		}
 	}
 
-	/**
-	 * Drops the cached copy rather than rewriting its state: `bd close` also
-	 * stamps closed_at and can cascade to dependents, so the next read should
-	 * come from bd rather than from a locally-patched guess.
-	 */
 	async closeIssue(issueKey: string): Promise<boolean> {
 		if (this.bdMissing) return false;
 
@@ -627,12 +543,6 @@ export class BeadsProvider implements IssueTrackerProvider {
 		}
 	}
 
-	/**
-	 * `--claim` both assigns the issue and moves it to in_progress, which is
-	 * what drops it from `bd ready` (see searchAssignedIssues — ready excludes
-	 * in_progress). Failure is logged and swallowed: the caller is mid-workspace
-	 * creation, and a stale ready entry is a far smaller problem than aborting.
-	 */
 	async claimIssue(issueKey: string): Promise<boolean> {
 		if (this.bdMissing) return false;
 
@@ -716,18 +626,7 @@ export class BeadsProvider implements IssueTrackerProvider {
 		}
 	}
 
-	/**
-	 * `assignee: me` in the watchlist config. Beads assignees are free text, so
-	 * "me" has to resolve to the same string `bd` stamps on an issue when it
-	 * claims one. That is `$BEADS_ACTOR`, then `git user.name`, then `$USER` —
-	 * skipping the git identity matches nothing on the common setup where a
-	 * full name is configured but the OS login is a handle.
-	 */
 	private async currentUser(): Promise<string | undefined> {
-		// Memoized as a promise, not a string: the watchlist polls on a timer and
-		// this forks `git config` on every miss, and "no identity anywhere" is a
-		// legitimate answer that a string cache could never record. Caching the
-		// promise also collapses two polls that overlap into one fork.
 		this.currentUserCache ??= this.resolveCurrentUser();
 		return this.currentUserCache;
 	}

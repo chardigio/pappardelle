@@ -344,5 +344,26 @@ def test_a_local_config_is_used_without_consulting_git(tmp_path, monkeypatch):
     assert tracker_config.get_tracker_provider(str(repo)) == "beads"
 
 
+def test_injected_main_repo_root_is_used_instead_of_git(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("git should not be forked when the root was injected")
+
+    monkeypatch.setattr(tracker_config.subprocess, "run", fail)
+    monkeypatch.setattr(tracker_config, "_MAIN_REPO_ROOT_CACHE", {})
+    monkeypatch.setenv("PAPPARDELLE_MAIN_REPO_ROOT", "/tmp/main-checkout")
+    assert tracker_config.get_main_repo_root() == "/tmp/main-checkout"
+
+
+def test_injected_main_repo_root_does_not_answer_for_another_directory(monkeypatch):
+    # An explicit start is a question about some other directory, not about the
+    # workspace whose root was injected.
+    monkeypatch.setattr(tracker_config, "_MAIN_REPO_ROOT_CACHE", {})
+    monkeypatch.setenv("PAPPARDELLE_MAIN_REPO_ROOT", "/tmp/main-checkout")
+    monkeypatch.setattr(
+        tracker_config, "_resolve_main_repo_root", lambda start: "/tmp/elsewhere"
+    )
+    assert tracker_config.get_main_repo_root("/tmp/elsewhere") == "/tmp/elsewhere"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([os.path.abspath(__file__), "-v"]))

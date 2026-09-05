@@ -367,6 +367,11 @@ export function getMainRepoRoot(): string {
 }
 
 function resolveMainRepoRoot(): string {
+	// Set by whoever created this workspace, so a worktree session is told its
+	// main checkout instead of forking git to work it out again.
+	const injected = process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
+	if (injected) return injected;
+
 	try {
 		const commonDir = execSync(
 			'git rev-parse --path-format=absolute --git-common-dir',
@@ -381,21 +386,10 @@ function resolveMainRepoRoot(): string {
 }
 
 /**
- * Locate a repo-level config file, resolving through linked worktrees.
- *
- * `.pappardelle.yml` is routinely listed in `.git/info/exclude` rather than
- * committed, so a linked worktree never receives a copy and only the main
- * checkout has one. `.pappardelle.local.yml` is the opposite: workspace setup
- * copies it *into* each worktree, so the worktree's own copy is the one that
- * should win. Resolving per file rather than per directory is what lets both
- * be true at once.
- *
- * The working tree is checked first so the main checkout — where the two
- * directories coincide — never pays for the extra lookup. That only holds if
- * the second root is resolved lazily; an array literal of both would fork git
- * for the main root before the first candidate is ever tested.
- *
- * Mirrors `find_repo_config` in hooks/tracker_config.py.
+ * `.pappardelle.yml` is usually excluded rather than committed, so only the main
+ * checkout has one; `.pappardelle.local.yml` is copied into each worktree, so the
+ * worktree's copy wins. Resolving per file rather than per directory lets both be
+ * true at once. Mirrors `find_repo_config` in hooks/tracker_config.py.
  */
 export function findRepoConfig(filename: string): string | undefined {
 	const inWorkingTree = path.join(getRepoRoot(), filename);
@@ -572,13 +566,6 @@ export function getDefaultHomeConfigDir(): string {
 export function loadConfigFromPaths(opts: {
 	homeConfigDir?: string;
 	projectDir?: string;
-	/**
-	 * Second directory to consult per file when `projectDir` lacks it — the
-	 * main checkout, when `projectDir` is a linked worktree. Each layer is
-	 * resolved independently; see `findRepoConfig` for why. Passed as a thunk
-	 * so the main checkout, where both directories coincide and every file is
-	 * found on the first candidate, never forks git to resolve the second.
-	 */
 	fallbackProjectDir?: () => string | undefined;
 }): PappardelleConfig {
 	const {homeConfigDir, projectDir, fallbackProjectDir} = opts;
@@ -1333,12 +1320,6 @@ export interface TemplateVars {
 	WORKTREE_PATH: string;
 	/** The working tree pappardelle is running in. */
 	REPO_ROOT: string;
-	/**
-	 * The main checkout, which differs from `REPO_ROOT` only when pappardelle
-	 * itself was launched from a linked worktree. Hooks that seed a new workspace
-	 * from an uncommitted file (`cp -n ${MAIN_REPO_ROOT}/.env ${WORKTREE_PATH}/`)
-	 * want this one: a worktree carries no copy of what was never committed.
-	 */
 	MAIN_REPO_ROOT: string;
 	REPO_NAME: string;
 	PR_URL?: string;
@@ -1584,15 +1565,6 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 	return first === undefined || first === '' ? undefined : first;
 }
 
-/**
- * Memoized per repo root. `determineProfileForInput` runs on every keystroke
- * in the new-session prompt, so an uncached read would put a blocking
- * `readFileSync` plus a YAML parse on the TUI's render path.
- *
- * A miss is stored even when it resolves to `undefined`, so repos with no
- * beads config — the case that would otherwise re-stat the file forever — get
- * the same single-read treatment as repos that have one.
- */
 const beadsIssuePrefixCache = new Map<string, string | undefined>();
 
 export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
@@ -1656,33 +1628,9 @@ export function getBeadsPrefixes(
 export type ProfilePrefixMatch = {
 	name: string;
 	profile: Profile;
-	/**
-	 * The profile named this prefix itself (own `team_prefix`, or a
-	 * `tracker_projects` entry spelling the project key) rather than inheriting
-	 * it from the global `team_prefix`. Explicit claims outrank inherited ones
-	 * and are the only ones worth surfacing in the picker.
-	 */
 	explicit: boolean;
 };
 
-/**
- * Profiles that can plausibly own an issue whose key carries `prefix`.
- *
- * Ways to claim one, in descending strength:
- *   - the profile's own `team_prefix` is that prefix
- *   - a `tracker_projects` entry spells it — Jira issue keys are their project
- *     key, so `tracker_projects: [KAN]` and `KAN-12` are the same statement
- *   - its `issue_watchlist.key_prefixes` lists it, which is the strongest
- *     statement of all: the watchlist already spawns those issues under this
- *     profile, so a hand-typed key of the same prefix must be able to reach it
- *   - the profile declares none of those, so it inherits the global
- *     `team_prefix`;
- *     in a single-team config that is every profile, which is the point — the
- *     user gets to choose among all of them rather than none of them
- *
- * Returns [] when the prefix is unclaimed, which keeps issue keys from an
- * unknown team on the deferred path.
- */
 export function matchProfilesByKeyPrefix(
 	config: PappardelleConfig,
 	prefix: string,
@@ -1716,11 +1664,6 @@ export function matchProfilesByKeyPrefix(
 	return [...explicit, ...inherited];
 }
 
-/**
- * The beads issue-source prefix `input` names, or null when it is not a beads
- * ID under a prefix this repo can mint. Always null for the other trackers,
- * whose keys carry a team prefix instead.
- */
 function beadsInputKeyPrefix(
 	config: PappardelleConfig,
 	input: string,
@@ -1733,12 +1676,6 @@ function beadsInputKeyPrefix(
 	return issueKeyPrefix(trimmed);
 }
 
-/**
- * The prefix an issue identifier claims, under whichever key grammar its
- * tracker uses: the team prefix of `STA-123` or a Linear URL, or the
- * issue-source prefix of a beads ID. Null for prose and for bare numbers,
- * which have no prefix of their own.
- */
 export function inputKeyPrefix(
 	config: PappardelleConfig,
 	input: string,
@@ -1778,16 +1715,6 @@ export type ProfileSelection =
 	| {
 			kind: 'deferred';
 			displayName: string;
-			/**
-			 * There is something to choose between, so the deferred lookup is the
-			 * *preselected* answer rather than the only one — the TUI should offer
-			 * the picker instead of an inert label. True when a profile claims
-			 * this key's prefix, and true for every beads key: a beads database is
-			 * not a project, so several profiles' worth of work shares one prefix
-			 * and the lookup can only ever guess. False for bare numbers and for
-			 * Linear/Jira prefixes no profile claims, where deferring to the
-			 * issue's own project is genuinely all we can do.
-			 */
 			canPick: boolean;
 	  }
 	| {

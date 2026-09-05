@@ -19,10 +19,6 @@ export const isIssueKey = isLinearIssueKey;
  * The issue-source prefix of an issue key: everything ahead of the last hyphen,
  * with any `.N` child suffix dropped first. `STA-123` -> `STA`,
  * `seatgeek-ticket-management-cli-bqm` -> `seatgeek-ticket-management-cli`.
- *
- * Splitting on the last hyphen rather than the first is what admits beads
- * prefixes, which may contain hyphens of their own. An identifier with no
- * hyphen yields itself.
  */
 export function issueKeyPrefix(identifier: string): string {
 	// split always yields at least one element, so index 0 is never undefined.
@@ -34,10 +30,6 @@ export function issueKeyPrefix(identifier: string): string {
 /**
  * Check if a string is a beads issue ID belonging to one of `prefixes`
  * (e.g. bd-a1b2, bd-a3f8e9.1, seatgeek-ticket-management-cli-bqm).
- *
- * A beads suffix is a content hash and can be pure letters, so shape alone
- * cannot tell `dark-mode` from an ID. The prefix allowlist is what does; with
- * no known prefixes, nothing matches.
  */
 export function isBeadsIssueKey(input: string, prefixes: string[]): boolean {
 	const trimmed = input.trim();
@@ -53,23 +45,12 @@ export function isIssueNumber(input: string): boolean {
 	return /^\d+$/.test(input.trim());
 }
 
-// The workspace segment is `.+` rather than `[^/]+` to stay in lockstep with
-// config.ts's DETERMINE_PROFILE_LINEAR_URL and idow's own URL parse, both of
-// which accept the extra `/team/` segment Linear sometimes emits.
 const LINEAR_URL_ISSUE_KEY =
 	/^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
 
 /**
  * Extract the team prefix an issue identifier belongs to (e.g. 'STA' for
  * 'STA-123'), uppercased. Accepts a bare key or a Linear issue URL.
- *
- * Distinct from `issueKeyPrefix`, which answers a different question for a
- * different grammar: the issue *source* ahead of the last hyphen, verbatim,
- * for beads IDs that carry hyphens of their own.
- *
- * Returns null when the input carries no prefix of its own — bare numbers
- * borrow one from config, and prose has none — which is the signal callers
- * use to fall back to prefix-independent behavior.
  */
 export function issueKeyTeamPrefix(input: string): string | null {
 	const trimmed = input.trim();
@@ -93,8 +74,6 @@ export function issueKeyTeamPrefix(input: string): string | null {
  * uppercase, since that is the only casing `bd` can resolve. `beadsPrefixes` is
  * the allowlist from `getBeadsPrefixes`; anything outside it is prose, not a
  * key, and an empty allowlist therefore makes every beads input a description.
- * Both are required: which grammar applies is not something this function can
- * guess, and a defaulted allowlist would silently promote prose to a key.
  */
 export function normalizeIssueIdentifier(
 	input: string,
@@ -105,9 +84,6 @@ export function normalizeIssueIdentifier(
 	const trimmed = input.trim();
 
 	if (provider === 'beads') {
-		// A bare number only names an issue in databases old enough to have
-		// sequential IDs. Hash-based ones never match, and the input falls
-		// through to being treated as a description.
 		if (isIssueNumber(trimmed)) {
 			return `${teamPrefix.toLowerCase()}-${trimmed}`;
 		}

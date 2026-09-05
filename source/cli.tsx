@@ -18,6 +18,7 @@ import type {PaneLayout} from './types.ts';
 import {
 	configExists,
 	getRepoRoot,
+	getMainRepoRoot,
 	getRepoName,
 	loadConfig,
 	loadProviderConfigs,
@@ -218,15 +219,10 @@ if (cli.input.length > 0) {
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
 
-	// No claim here, deliberately. The TUI claims only keys that came out of
-	// `bd ready` (see spawnSession): `--claim` reassigns and reopens, so
-	// claiming a key someone typed steals a teammate's in-progress issue and
-	// resurrects closed ones you only meant to re-enter. Every key on this path
-	// was typed on the command line, so none of them is claimable.
 	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
 		stdio: 'inherit',
 		cwd: getRepoRoot(),
-		env: buildSpawnEnv(getRepoRoot()),
+		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 	});
 
 	process.exit(result.status ?? 0);

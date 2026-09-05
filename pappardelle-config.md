@@ -631,7 +631,7 @@ profiles:
 ```
 
 **Beads** ([beads](https://github.com/gastownhall/beads) — local, git-native
-issue tracking through the `bd` CLI). No `base_url`: there is no server.
+issue tracking through the `bd` CLI).
 
 ```yaml
 issue_tracker:
@@ -640,42 +640,8 @@ issue_tracker:
 team_prefix: myproj
 ```
 
-`default_issue_type` works here too, lowercased to match beads' vocabulary
-(`task`, `bug`, `feature`, `epic`, `chore`, `decision`). It defaults to `task`.
-
-Three things behave differently under beads, all of them consequences of it
-being a local tracker rather than a hosted one:
-
-- **There is no web URL.** `o` in the ticket rail opens `bd show` in a tmux
-  popup instead of a browser, and `${ISSUE_URL}` is empty for beads
-  workspaces, so `links:` entries using it are skipped.
-- **`tracker_projects` matches the ID prefix.** A single database can hold
-  several prefixes:
-
-  ```yaml
-  profiles:
-    platform:
-      tracker_projects:
-        - myproj # matches myproj-a1b2
-    vendor:
-      tracker_projects:
-        - vendor-sdk # prefixes may contain hyphens; the split is on the last one
-  ```
-
-  New beads issues take their prefix from the database they land in, so
-  `tracker_projects[0]` does not steer issue _creation_ the way it does on
-  Linear.
-
-- **The watchlist reads `bd ready`**, beads' own notion of actionable work —
-  open issues whose blocking dependencies are all closed.
-
-  ```yaml
-  issue_watchlist:
-    statuses: [open] # every ready issue
-  ```
-
-  `bd ready` excludes `in_progress`, `blocked`, `deferred` and `hooked` by
-  construction, so `open` is the only status it can ever return.
+`default_issue_type` accepts `task`, `bug`, `feature`, `epic`, `chore` and
+`decision`, and defaults to `task`.
 
 All `bd` commands run from the main repository root, so every worktree reads
 and writes the one canonical database rather than whatever copy its branch

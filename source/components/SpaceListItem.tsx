@@ -60,10 +60,6 @@ export default function SpaceListItem({
 	layout,
 }: Props) {
 	const isTwoLine = layout === 'two_line';
-	// A pending row keeps its progress text ("Opening…") beside the key even
-	// under the two-line layout, but still occupies two terminal lines: the
-	// click hit-test divides by a uniform rows-per-item, so a short row would
-	// misaddress every space below it.
 	const inlineTitle = titleSharesKeyLine({
 		isTwoLine,
 		isPending: space.isPending,
@@ -342,18 +338,7 @@ export default function SpaceListItem({
 
 	const keyLine = (
 		<Box width={keyLineWidth} overflowX="hidden">
-			{/* Identity cluster: emoji, status icon and issue key. `flexShrink={0}`
-			    is load-bearing — `width` is the pane width pappardelle *believes*
-			    it has, and when that overshoots the pane Ink actually renders into,
-			    Yoga's default shrink squeezes every cell here at once: the status
-			    icon disappears, the separators collapse and the issue key is chopped
-			    mid-string with the remainder spilling onto extra lines. Refusing to
-			    shrink keeps the row's identity intact and pushes all give onto the
-			    title, which is the one part that can truncate meaningfully. */}
 			<Box flexShrink={0}>
-				{/* Profile emoji (NOT highlighted) — first cell on the row when set.
-				    Followed by a single space separator so it doesn't crash into the
-				    Claude status icon. */}
 				{emoji ? (
 					<>
 						<Text inverse={useBlinkInverse} color={textColor}>
@@ -405,10 +390,6 @@ export default function SpaceListItem({
 					</Text>
 				)}
 
-				{/* Separator between key and title. Sits in the fixed cluster rather
-				    than the title box so an overflowing row can't squeeze it away and
-				    weld the title onto the issue key. Only when the title shares this
-				    row — the two-line layout indents its title line instead. */}
 				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
 					<Text dimColor={!useInverse} inverse={useInverse} color={titleColor}>
 						{' '}

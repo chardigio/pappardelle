@@ -20,22 +20,12 @@ export interface OpenIssueResult {
 function launchBrowser(url: string): void {
 	const child = spawn('open', [url], {detached: true, stdio: 'ignore'});
 
-	// A missing opener binary — anywhere `open` isn't the name, so anywhere but
-	// macOS — surfaces asynchronously, long after this has returned success. With
-	// no listener Node rethrows it and takes the whole TUI down over a failed
-	// browser launch, so swallow it: the worst case is a browser that never
-	// appears, which the user can see for themselves.
 	child.on('error', () => {});
 	child.unref();
 }
 
 /**
  * Show an issue to the user, wherever that tracker's issues live.
- *
- * Local-only trackers (beads) have no web page, so they render into a tmux
- * popup via `openIssue` and report false when there's no tmux to draw into.
- * That is a dead end rather than a reason to fall back — there is no URL to
- * open — so the failure is surfaced instead of retried in a browser.
  */
 export function openIssueForKey(
 	issueKey: string,

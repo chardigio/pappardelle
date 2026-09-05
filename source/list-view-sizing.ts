@@ -19,11 +19,6 @@ export const LIST_CHROME_ROWS = HEADER_ROWS;
 /** Fixed-width characters per row (excluding issue key): icon(1) + space(1) + space(1) = 3 */
 export const ROW_FIXED_OVERHEAD = 3;
 
-/**
- * Terminal rows one list item occupies. Two, and only two, because that is how
- * many layouts `list_view.layout` offers; typing it as a union rather than a
- * number is what lets the scroll math divide by it without a floor guard.
- */
 export type LinesPerItem = 1 | 2;
 
 // ============================================================================
@@ -168,10 +163,6 @@ export function rowPrefixWidth(prefix?: RowPrefix): number {
 /**
  * Columns the two-line layout indents its title row by, so the title starts
  * under the issue key rather than under the status icon.
- *
- * Built from the cells actually ahead of the key — the emoji prefix and the
- * status icon with its trailing space — rather than from `ROW_FIXED_OVERHEAD`,
- * which also counts the space *after* the key and so overshoots by one here.
  */
 export function twoLineTitleIndent(prefix?: RowPrefix): number {
 	return rowPrefixWidth(prefix) + ROW_ICON_CELLS;
