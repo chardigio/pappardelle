@@ -55,6 +55,13 @@ export interface PendingSession {
 	 */
 	profileName?: string | null;
 	/**
+	 * The key came from the tracker (watchlist poll, ready-work picker) rather
+	 * than from something the user typed, so idow is told to trust it instead of
+	 * re-deriving the input's kind from its shape. Also what gates the claim —
+	 * `--claim` reassigns and reopens, so it must never touch a typed key.
+	 */
+	existingIssue: boolean;
+	/**
 	 * Emoji slot for the pending row (left of the Claude status icon).
 	 * Mirrors the emoji-rail behavior of real rows so the Claude thinking
 	 * icon stays vertically aligned while the session spins up. Resolved
@@ -98,21 +105,25 @@ export function getSpaceCount(
  */
 export function buildNewSessionArgs(
 	idowArg: string,
-	opts?: {profileName?: string | null},
+	opts: {profileName?: string | null; existingIssue: boolean},
 ): string[] {
-	const profileName = opts?.profileName;
-	if (profileName) {
-		return ['--profile', profileName, idowArg];
-	}
-	return [idowArg];
+	const args: string[] = [];
+	if (opts.profileName) args.push('--profile', opts.profileName);
+	if (opts.existingIssue) args.push('--existing-issue');
+	args.push(idowArg);
+	return args;
 }
 
 /**
  * Build idow args for opening a workspace (apps, links, iTerm, etc.).
  * Uses --resume (no Claude prompt) + --open (enable open steps).
+ *
+ * --existing-issue because the key names a workspace that already exists;
+ * without it a beads key whose prefix this repo doesn't list reads as prose and
+ * idow files a duplicate issue instead of opening the space.
  */
 export function buildOpenWorkspaceArgs(issueKey: string): string[] {
-	return ['--resume', '--open', issueKey];
+	return ['--resume', '--open', '--existing-issue', issueKey];
 }
 
 export function isPendingSessionResolved(
@@ -136,6 +147,8 @@ export function isPendingSessionResolved(
  * Returns the issue key (e.g. "STA-633") or null if not found.
  */
 export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
-	const match = stdout.match(/Workspace ([A-Z][A-Z0-9]*-\d+) is ready/);
+	const match = stdout.match(
+		/Workspace ([A-Za-z\d_]+(?:-[A-Za-z\d_]+)+(?:\.\d+){0,3}) is ready/,
+	);
 	return match ? match[1]! : null;
 }

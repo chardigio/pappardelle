@@ -8,12 +8,90 @@
 # Requires: yq, jq, and the relevant CLI tools (linctl/acli, gh/glab)
 
 # Get the issue tracker provider from .pappardelle.yml
-# Returns: "linear" (default) or "jira"
+# Returns: "linear" (default), "jira", or "beads"
 get_issue_tracker_provider() {
     local config_path="$1"
     local provider
     provider=$(yq -r '.issue_tracker.provider // "linear"' "$config_path" 2>/dev/null)
     echo "$provider"
+}
+
+# The main repository root, resolved through worktrees. Every bd invocation runs
+# here so each worktree reads and writes the one canonical beads database
+# instead of whatever copy its branch happens to carry.
+beads_repo_root() {
+    local common_dir
+    common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+        git rev-parse --show-toplevel 2>/dev/null
+        return
+    }
+    dirname "$common_dir"
+}
+
+run_bd() {
+    (cd "$(beads_repo_root)" && BD_JSON_ENVELOPE=1 bd "$@")
+}
+
+# Every beads ID prefix this repo can mint keys under, one per line, lowercased.
+# Sources are the database's own issue-prefix, the global team_prefix, each
+# profile's team_prefix override, and each profile's tracker_projects (which
+# name beads prefixes the way they name Linear/Jira projects for the other
+# trackers).
+#
+# The database's issue-prefix is the one bd actually mints IDs under and need
+# not match team_prefix: a repo migrating off Linear keeps the old team prefix
+# while beads names issues after the repo directory.
+#
+# Mirrors getBeadsPrefixes in source/config.ts and get_beads_prefixes in
+# hooks/tracker_config.py; all three have to agree or the same input is a key in
+# one place and prose in another.
+#
+# $2 overrides the .beads/config.yaml path; exposed for tests, which must not
+# pick up the prefix of whatever repo they happen to run in.
+beads_id_prefixes() {
+    local config_path="$1" beads_config="${2-}"
+    [[ -n "$beads_config" ]] || beads_config="$(beads_repo_root)/.beads/config.yaml"
+    {
+        [[ -f "$beads_config" ]] &&
+            yq -r '.["issue-prefix"] | select(. != null and . != "")' \
+                "$beads_config" 2>/dev/null
+        yq -r '[.team_prefix, .profiles[].team_prefix, .profiles[].tracker_projects[]]
+               | .[] | select(. != null and . != "")' \
+            "$config_path" 2>/dev/null
+    } | tr '[:upper:]' '[:lower:]' | sort -u
+}
+
+# Whether $1 is a beads issue ID belonging to a prefix configured in $2.
+#
+# A beads suffix is a content hash, so it can be pure letters, and nothing about
+# the shape of `fix-crash` distinguishes it from an ID. Without anchoring to the
+# configured prefixes, every hyphenated description would be routed as an
+# existing issue and die on the bd lookup instead of creating one.
+is_beads_issue_key() {
+    local input="$1" config_path="$2" beads_config="${3-}" prefix input_prefix
+
+    [[ "$input" =~ ^[a-zA-Z0-9_]+(-[a-zA-Z0-9_]+)+(\.[0-9]+){0,3}$ ]] || return 1
+
+    # Split on the LAST hyphen: a beads prefix may contain hyphens of its own,
+    # since it defaults to the repo directory name.
+    input_prefix="${input%%.*}"
+    input_prefix="${input_prefix%-*}"
+    input_prefix=$(echo "$input_prefix" | tr '[:upper:]' '[:lower:]')
+
+    while IFS= read -r prefix; do
+        [[ -n "$prefix" ]] || continue
+        [[ "$prefix" == "$input_prefix" ]] && return 0
+    done < <(beads_id_prefixes "$config_path" "$beads_config")
+
+    return 1
+}
+
+# Reduce any bd JSON payload to a single issue object. Handles the envelope
+# ({schema_version, data}) and the fact that bd show returns a one-element array
+# rather than the bare object its schema doc describes.
+beads_first_issue() {
+    jq -r 'if type == "object" and has("data") then .data else . end
+           | if type == "array" then (.[0] // {}) else . end'
 }
 
 # Get the VCS host provider from .pappardelle.yml
@@ -58,6 +136,11 @@ fetch_issue_json() {
             # omits `project`, which profile matching needs (STA-1649).
             acli jira workitem view "$issue_key" --fields '*all' --json 2>/dev/null
             ;;
+        beads)
+            # --id= rather than a positional: beads IDs can start with a run of
+            # characters the flag parser would otherwise claim.
+            run_bd show --id="$issue_key" --json 2>/dev/null | beads_first_issue
+            ;;
         *)
             echo "Error: Unknown issue tracker provider: $provider" >&2
             return 1
@@ -65,87 +148,76 @@ fetch_issue_json() {
     esac
 }
 
-# Extract issue title from tracker JSON
-# Args: $1=json, $2=config_path
-extract_issue_title() {
-    local json="$1"
-    local config_path="$2"
-    local provider
-    provider=$(get_issue_tracker_provider "$config_path")
-
-    case "$provider" in
-        linear)
-            echo "$json" | jq -r '.title // empty'
-            ;;
-        jira)
-            echo "$json" | jq -r '.fields.summary // empty'
-            ;;
+# The jq expression that reads $2 out of $1's issue JSON. One table rather than
+# a provider case inside each extractor: every tracker shapes the same handful
+# of fields differently, so a new tracker is one block here instead of an arm in
+# four functions that have to be kept in step.
+#
+# Empty output means the field has no meaning for that provider.
+issue_field_jq() {
+    case "$1:$2" in
+        linear:title|beads:title)             echo '.title // empty' ;;
+        jira:title)                           echo '.fields.summary // empty' ;;
+        linear:description|beads:description) echo '.description // ""' ;;
+        jira:description)                     echo '.fields.description // ""' ;;
+        # Beads issues are local; there is no page to link to. idow already
+        # skips the ISSUE_URL template var when it's empty.
+        linear:url)                           echo '.url // ""' ;;
+        beads:url)                            echo '""' ;;
+        # Linear projects have only a name; Jira issues carry a display name AND
+        # a project key ("Pappardelle Testing" / "KAN"), and a profile's
+        # tracker_projects may list either (STA-1649). Beads has no project
+        # field, so the ID prefix stands in for one.
+        linear:project)                       echo '.project.name // empty' ;;
+        jira:project)                         echo '(.fields.project.name // empty), (.fields.project.key // empty)' ;;
+        beads:project)                        echo '(.id // "") | split(".")[0] | split("-") | if length > 1 then .[0:-1] | join("-") else empty end' ;;
     esac
 }
 
-# Extract issue description from tracker JSON
+# Read one field out of tracker JSON, in the configured provider's shape.
+# Args: $1=json, $2=config_path, $3=field
+extract_issue_field() {
+    local json="$1" config_path="$2" field="$3"
+    local expression
+    expression=$(issue_field_jq "$(get_issue_tracker_provider "$config_path")" "$field")
+    [[ -n "$expression" ]] || return 0
+    echo "$json" | jq -r "$expression"
+}
+
+# Args: $1=json, $2=config_path
+extract_issue_title() {
+    extract_issue_field "$1" "$2" title
+}
+
 # Args: $1=json, $2=config_path
 extract_issue_description() {
-    local json="$1"
-    local config_path="$2"
-    local provider
-    provider=$(get_issue_tracker_provider "$config_path")
-
-    case "$provider" in
-        linear)
-            echo "$json" | jq -r '.description // ""'
-            ;;
-        jira)
-            echo "$json" | jq -r '.fields.description // ""'
-            ;;
-    esac
+    extract_issue_field "$1" "$2" description
 }
 
 # Extract the issue's canonical web URL from tracker JSON.
-# For Linear, prefers the API-provided `.url` so the slug matches the actual
-# workspace (was previously hardcoded to "stardust-labs", breaking issues in
-# any other Linear workspace). For Jira, reconstructs from the configured
-# base URL since the API response doesn't include a browse URL.
+# Linear's own `.url` is preferred over reconstructing one, so the slug matches
+# the actual workspace (it was previously hardcoded to "stardust-labs", breaking
+# issues in any other Linear workspace).
 # Args: $1=json, $2=config_path, $3=issue_key (only used by Jira)
 extract_issue_url() {
-    local json="$1"
-    local config_path="$2"
-    local issue_key="$3"
-    local provider
-    provider=$(get_issue_tracker_provider "$config_path")
+    local json="$1" config_path="$2" issue_key="$3"
 
-    case "$provider" in
-        linear)
-            echo "$json" | jq -r '.url // ""'
-            ;;
-        jira)
-            local base_url
-            base_url=$(get_jira_base_url "$config_path")
-            echo "${base_url}/browse/$issue_key"
-            ;;
-    esac
+    # Jira alone has no URL in its payload to read, so it is the one field that
+    # cannot come from the jq table.
+    if [[ "$(get_issue_tracker_provider "$config_path")" == "jira" ]]; then
+        echo "$(get_jira_base_url "$config_path")/browse/$issue_key"
+        return 0
+    fi
+
+    extract_issue_field "$json" "$config_path" url
 }
 
 # Extract the issue's tracker-project identifiers for profile matching.
-# Emits one candidate per line, most-specific display value first: Linear
-# projects have only a name; Jira issues carry a display name AND a project
-# key ("Pappardelle Testing" / "KAN"), and a profile's tracker_projects may
-# list either (STA-1649). Empty output when the issue has no project.
+# Emits one candidate per line, most-specific display value first. Empty output
+# when the issue has no project.
 # Args: $1=json, $2=config_path
 extract_issue_project_candidates() {
-    local json="$1"
-    local config_path="$2"
-    local provider
-    provider=$(get_issue_tracker_provider "$config_path")
-
-    case "$provider" in
-        linear)
-            echo "$json" | jq -r '.project.name // empty'
-            ;;
-        jira)
-            echo "$json" | jq -r '(.fields.project.name // empty), (.fields.project.key // empty)'
-            ;;
-    esac
+    extract_issue_field "$1" "$2" project
 }
 
 # Resolve a profile from tracker-project candidates (newline-separated, as
@@ -317,6 +389,50 @@ $quoted_prompt"
             base_url=$(get_jira_base_url "$config_path")
             local issue_url="${base_url}/browse/$issue_key"
             echo "{\"issue_key\":\"$issue_key\",\"issue_url\":\"$issue_url\"}"
+            ;;
+        beads)
+            local quoted_prompt
+            quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
+            local description="👨‍🍳🍝 More details coming soon...
+
+---
+
+_Original prompt:_
+
+$quoted_prompt"
+            # --body-file rather than -d: the prompt is arbitrary user prose and
+            # can outgrow a comfortable argv entry.
+            local desc_tmp
+            desc_tmp=$(mktemp /tmp/pappardelle-beads-desc-XXXXXX)
+            printf '%s' "$description" > "$desc_tmp"
+
+            # The beads issue type shares issue_tracker.default_issue_type with
+            # Jira, but beads spells its types lowercase and rejects "Task".
+            local beads_type
+            beads_type=$(echo "$issue_type" | tr '[:upper:]' '[:lower:]')
+
+            local err_tmp out_tmp issue_key bd_rc
+            err_tmp=$(mktemp /tmp/pappardelle-beads-err-XXXXXX)
+            out_tmp=$(mktemp /tmp/pappardelle-beads-out-XXXXXX)
+            # No project assignment: a beads issue's prefix comes from the
+            # database it lands in, not from anything the caller can choose.
+            run_bd create "$title" --type "$beads_type" --body-file "$desc_tmp" --json \
+                >"$out_tmp" 2>"$err_tmp" && bd_rc=0 || bd_rc=$?
+            rm -f "$desc_tmp"
+            issue_key=$(beads_first_issue <"$out_tmp" 2>/dev/null | jq -r '.id // empty' 2>/dev/null)
+
+            if [[ "$bd_rc" -ne 0 || -z "$issue_key" ]]; then
+                # Report rc and raw stdout alongside stderr: bd can fail with a
+                # silent stdout, and a bare "Failed to create" hides whether the
+                # issue was actually committed.
+                echo "Error: Failed to create beads issue (bd exit $bd_rc)" >&2
+                echo "  stderr: $(tr '\n' ' ' <"$err_tmp")" >&2
+                echo "  stdout: $(tr '\n' ' ' <"$out_tmp")" >&2
+                rm -f "$err_tmp" "$out_tmp"
+                return 1
+            fi
+            rm -f "$err_tmp" "$out_tmp"
+            echo "{\"issue_key\":\"$issue_key\",\"issue_url\":\"\"}"
             ;;
     esac
 }

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'ava';
 import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
 import {
@@ -16,6 +19,7 @@ import {
 	getIssueWatchlist,
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
+	getListLayout,
 	getCompanionCommand,
 	getStateColors,
 	DEFAULT_COMPANION_COMMAND,
@@ -30,6 +34,11 @@ import {
 	RESERVED_VAR_NAMES,
 	mergeKeybindings,
 	determineProfileForInput,
+	getBeadsPrefixes,
+	readBeadsIssuePrefix,
+	clearBeadsIssuePrefixCache,
+	matchProfilesByKeyPrefix,
+	matchProfilesByInputKeyPrefix,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 } from './config.ts';
 
@@ -188,6 +197,30 @@ test('getProfileEmoji uses default_emoji when profile is undefined', t => {
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
 	t.is(getProfileEmoji(undefined, config), '🍕');
+});
+
+test('validateConfig accepts issue_tracker.provider beads without base_url', t => {
+	// Beads is local — there is no host to configure.
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		issue_tracker: {provider: 'beads'},
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig names every supported tracker when one is unknown', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		issue_tracker: {provider: 'bugzilla'},
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('"linear", "jira", or "beads"'));
 });
 
 test('validateConfig rejects non-string default_emoji', t => {
@@ -4206,6 +4239,162 @@ test("getProfileDefaultProject preserves exact casing — UUID resolution is the
 });
 
 // ============================================================================
+// matchProfilesByKeyPrefix
+//
+// Which profiles could plausibly own an issue whose key carries a given
+// prefix. Explicit claims (own team_prefix, or a tracker_projects entry
+// spelling a Jira project key) outrank the profiles that merely inherit the
+// global team_prefix.
+// ============================================================================
+
+test('matchProfilesByKeyPrefix matches a profile own team_prefix', t => {
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				team_prefix: 'PER',
+			},
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'TRT',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'TRT').map(m => m.name),
+		['trotbooks'],
+	);
+});
+
+test('matchProfilesByKeyPrefix matches case-insensitively', t => {
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				team_prefix: 'per',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'per').map(m => m.name),
+		['personal'],
+	);
+});
+
+test('matchProfilesByKeyPrefix matches a tracker_projects entry as a project key', t => {
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				tracker_projects: ['KAN'],
+			},
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'TRT',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'KAN');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.true(matches[0]!.explicit);
+});
+
+test('matchProfilesByKeyPrefix matches an issue_watchlist key_prefixes entry', t => {
+	// The watchlist already spawns these issues under this profile
+	// (idow --profile), so a hand-typed key of the same prefix has to be able to
+	// reach it too.
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				issue_watchlist: {
+					assignee: 'me',
+					statuses: ['To Do'],
+					key_prefixes: ['SDJ'],
+				},
+			},
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'trotbooks',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'SDJ');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.true(matches[0]!.explicit);
+});
+
+test('matchProfilesByKeyPrefix treats prefix-less profiles as inheriting the global prefix', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'TRT',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'STA');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.false(matches[0]!.explicit);
+});
+
+test('matchProfilesByKeyPrefix ranks explicit claims ahead of inherited ones', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'STA',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'STA').map(m => m.name),
+		['trotbooks', 'personal'],
+	);
+});
+
+test('matchProfilesByKeyPrefix returns nothing for an unclaimed prefix', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(matchProfilesByKeyPrefix(config, 'ZZZ'), []);
+	t.deepEqual(matchProfilesByKeyPrefix(config, '  '), []);
+});
+
+test('matchProfilesByKeyPrefix falls back to the STA default when no team_prefix is set', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'STA').map(m => m.name),
+		['personal'],
+	);
+});
+
+// ============================================================================
 // determineProfileForInput (STA-856, STA-865)
 //
 // Single source of truth for "which profile will this input resolve to?",
@@ -4242,6 +4431,278 @@ test('determineProfileForInput defers profile selection for issue keys', t => {
 	if (info!.kind === 'deferred') {
 		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
 	}
+});
+
+test('determineProfileForInput defers profile selection for beads IDs', t => {
+	// Beads IDs match none of the classic patterns, so without this they would
+	// keyword-match and get pinned via --profile before the issue is fetched —
+	// defeating the prefix-based tracker_projects routing idow performs.
+	const config = {
+		...createConfig(
+			{
+				personal: createProfile(['personal'], 'Personal'),
+				dark: createProfile(['dark'], 'Dark Mode Work'),
+			},
+			'personal',
+		),
+		team_prefix: 'pap',
+		issue_tracker: {provider: 'beads' as const},
+	};
+	const info = determineProfileForInput(config, 'pap-a1b2');
+	t.is(info?.kind, 'deferred');
+});
+
+test('determineProfileForInput keyword-matches a beads-shaped phrase', t => {
+	// 'dark-mode' is prose, not an ID — no profile lists 'dark' as a prefix.
+	const config = {
+		...createConfig(
+			{
+				personal: createProfile(['personal'], 'Personal'),
+				dark: createProfile(['dark'], 'Dark Mode Work'),
+			},
+			'personal',
+		),
+		team_prefix: 'pap',
+		issue_tracker: {provider: 'beads' as const},
+	};
+	const info = determineProfileForInput(config, 'dark-mode');
+	t.is(info?.kind, 'resolved');
+});
+
+test('determineProfileForInput marks a beads ID pickable even when nothing claims its prefix', t => {
+	// A beads database is not a project: one prefix backs work belonging to
+	// several profiles, so the tracker-project lookup can only ever guess and
+	// the caller has to offer the choice. Every profile here names a prefix of
+	// its own, so nobody claims 'pap' by inheritance either.
+	const config = {
+		...createConfig(
+			{
+				personal: {
+					...createProfile(['personal'], 'Personal'),
+					team_prefix: 'STA',
+				},
+				dark: {
+					...createProfile(['dark'], 'Dark Mode Work'),
+					team_prefix: 'SDJ',
+				},
+			},
+			'personal',
+		),
+		team_prefix: 'pap',
+		issue_tracker: {provider: 'beads' as const},
+	};
+	t.deepEqual(matchProfilesByInputKeyPrefix(config, 'pap-a1b2'), []);
+	const info = determineProfileForInput(config, 'pap-a1b2');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.true(info.canPick);
+});
+
+test('matchProfilesByInputKeyPrefix reads the prefix of a beads ID', t => {
+	// The prefix of 'vendor-sdk-a1b2' is everything ahead of the last hyphen,
+	// which is the name a profile spells in tracker_projects.
+	const config = {
+		...createConfig(
+			{
+				personal: createProfile(['personal'], 'Personal'),
+				vendor: {
+					...createProfile(['vendor'], 'Vendor SDK'),
+					tracker_projects: ['vendor-sdk'],
+				},
+			},
+			'personal',
+		),
+		team_prefix: 'STA',
+		issue_tracker: {provider: 'beads' as const},
+	};
+	t.deepEqual(
+		matchProfilesByInputKeyPrefix(config, 'vendor-sdk-a1b2').map(m => m.name),
+		['vendor'],
+	);
+});
+
+test('determineProfileForInput does not defer beads IDs under other trackers', t => {
+	// Regression pin: the beads branch must be gated on the configured provider.
+	const config = {
+		...createConfig(
+			{personal: createProfile(['personal'], 'Personal')},
+			'personal',
+		),
+		team_prefix: 'pap',
+	};
+	t.is(determineProfileForInput(config, 'pap-a1b2')?.kind, 'resolved');
+});
+
+// ============================================================================
+// getBeadsPrefixes
+// ============================================================================
+
+test('getBeadsPrefixes collects the team prefix and tracker_projects', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'pap',
+		profiles: {
+			platform: {
+				display_name: 'Platform',
+				tracker_projects: ['myproj', 'vendor-sdk'],
+			},
+			other: {display_name: 'Other', team_prefix: 'alt'},
+		},
+	};
+	t.deepEqual(getBeadsPrefixes(config).sort(), [
+		'alt',
+		'myproj',
+		'pap',
+		'vendor-sdk',
+	]);
+});
+
+test('getBeadsPrefixes lowercases and dedupes', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'PAP',
+		profiles: {a: {display_name: 'A', tracker_projects: ['pap', ' Pap ']}},
+	};
+	t.deepEqual(getBeadsPrefixes(config), ['pap']);
+});
+
+test('getBeadsPrefixes is empty when nothing is configured', t => {
+	t.deepEqual(getBeadsPrefixes({version: 1, profiles: {}}), []);
+});
+
+test('getBeadsPrefixes includes the database issue-prefix', t => {
+	// bd mints IDs under .beads/config.yaml's issue-prefix, which need not match
+	// team_prefix — a repo migrating off Linear keeps the old team prefix while
+	// beads names issues after the repo directory. Missing it made those IDs read
+	// as prose and file a duplicate issue.
+	t.deepEqual(
+		getBeadsPrefixes({version: 1, profiles: {}, team_prefix: 'STA'}, 'myrepo'),
+		['myrepo', 'sta'],
+	);
+});
+
+test('getBeadsPrefixes lowercases and dedupes the database issue-prefix', t => {
+	t.deepEqual(
+		getBeadsPrefixes({version: 1, profiles: {}, team_prefix: 'pap'}, 'PAP'),
+		['pap'],
+	);
+});
+
+test('readBeadsIssuePrefix reads issue-prefix from .beads/config.yaml', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	fs.mkdirSync(path.join(dir, '.beads'));
+	fs.writeFileSync(
+		path.join(dir, '.beads', 'config.yaml'),
+		'issue-prefix: vendor-sdk\n',
+	);
+	t.is(readBeadsIssuePrefix(dir), 'vendor-sdk');
+});
+
+test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	t.is(readBeadsIssuePrefix(dir), undefined);
+
+	fs.mkdirSync(path.join(dir, '.beads'));
+	fs.writeFileSync(path.join(dir, '.beads', 'config.yaml'), 'other: value\n');
+	clearBeadsIssuePrefixCache();
+	t.is(readBeadsIssuePrefix(dir), undefined);
+});
+
+// determineProfileForInput runs on every keystroke in the new-session prompt,
+// so this has to stay a cache hit — an uncached read puts a blocking
+// readFileSync and a YAML parse on the TUI's render path per character.
+test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	fs.mkdirSync(path.join(dir, '.beads'));
+	const configPath = path.join(dir, '.beads', 'config.yaml');
+	fs.writeFileSync(configPath, 'issue-prefix: first\n');
+
+	clearBeadsIssuePrefixCache();
+	t.is(readBeadsIssuePrefix(dir), 'first');
+
+	// Rewriting on disk must not be observable: a second call that re-reads
+	// would return 'second' and fail here.
+	fs.writeFileSync(configPath, 'issue-prefix: second\n');
+	t.is(readBeadsIssuePrefix(dir), 'first');
+
+	// The cache is keyed per root, so a different repo still resolves on its own.
+	const other = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	fs.mkdirSync(path.join(other, '.beads'));
+	fs.writeFileSync(
+		path.join(other, '.beads', 'config.yaml'),
+		'issue-prefix: elsewhere\n',
+	);
+	t.is(readBeadsIssuePrefix(other), 'elsewhere');
+	t.is(readBeadsIssuePrefix(dir), 'first');
+});
+
+// A repo with no beads config is the case that would otherwise re-stat a
+// missing file on every keystroke, so the negative result has to cache too.
+test('readBeadsIssuePrefix caches a missing .beads/config.yaml', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+
+	clearBeadsIssuePrefixCache();
+	t.is(readBeadsIssuePrefix(dir), undefined);
+
+	fs.mkdirSync(path.join(dir, '.beads'));
+	fs.writeFileSync(
+		path.join(dir, '.beads', 'config.yaml'),
+		'issue-prefix: x\n',
+	);
+	t.is(readBeadsIssuePrefix(dir), undefined);
+});
+
+test('determineProfileForInput defers a lowercase issue key like an uppercase one', t => {
+	// A lowercase key reaches the tracker as the same issue, so it has to reach
+	// the same profile decision — otherwise the preview and the option list the
+	// picker renders disagree about what Enter is going to do.
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	t.is(determineProfileForInput(config, 'sta-123')!.kind, 'deferred');
+	t.is(
+		determineProfileForInput(
+			config,
+			'https://linear.app/acme/issue/sta-123/slug',
+		)!.kind,
+		'deferred',
+	);
+});
+
+test('determineProfileForInput marks a claimed key prefix as pickable', t => {
+	// Neither profile names a prefix, so both inherit the global one and both
+	// could own STA-123 — the caller should offer the choice rather than an
+	// inert label.
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'STA-123');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.true(info.canPick);
+});
+
+test('determineProfileForInput leaves an unclaimed key prefix unpickable', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'ZZZ-123');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.false(info.canPick);
+});
+
+test('determineProfileForInput leaves a bare number unpickable', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(config, '42');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.false(info.canPick);
 });
 
 test('determineProfileForInput defers profile selection for bare issue numbers', t => {
@@ -4571,4 +5032,79 @@ test('getStateColors returns the configured map', t => {
 	);
 	config.state_colors = {'In Review': 'cyan'};
 	t.deepEqual(getStateColors(config), {'In Review': 'cyan'});
+});
+
+// getListLayout — the layout defaults per tracker (beads keys are wide enough
+// to crowd a shared row) but an explicit list_view.layout always wins.
+
+const listLayoutConfig = (
+	provider?: 'linear' | 'jira' | 'beads',
+	layout?: 'single_line' | 'two_line',
+) => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	if (provider) config.issue_tracker = {provider};
+	if (layout) config.list_view = {layout};
+	return config;
+};
+
+test('only beads defaults to two_line', t => {
+	t.is(getListLayout(listLayoutConfig('beads')), 'two_line');
+	t.is(getListLayout(listLayoutConfig('linear')), 'single_line');
+	t.is(getListLayout(listLayoutConfig('jira')), 'single_line');
+	t.is(getListLayout(listLayoutConfig()), 'single_line');
+	t.is(getListLayout(null), 'single_line');
+});
+
+test('an explicit list_view.layout overrides the tracker default either way', t => {
+	t.is(getListLayout(listLayoutConfig('beads', 'single_line')), 'single_line');
+	t.is(getListLayout(listLayoutConfig('linear', 'two_line')), 'two_line');
+});
+
+test('an empty list_view block leaves the tracker default standing', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'beads'};
+	config.list_view = {};
+	t.is(getListLayout(config), 'two_line');
+});
+
+test('validateConfig accepts both list_view layouts', t => {
+	for (const layout of ['single_line', 'two_line']) {
+		t.notThrows(() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test'}},
+				list_view: {layout},
+			}),
+		);
+	}
+});
+
+test('validateConfig rejects an unknown list_view layout', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test'}},
+				list_view: {layout: 'three_line'},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(
+		error?.message.includes(
+			'list_view.layout: must be "single_line" or "two_line"',
+		),
+	);
+});
+
+test('validateConfig rejects a non-object list_view', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test'}},
+				list_view: 'two_line',
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('list_view: must be an object'));
 });

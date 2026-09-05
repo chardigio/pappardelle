@@ -6,7 +6,7 @@
 
 A TUI for multi-clauding without losing your marbles.
 
-You type a description, it reads or creates an issue in Linear/Jira, spawns a configured git worktree, builds a PR/MR, and starts a Claude Code session alongside a companion pane (gitui by default, configurable to any command) — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
+You type a description, it reads or creates an issue in Linear, Jira or beads, spawns a configured git worktree, builds a PR/MR, and starts a Claude Code session alongside a companion pane (gitui by default, configurable to any command) — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
 **Video:**
 
@@ -118,9 +118,18 @@ Enter moves focus to a **profile picker** below the prompt, with the
 keyword-matched profile already selected — so `Enter`, `Enter` spawns exactly
 what the keyword would have chosen on its own. Arrow (or `j`/`k`) to any other
 profile to override it without rewording your prompt, and `Esc` to go back to
-editing. Issue keys, bare numbers, and Linear URLs skip the picker entirely and
-spawn on a single `Enter`, since their profile comes from the issue's tracker
-project rather than from your text.
+editing.
+
+An issue key or Linear URL has no keywords to match, but its prefix still says
+which profiles could own it, so the picker opens for those too — ranked by
+prefix, behind a leading **Determined by issue project** row that names no
+profile and lets the issue's own tracker project decide. That row is
+preselected, so `Enter`, `Enter` on a key behaves exactly as a single `Enter`
+used to. A profile claims a prefix by setting its own `team_prefix`, by listing
+the prefix in `tracker_projects` (Jira issue keys are their project key), by
+listing it in its `issue_watchlist.key_prefixes`, or by declaring none of those
+and inheriting the global `team_prefix`. Bare numbers and
+keys no profile claims still spawn on a single `Enter`.
 
 ### Slash-command autocomplete
 
@@ -159,7 +168,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 1. **Profile selection** — Your input is keyword-matched against a profile in `.pappardelle.yml`, and you confirm (or override) the match in the picker.
 
-2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira) issue is created with a WIP title. For existing issue keys, the issue is fetched.
+2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira, or beads) issue is created with a WIP title. For existing issue keys, the issue is fetched.
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
@@ -183,7 +192,7 @@ A one-line prompt like "add dark mode to settings" leaves a lot of questions ope
 
 ### Automatic Q&A documentation
 
-Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear or Jira issue by the [`comment-question-answered.py`](hooks/comment-question-answered.py) hook. This means:
+Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear, Jira or beads issue by the [`comment-question-answered.py`](hooks/comment-question-answered.py) hook. This means:
 
 - **The issue becomes the single source of truth.** The original prompt, every clarifying question, and every answer are all captured in one place — not scattered across chat windows or terminal scrollback.
 - **Anyone reviewing the PR can see the full context.** The issue thread shows exactly what the agent asked, what the developer decided, and why.
@@ -201,11 +210,11 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched. Leave the flag off and press `K` instead to clear the finished spaces on demand, behind a confirm dialog.
 - **Issue status colors** — Optional `state_colors:` map that overrides the ticket-rail color for named issue statuses (hex or an ink color name). Off by default, so the rail keeps the tracker's own colors. Most useful on Jira, where one color often covers both "In Progress" and "In Review".
 - **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
-- **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
-- **Claude model and effort** — `claude.model` and `claude.effort` are passed straight through to `claude --model` / `--effort` when a workspace's session is created. Set them globally, per-profile, or both — the profile wins, and an explicit `""` on a profile clears an inherited global value. Omit them entirely and nothing changes: no flag is passed and Claude picks its own default.
+- **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys; beads ID prefixes) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
+- **Claude model and effort** — `claude.model` and `claude.effort` are passed straight through to `claude --model` / `--effort` when a workspace's session is created. Set them globally, per-profile, or both; the profile wins, and an explicit `""` on a profile clears an inherited global value. Omit them entirely and nothing changes: no flag is passed and Claude picks its own default.
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
-- **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
+- **Providers** — Pluggable issue trackers (Linear, Jira, beads) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
 - **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
 
@@ -365,6 +374,7 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 | [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
 | [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
 | [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
+| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                             |
 
 ### Manual installation
 
@@ -425,7 +435,7 @@ Pappardelle installs three Claude Code hooks that provide integration between Cl
 | Hook                           | Trigger                             | What it does                                                                  |
 | ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
 | `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)         |
 | `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                |
 
 ### Versioning and updates
@@ -493,6 +503,7 @@ Standalone scripts in `integration-tests/` verify providers against real instanc
 ```bash
 npx tsx integration-tests/verify-linear.ts     # Linear provider (linctl)
 npx tsx integration-tests/verify-jira.ts       # Jira provider (acli)
+npx tsx integration-tests/verify-beads.ts      # Beads provider (bd, read-only by default)
 npx tsx integration-tests/verify-github.ts     # GitHub PR detection (gh)
 npx tsx integration-tests/verify-gitlab.ts     # GitLab MR detection (glab)
 npx tsx integration-tests/verify-config.ts     # Config loading + validation

@@ -93,8 +93,10 @@ if [[ -z "$WORKTREE_PATH" ]]; then
     exit 1
 fi
 
-CLAUDE_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
-COMPANION_SESSION="companion-${REPO_NAME}-${ISSUE_KEY}"
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+CLAUDE_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
+COMPANION_SESSION="companion-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=` (which would

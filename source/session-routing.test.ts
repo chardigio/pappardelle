@@ -144,17 +144,19 @@ test('getSpaceCount includes main worktree (regression: previously filtered out)
 // ============================================================================
 
 test('buildNewSessionArgs returns only the idow arg (no --open)', t => {
-	const args = buildNewSessionArgs('STA-500');
+	const args = buildNewSessionArgs('STA-500', {existingIssue: false});
 	t.deepEqual(args, ['STA-500']);
 });
 
 test('buildNewSessionArgs passes description as-is', t => {
-	const args = buildNewSessionArgs('add dark mode to settings');
+	const args = buildNewSessionArgs('add dark mode to settings', {
+		existingIssue: false,
+	});
 	t.deepEqual(args, ['add dark mode to settings']);
 });
 
 test('buildNewSessionArgs does not include --resume or --open', t => {
-	const args = buildNewSessionArgs('STA-500');
+	const args = buildNewSessionArgs('STA-500', {existingIssue: false});
 	t.false(args.includes('--resume'));
 	t.false(args.includes('--open'));
 });
@@ -166,6 +168,7 @@ test('buildNewSessionArgs does not include --resume or --open', t => {
 test('buildNewSessionArgs forwards --profile when profile name provided', t => {
 	const args = buildNewSessionArgs('upload a personal image to trotbooks', {
 		profileName: 'trotbooks',
+		existingIssue: false,
 	});
 	t.deepEqual(args, [
 		'--profile',
@@ -175,23 +178,27 @@ test('buildNewSessionArgs forwards --profile when profile name provided', t => {
 });
 
 test('buildNewSessionArgs omits --profile when profileName is null', t => {
-	const args = buildNewSessionArgs('add dark mode', {profileName: null});
+	const args = buildNewSessionArgs('add dark mode', {
+		profileName: null,
+		existingIssue: false,
+	});
 	t.deepEqual(args, ['add dark mode']);
 });
 
 test('buildNewSessionArgs omits --profile when profileName is empty string', t => {
-	const args = buildNewSessionArgs('add dark mode', {profileName: ''});
-	t.deepEqual(args, ['add dark mode']);
-});
-
-test('buildNewSessionArgs omits --profile when opts omitted (back-compat)', t => {
-	const args = buildNewSessionArgs('add dark mode');
+	const args = buildNewSessionArgs('add dark mode', {
+		profileName: '',
+		existingIssue: false,
+	});
 	t.deepEqual(args, ['add dark mode']);
 });
 
 test('buildNewSessionArgs puts --profile before the input so idow parses it', t => {
 	// idow checks $1 for --profile; the flag must come before the input.
-	const args = buildNewSessionArgs('STA-500', {profileName: 'pappardelle'});
+	const args = buildNewSessionArgs('STA-500', {
+		profileName: 'pappardelle',
+		existingIssue: false,
+	});
 	t.is(args[0], '--profile');
 	t.is(args[1], 'pappardelle');
 	t.is(args[2], 'STA-500');
@@ -214,7 +221,30 @@ test('buildOpenWorkspaceArgs passes issue key as last arg', t => {
 
 test('buildOpenWorkspaceArgs returns exact expected args', t => {
 	const args = buildOpenWorkspaceArgs('ENG-42');
-	t.deepEqual(args, ['--resume', '--open', 'ENG-42']);
+	t.deepEqual(args, ['--resume', '--open', '--existing-issue', 'ENG-42']);
+});
+
+test('buildNewSessionArgs marks tracker-supplied keys as existing issues', t => {
+	t.deepEqual(buildNewSessionArgs('pappardelle-a1b2', {existingIssue: true}), [
+		'--existing-issue',
+		'pappardelle-a1b2',
+	]);
+});
+
+test('buildNewSessionArgs orders --profile ahead of --existing-issue', t => {
+	t.deepEqual(
+		buildNewSessionArgs('pappardelle-a1b2', {
+			profileName: 'vendor',
+			existingIssue: true,
+		}),
+		['--profile', 'vendor', '--existing-issue', 'pappardelle-a1b2'],
+	);
+});
+
+test('buildNewSessionArgs leaves typed input unflagged', t => {
+	t.deepEqual(buildNewSessionArgs('add dark mode', {existingIssue: false}), [
+		'add dark mode',
+	]);
 });
 
 // ============================================================================
@@ -244,6 +274,46 @@ Issue:     https://linear.app/stardust-labs/issue/STA-633
 test('extracts issue key with non-STA prefix', t => {
 	const stdout = 'Workspace ENG-42 is ready!\n';
 	t.is(extractIssueKeyFromIdowOutput(stdout), 'ENG-42');
+});
+
+// beads mints lowercase prefixes with an alphanumeric suffix rather than the
+// uppercase/numeric shape Linear and Jira use. Failing to match these left the
+// space unregistered and hung the TUI's pending row with no error.
+test('extracts beads-shaped issue key', t => {
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace pappardelle-osc is ready!\n'),
+		'pappardelle-osc',
+	);
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace myproj-a1b2 is ready!\n'),
+		'myproj-a1b2',
+	);
+});
+
+// A beads prefix defaults to the repo directory name, so it can carry hyphens
+// and underscores of its own. Stopping at the first hyphen truncated the key
+// and left the pending row waiting on a space that never arrived.
+test('extracts beads key whose prefix contains hyphens or underscores', t => {
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace vendor-sdk-a1b2 is ready!\n'),
+		'vendor-sdk-a1b2',
+	);
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace my_service-a1b2 is ready!\n'),
+		'my_service-a1b2',
+	);
+});
+
+test('extracts a hierarchical beads child key', t => {
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace vendor-sdk-a1b2.1 is ready!\n'),
+		'vendor-sdk-a1b2.1',
+	);
+});
+
+test('extracts beads key wrapped in ANSI color codes', t => {
+	const stdout = '[0;32mWorkspace pappardelle-osc is ready![0m\n';
+	t.is(extractIssueKeyFromIdowOutput(stdout), 'pappardelle-osc');
 });
 
 test('returns null when idow output has no workspace line', t => {

@@ -29,7 +29,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
-import {getIssueCached, getIssues, searchAssignedIssues} from './tracker.ts';
+import {
+	claimIssue,
+	getIssueCached,
+	getIssues,
+	searchAssignedIssues,
+} from './tracker.ts';
 import {initStateColorOverrides} from './state-color-override.ts';
 import {
 	filterByLabels,
@@ -44,6 +49,7 @@ import {
 	findSpaceByStatusKey,
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
+import {openIssueForKey} from './open-issue.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
@@ -56,13 +62,17 @@ import {
 import {
 	loadConfig,
 	getStateColors,
+	getBeadsPrefixes,
+	readBeadsIssuePrefix,
 	getTeamPrefix,
 	getRepoRoot,
+	getMainRepoRoot,
 	getRepoName,
 	qualifyMainBranch,
 	getKeybindings,
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
+	getListLayout,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	matchProfiles,
@@ -126,6 +136,19 @@ import {
 	clearHighlightTarget,
 } from './highlight.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
+
+/**
+ * Claim an issue without waiting for the answer. `claimIssue` resolves false on
+ * every failure path rather than rejecting, so a tracker that is slow, missing,
+ * or unable to claim at all cannot stall or break workspace creation — it only
+ * leaves the issue in the ready pool, which is how things behaved before
+ * claiming existed.
+ */
+function claimIssueInBackground(issueKey: string): void {
+	void claimIssue(issueKey).then(claimed => {
+		if (claimed) log.info(`Claimed ${issueKey} — removed from ready work`);
+	});
+}
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
@@ -787,7 +810,8 @@ export default function App({
 		}
 	};
 
-	// Open the Linear/Jira issue in browser for the selected space
+	// Open the issue for the selected space — in a browser for trackers with a
+	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending || space.isMainWorktree) {
@@ -796,13 +820,7 @@ export default function App({
 			return;
 		}
 
-		try {
-			const url = createIssueTracker().buildIssueUrl(space.name);
-			spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
-			setHeaderWithTimeout(`Opened ${space.name}`, 3000);
-		} catch {
-			setHeaderWithTimeout('Failed to look up issue', 3000);
-		}
+		setHeaderWithTimeout(openIssueForKey(space.name).message, 3000);
 	};
 
 	// Open the IDE (Cursor) at the worktree path for the selected space
@@ -999,8 +1017,8 @@ export default function App({
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
-			} else if (key.delete) {
-				// Delete key to close selected space
+			} else if (key.delete || input === 'x') {
+				// Delete key (or 'x') to close selected space
 				const space = spaces[selectedIndex];
 				if (space?.isMainWorktree) {
 					setHeaderWithTimeout('Cannot close main worktree', 2000);
@@ -1147,9 +1165,27 @@ export default function App({
 	const spawnSession = (pending: PendingSession) => {
 		setPendingSession(pending);
 
+		// Move the issue out of the ready pool before idow starts, so opening
+		// several workspaces back to back stops re-offering the ones already in
+		// flight. Deliberately not awaited: setup is the user's critical path and
+		// the claim is advisory. Description routes have no key yet — they get
+		// claimed from the close handler once idow reports one.
+		//
+		// Gated on existingIssue, which means the key came out of `bd ready` (the
+		// watchlist poll or the ready picker) and is therefore open and claimable.
+		// A key the user typed says nothing about its status: `--claim` reassigns
+		// and reopens, so claiming those silently stole a teammate's in-progress
+		// issue and resurrected closed ones you only meant to re-enter.
+		if (pending.name && pending.existingIssue) {
+			claimIssueInBackground(pending.name);
+		}
+
 		const child = spawn(
 			path.join(SCRIPTS_DIR, 'idow'),
-			buildNewSessionArgs(pending.idowArg, {profileName: pending.profileName}),
+			buildNewSessionArgs(pending.idowArg, {
+				profileName: pending.profileName,
+				existingIssue: pending.existingIssue,
+			}),
 			{
 				detached: true,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -1192,6 +1228,7 @@ export default function App({
 					pending.name || extractIssueKeyFromIdowOutput(stdoutData);
 				if (spaceKey && !pending.name) {
 					log.info(`Extracted issue key from idow output: ${spaceKey}`);
+					claimIssueInBackground(spaceKey);
 				}
 				if (spaceKey) {
 					addSpace(spaceKey);
@@ -1284,6 +1321,7 @@ export default function App({
 							type: 'issue',
 							name: issue.identifier,
 							idowArg: issue.identifier,
+							existingIssue: true,
 							pendingTitle: `Watchlist: ${issue.title}`,
 							prevSpaceCount: spacesLengthRef.current,
 							// Force the owning profile so idow runs the right
@@ -1376,6 +1414,7 @@ export default function App({
 						{
 							issueKey: space.name,
 							repoRoot: getRepoRoot(),
+							mainRepoRoot: getMainRepoRoot(),
 							repoName: getRepoName(),
 						},
 					);
@@ -1639,7 +1678,11 @@ export default function App({
 	// profileName is whatever the PromptDialog displayed — we forward
 	// it to idow via --profile so the runtime selection can't diverge from the
 	// UI preview.
-	const handleNewSession = (input: string, profileName: string | null) => {
+	const handleNewSession = (
+		input: string,
+		profileName: string | null,
+		existingIssue: boolean,
+	) => {
 		setShowPromptDialog(false);
 
 		// Try to normalize as an issue identifier (supports bare numbers like '400')
@@ -1652,7 +1695,14 @@ export default function App({
 		}
 
 		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-		const normalizedIssueKey = normalizeIssueIdentifier(input, teamPrefix);
+		const normalizedIssueKey = existingIssue
+			? input.trim()
+			: normalizeIssueIdentifier(
+					input,
+					teamPrefix,
+					createIssueTracker().name,
+					config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+				);
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
@@ -1661,6 +1711,7 @@ export default function App({
 			type: route.type,
 			name: route.issueKey ?? '',
 			idowArg: route.issueKey ?? input,
+			existingIssue,
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
 			profileName,
@@ -1828,6 +1879,11 @@ export default function App({
 		? searchSelectedIndex
 		: displaySelectedIndex;
 
+	// Two-line rows halve how many spaces fit on screen, so the layout has to
+	// feed the scroll math rather than being a purely cosmetic render choice.
+	const listLayout = getListLayout(configMemo);
+	const linesPerItem = listLayout === 'two_line' ? 2 : 1;
+
 	// Calculate scroll offset for large lists
 	const {
 		scrollOffset,
@@ -1837,6 +1893,7 @@ export default function App({
 		activeSelectedIndex,
 		activeSpaces.length,
 		termHeight,
+		linesPerItem,
 	);
 	const visibleDisplaySpaces = activeSpaces.slice(
 		scrollOffset,
@@ -1866,6 +1923,7 @@ export default function App({
 				y: event.y,
 				bannerHeight,
 				visibleRows: visibleDisplaySpaces.length,
+				linesPerItem,
 			});
 			if (clickedRow === null) return;
 
@@ -1898,6 +1956,7 @@ export default function App({
 			visibleDisplaySpaces.length,
 			pendingInsertIndex,
 			bannerHeight,
+			linesPerItem,
 		],
 	);
 
@@ -1935,6 +1994,7 @@ export default function App({
 						space={space}
 						isSelected={index === adjustedDisplayIndex}
 						width={termDimensions.cols}
+						layout={listLayout}
 					/>
 				))}
 			</Box>

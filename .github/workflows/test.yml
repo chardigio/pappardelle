@@ -42,6 +42,34 @@ jobs:
       - name: Run tests
         run: npx ava 'source/**/*.test.ts'
 
+  # The beads prefix rules are deliberately implemented three times — in
+  # source/config.ts, hooks/tracker_config.py and scripts/provider-helpers.sh —
+  # and all three have to agree or the same input is a key in one place and
+  # prose in another. Node and Python were gated above; the bash third had no
+  # gate at all, so drift there shipped green.
+  #
+  # macOS because test-session-name-encoding.sh runs the AppleScript out of
+  # open-iterm-claude.sh through osascript, which exists nowhere else.
+  shell-tests:
+    name: Shell Tests
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: brew install yq
+
+      - name: Beads ID prefix matching
+        run: ./scripts/test-beads-id-prefixes.sh
+
+      - name: Issue project extraction
+        run: ./scripts/test-extract-issue-project.sh
+
+      - name: tmux session name encoding
+        run: ./scripts/test-session-name-encoding.sh
+
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest

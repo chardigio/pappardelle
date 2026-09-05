@@ -4,7 +4,11 @@ import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import {StateColorCache} from './state-color-cache.ts';
-import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
+import type {
+	IssueTrackerProvider,
+	TrackerIssue,
+	TrackerProviderName,
+} from './types.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -86,7 +90,7 @@ interface CacheEntry {
 }
 
 export class LinearProvider implements IssueTrackerProvider {
-	get name() {
+	get name(): TrackerProviderName {
 		return 'linear';
 	}
 

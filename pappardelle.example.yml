@@ -17,7 +17,8 @@ default_profile: backend
 # pre-emoji Pappardelle (no slot rendered).
 default_emoji: ''
 
-# Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123')
+# Team prefix for Linear issues (e.g., 'ENG' for 'ENG-123').
+# For beads this is the database's issue prefix (e.g. 'myproj').
 team_prefix: ENG
 
 # Issue tracker (optional). Linear is assumed when omitted.
@@ -27,6 +28,12 @@ team_prefix: ENG
 #   provider: jira
 #   base_url: https://mycompany.atlassian.net
 #   default_issue_type: Task
+
+# Beads (https://github.com/gastownhall/beads) — local, git-native issue
+# tracking via the `bd` CLI. No base_url: there is no server to point at.
+# `default_issue_type` applies here too, lowercased (task, bug, feature, …).
+# issue_tracker:
+#   provider: beads
 
 # Claude configuration (optional)
 # claude:
@@ -50,6 +57,14 @@ team_prefix: ENG
 # usually share one color.
 # state_colors:
 #   In Review: cyan
+
+# TUI list row layout. `two_line` gives the issue title its own row, indented
+# under the issue key, instead of sharing one row with it.
+# Defaults per tracker: two_line for beads (whose keys are wide enough to crowd
+# the title off a shared row), single_line for Linear/Jira. Set it explicitly to
+# override that either way.
+# list_view:
+#   layout: two_line        # 'single_line' | 'two_line'
 
 # Issue watchlist (optional): poll the tracker every 30s and auto-spawn a
 # workspace for each assigned, matching issue that doesn't already have one.

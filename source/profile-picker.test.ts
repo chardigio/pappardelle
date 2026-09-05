@@ -7,7 +7,10 @@ import {
 	focusFrame,
 	PICKER_MAX_VISIBLE,
 } from './profile-picker.ts';
-import type {PappardelleConfig} from './config.ts';
+import {
+	DEFERRED_PROFILE_DISPLAY_NAME,
+	type PappardelleConfig,
+} from './config.ts';
 
 // ============================================================================
 // Test helpers
@@ -16,15 +19,23 @@ import type {PappardelleConfig} from './config.ts';
 function makeConfig(
 	profiles: Record<
 		string,
-		{display_name: string; keywords?: string[]; emoji?: string}
+		{
+			display_name: string;
+			keywords?: string[];
+			emoji?: string;
+			team_prefix?: string;
+			tracker_projects?: string[];
+		}
 	>,
 	defaultProfile?: string,
 	defaultEmoji?: string,
+	teamPrefix?: string,
 ): PappardelleConfig {
 	return {
 		version: 1,
 		default_profile: defaultProfile,
 		default_emoji: defaultEmoji,
+		team_prefix: teamPrefix,
 		profiles,
 	} as unknown as PappardelleConfig;
 }
@@ -53,12 +64,11 @@ test('buildProfileOptions puts the keyword-matched profile first', t => {
 test('buildProfileOptions lists every profile exactly once', t => {
 	const options = buildProfileOptions(CONFIG, 'fix the stardust map crash');
 	t.is(options.length, 4);
-	t.deepEqual(options.map(o => o.name).sort(), [
-		'hive',
-		'platform',
-		'stardust',
-		'trotbooks',
-	]);
+	// Sorted with an explicit comparator because an option's name is nullable —
+	// the profile-less row exists, just never on the keyword path.
+	const names = options.map(o => o.name);
+	names.sort((a, b) => String(a).localeCompare(String(b)));
+	t.deepEqual(names, ['hive', 'platform', 'stardust', 'trotbooks']);
 });
 
 test('buildProfileOptions falls back to the default profile when nothing matches', t => {
@@ -199,6 +209,186 @@ test('buildProfileOptions on a single-profile config yields one option', t => {
 });
 
 // ============================================================================
+// buildProfileOptions — issue-key prefixes
+//
+// An issue key is a name, not a description, so there are no keywords to score
+// it against. Its prefix still says which profiles could own it, and the
+// picker ranks on that instead — behind a leading row that names no profile at
+// all, so Enter-Enter keeps idow's tracker-project lookup.
+// ============================================================================
+
+const PREFIX_CONFIG = makeConfig(
+	{
+		platform: {display_name: 'Platform', keywords: ['platform']},
+		stardust: {
+			display_name: 'Stardust Jams',
+			keywords: ['stardust'],
+			team_prefix: 'SDJ',
+		},
+		hive: {
+			display_name: 'The Hive',
+			keywords: ['hive'],
+			tracker_projects: ['KAN'],
+		},
+	},
+	'platform',
+	undefined,
+	'STA',
+);
+
+test('buildProfileOptions leads an issue key with the profile-less row', t => {
+	const options = buildProfileOptions(PREFIX_CONFIG, 'SDJ-42');
+	t.is(options[0]!.name, null);
+	t.is(options[0]!.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+});
+
+test('buildProfileOptions ranks the profile owning the key prefix first', t => {
+	const options = buildProfileOptions(PREFIX_CONFIG, 'SDJ-42');
+	t.is(options[1]!.name, 'stardust');
+	t.is(options[1]!.matchedPrefix, 'SDJ');
+});
+
+test('buildProfileOptions treats a tracker_projects entry as a project key claim', t => {
+	// Jira issue keys ARE their project key, so `tracker_projects: [KAN]` and
+	// `KAN-12` are the same statement about ownership.
+	const options = buildProfileOptions(PREFIX_CONFIG, 'KAN-12');
+	t.is(options[1]!.name, 'hive');
+	t.is(options[1]!.matchedPrefix, 'KAN');
+});
+
+test('buildProfileOptions treats profiles with no team_prefix as claiming the global one', t => {
+	const options = buildProfileOptions(PREFIX_CONFIG, 'STA-7');
+	// stardust declared SDJ, so it does not claim STA and drops to the tail.
+	t.deepEqual(
+		options.map(o => o.name),
+		[null, 'platform', 'hive', 'stardust'],
+	);
+	// Inheritance is not a statement about this key, so it earns no hint.
+	t.is(options[1]!.matchedPrefix, undefined);
+});
+
+test('buildProfileOptions ranks explicit prefix claims above inherited ones', t => {
+	const config = makeConfig(
+		{
+			platform: {display_name: 'Platform'},
+			stardust: {display_name: 'Stardust Jams', team_prefix: 'STA'},
+		},
+		'platform',
+		undefined,
+		'STA',
+	);
+	const options = buildProfileOptions(config, 'STA-9');
+	t.deepEqual(
+		options.map(o => o.name),
+		[null, 'stardust', 'platform'],
+	);
+});
+
+test('buildProfileOptions still lists every profile for a claimed prefix', t => {
+	const options = buildProfileOptions(PREFIX_CONFIG, 'SDJ-42');
+	t.deepEqual(
+		options.map(o => o.name),
+		[null, 'stardust', 'platform', 'hive'],
+	);
+});
+
+test('buildProfileOptions reads the prefix out of a Linear issue URL', t => {
+	const options = buildProfileOptions(
+		PREFIX_CONFIG,
+		'https://linear.app/acme/issue/SDJ-42/some-slug',
+	);
+	t.is(options[1]!.name, 'stardust');
+	t.is(options[1]!.matchedPrefix, 'SDJ');
+});
+
+test('buildProfileOptions leaves an unclaimed prefix on the keyword path', t => {
+	const options = buildProfileOptions(PREFIX_CONFIG, 'ZZZ-1');
+	t.is(options[0]!.name, 'platform');
+	t.true(options[0]!.isDefault);
+});
+
+test('buildProfileOptions ignores prefixes for bare numbers', t => {
+	// '42' means STA-42 only after config expands it, and the profile that
+	// expansion implies is exactly what idow is better placed to decide.
+	const options = buildProfileOptions(PREFIX_CONFIG, '42');
+	t.is(options[0]!.name, 'platform');
+});
+
+// beads IDs — beads profiles are not 1:1 with issue trackers: one database
+// backs work belonging to several profiles, so the tracker-project lookup that
+// serves Linear and Jira can only guess here. The choice has to be on screen.
+
+const BEADS_CONFIG: PappardelleConfig = {
+	...makeConfig(
+		{
+			// Both name a prefix of their own, so neither inherits 'pap'.
+			platform: {
+				display_name: 'Platform',
+				keywords: ['platform'],
+				team_prefix: 'STA',
+			},
+			stardust: {
+				display_name: 'Stardust Jams',
+				keywords: ['stardust'],
+				team_prefix: 'SDJ',
+			},
+			vendor: {
+				display_name: 'Vendor SDK',
+				team_prefix: 'VEN',
+				tracker_projects: ['vendor-sdk'],
+			},
+		},
+		'platform',
+		undefined,
+		'pap',
+	),
+	issue_tracker: {provider: 'beads'},
+};
+
+test('resolvePromptSubmit opens the picker for a beads ID nothing claims', t => {
+	const result = resolvePromptSubmit(BEADS_CONFIG, 'pap-a1b2');
+	t.is(result.kind, 'pick');
+	if (result.kind !== 'pick') return;
+	// The preselected row names a real profile — the same one idow falls back
+	// to — rather than a deferred lookup with nothing to resolve against.
+	t.is(result.options[0]!.name, 'platform');
+	t.true(result.options[0]!.isDefault);
+});
+
+test('buildProfileOptions omits the deferred row for a beads ID nothing claims', t => {
+	const options = buildProfileOptions(BEADS_CONFIG, 'pap-a1b2');
+	t.false(options.some(o => o.name === null));
+	t.deepEqual(
+		options.map(o => o.name),
+		['platform', 'stardust', 'vendor'],
+	);
+});
+
+test('buildProfileOptions leads a claimed beads prefix with the deferred row', t => {
+	// 'vendor-sdk' is spelled in tracker_projects, so idow's lookup does resolve
+	// it and stays the preselected answer — the picker only adds the override.
+	const options = buildProfileOptions(BEADS_CONFIG, 'vendor-sdk-a1b2');
+	t.is(options[0]!.name, null);
+	t.is(options[0]!.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+	t.is(options[1]!.name, 'vendor');
+	t.is(options[1]!.matchedPrefix, 'vendor-sdk');
+});
+
+test('resolvePromptSubmit opens the picker for a claimed beads prefix', t => {
+	const result = resolvePromptSubmit(BEADS_CONFIG, 'vendor-sdk-a1b2');
+	t.is(result.kind, 'pick');
+});
+
+test('resolvePromptSubmit leaves beads-shaped prose on the keyword path', t => {
+	// 'stardust-crash' names no beads prefix, so it is a description and the
+	// keyword match leads.
+	const result = resolvePromptSubmit(BEADS_CONFIG, 'stardust-crash');
+	t.is(result.kind, 'pick');
+	if (result.kind !== 'pick') return;
+	t.is(result.options[0]!.name, 'stardust');
+});
+
+// ============================================================================
 // resolvePromptSubmit — which inputs open the picker
 // ============================================================================
 
@@ -209,19 +399,35 @@ test('resolvePromptSubmit opens the picker for a free-text prompt', t => {
 	t.is(result.options[0]!.name, 'stardust');
 });
 
-test('resolvePromptSubmit spawns immediately for an issue key, deferring the profile', t => {
-	// Regression guard: issue-key inputs must behave exactly as they did before
-	// the picker existed — one Enter, no --profile flag, so idow resolves the
-	// profile from the fetched issue's tracker project.
+test('resolvePromptSubmit spawns immediately for inputs carrying no key prefix', t => {
+	// A bare number borrows its prefix from config rather than stating one, so
+	// there is no prefix to match profiles against — behaves exactly as it did
+	// before the picker existed: one Enter, no --profile flag, so idow resolves
+	// the profile from the fetched issue's tracker project.
+	const result = resolvePromptSubmit(CONFIG, '123');
+	t.is(result.kind, 'spawn');
+	if (result.kind !== 'spawn') return;
+	t.is(result.profileName, null);
+});
+
+test('resolvePromptSubmit spawns immediately for an issue key no profile claims', t => {
+	const result = resolvePromptSubmit(CONFIG, 'ZZZ-123');
+	t.is(result.kind, 'spawn');
+	if (result.kind !== 'spawn') return;
+	t.is(result.profileName, null);
+});
+
+test('resolvePromptSubmit opens the picker for an issue key whose prefix is claimed', t => {
 	for (const input of [
 		'STA-123',
-		'123',
 		'https://linear.app/acme/issue/STA-123/some-slug',
 	]) {
 		const result = resolvePromptSubmit(CONFIG, input);
-		t.is(result.kind, 'spawn');
-		if (result.kind !== 'spawn') continue;
-		t.is(result.profileName, null);
+		t.is(result.kind, 'pick');
+		if (result.kind !== 'pick') continue;
+		// The deferred lookup leads, so Enter-Enter still spawns with no
+		// --profile — the picker only adds the ability to override it.
+		t.is(result.options[0]!.name, null);
 	}
 });
 
@@ -237,7 +443,7 @@ test('resolvePromptSubmit spawns with no profile when config failed to load', t 
 });
 
 test('resolvePromptSubmit trims surrounding whitespace before deciding', t => {
-	const result = resolvePromptSubmit(CONFIG, '  STA-123  ');
+	const result = resolvePromptSubmit(CONFIG, '  ZZZ-123  ');
 	t.is(result.kind, 'spawn');
 });
 
@@ -417,6 +623,14 @@ test('buildProfileOptions reserves a blank slot for an emoji-less profile when s
 	// still line up. Only `undefined` means "no slot at all".
 	const options = buildProfileOptions(EMOJI_CONFIG, 'stardust');
 	t.is(options.find(o => o.name === 'hive')!.emoji, '');
+});
+
+test('buildProfileOptions reserves the emoji slot on the profile-less row too', t => {
+	// It leads the list for issue keys, so if it skipped the slot the row you
+	// land on first would be the one hanging two columns left of the rest.
+	const options = buildProfileOptions(EMOJI_CONFIG, 'STA-1');
+	t.is(options[0]!.name, null);
+	t.is(options[0]!.emoji, '');
 });
 
 test('buildProfileOptions leaves emoji undefined when no profile configures one', t => {

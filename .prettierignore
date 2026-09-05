@@ -1,1 +1,8 @@
 dist
+
+# Tracker and tool state, none of it hand-edited and none of it ours to format.
+# `npm test` is `prettier --check . && xo && ava`, so a stray JSON file in here
+# stops the chain before a single test runs.
+.beads
+.pytest_cache
+.claude/settings.local.json

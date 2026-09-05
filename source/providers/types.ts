@@ -2,6 +2,16 @@
 // These abstractions allow pappardelle to work with Linear/Jira and GitHub/GitLab
 
 /**
+ * The trackers pappardelle can talk to. Declared once here rather than as an
+ * inline union at each use: key grammar, list layout and claim support all
+ * branch on it, and a `string` parameter at any of those lets a typo through to
+ * a silent fallback.
+ */
+export type TrackerProviderName = 'linear' | 'jira' | 'beads';
+
+export type VcsProviderName = 'github' | 'gitlab';
+
+/**
  * Provider-agnostic issue representation.
  * Maps to LinearIssue shape for backwards compatibility.
  */
@@ -73,7 +83,7 @@ export interface RailStatus {
  * Issue tracker provider interface (Linear, Jira, etc.)
  */
 export interface IssueTrackerProvider {
-	readonly name: string;
+	readonly name: TrackerProviderName;
 
 	/** Fetch an issue by key, with caching */
 	getIssue(issueKey: string): Promise<TrackerIssue | null>;
@@ -93,6 +103,14 @@ export interface IssueTrackerProvider {
 	/** Build the web URL for an issue */
 	buildIssueUrl(issueKey: string): string;
 
+	/**
+	 * Show the issue to the user in place, for trackers whose issues have no
+	 * web page (beads is local-only). Providers that can produce a URL leave
+	 * this undefined and the caller falls back to `buildIssueUrl` + `open`.
+	 * Returns false when the issue could not be displayed.
+	 */
+	openIssue?(issueKey: string): boolean;
+
 	/** Post a comment on an issue */
 	createComment(issueKey: string, body: string): Promise<boolean>;
 
@@ -101,6 +119,35 @@ export interface IssueTrackerProvider {
 		assignee: string | undefined,
 		statuses: string[],
 	): Promise<TrackerIssue[]>;
+
+	/**
+	 * Unblocked, unstarted work the user could pick up right now, offered as
+	 * suggestions in the new-session prompt. Only trackers that can answer this
+	 * cheaply and locally implement it — a remote round-trip on every keystroke-
+	 * free dialog open is not worth the latency — so callers must treat an
+	 * undefined method as "no suggestions" rather than an error.
+	 */
+	listReadyIssues?(): Promise<TrackerIssue[]>;
+
+	/**
+	 * Mark an issue done from inside the TUI. Only trackers whose "close" is a
+	 * single local, unambiguous transition implement it — remote trackers model
+	 * completion as a workflow state whose name varies per project, so there is
+	 * no safe default to pick on the user's behalf.
+	 */
+	closeIssue?(issueKey: string): Promise<boolean>;
+
+	/**
+	 * Take ownership of an issue and move it out of the ready pool, called as a
+	 * workspace starts building. Without it a ready-work suggestion stays ready
+	 * for the whole of setup, so opening several workspaces back to back keeps
+	 * re-offering the ones already in flight.
+	 *
+	 * Same restraint as closeIssue: only trackers with a single unambiguous
+	 * local transition implement it. Advisory — a false return means the issue
+	 * keeps showing up, never that workspace creation should stop.
+	 */
+	claimIssue?(issueKey: string): Promise<boolean>;
 }
 
 /**

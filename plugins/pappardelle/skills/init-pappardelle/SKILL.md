@@ -17,7 +17,7 @@ This skill must satisfy **every** item below before printing the final summary. 
 3. **`.pappardelle.local.yml` exists if local overrides were chosen.** Only when Step 1 collected per-machine overrides (default profile, yolo mode, etc.).
 4. **Pappardelle CLI is installed.** `command -v pappardelle` succeeds.
 5. **Required prerequisites are installed.** `node`, `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
-6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl` or `acli` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
+6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl`, `acli` or `bd` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
 7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
 8. **Terminal capabilities are configured** — offered and accepted, declined, or skipped because the terminal or tmux version does not support them. Never skip the detection itself.
 
@@ -30,7 +30,7 @@ Before any other output, print the "What is a Workspace?" section verbatim so th
 A **workspace** in Pappardelle is the per-issue environment Pappardelle creates for you when you start work on a ticket. Each workspace bundles together:
 
 - A dedicated **git worktree** at `~/.worktrees/{repo}/{issue-key}/` — an isolated checkout on a fresh branch, so you can have many in-flight tickets without stashing or switching branches.
-- A tracked **issue** in your issue tracker (Linear or Jira) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123`.
+- A tracked **issue** in your issue tracker (Linear, Jira or beads) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123` (or `myproj-a1b2` on beads).
 - A **PR/MR** against the main branch — opened by the agent once it has a real diff, not at provisioning time. A fresh workspace legitimately has none.
 - Its own **Claude Code session** (a named tmux session: `claude-{repo}-{issue-key}`) where you drive the work.
 - Its own **companion session** (tmux session: `companion-{repo}-{issue-key}`) pointed at that worktree, running the `companion_command` (gitui by default).
@@ -76,7 +76,8 @@ Options:
 
 - **Linear** (default) — requires `linctl` CLI
 - **Jira** — requires `acli` CLI. If selected, follow up asking for their Jira base URL (e.g., `https://mycompany.atlassian.net`).
-- **Neither / Other** — Pappardelle requires Linear or Jira. Let the user know and stop.
+- **Beads** — requires the `bd` CLI and a `.beads` database in the repo (`bd init <prefix>`). Local and git-native, so there is no base URL to ask for. Use the database's issue prefix as the team prefix in the next step.
+- **Neither / Other** — Pappardelle requires Linear, Jira or beads. Let the user know and stop.
 
 #### 1A.iii. Team Prefix & Profiles
 
@@ -98,7 +99,7 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
   - `team_prefix`: set per-profile to override the global prefix for issue creation
   - `commands`: reasonable setup commands based on project type (e.g., `npm install` for Node.js, `xcodegen generate` for iOS)
   - `emoji`: optional — suggest one via `/configure-pappardelle`'s emoji flow. With 3+ profiles, offer to bulk-assign now.
-  - `tracker_projects`: the tracker project(s) this profile lives in — Linear project names, or Jira project names/keys (either matches, STA-1649). Routes existing issues to the profile; on Linear the first entry also doubles as the default project for issues created under this profile (STA-959). Defer to `/configure-pappardelle` if the user doesn't already know their project names.
+  - `tracker_projects`: the tracker project(s) this profile lives in — Linear project names, Jira project names/keys (either matches, STA-1649), or beads ID prefixes. Routes existing issues to the profile; on Linear the first entry also doubles as the default project for issues created under this profile (STA-959). Defer to `/configure-pappardelle` if the user doesn't already know their project names.
 - Set `default_profile` to the most common one
 
 #### 1A.iv. Claude Initialization Command
@@ -260,7 +261,7 @@ echo "=== Provider CLIs ===" && \
 for cmd in <VCS_CLI> <TRACKER_CLI> gitui; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
-Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
+Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear), `acli` (Jira) or `bd` (Beads). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
 
 - If any **required** tools are missing, **stop and do not proceed** to Step 4. Tell the user which ones are missing and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
 - If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
@@ -341,7 +342,7 @@ Format it like this, filling in the real values from what you just collected:
 ✅ Pappardelle is configured.
 
 Wrote /path/to/repo/.pappardelle.yml:
-  • Issue tracker: {linear | jira (<base_url>)}
+  • Issue tracker: {linear | jira (<base_url>) | beads}
   • VCS host:      {github | gitlab (<host>)}
   • Team prefix:   {PROJ}
   • Profiles:      {default} (or list each one with its keywords)

@@ -137,13 +137,14 @@ export default function TextInput({
 				return;
 			}
 
-			// Cursor-only operations skip when cursor is hidden, matching the
-			// previous behavior where arrow keys were no-ops without a cursor.
-			const cursorMoved = result.cursorOffset !== cursorOffset;
-			const valueChanged = result.value !== originalValue;
-			if (cursorMoved && !valueChanged && !isShowingCursor) {
+			// The cursor is the field's claim on the keyboard. Hidden, the caret has
+			// moved to a sibling list and every edit belongs to that list instead —
+			// only Enter, handled above, still reaches the field.
+			if (!isShowingCursor) {
 				return;
 			}
+
+			const valueChanged = result.value !== originalValue;
 
 			setCursorOffset(result.cursorOffset);
 			if (valueChanged) {

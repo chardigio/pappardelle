@@ -12,20 +12,34 @@ import {
 	railPrefixWidth,
 	rowPrefixWidth,
 	ROW_ICON_CELLS,
+	twoLineTitleIndent,
+	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
 import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
+import type {ListLayout} from '../config.ts';
+import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
 	space: SpaceData;
 	isSelected: boolean;
 	width: number;
+	layout: ListLayout;
 }
 
 interface PipelineIconStyle {
 	color: string;
 	icon: string;
+}
+
+/**
+ * Width to hand a Box that will be widened by `pad` cells at render time.
+ * `undefined` — Ink's "take the full width" — when nothing expands, which keeps
+ * the common row byte-identical to what it rendered before the emoji rail.
+ */
+function shrinkBy(width: number, pad: number): number | undefined {
+	return pad > 0 ? Math.max(0, width - pad) : undefined;
 }
 
 /** Single-color pipeline icons. `progressing_dirty` is rendered specially
@@ -39,7 +53,21 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-export default function SpaceListItem({space, isSelected, width}: Props) {
+export default function SpaceListItem({
+	space,
+	isSelected,
+	width,
+	layout,
+}: Props) {
+	const isTwoLine = layout === 'two_line';
+	// A pending row keeps its progress text ("Opening…") beside the key even
+	// under the two-line layout, but still occupies two terminal lines: the
+	// click hit-test divides by a uniform rows-per-item, so a short row would
+	// misaddress every space below it.
+	const inlineTitle = titleSharesKeyLine({
+		isTwoLine,
+		isPending: space.isPending,
+	});
 	const baseStatusInfo = space.claudeStatus
 		? CLAUDE_STATUS_DISPLAY[space.claudeStatus]
 		: CLAUDE_STATUS_DISPLAY.unknown;
@@ -49,7 +77,9 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		space.claudeStatus === 'waiting_for_approval' &&
 		space.claudeTool === 'AskUserQuestion';
 
-	const statusInfo = isQuestion ? {color: 'blue', icon: '?'} : baseStatusInfo;
+	const statusInfo = isQuestion
+		? {color: 'blue', icon: '?', dim: false}
+		: baseStatusInfo;
 
 	// Pending rows always show the animation spinner
 	const isWorking =
@@ -111,14 +141,14 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
 	// Whether to emit our own separator space after the emoji. For most emoji
-	// we do — but for single-BMP default-emoji symbols (✨ ⭐ ✅ …) Ink draws
+	// we do, but for single-BMP default-emoji symbols (✨ ⭐ ✅ …) Ink draws
 	// the glyph one cell narrower than `string-width` reserved and pads the box
 	// with a trailing space. That pad already separates the emoji from the
 	// status icon, so emitting a second space here would double it (STA-1565).
 	const emojiNeedsSeparator = emojiSlot?.needsSeparator ?? false;
 
 	// Calculate available width for title
-	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]" — emoji on the
+	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]", with emoji on the
 	// far left, rail icons right-aligned. They reserve space by shrinking
 	// the title budget.
 	// A hand-narrowed rail (STA-2040) can leave fewer columns than the key
@@ -140,7 +170,12 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		emojiPrefixCells +
 		(hasIssueKey ? 1 + 1 + issueKey.length + 1 : 1 + 1) +
 		prefixCells;
-	const availableTitleWidth = Math.max(0, width - fixedWidth);
+	const twoLineIndent = twoLineTitleIndent(
+		emoji ? {emoji, width: emojiCells} : undefined,
+	);
+	const availableTitleWidth = inlineTitle
+		? Math.max(0, width - fixedWidth)
+		: Math.max(0, width - twoLineIndent);
 
 	// Truncate title (pending rows use their own title text)
 	// Show "Loading…" while the Linear issue title is being fetched
@@ -150,7 +185,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		(shouldShowLoadingTitle(space) ? 'Loading…' : '');
 	// The crux of STA-1565. A bare-BMP default-emoji symbol (✨ ⭐ ✅) is laid
 	// out by Ink one cell narrower than the terminal actually renders it, so the
-	// terminal expands every such glyph by a cell *beyond* Ink's layout — both
+	// terminal expands every such glyph by a cell *beyond* Ink's layout, both
 	// in the prefix and anywhere in the title. Two consequences, both handled
 	// here:
 	//   1. Truncate the title by *display width* (`truncateToWidth`), not UTF-16
@@ -161,26 +196,31 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	//      this the rail's flex spacer refills to the full width in Ink's model
 	//      and the terminal expansion pushes the rail icons onto the next line.
 	// The prefix emoji is normalized by `resolveEmojiSlot` (STA-1861), so it no
-	// longer expands past its layout — the slot reports what's left, which is 0
+	// longer expands past its layout, and the slot reports what's left, which is 0
 	// for every glyph a variation selector can rescue. Titles are arbitrary user
 	// text and get no such treatment, so they still expand and still need (2).
 	const prefixInkPad = emojiSlot?.overflowCells ?? 0;
+	// The emoji only shares a line with the title when the title is inline; on a
+	// dedicated title row its expansion can't eat into that row.
+	const titlePrefixInkPad = inlineTitle ? prefixInkPad : 0;
 	let truncatedTitle = truncateToWidth(
 		title,
-		availableTitleWidth - prefixInkPad,
+		availableTitleWidth - titlePrefixInkPad,
 	);
 	const firstTitleInkPad = inkRenderPad(truncatedTitle);
 	if (firstTitleInkPad > 0) {
 		truncatedTitle = truncateToWidth(
 			title,
-			availableTitleWidth - prefixInkPad - firstTitleInkPad,
+			availableTitleWidth - titlePrefixInkPad - firstTitleInkPad,
 		);
 	}
-	const rowInkPad = prefixInkPad + inkRenderPad(truncatedTitle);
-	// Width the row's outer Box is given. Equals `width` when nothing expands
-	// (byte-identical to master), otherwise `width − rowInkPad` so the terminal
-	// expansion fills the row exactly to the pane edge instead of past it.
-	const rowWidth = rowInkPad > 0 ? Math.max(0, width - rowInkPad) : undefined;
+	const titleInkPad = inkRenderPad(truncatedTitle);
+	const rowInkPad = titlePrefixInkPad + titleInkPad;
+	const rowWidth = shrinkBy(width, rowInkPad);
+	// On a shared row the key line carries the whole row's expansion; on its own
+	// row it only carries the prefix emoji's, and the title row carries the rest.
+	const keyLineWidth = inlineTitle ? rowWidth : shrinkBy(width, prefixInkPad);
+	const titleLineWidth = inlineTitle ? undefined : shrinkBy(width, titleInkPad);
 
 	// Issue state color (applied to issue key).
 	// Uses the exact color from the tracker's API so pappardelle always matches,
@@ -201,14 +241,14 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	};
 	const stateColor = getStateColor();
 
-	// Determine highlight mode:
-	// - needsAttention + blinkOn: blink color (blue for question, red for approval)
-	// - isSelected (and not blinking): white background via inverse
-	// - needsAttention + isSelected + !blinkOn: white background (blink off-phase)
-	const useBlinkInverse = needsAttention && blinkOn;
-	const useSelectionInverse = isSelected && !useBlinkInverse;
-	const useInverse = useBlinkInverse || useSelectionInverse;
-	const textColor = useBlinkInverse ? (isQuestion ? 'blue' : 'red') : undefined;
+	const {useBlinkInverse, useInverse, textColor, keyColor, titleColor} =
+		resolveRowHighlight({
+			isSelected,
+			needsAttention,
+			blinkOn,
+			isQuestion,
+			stateColor,
+		});
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
@@ -261,7 +301,8 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 					{' '}
 				</Text>
 				<Text
-					color={useBlinkInverse ? textColor : 'gray'}
+					color={useBlinkInverse ? textColor : undefined}
+					dimColor={!useBlinkInverse}
 					inverse={useBlinkInverse}
 				>
 					{`(${commentCount})`}
@@ -288,82 +329,99 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		);
 	};
 
-	return (
-		<Box width={rowWidth}>
-			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
-			    Followed by a single space separator so it doesn't crash into the
-			    Claude status icon. */}
-			{emoji ? (
-				<>
-					<Text inverse={useBlinkInverse} color={textColor}>
-						{emoji}
-					</Text>
-					{emojiNeedsSeparator ? (
+	const renderTitle = () => (
+		<Text
+			dimColor={!useInverse}
+			wrap="truncate"
+			inverse={useInverse}
+			color={titleColor}
+		>
+			{truncatedTitle}
+		</Text>
+	);
+
+	const keyLine = (
+		<Box width={keyLineWidth} overflowX="hidden">
+			{/* Identity cluster: emoji, status icon and issue key. `flexShrink={0}`
+			    is load-bearing — `width` is the pane width pappardelle *believes*
+			    it has, and when that overshoots the pane Ink actually renders into,
+			    Yoga's default shrink squeezes every cell here at once: the status
+			    icon disappears, the separators collapse and the issue key is chopped
+			    mid-string with the remainder spilling onto extra lines. Refusing to
+			    shrink keeps the row's identity intact and pushes all give onto the
+			    title, which is the one part that can truncate meaningfully. */}
+			<Box flexShrink={0}>
+				{/* Profile emoji (NOT highlighted) — first cell on the row when set.
+				    Followed by a single space separator so it doesn't crash into the
+				    Claude status icon. */}
+				{emoji ? (
+					<>
 						<Text inverse={useBlinkInverse} color={textColor}>
-							{' '}
+							{emoji}
 						</Text>
-					) : null}
-				</>
-			) : null}
-			{/* Status icon (NOT highlighted, always shows its own color) */}
-			{isWorking ? (
-				<ClaudeAnimation
-					color={
-						useBlinkInverse
-							? textColor
-							: space.isPending
-								? COLORS.CLAUDE_ORANGE
-								: statusInfo.color
-					}
-					inverse={useBlinkInverse}
-				/>
-			) : (
-				<Text
-					color={useBlinkInverse ? textColor : statusInfo.color}
-					inverse={useBlinkInverse}
-				>
-					{statusInfo.icon ?? '?'}
-				</Text>
-			)}
-
-			{/* Space after status icon (NOT highlighted) */}
-			<Text inverse={useBlinkInverse} color={textColor}>
-				{' '}
-			</Text>
-
-			{/* Issue key badge (colored by Linear state, highlighted when selected) */}
-			{hasIssueKey && (
-				<Text
-					color={useBlinkInverse ? textColor : stateColor}
-					bold
-					wrap="truncate"
-					inverse={useInverse}
-				>
-					{issueKey}
-				</Text>
-			)}
-
-			{/* Space + title (only if there's a title to show) */}
-			{truncatedTitle.length > 0 && (
-				<>
-					{hasIssueKey && (
-						<Text
-							dimColor={!useInverse}
-							inverse={useInverse}
-							color={useSelectionInverse ? stateColor : textColor}
-						>
-							{' '}
-						</Text>
-					)}
+						{emojiNeedsSeparator ? (
+							<Text inverse={useBlinkInverse} color={textColor}>
+								{' '}
+							</Text>
+						) : null}
+					</>
+				) : null}
+				{/* Status icon (NOT highlighted, always shows its own color) */}
+				{isWorking ? (
+					<ClaudeAnimation
+						color={
+							useBlinkInverse
+								? textColor
+								: space.isPending
+									? COLORS.CLAUDE_ORANGE
+									: statusInfo.color
+						}
+						inverse={useBlinkInverse}
+					/>
+				) : (
 					<Text
-						dimColor={!useInverse}
+						color={useBlinkInverse ? textColor : statusInfo.color}
+						dimColor={!useBlinkInverse && (statusInfo.dim ?? false)}
+						inverse={useBlinkInverse}
+					>
+						{statusInfo.icon ?? '?'}
+					</Text>
+				)}
+
+				{/* Space after status icon (NOT highlighted) */}
+				<Text inverse={useBlinkInverse} color={textColor}>
+					{' '}
+				</Text>
+
+				{/* Issue key badge (colored by Linear state, highlighted when selected) */}
+				{hasIssueKey && (
+					<Text
+						color={useBlinkInverse ? textColor : keyColor}
+						bold
 						wrap="truncate"
 						inverse={useInverse}
-						color={useSelectionInverse ? stateColor : textColor}
 					>
-						{truncatedTitle}
+						{issueKey}
 					</Text>
-				</>
+				)}
+
+				{/* Separator between key and title. Sits in the fixed cluster rather
+				    than the title box so an overflowing row can't squeeze it away and
+				    weld the title onto the issue key. Only when the title shares this
+				    row — the two-line layout indents its title line instead. */}
+				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
+					<Text dimColor={!useInverse} inverse={useInverse} color={titleColor}>
+						{' '}
+					</Text>
+				)}
+			</Box>
+
+			{/* Title (only if there's a title to show, and only when the title
+			    shares this row — two-line layout renders it below) */}
+			{inlineTitle && truncatedTitle.length > 0 && (
+				<Box flexShrink={1} minWidth={0}>
+					{renderTitle()}
+				</Box>
 			)}
 
 			{/* Rail icons — right-aligned: unresolved comment count, then the
@@ -371,12 +429,35 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 			    right. Pushed right by a flex spacer that consumes whatever
 			    leftover width remains. */}
 			{pipeline !== null || commentCount > 0 || hasConflict ? (
-				<Box flexGrow={1} justifyContent="flex-end">
+				<Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
 					{renderCommentCount()}
 					{renderConflictIcon()}
 					{renderPipelineIcon()}
 				</Box>
 			) : null}
+		</Box>
+	);
+
+	if (!isTwoLine) return keyLine;
+
+	// The second line is the title's, indented under the key. A pending row put
+	// its title on the key line already, so its second line is blank padding —
+	// still emitted, because every row has to be the same height.
+	return (
+		<Box flexDirection="column">
+			{keyLine}
+			<Box width={titleLineWidth} overflowX="hidden">
+				<Box flexShrink={0}>
+					<Text inverse={useBlinkInverse} color={textColor}>
+						{' '.repeat(twoLineIndent)}
+					</Text>
+				</Box>
+				{!inlineTitle && (
+					<Box flexShrink={1} minWidth={0}>
+						{renderTitle()}
+					</Box>
+				)}
+			</Box>
 		</Box>
 	);
 }

@@ -9,6 +9,7 @@ documentation.
 Supports:
 - Linear (linctl): default provider
 - Jira (acli): when .pappardelle.yml has issue_tracker.provider: jira
+- Beads (bd): when .pappardelle.yml has issue_tracker.provider: beads
 
 Usage:
     Called automatically by Claude Code hooks when AskUserQuestion tool completes.
@@ -18,7 +19,6 @@ Usage:
 import importlib.util
 import json
 import os
-import re as _re_module
 import subprocess
 import sys
 import tempfile
@@ -46,28 +46,24 @@ if _acli_spec and _acli_spec.loader:
 else:
     raise ImportError(f"Could not load acli_helpers from {_acli_module_path}")
 
+_tracker_module_path = _hooks_dir / "tracker_config.py"
+_tracker_spec = importlib.util.spec_from_file_location("tracker_config", _tracker_module_path)
+if _tracker_spec and _tracker_spec.loader:
+    _tracker_mod = importlib.util.module_from_spec(_tracker_spec)
+    _tracker_spec.loader.exec_module(_tracker_mod)
+    find_issue_key = _tracker_mod.find_issue_key
+    get_main_repo_root = _tracker_mod.get_main_repo_root
+    get_tracker_provider = _tracker_mod.get_tracker_provider
+else:
+    raise ImportError(f"Could not load tracker_config from {_tracker_module_path}")
+
 
 def get_issue_key() -> Optional[str]:
-    """Get Linear issue key from cwd (assumes worktree naming convention).
+    """Get the issue key from cwd (assumes worktree naming convention).
 
     Expected path: ~/.worktrees/stardust-labs/STA-123/...
     """
-    try:
-        cwd = os.getcwd()
-    except OSError:
-        return None
-    parts = cwd.split("/")
-
-    # Look for Linear issue pattern (e.g., STA-123) in path components
-    for part in parts:
-        if part and "-" in part:
-            prefix = part.split("-")[0]
-            suffix = part.split("-", 1)[1] if "-" in part else ""
-            # Check if it looks like a Linear issue (e.g., STA-123, ABC-45)
-            if prefix.isupper() and prefix.isalpha() and suffix.isdigit():
-                return part
-
-    return None
+    return find_issue_key()
 
 
 def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:
@@ -146,58 +142,15 @@ def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:
     return "\n".join(lines)
 
 
-def get_tracker_provider() -> str:
-    """Get the issue tracker provider from .pappardelle.yml.
-
-    Uses regex-based parsing to avoid requiring PyYAML dependency.
-    Walks up from cwd to find the config file, then extracts the provider.
-
-    Returns:
-        "linear" (default) or "jira"
-    """
-    # Walk up directories to find .pappardelle.yml
-    try:
-        current = os.getcwd()
-    except OSError:
-        return "linear"
-    config_path = None
-    for _ in range(20):  # max depth to prevent infinite loop
-        candidate = os.path.join(current, ".pappardelle.yml")
-        if os.path.isfile(candidate):
-            config_path = candidate
-            break
-        parent = os.path.dirname(current)
-        if parent == current:
-            break
-        current = parent
-
-    if not config_path:
-        return "linear"
-
-    try:
-        with open(config_path) as f:
-            content = f.read()
-        # Look for issue_tracker.provider value using regex
-        # Matches patterns like:
-        #   issue_tracker:
-        #     provider: jira
-        match = _re_module.search(r"issue_tracker:\s*\n\s+provider:\s*(\w+)", content)
-        if match:
-            return match.group(1).strip()
-    except OSError:
-        pass
-
-    return "linear"
-
-
 def post_comment(issue_key: str, body: str) -> bool:
     """Post a comment to the configured issue tracker.
 
-    Dispatches to linctl (Linear) or acli (Jira) based on .pappardelle.yml config.
-    Uses ADF formatting for Jira comments via --body-file with ADF JSON.
+    Dispatches to linctl (Linear), acli (Jira), or bd (Beads) based on
+    .pappardelle.yml config. Uses ADF formatting for Jira comments via
+    --body-file with ADF JSON.
 
     Args:
-        issue_key: The issue key (e.g., STA-123 or PROJ-456)
+        issue_key: The issue key (e.g., STA-123, PROJ-456, or bd-a1b2)
         body: The comment body in markdown
 
     Returns:
@@ -205,7 +158,29 @@ def post_comment(issue_key: str, body: str) -> bool:
     """
     provider = get_tracker_provider()
 
-    if provider == "jira":
+    if provider == "beads":
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".md", prefix="pappardelle-comment-", delete=False
+            ) as f:
+                tmp_path = f.name
+                f.write(body)
+            cmd = ["bd"]
+            repo_root = get_main_repo_root()
+            if repo_root:
+                cmd += ["-C", repo_root]
+            cmd += ["comments", "add", issue_key, "-f", tmp_path]
+        except OSError as e:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            print(f"Error creating temp file for beads comment: {e}", file=sys.stderr)
+            return False
+        not_found_msg = "bd not found - install beads (https://github.com/gastownhall/beads)"
+    elif provider == "jira":
         # Convert markdown to ADF and write to temp file for --body-file
         adf_json = markdown_to_adf_json(body)
         tmp_path = None

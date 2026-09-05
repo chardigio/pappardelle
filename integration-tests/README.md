@@ -6,6 +6,7 @@ Standalone scripts that exercise pappardelle's providers and config against **re
 
 - **Linear**: `linctl` on your PATH, authenticated (`linctl auth login`)
 - **Jira**: `acli` on your PATH, authenticated, and `JIRA_BASE_URL` env var
+- **Beads**: `bd` on your PATH, run from a git repo whose `.beads` database has at least one issue
 - **GitHub**: `gh` on your PATH, authenticated, run from a repo with a GitHub remote
 - **GitLab**: `glab` on your PATH, authenticated, run from a repo with a GitLab remote
 - **Config**: run from a repo that has a `.pappardelle.yml`
@@ -18,6 +19,7 @@ Run from the `pappardelle/` directory:
 # Issue tracker providers
 npx tsx integration-tests/verify-linear.ts
 npx tsx integration-tests/verify-jira.ts
+npx tsx integration-tests/verify-beads.ts
 
 # VCS host providers
 npx tsx integration-tests/verify-github.ts
@@ -55,6 +57,7 @@ npx tsx integration-tests/verify-watchlist.ts
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `verify-linear.ts`                | getIssue, searchAssignedIssues, label parsing, caching, batch fetch, state colors                                                                            |
 | `verify-jira.ts`                  | Same as Linear but via acli CLI                                                                                                                              |
+| `verify-beads.ts`                 | Same as Linear but via the bd CLI; read-only unless `BEADS_WRITE=1`                                                                                          |
 | `verify-github.ts`                | PR detection by branch name, changedFiles count, buildPRUrl                                                                                                  |
 | `verify-gitlab.ts`                | MR detection by branch name, diff file count, buildPRUrl                                                                                                     |
 | `verify-config.ts`                | Config loading, validation, profiles, watchlist, keybindings, Claude config                                                                                  |
@@ -73,6 +76,10 @@ npx tsx integration-tests/verify-watchlist.ts
 | `JIRA_BASE_URL`   | verify-jira, verify-comments   | (required for Jira scripts) |
 | `JIRA_ISSUE`      | verify-jira, verify-comments   | (auto-detected or required) |
 | `JIRA_STATUSES`   | verify-jira                    | `To Do,In Progress`         |
+| `BEADS_ISSUE`     | verify-beads                   | (first result of `bd list`) |
+| `BEADS_STATUSES`  | verify-beads                   | (empty = all ready issues)  |
+| `BEADS_ASSIGNEE`  | verify-beads                   | (no assignee filter)        |
+| `BEADS_WRITE`     | verify-beads                   | unset (read-only)           |
 | `GITHUB_ISSUE`    | verify-github                  | `STA-683`                   |
 | `GITHUB_PR`       | verify-github                  | (auto-detected)             |
 | `GITLAB_HOST`     | verify-gitlab                  | `gitlab.com`                |

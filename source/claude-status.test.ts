@@ -263,7 +263,12 @@ test('CLAUDE_STATUS_DISPLAY shows ? for unknown (fallback)', async t => {
 		'?',
 		'unknown should show ? icon as fallback',
 	);
-	t.is(CLAUDE_STATUS_DISPLAY.unknown.color, 'gray', 'unknown should be gray');
+	t.is(
+		CLAUDE_STATUS_DISPLAY.unknown.color,
+		undefined,
+		'unknown carries no color — bright black is the background on Solarized',
+	);
+	t.true(CLAUDE_STATUS_DISPLAY.unknown.dim, 'unknown should be dimmed instead');
 });
 
 test('CLAUDE_STATUS_DISPLAY has correct icon for error', async t => {

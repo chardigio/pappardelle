@@ -10,6 +10,12 @@ import {
 	isValidStateColor,
 	normalizeStateName,
 } from './state-color-override.ts';
+import {
+	isBeadsIssueKey,
+	issueKeyPrefix,
+	issueKeyTeamPrefix,
+} from './issue-utils.ts';
+import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 
 // ============================================================================
 // Types
@@ -49,8 +55,8 @@ export interface ClaudeConfig {
 	/**
 	 * Model to launch Claude with, forwarded verbatim to `claude --model`.
 	 * Accepts an alias ("opus", "sonnet", "fable") or a full model id
-	 * ("claude-opus-5[1m]") — deliberately unvalidated beyond "is a string",
-	 * since the set of valid names changes faster than this config schema.
+	 * ("claude-opus-5[1m]"). Unvalidated beyond "is a string", since the set of
+	 * valid names changes faster than this config schema.
 	 *
 	 * Absent ⇒ no `--model` flag is passed at all and Claude picks its own
 	 * default. Settable top-level and per-profile; see `getClaudeModel`.
@@ -59,7 +65,7 @@ export interface ClaudeConfig {
 	/**
 	 * Reasoning effort to launch Claude with, forwarded verbatim to
 	 * `claude --effort` (low, medium, high, xhigh, max at time of writing).
-	 * Unvalidated for the same reason as `model` — new levels ship on Claude
+	 * Unvalidated for the same reason as `model`: new levels ship on Claude
 	 * Code's schedule, not ours.
 	 *
 	 * Absent ⇒ no `--effort` flag is passed at all.
@@ -84,12 +90,12 @@ export interface VcsConfig {
 }
 
 export interface IssueTrackerConfig {
-	provider: 'linear' | 'jira';
+	provider: TrackerProviderName;
 	base_url?: string; // Required for jira
 }
 
 export interface VcsHostConfig {
-	provider: 'github' | 'gitlab';
+	provider: VcsProviderName;
 	host?: string; // For self-hosted GitLab
 }
 
@@ -110,6 +116,13 @@ export interface IssueWatchlistConfig {
 
 export interface TerminalConfig {
 	app?: string; // Default: "iTerm"
+}
+
+/** How each space is drawn in the TUI list. */
+export type ListLayout = 'single_line' | 'two_line';
+
+export interface ListViewConfig {
+	layout?: ListLayout;
 }
 
 export interface Profile {
@@ -225,6 +238,8 @@ export interface PappardelleConfig {
 	/** Commands to run before workspace deletion. If any fails, deletion is aborted. */
 	pre_workspace_deinit?: CommandConfig[];
 	terminal?: TerminalConfig;
+	/** How each space is drawn in the TUI list. Defaults per tracker. */
+	list_view?: ListViewConfig;
 	hooks?: HooksConfig;
 	keybindings?: KeybindingConfig[];
 	profiles: Record<string, Profile>;
@@ -323,17 +338,73 @@ export class ConfigValidationError extends Error {
 // ============================================================================
 
 /**
- * Get the git repository root directory
+ * Get the root of the working tree we are standing in. Inside a linked
+ * worktree that is the worktree itself, not the main checkout — use
+ * `getMainRepoRoot` when you specifically need the latter.
  */
+let repoRootCache: string | undefined;
+
 export function getRepoRoot(): string {
+	if (repoRootCache !== undefined) return repoRootCache;
+
 	try {
-		return execSync('git rev-parse --show-toplevel', {
+		repoRootCache = execSync('git rev-parse --show-toplevel', {
 			encoding: 'utf-8',
 			stdio: ['pipe', 'pipe', 'pipe'],
 		}).trim();
+		return repoRootCache;
 	} catch {
 		throw new Error('Not in a git repository');
 	}
+}
+
+let mainRepoRootCache: string | undefined;
+
+export function getMainRepoRoot(): string {
+	if (mainRepoRootCache !== undefined) return mainRepoRootCache;
+	mainRepoRootCache = resolveMainRepoRoot();
+	return mainRepoRootCache;
+}
+
+function resolveMainRepoRoot(): string {
+	try {
+		const commonDir = execSync(
+			'git rev-parse --path-format=absolute --git-common-dir',
+			{encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']},
+		).trim();
+		if (commonDir) return path.dirname(commonDir.replace(/\/+$/, ''));
+	} catch {
+		// Fall through to the worktree root
+	}
+
+	return getRepoRoot();
+}
+
+/**
+ * Locate a repo-level config file, resolving through linked worktrees.
+ *
+ * `.pappardelle.yml` is routinely listed in `.git/info/exclude` rather than
+ * committed, so a linked worktree never receives a copy and only the main
+ * checkout has one. `.pappardelle.local.yml` is the opposite: workspace setup
+ * copies it *into* each worktree, so the worktree's own copy is the one that
+ * should win. Resolving per file rather than per directory is what lets both
+ * be true at once.
+ *
+ * The working tree is checked first so the main checkout — where the two
+ * directories coincide — never pays for the extra lookup. That only holds if
+ * the second root is resolved lazily; an array literal of both would fork git
+ * for the main root before the first candidate is ever tested.
+ *
+ * Mirrors `find_repo_config` in hooks/tracker_config.py.
+ */
+export function findRepoConfig(filename: string): string | undefined {
+	const inWorkingTree = path.join(getRepoRoot(), filename);
+	if (fs.existsSync(inWorkingTree)) return inWorkingTree;
+
+	const inMainCheckout = path.join(getMainRepoRoot(), filename);
+	if (fs.existsSync(inMainCheckout)) return inMainCheckout;
+
+	return undefined;
 }
 
 /**
@@ -501,8 +572,31 @@ export function getDefaultHomeConfigDir(): string {
 export function loadConfigFromPaths(opts: {
 	homeConfigDir?: string;
 	projectDir?: string;
+	/**
+	 * Second directory to consult per file when `projectDir` lacks it — the
+	 * main checkout, when `projectDir` is a linked worktree. Each layer is
+	 * resolved independently; see `findRepoConfig` for why. Passed as a thunk
+	 * so the main checkout, where both directories coincide and every file is
+	 * found on the first candidate, never forks git to resolve the second.
+	 */
+	fallbackProjectDir?: () => string | undefined;
 }): PappardelleConfig {
-	const {homeConfigDir, projectDir} = opts;
+	const {homeConfigDir, projectDir, fallbackProjectDir} = opts;
+
+	const resolveProjectFile = (filename: string): string | undefined => {
+		if (projectDir) {
+			const candidate = path.join(projectDir, filename);
+			if (fs.existsSync(candidate)) return candidate;
+		}
+
+		const fallbackDir = fallbackProjectDir?.();
+		if (fallbackDir) {
+			const candidate = path.join(fallbackDir, filename);
+			if (fs.existsSync(candidate)) return candidate;
+		}
+
+		return undefined;
+	};
 
 	// Load each layer if its file exists
 	let home: Record<string, unknown> | null = null;
@@ -527,33 +621,31 @@ export function loadConfigFromPaths(opts: {
 		}
 	}
 
-	if (projectDir) {
-		const projectPath = path.join(projectDir, '.pappardelle.yml');
-		if (fs.existsSync(projectPath)) {
-			try {
-				const content = fs.readFileSync(projectPath, 'utf-8');
-				const parsed = YAML.load(content);
-				if (parsed && typeof parsed === 'object') {
-					project = parsed as Record<string, unknown>;
-				}
-			} catch (error) {
-				const msg = error instanceof Error ? error.message : String(error);
-				throw new ConfigValidationError([`.pappardelle.yml: ${msg}`]);
+	const projectPath = resolveProjectFile('.pappardelle.yml');
+	if (projectPath) {
+		try {
+			const content = fs.readFileSync(projectPath, 'utf-8');
+			const parsed = YAML.load(content);
+			if (parsed && typeof parsed === 'object') {
+				project = parsed as Record<string, unknown>;
 			}
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			throw new ConfigValidationError([`.pappardelle.yml: ${msg}`]);
 		}
+	}
 
-		const localPath = path.join(projectDir, '.pappardelle.local.yml');
-		if (fs.existsSync(localPath)) {
-			try {
-				const content = fs.readFileSync(localPath, 'utf-8');
-				const parsed = YAML.load(content);
-				if (parsed && typeof parsed === 'object') {
-					local = parsed as Record<string, unknown>;
-				}
-			} catch (error) {
-				const msg = error instanceof Error ? error.message : String(error);
-				throw new ConfigValidationError([`.pappardelle.local.yml: ${msg}`]);
+	const localPath = resolveProjectFile('.pappardelle.local.yml');
+	if (localPath) {
+		try {
+			const content = fs.readFileSync(localPath, 'utf-8');
+			const parsed = YAML.load(content);
+			if (parsed && typeof parsed === 'object') {
+				local = parsed as Record<string, unknown>;
 			}
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			throw new ConfigValidationError([`.pappardelle.local.yml: ${msg}`]);
 		}
 	}
 
@@ -572,10 +664,10 @@ export function loadConfigFromPaths(opts: {
  * project (.pappardelle.yml) → local (.pappardelle.local.yml).
  */
 export function loadConfig(): PappardelleConfig {
-	const repoRoot = getRepoRoot();
 	return loadConfigFromPaths({
 		homeConfigDir: getDefaultHomeConfigDir(),
-		projectDir: repoRoot,
+		projectDir: getRepoRoot(),
+		fallbackProjectDir: getMainRepoRoot,
 	});
 }
 
@@ -588,10 +680,9 @@ export function loadProviderConfigs(): {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
 } {
-	const repoRoot = getRepoRoot();
-	const configPath = path.join(repoRoot, '.pappardelle.yml');
+	const configPath = findRepoConfig('.pappardelle.yml');
 
-	if (!fs.existsSync(configPath)) {
+	if (!configPath) {
 		return {};
 	}
 
@@ -608,9 +699,7 @@ export function loadProviderConfigs(): {
  */
 export function configExists(): boolean {
 	try {
-		const repoRoot = getRepoRoot();
-		const configPath = path.join(repoRoot, '.pappardelle.yml');
-		return fs.existsSync(configPath);
+		return findRepoConfig('.pappardelle.yml') !== undefined;
 	} catch {
 		return false;
 	}
@@ -666,8 +755,14 @@ export function validateConfig(
 		} else {
 			const it = cfg['issue_tracker'] as Record<string, unknown>;
 			const {provider} = it;
-			if (provider !== 'linear' && provider !== 'jira') {
-				errors.push('issue_tracker.provider: must be "linear" or "jira"');
+			if (
+				provider !== 'linear' &&
+				provider !== 'jira' &&
+				provider !== 'beads'
+			) {
+				errors.push(
+					'issue_tracker.provider: must be "linear", "jira", or "beads"',
+				);
 			} else if (provider === 'jira' && typeof it['base_url'] !== 'string') {
 				errors.push('issue_tracker.base_url: required when provider is "jira"');
 			}
@@ -728,6 +823,22 @@ export function validateConfig(
 		typeof cfg['auto_remove_when_done'] !== 'boolean'
 	) {
 		errors.push('auto_remove_when_done: must be a boolean');
+	}
+
+	// Check list_view (optional; an absent layout defers to the tracker default)
+	if (cfg['list_view'] !== undefined) {
+		if (typeof cfg['list_view'] !== 'object' || cfg['list_view'] === null) {
+			errors.push('list_view: must be an object');
+		} else {
+			const listView = cfg['list_view'] as Record<string, unknown>;
+			if (
+				listView['layout'] !== undefined &&
+				listView['layout'] !== 'single_line' &&
+				listView['layout'] !== 'two_line'
+			) {
+				errors.push('list_view.layout: must be "single_line" or "two_line"');
+			}
+		}
 	}
 
 	// Check companion_command (optional, free-form shell command). Any string is
@@ -1220,7 +1331,15 @@ export interface TemplateVars {
 	TITLE?: string;
 	DESCRIPTION?: string;
 	WORKTREE_PATH: string;
+	/** The working tree pappardelle is running in. */
 	REPO_ROOT: string;
+	/**
+	 * The main checkout, which differs from `REPO_ROOT` only when pappardelle
+	 * itself was launched from a linked worktree. Hooks that seed a new workspace
+	 * from an uncommitted file (`cp -n ${MAIN_REPO_ROOT}/.env ${WORKTREE_PATH}/`)
+	 * want this one: a worktree carries no copy of what was never committed.
+	 */
+	MAIN_REPO_ROOT: string;
 	REPO_NAME: string;
 	PR_URL?: string;
 	/** Provider-agnostic alias for PR_URL */
@@ -1465,11 +1584,189 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 	return first === undefined || first === '' ? undefined : first;
 }
 
+/**
+ * Memoized per repo root. `determineProfileForInput` runs on every keystroke
+ * in the new-session prompt, so an uncached read would put a blocking
+ * `readFileSync` plus a YAML parse on the TUI's render path.
+ *
+ * A miss is stored even when it resolves to `undefined`, so repos with no
+ * beads config — the case that would otherwise re-stat the file forever — get
+ * the same single-read treatment as repos that have one.
+ */
+const beadsIssuePrefixCache = new Map<string, string | undefined>();
+
+export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
+	// getMainRepoRoot throws outside a git repo; this function's contract is to
+	// return undefined rather than propagate, so it has to resolve inside the try.
+	let root: string;
+	try {
+		root = repoRoot ?? getMainRepoRoot();
+	} catch {
+		return undefined;
+	}
+
+	if (beadsIssuePrefixCache.has(root)) {
+		return beadsIssuePrefixCache.get(root);
+	}
+	const result = resolveBeadsIssuePrefix(root);
+	beadsIssuePrefixCache.set(root, result);
+	return result;
+}
+
+export function clearBeadsIssuePrefixCache(): void {
+	beadsIssuePrefixCache.clear();
+}
+
+function resolveBeadsIssuePrefix(root: string): string | undefined {
+	try {
+		const raw = fs.readFileSync(
+			path.join(root, '.beads', 'config.yaml'),
+			'utf-8',
+		);
+		const parsed = YAML.load(raw) as Record<string, unknown> | undefined;
+		const prefix = parsed?.['issue-prefix'];
+		return typeof prefix === 'string' && prefix.trim()
+			? prefix.trim()
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function getBeadsPrefixes(
+	config: PappardelleConfig,
+	beadsConfigPrefix?: string,
+): string[] {
+	const prefixes = new Set<string>();
+	const add = (value: string | undefined) => {
+		const trimmed = value?.trim().toLowerCase();
+		if (trimmed) prefixes.add(trimmed);
+	};
+
+	add(beadsConfigPrefix);
+	add(config.team_prefix);
+	for (const profile of Object.values(config.profiles ?? {})) {
+		add(profile.team_prefix);
+		for (const project of profile.tracker_projects ?? []) add(project);
+	}
+
+	return [...prefixes];
+}
+
+export type ProfilePrefixMatch = {
+	name: string;
+	profile: Profile;
+	/**
+	 * The profile named this prefix itself (own `team_prefix`, or a
+	 * `tracker_projects` entry spelling the project key) rather than inheriting
+	 * it from the global `team_prefix`. Explicit claims outrank inherited ones
+	 * and are the only ones worth surfacing in the picker.
+	 */
+	explicit: boolean;
+};
+
+/**
+ * Profiles that can plausibly own an issue whose key carries `prefix`.
+ *
+ * Ways to claim one, in descending strength:
+ *   - the profile's own `team_prefix` is that prefix
+ *   - a `tracker_projects` entry spells it — Jira issue keys are their project
+ *     key, so `tracker_projects: [KAN]` and `KAN-12` are the same statement
+ *   - its `issue_watchlist.key_prefixes` lists it, which is the strongest
+ *     statement of all: the watchlist already spawns those issues under this
+ *     profile, so a hand-typed key of the same prefix must be able to reach it
+ *   - the profile declares none of those, so it inherits the global
+ *     `team_prefix`;
+ *     in a single-team config that is every profile, which is the point — the
+ *     user gets to choose among all of them rather than none of them
+ *
+ * Returns [] when the prefix is unclaimed, which keeps issue keys from an
+ * unknown team on the deferred path.
+ */
+export function matchProfilesByKeyPrefix(
+	config: PappardelleConfig,
+	prefix: string,
+): ProfilePrefixMatch[] {
+	const wanted = prefix.trim().toUpperCase();
+	if (!wanted) return [];
+
+	const globalPrefix = getTeamPrefix(config);
+	const explicit: ProfilePrefixMatch[] = [];
+	const inherited: ProfilePrefixMatch[] = [];
+
+	for (const [name, profile] of Object.entries(config.profiles)) {
+		const ownPrefix = profile.team_prefix?.toUpperCase();
+		const projectKeyMatch = profile.tracker_projects?.some(
+			tp => tp.trim().toUpperCase() === wanted,
+		);
+		const watchedPrefixMatch = profile.issue_watchlist?.key_prefixes?.some(
+			kp => kp.trim().toUpperCase() === wanted,
+		);
+
+		if (ownPrefix === wanted || projectKeyMatch || watchedPrefixMatch) {
+			explicit.push({name, profile, explicit: true});
+			continue;
+		}
+
+		if (ownPrefix === undefined && globalPrefix === wanted) {
+			inherited.push({name, profile, explicit: false});
+		}
+	}
+
+	return [...explicit, ...inherited];
+}
+
+/**
+ * The beads issue-source prefix `input` names, or null when it is not a beads
+ * ID under a prefix this repo can mint. Always null for the other trackers,
+ * whose keys carry a team prefix instead.
+ */
+function beadsInputKeyPrefix(
+	config: PappardelleConfig,
+	input: string,
+): string | null {
+	if (config.issue_tracker?.provider !== 'beads') return null;
+
+	const trimmed = input.trim();
+	const prefixes = getBeadsPrefixes(config, readBeadsIssuePrefix());
+	if (!isBeadsIssueKey(trimmed, prefixes)) return null;
+	return issueKeyPrefix(trimmed);
+}
+
+/**
+ * The prefix an issue identifier claims, under whichever key grammar its
+ * tracker uses: the team prefix of `STA-123` or a Linear URL, or the
+ * issue-source prefix of a beads ID. Null for prose and for bare numbers,
+ * which have no prefix of their own.
+ */
+export function inputKeyPrefix(
+	config: PappardelleConfig,
+	input: string,
+): string | null {
+	return issueKeyTeamPrefix(input) ?? beadsInputKeyPrefix(config, input);
+}
+
+/**
+ * Profiles claiming the prefix of whatever issue identifier `input` names.
+ * Empty for prose and for bare numbers, which have no prefix of their own.
+ */
+export function matchProfilesByInputKeyPrefix(
+	config: PappardelleConfig,
+	input: string,
+): ProfilePrefixMatch[] {
+	const prefix = inputKeyPrefix(config, input);
+	if (!prefix) return [];
+	return matchProfilesByKeyPrefix(config, prefix);
+}
+
 // Issue-key patterns used to short-circuit keyword matching and return the default profile.
-const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
+// Case-insensitive like isLinearIssueKey and normalizeIssueIdentifier: a
+// lowercase key reaches the tracker as the same issue, so it has to reach the
+// same profile decision too.
+const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/i;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
 const DETERMINE_PROFILE_LINEAR_URL =
-	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/;
+	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/i;
 
 /**
  * Label shown in the TUI when profile selection is deferred to idow's
@@ -1481,6 +1778,17 @@ export type ProfileSelection =
 	| {
 			kind: 'deferred';
 			displayName: string;
+			/**
+			 * There is something to choose between, so the deferred lookup is the
+			 * *preselected* answer rather than the only one — the TUI should offer
+			 * the picker instead of an inert label. True when a profile claims
+			 * this key's prefix, and true for every beads key: a beads database is
+			 * not a project, so several profiles' worth of work shares one prefix
+			 * and the lookup can only ever guess. False for bare numbers and for
+			 * Linear/Jira prefixes no profile claims, where deferring to the
+			 * issue's own project is genuinely all we can do.
+			 */
+			canPick: boolean;
 	  }
 	| {
 			kind: 'resolved';
@@ -1509,8 +1817,10 @@ export type ProfileSelection =
  * Returns:
  *  - null for empty/whitespace input
  *  - `{kind: 'deferred'}` for issue keys, bare numbers, or Linear URLs —
- *    the caller should NOT pass --profile to idow; idow will pick the
- *    profile based on the fetched issue's tracker project
+ *    idow picks the profile from the fetched issue's tracker project, so
+ *    that is what the caller gets by default. `canPick` says whether any
+ *    profile claims the key's prefix, in which case the caller should still
+ *    offer the picker and honor an explicit override
  *  - `{kind: 'resolved'}` otherwise (keyword match or default fallback)
  */
 export function determineProfileForInput(
@@ -1520,12 +1830,20 @@ export function determineProfileForInput(
 	const trimmed = input.trim();
 	if (!trimmed) return null;
 
+	const isBeadsKey = beadsInputKeyPrefix(config, trimmed) !== null;
+
 	if (
 		DETERMINE_PROFILE_ISSUE_KEY.test(trimmed) ||
 		DETERMINE_PROFILE_ISSUE_NUMBER.test(trimmed) ||
-		DETERMINE_PROFILE_LINEAR_URL.test(trimmed)
+		DETERMINE_PROFILE_LINEAR_URL.test(trimmed) ||
+		isBeadsKey
 	) {
-		return {kind: 'deferred', displayName: DEFERRED_PROFILE_DISPLAY_NAME};
+		return {
+			kind: 'deferred',
+			displayName: DEFERRED_PROFILE_DISPLAY_NAME,
+			canPick:
+				isBeadsKey || matchProfilesByInputKeyPrefix(config, trimmed).length > 0,
+		};
 	}
 
 	const matches = matchProfiles(config, trimmed);
@@ -1690,14 +2008,14 @@ export function getDangerouslySkipPermissions(
 /**
  * Resolve one of the pass-through Claude launch flags for a workspace.
  *
- * Resolution order — per-profile value → top-level value → `''`. The profile is
+ * Resolution order: per-profile value, then top-level value, then `''`. The profile is
  * matched from `issueTitle` the same way `getCompanionCommand` does it, so a
  * space with no title (the main worktree, or a call site that doesn't have one
  * handy) simply gets the top-level value.
  *
  * The profile layer wins whenever the *key is present*, not merely when it's
  * truthy. That's what makes `model: ""` on a profile mean "ignore the global
- * model, launch with Claude's default" rather than "no opinion" — the same
+ * model, launch with Claude's default" rather than "no opinion", the same
  * empty-string-is-meaningful convention `companion_command` uses.
  *
  * `''` is the universal "don't pass this flag" signal: callers omit the flag
@@ -1720,7 +2038,7 @@ function resolveClaudeLaunchField(
 
 /**
  * Get the Claude model to launch a workspace with (`claude --model <value>`).
- * Returns '' when no model is configured — pass no flag at all in that case.
+ * Returns '' when no model is configured; pass no flag at all in that case.
  */
 export function getClaudeModel(
 	config: PappardelleConfig,
@@ -1877,6 +2195,14 @@ export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
 	return config.auto_remove_when_done ?? false;
 }
 
+export function getListLayout(config: PappardelleConfig | null): ListLayout {
+	const explicit = config?.list_view?.layout;
+	if (explicit) return explicit;
+	return config?.issue_tracker?.provider === 'beads'
+		? 'two_line'
+		: 'single_line';
+}
+
 /**
  * The command the companion pane runs when nothing is configured. gitui
  * replaced lazygit as the default in STA-1464. GIT_OPTIONAL_LOCKS=0 keeps the
@@ -1928,14 +2254,12 @@ export function buildWorkspaceTemplateVars(
 	issueTitle?: string,
 	configOverride?: PappardelleConfig,
 ): TemplateVars {
-	const repoRoot = getRepoRoot();
-	const repoName = getRepoName();
-
 	const vars: TemplateVars = {
 		ISSUE_KEY: issueKey,
 		WORKTREE_PATH: worktreePath,
-		REPO_ROOT: repoRoot,
-		REPO_NAME: repoName,
+		REPO_ROOT: getRepoRoot(),
+		MAIN_REPO_ROOT: getMainRepoRoot(),
+		REPO_NAME: getRepoName(),
 		SCRIPT_DIR: path.resolve(__dirname, '..', 'scripts'),
 	};
 

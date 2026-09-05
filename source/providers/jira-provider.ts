@@ -5,7 +5,11 @@ import {createLogger} from '../logger.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
-import type {IssueTrackerProvider, TrackerIssue} from './types.ts';
+import type {
+	IssueTrackerProvider,
+	TrackerIssue,
+	TrackerProviderName,
+} from './types.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -143,7 +147,7 @@ export type CliExecutor = (
 export type SleepFn = (ms: number) => Promise<void>;
 
 export class JiraProvider implements IssueTrackerProvider {
-	get name() {
+	get name(): TrackerProviderName {
 		return 'jira';
 	}
 

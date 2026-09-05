@@ -1369,3 +1369,104 @@ state_colors:
 		cleanup();
 	}
 });
+
+// ============================================================================
+// loadConfigFromPaths — worktree fallback (pappardelle-xbe)
+// ============================================================================
+//
+// `.pappardelle.yml` is excluded rather than committed, so a linked worktree
+// has none and only the main checkout does. `.pappardelle.local.yml` is the
+// reverse: workspace setup copies it into each worktree. Both facts have to
+// hold at once, which is why the two layers resolve per file rather than per
+// directory.
+
+test('loadConfigFromPaths falls back to the main checkout for a missing project config', t => {
+	const {dir, cleanup} = setupTempDir({
+		'main/.pappardelle.yml': `version: 1
+team_prefix: MAIN
+profiles:
+  hive:
+    display_name: Hive
+`,
+		'worktree/.keep': '',
+	});
+	try {
+		const config = loadConfigFromPaths({
+			projectDir: path.join(dir, 'worktree'),
+			fallbackProjectDir: () => path.join(dir, 'main'),
+		});
+		t.is(getTeamPrefix(config), 'MAIN');
+		t.truthy(config.profiles['hive']);
+	} finally {
+		cleanup();
+	}
+});
+
+test("loadConfigFromPaths prefers the worktree's own local override", t => {
+	const {dir, cleanup} = setupTempDir({
+		'main/.pappardelle.yml': `version: 1
+team_prefix: MAIN
+profiles:
+  hive:
+    display_name: Hive
+`,
+		'main/.pappardelle.local.yml': `team_prefix: MAINLOCAL
+`,
+		'worktree/.pappardelle.local.yml': `team_prefix: WTLOCAL
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			projectDir: path.join(dir, 'worktree'),
+			fallbackProjectDir: () => path.join(dir, 'main'),
+		});
+		// Project layer came from the main checkout, local layer from the worktree.
+		t.is(getTeamPrefix(config), 'WTLOCAL');
+		t.truthy(config.profiles['hive']);
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths without a fallback behaves exactly as before', t => {
+	const {dir, cleanup} = setupTempDir({
+		'main/.pappardelle.yml': `version: 1
+profiles:
+  hive:
+    display_name: Hive
+`,
+		'worktree/.keep': '',
+	});
+	try {
+		t.throws(
+			() => loadConfigFromPaths({projectDir: path.join(dir, 'worktree')}),
+			{instanceOf: ConfigNotFoundError},
+		);
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths never resolves the fallback when the project dir has every layer', t => {
+	const {dir, cleanup} = setupTempDir({
+		'worktree/.pappardelle.yml': `version: 1
+team_prefix: WT
+profiles:
+  hive:
+    display_name: Hive
+`,
+		'worktree/.pappardelle.local.yml': `team_prefix: WTLOCAL
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			projectDir: path.join(dir, 'worktree'),
+			fallbackProjectDir() {
+				throw new Error('fallback resolved');
+			},
+		});
+		t.is(getTeamPrefix(config), 'WTLOCAL');
+	} finally {
+		cleanup();
+	}
+});

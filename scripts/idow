@@ -4,7 +4,7 @@
 #
 # A command-line tool that sets up a development workspace.
 #
-# Usage: idow [--resume] [--open] [--profile <name>] <input>
+# Usage: idow [--resume] [--open] [--profile <name>] [--existing-issue] <input>
 #   Input can be:
 #     - Issue key:   idow STA-123 | idow 123
 #     - Linear URL:  idow https://linear.app/stardust-labs/issue/STA-123
@@ -56,7 +56,7 @@ NC='\033[0m'
 
 TOTAL_STEPS=11
 print_step() {
-    echo -e "${BLUE}[$(printf '%2d' $1)/$TOTAL_STEPS]${NC} $2"
+    echo -e "${BLUE}[$(printf '%2d' "$1")/$TOTAL_STEPS]${NC} $2"
     log "Step $1: $2"
 }
 
@@ -103,6 +103,7 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  --resume          Open workspace without prompting Claude (for continuing work)"
     echo "  --open            Also open apps, links, iTerm, and run commands (skipped by default)"
     echo "  --profile <name>  Force a specific profile from .pappardelle.yml"
+    echo "  --existing-issue  Input is an issue key the caller already fetched; skip input detection"
     exit 0
 fi
 
@@ -114,7 +115,21 @@ if [[ -n "${PAPPARDELLE_PROJECT_ROOT:-}" ]]; then
 else
     REPO_ROOT=$(git rev-parse --show-toplevel)
 fi
-CONFIG_PATH="$REPO_ROOT/.pappardelle.yml"
+GIT_COMMON_DIR=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)
+MAIN_REPO_ROOT=$(dirname "$GIT_COMMON_DIR")
+
+# Untracked project config may exist only in the main checkout, while a linked
+# worktree can carry its own local overrides. Resolve each file independently.
+resolve_repo_config() {
+    local filename="$1"
+    if [[ -f "$REPO_ROOT/$filename" ]]; then
+        echo "$REPO_ROOT/$filename"
+    else
+        echo "$MAIN_REPO_ROOT/$filename"
+    fi
+}
+
+CONFIG_PATH=$(resolve_repo_config .pappardelle.yml)
 # Personal defaults shared across every repo. Must stay in step with
 # getDefaultHomeConfigDir() in source/config.ts, which is what the TUI reads.
 HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"
@@ -151,7 +166,7 @@ fi
 # model, effort) with local override support from .pappardelle.local.yml.
 # These are the top-level values; once a profile is selected, the launch flags
 # are re-resolved profile-first via resolve_claude_launch_flags below.
-LOCAL_CONFIG_PATH="$REPO_ROOT/.pappardelle.local.yml"
+LOCAL_CONFIG_PATH=$(resolve_repo_config .pappardelle.local.yml)
 CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
 INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
 SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
@@ -344,12 +359,18 @@ if [[ "$1" == "--profile" ]]; then
         echo "" >&2
         echo "Available profiles:" >&2
         for profile in $(list_profiles); do
-            local display_name
             display_name=$(get_profile_display_name "$profile")
             echo "  - $profile: $display_name" >&2
         done
         exit 1
     fi
+fi
+
+# Check for --existing-issue flag
+EXISTING_ISSUE=false
+if [[ "$1" == "--existing-issue" ]]; then
+    EXISTING_ISSUE=true
+    shift
 fi
 
 # Collect input from all arguments
@@ -380,17 +401,27 @@ ISSUE_KEY=""
 DESCRIPTION=""
 IS_NEW_ISSUE=false
 
-if [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then
+if [[ "$EXISTING_ISSUE" == "true" ]]; then
+    ISSUE_KEY="$INPUT"
+    log "Caller-supplied issue key: $ISSUE_KEY"
+elif [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then
     # Linear URL
     ISSUE_KEY="${BASH_REMATCH[1]}"
     log "Detected Linear URL, issue key: $ISSUE_KEY"
+elif [[ "$TRACKER_PROVIDER" == "beads" ]] && is_beads_issue_key "$INPUT" "$CONFIG_PATH"; then
+    ISSUE_KEY=$(echo "$INPUT" | tr '[:upper:]' '[:lower:]')
+    log "Detected beads issue ID: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
     # Full issue key (e.g., STA-123)
     ISSUE_KEY="$INPUT"
     log "Detected full issue key: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^[0-9]+$ ]]; then
     # Just a number (e.g., 123) - use configured team prefix
-    ISSUE_KEY="${TEAM_PREFIX}-$INPUT"
+    if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
+        ISSUE_KEY="$(echo "$TEAM_PREFIX" | tr '[:upper:]' '[:lower:]')-$INPUT"
+    else
+        ISSUE_KEY="${TEAM_PREFIX}-$INPUT"
+    fi
     log "Detected number, assuming issue key: $ISSUE_KEY"
 else
     # It's a description - we'll create a new issue
@@ -557,8 +588,15 @@ else
     fi
 fi
 
-# Extract issue number for template variable expansion (e.g., STA-595 → 595)
-ISSUE_NUMBER=$(echo "$ISSUE_KEY" | grep -oE '[0-9]+' || echo "")
+# Extract issue number for template variable expansion (e.g., STA-595 → 595).
+if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
+    ISSUE_NUMBER=""
+else
+    # Everything after the last hyphen, not the first digit run: Jira project
+    # keys may carry digits of their own, and scanning left-to-right turned
+    # A1B-234 into the plausible-looking but wrong "1".
+    ISSUE_NUMBER="${ISSUE_KEY##*-}"
+fi
 
 # Template expansion helpers for profile-driven steps
 # Defined here (before Step 5) because worktree config may use template variables.
@@ -570,6 +608,7 @@ expand_var() {
     result="${result//\$\{ISSUE_NUMBER\}/$ISSUE_NUMBER}"
     result="${result//\$\{ISSUE_URL\}/$ISSUE_URL}"
     result="${result//\$\{REPO_ROOT\}/$REPO_ROOT}"
+    result="${result//\$\{MAIN_REPO_ROOT\}/$MAIN_REPO_ROOT}"
     result="${result//\$\{REPO_NAME\}/$REPO_NAME}"
     result="${result//\$\{PR_URL\}/$PR_URL}"
     result="${result//\$\{MR_URL\}/$PR_URL}"
@@ -648,7 +687,7 @@ else
     fi
 
     # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
-    LOCAL_CONFIG="$REPO_ROOT/.pappardelle.local.yml"
+    LOCAL_CONFIG="$LOCAL_CONFIG_PATH"
     if [[ -f "$LOCAL_CONFIG" ]]; then
         cp -n "$LOCAL_CONFIG" "$WORKTREE_PATH/.pappardelle.local.yml" 2>/dev/null || true
         print_success "Copied .pappardelle.local.yml"
@@ -672,10 +711,10 @@ else
     if [[ "$POST_INIT_COUNT" -gt 0 ]]; then
         log "Running $POST_INIT_COUNT $POST_INIT_KEY command(s)..."
         for (( i=0; i<POST_INIT_COUNT; i++ )); do
-            CMD_NAME=$(yq -r ".$POST_INIT_KEY[$i].name // \"$POST_INIT_KEY[$i]\"" "$CONFIG_PATH")
-            CMD_RUN_TMPL=$(yq -r ".$POST_INIT_KEY[$i].run // \"\"" "$CONFIG_PATH")
-            CMD_CONTINUE=$(yq -r ".$POST_INIT_KEY[$i].continue_on_error // false" "$CONFIG_PATH")
-            CMD_BG=$(yq -r ".$POST_INIT_KEY[$i].background // false" "$CONFIG_PATH")
+            CMD_NAME=$(yq -r ".${POST_INIT_KEY}[$i].name // \"${POST_INIT_KEY}[$i]\"" "$CONFIG_PATH")
+            CMD_RUN_TMPL=$(yq -r ".${POST_INIT_KEY}[$i].run // \"\"" "$CONFIG_PATH")
+            CMD_CONTINUE=$(yq -r ".${POST_INIT_KEY}[$i].continue_on_error // false" "$CONFIG_PATH")
+            CMD_BG=$(yq -r ".${POST_INIT_KEY}[$i].background // false" "$CONFIG_PATH")
             CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
             log "  $POST_INIT_KEY: $CMD_NAME -> $CMD_RUN"
             run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
@@ -692,10 +731,10 @@ else
     if [[ "$PROFILE_POST_INIT_COUNT" -gt 0 ]]; then
         log "Running $PROFILE_POST_INIT_COUNT profile $PROFILE_POST_INIT_KEY command(s)..."
         for (( i=0; i<PROFILE_POST_INIT_COUNT; i++ )); do
-            CMD_NAME=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].name // \"profile_post_init[$i]\"" "$CONFIG_PATH")
-            CMD_RUN_TMPL=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].run // \"\"" "$CONFIG_PATH")
-            CMD_CONTINUE=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].continue_on_error // false" "$CONFIG_PATH")
-            CMD_BG=$(yq -r ".profiles.$SELECTED_PROFILE.$PROFILE_POST_INIT_KEY[$i].background // false" "$CONFIG_PATH")
+            CMD_NAME=$(yq -r ".profiles.$SELECTED_PROFILE.${PROFILE_POST_INIT_KEY}[$i].name // \"profile_post_init[$i]\"" "$CONFIG_PATH")
+            CMD_RUN_TMPL=$(yq -r ".profiles.$SELECTED_PROFILE.${PROFILE_POST_INIT_KEY}[$i].run // \"\"" "$CONFIG_PATH")
+            CMD_CONTINUE=$(yq -r ".profiles.$SELECTED_PROFILE.${PROFILE_POST_INIT_KEY}[$i].continue_on_error // false" "$CONFIG_PATH")
+            CMD_BG=$(yq -r ".profiles.$SELECTED_PROFILE.${PROFILE_POST_INIT_KEY}[$i].background // false" "$CONFIG_PATH")
             CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
             log "  profile $PROFILE_POST_INIT_KEY: $CMD_NAME -> $CMD_RUN"
             run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG"
@@ -739,7 +778,11 @@ fi
 if [[ -n "$CLAUDE_EFFORT" ]]; then
     CLAUDE_SESSION_ARGS+=(--effort "$CLAUDE_EFFORT")
 fi
-CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
+# Matches the '.' → '_' encoding in start-claude-session.sh and
+# getSessionNames(); see the comment there.
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
