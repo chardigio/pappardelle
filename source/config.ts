@@ -386,10 +386,11 @@ function resolveMainRepoRoot(): string {
 }
 
 /**
- * `.pappardelle.yml` is usually excluded rather than committed, so only the main
- * checkout has one; `.pappardelle.local.yml` is copied into each worktree, so the
- * worktree's copy wins. Resolving per file rather than per directory lets both be
- * true at once. Mirrors `find_repo_config` in hooks/tracker_config.py.
+ * Working tree first, main checkout second, resolved per file. A committed
+ * `.pappardelle.yml` is checked out into the worktree and found there; one kept
+ * out of git exists only in the main checkout. `.pappardelle.local.yml` is
+ * gitignored but copied into each worktree by workspace setup, so the worktree's
+ * copy wins. Mirrors `find_repo_config` in hooks/tracker_config.py.
  */
 export function findRepoConfig(filename: string): string | undefined {
 	const inWorkingTree = path.join(getRepoRoot(), filename);

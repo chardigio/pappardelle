@@ -90,10 +90,11 @@ def _read(path: Optional[str]) -> str:
 def find_repo_config(filename: str, start: Optional[str] = None) -> Optional[str]:
     """Locate a repo-level config file, resolving through linked worktrees.
 
-    `.pappardelle.yml` and `.beads/` are usually excluded rather than committed,
-    so only the main checkout has one; `.pappardelle.local.yml` is copied into
-    each worktree, so the worktree's copy wins. Resolving per file rather than
-    per directory lets both be true at once. Mirrors `findRepoConfig` in
+    Working tree first, main checkout second, resolved per file. A committed
+    `.pappardelle.yml` is checked out into the worktree and found there; one kept
+    out of git, and `.beads/`, exist only in the main checkout.
+    `.pappardelle.local.yml` is gitignored but copied into each worktree by
+    workspace setup, so the worktree's copy wins. Mirrors `findRepoConfig` in
     source/config.ts.
     """
     try:
