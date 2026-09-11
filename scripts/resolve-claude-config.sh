@@ -24,8 +24,14 @@
 # change which layer wins. Mirrored by getClaudeModel()/getClaudeEffort() in
 # source/config.ts and pinned by scripts/test-claude-model-effort.sh.
 #
+# companion_command is resolved here too, profile-first over the merged layers,
+# so a top-level value in the home config reaches every repo. The built-in
+# default applies only when no layer defines the key at any level; an explicit
+# "" (plain shell) is preserved. Mirrors getCompanionCommand() in source/config.ts.
+#
 # Output: JSON object with resolved values:
-#   {"init_cmd": "...", "skip_permissions": "true|false", "model": "...", "effort": "..."}
+#   {"init_cmd": "...", "skip_permissions": "true|false", "model": "...", "effort": "...",
+#    "companion_command": "..."}
 
 set -e
 
@@ -121,7 +127,16 @@ resolve_launch_field() {
 MODEL=$(resolve_launch_field model)
 EFFORT=$(resolve_launch_field effort)
 
+DEFAULT_COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
+export PAPPARDELLE_DEFAULT_COMPANION_COMMAND="$DEFAULT_COMPANION_COMMAND"
+if [[ -n "$PROFILE" ]]; then
+    COMPANION_COMMAND=$(echo "$RESOLVED" | yq -r \
+        '(.profiles[strenv(PAPPARDELLE_PROFILE)].companion_command // .companion_command) // strenv(PAPPARDELLE_DEFAULT_COMPANION_COMMAND)')
+else
+    COMPANION_COMMAND=$(echo "$RESOLVED" | yq -r '.companion_command // strenv(PAPPARDELLE_DEFAULT_COMPANION_COMMAND)')
+fi
+
 # Output as JSON (use jq to handle escaping of special characters)
 jq -n --arg init_cmd "$INIT_CMD" --arg skip_permissions "$SKIP_PERMISSIONS" \
-  --arg model "$MODEL" --arg effort "$EFFORT" \
-  '{init_cmd: $init_cmd, skip_permissions: $skip_permissions, model: $model, effort: $effort}'
+  --arg model "$MODEL" --arg effort "$EFFORT" --arg companion_command "$COMPANION_COMMAND" \
+  '{init_cmd: $init_cmd, skip_permissions: $skip_permissions, model: $model, effort: $effort, companion_command: $companion_command}'

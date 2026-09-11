@@ -65,6 +65,12 @@ jobs:
       - name: tmux session name encoding
         run: ./scripts/test-session-name-encoding.sh
 
+      - name: Config layer merge in idow
+        run: ./scripts/test-config-layers.sh
+
+      - name: companion_command resolution
+        run: ./scripts/test-companion-command.sh
+
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest

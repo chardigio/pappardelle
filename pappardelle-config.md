@@ -938,7 +938,7 @@ companion_command?: string; // top-level and per-profile
 
 **How it works:**
 
-- **Resolution order** (first defined wins): the matched profile's `companion_command` → the top-level `companion_command` → the built-in default `GIT_OPTIONAL_LOCKS=0 gitui`. Mirrors `getCompanionCommand()` in `source/config.ts`.
+- **Resolution order** (first defined wins): the matched profile's `companion_command` → the top-level `companion_command` → the built-in default `GIT_OPTIONAL_LOCKS=0 gitui`. Mirrors `getCompanionCommand()` in `source/config.ts`; the bash side lives in `scripts/resolve-claude-config.sh`.
 - **Any command works** — a different git UI (`lazygit`, `tig`), a dev server (`npm run dev`), a log tailer (`tail -f log`), etc. The string is run verbatim in a shell-backed tmux session, so it persists even if the command exits.
 - **Empty string = plain shell.** An explicitly empty `companion_command: ""` (top-level or per-profile) leaves the pane as a bare shell — nothing is launched. An _absent_ value falls through to the next resolution level; only an explicit `""` short-circuits to "run nothing".
 - **The default carries `GIT_OPTIONAL_LOCKS=0`**, which keeps the git UI from taking lock files for read-only ops, avoiding contention with Claude's concurrent git calls. Custom commands run exactly as written — add the prefix yourself if your command is git-heavy.

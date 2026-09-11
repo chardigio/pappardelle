@@ -660,25 +660,66 @@ export function loadConfig(): PappardelleConfig {
 }
 
 /**
- * Load just the provider configs (issue_tracker, vcs_host) from .pappardelle.yml.
- * Skips full config validation so providers can be initialized even when
- * unrelated config sections (e.g. profiles) have errors.
+ * Load just the provider configs (issue_tracker, vcs_host) from the merged
+ * home -> project -> local layers, without validating the rest of the config
+ * so providers can be initialized even when unrelated sections (e.g.
+ * profiles) have errors. A layer that fails to parse is skipped for the same
+ * reason. Reads the same files as loadConfigFromPaths(); the defaults are
+ * what loadConfig() uses.
  */
-export function loadProviderConfigs(): {
+export function loadProviderConfigs(opts?: {
+	homeConfigDir?: string;
+	projectDir?: string;
+	fallbackProjectDir?: () => string | undefined;
+}): {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
 } {
-	const configPath = findRepoConfig('.pappardelle.yml');
+	const {homeConfigDir, projectDir, fallbackProjectDir} = opts ?? {
+		homeConfigDir: getDefaultHomeConfigDir(),
+		projectDir: getRepoRoot(),
+		fallbackProjectDir: getMainRepoRoot,
+	};
 
-	if (!configPath) {
-		return {};
-	}
+	const resolveProjectFile = (filename: string): string | undefined => {
+		if (projectDir) {
+			const candidate = path.join(projectDir, filename);
+			if (fs.existsSync(candidate)) return candidate;
+		}
 
-	const content = fs.readFileSync(configPath, 'utf-8');
-	const raw = YAML.load(content) as Record<string, unknown>;
+		const fallbackDir = fallbackProjectDir?.();
+		if (fallbackDir) {
+			const candidate = path.join(fallbackDir, filename);
+			if (fs.existsSync(candidate)) return candidate;
+		}
+
+		return undefined;
+	};
+
+	const readLayer = (
+		filePath: string | undefined,
+	): Record<string, unknown> | null => {
+		if (!filePath || !fs.existsSync(filePath)) return null;
+		try {
+			const parsed = YAML.load(fs.readFileSync(filePath, 'utf-8'));
+			return parsed && typeof parsed === 'object'
+				? (parsed as Record<string, unknown>)
+				: null;
+		} catch {
+			return null;
+		}
+	};
+
+	const merged = mergeConfigLayers(
+		readLayer(
+			homeConfigDir ? path.join(homeConfigDir, '.pappardelle.yml') : undefined,
+		),
+		readLayer(resolveProjectFile('.pappardelle.yml')),
+		readLayer(resolveProjectFile('.pappardelle.local.yml')),
+	);
 	return {
-		issue_tracker: raw['issue_tracker'] as IssueTrackerConfig | undefined,
-		vcs_host: raw['vcs_host'] as VcsHostConfig | undefined,
+		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
+		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
 	};
 }
 

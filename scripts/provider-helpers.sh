@@ -7,6 +7,28 @@
 #
 # Requires: yq, jq, and the relevant CLI tools (linctl/acli, gh/glab)
 
+# Deep-merge the config layers into one YAML document on stdout, lowest to
+# highest priority: home -> project -> local. Missing files are skipped. Maps
+# merge key by key and arrays replace wholesale, which is what deepMerge() in
+# source/config.ts does, so the TUI and idow see the same effective config.
+# Args: $1=home_config_path, $2=project_config_path, $3=local_config_path
+merge_config_layers() {
+    local files=() f
+    for f in "$@"; do
+        [[ -n "$f" && -f "$f" ]] && files+=("$f")
+    done
+    [[ ${#files[@]} -gt 0 ]] || { echo "{}"; return; }
+    if [[ ${#files[@]} -eq 1 ]]; then
+        cat "${files[0]}"
+        return
+    fi
+    local expr="select(fileIndex==0)" i
+    for (( i=1; i<${#files[@]}; i++ )); do
+        expr="$expr * select(fileIndex==$i)"
+    done
+    yq eval-all "$expr" "${files[@]}"
+}
+
 # Get the issue tracker provider from .pappardelle.yml
 # Returns: "linear" (default), "jira", or "beads"
 get_issue_tracker_provider() {
