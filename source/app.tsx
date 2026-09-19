@@ -780,6 +780,10 @@ export default function App({
 				detached: true,
 				stdio: 'ignore',
 			});
+			child.on('error', err => {
+				log.error(`Failed to launch gh: ${err.message}`, err);
+				setHeaderWithTimeout('Could not launch gh', 3000);
+			});
 			child.unref();
 			setHeaderWithTimeout('Opened repo', 3000);
 			return;
@@ -790,10 +794,15 @@ export default function App({
 		try {
 			const prInfo = createVcsHost().checkIssueHasPRWithCommits(space.name);
 			if (prInfo.hasPR && prInfo.prUrl) {
-				spawn('open', [prInfo.prUrl], {
+				const child = spawn('open', [prInfo.prUrl], {
 					detached: true,
 					stdio: 'ignore',
-				}).unref();
+				});
+				child.on('error', err => {
+					log.error(`Failed to launch open: ${err.message}`, err);
+					setHeaderWithTimeout('Could not launch open', 3000);
+				});
+				child.unref();
 				setHeaderWithTimeout(`Opened PR #${prInfo.prNumber}`, 3000);
 			} else {
 				setHeaderWithTimeout(`No PR found for ${space.name}`, 3000);
@@ -827,7 +836,15 @@ export default function App({
 			return;
 		}
 
-		spawn('cursor', [worktreePath], {detached: true, stdio: 'ignore'}).unref();
+		const child = spawn('cursor', [worktreePath], {
+			detached: true,
+			stdio: 'ignore',
+		});
+		child.on('error', err => {
+			log.error(`Failed to launch cursor: ${err.message}`, err);
+			setHeaderWithTimeout('Could not launch cursor', 3000);
+		});
+		child.unref();
 		setHeaderWithTimeout(`Opening Cursor for ${space.name}`, 3000);
 	};
 
