@@ -443,6 +443,7 @@ interface PappardelleConfig {
 		layout?: 'single_line' | 'two_line'; // TUI list row layout. Default: two_line for beads, single_line otherwise.
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
+	ide_command?: string; // Command the `d` key runs to open an editor (default: cursor). Per-profile overridable. "" = disable `d`.
 	claude?: {
 		initialization_command?: string; // Command passed to Claude on new sessions (e.g. "/idow")
 		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions
@@ -467,6 +468,7 @@ interface Profile {
 		effort?: string; // Override global claude.effort for this profile. "" = clear the global.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
+	ide_command?: string; // Override the top-level `d`-key editor command for this profile. "" = disable `d` for this profile.
 	vars?: Record<string, string>; // Generic template variables
 	vcs?: {
 		label: string; // Provider-agnostic VCS label for PRs/MRs
@@ -965,6 +967,21 @@ After the split returns, `gitui` launches in the top pane. Carry `GIT_OPTIONAL_L
 **Why it's safe:** the companion runs in its own tmux session whose sole pane executes this command (see `ensureCompanionSession` in `source/tmux.ts`), so `tmux split-window` only carves _that_ pane in two — it never touches the Claude pane, which lives in a separate session.
 
 **Caveat — only new workspaces re-split:** a companion session is created once and reused (`ensureCompanionSession` early-returns when the session already exists), so editing `companion_command` won't re-split a workspace whose companion session is already running. The split shows up on **newly-created** workspaces; to apply it to an existing one, remove and recreate the workspace (or kill its companion session so it gets rebuilt).
+
+## IDE Command
+
+The `d` key opens an editor on the selected workspace's worktree. It defaults to Cursor; set `ide_command` to launch anything else.
+
+```yaml
+ide_command: code "${WORKTREE_PATH}" # default: cursor "${WORKTREE_PATH}"
+
+profiles:
+  android:
+    display_name: Android
+    ide_command: studio "${WORKTREE_PATH}" # per-profile override
+```
+
+- **Empty string disables the key.** `ide_command: ""` (top-level or per-profile) makes `d` do nothing and show `No ide_command configured`.
 
 ## Built-in File Copies
 

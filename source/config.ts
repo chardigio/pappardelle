@@ -167,6 +167,13 @@ export interface Profile {
 	 */
 	companion_command?: string;
 	/**
+	 * Command the `d` key runs for spaces matched to this profile. Overrides the
+	 * top-level `ide_command`. An empty string means "do nothing", which is how
+	 * a profile opts out of the key. When unset, falls back to the top-level
+	 * `ide_command`, then to the built-in default (Cursor).
+	 */
+	ide_command?: string;
+	/**
 	 * Per-profile issue watchlist, polled in *addition* to the top-level
 	 * `issue_watchlist` (not instead of it). Lets a single profile watch a
 	 * different set of statuses/labels than the global watchlist — e.g. a
@@ -231,6 +238,12 @@ export interface PappardelleConfig {
 	 * lazygit is restorable with `companion_command: lazygit`.
 	 */
 	companion_command?: string;
+	/**
+	 * Command the `d` key runs to open an editor on the selected worktree.
+	 * Defaults to Cursor. A profile's own `ide_command` overrides this value,
+	 * and an empty string disables the key.
+	 */
+	ide_command?: string;
 	/** Commands to run after git worktree is created. Same format as profile commands. */
 	post_workspace_init?: CommandConfig[];
 	/** @deprecated Use post_workspace_init instead. Accepted for backwards compat. */
@@ -879,6 +892,15 @@ export function validateConfig(
 		errors.push('companion_command: must be a string');
 	}
 
+	// Check ide_command (optional, free-form shell command). Any string is
+	// accepted — including the empty string, which disables the `d` key.
+	if (
+		cfg['ide_command'] !== undefined &&
+		typeof cfg['ide_command'] !== 'string'
+	) {
+		errors.push('ide_command: must be a string');
+	}
+
 	// Check post_workspace_init / post_worktree_init (optional, mutually exclusive)
 	if (
 		cfg['post_workspace_init'] !== undefined &&
@@ -1201,6 +1223,11 @@ function validateProfile(name: string, profile: unknown): string[] {
 		typeof p['companion_command'] !== 'string'
 	) {
 		errors.push(`${prefix}.companion_command: must be a string`);
+	}
+
+	// Optional per-profile ide_command override (any string, incl. empty)
+	if (p['ide_command'] !== undefined && typeof p['ide_command'] !== 'string') {
+		errors.push(`${prefix}.ide_command: must be a string`);
 	}
 
 	// Optional vars
@@ -2205,6 +2232,22 @@ export function getCompanionCommand(
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
 }
 
+// eslint-disable-next-line no-template-curly-in-string
+export const DEFAULT_IDE_COMMAND = 'cursor "${WORKTREE_PATH}"';
+
+export function getIdeCommand(
+	config: PappardelleConfig,
+	profileName?: string,
+): string {
+	if (profileName) {
+		const profile = config.profiles[profileName];
+		if (profile?.ide_command !== undefined) {
+			return profile.ide_command;
+		}
+	}
+	return config.ide_command ?? DEFAULT_IDE_COMMAND;
+}
+
 /**
  * Get custom keybindings from config.
  * Returns an empty array if none are configured.
@@ -2216,12 +2259,18 @@ export function getKeybindings(config: PappardelleConfig): KeybindingConfig[] {
 /**
  * Build template variables for a workspace, using profile-specific vars when available.
  * Tries to match the space's issue title against profiles to get iOS config etc.
+ *
+ * `profileName` names the profile directly and wins over the title match. Pass
+ * it whenever the caller has already resolved a profile — otherwise the vars
+ * can come from a different profile than the command they are expanded into,
+ * leaving that command's own `vars:` unset.
  */
 export function buildWorkspaceTemplateVars(
 	issueKey: string,
 	worktreePath: string,
 	issueTitle?: string,
 	configOverride?: PappardelleConfig,
+	profileName?: string,
 ): TemplateVars {
 	const vars: TemplateVars = {
 		ISSUE_KEY: issueKey,
@@ -2237,7 +2286,11 @@ export function buildWorkspaceTemplateVars(
 		const config = configOverride ?? loadConfig();
 		let profile: Profile | undefined;
 
-		if (issueTitle) {
+		if (profileName) {
+			profile = config.profiles[profileName];
+		}
+
+		if (!profile && issueTitle) {
 			const matches = matchProfiles(config, issueTitle);
 			if (matches.length > 0) {
 				profile = matches[0]!.profile;

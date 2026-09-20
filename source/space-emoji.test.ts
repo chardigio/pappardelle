@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import {resolveSpaceEmoji} from './space-emoji.ts';
+import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
 import {readSpaceState, writeSpaceState} from './space-state.ts';
 import type {PappardelleConfig} from './config.ts';
 import type {TrackerIssue} from './providers/types.ts';
@@ -330,4 +330,102 @@ test('null config returns undefined and does not persist anything', t => {
 		undefined,
 	);
 	t.is(readSpaceState('repo', 'STA-10', base), null);
+});
+
+// ============================================================================
+// resolveSpaceProfileName — the shared lookup behind both the rail emoji and
+// the `d` key's ide_command. Emoji-free configs still need a profile name, so
+// these assert the name rather than the emoji it happens to produce.
+// ============================================================================
+
+test('resolveSpaceProfileName returns the persisted profile', t => {
+	const base = tempDir();
+	writeSpaceState('repo', 'STA-20', {profile: 'backend'}, base);
+	const config = makeConfig({
+		profiles: {backend: {display_name: 'Backend'}},
+	});
+	t.is(
+		resolveSpaceProfileName({
+			config,
+			repoName: 'repo',
+			issueKey: 'STA-20',
+			cachedIssue: null,
+			baseDir: base,
+		}),
+		'backend',
+	);
+});
+
+test('resolveSpaceProfileName prefers the persisted profile over a project match', t => {
+	// The case title-keyword matching gets wrong: a space created as `a` whose
+	// issue belongs to `b`'s project must still resolve to `a`.
+	const base = tempDir();
+	writeSpaceState('repo', 'STA-21', {profile: 'a'}, base);
+	const config = makeConfig({
+		profiles: {
+			a: {display_name: 'A'},
+			b: {display_name: 'B', tracker_projects: ['Project B']},
+		},
+	});
+	t.is(
+		resolveSpaceProfileName({
+			config,
+			repoName: 'repo',
+			issueKey: 'STA-21',
+			cachedIssue: makeIssue('Project B'),
+			baseDir: base,
+		}),
+		'a',
+	);
+});
+
+test('resolveSpaceProfileName backfills from a project match and persists it', t => {
+	const base = tempDir();
+	const config = makeConfig({
+		profiles: {
+			backend: {display_name: 'Backend', tracker_projects: ['Project B']},
+		},
+	});
+	t.is(
+		resolveSpaceProfileName({
+			config,
+			repoName: 'repo',
+			issueKey: 'STA-22',
+			cachedIssue: makeIssue('Project B'),
+			baseDir: base,
+		}),
+		'backend',
+	);
+	t.is(readSpaceState('repo', 'STA-22', base)?.profile, 'backend');
+});
+
+test('resolveSpaceProfileName returns undefined with neither signal', t => {
+	const base = tempDir();
+	const config = makeConfig({profiles: {backend: {display_name: 'Backend'}}});
+	t.is(
+		resolveSpaceProfileName({
+			config,
+			repoName: 'repo',
+			issueKey: 'STA-23',
+			cachedIssue: null,
+			baseDir: base,
+		}),
+		undefined,
+	);
+	t.is(readSpaceState('repo', 'STA-23', base), null);
+});
+
+test('resolveSpaceProfileName returns undefined for the main worktree row', t => {
+	const base = tempDir();
+	const config = makeConfig({profiles: {backend: {display_name: 'Backend'}}});
+	t.is(
+		resolveSpaceProfileName({
+			config,
+			repoName: 'repo',
+			issueKey: undefined,
+			cachedIssue: makeIssue('Project B'),
+			baseDir: base,
+		}),
+		undefined,
+	);
 });
