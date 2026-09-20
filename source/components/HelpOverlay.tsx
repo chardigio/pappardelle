@@ -17,7 +17,7 @@ interface Props {
 const defaultKeyDescriptions: Record<string, string> = {
 	g: 'Open PR / MR in browser',
 	i: 'Open issue in browser',
-	d: 'Open IDE (Cursor)',
+	d: 'Open IDE',
 	o: 'Open workspace (apps, links, etc.)',
 	p: 'Git pull',
 	e: 'Show errors',

@@ -33,6 +33,7 @@ Options:
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions, model, effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
+- **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
 Then follow the appropriate section below based on their choice.
 
@@ -342,6 +343,21 @@ companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GI
 `-v` stacks the new pane below, `-d` keeps focus on the top (gitui) pane, `-l 30%` sizes the bottom shell (gitui keeps the other 70%), `-c "#{pane_current_path}"` opens it in the worktree dir. The split runs inside the companion's own tmux session, so it never touches the Claude pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the default — custom commands don't get it for free. Only newly-created workspaces pick up a changed `companion_command` (existing companion sessions persist).
 
 **When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), a split pane (recipe above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
+
+## Configuring the IDE Command
+
+`ide_command` is the shell command the `d` key runs to open an editor on the selected workspace's worktree. It defaults to Cursor.
+
+```yaml
+ide_command: code "${WORKTREE_PATH}" # top-level default for every space
+
+profiles:
+  android:
+    display_name: Android
+    ide_command: studio "${WORKTREE_PATH}" # per-profile override
+```
+
+**When to prompt:** the user doesn't use Cursor, or `d` isn't opening what they expect. Offer the per-profile override when the choice is project-specific. A terminal editor like `vim` won't work — the command is launched detached with no terminal attached.
 
 Available in all command templates, link URLs, and app paths:
 

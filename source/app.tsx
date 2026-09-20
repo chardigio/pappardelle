@@ -29,6 +29,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
+// Spawn errors carry a whole command line; the header only has room for the
+// part that names what went wrong.
+const IDE_ERROR_HEADER_CHARS = 40;
+
 import {
 	claimIssue,
 	getIssueCached,
@@ -75,6 +79,8 @@ import {
 	getListLayout,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
+	getIdeCommand,
+	DEFAULT_IDE_COMMAND,
 	matchProfiles,
 	matchProfileByProject,
 	resolvePendingProfileEmoji,
@@ -128,7 +134,7 @@ import {
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
 } from './space-state.ts';
-import {resolveSpaceEmoji} from './space-emoji.ts';
+import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
 import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
 import {
 	watchHighlightTarget,
@@ -234,6 +240,10 @@ export default function App({
 		setHeaderMessage(msg);
 		headerTimeoutRef.current = setTimeout(() => setHeaderMessage(''), ms);
 	}, []);
+
+	// Identifies the most recent `d` launch so a slow editor's failure can't
+	// overwrite the header of whatever the user did after it.
+	const ideLaunchCounter = useRef(0);
 
 	// Load config once at startup. Used for keybindings, emoji lookup, etc.
 	// May be null if .pappardelle.yml is missing or invalid; downstream lookups
@@ -825,7 +835,7 @@ export default function App({
 		setHeaderWithTimeout(openIssueForKey(space.name).message, 3000);
 	};
 
-	// Open the IDE (Cursor) at the worktree path for the selected space
+	// Open the configured editor at the worktree path for the selected space
 	const handleOpenIDE = () => {
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending) return;
@@ -836,16 +846,60 @@ export default function App({
 			return;
 		}
 
-		const child = spawn('cursor', [worktreePath], {
+		const profileName = resolveSpaceProfileName({
+			config: configMemo,
+			repoName,
+			issueKey: space.name,
+			cachedIssue: space.trackerIssue ?? space.linearIssue ?? null,
+		});
+		const command = configMemo
+			? getIdeCommand(configMemo, profileName)
+			: DEFAULT_IDE_COMMAND;
+
+		// An empty ide_command is the documented way to turn the key off.
+		if (command.trim() === '') {
+			setHeaderWithTimeout('No ide_command configured', 2000);
+			return;
+		}
+
+		const vars = buildWorkspaceTemplateVars(
+			space.name,
+			worktreePath,
+			space.trackerIssue?.title ?? space.linearIssue?.title,
+			configMemo ?? undefined,
+			profileName,
+		);
+
+		const launchId = ++ideLaunchCounter.current;
+		// Unlike every other command template, the vars are not expandTemplate'd
+		// in: bash expands them from the environment after parsing, so a worktree
+		// path containing `$(...)` cannot run as the user.
+		const child = spawn('bash', ['-c', command], {
+			cwd: worktreePath,
 			detached: true,
 			stdio: 'ignore',
+			env: {...process.env, ...vars},
 		});
+
+		// A GUI editor can exit long after launch, so failures are reported by
+		// launch identity instead of a time window: always log, but only touch
+		// the header while this launch is still the most recent one.
+		const reportFailure = (detail: string) => {
+			log.error(`ide_command failed for ${space.name}: ${command} (${detail})`);
+			if (ideLaunchCounter.current === launchId) {
+				setHeaderWithTimeout(`✗ IDE: ${detail}`, 5000);
+			}
+		};
+
 		child.on('error', err => {
-			log.error(`Failed to launch cursor: ${err.message}`, err);
-			setHeaderWithTimeout('Could not launch cursor', 3000);
+			reportFailure(err.message.slice(0, IDE_ERROR_HEADER_CHARS));
 		});
+		child.on('close', code => {
+			if (code !== 0) reportFailure(`exit ${code}`);
+		});
+
 		child.unref();
-		setHeaderWithTimeout(`Opening Cursor for ${space.name}`, 3000);
+		setHeaderWithTimeout(`Opening IDE for ${space.name}`, 3000);
 	};
 
 	// Focus the Claude viewer pane (Enter key)
@@ -955,7 +1009,7 @@ export default function App({
 		const vars = buildWorkspaceTemplateVars(
 			space.name,
 			worktreePath,
-			space.linearIssue?.title,
+			space.trackerIssue?.title ?? space.linearIssue?.title,
 		);
 		const expandedCommand = expandTemplate(kb.run!, vars);
 

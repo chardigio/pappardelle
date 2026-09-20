@@ -24,7 +24,7 @@ import {
 import type {TrackerIssue} from './providers/types.ts';
 import {readSpaceState, writeSpaceState} from './space-state.ts';
 
-export interface ResolveSpaceEmojiArgs {
+export interface ResolveSpaceProfileArgs {
 	config: PappardelleConfig | null;
 	repoName: string;
 	issueKey: string | undefined;
@@ -32,31 +32,39 @@ export interface ResolveSpaceEmojiArgs {
 	baseDir?: string;
 }
 
-export function resolveSpaceEmoji({
+/**
+ * Resolve the profile name for a space, back-filling the persisted value on the
+ * first sighting of a space that predates STA-930 or was added without `idow`.
+ */
+export function resolveSpaceProfileName({
 	config,
 	repoName,
 	issueKey,
 	cachedIssue,
 	baseDir,
-}: ResolveSpaceEmojiArgs): string | undefined {
+}: ResolveSpaceProfileArgs): string | undefined {
+	if (!config || !issueKey) return undefined;
+
+	const persisted = readSpaceState(repoName, issueKey, baseDir)?.profile;
+	if (persisted) return persisted;
+
+	const projectName = cachedIssue?.project?.name;
+	const matched = projectName
+		? matchProfileByProject(config, projectName, cachedIssue?.project?.key)
+		: null;
+	if (!matched) return undefined;
+
+	writeSpaceState(repoName, issueKey, {profile: matched.name}, baseDir);
+	return matched.name;
+}
+
+export function resolveSpaceEmoji(
+	args: ResolveSpaceProfileArgs,
+): string | undefined {
+	const {config} = args;
 	if (!config) return undefined;
 
-	let profileName: string | undefined;
-	if (issueKey) {
-		profileName = readSpaceState(repoName, issueKey, baseDir)?.profile;
-
-		if (!profileName) {
-			const projectName = cachedIssue?.project?.name;
-			const matched = projectName
-				? matchProfileByProject(config, projectName, cachedIssue?.project?.key)
-				: null;
-			if (matched) {
-				writeSpaceState(repoName, issueKey, {profile: matched.name}, baseDir);
-				profileName = matched.name;
-			}
-		}
-	}
-
+	const profileName = resolveSpaceProfileName(args);
 	const profile = profileName ? config.profiles[profileName] : undefined;
 	return getProfileEmoji(profile, config);
 }

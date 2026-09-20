@@ -21,8 +21,10 @@ import {
 	getAutoRemoveWhenDone,
 	getListLayout,
 	getCompanionCommand,
+	getIdeCommand,
 	getStateColors,
 	DEFAULT_COMPANION_COMMAND,
+	DEFAULT_IDE_COMMAND,
 	repoNameFromGitCommonDir,
 	qualifyMainBranch,
 	validateConfig,
@@ -815,6 +817,45 @@ test('buildWorkspaceTemplateVars sets base variables', t => {
 	t.truthy(vars.REPO_ROOT);
 	t.truthy(vars.REPO_NAME);
 	t.truthy(vars.SCRIPT_DIR);
+});
+
+test('buildWorkspaceTemplateVars prefers an explicit profileName over the title match', t => {
+	// The `d` key resolves the profile from space-state, then expands that
+	// profile's ide_command. If the vars came from a keyword match on the title
+	// instead, the command would run with its own profile's vars unset.
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'fix stardust jams bug', // matches stardust-jams
+		templateVarsTestConfig,
+		'pappardelle', // but this is the profile the space was created with
+	);
+	t.is(vars['IOS_APP_DIR'], undefined);
+	t.is(vars['SCHEME'], undefined);
+});
+
+test('buildWorkspaceTemplateVars uses the named profile vars even when the title matches nothing', t => {
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'unrelated title',
+		templateVarsTestConfig,
+		'stardust-jams',
+	);
+	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
+	t.is(vars['SCHEME'], 'stardust-jams');
+});
+
+test('buildWorkspaceTemplateVars falls back to the title match for an unknown profileName', t => {
+	// A stale profile name persisted in space-state must not strip the vars.
+	const vars = buildWorkspaceTemplateVars(
+		'STA-999',
+		'/tmp/worktree',
+		'fix stardust jams bug',
+		templateVarsTestConfig,
+		'deleted_profile',
+	);
+	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
 });
 
 test('buildWorkspaceTemplateVars merges profile vars when title matches', t => {
@@ -3904,6 +3945,123 @@ test('getCompanionCommand uses top-level when the title matches no profile', t =
 	config.companion_command = 'gitui';
 	// "unrelated" matches no keyword, so the backend override must NOT apply.
 	t.is(getCompanionCommand(config, 'unrelated task'), 'gitui');
+});
+
+// ============================================================================
+// ide_command Validation Tests
+// ============================================================================
+
+/* eslint-disable no-template-curly-in-string -- these are shell templates, expanded by bash, not JS */
+const CODE_IDE_COMMAND = 'code "${WORKTREE_PATH}"';
+const IDEA_IDE_COMMAND = 'idea "${WORKTREE_PATH}"';
+/* eslint-enable no-template-curly-in-string */
+
+test('validateConfig accepts top-level ide_command string', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		ide_command: CODE_IDE_COMMAND,
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig accepts an empty-string ide_command (d disabled)', t => {
+	// Rejecting this would be a trap: an invalid key throws from loadConfig, and
+	// the TUI swallows that by running with no config at all.
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		ide_command: '',
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects non-string ide_command', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		ide_command: 42,
+	};
+	const error = t.throws(() => validateConfig(raw));
+	t.truthy(error?.message.includes('ide_command: must be a string'));
+});
+
+test('validateConfig accepts a per-profile ide_command string', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			backend: {display_name: 'Backend', ide_command: 'nvim-qt'},
+		},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig rejects a non-string per-profile ide_command', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			backend: {display_name: 'Backend', ide_command: ['code', '.']},
+		},
+	};
+	const error = t.throws(() => validateConfig(raw));
+	t.truthy(
+		error?.message.includes('profiles.backend.ide_command: must be a string'),
+	);
+});
+
+// ============================================================================
+// getIdeCommand Tests
+// ============================================================================
+
+test('getIdeCommand defaults to Cursor when nothing is configured', t => {
+	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
+	t.is(getIdeCommand(config), DEFAULT_IDE_COMMAND);
+	t.true(getIdeCommand(config).includes('cursor'));
+});
+
+test('getIdeCommand returns the top-level command when set', t => {
+	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
+	config.ide_command = CODE_IDE_COMMAND;
+	t.is(getIdeCommand(config), CODE_IDE_COMMAND);
+});
+
+test('getIdeCommand prefers the named profile override over top-level', t => {
+	const config = createConfig({
+		backend: {
+			...createProfile(['backend'], 'Backend'),
+			ide_command: IDEA_IDE_COMMAND,
+		},
+	});
+	config.ide_command = CODE_IDE_COMMAND;
+	t.is(getIdeCommand(config, 'backend'), IDEA_IDE_COMMAND);
+});
+
+test('getIdeCommand falls back to top-level when the named profile has no override', t => {
+	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
+	config.ide_command = CODE_IDE_COMMAND;
+	t.is(getIdeCommand(config, 'backend'), CODE_IDE_COMMAND);
+});
+
+test('getIdeCommand falls back to top-level for a profile name not in config', t => {
+	// A stale profile name persisted in space-state must not crash or resolve to
+	// some other profile's editor.
+	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
+	config.ide_command = CODE_IDE_COMMAND;
+	t.is(getIdeCommand(config, 'deleted_profile'), CODE_IDE_COMMAND);
+});
+
+test('getIdeCommand preserves an explicit empty top-level command', t => {
+	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
+	config.ide_command = '';
+	t.is(getIdeCommand(config), '');
+});
+
+test('getIdeCommand preserves an explicit empty profile command over a set top-level', t => {
+	const config = createConfig({
+		backend: {...createProfile(['backend'], 'Backend'), ide_command: ''},
+	});
+	config.ide_command = CODE_IDE_COMMAND;
+	t.is(getIdeCommand(config, 'backend'), '');
 });
 
 // ============================================================================
