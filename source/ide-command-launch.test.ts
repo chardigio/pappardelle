@@ -17,9 +17,6 @@ import {DEFAULT_IDE_COMMAND, expandTemplate} from './config.ts';
 /** A worktree path carrying every shell metacharacter that could bite us. */
 const HOSTILE_PATH = '/tmp/$(printf PWNED)/a b`whoami`"q"\'s';
 
-/* eslint-disable-next-line no-template-curly-in-string -- shell syntax, expanded by bash from the environment */
-const QUOTED_WORKTREE_PATH = '"${WORKTREE_PATH}"';
-
 let tempCounter = 0;
 
 function tempDir(): string {
@@ -116,12 +113,4 @@ test('the built-in default survives a worktree path containing spaces', async t 
 	await runIdeCommand(command, {WORKTREE_PATH: spacey});
 
 	t.deepEqual(readArgs(argsFile), [spacey]);
-});
-
-test('DEFAULT_IDE_COMMAND quotes its variable', t => {
-	// Unquoted, a path with spaces would word-split into multiple arguments.
-	t.true(
-		DEFAULT_IDE_COMMAND.includes(QUOTED_WORKTREE_PATH),
-		`the default must quote the worktree path: ${QUOTED_WORKTREE_PATH}`,
-	);
 });

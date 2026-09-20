@@ -24,7 +24,7 @@ import {
 import type {TrackerIssue} from './providers/types.ts';
 import {readSpaceState, writeSpaceState} from './space-state.ts';
 
-export interface ResolveSpaceEmojiArgs {
+export interface ResolveSpaceProfileArgs {
 	config: PappardelleConfig | null;
 	repoName: string;
 	issueKey: string | undefined;
@@ -42,7 +42,7 @@ export function resolveSpaceProfileName({
 	issueKey,
 	cachedIssue,
 	baseDir,
-}: ResolveSpaceEmojiArgs): string | undefined {
+}: ResolveSpaceProfileArgs): string | undefined {
 	if (!config || !issueKey) return undefined;
 
 	const persisted = readSpaceState(repoName, issueKey, baseDir)?.profile;
@@ -59,7 +59,7 @@ export function resolveSpaceProfileName({
 }
 
 export function resolveSpaceEmoji(
-	args: ResolveSpaceEmojiArgs,
+	args: ResolveSpaceProfileArgs,
 ): string | undefined {
 	const {config} = args;
 	if (!config) return undefined;

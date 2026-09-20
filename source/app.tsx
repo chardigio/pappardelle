@@ -29,6 +29,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
+// Spawn errors carry a whole command line; the header only has room for the
+// part that names what went wrong.
+const IDE_ERROR_HEADER_CHARS = 40;
+
 import {
 	claimIssue,
 	getIssueCached,
@@ -867,6 +871,9 @@ export default function App({
 		);
 
 		const launchId = ++ideLaunchCounter.current;
+		// Unlike every other command template, the vars are not expandTemplate'd
+		// in: bash expands them from the environment after parsing, so a worktree
+		// path containing `$(...)` cannot run as the user.
 		const child = spawn('bash', ['-c', command], {
 			cwd: worktreePath,
 			detached: true,
@@ -885,7 +892,7 @@ export default function App({
 		};
 
 		child.on('error', err => {
-			reportFailure(err.message.slice(0, 40));
+			reportFailure(err.message.slice(0, IDE_ERROR_HEADER_CHARS));
 		});
 		child.on('close', code => {
 			if (code !== 0) reportFailure(`exit ${code}`);
