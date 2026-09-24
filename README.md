@@ -421,11 +421,11 @@ npm link                # makes `pappardelle` available globally
 
 Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
 
-| Hook                           | Trigger                             | What it does                                                                  |
-| ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
-| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)         |
-| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                |
+| Hook                           | Trigger                             | What it does                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/<space>.json` for live TUI updates. The space comes from `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>` |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                          |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                 |
 
 ### Versioning and updates
 

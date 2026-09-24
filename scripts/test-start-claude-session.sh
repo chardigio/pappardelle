@@ -86,6 +86,10 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# The session environment names the space, for a Claude started later in the pane
+SPACE_ENV=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_SPACE 2>/dev/null)
+assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY" "$SPACE_ENV"
+
 # Verify session working directory (resolve symlinks for macOS /var → /private/var)
 SESSION_PATH=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -t "$CLAUDE_SESSION" -p '#{pane_current_path}' 2>/dev/null)
 RESOLVED_WORKTREE=$(cd "$WORKTREE_PATH" && pwd -P)

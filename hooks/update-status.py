@@ -58,6 +58,12 @@ def log_debug(message: str, data: Any = None) -> None:
 
 # Get workspace name from cwd (assumes worktree naming convention)
 def get_workspace_name(cwd: Optional[str] = None) -> str:
+    # The space this pane belongs to, set on the tmux session by
+    # start-claude-session.sh. It wins over the cwd: a Claude resumed from
+    # another directory inside the pane still reports under the space shown.
+    space = os.environ.get("PAPPARDELLE_SPACE", "").strip()
+    if space:
+        return space
     if cwd is None:
         try:
             cwd = os.getcwd()
@@ -94,11 +100,13 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
                     if toplevel_result.returncode == 0:
                         repo_name = os.path.basename(toplevel_result.stdout.strip())
                         if repo_name:
-                            return f"{repo_name}-{branch}"
+                            # branch names may carry a slash (user/TICKET-1);
+                            # keep the status file flat
+                            return f"{repo_name}-{branch}".replace("/", "-")
                 except Exception:
                     pass
                 # Fall back to branch only if we can't determine repo name
-                return branch
+                return branch.replace("/", "-")
     except Exception:
         pass
 
