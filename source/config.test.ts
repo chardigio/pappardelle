@@ -2075,6 +2075,10 @@ test('qualifyMainBranch works with main branch', t => {
 	t.is(qualifyMainBranch('pappa-chex', 'main'), 'pappa-chex-main');
 });
 
+test('qualifyMainBranch flattens slashes in branch names', t => {
+	t.is(qualifyMainBranch('repo', 'alice/STA-1'), 'repo-alice-STA-1');
+});
+
 test('qualifyMainBranch works with arbitrary branch names', t => {
 	t.is(qualifyMainBranch('my-repo', 'develop'), 'my-repo-develop');
 });

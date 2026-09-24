@@ -667,3 +667,55 @@ class TestAtomicWrite:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ============================================================================
+# PAPPARDELLE_SPACE (session environment) and slash branches
+# ============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _no_space_env(monkeypatch):
+    """The developer's own shell may run inside a pappardelle pane."""
+    monkeypatch.delenv("PAPPARDELLE_SPACE", raising=False)
+
+
+class TestSpaceEnvironment:
+    def test_space_env_wins_over_worktree_path(self, monkeypatch):
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "STA-42")
+        with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/STA-999"):
+            assert get_workspace_name() == "STA-42"
+
+    def test_space_env_wins_over_main_checkout_cwd(self, monkeypatch):
+        """A Claude resumed from the main checkout inside a space's pane."""
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "STA-42")
+
+        def mock_run(cmd, **kwargs):
+            raise AssertionError("git must not be consulted when the space is known")
+
+        with (
+            patch("os.getcwd", return_value="/Users/x/cs/repo"),
+            patch("subprocess.run", side_effect=mock_run),
+        ):
+            assert get_workspace_name("/Users/x/cs/repo") == "STA-42"
+
+    def test_empty_space_env_falls_back_to_cwd(self, monkeypatch):
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "  ")
+        with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/STA-7"):
+            assert get_workspace_name() == "STA-7"
+
+    def test_slash_in_branch_name_is_flattened(self):
+        """repo-alice/STA-1 would be a nested path, the write must stay flat."""
+
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "alice/STA-1\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/x/cs/myrepo\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
+        with (
+            patch("os.getcwd", return_value="/Users/x/cs/myrepo"),
+            patch("subprocess.run", side_effect=mock_run),
+        ):
+            assert get_workspace_name() == "myrepo-alice-STA-1"

@@ -458,7 +458,9 @@ export function getRepoName(): string {
  * collisions across repos (e.g. "stardust-labs-master" instead of "master").
  */
 export function qualifyMainBranch(repoName: string, branch: string): string {
-	return `${repoName}-${branch}`;
+	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
+	// same way so the status file name stays a single path segment.
+	return `${repoName}-${branch}`.replaceAll('/', '-');
 }
 
 /**

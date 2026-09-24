@@ -109,9 +109,12 @@ PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 # on a long-lived server that inherited its environment from whatever started
 # it, so a plain export would never reach the panes. Claude Code's hooks read
 # it to find the main checkout without walking back out of the worktree.
-SESSION_ENV=()
+# PAPPARDELLE_SPACE names the space the pane belongs to, so a Claude started
+# later in the pane by hand (a restart, `claude --resume` from another
+# directory) still reports its status under this space, not under its cwd.
+SESSION_ENV=(-e "PAPPARDELLE_SPACE=$ISSUE_KEY")
 if [[ -n "${PAPPARDELLE_MAIN_REPO_ROOT:-}" ]]; then
-    SESSION_ENV=(-e "PAPPARDELLE_MAIN_REPO_ROOT=$PAPPARDELLE_MAIN_REPO_ROOT")
+    SESSION_ENV+=(-e "PAPPARDELLE_MAIN_REPO_ROOT=$PAPPARDELLE_MAIN_REPO_ROOT")
 fi
 
 # Pre-trust the worktree directory for Claude Code
