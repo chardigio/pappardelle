@@ -13,10 +13,12 @@ import {
 	getClaudeModel,
 	getCompanionCommand,
 	getDangerouslySkipPermissions,
+	getMainRepoRoot,
 	getRepoName,
 	loadConfig,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {buildSessionEnvArgs} from './spawn-env.ts';
 import {getRegisteredSpaces} from './space-registry.ts';
 import {isSimctlUnavailableError} from './simctl-check.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -2003,6 +2005,21 @@ export function pretrustDirectoryForClaude(
 }
 
 /**
+ * The session environment for a space the TUI makes itself. A failure to find
+ * the main checkout must not stop the session: the hook can still work it out.
+ */
+function spaceSessionEnvArgs(issueKey: string): string[] {
+	let mainRepoRoot: string | undefined;
+	try {
+		mainRepoRoot = getMainRepoRoot();
+	} catch {
+		// Leave it unset
+	}
+
+	return buildSessionEnvArgs(issueKey, mainRepoRoot);
+}
+
+/**
  * Create a claude session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
@@ -2041,6 +2058,7 @@ export function ensureClaudeSession(
 				sessionName,
 				'-c',
 				worktreePath,
+				...spaceSessionEnvArgs(issueKey),
 			]),
 			{encoding: 'utf-8', timeout: 10000},
 		);
@@ -2118,6 +2136,7 @@ export function ensureCompanionSession(
 				sessionName,
 				'-c',
 				worktreePath,
+				...spaceSessionEnvArgs(issueKey),
 			]),
 			{encoding: 'utf-8', timeout: 10000},
 		);

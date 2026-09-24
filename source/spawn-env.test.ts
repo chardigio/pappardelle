@@ -1,5 +1,6 @@
 import test from 'ava';
-import {buildSpawnEnv} from './spawn-env.ts';
+import {buildSessionEnvArgs, buildSpawnEnv} from './spawn-env.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 test('buildSpawnEnv includes PAPPARDELLE_PROJECT_ROOT', t => {
 	const env = buildSpawnEnv('/tmp/fake-project');
@@ -32,4 +33,30 @@ test.serial('buildSpawnEnv omits the main repo root when there is none', t => {
 		if (before !== undefined)
 			process.env['PAPPARDELLE_MAIN_REPO_ROOT'] = before;
 	}
+});
+
+test('buildSessionEnvArgs names the space for an issue space', t => {
+	t.deepEqual(buildSessionEnvArgs('STA-42'), [
+		'-e',
+		'PAPPARDELLE_SPACE=STA-42',
+	]);
+});
+
+test('buildSessionEnvArgs adds the main repo root when given one', t => {
+	t.deepEqual(buildSessionEnvArgs('STA-42', '/tmp/fake-main'), [
+		'-e',
+		'PAPPARDELLE_SPACE=STA-42',
+		'-e',
+		'PAPPARDELLE_MAIN_REPO_ROOT=/tmp/fake-main',
+	]);
+});
+
+test('buildSessionEnvArgs does not name the main space', t => {
+	// The main checkout can change branch while its session lives on, so a
+	// fixed space name would go stale. The hook's cwd logic follows the branch.
+	t.deepEqual(buildSessionEnvArgs(MAIN_WORKTREE_KEY, '/tmp/fake-main'), [
+		'-e',
+		'PAPPARDELLE_MAIN_REPO_ROOT=/tmp/fake-main',
+	]);
+	t.deepEqual(buildSessionEnvArgs(MAIN_WORKTREE_KEY), []);
 });

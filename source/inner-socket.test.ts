@@ -65,6 +65,22 @@ test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
 	);
 });
 
+test('every per-issue new-session carries the space session environment', t => {
+	// A Claude started by hand in the pane reports its status under
+	// PAPPARDELLE_SPACE, so a session the TUI makes must carry it just like one
+	// start-claude-session.sh makes. Without it, the fix from
+	// chardigio/pappardelle#22 holds only until the next reboot.
+	const calls =
+		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"][^\]]*\]/g) ?? [];
+	t.true(calls.length >= 2);
+	for (const call of calls) {
+		t.true(
+			call.includes('...spaceSessionEnvArgs(issueKey)'),
+			`new-session without the space env: ${call}`,
+		);
+	}
+});
+
 test('companion session launches the configurable command, never a hardcoded git UI', t => {
 	// STA-1464: the companion pane runs `companionCommand` (resolved from
 	// config, default gitui) — not a hardcoded tool. Guard against a regression
