@@ -97,11 +97,12 @@ fi
 
 # Check tmux
 if command -v tmux &>/dev/null; then
-    print_status "tmux installed"
+    print_status "$(tmux -V) installed"
 else
     print_warning "tmux not found (needed for pappardelle TUI layout)"
-    print_info "Install with: brew install tmux"
 fi
+print_info "Use a tmux build with the synchronized-output fix; stable 3.7c still flickers."
+print_info "Upgrade and restart instructions: https://github.com/chardigio/pappardelle#tmux-version"
 
 # Check jq
 if command -v jq &>/dev/null; then
