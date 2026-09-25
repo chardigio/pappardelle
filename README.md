@@ -426,6 +426,11 @@ cd pappardelle
 > you later remove that node version (e.g. `nvm uninstall`), the shim falls back to
 > PATH and refuses to run anything below Node 22 — just re-run the installer (or press
 > `U` in the TUI) to re-pin.
+>
+> **No Node 22?** The installer looks for one on PATH and under nvm. If it finds none, it
+> downloads the official Node 22 build into `~/.pappardelle/node/`, checks it against the
+> published checksums, and uses it only for Pappardelle. Your own Node is not changed.
+> Updates build in a staging folder, so a failed update keeps your current install.
 
 **Manual install:**
 

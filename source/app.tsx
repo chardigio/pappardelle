@@ -11,7 +11,7 @@ import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
-import {pappardelleInstallCommand, type UpdateInfo} from './update-check.ts';
+import {updateShellScript, type UpdateInfo} from './update-check.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -360,8 +360,11 @@ export default function App({
 		process.stdout.write('\x1b[?1006l'); // disable SGR mouse
 		process.stdout.write('\x1b[?1000l'); // disable basic mouse
 		process.stdout.write('\x1b[?1049l'); // exit alt screen
-		spawnSync('bash', ['-c', pappardelleInstallCommand()], {
+		// PAPPARDELLE_NODE hands the installer the node this TUI runs on, which
+		// the tmux server's PATH may not contain.
+		spawnSync('bash', ['-c', updateShellScript()], {
 			stdio: 'inherit',
+			env: {...process.env, PAPPARDELLE_NODE: process.execPath},
 		});
 		if (paneLayout) {
 			killSession(`pappardelle-${repoName}`);

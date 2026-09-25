@@ -289,6 +289,32 @@ export function pappardelleInstallCommand(): string {
 	return 'curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash';
 }
 
+/**
+ * The script the `U` update runs. The TUI kills its own tmux session as soon
+ * as the script returns, which takes the pane and any error text with it, so a
+ * failed update used to look like Pappardelle quitting for no reason. On
+ * failure this keeps the pane open until a key press and points at a log that
+ * outlives the pane. `pipefail` keeps the installer's exit status through
+ * `tee`. `read` takes one key because Ink leaves the tty in raw mode, where
+ * Enter never ends a line.
+ */
+export function updateShellScript(
+	installCommand: string = pappardelleInstallCommand(),
+): string {
+	return [
+		'set -o pipefail',
+		'log="$HOME/.pappardelle/logs/update.log"',
+		'mkdir -p "$(dirname "$log")"',
+		`{ ${installCommand}; } 2>&1 | tee "$log"`,
+		'status=$?',
+		'if [ "$status" -ne 0 ]; then',
+		'  printf "\\nThe Pappardelle update failed (exit %s). The log is at %s.\\nPress any key to close.\\n" "$status" "$log"',
+		'  read -rsn1 _ </dev/tty 2>/dev/null',
+		'fi',
+		'exit "$status"',
+	].join('\n');
+}
+
 // Exported only for tests — ensures the test file sees the cache dir constant.
 export const _INTERNAL = {
 	RELEASES_API_URL,
