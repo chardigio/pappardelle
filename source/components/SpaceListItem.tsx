@@ -16,6 +16,7 @@ import {
 	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
+import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
@@ -121,7 +122,7 @@ export default function SpaceListItem({
 	//     two spaces so rows still line up with their emoji-bearing siblings.
 	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
 	//     so multi-cell emoji reserve the right number of cells.
-	const emojiSlot = resolveEmojiSlot(space.profileEmoji);
+	const emojiSlot = resolveEmojiSlot(maybeStripSkinTones(space.profileEmoji));
 	const emoji = emojiSlot?.text;
 	const emojiCells = emoji ? stringWidth(emoji) : 0;
 	const emojiPrefixCells = rowPrefixWidth(
@@ -165,7 +166,10 @@ export default function SpaceListItem({
 		space.pendingTitle ??
 		space.linearIssue?.title ??
 		(shouldShowLoadingTitle(space) ? 'Loading…' : '');
-	const truncatedTitle = truncateToWidth(title, availableTitleWidth);
+	const truncatedTitle = truncateToWidth(
+		maybeStripSkinTones(title),
+		availableTitleWidth,
+	);
 
 	// Issue state color (applied to issue key).
 	// Uses the exact color from the tracker's API so pappardelle always matches,

@@ -4,7 +4,14 @@ import {Box} from 'ink';
 import {render} from 'ink-testing-library';
 import stringWidth from 'string-width';
 import SpaceListItem from './SpaceListItem.tsx';
+import {setTmuxVersionProbeForTests} from '../tmux-skin-tone.ts';
 import type {SpaceData} from '../types.ts';
+
+// These assertions render the emoji as configured. Pin a tmux version that
+// draws skin-tone modifiers correctly so the probe never strips them.
+test.before(() => {
+	setTmuxVersionProbeForTests(() => '3.7c');
+});
 
 const emojis = [
 	'✨',
