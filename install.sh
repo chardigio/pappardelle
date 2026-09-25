@@ -9,7 +9,7 @@
 #   ./install.sh
 #
 # This script:
-# 1. Checks prerequisites (node >= 18, npm, tmux, jq)
+# 1. Checks prerequisites (node >= 22, npm, tmux, jq)
 # 2. Clones or updates chardigio/pappardelle to ~/.pappardelle/repo/
 # 3. Builds and links the npm package (makes `pappardelle` available globally)
 # 4. Symlinks `idow` to ~/.local/bin/
@@ -24,7 +24,6 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -41,7 +40,7 @@ REPO_URL="https://github.com/chardigio/pappardelle.git"
 # Single source of the Node floor: enforced by the preflight below AND baked
 # into the pappardelle shim's runtime guard. node-engine-compat.test.ts fails
 # if this drifts from engines.node in package.json or the README badge.
-MIN_NODE_MAJOR=18
+MIN_NODE_MAJOR=22
 
 # Determine if running from a local clone (the repo already)
 # When run via `curl | bash`, BASH_SOURCE[0] is empty so SCRIPT_DIR becomes ""
@@ -164,7 +163,7 @@ fi
 if [[ ${#MISSING[@]} -gt 0 ]]; then
     echo ""
     print_error "Missing critical prerequisites: ${MISSING[*]}"
-    print_info "Install Node.js 18+: brew install node"
+    print_info "Install Node.js 22+: brew install node"
     exit 1
 fi
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import React from 'react';
-import {render} from 'ink';
+import {renderTui} from './render-tui.ts';
 import meow from 'meow';
 import {execSync, spawnSync} from 'node:child_process';
 import {homedir} from 'node:os';
@@ -373,7 +373,7 @@ const inkStdin = process.stdin.isTTY
 	? createNormalizingStdin(process.stdin)
 	: process.stdin;
 
-render(
+renderTui(
 	<App
 		paneLayout={paneLayout}
 		commitSha={commitSha}
@@ -383,9 +383,3 @@ render(
 	/>,
 	{stdin: inkStdin},
 );
-
-// NOTE: Screen clearing on resize is handled inside app.tsx's resize handler,
-// NOT here. Clearing here (in a separate listener) can race with Ink's render
-// cycle — if clearScreen fires *after* Ink's re-render, the screen stays blank
-// until the next state change. Keeping clear + setTermDimensions in the same
-// handler guarantees a React re-render always follows the clear.

@@ -410,24 +410,14 @@ export default function App({
 		showErrorDialog ||
 		isSearching;
 
-	// Listen for terminal resize events to update dimensions and relayout panes.
-	// Screen clearing lives here (not in cli.tsx) so it's always immediately
-	// followed by setTermDimensions, which guarantees a React re-render after
-	// every clear. A separate listener in cli.tsx would race with Ink's render
-	// cycle — clearScreen could fire *after* Ink paints, leaving a blank screen
-	// with no subsequent state change to trigger a repaint.
+	// Ink owns screen invalidation, including resize. Clearing independently
+	// can expose an empty frame or erase output that Ink has already repainted.
 	useEffect(() => {
 		if (!stdout) return;
 
 		let relayoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 		const handleResize = () => {
-			// Clear artifacts before Ink repaints (must precede setTermDimensions
-			// so the state change guarantees a fresh render after the clear)
-			process.stdout.write('\x1b[2J'); // Clear screen
-			process.stdout.write('\x1b[H'); // Move cursor to home
-			process.stdout.write('\x1b[3J'); // Clear scrollback buffer
-
 			setTermDimensions({
 				rows: stdout.rows ?? 40,
 				cols: stdout.columns ?? 80,
@@ -2064,17 +2054,8 @@ export default function App({
 	}
 
 	return (
-		// Pin the root to the measured terminal height — NOT `height="100%"`.
-		// Ink full-repaints only when the rendered output is at least as tall as
-		// the terminal (build/ink.js: `outputHeight >= stdout.rows` → clearTerminal);
-		// otherwise it uses a cursor-relative log-update diff whose line count goes
-		// stale across the `/`-search pane zoom. `height="100%"` does NOT fill the
-		// screen (Ink never sets the root node's height, so it resolves against
-		// `auto` and collapses to the content height) — so after the zoom grew the
-		// pane and the query filtered the list short, Ink stranded the old rows and
-		// pinned the query + matches to the bottom (STA-1539). A concrete height
-		// keeps outputHeight === stdout.rows, so every paint is a clean full-screen
-		// repaint. See app-fullscreen-height.test.ts + qa-tui.md for the proof.
+		// Keep blank rows in the frame so filtering clears old results after a
+		// search zoom. Ink's incremental renderer only writes rows that change.
 		<Box flexDirection="column" height={termHeight}>
 			{/* Update banner (only shown if an update is available and not dismissed) */}
 			{updateInfo && (

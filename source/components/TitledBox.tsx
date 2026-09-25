@@ -67,18 +67,7 @@ export default function TitledBox({
 					{suffix}
 				</Text>
 			</Box>
-			{/*
-			 * `key` forces a fresh node whenever the border style changes, and it is
-			 * load-bearing: Ink's `applyBorderStyles` guards its top-edge reset with
-			 * `if (style.borderTop !== false)`, so a box like this one — which always
-			 * sets `borderTop={false}` — never gets `setBorder(EDGE_TOP, …)` called
-			 * on restyle. Flip `borderStyle` on the surviving Yoga node and it keeps
-			 * a stale 1-cell top inset, which paints as a blank row between the
-			 * hand-drawn top rule and the first child. Remounting sidesteps it.
-			 * Only reproduces on a *transition*, so static render tests miss it.
-			 */}
 			<Box
-				key={borderStyle}
 				flexDirection="column"
 				width={width}
 				borderStyle={borderStyle}

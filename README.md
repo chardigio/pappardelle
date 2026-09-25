@@ -1,7 +1,7 @@
 # 🦀🍝🦀 Pappardelle 🦀🍝🦀
 
 [![Test](https://github.com/chardigio/pappardelle/actions/workflows/test.yml/badge.svg)](https://github.com/chardigio/pappardelle/actions/workflows/test.yml)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A TUI for multi-clauding without losing your marbles.
@@ -353,7 +353,7 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 | Tool                                                                   | Required | Install                                                            |
 | ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------ |
-| Node.js >= 18                                                          | Yes      | `brew install node`                                                |
+| Node.js >= 22                                                          | Yes      | `brew install node`                                                |
 | npm                                                                    | Yes      | Comes with Node.js                                                 |
 | git                                                                    | Yes      | `brew install git`                                                 |
 | tmux                                                                   | Yes      | `brew install tmux`                                                |
@@ -387,7 +387,7 @@ cd pappardelle
 > verified at install time — PATH in non-interactive shells often differs (nvm/volta
 > don't load there), which used to silently bind the shim to a stale system node. If
 > you later remove that node version (e.g. `nvm uninstall`), the shim falls back to
-> PATH and refuses to run anything below Node 18 — just re-run the installer (or press
+> PATH and refuses to run anything below Node 22 — just re-run the installer (or press
 > `U` in the TUI) to re-pin.
 
 **Manual install:**
