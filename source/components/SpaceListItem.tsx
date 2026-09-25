@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {memo} from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
@@ -21,6 +21,7 @@ import {truncateToWidth} from '../truncate-to-width.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
+import {useAttentionFrame} from '../animation-clock.ts';
 
 interface Props {
 	space: SpaceData;
@@ -45,12 +46,7 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-export default function SpaceListItem({
-	space,
-	isSelected,
-	width,
-	layout,
-}: Props) {
+function SpaceListItem({space, isSelected, width, layout}: Props) {
 	const isTwoLine = layout === 'two_line';
 	const inlineTitle = titleSharesKeyLine({
 		isTwoLine,
@@ -79,18 +75,7 @@ export default function SpaceListItem({
 	// Both approval requests and questions blink, but with different colors
 	const needsAttention = space.claudeStatus === 'waiting_for_approval';
 
-	// Blink state for rows that need attention
-	const [blinkOn, setBlinkOn] = useState(true);
-	useEffect(() => {
-		if (!needsAttention) {
-			setBlinkOn(true);
-			return;
-		}
-		const interval = setInterval(() => {
-			setBlinkOn(prev => !prev);
-		}, 500); // 500ms on/off for noticeable but not annoying blink
-		return () => clearInterval(interval);
-	}, [needsAttention]);
+	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
 
 	// Rail icons: only meaningful when the branch has an open PR. When
 	// `pipeline` is null (no PR, or fetch failed), both the pipeline icon and
@@ -395,3 +380,5 @@ export default function SpaceListItem({
 		</Box>
 	);
 }
+
+export default memo(SpaceListItem);

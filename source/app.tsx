@@ -52,7 +52,7 @@ import {
 	getClaudeStatusInfo,
 	watchStatuses,
 	ensureStatusDir,
-	findSpaceByStatusKey,
+	applyStatusUpdates,
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -187,6 +187,13 @@ export default function App({
 	}, []);
 
 	const [spaces, setSpaces] = useState<SpaceData[]>([]);
+	const spacesRef = useRef(spaces);
+	spacesRef.current = spaces;
+	const statusKeysRef = useRef(new Set<string>());
+	statusKeysRef.current = useMemo(
+		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
+		[spaces],
+	);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
@@ -602,17 +609,10 @@ export default function App({
 
 	// Watch for Claude status changes
 	useEffect(() => {
-		const unwatch = watchStatuses((workspaceName, info) => {
-			setSpaces(prev => {
-				const idx = findSpaceByStatusKey(prev, workspaceName);
-				if (idx === -1) return prev;
-				return prev.map((s, i) =>
-					i === idx
-						? {...s, claudeStatus: info.status, claudeTool: info.tool}
-						: s,
-				);
-			});
-		});
+		const unwatch = watchStatuses(
+			updates => setSpaces(prev => applyStatusUpdates(prev, updates)),
+			workspaceName => statusKeysRef.current.has(workspaceName),
+		);
 
 		return unwatch;
 	}, []);
@@ -1448,8 +1448,6 @@ export default function App({
 	// subsequent polls are throttled to spare gh's per-token rate limit.
 	// Skips the main worktree and pending placeholder rows. Uses spacesRef
 	// so the effect doesn't re-subscribe on every space mutation.
-	const spacesRef = useRef(spaces);
-	spacesRef.current = spaces;
 
 	// Tear down a single space: run pre_workspace_deinit hooks, then remove
 	// from the persisted registry, kill its tmux sessions, clear the viewer
