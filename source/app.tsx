@@ -1362,9 +1362,6 @@ export default function App({
 		};
 	}, [watchlists, configMemo, spawnSession]);
 
-	const spacesRef = useRef(spaces);
-	spacesRef.current = spaces;
-
 	// Tear down a single space: run pre_workspace_deinit hooks, kill its tmux
 	// sessions, remove it from the persisted registry, clear the viewer
 	// panes if it was current, and optimistically prune it from local state.
