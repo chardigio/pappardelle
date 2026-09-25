@@ -135,7 +135,7 @@ import {
 	extractRecapFromJsonl,
 } from './space-state.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
-import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
+import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {
 	watchHighlightTarget,
 	findSpaceIndexByIssueKey,
@@ -1399,12 +1399,6 @@ export default function App({
 		};
 	}, [watchlists]);
 
-	// Rail-status polling — fetch each space's PR pipeline state + unresolved
-	// review-comment count from the VCS host on RAIL_STATUS_POLL_INTERVAL_MS
-	// (60s). First poll fires ~1s after mount so the icons appear quickly;
-	// subsequent polls are throttled to spare gh's per-token rate limit.
-	// Skips the main worktree and pending placeholder rows. Uses spacesRef
-	// so the effect doesn't re-subscribe on every space mutation.
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 
@@ -1591,102 +1585,89 @@ export default function App({
 		}
 	}, [spaces, configMemo, deleteSpace, setHeaderWithTimeout]);
 
-	useEffect(() => {
-		let pollInFlight = false;
-		const vcs = createVcsHost();
+	const vcs = useMemo(() => createVcsHost(), []);
+	const hasRailTargets = spaces.some(
+		s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+	);
+	useRailStatusPolling(hasRailTargets, async () => {
+		try {
+			const targets = spacesRef.current.filter(
+				s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+			);
+			log.debug(
+				`Rail status poll: ${targets.length} target(s) (${targets.map(t => t.name).join(', ')})`,
+			);
 
-		const poll = async () => {
-			if (pollInFlight) return;
-			pollInFlight = true;
-			try {
-				const targets = spacesRef.current.filter(
-					s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
-				);
+			if (targets.length === 0) return;
+
+			// Single bulk GraphQL request for all workspaces — one API call
+			// instead of N parallel calls, avoiding GitHub rate-limit pressure.
+			const lookup = await vcs.getBulkRailStatus(
+				targets.map(t => t.name),
+				new Map(
+					targets
+						.filter(t => t.worktreePath)
+						.map(t => [t.name, t.worktreePath!]),
+				),
+			);
+
+			// Empty Map means total failure (e.g. rate-limited) — keep old state.
+			if (lookup.size === 0) return;
+
+			for (const [name, status] of lookup) {
 				log.debug(
-					`Rail status poll: ${targets.length} target(s) (${targets.map(t => t.name).join(', ')})`,
+					`Rail status ${name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} conflict=${status.hasConflict ?? false} pr=${status.prNumber ?? 'none'}`,
 				);
-
-				if (targets.length === 0) return;
-
-				// Single bulk GraphQL request for all workspaces — one API call
-				// instead of N parallel calls, avoiding GitHub rate-limit pressure.
-				const lookup = await vcs.getBulkRailStatus(
-					targets.map(t => t.name),
-					new Map(
-						targets
-							.filter(t => t.worktreePath)
-							.map(t => [t.name, t.worktreePath!]),
-					),
-				);
-
-				// Empty Map means total failure (e.g. rate-limited) — keep old state.
-				if (lookup.size === 0) return;
-
-				for (const [name, status] of lookup) {
-					log.debug(
-						`Rail status ${name}: pipeline=${status.pipeline} unresolved=${status.unresolvedCommentCount} conflict=${status.hasConflict ?? false} pr=${status.prNumber ?? 'none'}`,
-					);
-				}
-
-				setSpaces(prev =>
-					prev.map(s => {
-						if (s.isMainWorktree || s.isPending) return s;
-						if (!lookup.has(s.name)) return s;
-						const next = lookup.get(s.name);
-						if (!next) return s;
-						const prevRail = s.railStatus;
-						if (
-							prevRail &&
-							prevRail.pipeline === next.pipeline &&
-							prevRail.unresolvedCommentCount === next.unresolvedCommentCount &&
-							prevRail.prNumber === next.prNumber &&
-							(prevRail.hasConflict ?? false) === (next.hasConflict ?? false)
-						) {
-							return s;
-						}
-
-						return {...s, railStatus: next};
-					}),
-				);
-
-				// Persist each space's state (rail-status + recap) so sous-chef
-				// and other consumers can read cached data without re-fetching.
-				// Done in a microtask to keep the render-blocking path tight.
-				const repoName = getRepoName();
-				queueMicrotask(() => {
-					for (const [name, rail] of lookup) {
-						const worktreePath = getWorktreePath(name);
-						const jsonl = worktreePath
-							? findLatestSessionJsonl(worktreePath)
-							: null;
-						const recap = jsonl ? extractRecapFromJsonl(jsonl) : null;
-						writeSpaceState(repoName, name, {
-							pipeline: rail.pipeline,
-							unresolvedCommentCount: rail.unresolvedCommentCount,
-							prNumber: rail.prNumber,
-							hasConflict: rail.hasConflict ?? false,
-							...(recap ? {recap} : {}),
-						});
-					}
-				});
-			} catch (err) {
-				log.warn(
-					'Rail status poll failed',
-					err instanceof Error ? err : undefined,
-				);
-			} finally {
-				pollInFlight = false;
 			}
-		};
 
-		const initialTimer = setTimeout(poll, 1_000);
-		const interval = setInterval(poll, RAIL_STATUS_POLL_INTERVAL_MS);
+			setSpaces(prev =>
+				prev.map(s => {
+					if (s.isMainWorktree || s.isPending) return s;
+					if (!lookup.has(s.name)) return s;
+					const next = lookup.get(s.name);
+					if (!next) return s;
+					const prevRail = s.railStatus;
+					if (
+						prevRail &&
+						prevRail.pipeline === next.pipeline &&
+						prevRail.unresolvedCommentCount === next.unresolvedCommentCount &&
+						prevRail.prNumber === next.prNumber &&
+						(prevRail.hasConflict ?? false) === (next.hasConflict ?? false)
+					) {
+						return s;
+					}
 
-		return () => {
-			clearTimeout(initialTimer);
-			clearInterval(interval);
-		};
-	}, []);
+					return {...s, railStatus: next};
+				}),
+			);
+
+			// Persist each space's state (rail-status + recap) so sous-chef
+			// and other consumers can read cached data without re-fetching.
+			// Done in a microtask to keep the render-blocking path tight.
+			const repoName = getRepoName();
+			queueMicrotask(() => {
+				for (const [name, rail] of lookup) {
+					const worktreePath = getWorktreePath(name);
+					const jsonl = worktreePath
+						? findLatestSessionJsonl(worktreePath)
+						: null;
+					const recap = jsonl ? extractRecapFromJsonl(jsonl) : null;
+					writeSpaceState(repoName, name, {
+						pipeline: rail.pipeline,
+						unresolvedCommentCount: rail.unresolvedCommentCount,
+						prNumber: rail.prNumber,
+						hasConflict: rail.hasConflict ?? false,
+						...(recap ? {recap} : {}),
+					});
+				}
+			});
+		} catch (err) {
+			log.warn(
+				'Rail status poll failed',
+				err instanceof Error ? err : undefined,
+			);
+		}
+	});
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {
