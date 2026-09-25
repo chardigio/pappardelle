@@ -5,6 +5,12 @@ import {createLogger} from '../logger.ts';
 import {classifyPipeline, type CheckContext} from '../rail-status.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
+import {aggregateRailStatus} from './aggregate-rail-status.ts';
+import {
+	discoverWorkspaceRepositories,
+	type RepositoryDiscovery,
+	type WorkspaceRepository,
+} from './workspace-repositories.ts';
 
 const log = createLogger('github-provider');
 const execFileAsync = promisify(execFile);
@@ -134,6 +140,7 @@ export class GitHubProvider implements VcsHostProvider {
 	private repoSlug: string | null | undefined = undefined;
 	private readonly executor: GhExecutor;
 	private readonly syncExecutor: SyncGhExecutor;
+	private readonly discover: RepositoryDiscovery;
 
 	/**
 	 * @param executor - Optional async gh CLI wrapper; defaults to real execFile calls.
@@ -148,7 +155,9 @@ export class GitHubProvider implements VcsHostProvider {
 		executor?: GhExecutor,
 		initialRepoSlug?: string | null,
 		syncExecutor?: SyncGhExecutor,
+		discover: RepositoryDiscovery = discoverWorkspaceRepositories,
 	) {
+		this.discover = discover;
 		this.executor = executor ?? defaultGhExecutor;
 		this.syncExecutor = syncExecutor ?? defaultSyncGhExecutor;
 		if (initialRepoSlug !== undefined) this.repoSlug = initialRepoSlug;
@@ -310,7 +319,18 @@ export class GitHubProvider implements VcsHostProvider {
 
 	async getBulkRailStatus(
 		issueKeys: string[],
+		workspacePaths?: ReadonlyMap<string, string>,
 	): Promise<Map<string, RailStatus>> {
+		if (workspacePaths?.size) {
+			const discovered = await this.getWorkspaceRailStatus(
+				issueKeys.filter(key => workspacePaths.has(key)),
+				workspacePaths,
+			);
+			const fallback = await this.getBulkRailStatus(
+				issueKeys.filter(key => !workspacePaths.has(key)),
+			);
+			return new Map([...discovered, ...fallback]);
+		}
 		const result = new Map<string, RailStatus>();
 		if (issueKeys.length === 0) return result;
 
@@ -376,6 +396,108 @@ export class GitHubProvider implements VcsHostProvider {
 			// Return empty Map — callers keep existing state on total failure
 		}
 
+		return result;
+	}
+
+	private async getWorkspaceRailStatus(
+		issueKeys: string[],
+		workspacePaths: ReadonlyMap<string, string>,
+	): Promise<Map<string, RailStatus>> {
+		const host = process.env['GH_HOST'] ?? 'github.com';
+		const workspaces = new Map<string, string[]>();
+		const repositories = new Map<string, WorkspaceRepository>();
+		for (const issueKey of new Set(issueKeys)) {
+			try {
+				const discovered = await this.discover(
+					workspacePaths.get(issueKey)!,
+					host,
+				);
+				const keys = new Set<string>();
+				for (const repository of discovered) {
+					if (!isValidSlug(repository.project))
+						throw new Error('Invalid GitHub repository slug');
+					const key = JSON.stringify([repository.project, repository.branch]);
+					keys.add(key);
+					repositories.set(key, repository);
+				}
+				workspaces.set(issueKey, [...keys]);
+			} catch (err) {
+				log.warn(
+					'Failed to discover GitHub workspace repositories',
+					sanitizeSubprocessError(err),
+				);
+			}
+		}
+		const statuses = new Map<string, RailStatus>();
+		const requests = [...repositories];
+		if (requests.length > 0) {
+			try {
+				// The head ref finds PRs targeting upstream even when origin is a fork.
+				const fields = requests.map(([, repo], i) => {
+					const [owner, name] = repo.project.split('/');
+					return `pr${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
+						ref(qualifiedName: ${JSON.stringify(`refs/heads/${repo.branch}`)}) {
+							associatedPullRequests(states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}, first: 1) {
+								nodes { ${PR_FIELDS_INNER} }
+							}
+						}
+					}`;
+				});
+				const stdout = await this.executor([
+					'api',
+					'graphql',
+					'--hostname',
+					host,
+					'-f',
+					`query={${fields.join('\n')}}`,
+				]);
+				const parsed = JSON.parse(stdout) as {
+					data?: Record<
+						string,
+						{
+							ref?: {associatedPullRequests?: {nodes?: PrNodeRaw[]}} | null;
+						} | null
+					>;
+					errors?: Array<{message: string; path?: Array<string | number>}>;
+				};
+				if (parsed.errors?.length)
+					log.warn(
+						'Partial GraphQL errors in workspace rail status',
+						new Error(parsed.errors.map(error => error.message).join('; ')),
+					);
+				for (const [i, [key]] of requests.entries()) {
+					const alias = `pr${i}`;
+					if (
+						parsed.errors?.some(
+							error => !error.path?.length || error.path[0] === alias,
+						)
+					)
+						continue;
+					const ref = parsed.data?.[alias]?.ref;
+					const nodes = ref === null ? [] : ref?.associatedPullRequests?.nodes;
+					if (!Array.isArray(nodes)) continue;
+					if (nodes.length === 0) {
+						statuses.set(key, {pipeline: null, unresolvedCommentCount: 0});
+					} else if (Number.isInteger(nodes[0]?.number)) {
+						statuses.set(key, parsePrNode(nodes[0]!));
+					}
+				}
+			} catch (err) {
+				log.warn(
+					'Failed to fetch GitHub workspace rail status',
+					sanitizeSubprocessError(err),
+				);
+			}
+		}
+		const result = new Map<string, RailStatus>();
+		for (const [issueKey, keys] of workspaces) {
+			// Do not replace a workspace with an incomplete view of its repositories.
+			if (keys.some(key => !statuses.has(key))) continue;
+			result.set(
+				issueKey,
+				aggregateRailStatus(keys.map(key => statuses.get(key)!)),
+			);
+		}
 		return result;
 	}
 }

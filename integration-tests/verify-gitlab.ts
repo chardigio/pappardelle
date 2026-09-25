@@ -3,15 +3,19 @@
  * Local verification script for GitLabProvider against a real GitLab instance.
  * NOT an ava test — run manually with `npx tsx integration-tests/verify-gitlab.ts`
  *
- * Must be run from inside a git repo with a GitLab remote, or specify GITLAB_HOST.
+ * Must be run from inside a git repo with a GitLab remote.
+ * Rail status is compared with REST data for an existing open MR.
  *
  * Env vars:
  *   GITLAB_HOST    — self-hosted GitLab host (default: gitlab.com)
- *   GITLAB_ISSUE   — branch/issue key to check for MRs (required)
+ *   GITLAB_ISSUE   — exact source branch of an open MR (required)
  *   GITLAB_MR      — known MR number to test buildPRUrl (default: auto-detected)
  */
 
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {GitLabProvider} from '../source/providers/gitlab-provider.ts';
+import type {RailStatus} from '../source/providers/types.ts';
 
 const HOST = process.env['GITLAB_HOST'];
 const ISSUE_KEY = process.env['GITLAB_ISSUE'];
@@ -47,7 +51,77 @@ function info(label: string, value: unknown) {
 	console.log(`  ${label}: ${JSON.stringify(value)}`);
 }
 
-function main() {
+async function verifyRail(
+	provider: GitLabProvider,
+	issueKey: string,
+	mrNumber: number,
+) {
+	const api = (endpoint: string) =>
+		JSON.parse(
+			execFileSync(
+				'glab',
+				['api', endpoint, ...(HOST ? ['--hostname', HOST] : [])],
+				{encoding: 'utf-8', timeout: 15_000},
+			),
+		);
+	const mr = api(`projects/:id/merge_requests/${mrNumber}`) as {
+		iid: number;
+		state: string;
+		source_branch: string;
+		detailed_merge_status: string;
+		head_pipeline: {status: string} | null;
+	};
+	assert.equal(mr.state, 'opened', 'Rail verification requires an open MR');
+	assert.equal(mr.source_branch, issueKey);
+	let unresolved = 0;
+	for (let page = 1; ; page++) {
+		const discussions = api(
+			`projects/:id/merge_requests/${mrNumber}/discussions?per_page=100&page=${page}`,
+		) as Array<{
+			notes: Array<{resolvable: boolean; resolved: boolean}>;
+		}>;
+		unresolved += discussions.filter(thread =>
+			thread.notes.some(note => note.resolvable && !note.resolved),
+		).length;
+		if (discussions.length < 100) break;
+	}
+	const statuses: Record<string, RailStatus['pipeline']> = {
+		success: 'passing',
+		skipped: 'passing',
+		failed: 'failing',
+		canceled: 'failing',
+	};
+	const expected: RailStatus = {
+		pipeline: mr.head_pipeline
+			? (statuses[mr.head_pipeline.status] ?? 'progressing_clean')
+			: null,
+		prNumber: mr.iid,
+		hasConflict: mr.detailed_merge_status === 'conflict',
+		unresolvedCommentCount: unresolved,
+	};
+	const missing = 'pappardelle-verification-nonexistent-999999';
+	const bulk = await provider.getBulkRailStatus([issueKey, missing]);
+	assert.deepEqual(
+		bulk.get(issueKey),
+		expected,
+		'Bulk rail must match REST data',
+	);
+	assert.deepEqual(bulk.get(missing), {
+		pipeline: null,
+		unresolvedCommentCount: 0,
+	});
+	assert.deepEqual(
+		await provider.getRailStatus(issueKey),
+		expected,
+		'Single rail must match REST data',
+	);
+	info('rail status (verified against REST)', expected);
+	pass(
+		'Single and bulk rail status match REST; missing branch has empty status',
+	);
+}
+
+async function main() {
 	console.log('GitLab Provider — Local Verification');
 	console.log(`Host: ${HOST ?? 'gitlab.com'}`);
 	console.log(`Issue key: ${ISSUE_KEY}`);
@@ -109,6 +183,9 @@ function main() {
 		fail(`URL format unexpected — expected ${expectedHost} and merge_requests`);
 	}
 
+	header('Rail status');
+	await verifyRail(provider, ISSUE_KEY!, mrNumber);
+
 	// ── Summary ───────────────────────────────────────────────
 	header('Summary');
 	if (failed) {
@@ -119,4 +196,9 @@ function main() {
 	}
 }
 
-main();
+try {
+	await main();
+} catch (error) {
+	console.error(error);
+	process.exitCode = 1;
+}

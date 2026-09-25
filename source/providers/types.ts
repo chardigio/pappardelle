@@ -153,5 +153,8 @@ export interface VcsHostProvider {
 	 * failure (e.g. rate-limited), returns an empty Map so callers
 	 * can preserve existing state.
 	 */
-	getBulkRailStatus(issueKeys: string[]): Promise<Map<string, RailStatus>>;
+	getBulkRailStatus(
+		issueKeys: string[],
+		workspacePaths?: ReadonlyMap<string, string>,
+	): Promise<Map<string, RailStatus>>;
 }
