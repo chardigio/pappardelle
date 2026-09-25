@@ -60,3 +60,28 @@ export function filterByKeyPrefixes(
 		prefixSet.has(issueKeyPrefix(issue.identifier).toUpperCase()),
 	);
 }
+
+/**
+ * Identifies a watchlist in the slot-reservation sidecar. The `profile:` prefix
+ * keeps a profile that happens to be named "top-level" from sharing the
+ * top-level watchlist's slots.
+ */
+export function watchlistSourceId(profileName: string | null): string {
+	return profileName === null ? 'top-level' : `profile:${profileName}`;
+}
+
+/**
+ * Oldest issue first. Issues without a parseable `createdAt` go last and keep
+ * the tracker's order among themselves — the Jira provider already returns
+ * them oldest first.
+ */
+export function sortIssuesByCreatedAt(issues: TrackerIssue[]): TrackerIssue[] {
+	return [...issues].sort((a, b) => {
+		const aTime = Date.parse(a.createdAt ?? '');
+		const bTime = Date.parse(b.createdAt ?? '');
+		if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+		if (Number.isNaN(aTime)) return 1;
+		if (Number.isNaN(bTime)) return -1;
+		return aTime - bTime;
+	});
+}

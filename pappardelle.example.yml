@@ -79,6 +79,7 @@ team_prefix: ENG
 #     - pappardelle
 #   key_prefixes:           # Optional: only watch these key prefixes (e.g. ENG-*, not WAB-*)
 #     - ENG
+#   max_workspaces: 5       # Optional: most workspaces this watchlist keeps open at once
 
 # Command run in the companion pane (the right pane, next to Claude).
 # Defaults to gitui. Set it to any shell command — a different git UI, a dev
@@ -159,6 +160,7 @@ profiles:
     #   assignee: me
     #   statuses:
     #     - For Pappardelle
+    #   max_workspaces: 2   # Optional: separate from the top-level cap
     # Per-profile Jira issue type override (optional).
     # Falls back to issue_tracker.default_issue_type, then "Task".
     # jira:

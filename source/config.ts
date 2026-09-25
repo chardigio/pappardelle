@@ -112,6 +112,12 @@ export interface IssueWatchlistConfig {
 	 * behavior.
 	 */
 	key_prefixes?: string[];
+	/**
+	 * Most workspaces this watchlist may have open at once, counting ones it
+	 * spawned that are still registered or still spawning. Closing one frees
+	 * its slot; a status change does not. Omit for no limit.
+	 */
+	max_workspaces?: number;
 }
 
 export interface TerminalConfig {
@@ -1164,6 +1170,13 @@ function validateIssueWatchlist(value: unknown, prefix: string): string[] {
 					errors.push(`${prefix}.key_prefixes[${i}]: must not be empty`);
 				}
 			}
+		}
+	}
+
+	if (wl['max_workspaces'] !== undefined) {
+		const max = wl['max_workspaces'];
+		if (typeof max !== 'number' || !Number.isInteger(max) || max < 1) {
+			errors.push(`${prefix}.max_workspaces: must be an integer >= 1`);
 		}
 	}
 

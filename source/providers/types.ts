@@ -31,6 +31,12 @@ export interface TrackerIssue {
 	// reconstruction because it embeds the correct workspace slug (Linear) and
 	// the actual issue slug suffix.
 	url?: string;
+	/**
+	 * ISO 8601 creation time. Capped watchlists spawn the oldest issues first.
+	 * Jira leaves it unset because `acli workitem search` can't return the
+	 * `created` field; its watchlist query sorts server-side instead.
+	 */
+	createdAt?: string;
 }
 
 /**

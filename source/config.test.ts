@@ -5270,3 +5270,60 @@ test('validateConfig rejects a non-object list_view', t => {
 	);
 	t.truthy(error?.message.includes('list_view: must be an object'));
 });
+
+// ============================================================================
+// issue_watchlist max_workspaces Validation Tests (STE-25)
+// ============================================================================
+
+test('validateConfig accepts max_workspaces on top-level and profile watchlists', t => {
+	const raw = {
+		version: 1,
+		profiles: {
+			chaz: {
+				display_name: 'X',
+				issue_watchlist: {statuses: ['For Pappardelle'], max_workspaces: 1},
+			},
+		},
+		issue_watchlist: {statuses: ['To Do'], max_workspaces: 5},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+for (const bad of [0, -1, 1.5, '5']) {
+	test(`validateConfig rejects max_workspaces: ${JSON.stringify(bad)}`, t => {
+		const raw = {
+			version: 1,
+			profiles: {
+				chaz: {
+					display_name: 'X',
+					issue_watchlist: {statuses: ['To Do'], max_workspaces: bad},
+				},
+			},
+			issue_watchlist: {statuses: ['To Do'], max_workspaces: bad},
+		};
+		const error = t.throws(() => validateConfig(raw), {
+			instanceOf: ConfigValidationError,
+		});
+		t.truthy(
+			error?.message.includes(
+				'issue_watchlist.max_workspaces: must be an integer >= 1',
+			),
+		);
+		t.truthy(
+			error?.message.includes(
+				'profiles.chaz.issue_watchlist.max_workspaces: must be an integer >= 1',
+			),
+		);
+	});
+}
+
+test('getResolvedWatchlists keeps max_workspaces on an auto-scoped profile watchlist', t => {
+	const chaz: Profile = {
+		display_name: 'Charlie Personal',
+		team_prefix: 'CHAZ',
+		issue_watchlist: {statuses: ['For Pappardelle'], max_workspaces: 3},
+	};
+	const resolved = getResolvedWatchlists(createConfig({chaz}, 'chaz'));
+	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
+	t.is(resolved[0]!.watchlist.max_workspaces, 3);
+});

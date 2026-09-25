@@ -1076,6 +1076,53 @@ test('searchAssignedIssues uses quoted assignee for explicit usernames', async t
 	);
 });
 
+for (const assignee of ['me', undefined]) {
+	test(`searchAssignedIssues orders by creation date (assignee: ${String(assignee)})`, async t => {
+		const calls: string[][] = [];
+		const exec: CliExecutor = async (_cmd, args) => {
+			calls.push(args);
+			return '[]';
+		};
+
+		const provider = new JiraProvider(
+			'https://example.com',
+			exec,
+			noopSleep,
+			tempCache(),
+		);
+		await provider.searchAssignedIssues(assignee, ['To Do']);
+
+		const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
+		t.true(jql.endsWith(' ORDER BY created DESC'), `unexpected JQL: ${jql}`);
+	});
+}
+
+test('searchAssignedIssues returns the newest-first page oldest first', async t => {
+	const exec: CliExecutor = async () =>
+		JSON.stringify(
+			['STE-30', 'STE-20', 'STE-10'].map(key => ({
+				key,
+				fields: {
+					summary: key,
+					status: {name: 'To Do', statusCategory: {key: 'new'}},
+				},
+			})),
+		);
+
+	const provider = new JiraProvider(
+		'https://example.com',
+		exec,
+		noopSleep,
+		tempCache(),
+	);
+	const result = await provider.searchAssignedIssues('me', ['To Do']);
+
+	t.deepEqual(
+		result.map(issue => issue.identifier),
+		['STE-10', 'STE-20', 'STE-30'],
+	);
+});
+
 test('searchAssignedIssues returns empty array when acliMissing', async t => {
 	const exec: CliExecutor = async () => {
 		throw makeEnoentError();
@@ -1139,9 +1186,10 @@ test('searchAssignedIssues skips malformed issues without discarding valid ones'
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
 
 	// Should get both valid issues, skipping the null entry that causes mapJiraIssue to throw
+	// (results come back reversed: acli returns newest first)
 	t.is(result.length, 2);
-	t.is(result[0]!.identifier, 'CHEX-1');
-	t.is(result[1]!.identifier, 'CHEX-3');
+	t.is(result[0]!.identifier, 'CHEX-3');
+	t.is(result[1]!.identifier, 'CHEX-1');
 });
 
 test('searchAssignedIssues escapes double quotes in assignee', async t => {
