@@ -1610,7 +1610,14 @@ export default function App({
 
 				// Single bulk GraphQL request for all workspaces — one API call
 				// instead of N parallel calls, avoiding GitHub rate-limit pressure.
-				const lookup = await vcs.getBulkRailStatus(targets.map(t => t.name));
+				const lookup = await vcs.getBulkRailStatus(
+					targets.map(t => t.name),
+					new Map(
+						targets
+							.filter(t => t.worktreePath)
+							.map(t => [t.name, t.worktreePath!]),
+					),
+				);
 
 				// Empty Map means total failure (e.g. rate-limited) — keep old state.
 				if (lookup.size === 0) return;

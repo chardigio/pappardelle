@@ -673,6 +673,19 @@ vcs_host:
   host: gitlab.mycompany.com # Optional, defaults to gitlab.com
 ```
 
+The GitLab status rail discovers the workspace repo and nested Git checkouts
+(including `src/<repo>`) up to three directory levels below the workspace. It
+uses each checkout's `origin` project and current branch, so branch names do not
+have to match the issue key. Only remotes on the configured GitLab host are queried.
+Symlinks, hidden directories, dependency/build directories, and detached checkouts
+are skipped.
+
+Matching MRs are fetched in one batched request and cached per project and branch
+for 60 seconds. The rail sums unresolved discussions, flags any merge conflict,
+and combines pipeline states across the repos. Additional discussion pages are
+fetched when needed. If a repo lookup fails, the workspace keeps its previous
+status until a complete result is available.
+
 ### Backwards Compatibility
 
 Omitting `issue_tracker` and `vcs_host` defaults to Linear + GitHub. Existing configs that don't specify these fields continue to work unchanged.
