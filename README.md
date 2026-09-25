@@ -388,19 +388,19 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 ### Prerequisites
 
-| Tool                                                                   | Required | Install                                                            |
-| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------ |
-| Node.js >= 22                                                          | Yes      | `brew install node`                                                |
-| npm                                                                    | Yes      | Comes with Node.js                                                 |
-| git                                                                    | Yes      | `brew install git`                                                 |
-| tmux with synchronized-output fix                                      | Yes      | [Preview upgrade instructions](#tmux-version)                      |
-| jq                                                                     | Yes      | `brew install jq`                                                  |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                  |
-| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)   |
-| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
-| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
-| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
-| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                             |
+| Tool                                                                   | Required | Install                                                                              |
+| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| Node.js >= 22                                                          | Yes      | `brew install node`                                                                  |
+| npm                                                                    | Yes      | Comes with Node.js                                                                   |
+| git                                                                    | Yes      | `brew install git`                                                                   |
+| tmux                                                                   | Yes      | `brew install tmux`; [build with synchronized-output fix recommended](#tmux-version) |
+| jq                                                                     | Yes      | `brew install jq`                                                                    |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                                    |
+| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)                     |
+| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                                       |
+| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                                     |
+| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira)                   |
+| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                                               |
 
 ### Manual installation
 

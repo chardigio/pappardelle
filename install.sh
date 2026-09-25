@@ -97,12 +97,17 @@ fi
 
 # Check tmux
 if command -v tmux &>/dev/null; then
-    print_status "$(tmux -V) installed"
+    TMUX_VERSION="$(tmux -V)"
+    print_status "$TMUX_VERSION installed"
+    if [[ $TMUX_VERSION =~ ([0-9]+)\.([0-9]+) ]] && \
+       (( BASH_REMATCH[1] < 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] <= 7) )); then
+        print_info "Use a tmux build with the synchronized-output fix; stable 3.7c still flickers."
+        print_info "Upgrade and restart instructions: https://github.com/chardigio/pappardelle#tmux-version"
+    fi
 else
     print_warning "tmux not found (needed for pappardelle TUI layout)"
+    print_info "Install with: brew install tmux"
 fi
-print_info "Use a tmux build with the synchronized-output fix; stable 3.7c still flickers."
-print_info "Upgrade and restart instructions: https://github.com/chardigio/pappardelle#tmux-version"
 
 # Check jq
 if command -v jq &>/dev/null; then
