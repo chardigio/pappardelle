@@ -97,8 +97,109 @@ test.serial(
 				run: fake.run,
 			}),
 		);
-		t.is(fake.calls.filter(args => args.includes('switch-client')).length, 2);
+		t.deepEqual(
+			fake.calls.map(args => args.includes('switch-client')),
+			[true, false],
+		);
+		t.true(fake.calls[0]!.includes(';'));
 		t.is(getCurrentlyViewingSpace(), 'TEST-A');
+	},
+);
+
+test.serial(
+	'warm switches move both viewers in one request without setup probes',
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+				run: fake.run,
+			}),
+		);
+		t.is(fake.calls.length, 2);
+		const batch = fake.calls[0]!;
+		t.deepEqual(batch.slice(0, 6), [
+			'-L',
+			'pappardelle_inner',
+			'switch-client',
+			'-c',
+			'/dev/claude',
+			'-t',
+		]);
+		t.true(batch[6]!.startsWith('=claude-'));
+		t.true(batch[6]!.endsWith('-TEST-B'));
+		t.deepEqual(batch.slice(7, 12), [
+			';',
+			'switch-client',
+			'-c',
+			'/dev/companion',
+			'-t',
+		]);
+		t.true(batch[12]!.startsWith('=companion-'));
+		t.true(batch[12]!.endsWith('-TEST-B'));
+		t.deepEqual(fake.calls[1], ['select-pane', '-t', '%0']);
+	},
+);
+
+test.serial(
+	'an invalid warm cache falls back and retries both viewers after a partial batch',
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		const run: AsyncTmuxRunner = async args => {
+			const output = await fake.run(args);
+			if (args.includes(';')) throw new Error('second client disappeared');
+			if (args[0] === 'display-message') {
+				return args[3] === '%1' ? '/dev/new-claude' : '/dev/new-companion';
+			}
+			if (args.includes('list-clients')) {
+				return '/dev/new-claude\n/dev/new-companion\n';
+			}
+			return output;
+		};
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+				run,
+			}),
+		);
+		const retries = fake.calls.filter(
+			args => args.includes('switch-client') && !args.includes(';'),
+		);
+		t.is(retries.length, 2);
+		t.deepEqual(
+			retries.map(args => args[4]),
+			['/dev/new-claude', '/dev/new-companion'],
+		);
+		t.true(retries.every(args => args.at(-1)!.endsWith('-TEST-B')));
+		t.is(getCurrentlyViewingSpace(), 'TEST-B');
+	},
+);
+
+test.serial(
+	'replaced viewer panes invalidate TTYs even for the same selected workspace',
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		t.true(
+			await attachToSpace('%3', '', 'TEST-A', '%0', undefined, undefined, {
+				run: fake.run,
+			}),
+		);
+		t.true(
+			fake.calls.some(
+				args => args[0] === 'display-message' && args[3] === '%3',
+			),
+		);
+		t.false(fake.calls.some(args => args.includes(';')));
 	},
 );
 

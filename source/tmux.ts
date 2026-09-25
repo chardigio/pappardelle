@@ -114,6 +114,7 @@ let companionViewerHasClient = false;
 // Cache pane TTYs for fast client switching
 let claudeViewerTty: string | null = null;
 let companionViewerTty: string | null = null;
+let viewerPaneIds: string | null = null;
 
 /**
  * Ticket-rail width the user set by hand, or null while the derived width
@@ -387,7 +388,7 @@ async function switchClientToSession(
 	run: AsyncTmuxRunner,
 ): Promise<void> {
 	await run(
-		innerTmuxArgs(['switch-client', '-c', clientTty, '-t', sessionName]),
+		innerTmuxArgs(['switch-client', '-c', clientTty, '-t', `=${sessionName}`]),
 	);
 	log.debug(`Switched client ${clientTty} to session ${sessionName}`);
 }
@@ -1304,11 +1305,51 @@ export async function attachToSpace(
 		return output;
 	};
 	if (signal?.aborted) return false;
+	const paneIds = JSON.stringify([claudeViewerPaneId, companionViewerPaneId]);
+	if (viewerPaneIds !== paneIds) {
+		clearCurrentlyViewingSpace();
+		viewerPaneIds = paneIds;
+	}
 	if (currentlyViewingSpace === issueKey) return true;
 	// An interrupted switch may have moved only one pane. Never let the
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
+	if (
+		claudeViewerHasClient &&
+		claudeViewerTty &&
+		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
+	) {
+		try {
+			const commands = [
+				'switch-client',
+				'-c',
+				claudeViewerTty,
+				'-t',
+				`=${sessions.claude}`,
+			];
+			if (companionViewerPaneId) {
+				commands.push(
+					';',
+					'switch-client',
+					'-c',
+					companionViewerTty!,
+					'-t',
+					`=${sessions.companion}`,
+				);
+			}
+			// Existing clients can switch directly. tmux validates both targets;
+			// an exited client or missing session falls back to setup below.
+			await run(innerTmuxArgs(commands));
+			if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+			currentlyViewingSpace = issueKey;
+			return true;
+		} catch {
+			if (signal?.aborted) return false;
+			clearCurrentlyViewingSpace();
+			viewerPaneIds = paneIds;
+		}
+	}
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
 	let launch: ClaudeLaunchOptions = {};
@@ -1421,7 +1462,7 @@ async function innerSessionExistsAsync(
 	run: AsyncTmuxRunner,
 ): Promise<boolean> {
 	try {
-		await run(innerTmuxArgs(['has-session', '-t', session]));
+		await run(innerTmuxArgs(['has-session', '-t', `=${session}`]));
 		return true;
 	} catch (error) {
 		if (error instanceof Error && error.name === 'AbortError') throw error;
@@ -1458,6 +1499,11 @@ export function getCurrentlyViewingSpace(): string | null {
  */
 export function clearCurrentlyViewingSpace(): void {
 	currentlyViewingSpace = null;
+	claudeViewerHasClient = false;
+	companionViewerHasClient = false;
+	claudeViewerTty = null;
+	companionViewerTty = null;
+	viewerPaneIds = null;
 }
 
 /**
