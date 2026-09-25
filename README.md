@@ -126,6 +126,8 @@ A "no server running" message is harmless. Closing only the Pappardelle window l
 
 Pappardelle works with any tmux configuration, but these settings improve the experience — mouse support, Ctrl+Shift+arrow pane navigation, and a clean status bar. See [`examples/tmux.conf`](examples/tmux.conf) and append to your `~/.tmux.conf`. If you don't have one yet:
 
+The file also turns on tmux's extended keys. Without them Shift+Enter (newline in Claude Code) arrives in the panes as a plain Enter. tmux reads `~/.tmux.conf` at server start only, and Pappardelle runs two servers, the TUI one and `pappardelle_inner` for the Claude and companion sessions, so after editing reload both: `tmux source-file ~/.tmux.conf` and `tmux -L pappardelle_inner source-file ~/.tmux.conf`.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/tmux.conf -o ~/.tmux.conf
 ```
