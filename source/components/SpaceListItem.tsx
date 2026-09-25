@@ -15,7 +15,8 @@ import {
 	twoLineTitleIndent,
 	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
-import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
+import {resolveEmojiSlot} from '../emoji-rail-width.ts';
+import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
@@ -31,15 +32,6 @@ interface Props {
 interface PipelineIconStyle {
 	color: string;
 	icon: string;
-}
-
-/**
- * Width to hand a Box that will be widened by `pad` cells at render time.
- * `undefined` — Ink's "take the full width" — when nothing expands, which keeps
- * the common row byte-identical to what it rendered before the emoji rail.
- */
-function shrinkBy(width: number, pad: number): number | undefined {
-	return pad > 0 ? Math.max(0, width - pad) : undefined;
 }
 
 /** Single-color pipeline icons. `progressing_dirty` is rendered specially
@@ -130,17 +122,12 @@ export default function SpaceListItem({
 	//     two spaces so rows still line up with their emoji-bearing siblings.
 	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
 	//     so multi-cell emoji reserve the right number of cells.
-	const emojiSlot = resolveEmojiSlot(space.profileEmoji);
+	const emojiSlot = resolveEmojiSlot(maybeStripSkinTones(space.profileEmoji));
 	const emoji = emojiSlot?.text;
 	const emojiCells = emoji ? stringWidth(emoji) : 0;
 	const emojiPrefixCells = rowPrefixWidth(
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
-	// Whether to emit our own separator space after the emoji. For most emoji
-	// we do, but for single-BMP default-emoji symbols (✨ ⭐ ✅ …) Ink draws
-	// the glyph one cell narrower than `string-width` reserved and pads the box
-	// with a trailing space. That pad already separates the emoji from the
-	// status icon, so emitting a second space here would double it (STA-1565).
 	const emojiNeedsSeparator = emojiSlot?.needsSeparator ?? false;
 
 	// Calculate available width for title
@@ -179,44 +166,10 @@ export default function SpaceListItem({
 		space.pendingTitle ??
 		space.linearIssue?.title ??
 		(shouldShowLoadingTitle(space) ? 'Loading…' : '');
-	// The crux of STA-1565. A bare-BMP default-emoji symbol (✨ ⭐ ✅) is laid
-	// out by Ink one cell narrower than the terminal actually renders it, so the
-	// terminal expands every such glyph by a cell *beyond* Ink's layout, both
-	// in the prefix and anywhere in the title. Two consequences, both handled
-	// here:
-	//   1. Truncate the title by *display width* (`truncateToWidth`), not UTF-16
-	//      code units, then trim it the extra cell each kept emoji will expand by
-	//      so it still fits its budget once rendered.
-	//   2. Shrink the whole row by the row's total expansion (`rowInkPad`) so the
-	//      right-aligned rail anchors that many columns in from the edge. Without
-	//      this the rail's flex spacer refills to the full width in Ink's model
-	//      and the terminal expansion pushes the rail icons onto the next line.
-	// The prefix emoji is normalized by `resolveEmojiSlot` (STA-1861), so it no
-	// longer expands past its layout, and the slot reports what's left, which is 0
-	// for every glyph a variation selector can rescue. Titles are arbitrary user
-	// text and get no such treatment, so they still expand and still need (2).
-	const prefixInkPad = emojiSlot?.overflowCells ?? 0;
-	// The emoji only shares a line with the title when the title is inline; on a
-	// dedicated title row its expansion can't eat into that row.
-	const titlePrefixInkPad = inlineTitle ? prefixInkPad : 0;
-	let truncatedTitle = truncateToWidth(
-		title,
-		availableTitleWidth - titlePrefixInkPad,
+	const truncatedTitle = truncateToWidth(
+		maybeStripSkinTones(title),
+		availableTitleWidth,
 	);
-	const firstTitleInkPad = inkRenderPad(truncatedTitle);
-	if (firstTitleInkPad > 0) {
-		truncatedTitle = truncateToWidth(
-			title,
-			availableTitleWidth - titlePrefixInkPad - firstTitleInkPad,
-		);
-	}
-	const titleInkPad = inkRenderPad(truncatedTitle);
-	const rowInkPad = titlePrefixInkPad + titleInkPad;
-	const rowWidth = shrinkBy(width, rowInkPad);
-	// On a shared row the key line carries the whole row's expansion; on its own
-	// row it only carries the prefix emoji's, and the title row carries the rest.
-	const keyLineWidth = inlineTitle ? rowWidth : shrinkBy(width, prefixInkPad);
-	const titleLineWidth = inlineTitle ? undefined : shrinkBy(width, titleInkPad);
 
 	// Issue state color (applied to issue key).
 	// Uses the exact color from the tracker's API so pappardelle always matches,
@@ -337,7 +290,7 @@ export default function SpaceListItem({
 	);
 
 	const keyLine = (
-		<Box width={keyLineWidth} overflowX="hidden">
+		<Box overflowX="hidden">
 			<Box flexShrink={0}>
 				{emoji ? (
 					<>
@@ -427,7 +380,7 @@ export default function SpaceListItem({
 	return (
 		<Box flexDirection="column">
 			{keyLine}
-			<Box width={titleLineWidth} overflowX="hidden">
+			<Box overflowX="hidden">
 				<Box flexShrink={0}>
 					<Text inverse={useBlinkInverse} color={textColor}>
 						{' '.repeat(twoLineIndent)}

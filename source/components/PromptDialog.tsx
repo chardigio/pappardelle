@@ -6,6 +6,7 @@ import TitledBox from './TitledBox.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
 import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
+import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {
 	getRepoRoot,
 	loadConfig,
@@ -492,7 +493,7 @@ function ProfilePicker({
 						// Same slot the ticket rail uses, so a profile wears the same
 						// glyph wherever it appears. Sits right of the selection caret
 						// (which owns column 0 for every row) and left of the label.
-						const slot = resolveEmojiSlot(option.emoji);
+						const slot = resolveEmojiSlot(maybeStripSkinTones(option.emoji));
 						return (
 							<Box key={option.name ?? DEFERRED_ROW_KEY}>
 								<Text

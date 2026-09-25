@@ -1,7 +1,7 @@
 # 🦀🍝🦀 Pappardelle 🦀🍝🦀
 
 [![Test](https://github.com/chardigio/pappardelle/actions/workflows/test.yml/badge.svg)](https://github.com/chardigio/pappardelle/actions/workflows/test.yml)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A TUI for multi-clauding without losing your marbles.
@@ -86,6 +86,42 @@ This means:
 - **Attach from anywhere.** You can attach to any workspace's Claude session from a separate terminal: `tmux attach -t claude-stardust-labs-STA-631`.
 - **Switching is instant.** After the first attachment, switching between workspaces uses tmux's fast `switch-client` path — no process restart, no visible flash.
 
+### tmux version
+
+Use a tmux build containing the [synchronized-output fix](https://github.com/tmux/tmux/commit/b2de803871e579565a6f79296f386115142593ed). Stable 3.7c and earlier can expose screen clears before an application finishes a synchronized frame, causing Codex and other TUIs to flash ([tmux/tmux#4983](https://github.com/tmux/tmux/issues/4983)). Pappardelle's incremental renderer reduces redraws, but the tmux fix is also needed to prevent these partial frames.
+
+The fix is currently available in the official [tmux preview builds](https://github.com/tmux/tmux-builds/releases/tag/preview). We verified `20260924-a4a2501b`, which reports `tmux next-3.9`. Preview downloads track upstream development; `next-3.9` alone does not identify the commit. These are prerelease builds until a stable release includes the fix.
+
+To install a preview, select your platform below and run these commands with the [GitHub CLI](https://cli.github.com/) installed. This replaces `~/.local/bin/tmux`; it leaves running servers and their sessions alive.
+
+| Platform            | `TMUX_PLATFORM` |
+| ------------------- | --------------- |
+| macOS Apple Silicon | `macos-arm64`   |
+| macOS Intel         | `macos-x86_64`  |
+| Linux ARM64         | `linux-arm64`   |
+| Linux x86-64        | `linux-x86_64`  |
+
+```bash
+TMUX_PLATFORM=macos-arm64
+TMUX_DOWNLOAD_DIR="$(mktemp -d)"
+gh release download preview --repo tmux/tmux-builds \
+  --pattern "tmux-*-${TMUX_PLATFORM}.tar.gz" --dir "$TMUX_DOWNLOAD_DIR"
+tar -xzf "$TMUX_DOWNLOAD_DIR"/tmux-*.tar.gz -C "$TMUX_DOWNLOAD_DIR"
+mkdir -p "$HOME/.local/bin"
+install -m 755 "$TMUX_DOWNLOAD_DIR/tmux" "$HOME/.local/bin/tmux"
+```
+
+Ensure `~/.local/bin` precedes other tmux installations in your `PATH`, or register the downloaded binary with your version manager. Open a fresh shell and check `command -v tmux` and `tmux -V` before restarting.
+
+**Existing servers keep using the old binary.** When ready to end all running workspace processes, run this from a terminal outside tmux, then launch `pappardelle` again:
+
+```bash
+tmux -L pappardelle_inner kill-server
+tmux kill-server
+```
+
+A "no server running" message is harmless. Closing only the Pappardelle window leaves the inner server running. After relaunching, check the running servers with `tmux display-message -p '#{version}'` and `tmux -L pappardelle_inner display-message -p '#{version}'`.
+
 ### Recommended tmux config
 
 Pappardelle works with any tmux configuration, but these settings improve the experience — mouse support, Ctrl+Shift+arrow pane navigation, and a clean status bar. See [`examples/tmux.conf`](examples/tmux.conf) and append to your `~/.tmux.conf`. If you don't have one yet:
@@ -101,6 +137,7 @@ Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux se
 To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting. `K` closes every workspace whose issue is already done or canceled in one confirmed step. Or nuke everything with:
 
 ```bash
+tmux -L pappardelle_inner kill-server
 tmux kill-server
 ```
 
@@ -351,19 +388,19 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 ### Prerequisites
 
-| Tool                                                                   | Required | Install                                                            |
-| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------ |
-| Node.js >= 18                                                          | Yes      | `brew install node`                                                |
-| npm                                                                    | Yes      | Comes with Node.js                                                 |
-| git                                                                    | Yes      | `brew install git`                                                 |
-| tmux                                                                   | Yes      | `brew install tmux`                                                |
-| jq                                                                     | Yes      | `brew install jq`                                                  |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                  |
-| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)   |
-| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
-| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
-| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
-| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                             |
+| Tool                                                                   | Required | Install                                                                              |
+| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| Node.js >= 22                                                          | Yes      | `brew install node`                                                                  |
+| npm                                                                    | Yes      | Comes with Node.js                                                                   |
+| git                                                                    | Yes      | `brew install git`                                                                   |
+| tmux                                                                   | Yes      | `brew install tmux`; [build with synchronized-output fix recommended](#tmux-version) |
+| jq                                                                     | Yes      | `brew install jq`                                                                    |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                                    |
+| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)                     |
+| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                                       |
+| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                                     |
+| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira)                   |
+| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                                               |
 
 ### Manual installation
 
@@ -387,8 +424,13 @@ cd pappardelle
 > verified at install time — PATH in non-interactive shells often differs (nvm/volta
 > don't load there), which used to silently bind the shim to a stale system node. If
 > you later remove that node version (e.g. `nvm uninstall`), the shim falls back to
-> PATH and refuses to run anything below Node 18 — just re-run the installer (or press
+> PATH and refuses to run anything below Node 22 — just re-run the installer (or press
 > `U` in the TUI) to re-pin.
+>
+> **No Node 22?** The installer looks for one on PATH and under nvm. If it finds none, it
+> downloads the official Node 22 build into `~/.pappardelle/node/`, checks it against the
+> published checksums, and uses it only for Pappardelle. Your own Node is not changed.
+> Updates build in a staging folder, so a failed update keeps your current install.
 
 **Manual install:**
 

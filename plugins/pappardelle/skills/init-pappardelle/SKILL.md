@@ -16,7 +16,7 @@ This skill must satisfy **every** item below before printing the final summary. 
 2. **`.pappardelle.yml` reflects the user's needs.** Either created from scratch (new install) or reviewed/personalized (existing install).
 3. **`.pappardelle.local.yml` exists if local overrides were chosen.** Only when Step 1 collected per-machine overrides (default profile, yolo mode, etc.).
 4. **Pappardelle CLI is installed.** `command -v pappardelle` succeeds.
-5. **Required prerequisites are installed.** `node`, `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
+5. **Required prerequisites are installed.** Node.js is version 22 or newer; `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
 6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl`, `acli` or `bd` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
 7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
 8. **Terminal capabilities are configured** — offered and accepted, declined, or skipped because the terminal or tmux version does not support them. Never skip the detection itself.
@@ -244,7 +244,7 @@ command -v pappardelle &>/dev/null && echo "INSTALLED" || echo "NOT_INSTALLED"
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-The install script checks base prerequisites (Node.js >= 18, npm, git, tmux, jq), clones the repo, builds it, and makes the `pappardelle` command available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
+The install script checks base prerequisites (Node.js >= 22, npm, git, tmux, jq), clones the repo, builds it, and makes the `pappardelle` command available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
 
 - If **already installed**, print "Pappardelle is already installed" and move on.
 
@@ -255,15 +255,29 @@ Do not skip this step just because `.pappardelle.yml` already exists in the repo
 Now check the required tools and the provider-specific CLIs from the user's configuration. Run these checks in a single bash command:
 
 ```bash
-echo "=== Required ===" && \
-for cmd in node npm git tmux jq yq claude; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done && \
-echo "=== Provider CLIs ===" && \
-for cmd in <VCS_CLI> <TRACKER_CLI> gitui; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
+echo "=== Required ==="
+if command -v node >/dev/null 2>&1; then
+  node_major=$(node -p 'process.versions.node.split(".")[0]')
+  if [ "$node_major" -ge 22 ]; then
+    printf "%-10s %s\n" node "✓ $(node --version)"
+  else
+    printf "%-10s %s\n" node "✗ $(node --version) (22+ required)"
+  fi
+else
+  printf "%-10s %s\n" node '✗ MISSING'
+fi
+for cmd in npm git tmux jq yq claude; do
+  printf "%-10s %s\n" "$cmd" "$(command -v "$cmd" >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"
+done
+echo "=== Provider CLIs ==="
+for cmd in <VCS_CLI> <TRACKER_CLI> gitui; do
+  printf "%-10s %s\n" "$cmd" "$(command -v "$cmd" >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"
+done
 ```
 
 Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear), `acli` (Jira) or `bd` (Beads). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
 
-- If any **required** tools are missing, **stop and do not proceed** to Step 4. Tell the user which ones are missing and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
+- If Node.js is missing or older than 22, or any other **required** tool is missing, **stop and do not proceed** to Step 4. Tell the user what failed and offer to install or upgrade it via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
 - If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
 - If all tools are present, move on.
 
@@ -293,9 +307,11 @@ Run the probe:
 bash ~/.pappardelle/scripts/init-pappardelle/detect-terminal-capabilities.sh
 ```
 
-It prints one line, e.g. `TERM=xterm-ghostty tmux_ok=yes(3.7) sync_ok=yes rgb_ok=yes ti_ok=yes usstyle_ok=yes`. Interpret it:
+It prints one line, e.g. `TERM=xterm-ghostty tmux_ok=yes tmux_version=3.7c tmux_fix=no sync_ok=yes rgb_ok=yes ti_ok=yes usstyle_ok=yes`. Interpret it:
 
-- **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and tell the user upgrading tmux (`brew install tmux`) would fix TUI flicker.
+- **`tmux_fix=no`** — this tmux version predates the synchronized-output fix. Tell the user that stable 3.7c and earlier can still flicker and link to the [tmux upgrade and server restart instructions](https://github.com/chardigio/pappardelle#tmux-version). Do not install a preview build without the user's consent.
+- **`tmux_fix=unknown`** — version alone cannot confirm that a preview contains the fix. For a `next-3.9` preview, point to the verified build in the [tmux instructions](https://github.com/chardigio/pappardelle#tmux-version); do not claim that every preview has the fix.
+- **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and point the user to the [tmux upgrade instructions](https://github.com/chardigio/pappardelle#tmux-version).
 - **`sync_ok=no` and `rgb_ok=no`** — the terminal genuinely does not support these. Skip silently; adding the settings would be wrong.
 - **Otherwise** — offer the block, naming only what the detection actually found. `sync_ok` and `rgb_ok` are independent and this branch is reached when _either_ is yes, so build the phrase from the flags: both yes gives "synchronized output and truecolor", `sync_ok` alone gives "synchronized output", `rgb_ok` alone gives "truecolor". Never name a capability the detection reported `no` for. Use **AskUserQuestion** to ask: "Your terminal ({TERM}) supports {capabilities}. Want me to add the tmux settings that make use of them? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux." Options: **Yes** — add the settings; **No** — skip them.
 
@@ -324,7 +340,14 @@ Replace `<TERM>` with the `TERM=` value the probe reported (e.g. `xterm-ghostty`
 
 **Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:`. Writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
 
-Then tell the user the settings need a **new tmux server** to take effect: `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Do **not** run `tmux kill-server` yourself; it would kill any session they are attached to, possibly the one running this skill. Tell them to run it when convenient, then verify:
+Then tell the user the settings need **new tmux servers** to take effect: `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Both the `pappardelle_inner` server and the default server must be restarted, as described in the [tmux instructions](https://github.com/chardigio/pappardelle#tmux-version). This also applies after upgrading the tmux binary. Restarting ends running workspace processes, so tell the user to run these commands when ready, from outside tmux:
+
+```bash
+tmux -L pappardelle_inner kill-server
+tmux kill-server
+```
+
+Do **not** run `kill-server` from the skill; it could end the session running this setup. After the user restarts both servers, verify:
 
 ```bash
 tmux display -p '#{client_termfeatures}'   # should list whichever features you added
@@ -359,7 +382,7 @@ Verified:
   • Required prerequisites:     ✓ (node, npm, git, tmux, jq, yq, claude)
   • Provider CLIs:              {✓ all present | ⚠ missing: <list> — degraded features}
   • tmux config:                {✓ appended | ✓ already present | — user declined}
-  • Terminal capabilities:      {✓ added (<features actually written>) — restart tmux server to apply | ✓ already present | — user declined | — not supported by <TERM>}
+  • Terminal capabilities:      {✓ added (<features actually written>) — restart both tmux servers to apply | ✓ already present | — user declined | — not supported by <TERM>}
 
 Next steps:
   1. Launch the TUI:            pappardelle

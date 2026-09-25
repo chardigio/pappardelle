@@ -14,7 +14,7 @@ import {parseRawKey, type RawKey} from './parse-raw-key.ts';
  * own hook uses, so behavior matches in every respect except the
  * backspace/delete classification.
  *
- * Verified against ink@^4.1.0. The `internal_*` fields are Ink's private API
+ * Verified against ink@7.1.1. The `internal_*` fields are Ink's private API
  * (the prefix is Ink's own convention) — audit this hook after any `ink`
  * version bump. The runtime assertion below turns a silent misfire into a
  * loud startup error if those internals disappear or get renamed.
@@ -35,7 +35,7 @@ export function useRawInput(
 	if (!('internal_eventEmitter' in stdinCtx)) {
 		throw new Error(
 			'useRawInput: ink useStdin() did not expose internal_eventEmitter. ' +
-				'This hook depends on Ink private API (verified against ink@^4.1.0) — ' +
+				'This hook depends on Ink private API (verified against ink@7.1.1) — ' +
 				'check the installed Ink version after a dep bump.',
 		);
 	}

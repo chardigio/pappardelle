@@ -1,11 +1,7 @@
 /**
  * STA-1539 regression: the list view's root container must be given a concrete
- * terminal height, not `height="100%"`. The full root-cause narrative lives at
- * the fix site (app.tsx, the root `<Box height={termHeight}>`); these tests pin
- * the two Ink behaviors that decision hinges on — a numeric height pads the frame
- * to full height (keeping Ink on its clean full-repaint path), while a content-
- * sized root collapses (the condition that stranded stale rows). End-to-end proof
- * is the QA-harness before/after capture on the PR (see qa-tui.md).
+ * terminal height, not `height="100%"`. Blank filler rows let the incremental
+ * renderer erase stale results when a search shrinks the list after zooming.
  */
 import test from 'ava';
 import React from 'react';
@@ -46,10 +42,7 @@ const frameLineCount = (height: number | string | undefined): number => {
 
 const TERM_HEIGHT = 30;
 
-test('STA-1539: numeric terminal height pads the frame to full height (keeps Ink on the full-repaint path)', t => {
-	// With a concrete height, Ink emits exactly TERM_HEIGHT rows (short content +
-	// blank filler), so outputHeight === stdout.rows and every paint is a clean
-	// full-screen repaint — no stale rows can survive a filter.
+test('STA-1539: numeric terminal height includes blank rows below the filtered list', t => {
 	t.is(frameLineCount(TERM_HEIGHT), TERM_HEIGHT);
 });
 

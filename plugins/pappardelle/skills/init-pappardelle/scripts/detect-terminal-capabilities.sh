@@ -45,10 +45,21 @@ elif [ "${COLORTERM:-}" = truecolor ] || [ "${COLORTERM:-}" = 24bit ]; then
   rgb_ok=yes
 fi
 
-ver=$(tmux -V | sed 's/[^0-9.]//g')
-[ "$(printf '%s\n3.2\n' "$ver" | sort -V | head -1)" = "3.2" ] && tmux_ok=yes || tmux_ok=no
+ver=$(tmux -V)
+tmux_ok=no
+tmux_fix=unknown
+if [[ $ver =~ ([0-9]+)\.([0-9]+) ]]; then
+  major=${BASH_REMATCH[1]}
+  minor=${BASH_REMATCH[2]}
+  if (( major > 3 || (major == 3 && minor >= 2) )); then
+    tmux_ok=yes
+  fi
+  if (( major < 3 || (major == 3 && minor <= 7) )); then
+    tmux_fix=no
+  fi
+fi
 infocmp tmux-256color > /dev/null 2>&1 && ti_ok=yes || ti_ok=no
 infocmp -x "$outer" 2>/dev/null | grep -q 'Smulx=' && usstyle_ok=yes || usstyle_ok=no
 
-printf 'TERM=%s tmux_ok=%s(%s) sync_ok=%s rgb_ok=%s ti_ok=%s usstyle_ok=%s\n' \
-  "$outer" "$tmux_ok" "$ver" "$sync_ok" "$rgb_ok" "$ti_ok" "$usstyle_ok"
+printf 'TERM=%s tmux_ok=%s tmux_version=%s tmux_fix=%s sync_ok=%s rgb_ok=%s ti_ok=%s usstyle_ok=%s\n' \
+  "$outer" "$tmux_ok" "${ver#tmux }" "$tmux_fix" "$sync_ok" "$rgb_ok" "$ti_ok" "$usstyle_ok"
