@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
 	discoverWorkspaceRepositories,
-	gitlabProject,
+	remoteProject,
 } from './providers/workspace-repositories.ts';
 
 test('parses GitLab remotes including subgroups and rejects other hosts', t => {
@@ -14,12 +14,24 @@ test('parses GitLab remotes including subgroups and rejects other hosts', t => {
 		'ssh://git@gitlab.example.com:2222/group/sub/repo.git',
 		'https://gitlab.example.com/group/sub/repo.git',
 	])
-		t.is(gitlabProject(remote, 'gitlab.example.com'), 'group/sub/repo');
+		t.is(remoteProject(remote, 'gitlab.example.com'), 'group/sub/repo');
 	t.is(
-		gitlabProject('git@github.com:group/repo.git', 'gitlab.example.com'),
+		remoteProject('git@github.com:group/repo.git', 'gitlab.example.com'),
 		null,
 	);
-	t.is(gitlabProject('/local/repo', 'gitlab.example.com'), null);
+	t.is(remoteProject('/local/repo', 'gitlab.example.com'), null);
+});
+
+test('parses GitHub SSH and HTTPS remotes, including enterprise hosts', t => {
+	for (const host of ['github.com', 'github.example.com']) {
+		for (const remote of [
+			`git@${host}:owner/repo.git`,
+			`ssh://git@${host}/owner/repo.git`,
+			`https://${host}/owner/repo`,
+		])
+			t.is(remoteProject(remote, host), 'owner/repo');
+	}
+	t.is(remoteProject('git@gitlab.com:owner/repo.git', 'github.com'), null);
 });
 
 test('discovers root and nested clones/worktrees, skips dependencies and symlinks, rereads branches', async t => {
@@ -68,6 +80,9 @@ test('discovers root and nested clones/worktrees, skips dependencies and symlink
 		path.join(root, 'src/worktree'),
 	]);
 	const first = await discoverWorkspaceRepositories(root, 'gitlab.example.com');
+	t.deepEqual(await discoverWorkspaceRepositories(root, 'github.com'), [
+		{project: 'rex/other', branch: 'sd-actual-branch'},
+	]);
 	t.deepEqual(first, [
 		{project: 'user/workspace', branch: 'sd-actual-branch'},
 		{project: 'rex/agent', branch: 'sd-actual-branch'},

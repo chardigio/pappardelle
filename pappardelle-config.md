@@ -673,18 +673,22 @@ vcs_host:
   host: gitlab.mycompany.com # Optional, defaults to gitlab.com
 ```
 
-The GitLab status rail discovers the workspace repo and nested Git checkouts
+The GitHub and GitLab status rails discover the workspace repo and nested Git checkouts
 (including `src/<repo>`) up to three directory levels below the workspace. It
 uses each checkout's `origin` project and current branch, so branch names do not
-have to match the issue key. Only remotes on the configured GitLab host are queried.
+have to match the issue key. Only remotes on the selected host are queried:
+the configured GitLab host, or `GH_HOST` (default `github.com`) for GitHub.
 Symlinks, hidden directories, dependency/build directories, and detached checkouts
 are skipped.
 
-Matching MRs are fetched in one batched request and cached per project and branch
-for 60 seconds. The rail sums unresolved discussions, flags any merge conflict,
-and combines pipeline states across the repos. Additional discussion pages are
-fetched when needed. If a repo lookup fails, the workspace keeps its previous
-status until a complete result is available.
+Matching open PRs/MRs are fetched in one batched request using each checkout's exact
+branch. The rail sums unresolved discussions, flags any merge conflict, and combines
+pipeline states across the repos. If a repo lookup fails, the workspace keeps its
+previous status until a complete result is available. Polling starts when workspaces
+load, then repeats every 60 seconds. GitLab additionally caches results per project
+and branch for 60 seconds and fetches additional discussion pages when needed.
+GitHub follows PRs associated with the branch in `origin`, including PRs from a fork
+to its upstream repository.
 
 ### Backwards Compatibility
 

@@ -5,6 +5,7 @@ import {createLogger} from '../logger.ts';
 import {RAIL_STATUS_POLL_INTERVAL_MS} from '../rail-status.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
+import {aggregateRailStatus} from './aggregate-rail-status.ts';
 
 import {
 	discoverWorkspaceRepositories,
@@ -103,37 +104,6 @@ function parseMr(value: unknown): {status: RailStatus; cursor: string | null} {
 			unresolvedCommentCount: count,
 		},
 		cursor,
-	};
-}
-
-function aggregateRailStatus(statuses: RailStatus[]): RailStatus {
-	const mrs = statuses.filter(status => status.prNumber !== undefined);
-	if (mrs.length === 0) return emptyStatus();
-	if (mrs.length === 1) return {...mrs[0]!};
-	const progressing = mrs.some(
-		status =>
-			status.pipeline === 'progressing_clean' ||
-			status.pipeline === 'progressing_dirty',
-	);
-	const failing = mrs.some(
-		status =>
-			status.pipeline === 'failing' || status.pipeline === 'progressing_dirty',
-	);
-	return {
-		pipeline: progressing
-			? failing
-				? 'progressing_dirty'
-				: 'progressing_clean'
-			: failing
-				? 'failing'
-				: mrs.some(status => status.pipeline !== null)
-					? 'passing'
-					: null,
-		unresolvedCommentCount: mrs.reduce(
-			(count, status) => count + status.unresolvedCommentCount,
-			0,
-		),
-		hasConflict: mrs.some(status => status.hasConflict),
 	};
 }
 

@@ -23,7 +23,7 @@ const EXCLUDED = new Set([
 	'__pycache__',
 ]);
 
-export function gitlabProject(remote: string, host: string): string | null {
+export function remoteProject(remote: string, host: string): string | null {
 	let remoteHost: string;
 	let project: string;
 	if (remote.includes('://')) {
@@ -78,7 +78,7 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 				if ((error as {code?: number}).code === 1) return '';
 				throw error;
 			});
-			const project = gitlabProject(remote, host);
+			const project = remoteProject(remote, host);
 			if (project) {
 				const branch = await git(current, [
 					'symbolic-ref',
