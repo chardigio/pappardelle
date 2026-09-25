@@ -173,6 +173,16 @@ test('mapBeadsIssue maps a standard bd row', t => {
 	t.is(issue.state.color, 'gray');
 });
 
+test('mapBeadsIssue carries created_at through as createdAt', t => {
+	const issue = mapBeadsIssue({
+		id: 'sddamico-hic',
+		title: 'x',
+		created_at: '2026-07-21T23:34:43Z',
+	});
+	t.is(issue.createdAt, '2026-07-21T23:34:43Z');
+	t.is(mapBeadsIssue({id: 'sddamico-hic', title: 'x'}).createdAt, undefined);
+});
+
 test('mapBeadsIssue never uppercases the identifier', t => {
 	// A beads ID is case-sensitive; uppercasing yields one bd cannot resolve.
 	t.is(mapBeadsIssue({id: 'bd-a1b2', title: 'x'}).identifier, 'bd-a1b2');

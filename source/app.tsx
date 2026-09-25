@@ -44,6 +44,8 @@ import {
 	filterByLabels,
 	filterByKeyPrefixes,
 	getNewWatchlistIssues,
+	sortIssuesByCreatedAt,
+	watchlistSourceId,
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
@@ -128,7 +130,13 @@ import {
 	shouldAttachOnSelection,
 	tearDownSpace,
 } from './space-utils.ts';
-import {getRegisteredSpaces, addSpace, removeSpace} from './space-registry.ts';
+import {
+	getRegisteredSpaces,
+	addSpace,
+	removeSpace,
+	tryReserveWatchlistSlots,
+	releaseWatchlistReservation,
+} from './space-registry.ts';
 import {
 	writeSpaceState,
 	findLatestSessionJsonl,
@@ -312,8 +320,10 @@ export default function App({
 					const prefixInfo = wl.key_prefixes?.length
 						? `, key_prefixes=[${wl.key_prefixes.join(', ')}]`
 						: '';
+					const maxInfo =
+						wl.max_workspaces === undefined ? '' : `, max=${wl.max_workspaces}`;
 					log.info(
-						`Issue watchlist (${source}): ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}`,
+						`Issue watchlist (${source}): ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}${maxInfo}`,
 					);
 				}
 			}
@@ -1253,12 +1263,14 @@ export default function App({
 
 		child.on('error', err => {
 			log.error(`Failed to spawn idow: ${err.message}`, err);
+			if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
 			setPendingSession(null);
 			setHeaderWithTimeout(`Failed: ${err.message.slice(0, 40)}`, 5000);
 		});
 
 		child.on('close', code => {
 			if (code !== 0 && code !== null) {
+				if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
 				setPendingSession(null);
 				const errorMsg =
 					stderrData.trim() ||
@@ -1342,22 +1354,63 @@ export default function App({
 						`Watchlist (${source}): found ${issues.length} assigned issue(s), ${newIssues.length} new`,
 					);
 
-					for (const issue of newIssues) {
-						// Skip if we already attempted to spawn this issue (e.g. it
-						// also matched another watchlist this cycle, or a prior one).
-						// First match wins by iteration order — the top-level watchlist
-						// precedes profile watchlists (see getResolvedWatchlists), so on
-						// the rare overlap (a profile watching the same status as the
-						// top-level) the issue keeps the top-level's no-profile spawn.
+					// Skip issues we already attempted to spawn (e.g. one that also
+					// matched another watchlist this cycle, or a prior one). First
+					// match wins by iteration order — the top-level watchlist
+					// precedes profile watchlists (see getResolvedWatchlists), so on
+					// the rare overlap (a profile watching the same status as the
+					// top-level) the issue keeps the top-level's no-profile spawn.
+					const unclaimed = newIssues.filter(issue => {
 						if (
-							watchlistSpawnedRef.current.has(issue.identifier.toUpperCase())
+							!watchlistSpawnedRef.current.has(issue.identifier.toUpperCase())
 						) {
-							log.debug(
-								`Watchlist (${source}): ${issue.identifier} already claimed by an earlier watchlist this cycle — skipping`,
-							);
-							continue;
+							return true;
 						}
 
+						log.debug(
+							`Watchlist (${source}): ${issue.identifier} already claimed by this or another watchlist or instance — skipping`,
+						);
+						return false;
+					});
+
+					const max = watchlist.max_workspaces;
+					const sourceId = watchlistSourceId(profileName);
+					let toSpawn = unclaimed;
+					if (max !== undefined && unclaimed.length > 0) {
+						// Reserve after the search's await, with no await between here
+						// and the spawns, so the slot count read from disk is current.
+						const sorted = sortIssuesByCreatedAt(unclaimed);
+						const {reserved, occupied, claimedElsewhere} =
+							tryReserveWatchlistSlots(
+								sourceId,
+								sorted.map(issue => issue.identifier),
+								max,
+							);
+						// Another instance or watchlist is spawning these. Claim them
+						// here too, or this instance would respawn one as soon as its
+						// owner's workspace is closed.
+						for (const key of claimedElsewhere) {
+							watchlistSpawnedRef.current.add(key.toUpperCase());
+						}
+
+						const reservedSet = new Set(reserved);
+						const claimedSet = new Set(claimedElsewhere);
+						toSpawn = sorted.filter(issue => reservedSet.has(issue.identifier));
+						// Deferred issues stay unclaimed, so a later watchlist that also
+						// matches may spawn them, and this one retries next poll.
+						const deferred = sorted.filter(
+							issue =>
+								!reservedSet.has(issue.identifier) &&
+								!claimedSet.has(issue.identifier),
+						);
+						if (deferred.length > 0) {
+							log.info(
+								`Watchlist (${source}): ${occupied + reserved.length}/${max} slots in use, deferring ${deferred.length} issue(s): ${deferred.map(issue => issue.identifier).join(', ')}`,
+							);
+						}
+					}
+
+					for (const issue of toSpawn) {
 						watchlistSpawnedRef.current.add(issue.identifier.toUpperCase());
 						log.info(
 							`Watchlist (${source}): spawning workspace for ${issue.identifier} (${issue.title})`,
@@ -1376,6 +1429,7 @@ export default function App({
 							// behavior: no --profile, idow resolves by project.
 							profileName: profileName ?? undefined,
 							profileEmoji: resolvePendingProfileEmoji(configMemo, profileName),
+							watchlistSource: max === undefined ? undefined : sourceId,
 						});
 					}
 				}

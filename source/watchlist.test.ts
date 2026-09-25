@@ -3,6 +3,8 @@ import {
 	getNewWatchlistIssues,
 	filterByLabels,
 	filterByKeyPrefixes,
+	sortIssuesByCreatedAt,
+	watchlistSourceId,
 } from './watchlist.ts';
 import type {TrackerIssue} from './providers/types.ts';
 
@@ -271,4 +273,90 @@ test('filterByKeyPrefixes matches a beads prefix containing hyphens', t => {
 test('filterByKeyPrefixes ignores a beads child suffix', t => {
 	const issues = [makeIssue('pap-a3f8e9.1')];
 	t.is(filterByKeyPrefixes(issues, ['pap']).length, 1);
+});
+
+// ============================================================================
+// sortIssuesByCreatedAt
+// ============================================================================
+
+function makeDatedIssue(identifier: string, createdAt?: string): TrackerIssue {
+	return {...makeIssue(identifier), createdAt};
+}
+
+test('sortIssuesByCreatedAt puts the oldest issue first', t => {
+	const issues = [
+		makeDatedIssue('pappardelle-zz1', '2026-09-03T00:00:00Z'),
+		makeDatedIssue('pappardelle-7yi', '2026-09-01T00:00:00Z'),
+		makeDatedIssue('pappardelle-a2b', '2026-09-02T12:30:00Z'),
+	];
+
+	t.deepEqual(
+		sortIssuesByCreatedAt(issues).map(i => i.identifier),
+		['pappardelle-7yi', 'pappardelle-a2b', 'pappardelle-zz1'],
+	);
+});
+
+test('sortIssuesByCreatedAt compares instants, not strings', t => {
+	const issues = [
+		makeDatedIssue('A-1', '2026-09-01T10:00:00+02:00'), // 08:00Z
+		makeDatedIssue('A-2', '2026-09-01T09:00:00Z'),
+		makeDatedIssue('A-3', '2026-09-01T07:00:00.000Z'),
+	];
+
+	t.deepEqual(
+		sortIssuesByCreatedAt(issues).map(i => i.identifier),
+		['A-3', 'A-1', 'A-2'],
+	);
+});
+
+test('sortIssuesByCreatedAt keeps tracker order when createdAt is missing', t => {
+	// The Jira provider returns issues without createdAt, already oldest first
+	const issues = [
+		makeDatedIssue('STE-40'),
+		makeDatedIssue('STE-7'),
+		makeDatedIssue('STE-12'),
+	];
+
+	t.deepEqual(
+		sortIssuesByCreatedAt(issues).map(i => i.identifier),
+		['STE-40', 'STE-7', 'STE-12'],
+	);
+});
+
+test('sortIssuesByCreatedAt puts undated issues after dated ones', t => {
+	const issues = [
+		makeDatedIssue('A-3', '2026-09-03T00:00:00Z'),
+		makeDatedIssue('A-9'),
+		makeDatedIssue('A-1', '2026-09-01T00:00:00Z'),
+		makeDatedIssue('A-8', 'not a date'),
+	];
+
+	t.deepEqual(
+		sortIssuesByCreatedAt(issues).map(i => i.identifier),
+		['A-1', 'A-3', 'A-9', 'A-8'],
+	);
+});
+
+test('sortIssuesByCreatedAt does not mutate its input', t => {
+	const issues = [
+		makeDatedIssue('A-2', '2026-09-02T00:00:00Z'),
+		makeDatedIssue('A-1', '2026-09-01T00:00:00Z'),
+	];
+
+	sortIssuesByCreatedAt(issues);
+
+	t.deepEqual(
+		issues.map(i => i.identifier),
+		['A-2', 'A-1'],
+	);
+});
+
+// ============================================================================
+// watchlistSourceId
+// ============================================================================
+
+test('watchlistSourceId keeps the top-level watchlist apart from a profile named top-level', t => {
+	t.is(watchlistSourceId(null), 'top-level');
+	t.is(watchlistSourceId('chaz'), 'profile:chaz');
+	t.not(watchlistSourceId('top-level'), watchlistSourceId(null));
 });

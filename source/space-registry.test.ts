@@ -13,6 +13,8 @@ import {
 	initForRepo,
 	setLockTimingForTests,
 	resetLockTimingForTests,
+	tryReserveWatchlistSlots,
+	releaseWatchlistReservation,
 } from './space-registry.ts';
 import {getRecentErrors, clearRecentErrors} from './logger.ts';
 
@@ -424,5 +426,194 @@ test.serial(
 				// Already gone — fine.
 			}
 		}
+	},
+);
+
+// ============================================================================
+// Watchlist slot reservations (STE-25)
+// ============================================================================
+
+const ME = 1000;
+const OTHER = 2000;
+const DEAD = 3000;
+const isPidAlive = (pid: number) => pid !== DEAD;
+
+function useTempRegistry(): string {
+	const dir = tempDir();
+	setRegistryPath(path.join(dir, 'open-spaces.json'));
+	return path.join(dir, 'watchlist-spawns.json');
+}
+
+function readSidecar(p: string): Record<string, unknown> {
+	return JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>;
+}
+
+test.serial(
+	'tryReserveWatchlistSlots reserves at most max, in candidate order',
+	t => {
+		const sidecar = useTempRegistry();
+
+		const result = tryReserveWatchlistSlots(
+			'top-level',
+			['STE-1', 'STE-2', 'STE-3'],
+			2,
+			{pid: ME, isPidAlive},
+		);
+
+		t.deepEqual(result, {
+			reserved: ['STE-1', 'STE-2'],
+			occupied: 0,
+			claimedElsewhere: [],
+		});
+		t.deepEqual(readSidecar(sidecar), {
+			'STE-1': {source: 'top-level', ownerPid: ME},
+			'STE-2': {source: 'top-level', ownerPid: ME},
+		});
+	},
+);
+
+test.serial(
+	'a second instance with different candidates only gets the remaining slots',
+	t => {
+		useTempRegistry();
+
+		tryReserveWatchlistSlots('top-level', ['STE-1'], 2, {pid: ME, isPidAlive});
+		const second = tryReserveWatchlistSlots(
+			'top-level',
+			['STE-5', 'STE-6', 'STE-7'],
+			2,
+			{pid: OTHER, isPidAlive},
+		);
+
+		t.deepEqual(second, {
+			reserved: ['STE-5'],
+			occupied: 1,
+			claimedElsewhere: [],
+		});
+	},
+);
+
+test.serial(
+	'an in-flight reservation still holds its slot once registered',
+	t => {
+		useTempRegistry();
+
+		tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: ME, isPidAlive});
+		addSpace('STE-1');
+
+		t.deepEqual(
+			tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+				pid: ME,
+				isPidAlive,
+			}),
+			{reserved: [], occupied: 1, claimedElsewhere: []},
+		);
+	},
+);
+
+test.serial('a dead owner frees an unregistered reservation', t => {
+	const sidecar = useTempRegistry();
+
+	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: DEAD, isPidAlive});
+	const result = tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+		pid: ME,
+		isPidAlive,
+	});
+
+	t.deepEqual(result, {reserved: ['STE-2'], occupied: 0, claimedElsewhere: []});
+	t.deepEqual(Object.keys(readSidecar(sidecar)), ['STE-2']);
+});
+
+test.serial('a registered workspace still counts after its owner dies', t => {
+	useTempRegistry();
+
+	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: DEAD, isPidAlive});
+	addSpace('STE-1');
+
+	t.deepEqual(
+		tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {pid: ME, isPidAlive}),
+		{reserved: [], occupied: 1, claimedElsewhere: []},
+	);
+});
+
+test.serial('keys that are registered or reserved elsewhere are skipped', t => {
+	useTempRegistry();
+
+	addSpace('STE-1');
+	tryReserveWatchlistSlots('profile:chaz', ['STE-2'], 5, {
+		pid: OTHER,
+		isPidAlive,
+	});
+
+	t.deepEqual(
+		tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2', 'STE-3'], 5, {
+			pid: ME,
+			isPidAlive,
+		}),
+		{reserved: ['STE-3'], occupied: 0, claimedElsewhere: ['STE-1', 'STE-2']},
+	);
+});
+
+test.serial('each watchlist source has its own count', t => {
+	useTempRegistry();
+
+	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: ME, isPidAlive});
+
+	t.deepEqual(
+		tryReserveWatchlistSlots('profile:chaz', ['CHAZ-1'], 1, {
+			pid: ME,
+			isPidAlive,
+		}),
+		{reserved: ['CHAZ-1'], occupied: 0, claimedElsewhere: []},
+	);
+});
+
+test.serial('releaseWatchlistReservation drops an unregistered entry', t => {
+	const sidecar = useTempRegistry();
+
+	tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2'], 2, {
+		pid: ME,
+		isPidAlive,
+	});
+	addSpace('STE-2');
+	releaseWatchlistReservation('STE-1');
+	releaseWatchlistReservation('STE-2');
+
+	t.deepEqual(Object.keys(readSidecar(sidecar)), ['STE-2']);
+});
+
+test.serial('removeSpace frees the watchlist slot', t => {
+	const sidecar = useTempRegistry();
+
+	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: ME, isPidAlive});
+	addSpace('STE-1');
+	removeSpace('STE-1');
+
+	t.deepEqual(readSidecar(sidecar), {});
+	t.deepEqual(
+		tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {pid: ME, isPidAlive}),
+		{reserved: ['STE-2'], occupied: 0, claimedElsewhere: []},
+	);
+});
+
+test.serial(
+	'a key another instance holds is reported as claimed even when at cap',
+	t => {
+		useTempRegistry();
+
+		tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+			pid: OTHER,
+			isPidAlive,
+		});
+
+		// This instance must mark STE-1 claimed, or it would respawn STE-1 once the
+		// other instance's workspace is closed and unregistered.
+		t.deepEqual(
+			tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2'], 1, {
+				pid: ME,
+				isPidAlive,
+			}),
+			{reserved: [], occupied: 1, claimedElsewhere: ['STE-1']},
+		);
 	},
 );

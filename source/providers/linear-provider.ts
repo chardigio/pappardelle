@@ -42,6 +42,10 @@ function parseLinearIssue(raw: Record<string, unknown>): TrackerIssue {
 		issue.url = undefined;
 	}
 
+	if (typeof raw['createdAt'] !== 'string') {
+		issue.createdAt = undefined;
+	}
+
 	return issue;
 }
 export const MAX_RETRIES = 3;

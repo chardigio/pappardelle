@@ -170,6 +170,7 @@ export function mapBeadsIssue(raw: Record<string, unknown>): TrackerIssue {
 		},
 		project: prefix ? {name: prefix, key: prefix} : null,
 		labels,
+		createdAt: stringField(raw, 'created_at') || undefined,
 	};
 }
 

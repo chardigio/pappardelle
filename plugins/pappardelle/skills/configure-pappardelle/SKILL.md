@@ -229,11 +229,14 @@ issue_watchlist:
     - pappardelle
   key_prefixes: # Optional: only these issue-key prefixes (STA-*, not WAB-*)
     - STA
+  max_workspaces: 5 # Optional: most workspaces this watchlist keeps open at once
 ```
 
 `key_prefixes` is an allowlist of issue-key prefixes (the part before the first `-`, e.g. `STA` in `STA-123`); case-insensitive, AND-ed with `labels`. Only prompt for it when the user's tracker account spans multiple workspaces and they want a subset — otherwise omit it, since the default already watches every prefix.
 
-**Per-profile watchlists.** A profile may carry its own `issue_watchlist` (identical fields). Resolution order: the top-level watchlist and every profile watchlist are polled **additively** — a profile one supplements, never replaces, the top-level one. A profile watchlist with no `key_prefixes` is auto-scoped to that profile's effective `team_prefix` (profile-level, else global); an explicit `key_prefixes` wins, and with no `team_prefix` anywhere it stays unscoped. Issues it spawns are forced to that profile (`idow --profile <name>`).
+`max_workspaces` is an integer >= 1 capping how many workspaces the watchlist keeps open at once (ones it spawned that are still open or spawning). Closing a workspace frees a slot; a status change doesn't. The oldest matching issues spawn first. Omit it for no limit.
+
+**Per-profile watchlists.** A profile may carry its own `issue_watchlist` (identical fields). Resolution order: the top-level watchlist and every profile watchlist are polled **additively** — a profile one supplements, never replaces, the top-level one. A profile watchlist with no `key_prefixes` is auto-scoped to that profile's effective `team_prefix` (profile-level, else global); an explicit `key_prefixes` wins, and with no `team_prefix` anywhere it stays unscoped. Issues it spawns are forced to that profile (`idow --profile <name>`). Each watchlist has its own `max_workspaces`.
 
 ```yaml
 profiles:

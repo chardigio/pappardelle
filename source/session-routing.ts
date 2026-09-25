@@ -71,6 +71,11 @@ export interface PendingSession {
 	 *   - "🍝" / "🐝" / etc. → render the glyph
 	 */
 	profileEmoji?: string;
+	/**
+	 * Set when a capped watchlist reserved a slot for this spawn, so a failed
+	 * idow run can release it.
+	 */
+	watchlistSource?: string;
 }
 
 /**

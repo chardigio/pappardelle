@@ -793,24 +793,27 @@ issue_watchlist:
     - platform
   key_prefixes: # Optional: only watch these issue-key prefixes (e.g. STA-*, not WAB-*)
     - STA
+  max_workspaces: 5 # Optional: most workspaces this watchlist keeps open at once
 ```
 
-| Field          | Type       | Required | Description                                                                                                                                                                                                                                                                        |
-| -------------- | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assignee`     | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees.                                                                                                                                                |
-| `statuses`     | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation.                                                                                                                                                             |
-| `labels`       | `string[]` | No       | When set, only issues with at least one matching label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels.                                                                                                                          |
-| `key_prefixes` | `string[]` | No       | When set, only issues whose key prefix (the part before the first `-`, e.g. `STA` in `STA-123`) is in the list are watched. Useful when one tracker account spans multiple workspaces — watch `STA-*` but not `WAB-*`. Case-insensitive. Omit (or use `[]`) to watch every prefix. |
+| Field            | Type       | Required | Description                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------- | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assignee`       | `string`   | No       | The issue tracker username/email to match. Use `me` for auto-detection via the CLI tool (linctl/acli). Omit to match all assignees.                                                                                                                                                                                                                                                |
+| `statuses`       | `string[]` | Yes      | Non-empty list of issue status names to watch. Only issues with one of these statuses will trigger workspace creation.                                                                                                                                                                                                                                                             |
+| `labels`         | `string[]` | No       | When set, only issues with at least one matching label are watched. Matching is case-insensitive. Omit to watch all matching issues regardless of labels.                                                                                                                                                                                                                          |
+| `key_prefixes`   | `string[]` | No       | When set, only issues whose key prefix (the part before the first `-`, e.g. `STA` in `STA-123`) is in the list are watched. Useful when one tracker account spans multiple workspaces — watch `STA-*` but not `WAB-*`. Case-insensitive. Omit (or use `[]`) to watch every prefix.                                                                                                 |
+| `max_workspaces` | `integer`  | No       | Most workspaces this watchlist may have open at once, counting the ones it spawned that are still open or still spawning. Closing a workspace frees its slot; an issue changing status does not. When more new issues match than there are free slots, the oldest issues (by creation date) spawn first and the rest wait for a later poll. Must be at least 1. Omit for no limit. |
 
 **How it works:**
 
 1. Pappardelle polls the issue tracker every 30 seconds using the configured statuses (and optionally assignee)
 2. For Linear: calls `linctl issue list --state <status>` per status (adds `--assignee <user>` when configured)
-3. For Jira: uses JQL `status IN ("To Do", "In Progress")` (adds `assignee = currentUser()` when configured)
+3. For Jira: uses JQL `status IN ("To Do", "In Progress") ORDER BY created DESC`, then reverses the page so results run oldest first (adds `assignee = currentUser()` when configured)
 4. If `key_prefixes` is configured, results are filtered client-side to only issues whose key prefix is in the allowlist
 5. If `labels` is configured, results are filtered client-side to only include issues with at least one matching label
 6. New issues (not already in the space list) are auto-spawned as full workspaces via `idow`
-7. Each issue is only spawned once per Pappardelle session (tracked in memory)
+7. If `max_workspaces` is set, only as many new issues as there are free slots are spawned, oldest first. Slots are recorded in `~/.pappardelle/repos/<repo>/watchlist-spawns.json`, so the cap holds across restarts and across several Pappardelle instances on the same repo. Workspaces opened before `max_workspaces` was set, or opened by hand, don't count
+8. Each issue is only spawned once per Pappardelle session (tracked in memory)
 
 **Note:** The `assignee: me` value uses `currentUser()` in Jira JQL and `me` in linctl, both of which resolve to the authenticated user automatically. When `assignee` is omitted, issues from all assignees matching the configured statuses will be watched.
 
@@ -839,6 +842,8 @@ profiles:
 ```
 
 **Auto-scoping to the profile's team:** when a profile watchlist omits `key_prefixes`, pappardelle injects the profile's effective `team_prefix` (the profile's own, else the global `team_prefix`) as the sole key-prefix filter, so the watchlist only pulls in that team's issues. An explicit `key_prefixes` on the profile watchlist always wins, and if no `team_prefix` is configured anywhere the watchlist stays unscoped (matches every prefix, exactly like the top-level one). The top-level watchlist is **never** auto-scoped — it's the "watch every project" catch-all.
+
+**Separate caps:** each watchlist enforces its own `max_workspaces`. A profile watchlist's workspaces don't count against the top-level cap, or the other way round. When the top-level watchlist is at its cap, an issue it defers can still be spawned by a profile watchlist that also matches it.
 
 **Spawned profile:** workspaces created by a profile watchlist are forced to that profile (`idow --profile <name>`), so they run the right profile-specific setup and show its rail emoji immediately. (The top-level watchlist passes no profile, so `idow` resolves it from the issue's tracker project — unchanged from before.)
 

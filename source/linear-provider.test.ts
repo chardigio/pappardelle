@@ -617,6 +617,30 @@ test('searchAssignedIssues omits --assignee flag when assignee is undefined', as
 	t.is(result[0]!.identifier, 'STA-10');
 });
 
+test('searchAssignedIssues keeps a string createdAt and drops anything else', async t => {
+	const exec: CliExecutor = async () =>
+		JSON.stringify([
+			{
+				identifier: 'STA-10',
+				title: 'Dated',
+				state: {name: 'To Do', type: 'unstarted', color: '#fff'},
+				createdAt: '2026-09-01T12:00:00.000Z',
+			},
+			{
+				identifier: 'STA-11',
+				title: 'Bad date',
+				state: {name: 'To Do', type: 'unstarted', color: '#fff'},
+				createdAt: 12_345,
+			},
+		]);
+
+	const provider = new LinearProvider(exec, noopSleep, tempCache());
+	const result = await provider.searchAssignedIssues(undefined, ['To Do']);
+
+	t.is(result[0]!.createdAt, '2026-09-01T12:00:00.000Z');
+	t.is(result[1]!.createdAt, undefined);
+});
+
 test('searchAssignedIssues makes one call per status', async t => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {

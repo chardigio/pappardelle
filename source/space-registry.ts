@@ -176,13 +176,18 @@ export function addSpace(issueKey: string): void {
 }
 
 /**
- * Remove a space from the registry. No-op if not present.
+ * Remove a space from the registry, and free the watchlist slot it held (if
+ * any) so reopening the issue by hand later isn't counted against a watchlist.
  */
 export function removeSpace(issueKey: string): void {
 	withRegistryLock(() => {
 		const keys = readFromDisk(registryPath);
-		if (!keys.includes(issueKey)) return; // already gone — skip no-op write
-		writeToDisk(keys.filter(k => k !== issueKey));
+		if (keys.includes(issueKey)) {
+			writeToDisk(keys.filter(k => k !== issueKey));
+		}
+
+		const reservations = readReservations();
+		if (reservations.delete(issueKey)) writeReservations(reservations);
 	});
 }
 
@@ -200,15 +205,141 @@ export function isSpaceRegistered(issueKey: string): boolean {
  * mass-orphan event to the reaper).
  */
 function writeToDisk(keys: string[]): void {
+	writeJsonAtomic(registryPath, keys);
+}
+
+function writeJsonAtomic(p: string, data: unknown): void {
 	try {
-		const dir = path.dirname(registryPath);
-		fs.mkdirSync(dir, {recursive: true});
-		const tmp = `${registryPath}.tmp.${process.pid}`;
-		fs.writeFileSync(tmp, JSON.stringify(keys, null, 2) + '\n');
-		fs.renameSync(tmp, registryPath);
+		fs.mkdirSync(path.dirname(p), {recursive: true});
+		const tmp = `${p}.tmp.${process.pid}`;
+		fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
+		fs.renameSync(tmp, p);
 	} catch {
 		// Non-critical — registry will be rebuilt on next session creation
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Watchlist slot reservations (STE-25)
+//
+// A watchlist with `max_workspaces` reserves a slot here before spawning idow,
+// and the entry keeps holding that slot while the space is registered. Until
+// then it holds only while the pappardelle process that reserved it is alive:
+// that process is the only one that will call addSpace when idow exits, so a
+// dead owner's reservation can never become a workspace. Reserving under the
+// registry lock is what stops two instances on the same repo from each seeing
+// free capacity and spawning past the cap together.
+// ---------------------------------------------------------------------------
+
+type WatchlistReservation = {source: string; ownerPid: number};
+
+function getReservationsPath(): string {
+	return path.join(path.dirname(registryPath), 'watchlist-spawns.json');
+}
+
+function readReservations(): Map<string, WatchlistReservation> {
+	const reservations = new Map<string, WatchlistReservation>();
+	try {
+		const parsed: unknown = JSON.parse(
+			fs.readFileSync(getReservationsPath(), 'utf-8'),
+		);
+		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+			for (const [key, value] of Object.entries(parsed)) {
+				const entry = value as Partial<WatchlistReservation> | null;
+				if (
+					typeof entry?.source === 'string' &&
+					typeof entry.ownerPid === 'number'
+				) {
+					reservations.set(key, {
+						source: entry.source,
+						ownerPid: entry.ownerPid,
+					});
+				}
+			}
+		}
+	} catch {
+		// Missing or invalid — no reservations
+	}
+
+	return reservations;
+}
+
+function writeReservations(
+	reservations: Map<string, WatchlistReservation>,
+): void {
+	writeJsonAtomic(getReservationsPath(), Object.fromEntries(reservations));
+}
+
+function defaultIsPidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM: the process exists but belongs to another user
+		return (error as NodeJS.ErrnoException).code === 'EPERM';
+	}
+}
+
+/**
+ * Reserve up to `max` minus the slots `source` already holds, taking
+ * `candidateKeys` in order. Keys that are already registered or reserved are
+ * returned in `claimedElsewhere` instead: the caller should treat them as
+ * spawned, since another instance or watchlist owns them. `occupied` is how
+ * many slots `source` held before this call.
+ */
+export function tryReserveWatchlistSlots(
+	source: string,
+	candidateKeys: string[],
+	max: number,
+	opts: {pid?: number; isPidAlive?: (pid: number) => boolean} = {},
+): {reserved: string[]; occupied: number; claimedElsewhere: string[]} {
+	const pid = opts.pid ?? process.pid;
+	const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
+
+	return withRegistryLock(() => {
+		const registered = new Set(readFromDisk(registryPath));
+		const reservations = readReservations();
+		let changed = false;
+
+		for (const [key, entry] of reservations) {
+			if (!registered.has(key) && !isPidAlive(entry.ownerPid)) {
+				reservations.delete(key);
+				changed = true;
+			}
+		}
+
+		const occupied = [...reservations.values()].filter(
+			entry => entry.source === source,
+		).length;
+		const reserved: string[] = [];
+		const claimedElsewhere: string[] = [];
+		for (const key of candidateKeys) {
+			if (registered.has(key) || reservations.has(key)) {
+				claimedElsewhere.push(key);
+				continue;
+			}
+
+			if (occupied + reserved.length >= max) continue;
+			reservations.set(key, {source, ownerPid: pid});
+			reserved.push(key);
+			changed = true;
+		}
+
+		if (changed) writeReservations(reservations);
+		return {reserved, occupied, claimedElsewhere};
+	});
+}
+
+/**
+ * Give back a reservation whose idow run failed. A key that did get
+ * registered keeps its entry, since that workspace still holds the slot.
+ */
+export function releaseWatchlistReservation(issueKey: string): void {
+	withRegistryLock(() => {
+		if (readFromDisk(registryPath).includes(issueKey)) return;
+		const reservations = readReservations();
+		if (reservations.delete(issueKey)) writeReservations(reservations);
+	});
 }
 
 /**

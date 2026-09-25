@@ -419,9 +419,13 @@ export class JiraProvider implements IssueTrackerProvider {
 		const statusList = statuses
 			.map(s => `"${s.replace(/"/g, '\\"')}"`)
 			.join(', ');
-		const jql = assigneeClause
+		const filter = assigneeClause
 			? `${assigneeClause} AND status IN (${statusList})`
 			: `status IN (${statusList})`;
+		// acli returns a single page of results by default, so sort newest first to
+		// keep the most recent issues on it. The page is reversed below so capped
+		// watchlists spawn oldest first.
+		const jql = `${filter} ORDER BY created DESC`;
 		log.info(`Watchlist query: ${jql}`);
 
 		try {
@@ -442,7 +446,7 @@ export class JiraProvider implements IssueTrackerProvider {
 			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
 			const results: TrackerIssue[] = [];
 
-			for (const raw of rawList) {
+			for (const raw of [...rawList].reverse()) {
 				try {
 					const issue = mapJiraIssue(raw);
 					results.push(issue);
