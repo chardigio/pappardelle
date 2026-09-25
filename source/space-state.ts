@@ -11,6 +11,7 @@
 // files the same as "no cached data yet".
 
 import fs from 'node:fs';
+import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import type {PipelineStatus} from './providers/types.ts';
@@ -51,16 +52,16 @@ export interface SpaceState {
  * Subagent jsonls live in nested subdirectories (`subagents/*.jsonl`) and are
  * intentionally excluded so the recap reflects the main session only.
  */
-export function findLatestSessionJsonl(
+export async function findLatestSessionJsonl(
 	worktreePath: string,
 	projectsDir?: string,
-): string | null {
+): Promise<string | null> {
 	const base = projectsDir ?? path.join(homedir(), '.claude', 'projects');
 	const encoded = worktreePath.replaceAll('/', '-').replaceAll('.', '-');
 	const projectDir = path.join(base, encoded);
 	let entries: fs.Dirent[];
 	try {
-		entries = fs.readdirSync(projectDir, {withFileTypes: true});
+		entries = await fs.promises.readdir(projectDir, {withFileTypes: true});
 	} catch {
 		return null;
 	}
@@ -70,7 +71,7 @@ export function findLatestSessionJsonl(
 		if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
 		const file = path.join(projectDir, entry.name);
 		try {
-			const mtime = fs.statSync(file).mtimeMs;
+			const {mtimeMs: mtime} = await fs.promises.stat(file);
 			if (!newest || mtime > newest.mtime) newest = {file, mtime};
 		} catch {
 			// Skip inaccessible files.
@@ -141,6 +142,16 @@ export function writeSpaceState(
 
 const MAX_EXCERPT_LEN = 500;
 
+const recapCache = new Map<
+	string,
+	{signature: string; recap: SpaceRecap | null}
+>();
+const MAX_CACHED_RECAPS = 128;
+
+function fileSignature(stat: fs.Stats): string {
+	return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':');
+}
+
 /**
  * Pull a lightweight recap out of a Claude Code session jsonl file.
  *
@@ -151,62 +162,87 @@ const MAX_EXCERPT_LEN = 500;
  *
  * Returns `null` when none of these are present or the file can't be read.
  */
-export function extractRecapFromJsonl(jsonlPath: string): SpaceRecap | null {
-	let raw: string;
+export async function extractRecapFromJsonl(
+	jsonlPath: string,
+): Promise<SpaceRecap | null> {
 	try {
-		raw = fs.readFileSync(jsonlPath, 'utf-8');
+		const signature = fileSignature(await fs.promises.stat(jsonlPath));
+		const cached = recapCache.get(jsonlPath);
+		if (cached?.signature === signature) {
+			recapCache.delete(jsonlPath);
+			recapCache.set(jsonlPath, cached);
+			return cached.recap;
+		}
+
+		const recap: SpaceRecap = {};
+		const stream = fs.createReadStream(jsonlPath, {encoding: 'utf-8'});
+		try {
+			let yieldedAt = performance.now();
+			let pending = '';
+			for await (const chunk of stream) {
+				const contents = pending + (chunk as string);
+				let start = 0;
+				let end = contents.indexOf('\n');
+				while (end !== -1) {
+					applyRecapLine(recap, contents.slice(start, end));
+					start = end + 1;
+					end = contents.indexOf('\n', start);
+					if (performance.now() - yieldedAt >= 4) {
+						await yieldToInput();
+						yieldedAt = performance.now();
+					}
+				}
+				pending = contents.slice(start);
+			}
+			if (pending) applyRecapLine(recap, pending);
+		} finally {
+			stream.destroy();
+		}
+		const result = Object.keys(recap).length ? recap : null;
+		// A writer may append or replace the transcript while it is being read.
+		// Only reuse snapshots that were stable for the entire read.
+		if (fileSignature(await fs.promises.stat(jsonlPath)) === signature) {
+			recapCache.delete(jsonlPath);
+			recapCache.set(jsonlPath, {signature, recap: result});
+			if (recapCache.size > MAX_CACHED_RECAPS) {
+				recapCache.delete(recapCache.keys().next().value!);
+			}
+		}
+		return result;
 	} catch {
+		recapCache.delete(jsonlPath);
 		return null;
 	}
+}
 
-	let customTitle: string | undefined;
-	let lastPrompt: string | undefined;
-	let lastAssistantExcerpt: string | undefined;
-
-	for (const line of raw.split('\n')) {
-		if (!line.trim()) continue;
-		let entry: any;
-		try {
-			entry = JSON.parse(line);
-		} catch {
-			continue;
-		}
-
-		if (!entry || typeof entry !== 'object') continue;
-
-		const t = entry.type;
-		switch (t) {
-			case 'custom-title': {
-				if (typeof entry.customTitle === 'string' && entry.customTitle) {
-					customTitle = entry.customTitle;
-				}
-
-				break;
-			}
-			case 'last-prompt': {
-				if (typeof entry.lastPrompt === 'string' && entry.lastPrompt) {
-					lastPrompt = entry.lastPrompt;
-				}
-
-				break;
-			}
-			case 'assistant': {
-				const text = extractAssistantText(entry);
-				if (text) lastAssistantExcerpt = text.slice(0, MAX_EXCERPT_LEN);
-
-				break;
-			}
-			// No default
-		}
+function applyRecapLine(recap: SpaceRecap, line: string): void {
+	let entry: any;
+	try {
+		entry = JSON.parse(line);
+	} catch {
+		return;
 	}
-
-	if (!customTitle && !lastPrompt && !lastAssistantExcerpt) return null;
-
-	const recap: SpaceRecap = {};
-	if (customTitle) recap.customTitle = customTitle;
-	if (lastPrompt) recap.lastPrompt = lastPrompt;
-	if (lastAssistantExcerpt) recap.lastAssistantExcerpt = lastAssistantExcerpt;
-	return recap;
+	if (!entry || typeof entry !== 'object') return;
+	switch (entry.type) {
+		case 'custom-title': {
+			if (typeof entry.customTitle === 'string' && entry.customTitle) {
+				recap.customTitle = entry.customTitle;
+			}
+			break;
+		}
+		case 'last-prompt': {
+			if (typeof entry.lastPrompt === 'string' && entry.lastPrompt) {
+				recap.lastPrompt = entry.lastPrompt;
+			}
+			break;
+		}
+		case 'assistant': {
+			const text = extractAssistantText(entry);
+			if (text) recap.lastAssistantExcerpt = text.slice(0, MAX_EXCERPT_LEN);
+			break;
+		}
+		// No default
+	}
 }
 
 function extractAssistantText(entry: any): string | undefined {

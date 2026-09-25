@@ -99,11 +99,15 @@ import {
 } from './kill-done-spaces.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
+import {StartupQueue} from './startup-queue.ts';
+import {runWorkspaceSetup} from './workspace-startup.ts';
+import {LatestTask} from './latest-task.ts';
 import {
 	isInTmux,
 	getWorktreePath,
 	getMainWorktreeInfo,
 	attachToSpace,
+	getCurrentlyViewingSpace,
 	displayMessageInPane,
 	sendToPane,
 	killSession,
@@ -124,12 +128,7 @@ import {
 	calculateListClickRow,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {
-	filterSpaces,
-	MAIN_WORKTREE_KEY,
-	shouldAttachOnSelection,
-	tearDownSpace,
-} from './space-utils.ts';
+import {filterSpaces, MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
 	addSpace,
@@ -207,7 +206,6 @@ export default function App({
 	);
 	const [headerMessage, setHeaderMessage] = useState('');
 	const [errorCount, setErrorCount] = useState(0);
-	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -457,7 +455,6 @@ export default function App({
 					);
 					if (newLayout) {
 						setPaneLayout(newLayout);
-						setCurrentSpace(null); // Force re-attach
 						panesInitialized.current = false;
 					}
 				} else {
@@ -655,6 +652,17 @@ export default function App({
 		}
 	}, [spaces, pendingSession]);
 
+	const startupQueue = useMemo(() => new StartupQueue(2), []);
+	const attachmentTask = useMemo(() => new LatestTask(), []);
+	const [attachmentRevision, setAttachmentRevision] = useState(0);
+	useEffect(
+		() => () => {
+			startupQueue.stop();
+			attachmentTask.cancel();
+		},
+		[startupQueue, attachmentTask],
+	);
+
 	// Track whether zoom animation is in progress
 	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
 	const [isZooming, setIsZooming] = useState(false);
@@ -676,46 +684,54 @@ export default function App({
 		}
 	}, [anyDialogOpen, paneLayout]);
 
-	// Attach to sessions when selection changes (uses existing idow sessions)
+	const selectedSpace = spaces[selectedIndex];
+	const selectedSpaceName = selectedSpace?.name;
+	const selectedSpaceNameRef = useRef(selectedSpaceName);
+	selectedSpaceNameRef.current = selectedSpaceName;
+	const selectedWorktreePath = selectedSpace?.isMainWorktree
+		? (selectedSpace.worktreePath ?? undefined)
+		: undefined;
+	const selectedIssueTitle =
+		selectedSpace?.trackerIssue?.title ?? selectedSpace?.linearIssue?.title;
+
 	useEffect(() => {
-		if (!paneLayout) return;
-		if (spaces.length === 0) return;
-
-		const selectedSpace = spaces[selectedIndex];
-		if (!selectedSpace) return;
-
-		// Don't switch if already showing this space, and never reattach to a
-		// space whose teardown is in flight — attachToSpace recreates inner
-		// sessions on demand, which would respawn the ones close just killed and
-		// strand them as orphans for the next startup's reaper (STA-1553).
 		if (
-			!shouldAttachOnSelection({
-				selectedSpaceName: selectedSpace.name,
-				currentSpace,
-				closingSpaces: closingSpacesRef.current,
-			})
-		) {
+			!paneLayout ||
+			!selectedSpaceName ||
+			closingSpacesRef.current.has(selectedSpaceName)
+		)
 			return;
-		}
-
-		// Attach to sessions (creates them on-demand if they don't exist).
-		// The issue title lets attachToSpace resolve a per-profile companion_command
-		// when it has to create the companion session itself.
-		const success = attachToSpace(
-			paneLayout.claudeViewerPaneId,
-			paneLayout.companionViewerPaneId,
-			selectedSpace.name,
-			paneLayout.listPaneId, // Keep focus on list pane
-			selectedSpace.isMainWorktree
-				? (selectedSpace.worktreePath ?? undefined)
-				: undefined,
-			selectedSpace.trackerIssue?.title ?? selectedSpace.linearIssue?.title,
-		);
-		if (success) {
-			setCurrentSpace(selectedSpace.name);
-			panesInitialized.current = true;
-		}
-	}, [selectedIndex, spaces, paneLayout, currentSpace]);
+		void attachmentTask
+			.run(async signal => {
+				if (closingSpacesRef.current.has(selectedSpaceName)) return;
+				const success = await attachToSpace(
+					paneLayout.claudeViewerPaneId,
+					paneLayout.companionViewerPaneId,
+					selectedSpaceName,
+					paneLayout.listPaneId,
+					selectedWorktreePath,
+					selectedIssueTitle,
+					{signal},
+				);
+				if (success && !signal.aborted) {
+					panesInitialized.current = true;
+				}
+			})
+			.catch((err: unknown) =>
+				log.error(
+					'Failed to attach workspace',
+					err instanceof Error ? err : undefined,
+				),
+			);
+		return () => attachmentTask.cancel();
+	}, [
+		selectedSpaceName,
+		selectedWorktreePath,
+		selectedIssueTitle,
+		paneLayout,
+		attachmentTask,
+		attachmentRevision,
+	]);
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -1228,78 +1244,51 @@ export default function App({
 		{isActive: isSearching},
 	);
 
-	// Helper to spawn idow and capture errors
-	const spawnSession = (pending: PendingSession) => {
-		setPendingSession(pending);
-
-		if (pending.name && pending.inputIsIssueKey) {
-			claimIssueInBackground(pending.name);
-		}
-
-		const child = spawn(
-			path.join(SCRIPTS_DIR, 'idow'),
-			buildNewSessionArgs(pending.idowArg, {
-				profileName: pending.profileName,
-				inputIsIssueKey: pending.inputIsIssueKey,
-			}),
-			{
-				detached: true,
-				stdio: ['ignore', 'pipe', 'pipe'],
-				cwd: getRepoRoot(),
-				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
-			},
-		);
-
-		let stderrData = '';
-		let stdoutData = '';
-
-		child.stdout?.on('data', data => {
-			stdoutData += data.toString();
-		});
-
-		child.stderr?.on('data', data => {
-			stderrData += data.toString();
-		});
-
-		child.on('error', err => {
-			log.error(`Failed to spawn idow: ${err.message}`, err);
-			if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
-			setPendingSession(null);
-			setHeaderWithTimeout(`Failed: ${err.message.slice(0, 40)}`, 5000);
-		});
-
-		child.on('close', code => {
-			if (code !== 0 && code !== null) {
-				if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
-				setPendingSession(null);
-				const errorMsg =
-					stderrData.trim() ||
-					stdoutData.match(/Error: .*/)?.[0] ||
-					`idow exited with code ${code}`;
-				log.error(`idow failed (exit ${code}): ${errorMsg}`);
-				setHeaderWithTimeout(`Failed: ${errorMsg.slice(0, 40)}`, 5000);
-			} else {
-				// Register the space so it persists across reboots.
-				// For description routes, pending.name is empty because the issue
-				// key isn't known until idow creates it. Extract it from stdout.
-				const spaceKey =
-					pending.name || extractIssueKeyFromIdowOutput(stdoutData);
-				if (spaceKey && !pending.name) {
-					log.info(`Extracted issue key from idow output: ${spaceKey}`);
-					claimIssueInBackground(spaceKey);
-				}
-				if (spaceKey) {
-					addSpace(spaceKey);
-				}
-				// Keep the pending row visible — the useEffect
-				// watching `spaces` will clear it once the new row appears.
-				loadSpaces();
-			}
-		});
-
-		child.unref();
-		log.info(`Started idow for pending session: ${pending.name}`);
-	};
+	const spawnSession = useCallback(
+		(pending: PendingSession) => {
+			void startupQueue
+				.enqueue(async () => {
+					setPendingSession(pending);
+					if (pending.name && pending.inputIsIssueKey)
+						claimIssueInBackground(pending.name);
+					log.info(`Starting idow for pending session: ${pending.name}`);
+					const result = await runWorkspaceSetup(
+						path.join(SCRIPTS_DIR, 'idow'),
+						buildNewSessionArgs(pending.idowArg, {
+							profileName: pending.profileName,
+							inputIsIssueKey: pending.inputIsIssueKey,
+						}),
+						{
+							cwd: getRepoRoot(),
+							env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+						},
+					);
+					if (result.code !== 0) {
+						throw new Error(
+							result.stderr.trim() ||
+								result.stdout.match(/Error: .*/)?.[0] ||
+								`idow exited with ${result.signal ?? `code ${result.code}`}`,
+						);
+					}
+					// Description routes only acquire an issue key once idow creates it.
+					const spaceKey =
+						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
+					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
+					if (spaceKey) addSpace(spaceKey);
+					await loadSpaces();
+				})
+				.catch((err: unknown) => {
+					// A failed spawn must not keep holding its reserved watchlist slot.
+					if (pending.watchlistSource)
+						releaseWatchlistReservation(pending.name);
+					setPendingSession(current => (current === pending ? null : current));
+					const error = err instanceof Error ? err : new Error(String(err));
+					log.error('Failed to start workspace', error);
+					setHeaderWithTimeout(`Failed: ${error.message.slice(0, 40)}`, 5000);
+				});
+		},
+		[startupQueue, loadSpaces, setHeaderWithTimeout],
+	);
 
 	// Issue watchlist polling — auto-spawn workspaces for assigned issues
 	// Track which issues we've already attempted to spawn (prevents re-spawning on every poll)
@@ -1451,7 +1440,7 @@ export default function App({
 			clearTimeout(initialTimer);
 			clearInterval(interval);
 		};
-	}, [watchlists]);
+	}, [watchlists, configMemo, spawnSession]);
 
 	// Rail-status polling — fetch each space's PR pipeline state + unresolved
 	// review-comment count from the VCS host on RAIL_STATUS_POLL_INTERVAL_MS
@@ -1534,11 +1523,14 @@ export default function App({
 				// Config load failure shouldn't block deletion
 			}
 
-			// STA-1553: mark as closing BEFORE killing sessions so the
-			// selection-change effect won't respawn them during the render window
-			// where currentSpace has been nulled but the prune below hasn't landed
-			// yet. Cleared once the space leaves `spaces` (effect after loadSpaces).
+			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
+			if (selectedSpaceNameRef.current === space.name) attachmentTask.cancel();
+			// Finish any in-flight session creation before teardown can kill it.
+			await attachmentTask.idle();
+			const wasViewed =
+				getCurrentlyViewingSpace() === space.name ||
+				selectedSpaceNameRef.current === space.name;
 
 			// STA-1420: kill tmux first, then update the registry. If the kill
 			// fails (tmux hiccup, socket gone, race), leave the registry alone
@@ -1558,16 +1550,16 @@ export default function App({
 				// Kill failed — the space stays open, so stop guarding it or its
 				// legitimate reattach would be blocked forever.
 				closingSpacesRef.current.delete(space.name);
+				setAttachmentRevision(revision => revision + 1);
 				return false;
 			}
 
-			if (paneLayout && currentSpace === space.name) {
+			if (paneLayout && wasViewed) {
 				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
 				displayMessageInPane(
 					paneLayout.companionViewerPaneId,
 					'Session closed',
 				);
-				setCurrentSpace(null);
 			}
 
 			// Optimistically prune from local state so the reattach useEffect
@@ -1578,7 +1570,7 @@ export default function App({
 			setSpaces(prev => prev.filter(s => s.name !== space.name));
 			return true;
 		},
-		[currentSpace, paneLayout, setHeaderWithTimeout],
+		[paneLayout, setHeaderWithTimeout, attachmentTask],
 	);
 
 	// STA-1553: once a closed space has actually left the list, drop its closing
@@ -1698,24 +1690,22 @@ export default function App({
 
 				// Persist each space's state (rail-status + recap) so sous-chef
 				// and other consumers can read cached data without re-fetching.
-				// Done in a microtask to keep the render-blocking path tight.
+				// Transcript reads yield to input; unchanged files reuse cached recaps.
 				const repoName = getRepoName();
-				queueMicrotask(() => {
-					for (const [name, rail] of lookup) {
-						const worktreePath = getWorktreePath(name);
-						const jsonl = worktreePath
-							? findLatestSessionJsonl(worktreePath)
-							: null;
-						const recap = jsonl ? extractRecapFromJsonl(jsonl) : null;
-						writeSpaceState(repoName, name, {
-							pipeline: rail.pipeline,
-							unresolvedCommentCount: rail.unresolvedCommentCount,
-							prNumber: rail.prNumber,
-							hasConflict: rail.hasConflict ?? false,
-							...(recap ? {recap} : {}),
-						});
-					}
-				});
+				for (const [name, rail] of lookup) {
+					const worktreePath = getWorktreePath(name);
+					const jsonl = worktreePath
+						? await findLatestSessionJsonl(worktreePath)
+						: null;
+					const recap = jsonl ? await extractRecapFromJsonl(jsonl) : null;
+					writeSpaceState(repoName, name, {
+						pipeline: rail.pipeline,
+						unresolvedCommentCount: rail.unresolvedCommentCount,
+						prNumber: rail.prNumber,
+						hasConflict: rail.hasConflict ?? false,
+						...(recap ? {recap} : {}),
+					});
+				}
 			} catch (err) {
 				log.warn(
 					'Rail status poll failed',
