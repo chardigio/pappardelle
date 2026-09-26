@@ -100,7 +100,7 @@ import {
 } from './kill-done-spaces.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
-import {StartupQueue} from './startup-queue.ts';
+import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {LatestTask} from './latest-task.ts';
 import {
@@ -1234,10 +1234,13 @@ export default function App({
 	);
 
 	const spawnSession = useCallback(
-		(pending: PendingSession) => {
-			void startupQueue
-				.enqueue(async () => {
-					setPendingSession(pending);
+		(pending: PendingSession, options: {queued: boolean} = {queued: false}) => {
+			// Show the pending row now, not when a queue slot frees up, so the
+			// user sees the start at once (as on main).
+			setPendingSession(pending);
+			void scheduleWorkspaceStart(
+				startupQueue,
+				async () => {
 					if (pending.name && pending.inputIsIssueKey)
 						claimIssueInBackground(pending.name);
 					log.info(`Starting idow for pending session: ${pending.name}`);
@@ -1265,16 +1268,16 @@ export default function App({
 					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
 					if (spaceKey) addSpace(spaceKey);
 					await loadSpaces();
-				})
-				.catch((err: unknown) => {
-					// A failed spawn must not keep holding its reserved watchlist slot.
-					if (pending.watchlistSource)
-						releaseWatchlistReservation(pending.name);
-					setPendingSession(current => (current === pending ? null : current));
-					const error = err instanceof Error ? err : new Error(String(err));
-					log.error('Failed to start workspace', error);
-					setHeaderWithTimeout(`Failed: ${error.message.slice(0, 40)}`, 5000);
-				});
+				},
+				options,
+			).catch((err: unknown) => {
+				// A failed spawn must not keep holding its reserved watchlist slot.
+				if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
+				setPendingSession(current => (current === pending ? null : current));
+				const error = err instanceof Error ? err : new Error(String(err));
+				log.error('Failed to start workspace', error);
+				setHeaderWithTimeout(`Failed: ${error.message.slice(0, 40)}`, 5000);
+			});
 		},
 		[startupQueue, loadSpaces, setHeaderWithTimeout],
 	);
@@ -1394,21 +1397,27 @@ export default function App({
 							`Watchlist (${source}): spawning workspace for ${issue.identifier} (${issue.title})`,
 						);
 
-						spawnSession({
-							type: 'issue',
-							name: issue.identifier,
-							idowArg: issue.identifier,
-							inputIsIssueKey: true,
-							pendingTitle: `Watchlist: ${issue.title}`,
-							prevSpaceCount: spacesLengthRef.current,
-							// Force the owning profile so idow runs the right
-							// profile-specific setup and the pending row shows its
-							// emoji. null (top-level watchlist) keeps the legacy
-							// behavior: no --profile, idow resolves by project.
-							profileName: profileName ?? undefined,
-							profileEmoji: resolvePendingProfileEmoji(configMemo, profileName),
-							watchlistSource: max === undefined ? undefined : sourceId,
-						});
+						spawnSession(
+							{
+								type: 'issue',
+								name: issue.identifier,
+								idowArg: issue.identifier,
+								inputIsIssueKey: true,
+								pendingTitle: `Watchlist: ${issue.title}`,
+								prevSpaceCount: spacesLengthRef.current,
+								// Force the owning profile so idow runs the right
+								// profile-specific setup and the pending row shows its
+								// emoji. null (top-level watchlist) keeps the legacy
+								// behavior: no --profile, idow resolves by project.
+								profileName: profileName ?? undefined,
+								profileEmoji: resolvePendingProfileEmoji(
+									configMemo,
+									profileName,
+								),
+								watchlistSource: max === undefined ? undefined : sourceId,
+							},
+							{queued: true},
+						);
 					}
 				}
 			} catch (err) {

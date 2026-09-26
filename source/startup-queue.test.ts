@@ -1,6 +1,6 @@
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
-import {StartupQueue} from './startup-queue.ts';
+import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 
 function gate() {
@@ -104,4 +104,46 @@ test('stopping the queue drops pending launches and lets active setup finish', a
 	wait.release();
 	await active;
 	t.deepEqual(started, ['active']);
+});
+
+test('a user-started workspace does not wait behind a full watchlist queue', async t => {
+	const queue = new StartupQueue(2);
+	const blocked = Array.from({length: 4}, () => gate());
+	const jobs = blocked.map(async wait =>
+		scheduleWorkspaceStart(queue, async () => wait.promise, {queued: true}),
+	);
+	for (let i = 0; i < 3; i++) await nextTurn();
+	let userStarted = false;
+	const userJob = scheduleWorkspaceStart(
+		queue,
+		async () => {
+			userStarted = true;
+		},
+		{queued: false},
+	);
+	t.true(userStarted);
+	await userJob;
+	for (const wait of blocked) wait.release();
+	await Promise.all(jobs);
+});
+
+test('watchlist starts still share the two queue slots', async t => {
+	const queue = new StartupQueue(2);
+	const blocked = Array.from({length: 3}, () => gate());
+	const started: number[] = [];
+	const jobs = blocked.map(async (wait, index) =>
+		scheduleWorkspaceStart(
+			queue,
+			async () => {
+				started.push(index);
+				await wait.promise;
+			},
+			{queued: true},
+		),
+	);
+	for (let i = 0; i < 3; i++) await nextTurn();
+	t.deepEqual(started, [0, 1]);
+	for (const wait of blocked) wait.release();
+	await Promise.all(jobs);
+	t.deepEqual(started, [0, 1, 2]);
 });

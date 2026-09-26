@@ -54,3 +54,16 @@ export class StartupQueue {
 		});
 	}
 }
+
+/**
+ * The queue exists to stop a watchlist burst from starting many `idow` runs at
+ * once. A start the user asked for (the `n` key) must not wait behind that
+ * burst, or behind two setups that hang in a hook, so it runs at once.
+ */
+export async function scheduleWorkspaceStart(
+	queue: StartupQueue,
+	task: () => Promise<void>,
+	options: {queued: boolean},
+): Promise<void> {
+	return options.queued ? queue.enqueue(task) : task();
+}
