@@ -1,6 +1,43 @@
 import test from 'ava';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import type {CommandConfig} from './config.ts';
+
+test('verbose deinit hooks finish in order and preserve failure policy', async t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-deinit-'));
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	fs.writeFileSync(
+		path.join(dir, 'hook.cjs'),
+		`
+const fs = require('node:fs');
+const chunk = Buffer.alloc(64 * 1024, 'x');
+for (let i = 0; i < 128; i++) {
+  fs.writeSync(1, chunk);
+  fs.writeSync(2, chunk);
+}
+fs.appendFileSync('order', process.argv[2]);
+process.exit(Number(process.argv[3]));
+`,
+	);
+	const node = `'${process.execPath.replaceAll("'", "'\\''")}'`;
+	const result = await runPreWorkspaceDeinit(
+		[
+			{name: 'first', run: `${node} hook.cjs A 0`},
+			{
+				name: 'allowed failure',
+				run: `${node} hook.cjs B 7`,
+				continue_on_error: true,
+			},
+			{name: 'stop here', run: `${node} hook.cjs C 9`},
+			{name: 'must not run', run: `${node} hook.cjs D 0`},
+		],
+		dir,
+	);
+	t.deepEqual(result, {success: false, failedCommand: 'stop here'});
+	t.is(fs.readFileSync(path.join(dir, 'order'), 'utf8'), 'ABC');
+});
 
 // ============================================================================
 // runPreWorkspaceDeinit tests

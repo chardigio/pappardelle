@@ -2,6 +2,7 @@ import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './components/TextInput.tsx';
 import {spawn, spawnSync} from 'node:child_process';
+import {spawnQuietCommand} from './quiet-command.ts';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -1725,12 +1726,11 @@ export default function App({
 
 		setHeaderMessage(`Opening ${space.name}...`);
 
-		const child = spawn(
+		const child = spawnQuietCommand(
 			path.join(SCRIPTS_DIR, 'idow'),
 			buildOpenWorkspaceArgs(space.name),
 			{
 				detached: true,
-				stdio: ['ignore', 'pipe', 'pipe'],
 				cwd: getRepoRoot(),
 				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 			},
