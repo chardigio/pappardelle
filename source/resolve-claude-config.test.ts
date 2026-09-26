@@ -1,5 +1,5 @@
 import test from 'ava';
-import {execSync} from 'node:child_process';
+import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -77,6 +77,19 @@ const yqAvailable = (() => {
 })();
 
 const maybeMacro = yqAvailable ? test : test.skip;
+
+maybeMacro(
+	'malformed YAML fails instead of returning an empty successful result',
+	t => {
+		const fixture = setupConfigFiles('claude: [unterminated');
+		t.teardown(fixture.cleanup);
+		t.throws(() =>
+			execFileSync('bash', [SCRIPT_PATH, '--config', fixture.configPath], {
+				stdio: 'pipe',
+			}),
+		);
+	},
+);
 
 // ============================================================================
 // Base config only (no local override)
