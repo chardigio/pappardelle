@@ -109,7 +109,7 @@ function listPrsForBranch(branch: string): PrListEntry[] {
 	return JSON.parse(stdout) as PrListEntry[];
 }
 
-function verifyOrderingForBranch(provider: GitHubProvider) {
+async function verifyOrderingForBranch(provider: GitHubProvider) {
 	const branch = findMultiPrBranch();
 	header('PR ordering — latest-updatedAt wins');
 
@@ -149,7 +149,7 @@ function verifyOrderingForBranch(provider: GitHubProvider) {
 		updatedAt: expected.updatedAt,
 	});
 
-	const actual = provider.checkIssueHasPRWithCommits(branch);
+	const actual = await provider.checkIssueHasPRWithCommits(branch);
 	info('provider returned', {number: actual.prNumber, url: actual.prUrl});
 
 	if (!actual.hasPR) {
@@ -169,7 +169,7 @@ function verifyOrderingForBranch(provider: GitHubProvider) {
 	}
 }
 
-function main() {
+async function main() {
 	console.log('GitHub Provider — Local Verification');
 	console.log(`Issue key: ${ISSUE_KEY}`);
 
@@ -177,7 +177,7 @@ function main() {
 
 	// ── checkIssueHasPRWithCommits ─────────────────────────────
 	header(`checkIssueHasPRWithCommits("${ISSUE_KEY}")`);
-	const prInfo = provider.checkIssueHasPRWithCommits(ISSUE_KEY);
+	const prInfo = await provider.checkIssueHasPRWithCommits(ISSUE_KEY);
 
 	info('hasPR', prInfo.hasPR);
 	info('hasCommits', prInfo.hasCommits);
@@ -209,7 +209,7 @@ function main() {
 
 	// ── checkIssueHasPRWithCommits with non-existent branch ───
 	header('checkIssueHasPRWithCommits("NONEXISTENT-999999")');
-	const noPR = provider.checkIssueHasPRWithCommits('NONEXISTENT-999999');
+	const noPR = await provider.checkIssueHasPRWithCommits('NONEXISTENT-999999');
 
 	if (!noPR.hasPR && !noPR.hasCommits) {
 		pass('Correctly returned no PR for non-existent branch');
@@ -220,7 +220,7 @@ function main() {
 	// ── buildPRUrl ────────────────────────────────────────────
 	const prNumber = EXPLICIT_PR ?? prInfo.prNumber ?? 1;
 	header(`buildPRUrl(${prNumber})`);
-	const url = provider.buildPRUrl(prNumber);
+	const url = await provider.buildPRUrl(prNumber);
 	info('url', url);
 
 	if (url.includes('github.com') && url.includes(String(prNumber))) {
@@ -241,7 +241,7 @@ function main() {
 	// branch, not the oldest. Verifies the fix end-to-end against real
 	// GitHub by comparing the provider's choice to the max-updatedAt PR
 	// from an independent `gh pr list` call.
-	verifyOrderingForBranch(provider);
+	await verifyOrderingForBranch(provider);
 
 	// ── Summary ───────────────────────────────────────────────
 	header('Summary');
@@ -253,4 +253,4 @@ function main() {
 	}
 }
 
-main();
+await main();

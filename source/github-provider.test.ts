@@ -1,14 +1,109 @@
 import test from 'ava';
+import {setTimeout as delay} from 'node:timers/promises';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
-import {
-	GitHubProvider,
-	type GhExecutor,
-	type SyncGhExecutor,
-} from './providers/github-provider.ts';
+import {GitHubProvider, type GhExecutor} from './providers/github-provider.ts';
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+test('concurrent first lookups share repo discovery and cache the resolved fork', async t => {
+	let discoveries = 0;
+	const queries: string[] = [];
+	const provider = new GitHubProvider(async args => {
+		if (args[0] === 'repo') {
+			discoveries++;
+			t.deepEqual(args, [
+				'repo',
+				'view',
+				'--json',
+				'nameWithOwner',
+				'-q',
+				'.nameWithOwner',
+			]);
+			await delay(30);
+			return 'fork-owner/repo\n';
+		}
+		queries.push(args.join(' '));
+		return JSON.stringify({
+			data: {
+				search: {
+					nodes: [
+						{
+							number: 26,
+							url: 'https://github.com/upstream/repo/pull/26',
+							changedFiles: 3,
+						},
+					],
+				},
+			},
+		});
+	});
+	const [link, , url] = await Promise.all([
+		provider.getPRLink('STA-1'),
+		provider.getBulkRailStatus(['STA-1']),
+		provider.buildPRUrl(26),
+	]);
+	t.is(discoveries, 1);
+	t.deepEqual(link, {
+		number: 26,
+		url: 'https://github.com/upstream/repo/pull/26',
+	});
+	t.is(url, 'https://github.com/fork-owner/repo/pull/26');
+	t.true(queries.every(query => query.includes('repo:fork-owner/repo')));
+	await provider.getRailStatus('STA-2');
+	t.is(discoveries, 1);
+});
+
+for (const failure of ['error', 'invalid slug'] as const) {
+	test(`repo discovery retries after ${failure} without poisoning concurrent callers`, async t => {
+		let discoveries = 0;
+		const provider = new GitHubProvider(async args => {
+			if (args[0] !== 'repo') return makePrListResponse([]);
+			discoveries++;
+			await delay(10);
+			if (discoveries === 1) {
+				if (failure === 'error') throw new Error('offline');
+				return '';
+			}
+			return 'owner/repo';
+		});
+		const [link, rail] = await Promise.all([
+			provider.getPRLink('STA-1'),
+			provider.getBulkRailStatus(['STA-1']),
+		]);
+		t.is(link, null);
+		t.is(rail.size, 0);
+		t.is(discoveries, 1);
+		t.is(await provider.buildPRUrl(1), 'https://github.com/owner/repo/pull/1');
+		t.is(discoveries, 2);
+	});
+}
+
+test('link lookup retains merged and follow-up PR search semantics', async t => {
+	let query = '';
+	const provider = new GitHubProvider(async args => {
+		query = args.join(' ');
+		return makePrListResponse([
+			{number: 9, url: 'https://github.com/owner/repo/pull/9', changedFiles: 0},
+		]);
+	}, 'owner/repo');
+	t.deepEqual(await provider.getPRLink('STA-1'), {
+		number: 9,
+		url: 'https://github.com/owner/repo/pull/9',
+	});
+	t.true(query.includes('head:STA-1'));
+	t.true(query.includes('sort:updated-desc'));
+	t.false(query.includes('is:open'));
+	t.false(query.includes('headRefName:'));
+});
+
+test('link lookup propagates API failure', async t => {
+	const provider = new GitHubProvider(async () => {
+		throw new Error('offline');
+	}, 'owner/repo');
+	await t.throwsAsync(provider.getPRLink('STA-1'), {message: 'offline'});
+});
 
 function makeGhResponse(
 	aliases: Record<
@@ -360,9 +455,9 @@ function makePrListResponse(
 	});
 }
 
-test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and number', t => {
+test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and number', async t => {
 	let capturedArgs: string[] = [];
-	const syncExec: SyncGhExecutor = (args: string[]) => {
+	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
 		return makePrListResponse([
 			{
@@ -373,8 +468,8 @@ test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and 
 		]);
 	};
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	const result = provider.checkIssueHasPRWithCommits('STA-100');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	const result = await provider.checkIssueHasPRWithCommits('STA-100');
 
 	t.true(result.hasPR);
 	t.true(result.hasCommits);
@@ -391,11 +486,11 @@ test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and 
 	t.true(queryArg.includes('head:STA-100'));
 });
 
-test('checkIssueHasPRWithCommits: merged PR is found', t => {
+test('checkIssueHasPRWithCommits: merged PR is found', async t => {
 	// Simulate a branch whose only PR has already been merged. The GraphQL
 	// query intentionally omits a `states:` filter so merged PRs still
 	// surface; this test pins that behavior.
-	const syncExec: SyncGhExecutor = () =>
+	const exec: GhExecutor = async () =>
 		makePrListResponse([
 			{
 				number: 1092,
@@ -404,8 +499,8 @@ test('checkIssueHasPRWithCommits: merged PR is found', t => {
 			},
 		]);
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	const result = provider.checkIssueHasPRWithCommits('STA-1078');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	const result = await provider.checkIssueHasPRWithCommits('STA-1078');
 
 	t.true(result.hasPR);
 	t.true(result.hasCommits);
@@ -413,11 +508,11 @@ test('checkIssueHasPRWithCommits: merged PR is found', t => {
 	t.is(result.prUrl, 'https://github.com/owner/repo/pull/1092');
 });
 
-test('checkIssueHasPRWithCommits: no PR found returns hasPR false', t => {
-	const syncExec: SyncGhExecutor = () => makePrListResponse([]);
+test('checkIssueHasPRWithCommits: no PR found returns hasPR false', async t => {
+	const exec: GhExecutor = async () => makePrListResponse([]);
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	const result = provider.checkIssueHasPRWithCommits('STA-404');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	const result = await provider.checkIssueHasPRWithCommits('STA-404');
 
 	t.false(result.hasPR);
 	t.false(result.hasCommits);
@@ -425,8 +520,8 @@ test('checkIssueHasPRWithCommits: no PR found returns hasPR false', t => {
 	t.is(result.prUrl, undefined);
 });
 
-test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits false', t => {
-	const syncExec: SyncGhExecutor = () =>
+test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits false', async t => {
+	const exec: GhExecutor = async () =>
 		makePrListResponse([
 			{
 				number: 7,
@@ -435,41 +530,41 @@ test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits fa
 			},
 		]);
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	const result = provider.checkIssueHasPRWithCommits('STA-7');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	const result = await provider.checkIssueHasPRWithCommits('STA-7');
 
 	t.true(result.hasPR);
 	t.false(result.hasCommits);
 });
 
-test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', t => {
-	const syncExec: SyncGhExecutor = () => {
+test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', async t => {
+	const exec: GhExecutor = async () => {
 		throw new Error('gh: not authenticated');
 	};
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	const result = provider.checkIssueHasPRWithCommits('STA-500');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	const result = await provider.checkIssueHasPRWithCommits('STA-500');
 
 	t.false(result.hasPR);
 	t.false(result.hasCommits);
 });
 
-test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calling executor', t => {
+test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calling executor', async t => {
 	let called = false;
-	const syncExec: SyncGhExecutor = () => {
+	const exec: GhExecutor = async () => {
 		called = true;
 		return '';
 	};
 	// null forces the "no slug" path — simulates running outside a GitHub repo
-	const provider = new GitHubProvider(undefined, null, syncExec);
-	const result = provider.checkIssueHasPRWithCommits('STA-100');
+	const provider = new GitHubProvider(exec, null);
+	const result = await provider.checkIssueHasPRWithCommits('STA-100');
 
 	t.false(result.hasPR);
 	t.false(result.hasCommits);
 	t.false(called);
 });
 
-test('checkIssueHasPRWithCommits: query sorts results by updated-desc', t => {
+test('checkIssueHasPRWithCommits: query sorts results by updated-desc', async t => {
 	// When a branch matches multiple PRs (e.g. a reused branch name where the
 	// first PR was merged long ago and a new PR was just opened), the `g`
 	// shortcut would jump to the oldest PR. GitHub's search defaults to
@@ -477,7 +572,7 @@ test('checkIssueHasPRWithCommits: query sorts results by updated-desc', t => {
 	// PRs. The query must include `sort:updated-desc` so we open the PR the
 	// user actually worked on most recently.
 	let capturedArgs: string[] = [];
-	const syncExec: SyncGhExecutor = (args: string[]) => {
+	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
 		return makePrListResponse([
 			{
@@ -488,8 +583,8 @@ test('checkIssueHasPRWithCommits: query sorts results by updated-desc', t => {
 		]);
 	};
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	provider.checkIssueHasPRWithCommits('STA-reused-branch');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	await provider.checkIssueHasPRWithCommits('STA-reused-branch');
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
 	t.true(
@@ -498,7 +593,7 @@ test('checkIssueHasPRWithCommits: query sorts results by updated-desc', t => {
 	);
 });
 
-test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches resolve', t => {
+test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches resolve', async t => {
 	// Issues often spawn follow-up branches like X-FOLLOW-1 for incremental
 	// PRs after the original lands. GraphQL `pullRequests(headRefName: X)`
 	// is exact-match on branch name, so those follow-ups would be invisible
@@ -506,13 +601,13 @@ test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches 
 	// qualifier (tokenized prefix match) instead — and must NOT use the
 	// exact-match `headRefName:` form.
 	let capturedArgs: string[] = [];
-	const syncExec: SyncGhExecutor = (args: string[]) => {
+	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
 		return makePrListResponse([]);
 	};
 
-	const provider = new GitHubProvider(undefined, 'owner/repo', syncExec);
-	provider.checkIssueHasPRWithCommits('STA-1079');
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	await provider.checkIssueHasPRWithCommits('STA-1079');
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
 	t.true(

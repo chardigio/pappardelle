@@ -3,6 +3,8 @@ import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './components/TextInput.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
+import {once} from 'node:events';
+import {openPR} from './open-pr.ts';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -210,6 +212,7 @@ export default function App({
 		null,
 	);
 	const [headerMessage, setHeaderMessage] = useState('');
+	const headerGeneration = useRef(0);
 	const [errorCount, setErrorCount] = useState(0);
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
@@ -227,6 +230,13 @@ export default function App({
 	// HEADER_ROWS math.
 	const [bannerHeight, setBannerHeight] = useState(0);
 	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			headerGeneration.current++;
+			if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
+		},
+		[],
+	);
 
 	// Resolve the update check in the background. Never throws — cli.tsx
 	// installs a .catch() that swallows to null.
@@ -246,11 +256,19 @@ export default function App({
 		};
 	}, [updateCheckPromise]);
 
-	const setHeaderWithTimeout = useCallback((msg: string, ms: number) => {
+	const showHeaderMessage = useCallback((msg: string) => {
 		if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
 		setHeaderMessage(msg);
-		headerTimeoutRef.current = setTimeout(() => setHeaderMessage(''), ms);
+		return ++headerGeneration.current;
 	}, []);
+
+	const setHeaderWithTimeout = useCallback(
+		(msg: string, ms: number) => {
+			showHeaderMessage(msg);
+			headerTimeoutRef.current = setTimeout(() => showHeaderMessage(''), ms);
+		},
+		[showHeaderMessage],
+	);
 
 	// Identifies the most recent `d` launch so a slow editor's failure can't
 	// overwrite the header of whatever the user did after it.
@@ -794,41 +812,43 @@ export default function App({
 		if (!space || space.isPending) return;
 
 		if (space.isMainWorktree) {
-			setHeaderMessage('Opening repo...');
+			const generation = showHeaderMessage('Opening repo...');
 			const child = spawn('gh', ['repo', 'view', '--web'], {
 				detached: true,
 				stdio: 'ignore',
 			});
 			child.on('error', err => {
 				log.error(`Failed to launch gh: ${err.message}`, err);
-				setHeaderWithTimeout('Could not launch gh', 3000);
+				if (headerGeneration.current === generation) {
+					setHeaderWithTimeout('Could not launch gh', 3000);
+				}
+			});
+			child.on('spawn', () => {
+				if (headerGeneration.current === generation) {
+					setHeaderWithTimeout('Opened repo', 3000);
+				}
 			});
 			child.unref();
-			setHeaderWithTimeout('Opened repo', 3000);
 			return;
 		}
 
-		setHeaderMessage(`Opening PR for ${space.name}...`);
-
-		try {
-			const prInfo = createVcsHost().checkIssueHasPRWithCommits(space.name);
-			if (prInfo.hasPR && prInfo.prUrl) {
-				const child = spawn('open', [prInfo.prUrl], {
+		const generation = showHeaderMessage(`Opening PR for ${space.name}...`);
+		void openPR(space.name, {
+			provider: createVcsHost(),
+			isCurrent: () => headerGeneration.current === generation,
+			async openUrl(url) {
+				const child = spawn('open', [url], {
 					detached: true,
 					stdio: 'ignore',
 				});
 				child.on('error', err => {
 					log.error(`Failed to launch open: ${err.message}`, err);
-					setHeaderWithTimeout('Could not launch open', 3000);
 				});
+				await once(child, 'spawn');
 				child.unref();
-				setHeaderWithTimeout(`Opened PR #${prInfo.prNumber}`, 3000);
-			} else {
-				setHeaderWithTimeout(`No PR found for ${space.name}`, 3000);
-			}
-		} catch {
-			setHeaderWithTimeout('Failed to look up PR', 3000);
-		}
+			},
+			showMessage: message => setHeaderWithTimeout(message, 3000),
+		});
 	};
 
 	// Open the issue for the selected space — in a browser for trackers with a
@@ -938,7 +958,7 @@ export default function App({
 		}
 
 		setRunningCommand('git pull');
-		setHeaderMessage('Pulling...');
+		showHeaderMessage('Pulling...');
 
 		const startTime = Date.now();
 		const child = spawn('git', ['pull'], {
@@ -1012,7 +1032,7 @@ export default function App({
 
 		const startTime = Date.now();
 		setRunningCommand(kb.name);
-		setHeaderMessage(`Running: ${kb.name}...`);
+		showHeaderMessage(`Running: ${kb.name}...`);
 
 		// Build template vars and expand the command
 		const vars = buildWorkspaceTemplateVars(
@@ -1724,7 +1744,7 @@ export default function App({
 			return;
 		}
 
-		setHeaderMessage(`Opening ${space.name}...`);
+		showHeaderMessage(`Opening ${space.name}...`);
 
 		const child = spawnQuietCommand(
 			path.join(SCRIPTS_DIR, 'idow'),

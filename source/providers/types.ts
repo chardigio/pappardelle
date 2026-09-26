@@ -49,6 +49,11 @@ export interface PRInfo {
 	prUrl?: string;
 }
 
+export interface PRLink {
+	number: number;
+	url: string;
+}
+
 /**
  * Coarse-grained CI/CD pipeline state for the rail icon column.
  * - passing: all checks completed successfully
@@ -138,10 +143,13 @@ export interface VcsHostProvider {
 	readonly name: string;
 
 	/** Check if an issue has a PR/MR with actual file changes */
-	checkIssueHasPRWithCommits(issueKey: string): PRInfo;
+	checkIssueHasPRWithCommits(issueKey: string): Promise<PRInfo>;
+
+	/** Find a PR/MR to open without downloading its diff. */
+	getPRLink(issueKey: string): Promise<PRLink | null>;
 
 	/** Build the web URL for a PR/MR */
-	buildPRUrl(prNumber: number): string;
+	buildPRUrl(prNumber: number): Promise<string>;
 
 	/**
 	 * Fetch the rail-status snapshot for an issue's branch:
