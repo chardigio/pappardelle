@@ -1234,7 +1234,7 @@ export default function App({
 	);
 
 	const spawnSession = useCallback(
-		(pending: PendingSession, options: {queued: boolean} = {queued: false}) => {
+		(pending: PendingSession, options?: {queued: boolean}) => {
 			// Show the pending row now, not when a queue slot frees up, so the
 			// user sees the start at once (as on main).
 			setPendingSession(pending);
@@ -1269,7 +1269,7 @@ export default function App({
 					if (spaceKey) addSpace(spaceKey);
 					await loadSpaces();
 				},
-				options,
+				options ?? {queued: false},
 			).catch((err: unknown) => {
 				// A failed spawn must not keep holding its reserved watchlist slot.
 				if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
