@@ -182,12 +182,18 @@ function writeJsonl(filePath: string, entries: unknown[]): void {
 	);
 }
 
-test('extractRecapFromJsonl returns null when file does not exist', t => {
+test('extractRecapFromJsonl returns null when file does not exist', async t => {
 	const d = tempDir();
-	t.is(extractRecapFromJsonl(path.join(d, 'nope.jsonl')), null);
+	t.is(await extractRecapFromJsonl(path.join(d, 'nope.jsonl')), null);
 });
 
-test('extractRecapFromJsonl pulls custom-title and last-prompt', t => {
+test('transcript stream errors return without hanging the rail poll', async t => {
+	const dir = tempDir();
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	t.is(await extractRecapFromJsonl(dir), null);
+});
+
+test('extractRecapFromJsonl pulls custom-title and last-prompt', async t => {
 	const d = tempDir();
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
@@ -203,13 +209,13 @@ test('extractRecapFromJsonl pulls custom-title and last-prompt', t => {
 		},
 		{type: 'last-prompt', lastPrompt: 'keep going', sessionId: 'abc'},
 	]);
-	const recap = extractRecapFromJsonl(p);
+	const recap = await extractRecapFromJsonl(p);
 	t.truthy(recap);
 	t.is(recap!.customTitle, 'STA-870 persist state');
 	t.is(recap!.lastPrompt, 'keep going');
 });
 
-test('extractRecapFromJsonl takes the most recent custom-title when duplicated', t => {
+test('extractRecapFromJsonl takes the most recent custom-title when duplicated', async t => {
 	const d = tempDir();
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
@@ -217,11 +223,11 @@ test('extractRecapFromJsonl takes the most recent custom-title when duplicated',
 		{type: 'user', message: {content: 'x'}},
 		{type: 'custom-title', customTitle: 'fresh title'},
 	]);
-	const recap = extractRecapFromJsonl(p);
+	const recap = await extractRecapFromJsonl(p);
 	t.is(recap!.customTitle, 'fresh title');
 });
 
-test('extractRecapFromJsonl captures the last assistant text snippet', t => {
+test('extractRecapFromJsonl captures the last assistant text snippet', async t => {
 	const d = tempDir();
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
@@ -240,22 +246,22 @@ test('extractRecapFromJsonl captures the last assistant text snippet', t => {
 		},
 		{type: 'user', message: {content: 'ok'}},
 	]);
-	const recap = extractRecapFromJsonl(p);
+	const recap = await extractRecapFromJsonl(p);
 	t.is(recap!.lastAssistantExcerpt, 'second reply with more detail');
 });
 
-test('extractRecapFromJsonl truncates long assistant excerpts', t => {
+test('extractRecapFromJsonl truncates long assistant excerpts', async t => {
 	const d = tempDir();
 	const p = path.join(d, 'conv.jsonl');
 	const longText = 'x'.repeat(1000);
 	writeJsonl(p, [
 		{type: 'assistant', message: {content: [{type: 'text', text: longText}]}},
 	]);
-	const recap = extractRecapFromJsonl(p);
+	const recap = await extractRecapFromJsonl(p);
 	t.true(recap!.lastAssistantExcerpt!.length <= 500);
 });
 
-test('extractRecapFromJsonl skips malformed lines without crashing', t => {
+test('extractRecapFromJsonl skips malformed lines without crashing', async t => {
 	const d = tempDir();
 	const p = path.join(d, 'conv.jsonl');
 	fs.writeFileSync(
@@ -266,7 +272,7 @@ test('extractRecapFromJsonl skips malformed lines without crashing', t => {
 			JSON.stringify({type: 'custom-title', customTitle: 'valid'}),
 		].join('\n'),
 	);
-	const recap = extractRecapFromJsonl(p);
+	const recap = await extractRecapFromJsonl(p);
 	t.is(recap!.customTitle, 'valid');
 });
 
@@ -274,13 +280,13 @@ test('extractRecapFromJsonl skips malformed lines without crashing', t => {
 // findLatestSessionJsonl
 // ============================================================================
 
-test('findLatestSessionJsonl returns null when project dir is missing', t => {
+test('findLatestSessionJsonl returns null when project dir is missing', async t => {
 	const projectsDir = tempDir();
 	const worktree = path.join('/Users/x', '.worktrees', 'repo', 'STA-111');
-	t.is(findLatestSessionJsonl(worktree, projectsDir), null);
+	t.is(await findLatestSessionJsonl(worktree, projectsDir), null);
 });
 
-test('findLatestSessionJsonl returns the newest top-level jsonl', t => {
+test('findLatestSessionJsonl returns the newest top-level jsonl', async t => {
 	const projectsDir = tempDir();
 	const worktree = '/Users/x/.worktrees/repo/STA-222';
 	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
@@ -296,10 +302,10 @@ test('findLatestSessionJsonl returns the newest top-level jsonl', t => {
 	fs.utimesSync(older, now / 1000 - 60, now / 1000 - 60);
 	fs.utimesSync(newer, now / 1000, now / 1000);
 
-	t.is(findLatestSessionJsonl(worktree, projectsDir), newer);
+	t.is(await findLatestSessionJsonl(worktree, projectsDir), newer);
 });
 
-test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', t => {
+test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', async t => {
 	const projectsDir = tempDir();
 	const worktree = '/Users/x/.worktrees/repo/STA-333';
 	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
@@ -309,15 +315,76 @@ test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', t => {
 	const nested = path.join(projectDir, 'subagents', 'agent.jsonl');
 	fs.writeFileSync(nested, '');
 
-	t.is(findLatestSessionJsonl(worktree, projectsDir), null);
+	t.is(await findLatestSessionJsonl(worktree, projectsDir), null);
 });
 
-test('extractRecapFromJsonl returns null when no recap-worthy entries exist', t => {
+test('extractRecapFromJsonl returns null when no recap-worthy entries exist', async t => {
 	const d = tempDir();
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{type: 'agent-setting', agentSetting: {}},
 		{type: 'permission-mode', mode: 'default'},
 	]);
-	t.is(extractRecapFromJsonl(p), null);
+	t.is(await extractRecapFromJsonl(p), null);
+});
+
+test('recaps reuse unchanged snapshots and refresh after append, rewrite, and replacement', async t => {
+	const dir = tempDir();
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const file = path.join(dir, 'session.jsonl');
+	writeJsonl(file, [{type: 'custom-title', customTitle: 'first'}]);
+	const first = await extractRecapFromJsonl(file);
+	t.is(await extractRecapFromJsonl(file), first);
+	fs.appendFileSync(
+		file,
+		JSON.stringify({type: 'last-prompt', lastPrompt: 'continue'}) + '\n',
+	);
+	t.deepEqual(await extractRecapFromJsonl(file), {
+		customTitle: 'first',
+		lastPrompt: 'continue',
+	});
+	writeJsonl(file, [{type: 'custom-title', customTitle: 'reset'}]);
+	t.deepEqual(await extractRecapFromJsonl(file), {customTitle: 'reset'});
+	const previous = fs.statSync(file);
+	const replacement = path.join(dir, 'replacement.jsonl');
+	writeJsonl(replacement, [{type: 'custom-title', customTitle: 'other'}]);
+	fs.utimesSync(replacement, previous.atime, previous.mtime);
+	fs.renameSync(replacement, file);
+	t.deepEqual(await extractRecapFromJsonl(file), {customTitle: 'other'});
+	fs.unlinkSync(file);
+	t.is(await extractRecapFromJsonl(file), null);
+});
+
+test('an incomplete last line is picked up when the writer finishes it', async t => {
+	const dir = tempDir();
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const file = path.join(dir, 'session.jsonl');
+	fs.writeFileSync(file, '{"type":"last-prompt","lastPrompt":"keep');
+	t.is(await extractRecapFromJsonl(file), null);
+	fs.appendFileSync(file, ' going"}\n');
+	t.deepEqual(await extractRecapFromJsonl(file), {lastPrompt: 'keep going'});
+});
+
+test('large transcript scans service UI timers before completing', async t => {
+	const dir = tempDir();
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const file = path.join(dir, 'session.jsonl');
+	const line =
+		JSON.stringify({type: 'assistant', message: {content: 'x'.repeat(1024)}}) +
+		'\n';
+	fs.writeFileSync(
+		file,
+		line.repeat(20_000) +
+			JSON.stringify({type: 'last-prompt', lastPrompt: 'latest'}),
+	);
+	let ticks = 0;
+	const timer = setInterval(() => {
+		ticks++;
+	}, 1);
+	t.teardown(() => clearInterval(timer));
+	const recap = await extractRecapFromJsonl(file);
+	clearInterval(timer);
+	t.true(ticks > 1);
+	t.is(recap?.lastPrompt, 'latest');
+	t.is(recap?.lastAssistantExcerpt, 'x'.repeat(500));
 });

@@ -33,7 +33,7 @@
 #   {"init_cmd": "...", "skip_permissions": "true|false", "model": "...", "effort": "...",
 #    "companion_command": "..."}
 
-set -e
+set -eo pipefail
 
 CONFIG_PATH=""
 LOCAL_CONFIG_PATH=""
@@ -99,44 +99,35 @@ else
     RESOLVED=$(yq eval-all "$MERGE_EXPR" "${MERGE_FILES[@]}")
 fi
 
-# Read resolved values from the merged config
-INIT_CMD=$(echo "$RESOLVED" | yq -r '.claude.initialization_command // ""')
-SKIP_PERMISSIONS=$(echo "$RESOLVED" | yq -r '.claude.dangerously_skip_permissions // false')
-
-# Validate: dangerously_skip_permissions must be a boolean; fall back to safe default
-if [[ "$SKIP_PERMISSIONS" != "true" && "$SKIP_PERMISSIONS" != "false" ]]; then
-    SKIP_PERMISSIONS="false"
-fi
-
-# Resolve a pass-through launch flag (model/effort) profile-first.
-# yq's `//` only falls through on null/missing, so an explicit "" at the
-# profile level is preserved and clears the inherited top-level value. The
-# profile name is injected via strenv so hyphens and other characters that
-# would break a bare path expression are handled as a plain map key.
-export PAPPARDELLE_PROFILE="$PROFILE"
-resolve_launch_field() {
-    local field="$1"
-    if [[ -n "$PROFILE" ]]; then
-        echo "$RESOLVED" | yq -r \
-            "(.profiles[strenv(PAPPARDELLE_PROFILE)].claude.$field // .claude.$field) // \"\""
-    else
-        echo "$RESOLVED" | yq -r ".claude.$field // \"\""
-    fi
-}
-
-MODEL=$(resolve_launch_field model)
-EFFORT=$(resolve_launch_field effort)
-
-DEFAULT_COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
-export PAPPARDELLE_DEFAULT_COMPANION_COMMAND="$DEFAULT_COMPANION_COMMAND"
-if [[ -n "$PROFILE" ]]; then
-    COMPANION_COMMAND=$(echo "$RESOLVED" | yq -r \
-        '(.profiles[strenv(PAPPARDELLE_PROFILE)].companion_command // .companion_command) // strenv(PAPPARDELLE_DEFAULT_COMPANION_COMMAND)')
-else
-    COMPANION_COMMAND=$(echo "$RESOLVED" | yq -r '.companion_command // strenv(PAPPARDELLE_DEFAULT_COMPANION_COMMAND)')
-fi
-
-# Output as JSON (use jq to handle escaping of special characters)
-jq -n --arg init_cmd "$INIT_CMD" --arg skip_permissions "$SKIP_PERMISSIONS" \
-  --arg model "$MODEL" --arg effort "$EFFORT" --arg companion_command "$COMPANION_COMMAND" \
-  '{init_cmd: $init_cmd, skip_permissions: $skip_permissions, model: $model, effort: $effort, companion_command: $companion_command}'
+# Resolve all fields from one parse; startup calls this for the selected profile.
+# Select only the keys read below before the JSON step: yq cannot write values
+# such as .inf or a 20-digit integer as JSON, and such a value in an unrelated
+# key must not stop idow (which runs with set -e).
+# shellcheck disable=SC2016 # $selected and strenv() are yq, not shell
+printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
+    (.profiles[strenv(PROFILE)] // {}) as $selected |
+    {
+        "claude": {
+            "initialization_command": .claude.initialization_command,
+            "dangerously_skip_permissions": .claude.dangerously_skip_permissions,
+            "model": .claude.model,
+            "effort": .claude.effort
+        },
+        "companion_command": .companion_command,
+        "selected": {
+            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort},
+            "companion_command": $selected.companion_command
+        }
+    }
+' | jq '
+    .selected as $selected |
+    {
+        init_cmd: (.claude.initialization_command // ""),
+        skip_permissions: (.claude.dangerously_skip_permissions // false),
+        model: ($selected.claude.model // .claude.model // ""),
+        effort: ($selected.claude.effort // .claude.effort // ""),
+        companion_command: ($selected.companion_command // .companion_command // "GIT_OPTIONAL_LOCKS=0 gitui")
+    } |
+    with_entries(.value |= tostring) |
+    .skip_permissions = ((.skip_permissions == "true") | tostring)
+'

@@ -1,12 +1,23 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execSync, spawn, spawnSync} from 'node:child_process';
+import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
+
+const runTmux: AsyncTmuxRunner = async args => {
+	const {stdout} = await execFileAsync('tmux', args, {
+		encoding: 'utf-8',
+		timeout: args[2] === 'new-session' ? 10_000 : 5000,
+	});
+	return stdout;
+};
 import {
 	DEFAULT_COMPANION_COMMAND,
 	getClaudeEffort,
@@ -103,6 +114,7 @@ let companionViewerHasClient = false;
 // Cache pane TTYs for fast client switching
 let claudeViewerTty: string | null = null;
 let companionViewerTty: string | null = null;
+let viewerPaneIds: string | null = null;
 
 /**
  * Ticket-rail width the user set by hand, or null while the derived width
@@ -334,20 +346,18 @@ export function listClaudeSessions(): string[] {
  * Get the TTY device for a pane
  * This is used to identify the nested tmux client running in a viewer pane
  */
-function getPaneTty(paneId: string): string | null {
-	try {
-		const result = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{pane_tty}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return null;
-		}
-		return result.stdout.trim() || null;
-	} catch {
-		return null;
-	}
+async function getPaneTty(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<string> {
+	const output = await run([
+		'display-message',
+		'-p',
+		'-t',
+		paneId,
+		'#{pane_tty}',
+	]);
+	return output.trim();
 }
 
 /**
@@ -355,24 +365,14 @@ function getPaneTty(paneId: string): string | null {
  * Nested clients created by the viewer-pane attach live on the inner socket,
  * so list-clients must target that socket.
  */
-function clientExistsOnTty(tty: string): boolean {
-	try {
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-			},
-		);
-		if (result.error || result.status !== 0) {
-			return false;
-		}
-		const clients = result.stdout.trim().split('\n');
-		return clients.includes(tty);
-	} catch {
-		return false;
-	}
+async function clientExistsOnTty(
+	tty: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	const output = await run(
+		innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
+	);
+	return output.trim().split('\n').includes(tty);
 }
 
 /**
@@ -382,31 +382,15 @@ function clientExistsOnTty(tty: string): boolean {
  * between sessions on the *same* socket — which is fine because every
  * per-issue session also lives on the inner socket.
  */
-function switchClientToSession(
+async function switchClientToSession(
 	clientTty: string,
 	sessionName: string,
-): boolean {
-	try {
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['switch-client', '-c', clientTty, '-t', sessionName]),
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			log.error(
-				`Failed to switch client ${clientTty} to ${sessionName}: ${result.stderr}`,
-			);
-			return false;
-		}
-		log.debug(`Switched client ${clientTty} to session ${sessionName}`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to switch client to session`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	await run(
+		innerTmuxArgs(['switch-client', '-c', clientTty, '-t', `=${sessionName}`]),
+	);
+	log.debug(`Switched client ${clientTty} to session ${sessionName}`);
 }
 
 /**
@@ -1304,26 +1288,68 @@ export function setupPappardellLayout(): {
  * This avoids the visible attach command being typed into the pane, which was
  * jarring when rapidly navigating through spaces.
  */
-export function attachToSpace(
+export async function attachToSpace(
 	claudeViewerPaneId: string,
 	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
 	mainWorktreePath?: string,
 	issueTitle?: string,
-): boolean {
-	// If already viewing this space, nothing to do
-	if (currentlyViewingSpace === issueKey) {
-		return true;
+	options: {signal?: AbortSignal; run?: AsyncTmuxRunner} = {},
+): Promise<boolean> {
+	const {signal} = options;
+	const run: AsyncTmuxRunner = async args => {
+		signal?.throwIfAborted();
+		const output = await (options.run ?? runTmux)(args);
+		signal?.throwIfAborted();
+		return output;
+	};
+	if (signal?.aborted) return false;
+	const paneIds = JSON.stringify([claudeViewerPaneId, companionViewerPaneId]);
+	if (viewerPaneIds !== paneIds) {
+		clearCurrentlyViewingSpace();
+		viewerPaneIds = paneIds;
 	}
-
+	if (currentlyViewingSpace === issueKey) return true;
+	// An interrupted switch may have moved only one pane. Never let the
+	// previous space's cache short-circuit the next request in that case.
+	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
-
-	// Load config once for all session creation. The companion command and the
-	// Claude launch flags are resolved profile-aware (via the issue title) so a
-	// per-project profile can override the default git UI, model, and effort.
-	// This matters only when the sessions don't already exist (idow creates
-	// them with the same resolution at workspace-create time).
+	if (
+		claudeViewerHasClient &&
+		claudeViewerTty &&
+		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
+	) {
+		try {
+			const commands = [
+				'switch-client',
+				'-c',
+				claudeViewerTty,
+				'-t',
+				`=${sessions.claude}`,
+			];
+			if (companionViewerPaneId) {
+				commands.push(
+					';',
+					'switch-client',
+					'-c',
+					companionViewerTty!,
+					'-t',
+					`=${sessions.companion}`,
+				);
+			}
+			// Existing clients can switch directly. tmux validates both targets;
+			// an exited client or missing session falls back to setup below.
+			await run(innerTmuxArgs(commands));
+			if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+			currentlyViewingSpace = issueKey;
+			return true;
+		} catch {
+			if (signal?.aborted) return false;
+			clearCurrentlyViewingSpace();
+			viewerPaneIds = paneIds;
+		}
+	}
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
 	let launch: ClaudeLaunchOptions = {};
@@ -1336,122 +1362,110 @@ export function attachToSpace(
 			effort: getClaudeEffort(config, issueTitle),
 		};
 	} catch {
-		// Config load failed — use safe defaults
-	}
-
-	// Ensure sessions exist (create if needed)
-	if (mainWorktreePath) {
-		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions, launch);
-		ensureCompanionSession(issueKey, mainWorktreePath, companionCommand);
-	} else {
-		ensureClaudeSession(issueKey, undefined, skipPermissions, launch);
-		ensureCompanionSession(issueKey, undefined, companionCommand);
-	}
-
-	const hasClaudeSession = innerSessionExists(sessions.claude);
-	const hasCompanionSession = innerSessionExists(sessions.companion);
-
-	// Cache pane TTYs if we haven't yet (needed for switch-client)
-	if (!claudeViewerTty) {
-		claudeViewerTty = getPaneTty(claudeViewerPaneId);
-	}
-	if (!companionViewerTty && companionViewerPaneId) {
-		companionViewerTty = getPaneTty(companionViewerPaneId);
+		// Config load failed — use safe defaults.
 	}
 
 	try {
-		// Handle Claude viewer pane
-		if (hasClaudeSession) {
-			// Check if we already have a nested client running in this pane
-			const hasExistingClient =
-				claudeViewerTty && clientExistsOnTty(claudeViewerTty);
+		// Complete session creation and command launch together so a superseded
+		// selection can't leave an existing session with no agent running.
+		const hasClaudeSession = await ensureClaudeSession(
+			issueKey,
+			mainWorktreePath,
+			skipPermissions,
+			launch,
+			options.run ?? runTmux,
+		);
+		signal?.throwIfAborted();
+		const hasCompanionSession = companionViewerPaneId
+			? await ensureCompanionSession(
+					issueKey,
+					mainWorktreePath,
+					companionCommand,
+					options.run ?? runTmux,
+				)
+			: false;
+		signal?.throwIfAborted();
 
-			if (hasExistingClient && claudeViewerHasClient) {
-				// Fast path: switch the existing client to the new session (instant, invisible)
-				switchClientToSession(claudeViewerTty!, sessions.claude);
-				log.debug(
-					`Switched claude viewer to ${sessions.claude} via switch-client`,
-				);
-			} else {
-				// Slow path: create a new nested client via send-keys.
-				// The per-issue session lives on the inner socket, so attach via
-				// `tmux -L pappardelle_inner attach`. A distinct socket means a
-				// distinct tmux server, so tmux's nesting check can't fire and we
-				// don't need to clobber $TMUX — which is the whole point of STA-860
-				// (lets $TMUX propagate to Claude Code's Agent Teams feature).
-				sendToPane(
-					claudeViewerPaneId,
-					`tmux -L ${INNER_SOCKET} attach -t "${sessions.claude}"`,
-				);
-				claudeViewerHasClient = true;
-				log.info(`Attached claude viewer to ${sessions.claude} via send-keys`);
+		if (!claudeViewerTty)
+			claudeViewerTty = await getPaneTty(claudeViewerPaneId, run);
+		if (!companionViewerTty && companionViewerPaneId) {
+			companionViewerTty = await getPaneTty(companionViewerPaneId, run);
+		}
+
+		const attach = async (
+			paneId: string,
+			tty: string | null,
+			session: string,
+			exists: boolean,
+		) => {
+			const hasClient = tty ? await clientExistsOnTty(tty, run) : false;
+			if (exists) {
+				if (hasClient) {
+					await switchClientToSession(tty!, session, run);
+				} else {
+					await sendToPaneAsync(
+						paneId,
+						`tmux -L ${INNER_SOCKET} attach -t "${session}"`,
+						run,
+					);
+				}
+				return true;
 			}
-		} else {
-			// No session - show message (need to detach first if we have a client)
-			if (claudeViewerHasClient && claudeViewerTty) {
-				detachInPane(claudeViewerPaneId);
-				claudeViewerHasClient = false;
-			}
-			sendToPane(
-				claudeViewerPaneId,
-				`clear && echo "No claude session for ${issueKey}"`,
+			if (hasClient) await run(['send-keys', '-t', paneId, 'C-b', 'd']);
+			await sendToPaneAsync(
+				paneId,
+				`clear && echo "No session for ${issueKey}"`,
+				run,
+			);
+			return false;
+		};
+		claudeViewerHasClient = await attach(
+			claudeViewerPaneId,
+			claudeViewerTty,
+			sessions.claude,
+			hasClaudeSession,
+		);
+		if (companionViewerPaneId) {
+			companionViewerHasClient = await attach(
+				companionViewerPaneId,
+				companionViewerTty,
+				sessions.companion,
+				hasCompanionSession,
 			);
 		}
-
-		// Handle companion viewer pane (only if we have one - may not exist on narrow screens)
-		if (companionViewerPaneId) {
-			if (hasCompanionSession) {
-				// Check if we already have a nested client running in this pane
-				const hasExistingClient =
-					companionViewerTty && clientExistsOnTty(companionViewerTty);
-
-				if (hasExistingClient && companionViewerHasClient) {
-					// Fast path: switch the existing client to the new session
-					switchClientToSession(companionViewerTty!, sessions.companion);
-					log.debug(
-						`Switched companion viewer to ${sessions.companion} via switch-client`,
-					);
-				} else {
-					// Slow path: create a new nested client on the inner socket.
-					sendToPane(
-						companionViewerPaneId,
-						`tmux -L ${INNER_SOCKET} attach -t "${sessions.companion}"`,
-					);
-					companionViewerHasClient = true;
-					log.info(
-						`Attached companion viewer to ${sessions.companion} via send-keys`,
-					);
-				}
-			} else {
-				// No session - show message
-				if (companionViewerHasClient && companionViewerTty) {
-					detachInPane(companionViewerPaneId);
-					companionViewerHasClient = false;
-				}
-				sendToPane(
-					companionViewerPaneId,
-					`clear && echo "No companion session for ${issueKey}"`,
-				);
-			}
-		} else {
-			companionViewerHasClient = false;
-		}
-
-		// Return focus to the list pane
-		if (listPaneId) {
-			spawnSync('tmux', ['select-pane', '-t', listPaneId], {
-				encoding: 'utf-8',
-				timeout: 5000,
-			});
-		}
-
+		if (listPaneId) await run(['select-pane', '-t', listPaneId]);
 		currentlyViewingSpace = issueKey;
 		return true;
 	} catch (err) {
-		log.error(
-			`Failed to attach to space ${issueKey}`,
-			err instanceof Error ? err : undefined,
-		);
+		if (!signal?.aborted) {
+			log.error(
+				`Failed to attach to space ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
+		}
+		return false;
+	}
+}
+
+async function sendToPaneAsync(
+	paneId: string,
+	command: string,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	await run(['send-keys', '-t', paneId, 'C-u']);
+	await run(['send-keys', '-t', paneId, '-l', command]);
+	await run(['send-keys', '-t', paneId, 'Enter']);
+}
+
+async function innerSessionExistsAsync(
+	session: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	try {
+		await run(innerTmuxArgs(['has-session', '-t', `=${session}`]));
+		return true;
+	} catch (error) {
+		if (error instanceof Error && error.name === 'AbortError') throw error;
 		return false;
 	}
 }
@@ -1485,6 +1499,11 @@ export function getCurrentlyViewingSpace(): string | null {
  */
 export function clearCurrentlyViewingSpace(): void {
 	currentlyViewingSpace = null;
+	claudeViewerHasClient = false;
+	companionViewerHasClient = false;
+	claudeViewerTty = null;
+	companionViewerTty = null;
+	viewerPaneIds = null;
 }
 
 /**
@@ -2026,16 +2045,17 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
  * Creates a shell-based session (not running claude directly) so the session
  * persists even if claude exits.
  */
-export function ensureClaudeSession(
+export async function ensureClaudeSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	skipPermissions = false,
 	launch: ClaudeLaunchOptions = {},
-): boolean {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	const sessionName = getSessionNames(issueKey).claude;
 
 	// Already exists on the inner socket?
-	if (innerSessionExists(sessionName)) {
+	if (await innerSessionExistsAsync(sessionName, run)) {
 		return true;
 	}
 
@@ -2049,8 +2069,7 @@ export function ensureClaudeSession(
 	pretrustDirectoryForClaude(worktreePath);
 
 	try {
-		const result = spawnSync(
-			'tmux',
+		await run(
 			innerTmuxArgs([
 				'new-session',
 				'-d',
@@ -2060,25 +2079,14 @@ export function ensureClaudeSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 			]),
-			{encoding: 'utf-8', timeout: 10000},
 		);
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to create claude session: ${result.stderr}`);
-			return false;
-		}
 
 		// Send claude command to the session. Try --continue first to resume an
 		// existing conversation, falling back to bare claude if none exists.
 		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions, launch);
 
-		spawnSync(
-			'tmux',
+		await run(
 			innerTmuxArgs(['send-keys', '-t', sessionName, fullCmd, 'Enter']),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-			},
 		);
 
 		log.info(`Created claude session: ${sessionName}`);
@@ -2104,15 +2112,16 @@ export function ensureClaudeSession(
  * (see DEFAULT_COMPANION_COMMAND) and is overridable via the `companion_command`
  * config field. An empty/whitespace-only command leaves a plain shell.
  */
-export function ensureCompanionSession(
+export async function ensureCompanionSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	companionCommand: string = DEFAULT_COMPANION_COMMAND,
-): boolean {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	const sessionName = getSessionNames(issueKey).companion;
 
 	// Already exists on the inner socket?
-	if (innerSessionExists(sessionName)) {
+	if (await innerSessionExistsAsync(sessionName, run)) {
 		return true;
 	}
 
@@ -2127,8 +2136,7 @@ export function ensureCompanionSession(
 	try {
 		// Detached shell-based session (not running the companion command directly)
 		// so it persists even if that command exits.
-		const result = spawnSync(
-			'tmux',
+		await run(
 			innerTmuxArgs([
 				'new-session',
 				'-d',
@@ -2138,13 +2146,7 @@ export function ensureCompanionSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 			]),
-			{encoding: 'utf-8', timeout: 10000},
 		);
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to create companion session: ${result.stderr}`);
-			return false;
-		}
 
 		// An empty command means "leave a plain shell" — create the session but
 		// don't launch anything into it.
@@ -2153,8 +2155,7 @@ export function ensureCompanionSession(
 			// UI from acquiring locks for read-only ops like `git status`, avoiding
 			// contention with Claude's concurrent git calls. Custom commands run
 			// verbatim.
-			spawnSync(
-				'tmux',
+			await run(
 				innerTmuxArgs([
 					'send-keys',
 					'-t',
@@ -2162,10 +2163,6 @@ export function ensureCompanionSession(
 					companionCommand,
 					'Enter',
 				]),
-				{
-					encoding: 'utf-8',
-					timeout: 5000,
-				},
 			);
 		}
 

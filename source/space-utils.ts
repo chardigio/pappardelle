@@ -57,24 +57,6 @@ export function filterSpaces(
 }
 
 /**
- * Compute the new spaces array and selected index after deleting a space.
- *
- * Pure function — no side effects, easy to test.
- */
-export function computePostDeleteState(
-	spaces: SpaceData[],
-	deletedName: string,
-	selectedIndex: number,
-): {filteredSpaces: SpaceData[]; newSelectedIndex: number} {
-	const filteredSpaces = spaces.filter(s => s.name !== deletedName);
-	const newSelectedIndex =
-		selectedIndex >= filteredSpaces.length && selectedIndex > 0
-			? selectedIndex - 1
-			: selectedIndex;
-	return {filteredSpaces, newSelectedIndex};
-}
-
-/**
  * Whether the selection-change effect should (re)attach to `selectedSpaceName`.
  *
  * STA-1553 teardown→respawn guard. When the user closes the space they're

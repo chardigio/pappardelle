@@ -76,7 +76,7 @@ run_command() {
     local CMD_NAME="$1" CMD_RUN="$2" CMD_CONTINUE="$3" CMD_BG="$4"
     if [[ -z "$CMD_RUN" ]]; then return; fi
     if [[ "$CMD_BG" == "true" ]]; then
-        eval "$CMD_RUN" &
+        eval "$CMD_RUN" >>"$LOG_FILE" 2>&1 </dev/null &
         print_success "$CMD_NAME (background)"
     elif [[ "$CMD_CONTINUE" == "true" ]]; then
         if eval "$CMD_RUN" >/dev/null 2>&1; then
@@ -193,6 +193,7 @@ resolve_claude_launch_flags() {
     json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
     CLAUDE_MODEL=$(echo "$json" | jq -r '.model')
     CLAUDE_EFFORT=$(echo "$json" | jq -r '.effort')
+    COMPANION_COMMAND=$(echo "$json" | jq -r '.companion_command')
     [[ -n "$CLAUDE_MODEL" ]] && log "Claude model: $CLAUDE_MODEL"
     [[ -n "$CLAUDE_EFFORT" ]] && log "Claude effort: $CLAUDE_EFFORT"
     return 0
@@ -758,26 +759,18 @@ else
     fi
 fi
 
-# Step 6: Find an existing PR/MR (never create one)
-#
-# Provisioning is read-only against the VCS host. A fresh workspace has no PR
-# and that's the expected steady state — the agent opens it once there's a real
-# diff to review. Everything downstream of $PR_URL already tolerates the empty
-# string (`if_set: PR_URL` link gating, `var_is_set`, the `o` keybinding's "No
-# PR found" path). See STA-1866.
-print_step 6 "Looking for an existing PR/MR ($VCS_PROVIDER)..."
+# PR URLs are only needed when opening configured apps and links.
+PR_URL=""
 cd "$WORKTREE_PATH"
-PR_URL=$(check_existing_pr "$CONFIG_PATH")
-if [[ -n "$PR_URL" ]]; then
-    print_success "Found PR/MR: $PR_URL"
-else
-    print_success "No PR/MR yet (the agent opens one at its first real commit)"
+if [[ "$OPEN_WORKSPACE" == true ]]; then
+    print_step 6 "Looking for an existing PR/MR ($VCS_PROVIDER)..."
+    PR_URL=$(check_existing_pr "$CONFIG_PATH")
+    if [[ -n "$PR_URL" ]]; then
+        print_success "Found PR/MR: $PR_URL"
+    else
+        print_success "No PR/MR yet (the agent opens one at its first real commit)"
+    fi
 fi
-
-# Resolve the companion-pane command: per-profile override → top-level → gitui
-# default, over the merged config layers. Mirrors getCompanionCommand() in
-# config.ts; the empty-string-means-plain-shell rule lives in the resolver.
-COMPANION_COMMAND=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$SELECTED_PROFILE" | jq -r '.companion_command')
 
 # Step 7: Ensure Claude and companion tmux sessions exist (always, regardless of --open)
 print_step 7 "Starting Claude tmux session..."
@@ -970,7 +963,7 @@ if [[ "$HOOK_COUNT" -gt 0 ]]; then
         if [[ -n "$HOOK_RUN" ]]; then
             log "  Hook: $HOOK_NAME -> $HOOK_RUN"
             if [[ "$HOOK_BG" == "true" ]]; then
-                eval "$HOOK_RUN" &
+                eval "$HOOK_RUN" >>"$LOG_FILE" 2>&1 </dev/null &
             elif [[ "$HOOK_CONTINUE" == "true" ]]; then
                 eval "$HOOK_RUN" || print_warning "Hook '$HOOK_NAME' failed (continuing)"
             else

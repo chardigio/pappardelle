@@ -10,8 +10,9 @@ import {
 	watch,
 } from 'node:fs';
 import {homedir} from 'node:os';
+import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import type {ClaudeStatus, ClaudeSessionState} from './types.ts';
+import type {ClaudeStatus, ClaudeSessionState, SpaceData} from './types.ts';
 import {
 	STABLE_STATUSES,
 	ACTIVE_STATUSES,
@@ -49,6 +50,17 @@ export interface ClaudeStatusInfo {
 	tool?: string;
 }
 
+function parseStatus(content: string): ClaudeStatusInfo {
+	const state: ClaudeSessionState = JSON.parse(content);
+	if (
+		ACTIVE_STATUSES.has(state.status) &&
+		Date.now() - state.lastUpdate > ACTIVE_STATUS_TIMEOUT
+	) {
+		return {status: 'unknown'};
+	}
+	return {status: state.status, tool: state.currentTool};
+}
+
 export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
 	try {
 		const filePath = getStatusFilePath(workspaceName);
@@ -56,24 +68,7 @@ export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
 			return {status: 'unknown'};
 		}
 
-		const content = readFileSync(filePath, 'utf-8');
-		const state: ClaudeSessionState = JSON.parse(content);
-
-		// Stable statuses never become stale
-		if (STABLE_STATUSES.has(state.status)) {
-			return {status: state.status, tool: state.currentTool};
-		}
-
-		// Active statuses become stale after timeout
-		// This indicates something may be wrong (hook stopped firing, Claude crashed)
-		if (ACTIVE_STATUSES.has(state.status)) {
-			const isStale = Date.now() - state.lastUpdate > ACTIVE_STATUS_TIMEOUT;
-			if (isStale) {
-				return {status: 'unknown'};
-			}
-		}
-
-		return {status: state.status, tool: state.currentTool};
+		return parseStatus(readFileSync(filePath, 'utf-8'));
 	} catch (err) {
 		// Parse failures here are almost always a transient read/write race on
 		// the status JSON file (writer truncates before rewriting). Atomic
@@ -156,19 +151,85 @@ export function findSpaceByStatusKey(
 	return spaces.findIndex(s => (s.statusKey ?? s.name) === workspaceName);
 }
 
-// Watch for status changes
+export function applyStatusUpdates(
+	spaces: SpaceData[],
+	updates: ReadonlyMap<string, ClaudeStatusInfo>,
+): SpaceData[] {
+	let changed = false;
+	const next = spaces.map(space => {
+		const info = updates.get(space.statusKey ?? space.name);
+		if (
+			!info ||
+			(space.claudeStatus === info.status && space.claudeTool === info.tool)
+		) {
+			return space;
+		}
+		changed = true;
+		return {...space, claudeStatus: info.status, claudeTool: info.tool};
+	});
+	return changed ? next : spaces;
+}
+
 export function watchStatuses(
-	callback: (workspaceName: string, info: ClaudeStatusInfo) => void,
+	callback: (updates: ReadonlyMap<string, ClaudeStatusInfo>) => void,
+	isRelevant: (workspaceName: string) => boolean = () => true,
 ): () => void {
 	ensureStatusDir();
+	const dir = getStatusDir();
+	const pending = new Set<string>();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let reading = false;
+	let stopped = false;
 
-	const watcher = watch(getStatusDir(), (_eventType, filename) => {
+	const schedule = () => {
+		if (stopped || reading || timer || pending.size === 0) return;
+		// A fixed window bounds renders without starving updates during a busy session.
+		timer = setTimeout(async () => {
+			timer = undefined;
+			reading = true;
+			const names = [...pending];
+			pending.clear();
+			const updates = new Map<string, ClaudeStatusInfo>();
+			try {
+				for (let offset = 0; offset < names.length; offset += 4) {
+					if (stopped) break;
+					await Promise.all(
+						names.slice(offset, offset + 4).map(async name => {
+							if (!isRelevant(name)) return;
+							let info: ClaudeStatusInfo;
+							try {
+								info = parseStatus(
+									await readFile(path.join(dir, `${name}.json`), 'utf-8'),
+								);
+							} catch {
+								info = {status: 'unknown'};
+							}
+							updates.set(name, info);
+						}),
+					);
+				}
+				if (!stopped && updates.size > 0) callback(updates);
+			} finally {
+				reading = false;
+				schedule();
+			}
+		}, 50);
+	};
+
+	const watcher = watch(dir, (_eventType, filename) => {
 		if (filename && filename.endsWith('.json')) {
-			const workspaceName = filename.replace('.json', '');
-			const info = getClaudeStatusInfo(workspaceName);
-			callback(workspaceName, info);
+			const workspaceName = filename.slice(0, -5);
+			if (isRelevant(workspaceName)) {
+				pending.add(workspaceName);
+				schedule();
+			}
 		}
 	});
 
-	return () => watcher.close();
+	return () => {
+		stopped = true;
+		clearTimeout(timer);
+		pending.clear();
+		watcher.close();
+	};
 }
