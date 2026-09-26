@@ -90,6 +90,7 @@ import {
 	type ResolvedWatchlist,
 	type CommandConfig,
 } from './config.ts';
+import {useSpaceSelection} from './use-space-selection.ts';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {
 	buildKillDoneConfirmContent,
@@ -143,11 +144,7 @@ import {
 } from './space-state.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
 import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
-import {
-	watchHighlightTarget,
-	findSpaceIndexByIssueKey,
-	clearHighlightTarget,
-} from './highlight.ts';
+import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 function claimIssueInBackground(issueKey: string): void {
@@ -186,7 +183,8 @@ export default function App({
 		}
 	}, []);
 
-	const [spaces, setSpaces] = useState<SpaceData[]>([]);
+	const {spaces, setSpaces, selectedIndex, setSelectedIndex, selectSpace} =
+		useSpaceSelection();
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 	const statusKeysRef = useRef(new Set<string>());
@@ -194,7 +192,6 @@ export default function App({
 		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
 		[spaces],
 	);
-	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -582,7 +579,7 @@ export default function App({
 			setSpaces([]);
 			setLoading(false);
 		}
-	}, [resolveProfileEmojiForSpace]);
+	}, [resolveProfileEmojiForSpace, setSpaces]);
 
 	// Initial load
 	useEffect(() => {
@@ -615,25 +612,17 @@ export default function App({
 		);
 
 		return unwatch;
-	}, []);
+	}, [setSpaces]);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
 	useEffect(() => {
 		const unwatch = watchHighlightTarget(repoName, issueKey => {
-			setSpaces(currentSpaces => {
-				const idx = findSpaceIndexByIssueKey(currentSpaces, issueKey);
-				if (idx !== -1) {
-					setSelectedIndex(idx);
-				}
-
-				return currentSpaces;
-			});
-			// Clear outside setState so the updater stays pure
+			selectSpace(issueKey);
 			clearHighlightTarget(repoName);
 		});
 
 		return unwatch;
-	}, [repoName]);
+	}, [repoName, selectSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -1568,7 +1557,7 @@ export default function App({
 			setSpaces(prev => prev.filter(s => s.name !== space.name));
 			return true;
 		},
-		[paneLayout, setHeaderWithTimeout, attachmentTask],
+		[paneLayout, setHeaderWithTimeout, attachmentTask, setSpaces],
 	);
 
 	// STA-1553: once a closed space has actually left the list, drop its closing
@@ -1619,14 +1608,6 @@ export default function App({
 					setHeaderWithTimeout(
 						`Auto-removed ${space.name} (${stateName})`,
 						4000,
-					);
-					// Mirror handleDeleteSpace: if the selection now points past
-					// the end of the shrunken list, walk it back one row.
-					// spacesRef.current reflects the post-removal list because
-					// deleteSpace's setSpaces has already committed by the time
-					// this .then runs.
-					setSelectedIndex(prev =>
-						prev > 0 && prev >= spacesRef.current.length ? prev - 1 : prev,
 					);
 				})
 				.finally(() => {
@@ -1721,7 +1702,7 @@ export default function App({
 			clearTimeout(initialTimer);
 			clearInterval(interval);
 		};
-	}, []);
+	}, [setSpaces]);
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {
@@ -1824,11 +1805,6 @@ export default function App({
 			const ok = await deleteSpace(space);
 			if (!ok) return;
 
-			setSelectedIndex(prev => {
-				const remaining = spaces.length - 1;
-				return prev >= remaining && prev > 0 ? prev - 1 : prev;
-			});
-
 			// Reconcile with tmux reality in the background
 			loadSpaces();
 		} finally {
@@ -1851,15 +1827,6 @@ export default function App({
 			}
 
 			setHeaderWithTimeout(formatKillDoneResult(closed, targets.length), 4000);
-
-			// Walk the selection back if it now points past the end of the
-			// shrunken list. spacesRef reflects the post-removal list because
-			// deleteSpace's setSpaces has already committed.
-			setSelectedIndex(prev =>
-				prev > 0 && prev >= spacesRef.current.length
-					? Math.max(0, spacesRef.current.length - 1)
-					: prev,
-			);
 
 			// Reconcile with tmux reality in the background
 			loadSpaces();
@@ -2031,6 +1998,7 @@ export default function App({
 			}
 		},
 		[
+			setSelectedIndex,
 			displaySpaces,
 			spaces.length,
 			showPromptDialog,
