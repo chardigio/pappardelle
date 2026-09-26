@@ -100,8 +100,27 @@ else
 fi
 
 # Resolve all fields from one parse; startup calls this for the selected profile.
-printf '%s\n' "$RESOLVED" | yq -o=json '.' | jq --arg profile "$PROFILE" '
-    (if $profile == "" then {} else (.profiles[$profile] // {}) end) as $selected |
+# Select only the keys read below before the JSON step: yq cannot write values
+# such as .inf or a 20-digit integer as JSON, and such a value in an unrelated
+# key must not stop idow (which runs with set -e).
+# shellcheck disable=SC2016 # $selected and strenv() are yq, not shell
+printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
+    (.profiles[strenv(PROFILE)] // {}) as $selected |
+    {
+        "claude": {
+            "initialization_command": .claude.initialization_command,
+            "dangerously_skip_permissions": .claude.dangerously_skip_permissions,
+            "model": .claude.model,
+            "effort": .claude.effort
+        },
+        "companion_command": .companion_command,
+        "selected": {
+            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort},
+            "companion_command": $selected.companion_command
+        }
+    }
+' | jq '
+    .selected as $selected |
     {
         init_cmd: (.claude.initialization_command // ""),
         skip_permissions: (.claude.dangerously_skip_permissions // false),
