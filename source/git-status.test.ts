@@ -5,10 +5,9 @@ import {getMainWorktreeColor, isWorktreeDirty} from './git-status.ts';
 // isWorktreeDirty Tests
 // ============================================================================
 
-test('isWorktreeDirty returns false for nonexistent path', async t => {
-	// Nonexistent path should return false (fail-safe: treat as clean)
+test('isWorktreeDirty returns unknown for nonexistent path', async t => {
 	const result = await isWorktreeDirty('/nonexistent/path');
-	t.false(result);
+	t.is(result, null);
 });
 
 // ============================================================================

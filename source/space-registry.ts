@@ -25,6 +25,7 @@
 // therefore merges with, rather than clobbers, additions made out-of-band.
 
 import fs from 'node:fs';
+import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {createLogger} from './logger.ts';
@@ -162,6 +163,22 @@ function readFromDisk(p: string): string[] {
  */
 export function getRegisteredSpaces(): string[] {
 	return readFromDisk(registryPath);
+}
+
+/** A failed refresh must not look like an empty registry and remove every row. */
+export async function getRegisteredSpacesAsync(): Promise<string[] | null> {
+	try {
+		const parsed: unknown = JSON.parse(await readFile(registryPath, 'utf-8'));
+		if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
+		return [
+			...new Set(
+				parsed.filter((key): key is string => typeof key === 'string'),
+			),
+		];
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+		throw err;
+	}
 }
 
 /**

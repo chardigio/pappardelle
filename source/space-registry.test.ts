@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'ava';
 import {
 	getRegisteredSpaces,
+	getRegisteredSpacesAsync,
 	addSpace,
 	removeSpace,
 	isSpaceRegistered,
@@ -43,6 +44,26 @@ test.serial('returns empty array when no file exists', t => {
 	setRegistryPath(tempRegistryPath());
 	t.deepEqual(getRegisteredSpaces(), []);
 });
+
+test.serial(
+	'async reads distinguish missing, malformed and empty registries and observe external writes',
+	async t => {
+		const file = tempRegistryPath();
+		setRegistryPath(file);
+		t.teardown(() => fs.rmSync(file, {force: true}));
+		t.is(await getRegisteredSpacesAsync(), null);
+		fs.writeFileSync(file, JSON.stringify(['STA-1', 'STA-1', 42]));
+		t.deepEqual(await getRegisteredSpacesAsync(), ['STA-1']);
+		fs.writeFileSync(file, JSON.stringify(['STA-2']));
+		t.deepEqual(await getRegisteredSpacesAsync(), ['STA-2']);
+		fs.writeFileSync(file, '{');
+		await t.throwsAsync(getRegisteredSpacesAsync());
+		fs.writeFileSync(file, '{}');
+		await t.throwsAsync(getRegisteredSpacesAsync());
+		fs.writeFileSync(file, '[]');
+		t.deepEqual(await getRegisteredSpacesAsync(), []);
+	},
+);
 
 test.serial('addSpace adds to registry and persists', t => {
 	const p = tempRegistryPath();

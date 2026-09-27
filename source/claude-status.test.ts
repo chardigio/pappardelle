@@ -19,6 +19,7 @@ import {
 import {
 	findSpaceByStatusKey,
 	getClaudeStatusInfo,
+	getClaudeStatusInfoAsync,
 	setClaudeStatus,
 } from './claude-status.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
@@ -349,6 +350,32 @@ function withStatusDir(t: ExecutionContext): string {
 	});
 	return dir;
 }
+
+test.serial(
+	'async status resync distinguishes failed reads, removed files and expired active state',
+	async t => {
+		const dir = withStatusDir(t);
+		const key = 'STA-async';
+		t.deepEqual(await getClaudeStatusInfoAsync(key), {status: 'unknown'});
+		setClaudeStatus(key, 'running_tool', 'session', 'Bash');
+		t.deepEqual(await getClaudeStatusInfoAsync(key), {
+			status: 'running_tool',
+			tool: 'Bash',
+		});
+		createStatusFile(
+			dir,
+			key,
+			'processing',
+			Date.now() - ACTIVE_STATUS_TIMEOUT - 1,
+		);
+		t.deepEqual(await getClaudeStatusInfoAsync(key), {status: 'unknown'});
+		createStatusFile(dir, key, 'waiting_for_input', 0);
+		const stable = await getClaudeStatusInfoAsync(key);
+		t.is(stable?.status, 'waiting_for_input');
+		writeFileSync(path.join(dir, `${key}.json`), '{');
+		t.is(await getClaudeStatusInfoAsync(key), null);
+	},
+);
 
 test('setClaudeStatus is atomic — inode changes on each write (rename, not in-place truncate)', t => {
 	const dir = withStatusDir(t);

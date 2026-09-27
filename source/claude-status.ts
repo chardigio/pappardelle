@@ -83,6 +83,20 @@ export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
 	}
 }
 
+export async function getClaudeStatusInfoAsync(
+	workspaceName: string,
+): Promise<ClaudeStatusInfo | null> {
+	try {
+		return parseStatus(
+			await readFile(getStatusFilePath(workspaceName), 'utf-8'),
+		);
+	} catch (err) {
+		return (err as NodeJS.ErrnoException).code === 'ENOENT'
+			? {status: 'unknown'}
+			: null;
+	}
+}
+
 export function setClaudeStatus(
 	workspaceName: string,
 	status: ClaudeStatus,

@@ -2,6 +2,7 @@
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
@@ -1889,6 +1890,28 @@ export function getWorktreePath(issueKey: string): string | null {
 			: null;
 	} catch {
 		return null;
+	}
+}
+
+export async function getWorktreePathAsync(
+	issueKey: string,
+	repoName: string,
+): Promise<string | null> {
+	const worktreePath = join(
+		process.env['HOME'] ?? '',
+		'.worktrees',
+		repoName,
+		issueKey,
+	);
+	try {
+		const stats = await stat(worktreePath);
+		return stats.isDirectory() ? worktreePath : null;
+	} catch (err) {
+		if (
+			['ENOENT', 'ENOTDIR'].includes((err as NodeJS.ErrnoException).code ?? '')
+		)
+			return null;
+		throw err;
 	}
 }
 

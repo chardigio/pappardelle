@@ -22,7 +22,13 @@ import {
 	matchProfileByProject,
 } from './config.ts';
 import type {TrackerIssue} from './providers/types.ts';
-import {readSpaceState, writeSpaceState} from './space-state.ts';
+import {
+	readSpaceState,
+	writeSpaceState,
+	getSpaceStatePath,
+	type SpaceState,
+} from './space-state.ts';
+import {readFile} from 'node:fs/promises';
 
 export interface ResolveSpaceProfileArgs {
 	config: PappardelleConfig | null;
@@ -67,4 +73,36 @@ export function resolveSpaceEmoji(
 	const profileName = resolveSpaceProfileName(args);
 	const profile = profileName ? config.profiles[profileName] : undefined;
 	return getProfileEmoji(profile, config);
+}
+
+export async function resolveSpaceEmojiAsync(
+	args: ResolveSpaceProfileArgs,
+): Promise<string | undefined> {
+	const {config, repoName, issueKey, cachedIssue, baseDir} = args;
+	if (!config) return undefined;
+	if (!issueKey) return getProfileEmoji(undefined, config);
+	let state: SpaceState | undefined;
+	try {
+		state = JSON.parse(
+			await readFile(getSpaceStatePath(repoName, issueKey, baseDir), 'utf-8'),
+		) as SpaceState;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+	}
+	let profileName = state?.profile;
+	if (!profileName && cachedIssue?.project?.name) {
+		profileName = matchProfileByProject(
+			config,
+			cachedIssue.project.name,
+			cachedIssue.project.key,
+		)?.name;
+		// Keep the existing synchronous read/merge/write for this one-time backfill;
+		// yielding between its read and write could overwrite a newer rail snapshot.
+		if (profileName)
+			writeSpaceState(repoName, issueKey, {profile: profileName}, baseDir);
+	}
+	return getProfileEmoji(
+		profileName ? config.profiles[profileName] : undefined,
+		config,
+	);
 }

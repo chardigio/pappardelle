@@ -6,6 +6,7 @@ import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
+import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -53,10 +54,9 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
-	getClaudeStatusInfo,
+	getClaudeStatusInfoAsync,
 	watchStatuses,
 	ensureStatusDir,
-	applyStatusUpdates,
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -110,6 +110,7 @@ import {LatestTask} from './latest-task.ts';
 import {
 	isInTmux,
 	getWorktreePath,
+	getWorktreePathAsync,
 	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
@@ -134,9 +135,10 @@ import {
 	calculateListClickRow,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {filterSpaces, MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
+import {filterSpaces, tearDownSpace} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
+	getRegisteredSpacesAsync,
 	addSpace,
 	removeSpace,
 	tryReserveWatchlistSlots,
@@ -147,7 +149,10 @@ import {
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
 } from './space-state.ts';
-import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
+import {
+	resolveSpaceEmojiAsync,
+	resolveSpaceProfileName,
+} from './space-emoji.ts';
 import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
 import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
@@ -306,25 +311,6 @@ export default function App({
 		return kb;
 	}, [configMemo]);
 
-	// Resolve profile emoji for a space. The single source of truth is the
-	// profile name persisted in space-state.json — written by `idow` on
-	// workspace creation, and back-filled here the first time we see a space
-	// without a persisted profile but with a cached issue whose project
-	// matches a configured profile.
-	const resolveProfileEmojiForSpace = React.useCallback(
-		(
-			issueKey: string | undefined,
-			cachedIssue: ReturnType<typeof getIssueCached>,
-		): string | undefined =>
-			resolveSpaceEmoji({
-				config: configMemo,
-				repoName,
-				issueKey,
-				cachedIssue,
-			}),
-		[configMemo, repoName],
-	);
-
 	// Load issue watchlists (once at startup): the top-level issue_watchlist plus
 	// each profile's own issue_watchlist, all polled additively.
 	const watchlists = React.useMemo<ResolvedWatchlist[]>(() => {
@@ -419,6 +405,7 @@ export default function App({
 	// space being closed. Cleared once the space leaves the list (effect below).
 	const closingSpacesRef = useRef(new Set<string>());
 	const closeTasks = useRef(new WorkspaceCloseTasks());
+	const workspaceRefresh = useRef<WorkspaceRefresh | null>(null);
 
 	// Track terminal dimensions with resize handling.
 	// Use a lazy initializer that queries tmux directly for accurate pane
@@ -503,138 +490,57 @@ export default function App({
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
 
-	// Load spaces from persisted registry (survives reboots)
 	const loadSpaces = useCallback(async () => {
-		try {
-			// Get issue keys from the persisted space registry
-			const workspaceNames = getRegisteredSpaces();
+		await workspaceRefresh.current?.refresh();
+	}, []);
 
-			// Build space data using cached issues for immediate display
-			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
-				const claudeInfo = getClaudeStatusInfo(issueKey);
-				const worktreePath = getWorktreePath(issueKey);
-				const cached = getIssueCached(issueKey);
-
-				return {
-					name: issueKey,
-					linearIssue: cached ?? undefined,
-					claudeStatus: claudeInfo.status,
-					claudeTool: claudeInfo.tool,
-					worktreePath,
-					profileEmoji: resolveProfileEmojiForSpace(issueKey, cached),
-				};
-			});
-
-			// Sort by issue number (most recent first)
-			spaceData.sort((a, b) => {
-				const aNum = parseInt(a.name.split('-')[1] ?? '0', 10);
-				const bNum = parseInt(b.name.split('-')[1] ?? '0', 10);
-				return bNum - aNum;
-			});
-
-			// Prepend the main worktree (always first, non-deletable)
-			const mainInfo = await getMainWorktreeInfo();
-			if (mainInfo) {
-				// name is always MAIN_WORKTREE_KEY regardless of actual branch name.
-				// This ensures stable tmux session names (claude-<repo>-main) that don't
-				// change if the default branch is renamed. The inner-socket orphan
-				// reaper in tmux.ts uses the same constant to exempt the main worktree
-				// from being killed at startup (STA-1420).
-				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-master")
-				const repoName = getRepoName();
-				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);
-				const mainClaudeInfo = getClaudeStatusInfo(statusKey);
-				spaceData.unshift({
-					name: MAIN_WORKTREE_KEY,
-					statusKey,
-					worktreePath: mainInfo.path,
-					isMainWorktree: true,
-					isDirty: await isWorktreeDirty(mainInfo.path),
-					claudeStatus: mainClaudeInfo.status,
-					claudeTool: mainClaudeInfo.tool,
-					profileEmoji: resolveProfileEmojiForSpace(undefined, null),
-				});
-			}
-
-			// Merge in any previously-fetched railStatus so the 10s loadSpaces
-			// rebuild doesn't wipe data set by the slower 60s rail poller.
-			setSpaces(prev => {
-				const prevRailByName = new Map(
-					prev
-						.filter(p => p.railStatus)
-						.map(p => [p.name, p.railStatus!] as const),
-				);
-				return spaceData.map(s =>
-					prevRailByName.has(s.name)
-						? {...s, railStatus: prevRailByName.get(s.name)}
-						: s,
-				);
-			});
-			setLoading(false);
-
-			// Batch-fetch all issues in background. This resolves "Loading…"
-			// quickly (~1-3s) on first load and picks up state changes
-			// (e.g., issue moved to "Done") after cache TTL expires.
-			if (workspaceNames.length > 0) {
-				getIssues(workspaceNames)
-					.then(() => {
-						setSpaces(prev =>
-							prev.map(s => {
-								if (s.isMainWorktree) return s;
-								const issue = getIssueCached(s.name);
-								if (!issue) return s;
-								const nextEmoji = resolveProfileEmojiForSpace(s.name, issue);
-								if (s.linearIssue === issue && s.profileEmoji === nextEmoji) {
-									return s;
-								}
-								return {...s, linearIssue: issue, profileEmoji: nextEmoji};
-							}),
-						);
-					})
-					.catch(() => {});
-			}
-		} catch (err) {
-			log.error(
-				'Failed to load spaces',
-				err instanceof Error ? err : undefined,
-			);
-			setSpaces([]);
-			setLoading(false);
-		}
-	}, [resolveProfileEmojiForSpace, setSpaces]);
-
-	// Initial load
 	useEffect(() => {
 		ensureStatusDir();
-		loadSpaces();
-
-		// Refresh every 10 seconds (Claude status updates arrive via file watcher
-		// in real-time, so polling is only needed to pick up external changes)
-		// Guard against overlapping runs — loadSpaces has real await points so a
-		// previous invocation may still be in-flight when the next interval fires.
-		let loadInFlight = false;
-		const interval = setInterval(async () => {
-			if (loadInFlight) return;
-			loadInFlight = true;
-			try {
-				await loadSpaces();
-			} finally {
-				loadInFlight = false;
-			}
+		const refresh = new WorkspaceRefresh({
+			readRegistry: getRegisteredSpacesAsync,
+			readStatus: getClaudeStatusInfoAsync,
+			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
+			readMainWorktree: getMainWorktreeInfo,
+			readDirty: isWorktreeDirty,
+			mainStatusKey: branch => qualifyMainBranch(repoName, branch),
+			getCachedIssue: getIssueCached,
+			fetchIssues: getIssues,
+			async readEmoji(issueKey, cachedIssue) {
+				return resolveSpaceEmojiAsync({
+					config: configMemo,
+					repoName,
+					issueKey,
+					cachedIssue,
+				});
+			},
+			setSpaces,
+			onLoaded: () => setLoading(false),
+			onError: err =>
+				log.error(
+					'Failed to refresh workspaces',
+					err instanceof Error ? err : undefined,
+				),
+		});
+		workspaceRefresh.current = refresh;
+		void refresh.refresh();
+		const interval = setInterval(() => {
+			void refresh.refresh();
 		}, 10_000);
+		return () => {
+			clearInterval(interval);
+			refresh.stop();
+			workspaceRefresh.current = null;
+		};
+	}, [configMemo, repoName, setSpaces]);
 
-		return () => clearInterval(interval);
-	}, [loadSpaces]);
-
-	// Watch for Claude status changes
-	useEffect(() => {
-		const unwatch = watchStatuses(
-			updates => setSpaces(prev => applyStatusUpdates(prev, updates)),
-			workspaceName => statusKeysRef.current.has(workspaceName),
-		);
-
-		return unwatch;
-	}, [setSpaces]);
+	useEffect(
+		() =>
+			watchStatuses(
+				updates => workspaceRefresh.current?.applyHookUpdates(updates),
+				workspaceName => statusKeysRef.current.has(workspaceName),
+			),
+		[],
+	);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
 	useEffect(() => {
@@ -709,7 +615,8 @@ export default function App({
 		if (
 			!paneLayout ||
 			!selectedSpaceName ||
-			closingSpacesRef.current.has(selectedSpaceName)
+			closingSpacesRef.current.has(selectedSpaceName) ||
+			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
 		)
 			return;
 		void attachmentTask
@@ -738,6 +645,7 @@ export default function App({
 	}, [
 		selectedSpaceName,
 		selectedWorktreePath,
+		selectedSpace?.isMainWorktree,
 		selectedIssueTitle,
 		paneLayout,
 		attachmentTask,
@@ -1555,7 +1463,10 @@ export default function App({
 					// is no `seedFromTmux` reaper to recover from that mismatch.
 					const tornDown = await tearDownSpace(space.name, {
 						killSpaceSessions,
-						removeSpace,
+						removeSpace(key) {
+							removeSpace(key);
+							void workspaceRefresh.current?.refreshListOnly();
+						},
 						cleanup: deleteQaSimulator,
 						onKillFailure: key =>
 							setHeaderWithTimeout(
