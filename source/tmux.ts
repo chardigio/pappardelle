@@ -783,18 +783,6 @@ function interruptPane(paneId: string): void {
  * Detach from any tmux session running in a pane
  * This sends the detach command (prefix + d) to the nested tmux
  */
-function detachInPane(paneId: string): void {
-	try {
-		// Send Ctrl+B then d (tmux detach) - works for nested tmux
-		spawnSync('tmux', ['send-keys', '-t', paneId, 'C-b', 'd'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-	} catch {
-		// Ignore errors
-	}
-}
-
 // ============================================================================
 // Tmux Dimension Helpers
 // ============================================================================
@@ -834,6 +822,49 @@ export function paneQueryArgs(format: string, paneId?: string): string[] {
 	if (paneId) args.push('-t', paneId);
 	args.push(format);
 	return args;
+}
+
+async function runLayoutCommand(args: string[], run: AsyncTmuxRunner) {
+	try {
+		return {stdout: await run(args), stderr: '', status: 0, error: undefined};
+	} catch (error) {
+		return {stdout: '', stderr: String(error), status: 1, error};
+	}
+}
+
+export async function getPaneDimensions(
+	paneId: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<{cols: number; rows: number}> {
+	const output = await run(
+		paneQueryArgs('#{pane_width} #{pane_height}', paneId),
+	);
+	const values = output.trim().split(' ').map(Number);
+	const [cols, rows] = values;
+	if (!cols || !rows) throw new Error('Invalid tmux pane dimensions');
+	return {cols, rows};
+}
+
+async function getTmuxWindowSizeAsync(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<WindowSize> {
+	const output = await run(
+		paneQueryArgs('#{window_width} #{window_height}', paneId),
+	);
+	const [width, height] = output.trim().split(' ').map(Number);
+	if (!width || !height) throw new Error('Invalid tmux window dimensions');
+	return {width, height};
+}
+
+async function recordRailSampleAsync(
+	paneId: string,
+	windowDims: WindowSize,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	const {cols} = await getPaneDimensions(paneId, run);
+	lastWindowSize = windowDims;
+	lastRailWidth = cols;
 }
 
 function queryPaneDimension(format: string, fallback: number): number {
@@ -1472,26 +1503,35 @@ export function clearCurrentlyViewingSpace(): void {
  * Get the current layout direction based on window dimensions.
  * Used to detect when the layout mode needs to switch.
  */
-export function getCurrentLayoutDirection(): 'horizontal' | 'vertical' | null {
-	const windowDims = getTmuxWindowSize();
-	if (!windowDims) return null;
-	return windowDims.width >= NARROW_SCREEN_THRESHOLD
-		? 'horizontal'
-		: 'vertical';
+export async function getLayoutDirections(
+	listPaneId: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<{
+	current: 'horizontal' | 'vertical';
+	desired: 'horizontal' | 'vertical';
+}> {
+	const output = await run(
+		paneQueryArgs('#{window_width} #{pane_width}', listPaneId),
+	);
+	const [width, paneWidth] = output.trim().split(' ').map(Number);
+	if (!width || !paneWidth) throw new Error('Invalid tmux layout dimensions');
+	return {
+		current: paneWidth === width ? 'vertical' : 'horizontal',
+		desired: width >= NARROW_SCREEN_THRESHOLD ? 'horizontal' : 'vertical',
+	};
 }
 
 /**
  * Kill a tmux pane by ID.
  * Returns true if pane was killed or didn't exist.
  */
-function killPane(paneId: string): boolean {
+async function killPane(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
 	if (!paneId) return true;
 	try {
-		const result = spawnSync('tmux', ['kill-pane', '-t', paneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-			stdio: ['pipe', 'pipe', 'pipe'],
-		});
+		const result = await runLayoutCommand(['kill-pane', '-t', paneId], run);
 		if (result.error || result.status !== 0) {
 			log.warn(`Failed to kill pane ${paneId}: ${result.stderr}`);
 			return false;
@@ -1512,28 +1552,36 @@ function killPane(paneId: string): boolean {
  *
  * Returns the new PaneLayout, or null on failure.
  */
-export function rebuildLayout(
+export async function rebuildLayout(
 	listPaneId: string,
 	oldClaudeViewerPaneId: string,
 	oldCompanionViewerPaneId: string,
-): {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<{
 	listPaneId: string;
 	claudeViewerPaneId: string;
 	companionViewerPaneId: string;
-} | null {
+} | null> {
 	try {
+		// Get terminal dimensions and calculate new layout
+		const windowDims = await getTmuxWindowSizeAsync(listPaneId, run);
+		if (!windowDims) {
+			log.error('Failed to get window dimensions for rebuild');
+			return null;
+		}
+
 		// Detach any nested clients before killing panes
 		if (oldClaudeViewerPaneId) {
 			if (claudeViewerHasClient) {
-				detachInPane(oldClaudeViewerPaneId);
+				await run(['send-keys', '-t', oldClaudeViewerPaneId, 'C-b', 'd']);
 			}
-			killPane(oldClaudeViewerPaneId);
+			await killPane(oldClaudeViewerPaneId, run);
 		}
 		if (oldCompanionViewerPaneId) {
 			if (companionViewerHasClient) {
-				detachInPane(oldCompanionViewerPaneId);
+				await run(['send-keys', '-t', oldCompanionViewerPaneId, 'C-b', 'd']);
 			}
-			killPane(oldCompanionViewerPaneId);
+			await killPane(oldCompanionViewerPaneId, run);
 		}
 
 		// Reset cached state since panes are destroyed
@@ -1544,13 +1592,6 @@ export function rebuildLayout(
 		currentlyViewingSpace = null;
 
 		const cwd = process.cwd();
-
-		// Get terminal dimensions and calculate new layout
-		const windowDims = getTmuxWindowSize();
-		if (!windowDims) {
-			log.error('Failed to get window dimensions for rebuild');
-			return null;
-		}
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
 		const layout = calculateLayout(totalWidth, totalHeight);
@@ -1564,8 +1605,7 @@ export function rebuildLayout(
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL: list on top, claude below
-			const claudeResult = spawnSync(
-				'tmux',
+			const claudeResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-v',
@@ -1579,7 +1619,7 @@ export function rebuildLayout(
 					'-F',
 					'#{pane_id}',
 				],
-				{encoding: 'utf-8', timeout: 10000},
+				run,
 			);
 
 			if (claudeResult.error || claudeResult.status !== 0) {
@@ -1598,8 +1638,7 @@ export function rebuildLayout(
 			const rightPortionWidth =
 				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
 
-			const claudeResult = spawnSync(
-				'tmux',
+			const claudeResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-h',
@@ -1613,7 +1652,7 @@ export function rebuildLayout(
 					'-F',
 					'#{pane_id}',
 				],
-				{encoding: 'utf-8', timeout: 10000},
+				run,
 			);
 
 			if (claudeResult.error || claudeResult.status !== 0) {
@@ -1625,8 +1664,7 @@ export function rebuildLayout(
 			claudeViewerPaneId = claudeResult.stdout.trim();
 
 			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
-				const companionResult = spawnSync(
-					'tmux',
+				const companionResult = await runLayoutCommand(
 					[
 						'split-window',
 						'-h',
@@ -1640,7 +1678,7 @@ export function rebuildLayout(
 						'-F',
 						'#{pane_id}',
 					],
-					{encoding: 'utf-8', timeout: 10000},
+					run,
 				);
 
 				if (!companionResult.error && companionResult.status === 0) {
@@ -1655,31 +1693,34 @@ export function rebuildLayout(
 
 		// Set pane titles
 		try {
-			execSync(
-				`tmux select-pane -t "${claudeViewerPaneId}" -T "claude-viewer"`,
-				{encoding: 'utf-8', timeout: 5000},
-			);
+			await run([
+				'select-pane',
+				'-t',
+				claudeViewerPaneId,
+				'-T',
+				'claude-viewer',
+			]);
 			if (companionViewerPaneId) {
-				execSync(
-					`tmux select-pane -t "${companionViewerPaneId}" -T "companion-viewer"`,
-					{encoding: 'utf-8', timeout: 5000},
-				);
+				await run([
+					'select-pane',
+					'-t',
+					companionViewerPaneId,
+					'-T',
+					'companion-viewer',
+				]);
 			}
 		} catch {
 			// Non-fatal
 		}
 
 		// Return focus to list pane
-		spawnSync('tmux', ['select-pane', '-t', listPaneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		await runLayoutCommand(['select-pane', '-t', listPaneId], run);
 
 		log.info(
 			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		recordRailSample(listPaneId, getTmuxWindowSize());
+		await recordRailSampleAsync(listPaneId, windowDims, run);
 
 		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1701,13 +1742,14 @@ export function rebuildLayout(
  * This only re-proportions within the current layout mode. For switching between
  * horizontal/vertical, use rebuildLayout() instead.
  */
-export function relayoutPanes(
+export async function relayoutPanes(
 	listPaneId: string,
 	companionViewerPaneId: string,
-): boolean {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	try {
 		// Get current terminal dimensions from the window (not individual panes)
-		const windowDims = getTmuxWindowSize();
+		const windowDims = await getTmuxWindowSizeAsync(listPaneId, run);
 		if (!windowDims) {
 			log.error('Failed to get tmux window dimensions for relayout');
 			return false;
@@ -1718,7 +1760,7 @@ export function relayoutPanes(
 		// Separate a window resize from a hand-drag of the rail/claude border
 		// *before* computing the layout, so a drag feeds its own width back in
 		// instead of being recomputed away. See rail-width.ts and STA-2040.
-		const measuredRailWidth = getPaneWidth(listPaneId);
+		const {cols: measuredRailWidth} = await getPaneDimensions(listPaneId, run);
 		const previousOverride = railWidthOverride;
 		railWidthOverride = nextRailWidthOverride({
 			previousWindow: lastWindowSize,
@@ -1743,10 +1785,9 @@ export function relayoutPanes(
 		if (layout.direction === 'vertical') {
 			// Vertical: resize list pane height, claude gets remainder
 			if (layout.listHeight !== undefined) {
-				const result = spawnSync(
-					'tmux',
+				const result = await runLayoutCommand(
 					['resize-pane', '-t', listPaneId, '-y', String(layout.listHeight)],
-					{encoding: 'utf-8', timeout: 5000},
+					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize list pane height: ${result.stderr}`);
@@ -1756,10 +1797,9 @@ export function relayoutPanes(
 		} else {
 			// Horizontal: resize list width and companion width, claude gets remainder
 			if (layout.listWidth !== undefined) {
-				const result = spawnSync(
-					'tmux',
+				const result = await runLayoutCommand(
 					['resize-pane', '-t', listPaneId, '-x', String(layout.listWidth)],
-					{encoding: 'utf-8', timeout: 5000},
+					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize list pane width: ${result.stderr}`);
@@ -1768,8 +1808,7 @@ export function relayoutPanes(
 			}
 
 			if (companionViewerPaneId && layout.companionWidth !== undefined) {
-				const result = spawnSync(
-					'tmux',
+				const result = await runLayoutCommand(
 					[
 						'resize-pane',
 						'-t',
@@ -1777,7 +1816,7 @@ export function relayoutPanes(
 						'-x',
 						String(layout.companionWidth),
 					],
-					{encoding: 'utf-8', timeout: 5000},
+					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize companion pane width: ${result.stderr}`);
@@ -1786,7 +1825,7 @@ export function relayoutPanes(
 			}
 		}
 
-		recordRailSample(listPaneId, windowDims);
+		await recordRailSampleAsync(listPaneId, windowDims, run);
 
 		log.info('Relayout completed successfully');
 		return true;
@@ -1799,81 +1838,14 @@ export function relayoutPanes(
 	}
 }
 
-/**
- * Zoom a pane to take up the full terminal window
- * Uses tmux's built-in zoom feature which maximizes the pane
- */
-export function zoomPane(paneId: string): boolean {
-	try {
-		// Check if already zoomed
-		const checkResult = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-
-		if (checkResult.stdout.trim() === '1') {
-			log.debug(`Pane ${paneId} is already zoomed`);
-			return true;
-		}
-
-		const result = spawnSync('tmux', ['resize-pane', '-Z', '-t', paneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to zoom pane ${paneId}: ${result.stderr}`);
-			return false;
-		}
-
-		log.info(`Zoomed pane ${paneId}`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to zoom pane ${paneId}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
-}
-
-/**
- * Unzoom a pane to restore the normal layout
- */
-export function unzoomPane(paneId: string): boolean {
-	try {
-		// Check if actually zoomed
-		const checkResult = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-
-		if (checkResult.stdout.trim() !== '1') {
-			log.debug(`Pane ${paneId} is not zoomed, nothing to unzoom`);
-			return true;
-		}
-
-		const result = spawnSync('tmux', ['resize-pane', '-Z', '-t', paneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to unzoom pane ${paneId}: ${result.stderr}`);
-			return false;
-		}
-
-		log.info(`Unzoomed pane ${paneId}`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to unzoom pane ${paneId}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+export async function setPaneZoom(
+	paneId: string,
+	zoomed: boolean,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	const output = await run(paneQueryArgs('#{window_zoomed_flag}', paneId));
+	const current = output.trim() === '1';
+	if (current !== zoomed) await run(['resize-pane', '-Z', '-t', paneId]);
 }
 
 /**

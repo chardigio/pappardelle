@@ -5,6 +5,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import xterm from '@xterm/headless';
 import {renderTui} from './render-tui.ts';
+import {syncTerminalDimensions} from './pane-layout-task.ts';
 
 function terminalOutput() {
 	const stdout = Object.assign(new PassThrough(), {
@@ -25,6 +26,27 @@ function terminalOutput() {
 		},
 	};
 }
+
+test('dialog first frame uses confirmed zoom geometry even before SIGWINCH', async t => {
+	const output = terminalOutput();
+	const message = 'Dialog ' + '-'.repeat(90) + ' READY';
+	const dialog = () =>
+		React.createElement(Text, {wrap: 'truncate-end'}, message);
+	const view = renderTui(dialog(), {
+		stdout: output.stdout as unknown as NodeJS.WriteStream,
+		patchConsole: false,
+		interactive: true,
+	});
+	t.teardown(() => view.unmount());
+	await view.waitUntilRenderFlush();
+	// Mounting while Node still reports the narrow rail reproduces the clipped frame.
+	t.false(output.takeOutput().includes('READY'));
+	syncTerminalDimensions(output.stdout, {cols: 140, rows: 30});
+	view.rerender(dialog());
+	await view.waitUntilRenderFlush();
+	const frame = output.takeOutput();
+	t.true(frame.includes(message));
+});
 
 const list = (height: number, query: string, rows: string[]) =>
 	React.createElement(

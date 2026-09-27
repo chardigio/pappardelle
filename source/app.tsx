@@ -7,6 +7,7 @@ import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
+import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -119,15 +120,11 @@ import {
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
-	zoomPane,
-	unzoomPane,
-	resizeListPaneForSessionCount,
-	isVerticalLayout,
+	setPaneZoom,
 	relayoutPanes,
-	getCurrentLayoutDirection,
+	getLayoutDirections,
 	rebuildLayout,
-	getTmuxPaneWidth,
-	getTmuxPaneHeight,
+	getPaneDimensions,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
@@ -392,11 +389,6 @@ export default function App({
 		process.exit(0);
 	}, [paneLayout, repoName]);
 
-	// Track current layout direction to detect mode switches
-	const layoutDirectionRef = useRef<'horizontal' | 'vertical' | null>(
-		getCurrentLayoutDirection(),
-	);
-
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
 
@@ -407,21 +399,9 @@ export default function App({
 	const closeTasks = useRef(new WorkspaceCloseTasks());
 	const workspaceRefresh = useRef<WorkspaceRefresh | null>(null);
 
-	// Track terminal dimensions with resize handling.
-	// Use a lazy initializer that queries tmux directly for accurate pane
-	// dimensions. stdout.rows/columns may be stale after the tmux pane split
-	// because SIGWINCH hasn't been processed yet on first render.
-	const [termDimensions, setTermDimensions] = useState(() => {
-		if (isInTmux()) {
-			return {
-				rows: getTmuxPaneHeight(),
-				cols: getTmuxPaneWidth(),
-			};
-		}
-		return {
-			rows: stdout?.rows ?? 40,
-			cols: stdout?.columns ?? 80,
-		};
+	const [termDimensions, setTermDimensions] = useState({
+		rows: stdout?.rows ?? 40,
+		cols: stdout?.columns ?? 80,
 	});
 
 	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
@@ -433,59 +413,6 @@ export default function App({
 		showHelp ||
 		showErrorDialog ||
 		isSearching;
-
-	// Ink owns screen invalidation, including resize. Clearing independently
-	// can expose an empty frame or erase output that Ink has already repainted.
-	useEffect(() => {
-		if (!stdout) return;
-
-		let relayoutTimer: ReturnType<typeof setTimeout> | null = null;
-
-		const handleResize = () => {
-			setTermDimensions({
-				rows: stdout.rows ?? 40,
-				cols: stdout.columns ?? 80,
-			});
-
-			// Debounce tmux pane relayout (resize events fire rapidly)
-			if (relayoutTimer) clearTimeout(relayoutTimer);
-			relayoutTimer = setTimeout(() => {
-				if (!paneLayout || anyDialogOpen) return;
-
-				// Check if layout direction changed (crossed the threshold)
-				const newDirection = getCurrentLayoutDirection();
-				if (newDirection && newDirection !== layoutDirectionRef.current) {
-					log.info(
-						`Layout mode switch: ${layoutDirectionRef.current} → ${newDirection}`,
-					);
-					layoutDirectionRef.current = newDirection;
-
-					// Rebuild panes with new orientation
-					const newLayout = rebuildLayout(
-						paneLayout.listPaneId,
-						paneLayout.claudeViewerPaneId,
-						paneLayout.companionViewerPaneId,
-					);
-					if (newLayout) {
-						setPaneLayout(newLayout);
-						panesInitialized.current = false;
-					}
-				} else {
-					// Same direction — just re-proportion within current mode
-					relayoutPanes(
-						paneLayout.listPaneId,
-						paneLayout.companionViewerPaneId,
-					);
-				}
-			}, 150);
-		};
-
-		stdout.on('resize', handleResize);
-		return () => {
-			stdout.off('resize', handleResize);
-			if (relayoutTimer) clearTimeout(relayoutTimer);
-		};
-	}, [stdout, paneLayout, anyDialogOpen]);
 
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
@@ -580,26 +507,102 @@ export default function App({
 		[startupQueue, attachmentTask],
 	);
 
-	// Track whether zoom animation is in progress
-	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
-	const [isZooming, setIsZooming] = useState(false);
-
-	// Zoom/unzoom list pane when any dialog is shown/hidden
-	// This gives full screen space for all dialogs
+	const paneLayoutRef = useRef(paneLayout);
+	paneLayoutRef.current = paneLayout;
+	const dialogRequest = useRef({zoomed: anyDialogOpen, revision: 0});
+	if (dialogRequest.current.zoomed !== anyDialogOpen) {
+		dialogRequest.current = {
+			zoomed: anyDialogOpen,
+			revision: dialogRequest.current.revision + 1,
+		};
+	}
+	const [settledRevision, setSettledRevision] = useState<number | null>(null);
+	const isZooming = Boolean(
+		paneLayout && settledRevision !== dialogRequest.current.revision,
+	);
+	const syncingTerminalSize = useRef(false);
+	const layoutTasks = useMemo(
+		() =>
+			new PaneLayoutTask({
+				queue: attachmentTask,
+				async apply(zoomed) {
+					let layout = paneLayoutRef.current;
+					if (!layout)
+						return {rows: stdout?.rows ?? 40, cols: stdout?.columns ?? 80};
+					await setPaneZoom(layout.listPaneId, zoomed);
+					if (!zoomed) {
+						const {current, desired} = await getLayoutDirections(
+							layout.listPaneId,
+						);
+						if (current !== desired) {
+							const next = await rebuildLayout(
+								layout.listPaneId,
+								layout.claudeViewerPaneId,
+								layout.companionViewerPaneId,
+							);
+							if (!next) throw new Error('Failed to rebuild pane layout');
+							layout = next;
+							paneLayoutRef.current = next;
+							setPaneLayout(next);
+							panesInitialized.current = false;
+						} else if (
+							!(await relayoutPanes(
+								layout.listPaneId,
+								layout.companionViewerPaneId,
+							))
+						) {
+							throw new Error('Failed to resize pane layout');
+						}
+					}
+					return getPaneDimensions(layout.listPaneId);
+				},
+				onReady(_zoomed, dimensions, revision) {
+					syncingTerminalSize.current = true;
+					try {
+						if (stdout) syncTerminalDimensions(stdout, dimensions);
+					} finally {
+						syncingTerminalSize.current = false;
+					}
+					setTermDimensions(dimensions);
+					setSettledRevision(revision);
+				},
+				onError(error) {
+					log.error(
+						'Failed to update pane layout',
+						error instanceof Error ? error : undefined,
+					);
+				},
+			}),
+		[attachmentTask, stdout],
+	);
+	const dialogOpenRef = useRef(anyDialogOpen);
+	dialogOpenRef.current = anyDialogOpen;
 	useEffect(() => {
-		if (!paneLayout) return;
-
-		if (anyDialogOpen) {
-			setIsZooming(true);
-			zoomPane(paneLayout.listPaneId);
-			// Wait for zoom to complete before allowing render
-			setTimeout(() => setIsZooming(false), 100);
-		} else {
-			setIsZooming(true);
-			unzoomPane(paneLayout.listPaneId);
-			setTimeout(() => setIsZooming(false), 100);
-		}
-	}, [anyDialogOpen, paneLayout]);
+		if (paneLayoutRef.current)
+			void layoutTasks.request(anyDialogOpen, dialogRequest.current.revision);
+	}, [layoutTasks, anyDialogOpen, loading, spaces.length]);
+	useEffect(() => () => layoutTasks.stop(), [layoutTasks]);
+	useEffect(() => {
+		if (!stdout) return;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const handleResize = () => {
+			setTermDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
+			if (syncingTerminalSize.current) return;
+			clearTimeout(timer);
+			timer = setTimeout(() => {
+				if (paneLayoutRef.current)
+					void layoutTasks.request(
+						dialogOpenRef.current,
+						dialogRequest.current.revision,
+					);
+			}, 150);
+		};
+		stdout.on('resize', handleResize);
+		return () => {
+			stdout.off('resize', handleResize);
+			clearTimeout(timer);
+		};
+	}, [stdout, layoutTasks]);
 
 	const selectedSpace = spaces[selectedIndex];
 	const selectedSpaceName = selectedSpace?.name;
@@ -622,11 +625,13 @@ export default function App({
 		void attachmentTask
 			.run(async signal => {
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
+				const layout = paneLayoutRef.current;
+				if (!layout) return;
 				const success = await attachToSpace(
-					paneLayout.claudeViewerPaneId,
-					paneLayout.companionViewerPaneId,
+					layout.claudeViewerPaneId,
+					layout.companionViewerPaneId,
 					selectedSpaceName,
-					paneLayout.listPaneId,
+					layout.listPaneId,
 					selectedWorktreePath,
 					selectedIssueTitle,
 					{signal},
@@ -670,51 +675,6 @@ export default function App({
 			panesInitialized.current = true;
 		}
 	}, [paneLayout, spaces, loading]);
-
-	// Track previous spaces count for detecting changes
-	const prevSpacesCount = useRef(spaces.length);
-	const initialResizeDone = useRef(false);
-
-	// Resize list pane on initial load (after a short delay to let terminal settle)
-	// This helps fix incorrect dimensions on SSH connections like Termius
-	useEffect(() => {
-		if (!paneLayout) return;
-		if (loading) return;
-		if (initialResizeDone.current) return;
-
-		// Only resize in vertical layout mode (narrow screens)
-		if (!isVerticalLayout()) {
-			initialResizeDone.current = true;
-			return;
-		}
-
-		// Delay slightly to let the terminal dimensions stabilize
-		// (SSH connections may not have correct dimensions immediately)
-		const timer = setTimeout(() => {
-			resizeListPaneForSessionCount(paneLayout.listPaneId);
-			initialResizeDone.current = true;
-		}, 200);
-
-		return () => clearTimeout(timer);
-	}, [paneLayout, loading]);
-
-	// Resize list pane when spaces are added or deleted (vertical layout only)
-	// This keeps the list pane height optimal based on current session count
-	useEffect(() => {
-		if (!paneLayout) return;
-		if (loading) return;
-
-		// Only resize if count actually changed (not on every render)
-		if (spaces.length === prevSpacesCount.current) return;
-		prevSpacesCount.current = spaces.length;
-
-		// Only resize in vertical layout mode (narrow screens)
-		if (!isVerticalLayout()) return;
-
-		// Resize the list pane to fit the current number of spaces
-		// (tmux auto-adjusts the claude pane to fill remaining space)
-		resizeListPaneForSessionCount(paneLayout.listPaneId);
-	}, [paneLayout, spaces.length, loading]);
 
 	// Open the GitHub PR / GitLab MR in browser for the selected space
 	// For main worktree, opens the repo page instead
@@ -1494,14 +1454,15 @@ export default function App({
 						return false;
 					}
 
-					if (paneLayout && selectedSpaceNameRef.current === space.name) {
+					const layout = paneLayoutRef.current;
+					if (layout && selectedSpaceNameRef.current === space.name) {
 						await Promise.all([
 							displayMessageInPaneAsync(
-								paneLayout.claudeViewerPaneId,
+								layout.claudeViewerPaneId,
 								'Session closed',
 							),
 							displayMessageInPaneAsync(
-								paneLayout.companionViewerPaneId,
+								layout.companionViewerPaneId,
 								'Session closed',
 							),
 						]);
@@ -1525,7 +1486,7 @@ export default function App({
 					return false;
 				});
 		},
-		[paneLayout, setHeaderWithTimeout, attachmentTask, setSpaces],
+		[setHeaderWithTimeout, attachmentTask, setSpaces],
 	);
 
 	const deleteSpace = useCallback(
@@ -2107,7 +2068,7 @@ export default function App({
 			{/* Status message line (occupies the row between header and list).
 			    Clipped for the same reason as the header above. */}
 			<Box height={1} overflowX="hidden">
-				{isSearching ? (
+				{isSearching && !isZooming ? (
 					/* Each segment gets its own `flexShrink={0}` box. Ink drops a
 					   one-cell Text outright when a sibling Text is truncated, so
 					   the `/` prefix vanished when the segments were bare Texts.
