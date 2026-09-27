@@ -125,3 +125,25 @@ test('reopening during an unzoom gets fresh readiness even though the desired bo
 	await Promise.all([closing, reopening]);
 	t.deepEqual(revisions, [1, 3]);
 });
+
+test('a request made while the queued rebuild waits behind an attachment is covered by that rebuild', async t => {
+	const queue = new LatestTask();
+	const calls: boolean[] = [];
+	const task = new PaneLayoutTask({
+		queue,
+		async apply(zoomed) {
+			calls.push(zoomed);
+			return {rows: 50, cols: 200};
+		},
+		onReady() {},
+		onError(error) {
+			throw error;
+		},
+	});
+	const attaching = queue.run(async () => delay(20));
+	const first = task.request(true);
+	await nextTurn();
+	const second = task.request(false);
+	await Promise.all([attaching, first, second]);
+	t.deepEqual(calls, [false]);
+});

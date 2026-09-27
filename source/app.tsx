@@ -1164,8 +1164,17 @@ export default function App({
 				options ?? {queued: false},
 			)
 				.finally(async () => {
-					if (pending.watchlistSource)
-						await releaseWatchlistReservation(pending.name);
+					if (!pending.watchlistSource) return;
+					// A stale reservation only delays the next watchlist spawn; it must
+					// not report a workspace that did start as failed.
+					await releaseWatchlistReservation(pending.name).catch(
+						(err: unknown) => {
+							log.warn(
+								`Failed to release watchlist reservation for ${pending.name}`,
+								err instanceof Error ? err : undefined,
+							);
+						},
+					);
 				})
 				.catch((err: unknown) => {
 					setPendingSession(current => (current === pending ? null : current));

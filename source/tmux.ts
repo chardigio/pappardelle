@@ -15,7 +15,7 @@ export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
 const runTmux: AsyncTmuxRunner = async args => {
 	const {stdout} = await execFileAsync('tmux', args, {
 		encoding: 'utf-8',
-		timeout: args[2] === 'new-session' ? 10_000 : 5000,
+		timeout: args.includes('new-session') ? 10_000 : 5000,
 	});
 	return stdout;
 };
@@ -999,61 +999,6 @@ function recordRailSample(
 ): void {
 	lastWindowSize = windowDims;
 	lastRailWidth = getPaneWidth(listPaneId);
-}
-
-/**
- * Resize the list pane based on current session count (for vertical layout)
- * This should be called when spaces are added or deleted to keep the list
- * pane height optimal.
- *
- * Note: When we resize the list pane, tmux automatically adjusts the claude
- * pane to fill the remaining space, so we only need to resize one pane.
- *
- * Returns true if resize was performed, false if not applicable (horizontal layout)
- */
-export function resizeListPaneForSessionCount(listPaneId: string): boolean {
-	try {
-		// Only resize in vertical layout mode
-		const totalWidth = getTmuxPaneWidth();
-		if (totalWidth >= NARROW_SCREEN_THRESHOLD) {
-			log.debug('Not resizing: horizontal layout mode');
-			return false;
-		}
-
-		const newListHeight = calculateIdealListHeight();
-
-		// Resize the list pane to the new height
-		const result = spawnSync(
-			'tmux',
-			['resize-pane', '-t', listPaneId, '-y', String(newListHeight)],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to resize list pane: ${result.stderr}`);
-			return false;
-		}
-
-		const spaceCount = getActiveSpaceCount();
-		log.info(
-			`Resized list pane for ${spaceCount} spaces: list=${newListHeight} rows`,
-		);
-		return true;
-	} catch (err) {
-		log.error(
-			'Failed to resize list pane',
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
-}
-
-/**
- * Check if we're in vertical layout mode (narrow screen)
- */
-export function isVerticalLayout(): boolean {
-	const totalWidth = getTmuxPaneWidth();
-	return totalWidth < NARROW_SCREEN_THRESHOLD;
 }
 
 /**

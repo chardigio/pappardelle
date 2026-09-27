@@ -136,30 +136,24 @@ export function resetLockTimingForTests(): void {
  */
 function readFromDisk(p: string): string[] {
 	try {
-		const data = fs.readFileSync(p, 'utf-8');
-		const parsed: unknown = JSON.parse(data);
-		if (Array.isArray(parsed)) {
-			const seen = new Set<string>();
-			for (const v of parsed) {
-				if (typeof v === 'string') seen.add(v);
-			}
-			return [...seen];
-		}
+		return parseRegistry(fs.readFileSync(p, 'utf-8'));
 	} catch {
 		// File doesn't exist yet or is invalid — start with empty list
+		return [];
 	}
-	return [];
+}
+
+function parseRegistry(content: string): string[] {
+	const parsed: unknown = JSON.parse(content);
+	if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
+	return [
+		...new Set(parsed.filter((key): key is string => typeof key === 'string')),
+	];
 }
 
 function readRegistryForMutation(p: string): string[] {
 	try {
-		const parsed: unknown = JSON.parse(fs.readFileSync(p, 'utf8'));
-		if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
-		return [
-			...new Set(
-				parsed.filter((key): key is string => typeof key === 'string'),
-			),
-		];
+		return parseRegistry(fs.readFileSync(p, 'utf8'));
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
 		throw err;
@@ -177,13 +171,7 @@ export function getRegisteredSpaces(): string[] {
 /** A failed refresh must not look like an empty registry and remove every row. */
 export async function getRegisteredSpacesAsync(): Promise<string[] | null> {
 	try {
-		const parsed: unknown = JSON.parse(await readFile(registryPath, 'utf-8'));
-		if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
-		return [
-			...new Set(
-				parsed.filter((key): key is string => typeof key === 'string'),
-			),
-		];
+		return parseRegistry(await readFile(registryPath, 'utf-8'));
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
 		throw err;

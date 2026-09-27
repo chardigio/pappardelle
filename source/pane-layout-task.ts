@@ -46,8 +46,10 @@ export class PaneLayoutTask {
 		this.running ??= Promise.resolve().then(async () => {
 			try {
 				while (this.pending && !this.stopped) {
-					this.pending = false;
 					await this.deps.queue.exclusive(async () => {
+						// Requests that arrive while this callback waits behind an
+						// attachment are covered by the state read here.
+						this.pending = false;
 						if (this.stopped) return;
 						const {generation, zoomed, revision} = this;
 						try {
