@@ -178,13 +178,18 @@ export async function extractRecapFromJsonl(
 		const stream = fs.createReadStream(jsonlPath, {encoding: 'utf-8'});
 		try {
 			let yieldedAt = performance.now();
-			let pending = '';
+			let pending: string[] = [];
 			for await (const chunk of stream) {
-				const contents = pending + (chunk as string);
+				const contents = chunk as string;
 				let start = 0;
 				let end = contents.indexOf('\n');
 				while (end !== -1) {
-					applyRecapLine(recap, contents.slice(start, end));
+					const line = contents.slice(start, end);
+					applyRecapLine(
+						recap,
+						pending.length ? pending.join('') + line : line,
+					);
+					pending = [];
 					start = end + 1;
 					end = contents.indexOf('\n', start);
 					if (performance.now() - yieldedAt >= 4) {
@@ -192,9 +197,9 @@ export async function extractRecapFromJsonl(
 						yieldedAt = performance.now();
 					}
 				}
-				pending = contents.slice(start);
+				if (start < contents.length) pending.push(contents.slice(start));
 			}
-			if (pending) applyRecapLine(recap, pending);
+			if (pending.length) applyRecapLine(recap, pending.join(''));
 		} finally {
 			stream.destroy();
 		}

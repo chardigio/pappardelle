@@ -6,8 +6,10 @@ import {
 	clearCurrentlyViewingSpace,
 	getCurrentlyViewingSpace,
 	ensureCompanionSession,
+	killSpaceSessions,
 	type AsyncTmuxRunner,
 } from './tmux.ts';
+import {clearRecentErrors, getRecentErrors} from './logger.ts';
 
 function fakeTmux() {
 	const calls: string[][] = [];
@@ -163,6 +165,7 @@ test.serial(
 			}
 			return output;
 		};
+		clearRecentErrors();
 		t.true(
 			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
 				run,
@@ -178,6 +181,104 @@ test.serial(
 		);
 		t.true(retries.every(args => args.at(-1)!.endsWith('-TEST-B')));
 		t.is(getCurrentlyViewingSpace(), 'TEST-B');
+		t.true(
+			getRecentErrors().some(error =>
+				error.message.includes('Fast workspace switch to TEST-B failed'),
+			),
+		);
+	},
+);
+
+test.serial(
+	'an absent inner server displays no-session state without hiding real client-query errors',
+	async t => {
+		const fake = fakeTmux();
+		const missing = Object.assign(new Error('no server'), {
+			code: 1,
+			stderr: 'no server running on /tmp/fixture',
+		});
+		const run: AsyncTmuxRunner = async args => {
+			if (args.includes('has-session') || args.includes('list-clients'))
+				throw missing;
+			return fake.run(args);
+		};
+		clearRecentErrors();
+		await attachToSpace(
+			'%1',
+			'',
+			'ABSENT-FIXTURE-999999',
+			'%0',
+			undefined,
+			undefined,
+			{run},
+		);
+		t.true(
+			fake.calls.some(args =>
+				args.some(arg => arg.includes('No session for ABSENT-FIXTURE-999999')),
+			),
+		);
+		t.false(
+			getRecentErrors().some(error =>
+				error.message.includes('Failed to attach'),
+			),
+		);
+		clearCurrentlyViewingSpace();
+		const denied: AsyncTmuxRunner = async args => {
+			if (args.includes('list-clients'))
+				throw Object.assign(new Error('permission denied'), {
+					code: 1,
+					stderr: 'Permission denied',
+				});
+			return fake.run(args);
+		};
+		t.false(
+			await attachToSpace('%1', '', 'TEST-DENIED', '%0', undefined, undefined, {
+				run: denied,
+			}),
+		);
+		t.true(
+			getRecentErrors().some(error =>
+				error.message.includes('Failed to attach'),
+			),
+		);
+	},
+);
+
+test.serial(
+	'companion teardown failure leaves Claude alive and reattachment sends no launch command',
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		const run: AsyncTmuxRunner = async args => {
+			await fake.run(args);
+			if (
+				args.includes('kill-session') &&
+				args.some(arg => arg.startsWith('=companion-'))
+			)
+				throw new Error('companion kill failed');
+			return '';
+		};
+		t.false(await killSpaceSessions('TEST-KEEP', {run}));
+		t.false(
+			fake.calls.some(
+				args =>
+					args.includes('kill-session') &&
+					args.some(arg => arg.startsWith('=claude-')),
+			),
+		);
+		await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		t.false(
+			fake.calls.some(
+				args =>
+					args.includes('new-session') ||
+					args.some(arg => arg.includes('claude --continue')),
+			),
+		);
 	},
 );
 

@@ -35,10 +35,15 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 # Logging setup
 LOG_DIR="$HOME/Library/Logs/stardust-workspace"
 mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/idow.log"
+# Each invocation owns its file so background hooks cannot mix workspaces.
+# Rotate on launch and retain a week of completed invocations.
+find "$LOG_DIR" -maxdepth 1 -type f -name 'idow-*.log' -mtime +7 -delete
+LOG_FILE=$(mktemp "$LOG_DIR/idow-$(date '+%Y%m%d')-XXXXXX")
+mv "$LOG_FILE" "$LOG_FILE.log"
+LOG_FILE="$LOG_FILE.log"
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${ISSUE_KEY:-startup}] $*" | tee -a "$LOG_FILE"
 }
 
 error() {
@@ -614,6 +619,10 @@ fi
 # may carry digits of their own, and scanning left-to-right turned A1B-234 into
 # the plausible-looking but wrong "1".
 ISSUE_NUMBER="${ISSUE_KEY##*-}"
+
+WORKSPACE_LOG="$LOG_DIR/idow-${ISSUE_KEY//[^a-zA-Z0-9._-]/_}-${LOG_FILE##*/idow-}"
+mv "$LOG_FILE" "$WORKSPACE_LOG"
+LOG_FILE="$WORKSPACE_LOG"
 
 # Template expansion helpers for profile-driven steps
 # Defined here (before Step 5) because worktree config may use template variables.

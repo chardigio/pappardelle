@@ -388,3 +388,30 @@ test('large transcript scans service UI timers before completing', async t => {
 	t.is(recap?.lastPrompt, 'latest');
 	t.is(recap?.lastAssistantExcerpt, 'x'.repeat(500));
 });
+
+test('a 20 MiB line spanning chunks preserves its recap and following lines', async t => {
+	const dir = tempDir();
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const file = path.join(dir, 'long-line.jsonl');
+	fs.writeFileSync(
+		file,
+		JSON.stringify({
+			type: 'assistant',
+			message: {content: 'x'.repeat(20 * 1024 * 1024)},
+		}) +
+			'\n' +
+			JSON.stringify({
+				type: 'custom-title',
+				customTitle: 'after the long line',
+			}) +
+			'\n' +
+			JSON.stringify({type: 'last-prompt', lastPrompt: 'final line'}),
+	);
+	const start = performance.now();
+	const recap = await extractRecapFromJsonl(file);
+	t.is(recap?.lastAssistantExcerpt, 'x'.repeat(500));
+	t.is(recap?.lastPrompt, 'final line');
+	t.log(
+		`20 MiB single-line transcript: ${(performance.now() - start).toFixed(1)} ms`,
+	);
+});

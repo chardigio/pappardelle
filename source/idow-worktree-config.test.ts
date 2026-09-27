@@ -285,10 +285,31 @@ touch "$IDOW_TEST_WORKSPACE/background-finished"`,
 			await delay(10);
 	}
 	t.true(fs.existsSync(path.join(fixture.workspace, 'background-finished')));
-	const log = fs.readFileSync(
-		path.join(fixture.home, 'Library/Logs/stardust-workspace/idow.log'),
-		'utf8',
-	);
+	const logDir = path.join(fixture.home, 'Library/Logs/stardust-workspace');
+	const files = fs
+		.readdirSync(logDir)
+		.filter(name => name.startsWith('idow-test-abc-'));
+	t.is(files.length, 1);
+	const log = fs.readFileSync(path.join(logDir, files[0]!), 'utf8');
+	t.true(log.includes('[test-abc]'));
 	t.true(log.includes('background stdout'));
 	t.true(log.includes('background stderr'));
+});
+
+test('idow rotates per invocation and prunes only old invocation logs', async t => {
+	const fixture = setup(t);
+	const dir = path.join(fixture.home, 'Library/Logs/stardust-workspace');
+	fs.mkdirSync(dir, {recursive: true});
+	const stale = path.join(dir, 'idow-old-workspace-20200101-test.log');
+	const unrelated = path.join(dir, 'unrelated.log');
+	for (const file of [stale, unrelated]) {
+		fs.writeFileSync(file, 'old');
+		fs.utimesSync(file, new Date(0), new Date(0));
+	}
+	await fixture.run();
+	await fixture.run();
+	const files = fs.readdirSync(dir);
+	t.false(files.includes(path.basename(stale)));
+	t.true(files.includes('unrelated.log'));
+	t.is(files.filter(name => name.startsWith('idow-test-abc-')).length, 2);
 });

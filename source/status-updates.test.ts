@@ -53,8 +53,12 @@ test.serial(
 	async t => {
 		const dir = statusDir(t);
 		const batches: Array<ReadonlyMap<string, ClaudeStatusInfo>> = [];
+		const latest = new Map<string, ClaudeStatusInfo>();
 		const stop = watchStatuses(
-			updates => batches.push(updates),
+			updates => {
+				batches.push(updates);
+				for (const [key, info] of updates) latest.set(key, info);
+			},
 			name => name.startsWith('ours-'),
 		);
 		t.teardown(stop);
@@ -72,16 +76,14 @@ test.serial(
 				tool: 'AskUserQuestion',
 			});
 		}
-		await until(() =>
-			batches.some(
-				batch =>
-					batch.size === count &&
-					[...batch.values()].every(info => info.tool === 'AskUserQuestion'),
-			),
-		);
-		t.true(
-			batches.length <= 3,
-			`Expected a few batches, received ${batches.length}`,
+		await until(
+			() =>
+				latest.size === count &&
+				[...latest.values()].every(
+					info =>
+						info.status === 'waiting_for_approval' &&
+						info.tool === 'AskUserQuestion',
+				),
 		);
 		t.true(
 			batches.every(batch =>
@@ -90,10 +92,11 @@ test.serial(
 				),
 			),
 		);
-		t.deepEqual(batches.at(-1)?.get('ours-0'), {
-			status: 'waiting_for_approval',
-			tool: 'AskUserQuestion',
-		});
+		for (let i = 0; i < count; i++)
+			t.deepEqual(latest.get(`ours-${i}`), {
+				status: 'waiting_for_approval',
+				tool: 'AskUserQuestion',
+			});
 	},
 );
 

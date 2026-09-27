@@ -370,10 +370,28 @@ async function clientExistsOnTty(
 	tty: string,
 	run: AsyncTmuxRunner,
 ): Promise<boolean> {
-	const output = await run(
-		innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
-	);
-	return output.trim().split('\n').includes(tty);
+	try {
+		const output = await run(
+			innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
+		);
+		return output.trim().split('\n').includes(tty);
+	} catch (err) {
+		const error = err as NodeJS.ErrnoException & {
+			stderr?: string;
+			killed?: boolean;
+			signal?: string;
+		};
+		if (
+			typeof error.code === 'number' &&
+			!error.killed &&
+			!error.signal &&
+			/^(?:no server running on |error connecting to .* \(No such file or directory\))/m.test(
+				error.stderr ?? '',
+			)
+		)
+			return false;
+		throw err;
+	}
 }
 
 /**
@@ -720,16 +738,16 @@ export async function killSpaceSessions(
 	},
 ): Promise<boolean> {
 	const sessions = getSessionNames(issueKey, options?.repoName);
-	const results = await Promise.all([
-		innerKillSession(sessions.claude, options?.run),
-		innerKillSession(sessions.companion, options?.run),
-	]);
+	// Keep the agent running until companion teardown succeeds. Reattaching
+	// after a companion failure must not recreate Claude with --continue.
+	if (!(await innerKillSession(sessions.companion, options?.run))) return false;
+	const killed = await innerKillSession(sessions.claude, options?.run);
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
 		claudeViewerHasClient = false;
 		companionViewerHasClient = false;
 	}
-	return results.every(Boolean);
+	return killed;
 }
 
 /**
@@ -1301,8 +1319,12 @@ export async function attachToSpace(
 			if (listPaneId) await run(['select-pane', '-t', listPaneId]);
 			currentlyViewingSpace = issueKey;
 			return true;
-		} catch {
+		} catch (err) {
 			if (signal?.aborted) return false;
+			log.warn(
+				`Fast workspace switch to ${issueKey} failed; retrying with session discovery`,
+				err instanceof Error ? err : undefined,
+			);
 			clearCurrentlyViewingSpace();
 			viewerPaneIds = paneIds;
 		}
