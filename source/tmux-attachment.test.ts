@@ -190,6 +190,35 @@ test.serial(
 );
 
 test.serial(
+	'a first switch to a workspace without sessions falls back without reporting an error',
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		const run: AsyncTmuxRunner = async args => {
+			const output = await fake.run(args);
+			if (args.includes(';')) {
+				throw Object.assign(new Error('Command failed'), {
+					code: 1,
+					stderr: "can't find session: claude-TEST-B\n",
+				});
+			}
+
+			return output;
+		};
+		clearRecentErrors();
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+				run,
+			}),
+		);
+		t.is(getCurrentlyViewingSpace(), 'TEST-B');
+		t.deepEqual(getRecentErrors(), []);
+	},
+);
+
+test.serial(
 	'an absent inner server displays no-session state without hiding real client-query errors',
 	async t => {
 		const fake = fakeTmux();

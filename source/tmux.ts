@@ -1198,6 +1198,20 @@ export function setupPappardellLayout(): {
 	}
 }
 
+function isMissingSessionError(err: unknown): boolean {
+	const error = err as NodeJS.ErrnoException & {
+		stderr?: string;
+		signal?: string;
+		killed?: boolean;
+	};
+	return (
+		typeof error.code === 'number' &&
+		!error.signal &&
+		!error.killed &&
+		/^can't find session:/m.test(error.stderr ?? '')
+	);
+}
+
 /**
  * Attach viewer panes to a space's sessions
  *
@@ -1266,10 +1280,11 @@ export async function attachToSpace(
 			return true;
 		} catch (err) {
 			if (signal?.aborted) return false;
-			log.warn(
-				`Fast workspace switch to ${issueKey} failed; retrying with session discovery`,
-				err instanceof Error ? err : undefined,
-			);
+			// Sessions are created on first visit, so a workspace that hasn't been
+			// opened yet always misses here.
+			const message = `Fast workspace switch to ${issueKey} failed; retrying with session discovery`;
+			if (isMissingSessionError(err)) log.debug(message);
+			else log.warn(message, err instanceof Error ? err : undefined);
 			clearCurrentlyViewingSpace();
 			viewerPaneIds = paneIds;
 		}
