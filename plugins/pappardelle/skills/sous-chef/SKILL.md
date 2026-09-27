@@ -168,6 +168,39 @@ PR_NUM=$(gh pr list --search "head:STA-XXX" --json number,updatedAt -q 'sort_by(
 
 When the user asks to trigger or request a review on a space, run this command directly (substituting the correct issue key). No need to use tmux or relay to the Claude session.
 
+## Scheduling a Wakeup
+
+Claude Code holds no power assertion, so an idle laptop or remote box sleeps through a scheduled wakeup, and the wake and every space's tmux session freeze with it. Before scheduling a wakeup more than a few minutes out (ScheduleWakeup, CronCreate, /loop), hold the machine awake.
+
+Size the hold in seconds: from now until the last scheduled wake, plus 10 minutes for the wake's own work. For a recurring schedule with no last wake, hold until the next wake plus 10 minutes, and run the hold again at each wake. Run each snippet as a single Bash call, since shell variables don't carry over between calls.
+
+macOS:
+
+```bash
+SECS=<seconds>
+caffeinate -dimsu -t "$SECS" >/dev/null 2>&1 &
+sleep 1
+if kill -0 $! 2>/dev/null; then echo "held until $(date -r $(($(date +%s) + SECS)) '+%-I:%M%p')"; else echo "hold failed"; fi
+```
+
+Linux:
+
+```bash
+SECS=<seconds>
+systemd-inhibit --what=idle:sleep --who=sous-chef --why="<reason>" sleep "$SECS" >/dev/null 2>&1 &
+sleep 1
+if kill -0 $! 2>/dev/null; then echo "held until $(date -d "+$SECS sec" '+%-I:%M%p')"; else echo "hold failed"; fi
+```
+
+Both expire on their own. Add the hold to the confirmation line:
+
+```
+Wake set for 10:11pm. Machine held awake until 10:50pm.
+Heard, chef.
+```
+
+If the hold failed, don't claim one. Say so instead: "Wake set for 10:11pm. Could not hold machine awake."
+
 ## Communication Rules
 
 1. Be terse. No pleasantries, no padding. "Heard." "Sent." "On it."
