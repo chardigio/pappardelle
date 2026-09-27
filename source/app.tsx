@@ -1198,18 +1198,21 @@ export default function App({
 					const spaceKey =
 						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
 					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
-					if (spaceKey) addSpace(spaceKey);
+					if (spaceKey) await addSpace(spaceKey);
 					await loadSpaces();
 				},
 				options ?? {queued: false},
-			).catch((err: unknown) => {
-				// A failed spawn must not keep holding its reserved watchlist slot.
-				if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
-				setPendingSession(current => (current === pending ? null : current));
-				const error = err instanceof Error ? err : new Error(String(err));
-				log.error('Failed to start workspace', error);
-				setHeaderWithTimeout(`Failed: ${error.message.slice(0, 40)}`, 5000);
-			});
+			)
+				.finally(async () => {
+					if (pending.watchlistSource)
+						await releaseWatchlistReservation(pending.name);
+				})
+				.catch((err: unknown) => {
+					setPendingSession(current => (current === pending ? null : current));
+					const error = err instanceof Error ? err : new Error(String(err));
+					log.error('Failed to start workspace', error);
+					setHeaderWithTimeout(`Failed: ${error.message.slice(0, 40)}`, 5000);
+				});
 		},
 		[startupQueue, loadSpaces, setHeaderWithTimeout],
 	);
@@ -1226,6 +1229,7 @@ export default function App({
 
 		// Poll immediately on first load, then every 30 seconds
 		let pollInFlight = false;
+		const pollAbort = new AbortController();
 
 		const poll = async () => {
 			if (pollInFlight) return;
@@ -1247,6 +1251,7 @@ export default function App({
 					} = watchlist;
 
 					let issues = await searchAssignedIssues(assignee, statuses);
+					pollAbort.signal.throwIfAborted();
 
 					// Restrict to configured issue-key prefixes (e.g. only STA-*).
 					// For profile watchlists this is auto-derived from team_prefix.
@@ -1290,15 +1295,21 @@ export default function App({
 					const sourceId = watchlistSourceId(profileName);
 					let toSpawn = unclaimed;
 					if (max !== undefined && unclaimed.length > 0) {
-						// Reserve after the search's await, with no await between here
-						// and the spawns, so the slot count read from disk is current.
+						// Capacity is checked under the shared registry lock.
 						const sorted = sortIssuesByCreatedAt(unclaimed);
 						const {reserved, occupied, claimedElsewhere} =
-							tryReserveWatchlistSlots(
+							await tryReserveWatchlistSlots(
 								sourceId,
 								sorted.map(issue => issue.identifier),
 								max,
+								{signal: pollAbort.signal},
 							);
+						if (pollAbort.signal.aborted) {
+							await Promise.all(
+								reserved.map(async key => releaseWatchlistReservation(key)),
+							);
+							return;
+						}
 						// Another instance or watchlist is spawning these. Claim them
 						// here too, or this instance would respawn one as soon as its
 						// owner's workspace is closed.
@@ -1367,6 +1378,7 @@ export default function App({
 		const interval = setInterval(poll, 30_000);
 
 		return () => {
+			pollAbort.abort();
 			clearTimeout(initialTimer);
 			clearInterval(interval);
 		};
@@ -1463,8 +1475,8 @@ export default function App({
 					// is no `seedFromTmux` reaper to recover from that mismatch.
 					const tornDown = await tearDownSpace(space.name, {
 						killSpaceSessions,
-						removeSpace(key) {
-							removeSpace(key);
+						async removeSpace(key) {
+							await removeSpace(key);
 							void workspaceRefresh.current?.refreshListOnly();
 						},
 						cleanup: deleteQaSimulator,

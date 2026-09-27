@@ -17,7 +17,6 @@ import {
 	tryReserveWatchlistSlots,
 	releaseWatchlistReservation,
 } from './space-registry.ts';
-import {getRecentErrors, clearRecentErrors} from './logger.ts';
 
 let tempCounter = 0;
 function tempRegistryPath(): string {
@@ -65,11 +64,11 @@ test.serial(
 	},
 );
 
-test.serial('addSpace adds to registry and persists', t => {
+test.serial('addSpace adds to registry and persists', async t => {
 	const p = tempRegistryPath();
 	setRegistryPath(p);
 
-	addSpace('STA-100');
+	await addSpace('STA-100');
 	t.deepEqual(getRegisteredSpaces(), ['STA-100']);
 
 	t.true(fs.existsSync(p));
@@ -77,41 +76,41 @@ test.serial('addSpace adds to registry and persists', t => {
 	t.deepEqual(data, ['STA-100']);
 });
 
-test.serial('addSpace is a no-op for duplicates', t => {
+test.serial('addSpace is a no-op for duplicates', async t => {
 	const p = tempRegistryPath();
 	setRegistryPath(p);
 
-	addSpace('STA-100');
-	addSpace('STA-100');
+	await addSpace('STA-100');
+	await addSpace('STA-100');
 	t.deepEqual(getRegisteredSpaces(), ['STA-100']);
 });
 
-test.serial('removeSpace removes from registry and persists', t => {
+test.serial('removeSpace removes from registry and persists', async t => {
 	const p = tempRegistryPath();
 	setRegistryPath(p);
 
-	addSpace('STA-100');
-	addSpace('STA-200');
-	removeSpace('STA-100');
+	await addSpace('STA-100');
+	await addSpace('STA-200');
+	await removeSpace('STA-100');
 
 	t.deepEqual(getRegisteredSpaces(), ['STA-200']);
 	const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
 	t.deepEqual(data, ['STA-200']);
 });
 
-test.serial('removeSpace is a no-op for missing keys', t => {
+test.serial('removeSpace is a no-op for missing keys', async t => {
 	const p = tempRegistryPath();
 	setRegistryPath(p);
 
-	addSpace('STA-100');
-	removeSpace('STA-999');
+	await addSpace('STA-100');
+	await removeSpace('STA-999');
 	t.deepEqual(getRegisteredSpaces(), ['STA-100']);
 });
 
-test.serial('isSpaceRegistered returns correct boolean', t => {
+test.serial('isSpaceRegistered returns correct boolean', async t => {
 	setRegistryPath(tempRegistryPath());
 
-	addSpace('STA-100');
+	await addSpace('STA-100');
 	t.true(isSpaceRegistered('STA-100'));
 	t.false(isSpaceRegistered('STA-999'));
 });
@@ -147,14 +146,14 @@ test.serial('filters out non-string values from disk', t => {
 // source of truth and surviving tmux sessions cannot leak back into the rail.
 test.serial(
 	'removed space stays removed across simulated restart even if tmux session lingers',
-	t => {
+	async t => {
 		const p = tempRegistryPath();
 		setRegistryPath(p);
 
 		// First "run": user opens two spaces, then closes STA-100.
-		addSpace('STA-100');
-		addSpace('STA-200');
-		removeSpace('STA-100');
+		await addSpace('STA-100');
+		await addSpace('STA-200');
+		await removeSpace('STA-100');
 		t.deepEqual(getRegisteredSpaces(), ['STA-200']);
 
 		// Simulate quit + relaunch: drop in-memory cache, re-read from disk.
@@ -192,11 +191,11 @@ test.serial(
 	},
 );
 
-test.serial('initForRepo sets registry path for the given repo', t => {
+test.serial('initForRepo sets registry path for the given repo', async t => {
 	const baseDir = tempDir();
 	initForRepo('my-repo', baseDir);
 
-	addSpace('REPO-1');
+	await addSpace('REPO-1');
 	t.deepEqual(getRegisteredSpaces(), ['REPO-1']);
 
 	// Verify file is at the repo-namespaced location
@@ -211,17 +210,17 @@ test.serial('initForRepo sets registry path for the given repo', t => {
 	t.deepEqual(data, ['REPO-1']);
 });
 
-test.serial('initForRepo keeps spaces separate between repos', t => {
+test.serial('initForRepo keeps spaces separate between repos', async t => {
 	const baseDir = tempDir();
 
 	// Initialize repo A and add spaces
 	initForRepo('repo-a', baseDir);
-	addSpace('A-1');
-	addSpace('A-2');
+	await addSpace('A-1');
+	await addSpace('A-2');
 
 	// Initialize repo B and add different spaces
 	initForRepo('repo-b', baseDir);
-	addSpace('B-1');
+	await addSpace('B-1');
 
 	// Verify repo B only has its own spaces
 	t.deepEqual(getRegisteredSpaces(), ['B-1']);
@@ -288,14 +287,14 @@ test.serial(
 	},
 );
 
-test.serial('initForRepo works cleanly when no legacy file exists', t => {
+test.serial('initForRepo works cleanly when no legacy file exists', async t => {
 	const baseDir = tempDir();
 
 	// No legacy file, no repo file — fresh start
 	initForRepo('fresh-repo', baseDir);
 	t.deepEqual(getRegisteredSpaces(), []);
 
-	addSpace('FRESH-1');
+	await addSpace('FRESH-1');
 	t.deepEqual(getRegisteredSpaces(), ['FRESH-1']);
 });
 
@@ -315,11 +314,11 @@ test.serial('initForRepo works cleanly when no legacy file exists', t => {
 
 test.serial(
 	'getRegisteredSpaces reflects out-of-band disk writes (no stale cache)',
-	t => {
+	async t => {
 		const p = tempRegistryPath();
 		setRegistryPath(p);
 
-		addSpace('STA-100');
+		await addSpace('STA-100');
 		t.deepEqual(getRegisteredSpaces(), ['STA-100']);
 
 		// Another instance adds STA-200 directly to disk. We must see it on the
@@ -331,18 +330,18 @@ test.serial(
 
 test.serial(
 	'addSpace merges with out-of-band additions instead of clobbering them',
-	t => {
+	async t => {
 		const p = tempRegistryPath();
 		setRegistryPath(p);
 
-		addSpace('STA-100');
+		await addSpace('STA-100');
 
 		// Simulate a concurrent instance adding STA-200 between our reads.
 		fs.writeFileSync(p, JSON.stringify(['STA-100', 'STA-200']) + '\n');
 
 		// Our instance now opens STA-300. It must re-read the fresh disk state
 		// and append, preserving STA-200 rather than writing a stale [STA-100,…].
-		addSpace('STA-300');
+		await addSpace('STA-300');
 
 		const onDisk = JSON.parse(fs.readFileSync(p, 'utf-8'));
 		t.deepEqual(new Set(onDisk), new Set(['STA-100', 'STA-200', 'STA-300']));
@@ -351,12 +350,12 @@ test.serial(
 
 test.serial(
 	'removeSpace preserves out-of-band additions from another instance',
-	t => {
+	async t => {
 		const p = tempRegistryPath();
 		setRegistryPath(p);
 
-		addSpace('STA-100');
-		addSpace('STA-200');
+		await addSpace('STA-100');
+		await addSpace('STA-200');
 
 		// Concurrent instance auto-spawns STA-300.
 		fs.writeFileSync(
@@ -365,7 +364,7 @@ test.serial(
 		);
 
 		// We close STA-100. STA-300 must survive — only our own delta applies.
-		removeSpace('STA-100');
+		await removeSpace('STA-100');
 
 		const onDisk = JSON.parse(fs.readFileSync(p, 'utf-8'));
 		t.deepEqual(new Set(onDisk), new Set(['STA-200', 'STA-300']));
@@ -374,32 +373,32 @@ test.serial(
 
 test.serial(
 	'removeSpace honors an out-of-band removal of the same key (idempotent)',
-	t => {
+	async t => {
 		const p = tempRegistryPath();
 		setRegistryPath(p);
 
-		addSpace('STA-100');
-		addSpace('STA-200');
+		await addSpace('STA-100');
+		await addSpace('STA-200');
 
 		// Another instance already closed STA-100.
 		fs.writeFileSync(p, JSON.stringify(['STA-200']) + '\n');
 
 		// Our close of STA-100 should be a clean no-op that leaves STA-200 intact.
-		removeSpace('STA-100');
+		await removeSpace('STA-100');
 
 		const onDisk = JSON.parse(fs.readFileSync(p, 'utf-8'));
 		t.deepEqual(onDisk, ['STA-200']);
 	},
 );
 
-test.serial('writes leave no leftover temp or lock files behind', t => {
+test.serial('writes leave no leftover temp or lock files behind', async t => {
 	const dir = tempDir();
 	const p = path.join(dir, 'open-spaces.json');
 	setRegistryPath(p);
 
-	addSpace('STA-1');
-	addSpace('STA-2');
-	removeSpace('STA-1');
+	await addSpace('STA-1');
+	await addSpace('STA-2');
+	await removeSpace('STA-1');
 
 	// Atomic temp files (rename target) and the advisory lock must be cleaned up.
 	const leftovers = fs
@@ -410,42 +409,28 @@ test.serial('writes leave no leftover temp or lock files behind', t => {
 });
 
 test.serial(
-	'a persistently-held lock falls back to a lock-less write and warns',
-	t => {
+	'a live lock times out without writing and leaves timers responsive',
+	async t => {
 		const dir = tempDir();
 		const p = path.join(dir, 'open-spaces.json');
 		setRegistryPath(p);
-
-		// Simulate another instance holding the lock: a fresh lock file that the
-		// stale-steal threshold (set high below) will never reclaim.
 		const lockPath = `${p}.lock`;
-		fs.writeFileSync(lockPath, '');
-
-		// Exercise the fallback in milliseconds instead of the real ~5s timeout.
-		setLockTimingForTests({timeoutMs: 40, retryMs: 5, staleMs: 60_000});
-		clearRecentErrors();
-
+		fs.mkdirSync(lockPath);
+		fs.writeFileSync(path.join(lockPath, `${process.pid}-aaaaaaaa`), '');
+		setLockTimingForTests({timeoutMs: 60, retryMs: 5, staleMs: 1});
+		let ticks = 0;
+		const timer = setInterval(() => {
+			ticks++;
+		}, 2);
 		try {
-			addSpace('STA-1');
-
-			// The write must still land — the UI never deadlocks on a wedged holder.
-			t.deepEqual(getRegisteredSpaces(), ['STA-1']);
-
-			// …and the lost-update-reopening fallback must be surfaced as a warning.
-			const warned = getRecentErrors().some(
-				e => e.level === 'warn' && e.message.includes('proceeding without it'),
-			);
-			t.true(warned);
-
-			// The foreign lock was never ours; the fallback must leave it intact.
+			await t.throwsAsync(addSpace('STA-1'), {message: /timed out/});
+			t.true(ticks > 5);
+			t.false(fs.existsSync(p));
 			t.true(fs.existsSync(lockPath));
 		} finally {
+			clearInterval(timer);
 			resetLockTimingForTests();
-			try {
-				fs.unlinkSync(lockPath);
-			} catch {
-				// Already gone — fine.
-			}
+			fs.rmSync(dir, {recursive: true, force: true});
 		}
 	},
 );
@@ -471,10 +456,10 @@ function readSidecar(p: string): Record<string, unknown> {
 
 test.serial(
 	'tryReserveWatchlistSlots reserves at most max, in candidate order',
-	t => {
+	async t => {
 		const sidecar = useTempRegistry();
 
-		const result = tryReserveWatchlistSlots(
+		const result = await tryReserveWatchlistSlots(
 			'top-level',
 			['STE-1', 'STE-2', 'STE-3'],
 			2,
@@ -495,11 +480,14 @@ test.serial(
 
 test.serial(
 	'a second instance with different candidates only gets the remaining slots',
-	t => {
+	async t => {
 		useTempRegistry();
 
-		tryReserveWatchlistSlots('top-level', ['STE-1'], 2, {pid: ME, isPidAlive});
-		const second = tryReserveWatchlistSlots(
+		await tryReserveWatchlistSlots('top-level', ['STE-1'], 2, {
+			pid: ME,
+			isPidAlive,
+		});
+		const second = await tryReserveWatchlistSlots(
 			'top-level',
 			['STE-5', 'STE-6', 'STE-7'],
 			2,
@@ -516,14 +504,17 @@ test.serial(
 
 test.serial(
 	'an in-flight reservation still holds its slot once registered',
-	t => {
+	async t => {
 		useTempRegistry();
 
-		tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: ME, isPidAlive});
-		addSpace('STE-1');
+		await tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+			pid: ME,
+			isPidAlive,
+		});
+		await addSpace('STE-1');
 
 		t.deepEqual(
-			tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+			await tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
 				pid: ME,
 				isPidAlive,
 			}),
@@ -532,11 +523,14 @@ test.serial(
 	},
 );
 
-test.serial('a dead owner frees an unregistered reservation', t => {
+test.serial('a dead owner frees an unregistered reservation', async t => {
 	const sidecar = useTempRegistry();
 
-	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: DEAD, isPidAlive});
-	const result = tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+	await tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+		pid: DEAD,
+		isPidAlive,
+	});
+	const result = await tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
 		pid: ME,
 		isPidAlive,
 	});
@@ -545,43 +539,63 @@ test.serial('a dead owner frees an unregistered reservation', t => {
 	t.deepEqual(Object.keys(readSidecar(sidecar)), ['STE-2']);
 });
 
-test.serial('a registered workspace still counts after its owner dies', t => {
+test.serial(
+	'a registered workspace still counts after its owner dies',
+	async t => {
+		useTempRegistry();
+
+		await tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+			pid: DEAD,
+			isPidAlive,
+		});
+		await addSpace('STE-1');
+
+		t.deepEqual(
+			await tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+				pid: ME,
+				isPidAlive,
+			}),
+			{reserved: [], occupied: 1, claimedElsewhere: []},
+		);
+	},
+);
+
+test.serial(
+	'keys that are registered or reserved elsewhere are skipped',
+	async t => {
+		useTempRegistry();
+
+		await addSpace('STE-1');
+		await tryReserveWatchlistSlots('profile:chaz', ['STE-2'], 5, {
+			pid: OTHER,
+			isPidAlive,
+		});
+
+		t.deepEqual(
+			await tryReserveWatchlistSlots(
+				'top-level',
+				['STE-1', 'STE-2', 'STE-3'],
+				5,
+				{
+					pid: ME,
+					isPidAlive,
+				},
+			),
+			{reserved: ['STE-3'], occupied: 0, claimedElsewhere: ['STE-1', 'STE-2']},
+		);
+	},
+);
+
+test.serial('each watchlist source has its own count', async t => {
 	useTempRegistry();
 
-	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: DEAD, isPidAlive});
-	addSpace('STE-1');
-
-	t.deepEqual(
-		tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {pid: ME, isPidAlive}),
-		{reserved: [], occupied: 1, claimedElsewhere: []},
-	);
-});
-
-test.serial('keys that are registered or reserved elsewhere are skipped', t => {
-	useTempRegistry();
-
-	addSpace('STE-1');
-	tryReserveWatchlistSlots('profile:chaz', ['STE-2'], 5, {
-		pid: OTHER,
+	await tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+		pid: ME,
 		isPidAlive,
 	});
 
 	t.deepEqual(
-		tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2', 'STE-3'], 5, {
-			pid: ME,
-			isPidAlive,
-		}),
-		{reserved: ['STE-3'], occupied: 0, claimedElsewhere: ['STE-1', 'STE-2']},
-	);
-});
-
-test.serial('each watchlist source has its own count', t => {
-	useTempRegistry();
-
-	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: ME, isPidAlive});
-
-	t.deepEqual(
-		tryReserveWatchlistSlots('profile:chaz', ['CHAZ-1'], 1, {
+		await tryReserveWatchlistSlots('profile:chaz', ['CHAZ-1'], 1, {
 			pid: ME,
 			isPidAlive,
 		}),
@@ -589,40 +603,49 @@ test.serial('each watchlist source has its own count', t => {
 	);
 });
 
-test.serial('releaseWatchlistReservation drops an unregistered entry', t => {
+test.serial(
+	'releaseWatchlistReservation drops an unregistered entry',
+	async t => {
+		const sidecar = useTempRegistry();
+
+		await tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2'], 2, {
+			pid: ME,
+			isPidAlive,
+		});
+		await addSpace('STE-2');
+		await releaseWatchlistReservation('STE-1');
+		await releaseWatchlistReservation('STE-2');
+
+		t.deepEqual(Object.keys(readSidecar(sidecar)), ['STE-2']);
+	},
+);
+
+test.serial('removeSpace frees the watchlist slot', async t => {
 	const sidecar = useTempRegistry();
 
-	tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2'], 2, {
+	await tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
 		pid: ME,
 		isPidAlive,
 	});
-	addSpace('STE-2');
-	releaseWatchlistReservation('STE-1');
-	releaseWatchlistReservation('STE-2');
-
-	t.deepEqual(Object.keys(readSidecar(sidecar)), ['STE-2']);
-});
-
-test.serial('removeSpace frees the watchlist slot', t => {
-	const sidecar = useTempRegistry();
-
-	tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {pid: ME, isPidAlive});
-	addSpace('STE-1');
-	removeSpace('STE-1');
+	await addSpace('STE-1');
+	await removeSpace('STE-1');
 
 	t.deepEqual(readSidecar(sidecar), {});
 	t.deepEqual(
-		tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {pid: ME, isPidAlive}),
+		await tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+			pid: ME,
+			isPidAlive,
+		}),
 		{reserved: ['STE-2'], occupied: 0, claimedElsewhere: []},
 	);
 });
 
 test.serial(
 	'a key another instance holds is reported as claimed even when at cap',
-	t => {
+	async t => {
 		useTempRegistry();
 
-		tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+		await tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
 			pid: OTHER,
 			isPidAlive,
 		});
@@ -630,7 +653,7 @@ test.serial(
 		// This instance must mark STE-1 claimed, or it would respawn STE-1 once the
 		// other instance's workspace is closed and unregistered.
 		t.deepEqual(
-			tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2'], 1, {
+			await tryReserveWatchlistSlots('top-level', ['STE-1', 'STE-2'], 1, {
 				pid: ME,
 				isPidAlive,
 			}),

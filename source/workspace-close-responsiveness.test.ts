@@ -35,8 +35,8 @@ import {setRegistryPath, addSpace, removeSpace, getRegisteredSpaces} from ${JSON
 import {tearDownSpace} from ${JSON.stringify(utilsUrl)};
 import {QaSimulatorCleanup} from ${JSON.stringify(simulatorUrl)};
 setRegistryPath(process.env.CLOSE_REGISTRY);
-addSpace('A');
-addSpace('B');
+await addSpace('A');
+await addSpace('B');
 let ticks = 0;
 const timer = setInterval(() => ticks++, 10);
 const cleanup = new QaSimulatorCleanup();
