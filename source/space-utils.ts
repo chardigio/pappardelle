@@ -1,4 +1,7 @@
 import type {SpaceData} from './types.ts';
+import {createLogger} from './logger.ts';
+
+const log = createLogger('space-utils');
 
 /**
  * Hardcoded key used for the always-pinned main-worktree row in app.tsx and
@@ -93,19 +96,26 @@ export function shouldAttachOnSelection(params: {
  * was updated). On false, caller should leave selection state untouched so
  * the user can retry.
  */
-export function tearDownSpace(
+export async function tearDownSpace(
 	issueKey: string,
 	deps: {
-		killSpaceSessions: (key: string) => boolean;
-		removeSpace: (key: string) => void;
+		killSpaceSessions: (key: string) => Promise<boolean>;
+		removeSpace: (key: string) => void | Promise<void>;
 		onKillFailure: (key: string) => void;
+		cleanup?: (key: string) => Promise<boolean>;
 	},
-): boolean {
-	const killed = deps.killSpaceSessions(issueKey);
+): Promise<boolean> {
+	const killed = await deps.killSpaceSessions(issueKey);
 	if (!killed) {
 		deps.onKillFailure(issueKey);
 		return false;
 	}
-	deps.removeSpace(issueKey);
+	await deps.removeSpace(issueKey);
+	void deps.cleanup?.(issueKey).catch((err: unknown) => {
+		log.error(
+			`Failed to clean up simulator for ${issueKey}`,
+			err instanceof Error ? err : undefined,
+		);
+	});
 	return true;
 }

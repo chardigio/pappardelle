@@ -18,6 +18,13 @@ export class LatestTask {
 		this.controller?.abort();
 	}
 
+	/** Teardown must finish even if a newer selection supersedes attachment. */
+	async exclusive<T>(task: () => Promise<T>): Promise<T> {
+		const next = this.tail.then(task);
+		this.tail = next.then(() => {}).catch(() => {});
+		return next;
+	}
+
 	async idle(): Promise<void> {
 		await this.tail;
 	}

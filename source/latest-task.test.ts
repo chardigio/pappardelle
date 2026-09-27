@@ -2,6 +2,58 @@ import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
 
+test('teardown waits for active creation and cannot be superseded by a new selection', async t => {
+	const task = new LatestTask();
+	let release = () => {};
+	const wait = new Promise<void>(resolve => {
+		release = resolve;
+	});
+	const events: string[] = [];
+	const attach = task.run(async () => {
+		events.push('creating A');
+		await wait;
+		events.push('created A');
+	});
+	await nextTurn();
+	task.cancel();
+	const close = task.exclusive(async () => {
+		events.push('killed A');
+		await nextTurn();
+		events.push('unregistered A');
+	});
+	const stale = task.run(async () => {
+		events.push('attached B');
+	});
+	const latest = task.run(async () => {
+		events.push('attached C');
+	});
+	await nextTurn();
+	t.deepEqual(events, ['creating A']);
+	release();
+	await Promise.all([attach, close, stale, latest]);
+	t.deepEqual(events, [
+		'creating A',
+		'created A',
+		'killed A',
+		'unregistered A',
+		'attached C',
+	]);
+});
+
+test('failed teardown releases the queue for a later attachment', async t => {
+	const task = new LatestTask();
+	await t.throwsAsync(
+		task.exclusive(async () => {
+			throw new Error('kill failed');
+		}),
+	);
+	let attached = false;
+	await task.run(async () => {
+		attached = true;
+	});
+	t.true(attached);
+});
+
 test('rapid selections finish the active operation before applying only the latest selection', async t => {
 	const task = new LatestTask();
 	let release = () => {};

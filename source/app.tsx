@@ -5,6 +5,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
+import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -111,11 +112,12 @@ import {
 	getWorktreePath,
 	getMainWorktreeInfo,
 	attachToSpace,
-	getCurrentlyViewingSpace,
 	displayMessageInPane,
 	sendToPane,
 	killSession,
 	killSpaceSessions,
+	deleteQaSimulator,
+	displayMessageInPaneAsync,
 	zoomPane,
 	unzoomPane,
 	resizeListPaneForSessionCount,
@@ -416,6 +418,7 @@ export default function App({
 	// must not reattach to (and thereby respawn the just-killed sessions of) a
 	// space being closed. Cleared once the space leaves the list (effect below).
 	const closingSpacesRef = useRef(new Set<string>());
+	const closeTasks = useRef(new WorkspaceCloseTasks());
 
 	// Track terminal dimensions with resize handling.
 	// Use a lazy initializer that queries tmux directly for accurate pane
@@ -1468,14 +1471,14 @@ export default function App({
 	// Skips the main worktree and pending placeholder rows. Uses spacesRef
 	// so the effect doesn't re-subscribe on every space mutation.
 
-	// Tear down a single space: run pre_workspace_deinit hooks, then remove
-	// from the persisted registry, kill its tmux sessions, clear the viewer
+	// Tear down a single space: run pre_workspace_deinit hooks, kill its tmux
+	// sessions, remove it from the persisted registry, clear the viewer
 	// panes if it was current, and optimistically prune it from local state.
 	// Returns true on success, false if deinit aborted the removal.
 	//
 	// Shared by the user-pressed-`d` flow (handleDeleteSpace) and the
 	// auto-remove-on-done flow.
-	const deleteSpace = useCallback(
+	const performDeleteSpace = useCallback(
 		async (space: SpaceData): Promise<boolean> => {
 			// Run pre_workspace_deinit commands before deletion
 			try {
@@ -1543,51 +1546,72 @@ export default function App({
 			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
 			if (selectedSpaceNameRef.current === space.name) attachmentTask.cancel();
-			// Finish any in-flight session creation before teardown can kill it.
-			await attachmentTask.idle();
-			const wasViewed =
-				getCurrentlyViewingSpace() === space.name ||
-				selectedSpaceNameRef.current === space.name;
+			return attachmentTask
+				.exclusive(async () => {
+					// STA-1420: kill tmux first, then update the registry. If the kill
+					// fails (tmux hiccup, socket gone, race), leave the registry alone
+					// so the user can retry — otherwise it advertises "closed" while
+					// the inner-socket session is still alive, and post-STA-1416 there
+					// is no `seedFromTmux` reaper to recover from that mismatch.
+					const tornDown = await tearDownSpace(space.name, {
+						killSpaceSessions,
+						removeSpace,
+						cleanup: deleteQaSimulator,
+						onKillFailure: key =>
+							setHeaderWithTimeout(
+								`Failed to kill tmux sessions for ${key} — try again`,
+								5000,
+							),
+					});
+					if (!tornDown) {
+						// Kill failed — the space stays open, so stop guarding it or its
+						// legitimate reattach would be blocked forever.
+						closingSpacesRef.current.delete(space.name);
+						setAttachmentRevision(revision => revision + 1);
+						return false;
+					}
 
-			// STA-1420: kill tmux first, then update the registry. If the kill
-			// fails (tmux hiccup, socket gone, race), leave the registry alone
-			// so the user can retry — otherwise it advertises "closed" while
-			// the inner-socket session is still alive, and post-STA-1416 there
-			// is no `seedFromTmux` reaper to recover from that mismatch.
-			const tornDown = tearDownSpace(space.name, {
-				killSpaceSessions,
-				removeSpace,
-				onKillFailure: key =>
-					setHeaderWithTimeout(
-						`Failed to kill tmux sessions for ${key} — try again`,
-						5000,
-					),
-			});
-			if (!tornDown) {
-				// Kill failed — the space stays open, so stop guarding it or its
-				// legitimate reattach would be blocked forever.
-				closingSpacesRef.current.delete(space.name);
-				setAttachmentRevision(revision => revision + 1);
-				return false;
-			}
+					if (paneLayout && selectedSpaceNameRef.current === space.name) {
+						await Promise.all([
+							displayMessageInPaneAsync(
+								paneLayout.claudeViewerPaneId,
+								'Session closed',
+							),
+							displayMessageInPaneAsync(
+								paneLayout.companionViewerPaneId,
+								'Session closed',
+							),
+						]);
+					}
 
-			if (paneLayout && wasViewed) {
-				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
-				displayMessageInPane(
-					paneLayout.companionViewerPaneId,
-					'Session closed',
-				);
-			}
-
-			// Optimistically prune from local state so the reattach useEffect
-			// never sees the deleted space (loadSpaces is async, so relying on
-			// it alone leaves a window where attachToSpace would respawn the
-			// killed session). The closingSpacesRef guard above covers the same
-			// window belt-and-suspenders, in case these state updates don't batch.
-			setSpaces(prev => prev.filter(s => s.name !== space.name));
-			return true;
+					// Optimistically prune from local state so the reattach useEffect
+					// never sees the deleted space (loadSpaces is async, so relying on
+					// it alone leaves a window where attachToSpace would respawn the
+					// killed session). The closingSpacesRef guard above covers the same
+					// window belt-and-suspenders, in case these state updates don't batch.
+					setSpaces(prev => prev.filter(s => s.name !== space.name));
+					return true;
+				})
+				.catch((err: unknown) => {
+					closingSpacesRef.current.delete(space.name);
+					setAttachmentRevision(revision => revision + 1);
+					log.error(
+						`Failed to close ${space.name}`,
+						err instanceof Error ? err : undefined,
+					);
+					return false;
+				});
 		},
 		[paneLayout, setHeaderWithTimeout, attachmentTask, setSpaces],
+	);
+
+	const deleteSpace = useCallback(
+		async (space: SpaceData): Promise<boolean> =>
+			closeTasks.current.run(space.name, async () => {
+				if (closingSpacesRef.current.has(space.name)) return true;
+				return performDeleteSpace(space);
+			}),
+		[performDeleteSpace],
 	);
 
 	// STA-1553: once a closed space has actually left the list, drop its closing

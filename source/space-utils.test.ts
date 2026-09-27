@@ -1,4 +1,5 @@
 import test from 'ava';
+import {setImmediate as nextTurn} from 'node:timers/promises';
 import {
 	filterSpaces,
 	shouldAttachOnSelection,
@@ -205,6 +206,30 @@ test('filterSpaces: index map correctly maps back to original positions', t => {
 // (which post-STA-1416 has no `seedFromTmux` reaper to mop it up).
 // ============================================================================
 
+test('tearDownSpace waits for an asynchronous kill before unregistering', async t => {
+	let finish = (_success: boolean) => {};
+	const killed = new Promise<boolean>(resolve => {
+		finish = resolve;
+	});
+	const removed: string[] = [];
+	const result = tearDownSpace('A', {
+		async killSpaceSessions() {
+			return killed;
+		},
+		removeSpace(key) {
+			removed.push(key);
+		},
+		onKillFailure() {
+			t.fail('kill should succeed');
+		},
+	});
+	await nextTurn();
+	t.deepEqual(removed, []);
+	finish(true);
+	t.true(await result);
+	t.deepEqual(removed, ['A']);
+});
+
 type TearDownCalls = {
 	killed: string[];
 	removed: string[];
@@ -217,7 +242,7 @@ function makeTearDownDeps(killReturns: boolean): {
 } {
 	const calls: TearDownCalls = {killed: [], removed: [], killFailures: []};
 	const deps = {
-		killSpaceSessions(key: string) {
+		async killSpaceSessions(key: string) {
 			calls.killed.push(key);
 			return killReturns;
 		},
@@ -231,31 +256,31 @@ function makeTearDownDeps(killReturns: boolean): {
 	return {deps, calls};
 }
 
-test('tearDownSpace: kill succeeds → remove called, returns true', t => {
+test('tearDownSpace: kill succeeds → remove called, returns true', async t => {
 	const {deps, calls} = makeTearDownDeps(true);
-	const ok = tearDownSpace('STA-100', deps);
+	const ok = await tearDownSpace('STA-100', deps);
 	t.true(ok);
 	t.deepEqual(calls.killed, ['STA-100']);
 	t.deepEqual(calls.removed, ['STA-100']);
 	t.deepEqual(calls.killFailures, []);
 });
 
-test('tearDownSpace: kill fails → remove NOT called, onKillFailure surfaced, returns false', t => {
+test('tearDownSpace: kill fails → remove NOT called, onKillFailure surfaced, returns false', async t => {
 	const {deps, calls} = makeTearDownDeps(false);
-	const ok = tearDownSpace('STA-100', deps);
+	const ok = await tearDownSpace('STA-100', deps);
 	t.false(ok);
 	t.deepEqual(calls.killed, ['STA-100']);
 	t.deepEqual(calls.removed, []);
 	t.deepEqual(calls.killFailures, ['STA-100']);
 });
 
-test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', t => {
+test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', async t => {
 	// If remove ran first and kill then failed, the registry would advertise
 	// "closed" while the inner socket still has the session — exactly the bug
 	// STA-1420 fixes. Pin the order with a sequence tape.
 	const sequence: string[] = [];
-	const ok = tearDownSpace('STA-7', {
-		killSpaceSessions() {
+	const ok = await tearDownSpace('STA-7', {
+		async killSpaceSessions() {
 			sequence.push('kill');
 			return true;
 		},

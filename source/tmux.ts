@@ -30,8 +30,8 @@ import {
 } from './config.ts';
 import {createLogger} from './logger.ts';
 import {buildSessionEnvArgs} from './spawn-env.ts';
-import {getRegisteredSpaces} from './space-registry.ts';
-import {isSimctlUnavailableError} from './simctl-check.ts';
+import {getRegisteredSpaces, isSpaceRegistered} from './space-registry.ts';
+import {QaSimulatorCleanup} from './qa-simulator.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -424,31 +424,30 @@ export function killSession(sessionName: string): boolean {
  * Kill a tmux session by name on the inner socket. Used for per-issue
  * claude/companion sessions.
  */
-export function innerKillSession(sessionName: string): boolean {
+export async function innerKillSession(
+	sessionName: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	try {
-		if (!innerSessionExists(sessionName)) {
-			log.debug(`Inner session ${sessionName} does not exist, nothing to kill`);
-			return true;
-		}
-
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['kill-session', '-t', sessionName]),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-				stdio: ['pipe', 'pipe', 'pipe'],
-			},
-		);
-		if (result.error || result.status !== 0) {
-			log.error(
-				`Failed to kill inner session ${sessionName}: ${result.stderr}`,
-			);
-			return false;
-		}
+		await run(innerTmuxArgs(['kill-session', '-t', `=${sessionName}`]));
 		log.info(`Killed inner session: ${sessionName}`);
 		return true;
 	} catch (err) {
+		const error = err as NodeJS.ErrnoException & {
+			stderr?: string;
+			signal?: string;
+			killed?: boolean;
+		};
+		// Only tmux's explicit missing-target/server errors mean the session is gone.
+		if (
+			typeof error.code === 'number' &&
+			!error.signal &&
+			!error.killed &&
+			/^(?:can't find session:|no server running on |error connecting to .* \(No such file or directory\))/m.test(
+				error.stderr ?? '',
+			)
+		)
+			return true;
 		log.error(
 			`Failed to kill inner session ${sessionName}`,
 			err instanceof Error ? err : undefined,
@@ -702,108 +701,34 @@ export function cleanupOrphanedInnerSessions(
 	}
 }
 
-/**
- * Delete the QA simulator cloned for a space
- * The simulator is named QA-{issueKey} (e.g., QA-STA-123)
- * Returns true if simulator was deleted or didn't exist
- */
-export function deleteQaSimulator(issueKey: string): boolean {
-	const simulatorName = `QA-${issueKey}`;
+const simulatorCleanup = new QaSimulatorCleanup(
+	undefined,
+	key => !isSpaceRegistered(key),
+);
 
-	// Skip if xcrun is not available (machines without Xcode)
-	const which = spawnSync('which', ['xcrun'], {
-		encoding: 'utf-8',
-		timeout: 5000,
-	});
-	if (which.status !== 0) {
-		log.debug('xcrun not available, skipping simulator cleanup');
-		return true;
-	}
-
-	try {
-		// Find the simulator UDID by name
-		const result = spawnSync('xcrun', ['simctl', 'list', 'devices', '-j'], {
-			encoding: 'utf-8',
-			timeout: 10000,
-		});
-
-		if (result.error || result.status !== 0) {
-			const stderr = result.stderr?.trim() ?? '';
-			if (isSimctlUnavailableError(stderr)) {
-				log.debug('simctl not available, skipping simulator cleanup');
-				return true;
-			}
-
-			log.error(`Failed to list simulators: ${stderr}`);
-			return false;
-		}
-
-		// Parse JSON output to find our simulator
-		const data = JSON.parse(result.stdout) as {
-			devices: Record<string, Array<{name: string; udid: string}>>;
-		};
-
-		let simulatorUdid: string | null = null;
-
-		// Search through all runtimes for our simulator
-		for (const devices of Object.values(data.devices)) {
-			const found = devices.find(d => d.name === simulatorName);
-			if (found) {
-				simulatorUdid = found.udid;
-				break;
-			}
-		}
-
-		if (!simulatorUdid) {
-			log.debug(`Simulator ${simulatorName} not found, nothing to delete`);
-			return true;
-		}
-
-		// Delete the simulator
-		const deleteResult = spawnSync(
-			'xcrun',
-			['simctl', 'delete', simulatorUdid],
-			{encoding: 'utf-8', timeout: 30000},
-		);
-
-		if (deleteResult.error || deleteResult.status !== 0) {
-			log.error(
-				`Failed to delete simulator ${simulatorName}: ${deleteResult.stderr}`,
-			);
-			return false;
-		}
-
-		log.info(`Deleted QA simulator: ${simulatorName} (${simulatorUdid})`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to delete simulator for ${issueKey}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+export async function deleteQaSimulator(issueKey: string): Promise<boolean> {
+	return simulatorCleanup.delete(issueKey);
 }
 
-/**
- * Kill both claude and companion sessions for a space, and delete the QA simulator
- * Returns true if all sessions were killed successfully
- */
-export function killSpaceSessions(issueKey: string): boolean {
-	const sessions = getSessionNames(issueKey);
-	const claudeKilled = innerKillSession(sessions.claude);
-	const companionKilled = innerKillSession(sessions.companion);
-
-	// Delete the QA simulator (runs in background, doesn't block)
-	deleteQaSimulator(issueKey);
-
-	// If we just killed the sessions for the currently viewing space, clear the state
+/** Kill both inner sessions without changing the workspace registry. */
+export async function killSpaceSessions(
+	issueKey: string,
+	options?: {
+		run?: AsyncTmuxRunner;
+		repoName?: string;
+	},
+): Promise<boolean> {
+	const sessions = getSessionNames(issueKey, options?.repoName);
+	const results = await Promise.all([
+		innerKillSession(sessions.claude, options?.run),
+		innerKillSession(sessions.companion, options?.run),
+	]);
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
 		claudeViewerHasClient = false;
 		companionViewerHasClient = false;
 	}
-
-	return claudeKilled && companionKilled;
+	return results.every(Boolean);
 }
 
 /**
@@ -1484,6 +1409,42 @@ export function displayMessageInPane(paneId: string, message: string): boolean {
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+export async function displayMessageInPaneAsync(
+	paneId: string,
+	message: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	try {
+		await run([
+			'send-keys',
+			'-t',
+			paneId,
+			'C-c',
+			';',
+			'send-keys',
+			'-t',
+			paneId,
+			'C-u',
+			';',
+			'send-keys',
+			'-t',
+			paneId,
+			'-l',
+			`printf '%s\\n' ${shellQuote(message)}`,
+			';',
+			'send-keys',
+			'-t',
+			paneId,
+			'Enter',
+		]);
+	} catch (err) {
+		log.error(
+			`Failed to display message in pane ${paneId}`,
+			err instanceof Error ? err : undefined,
+		);
 	}
 }
 
