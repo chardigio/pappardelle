@@ -1,15 +1,24 @@
 #!/bin/bash
 
-# open-iterm-claude.sh - Open iTerm with tmux/Claude and the companion pane
+# open-ghostty-claude.sh - Open a Ghostty tab with tmux/Claude and the companion pane
 #
-# Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>]
+# Usage: open-ghostty-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>]
 #
-# Opens a new iTerm window with:
+# The Ghostty counterpart to open-iterm-claude.sh. Instead of a new window it
+# opens a new tab in the window the Pappardelle TUI is running in, split into:
 #   1. A tmux session running Claude (with --dangerously-skip-permissions if --skip-permissions is set)
-#   2. The prompt is sent to Claude as-is (caller should include skill prefix like /idow)
-#   3. A split pane running the companion command (default: gitui; see --companion-command)
+#   2. A split pane running the companion command (default: gitui; see --companion-command)
 #
-# The window title is set to include the issue key.
+# Requires Ghostty 1.3 or later for the AppleScript interface, which is macOS
+# only. Ghostty has no +new-tab CLI action on any platform, so AppleScript is
+# the only way to place a tab in a specific window.
+#
+# The AppleScript interface is a declared preview and is expected to change in
+# Ghostty 1.4. When it breaks, this script exits non-zero and idow falls back to
+# the iTerm launcher.
+#
+# The command assembly below is a verbatim copy of open-iterm-claude.sh, pinned
+# by the byte-equality assertions in scripts/test-workspace-launchers.sh.
 #
 # Exit code: 0 on success, 1 on failure
 
@@ -20,6 +29,7 @@ WORKTREE=""
 ISSUE_KEY=""
 REPO_NAME=""
 PROMPT=""
+WINDOW_ID=""
 SKIP_PERMISSIONS=false
 CLAUDE_MODEL=""
 CLAUDE_EFFORT=""
@@ -47,6 +57,13 @@ while [[ $# -gt 0 ]]; do
             PROMPT="$2"
             shift 2
             ;;
+        --window-id)
+            # Ghostty window to place the tab in. idow captures this before the
+            # slow parts of a workspace open, so the tab lands in the TUI's
+            # window rather than whichever window is frontmost at the end.
+            WINDOW_ID="$2"
+            shift 2
+            ;;
         --companion-command)
             COMPANION_COMMAND="$2"
             shift 2
@@ -61,16 +78,16 @@ while [[ $# -gt 0 ]]; do
             ;;
         --print-launch-flags)
             # Print the resolved claude launch flags and exit without opening
-            # iTerm. Exists so test-claude-model-effort.sh can assert on the
+            # Ghostty. Exists so test-claude-model-effort.sh can assert on the
             # flag string without side effects.
             PRINT_LAUNCH_FLAGS=true
             shift
             ;;
         --print-command)
             # Print the two shell command lines the AppleScript would type
-            # (claude pane, then companion pane) and exit without opening iTerm.
-            # The lines come from the AppleScript itself, so a test can execute
-            # the real bytes rather than a bash-side reimplementation of them.
+            # (claude pane, then companion pane) and exit without opening
+            # Ghostty. The lines come from the AppleScript itself, so a test can
+            # execute the real bytes rather than a bash-side reimplementation.
             PRINT_COMMAND=true
             shift
             ;;
@@ -79,12 +96,12 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: open-iterm-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>]"
+            echo "Usage: open-ghostty-claude.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
-            echo "prints the two shell lines that would be typed. Neither opens iTerm."
+            echo "prints the two shell lines that would be typed. Neither opens Ghostty."
             echo ""
-            echo "Opens iTerm with tmux/Claude and the companion pane (default gitui) in split panes."
+            echo "Opens a Ghostty tab with tmux/Claude and the companion pane (default gitui) in split panes."
             exit 0
             ;;
         *)
@@ -125,19 +142,16 @@ PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 CLAUDE_PROMPT="$PROMPT"
 
 # Build the launch-flag string appended to every `claude` invocation below
-# (--dangerously-skip-permissions, --model, --effort, in that order, matching
+# (--dangerously-skip-permissions, --model, --effort — in that order, matching
 # start-claude-session.sh and buildClaudeResumeCommand() in source/tmux.ts).
-# Leading spaces are intentional: the value is concatenated onto the claude
+# Leading spaces are intentional — the value is concatenated onto the claude
 # command word, so each space separates its flag cleanly.
 #
 # Two layers of quoting, because the string crosses two shells:
 #   1. printf %q here makes each config-supplied value safe for the INNER shell
 #      (tmux runs the new-session command through sh -c).
 #   2. `quoted form of` in the AppleScript makes the whole string safe for the
-#      OUTER shell iTerm types it into. See the CLAUDE_FLAGS assignment below.
-# That pairing is what lets any value through unharmed, so there's no charset
-# restriction and nothing is ever silently dropped; the tmux path
-# (start-claude-session.sh) reaches the same place with printf %q alone.
+#      OUTER shell Ghostty feeds it to — see the CLAUDE_FLAGS assignment below.
 LAUNCH_FLAGS=""
 if [[ "$SKIP_PERMISSIONS" == true ]]; then
     LAUNCH_FLAGS=" --dangerously-skip-permissions"
@@ -160,7 +174,8 @@ if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
 fi
 
 # Write the AppleScript to a temp file to avoid heredoc escaping issues.
-# Removed via trap so a failing osascript under set -e doesn't leak it.
+# Removed via trap because set -e aborts here whenever Ghostty cannot be
+# driven, which is the fallback path idow is built around.
 APPLESCRIPT=$(mktemp)
 trap 'rm -f "$APPLESCRIPT"' EXIT
 cat > "$APPLESCRIPT" << 'APPLESCRIPT_END'
@@ -173,15 +188,16 @@ on run argv
     set launchFlags to item 6 of argv
     set tmuxSocket to item 7 of argv
     set companionCommand to item 8 of argv
-    -- "true" => return the assembled command lines instead of driving iTerm.
+    -- "true" => return the assembled command lines instead of driving Ghostty.
     -- Everything below this point that builds a string runs either way, so the
-    -- printed lines are the exact bytes each pane's shell runs via -ilc. Used by
-    -- test-claude-model-effort.sh, which can then run them through a real shell.
+    -- printed lines are the exact bytes the surface configuration would carry.
     set printOnly to item 9 of argv
-    -- Absolute path of the user's shell. Each iTerm pane runs its line through
-    -- it as `-ilc` instead of typing the line at a prompt, so nothing lands in
-    -- the user's shell history (pappardelle-2i0).
-    set userShell to item 10 of argv
+    -- Empty => no window was captured, go straight to the front-window rung.
+    set windowID to item 10 of argv
+    -- Absolute path of the user's shell. Each Ghostty pane runs its line
+    -- through it as `-ilc` instead of typing the line at a prompt, so nothing
+    -- lands in the user's shell history (pappardelle-2i0).
+    set userShell to item 11 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (claude /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -189,7 +205,7 @@ on run argv
     set tmuxL to "tmux -L " & tmuxSocket
 
     -- Command assembly happens up front, outside the `tell application` block,
-    -- so it is reachable (and testable) without automating iTerm.
+    -- so it is reachable (and testable) without automating Ghostty.
     --
     -- Always try --continue first to resume an existing Claude conversation.
     -- If --continue fails (no prior session or crash), fall back to:
@@ -240,52 +256,72 @@ on run argv
         return claudeLine & linefeed & companionLine
     end if
 
-    set claudePaneCommand to my paneCommand(userShell, claudeLine)
-    set companionPaneCommand to my paneCommand(userShell, companionLine)
-
-    tell application "iTerm"
+    tell application "Ghostty"
         activate
 
-        -- Create a new window
-        set newWindow to (create window with default profile command claudePaneCommand)
+        set cfg to (new surface configuration)
+        set initial working directory of cfg to worktreePath
+        set command of cfg to my paneCommand(userShell, claudeLine)
 
-        tell newWindow
-            tell current session
-                -- Set the session name/title to include the issue key
-                set name to issueKey
+        -- Three rungs: the window idow captured, whatever window is frontmost
+        -- now, and finally a brand new window when Ghostty has none open.
+        set theTab to missing value
+        if windowID is not equal to "" then
+            try
+                set theTab to (new tab in (first window whose id is windowID) with configuration cfg)
+            end try
+        end if
+        if theTab is missing value then
+            try
+                set theTab to (new tab in front window with configuration cfg)
+            on error
+                set theTab to selected tab of (new window with configuration cfg)
+            end try
+        end if
 
-                -- Wait for Claude to start
-                delay 2
-            end tell
+        -- The tab is the open. Anything failing after it exists must not be
+        -- reported as failure, or idow retries with the iTerm launcher and the
+        -- user ends up with two terminals attached to the same tmux sessions.
+        try
+            set claudeTerm to focused terminal of theTab
 
-            -- Create a vertical split for the companion command (in its own tmux session)
-            tell current session
-                set newSession to (split vertically with default profile command companionPaneCommand)
-                tell newSession
-                    set name to issueKey & " - companion"
-                end tell
-            end tell
-        end tell
+            -- Wait for Claude to start, matching the iTerm launcher.
+            delay 2
+
+            set cfg2 to (new surface configuration)
+            set initial working directory of cfg2 to worktreePath
+            set command of cfg2 to my paneCommand(userShell, companionLine)
+            split claudeTerm direction right with configuration cfg2
+        on error errMsg
+            return "warning: companion pane not opened: " & errMsg
+        end try
     end tell
+    return ""
 end run
 
--- iTerm splits `command` into words itself and mangles shell escapes such as
--- the '\'' a quoted single quote needs, so the line travels base64-encoded
--- and the user's shell decodes it.
+-- The line travels base64-encoded, the same as the iTerm launcher's, so none
+-- of its quoting has to survive Ghostty's parsing of `command`; the user's
+-- shell decodes it.
 on paneCommand(userShell, lineText)
     set encoded to do shell script "printf %s " & quoted form of lineText & " | base64"
     return userShell & " -ilc 'eval \"$(printf %s " & encoded & " | base64 --decode)\"; exec \"$SHELL\" -l'"
 end paneCommand
 APPLESCRIPT_END
 
-# Run the AppleScript with arguments. The trailing argument is the print-only
-# switch: when true the script returns the assembled command lines and never
-# touches iTerm.
+# Run the AppleScript with arguments. Argument 9 is the print-only switch: when
+# true the script returns the assembled command lines and never touches Ghostty.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL"
+OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL")
 
 if [[ "$PRINT_COMMAND" == true ]]; then
+    printf '%s\n' "$OSA_OUTPUT"
     exit 0
 fi
 
-echo "iTerm window opened with Claude and companion pane for $ISSUE_KEY"
+case "$OSA_OUTPUT" in
+    warning:*)
+        echo "$OSA_OUTPUT" >&2
+        ;;
+esac
+
+echo "Ghostty tab opened with Claude and companion pane for $ISSUE_KEY"

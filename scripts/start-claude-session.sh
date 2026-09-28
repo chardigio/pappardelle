@@ -150,7 +150,7 @@ new_launch_session() {
 }
 
 # Ensure Claude tmux session
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION" 2>/dev/null; then
     if [[ "$NO_CLAUDE" == true ]]; then
         tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
     else
@@ -188,7 +188,7 @@ fi
 
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).
 # An empty command leaves a plain shell.
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION" 2>/dev/null; then
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$COMPANION_SESSION" 2>/dev/null; then
     if [[ "$NO_CLAUDE" != true && -n "$COMPANION_COMMAND" ]]; then
         new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
     else

@@ -71,6 +71,10 @@ jobs:
       - name: companion_command resolution
         run: ./scripts/test-companion-command.sh
 
+      # Detection is pointed at a fake Ghostty bundle, so this runs without macOS.
+      - name: Terminal launcher resolution
+        run: ./scripts/test-terminal-launcher.sh
+
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest

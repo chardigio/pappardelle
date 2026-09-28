@@ -35,6 +35,18 @@
 
 set -eo pipefail
 
+# Get the directory where this script lives (resolving symlinks)
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_SOURCE" ]]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+    SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+    [[ "$SCRIPT_SOURCE" != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+
+# shellcheck source=provider-helpers.sh
+source "$SCRIPT_DIR/provider-helpers.sh"
+
 CONFIG_PATH=""
 LOCAL_CONFIG_PATH=""
 HOME_CONFIG_PATH=""
@@ -75,29 +87,7 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
     exit 1
 fi
 
-# Build the list of config files to merge (lowest → highest priority).
-# Only include files that actually exist.
-MERGE_FILES=()
-if [[ -n "$HOME_CONFIG_PATH" && -f "$HOME_CONFIG_PATH" ]]; then
-    MERGE_FILES+=("$HOME_CONFIG_PATH")
-fi
-MERGE_FILES+=("$CONFIG_PATH")
-if [[ -n "$LOCAL_CONFIG_PATH" && -f "$LOCAL_CONFIG_PATH" ]]; then
-    MERGE_FILES+=("$LOCAL_CONFIG_PATH")
-fi
-
-# Deep-merge all layers using yq. Later files override earlier ones.
-# With a single file, eval-all just reads it; with 2+ it merges via *.
-if [[ ${#MERGE_FILES[@]} -eq 1 ]]; then
-    RESOLVED=$(cat "${MERGE_FILES[0]}")
-else
-    # Build a yq merge expression: select(fi==0) * select(fi==1) * ...
-    MERGE_EXPR="select(fileIndex==0)"
-    for (( i=1; i<${#MERGE_FILES[@]}; i++ )); do
-        MERGE_EXPR="$MERGE_EXPR * select(fileIndex==$i)"
-    done
-    RESOLVED=$(yq eval-all "$MERGE_EXPR" "${MERGE_FILES[@]}")
-fi
+RESOLVED=$(merge_config_layers "$HOME_CONFIG_PATH" "$CONFIG_PATH" "$LOCAL_CONFIG_PATH")
 
 # Resolve all fields from one parse; startup calls this for the selected profile.
 # Select only the keys read below before the JSON step: yq cannot write values

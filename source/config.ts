@@ -122,7 +122,7 @@ export interface IssueWatchlistConfig {
 }
 
 export interface TerminalConfig {
-	app?: string; // Default: "iTerm"
+	app?: string; // "auto" (default), "iTerm", "Ghostty", or any app name
 }
 
 /** How each space is drawn in the TUI list. */

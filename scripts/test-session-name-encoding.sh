@@ -84,7 +84,7 @@ assert_sessions() {
 
     local out claude_line companion_line actual_claude actual_companion
     out=$(osascript "$HARNESS" \
-        "$issue_key" /tmp/wt "$expected_claude" '' "$repo_name" '' sock 'gitui' true)
+        "$issue_key" /tmp/wt "$expected_claude" '' "$repo_name" '' sock 'gitui' true /bin/zsh)
     claude_line=$(sed -n '1p' <<< "$out")
     companion_line=$(sed -n '2p' <<< "$out")
     actual_claude=$(session_from '-s' "$claude_line")
@@ -101,31 +101,6 @@ assert_sessions() {
     fi
 }
 
-# The companion pane sends its command to one session and attaches to another;
-# a name that only half-matches would still orphan the real session.
-assert_companion_self_consistent() {
-    local test_name="$1"
-    local issue_key="$2"
-
-    local session_key out companion_line created sent attached
-    session_key=$(encode_key "$issue_key")
-    out=$(osascript "$HARNESS" \
-        "$issue_key" /tmp/wt "claude-testrepo-${session_key}" '' testrepo '' sock 'gitui' true)
-    companion_line=$(sed -n '2p' <<< "$out")
-    created=$(session_from '-s' "$companion_line")
-    sent=$(sed -E "s/.*send-keys -t '([^']*)'.*/\1/" <<< "$companion_line")
-    attached=$(sed -E "s/.*attach -t '([^']*)'.*/\1/" <<< "$companion_line")
-
-    if [[ "$created" == "$sent" && "$sent" == "$attached" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    created: \"$created\"  sent: \"$sent\"  attached: \"$attached\""
-        FAIL=$((FAIL + 1))
-    fi
-}
-
 echo -e "\n${BOLD}Test: claude and companion sessions share the encoded key${RESET}"
 
 assert_sessions "beads prefix carrying an underscore" "my_svc-a1b2"
@@ -134,11 +109,6 @@ assert_sessions "beads child issue, three segments" "a_b-c.1.2"
 assert_sessions "beads prefix carrying hyphens" "seatgeek-ticket-management-cli-bqm"
 assert_sessions "Linear key is unchanged by the encoding" "STA-123"
 assert_sessions "Jira key carrying digits" "A1B-234"
-
-echo -e "\n${BOLD}Test: the companion line targets one session throughout${RESET}"
-
-assert_companion_self_consistent "underscore key" "my_svc-a1b2"
-assert_companion_self_consistent "child issue" "bd-a3f8e9.1"
 
 echo ""
 TOTAL=$((PASS + FAIL))

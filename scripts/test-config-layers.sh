@@ -174,6 +174,14 @@ assert_eq "merge runs before the first provider read" "yes" \
 assert_eq "no yq read bypasses the merge via PROJECT_CONFIG_PATH" "0" "$(grep -c 'yq .*PROJECT_CONFIG_PATH' "$IDOW" || true)"
 assert_eq "resolver calls take the project layer and merge themselves" "0" \
     "$(grep 'resolve-claude-config\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
+assert_eq "terminal resolver takes the project layer too" "0" \
+    "$(grep 'resolve-terminal-app\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
+
+# The merge is subtle enough (yq eval-all fileIndex chaining, single-file
+# shortcut, missing-layer skipping) that a second copy drifts silently, which is
+# how idow and the TUI stopped agreeing on the effective config before.
+assert_eq "no resolver re-implements the merge" "" \
+    "$(grep -l 'fileIndex' "$SCRIPT_DIR"/resolve-*.sh 2>/dev/null || true)"
 
 # ==========================================================================
 
