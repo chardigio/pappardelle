@@ -15,6 +15,7 @@ import type {
 export type {
 	TrackerIssue,
 	PRInfo,
+	PRLink,
 	PipelineStatus,
 	RailStatus,
 	IssueTrackerProvider,

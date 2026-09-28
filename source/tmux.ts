@@ -1,12 +1,24 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execSync, spawn, spawnSync} from 'node:child_process';
+import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
+
+const runTmux: AsyncTmuxRunner = async args => {
+	const {stdout} = await execFileAsync('tmux', args, {
+		encoding: 'utf-8',
+		timeout: args.includes('new-session') ? 10_000 : 5000,
+	});
+	return stdout;
+};
 import {
 	DEFAULT_COMPANION_COMMAND,
 	getClaudeEffort,
@@ -19,8 +31,8 @@ import {
 } from './config.ts';
 import {createLogger} from './logger.ts';
 import {buildSessionEnvArgs} from './spawn-env.ts';
-import {getRegisteredSpaces} from './space-registry.ts';
-import {isSimctlUnavailableError} from './simctl-check.ts';
+import {getRegisteredSpaces, isSpaceRegistered} from './space-registry.ts';
+import {QaSimulatorCleanup} from './qa-simulator.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -103,6 +115,7 @@ let companionViewerHasClient = false;
 // Cache pane TTYs for fast client switching
 let claudeViewerTty: string | null = null;
 let companionViewerTty: string | null = null;
+let viewerPaneIds: string | null = null;
 
 /**
  * Ticket-rail width the user set by hand, or null while the derived width
@@ -334,20 +347,18 @@ export function listClaudeSessions(): string[] {
  * Get the TTY device for a pane
  * This is used to identify the nested tmux client running in a viewer pane
  */
-function getPaneTty(paneId: string): string | null {
-	try {
-		const result = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{pane_tty}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return null;
-		}
-		return result.stdout.trim() || null;
-	} catch {
-		return null;
-	}
+async function getPaneTty(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<string> {
+	const output = await run([
+		'display-message',
+		'-p',
+		'-t',
+		paneId,
+		'#{pane_tty}',
+	]);
+	return output.trim();
 }
 
 /**
@@ -355,23 +366,31 @@ function getPaneTty(paneId: string): string | null {
  * Nested clients created by the viewer-pane attach live on the inner socket,
  * so list-clients must target that socket.
  */
-function clientExistsOnTty(tty: string): boolean {
+async function clientExistsOnTty(
+	tty: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
 	try {
-		const result = spawnSync(
-			'tmux',
+		const output = await run(
 			innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-			},
 		);
-		if (result.error || result.status !== 0) {
+		return output.trim().split('\n').includes(tty);
+	} catch (err) {
+		const error = err as NodeJS.ErrnoException & {
+			stderr?: string;
+			killed?: boolean;
+			signal?: string;
+		};
+		if (
+			typeof error.code === 'number' &&
+			!error.killed &&
+			!error.signal &&
+			/^(?:no server running on |error connecting to .* \(No such file or directory\))/m.test(
+				error.stderr ?? '',
+			)
+		)
 			return false;
-		}
-		const clients = result.stdout.trim().split('\n');
-		return clients.includes(tty);
-	} catch {
-		return false;
+		throw err;
 	}
 }
 
@@ -382,31 +401,15 @@ function clientExistsOnTty(tty: string): boolean {
  * between sessions on the *same* socket — which is fine because every
  * per-issue session also lives on the inner socket.
  */
-function switchClientToSession(
+async function switchClientToSession(
 	clientTty: string,
 	sessionName: string,
-): boolean {
-	try {
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['switch-client', '-c', clientTty, '-t', sessionName]),
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			log.error(
-				`Failed to switch client ${clientTty} to ${sessionName}: ${result.stderr}`,
-			);
-			return false;
-		}
-		log.debug(`Switched client ${clientTty} to session ${sessionName}`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to switch client to session`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	await run(
+		innerTmuxArgs(['switch-client', '-c', clientTty, '-t', `=${sessionName}`]),
+	);
+	log.debug(`Switched client ${clientTty} to session ${sessionName}`);
 }
 
 /**
@@ -440,31 +443,30 @@ export function killSession(sessionName: string): boolean {
  * Kill a tmux session by name on the inner socket. Used for per-issue
  * claude/companion sessions.
  */
-export function innerKillSession(sessionName: string): boolean {
+export async function innerKillSession(
+	sessionName: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	try {
-		if (!innerSessionExists(sessionName)) {
-			log.debug(`Inner session ${sessionName} does not exist, nothing to kill`);
-			return true;
-		}
-
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['kill-session', '-t', sessionName]),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-				stdio: ['pipe', 'pipe', 'pipe'],
-			},
-		);
-		if (result.error || result.status !== 0) {
-			log.error(
-				`Failed to kill inner session ${sessionName}: ${result.stderr}`,
-			);
-			return false;
-		}
+		await run(innerTmuxArgs(['kill-session', '-t', `=${sessionName}`]));
 		log.info(`Killed inner session: ${sessionName}`);
 		return true;
 	} catch (err) {
+		const error = err as NodeJS.ErrnoException & {
+			stderr?: string;
+			signal?: string;
+			killed?: boolean;
+		};
+		// Only tmux's explicit missing-target/server errors mean the session is gone.
+		if (
+			typeof error.code === 'number' &&
+			!error.signal &&
+			!error.killed &&
+			/^(?:can't find session:|no server running on |error connecting to .* \(No such file or directory\))/m.test(
+				error.stderr ?? '',
+			)
+		)
+			return true;
 		log.error(
 			`Failed to kill inner session ${sessionName}`,
 			err instanceof Error ? err : undefined,
@@ -718,108 +720,34 @@ export function cleanupOrphanedInnerSessions(
 	}
 }
 
-/**
- * Delete the QA simulator cloned for a space
- * The simulator is named QA-{issueKey} (e.g., QA-STA-123)
- * Returns true if simulator was deleted or didn't exist
- */
-export function deleteQaSimulator(issueKey: string): boolean {
-	const simulatorName = `QA-${issueKey}`;
+const simulatorCleanup = new QaSimulatorCleanup(
+	undefined,
+	key => !isSpaceRegistered(key),
+);
 
-	// Skip if xcrun is not available (machines without Xcode)
-	const which = spawnSync('which', ['xcrun'], {
-		encoding: 'utf-8',
-		timeout: 5000,
-	});
-	if (which.status !== 0) {
-		log.debug('xcrun not available, skipping simulator cleanup');
-		return true;
-	}
-
-	try {
-		// Find the simulator UDID by name
-		const result = spawnSync('xcrun', ['simctl', 'list', 'devices', '-j'], {
-			encoding: 'utf-8',
-			timeout: 10000,
-		});
-
-		if (result.error || result.status !== 0) {
-			const stderr = result.stderr?.trim() ?? '';
-			if (isSimctlUnavailableError(stderr)) {
-				log.debug('simctl not available, skipping simulator cleanup');
-				return true;
-			}
-
-			log.error(`Failed to list simulators: ${stderr}`);
-			return false;
-		}
-
-		// Parse JSON output to find our simulator
-		const data = JSON.parse(result.stdout) as {
-			devices: Record<string, Array<{name: string; udid: string}>>;
-		};
-
-		let simulatorUdid: string | null = null;
-
-		// Search through all runtimes for our simulator
-		for (const devices of Object.values(data.devices)) {
-			const found = devices.find(d => d.name === simulatorName);
-			if (found) {
-				simulatorUdid = found.udid;
-				break;
-			}
-		}
-
-		if (!simulatorUdid) {
-			log.debug(`Simulator ${simulatorName} not found, nothing to delete`);
-			return true;
-		}
-
-		// Delete the simulator
-		const deleteResult = spawnSync(
-			'xcrun',
-			['simctl', 'delete', simulatorUdid],
-			{encoding: 'utf-8', timeout: 30000},
-		);
-
-		if (deleteResult.error || deleteResult.status !== 0) {
-			log.error(
-				`Failed to delete simulator ${simulatorName}: ${deleteResult.stderr}`,
-			);
-			return false;
-		}
-
-		log.info(`Deleted QA simulator: ${simulatorName} (${simulatorUdid})`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to delete simulator for ${issueKey}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+export async function deleteQaSimulator(issueKey: string): Promise<boolean> {
+	return simulatorCleanup.delete(issueKey);
 }
 
-/**
- * Kill both claude and companion sessions for a space, and delete the QA simulator
- * Returns true if all sessions were killed successfully
- */
-export function killSpaceSessions(issueKey: string): boolean {
-	const sessions = getSessionNames(issueKey);
-	const claudeKilled = innerKillSession(sessions.claude);
-	const companionKilled = innerKillSession(sessions.companion);
-
-	// Delete the QA simulator (runs in background, doesn't block)
-	deleteQaSimulator(issueKey);
-
-	// If we just killed the sessions for the currently viewing space, clear the state
+/** Kill both inner sessions without changing the workspace registry. */
+export async function killSpaceSessions(
+	issueKey: string,
+	options?: {
+		run?: AsyncTmuxRunner;
+		repoName?: string;
+	},
+): Promise<boolean> {
+	const sessions = getSessionNames(issueKey, options?.repoName);
+	// Keep the agent running until companion teardown succeeds. Reattaching
+	// after a companion failure must not recreate Claude with --continue.
+	if (!(await innerKillSession(sessions.companion, options?.run))) return false;
+	const killed = await innerKillSession(sessions.claude, options?.run);
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
 		claudeViewerHasClient = false;
 		companionViewerHasClient = false;
 	}
-
-	return claudeKilled && companionKilled;
+	return killed;
 }
 
 /**
@@ -873,18 +801,6 @@ function interruptPane(paneId: string): void {
  * Detach from any tmux session running in a pane
  * This sends the detach command (prefix + d) to the nested tmux
  */
-function detachInPane(paneId: string): void {
-	try {
-		// Send Ctrl+B then d (tmux detach) - works for nested tmux
-		spawnSync('tmux', ['send-keys', '-t', paneId, 'C-b', 'd'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-	} catch {
-		// Ignore errors
-	}
-}
-
 // ============================================================================
 // Tmux Dimension Helpers
 // ============================================================================
@@ -924,6 +840,49 @@ export function paneQueryArgs(format: string, paneId?: string): string[] {
 	if (paneId) args.push('-t', paneId);
 	args.push(format);
 	return args;
+}
+
+async function runLayoutCommand(args: string[], run: AsyncTmuxRunner) {
+	try {
+		return {stdout: await run(args), stderr: '', status: 0, error: undefined};
+	} catch (error) {
+		return {stdout: '', stderr: String(error), status: 1, error};
+	}
+}
+
+export async function getPaneDimensions(
+	paneId: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<{cols: number; rows: number}> {
+	const output = await run(
+		paneQueryArgs('#{pane_width} #{pane_height}', paneId),
+	);
+	const values = output.trim().split(' ').map(Number);
+	const [cols, rows] = values;
+	if (!cols || !rows) throw new Error('Invalid tmux pane dimensions');
+	return {cols, rows};
+}
+
+async function getTmuxWindowSizeAsync(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<WindowSize> {
+	const output = await run(
+		paneQueryArgs('#{window_width} #{window_height}', paneId),
+	);
+	const [width, height] = output.trim().split(' ').map(Number);
+	if (!width || !height) throw new Error('Invalid tmux window dimensions');
+	return {width, height};
+}
+
+async function recordRailSampleAsync(
+	paneId: string,
+	windowDims: WindowSize,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	const {cols} = await getPaneDimensions(paneId, run);
+	lastWindowSize = windowDims;
+	lastRailWidth = cols;
 }
 
 function queryPaneDimension(format: string, fallback: number): number {
@@ -1040,61 +999,6 @@ function recordRailSample(
 ): void {
 	lastWindowSize = windowDims;
 	lastRailWidth = getPaneWidth(listPaneId);
-}
-
-/**
- * Resize the list pane based on current session count (for vertical layout)
- * This should be called when spaces are added or deleted to keep the list
- * pane height optimal.
- *
- * Note: When we resize the list pane, tmux automatically adjusts the claude
- * pane to fill the remaining space, so we only need to resize one pane.
- *
- * Returns true if resize was performed, false if not applicable (horizontal layout)
- */
-export function resizeListPaneForSessionCount(listPaneId: string): boolean {
-	try {
-		// Only resize in vertical layout mode
-		const totalWidth = getTmuxPaneWidth();
-		if (totalWidth >= NARROW_SCREEN_THRESHOLD) {
-			log.debug('Not resizing: horizontal layout mode');
-			return false;
-		}
-
-		const newListHeight = calculateIdealListHeight();
-
-		// Resize the list pane to the new height
-		const result = spawnSync(
-			'tmux',
-			['resize-pane', '-t', listPaneId, '-y', String(newListHeight)],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to resize list pane: ${result.stderr}`);
-			return false;
-		}
-
-		const spaceCount = getActiveSpaceCount();
-		log.info(
-			`Resized list pane for ${spaceCount} spaces: list=${newListHeight} rows`,
-		);
-		return true;
-	} catch (err) {
-		log.error(
-			'Failed to resize list pane',
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
-}
-
-/**
- * Check if we're in vertical layout mode (narrow screen)
- */
-export function isVerticalLayout(): boolean {
-	const totalWidth = getTmuxPaneWidth();
-	return totalWidth < NARROW_SCREEN_THRESHOLD;
 }
 
 /**
@@ -1294,6 +1198,20 @@ export function setupPappardellLayout(): {
 	}
 }
 
+function isMissingSessionError(err: unknown): boolean {
+	const error = err as NodeJS.ErrnoException & {
+		stderr?: string;
+		signal?: string;
+		killed?: boolean;
+	};
+	return (
+		typeof error.code === 'number' &&
+		!error.signal &&
+		!error.killed &&
+		/^can't find session:/m.test(error.stderr ?? '')
+	);
+}
+
 /**
  * Attach viewer panes to a space's sessions
  *
@@ -1304,26 +1222,73 @@ export function setupPappardellLayout(): {
  * This avoids the visible attach command being typed into the pane, which was
  * jarring when rapidly navigating through spaces.
  */
-export function attachToSpace(
+export async function attachToSpace(
 	claudeViewerPaneId: string,
 	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
 	mainWorktreePath?: string,
 	issueTitle?: string,
-): boolean {
-	// If already viewing this space, nothing to do
-	if (currentlyViewingSpace === issueKey) {
-		return true;
+	options: {signal?: AbortSignal; run?: AsyncTmuxRunner} = {},
+): Promise<boolean> {
+	const {signal} = options;
+	const run: AsyncTmuxRunner = async args => {
+		signal?.throwIfAborted();
+		const output = await (options.run ?? runTmux)(args);
+		signal?.throwIfAborted();
+		return output;
+	};
+	if (signal?.aborted) return false;
+	const paneIds = JSON.stringify([claudeViewerPaneId, companionViewerPaneId]);
+	if (viewerPaneIds !== paneIds) {
+		clearCurrentlyViewingSpace();
+		viewerPaneIds = paneIds;
 	}
-
+	if (currentlyViewingSpace === issueKey) return true;
+	// An interrupted switch may have moved only one pane. Never let the
+	// previous space's cache short-circuit the next request in that case.
+	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
-
-	// Load config once for all session creation. The companion command and the
-	// Claude launch flags are resolved profile-aware (via the issue title) so a
-	// per-project profile can override the default git UI, model, and effort.
-	// This matters only when the sessions don't already exist (idow creates
-	// them with the same resolution at workspace-create time).
+	if (
+		claudeViewerHasClient &&
+		claudeViewerTty &&
+		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
+	) {
+		try {
+			const commands = [
+				'switch-client',
+				'-c',
+				claudeViewerTty,
+				'-t',
+				`=${sessions.claude}`,
+			];
+			if (companionViewerPaneId) {
+				commands.push(
+					';',
+					'switch-client',
+					'-c',
+					companionViewerTty!,
+					'-t',
+					`=${sessions.companion}`,
+				);
+			}
+			// Existing clients can switch directly. tmux validates both targets;
+			// an exited client or missing session falls back to setup below.
+			await run(innerTmuxArgs(commands));
+			if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+			currentlyViewingSpace = issueKey;
+			return true;
+		} catch (err) {
+			if (signal?.aborted) return false;
+			// Sessions are created on first visit, so a workspace that hasn't been
+			// opened yet always misses here.
+			const message = `Fast workspace switch to ${issueKey} failed; retrying with session discovery`;
+			if (isMissingSessionError(err)) log.debug(message);
+			else log.warn(message, err instanceof Error ? err : undefined);
+			clearCurrentlyViewingSpace();
+			viewerPaneIds = paneIds;
+		}
+	}
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
 	let launch: ClaudeLaunchOptions = {};
@@ -1336,122 +1301,110 @@ export function attachToSpace(
 			effort: getClaudeEffort(config, issueTitle),
 		};
 	} catch {
-		// Config load failed — use safe defaults
-	}
-
-	// Ensure sessions exist (create if needed)
-	if (mainWorktreePath) {
-		ensureClaudeSession(issueKey, mainWorktreePath, skipPermissions, launch);
-		ensureCompanionSession(issueKey, mainWorktreePath, companionCommand);
-	} else {
-		ensureClaudeSession(issueKey, undefined, skipPermissions, launch);
-		ensureCompanionSession(issueKey, undefined, companionCommand);
-	}
-
-	const hasClaudeSession = innerSessionExists(sessions.claude);
-	const hasCompanionSession = innerSessionExists(sessions.companion);
-
-	// Cache pane TTYs if we haven't yet (needed for switch-client)
-	if (!claudeViewerTty) {
-		claudeViewerTty = getPaneTty(claudeViewerPaneId);
-	}
-	if (!companionViewerTty && companionViewerPaneId) {
-		companionViewerTty = getPaneTty(companionViewerPaneId);
+		// Config load failed — use safe defaults.
 	}
 
 	try {
-		// Handle Claude viewer pane
-		if (hasClaudeSession) {
-			// Check if we already have a nested client running in this pane
-			const hasExistingClient =
-				claudeViewerTty && clientExistsOnTty(claudeViewerTty);
+		// Complete session creation and command launch together so a superseded
+		// selection can't leave an existing session with no agent running.
+		const hasClaudeSession = await ensureClaudeSession(
+			issueKey,
+			mainWorktreePath,
+			skipPermissions,
+			launch,
+			options.run ?? runTmux,
+		);
+		signal?.throwIfAborted();
+		const hasCompanionSession = companionViewerPaneId
+			? await ensureCompanionSession(
+					issueKey,
+					mainWorktreePath,
+					companionCommand,
+					options.run ?? runTmux,
+				)
+			: false;
+		signal?.throwIfAborted();
 
-			if (hasExistingClient && claudeViewerHasClient) {
-				// Fast path: switch the existing client to the new session (instant, invisible)
-				switchClientToSession(claudeViewerTty!, sessions.claude);
-				log.debug(
-					`Switched claude viewer to ${sessions.claude} via switch-client`,
-				);
-			} else {
-				// Slow path: create a new nested client via send-keys.
-				// The per-issue session lives on the inner socket, so attach via
-				// `tmux -L pappardelle_inner attach`. A distinct socket means a
-				// distinct tmux server, so tmux's nesting check can't fire and we
-				// don't need to clobber $TMUX — which is the whole point of STA-860
-				// (lets $TMUX propagate to Claude Code's Agent Teams feature).
-				sendToPane(
-					claudeViewerPaneId,
-					`tmux -L ${INNER_SOCKET} attach -t "${sessions.claude}"`,
-				);
-				claudeViewerHasClient = true;
-				log.info(`Attached claude viewer to ${sessions.claude} via send-keys`);
+		if (!claudeViewerTty)
+			claudeViewerTty = await getPaneTty(claudeViewerPaneId, run);
+		if (!companionViewerTty && companionViewerPaneId) {
+			companionViewerTty = await getPaneTty(companionViewerPaneId, run);
+		}
+
+		const attach = async (
+			paneId: string,
+			tty: string | null,
+			session: string,
+			exists: boolean,
+		) => {
+			const hasClient = tty ? await clientExistsOnTty(tty, run) : false;
+			if (exists) {
+				if (hasClient) {
+					await switchClientToSession(tty!, session, run);
+				} else {
+					await sendToPaneAsync(
+						paneId,
+						`tmux -L ${INNER_SOCKET} attach -t "${session}"`,
+						run,
+					);
+				}
+				return true;
 			}
-		} else {
-			// No session - show message (need to detach first if we have a client)
-			if (claudeViewerHasClient && claudeViewerTty) {
-				detachInPane(claudeViewerPaneId);
-				claudeViewerHasClient = false;
-			}
-			sendToPane(
-				claudeViewerPaneId,
-				`clear && echo "No claude session for ${issueKey}"`,
+			if (hasClient) await run(['send-keys', '-t', paneId, 'C-b', 'd']);
+			await sendToPaneAsync(
+				paneId,
+				`clear && echo "No session for ${issueKey}"`,
+				run,
+			);
+			return false;
+		};
+		claudeViewerHasClient = await attach(
+			claudeViewerPaneId,
+			claudeViewerTty,
+			sessions.claude,
+			hasClaudeSession,
+		);
+		if (companionViewerPaneId) {
+			companionViewerHasClient = await attach(
+				companionViewerPaneId,
+				companionViewerTty,
+				sessions.companion,
+				hasCompanionSession,
 			);
 		}
-
-		// Handle companion viewer pane (only if we have one - may not exist on narrow screens)
-		if (companionViewerPaneId) {
-			if (hasCompanionSession) {
-				// Check if we already have a nested client running in this pane
-				const hasExistingClient =
-					companionViewerTty && clientExistsOnTty(companionViewerTty);
-
-				if (hasExistingClient && companionViewerHasClient) {
-					// Fast path: switch the existing client to the new session
-					switchClientToSession(companionViewerTty!, sessions.companion);
-					log.debug(
-						`Switched companion viewer to ${sessions.companion} via switch-client`,
-					);
-				} else {
-					// Slow path: create a new nested client on the inner socket.
-					sendToPane(
-						companionViewerPaneId,
-						`tmux -L ${INNER_SOCKET} attach -t "${sessions.companion}"`,
-					);
-					companionViewerHasClient = true;
-					log.info(
-						`Attached companion viewer to ${sessions.companion} via send-keys`,
-					);
-				}
-			} else {
-				// No session - show message
-				if (companionViewerHasClient && companionViewerTty) {
-					detachInPane(companionViewerPaneId);
-					companionViewerHasClient = false;
-				}
-				sendToPane(
-					companionViewerPaneId,
-					`clear && echo "No companion session for ${issueKey}"`,
-				);
-			}
-		} else {
-			companionViewerHasClient = false;
-		}
-
-		// Return focus to the list pane
-		if (listPaneId) {
-			spawnSync('tmux', ['select-pane', '-t', listPaneId], {
-				encoding: 'utf-8',
-				timeout: 5000,
-			});
-		}
-
+		if (listPaneId) await run(['select-pane', '-t', listPaneId]);
 		currentlyViewingSpace = issueKey;
 		return true;
 	} catch (err) {
-		log.error(
-			`Failed to attach to space ${issueKey}`,
-			err instanceof Error ? err : undefined,
-		);
+		if (!signal?.aborted) {
+			log.error(
+				`Failed to attach to space ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
+		}
+		return false;
+	}
+}
+
+async function sendToPaneAsync(
+	paneId: string,
+	command: string,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	await run(['send-keys', '-t', paneId, 'C-u']);
+	await run(['send-keys', '-t', paneId, '-l', command]);
+	await run(['send-keys', '-t', paneId, 'Enter']);
+}
+
+async function innerSessionExistsAsync(
+	session: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	try {
+		await run(innerTmuxArgs(['has-session', '-t', `=${session}`]));
+		return true;
+	} catch (error) {
+		if (error instanceof Error && error.name === 'AbortError') throw error;
 		return false;
 	}
 }
@@ -1473,6 +1426,42 @@ export function displayMessageInPane(paneId: string, message: string): boolean {
 	}
 }
 
+export async function displayMessageInPaneAsync(
+	paneId: string,
+	message: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	try {
+		await run([
+			'send-keys',
+			'-t',
+			paneId,
+			'C-c',
+			';',
+			'send-keys',
+			'-t',
+			paneId,
+			'C-u',
+			';',
+			'send-keys',
+			'-t',
+			paneId,
+			'-l',
+			`printf '%s\\n' ${shellQuote(message)}`,
+			';',
+			'send-keys',
+			'-t',
+			paneId,
+			'Enter',
+		]);
+	} catch (err) {
+		log.error(
+			`Failed to display message in pane ${paneId}`,
+			err instanceof Error ? err : undefined,
+		);
+	}
+}
+
 /**
  * Get the currently viewing space (for state tracking)
  */
@@ -1485,32 +1474,46 @@ export function getCurrentlyViewingSpace(): string | null {
  */
 export function clearCurrentlyViewingSpace(): void {
 	currentlyViewingSpace = null;
+	claudeViewerHasClient = false;
+	companionViewerHasClient = false;
+	claudeViewerTty = null;
+	companionViewerTty = null;
+	viewerPaneIds = null;
 }
 
 /**
  * Get the current layout direction based on window dimensions.
  * Used to detect when the layout mode needs to switch.
  */
-export function getCurrentLayoutDirection(): 'horizontal' | 'vertical' | null {
-	const windowDims = getTmuxWindowSize();
-	if (!windowDims) return null;
-	return windowDims.width >= NARROW_SCREEN_THRESHOLD
-		? 'horizontal'
-		: 'vertical';
+export async function getLayoutDirections(
+	listPaneId: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<{
+	current: 'horizontal' | 'vertical';
+	desired: 'horizontal' | 'vertical';
+}> {
+	const output = await run(
+		paneQueryArgs('#{window_width} #{pane_width}', listPaneId),
+	);
+	const [width, paneWidth] = output.trim().split(' ').map(Number);
+	if (!width || !paneWidth) throw new Error('Invalid tmux layout dimensions');
+	return {
+		current: paneWidth === width ? 'vertical' : 'horizontal',
+		desired: width >= NARROW_SCREEN_THRESHOLD ? 'horizontal' : 'vertical',
+	};
 }
 
 /**
  * Kill a tmux pane by ID.
  * Returns true if pane was killed or didn't exist.
  */
-function killPane(paneId: string): boolean {
+async function killPane(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
 	if (!paneId) return true;
 	try {
-		const result = spawnSync('tmux', ['kill-pane', '-t', paneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-			stdio: ['pipe', 'pipe', 'pipe'],
-		});
+		const result = await runLayoutCommand(['kill-pane', '-t', paneId], run);
 		if (result.error || result.status !== 0) {
 			log.warn(`Failed to kill pane ${paneId}: ${result.stderr}`);
 			return false;
@@ -1531,28 +1534,36 @@ function killPane(paneId: string): boolean {
  *
  * Returns the new PaneLayout, or null on failure.
  */
-export function rebuildLayout(
+export async function rebuildLayout(
 	listPaneId: string,
 	oldClaudeViewerPaneId: string,
 	oldCompanionViewerPaneId: string,
-): {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<{
 	listPaneId: string;
 	claudeViewerPaneId: string;
 	companionViewerPaneId: string;
-} | null {
+} | null> {
 	try {
+		// Get terminal dimensions and calculate new layout
+		const windowDims = await getTmuxWindowSizeAsync(listPaneId, run);
+		if (!windowDims) {
+			log.error('Failed to get window dimensions for rebuild');
+			return null;
+		}
+
 		// Detach any nested clients before killing panes
 		if (oldClaudeViewerPaneId) {
 			if (claudeViewerHasClient) {
-				detachInPane(oldClaudeViewerPaneId);
+				await run(['send-keys', '-t', oldClaudeViewerPaneId, 'C-b', 'd']);
 			}
-			killPane(oldClaudeViewerPaneId);
+			await killPane(oldClaudeViewerPaneId, run);
 		}
 		if (oldCompanionViewerPaneId) {
 			if (companionViewerHasClient) {
-				detachInPane(oldCompanionViewerPaneId);
+				await run(['send-keys', '-t', oldCompanionViewerPaneId, 'C-b', 'd']);
 			}
-			killPane(oldCompanionViewerPaneId);
+			await killPane(oldCompanionViewerPaneId, run);
 		}
 
 		// Reset cached state since panes are destroyed
@@ -1563,13 +1574,6 @@ export function rebuildLayout(
 		currentlyViewingSpace = null;
 
 		const cwd = process.cwd();
-
-		// Get terminal dimensions and calculate new layout
-		const windowDims = getTmuxWindowSize();
-		if (!windowDims) {
-			log.error('Failed to get window dimensions for rebuild');
-			return null;
-		}
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
 		const layout = calculateLayout(totalWidth, totalHeight);
@@ -1583,8 +1587,7 @@ export function rebuildLayout(
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL: list on top, claude below
-			const claudeResult = spawnSync(
-				'tmux',
+			const claudeResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-v',
@@ -1598,7 +1601,7 @@ export function rebuildLayout(
 					'-F',
 					'#{pane_id}',
 				],
-				{encoding: 'utf-8', timeout: 10000},
+				run,
 			);
 
 			if (claudeResult.error || claudeResult.status !== 0) {
@@ -1617,8 +1620,7 @@ export function rebuildLayout(
 			const rightPortionWidth =
 				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
 
-			const claudeResult = spawnSync(
-				'tmux',
+			const claudeResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-h',
@@ -1632,7 +1634,7 @@ export function rebuildLayout(
 					'-F',
 					'#{pane_id}',
 				],
-				{encoding: 'utf-8', timeout: 10000},
+				run,
 			);
 
 			if (claudeResult.error || claudeResult.status !== 0) {
@@ -1644,8 +1646,7 @@ export function rebuildLayout(
 			claudeViewerPaneId = claudeResult.stdout.trim();
 
 			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
-				const companionResult = spawnSync(
-					'tmux',
+				const companionResult = await runLayoutCommand(
 					[
 						'split-window',
 						'-h',
@@ -1659,7 +1660,7 @@ export function rebuildLayout(
 						'-F',
 						'#{pane_id}',
 					],
-					{encoding: 'utf-8', timeout: 10000},
+					run,
 				);
 
 				if (!companionResult.error && companionResult.status === 0) {
@@ -1674,31 +1675,34 @@ export function rebuildLayout(
 
 		// Set pane titles
 		try {
-			execSync(
-				`tmux select-pane -t "${claudeViewerPaneId}" -T "claude-viewer"`,
-				{encoding: 'utf-8', timeout: 5000},
-			);
+			await run([
+				'select-pane',
+				'-t',
+				claudeViewerPaneId,
+				'-T',
+				'claude-viewer',
+			]);
 			if (companionViewerPaneId) {
-				execSync(
-					`tmux select-pane -t "${companionViewerPaneId}" -T "companion-viewer"`,
-					{encoding: 'utf-8', timeout: 5000},
-				);
+				await run([
+					'select-pane',
+					'-t',
+					companionViewerPaneId,
+					'-T',
+					'companion-viewer',
+				]);
 			}
 		} catch {
 			// Non-fatal
 		}
 
 		// Return focus to list pane
-		spawnSync('tmux', ['select-pane', '-t', listPaneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		await runLayoutCommand(['select-pane', '-t', listPaneId], run);
 
 		log.info(
 			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		recordRailSample(listPaneId, getTmuxWindowSize());
+		await recordRailSampleAsync(listPaneId, windowDims, run);
 
 		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1720,13 +1724,14 @@ export function rebuildLayout(
  * This only re-proportions within the current layout mode. For switching between
  * horizontal/vertical, use rebuildLayout() instead.
  */
-export function relayoutPanes(
+export async function relayoutPanes(
 	listPaneId: string,
 	companionViewerPaneId: string,
-): boolean {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	try {
 		// Get current terminal dimensions from the window (not individual panes)
-		const windowDims = getTmuxWindowSize();
+		const windowDims = await getTmuxWindowSizeAsync(listPaneId, run);
 		if (!windowDims) {
 			log.error('Failed to get tmux window dimensions for relayout');
 			return false;
@@ -1737,7 +1742,7 @@ export function relayoutPanes(
 		// Separate a window resize from a hand-drag of the rail/claude border
 		// *before* computing the layout, so a drag feeds its own width back in
 		// instead of being recomputed away. See rail-width.ts and STA-2040.
-		const measuredRailWidth = getPaneWidth(listPaneId);
+		const {cols: measuredRailWidth} = await getPaneDimensions(listPaneId, run);
 		const previousOverride = railWidthOverride;
 		railWidthOverride = nextRailWidthOverride({
 			previousWindow: lastWindowSize,
@@ -1762,10 +1767,9 @@ export function relayoutPanes(
 		if (layout.direction === 'vertical') {
 			// Vertical: resize list pane height, claude gets remainder
 			if (layout.listHeight !== undefined) {
-				const result = spawnSync(
-					'tmux',
+				const result = await runLayoutCommand(
 					['resize-pane', '-t', listPaneId, '-y', String(layout.listHeight)],
-					{encoding: 'utf-8', timeout: 5000},
+					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize list pane height: ${result.stderr}`);
@@ -1775,10 +1779,9 @@ export function relayoutPanes(
 		} else {
 			// Horizontal: resize list width and companion width, claude gets remainder
 			if (layout.listWidth !== undefined) {
-				const result = spawnSync(
-					'tmux',
+				const result = await runLayoutCommand(
 					['resize-pane', '-t', listPaneId, '-x', String(layout.listWidth)],
-					{encoding: 'utf-8', timeout: 5000},
+					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize list pane width: ${result.stderr}`);
@@ -1787,8 +1790,7 @@ export function relayoutPanes(
 			}
 
 			if (companionViewerPaneId && layout.companionWidth !== undefined) {
-				const result = spawnSync(
-					'tmux',
+				const result = await runLayoutCommand(
 					[
 						'resize-pane',
 						'-t',
@@ -1796,7 +1798,7 @@ export function relayoutPanes(
 						'-x',
 						String(layout.companionWidth),
 					],
-					{encoding: 'utf-8', timeout: 5000},
+					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize companion pane width: ${result.stderr}`);
@@ -1805,7 +1807,7 @@ export function relayoutPanes(
 			}
 		}
 
-		recordRailSample(listPaneId, windowDims);
+		await recordRailSampleAsync(listPaneId, windowDims, run);
 
 		log.info('Relayout completed successfully');
 		return true;
@@ -1818,81 +1820,14 @@ export function relayoutPanes(
 	}
 }
 
-/**
- * Zoom a pane to take up the full terminal window
- * Uses tmux's built-in zoom feature which maximizes the pane
- */
-export function zoomPane(paneId: string): boolean {
-	try {
-		// Check if already zoomed
-		const checkResult = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-
-		if (checkResult.stdout.trim() === '1') {
-			log.debug(`Pane ${paneId} is already zoomed`);
-			return true;
-		}
-
-		const result = spawnSync('tmux', ['resize-pane', '-Z', '-t', paneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to zoom pane ${paneId}: ${result.stderr}`);
-			return false;
-		}
-
-		log.info(`Zoomed pane ${paneId}`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to zoom pane ${paneId}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
-}
-
-/**
- * Unzoom a pane to restore the normal layout
- */
-export function unzoomPane(paneId: string): boolean {
-	try {
-		// Check if actually zoomed
-		const checkResult = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-
-		if (checkResult.stdout.trim() !== '1') {
-			log.debug(`Pane ${paneId} is not zoomed, nothing to unzoom`);
-			return true;
-		}
-
-		const result = spawnSync('tmux', ['resize-pane', '-Z', '-t', paneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to unzoom pane ${paneId}: ${result.stderr}`);
-			return false;
-		}
-
-		log.info(`Unzoomed pane ${paneId}`);
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to unzoom pane ${paneId}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+export async function setPaneZoom(
+	paneId: string,
+	zoomed: boolean,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	const output = await run(paneQueryArgs('#{window_zoomed_flag}', paneId));
+	const current = output.trim() === '1';
+	if (current !== zoomed) await run(['resize-pane', '-Z', '-t', paneId]);
 }
 
 /**
@@ -1909,6 +1844,28 @@ export function getWorktreePath(issueKey: string): string | null {
 			: null;
 	} catch {
 		return null;
+	}
+}
+
+export async function getWorktreePathAsync(
+	issueKey: string,
+	repoName: string,
+): Promise<string | null> {
+	const worktreePath = join(
+		process.env['HOME'] ?? '',
+		'.worktrees',
+		repoName,
+		issueKey,
+	);
+	try {
+		const stats = await stat(worktreePath);
+		return stats.isDirectory() ? worktreePath : null;
+	} catch (err) {
+		if (
+			['ENOENT', 'ENOTDIR'].includes((err as NodeJS.ErrnoException).code ?? '')
+		)
+			return null;
+		throw err;
 	}
 }
 
@@ -2026,16 +1983,17 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
  * Creates a shell-based session (not running claude directly) so the session
  * persists even if claude exits.
  */
-export function ensureClaudeSession(
+export async function ensureClaudeSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	skipPermissions = false,
 	launch: ClaudeLaunchOptions = {},
-): boolean {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	const sessionName = getSessionNames(issueKey).claude;
 
 	// Already exists on the inner socket?
-	if (innerSessionExists(sessionName)) {
+	if (await innerSessionExistsAsync(sessionName, run)) {
 		return true;
 	}
 
@@ -2049,8 +2007,7 @@ export function ensureClaudeSession(
 	pretrustDirectoryForClaude(worktreePath);
 
 	try {
-		const result = spawnSync(
-			'tmux',
+		await run(
 			innerTmuxArgs([
 				'new-session',
 				'-d',
@@ -2060,25 +2017,14 @@ export function ensureClaudeSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 			]),
-			{encoding: 'utf-8', timeout: 10000},
 		);
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to create claude session: ${result.stderr}`);
-			return false;
-		}
 
 		// Send claude command to the session. Try --continue first to resume an
 		// existing conversation, falling back to bare claude if none exists.
 		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions, launch);
 
-		spawnSync(
-			'tmux',
+		await run(
 			innerTmuxArgs(['send-keys', '-t', sessionName, fullCmd, 'Enter']),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-			},
 		);
 
 		log.info(`Created claude session: ${sessionName}`);
@@ -2104,15 +2050,16 @@ export function ensureClaudeSession(
  * (see DEFAULT_COMPANION_COMMAND) and is overridable via the `companion_command`
  * config field. An empty/whitespace-only command leaves a plain shell.
  */
-export function ensureCompanionSession(
+export async function ensureCompanionSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	companionCommand: string = DEFAULT_COMPANION_COMMAND,
-): boolean {
+	run: AsyncTmuxRunner = runTmux,
+): Promise<boolean> {
 	const sessionName = getSessionNames(issueKey).companion;
 
 	// Already exists on the inner socket?
-	if (innerSessionExists(sessionName)) {
+	if (await innerSessionExistsAsync(sessionName, run)) {
 		return true;
 	}
 
@@ -2127,8 +2074,7 @@ export function ensureCompanionSession(
 	try {
 		// Detached shell-based session (not running the companion command directly)
 		// so it persists even if that command exits.
-		const result = spawnSync(
-			'tmux',
+		await run(
 			innerTmuxArgs([
 				'new-session',
 				'-d',
@@ -2138,13 +2084,7 @@ export function ensureCompanionSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 			]),
-			{encoding: 'utf-8', timeout: 10000},
 		);
-
-		if (result.error || result.status !== 0) {
-			log.error(`Failed to create companion session: ${result.stderr}`);
-			return false;
-		}
 
 		// An empty command means "leave a plain shell" — create the session but
 		// don't launch anything into it.
@@ -2153,8 +2093,7 @@ export function ensureCompanionSession(
 			// UI from acquiring locks for read-only ops like `git status`, avoiding
 			// contention with Claude's concurrent git calls. Custom commands run
 			// verbatim.
-			spawnSync(
-				'tmux',
+			await run(
 				innerTmuxArgs([
 					'send-keys',
 					'-t',
@@ -2162,10 +2101,6 @@ export function ensureCompanionSession(
 					companionCommand,
 					'Enter',
 				]),
-				{
-					encoding: 'utf-8',
-					timeout: 5000,
-				},
 			);
 		}
 

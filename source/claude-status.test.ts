@@ -19,8 +19,8 @@ import {
 import {
 	findSpaceByStatusKey,
 	getClaudeStatusInfo,
+	getClaudeStatusInfoAsync,
 	setClaudeStatus,
-	watchStatuses,
 } from './claude-status.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 
@@ -351,6 +351,32 @@ function withStatusDir(t: ExecutionContext): string {
 	return dir;
 }
 
+test.serial(
+	'async status resync distinguishes failed reads, removed files and expired active state',
+	async t => {
+		const dir = withStatusDir(t);
+		const key = 'STA-async';
+		t.deepEqual(await getClaudeStatusInfoAsync(key), {status: 'unknown'});
+		setClaudeStatus(key, 'running_tool', 'session', 'Bash');
+		t.deepEqual(await getClaudeStatusInfoAsync(key), {
+			status: 'running_tool',
+			tool: 'Bash',
+		});
+		createStatusFile(
+			dir,
+			key,
+			'processing',
+			Date.now() - ACTIVE_STATUS_TIMEOUT - 1,
+		);
+		t.deepEqual(await getClaudeStatusInfoAsync(key), {status: 'unknown'});
+		createStatusFile(dir, key, 'waiting_for_input', 0);
+		const stable = await getClaudeStatusInfoAsync(key);
+		t.is(stable?.status, 'waiting_for_input');
+		writeFileSync(path.join(dir, `${key}.json`), '{');
+		t.is(await getClaudeStatusInfoAsync(key), null);
+	},
+);
+
 test('setClaudeStatus is atomic — inode changes on each write (rename, not in-place truncate)', t => {
 	const dir = withStatusDir(t);
 	const workspace = 'STA-9001';
@@ -440,31 +466,6 @@ test('getClaudeStatusInfo returns {status:"unknown"} for malformed JSON without 
 
 	t.notThrows(() => getClaudeStatusInfo(workspace));
 	t.deepEqual(getClaudeStatusInfo(workspace), {status: 'unknown'});
-});
-
-test('watchStatuses ignores .tmp.<pid> filesystem events (only .json events reach the callback)', async t => {
-	const dir = withStatusDir(t);
-	const callbackArgs: string[] = [];
-
-	const stop = watchStatuses(workspaceName => {
-		callbackArgs.push(workspaceName);
-	});
-	t.teardown(stop);
-
-	// Two writes — each creates a .tmp.<pid> sibling, renames it onto the .json
-	// target. The watcher should never surface .tmp.<pid> filename events.
-	setClaudeStatus('STA-9010', 'processing');
-	setClaudeStatus('STA-9010', 'running_tool');
-
-	// fs.watch delivers events on the next tick; give it a beat to flush.
-	await new Promise<void>(resolve => {
-		setTimeout(resolve, 50);
-	});
-
-	t.true(
-		callbackArgs.every(ws => !ws.includes('.tmp.')),
-		`callback received a .tmp.<pid> event it should have filtered out: ${JSON.stringify(callbackArgs)}`,
-	);
 });
 
 test('getClaudeStatusInfo parse failures do NOT surface a warn-level log to the TUI', t => {

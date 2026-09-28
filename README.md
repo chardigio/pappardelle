@@ -198,7 +198,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
-4. **PR/MR lookup** — If the branch already has a PR (GitHub) or MR (GitLab), it's linked into `${PR_URL}` for keybindings and profile `links`. Provisioning never _opens_ one: a workspace that hasn't produced a diff yet has nothing worth reviewing, so the agent opens the PR itself at its first real commit. Anything keyed off `${PR_URL}` should be gated with `if_set: PR_URL`.
+4. **PR/MR lookup** — When opening workspace apps and links (`o` or `idow --open`), an existing PR (GitHub) or MR (GitLab) is resolved into `${PR_URL}`. Setup-only creation skips this network request. Provisioning never _opens_ a PR: the agent opens it at its first real commit. Anything keyed off `${PR_URL}` should be gated with `if_set: PR_URL`.
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
@@ -242,7 +242,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira, beads) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
-- **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
+- **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). Initialization hooks with `background: true` continue without delaying workspace readiness; their output goes to `~/Library/Logs/stardust-workspace/idow.log`. `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
 
 For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).
 

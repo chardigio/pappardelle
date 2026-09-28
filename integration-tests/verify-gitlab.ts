@@ -47,7 +47,7 @@ function info(label: string, value: unknown) {
 	console.log(`  ${label}: ${JSON.stringify(value)}`);
 }
 
-function main() {
+async function main() {
 	console.log('GitLab Provider — Local Verification');
 	console.log(`Host: ${HOST ?? 'gitlab.com'}`);
 	console.log(`Issue key: ${ISSUE_KEY}`);
@@ -56,7 +56,7 @@ function main() {
 
 	// ── checkIssueHasPRWithCommits ─────────────────────────────
 	header(`checkIssueHasPRWithCommits("${ISSUE_KEY}")`);
-	const mrInfo = provider.checkIssueHasPRWithCommits(ISSUE_KEY);
+	const mrInfo = await provider.checkIssueHasPRWithCommits(ISSUE_KEY);
 
 	info('hasPR', mrInfo.hasPR);
 	info('hasCommits', mrInfo.hasCommits);
@@ -88,7 +88,7 @@ function main() {
 
 	// ── checkIssueHasPRWithCommits with non-existent branch ───
 	header('checkIssueHasPRWithCommits("NONEXISTENT-999999")');
-	const noMR = provider.checkIssueHasPRWithCommits('NONEXISTENT-999999');
+	const noMR = await provider.checkIssueHasPRWithCommits('NONEXISTENT-999999');
 
 	if (!noMR.hasPR && !noMR.hasCommits) {
 		pass('Correctly returned no MR for non-existent branch');
@@ -99,7 +99,7 @@ function main() {
 	// ── buildPRUrl ────────────────────────────────────────────
 	const mrNumber = EXPLICIT_MR ?? mrInfo.prNumber ?? 1;
 	header(`buildPRUrl(${mrNumber})`);
-	const url = provider.buildPRUrl(mrNumber);
+	const url = await provider.buildPRUrl(mrNumber);
 	info('url', url);
 
 	const expectedHost = HOST ?? 'gitlab.com';
@@ -119,4 +119,4 @@ function main() {
 	}
 }
 
-main();
+await main();

@@ -1,4 +1,7 @@
 import type {SpaceData} from './types.ts';
+import {createLogger} from './logger.ts';
+
+const log = createLogger('space-utils');
 
 /**
  * Hardcoded key used for the always-pinned main-worktree row in app.tsx and
@@ -57,50 +60,6 @@ export function filterSpaces(
 }
 
 /**
- * Compute the new spaces array and selected index after deleting a space.
- *
- * Pure function — no side effects, easy to test.
- */
-export function computePostDeleteState(
-	spaces: SpaceData[],
-	deletedName: string,
-	selectedIndex: number,
-): {filteredSpaces: SpaceData[]; newSelectedIndex: number} {
-	const filteredSpaces = spaces.filter(s => s.name !== deletedName);
-	const newSelectedIndex =
-		selectedIndex >= filteredSpaces.length && selectedIndex > 0
-			? selectedIndex - 1
-			: selectedIndex;
-	return {filteredSpaces, newSelectedIndex};
-}
-
-/**
- * Whether the selection-change effect should (re)attach to `selectedSpaceName`.
- *
- * STA-1553 teardown→respawn guard. When the user closes the space they're
- * currently viewing, the close handler nulls `currentSpace` and prunes the
- * spaces list in separate renders. In the window between those two updates the
- * effect would otherwise see `currentSpace === null` with the just-closed space
- * still selected — and `attachToSpace`, which recreates inner sessions on
- * demand, would respawn the sessions teardown just killed, leaving them
- * orphaned for the next startup's reaper (the "reaped N…" banner). A space whose
- * teardown is in flight is held in `closingSpaces` and must never be reattached;
- * we also skip when it's already the shown space (nothing to do).
- *
- * Pure function — no side effects, easy to test.
- */
-export function shouldAttachOnSelection(params: {
-	selectedSpaceName: string;
-	currentSpace: string | null;
-	closingSpaces: ReadonlySet<string>;
-}): boolean {
-	const {selectedSpaceName, currentSpace, closingSpaces} = params;
-	if (currentSpace === selectedSpaceName) return false;
-	if (closingSpaces.has(selectedSpaceName)) return false;
-	return true;
-}
-
-/**
  * Kill a space's tmux sessions, then unregister it. STA-1420: the order is
  * load-bearing — if the kill fails we must NOT touch the registry, otherwise
  * it advertises "closed" while the inner-socket session is still alive.
@@ -111,19 +70,26 @@ export function shouldAttachOnSelection(params: {
  * was updated). On false, caller should leave selection state untouched so
  * the user can retry.
  */
-export function tearDownSpace(
+export async function tearDownSpace(
 	issueKey: string,
 	deps: {
-		killSpaceSessions: (key: string) => boolean;
-		removeSpace: (key: string) => void;
+		killSpaceSessions: (key: string) => Promise<boolean>;
+		removeSpace: (key: string) => void | Promise<void>;
 		onKillFailure: (key: string) => void;
+		cleanup?: (key: string) => Promise<boolean>;
 	},
-): boolean {
-	const killed = deps.killSpaceSessions(issueKey);
+): Promise<boolean> {
+	const killed = await deps.killSpaceSessions(issueKey);
 	if (!killed) {
 		deps.onKillFailure(issueKey);
 		return false;
 	}
-	deps.removeSpace(issueKey);
+	await deps.removeSpace(issueKey);
+	void deps.cleanup?.(issueKey).catch((err: unknown) => {
+		log.error(
+			`Failed to clean up simulator for ${issueKey}`,
+			err instanceof Error ? err : undefined,
+		);
+	});
 	return true;
 }

@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
+import {
+	resolveSpaceEmoji,
+	resolveSpaceEmojiAsync,
+	resolveSpaceProfileName,
+} from './space-emoji.ts';
 import {readSpaceState, writeSpaceState} from './space-state.ts';
 import type {PappardelleConfig} from './config.ts';
 import type {TrackerIssue} from './providers/types.ts';
@@ -36,6 +40,41 @@ function makeIssue(projectName: string | undefined): TrackerIssue {
 		project: projectName ? {name: projectName} : undefined,
 	} as unknown as TrackerIssue;
 }
+
+test('async emoji resync honors persisted profiles and backfills without dropping other state', async t => {
+	const base = tempDir();
+	t.teardown(() => fs.rmSync(base, {recursive: true, force: true}));
+	const config = makeConfig({
+		profiles: {
+			a: {display_name: 'A', emoji: '🅰️'},
+			b: {display_name: 'B', emoji: '🅱️', tracker_projects: ['Project B']},
+		},
+	});
+	const args = {
+		config,
+		repoName: 'repo',
+		issueKey: 'STA-1',
+		cachedIssue: makeIssue('Project B'),
+		baseDir: base,
+	};
+	writeSpaceState('repo', 'STA-1', {profile: 'a'}, base);
+	t.is(await resolveSpaceEmojiAsync(args), '🅰️');
+	writeSpaceState(
+		'repo',
+		'STA-2',
+		{pipeline: 'passing', unresolvedCommentCount: 3},
+		base,
+	);
+	t.is(await resolveSpaceEmojiAsync({...args, issueKey: 'STA-2'}), '🅱️');
+	t.is(readSpaceState('repo', 'STA-2', base)?.profile, 'b');
+	t.is(readSpaceState('repo', 'STA-2', base)?.unresolvedCommentCount, 3);
+	t.is(await resolveSpaceEmojiAsync({...args, issueKey: undefined}), '');
+	fs.writeFileSync(
+		path.join(base, 'repos', 'repo', 'space-state', 'STA-1.json'),
+		'{',
+	);
+	await t.throwsAsync(resolveSpaceEmojiAsync(args));
+});
 
 // ============================================================================
 // Persisted-profile fast path — first paint after `idow` writes the profile.

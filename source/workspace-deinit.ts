@@ -1,7 +1,7 @@
 // Utility for running pre_workspace_deinit commands before workspace deletion.
 
-import {spawn} from 'node:child_process';
 import fs from 'node:fs';
+import {spawnQuietCommand} from './quiet-command.ts';
 import type {CommandConfig, TemplateVars} from './config.ts';
 import {expandTemplate} from './config.ts';
 
@@ -22,10 +22,9 @@ async function runCommand(
 	cwd: string,
 ): Promise<{exitCode: number | null}> {
 	return new Promise(resolve => {
-		const child = spawn('bash', ['-c', command], {
+		const child = spawnQuietCommand('bash', ['-c', command], {
 			cwd,
 			timeout: 30_000,
-			stdio: ['ignore', 'pipe', 'pipe'],
 			env: {...process.env},
 		});
 		child.on('close', code => resolve({exitCode: code}));

@@ -2,6 +2,12 @@ import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './components/TextInput.tsx';
 import {spawn, spawnSync} from 'node:child_process';
+import {spawnQuietCommand} from './quiet-command.ts';
+import {once} from 'node:events';
+import {openPR} from './open-pr.ts';
+import {WorkspaceCloseTasks} from './workspace-close.ts';
+import {WorkspaceRefresh} from './workspace-refresh.ts';
+import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -49,10 +55,9 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {
-	getClaudeStatusInfo,
+	getClaudeStatusInfoAsync,
 	watchStatuses,
 	ensureStatusDir,
-	findSpaceByStatusKey,
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -90,6 +95,7 @@ import {
 	type ResolvedWatchlist,
 	type CommandConfig,
 } from './config.ts';
+import {useSpaceSelection} from './use-space-selection.ts';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {
 	buildKillDoneConfirmContent,
@@ -99,24 +105,28 @@ import {
 } from './kill-done-spaces.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
+import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
+import {runWorkspaceSetup} from './workspace-startup.ts';
+import {LatestTask} from './latest-task.ts';
+import {sendToSelectedClaude} from './send-to-claude.ts';
 import {
 	isInTmux,
 	getWorktreePath,
+	getWorktreePathAsync,
 	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
 	sendToPane,
+	getCurrentlyViewingSpace,
 	killSession,
 	killSpaceSessions,
-	zoomPane,
-	unzoomPane,
-	resizeListPaneForSessionCount,
-	isVerticalLayout,
+	deleteQaSimulator,
+	displayMessageInPaneAsync,
+	setPaneZoom,
 	relayoutPanes,
-	getCurrentLayoutDirection,
+	getLayoutDirections,
 	rebuildLayout,
-	getTmuxPaneWidth,
-	getTmuxPaneHeight,
+	getPaneDimensions,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
@@ -124,14 +134,10 @@ import {
 	calculateListClickRow,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
-import {
-	filterSpaces,
-	MAIN_WORKTREE_KEY,
-	shouldAttachOnSelection,
-	tearDownSpace,
-} from './space-utils.ts';
+import {filterSpaces, tearDownSpace} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
+	getRegisteredSpacesAsync,
 	addSpace,
 	removeSpace,
 	tryReserveWatchlistSlots,
@@ -142,13 +148,12 @@ import {
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
 } from './space-state.ts';
-import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
-import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
 import {
-	watchHighlightTarget,
-	findSpaceIndexByIssueKey,
-	clearHighlightTarget,
-} from './highlight.ts';
+	resolveSpaceEmojiAsync,
+	resolveSpaceProfileName,
+} from './space-emoji.ts';
+import {RAIL_STATUS_POLL_INTERVAL_MS} from './rail-status.ts';
+import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 function claimIssueInBackground(issueKey: string): void {
@@ -187,8 +192,15 @@ export default function App({
 		}
 	}, []);
 
-	const [spaces, setSpaces] = useState<SpaceData[]>([]);
-	const [selectedIndex, setSelectedIndex] = useState(0);
+	const {spaces, setSpaces, selectedIndex, setSelectedIndex, selectSpace} =
+		useSpaceSelection();
+	const spacesRef = useRef(spaces);
+	spacesRef.current = spaces;
+	const statusKeysRef = useRef(new Set<string>());
+	statusKeysRef.current = useMemo(
+		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
+		[spaces],
+	);
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -206,8 +218,8 @@ export default function App({
 		null,
 	);
 	const [headerMessage, setHeaderMessage] = useState('');
+	const headerGeneration = useRef(0);
 	const [errorCount, setErrorCount] = useState(0);
-	const [currentSpace, setCurrentSpace] = useState<string | null>(null);
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -224,6 +236,13 @@ export default function App({
 	// HEADER_ROWS math.
 	const [bannerHeight, setBannerHeight] = useState(0);
 	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			headerGeneration.current++;
+			if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
+		},
+		[],
+	);
 
 	// Resolve the update check in the background. Never throws — cli.tsx
 	// installs a .catch() that swallows to null.
@@ -243,11 +262,19 @@ export default function App({
 		};
 	}, [updateCheckPromise]);
 
-	const setHeaderWithTimeout = useCallback((msg: string, ms: number) => {
+	const showHeaderMessage = useCallback((msg: string) => {
 		if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
 		setHeaderMessage(msg);
-		headerTimeoutRef.current = setTimeout(() => setHeaderMessage(''), ms);
+		return ++headerGeneration.current;
 	}, []);
+
+	const setHeaderWithTimeout = useCallback(
+		(msg: string, ms: number) => {
+			showHeaderMessage(msg);
+			headerTimeoutRef.current = setTimeout(() => showHeaderMessage(''), ms);
+		},
+		[showHeaderMessage],
+	);
 
 	// Identifies the most recent `d` launch so a slow editor's failure can't
 	// overwrite the header of whatever the user did after it.
@@ -282,25 +309,6 @@ export default function App({
 		log.info(`Loaded ${kb.length} custom keybindings`);
 		return kb;
 	}, [configMemo]);
-
-	// Resolve profile emoji for a space. The single source of truth is the
-	// profile name persisted in space-state.json — written by `idow` on
-	// workspace creation, and back-filled here the first time we see a space
-	// without a persisted profile but with a cached issue whose project
-	// matches a configured profile.
-	const resolveProfileEmojiForSpace = React.useCallback(
-		(
-			issueKey: string | undefined,
-			cachedIssue: ReturnType<typeof getIssueCached>,
-		): string | undefined =>
-			resolveSpaceEmoji({
-				config: configMemo,
-				repoName,
-				issueKey,
-				cachedIssue,
-			}),
-		[configMemo, repoName],
-	);
 
 	// Load issue watchlists (once at startup): the top-level issue_watchlist plus
 	// each profile's own issue_watchlist, all polled additively.
@@ -383,11 +391,6 @@ export default function App({
 		process.exit(0);
 	}, [paneLayout, repoName]);
 
-	// Track current layout direction to detect mode switches
-	const layoutDirectionRef = useRef<'horizontal' | 'vertical' | null>(
-		getCurrentLayoutDirection(),
-	);
-
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
 
@@ -395,22 +398,12 @@ export default function App({
 	// must not reattach to (and thereby respawn the just-killed sessions of) a
 	// space being closed. Cleared once the space leaves the list (effect below).
 	const closingSpacesRef = useRef(new Set<string>());
+	const closeTasks = useRef(new WorkspaceCloseTasks());
+	const workspaceRefresh = useRef<WorkspaceRefresh | null>(null);
 
-	// Track terminal dimensions with resize handling.
-	// Use a lazy initializer that queries tmux directly for accurate pane
-	// dimensions. stdout.rows/columns may be stale after the tmux pane split
-	// because SIGWINCH hasn't been processed yet on first render.
-	const [termDimensions, setTermDimensions] = useState(() => {
-		if (isInTmux()) {
-			return {
-				rows: getTmuxPaneHeight(),
-				cols: getTmuxPaneWidth(),
-			};
-		}
-		return {
-			rows: stdout?.rows ?? 40,
-			cols: stdout?.columns ?? 80,
-		};
+	const [termDimensions, setTermDimensions] = useState({
+		rows: stdout?.rows ?? 40,
+		cols: stdout?.columns ?? 80,
 	});
 
 	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
@@ -423,220 +416,70 @@ export default function App({
 		showErrorDialog ||
 		isSearching;
 
-	// Ink owns screen invalidation, including resize. Clearing independently
-	// can expose an empty frame or erase output that Ink has already repainted.
-	useEffect(() => {
-		if (!stdout) return;
-
-		let relayoutTimer: ReturnType<typeof setTimeout> | null = null;
-
-		const handleResize = () => {
-			setTermDimensions({
-				rows: stdout.rows ?? 40,
-				cols: stdout.columns ?? 80,
-			});
-
-			// Debounce tmux pane relayout (resize events fire rapidly)
-			if (relayoutTimer) clearTimeout(relayoutTimer);
-			relayoutTimer = setTimeout(() => {
-				if (!paneLayout || anyDialogOpen) return;
-
-				// Check if layout direction changed (crossed the threshold)
-				const newDirection = getCurrentLayoutDirection();
-				if (newDirection && newDirection !== layoutDirectionRef.current) {
-					log.info(
-						`Layout mode switch: ${layoutDirectionRef.current} → ${newDirection}`,
-					);
-					layoutDirectionRef.current = newDirection;
-
-					// Rebuild panes with new orientation
-					const newLayout = rebuildLayout(
-						paneLayout.listPaneId,
-						paneLayout.claudeViewerPaneId,
-						paneLayout.companionViewerPaneId,
-					);
-					if (newLayout) {
-						setPaneLayout(newLayout);
-						setCurrentSpace(null); // Force re-attach
-						panesInitialized.current = false;
-					}
-				} else {
-					// Same direction — just re-proportion within current mode
-					relayoutPanes(
-						paneLayout.listPaneId,
-						paneLayout.companionViewerPaneId,
-					);
-				}
-			}, 150);
-		};
-
-		stdout.on('resize', handleResize);
-		return () => {
-			stdout.off('resize', handleResize);
-			if (relayoutTimer) clearTimeout(relayoutTimer);
-		};
-	}, [stdout, paneLayout, anyDialogOpen]);
-
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
 
-	// Load spaces from persisted registry (survives reboots)
 	const loadSpaces = useCallback(async () => {
-		try {
-			// Get issue keys from the persisted space registry
-			const workspaceNames = getRegisteredSpaces();
+		await workspaceRefresh.current?.refresh();
+	}, []);
 
-			// Build space data using cached issues for immediate display
-			const spaceData: SpaceData[] = workspaceNames.map(issueKey => {
-				const claudeInfo = getClaudeStatusInfo(issueKey);
-				const worktreePath = getWorktreePath(issueKey);
-				const cached = getIssueCached(issueKey);
-
-				return {
-					name: issueKey,
-					linearIssue: cached ?? undefined,
-					claudeStatus: claudeInfo.status,
-					claudeTool: claudeInfo.tool,
-					worktreePath,
-					profileEmoji: resolveProfileEmojiForSpace(issueKey, cached),
-				};
-			});
-
-			// Sort by issue number (most recent first)
-			spaceData.sort((a, b) => {
-				const aNum = parseInt(a.name.split('-')[1] ?? '0', 10);
-				const bNum = parseInt(b.name.split('-')[1] ?? '0', 10);
-				return bNum - aNum;
-			});
-
-			// Prepend the main worktree (always first, non-deletable)
-			const mainInfo = await getMainWorktreeInfo();
-			if (mainInfo) {
-				// name is always MAIN_WORKTREE_KEY regardless of actual branch name.
-				// This ensures stable tmux session names (claude-<repo>-main) that don't
-				// change if the default branch is renamed. The inner-socket orphan
-				// reaper in tmux.ts uses the same constant to exempt the main worktree
-				// from being killed at startup (STA-1420).
-				// statusKey is repo-qualified to match what the hook writes (e.g., "pappa-chex-master")
-				const repoName = getRepoName();
-				const statusKey = qualifyMainBranch(repoName, mainInfo.branch);
-				const mainClaudeInfo = getClaudeStatusInfo(statusKey);
-				spaceData.unshift({
-					name: MAIN_WORKTREE_KEY,
-					statusKey,
-					worktreePath: mainInfo.path,
-					isMainWorktree: true,
-					isDirty: await isWorktreeDirty(mainInfo.path),
-					claudeStatus: mainClaudeInfo.status,
-					claudeTool: mainClaudeInfo.tool,
-					profileEmoji: resolveProfileEmojiForSpace(undefined, null),
-				});
-			}
-
-			// Merge in any previously-fetched railStatus so the 10s loadSpaces
-			// rebuild doesn't wipe data set by the slower 60s rail poller.
-			setSpaces(prev => {
-				const prevRailByName = new Map(
-					prev
-						.filter(p => p.railStatus)
-						.map(p => [p.name, p.railStatus!] as const),
-				);
-				return spaceData.map(s =>
-					prevRailByName.has(s.name)
-						? {...s, railStatus: prevRailByName.get(s.name)}
-						: s,
-				);
-			});
-			setLoading(false);
-
-			// Batch-fetch all issues in background. This resolves "Loading…"
-			// quickly (~1-3s) on first load and picks up state changes
-			// (e.g., issue moved to "Done") after cache TTL expires.
-			if (workspaceNames.length > 0) {
-				getIssues(workspaceNames)
-					.then(() => {
-						setSpaces(prev =>
-							prev.map(s => {
-								if (s.isMainWorktree) return s;
-								const issue = getIssueCached(s.name);
-								if (!issue) return s;
-								const nextEmoji = resolveProfileEmojiForSpace(s.name, issue);
-								if (s.linearIssue === issue && s.profileEmoji === nextEmoji) {
-									return s;
-								}
-								return {...s, linearIssue: issue, profileEmoji: nextEmoji};
-							}),
-						);
-					})
-					.catch(() => {});
-			}
-		} catch (err) {
-			log.error(
-				'Failed to load spaces',
-				err instanceof Error ? err : undefined,
-			);
-			setSpaces([]);
-			setLoading(false);
-		}
-	}, [resolveProfileEmojiForSpace]);
-
-	// Initial load
 	useEffect(() => {
 		ensureStatusDir();
-		loadSpaces();
-
-		// Refresh every 10 seconds (Claude status updates arrive via file watcher
-		// in real-time, so polling is only needed to pick up external changes)
-		// Guard against overlapping runs — loadSpaces has real await points so a
-		// previous invocation may still be in-flight when the next interval fires.
-		let loadInFlight = false;
-		const interval = setInterval(async () => {
-			if (loadInFlight) return;
-			loadInFlight = true;
-			try {
-				await loadSpaces();
-			} finally {
-				loadInFlight = false;
-			}
-		}, 10_000);
-
-		return () => clearInterval(interval);
-	}, [loadSpaces]);
-
-	// Watch for Claude status changes
-	useEffect(() => {
-		const unwatch = watchStatuses((workspaceName, info) => {
-			setSpaces(prev => {
-				const idx = findSpaceByStatusKey(prev, workspaceName);
-				if (idx === -1) return prev;
-				return prev.map((s, i) =>
-					i === idx
-						? {...s, claudeStatus: info.status, claudeTool: info.tool}
-						: s,
-				);
-			});
+		const refresh = new WorkspaceRefresh({
+			readRegistry: getRegisteredSpacesAsync,
+			readStatus: getClaudeStatusInfoAsync,
+			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
+			readMainWorktree: getMainWorktreeInfo,
+			readDirty: isWorktreeDirty,
+			mainStatusKey: branch => qualifyMainBranch(repoName, branch),
+			getCachedIssue: getIssueCached,
+			fetchIssues: getIssues,
+			async readEmoji(issueKey, cachedIssue) {
+				return resolveSpaceEmojiAsync({
+					config: configMemo,
+					repoName,
+					issueKey,
+					cachedIssue,
+				});
+			},
+			setSpaces,
+			onLoaded: () => setLoading(false),
+			onError: err =>
+				log.error(
+					'Failed to refresh workspaces',
+					err instanceof Error ? err : undefined,
+				),
 		});
+		workspaceRefresh.current = refresh;
+		void refresh.refresh();
+		const interval = setInterval(() => {
+			void refresh.refresh();
+		}, 10_000);
+		return () => {
+			clearInterval(interval);
+			refresh.stop();
+			workspaceRefresh.current = null;
+		};
+	}, [configMemo, repoName, setSpaces]);
 
-		return unwatch;
-	}, []);
+	useEffect(
+		() =>
+			watchStatuses(
+				updates => workspaceRefresh.current?.applyHookUpdates(updates),
+				workspaceName => statusKeysRef.current.has(workspaceName),
+			),
+		[],
+	);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
 	useEffect(() => {
 		const unwatch = watchHighlightTarget(repoName, issueKey => {
-			setSpaces(currentSpaces => {
-				const idx = findSpaceIndexByIssueKey(currentSpaces, issueKey);
-				if (idx !== -1) {
-					setSelectedIndex(idx);
-				}
-
-				return currentSpaces;
-			});
-			// Clear outside setState so the updater stays pure
+			selectSpace(issueKey);
 			clearHighlightTarget(repoName);
 		});
 
 		return unwatch;
-	}, [repoName]);
+	}, [repoName, selectSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -655,67 +498,169 @@ export default function App({
 		}
 	}, [spaces, pendingSession]);
 
-	// Track whether zoom animation is in progress
-	// Dialog rendering is delayed until after zoom completes to work around Ink rendering bug
-	const [isZooming, setIsZooming] = useState(false);
+	const startupQueue = useMemo(() => new StartupQueue(2), []);
+	const attachmentTask = useMemo(() => new LatestTask(), []);
+	const [attachmentRevision, setAttachmentRevision] = useState(0);
+	useEffect(
+		() => () => {
+			startupQueue.stop();
+			attachmentTask.cancel();
+		},
+		[startupQueue, attachmentTask],
+	);
 
-	// Zoom/unzoom list pane when any dialog is shown/hidden
-	// This gives full screen space for all dialogs
+	const paneLayoutRef = useRef(paneLayout);
+	paneLayoutRef.current = paneLayout;
+	const dialogRequest = useRef({zoomed: anyDialogOpen, revision: 0});
+	if (dialogRequest.current.zoomed !== anyDialogOpen) {
+		dialogRequest.current = {
+			zoomed: anyDialogOpen,
+			revision: dialogRequest.current.revision + 1,
+		};
+	}
+	const [settledRevision, setSettledRevision] = useState<number | null>(null);
+	const isZooming = Boolean(
+		paneLayout && settledRevision !== dialogRequest.current.revision,
+	);
+	const syncingTerminalSize = useRef(false);
+	const layoutTasks = useMemo(
+		() =>
+			new PaneLayoutTask({
+				queue: attachmentTask,
+				async apply(zoomed) {
+					let layout = paneLayoutRef.current;
+					if (!layout)
+						return {rows: stdout?.rows ?? 40, cols: stdout?.columns ?? 80};
+					await setPaneZoom(layout.listPaneId, zoomed);
+					if (!zoomed) {
+						const {current, desired} = await getLayoutDirections(
+							layout.listPaneId,
+						);
+						if (current !== desired) {
+							const next = await rebuildLayout(
+								layout.listPaneId,
+								layout.claudeViewerPaneId,
+								layout.companionViewerPaneId,
+							);
+							if (!next) throw new Error('Failed to rebuild pane layout');
+							layout = next;
+							paneLayoutRef.current = next;
+							setPaneLayout(next);
+							panesInitialized.current = false;
+						} else if (
+							!(await relayoutPanes(
+								layout.listPaneId,
+								layout.companionViewerPaneId,
+							))
+						) {
+							throw new Error('Failed to resize pane layout');
+						}
+					}
+					return getPaneDimensions(layout.listPaneId);
+				},
+				onReady(_zoomed, dimensions, revision) {
+					syncingTerminalSize.current = true;
+					try {
+						if (stdout) syncTerminalDimensions(stdout, dimensions);
+					} finally {
+						syncingTerminalSize.current = false;
+					}
+					setTermDimensions(dimensions);
+					setSettledRevision(revision);
+				},
+				onError(error, revision) {
+					log.error(
+						'Failed to update pane layout',
+						error instanceof Error ? error : undefined,
+					);
+					// Settle anyway: while unsettled, the list and any open dialog
+					// render nothing and the dialog cannot take keys.
+					setSettledRevision(revision);
+				},
+			}),
+		[attachmentTask, stdout],
+	);
+	const dialogOpenRef = useRef(anyDialogOpen);
+	dialogOpenRef.current = anyDialogOpen;
 	useEffect(() => {
-		if (!paneLayout) return;
-
-		if (anyDialogOpen) {
-			setIsZooming(true);
-			zoomPane(paneLayout.listPaneId);
-			// Wait for zoom to complete before allowing render
-			setTimeout(() => setIsZooming(false), 100);
-		} else {
-			setIsZooming(true);
-			unzoomPane(paneLayout.listPaneId);
-			setTimeout(() => setIsZooming(false), 100);
-		}
-	}, [anyDialogOpen, paneLayout]);
-
-	// Attach to sessions when selection changes (uses existing idow sessions)
+		if (paneLayoutRef.current)
+			void layoutTasks.request(anyDialogOpen, dialogRequest.current.revision);
+	}, [layoutTasks, anyDialogOpen, loading, spaces.length]);
+	useEffect(() => () => layoutTasks.stop(), [layoutTasks]);
 	useEffect(() => {
-		if (!paneLayout) return;
-		if (spaces.length === 0) return;
+		if (!stdout) return;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const handleResize = () => {
+			setTermDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
+			if (syncingTerminalSize.current) return;
+			clearTimeout(timer);
+			timer = setTimeout(() => {
+				if (paneLayoutRef.current)
+					void layoutTasks.request(
+						dialogOpenRef.current,
+						dialogRequest.current.revision,
+					);
+			}, 150);
+		};
+		stdout.on('resize', handleResize);
+		return () => {
+			stdout.off('resize', handleResize);
+			clearTimeout(timer);
+		};
+	}, [stdout, layoutTasks]);
 
-		const selectedSpace = spaces[selectedIndex];
-		if (!selectedSpace) return;
+	const selectedSpace = spaces[selectedIndex];
+	const selectedSpaceName = selectedSpace?.name;
+	const selectedSpaceNameRef = useRef(selectedSpaceName);
+	selectedSpaceNameRef.current = selectedSpaceName;
+	const selectedWorktreePath = selectedSpace?.isMainWorktree
+		? (selectedSpace.worktreePath ?? undefined)
+		: undefined;
+	const selectedIssueTitle =
+		selectedSpace?.trackerIssue?.title ?? selectedSpace?.linearIssue?.title;
 
-		// Don't switch if already showing this space, and never reattach to a
-		// space whose teardown is in flight — attachToSpace recreates inner
-		// sessions on demand, which would respawn the ones close just killed and
-		// strand them as orphans for the next startup's reaper (STA-1553).
+	useEffect(() => {
 		if (
-			!shouldAttachOnSelection({
-				selectedSpaceName: selectedSpace.name,
-				currentSpace,
-				closingSpaces: closingSpacesRef.current,
-			})
-		) {
+			!paneLayout ||
+			!selectedSpaceName ||
+			closingSpacesRef.current.has(selectedSpaceName) ||
+			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
+		)
 			return;
-		}
-
-		// Attach to sessions (creates them on-demand if they don't exist).
-		// The issue title lets attachToSpace resolve a per-profile companion_command
-		// when it has to create the companion session itself.
-		const success = attachToSpace(
-			paneLayout.claudeViewerPaneId,
-			paneLayout.companionViewerPaneId,
-			selectedSpace.name,
-			paneLayout.listPaneId, // Keep focus on list pane
-			selectedSpace.isMainWorktree
-				? (selectedSpace.worktreePath ?? undefined)
-				: undefined,
-			selectedSpace.trackerIssue?.title ?? selectedSpace.linearIssue?.title,
-		);
-		if (success) {
-			setCurrentSpace(selectedSpace.name);
-			panesInitialized.current = true;
-		}
-	}, [selectedIndex, spaces, paneLayout, currentSpace]);
+		void attachmentTask
+			.run(async signal => {
+				if (closingSpacesRef.current.has(selectedSpaceName)) return;
+				const layout = paneLayoutRef.current;
+				if (!layout) return;
+				const success = await attachToSpace(
+					layout.claudeViewerPaneId,
+					layout.companionViewerPaneId,
+					selectedSpaceName,
+					layout.listPaneId,
+					selectedWorktreePath,
+					selectedIssueTitle,
+					{signal},
+				);
+				if (success && !signal.aborted) {
+					panesInitialized.current = true;
+				}
+			})
+			.catch((err: unknown) =>
+				log.error(
+					'Failed to attach workspace',
+					err instanceof Error ? err : undefined,
+				),
+			);
+		return () => attachmentTask.cancel();
+	}, [
+		selectedSpaceName,
+		selectedWorktreePath,
+		selectedSpace?.isMainWorktree,
+		selectedIssueTitle,
+		paneLayout,
+		attachmentTask,
+		attachmentRevision,
+	]);
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -736,51 +681,6 @@ export default function App({
 		}
 	}, [paneLayout, spaces, loading]);
 
-	// Track previous spaces count for detecting changes
-	const prevSpacesCount = useRef(spaces.length);
-	const initialResizeDone = useRef(false);
-
-	// Resize list pane on initial load (after a short delay to let terminal settle)
-	// This helps fix incorrect dimensions on SSH connections like Termius
-	useEffect(() => {
-		if (!paneLayout) return;
-		if (loading) return;
-		if (initialResizeDone.current) return;
-
-		// Only resize in vertical layout mode (narrow screens)
-		if (!isVerticalLayout()) {
-			initialResizeDone.current = true;
-			return;
-		}
-
-		// Delay slightly to let the terminal dimensions stabilize
-		// (SSH connections may not have correct dimensions immediately)
-		const timer = setTimeout(() => {
-			resizeListPaneForSessionCount(paneLayout.listPaneId);
-			initialResizeDone.current = true;
-		}, 200);
-
-		return () => clearTimeout(timer);
-	}, [paneLayout, loading]);
-
-	// Resize list pane when spaces are added or deleted (vertical layout only)
-	// This keeps the list pane height optimal based on current session count
-	useEffect(() => {
-		if (!paneLayout) return;
-		if (loading) return;
-
-		// Only resize if count actually changed (not on every render)
-		if (spaces.length === prevSpacesCount.current) return;
-		prevSpacesCount.current = spaces.length;
-
-		// Only resize in vertical layout mode (narrow screens)
-		if (!isVerticalLayout()) return;
-
-		// Resize the list pane to fit the current number of spaces
-		// (tmux auto-adjusts the claude pane to fill remaining space)
-		resizeListPaneForSessionCount(paneLayout.listPaneId);
-	}, [paneLayout, spaces.length, loading]);
-
 	// Open the GitHub PR / GitLab MR in browser for the selected space
 	// For main worktree, opens the repo page instead
 	const handleOpenPR = () => {
@@ -788,41 +688,43 @@ export default function App({
 		if (!space || space.isPending) return;
 
 		if (space.isMainWorktree) {
-			setHeaderMessage('Opening repo...');
+			const generation = showHeaderMessage('Opening repo...');
 			const child = spawn('gh', ['repo', 'view', '--web'], {
 				detached: true,
 				stdio: 'ignore',
 			});
 			child.on('error', err => {
 				log.error(`Failed to launch gh: ${err.message}`, err);
-				setHeaderWithTimeout('Could not launch gh', 3000);
+				if (headerGeneration.current === generation) {
+					setHeaderWithTimeout('Could not launch gh', 3000);
+				}
+			});
+			child.on('spawn', () => {
+				if (headerGeneration.current === generation) {
+					setHeaderWithTimeout('Opened repo', 3000);
+				}
 			});
 			child.unref();
-			setHeaderWithTimeout('Opened repo', 3000);
 			return;
 		}
 
-		setHeaderMessage(`Opening PR for ${space.name}...`);
-
-		try {
-			const prInfo = createVcsHost().checkIssueHasPRWithCommits(space.name);
-			if (prInfo.hasPR && prInfo.prUrl) {
-				const child = spawn('open', [prInfo.prUrl], {
+		const generation = showHeaderMessage(`Opening PR for ${space.name}...`);
+		void openPR(space.name, {
+			provider: createVcsHost(),
+			isCurrent: () => headerGeneration.current === generation,
+			async openUrl(url) {
+				const child = spawn('open', [url], {
 					detached: true,
 					stdio: 'ignore',
 				});
 				child.on('error', err => {
 					log.error(`Failed to launch open: ${err.message}`, err);
-					setHeaderWithTimeout('Could not launch open', 3000);
 				});
+				await once(child, 'spawn');
 				child.unref();
-				setHeaderWithTimeout(`Opened PR #${prInfo.prNumber}`, 3000);
-			} else {
-				setHeaderWithTimeout(`No PR found for ${space.name}`, 3000);
-			}
-		} catch {
-			setHeaderWithTimeout('Failed to look up PR', 3000);
-		}
+			},
+			showMessage: message => setHeaderWithTimeout(message, 3000),
+		});
 	};
 
 	// Open the issue for the selected space — in a browser for trackers with a
@@ -932,7 +834,7 @@ export default function App({
 		}
 
 		setRunningCommand('git pull');
-		setHeaderMessage('Pulling...');
+		showHeaderMessage('Pulling...');
 
 		const startTime = Date.now();
 		const child = spawn('git', ['pull'], {
@@ -971,15 +873,26 @@ export default function App({
 			return;
 		}
 
-		const success = sendToPane(
-			paneLayout.claudeViewerPaneId,
-			kb.send_to_claude,
-		);
-		if (success) {
-			setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
-		} else {
-			setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
-		}
+		const targetSpace = selectedSpaceNameRef.current;
+		if (!targetSpace) return;
+		const paneId = paneLayout.claudeViewerPaneId;
+		void sendToSelectedClaude({
+			queue: attachmentTask,
+			targetSpace,
+			viewingSpace: getCurrentlyViewingSpace,
+			send: () => sendToPane(paneId, kb.send_to_claude),
+		}).then(result => {
+			if (result === 'sent') {
+				setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
+			} else if (result === 'wrong-space') {
+				setHeaderWithTimeout(
+					`✗ Not sent: ${targetSpace} is not shown yet`,
+					3000,
+				);
+			} else {
+				setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
+			}
+		});
 	};
 
 	// Execute a custom keybinding command for the selected workspace
@@ -1006,7 +919,7 @@ export default function App({
 
 		const startTime = Date.now();
 		setRunningCommand(kb.name);
-		setHeaderMessage(`Running: ${kb.name}...`);
+		showHeaderMessage(`Running: ${kb.name}...`);
 
 		// Build template vars and expand the command
 		const vars = buildWorkspaceTemplateVars(
@@ -1228,78 +1141,66 @@ export default function App({
 		{isActive: isSearching},
 	);
 
-	// Helper to spawn idow and capture errors
-	const spawnSession = (pending: PendingSession) => {
-		setPendingSession(pending);
-
-		if (pending.name && pending.inputIsIssueKey) {
-			claimIssueInBackground(pending.name);
-		}
-
-		const child = spawn(
-			path.join(SCRIPTS_DIR, 'idow'),
-			buildNewSessionArgs(pending.idowArg, {
-				profileName: pending.profileName,
-				inputIsIssueKey: pending.inputIsIssueKey,
-			}),
-			{
-				detached: true,
-				stdio: ['ignore', 'pipe', 'pipe'],
-				cwd: getRepoRoot(),
-				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
-			},
-		);
-
-		let stderrData = '';
-		let stdoutData = '';
-
-		child.stdout?.on('data', data => {
-			stdoutData += data.toString();
-		});
-
-		child.stderr?.on('data', data => {
-			stderrData += data.toString();
-		});
-
-		child.on('error', err => {
-			log.error(`Failed to spawn idow: ${err.message}`, err);
-			if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
-			setPendingSession(null);
-			setHeaderWithTimeout(`Failed: ${err.message.slice(0, 40)}`, 5000);
-		});
-
-		child.on('close', code => {
-			if (code !== 0 && code !== null) {
-				if (pending.watchlistSource) releaseWatchlistReservation(pending.name);
-				setPendingSession(null);
-				const errorMsg =
-					stderrData.trim() ||
-					stdoutData.match(/Error: .*/)?.[0] ||
-					`idow exited with code ${code}`;
-				log.error(`idow failed (exit ${code}): ${errorMsg}`);
-				setHeaderWithTimeout(`Failed: ${errorMsg.slice(0, 40)}`, 5000);
-			} else {
-				// Register the space so it persists across reboots.
-				// For description routes, pending.name is empty because the issue
-				// key isn't known until idow creates it. Extract it from stdout.
-				const spaceKey =
-					pending.name || extractIssueKeyFromIdowOutput(stdoutData);
-				if (spaceKey && !pending.name) {
-					log.info(`Extracted issue key from idow output: ${spaceKey}`);
-					claimIssueInBackground(spaceKey);
-				}
-				if (spaceKey) {
-					addSpace(spaceKey);
-				}
-				// Keep the pending row visible — the useEffect
-				// watching `spaces` will clear it once the new row appears.
-				loadSpaces();
-			}
-		});
-
-		child.unref();
-		log.info(`Started idow for pending session: ${pending.name}`);
-	};
+	const spawnSession = useCallback(
+		(pending: PendingSession, options?: {queued: boolean}) => {
+			// Show the pending row now, not when a queue slot frees up, so the
+			// user sees the start at once (as on main).
+			setPendingSession(pending);
+			void scheduleWorkspaceStart(
+				startupQueue,
+				async () => {
+					if (pending.name && pending.inputIsIssueKey)
+						claimIssueInBackground(pending.name);
+					log.info(`Starting idow for pending session: ${pending.name}`);
+					const result = await runWorkspaceSetup(
+						path.join(SCRIPTS_DIR, 'idow'),
+						buildNewSessionArgs(pending.idowArg, {
+							profileName: pending.profileName,
+							inputIsIssueKey: pending.inputIsIssueKey,
+						}),
+						{
+							cwd: getRepoRoot(),
+							env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+						},
+					);
+					if (result.code !== 0) {
+						throw new Error(
+							result.stderr.trim() ||
+								result.stdout.match(/Error: .*/)?.[0] ||
+								`idow exited with ${result.signal ?? `code ${result.code}`}`,
+						);
+					}
+					// Description routes only acquire an issue key once idow creates it.
+					const spaceKey =
+						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
+					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
+					if (spaceKey) await addSpace(spaceKey);
+					await loadSpaces();
+				},
+				options ?? {queued: false},
+			)
+				.finally(async () => {
+					if (!pending.watchlistSource) return;
+					// A stale reservation only delays the next watchlist spawn; it must
+					// not report a workspace that did start as failed.
+					await releaseWatchlistReservation(pending.name).catch(
+						(err: unknown) => {
+							log.warn(
+								`Failed to release watchlist reservation for ${pending.name}`,
+								err instanceof Error ? err : undefined,
+							);
+						},
+					);
+				})
+				.catch((err: unknown) => {
+					setPendingSession(current => (current === pending ? null : current));
+					const error = err instanceof Error ? err : new Error(String(err));
+					log.error('Failed to start workspace', error);
+					setHeaderWithTimeout(`Failed: ${error.message.slice(0, 40)}`, 5000);
+				});
+		},
+		[startupQueue, loadSpaces, setHeaderWithTimeout],
+	);
 
 	// Issue watchlist polling — auto-spawn workspaces for assigned issues
 	// Track which issues we've already attempted to spawn (prevents re-spawning on every poll)
@@ -1313,6 +1214,7 @@ export default function App({
 
 		// Poll immediately on first load, then every 30 seconds
 		let pollInFlight = false;
+		const pollAbort = new AbortController();
 
 		const poll = async () => {
 			if (pollInFlight) return;
@@ -1334,6 +1236,7 @@ export default function App({
 					} = watchlist;
 
 					let issues = await searchAssignedIssues(assignee, statuses);
+					pollAbort.signal.throwIfAborted();
 
 					// Restrict to configured issue-key prefixes (e.g. only STA-*).
 					// For profile watchlists this is auto-derived from team_prefix.
@@ -1377,15 +1280,21 @@ export default function App({
 					const sourceId = watchlistSourceId(profileName);
 					let toSpawn = unclaimed;
 					if (max !== undefined && unclaimed.length > 0) {
-						// Reserve after the search's await, with no await between here
-						// and the spawns, so the slot count read from disk is current.
+						// Capacity is checked under the shared registry lock.
 						const sorted = sortIssuesByCreatedAt(unclaimed);
 						const {reserved, occupied, claimedElsewhere} =
-							tryReserveWatchlistSlots(
+							await tryReserveWatchlistSlots(
 								sourceId,
 								sorted.map(issue => issue.identifier),
 								max,
+								{signal: pollAbort.signal},
 							);
+						if (pollAbort.signal.aborted) {
+							await Promise.all(
+								reserved.map(async key => releaseWatchlistReservation(key)),
+							);
+							return;
+						}
 						// Another instance or watchlist is spawning these. Claim them
 						// here too, or this instance would respawn one as soon as its
 						// owner's workspace is closed.
@@ -1416,21 +1325,27 @@ export default function App({
 							`Watchlist (${source}): spawning workspace for ${issue.identifier} (${issue.title})`,
 						);
 
-						spawnSession({
-							type: 'issue',
-							name: issue.identifier,
-							idowArg: issue.identifier,
-							inputIsIssueKey: true,
-							pendingTitle: `Watchlist: ${issue.title}`,
-							prevSpaceCount: spacesLengthRef.current,
-							// Force the owning profile so idow runs the right
-							// profile-specific setup and the pending row shows its
-							// emoji. null (top-level watchlist) keeps the legacy
-							// behavior: no --profile, idow resolves by project.
-							profileName: profileName ?? undefined,
-							profileEmoji: resolvePendingProfileEmoji(configMemo, profileName),
-							watchlistSource: max === undefined ? undefined : sourceId,
-						});
+						spawnSession(
+							{
+								type: 'issue',
+								name: issue.identifier,
+								idowArg: issue.identifier,
+								inputIsIssueKey: true,
+								pendingTitle: `Watchlist: ${issue.title}`,
+								prevSpaceCount: spacesLengthRef.current,
+								// Force the owning profile so idow runs the right
+								// profile-specific setup and the pending row shows its
+								// emoji. null (top-level watchlist) keeps the legacy
+								// behavior: no --profile, idow resolves by project.
+								profileName: profileName ?? undefined,
+								profileEmoji: resolvePendingProfileEmoji(
+									configMemo,
+									profileName,
+								),
+								watchlistSource: max === undefined ? undefined : sourceId,
+							},
+							{queued: true},
+						);
 					}
 				}
 			} catch (err) {
@@ -1448,10 +1363,11 @@ export default function App({
 		const interval = setInterval(poll, 30_000);
 
 		return () => {
+			pollAbort.abort();
 			clearTimeout(initialTimer);
 			clearInterval(interval);
 		};
-	}, [watchlists]);
+	}, [watchlists, configMemo, spawnSession]);
 
 	// Rail-status polling — fetch each space's PR pipeline state + unresolved
 	// review-comment count from the VCS host on RAIL_STATUS_POLL_INTERVAL_MS
@@ -1459,17 +1375,15 @@ export default function App({
 	// subsequent polls are throttled to spare gh's per-token rate limit.
 	// Skips the main worktree and pending placeholder rows. Uses spacesRef
 	// so the effect doesn't re-subscribe on every space mutation.
-	const spacesRef = useRef(spaces);
-	spacesRef.current = spaces;
 
-	// Tear down a single space: run pre_workspace_deinit hooks, then remove
-	// from the persisted registry, kill its tmux sessions, clear the viewer
+	// Tear down a single space: run pre_workspace_deinit hooks, kill its tmux
+	// sessions, remove it from the persisted registry, clear the viewer
 	// panes if it was current, and optimistically prune it from local state.
 	// Returns true on success, false if deinit aborted the removal.
 	//
 	// Shared by the user-pressed-`d` flow (handleDeleteSpace) and the
 	// auto-remove-on-done flow.
-	const deleteSpace = useCallback(
+	const performDeleteSpace = useCallback(
 		async (space: SpaceData): Promise<boolean> => {
 			// Run pre_workspace_deinit commands before deletion
 			try {
@@ -1534,51 +1448,79 @@ export default function App({
 				// Config load failure shouldn't block deletion
 			}
 
-			// STA-1553: mark as closing BEFORE killing sessions so the
-			// selection-change effect won't respawn them during the render window
-			// where currentSpace has been nulled but the prune below hasn't landed
-			// yet. Cleared once the space leaves `spaces` (effect after loadSpaces).
+			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
+			if (selectedSpaceNameRef.current === space.name) attachmentTask.cancel();
+			return attachmentTask
+				.exclusive(async () => {
+					// STA-1420: kill tmux first, then update the registry. If the kill
+					// fails (tmux hiccup, socket gone, race), leave the registry alone
+					// so the user can retry — otherwise it advertises "closed" while
+					// the inner-socket session is still alive, and post-STA-1416 there
+					// is no `seedFromTmux` reaper to recover from that mismatch.
+					const tornDown = await tearDownSpace(space.name, {
+						killSpaceSessions,
+						async removeSpace(key) {
+							await removeSpace(key);
+							void workspaceRefresh.current?.refreshListOnly();
+						},
+						cleanup: deleteQaSimulator,
+						onKillFailure: key =>
+							setHeaderWithTimeout(
+								`Failed to kill tmux sessions for ${key} — try again`,
+								5000,
+							),
+					});
+					if (!tornDown) {
+						// Kill failed — the space stays open, so stop guarding it or its
+						// legitimate reattach would be blocked forever.
+						closingSpacesRef.current.delete(space.name);
+						setAttachmentRevision(revision => revision + 1);
+						return false;
+					}
 
-			// STA-1420: kill tmux first, then update the registry. If the kill
-			// fails (tmux hiccup, socket gone, race), leave the registry alone
-			// so the user can retry — otherwise it advertises "closed" while
-			// the inner-socket session is still alive, and post-STA-1416 there
-			// is no `seedFromTmux` reaper to recover from that mismatch.
-			const tornDown = tearDownSpace(space.name, {
-				killSpaceSessions,
-				removeSpace,
-				onKillFailure: key =>
-					setHeaderWithTimeout(
-						`Failed to kill tmux sessions for ${key} — try again`,
-						5000,
-					),
-			});
-			if (!tornDown) {
-				// Kill failed — the space stays open, so stop guarding it or its
-				// legitimate reattach would be blocked forever.
-				closingSpacesRef.current.delete(space.name);
-				return false;
-			}
+					const layout = paneLayoutRef.current;
+					if (layout && selectedSpaceNameRef.current === space.name) {
+						await Promise.all([
+							displayMessageInPaneAsync(
+								layout.claudeViewerPaneId,
+								'Session closed',
+							),
+							displayMessageInPaneAsync(
+								layout.companionViewerPaneId,
+								'Session closed',
+							),
+						]);
+					}
 
-			if (paneLayout && currentSpace === space.name) {
-				displayMessageInPane(paneLayout.claudeViewerPaneId, 'Session closed');
-				displayMessageInPane(
-					paneLayout.companionViewerPaneId,
-					'Session closed',
-				);
-				setCurrentSpace(null);
-			}
-
-			// Optimistically prune from local state so the reattach useEffect
-			// never sees the deleted space (loadSpaces is async, so relying on
-			// it alone leaves a window where attachToSpace would respawn the
-			// killed session). The closingSpacesRef guard above covers the same
-			// window belt-and-suspenders, in case these state updates don't batch.
-			setSpaces(prev => prev.filter(s => s.name !== space.name));
-			return true;
+					// Optimistically prune from local state so the reattach useEffect
+					// never sees the deleted space (loadSpaces is async, so relying on
+					// it alone leaves a window where attachToSpace would respawn the
+					// killed session). The closingSpacesRef guard above covers the same
+					// window belt-and-suspenders, in case these state updates don't batch.
+					setSpaces(prev => prev.filter(s => s.name !== space.name));
+					return true;
+				})
+				.catch((err: unknown) => {
+					closingSpacesRef.current.delete(space.name);
+					setAttachmentRevision(revision => revision + 1);
+					log.error(
+						`Failed to close ${space.name}`,
+						err instanceof Error ? err : undefined,
+					);
+					return false;
+				});
 		},
-		[currentSpace, paneLayout, setHeaderWithTimeout],
+		[setHeaderWithTimeout, attachmentTask, setSpaces],
+	);
+
+	const deleteSpace = useCallback(
+		async (space: SpaceData): Promise<boolean> =>
+			closeTasks.current.run(space.name, async () => {
+				if (closingSpacesRef.current.has(space.name)) return true;
+				return performDeleteSpace(space);
+			}),
+		[performDeleteSpace],
 	);
 
 	// STA-1553: once a closed space has actually left the list, drop its closing
@@ -1629,14 +1571,6 @@ export default function App({
 					setHeaderWithTimeout(
 						`Auto-removed ${space.name} (${stateName})`,
 						4000,
-					);
-					// Mirror handleDeleteSpace: if the selection now points past
-					// the end of the shrunken list, walk it back one row.
-					// spacesRef.current reflects the post-removal list because
-					// deleteSpace's setSpaces has already committed by the time
-					// this .then runs.
-					setSelectedIndex(prev =>
-						prev > 0 && prev >= spacesRef.current.length ? prev - 1 : prev,
 					);
 				})
 				.finally(() => {
@@ -1698,24 +1632,22 @@ export default function App({
 
 				// Persist each space's state (rail-status + recap) so sous-chef
 				// and other consumers can read cached data without re-fetching.
-				// Done in a microtask to keep the render-blocking path tight.
+				// Transcript reads yield to input; unchanged files reuse cached recaps.
 				const repoName = getRepoName();
-				queueMicrotask(() => {
-					for (const [name, rail] of lookup) {
-						const worktreePath = getWorktreePath(name);
-						const jsonl = worktreePath
-							? findLatestSessionJsonl(worktreePath)
-							: null;
-						const recap = jsonl ? extractRecapFromJsonl(jsonl) : null;
-						writeSpaceState(repoName, name, {
-							pipeline: rail.pipeline,
-							unresolvedCommentCount: rail.unresolvedCommentCount,
-							prNumber: rail.prNumber,
-							hasConflict: rail.hasConflict ?? false,
-							...(recap ? {recap} : {}),
-						});
-					}
-				});
+				for (const [name, rail] of lookup) {
+					const worktreePath = getWorktreePath(name);
+					const jsonl = worktreePath
+						? await findLatestSessionJsonl(worktreePath)
+						: null;
+					const recap = jsonl ? await extractRecapFromJsonl(jsonl) : null;
+					writeSpaceState(repoName, name, {
+						pipeline: rail.pipeline,
+						unresolvedCommentCount: rail.unresolvedCommentCount,
+						prNumber: rail.prNumber,
+						hasConflict: rail.hasConflict ?? false,
+						...(recap ? {recap} : {}),
+					});
+				}
 			} catch (err) {
 				log.warn(
 					'Rail status poll failed',
@@ -1733,7 +1665,7 @@ export default function App({
 			clearTimeout(initialTimer);
 			clearInterval(interval);
 		};
-	}, []);
+	}, [setSpaces]);
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {
@@ -1745,14 +1677,13 @@ export default function App({
 			return;
 		}
 
-		setHeaderMessage(`Opening ${space.name}...`);
+		showHeaderMessage(`Opening ${space.name}...`);
 
-		const child = spawn(
+		const child = spawnQuietCommand(
 			path.join(SCRIPTS_DIR, 'idow'),
 			buildOpenWorkspaceArgs(space.name),
 			{
 				detached: true,
-				stdio: ['ignore', 'pipe', 'pipe'],
 				cwd: getRepoRoot(),
 				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 			},
@@ -1836,11 +1767,6 @@ export default function App({
 			const ok = await deleteSpace(space);
 			if (!ok) return;
 
-			setSelectedIndex(prev => {
-				const remaining = spaces.length - 1;
-				return prev >= remaining && prev > 0 ? prev - 1 : prev;
-			});
-
 			// Reconcile with tmux reality in the background
 			loadSpaces();
 		} finally {
@@ -1863,15 +1789,6 @@ export default function App({
 			}
 
 			setHeaderWithTimeout(formatKillDoneResult(closed, targets.length), 4000);
-
-			// Walk the selection back if it now points past the end of the
-			// shrunken list. spacesRef reflects the post-removal list because
-			// deleteSpace's setSpaces has already committed.
-			setSelectedIndex(prev =>
-				prev > 0 && prev >= spacesRef.current.length
-					? Math.max(0, spacesRef.current.length - 1)
-					: prev,
-			);
 
 			// Reconcile with tmux reality in the background
 			loadSpaces();
@@ -2043,6 +1960,7 @@ export default function App({
 			}
 		},
 		[
+			setSelectedIndex,
 			displaySpaces,
 			spaces.length,
 			showPromptDialog,
@@ -2175,7 +2093,7 @@ export default function App({
 			{/* Status message line (occupies the row between header and list).
 			    Clipped for the same reason as the header above. */}
 			<Box height={1} overflowX="hidden">
-				{isSearching ? (
+				{isSearching && !isZooming ? (
 					/* Each segment gets its own `flexShrink={0}` box. Ink drops a
 					   one-cell Text outright when a sibling Text is truncated, so
 					   the `/` prefix vanished when the segments were bare Texts.

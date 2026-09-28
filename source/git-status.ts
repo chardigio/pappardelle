@@ -6,9 +6,11 @@ const execAsync = promisify(exec);
 
 /**
  * Check if a worktree has uncommitted changes (staged or unstaged).
- * Returns false if the path doesn't exist or git fails (fail-safe: treat as clean).
+ * Returns null on failure so refreshes can retain the last known status.
  */
-export async function isWorktreeDirty(worktreePath: string): Promise<boolean> {
+export async function isWorktreeDirty(
+	worktreePath: string,
+): Promise<boolean | null> {
 	try {
 		const {stdout} = await execAsync('git status --porcelain', {
 			cwd: worktreePath,
@@ -17,7 +19,7 @@ export async function isWorktreeDirty(worktreePath: string): Promise<boolean> {
 		});
 		return stdout.trim().length > 0;
 	} catch {
-		return false;
+		return null;
 	}
 }
 

@@ -25,21 +25,17 @@
 // therefore merges with, rather than clobbers, additions made out-of-band.
 
 import fs from 'node:fs';
+import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {createLogger} from './logger.ts';
-
-const log = createLogger('space-registry');
+import {randomUUID} from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 
-// Advisory-lock tuning. Critical sections are sub-millisecond (read a tiny JSON
-// file, splice one key, rename), so contention is brief. We wait up to
-// `lockTimeoutMs` for the lock and, rather than hang the UI on a wedged holder,
-// proceed lock-less past that deadline (logging a warning, since that path can
-// reintroduce the lost update this module exists to prevent). A lock whose mtime
-// is older than `lockStaleMs` belonged to a crashed holder and is stolen.
-// Mutable so tests can exercise the fallback without a multi-second wait.
+// Live owners keep their lock regardless of age. Empty abandoned lock
+// directories can be removed after this grace period. Contention times out
+// without running the mutation; callers can retry safely.
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
 const DEFAULT_LOCK_STALE_MS = 10_000;
 const DEFAULT_LOCK_RETRY_MS = 25;
@@ -111,8 +107,7 @@ export function resetRegistryPath(): void {
 }
 
 /**
- * Override advisory-lock timings (for testing). Lets a test drive the lock-less
- * fallback path in milliseconds instead of waiting out the real ~5s timeout.
+ * Override advisory-lock timings for contention tests.
  */
 export function setLockTimingForTests(opts: {
 	timeoutMs?: number;
@@ -141,19 +136,28 @@ export function resetLockTimingForTests(): void {
  */
 function readFromDisk(p: string): string[] {
 	try {
-		const data = fs.readFileSync(p, 'utf-8');
-		const parsed: unknown = JSON.parse(data);
-		if (Array.isArray(parsed)) {
-			const seen = new Set<string>();
-			for (const v of parsed) {
-				if (typeof v === 'string') seen.add(v);
-			}
-			return [...seen];
-		}
+		return parseRegistry(fs.readFileSync(p, 'utf-8'));
 	} catch {
 		// File doesn't exist yet or is invalid — start with empty list
+		return [];
 	}
-	return [];
+}
+
+function parseRegistry(content: string): string[] {
+	const parsed: unknown = JSON.parse(content);
+	if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
+	return [
+		...new Set(parsed.filter((key): key is string => typeof key === 'string')),
+	];
+}
+
+function readRegistryForMutation(p: string): string[] {
+	try {
+		return parseRegistry(fs.readFileSync(p, 'utf8'));
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+		throw err;
+	}
 }
 
 /**
@@ -164,31 +168,50 @@ export function getRegisteredSpaces(): string[] {
 	return readFromDisk(registryPath);
 }
 
+/** A failed refresh must not look like an empty registry and remove every row. */
+export async function getRegisteredSpacesAsync(): Promise<string[] | null> {
+	try {
+		return parseRegistry(await readFile(registryPath, 'utf-8'));
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+		throw err;
+	}
+}
+
 /**
  * Add a space to the registry. No-op if already present.
  */
-export function addSpace(issueKey: string): void {
-	withRegistryLock(() => {
-		const keys = readFromDisk(registryPath);
+export async function addSpace(
+	issueKey: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	await withRegistryLock(p => {
+		const keys = readRegistryForMutation(p);
 		if (keys.includes(issueKey)) return; // already present — skip no-op write
-		writeToDisk([...keys, issueKey]);
-	});
+		writeJsonAtomic(p, [...keys, issueKey]);
+	}, signal);
 }
 
 /**
  * Remove a space from the registry, and free the watchlist slot it held (if
  * any) so reopening the issue by hand later isn't counted against a watchlist.
  */
-export function removeSpace(issueKey: string): void {
-	withRegistryLock(() => {
-		const keys = readFromDisk(registryPath);
+export async function removeSpace(
+	issueKey: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	await withRegistryLock(p => {
+		const keys = readRegistryForMutation(p);
 		if (keys.includes(issueKey)) {
-			writeToDisk(keys.filter(k => k !== issueKey));
+			writeJsonAtomic(
+				p,
+				keys.filter(k => k !== issueKey),
+			);
 		}
 
-		const reservations = readReservations();
-		if (reservations.delete(issueKey)) writeReservations(reservations);
-	});
+		const reservations = readReservations(p);
+		if (reservations.delete(issueKey)) writeReservations(p, reservations);
+	}, signal);
 }
 
 /**
@@ -204,18 +227,14 @@ export function isSpaceRegistered(issueKey: string): boolean {
  * write can't truncate the registry to empty — which would itself look like a
  * mass-orphan event to the reaper).
  */
-function writeToDisk(keys: string[]): void {
-	writeJsonAtomic(registryPath, keys);
-}
-
 function writeJsonAtomic(p: string, data: unknown): void {
+	const tmp = `${p}.tmp.${process.pid}.${randomUUID()}`;
 	try {
 		fs.mkdirSync(path.dirname(p), {recursive: true});
-		const tmp = `${p}.tmp.${process.pid}`;
 		fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
 		fs.renameSync(tmp, p);
-	} catch {
-		// Non-critical — registry will be rebuilt on next session creation
+	} finally {
+		fs.rmSync(tmp, {force: true});
 	}
 }
 
@@ -233,41 +252,42 @@ function writeJsonAtomic(p: string, data: unknown): void {
 
 type WatchlistReservation = {source: string; ownerPid: number};
 
-function getReservationsPath(): string {
-	return path.join(path.dirname(registryPath), 'watchlist-spawns.json');
+function getReservationsPath(p: string): string {
+	return path.join(path.dirname(p), 'watchlist-spawns.json');
 }
 
-function readReservations(): Map<string, WatchlistReservation> {
+function readReservations(p: string): Map<string, WatchlistReservation> {
 	const reservations = new Map<string, WatchlistReservation>();
 	try {
 		const parsed: unknown = JSON.parse(
-			fs.readFileSync(getReservationsPath(), 'utf-8'),
+			fs.readFileSync(getReservationsPath(p), 'utf-8'),
 		);
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			for (const [key, value] of Object.entries(parsed)) {
-				const entry = value as Partial<WatchlistReservation> | null;
-				if (
-					typeof entry?.source === 'string' &&
-					typeof entry.ownerPid === 'number'
-				) {
-					reservations.set(key, {
-						source: entry.source,
-						ownerPid: entry.ownerPid,
-					});
-				}
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+			throw new Error('Invalid watchlist reservations');
+		for (const [key, value] of Object.entries(parsed)) {
+			const entry = value as Partial<WatchlistReservation> | null;
+			if (
+				typeof entry?.source === 'string' &&
+				typeof entry.ownerPid === 'number'
+			) {
+				reservations.set(key, {
+					source: entry.source,
+					ownerPid: entry.ownerPid,
+				});
 			}
 		}
-	} catch {
-		// Missing or invalid — no reservations
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
 	}
 
 	return reservations;
 }
 
 function writeReservations(
+	p: string,
 	reservations: Map<string, WatchlistReservation>,
 ): void {
-	writeJsonAtomic(getReservationsPath(), Object.fromEntries(reservations));
+	writeJsonAtomic(getReservationsPath(p), Object.fromEntries(reservations));
 }
 
 function defaultIsPidAlive(pid: number): boolean {
@@ -287,18 +307,22 @@ function defaultIsPidAlive(pid: number): boolean {
  * spawned, since another instance or watchlist owns them. `occupied` is how
  * many slots `source` held before this call.
  */
-export function tryReserveWatchlistSlots(
+export async function tryReserveWatchlistSlots(
 	source: string,
 	candidateKeys: string[],
 	max: number,
-	opts: {pid?: number; isPidAlive?: (pid: number) => boolean} = {},
-): {reserved: string[]; occupied: number; claimedElsewhere: string[]} {
+	opts: {
+		pid?: number;
+		isPidAlive?: (pid: number) => boolean;
+		signal?: AbortSignal;
+	} = {},
+): Promise<{reserved: string[]; occupied: number; claimedElsewhere: string[]}> {
 	const pid = opts.pid ?? process.pid;
 	const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
 
-	return withRegistryLock(() => {
-		const registered = new Set(readFromDisk(registryPath));
-		const reservations = readReservations();
+	return withRegistryLock(p => {
+		const registered = new Set(readRegistryForMutation(p));
+		const reservations = readReservations(p);
 		let changed = false;
 
 		for (const [key, entry] of reservations) {
@@ -325,99 +349,127 @@ export function tryReserveWatchlistSlots(
 			changed = true;
 		}
 
-		if (changed) writeReservations(reservations);
+		if (changed) writeReservations(p, reservations);
 		return {reserved, occupied, claimedElsewhere};
-	});
+	}, opts.signal);
 }
 
 /**
  * Give back a reservation whose idow run failed. A key that did get
  * registered keeps its entry, since that workspace still holds the slot.
  */
-export function releaseWatchlistReservation(issueKey: string): void {
-	withRegistryLock(() => {
-		if (readFromDisk(registryPath).includes(issueKey)) return;
-		const reservations = readReservations();
-		if (reservations.delete(issueKey)) writeReservations(reservations);
+export async function releaseWatchlistReservation(
+	issueKey: string,
+): Promise<void> {
+	await withRegistryLock(p => {
+		if (readRegistryForMutation(p).includes(issueKey)) return;
+		const reservations = readReservations(p);
+		if (reservations.delete(issueKey)) writeReservations(p, reservations);
 	});
 }
 
-/**
- * Block the current thread for `ms` without busy-spinning. Atomics.wait on a
- * throwaway SharedArrayBuffer is the standard dependency-free synchronous sleep;
- * the registry API is synchronous (called from React effects and the CLI), so we
- * can't yield to the event loop here.
- */
-function sleepSync(ms: number): void {
-	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const mutationQueues = new Map<string, Promise<unknown>>();
+
+async function withRegistryLock<T>(
+	fn: (p: string) => T,
+	signal?: AbortSignal,
+): Promise<T> {
+	const p = registryPath;
+	const previous = mutationQueues.get(p) ?? Promise.resolve();
+	const task = previous
+		.catch(() => {})
+		.then(async () => {
+			signal?.throwIfAborted();
+			const lockPath = `${p}.lock`;
+			fs.mkdirSync(path.dirname(lockPath), {recursive: true});
+			const owner = `${process.pid}-${randomUUID()}`;
+			const marker = path.join(lockPath, owner);
+			const deadline = Date.now() + lockTimeoutMs;
+			for (;;) {
+				signal?.throwIfAborted();
+				let acquired = false;
+				try {
+					fs.mkdirSync(lockPath);
+					try {
+						fs.writeFileSync(marker, '', {flag: 'wx'});
+						// A dead-owner reaper may remove an empty directory while its creator
+						// is descheduled. Only the sole marker owner may enter the critical section.
+						const entries = fs.readdirSync(lockPath);
+						if (entries.length === 1 && entries[0] === owner) {
+							acquired = true;
+						}
+					} finally {
+						if (!acquired) {
+							fs.rmSync(marker, {force: true});
+							removeEmptyLock(lockPath);
+						}
+					}
+				} catch (err) {
+					if (
+						!['EEXIST', 'ENOENT'].includes(
+							(err as NodeJS.ErrnoException).code ?? '',
+						)
+					)
+						throw err;
+					reapDeadOwners(lockPath);
+				}
+				if (acquired) {
+					try {
+						signal?.throwIfAborted();
+						return fn(p);
+					} finally {
+						fs.rmSync(marker, {force: true});
+						removeEmptyLock(lockPath);
+					}
+				}
+				if (Date.now() >= deadline)
+					throw new Error(
+						`Registry lock timed out after ${lockTimeoutMs}ms: ${p}`,
+					);
+				await delay(lockRetryMs, undefined, {signal});
+			}
+		});
+	mutationQueues.set(p, task);
+	try {
+		return await task;
+	} finally {
+		if (mutationQueues.get(p) === task) mutationQueues.delete(p);
+	}
 }
 
-/**
- * Run `fn` while holding an exclusive advisory lock on `<registryPath>.lock`.
- * Acquisition uses the atomic `wx` (O_CREAT|O_EXCL) open as the mutex. A lock
- * left by a crashed holder (mtime older than `lockStaleMs`) is stolen; if the
- * lock can't be acquired within `lockTimeoutMs` we proceed without it rather
- * than wedge the UI — at sub-millisecond critical sections that deadline is
- * effectively unreachable in practice, and the fallback is logged so the rare
- * case is debuggable.
- */
-function withRegistryLock<T>(fn: () => T): T {
-	const lockPath = `${registryPath}.lock`;
+function removeEmptyLock(lockPath: string): void {
 	try {
-		fs.mkdirSync(path.dirname(lockPath), {recursive: true});
-	} catch {
-		// Directory creation failure surfaces again in writeToDisk; ignore here.
+		fs.rmdirSync(lockPath);
+	} catch (err) {
+		if (
+			!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(
+				(err as NodeJS.ErrnoException).code ?? '',
+			)
+		)
+			throw err;
 	}
+}
 
-	const deadline = Date.now() + lockTimeoutMs;
-	let fd: number | undefined;
-	for (;;) {
-		try {
-			fd = fs.openSync(lockPath, 'wx');
-			break;
-		} catch {
-			// Lock is held. Steal it if the holder crashed (stale mtime), else wait.
-			try {
-				const age = Date.now() - fs.statSync(lockPath).mtimeMs;
-				if (age > lockStaleMs) {
-					fs.unlinkSync(lockPath);
-					continue;
-				}
-			} catch {
-				// Lock vanished between open and stat — retry acquisition immediately.
-				continue;
-			}
-
-			if (Date.now() >= deadline) {
-				// Give up waiting and proceed lock-less. This reopens the lost-update
-				// window, so surface it: log.warn routes to the log file and the TUI
-				// error overlay (unlike a raw console write, which would corrupt Ink's
-				// frame — STA-1496).
-				log.warn(
-					`Registry lock on ${lockPath} held longer than ${lockTimeoutMs}ms; proceeding without it — a concurrent write may be lost.`,
-				);
-				break;
-			}
-
-			sleepSync(lockRetryMs);
-		}
-	}
-
+function reapDeadOwners(lockPath: string): void {
 	try {
-		return fn();
-	} finally {
-		if (fd !== undefined) {
-			try {
-				fs.closeSync(fd);
-			} catch {
-				// Already closed — nothing to recover.
-			}
-
-			try {
-				fs.unlinkSync(lockPath);
-			} catch {
-				// Lock already removed (e.g. stolen as stale) — fine.
+		const entries = fs.readdirSync(lockPath);
+		let removed = false;
+		for (const entry of entries) {
+			const match = /^(\d+)-[\da-f-]+$/.exec(entry);
+			if (match && !defaultIsPidAlive(Number(match[1]))) {
+				// A unique filename prevents a concurrent reaper from deleting a new
+				// holder's marker after the dead owner's directory has been replaced.
+				fs.rmSync(path.join(lockPath, entry), {force: true});
+				removed = true;
 			}
 		}
+		if (
+			removed ||
+			(entries.length === 0 &&
+				Date.now() - fs.statSync(lockPath).mtimeMs > lockStaleMs)
+		)
+			removeEmptyLock(lockPath);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
 	}
 }

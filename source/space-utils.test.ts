@@ -1,8 +1,7 @@
 import test from 'ava';
+import {setImmediate as nextTurn} from 'node:timers/promises';
 import {
-	computePostDeleteState,
 	filterSpaces,
-	shouldAttachOnSelection,
 	shouldShowLoadingTitle,
 	tearDownSpace,
 } from './space-utils.ts';
@@ -19,74 +18,6 @@ function makeSpace(name: string, opts?: Partial<SpaceData>): SpaceData {
 		...opts,
 	};
 }
-
-// ============================================================================
-// computePostDeleteState
-// ============================================================================
-
-test('removes the deleted space from the list', t => {
-	const spaces = [makeSpace('STA-1'), makeSpace('STA-2'), makeSpace('STA-3')];
-	const {filteredSpaces} = computePostDeleteState(spaces, 'STA-2', 1);
-	t.deepEqual(
-		filteredSpaces.map(s => s.name),
-		['STA-1', 'STA-3'],
-	);
-});
-
-test('deleting the last item adjusts selectedIndex downward', t => {
-	const spaces = [makeSpace('STA-1'), makeSpace('STA-2'), makeSpace('STA-3')];
-	// Selected index 2 (last item) — after deletion only 2 items remain (indices 0-1)
-	const {newSelectedIndex} = computePostDeleteState(spaces, 'STA-3', 2);
-	t.is(newSelectedIndex, 1);
-});
-
-test('deleting a middle item does not change selectedIndex when it stays valid', t => {
-	const spaces = [makeSpace('STA-1'), makeSpace('STA-2'), makeSpace('STA-3')];
-	// Selected index 0 — deleting STA-2 leaves 2 items, index 0 is still valid
-	const {newSelectedIndex} = computePostDeleteState(spaces, 'STA-2', 0);
-	t.is(newSelectedIndex, 0);
-});
-
-test('deleting the only remaining item clamps to 0', t => {
-	const spaces = [makeSpace('STA-1')];
-	const {filteredSpaces, newSelectedIndex} = computePostDeleteState(
-		spaces,
-		'STA-1',
-		0,
-	);
-	t.is(filteredSpaces.length, 0);
-	t.is(newSelectedIndex, 0);
-});
-
-test('deleting a space that is not in the list is a no-op', t => {
-	const spaces = [makeSpace('STA-1'), makeSpace('STA-2')];
-	const {filteredSpaces, newSelectedIndex} = computePostDeleteState(
-		spaces,
-		'STA-999',
-		1,
-	);
-	t.is(filteredSpaces.length, 2);
-	t.is(newSelectedIndex, 1);
-});
-
-test('deleting the selected-last item with index > 0 decrements index', t => {
-	// 4 items, selected index 3 (last). Deleting it leaves 3 items → index should be 2.
-	const spaces = [
-		makeSpace('STA-1'),
-		makeSpace('STA-2'),
-		makeSpace('STA-3'),
-		makeSpace('STA-4'),
-	];
-	const {newSelectedIndex} = computePostDeleteState(spaces, 'STA-4', 3);
-	t.is(newSelectedIndex, 2);
-});
-
-test('deleting from middle keeps selectedIndex when it is below deleted position', t => {
-	const spaces = [makeSpace('STA-1'), makeSpace('STA-2'), makeSpace('STA-3')];
-	// Selected index 2 (STA-3), delete STA-2 → 2 items remain, index 2 is out of bounds → clamp to 1
-	const {newSelectedIndex} = computePostDeleteState(spaces, 'STA-2', 2);
-	t.is(newSelectedIndex, 1);
-});
 
 // ============================================================================
 // shouldShowLoadingTitle
@@ -274,6 +205,30 @@ test('filterSpaces: index map correctly maps back to original positions', t => {
 // (which post-STA-1416 has no `seedFromTmux` reaper to mop it up).
 // ============================================================================
 
+test('tearDownSpace waits for an asynchronous kill before unregistering', async t => {
+	let finish = (_success: boolean) => {};
+	const killed = new Promise<boolean>(resolve => {
+		finish = resolve;
+	});
+	const removed: string[] = [];
+	const result = tearDownSpace('A', {
+		async killSpaceSessions() {
+			return killed;
+		},
+		removeSpace(key) {
+			removed.push(key);
+		},
+		onKillFailure() {
+			t.fail('kill should succeed');
+		},
+	});
+	await nextTurn();
+	t.deepEqual(removed, []);
+	finish(true);
+	t.true(await result);
+	t.deepEqual(removed, ['A']);
+});
+
 type TearDownCalls = {
 	killed: string[];
 	removed: string[];
@@ -286,7 +241,7 @@ function makeTearDownDeps(killReturns: boolean): {
 } {
 	const calls: TearDownCalls = {killed: [], removed: [], killFailures: []};
 	const deps = {
-		killSpaceSessions(key: string) {
+		async killSpaceSessions(key: string) {
 			calls.killed.push(key);
 			return killReturns;
 		},
@@ -300,31 +255,31 @@ function makeTearDownDeps(killReturns: boolean): {
 	return {deps, calls};
 }
 
-test('tearDownSpace: kill succeeds → remove called, returns true', t => {
+test('tearDownSpace: kill succeeds → remove called, returns true', async t => {
 	const {deps, calls} = makeTearDownDeps(true);
-	const ok = tearDownSpace('STA-100', deps);
+	const ok = await tearDownSpace('STA-100', deps);
 	t.true(ok);
 	t.deepEqual(calls.killed, ['STA-100']);
 	t.deepEqual(calls.removed, ['STA-100']);
 	t.deepEqual(calls.killFailures, []);
 });
 
-test('tearDownSpace: kill fails → remove NOT called, onKillFailure surfaced, returns false', t => {
+test('tearDownSpace: kill fails → remove NOT called, onKillFailure surfaced, returns false', async t => {
 	const {deps, calls} = makeTearDownDeps(false);
-	const ok = tearDownSpace('STA-100', deps);
+	const ok = await tearDownSpace('STA-100', deps);
 	t.false(ok);
 	t.deepEqual(calls.killed, ['STA-100']);
 	t.deepEqual(calls.removed, []);
 	t.deepEqual(calls.killFailures, ['STA-100']);
 });
 
-test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', t => {
+test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', async t => {
 	// If remove ran first and kill then failed, the registry would advertise
 	// "closed" while the inner socket still has the session — exactly the bug
 	// STA-1420 fixes. Pin the order with a sequence tape.
 	const sequence: string[] = [];
-	const ok = tearDownSpace('STA-7', {
-		killSpaceSessions() {
+	const ok = await tearDownSpace('STA-7', {
+		async killSpaceSessions() {
 			sequence.push('kill');
 			return true;
 		},
@@ -337,53 +292,4 @@ test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', t =>
 	});
 	t.true(ok);
 	t.deepEqual(sequence, ['kill', 'remove']);
-});
-
-// ============================================================================
-// shouldAttachOnSelection — STA-1553 teardown→respawn guard
-// ============================================================================
-
-test('attaches when selecting a different, non-closing space', t => {
-	t.true(
-		shouldAttachOnSelection({
-			selectedSpaceName: 'STA-2',
-			currentSpace: 'STA-1',
-			closingSpaces: new Set(),
-		}),
-	);
-});
-
-test('does not re-attach to the space already being shown', t => {
-	t.false(
-		shouldAttachOnSelection({
-			selectedSpaceName: 'STA-1',
-			currentSpace: 'STA-1',
-			closingSpaces: new Set(),
-		}),
-	);
-});
-
-// The race the guard exists for: closing the currently-viewed space nulls
-// currentSpace in one render and prunes the list in the next. In that window the
-// effect sees currentSpace=null with the just-closed space still selected; without
-// the guard it would call attachToSpace, which recreates the inner sessions
-// teardown just killed — stranding them for the next startup's reaper.
-test('does NOT re-attach to a space whose teardown is in flight (currentSpace already null)', t => {
-	t.false(
-		shouldAttachOnSelection({
-			selectedSpaceName: 'STA-1478',
-			currentSpace: null,
-			closingSpaces: new Set(['STA-1478']),
-		}),
-	);
-});
-
-test('still attaches to a normal space while an unrelated space is closing', t => {
-	t.true(
-		shouldAttachOnSelection({
-			selectedSpaceName: 'STA-2',
-			currentSpace: null,
-			closingSpaces: new Set(['STA-1478']),
-		}),
-	);
 });

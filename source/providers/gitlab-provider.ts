@@ -1,9 +1,13 @@
 // GitLab VCS host provider — wraps glab CLI
-import {execFileSync} from 'node:child_process';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {createLogger} from '../logger.ts';
-import type {PRInfo, RailStatus, VcsHostProvider} from './types.ts';
+import type {PRInfo, PRLink, RailStatus, VcsHostProvider} from './types.ts';
 
 const log = createLogger('gitlab-provider');
+const execFileAsync = promisify(execFile);
+
+export type GlabExecutor = (args: string[]) => Promise<string>;
 
 export class GitLabProvider implements VcsHostProvider {
 	get name() {
@@ -11,60 +15,78 @@ export class GitLabProvider implements VcsHostProvider {
 	}
 
 	private readonly host?: string;
+	private readonly executor: GlabExecutor;
 
-	constructor(host?: string) {
+	constructor(host?: string, executor?: GlabExecutor) {
 		this.host = host;
-		// Set GITLAB_HOST env for self-hosted instances so glab picks it up
-		if (host) {
-			process.env['GITLAB_HOST'] = host;
-		}
+		this.executor =
+			executor ??
+			(async args => {
+				const {stdout} = await execFileAsync('glab', args, {
+					encoding: 'utf-8',
+					timeout: 15_000,
+					env: {...process.env, ...(host ? {GITLAB_HOST: host} : {})},
+				});
+				return stdout;
+			});
 	}
 
-	checkIssueHasPRWithCommits(issueKey: string): PRInfo {
+	async getPRLink(issueKey: string): Promise<PRLink | null> {
+		// GitLab doesn't store MR links in issue tracker attachments like Linear.
+		// Discover MR by branch name (branch name matches issue key).
+		const mrOutput = await this.executor([
+			'mr',
+			'list',
+			'--source-branch',
+			issueKey,
+			'-F',
+			'json',
+		]);
+		const mrs = JSON.parse(mrOutput) as Array<{
+			iid: number;
+			web_url: string;
+		}>;
+
+		const mr = mrs[0];
+		return mr ? {number: mr.iid, url: mr.web_url} : null;
+	}
+
+	async checkIssueHasPRWithCommits(issueKey: string): Promise<PRInfo> {
 		try {
-			// GitLab doesn't store MR links in issue tracker attachments like Linear.
-			// Discover MR by branch name (branch name matches issue key).
-			const mrOutput = execFileSync(
-				'glab',
-				['mr', 'list', '--source-branch', issueKey, '-F', 'json'],
-				{encoding: 'utf-8', timeout: 10_000},
-			);
-			const mrs = JSON.parse(mrOutput) as Array<{
-				iid: number;
-				web_url: string;
-			}>;
-
-			if (mrs.length === 0) {
-				return {hasPR: false, hasCommits: false};
-			}
-
-			const mr = mrs[0]!;
+			const mr = await this.getPRLink(issueKey);
+			if (!mr) return {hasPR: false, hasCommits: false};
 
 			// Check if MR has file changes via diff
 			try {
-				const diffOutput = execFileSync(
-					'glab',
-					['mr', 'diff', String(mr.iid), '--color=never'],
-					{encoding: 'utf-8', timeout: 15_000},
-				);
+				const diffOutput = await this.executor([
+					'mr',
+					'diff',
+					String(mr.number),
+					'--color=never',
+				]);
 				// Count diff file headers (lines starting with "diff --git")
 				const fileCount = (diffOutput.match(/^diff --git/gm) ?? []).length;
 
 				log.debug(
-					`Issue ${issueKey} has MR !${mr.iid} with ${fileCount} files changed`,
+					`Issue ${issueKey} has MR !${mr.number} with ${fileCount} files changed`,
 				);
 				return {
 					hasPR: true,
 					hasCommits: fileCount > 0,
-					prNumber: mr.iid,
-					prUrl: mr.web_url,
+					prNumber: mr.number,
+					prUrl: mr.url,
 				};
 			} catch (err) {
 				log.warn(
 					`Failed to check MR diff for ${issueKey}`,
 					err instanceof Error ? err : undefined,
 				);
-				return {hasPR: true, hasCommits: false, prUrl: mr.web_url};
+				return {
+					hasPR: true,
+					hasCommits: false,
+					prNumber: mr.number,
+					prUrl: mr.url,
+				};
 			}
 		} catch (err) {
 			log.warn(
@@ -75,7 +97,7 @@ export class GitLabProvider implements VcsHostProvider {
 		}
 	}
 
-	buildPRUrl(prNumber: number): string {
+	async buildPRUrl(prNumber: number): Promise<string> {
 		const host = this.host ?? 'gitlab.com';
 		return `https://${host}/-/merge_requests/${prNumber}`;
 	}

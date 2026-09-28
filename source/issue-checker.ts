@@ -17,6 +17,8 @@ export {
  * Check if an issue has an associated PR with commits.
  * Delegates to the configured VCS host provider.
  */
-export function checkIssueHasPRWithCommits(issueKey: string): PRInfo {
+export async function checkIssueHasPRWithCommits(
+	issueKey: string,
+): Promise<PRInfo> {
 	return createVcsHost().checkIssueHasPRWithCommits(issueKey);
 }
