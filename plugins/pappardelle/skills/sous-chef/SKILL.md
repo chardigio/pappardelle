@@ -79,7 +79,7 @@ WORKING:
 What's the call, chef?
 ```
 
-Keep it tight. Show just the number (e.g. "696" not "STA-696") — the prefix is noise. After the number, include a short gist of the issue title (3-6 words, from the Linear issue title or conversation context). This helps the chef remember what each space is about without having to drill in. Once an issue has been mentioned in the current conversation, you can drop the title on subsequent mentions. Show time since last update. Skip categories that have zero items. When the user refers to a space by number (e.g. "696"), resolve it to the full key (e.g. "STA-696") for commands like `pappardelle highlight`, `git`, and `tmux`.
+Keep it tight. Show just the number (e.g. "696" not "STA-696") — the prefix is noise. After the number, include a short gist of the issue title (3-6 words, from the Linear issue title or conversation context). This helps the chef remember what each space is about without having to drill in. Once an issue has been mentioned in the current conversation, you can drop the title on subsequent mentions. Show time since last update. Skip categories that have zero items. When the user refers to a space by number (e.g. "696"), resolve it to the full key (e.g. "STA-696") for commands like `pappardelle highlight`, `pappardelle send`, and `git`.
 
 ## When User Picks a Space
 
@@ -126,17 +126,23 @@ When the user says something like "tell it to fix the tests" or "send: refactor 
 
 If it's not obvious which space, ask. If it is, proceed.
 
-**Step 2: Relay via tmux**
+**Step 2: Relay with pappardelle send**
 
-Send the instruction to the Claude session:
+Submit the instruction as a prompt to the space's Claude session:
 
 ```bash
-# The tmux session name follows this pattern:
-# IMPORTANT: Shell-quote the instruction to prevent unintended execution.
-# Use printf '%q' to safely escape special characters (quotes, backticks, semicolons, etc).
-INSTRUCTION=$(printf '%q' "the user instruction here")
-tmux send-keys -t "claude-$REPO_NAME-STA-XXX" "$INSTRUCTION" Enter
+pappardelle send STA-XXX 'the user instruction here'
 ```
+
+Pass the text exactly as the chef said it. Wrap it in single quotes. If the text contains a single quote or starts with `-`, send it on stdin instead:
+
+```bash
+pappardelle send STA-XXX <<'MSG'
+don't touch the migrations
+MSG
+```
+
+Never drive tmux directly for this. The session lives on a separate tmux socket, and `pappardelle send` also handles session naming and makes sure the Enter submits the prompt rather than landing as a newline.
 
 **Step 3: Confirm delivery**
 
@@ -145,10 +151,10 @@ Sent to 696: "refactor the auth middleware"
 Heard, chef.
 ```
 
-If the tmux session doesn't exist, report it:
+If `pappardelle send` exits non-zero with "No active session", report it:
 
 ```
-696 — no active tmux session. Space may need to be reopened in Pappardelle.
+696 — no active session. Space may need to be reopened in Pappardelle.
 ```
 
 ## When User Asks to Open a URL or Check Something
@@ -216,6 +222,6 @@ If the hold failed, don't claim one. Say so instead: "Wake set for 10:11pm. Coul
 The repo name and worktree base are auto-detected from the current git repository. The standard conventions are:
 
 - **Worktree base**: `~/.worktrees/{repo-name}/`
-- **tmux session pattern**: `claude-{repo-name}-{ISSUE-KEY}`
+- **Claude session**: `claude-{repo-name}-{ISSUE-KEY}` on the `pappardelle_inner` tmux socket; relay to it with `pappardelle send`
 - **Status dir**: `~/.pappardelle/claude-status/`
 - **Open spaces**: `~/.pappardelle/repos/{repo-name}/open-spaces.json`

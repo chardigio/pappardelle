@@ -797,36 +797,76 @@ export async function killSpaceSessions(
 }
 
 /**
+ * Clear the input line, type `text` literally, then press Enter.
+ *
+ * Each step is its own `send-keys` call. Batched into one call, the text and
+ * Enter arrive in a single pty read, Claude Code treats the burst as a paste,
+ * and the Enter becomes a literal newline instead of submitting.
+ *
+ * Stops at the first failing call so Enter is never sent without the text.
+ */
+export function sendKeysLiteralThenEnter(
+	runner: OuterTmuxRunner,
+	target: string,
+	text: string,
+): boolean {
+	const steps: string[][] = [
+		['send-keys', '-t', target, 'C-u'],
+		['send-keys', '-t', target, '-l', text],
+		['send-keys', '-t', target, 'Enter'],
+	];
+	for (const args of steps) {
+		const r = runner(args);
+		if (r.error || r.status !== 0) return false;
+	}
+
+	return true;
+}
+
+/**
  * Send keys to a pane (for attaching to sessions or sending commands)
  * Clears any partial input first to avoid leftover characters
  */
 export function sendToPane(paneId: string, command: string): boolean {
-	try {
-		// Clear any partial input on the line first (Ctrl+U)
-		spawnSync('tmux', ['send-keys', '-t', paneId, 'C-u'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		// Send the command text (literal to avoid key name interpretation)
-		spawnSync('tmux', ['send-keys', '-t', paneId, '-l', command], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		// Send Enter separately so it's not batched with the text
-		// (otherwise Claude Code treats the whole thing as a paste
-		// and the Enter becomes a literal newline)
-		spawnSync('tmux', ['send-keys', '-t', paneId, 'Enter'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		return true;
-	} catch (err) {
-		log.error(
-			`Failed to send command to pane ${paneId}`,
-			err instanceof Error ? err : undefined,
-		);
-		return false;
-	}
+	const sent = sendKeysLiteralThenEnter(
+		defaultOuterTmuxRunner,
+		paneId,
+		command,
+	);
+	if (!sent) log.error(`Failed to send command to pane ${paneId}`);
+	return sent;
+}
+
+/**
+ * Resolve a per-issue session name to a `send-keys` target on the inner socket.
+ * `=` forces an exact match, so `STA-1` never falls through to `STA-12` by prefix.
+ */
+export function resolveInnerSessionTarget(
+	sessionName: string,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): string | null {
+	const result = runner(['list-sessions', '-F', '#{session_name}']);
+	if (result.error || result.status !== 0) return null;
+	const live = result.stdout.trim().split('\n');
+	return live.includes(sessionName) ? `=${sessionName}:` : null;
+}
+
+export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'failed';
+
+/**
+ * Submit `text` as a prompt to the Claude session of a space.
+ * Backs `pappardelle send`, which the sous-chef skill relays through.
+ */
+export function sendToSpaceAgent(
+	issueKey: string,
+	text: string,
+	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
+): SendToSpaceAgentResult {
+	const runner = options.runner ?? defaultInnerTmuxRunner;
+	const {claude} = getSessionNames(issueKey, options.repoName);
+	const target = resolveInnerSessionTarget(claude, runner);
+	if (!target) return 'no-session';
+	return sendKeysLiteralThenEnter(runner, target, text) ? 'sent' : 'failed';
 }
 
 /**
