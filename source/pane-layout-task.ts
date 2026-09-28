@@ -33,7 +33,7 @@ export class PaneLayoutTask {
 				dimensions: PaneDimensions,
 				revision: number,
 			) => void;
-			onError: (error: unknown) => void;
+			onError: (error: unknown, revision: number) => void;
 		},
 	) {}
 
@@ -57,7 +57,7 @@ export class PaneLayoutTask {
 							if (!this.stopped && generation === this.generation)
 								this.deps.onReady(zoomed, dimensions, revision);
 						} catch (error) {
-							if (!this.stopped) this.deps.onError(error);
+							if (!this.stopped) this.deps.onError(error, revision);
 						}
 					});
 				}

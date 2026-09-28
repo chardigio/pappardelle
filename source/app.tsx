@@ -108,6 +108,7 @@ import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {LatestTask} from './latest-task.ts';
+import {sendToSelectedClaude} from './send-to-claude.ts';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -116,6 +117,7 @@ import {
 	attachToSpace,
 	displayMessageInPane,
 	sendToPane,
+	getCurrentlyViewingSpace,
 	killSession,
 	killSpaceSessions,
 	deleteQaSimulator,
@@ -566,11 +568,14 @@ export default function App({
 					setTermDimensions(dimensions);
 					setSettledRevision(revision);
 				},
-				onError(error) {
+				onError(error, revision) {
 					log.error(
 						'Failed to update pane layout',
 						error instanceof Error ? error : undefined,
 					);
+					// Settle anyway: while unsettled, the list and any open dialog
+					// render nothing and the dialog cannot take keys.
+					setSettledRevision(revision);
 				},
 			}),
 		[attachmentTask, stdout],
@@ -868,15 +873,26 @@ export default function App({
 			return;
 		}
 
-		const success = sendToPane(
-			paneLayout.claudeViewerPaneId,
-			kb.send_to_claude,
-		);
-		if (success) {
-			setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
-		} else {
-			setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
-		}
+		const targetSpace = selectedSpaceNameRef.current;
+		if (!targetSpace) return;
+		const paneId = paneLayout.claudeViewerPaneId;
+		void sendToSelectedClaude({
+			queue: attachmentTask,
+			targetSpace,
+			viewingSpace: getCurrentlyViewingSpace,
+			send: () => sendToPane(paneId, kb.send_to_claude),
+		}).then(result => {
+			if (result === 'sent') {
+				setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
+			} else if (result === 'wrong-space') {
+				setHeaderWithTimeout(
+					`✗ Not sent: ${targetSpace} is not shown yet`,
+					3000,
+				);
+			} else {
+				setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
+			}
+		});
 	};
 
 	// Execute a custom keybinding command for the selected workspace

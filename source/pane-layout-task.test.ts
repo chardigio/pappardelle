@@ -147,3 +147,22 @@ test('a request made while the queued rebuild waits behind an attachment is cove
 	await Promise.all([attaching, first, second]);
 	t.deepEqual(calls, [false]);
 });
+
+test('a failed layout apply still reports its revision so the UI can settle', async t => {
+	const queue = new LatestTask();
+	const failures: Array<{message: string; revision: number}> = [];
+	const tasks = new PaneLayoutTask({
+		queue,
+		async apply() {
+			throw new Error('zoom timed out');
+		},
+		onReady() {
+			t.fail('a failed apply must not report readiness');
+		},
+		onError(error, revision) {
+			failures.push({message: (error as Error).message, revision});
+		},
+	});
+	await tasks.request(true, 3);
+	t.deepEqual(failures, [{message: 'zoom timed out', revision: 3}]);
+});
