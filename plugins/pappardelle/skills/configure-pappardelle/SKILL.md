@@ -33,7 +33,6 @@ Options:
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions, model, effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
-- **Set pane widths** — starting widths of the rail, Claude and companion panes (`layout`)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
 Then follow the appropriate section below based on their choice.
