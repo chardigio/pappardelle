@@ -158,21 +158,19 @@ ISSUE_KEY3="${TEST_PREFIX}-300"
 WORKTREE_PATH3="$TMPDIR_ROOT/worktree3"
 mkdir -p "$WORKTREE_PATH3"
 
-# Run WITHOUT --no-claude so it sends the actual command to tmux
+# Run WITHOUT --no-claude so the session is started with the claude command
 "$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_KEY3" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH3" 2>/dev/null
 
 sleep 0.3
 
-# Capture the full scrollback to see the command that was typed
-# -J joins wrapped lines so long commands aren't split across lines
-PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY3}" -p -S - 2>/dev/null || echo "")
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "claude-${TEST_REPO}-${ISSUE_KEY3}" '#{pane_start_command}' 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY3"; then
     echo -e "  ${GREEN}PASS${RESET} issue key included in claude command"
     PASS=$((PASS + 1))
 else
     echo -e "  ${RED}FAIL${RESET} issue key included in claude command"
-    echo "    Expected pane to contain: $ISSUE_KEY3"
-    echo "    Pane content: $(echo "$PANE_CONTENT" | head -5)"
+    echo "    Expected start command to contain: $ISSUE_KEY3"
+    echo "    Start command: $(echo "$PANE_CONTENT" | head -5)"
     FAIL=$((FAIL + 1))
 fi
 
@@ -190,14 +188,14 @@ mkdir -p "$WORKTREE_PATH4"
 
 sleep 0.3
 
-PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -J -t "claude-${TEST_REPO}-${ISSUE_KEY4}" -p -S - 2>/dev/null || echo "")
+PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "claude-${TEST_REPO}-${ISSUE_KEY4}" '#{pane_start_command}' 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "/test-skill" && echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY4"; then
     echo -e "  ${GREEN}PASS${RESET} init cmd + issue key in claude command"
     PASS=$((PASS + 1))
 else
     echo -e "  ${RED}FAIL${RESET} init cmd + issue key in claude command"
-    echo "    Expected pane to contain: /test-skill and $ISSUE_KEY4"
-    echo "    Pane content: $(echo "$PANE_CONTENT" | head -5)"
+    echo "    Expected start command to contain: /test-skill and $ISSUE_KEY4"
+    echo "    Start command: $(echo "$PANE_CONTENT" | head -5)"
     FAIL=$((FAIL + 1))
 fi
 
@@ -281,6 +279,9 @@ SHIM_DIR="$TMPDIR_ROOT/shim"
 SHIM_HOME="$TMPDIR_ROOT/shim-home"
 ARGV_LOG="$TMPDIR_ROOT/claude-argv.log"
 mkdir -p "$WORKTREE_PATH7" "$SHIM_DIR" "$SHIM_HOME"
+# An empty rc keeps zsh's first-run wizard from taking over the interactive
+# shell that runs the launch.
+touch "$SHIM_HOME/.zshrc"
 cat > "$SHIM_DIR/claude" <<SHIM
 #!/bin/bash
 printf '%s\n' "\$*" >> "$ARGV_LOG"
@@ -356,6 +357,75 @@ ARGV8=$(head -1 "$ARGV_LOG8" 2>/dev/null || echo "")
 assert_eq "bare launch is --name + --continue only" "--name $ISSUE_KEY8 --continue" "$ARGV8"
 
 tmux -L "$SHIM_SOCKET8" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
+# pappardelle-2i0: launches must not be typed at a prompt, or the user's shell
+# records them in its history file. An isolated zsh (ZDOTDIR) with its own
+# HISTFILE and INC_APPEND_HISTORY writes every line it reads from the prompt
+# straight to disk, so a typed launch would show up there immediately.
+echo -e "\n${BOLD}Test: launches leave no trace in shell history${RESET}"
+if ! ZSH_BIN=$(command -v zsh); then
+    echo "  SKIP (zsh not installed)"
+else
+    HIST_ZDOTDIR="$TMPDIR_ROOT/zdotdir"
+    HIST_FILE="$TMPDIR_ROOT/zsh_history"
+    HIST_SHIM_DIR="$TMPDIR_ROOT/hist-shim"
+    mkdir -p "$HIST_ZDOTDIR" "$HIST_SHIM_DIR" "$SHIM_HOME"
+    cat > "$HIST_ZDOTDIR/.zshrc" <<ZSHRC
+HISTFILE="$HIST_FILE"
+HISTSIZE=1000
+SAVEHIST=1000
+setopt INC_APPEND_HISTORY
+PATH="$HIST_SHIM_DIR:\$PATH"
+ZSHRC
+    for tool in claude gitui; do
+        printf '#!/bin/bash\nexit 0\n' > "$HIST_SHIM_DIR/$tool"
+        chmod +x "$HIST_SHIM_DIR/$tool"
+    done
+
+    # Starts a session pair on its own socket (the server inherits SHELL and
+    # ZDOTDIR) and waits for the shims to exit.
+    start_hist_session() {
+        local socket="$1" key="$2" companion="$3"
+        mkdir -p "$TMPDIR_ROOT/wt-$key"
+        SHELL="$ZSH_BIN" ZDOTDIR="$HIST_ZDOTDIR" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$socket" \
+            "$SCRIPT_DIR/start-claude-session.sh" \
+            --issue-key "$key" --repo-name "$TEST_REPO" --worktree "$TMPDIR_ROOT/wt-$key" \
+            --companion-command "$companion" 2>/dev/null
+        sleep 2
+    }
+
+    HIST_SOCKET="pappardelle_inner_hist_$$"
+    KEY9="${TEST_PREFIX}-900"
+    start_hist_session "$HIST_SOCKET" "$KEY9" "GIT_OPTIONAL_LOCKS=0 gitui"
+
+    if [[ -f "$HIST_FILE" ]] && grep -qE 'claude|gitui' "$HIST_FILE"; then
+        echo -e "  ${RED}FAIL${RESET} history file has no launch entries"
+        echo "    History: $(cat "$HIST_FILE")"
+        FAIL=$((FAIL + 1))
+    else
+        echo -e "  ${GREEN}PASS${RESET} history file has no launch entries"
+        PASS=$((PASS + 1))
+    fi
+
+    assert_eq "claude session leaves a shell after claude exits" "zsh" \
+        "$(tmux -L "$HIST_SOCKET" display-message -p -t "claude-${TEST_REPO}-${KEY9}" '#{pane_current_command}' 2>/dev/null)"
+    assert_eq "companion session leaves a shell after the command exits" "zsh" \
+        "$(tmux -L "$HIST_SOCKET" display-message -p -t "companion-${TEST_REPO}-${KEY9}" '#{pane_current_command}' 2>/dev/null)"
+    tmux -L "$HIST_SOCKET" kill-server 2>/dev/null || true
+
+    # A user-authored companion command that ends in a comment or exits the
+    # shell itself must still leave a shell behind.
+    for companion in 'true # trailing comment' 'exit 3'; do
+        SOCK="pappardelle_inner_hist_${RANDOM}_$$"
+        KEY="${TEST_PREFIX}-9${RANDOM}"
+        start_hist_session "$SOCK" "$KEY" "$companion"
+        assert_eq "companion '$companion' leaves a shell" "zsh" \
+            "$(tmux -L "$SOCK" display-message -p -t "companion-${TEST_REPO}-${KEY}" '#{pane_current_command}' 2>/dev/null)"
+        tmux -L "$SOCK" kill-server 2>/dev/null || true
+    done
+fi
 
 # ==========================================================================
 

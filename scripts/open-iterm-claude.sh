@@ -182,9 +182,13 @@ on run argv
     set companionCommand to item 8 of argv
     -- "true" => return the assembled command lines instead of driving iTerm.
     -- Everything below this point that builds a string runs either way, so the
-    -- printed lines are the exact bytes `write text` would send. Used by
+    -- printed lines are the exact bytes each pane's shell runs via -ilc. Used by
     -- test-claude-model-effort.sh, which can then run them through a real shell.
     set printOnly to item 9 of argv
+    -- Absolute path of the user's shell. Each iTerm pane runs its line through
+    -- it as `-ilc` instead of typing the line at a prompt, so nothing lands in
+    -- the user's shell history (pappardelle-2i0).
+    set userShell to item 10 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (claude /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -221,62 +225,71 @@ on run argv
         set claudeLine to claudePrefix & " '" & claudePrompt & "'\""
     end if
 
-    -- Companion pane: create a shell-based session so it persists even if the
-    -- command exits (like claude sessions), send the companion command (skipped
-    -- when empty => plain shell), then attach. All three commands target the same
-    -- inner tmux socket so the attach doesn't need TMUX= (different socket => no
-    -- nesting check). The companion command is an arbitrary user-authored shell
-    -- string, so route it through a shell variable via `quoted form of` rather
-    -- than embedding it in a single-quoted string — that way an embedded single
-    -- quote (e.g. DESTDIR='/tmp') can't break out. send-keys then receives the
-    -- value as one double-quoted arg, matching the safe pattern in
-    -- start-claude-session.sh.
+    -- Companion pane: create-or-attach a session on the inner socket (so the
+    -- attach doesn't need TMUX=; different socket => no nesting check). A new
+    -- session runs the companion command with the same wrapper as
+    -- start-claude-session.sh: the user's shell runs it interactively, then a
+    -- login shell takes over when it exits. An empty command leaves a plain
+    -- shell. The companion command is an arbitrary user-authored shell string,
+    -- so route it through a shell variable via `quoted form of` rather than
+    -- embedding it in a single-quoted string; that way an embedded single quote
+    -- (e.g. DESTDIR='/tmp') can't break out.
     set companionSession to "companion-" & (text 8 thru -1 of tmuxSession)
-    set sendPart to ""
+    set companionAssign to ""
+    set companionStart to tmuxL & " new-session -A -s '" & companionSession & "'"
     if companionCommand is not equal to "" then
-        set sendPart to "COMPANION_CMD=" & quoted form of companionCommand & "; " & tmuxL & " send-keys -t '" & companionSession & "' \"$COMPANION_CMD\" Enter 2>/dev/null; "
+        set companionAssign to "COMPANION_CMD=" & quoted form of companionCommand & "; "
+        set companionStart to companionStart & " /bin/sh -c '\"$1\" -ic \"$2\"; exec \"$1\" -l' sh \"${SHELL:-/bin/sh}\" \"$COMPANION_CMD\""
     end if
-    set companionLine to "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -d -s '" & companionSession & "' 2>/dev/null; " & sendPart & tmuxL & " attach -t '" & companionSession & "'"
+    set companionLine to companionAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & companionStart
 
     if printOnly is equal to "true" then
         return claudeLine & linefeed & companionLine
     end if
 
+    set claudePaneCommand to my paneCommand(userShell, claudeLine)
+    set companionPaneCommand to my paneCommand(userShell, companionLine)
+
     tell application "iTerm"
         activate
 
         -- Create a new window
-        set newWindow to (create window with default profile)
+        set newWindow to (create window with default profile command claudePaneCommand)
 
         tell newWindow
             tell current session
                 -- Set the session name/title to include the issue key
                 set name to issueKey
 
-                write text claudeLine
-
                 -- Wait for Claude to start
                 delay 2
             end tell
 
             -- Create a vertical split for the companion command (in its own tmux session)
-            -- Create shell-based session so it persists even if the command exits (like claude sessions)
             tell current session
-                set newSession to (split vertically with default profile)
+                set newSession to (split vertically with default profile command companionPaneCommand)
                 tell newSession
                     set name to issueKey & " - companion"
-                    write text companionLine
                 end tell
             end tell
         end tell
     end tell
 end run
+
+-- iTerm splits `command` into words itself and mangles shell escapes such as
+-- the '\'' a quoted single quote needs, so the line travels base64-encoded
+-- and the user's shell decodes it.
+on paneCommand(userShell, lineText)
+    set encoded to do shell script "printf %s " & quoted form of lineText & " | base64"
+    return userShell & " -ilc 'eval \"$(printf %s " & encoded & " | base64 --decode)\"; exec \"$SHELL\" -l'"
+end paneCommand
 APPLESCRIPT_END
 
 # Run the AppleScript with arguments. The trailing argument is the print-only
 # switch: when true the script returns the assembled command lines and never
 # touches iTerm.
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND"
+USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$CLAUDE_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL"
 rm -f "$APPLESCRIPT"
 
 if [[ "$PRINT_COMMAND" == true ]]; then
