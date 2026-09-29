@@ -87,8 +87,8 @@ test('companion session launches the configurable command, never a hardcoded git
 	// that reintroduces a literal `lazygit`/`gitui` invocation here.
 	t.regex(
 		TMUX_SOURCE,
-		/buildShellLaunchArgs\(companionCommand\)/,
-		'ensureCompanionSession must launch the companionCommand variable',
+		/send-keys[\s\S]{0,80}?companionCommand/,
+		'ensureCompanionSession must send the companionCommand variable',
 	);
 	t.notRegex(
 		TMUX_SOURCE,
@@ -97,13 +97,13 @@ test('companion session launches the configurable command, never a hardcoded git
 	);
 });
 
-test('companion session launches nothing when the command is empty (plain shell)', t => {
-	// An empty companion_command means "leave a plain shell", so the session
-	// must be created with tmux's default shell rather than a launch wrapper.
+test('companion session skips send-keys when the command is empty (plain shell)', t => {
+	// An empty companion_command means "leave a plain shell" — the send-keys must
+	// be guarded so we do not type an empty command into the pane.
 	t.regex(
 		TMUX_SOURCE,
-		/companionCommand\.trim\(\)\s*===\s*''\s*\?\s*\[\]/,
-		'ensureCompanionSession must skip the launch args for an empty companionCommand',
+		/companionCommand\.trim\(\)\s*!==\s*''/,
+		'ensureCompanionSession must guard the command send on a non-empty companionCommand',
 	);
 });
 

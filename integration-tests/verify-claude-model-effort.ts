@@ -232,9 +232,6 @@ function main() {
 	const shimHome = path.join(tmpRoot, 'shim-home');
 	fs.mkdirSync(shimDir, {recursive: true});
 	fs.mkdirSync(shimHome, {recursive: true});
-	// The launch runs in an interactive zsh; an empty rc keeps zsh's first-run
-	// wizard from taking over that shell.
-	fs.writeFileSync(path.join(shimHome, '.zshrc'), '');
 
 	function launch(
 		issueKey: string,
@@ -277,7 +274,7 @@ function main() {
 			},
 		);
 
-		// The session starts claude asynchronously; give it a moment to run the shim.
+		// send-keys is async; give the shell a moment to run the shim.
 		execFileSync('sleep', ['1.5']);
 		const argv = fs.existsSync(argvLog)
 			? (fs.readFileSync(argvLog, 'utf-8').split('\n')[0] ?? '')
@@ -304,7 +301,7 @@ function main() {
 
 	const exotic = launch('VERIFY-2', ['--model', frontend.model]);
 	check(
-		'bracketed model id reaches claude intact',
+		'bracketed model id survives send-keys intact',
 		exotic.argv,
 		'--model claude-opus-5[1m] --name VERIFY-2 --continue',
 	);

@@ -140,27 +140,17 @@ if not projects[path].get('hasTrustDialogAccepted'):
         json.dump(config, f, indent=2)
 " "$WORKTREE_PATH" 2>/dev/null || true
 
-# Launches are handed to tmux as the pane's command rather than typed at a
-# prompt, so they never land in the user's shell history (pappardelle-2i0).
-new_launch_session() {
-    local session="$1" command="$2"
-    # shellcheck disable=SC2016 # expanded by the inner sh, not here
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" \
-        /bin/sh -c '"$1" -ic "$2"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
-}
-
 # Ensure Claude tmux session
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    if [[ "$NO_CLAUDE" == true ]]; then
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
-    else
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$CLAUDE_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
+    if [[ "$NO_CLAUDE" != true ]]; then
         # Build the Claude command with optional --dangerously-skip-permissions,
         # --model / --effort, and --name set to the issue key so the session is
         # findable via /resume and shows up in the terminal title.
         # Flag order matches buildClaudeResumeCommand() in source/tmux.ts:
         #   --dangerously-skip-permissions → --model → --effort → --name
         # printf %q quotes the config-supplied values so model ids with shell
-        # metacharacters (e.g. claude-opus-5[1m]) reach claude as literal arguments.
+        # metacharacters (e.g. claude-opus-5[1m]) survive the send-keys round-trip.
         SAFE_NAME=$(printf '%q' "$ISSUE_KEY")
         CLAUDE_CMD="claude"
         if [[ "$SKIP_PERMISSIONS" == true ]]; then
@@ -182,16 +172,16 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/
         fi
         # Use printf %q to safely quote the argument for the shell inside tmux
         SAFE_ARG=$(printf '%q' "$CLAUDE_ARG")
-        new_launch_session "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}"
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}" Enter
     fi
 fi
 
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).
-# An empty command leaves a plain shell.
+# A shell-based session is created first so the pane persists even if the
+# command exits; an empty command leaves that plain shell untouched.
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION" 2>/dev/null; then
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$COMPANION_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
     if [[ "$NO_CLAUDE" != true && -n "$COMPANION_COMMAND" ]]; then
-        new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
-    else
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$COMPANION_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" send-keys -t "$COMPANION_SESSION" "$COMPANION_COMMAND" Enter
     fi
 fi

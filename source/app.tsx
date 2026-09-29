@@ -22,7 +22,6 @@ import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
 } from './update-action.ts';
-import {isFocusClaudeKey, isRailInputBlocked} from './rail-input.ts';
 import {
 	createLogger,
 	subscribeToErrors,
@@ -808,7 +807,7 @@ export default function App({
 		setHeaderWithTimeout(`Opening IDE for ${space.name}`, 3000);
 	};
 
-	// Focus the Claude viewer pane (Enter or right arrow)
+	// Focus the Claude viewer pane (Enter key)
 	const handleFocusClaude = () => {
 		if (!paneLayout) return;
 
@@ -958,19 +957,19 @@ export default function App({
 		child.unref();
 	};
 
-	const railDialogState = {
-		showPromptDialog,
-		showDeleteConfirm,
-		killDoneTargets,
-		showUpdateConfirm,
-		showHelp,
-		showErrorDialog,
-	};
-
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
-			if (isRailInputBlocked(railDialogState)) return;
+			if (
+				showPromptDialog ||
+				showDeleteConfirm ||
+				killDoneTargets !== null ||
+				showUpdateConfirm ||
+				showHelp ||
+				showErrorDialog
+			) {
+				return; // Dialogs handle their own input
+			}
 
 			const totalItems = spaces.length;
 
@@ -992,7 +991,8 @@ export default function App({
 				if (selectedIndex < totalItems - 1) {
 					setSelectedIndex(selectedIndex + 1);
 				}
-			} else if (isFocusClaudeKey(key)) {
+			} else if (key.return) {
+				// Enter - focus the Claude viewer pane
 				handleFocusClaude();
 			} else if (input === 'n') {
 				// 'n' for new session
@@ -1098,7 +1098,14 @@ export default function App({
 				}
 		},
 		{
-			isActive: !isRailInputBlocked(railDialogState) && !isSearching,
+			isActive:
+				!showPromptDialog &&
+				!showDeleteConfirm &&
+				killDoneTargets === null &&
+				!showUpdateConfirm &&
+				!showHelp &&
+				!showErrorDialog &&
+				!isSearching,
 		},
 	);
 
