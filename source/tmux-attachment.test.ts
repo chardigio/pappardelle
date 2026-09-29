@@ -403,12 +403,12 @@ test.serial(
 		t.true(await ensureCompanionSession('TEST-NEW', '/tmp', 'custom-ui', run));
 		t.deepEqual(
 			calls.map(args => args[2]),
-			['has-session', 'new-session', 'send-keys'],
+			['has-session', 'new-session'],
 		);
 		t.true(
 			calls.every(args => args[0] === '-L' && args[1] === 'pappardelle_inner'),
 		);
 		t.true(calls[1]!.includes('PAPPARDELLE_SPACE=TEST-NEW'));
-		t.true(calls[2]!.includes('custom-ui'));
+		t.true(calls[1]!.includes('custom-ui'));
 	},
 );
