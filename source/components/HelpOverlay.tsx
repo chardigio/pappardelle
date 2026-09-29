@@ -27,7 +27,7 @@ const defaultKeyDescriptions: Record<string, string> = {
 const fixedShortcuts = [
 	{key: 'j / ↓', description: 'Move down'},
 	{key: 'k / ↑', description: 'Move up'},
-	{key: 'Enter', description: 'Focus Claude pane'},
+	{key: 'Enter / →', description: 'Focus Claude pane'},
 	{key: 'n', description: 'New space'},
 	{key: 'x / Del', description: 'Close space'},
 	{key: '/', description: 'Search spaces'},
