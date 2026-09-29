@@ -85,6 +85,14 @@ export default function TextInput({
 		});
 	}, [originalValue, isFocused, isShowingCursor]);
 
+	// A paste can arrive as several stdin reads before React re-renders, so the
+	// handler edits from these instead of the last render's props and state.
+	const valueRef = useRef(originalValue);
+	const cursorRef = useRef(cursorOffset);
+	cursorRef.current = cursorOffset;
+	if (originalValue !== lastEmittedRef.current) {
+		valueRef.current = originalValue;
+	}
 	const value = originalValue;
 	const paint = (char: string, index: number): string =>
 		highlight && index < highlight.length
@@ -120,8 +128,8 @@ export default function TextInput({
 	useRawInput(
 		(input, key) => {
 			const result = handleTextInputKey(
-				originalValue,
-				cursorOffset,
+				valueRef.current,
+				cursorRef.current,
 				input,
 				key,
 			);
@@ -132,7 +140,7 @@ export default function TextInput({
 
 			if (result.submit) {
 				if (onSubmit) {
-					onSubmit(originalValue);
+					onSubmit(valueRef.current);
 				}
 				return;
 			}
@@ -144,10 +152,12 @@ export default function TextInput({
 				return;
 			}
 
-			const valueChanged = result.value !== originalValue;
+			const valueChanged = result.value !== valueRef.current;
 
+			cursorRef.current = result.cursorOffset;
 			setCursorOffset(result.cursorOffset);
 			if (valueChanged) {
+				valueRef.current = result.value;
 				lastEmittedRef.current = result.value;
 				onChange(result.value);
 			}
