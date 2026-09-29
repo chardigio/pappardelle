@@ -26,6 +26,7 @@ import {
 	getCompanionCommand,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
+	getPaneWidths,
 	getRepoName,
 	loadConfig,
 } from './config.ts';
@@ -40,8 +41,9 @@ import {
 	MIN_COMPANION_WIDTH,
 	NARROW_SCREEN_THRESHOLD,
 	type LayoutConfig,
+	type PaneWidths,
 } from './layout-sizing.ts';
-import {nextRailWidthOverride, type WindowSize} from './rail-width.ts';
+import {nextWidthOverride, type WindowSize} from './pane-drag.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -118,25 +120,43 @@ let companionViewerTty: string | null = null;
 let viewerPaneIds: string | null = null;
 
 /**
- * Ticket-rail width the user set by hand, or null while the derived width
- * still applies.
+ * Side-pane widths the user set by hand, or null while the configured or
+ * derived width still applies.
  *
  * Module state on purpose: STA-2040 asks for the choice to hold for the rest of
  * the session and for every new pappardelle to open at the default, and process
- * lifetime is exactly that. `rebuildLayout` must not clear it, because crossing
- * the narrow/wide threshold and coming back is not the user changing their mind.
+ * lifetime is exactly that. `rebuildLayout` must not clear them, because
+ * crossing the narrow/wide threshold and coming back is not the user changing
+ * their mind.
  */
 let railWidthOverride: number | null = null;
+let companionWidthOverride: number | null = null;
 
 /**
- * Window size and measured rail width at the end of the previous relayout.
+ * Window size and measured side-pane widths at the end of the previous
+ * relayout.
  *
- * Together they let `nextRailWidthOverride` separate a window resize from a
- * hand-drag of the rail/claude border. Measured, not requested, so tmux
- * rounding never reads as a drag.
+ * Together they let `nextWidthOverride` separate a window resize from a
+ * hand-drag of a pane border. Measured, not requested, so tmux rounding never
+ * reads as a drag.
  */
 let lastWindowSize: WindowSize | null = null;
 let lastRailWidth: number | null = null;
+let lastCompanionWidth: number | null = null;
+
+let configuredPaneWidths: PaneWidths | undefined;
+
+function getConfiguredPaneWidths(): PaneWidths {
+	if (configuredPaneWidths === undefined) {
+		try {
+			configuredPaneWidths = getPaneWidths(loadConfig());
+		} catch {
+			configuredPaneWidths = {};
+		}
+	}
+
+	return configuredPaneWidths;
+}
 
 /**
  * Check if running inside tmux
@@ -884,14 +904,24 @@ async function getTmuxWindowSizeAsync(
 	return {width, height};
 }
 
-async function recordRailSampleAsync(
-	paneId: string,
+async function recordPaneSampleAsync(
+	listPaneId: string,
+	companionViewerPaneId: string,
 	windowDims: WindowSize,
 	run: AsyncTmuxRunner,
 ): Promise<void> {
-	const {cols} = await getPaneDimensions(paneId, run);
 	lastWindowSize = windowDims;
-	lastRailWidth = cols;
+	lastRailWidth = await measurePaneWidth(listPaneId, run);
+	lastCompanionWidth = await measurePaneWidth(companionViewerPaneId, run);
+}
+
+async function measurePaneWidth(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<number | null> {
+	if (!paneId) return null;
+	const {cols} = await getPaneDimensions(paneId, run);
+	return cols;
 }
 
 function queryPaneDimension(format: string, fallback: number): number {
@@ -990,24 +1020,42 @@ export function calculateLayout(
 		totalWidth,
 		totalHeight,
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
-		railWidthOverride,
+		currentPaneWidths(),
 	);
 }
 
 /**
- * Remember the window size and the *measured* rail width, so the next relayout
- * can tell a window resize from a hand-drag.
+ * A dragged width replaces the configured one for that pane. Once either side
+ * has been dragged, claude takes whatever is left, the same as under the mouse.
+ */
+function currentPaneWidths(): PaneWidths {
+	const configured = getConfiguredPaneWidths();
+	const dragged = railWidthOverride !== null || companionWidthOverride !== null;
+	return {
+		rail: railWidthOverride ?? configured.rail,
+		companion: companionWidthOverride ?? configured.companion,
+		claude: dragged ? null : configured.claude,
+	};
+}
+
+/**
+ * Remember the window size and the *measured* side-pane widths, so the next
+ * relayout can tell a window resize from a hand-drag.
  *
- * Called after every operation that moves the panes. The rail width is measured
+ * Called after every operation that moves the panes. The widths are measured
  * rather than assumed because tmux rounds split sizes, and an assumed value
  * would make the first harmless resize event look like a drag.
  */
-function recordRailSample(
+function recordPaneSample(
 	listPaneId: string,
+	companionViewerPaneId: string,
 	windowDims: WindowSize | null,
 ): void {
 	lastWindowSize = windowDims;
 	lastRailWidth = getPaneWidth(listPaneId);
+	lastCompanionWidth = companionViewerPaneId
+		? getPaneWidth(companionViewerPaneId)
+		: null;
 }
 
 /**
@@ -1195,7 +1243,7 @@ export function setupPappardellLayout(): {
 			}`,
 		);
 
-		recordRailSample(listPaneId, getTmuxWindowSize());
+		recordPaneSample(listPaneId, companionViewerPaneId, getTmuxWindowSize());
 
 		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1682,7 +1730,12 @@ export async function rebuildLayout(
 			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		await recordRailSampleAsync(listPaneId, windowDims, run);
+		await recordPaneSampleAsync(
+			listPaneId,
+			companionViewerPaneId,
+			windowDims,
+			run,
+		);
 
 		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1719,21 +1772,49 @@ export async function relayoutPanes(
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
 
-		// Separate a window resize from a hand-drag of the rail/claude border
+		// Separate a window resize from a hand-drag of a side-pane border
 		// *before* computing the layout, so a drag feeds its own width back in
-		// instead of being recomputed away. See rail-width.ts and STA-2040.
-		const {cols: measuredRailWidth} = await getPaneDimensions(listPaneId, run);
-		const previousOverride = railWidthOverride;
-		railWidthOverride = nextRailWidthOverride({
+		// instead of being recomputed away. See pane-drag.ts and STA-2040.
+		const measuredRailWidth = await measurePaneWidth(listPaneId, run);
+		const measuredCompanionWidth = await measurePaneWidth(
+			companionViewerPaneId,
+			run,
+		);
+		const previousRail = railWidthOverride;
+		const previousCompanion = companionWidthOverride;
+		railWidthOverride = nextWidthOverride({
 			previousWindow: lastWindowSize,
 			currentWindow: windowDims,
-			previousRailWidth: lastRailWidth,
-			currentRailWidth: measuredRailWidth,
+			previousWidth: lastRailWidth,
+			currentWidth: measuredRailWidth,
 			currentOverride: railWidthOverride,
 		});
-		if (railWidthOverride !== previousOverride) {
+		companionWidthOverride = nextWidthOverride({
+			previousWindow: lastWindowSize,
+			currentWindow: windowDims,
+			previousWidth: lastCompanionWidth,
+			currentWidth: measuredCompanionWidth,
+			currentOverride: companionWidthOverride,
+		});
+		// A configured claude width can be what sized the other side pane, and
+		// that width is dropped once anything is dragged. Pinning the other side
+		// keeps it where it was instead of jumping to its derived width.
+		if (getConfiguredPaneWidths().claude !== undefined) {
+			if (railWidthOverride !== previousRail)
+				companionWidthOverride ??= measuredCompanionWidth;
+			if (companionWidthOverride !== previousCompanion)
+				railWidthOverride ??= measuredRailWidth;
+		}
+
+		if (railWidthOverride !== previousRail) {
 			log.info(
-				`Rail resized by hand: width=${railWidthOverride} (was ${previousOverride ?? 'default'})`,
+				`Rail resized by hand: width=${railWidthOverride} (was ${previousRail ?? 'default'})`,
+			);
+		}
+
+		if (companionWidthOverride !== previousCompanion) {
+			log.info(
+				`Companion resized by hand: width=${companionWidthOverride} (was ${previousCompanion ?? 'default'})`,
 			);
 		}
 
@@ -1741,7 +1822,10 @@ export async function relayoutPanes(
 
 		log.info(
 			`Relayout: ${totalWidth}x${totalHeight}, mode=${layout.direction}` +
-				(railWidthOverride === null ? '' : `, rail=${railWidthOverride}`),
+				(railWidthOverride === null ? '' : `, rail=${railWidthOverride}`) +
+				(companionWidthOverride === null
+					? ''
+					: `, companion=${companionWidthOverride}`),
 		);
 
 		if (layout.direction === 'vertical') {
@@ -1787,7 +1871,12 @@ export async function relayoutPanes(
 			}
 		}
 
-		await recordRailSampleAsync(listPaneId, windowDims, run);
+		await recordPaneSampleAsync(
+			listPaneId,
+			companionViewerPaneId,
+			windowDims,
+			run,
+		);
 
 		log.info('Relayout completed successfully');
 		return true;

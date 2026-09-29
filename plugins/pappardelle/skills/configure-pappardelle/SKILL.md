@@ -347,6 +347,19 @@ companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GI
 
 **When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), a split pane (recipe above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
 
+## Configuring Pane Widths
+
+`layout` sets the starting widths of the three panes in the wide (100+ column) layout, as columns or percentage strings. Any key left out keeps the default for that pane.
+
+```yaml
+layout:
+  rail_width: '10%'
+  claude_width: '45%'
+  companion_width: '45%'
+```
+
+Claude takes whatever the rail and companion leave, so `claude_width` only matters when one of the side panes is unset. A border the user drags by hand wins for the rest of the session. Pappardelle reads `layout` at startup, so it needs a restart after an edit. Full rules are in `pappardelle-config.md` under "Pane Widths".
+
 ## Configuring the IDE Command
 
 `ide_command` is the shell command the `d` key runs to open an editor on the selected workspace's worktree. It defaults to Cursor.

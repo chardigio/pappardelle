@@ -66,6 +66,15 @@ team_prefix: ENG
 # list_view:
 #   layout: two_line        # 'single_line' | 'two_line'
 
+# Starting widths of the three panes in the wide (100+ column) layout, as
+# columns or a percentage of the width the panes share. Leave any of them out
+# to keep the default for that pane. Claude takes whatever the rail and
+# companion leave, so claude_width only matters when one of them is unset.
+# layout:
+#   rail_width: '10%'
+#   claude_width: '45%'
+#   companion_width: '45%'
+
 # Issue watchlist (optional): poll the tracker every 30s and auto-spawn a
 # workspace for each assigned, matching issue that doesn't already have one.
 # A profile can also declare its own `issue_watchlist` (see ios-app below) —

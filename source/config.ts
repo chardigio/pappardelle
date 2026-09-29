@@ -16,6 +16,7 @@ import {
 	issueKeyTeamPrefix,
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
+import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
 
 // ============================================================================
 // Types
@@ -129,6 +130,17 @@ export type ListLayout = 'single_line' | 'two_line';
 
 export interface ListViewConfig {
 	layout?: ListLayout;
+}
+
+/**
+ * Starting pane widths for the 3-column layout, as columns or a percentage
+ * string such as `"25%"`. A width the user drags by hand replaces these for
+ * the rest of the session.
+ */
+export interface PaneLayoutConfig {
+	rail_width?: PaneWidth;
+	claude_width?: PaneWidth;
+	companion_width?: PaneWidth;
 }
 
 export interface Profile {
@@ -259,6 +271,7 @@ export interface PappardelleConfig {
 	terminal?: TerminalConfig;
 	/** How each space is drawn in the TUI list. Defaults per tracker. */
 	list_view?: ListViewConfig;
+	layout?: PaneLayoutConfig;
 	hooks?: HooksConfig;
 	keybindings?: KeybindingConfig[];
 	profiles: Record<string, Profile>;
@@ -887,6 +900,23 @@ export function validateConfig(
 				listView['layout'] !== 'two_line'
 			) {
 				errors.push('list_view.layout: must be "single_line" or "two_line"');
+			}
+		}
+	}
+
+	// Check layout (optional pane widths)
+	if (cfg['layout'] !== undefined) {
+		if (typeof cfg['layout'] !== 'object' || cfg['layout'] === null) {
+			errors.push('layout: must be an object');
+		} else {
+			const layout = cfg['layout'] as Record<string, unknown>;
+			for (const key of ['rail_width', 'claude_width', 'companion_width']) {
+				const value = layout[key];
+				if (value !== undefined && !isPaneWidth(value)) {
+					errors.push(
+						`layout.${key}: must be a positive whole number of columns or a percentage like "25%"`,
+					);
+				}
 			}
 		}
 	}
@@ -2204,6 +2234,24 @@ export function getStateColors(
  */
 export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
 	return config.auto_remove_when_done ?? false;
+}
+
+function isPaneWidth(value: unknown): value is PaneWidth {
+	if (typeof value === 'number') return Number.isInteger(value) && value > 0;
+	if (typeof value !== 'string') return false;
+	const match = /^(\d+(?:\.\d+)?)%$/.exec(value);
+	if (!match) return false;
+	const percent = Number(match[1]);
+	return percent > 0 && percent <= 100;
+}
+
+export function getPaneWidths(config: PappardelleConfig | null): PaneWidths {
+	const layout = config?.layout;
+	return {
+		rail: layout?.rail_width,
+		claude: layout?.claude_width,
+		companion: layout?.companion_width,
+	};
 }
 
 export function getListLayout(config: PappardelleConfig | null): ListLayout {

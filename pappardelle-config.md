@@ -442,6 +442,11 @@ interface PappardelleConfig {
 	list_view?: {
 		layout?: 'single_line' | 'two_line'; // TUI list row layout. Default: two_line for beads, single_line otherwise.
 	};
+	layout?: {
+		rail_width?: number | string; // Starting pane widths: columns (30) or a percentage ("25%"). See "Pane Widths".
+		claude_width?: number | string;
+		companion_width?: number | string;
+	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
 	ide_command?: string; // Command the `d` key runs to open an editor (default: cursor). Per-profile overridable. "" = disable `d`.
 	claude?: {
@@ -920,6 +925,25 @@ single_line:
 two_line:
 🍝 ● pappardelle-29r                                                       (2) ✓
      Residual TUI flicker: rapid typing in the new-workspace issue field r…
+```
+
+## Pane Widths
+
+In the wide layout (terminals 100 columns and up) the rail, Claude and companion panes default to roughly 24/38/38, with the rail kept between 15 and 40 columns and the companion capped at 86. `layout` replaces those defaults.
+
+```yaml
+layout:
+  rail_width: '10%'
+  claude_width: '45%'
+  companion_width: '45%'
+```
+
+```typescript
+layout?: {
+	rail_width?: number | string; // columns, or a percentage string like "25%"
+	claude_width?: number | string;
+	companion_width?: number | string;
+};
 ```
 
 ## Companion Pane Command
