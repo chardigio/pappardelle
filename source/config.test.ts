@@ -20,6 +20,7 @@ import {
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	getListLayout,
+	getPaneWidths,
 	getCompanionCommand,
 	getIdeCommand,
 	getStateColors,
@@ -5269,6 +5270,64 @@ test('validateConfig rejects a non-object list_view', t => {
 		{instanceOf: ConfigValidationError},
 	);
 	t.truthy(error?.message.includes('list_view: must be an object'));
+});
+
+// layout — starting pane widths for the 3-column layout.
+
+const validateLayout = (layout: unknown) => () => {
+	validateConfig({
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		layout,
+	});
+};
+
+test('validateConfig accepts column and percent pane widths', t => {
+	t.notThrows(
+		validateLayout({
+			rail_width: 30,
+			claude_width: '45%',
+			companion_width: '12.5%',
+		}),
+	);
+	t.notThrows(validateLayout({companion_width: '100%'}));
+	t.notThrows(validateLayout({}));
+});
+
+test('validateConfig rejects pane widths that are not columns or percentages', t => {
+	for (const value of [0, -5, 12.5, '30', '0%', '101%', 'wide', true]) {
+		const error = t.throws(validateLayout({rail_width: value}), {
+			instanceOf: ConfigValidationError,
+		});
+		t.truthy(
+			error?.message.includes(
+				'layout.rail_width: must be a positive whole number',
+			),
+			`value ${String(value)}`,
+		);
+	}
+});
+
+test('validateConfig rejects a non-object layout', t => {
+	const error = t.throws(validateLayout('10/45/45'), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('layout: must be an object'));
+});
+
+test('getPaneWidths maps layout keys onto the three panes', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.layout = {rail_width: '10%', claude_width: '45%', companion_width: 70};
+	t.deepEqual(getPaneWidths(config), {
+		rail: '10%',
+		claude: '45%',
+		companion: 70,
+	});
+	t.deepEqual(getPaneWidths(null), {
+		rail: undefined,
+		claude: undefined,
+		companion: undefined,
+	});
 });
 
 // ============================================================================

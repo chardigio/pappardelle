@@ -25,7 +25,7 @@ async function paneWidth(
 }
 
 test.serial(
-	'isolated tmux preserves rail drag, focus and inner sessions across zoom and orientation changes',
+	'isolated tmux preserves rail and companion drags, focus and inner sessions across zoom and orientation changes',
 	async t => {
 		try {
 			await exec('tmux', ['-V']);
@@ -77,6 +77,13 @@ test.serial(
 		});
 		await run(['resize-pane', '-t', pane, '-x', '44']);
 		t.true(await relayoutPanes(pane, layout.companionViewerPaneId, run));
+		t.is(await paneWidth(pane, run), 44);
+		// A companion drag raises no resize in the list pane, so it is only seen
+		// by the next relayout from some other cause, which must keep it.
+		await run(['resize-pane', '-t', layout.companionViewerPaneId, '-x', '60']);
+		t.true(await relayoutPanes(pane, layout.companionViewerPaneId, run));
+		t.true(await relayoutPanes(pane, layout.companionViewerPaneId, run));
+		t.is(await paneWidth(layout.companionViewerPaneId, run), 60);
 		t.is(await paneWidth(pane, run), 44);
 		const before: number[] = [];
 		const after: number[] = [];
@@ -156,6 +163,7 @@ test.serial(
 		layout = await rebuildLayout(pane, layout.claudeViewerPaneId, '', run);
 		t.truthy(layout?.companionViewerPaneId);
 		t.is(await paneWidth(pane, run), 44);
+		t.is(await paneWidth(layout!.companionViewerPaneId, run), 60);
 		const {stdout: survivingSession} = await exec('tmux', [
 			'-S',
 			inner,

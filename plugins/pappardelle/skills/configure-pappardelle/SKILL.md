@@ -33,6 +33,7 @@ Options:
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions, model, effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
+- **Set pane widths** — starting widths of the rail, Claude and companion panes (`layout`)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
 Then follow the appropriate section below based on their choice.
@@ -346,6 +347,19 @@ companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GI
 `-v` stacks the new pane below, `-d` keeps focus on the top (gitui) pane, `-l 30%` sizes the bottom shell (gitui keeps the other 70%), `-c "#{pane_current_path}"` opens it in the worktree dir. The split runs inside the companion's own tmux session, so it never touches the Claude pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the default — custom commands don't get it for free. Only newly-created workspaces pick up a changed `companion_command` (existing companion sessions persist).
 
 **When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), a split pane (recipe above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
+
+## Configuring Pane Widths
+
+`layout` sets the starting widths of the three panes in the wide (100+ column) layout, as columns or percentage strings. Any key left out keeps the default for that pane.
+
+```yaml
+layout:
+  rail_width: '10%'
+  claude_width: '45%'
+  companion_width: '45%'
+```
+
+Claude takes whatever the rail and companion leave, so `claude_width` only matters when one of the side panes is unset. A border the user drags by hand wins for the rest of the session. Pappardelle reads `layout` at startup, so it needs a restart after an edit. Full rules are in `pappardelle-config.md` under "Pane Widths".
 
 ## Configuring the IDE Command
 

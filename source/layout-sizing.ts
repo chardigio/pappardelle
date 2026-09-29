@@ -38,36 +38,55 @@ export const MAX_LIST_HEIGHT_RATIO = 0.25;
 export const MIN_RAIL_OVERRIDE_WIDTH = 8;
 
 // ============================================================================
-// Rail Override Clamping
+// Explicit Pane Widths
 // ============================================================================
 
 /**
- * Widest rail that still leaves the claude pane its minimum.
- *
- * The companion width is a parameter rather than a constant because a rail drag
- * moves only the rail/claude border: the companion keeps whatever width it
- * already had, and every column the rail gains comes out of claude.
+ * A pane width set in config or by dragging a border: a column count, or a
+ * share of the width the three panes split between them, such as `"25%"`.
  */
-export function maxRailOverrideWidth(
+export type PaneWidth = number | `${number}%`;
+
+/**
+ * Widths that replace the derived ones in horizontal layout. `null` or absent
+ * leaves that pane to the derived layout.
+ */
+export interface PaneWidths {
+	rail?: PaneWidth | null;
+	claude?: PaneWidth | null;
+	companion?: PaneWidth | null;
+}
+
+export function resolvePaneWidth(
+	width: PaneWidth,
 	usableWidth: number,
-	companionWidth: number,
 ): number {
-	return Math.max(
-		MIN_RAIL_OVERRIDE_WIDTH,
-		usableWidth - companionWidth - MIN_CLAUDE_WIDTH,
-	);
+	if (typeof width === 'number') return Math.floor(width);
+	return Math.floor((usableWidth * Number.parseFloat(width)) / 100);
 }
 
 /**
- * Clamp a requested rail width into the range the layout can honor.
+ * Fit the two side panes around a claude pane of at least `MIN_CLAUDE_WIDTH`.
+ *
+ * When they do not fit, the rail gives up columns first, then the companion.
+ * The floors win over the claude minimum when there is no room for all three.
  */
-export function clampRailWidth(
-	width: number,
-	usableWidth: number,
+export function fitSidePanes(
+	railWidth: number,
 	companionWidth: number,
-): number {
-	const floored = Math.max(MIN_RAIL_OVERRIDE_WIDTH, Math.floor(width));
-	return Math.min(maxRailOverrideWidth(usableWidth, companionWidth), floored);
+	usableWidth: number,
+): {railWidth: number; companionWidth: number} {
+	let rail = Math.max(MIN_RAIL_OVERRIDE_WIDTH, Math.floor(railWidth));
+	let companion = Math.max(MIN_COMPANION_WIDTH, Math.floor(companionWidth));
+	let excess = rail + companion + MIN_CLAUDE_WIDTH - usableWidth;
+	if (excess > 0) {
+		const fromRail = Math.min(excess, rail - MIN_RAIL_OVERRIDE_WIDTH);
+		rail -= fromRail;
+		excess -= fromRail;
+		companion -= Math.min(excess, companion - MIN_COMPANION_WIDTH);
+	}
+
+	return {railWidth: rail, companionWidth: companion};
 }
 
 // ============================================================================
@@ -133,8 +152,8 @@ export function calculateIdealListHeightForCount(sessionCount: number): number {
  * @param totalWidth - Total terminal width in characters
  * @param totalHeight - Total terminal height in rows
  * @param sessionCount - Number of active sessions (for vertical layout list height)
- * @param railWidthOverride - Rail width the user set by hand this session, or
- *   null/undefined for the derived width. Only meaningful in horizontal layout.
+ * @param widths - Pane widths from config or a hand-drag that replace the
+ *   derived ones. Only meaningful in horizontal layout.
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
@@ -145,7 +164,7 @@ export function calculateLayoutForSize(
 	totalWidth: number,
 	totalHeight: number,
 	sessionCount: number,
-	railWidthOverride?: number | null,
+	widths: PaneWidths = {},
 ): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
@@ -217,19 +236,30 @@ export function calculateLayoutForSize(
 		claudeWidth += excess;
 	}
 
-	// A hand-dragged rail replaces the derived width. Only the rail/claude
-	// border moves, exactly as it does under the mouse: the companion keeps the
-	// width it already had, and claude absorbs the difference. Clamping against
-	// the companion width (not a constant) is what keeps claude above its
-	// minimum at every terminal size.
-	if (railWidthOverride !== undefined && railWidthOverride !== null) {
-		const overriddenListWidth = clampRailWidth(
-			railWidthOverride,
-			usableWidth,
-			companionWidth,
-		);
-		claudeWidth += listWidth - overriddenListWidth;
-		listWidth = overriddenListWidth;
+	const resolve = (width: PaneWidth | null | undefined) =>
+		width === null || width === undefined
+			? null
+			: resolvePaneWidth(width, usableWidth);
+	const rail = resolve(widths.rail);
+	const companion = resolve(widths.companion);
+	// Claude takes whatever the side panes leave, so its own width only decides
+	// the layout when one of them is unset.
+	const claude =
+		rail !== null && companion !== null ? null : resolve(widths.claude);
+
+	if (rail !== null || companion !== null || claude !== null) {
+		let railTarget = rail ?? listWidth;
+		let companionTarget = companion ?? companionWidth;
+		if (claude !== null) {
+			if (rail === null && companion !== null)
+				railTarget = usableWidth - companion - claude;
+			else companionTarget = usableWidth - railTarget - claude;
+		}
+
+		const fitted = fitSidePanes(railTarget, companionTarget, usableWidth);
+		listWidth = fitted.railWidth;
+		companionWidth = fitted.companionWidth;
+		claudeWidth = usableWidth - listWidth - companionWidth;
 	}
 
 	return {
