@@ -1279,3 +1279,11 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 All standard template variables are available: `${WORKTREE_PATH}`, `${ISSUE_KEY}`, `${REPO_ROOT}`, `${REPO_NAME}`, `${SCRIPT_DIR}`, `${VCS_LABEL}`, plus any profile `vars`.
 
 Profile-specific variables (like `IOS_APP_DIR`) are resolved by matching the issue's tracker project against `tracker_projects`, then falling back to keyword matching against the issue title. If no match is found, the default profile is used.
+
+# Linking published branches
+
+After creating or reusing a PR/MR, run `pappardelle link-pr <url>` from its source repository. For a nested repository, add `--workspace <outer-workspace-root>`. GitHub URLs are verified with `gh`; GitLab URLs with `glab`. The PR/MR must be open and its source repository must match the checkout's origin.
+
+The command saves a `prLinks` entry in `~/.pappardelle/repos/{repo}/space-state/{workspace-branch}.json`, including host, source project, local branch, published branch, URL and number. Rail polling uses the published branch for the matching host, source project and local branch; other repositories keep their discovered branches. Running the command again updates the existing mapping. Switching local branches stops applying the old mapping. Existing status and profile fields are preserved.
+
+Agent workflow rule: after a successful PR/MR creation or reuse, run `link-pr` before reporting completion. For multi-repository workspaces, link each repository separately. Report a linking failure explicitly; the PR/MR itself remains intact.

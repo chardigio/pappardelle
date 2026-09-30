@@ -2,6 +2,8 @@ import {execFile} from 'node:child_process';
 import {readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {promisify} from 'node:util';
+import {workspaceIdentity} from '../link-pr.ts';
+import {readSpaceState} from '../space-state.ts';
 
 const execFileAsync = promisify(execFile);
 export interface WorkspaceRepository {
@@ -11,6 +13,7 @@ export interface WorkspaceRepository {
 export type RepositoryDiscovery = (
 	directory: string,
 	host: string,
+	stateBaseDir?: string,
 ) => Promise<WorkspaceRepository[]>;
 
 const EXCLUDED = new Set([
@@ -51,6 +54,7 @@ export function remoteProject(remote: string, host: string): string | null {
 export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 	directory,
 	host,
+	stateBaseDir,
 ) => {
 	const repositories: WorkspaceRepository[] = [];
 	let visited = 0;
@@ -106,5 +110,18 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 		}
 	}
 	await visit(directory, 0);
-	return repositories;
+	const identity = await workspaceIdentity(directory).catch(() => null);
+	const links = identity
+		? (readSpaceState(identity.repoName, identity.issueKey, stateBaseDir)
+				?.prLinks ?? [])
+		: [];
+	return repositories.map(repository => {
+		const link = links.find(
+			item =>
+				item.host === host &&
+				item.project === repository.project &&
+				item.localBranch === repository.branch,
+		);
+		return link ? {...repository, branch: link.remoteBranch} : repository;
+	});
 };
