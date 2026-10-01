@@ -41,6 +41,7 @@ import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
+import {linkPr} from './link-pr.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,6 +68,7 @@ const cli = meow(
 
 	Commands
 	  highlight <key>  Select a row in the running TUI by issue key
+	  link-pr <url>    Record a verified PR/MR for the current workspace
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -80,6 +82,7 @@ const cli = meow(
 
 	Options
 	  --no-layout    Don't set up tmux pane layout (run standalone)
+	  --workspace    Outer workspace root when linking a nested repository
 
 	Examples
 	  $ pappardelle              # Run with tmux layout
@@ -90,6 +93,7 @@ const cli = meow(
 	{
 		importMeta: import.meta,
 		flags: {
+			workspace: {type: 'string'},
 			layout: {
 				type: 'boolean',
 				default: true,
@@ -151,6 +155,28 @@ function checkConfig(): void {
 			process.exit(1);
 		}
 	}
+}
+
+if (cli.input[0] === 'link-pr') {
+	try {
+		if (cli.input.length !== 2)
+			throw new Error(
+				'Usage: pappardelle link-pr <url> [--workspace <workspace-root>]',
+			);
+		const result = await linkPr(
+			cli.input[1]!,
+			process.cwd(),
+			cli.flags.workspace ? path.resolve(cli.flags.workspace) : getRepoRoot(),
+			{gitlabHost: loadProviderConfigs().vcs_host?.host},
+		);
+		console.log(
+			`Linked ${result.link.url} (${result.link.remoteBranch}) in ${result.file}`,
+		);
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(1);
+	}
+	process.exit(0);
 }
 
 checkConfig();

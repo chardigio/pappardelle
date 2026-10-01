@@ -25,6 +25,14 @@ export interface SpaceRecap {
 }
 
 export interface SpaceState {
+	prLinks?: Array<{
+		host: string;
+		project: string;
+		localBranch: string;
+		remoteBranch: string;
+		url: string;
+		number: number;
+	}>;
 	pipeline?: PipelineStatus | null;
 	unresolvedCommentCount?: number;
 	prNumber?: number;
