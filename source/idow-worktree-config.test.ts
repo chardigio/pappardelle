@@ -1,5 +1,9 @@
 /* eslint-disable no-template-curly-in-string -- These are idow shell templates. */
-import {execFile, execFileSync} from 'node:child_process';
+import {
+	type ExecFileException,
+	execFile,
+	execFileSync,
+} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,6 +32,7 @@ function setup(t: ExecutionContext) {
 	const workspace = path.join(root, 'new workspace');
 	const launchArgs = path.join(root, 'launch-args');
 	const vcsCalls = path.join(root, 'vcs-calls');
+	const launchers = path.join(root, 'launchers');
 	for (const dir of [main, scripts, bin, home]) fs.mkdirSync(dir);
 	const git = (...args: string[]) =>
 		execFileSync('git', ['-C', main, ...args], {stdio: 'pipe'});
@@ -47,9 +52,27 @@ function setup(t: ExecutionContext) {
 		'idow',
 		'provider-helpers.sh',
 		'resolve-claude-config.sh',
+		'resolve-terminal-app.sh',
 	]) {
 		fs.copyFileSync(path.join(scriptsDir, file), path.join(scripts, file));
 	}
+	// Step 9 is stubbed rather than copied: the real launchers drive iTerm,
+	// Ghostty or `open`, so an unstubbed --open run would pop a terminal window
+	// on the machine running the suite, and which one it picked would depend on
+	// the host's terminal rather than the fixture.
+	for (const [launcher, name] of [
+		['open-ghostty-claude.sh', 'ghostty'],
+		['open-iterm-claude.sh', 'iterm'],
+		['open-default-terminal-claude.sh', 'default'],
+	] as const) {
+		writeScript(
+			path.join(scripts, launcher),
+			`printf '%s %s\\n' ${name} "$*" >> "$IDOW_TEST_LAUNCHERS"\nexit "\${IDOW_TEST_EXIT_${name.toUpperCase()}:-0}"`,
+		);
+	}
+	// idow asks Ghostty for its front window before the slow steps; a real
+	// osascript would send that Apple Event to whatever Ghostty the host runs.
+	writeScript(path.join(bin, 'osascript'), 'printf "%s\\n" tab-group-test');
 	writeScript(
 		path.join(bin, 'bd'),
 		`printf '%s\\n' '{"id":"test-abc","title":"Test issue","description":""}'`,
@@ -115,20 +138,27 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 		workspace,
 		launchArgs,
 		vcsCalls,
+		launchers,
 		home,
 		config,
 		async run({
 			open = false,
 			projectRoot = true,
 			onExit = () => {},
+			extraEnv = {},
 		}: {
 			open?: boolean;
 			projectRoot?: boolean;
 			onExit?: () => void;
+			extraEnv?: Record<string, string>;
 		} = {}): Promise<string> {
 			const env = {...process.env};
 			delete env.PAPPARDELLE_PROJECT_ROOT;
 			delete env.MAIN_REPO_ROOT;
+			// idow exports this into every workspace it spawns, so a suite run
+			// from inside a Pappardelle session inherits it and the fixture
+			// resolves the real checkout instead of its own.
+			delete env.PAPPARDELLE_MAIN_REPO_ROOT;
 			return new Promise((resolve, reject) => {
 				const child = execFile(
 					'bash',
@@ -150,6 +180,8 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 							IDOW_TEST_WORKSPACE: workspace,
 							IDOW_TEST_LAUNCH_ARGS: launchArgs,
 							IDOW_TEST_VCS_CALLS: vcsCalls,
+							IDOW_TEST_LAUNCHERS: launchers,
+							...extraEnv,
 						},
 					},
 					(error, stdout) => {
@@ -312,4 +344,86 @@ test('idow rotates per invocation and prunes only old invocation logs', async t 
 	t.false(files.includes(path.basename(stale)));
 	t.true(files.includes('unrelated.log'));
 	t.is(files.filter(name => name.startsWith('idow-test-abc-')).length, 2);
+});
+
+// Step 9 tries Ghostty, then iTerm, then the default terminal, and stops at the
+// first that opens. Only a run where every launcher fails may exit non-zero:
+// the TUI keys its "Opened" / "Open failed" header off that exit code.
+const fallbackCases = [
+	{
+		title: 'Ghostty opens and nothing else runs',
+		app: 'Ghostty',
+		failing: [],
+		ran: ['ghostty'],
+	},
+	{
+		title: 'a failed Ghostty falls back to iTerm',
+		app: 'Ghostty',
+		failing: ['GHOSTTY'],
+		ran: ['ghostty', 'iterm'],
+	},
+	{
+		title: 'a failed iTerm falls back to the default terminal',
+		app: 'Ghostty',
+		failing: ['GHOSTTY', 'ITERM'],
+		ran: ['ghostty', 'iterm', 'default'],
+	},
+	{
+		title: 'every launcher failing reports failure',
+		app: 'Ghostty',
+		failing: ['GHOSTTY', 'ITERM', 'DEFAULT'],
+		ran: ['ghostty', 'iterm', 'default'],
+	},
+	{
+		title:
+			'a terminal Pappardelle does not drive opens in the default terminal',
+		app: 'Alacritty',
+		failing: [],
+		ran: ['default'],
+	},
+];
+
+for (const c of fallbackCases) {
+	test(`step 9: ${c.title}`, async t => {
+		const fixture = setup(t);
+		fs.writeFileSync(
+			path.join(fixture.main, '.pappardelle.local.yml'),
+			`claude:\n  model: main-model\nterminal:\n  app: ${c.app}\n`,
+		);
+		const run = fixture.run({
+			open: true,
+			extraEnv: Object.fromEntries(
+				c.failing.map(name => [`IDOW_TEST_EXIT_${name}`, '1']),
+			),
+		});
+		if (c.failing.length === 3) {
+			const error = await t.throwsAsync(run);
+			t.is((error as ExecFileException | undefined)?.code, 1);
+		} else {
+			await run;
+		}
+
+		const ran = fs
+			.readFileSync(fixture.launchers, 'utf8')
+			.trim()
+			.split('\n')
+			.map(line => line.split(' ')[0]);
+		t.deepEqual(ran, c.ran);
+	});
+}
+
+// The window is captured before worktree creation and profile commands, which
+// can run for minutes, so the tab lands where the user pressed `o` rather than
+// wherever focus has moved since.
+test('step 9 hands Ghostty the window captured at startup', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		'claude:\n  model: main-model\nterminal:\n  app: Ghostty\n',
+	);
+	await fixture.run({open: true});
+	t.regex(
+		fs.readFileSync(fixture.launchers, 'utf8'),
+		/^ghostty .*--window-id tab-group-test/m,
+	);
 });

@@ -437,7 +437,7 @@ interface PappardelleConfig {
 	post_workspace_init?: CommandConfig[]; // Commands to run after worktree creation (legacy: post_worktree_init)
 	pre_workspace_deinit?: CommandConfig[]; // Commands to run before workspace deletion
 	terminal?: {
-		app?: string; // Terminal app name (default: iTerm)
+		app?: string; // "auto" (default), "iTerm" or "Ghostty"
 	};
 	list_view?: {
 		layout?: 'single_line' | 'two_line'; // TUI list row layout. Default: two_line for beads, single_line otherwise.
@@ -1153,18 +1153,12 @@ Uses the same `CommandConfig` format and template variables as `post_workspace_i
 
 ## Terminal Configuration
 
-The `terminal` section configures which terminal application is used for workspace windows.
+The `terminal` section configures which terminal application opens a workspace.
 
 ```yaml
 terminal:
-  app: 'iTerm' # Currently only iTerm is supported
+  app: 'auto' # auto | iTerm | Ghostty | <any app name>
 ```
-
-| Field | Type     | Default | Description                                                     |
-| ----- | -------- | ------- | --------------------------------------------------------------- |
-| `app` | `string` | `iTerm` | Terminal application name. Currently only `iTerm` is supported. |
-
-When omitted, defaults to iTerm.
 
 ## Lifecycle Hooks
 

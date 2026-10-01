@@ -186,6 +186,13 @@ SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
 CLAUDE_MODEL=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.model')
 CLAUDE_EFFORT=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.effort')
 
+# Resolve which terminal launcher to drive. terminal.app layers across the same
+# three config files, since terminal choice is a per-machine fact that belongs
+# in .pappardelle.local.yml or the home config rather than the shared one.
+TERMINAL_APP=$("$SCRIPT_DIR/resolve-terminal-app.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
+
+TERMINAL_OPEN_FAILED=false
+
 # Re-resolve the Claude launch flags (model/effort) for the selected profile.
 # profiles.<name>.claude.<field> beats the top-level claude.<field>; an explicit
 # empty string at the profile level clears the inherited value. Called at each
@@ -452,6 +459,17 @@ else
     DESCRIPTION="$INPUT"
     IS_NEW_ISSUE=true
     log "Detected description, will create new issue"
+fi
+
+# Capture the Ghostty window now, before worktree creation and profile commands,
+# which can run for minutes. By the time step 9 opens the tab the TUI may no
+# longer be frontmost, and the tab has to land in the window the user is in.
+#
+# Gated on --open as well: the Apple Event would otherwise launch Ghostty, and
+# can raise the Automation permission prompt, on runs that never open anything.
+GHOSTTY_WINDOW_ID=""
+if [[ "$OPEN_WORKSPACE" == true && "$TERMINAL_APP" == "Ghostty" ]]; then
+    GHOSTTY_WINDOW_ID=$(osascript -e 'tell application "Ghostty" to get id of front window' 2>/dev/null || true)
 fi
 
 # Step 1: Select profile from .pappardelle.yml
@@ -806,15 +824,11 @@ CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 export PAPPARDELLE_TMUX_SOCKET
 "$SCRIPT_DIR/start-claude-session.sh" "${CLAUDE_SESSION_ARGS[@]}" || print_warning "Failed to start Claude tmux session"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION_NAME" 2>/dev/null; then
     print_success "Claude session: $CLAUDE_SESSION_NAME"
 else
     print_warning "Claude session not created (is tmux running?)"
 fi
-
-# Read infrastructure configuration from YAML
-TERMINAL_APP=$(yq -r '.terminal.app // "iTerm"' "$CONFIG_PATH" 2>/dev/null)
-
 
 # Steps 8-11: Run commands, open apps, links, terminal
 # Skipped by default. Pass --open to run these steps.
@@ -844,37 +858,69 @@ fi
 
 # Step 9: Open terminal
 print_step 9 "Opening terminal..."
-if [[ "$TERMINAL_APP" == "iTerm" ]]; then
-    ITERM_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --companion-command "$COMPANION_COMMAND")
-    if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
-        ITERM_ARGS+=(--skip-permissions)
-    fi
-    if [[ -n "$CLAUDE_MODEL" ]]; then
-        ITERM_ARGS+=(--model "$CLAUDE_MODEL")
-    fi
-    if [[ -n "$CLAUDE_EFFORT" ]]; then
-        ITERM_ARGS+=(--effort "$CLAUDE_EFFORT")
-    fi
-    # In resume mode, start Claude without any prompt; otherwise use configured init command
-    if [[ "$RESUME_MODE" == true ]]; then
-        "$SCRIPT_DIR/open-iterm-claude.sh" "${ITERM_ARGS[@]}" --prompt "" || {
-            print_warning "Failed to open iTerm"
-        }
-        print_success "iTerm opened with Claude (resume mode)"
-    elif [[ -n "$INIT_CMD" ]]; then
-        CLAUDE_PROMPT="$INIT_CMD $ISSUE_KEY"
-        "$SCRIPT_DIR/open-iterm-claude.sh" "${ITERM_ARGS[@]}" --prompt "$CLAUDE_PROMPT" || {
-            print_warning "Failed to open iTerm"
-        }
-        print_success "iTerm opened with Claude session ($INIT_CMD)"
-    else
-        "$SCRIPT_DIR/open-iterm-claude.sh" "${ITERM_ARGS[@]}" --prompt "$ISSUE_KEY" || {
-            print_warning "Failed to open iTerm"
-        }
-        print_success "iTerm opened with Claude (issue key only)"
-    fi
+LAUNCHER_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --companion-command "$COMPANION_COMMAND")
+if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
+    LAUNCHER_ARGS+=(--skip-permissions)
+fi
+if [[ -n "$CLAUDE_MODEL" ]]; then
+    LAUNCHER_ARGS+=(--model "$CLAUDE_MODEL")
+fi
+if [[ -n "$CLAUDE_EFFORT" ]]; then
+    LAUNCHER_ARGS+=(--effort "$CLAUDE_EFFORT")
+fi
+
+# In resume mode, start Claude without any prompt; otherwise use configured init command
+if [[ "$RESUME_MODE" == true ]]; then
+    CLAUDE_PROMPT=""
+    OPEN_DESCRIPTION="resume mode"
+elif [[ -n "$INIT_CMD" ]]; then
+    CLAUDE_PROMPT="$INIT_CMD $ISSUE_KEY"
+    OPEN_DESCRIPTION="$INIT_CMD"
 else
-    print_warning "Terminal '$TERMINAL_APP' is not yet supported (only iTerm is currently supported)"
+    CLAUDE_PROMPT="$ISSUE_KEY"
+    OPEN_DESCRIPTION="issue key only"
+fi
+
+OPENED_APP=""
+if [[ "$TERMINAL_APP" == "Ghostty" ]]; then
+    GHOSTTY_ARGS=("${LAUNCHER_ARGS[@]}")
+    if [[ -n "$GHOSTTY_WINDOW_ID" ]]; then
+        GHOSTTY_ARGS+=(--window-id "$GHOSTTY_WINDOW_ID")
+    fi
+    if "$SCRIPT_DIR/open-ghostty-claude.sh" "${GHOSTTY_ARGS[@]}" --prompt "$CLAUDE_PROMPT"; then
+        OPENED_APP="Ghostty"
+    else
+        # Automation permission denied, a pre-1.3 Ghostty, or the AppleScript
+        # preview API changed out from under us. Fall back rather than leave
+        # the user with nothing opened.
+        print_warning "Failed to open Ghostty tab, falling back to iTerm"
+    fi
+fi
+
+if [[ -z "$OPENED_APP" && ("$TERMINAL_APP" == "iTerm" || "$TERMINAL_APP" == "Ghostty") ]]; then
+    if "$SCRIPT_DIR/open-iterm-claude.sh" "${LAUNCHER_ARGS[@]}" --prompt "$CLAUDE_PROMPT"; then
+        OPENED_APP="iTerm"
+    fi
+fi
+
+# Last rung: tmux supplies the split instead of the terminal, so this reaches
+# whatever app handles .command files and needs no per-terminal support. It is
+# also the only path for a terminal.app naming something other than the two
+# Pappardelle drives directly.
+if [[ -z "$OPENED_APP" ]]; then
+    if [[ "$TERMINAL_APP" != "iTerm" && "$TERMINAL_APP" != "Ghostty" ]]; then
+        print_warning "Terminal '$TERMINAL_APP' is not driven directly; opening via the default terminal"
+    fi
+    if "$SCRIPT_DIR/open-default-terminal-claude.sh" "${LAUNCHER_ARGS[@]}" --prompt "$CLAUDE_PROMPT"; then
+        OPENED_APP="The default terminal"
+    fi
+fi
+
+if [[ -n "$OPENED_APP" ]]; then
+    print_success "$OPENED_APP opened with Claude ($OPEN_DESCRIPTION)"
+else
+    print_warning "Failed to open a terminal with Claude"
+    TERMINAL_OPEN_FAILED=true
 fi
 
 # Step 10: Open apps from profile
@@ -998,7 +1044,7 @@ if [[ -n "$PR_URL" ]]; then
 fi
 echo "Worktree:  $WORKTREE_PATH"
 echo ""
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION_NAME" 2>/dev/null; then
     if [[ "$RESUME_MODE" == true ]]; then
         echo "Claude session ready (resume mode)."
     elif [[ -n "$INIT_CMD" ]]; then
@@ -1013,3 +1059,9 @@ echo ""
 
 
 log "=== $SCRIPT_NAME completed ==="
+
+# handleOpenWorkspace() in source/app.tsx keys its "Opened"/"Open failed"
+# header off this exit code, so a terminal that never opened must not exit 0.
+if [[ "$TERMINAL_OPEN_FAILED" == true ]]; then
+    exit 1
+fi

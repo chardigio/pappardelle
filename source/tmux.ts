@@ -169,10 +169,13 @@ export function isInTmux(): boolean {
  * Check if a tmux session exists on the default socket. Used for the outer
  * `pappardelle-{repo}` session. Do not call for per-issue claude/companion
  * sessions — those live on the inner socket; use `innerSessionExists` instead.
+ *
+ * The name is matched exactly: tmux otherwise falls back to a prefix match,
+ * and the default-terminal launcher's viewer sessions share this socket.
  */
 export function sessionExists(sessionName: string): boolean {
 	try {
-		execSync(`tmux has-session -t "${sessionName}"`, {
+		execSync(`tmux has-session -t "=${sessionName}"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
@@ -466,7 +469,7 @@ export function killSession(sessionName: string): boolean {
 			return true;
 		}
 
-		execSync(`tmux kill-session -t "${sessionName}"`, {
+		execSync(`tmux kill-session -t "=${sessionName}"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],

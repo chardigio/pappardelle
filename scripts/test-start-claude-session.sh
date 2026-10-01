@@ -139,6 +139,36 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION2" 2>/dev/
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: a session name that prefixes an existing one is distinct${RESET}"
+# tmux -t resolves by prefix when no exact match exists, so STA-1 would find a
+# live STA-12 and skip creating its own sessions, leaving the workspace
+# attached to the wrong issue.
+ISSUE_LONG="${TEST_PREFIX}-2500"
+ISSUE_SHORT="${TEST_PREFIX}-250"
+WORKTREE_PREFIX="$TMPDIR_ROOT/worktree-prefix"
+mkdir -p "$WORKTREE_PREFIX"
+
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_LONG" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-claude 2>/dev/null
+"$SCRIPT_DIR/start-claude-session.sh" --issue-key "$ISSUE_SHORT" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-claude 2>/dev/null
+
+for kind in claude companion; do
+    SHORT_SESSION="${kind}-${TEST_REPO}-${ISSUE_SHORT}"
+    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -qx "$SHORT_SESSION"; then
+        echo -e "  ${GREEN}PASS${RESET} $kind session created despite a longer session sharing its prefix"
+        PASS=$((PASS + 1))
+    else
+        echo -e "  ${RED}FAIL${RESET} $kind session created despite a longer session sharing its prefix ($SHORT_SESSION)"
+        FAIL=$((FAIL + 1))
+    fi
+done
+
+for key in "$ISSUE_LONG" "$ISSUE_SHORT"; do
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=claude-${TEST_REPO}-${key}" 2>/dev/null || true
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${key}" 2>/dev/null || true
+done
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: --repo-name is required${RESET}"
 OUTPUT=$("$SCRIPT_DIR/start-claude-session.sh" --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "repo-name is required"; then

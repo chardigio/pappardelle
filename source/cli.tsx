@@ -262,7 +262,7 @@ if (!isInTmux() && cli.flags.layout) {
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
 		// Attach to the existing session
-		const tmuxArgs = ['attach-session', '-t', sessionName];
+		const tmuxArgs = ['attach-session', '-t', `=${sessionName}`];
 		const result = spawnSync('tmux', tmuxArgs, {
 			stdio: 'inherit',
 			env: process.env,

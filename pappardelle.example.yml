@@ -125,9 +125,9 @@ post_workspace_init:
 #     run: "git worktree remove ${WORKTREE_PATH} --force"
 #     continue_on_error: true
 
-# Terminal application for workspace windows (optional, default: iTerm)
+# Terminal that opens a workspace (optional, default: auto)
 # terminal:
-#   app: "iTerm"
+#   app: "auto" # auto | iTerm | Ghostty | <any app name>
 
 # Lifecycle hooks (optional)
 # hooks:
