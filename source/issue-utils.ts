@@ -106,3 +106,20 @@ export function normalizeIssueIdentifier(
 	// Not an issue identifier
 	return null;
 }
+
+/**
+ * Resolve what a user typed into the key a space is registered under.
+ * Input `normalizeIssueIdentifier` rejects is kept as typed, so a key outside
+ * the configured grammar still reaches a session that exists under that name.
+ */
+export function resolveSpaceKey(
+	input: string,
+	teamPrefix: string,
+	provider: TrackerProviderName,
+	beadsPrefixes: string[],
+): string {
+	return (
+		normalizeIssueIdentifier(input, teamPrefix, provider, beadsPrefixes) ??
+		input.trim()
+	);
+}

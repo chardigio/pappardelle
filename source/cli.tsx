@@ -3,6 +3,7 @@ import React from 'react';
 import {renderTui} from './render-tui.ts';
 import meow from 'meow';
 import {execSync, spawnSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -11,8 +12,11 @@ import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
 	isInTmux,
+	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
+	getSessionNames,
+	INNER_SOCKET,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -35,6 +39,7 @@ captureStderr();
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
+import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {getRegisteredSpaces, initForRepo} from './space-registry.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
@@ -57,6 +62,7 @@ const cli = meow(
 	Usage
 	  $ pappardelle [prompt]
 	  $ pappardelle highlight <issue-key>
+	  $ pappardelle send <issue-key> [text]
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
@@ -69,6 +75,10 @@ const cli = meow(
 	Commands
 	  highlight <key>  Select a row in the running TUI by issue key
 	  link-pr <url>    Record a verified PR/MR for the current workspace
+	  send <key> [text]
+	                   Submit text as a prompt to the space's Claude session.
+	                   Reads stdin when no text is given; use stdin for text
+	                   that starts with "-", which would parse as a flag
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -89,6 +99,7 @@ const cli = meow(
 	  $ pappardelle --no-layout  # Run standalone (list only)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
+	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
 `,
 	{
 		importMeta: import.meta,
@@ -219,6 +230,51 @@ if (cli.input[0] === 'highlight') {
 	}
 
 	writeHighlightTarget(repoName, issueKey);
+	process.exit(0);
+}
+
+// Handle `pappardelle send STA-XXX text` — submit a prompt to a space's Claude
+if (cli.input[0] === 'send') {
+	const rawKey = cli.input[1];
+	let text = cli.input.slice(2).join(' ');
+	if (!text && !process.stdin.isTTY) {
+		text = readFileSync(0, 'utf8').replace(/\n$/, '');
+	}
+
+	if (!rawKey || !text) {
+		console.error(
+			'Usage: pappardelle send <issue-key> [text]  (or text on stdin)',
+		);
+		process.exit(1);
+	}
+
+	let config;
+	try {
+		config = loadConfig();
+	} catch {
+		config = null;
+	}
+
+	const issueKey = resolveSpaceKey(
+		rawKey,
+		config ? getTeamPrefix(config) : 'STA',
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+	const result = sendToSpaceAgent(issueKey, text);
+	if (result === 'no-session') {
+		const session = getSessionNames(issueKey).claude;
+		console.error(
+			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
+		);
+		process.exit(1);
+	}
+
+	if (result === 'failed') {
+		console.error(`Failed to send to ${issueKey}`);
+		process.exit(1);
+	}
+
 	process.exit(0);
 }
 

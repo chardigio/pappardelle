@@ -548,12 +548,12 @@ See [`integration-tests/README.md`](integration-tests/README.md) for env vars an
 
 Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pappardelle` plugin containing four skills:
 
-| Skill                    | Description                                                                                                                                            | Model-invocable |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- |
-| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                    | No              |
-| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                 | No              |
-| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                     | Yes             |
-| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via tmux | No              |
+| Skill                    | Description                                                                                                                                                          | Model-invocable |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                                  | No              |
+| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                               | No              |
+| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                   | Yes             |
+| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send` | No              |
 
 **Install the plugin:**
 
