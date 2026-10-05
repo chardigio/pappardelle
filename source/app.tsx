@@ -22,7 +22,11 @@ import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
 } from './update-action.ts';
-import {isFocusClaudeKey, isRailInputBlocked} from './rail-input.ts';
+import {
+	isCloseSpaceKey,
+	isFocusClaudeKey,
+	isRailInputBlocked,
+} from './rail-input.ts';
 import {
 	createLogger,
 	subscribeToErrors,
@@ -997,8 +1001,8 @@ export default function App({
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);
-			} else if (key.delete || input === 'x') {
-				// Delete key (or 'x') to close selected space
+			} else if (isCloseSpaceKey(input, key)) {
+				// Backspace, Delete, or 'x' closes the selected space
 				const space = spaces[selectedIndex];
 				if (space?.isMainWorktree) {
 					setHeaderWithTimeout('Cannot close main worktree', 2000);

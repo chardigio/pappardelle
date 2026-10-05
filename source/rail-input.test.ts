@@ -1,5 +1,10 @@
+import React from 'react';
+import {Text, useInput} from 'ink';
+import {render} from 'ink-testing-library';
+import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {
+	isCloseSpaceKey,
 	isFocusClaudeKey,
 	isRailInputBlocked,
 	type RailDialogState,
@@ -25,6 +30,64 @@ test('modified right arrows do not focus the Claude pane', t => {
 	t.false(isFocusClaudeKey({rightArrow: true, meta: true}));
 	t.false(isFocusClaudeKey({rightArrow: true, shift: true}));
 	t.false(isFocusClaudeKey({rightArrow: true, ctrl: true}));
+});
+
+// ============================================================================
+// isCloseSpaceKey
+// ============================================================================
+
+test('x closes the selected space', t => {
+	t.true(isCloseSpaceKey('x', {}));
+});
+
+test('Backspace closes the selected space', t => {
+	t.true(isCloseSpaceKey('', {backspace: true}));
+});
+
+test('forward delete (fn+Delete) closes the selected space', t => {
+	t.true(isCloseSpaceKey('', {delete: true}));
+});
+
+test('other keys do not close the selected space', t => {
+	t.false(isCloseSpaceKey('X', {}));
+	t.false(isCloseSpaceKey('n', {}));
+	t.false(isCloseSpaceKey('', {}));
+});
+
+// STA-2573: Ink 4 named the Mac Backspace byte (\x7f) `delete`, and Ink 7 names
+// it `backspace`. The rail only checked `key.delete`, so the upgrade silently
+// unbound Backspace. Drive the real bytes through Ink's own parser so the next
+// Ink upgrade can't move them again unnoticed.
+async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
+	let closed = false;
+	function Rail() {
+		useInput((input, key) => {
+			if (isCloseSpaceKey(input, key)) closed = true;
+		});
+		return React.createElement(Text, null, 'rail');
+	}
+
+	const view = render(React.createElement(Rail));
+	try {
+		await delay(10);
+		view.stdin.write(bytes);
+		await delay(20);
+		return closed;
+	} finally {
+		view.unmount();
+	}
+}
+
+test('Ink delivers the Backspace byte as a close-space key', async t => {
+	t.true(await closesSpaceOnStdin('\x7f'));
+});
+
+test('Ink delivers ctrl+h backspace as a close-space key', async t => {
+	t.true(await closesSpaceOnStdin('\b'));
+});
+
+test('Ink delivers fn+Delete as a close-space key', async t => {
+	t.true(await closesSpaceOnStdin('\x1b[3~'));
 });
 
 // ============================================================================

@@ -22,6 +22,23 @@ export function isFocusClaudeKey(key: FocusClaudeKey): boolean {
 	return Boolean(key.rightArrow && !key.meta && !key.shift && !key.ctrl);
 }
 
+export type CloseSpaceKey = {
+	backspace?: boolean;
+	delete?: boolean;
+};
+
+/**
+ * Backspace, forward delete, or `x` asks to close the selected space.
+ *
+ * Both Backspace and Delete are checked because Ink has moved the Mac
+ * Backspace byte (`\x7f`) between them: Ink 4 named it `delete`, Ink 7 names
+ * it `backspace`. Checking only one of them silently unbound the key after the
+ * Ink 7 upgrade (STA-2573).
+ */
+export function isCloseSpaceKey(input: string, key: CloseSpaceKey): boolean {
+	return Boolean(key.backspace || key.delete || input === 'x');
+}
+
 export type RailDialogState = {
 	showPromptDialog: boolean;
 	showDeleteConfirm: boolean;
