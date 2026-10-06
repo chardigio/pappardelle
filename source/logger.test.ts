@@ -409,14 +409,49 @@ test('log sink flushSync writes queued lines before returning', async t => {
 	const flushed = messages(readLogLines(dir)).filter(m => m !== 'line 0');
 	t.deepEqual(flushed, ['line 1', 'line 2', 'line 3', 'line 4']);
 
+	// Line 0 may land after the flushed lines; it must still appear exactly once.
 	await sink.settle();
-	t.deepEqual(messages(readLogLines(dir)).sort(), [
-		'line 0',
-		'line 1',
-		'line 2',
-		'line 3',
-		'line 4',
-	]);
+	const final = messages(readLogLines(dir));
+	t.is(final.filter(m => m === 'line 0').length, 1);
+	t.deepEqual(
+		final.filter(m => m !== 'line 0'),
+		['line 1', 'line 2', 'line 3', 'line 4'],
+	);
+});
+
+test('log sink survives a failed write and retries it on the next write', async t => {
+	const dir = makeLogDir();
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
+	const fifo = path.join(dir, 'pappardelle-2026-10-05.log');
+	execFileSync('mkfifo', [fifo]);
+	// eslint-disable-next-line no-bitwise
+	const nonBlockingRead = constants.O_RDONLY | constants.O_NONBLOCK;
+	const firstReader = openSync(fifo, nonBlockingRead);
+	const sink = createLogSink({dir});
+	sink.write(entry('before outage'));
+	await sink.settle();
+	const chunk = Buffer.alloc(64 * 1024);
+	readSync(firstReader, chunk);
+	closeSync(firstReader);
+
+	// With no reader left, the write fails with EPIPE.
+	sink.write(entry('during outage'));
+	await sink.settle();
+
+	const reader = openSync(fifo, nonBlockingRead);
+	t.teardown(() => {
+		closeSync(reader);
+	});
+	sink.write(entry('after recovery'));
+	await sink.settle();
+
+	const n = readSync(reader, chunk);
+	t.deepEqual(
+		messages(chunk.subarray(0, n).toString('utf8').split('\n').filter(Boolean)),
+		['during outage', 'after recovery'],
+	);
 });
 
 test('log sink survives an unusable log dir and retries on the next date', async t => {
@@ -471,4 +506,26 @@ test('log sink prunes all but the newest seven log files', async t => {
 		'pappardelle-2026-09-09.log',
 		'pappardelle-2026-10-05.log',
 	]);
+});
+
+test('log sink never prunes the file it has open', async t => {
+	const dir = makeLogDir();
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
+	const future = Date.now() / 1000 + 86_400;
+	for (let day = 1; day <= 9; day++) {
+		const file = path.join(dir, `pappardelle-2026-11-0${day}.log`);
+		writeFileSync(file, '');
+		utimesSync(file, future + day, future + day);
+	}
+
+	const sink = createLogSink({dir});
+	sink.write(entry('today'));
+	await sink.settle();
+
+	const remaining = readdirSync(dir).sort();
+	t.is(remaining.length, 7);
+	t.true(remaining.includes('pappardelle-2026-10-05.log'));
+	t.deepEqual(messages(readLogLines(dir)), ['today']);
 });

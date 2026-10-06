@@ -328,20 +328,14 @@ const cleanup = () => {
 };
 
 process.on('exit', cleanup);
-process.on('SIGINT', () => {
-	cleanup();
-	process.exit(0);
-});
-process.on('SIGTERM', () => {
-	cleanup();
-	process.exit(0);
-});
 // The default SIGHUP action skips 'exit' listeners, which would drop buffered
 // log lines. Quitting in layout mode kills our own tmux session, which sends it.
-process.on('SIGHUP', () => {
-	cleanup();
-	process.exit(0);
-});
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+	process.on(signal, () => {
+		cleanup();
+		process.exit(0);
+	});
+}
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.

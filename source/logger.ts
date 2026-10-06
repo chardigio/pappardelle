@@ -44,14 +44,15 @@ function formatLogEntry(entry: LogEntry): string {
 	return parts.join(' ');
 }
 
-async function pruneOldLogs(dir: string): Promise<void> {
+async function pruneOldLogs(dir: string, openFile: string): Promise<void> {
 	try {
 		const names = await readdir(dir);
 		const files = await Promise.all(
 			names
 				.filter(f => f.startsWith('pappardelle-') && f.endsWith('.log'))
-				.map(async name => {
-					const filePath = path.join(dir, name);
+				.map(name => path.join(dir, name))
+				.filter(filePath => filePath !== openFile)
+				.map(async filePath => {
 					const {mtimeMs} = await stat(filePath);
 					return {path: filePath, mtime: mtimeMs};
 				}),
@@ -59,7 +60,7 @@ async function pruneOldLogs(dir: string): Promise<void> {
 		files.sort((a, b) => b.mtime - a.mtime); // Newest first
 
 		await Promise.all(
-			files.slice(MAX_LOG_FILES).map(async file => {
+			files.slice(MAX_LOG_FILES - 1).map(async file => {
 				try {
 					await unlink(file.path);
 				} catch {
@@ -73,7 +74,7 @@ async function pruneOldLogs(dir: string): Promise<void> {
 }
 
 type LogStream = {
-	boom: InstanceType<typeof SonicBoom>;
+	writer: InstanceType<typeof SonicBoom>;
 	idle: boolean;
 	idleWaiters: Array<() => void>;
 };
@@ -93,7 +94,7 @@ export function createLogSink({
 	dir: string;
 	maxQueuedBytes?: number;
 }) {
-	const open = new Set<LogStream>();
+	const openStreams = new Set<LogStream>();
 	let current: LogStream | undefined;
 	let currentDate: string | undefined;
 	let dropped = 0;
@@ -105,27 +106,35 @@ export function createLogSink({
 	}
 
 	function openStream(date: string): LogStream | undefined {
+		const filePath = path.join(dir, `pappardelle-${date}.log`);
 		let fd: number;
 		try {
 			mkdirSync(dir, {recursive: true});
-			fd = openSync(path.join(dir, `pappardelle-${date}.log`), 'a');
+			fd = openSync(filePath, 'a');
 		} catch {
 			return undefined;
 		}
 
-		const boom = new SonicBoom({fd, minLength: 0, maxLength: maxQueuedBytes});
-		const stream: LogStream = {boom, idle: true, idleWaiters: []};
+		const writer = new SonicBoom({
+			fd,
+			minLength: 0,
+			maxLength: maxQueuedBytes,
+		});
+		const stream: LogStream = {writer, idle: true, idleWaiters: []};
 		// Unhandled, an error event would crash the app. sonic-boom keeps the
-		// failed buffer and retries it on the next write.
-		boom.on('error', () => {});
-		boom.on('drop', () => {
+		// failed buffer and retries it on the next write, and emits no drain
+		// until then.
+		writer.on('error', () => {
+			markIdle(stream);
+		});
+		writer.on('drop', () => {
 			dropped++;
 		});
-		boom.on('drain', () => {
+		writer.on('drain', () => {
 			if (dropped > 0 && stream === current) {
 				const message = `dropped ${dropped} messages`;
 				dropped = 0;
-				boom.write(
+				writer.write(
 					formatLogEntry({
 						timestamp: new Date().toISOString(),
 						level: 'warn',
@@ -138,46 +147,48 @@ export function createLogSink({
 
 			markIdle(stream);
 		});
-		boom.on('close', () => {
-			open.delete(stream);
+		writer.on('close', () => {
+			openStreams.delete(stream);
 			markIdle(stream);
 		});
-		open.add(stream);
-		prune ??= pruneOldLogs(dir);
+		openStreams.add(stream);
+		prune ??= pruneOldLogs(dir, filePath);
 		return stream;
 	}
 
 	return {
 		write(entry: LogEntry): void {
-			const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
+			const date = entry.timestamp.slice(0, 10);
 			if (date !== currentDate) {
 				// A failed open isn't retried until the date changes, so a broken
 				// log directory can't cost a sync open on every message.
 				currentDate = date;
-				current?.boom.end();
+				current?.writer.end();
 				current = openStream(date);
 			}
 
 			if (!current) return;
 			current.idle = false;
-			current.boom.write(formatLogEntry(entry) + '\n');
+			current.writer.write(formatLogEntry(entry) + '\n');
 		},
 
+		// Writes queued lines synchronously. A batch sonic-boom already handed to
+		// fs.write is not included: it may land after these lines or be lost.
 		flushSync(): void {
-			for (const stream of open) {
+			for (const stream of openStreams) {
 				try {
-					stream.boom.flushSync();
+					stream.writer.flushSync();
 				} catch {
 					// Nothing more can be done at exit
 				}
 			}
 		},
 
-		// Resolves once pruning is done and every open stream has drained.
+		// Lets tests wait for disk state; production code never needs to.
 		async settle(): Promise<void> {
 			await prune;
 			await Promise.all(
-				[...open].map(async stream => {
+				[...openStreams].map(async stream => {
 					if (stream.idle) return;
 					await new Promise<void>(resolve => {
 						stream.idleWaiters.push(resolve);
