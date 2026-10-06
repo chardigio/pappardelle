@@ -1,15 +1,10 @@
 // Logging system for Pappardelle
 import {Buffer} from 'node:buffer';
-import {
-	existsSync,
-	mkdirSync,
-	appendFileSync,
-	readdirSync,
-	unlinkSync,
-	statSync,
-} from 'node:fs';
+import {mkdirSync, openSync} from 'node:fs';
+import {readdir, stat, unlink} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import sonicBoom from 'sonic-boom';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -26,28 +21,15 @@ const LOG_DIR = path.join(homedir(), '.pappardelle', 'logs');
 const MAX_LOG_FILES = 7; // Keep last 7 days of logs
 const MAX_RECENT_ERRORS = 10; // Keep last 10 errors in memory for TUI display
 const ERROR_TTL_MS = 5 * 60 * 1000; // Auto-clear errors from UI after 5 minutes
+const MAX_QUEUED_LOG_BYTES = 1024 * 1024;
+
+// sonic-boom is CommonJS; its types describe the default import as the module
+// object, which carries the class as a property.
+const {SonicBoom} = sonicBoom;
 
 // In-memory error buffer for TUI display
 const recentErrors: LogEntry[] = [];
 let errorListeners: Array<(errors: LogEntry[]) => void> = [];
-
-// Track whether log rotation has run this session (only needs to run once at startup)
-let rotationDone = false;
-
-function ensureLogDir(): void {
-	if (!existsSync(LOG_DIR)) {
-		mkdirSync(LOG_DIR, {recursive: true});
-	}
-}
-
-function getLogFileName(): string {
-	const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-	return `pappardelle-${date}.log`;
-}
-
-function getLogFilePath(): string {
-	return path.join(LOG_DIR, getLogFileName());
-}
 
 function formatLogEntry(entry: LogEntry): string {
 	const parts = [
@@ -62,47 +44,154 @@ function formatLogEntry(entry: LogEntry): string {
 	return parts.join(' ');
 }
 
-function rotateLogsIfNeeded(): void {
+async function pruneOldLogs(dir: string): Promise<void> {
 	try {
-		ensureLogDir();
-		const files = readdirSync(LOG_DIR)
-			.filter(f => f.startsWith('pappardelle-') && f.endsWith('.log'))
-			.map(f => ({
-				name: f,
-				path: path.join(LOG_DIR, f),
-				mtime: statSync(path.join(LOG_DIR, f)).mtime.getTime(),
-			}))
-			.sort((a, b) => b.mtime - a.mtime); // Newest first
+		const names = await readdir(dir);
+		const files = await Promise.all(
+			names
+				.filter(f => f.startsWith('pappardelle-') && f.endsWith('.log'))
+				.map(async name => {
+					const filePath = path.join(dir, name);
+					const {mtimeMs} = await stat(filePath);
+					return {path: filePath, mtime: mtimeMs};
+				}),
+		);
+		files.sort((a, b) => b.mtime - a.mtime); // Newest first
 
-		// Remove old log files
-		for (const file of files.slice(MAX_LOG_FILES)) {
-			try {
-				unlinkSync(file.path);
-			} catch {
-				// Ignore deletion errors
-			}
-		}
+		await Promise.all(
+			files.slice(MAX_LOG_FILES).map(async file => {
+				try {
+					await unlink(file.path);
+				} catch {
+					// Ignore deletion errors
+				}
+			}),
+		);
 	} catch {
 		// Ignore rotation errors
 	}
 }
 
-function writeToFile(entry: LogEntry): void {
-	try {
-		ensureLogDir();
-		// Only rotate old log files once per session (at startup),
-		// not on every write — the previous behavior did readdirSync + statSync
-		// on every log call which blocked the event loop.
-		if (!rotationDone) {
-			rotateLogsIfNeeded();
-			rotationDone = true;
-		}
-		const line = formatLogEntry(entry) + '\n';
-		appendFileSync(getLogFilePath(), line, 'utf-8');
-	} catch {
-		// Silently fail - we don't want logging to break the app
+type LogStream = {
+	boom: InstanceType<typeof SonicBoom>;
+	idle: boolean;
+	idleWaiters: Array<() => void>;
+};
+
+// Persists log entries without blocking Ink's event loop: sonic-boom keeps one
+// async write in flight and batches whatever arrives meanwhile. The only sync
+// filesystem calls are opening the day's file, once at startup and once per
+// day after. Opening the fd ourselves means sonic-boom never has an async-open
+// window during which flushSync() at exit would throw.
+//
+// Failures are never reported through stderr or the logger: captureStderr
+// routes stderr back into the logger, which would loop.
+export function createLogSink({
+	dir,
+	maxQueuedBytes = MAX_QUEUED_LOG_BYTES,
+}: {
+	dir: string;
+	maxQueuedBytes?: number;
+}) {
+	const open = new Set<LogStream>();
+	let current: LogStream | undefined;
+	let currentDate: string | undefined;
+	let dropped = 0;
+	let prune: Promise<void> | undefined;
+
+	function markIdle(stream: LogStream): void {
+		stream.idle = true;
+		for (const resolve of stream.idleWaiters.splice(0)) resolve();
 	}
+
+	function openStream(date: string): LogStream | undefined {
+		let fd: number;
+		try {
+			mkdirSync(dir, {recursive: true});
+			fd = openSync(path.join(dir, `pappardelle-${date}.log`), 'a');
+		} catch {
+			return undefined;
+		}
+
+		const boom = new SonicBoom({fd, minLength: 0, maxLength: maxQueuedBytes});
+		const stream: LogStream = {boom, idle: true, idleWaiters: []};
+		// Unhandled, an error event would crash the app. sonic-boom keeps the
+		// failed buffer and retries it on the next write.
+		boom.on('error', () => {});
+		boom.on('drop', () => {
+			dropped++;
+		});
+		boom.on('drain', () => {
+			if (dropped > 0 && stream === current) {
+				const message = `dropped ${dropped} messages`;
+				dropped = 0;
+				boom.write(
+					formatLogEntry({
+						timestamp: new Date().toISOString(),
+						level: 'warn',
+						component: 'logger',
+						message,
+					}) + '\n',
+				);
+				return;
+			}
+
+			markIdle(stream);
+		});
+		boom.on('close', () => {
+			open.delete(stream);
+			markIdle(stream);
+		});
+		open.add(stream);
+		prune ??= pruneOldLogs(dir);
+		return stream;
+	}
+
+	return {
+		write(entry: LogEntry): void {
+			const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
+			if (date !== currentDate) {
+				// A failed open isn't retried until the date changes, so a broken
+				// log directory can't cost a sync open on every message.
+				currentDate = date;
+				current?.boom.end();
+				current = openStream(date);
+			}
+
+			if (!current) return;
+			current.idle = false;
+			current.boom.write(formatLogEntry(entry) + '\n');
+		},
+
+		flushSync(): void {
+			for (const stream of open) {
+				try {
+					stream.boom.flushSync();
+				} catch {
+					// Nothing more can be done at exit
+				}
+			}
+		},
+
+		// Resolves once pruning is done and every open stream has drained.
+		async settle(): Promise<void> {
+			await prune;
+			await Promise.all(
+				[...open].map(async stream => {
+					if (stream.idle) return;
+					await new Promise<void>(resolve => {
+						stream.idleWaiters.push(resolve);
+					});
+				}),
+			);
+		},
+	};
 }
+
+const sink = createLogSink({dir: LOG_DIR});
+process.on('exit', () => {
+	sink.flushSync();
+});
 
 function addToRecentErrors(entry: LogEntry): void {
 	recentErrors.push(entry);
@@ -129,7 +218,7 @@ function log(
 		error: error?.message,
 	};
 
-	writeToFile(entry);
+	sink.write(entry);
 
 	// Add errors and warnings to recent errors for TUI display
 	if (level === 'error' || level === 'warn') {
