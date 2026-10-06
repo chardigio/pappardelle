@@ -9,6 +9,7 @@ import {
 	createMessageDecoder,
 	encodeMessage,
 	type ChildMessage,
+	type ConfirmPayload,
 	type HostMessage,
 	type PopupSpec,
 } from './protocol.ts';
@@ -19,7 +20,7 @@ const log = createLogger('popup');
 export type PopupOutcome = 'confirmed' | 'cancelled' | 'unavailable';
 
 export type PopupHandlers = {
-	onConfirm?: () => void | PromiseLike<void>;
+	onConfirm?: (payload?: ConfirmPayload) => void | PromiseLike<void>;
 	/**
 	 * Close the popup before running `onConfirm` rather than showing its
 	 * spinner. For actions that take over the TUI's own pane, which the popup
@@ -195,7 +196,8 @@ export async function openPopup(
 		const handle = (message: ChildMessage) => {
 			switch (message.type) {
 				case 'confirm': {
-					const onConfirm = handlers.onConfirm ?? (() => {});
+					const {payload} = message;
+					const onConfirm = async () => handlers.onConfirm?.(payload);
 					if (handlers.closeBeforeConfirm) {
 						running ??= (async () => {
 							send({type: 'done'});

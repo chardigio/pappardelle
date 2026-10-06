@@ -79,3 +79,13 @@ test('scrolling views take 80% of the client', t => {
 		{width: 160, height: 40},
 	);
 });
+
+test('a close-space popup leaves room for the state row', t => {
+	const size = popupSize(
+		{kind: 'close-space', props: {spaceName: 'bd-a1b2', currentIssue: null}},
+		client,
+	);
+
+	// The confirm above, plus the state row and its margin.
+	t.deepEqual(size, {width: 72, height: 13});
+});

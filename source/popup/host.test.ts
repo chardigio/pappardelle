@@ -273,3 +273,28 @@ test('a popup that fails to start is unavailable and leaves no socket dir', asyn
 	t.is(outcome, 'unavailable');
 	t.false(existsSync(path.dirname(socketPath)));
 });
+
+test('the payload the child confirms with reaches the handler', async t => {
+	const tmux = fakeTmux();
+	let received: unknown;
+	const result = openPopup(
+		CONFIRM,
+		{
+			onConfirm(payload) {
+				received = payload;
+			},
+		},
+		deps(tmux.launch),
+	);
+	const child = await tmux.child;
+	await child.next('init');
+
+	const choice = {
+		kind: 'set',
+		state: {id: 'deferred', name: 'Deferred', done: false},
+	};
+	child.send({type: 'confirm', payload: {choice}} as never);
+	await child.next('done');
+	t.is(await result, 'confirmed');
+	t.deepEqual(received, {choice});
+});

@@ -798,3 +798,67 @@ test('the reachability warning and the watchlist filter read a status alike', as
 		t.is(matched.length, 0);
 	}
 });
+
+// listStates / setIssueState
+
+const STATUSES = JSON.stringify({
+	schema_version: 1,
+	data: {
+		built_in_statuses: [
+			{name: 'open', category: 'active'},
+			{name: 'in_progress', category: 'wip'},
+			{name: 'closed', category: 'done'},
+			{name: 'deferred', category: 'frozen'},
+		],
+		custom_statuses: [{name: 'in_review', category: 'done'}, {name: 'triage'}],
+	},
+});
+
+test('listStates reads built-in and custom statuses and marks the done category', async t => {
+	const {provider, calls} = providerReturning(STATUSES);
+	t.deepEqual(await provider.listStates(), [
+		{id: 'open', name: 'Open', done: false},
+		{id: 'in_progress', name: 'In Progress', done: false},
+		{id: 'closed', name: 'Closed', done: true},
+		{id: 'deferred', name: 'Deferred', done: false},
+		{id: 'in_review', name: 'In Review', done: true},
+		{id: 'triage', name: 'Triage', done: false},
+	]);
+	t.deepEqual(calls[0], ['statuses', '--json']);
+
+	await provider.listStates();
+	t.is(calls.length, 1);
+});
+
+test('listStates returns nothing on failure and asks again next time', async t => {
+	const {provider, calls} = providerReturning(new Error('boom'), STATUSES);
+	t.deepEqual(await provider.listStates(), []);
+	const retried = await provider.listStates();
+	t.is(retried.length, 6);
+	t.is(calls.length, 2);
+});
+
+test('setIssueState updates the status, and closed goes through bd close', async t => {
+	const {provider, calls} = providerReturning('', '');
+	t.true(await provider.setIssueState('-weird-xyz', 'deferred'));
+	t.true(await provider.setIssueState('-weird-xyz', 'closed'));
+	t.deepEqual(calls, [
+		['update', '--status=deferred', '--', '-weird-xyz'],
+		['close', '--', '-weird-xyz'],
+	]);
+});
+
+test('setIssueState reports a failed write', async t => {
+	t.false(
+		await providerReturning(new Error('blocked')).provider.setIssueState(
+			'bd-1',
+			'deferred',
+		),
+	);
+	t.false(
+		await providerReturning(makeEnoentError()).provider.setIssueState(
+			'bd-1',
+			'deferred',
+		),
+	);
+});

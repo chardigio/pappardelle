@@ -1,12 +1,19 @@
 import type {Buffer} from 'node:buffer';
 import type {KeybindingConfig} from '../config.ts';
+import type {StateChoice} from '../close-state-choice.ts';
 import type {LogEntry} from '../logger.ts';
+import type {TrackerIssue} from '../providers/types.ts';
 
 export type ConfirmPopupProps = {
 	title: string;
 	message: string;
 	detail?: string;
 	processingMessage?: string;
+};
+
+export type CloseSpacePopupProps = {
+	spaceName: string;
+	currentIssue: TrackerIssue | null;
 };
 
 export type HelpPopupProps = {
@@ -22,6 +29,7 @@ export type IssuePopupProps = {argv: string[]; title: string};
 
 export type PopupSpec =
 	| {kind: 'confirm'; props: ConfirmPopupProps}
+	| {kind: 'close-space'; props: CloseSpacePopupProps}
 	| {kind: 'help'; props: HelpPopupProps}
 	| {kind: 'errors'; props: ErrorsPopupProps}
 	| {kind: 'issue'; props: IssuePopupProps};
@@ -33,8 +41,10 @@ export type HostMessage =
 	| {type: 'done'}
 	| {type: 'errors'; errors: LogEntry[]};
 
+export type ConfirmPayload = {choice?: StateChoice};
+
 export type ChildMessage =
-	| {type: 'confirm'}
+	| {type: 'confirm'; payload?: ConfirmPayload}
 	| {type: 'cancel'}
 	| {type: 'clear-errors'};
 

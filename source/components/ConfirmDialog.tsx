@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, type ReactNode} from 'react';
 import {Box, Text, useInput} from 'ink';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 import {
@@ -28,6 +28,10 @@ interface Props {
 	processingMessage?: string;
 	/** Stretch to the parent's height, for a tmux popup sized to fit. */
 	isFullHeight?: boolean;
+	/** Extra rows between the message and the detail. */
+	children?: ReactNode;
+	/** Replaces the y/n hint, for a dialog that adds keys of its own. */
+	hint?: ReactNode;
 }
 
 export default function ConfirmDialog({
@@ -38,6 +42,8 @@ export default function ConfirmDialog({
 	onCancel,
 	processingMessage,
 	isFullHeight,
+	children,
+	hint,
 }: Props) {
 	// Snapshot the dialog's text when entering processing state. The parent's
 	// props can shift mid-deletion — once `deleteSpace` finishes and the list
@@ -113,6 +119,8 @@ export default function ConfirmDialog({
 				<Text>{shown.message}</Text>
 			</Box>
 
+			{children}
+
 			{shown.detail && (
 				<Box marginBottom={1}>
 					<Text dimColor>{shown.detail}</Text>
@@ -125,11 +133,14 @@ export default function ConfirmDialog({
 					<Text> {processingFrame.status}</Text>
 				</Box>
 			) : (
-				<Text dimColor>
-					Press <Text color="green">y</Text> or <Text color="green">Enter</Text>{' '}
-					to confirm, <Text color="yellow">n</Text> or{' '}
-					<Text color="yellow">Esc</Text> to cancel
-				</Text>
+				(hint ?? (
+					<Text dimColor>
+						Press <Text color="green">y</Text> or{' '}
+						<Text color="green">Enter</Text> to confirm,{' '}
+						<Text color="yellow">n</Text> or <Text color="yellow">Esc</Text> to
+						cancel
+					</Text>
+				))
 			)}
 		</Box>
 	);

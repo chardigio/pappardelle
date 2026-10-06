@@ -13,6 +13,7 @@ import {StateColorCache} from './state-color-cache.ts';
 import type {
 	IssueTrackerProvider,
 	TrackerIssue,
+	TrackerState,
 	TrackerProviderName,
 } from './types.ts';
 
@@ -108,6 +109,33 @@ export function beadsStateName(status: string): string {
 		.join(' ');
 }
 
+/**
+ * `bd statuses --json` lists built-in and custom statuses with a category;
+ * `done` is the category for terminal ones. Custom statuses declared in the
+ * old `name,name` config form carry no category.
+ */
+export function parseBeadsStatuses(
+	payload: Record<string, unknown> | undefined,
+): TrackerState[] {
+	const entries = [
+		payload?.['built_in_statuses'],
+		payload?.['custom_statuses'],
+	].flatMap(list => (Array.isArray(list) ? (list as unknown[]) : []));
+	const states: TrackerState[] = [];
+	for (const entry of entries) {
+		if (entry === null || typeof entry !== 'object') continue;
+		const {name, category} = entry as {name?: unknown; category?: unknown};
+		if (typeof name !== 'string' || !name) continue;
+		states.push({
+			id: name,
+			name: beadsStateName(name),
+			done: category === 'done',
+		});
+	}
+
+	return states;
+}
+
 export function beadsIssuePrefix(issueId: string): string {
 	const prefix = issueKeyPrefix(issueId);
 	return prefix === issueId.split('.')[0] ? '' : prefix;
@@ -200,6 +228,7 @@ export class BeadsProvider implements IssueTrackerProvider {
 	}
 
 	private readonly issueCache = new Map<string, CacheEntry>();
+	private states: TrackerState[] | undefined;
 	private readonly stateColors: StateColorCache;
 	private readonly execCli: CliExecutor;
 	private readonly sleepFn: SleepFn;
@@ -562,6 +591,55 @@ export class BeadsProvider implements IssueTrackerProvider {
 
 			log.warn(
 				`Failed to claim beads ${issueKey}`,
+				sanitizeSubprocessError(err),
+			);
+			return false;
+		}
+	}
+
+	async listStates(): Promise<TrackerState[]> {
+		if (this.states) return this.states;
+		if (this.bdMissing) return [];
+
+		try {
+			const output = await this.runBd(['statuses', '--json'], 10_000);
+			const [payload] = unwrapBeadsJson(output);
+			const states = parseBeadsStatuses(payload);
+			// Statuses only change through `bd config`, so one read per session.
+			if (states.length > 0) this.states = states;
+			return states;
+		} catch (err) {
+			if (isEnoent(err)) {
+				this.noteMissing('status listing');
+				return [];
+			}
+
+			log.warn('Failed to list beads statuses', sanitizeSubprocessError(err));
+			return [];
+		}
+	}
+
+	async setIssueState(issueKey: string, stateId: string): Promise<boolean> {
+		// `bd update --status=closed` skips what `bd close` enforces, such as
+		// refusing while a blocker is still open.
+		if (stateId === 'closed') return this.closeIssue(issueKey);
+		if (this.bdMissing) return false;
+
+		try {
+			await this.runBd(
+				['update', `--status=${stateId}`, '--', issueKey],
+				30_000,
+			);
+			this.issueCache.delete(issueKey);
+			return true;
+		} catch (err) {
+			if (isEnoent(err)) {
+				this.noteMissing('issue updating');
+				return false;
+			}
+
+			log.warn(
+				`Failed to set beads ${issueKey} to ${stateId}`,
 				sanitizeSubprocessError(err),
 			);
 			return false;
