@@ -14,9 +14,8 @@ import {
 	moveSelection,
 	selectionAfterRemoval,
 	visibleWindow,
+	MAX_VISIBLE_SUGGESTIONS,
 } from './ready-picker.ts';
-
-const MAX_VISIBLE_SUGGESTIONS = 8;
 
 const CLOSE_KEY = 'x';
 
@@ -122,8 +121,9 @@ export function useReadyWork(
 			if (openKeyActive && input === OPEN_KEY) {
 				// Read-only, so the cursor stays where it is: the popup is a detour
 				// on the way to picking this row up, not a replacement for it.
-				const result = openIssueForKey(issue.identifier);
-				setErrorMessage(result.ok ? null : result.message);
+				void openIssueForKey(issue.identifier).then(result => {
+					setErrorMessage(result.ok ? null : result.message);
+				});
 			}
 		},
 		{isActive: isActive && closeTarget === null},

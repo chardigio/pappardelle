@@ -7,7 +7,7 @@ import {getMainRepoRoot} from '../config.ts';
 import {issueKeyPrefix} from '../issue-utils.ts';
 import {createLogger} from '../logger.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
-import {displayPopup} from '../tmux.ts';
+import {viewIssue} from '../popup/issue-viewer.ts';
 import {pLimit} from './concurrency.ts';
 import {StateColorCache} from './state-color-cache.ts';
 import type {
@@ -424,8 +424,11 @@ export class BeadsProvider implements IssueTrackerProvider {
 		return '';
 	}
 
-	openIssue(issueKey: string): boolean {
-		return displayPopup(buildIssuePopupArgv(this.resolveCwd(), issueKey));
+	async openIssue(issueKey: string): Promise<boolean> {
+		return viewIssue(
+			buildIssuePopupArgv(this.resolveCwd(), issueKey),
+			issueKey,
+		);
 	}
 
 	async searchAssignedIssues(

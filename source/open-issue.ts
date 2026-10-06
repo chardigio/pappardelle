@@ -27,17 +27,17 @@ function launchBrowser(url: string): void {
 /**
  * Show an issue to the user, wherever that tracker's issues live.
  */
-export function openIssueForKey(
+export async function openIssueForKey(
 	issueKey: string,
 	deps: OpenIssueDeps = {},
-): OpenIssueResult {
+): Promise<OpenIssueResult> {
 	const createTracker = deps.createTracker ?? createIssueTracker;
 	const openUrl = deps.openUrl ?? launchBrowser;
 
 	try {
 		const tracker = createTracker();
 		if (tracker.openIssue) {
-			return tracker.openIssue(issueKey)
+			return (await tracker.openIssue(issueKey))
 				? {ok: true, message: `Showing ${issueKey}`}
 				: {ok: false, message: 'Cannot show issue outside tmux'};
 		}

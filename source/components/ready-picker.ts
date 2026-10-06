@@ -1,3 +1,6 @@
+/** Ready rows shown at once; the rest scroll behind ↑/↓ markers. */
+export const MAX_VISIBLE_SUGGESTIONS = 8;
+
 export const INPUT_INDEX = -1;
 
 export function moveSelection(

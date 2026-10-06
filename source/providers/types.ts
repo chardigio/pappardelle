@@ -109,7 +109,7 @@ export interface IssueTrackerProvider {
 	buildIssueUrl(issueKey: string): string;
 
 	/** Show the issue to the user in place. */
-	openIssue?(issueKey: string): boolean;
+	openIssue?(issueKey: string): Promise<boolean>;
 
 	/** Post a comment on an issue */
 	createComment(issueKey: string, body: string): Promise<boolean>;

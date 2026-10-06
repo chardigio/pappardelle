@@ -1,6 +1,6 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
+import {exec, execFile, execSync, spawnSync} from 'node:child_process';
 import {
 	existsSync,
 	readFileSync,
@@ -294,34 +294,6 @@ function claudeFlag(flag: string, value?: string): string {
 	if (!value) return '';
 	const safe = /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
 	return ` ${flag} ${safe}`;
-}
-
-const POPUP_PAGER = 'less -R';
-
-/**
- * Show a command's output in a dismissible tmux popup over the current client.
- */
-export function buildPopupCommand(argv: string[]): string {
-	return `${argv.map(arg => shellQuote(arg)).join(' ')} | ${POPUP_PAGER}`;
-}
-
-export function displayPopup(argv: string[]): boolean {
-	if (argv.length === 0 || !process.env['TMUX']) return false;
-	const command = buildPopupCommand(argv);
-	try {
-		const child = spawn(
-			'tmux',
-			['display-popup', '-E', '-w', '80%', '-h', '80%', command],
-			{detached: true, stdio: 'ignore'},
-		);
-
-		child.on('error', () => {});
-		child.unref();
-		return true;
-	} catch (error) {
-		log.debug(`display-popup failed: ${String(error)}`);
-		return false;
-	}
 }
 
 /**

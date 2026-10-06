@@ -57,12 +57,18 @@ interface Props {
 	 * edge and wrap it onto its own line.
 	 */
 	availableWidth?: number;
+	/**
+	 * Hide the dialog and stop it taking keys, without unmounting it, so the
+	 * typed prompt survives while something else is shown in its place.
+	 */
+	isSuspended?: boolean;
 }
 
 export default function PromptDialog({
 	onSubmit,
 	onCancel,
 	availableWidth,
+	isSuspended = false,
 }: Props) {
 	const [prompt, setPrompt] = useState('');
 	// Both boxes are always on screen; this is purely which one has focus.
@@ -147,11 +153,12 @@ export default function PromptDialog({
 
 	const ready = useReadyWork(
 		tracker,
-		!isPicking && !isCompleting && !isSkillFocused,
+		!isSuspended && !isPicking && !isCompleting && !isSkillFocused,
 	);
 	// The close confirmation takes over the whole dialog, so every other keymap
 	// stands down while it is up.
-	const isPromptStage = !isPicking && ready.closeTarget === null;
+	const isPromptStage =
+		!isSuspended && !isPicking && ready.closeTarget === null;
 
 	const effectiveInput =
 		resolveSubmission(prompt, ready.identifiers, ready.index) ?? '';
@@ -212,7 +219,7 @@ export default function PromptDialog({
 				acceptCompletion(result.index);
 			}
 		},
-		{isActive: isCompleting && !isSkillFocused},
+		{isActive: !isSuspended && isCompleting && !isSkillFocused},
 	);
 
 	// The same list once it has the focus. The text input is frozen here, so
@@ -248,7 +255,7 @@ export default function PromptDialog({
 				}
 			}
 		},
-		{isActive: isSkillFocused},
+		{isActive: !isSuspended && isSkillFocused},
 	);
 
 	useInput(
@@ -284,7 +291,7 @@ export default function PromptDialog({
 				}
 			}
 		},
-		{isActive: isPicking && ready.closeTarget === null},
+		{isActive: !isSuspended && isPicking && ready.closeTarget === null},
 	);
 
 	// The list re-ranks on every keystroke, so an index parked deep in a long
@@ -345,7 +352,7 @@ export default function PromptDialog({
 	const pickerFrame = focusFrame(isPicking);
 
 	return (
-		<Box flexDirection="column">
+		<Box flexDirection="column" display={isSuspended ? 'none' : 'flex'}>
 			<TitledBox
 				title="+ New Session"
 				borderColor="green"
@@ -373,7 +380,7 @@ export default function PromptDialog({
 						onChange={setPrompt}
 						onSubmit={handlePromptSubmit}
 						placeholder="STA-123, 123, or describe the task..."
-						isFocused={!isPicking && !isSkillFocused}
+						isFocused={!isSuspended && !isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
 					/>
