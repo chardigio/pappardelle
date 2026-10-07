@@ -1,10 +1,15 @@
-import {spawnSync} from 'node:child_process';
-import {existsSync, realpathSync} from 'node:fs';
+import {readdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {createInterface} from 'node:readline/promises';
-import type {OuterTmuxRunner} from './tmux.ts';
-import {resolveDisplayVersion, updateShellScript} from './update-check.ts';
+import type {Readable, Writable} from 'node:stream';
+import {
+	currentDefaultServerSession,
+	defaultServerTmuxRunner,
+	outerSessionName,
+	type OuterTmuxRunner,
+} from './tmux.ts';
+import {resolveDisplayVersion, runUpdateScript} from './update-check.ts';
 
 // `pappardelle update`: the CLI twin of pressing U in the TUI. U runs the
 // installer and then kills its own outer session so the old build stops; from
@@ -22,11 +27,11 @@ export type UpdateCommandDeps = {
 	print: (line: string) => void;
 };
 
-const TUI_SESSION_PREFIX = 'pappardelle-';
-
-// A live TUI's outer session is `pappardelle-<repo>`, and cli.tsx creates
-// ~/.pappardelle/repos/<repo> on startup. Requiring both keeps a user's own
-// `pappardelle-*` session off the kill list.
+// cli.tsx creates ~/.pappardelle/repos/<repo> before opening the TUI's
+// `pappardelle-<repo>` session, so only sessions named after a state dir are
+// TUIs; a user's own `pappardelle-*` session stays off the kill list. Some tmux
+// releases rewrite `.` and `:` in session names to `_`, so both spellings
+// count.
 function listRunningTuis(
 	tmux: OuterTmuxRunner,
 	repoStateRoot: string,
@@ -34,16 +39,23 @@ function listRunningTuis(
 	const result = tmux(['list-sessions', '-F', '#{session_name}']);
 	if (result.error || result.status !== 0) return [];
 
+	let repos: string[];
+	try {
+		repos = readdirSync(repoStateRoot);
+	} catch {
+		return [];
+	}
+
+	const tuiNames = new Set(
+		repos.flatMap(repo => [
+			outerSessionName(repo),
+			outerSessionName(repo.replaceAll(/[.:]/g, '_')),
+		]),
+	);
 	return result.stdout
 		.split('\n')
 		.map(name => name.trim())
-		.filter(
-			name =>
-				name.startsWith(TUI_SESSION_PREFIX) &&
-				existsSync(
-					path.join(repoStateRoot, name.slice(TUI_SESSION_PREFIX.length)),
-				),
-		);
+		.filter(name => tuiNames.has(name));
 }
 
 export async function runUpdateCommand(
@@ -81,75 +93,44 @@ export async function runUpdateCommand(
 	}
 
 	// Killing the session this command runs in hangs up on this process, so it
-	// goes last.
+	// goes last and its line prints before the kill.
 	const current = deps.currentSession();
 	const ordered = [
 		...running.filter(name => name !== current),
 		...running.filter(name => name === current),
 	];
 	for (const name of ordered) {
-		deps.print(`Quit ${name}`);
-		deps.tmux(['kill-session', '-t', name]);
+		deps.print(`Quitting ${name}`);
+		// `=name:` is an exact session match. A bare name falls back to prefix
+		// matching (a vanished `pappardelle-app` would hit `pappardelle-apple`)
+		// and reads a `.` as a pane separator.
+		const killed = deps.tmux(['kill-session', '-t', `=${name}:`]);
+		if (killed.error || killed.status !== 0) {
+			deps.print(`Couldn't quit ${name}; quit it with q and relaunch it`);
+		}
 	}
 
 	return 0;
 }
 
-// Bare tmux talks to whichever server $TMUX names. From a claude pane that is
-// the inner `pappardelle_inner` server, which holds no TUI sessions, so outer
-// calls drop TMUX to reach the default server (TMUX_TMPDIR still applies).
-export function outerTmuxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const {TMUX: _tmux, TMUX_PANE: _pane, ...rest} = env;
-	return rest;
-}
-
-function sameFile(a: string, b: string): boolean {
+// Ctrl+D or a closed stdin at the prompt means "no", not a crash: the install
+// already succeeded.
+export async function confirm(
+	question: string,
+	input: Readable = process.stdin,
+	output: Writable = process.stdout,
+): Promise<boolean> {
+	const rl = createInterface({input, output});
+	const closed = new Promise<string>(resolve => {
+		rl.once('close', () => {
+			resolve('');
+		});
+	});
 	try {
-		return realpathSync(a) === realpathSync(b);
+		const answer = await Promise.race([rl.question(question), closed]);
+		return /^y(es)?$/i.test(answer.trim());
 	} catch {
 		return false;
-	}
-}
-
-// The outer session this process runs in, or null when it runs outside tmux or
-// on another server (an inner claude pane, where killing the outer session only
-// detaches the client and leaves this process alive).
-export function currentOuterSession(
-	env: NodeJS.ProcessEnv,
-	tmux: OuterTmuxRunner,
-): string | null {
-	const socket = env['TMUX']?.split(',')[0];
-	const pane = env['TMUX_PANE'];
-	if (!socket || !pane) return null;
-
-	const uid = process.getuid?.() ?? 0;
-	const defaultSocket = path.join(
-		env['TMUX_TMPDIR'] || '/tmp',
-		`tmux-${uid}`,
-		'default',
-	);
-	if (!sameFile(socket, defaultSocket)) return null;
-
-	const result = tmux(['display-message', '-p', '-t', pane, '#{session_name}']);
-	if (result.error || result.status !== 0) return null;
-	return result.stdout.trim() || null;
-}
-
-const outerTmux: OuterTmuxRunner = args => {
-	const r = spawnSync('tmux', [...args], {
-		encoding: 'utf8',
-		timeout: 5000,
-		stdio: ['pipe', 'pipe', 'pipe'],
-		env: outerTmuxEnv(process.env),
-	});
-	return {error: r.error, status: r.status, stdout: r.stdout ?? ''};
-};
-
-async function confirm(question: string): Promise<boolean> {
-	const rl = createInterface({input: process.stdin, output: process.stdout});
-	try {
-		const answer = await rl.question(question);
-		return /^y(es)?$/i.test(answer.trim());
 	} finally {
 		rl.close();
 	}
@@ -158,26 +139,17 @@ async function confirm(question: string): Promise<boolean> {
 export function defaultUpdateCommandDeps(
 	pappardelleDir: string,
 ): UpdateCommandDeps {
+	const {version, isDev} = resolveDisplayVersion(pappardelleDir);
 	return {
-		installedVersion: resolveDisplayVersion(pappardelleDir).version,
-		runInstaller() {
-			// PAPPARDELLE_NODE hands the installer the node the shim pinned, which
-			// PATH may not contain.
-			const result = spawnSync(
-				'bash',
-				['-c', updateShellScript({waitOnFailure: false})],
-				{
-					stdio: 'inherit',
-					env: {...process.env, PAPPARDELLE_NODE: process.execPath},
-				},
-			);
-			return result.status ?? 1;
-		},
-		tmux: outerTmux,
+		installedVersion: version && isDev ? `${version}-dev` : version,
+		runInstaller: () => runUpdateScript({waitOnFailure: false}),
+		tmux: defaultServerTmuxRunner,
 		repoStateRoot: path.join(homedir(), '.pappardelle', 'repos'),
-		currentSession: () => currentOuterSession(process.env, outerTmux),
+		currentSession: () => currentDefaultServerSession(process.env),
 		isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-		confirm,
+		async confirm(question) {
+			return confirm(question);
+		},
 		print(line) {
 			console.log(line);
 		},

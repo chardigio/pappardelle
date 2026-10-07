@@ -11,6 +11,7 @@ import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
 	isInTmux,
+	outerSessionName,
 	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
@@ -273,7 +274,7 @@ if (cli.input.length > 0) {
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
-	const sessionName = `pappardelle-${repoName}`;
+	const sessionName = outerSessionName(repoName);
 
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {

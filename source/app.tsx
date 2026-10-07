@@ -17,7 +17,7 @@ import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
-import {updateShellScript, type UpdateInfo} from './update-check.ts';
+import {runUpdateScript, type UpdateInfo} from './update-check.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -124,6 +124,7 @@ import {
 	sendToPane,
 	getCurrentlyViewingSpace,
 	killSession,
+	outerSessionName,
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
@@ -383,14 +384,9 @@ export default function App({
 		process.stdout.write('\x1b[?1006l'); // disable SGR mouse
 		process.stdout.write('\x1b[?1000l'); // disable basic mouse
 		process.stdout.write('\x1b[?1049l'); // exit alt screen
-		// PAPPARDELLE_NODE hands the installer the node this TUI runs on, which
-		// the tmux server's PATH may not contain.
-		spawnSync('bash', ['-c', updateShellScript()], {
-			stdio: 'inherit',
-			env: {...process.env, PAPPARDELLE_NODE: process.execPath},
-		});
+		runUpdateScript({waitOnFailure: true});
 		if (paneLayout) {
-			killSession(`pappardelle-${repoName}`);
+			killSession(outerSessionName(repoName));
 		}
 		// eslint-disable-next-line unicorn/no-process-exit
 		process.exit(0);
@@ -1033,7 +1029,7 @@ export default function App({
 						// Quit Pappardelle — kill the tmux session so viewer panes
 						// are cleaned up too (workspace sessions stay alive).
 						if (paneLayout) {
-							killSession(`pappardelle-${repoName}`);
+							killSession(outerSessionName(repoName));
 						}
 						// eslint-disable-next-line unicorn/no-process-exit
 						process.exit(0);

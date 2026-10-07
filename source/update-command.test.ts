@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
+import {PassThrough} from 'node:stream';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {
-	currentOuterSession,
-	outerTmuxEnv,
+	confirm,
 	runUpdateCommand,
 	type UpdateCommandDeps,
 } from './update-command.ts';
@@ -32,6 +32,7 @@ function harness(
 		installerStatus?: number;
 		sessions?: string[];
 		listFails?: boolean;
+		killFails?: boolean;
 		repos?: string[];
 		currentSession?: string | null;
 		isTTY?: boolean;
@@ -54,7 +55,7 @@ function harness(
 				: {status: 0, stdout: (options.sessions ?? []).join('\n') + '\n'};
 		}
 
-		return {status: 0, stdout: ''};
+		return {status: options.killFails ? 1 : 0, stdout: ''};
 	};
 
 	return {
@@ -82,7 +83,7 @@ function harness(
 function killed(h: Harness): string[] {
 	return h.tmuxCalls
 		.filter(args => args[0] === 'kill-session')
-		.map(args => args.at(-1)!);
+		.map(args => args.at(-1)!.replace(/^=(.*):$/, '$1'));
 }
 
 test('a failed install returns its status and leaves tmux alone', async t => {
@@ -153,7 +154,7 @@ test('on a TTY with no flag, a yes to the prompt quits the TUIs', async t => {
 	await runUpdateCommand({}, h.deps);
 
 	t.is(h.confirmCalls.length, 1);
-	t.true(h.confirmCalls[0]!.includes('2'));
+	t.true(h.confirmCalls[0]!.startsWith('Quit 2 running Pappardelle TUIs'));
 	t.deepEqual(killed(h), ['pappardelle-app', 'pappardelle-web']);
 });
 
@@ -212,63 +213,51 @@ test('the opening line names the version being replaced when known', async t => 
 	t.false(unknown.printed[0]!.includes('currently on'));
 });
 
-// ============================================================================
-// Reaching the outer tmux server from an inner pane
-// ============================================================================
-
-test('outer tmux calls drop TMUX so an inner pane still reaches the default server', t => {
-	const env = outerTmuxEnv({
-		TMUX: '/private/tmp/tmux-502/pappardelle_inner,59729,4',
-		TMUX_PANE: '%4',
-		TMUX_TMPDIR: '/scratch/tmux',
-		HOME: '/home/me',
+test('sessions for a dotted repo name match with or without tmux rewriting the dot', async t => {
+	const h = harness({
+		sessions: ['pappardelle-my_repo', 'pappardelle-next.js'],
+		repos: ['my.repo', 'next.js'],
 	});
 
-	t.false('TMUX' in env);
-	t.false('TMUX_PANE' in env);
-	t.is(env['TMUX_TMPDIR'], '/scratch/tmux');
-	t.is(env['HOME'], '/home/me');
+	await runUpdateCommand({killTuis: true}, h.deps);
+
+	t.deepEqual(killed(h), ['pappardelle-my_repo', 'pappardelle-next.js']);
 });
 
-test('the current outer session is unknown when TMUX names a non-default socket', t => {
-	const tmuxTmpdir = temporaryDir();
-	const uid = process.getuid?.() ?? 0;
-	const socketDir = path.join(tmuxTmpdir, `tmux-${uid}`);
-	fs.mkdirSync(socketDir);
-	fs.writeFileSync(path.join(socketDir, 'default'), '');
-	fs.writeFileSync(path.join(socketDir, 'pappardelle_inner'), '');
+test('kills target the exact session so tmux never prefix-matches another one', async t => {
+	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
 
-	const queried: string[][] = [];
-	const tmux: OuterTmuxRunner = args => {
-		queried.push([...args]);
-		return {status: 0, stdout: 'pappardelle-app\n'};
-	};
+	await runUpdateCommand({killTuis: true}, h.deps);
 
-	t.is(
-		currentOuterSession(
-			{
-				TMUX: `${path.join(socketDir, 'pappardelle_inner')},1,0`,
-				TMUX_TMPDIR: tmuxTmpdir,
-			},
-			tmux,
-		),
-		null,
+	t.deepEqual(
+		h.tmuxCalls.filter(args => args[0] === 'kill-session'),
+		[['kill-session', '-t', '=pappardelle-app:']],
 	);
-	t.deepEqual(queried, []);
+});
 
-	t.is(
-		currentOuterSession(
-			{
-				TMUX: `${path.join(socketDir, 'default')},1,0`,
-				TMUX_PANE: '%3',
-				TMUX_TMPDIR: tmuxTmpdir,
-			},
-			tmux,
-		),
-		'pappardelle-app',
-	);
-	t.deepEqual(queried, [
-		['display-message', '-p', '-t', '%3', '#{session_name}'],
-	]);
-	t.is(currentOuterSession({TMUX_TMPDIR: tmuxTmpdir}, tmux), null);
+test('a session tmux refuses to kill is reported', async t => {
+	const h = harness({
+		sessions: ['pappardelle-app'],
+		repos: ['app'],
+		killFails: true,
+	});
+
+	t.is(await runUpdateCommand({killTuis: true}, h.deps), 0);
+	t.true(h.printed.at(-1)!.startsWith("Couldn't quit pappardelle-app"));
+});
+
+test('closing stdin at the quit prompt answers no instead of failing', async t => {
+	const input = new PassThrough();
+	const answer = confirm('Quit? ', input, new PassThrough());
+	input.end();
+
+	t.false(await answer);
+});
+
+test('y at the quit prompt answers yes', async t => {
+	const input = new PassThrough();
+	const answer = confirm('Quit? ', input, new PassThrough());
+	input.write('y\n');
+
+	t.true(await answer);
 });

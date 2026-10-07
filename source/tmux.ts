@@ -1,7 +1,13 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
-import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {
+	existsSync,
+	readFileSync,
+	realpathSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -532,18 +538,86 @@ export type OuterTmuxRunner = (args: readonly string[]) => {
 	stdout: string;
 };
 
-const defaultOuterTmuxRunner: OuterTmuxRunner = args => {
-	const r = spawnSync('tmux', [...args], {
-		encoding: 'utf-8',
-		timeout: 5000,
-		stdio: ['pipe', 'pipe', 'pipe'],
-	});
-	return {
-		error: r.error,
-		status: r.status,
-		stdout: r.stdout ?? '',
+function spawnTmuxRunner(
+	toArgv: (args: readonly string[]) => string[],
+	env?: () => NodeJS.ProcessEnv,
+): OuterTmuxRunner {
+	return args => {
+		const r = spawnSync('tmux', toArgv(args), {
+			encoding: 'utf-8',
+			timeout: 5000,
+			stdio: ['pipe', 'pipe', 'pipe'],
+			env: env?.(),
+		});
+		return {
+			error: r.error,
+			status: r.status,
+			stdout: r.stdout ?? '',
+		};
 	};
-};
+}
+
+const defaultOuterTmuxRunner = spawnTmuxRunner(args => [...args]);
+
+// Outer TUI sessions are named `pappardelle-<repo>`.
+export const OUTER_SESSION_PREFIX = 'pappardelle-';
+
+export function outerSessionName(repoName: string): string {
+	return `${OUTER_SESSION_PREFIX}${repoName}`;
+}
+
+// Bare tmux talks to whichever server $TMUX names. From a claude pane that is
+// the inner `pappardelle_inner` server, which holds no TUI sessions, so calls
+// that must reach the default server drop TMUX (TMUX_TMPDIR still applies).
+export function defaultServerTmuxEnv(
+	env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+	const {TMUX: _tmux, TMUX_PANE: _pane, ...rest} = env;
+	return rest;
+}
+
+export const defaultServerTmuxRunner = spawnTmuxRunner(
+	args => [...args],
+	() => defaultServerTmuxEnv(process.env),
+);
+
+function sameFile(a: string, b: string): boolean {
+	try {
+		return realpathSync(a) === realpathSync(b);
+	} catch {
+		return false;
+	}
+}
+
+// The default-server session this process runs in, or null when it runs
+// outside tmux or on another server (an inner claude pane, where killing an
+// outer session only detaches the client and leaves this process alive).
+export function currentDefaultServerSession(
+	env: NodeJS.ProcessEnv,
+	runner: OuterTmuxRunner = defaultServerTmuxRunner,
+): string | null {
+	const socket = env['TMUX']?.split(',')[0];
+	const pane = env['TMUX_PANE'];
+	if (!socket || !pane) return null;
+
+	const uid = process.getuid?.() ?? 0;
+	const defaultSocket = join(
+		env['TMUX_TMPDIR'] || '/tmp',
+		`tmux-${uid}`,
+		'default',
+	);
+	if (!sameFile(socket, defaultSocket)) return null;
+
+	const result = runner([
+		'display-message',
+		'-p',
+		'-t',
+		pane,
+		'#{session_name}',
+	]);
+	if (result.error || result.status !== 0) return null;
+	return result.stdout.trim() || null;
+}
 
 /**
  * Kill any leftover `claude-{repo}-*` and `companion-{repo}-*` sessions still
@@ -607,18 +681,7 @@ export function cleanupOrphanedOuterSessions(
  * `cleanupOrphanedInnerSessions` can share the injectable-runner test
  * harness without duplicating the fake-runner plumbing.
  */
-const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
-	const r = spawnSync('tmux', innerTmuxArgs(args), {
-		encoding: 'utf-8',
-		timeout: 5000,
-		stdio: ['pipe', 'pipe', 'pipe'],
-	});
-	return {
-		error: r.error,
-		status: r.status,
-		stdout: r.stdout ?? '',
-	};
-};
+const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
 
 /**
  * DEC 2026 "synchronized output": the terminal buffers everything between
