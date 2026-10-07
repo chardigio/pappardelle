@@ -11,6 +11,7 @@ import {
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	getInitializationCommand,
+	getAgentModel,
 	getDangerouslySkipPermissions,
 	getKeybindings,
 	getIssueWatchlist,
@@ -18,6 +19,7 @@ import {
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
+import {getRecentErrors} from './logger.ts';
 
 // ============================================================================
 // Helper: temp directory with config files
@@ -527,6 +529,7 @@ test('profiles from home config work with all profile features', t => {
 	t.is(profile.display_name, 'Music');
 	t.deepEqual(profile.keywords, ['music', 'jams']);
 	t.is(profile.team_prefix, 'MUS');
+	// eslint-disable-next-line @typescript-eslint/no-deprecated -- pins the deprecated spelling still merging correctly
 	t.is(profile.claude!.initialization_command, '/idow');
 	t.is(profile.vars!['APP_DIR'], '_ios/stardust-jams');
 	t.is(profile.vcs!.label, 'stardust_jams');
@@ -1106,6 +1109,245 @@ profiles:
 // ============================================================================
 // loadConfigFromPaths — empty YAML files
 // ============================================================================
+
+test('loadConfigFromPaths accepts old init spelling in one layer and new in another', t => {
+	// Regression: the both-spellings check used to run on the MERGED config, so
+	// a home config still on the deprecated spelling bricked a project that
+	// had already migrated — despite each file being individually valid.
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': `version: 1
+claude:
+  initialization_command: /old
+profiles:
+  t:
+    display_name: T
+`,
+		'project/.pappardelle.yml': `version: 1
+initialization_command: /new
+profiles:
+  t:
+    display_name: T
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		t.is(getInitializationCommand(config), '/new');
+		// Each layer's deprecated key is renamed before the merge.
+		// eslint-disable-next-line @typescript-eslint/no-deprecated -- pins the rename of the deprecated spelling
+		t.is(config.claude?.initialization_command, undefined);
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths accepts cross-layer init spellings per profile', t => {
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': `version: 1
+profiles:
+  t:
+    display_name: T
+    claude:
+      initialization_command: /old
+`,
+		'project/.pappardelle.yml': `version: 1
+profiles:
+  t:
+    display_name: T
+    initialization_command: /new
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		t.is(config.profiles['t']!.initialization_command, '/new');
+		// eslint-disable-next-line @typescript-eslint/no-deprecated -- pins the rename of the deprecated spelling
+		t.is(config.profiles['t']!.claude?.initialization_command, undefined);
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths lets a more specific layer on the old init spelling win', t => {
+	// Layer precedence decides, not which spelling a layer uses: a project
+	// that hasn't migrated yet still overrides a home config that has.
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': `version: 1
+initialization_command: /home
+profiles:
+  t:
+    display_name: T
+    initialization_command: /home-profile
+`,
+		'project/.pappardelle.yml': `version: 1
+claude:
+  initialization_command: /project
+profiles:
+  t:
+    display_name: T
+    claude:
+      initialization_command: /project-profile
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		t.is(getInitializationCommand(config), '/project');
+		t.is(config.profiles['t']!.initialization_command, '/project-profile');
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths warns about a deprecated home spelling shadowed by the project', t => {
+	// The merge shares nested objects with the raw layers, so the home layer
+	// must be checked before anything rewrites the merged config.
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': `version: 1
+profiles:
+  shadowedhomewarn:
+    display_name: T
+    claude:
+      initialization_command: /old
+`,
+		'project/.pappardelle.yml': `version: 1
+profiles:
+  shadowedhomewarn:
+    display_name: T
+    initialization_command: /new
+`,
+	});
+	try {
+		loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		const warnings = getRecentErrors().filter(
+			entry =>
+				entry.message.includes('shadowedhomewarn') &&
+				entry.message.includes('~/.pappardelle/.pappardelle.yml'),
+		);
+		t.is(warnings.length, 1);
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths rejects both init spellings on one profile in the same file', t => {
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.yml': `version: 1
+profiles:
+  t:
+    display_name: T
+    initialization_command: /a
+    claude:
+      initialization_command: /b
+`,
+	});
+	try {
+		const error = t.throws(
+			() => loadConfigFromPaths({projectDir: path.join(dir, 'project')}),
+			{instanceOf: ConfigValidationError},
+		);
+		t.truthy(error?.message.includes('profiles.t.initialization_command'));
+		t.truthy(error?.message.includes('cannot both be specified'));
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths rejects both init spellings in the same file, naming it', t => {
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.yml': `version: 1
+initialization_command: /new
+claude:
+  initialization_command: /old
+profiles:
+  t:
+    display_name: T
+`,
+	});
+	try {
+		const error = t.throws(
+			() => loadConfigFromPaths({projectDir: path.join(dir, 'project')}),
+			{instanceOf: ConfigValidationError},
+		);
+		t.truthy(error?.message.includes('.pappardelle.yml'));
+		t.truthy(error?.message.includes('cannot both be specified'));
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths warns about a deprecated init spelling only once per process', t => {
+	// The TUI reloads config on every space selection; re-warning on each
+	// reload would fill the logger's 10-entry recent-error buffer and evict
+	// real errors from the overlay.
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.yml': `version: 1
+profiles:
+  warnonceprofile:
+    display_name: T
+    claude:
+      initialization_command: /old
+`,
+	});
+	try {
+		const load = () =>
+			loadConfigFromPaths({projectDir: path.join(dir, 'project')});
+		load();
+		load();
+		const warnings = getRecentErrors().filter(entry =>
+			entry.message.includes('warnonceprofile'),
+		);
+		t.is(warnings.length, 1);
+	} finally {
+		cleanup();
+	}
+});
+
+test('loadConfigFromPaths warns about claude.model and claude.effort, top-level and per profile', t => {
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.yml': `version: 1
+claude:
+  model: claudemodelwarn
+profiles:
+  claudeeffortwarn:
+    display_name: T
+    claude:
+      effort: high
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			projectDir: path.join(dir, 'project'),
+		});
+		t.is(getAgentModel(config), 'claudemodelwarn');
+		const messages = getRecentErrors().map(entry => entry.message);
+		t.true(
+			messages.some(
+				message =>
+					message.includes('.pappardelle.yml: claude.model is deprecated') &&
+					message.includes('agent_profiles.<name>.model'),
+			),
+		);
+		t.true(
+			messages.some(message =>
+				message.includes(
+					'.pappardelle.yml: profiles.claudeeffortwarn.claude.effort is deprecated',
+				),
+			),
+		);
+	} finally {
+		cleanup();
+	}
+});
 
 test('loadConfigFromPaths ignores empty home YAML file', t => {
 	const {dir, cleanup} = setupTempDir({

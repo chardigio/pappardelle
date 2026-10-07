@@ -1,0 +1,25 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "startup|resume|clear",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/record-agent-session.py"
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 ~/.pappardelle/hooks/record-agent-session.py"
+					}
+				]
+			}
+		]
+	}
+}

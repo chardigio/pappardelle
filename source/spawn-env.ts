@@ -21,7 +21,7 @@ export function buildSpawnEnv(
 
 /**
  * Build the `-e` flags for `tmux new-session` on a space's claude and
- * companion sessions. Mirrors SESSION_ENV in start-claude-session.sh, which
+ * companion sessions. Mirrors SESSION_ENV in start-agent-session.sh, which
  * covers sessions that idow makes; this covers the ones the TUI makes itself
  * (the main space, and any space whose sessions are gone after a reboot).
  *
@@ -43,5 +43,24 @@ export function buildSessionEnvArgs(
 		...(mainRepoRoot
 			? ['-e', `PAPPARDELLE_MAIN_REPO_ROOT=${mainRepoRoot}`]
 			: []),
+	];
+}
+
+/**
+ * The `-e` flags only the agent session gets, for the hook that records the
+ * agent's session id (hooks/agent_session.py): which agent profile the pane
+ * runs, so a later relaunch with a different one ignores the id, and the
+ * space-state file to write it to. Kept off the companion session, where an agent started
+ * by hand isn't the space's agent.
+ */
+export function buildAgentSessionEnvArgs(
+	agentProfileName: string,
+	spaceStatePath: string,
+): string[] {
+	return [
+		'-e',
+		`PAPPARDELLE_AGENT_PROFILE=${agentProfileName}`,
+		'-e',
+		`PAPPARDELLE_SPACE_STATE=${spaceStatePath}`,
 	];
 }

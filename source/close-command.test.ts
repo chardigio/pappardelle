@@ -38,8 +38,9 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 			return true;
 		},
 		sessionNames: key => ({
-			claude: `claude-repo-${key}`,
+			agent: `agent-repo-${key}`,
 			companion: `companion-repo-${key}`,
+			legacyAgent: `claude-repo-${key}`,
 		}),
 		currentInnerSession: () => null,
 		mainRepoRoot: '/repo',
@@ -153,7 +154,11 @@ test('a tracker failure warns and still runs the global hooks', async t => {
 });
 
 test('closing the space this process runs in hands teardown to a detached child', async t => {
-	for (const session of ['claude-repo-STA-1', 'companion-repo-STA-1']) {
+	for (const session of [
+		'agent-repo-STA-1',
+		'companion-repo-STA-1',
+		'claude-repo-STA-1',
+	]) {
 		const {deps, events} = fakeDeps({currentInnerSession: () => session});
 		t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
 		t.deepEqual(events, [
@@ -167,7 +172,7 @@ test('closing the space this process runs in hands teardown to a detached child'
 
 test("another space's session tears down in-process", async t => {
 	const {deps, events} = fakeDeps({
-		currentInnerSession: () => 'claude-repo-STA-2',
+		currentInnerSession: () => 'agent-repo-STA-2',
 	});
 	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
 	t.false(events.some(event => event.startsWith('spawn')));

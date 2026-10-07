@@ -36,6 +36,15 @@ if _tracker_spec and _tracker_spec.loader:
 else:
     raise ImportError(f"Could not load tracker_config from {_tracker_module_path}")
 
+_agent_session_module_path = Path(__file__).parent / "agent_session.py"
+_agent_session_spec = importlib.util.spec_from_file_location("agent_session", _agent_session_module_path)
+if _agent_session_spec and _agent_session_spec.loader:
+    _agent_session_mod = importlib.util.module_from_spec(_agent_session_spec)
+    _agent_session_spec.loader.exec_module(_agent_session_mod)
+    record_agent_session = _agent_session_mod.record_agent_session
+else:
+    raise ImportError("Could not load agent_session")
+
 # Debug mode - logs all hook events to a file
 # Set PAPPARDELLE_DEBUG=1 environment variable to enable logging
 DEBUG = os.environ.get("PAPPARDELLE_DEBUG", "0") == "1"
@@ -59,7 +68,7 @@ def log_debug(message: str, data: Any = None) -> None:
 # Get workspace name from cwd (assumes worktree naming convention)
 def get_workspace_name(cwd: Optional[str] = None) -> str:
     # The space this pane belongs to, set on the tmux session by
-    # start-claude-session.sh. It wins over the cwd: a Claude resumed from
+    # start-agent-session.sh. It wins over the cwd: a Claude resumed from
     # another directory inside the pane still reports under the space shown.
     space = os.environ.get("PAPPARDELLE_SPACE", "").strip()
     if space:
@@ -177,6 +186,13 @@ def main() -> None:
         input_data = {}
 
     log_debug(f"Hook invoked with argv={sys.argv}", input_data)
+
+    # Claude already runs this hook on every event, so it records Claude's
+    # session id here rather than through a second hook entry.
+    try:
+        record_agent_session(input_data)
+    except Exception as e:
+        log_debug(f"Recording the agent session failed: {e}")
 
     # Determine status from command line args or hook event
     if len(sys.argv) > 1:

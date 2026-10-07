@@ -31,7 +31,11 @@ export type CloseCommandDeps = {
 	killSpaceSessions: (key: string) => Promise<boolean>;
 	removeSpace: (key: string) => Promise<void>;
 	cleanup: (key: string) => Promise<boolean>;
-	sessionNames: (key: string) => {claude: string; companion: string};
+	sessionNames: (key: string) => {
+		agent: string;
+		companion: string;
+		legacyAgent: string;
+	};
 	currentInnerSession: () => string | null;
 	// The detached teardown starts here: a hook may have deleted the worktree
 	// the close was run from.
@@ -88,7 +92,10 @@ export async function runCloseCommand(
 
 	const sessions = deps.sessionNames(key);
 	const current = deps.currentInnerSession();
-	if (current === sessions.claude || current === sessions.companion) {
+	if (
+		current !== null &&
+		[sessions.agent, sessions.companion, sessions.legacyAgent].includes(current)
+	) {
 		deps.print('Ending this session; teardown finishes in the background');
 		deps.spawnTeardown(key, deps.mainRepoRoot);
 		return 0;
