@@ -10,6 +10,7 @@ import App from './app.tsx';
 import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
+	migrateLegacyAgentSessions,
 	isInTmux,
 	outerSessionName,
 	sendToSpaceAgent,
@@ -237,7 +238,7 @@ if (cli.input[0] === 'send') {
 	);
 	const result = sendToSpaceAgent(issueKey, text);
 	if (result === 'no-session') {
-		const session = getSessionNames(issueKey).claude;
+		const session = getSessionNames(issueKey).agent;
 		console.error(
 			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
 		);
@@ -332,11 +333,21 @@ if (isInTmux() && cli.flags.layout) {
 		);
 	}
 
+	// STE-2: migrate live pre-rename `claude-{repo}-*` sessions to their
+	// `agent-{repo}-*` names before the reap below decides what's an orphan —
+	// a rename preserves the running conversation, a reap would kill it.
+	const migrated = migrateLegacyAgentSessions();
+	if (migrated > 0) {
+		console.error(
+			`\x1b[33mPappardelle: renamed ${migrated} legacy claude-* session(s) to agent-*.\x1b[0m`,
+		);
+	}
+
 	// STA-1420: also reap inner-socket orphans whose key isn't in the registry
 	// and isn't the main worktree. These accumulate when Pappardelle is
 	// hard-quit between unregistering and the tmux kill (or when a slow
 	// pre_workspace_deinit is Ctrl-C'd mid-flow). Symmetric to the outer reap
-	// above; without it, dead `claude-pappa-STA-*` sessions linger forever now
+	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const innerReaped = cleanupOrphanedInnerSessions(
 		new Set(getRegisteredSpaces()),

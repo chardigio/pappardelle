@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test: companion_command resolution in resolve-claude-config.sh (STA-1464)
+# Test: companion_command resolution in resolve-agent-config.sh (STA-1464)
 #
 # Exercises the REAL resolver across config layers and profile levels:
 #   home config → project config → local config, then profile → top-level → default.
@@ -49,7 +49,7 @@ assert_eq() {
 
 # Run the real resolver for a profile against whatever setup_configs() last wrote.
 resolve_companion_command() {
-    "$SCRIPT_DIR/resolve-claude-config.sh" \
+    "$SCRIPT_DIR/resolve-agent-config.sh" \
         --config "$TMPDIR_ROOT/.pappardelle.yml" \
         --local-config "$TMPDIR_ROOT/.pappardelle.local.yml" \
         --home-config "$TMPDIR_ROOT/home/.pappardelle.yml" \

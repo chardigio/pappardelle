@@ -171,19 +171,19 @@ test('--hard asks on a TTY and does nothing when declined', async t => {
 	});
 
 	t.is(await hardRestart(false, h.deps), 0);
-	t.true(h.confirmCalls[0]!.startsWith('End 2 Claude/companion sessions'));
+	t.true(h.confirmCalls[0]!.startsWith('End 2 agent/companion sessions'));
 	t.true(h.confirmCalls[0]!.includes('pappardelle-app'));
 	t.deepEqual(mutations(h), []);
 });
 
-test('--hard with no TUIs running only mentions the Claude sessions', async t => {
+test('--hard with no TUIs running only mentions the agent sessions', async t => {
 	const h = harness({innerSessions: ['claude-app-STA-1'], isTTY: true});
 
 	await hardRestart(false, h.deps);
 
 	t.is(
 		h.confirmCalls[0],
-		'End 1 Claude/companion session (they resume with --continue)? [y/N] ',
+		'End 1 agent/companion session (agents resume their conversations)? [y/N] ',
 	);
 });
 
