@@ -19,11 +19,14 @@ cp "$SCRIPT_DIR/comment-question-answered.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/comment-question-answered.py"
 cp "$SCRIPT_DIR/zap-notification.py" "$HOOKS_DIR/"
 chmod +x "$HOOKS_DIR/zap-notification.py"
+cp "$SCRIPT_DIR/record-agent-session.py" "$HOOKS_DIR/"
+chmod +x "$HOOKS_DIR/record-agent-session.py"
 
 # Copy helper modules (imported by hook scripts above)
 cp "$SCRIPT_DIR/markdown_to_adf.py" "$HOOKS_DIR/"
 cp "$SCRIPT_DIR/acli_helpers.py" "$HOOKS_DIR/"
 cp "$SCRIPT_DIR/tracker_config.py" "$HOOKS_DIR/"
+cp "$SCRIPT_DIR/agent_session.py" "$HOOKS_DIR/"
 
 echo "Hook scripts installed to $HOOKS_DIR/"
 

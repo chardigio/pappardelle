@@ -4,7 +4,7 @@
 #
 # Usage: resolve-terminal-app.sh --config <path> [--local-config <path>] [--home-config <path>]
 #
-# Layers (lowest → highest priority), matching resolve-claude-config.sh:
+# Layers (lowest → highest priority), matching resolve-agent-config.sh:
 #   1. Home config    (~/.pappardelle/.pappardelle.yml)
 #   2. Project config (.pappardelle.yml)
 #   3. Local config   (.pappardelle.local.yml)

@@ -14,12 +14,33 @@ default_profile: pappardelle
 # Pappardelle will prepend this to get 'STA-400'.
 team_prefix: STA
 
-# Claude configuration — controls how Claude Code is launched in new workspaces.
+# Slash command passed to the agent when a session opens (agent-agnostic).
+initialization_command: '/idow'
+
+# Claude configuration — launch flags for workspaces whose agent is claude.
 claude:
-  initialization_command: '/idow' # Slash command passed to Claude when session opens
   dangerously_skip_permissions: true # Skip permission prompts (use with caution)
-  model: opus # Default model for every workspace (--model). Omit for Claude's default.
-  effort: high # Default reasoning effort (--effort). Omit for Claude's default.
+
+# Agent profiles for the agent pane (optional). Profiles reference one by
+# name via `agent_profile:` to run something other than Claude Code — e.g.
+# the codex profile below.
+agent_profiles:
+  claude:
+    command: claude
+    model: opus # Default model for every claude workspace. Omit for Claude's default.
+    effort: high # Default reasoning effort. Omit for Claude's default.
+  claude-sonnet:
+    command: claude
+    model: sonnet
+    effort: medium
+  claude-default-model:
+    command: claude
+    model: '' # Launches with Claude's own default model
+  codex:
+    command: codex
+    args: --yolo # codex's skip-permissions equivalent, as free-form args
+    resume_args: resume {session_id}
+    model: gpt-5.5 # Rendered as -m gpt-5.5
 
 # Commands to run after a git worktree is created.
 # Template variables: ${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_KEY},
@@ -124,6 +145,15 @@ keybindings:
     send_to_claude: '/clear'
 
 profiles:
+  # Codex experiments — runs the OpenAI Codex CLI in the agent pane instead of
+  # Claude Code. Codex sessions show an `unknown` status icon in the rail (the
+  # status hooks are Claude-only).
+  codex-experiments:
+    keywords:
+      - codex
+    display_name: Codex Experiments
+    agent_profile: codex # References the top-level agent_profiles.codex entry
+
   # iOS music app — full Xcode + simulator setup
   stardust-jams:
     keywords:
@@ -153,10 +183,8 @@ profiles:
       assignee: me
       statuses:
         - Ready for Pappardelle
-    claude:
-      initialization_command: '/do-stardust' # Profile-level override for Claude init
-      model: sonnet # Profile-level model override — beats the global `opus`
-      effort: medium # …and its own effort level
+    initialization_command: '/do-stardust' # Profile-level init override
+    agent_profile: claude-sonnet # Its own model and effort
     vars:
       IOS_APP_DIR: '_ios/stardust-jams'
       BUNDLE_ID: 'io.stardustlabs.stardust'
@@ -235,11 +263,8 @@ profiles:
       - workspace
     display_name: 'Pappardelle'
     emoji: '🍝'
-    claude:
-      initialization_command: '/do-pappardelle'
-      # An explicit "" clears the global model, so this profile launches with
-      # Claude's own default instead of the top-level `opus`.
-      model: ''
+    initialization_command: '/do-pappardelle'
+    agent_profile: claude-default-model
     github:
       label: 'pappardelle'
     links:

@@ -130,7 +130,7 @@ If it's not obvious which space, ask. If it is, proceed.
 
 **Step 2: Relay with pappardelle send**
 
-Submit the instruction as a prompt to the space's Claude session:
+Submit the instruction as a prompt to the space's agent session:
 
 ```bash
 pappardelle send STA-XXX 'the user instruction here'
@@ -247,7 +247,7 @@ If the hold failed, don't claim one. Say so instead: "Wake set for 10:11pm. Coul
 The repo name and worktree base are auto-detected from the current git repository. The standard conventions are:
 
 - **Worktree base**: `~/.worktrees/{repo-name}/`
-- **Claude session**: `claude-{repo-name}-{ISSUE-KEY}` on the `pappardelle_inner` tmux socket; relay to it with `pappardelle send`
+- **Agent session**: `agent-{repo-name}-{ISSUE-KEY}` on the `pappardelle_inner` tmux socket; relay to it with `pappardelle send`
 - **TUI session**: `pappardelle-{repo-name}` on the default tmux server
 - **Status dir**: `~/.pappardelle/claude-status/`
 - **Open spaces**: `~/.pappardelle/repos/{repo-name}/open-spaces.json`

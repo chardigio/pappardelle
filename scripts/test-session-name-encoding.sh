@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Test: the claude and companion tmux session names carry the same encoded key
+# Test: the agent and companion tmux session names carry the same encoded key
 #
-# start-claude-session.sh creates both sessions from an encoded key ('_' -> '__',
-# then '.' -> '_') so beads IDs survive tmux's target grammar. open-iterm-claude.sh
+# start-agent-session.sh creates both sessions from an encoded key ('_' -> '__',
+# then '.' -> '_') so beads IDs survive tmux's target grammar. open-iterm-agent.sh
 # has to attach to those exact names. It used to rebuild the companion name from
 # the raw issue key, which diverged for every key carrying a '_' or a '.' —
 # silently, because `new-session -d -s` just creates whatever name it is handed,
@@ -13,7 +13,7 @@
 # name: `new-session -s 'bd-a3f8e9.1'` reports back 'bd-a3f8e9.1' (verified on
 # tmux 3.7b), so beads child issues diverged too.
 #
-# The command lines are assembled inside open-iterm-claude.sh's AppleScript, so
+# The command lines are assembled inside open-iterm-agent.sh's AppleScript, so
 # this runs that AppleScript directly. Its `tell application "iTerm"` block is
 # stripped first: AppleScript resolves an application's dictionary at compile
 # time, so on a machine without iTerm2 installed the whole script fails to
@@ -52,16 +52,16 @@ trap cleanup EXIT
 
 HARNESS="$TMPDIR_ROOT/assemble.applescript"
 awk '/^cat > "\$APPLESCRIPT" << .APPLESCRIPT_END.$/{f=1;next} /^APPLESCRIPT_END$/{f=0} f' \
-    "$SCRIPT_DIR/open-iterm-claude.sh" \
+    "$SCRIPT_DIR/open-iterm-agent.sh" \
     | awk '/^    tell application "iTerm"$/{skip=1} skip && /^end run$/{skip=0} !skip' \
     > "$HARNESS"
 
 if ! grep -q '^end run$' "$HARNESS"; then
-    echo -e "${RED}Could not extract the AppleScript from open-iterm-claude.sh${RESET}" >&2
+    echo -e "${RED}Could not extract the AppleScript from open-iterm-agent.sh${RESET}" >&2
     exit 1
 fi
 
-# The encoding under test, mirroring start-claude-session.sh.
+# The encoding under test, mirroring start-agent-session.sh.
 encode_key() {
     local key="${1//_/__}"
     printf '%s' "${key//./_}"
@@ -77,31 +77,31 @@ assert_sessions() {
     local issue_key="$2"
     local repo_name="testrepo"
 
-    local session_key expected_claude expected_companion
+    local session_key expected_agent expected_companion
     session_key=$(encode_key "$issue_key")
-    expected_claude="claude-${repo_name}-${session_key}"
+    expected_agent="agent-${repo_name}-${session_key}"
     expected_companion="companion-${repo_name}-${session_key}"
 
-    local out claude_line companion_line actual_claude actual_companion
+    local out agent_line companion_line actual_agent actual_companion
     out=$(osascript "$HARNESS" \
-        "$issue_key" /tmp/wt "$expected_claude" '' "$repo_name" '' sock 'gitui' true /bin/zsh)
-    claude_line=$(sed -n '1p' <<< "$out")
+        "$issue_key" /tmp/wt "$expected_agent" '' "$repo_name" '' sock 'gitui' true /bin/zsh claude '' ' --continue')
+    agent_line=$(sed -n '1p' <<< "$out")
     companion_line=$(sed -n '2p' <<< "$out")
-    actual_claude=$(session_from '-s' "$claude_line")
+    actual_agent=$(session_from '-s' "$agent_line")
     actual_companion=$(session_from '-s' "$companion_line")
 
-    if [[ "$actual_claude" == "$expected_claude" && "$actual_companion" == "$expected_companion" ]]; then
+    if [[ "$actual_agent" == "$expected_agent" && "$actual_companion" == "$expected_companion" ]]; then
         echo -e "  ${GREEN}PASS${RESET} $test_name"
         PASS=$((PASS + 1))
     else
         echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    claude    expected: \"$expected_claude\"  actual: \"$actual_claude\""
+        echo "    agent     expected: \"$expected_agent\"  actual: \"$actual_agent\""
         echo "    companion expected: \"$expected_companion\"  actual: \"$actual_companion\""
         FAIL=$((FAIL + 1))
     fi
 }
 
-echo -e "\n${BOLD}Test: claude and companion sessions share the encoded key${RESET}"
+echo -e "\n${BOLD}Test: agent and companion sessions share the encoded key${RESET}"
 
 assert_sessions "beads prefix carrying an underscore" "my_svc-a1b2"
 assert_sessions "beads child issue" "bd-a3f8e9.1"

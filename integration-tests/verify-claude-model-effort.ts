@@ -6,13 +6,13 @@
  * each step — no mocks, no reimplemented resolution:
  *
  *   1. A throwaway 3-layer config on disk (home / project / local)
- *   2. resolve-claude-config.sh  — the bash resolver idow calls
- *   3. getClaudeModel/getClaudeEffort — the TS resolver the TUI calls
+ *   2. resolve-agent-config.sh  — the bash resolver idow calls
+ *   3. getAgentModel/getAgentEffort — the TS resolver the TUI calls
  *      → asserts the two languages agree on every permutation
- *   4. start-claude-session.sh   — launched for real against a throwaway tmux
+ *   4. start-agent-session.sh   — launched for real against a throwaway tmux
  *      socket with a `claude` shim on PATH that records its argv, proving the
  *      flags reach the actual command line
- *   5. open-iterm-claude.sh      — the AppleScript-assembled command line, typed
+ *   5. open-iterm-agent.sh      — the AppleScript-assembled command line, typed
  *      into a real shell (tmux standing in for iTerm) with a deliberately
  *      hostile model value, proving both quoting layers hold
  *   6. The installed `claude` binary — a live `--model … --effort … --print`
@@ -33,8 +33,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
-	getClaudeEffort,
-	getClaudeModel,
+	getAgentEffort,
+	getAgentModel,
 	loadConfigFromPaths,
 } from '../source/config.ts';
 
@@ -146,7 +146,7 @@ type Resolved = {
 
 function resolveViaBash(profile?: string): Resolved {
 	const args = [
-		path.join(scriptsDir, 'resolve-claude-config.sh'),
+		path.join(scriptsDir, 'resolve-agent-config.sh'),
 		'--config',
 		path.join(projectDir, '.pappardelle.yml'),
 		'--local-config',
@@ -164,7 +164,7 @@ function main() {
 	console.log('claude.model / claude.effort — end-to-end verification');
 	console.log(`Fixture: ${tmpRoot}`);
 
-	header('1. resolve-claude-config.sh (the resolver idow calls)');
+	header('1. resolve-agent-config.sh (the resolver idow calls)');
 
 	const topLevel = resolveViaBash();
 	check('no profile → model', topLevel.model, 'opus');
@@ -194,7 +194,7 @@ function main() {
 
 	// ── Step 3: the TS resolver, on the same bytes ─────────────────────────
 
-	header('2. getClaudeModel/getClaudeEffort (the resolver the TUI calls)');
+	header('2. getAgentModel/getAgentEffort (the resolver the TUI calls)');
 
 	const config = loadConfigFromPaths({homeConfigDir: homeDir, projectDir});
 	pass('3-layer config loaded and validated by the TS loader');
@@ -210,8 +210,8 @@ function main() {
 
 	for (const {title, profile} of cases) {
 		const bash = resolveViaBash(profile);
-		const tsModel = getClaudeModel(config, title);
-		const tsEffort = getClaudeEffort(config, title);
+		const tsModel = getAgentModel(config, title);
+		const tsEffort = getAgentEffort(config, title);
 		const label = profile ?? '(no profile)';
 		if (tsModel === bash.model && tsEffort === bash.effort) {
 			pass(
@@ -226,7 +226,7 @@ function main() {
 
 	// ── Step 4: the real launch, argv captured ─────────────────────────────
 
-	header('3. start-claude-session.sh → the real claude command line');
+	header('3. start-agent-session.sh → the real claude command line');
 
 	const shimDir = path.join(tmpRoot, 'shim');
 	const shimHome = path.join(tmpRoot, 'shim-home');
@@ -254,7 +254,7 @@ function main() {
 		execFileSync(
 			'bash',
 			[
-				path.join(scriptsDir, 'start-claude-session.sh'),
+				path.join(scriptsDir, 'start-agent-session.sh'),
 				'--issue-key',
 				issueKey,
 				'--repo-name',
@@ -317,12 +317,12 @@ function main() {
 	);
 
 	// ── Step 5: the iTerm path's AppleScript-assembled command line ────────
-	// open-iterm-claude.sh builds its command inside AppleScript, where the
+	// open-iterm-agent.sh builds its command inside AppleScript, where the
 	// string crosses two shells. --print-command returns the exact bytes the
 	// AppleScript would type, so we can run them through a real shell (driven
 	// by tmux, standing in for iTerm) and see what `claude` actually receives.
 
-	header('4. open-iterm-claude.sh → AppleScript-assembled command line');
+	header('4. open-iterm-agent.sh → AppleScript-assembled command line');
 
 	if (process.platform !== 'darwin') {
 		pass('skipped (osascript is macOS-only)');
@@ -346,7 +346,7 @@ function main() {
 		const line = execFileSync(
 			'bash',
 			[
-				path.join(scriptsDir, 'open-iterm-claude.sh'),
+				path.join(scriptsDir, 'open-iterm-agent.sh'),
 				'--worktree',
 				worktree,
 				'--issue-key',

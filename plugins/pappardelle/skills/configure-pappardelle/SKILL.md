@@ -31,7 +31,7 @@ Options:
 - **Configure issue watchlist** — auto-create workspaces for assigned issues
 - **Edit local overrides** — personal keybinding overrides in `.pappardelle.local.yml`
 - **Change providers** — switch issue tracker or VCS host
-- **Configure Claude settings** — initialization command, permissions, model, effort
+- **Configure Claude settings** — initialization command, permissions
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
@@ -72,8 +72,8 @@ profiles:
     display_name: 'My Profile'
     emoji: '🎸' # Optional — shown in the ticket rail (STA-924)
     team_prefix: PREFIX # Optional per-profile override
-    claude:
-      initialization_command: '/do' # Optional per-profile override
+    agent_profile: codex # Optional — named agent profile from the top-level `agent_profiles:` map
+    initialization_command: '/do' # Optional per-profile override (agent-agnostic)
     vars: # Custom template variables
       KEY: 'value'
     vcs:
@@ -288,39 +288,76 @@ vcs_host:
 ## Configuring Claude Settings
 
 ```yaml
-claude:
-  initialization_command: '/do' # Skill to run on new sessions
+initialization_command: '/do' # Skill to run on new sessions (agent-agnostic; top-level, NOT inside claude:)
+
+claude: # Applies only when the agent is claude
   dangerously_skip_permissions: false # 'yolo mode'
-  model: opus # Optional — passed to `claude --model`
-  effort: high # Optional — passed to `claude --effort`
 ```
+
+The old `claude.initialization_command` spelling still works but is deprecated; never write it into new configs, and setting both spellings at one level is a validation error.
 
 Per-profile overrides take precedence:
 
 ```yaml
 profiles:
   my-profile:
-    claude:
-      initialization_command: '/do-custom'
-      model: sonnet
-      effort: medium
+    initialization_command: '/do-custom'
+```
+
+`claude.model` / `claude.effort` are deprecated: model and effort live on agent
+profiles (next section). Never write them into new configs; when you find them,
+offer to move them onto an agent profile.
+
+## Configuring Agent Profiles (running codex instead of Claude)
+
+The agent pane runs Claude Code by default. A named agent profile plus an
+`agent_profile:` reference switches a profile (or the whole repo) to another
+CLI. Agent profiles are separate from workspace `profiles`, which pick one with
+`agent_profile:`:
+
+```yaml
+agent_profiles:
+  codex:
+    command: codex # Required — base binary
+    args: --yolo # Optional — free-form, prefixes every invocation
+    resume_args: resume {session_id} # Optional — resume attempt; omit to always launch fresh
+    model: gpt-5.5 # Optional — rendered as -m gpt-5.5
+    effort: high # Optional — rendered as -c model_reasoning_effort=high
+    # is_claude: true          # Optional — force claude treatment for a wrapper (e.g. claude-local)
+  claude-sonnet:
+    command: claude
+    model: sonnet # Rendered as --model sonnet
+    effort: medium
+
+agent_profile: codex # Optional global default (default: claude)
+
+profiles:
+  my-profile:
+    agent_profile: codex # Per-profile reference; '' clears an inherited global back to claude
+  docs:
+    agent_profile: claude-sonnet # A cheaper model for one profile
 ```
 
 ### model / effort
 
-Resolution order is profile → top-level → unset, and unset means the flag isn't
-passed at all (Claude picks its own default). An explicit `model: ''` on a
-profile _clears_ an inherited global value rather than falling through to it —
-that's how a profile opts out of a repo-wide model. Values aren't validated
-against a list, so pass whatever the installed Claude Code accepts: an alias
-(`opus`, `sonnet`, `fable`), a full id (`claude-opus-5[1m]`), and
-`low|medium|high|xhigh|max` for effort.
+Set on an agent profile; unset means no flag (the CLI picks its own default).
+Values aren't validated against a list, so pass whatever the installed CLI
+accepts: an alias (`opus`, `sonnet`), a full id (`claude-opus-5[1m]`), and
+`low|medium|high|xhigh|max` for claude's effort. Claude and codex have built-in
+flag templates; any other CLI needs `model_args` / `effort_args` containing
+`{model}` / `{effort}` (e.g. `model_args: --model {model}`) before it can take
+a value — validation rejects a value with no template.
 
-Only prompt for these when the user asks about model/effort, or when they're
-already editing the `claude` section — most repos are happy on the default, and
-an unset field is strictly cheaper than a wrong one. Suggest a per-profile
-value (not a global) when the user's stated reason is project-specific, e.g. "I
-want the docs profile to be cheap and fast."
+To give one workspace profile a different model, define another agent profile
+and point that workspace profile at it. Only prompt for these when the user
+asks about model/effort; an unset field is strictly cheaper than a wrong one.
+
+Rules to apply when editing:
+
+- `agent_profile:` values must name an entry in `agent_profiles:` (or `claude`, which is built in); validation rejects dangling references
+- `args` is where skip-permissions equivalents for non-claude agents go (codex: `--yolo`) — `claude.dangerously_skip_permissions` only applies to claude
+- Claude-only behavior (`--name`, the `--model`/`--effort` templates, `~/.claude.json` pre-trust, `--resume {session_id}` default) is gated on the command's basename being `claude` or an explicit `is_claude: true`
+- Warn the user that non-claude agents show an `unknown` status icon in the rail — status hooks are Claude Code-only
 
 ## Configuring the Companion Pane Command
 
