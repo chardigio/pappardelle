@@ -35,14 +35,44 @@ team_prefix: ENG
 # issue_tracker:
 #   provider: beads
 
-# Claude configuration (optional)
+# Command passed to the agent when a new session opens (optional, agent-agnostic).
+# Also settable per-profile. Replaces the deprecated claude.initialization_command.
+# initialization_command: "/idow"
+
+# Claude configuration (optional; applies only when the agent is claude)
 # claude:
-#   initialization_command: "/idow"        # Command passed to Claude when a new session opens
 #   dangerously_skip_permissions: false     # Pass --dangerously-skip-permissions to Claude (default: false)
-#   model: opus                             # Pass --model to Claude (alias or full id). Omit for Claude's default.
-#   effort: high                            # Pass --effort to Claude (low|medium|high|xhigh|max). Omit for Claude's default.
-# model/effort are also settable per-profile (see ios-app below); the profile
-# value wins, and an explicit "" there clears an inherited global value.
+# claude.model / claude.effort are deprecated: set model/effort on an agent
+# profile below instead.
+
+# Agent profiles for the agent pane (optional). The built-in `claude` agent
+# profile is the default; define others here and reference them by name via
+# `agent_profile:`
+# (top-level for a global default, or per-profile — see codex-experiments
+# below). `args` is free-form and prefixes every invocation, so codex's
+# --yolo goes there. Non-claude agents skip the claude-only flags
+# (--name/dsp) and the ~/.claude.json pre-trust; a wrapper around claude that
+# isn't named `claude` can opt back in with is_claude. model/effort are
+# rendered through model_args/effort_args, built in for claude and codex.
+# agent_profiles:
+#   claude:
+#     command: claude
+#     model: opus                           # Alias or full id. Omit for the CLI's default.
+#     effort: high                          # Omit for the CLI's default.
+#   codex:
+#     command: codex                        # Base binary (required)
+#     args: --yolo                          # Appended to every invocation (optional)
+#     resume_args: resume {session_id}      # Appended for the resume attempt (optional; no resume without it)
+#     model: gpt-5.5                        # Rendered as -m gpt-5.5
+#     effort: high                          # Rendered as -c model_reasoning_effort=high
+#   claude-local:
+#     command: claude-local
+#     is_claude: true                       # Force claude treatment despite the name
+#   aider:
+#     command: aider
+#     model: sonnet
+#     model_args: --model {model}           # Required before another CLI can take a model
+# agent_profile: codex                      # Global default agent profile (default: claude)
 
 # Auto-remove spaces from the rail when the tracker reports their issue as
 # completed or canceled. Same teardown as pressing `d` (runs pre_workspace_deinit,
@@ -174,14 +204,13 @@ profiles:
     # Falls back to issue_tracker.default_issue_type, then "Task".
     # jira:
     #   issue_type: Feature
-    # Per-profile Claude overrides (optional). Each field falls back to the
-    # top-level `claude:` section. An explicit "" clears an inherited value —
-    # e.g. `model: ""` here launches with Claude's default even when the
-    # top-level config pins a model.
-    # claude:
-    #   initialization_command: '/do-ios'
-    #   model: sonnet
-    #   effort: medium
+    # Per-profile agent profile override (optional): the name of an entry in
+    # the top-level `agent_profiles:` map. "" clears an inherited global
+    # `agent_profile:` back to claude. This is how a profile runs codex
+    # instead of Claude Code.
+    # agent_profile: codex
+    # Per-profile initial prompt override (optional, agent-agnostic).
+    # initialization_command: '/do-ios'
     vars:
       IOS_APP_DIR: 'ios/MyApp'
       BUNDLE_ID: 'com.example.myapp'

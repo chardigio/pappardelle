@@ -6,6 +6,7 @@
 // TypeScript layer builds. Specifically: every inner-session call site must
 // route through a single helper so a future caller that forgets the `-L` flag
 // fails CI rather than silently regressing nested-tmux behavior.
+import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -13,7 +14,9 @@ import test from 'ava';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
+	migrateLegacyAgentSessions,
 	cleanupOrphanedOuterSessions,
+	exactSessionTarget,
 	innerTmuxArgs,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -68,7 +71,7 @@ test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
 test('every per-issue new-session carries the space session environment', t => {
 	// A Claude started by hand in the pane reports its status under
 	// PAPPARDELLE_SPACE, so a session the TUI makes must carry it just like one
-	// start-claude-session.sh makes. Without it, the fix from
+	// start-agent-session.sh makes. Without it, the fix from
 	// chardigio/pappardelle#22 holds only until the next reboot.
 	const calls =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"][^\]]*\]/g) ?? [];
@@ -173,6 +176,43 @@ test('has-session via spawnSync routes through innerTmuxArgs', t => {
 		/innerTmuxArgs\(\[\s*['"]has-session['"]/,
 		'innerSessionExists must route has-session through innerTmuxArgs',
 	);
+});
+
+test('session lookups and kills by name use exact targets', t => {
+	// A bare name falls back to tmux prefix matching when no session has it
+	// exactly, so checking or killing STA-1 would hit STA-12.
+	t.regex(
+		TMUX_SOURCE,
+		/innerTmuxArgs\(\[\s*'has-session',\s*'-t',\s*exactSessionTarget\(/,
+	);
+	t.regex(
+		TMUX_SOURCE,
+		/innerTmuxArgs\(\[\s*'kill-session',\s*'-t',\s*exactSessionTarget\(/,
+	);
+	t.regex(TMUX_SOURCE, /tmux has-session -t "\$\{exactSessionTarget\(/);
+	t.regex(TMUX_SOURCE, /tmux kill-session -t "\$\{exactSessionTarget\(/);
+});
+
+test('exactSessionTarget stops tmux prefix-matching another session', t => {
+	const socket = `pappardelle_exact_test_${process.pid}`;
+	const tmux = (...args: string[]) =>
+		spawnSync('tmux', ['-L', socket, ...args], {encoding: 'utf-8'});
+	if (tmux('-V').error) {
+		t.pass('tmux not installed');
+		return;
+	}
+
+	try {
+		t.is(tmux('new-session', '-d', '-s', 'agent-repo-STA-12').status, 0);
+		t.is(tmux('has-session', '-t', 'agent-repo-STA-1').status, 0);
+		t.not(
+			tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1')).status,
+			0,
+		);
+		t.is(exactSessionTarget('=agent-repo-STA-1'), '=agent-repo-STA-1');
+	} finally {
+		tmux('kill-server');
+	}
 });
 
 test('kill-session for per-issue sessions routes through innerTmuxArgs', t => {
@@ -476,4 +516,66 @@ test('cleanupOrphanedInnerSessions handles a partial pair (only claude or compan
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 1);
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
 	t.deepEqual(killed, ['claude-repo-STA-999']);
+});
+
+// ============================================================================
+// migrateLegacyAgentSessions
+//
+// STE-2 renamed the agent-pane sessions from `claude-{repo}-{key}` to
+// `agent-{repo}-{key}`. Live pre-rename sessions are renamed in place at
+// startup (a rename preserves panes and running processes) so an in-flight
+// conversation survives the upgrade instead of being orphaned or reaped.
+// ============================================================================
+
+test('migrateLegacyAgentSessions renames claude-{repo}-* to agent-{repo}-*', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-STA-1',
+			'claude-repo-main',
+			'companion-repo-STA-1', // companion prefix unchanged → untouched
+			'claude-otherrepo-STA-2', // different repo → untouched
+			'agent-repo-STA-3', // already migrated → untouched
+		].join('\n'),
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner), 2);
+
+	const renames = calls
+		.filter(c => c[0] === 'rename-session')
+		.map(c => [c[2], c[3]]);
+	// `=` forces an exact target; a bare name would let tmux prefix-match
+	// another space's session (STA-1 → STA-12).
+	t.deepEqual(renames, [
+		['=claude-repo-STA-1', 'agent-repo-STA-1'],
+		['=claude-repo-main', 'agent-repo-main'],
+	]);
+});
+
+test('migrateLegacyAgentSessions kills a legacy session whose agent name is taken', t => {
+	// The agent- session is the one pappardelle attaches; the legacy duplicate
+	// would otherwise survive every orphan reap because its key is registered.
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-STA-1',
+			'agent-repo-STA-1',
+			'claude-repo-STA-2',
+		].join('\n'),
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner), 1);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=claude-repo-STA-1'],
+	);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'rename-session').map(c => [c[2], c[3]]),
+		[['=claude-repo-STA-2', 'agent-repo-STA-2']],
+	);
+});
+
+test('migrateLegacyAgentSessions returns 0 when list-sessions errors', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStatus: 1,
+		listSessionsStdout: '',
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner), 0);
+	t.is(calls.length, 1);
 });

@@ -46,6 +46,14 @@ export interface SpaceState {
 	 * Written once per workspace creation; never updated by the rail-status poller.
 	 */
 	profile?: string;
+	/**
+	 * The conversation the space's agent pane is on, written by the agent's
+	 * SessionStart/UserPromptSubmit hook (hooks/agent_session.py). Relaunching
+	 * resumes it by id when the agent profile's `resume_args` carry
+	 * `{session_id}`. `agentProfile` is the agent profile's name, so a switch to
+	 * another agent profile doesn't hand it a foreign id. idow drops it when it creates the worktree.
+	 */
+	agentSession?: {agentProfile: string; id: string};
 }
 
 /**
