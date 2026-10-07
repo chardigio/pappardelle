@@ -346,11 +346,11 @@ test('a successful build replaces the install and keeps the old one as a rollbac
 // updateShellScript (the `U` wrapper)
 // ============================================================================
 
-function runUpdateScript(installCommand: string) {
+function runUpdateScript(installCommand: string, waitOnFailure?: boolean) {
 	const home = temporaryDir();
 	const result = spawnSync(
 		'/bin/bash',
-		['-c', updateShellScript(installCommand)],
+		['-c', updateShellScript({installCommand, waitOnFailure})],
 		{encoding: 'utf8', env: {...process.env, HOME: home}, stdio: 'pipe'},
 	);
 	const log = path.join(home, '.pappardelle', 'logs', 'update.log');
@@ -363,6 +363,15 @@ test('a failed update keeps its exit status, explains it, and writes a log', t =
 	t.is(result.status, 3);
 	t.true(result.stdout.includes('The Pappardelle update failed (exit 3)'));
 	t.true(result.stdout.includes('Press any key to close'));
+	t.true(log.includes('installer ran'));
+});
+
+test('a failed update run from the shell reports the log without waiting for a key', t => {
+	const {result, log} = runUpdateScript('echo installer ran; exit 3', false);
+
+	t.is(result.status, 3);
+	t.true(result.stdout.includes('The Pappardelle update failed (exit 3)'));
+	t.false(result.stdout.includes('Press any key'));
 	t.true(log.includes('installer ran'));
 });
 

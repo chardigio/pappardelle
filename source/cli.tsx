@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import React from 'react';
 import {renderTui} from './render-tui.ts';
-import meow from 'meow';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -47,6 +46,8 @@ import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
+import {parseCli} from './cli-args.ts';
+import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,61 +58,20 @@ function shellQuote(s: string): string {
 	return `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
-const cli = meow(
-	`
-	Usage
-	  $ pappardelle [prompt]
-	  $ pappardelle highlight <issue-key>
-	  $ pappardelle send <issue-key> [text]
+const cli = parseCli();
 
-	Description
-	  Interactive TUI for managing pappardelle workspaces.
-	  Displays worktree spaces in an fzf-style list with Claude and
-	  companion panes for the selected space.
+const pappardelleDir = path.resolve(__dirname, '..');
 
-	  If a prompt is provided, creates a new session directly without
-	  entering the interactive TUI.
-
-	Commands
-	  highlight <key>  Select a row in the running TUI by issue key
-	  link-pr <url>    Record a verified PR/MR for the current workspace
-	  send <key> [text]
-	                   Submit text as a prompt to the space's Claude session.
-	                   Reads stdin when no text is given; use stdin for text
-	                   that starts with "-", which would parse as a flag
-
-	Controls
-	  j/k or arrows  Navigate between spaces
-	  Enter          Select space
-	  n              New space (create worktree + issue)
-	  o              Open workspace (apps, links, iTerm, etc.)
-	  d              Delete selected space
-	  r              Refresh list
-	  U              Update Pappardelle to the latest release
-	  q/Ctrl+C       Quit
-
-	Options
-	  --no-layout    Don't set up tmux pane layout (run standalone)
-	  --workspace    Outer workspace root when linking a nested repository
-
-	Examples
-	  $ pappardelle              # Run with tmux layout
-	  $ pappardelle --no-layout  # Run standalone (list only)
-	  $ pappardelle "fix auth bug"  # Create new session with prompt
-	  $ pappardelle highlight STA-313  # Highlight row in running TUI
-	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
-`,
-	{
-		importMeta: import.meta,
-		flags: {
-			workspace: {type: 'string'},
-			layout: {
-				type: 'boolean',
-				default: true,
-			},
-		},
-	},
-);
+// Dispatched before checkConfig so updating works from any directory, not just
+// a repo with a .pappardelle.yml.
+if (cli.input.length === 1 && cli.input[0] === 'update') {
+	process.exit(
+		await runUpdateCommand(
+			{killTuis: cli.flags.killTuis},
+			defaultUpdateCommandDeps(pappardelleDir),
+		),
+	);
+}
 
 // Check for .pappardelle.yml config file
 function checkConfig(): void {
@@ -421,7 +381,6 @@ process.on('SIGTERM', () => {
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
-const pappardelleDir = path.resolve(__dirname, '..');
 let commitSha = 'unknown';
 try {
 	commitSha = execSync('git log -1 --format=%h -- .', {

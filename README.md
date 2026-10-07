@@ -491,7 +491,15 @@ On startup, the TUI checks the GitHub Releases API (cached for 24h at `~/.pappar
 Update available: v0.1.0 → v0.2.0 · U to update · X to dismiss
 ```
 
-The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to update to the latest release. `U` is **always live** — not just while the banner is showing: the 24h cache can lag a fresh release by hours, so you can pull a release that landed minutes ago without restarting and waiting out the cache. `U` opens an "are you sure?" confirm dialog (same style as closing a space); confirming exits the TUI, re-runs the install script in-place, and relaunches. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
+The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to update to the latest release. `U` is **always live** — not just while the banner is showing: the 24h cache can lag a fresh release by hours, so you can pull a release that landed minutes ago without restarting and waiting out the cache. `U` opens an "are you sure?" confirm dialog (same style as closing a space); confirming re-runs the install script in place, then quits the TUI; run `pappardelle` again to start the new build. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
+
+Outside the TUI, `pappardelle update` runs the same installer from any directory. It doesn't ask before installing. If the install fails, it prints the path of the log (`~/.pappardelle/logs/update.log`) and exits with the installer's status. After a successful install, any TUIs still running are on the old build, so the command offers to quit them:
+
+- On a terminal it asks `Quit N running Pappardelle TUIs so they pick up the update? [y/N]`
+- `--kill-tuis` quits them without asking; `--no-kill-tuis` leaves them running
+- Without a terminal and without either flag, it leaves them running and names them
+
+Quitting a TUI only ends its `pappardelle-<repo>` tmux session. Claude and companion sessions live on a separate tmux server and keep running.
 
 The version shown in the help (`?`) overlay follows the same source-of-truth but degrades differently, since `package.json` is never bumped on release and so is always a stale `0.1.0`:
 
