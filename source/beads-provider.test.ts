@@ -809,12 +809,14 @@ const STATUSES = JSON.stringify({
 			{name: 'in_progress', category: 'wip'},
 			{name: 'closed', category: 'done'},
 			{name: 'deferred', category: 'frozen'},
+			{name: 'pinned', category: 'frozen'},
+			{name: 'hooked', category: 'wip'},
 		],
 		custom_statuses: [{name: 'in_review', category: 'done'}, {name: 'triage'}],
 	},
 });
 
-test('listStates reads built-in and custom statuses and marks the done category', async t => {
+test('listStates reads built-in and custom statuses, marks the done category and skips agent-workflow ones', async t => {
 	const {provider, calls} = providerReturning(STATUSES);
 	t.deepEqual(await provider.listStates(), [
 		{id: 'open', name: 'Open', done: false},

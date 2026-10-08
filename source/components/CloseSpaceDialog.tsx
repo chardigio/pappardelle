@@ -97,7 +97,6 @@ export default function CloseSpaceDialog({
 	);
 	// Held by key, not index, so it survives the list growing once states load.
 	const [selectedKey, setSelectedKey] = useState<string | null>(null);
-	const [processing, setProcessing] = useState(false);
 
 	const keys = choices.map(choice => choiceKey(choice));
 	const effectiveKey =
@@ -117,7 +116,7 @@ export default function CloseSpaceDialog({
 			);
 			setSelectedKey(keys[next]!);
 		},
-		{isActive: pickable && !processing},
+		{isActive: pickable},
 	);
 
 	const content = closeSpaceContent(spaceName);
@@ -145,13 +144,13 @@ export default function CloseSpaceDialog({
 				</Text>
 			}
 			onConfirm={async () => {
-				setProcessing(true);
 				await onConfirm(selected);
 			}}
 			onCancel={onCancel}
 		>
 			<Box marginBottom={1}>
-				<Text>
+				{/* tmux can't resize an open popup, so a long status name must not wrap. */}
+				<Text wrap="truncate-end">
 					Issue state: <Text color="cyan">‹ {choiceLabel(selected)} ›</Text>
 				</Text>
 			</Box>

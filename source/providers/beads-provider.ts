@@ -114,6 +114,11 @@ export function beadsStateName(status: string): string {
  * `done` is the category for terminal ones. Custom statuses declared in the
  * old `name,name` config form carry no category.
  */
+// bd's agent-workflow statuses: hooked attaches an issue to an agent's hook and
+// pinned keeps it open indefinitely. Neither is something to leave behind when
+// closing a workspace.
+const UNPICKABLE_STATUSES = new Set(['hooked', 'pinned']);
+
 export function parseBeadsStatuses(
 	payload: Record<string, unknown> | undefined,
 ): TrackerState[] {
@@ -126,6 +131,7 @@ export function parseBeadsStatuses(
 		if (entry === null || typeof entry !== 'object') continue;
 		const {name, category} = entry as {name?: unknown; category?: unknown};
 		if (typeof name !== 'string' || !name) continue;
+		if (UNPICKABLE_STATUSES.has(name)) continue;
 		states.push({
 			id: name,
 			name: beadsStateName(name),

@@ -19,9 +19,6 @@ const HORIZONTAL_CHROME = 6;
 const VERTICAL_CHROME = 4;
 const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
 const CLOSE_SPACE_HINT = '←/→ change state · y/Enter confirm · n/Esc cancel';
-// The widest the state row gets without the popup knowing the tracker's
-// states, which load inside it: "Issue state: ‹ Leave as In Progress ›".
-const CLOSE_SPACE_STATE_ROW = 'Issue state: ‹ Leave as In Progress ›';
 
 /**
  * Rows a string takes once Ink word-wraps it at `width` columns. Words longer
@@ -101,8 +98,8 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			// popup, so it is sized for the state row and its margin either way.
 			const height =
 				confirmHeight(content, inner, CLOSE_SPACE_HINT) +
-				wrappedLineCount(CLOSE_SPACE_STATE_ROW, inner) +
-				1;
+				// The state row is truncated to one line, plus its margin.
+				2;
 			return clamp({width, height}, client);
 		}
 
