@@ -34,21 +34,18 @@ const IN_PROGRESS = issue('In Progress', 'in_progress');
 
 test('an open issue defaults to closed', t => {
 	const choices = buildStateChoices(STATES, IN_PROGRESS);
-	const key = defaultChoiceKey(choices, IN_PROGRESS);
+	const key = defaultChoiceKey(choices);
 	const chosen = choices.find(choice => choiceKey(choice) === key)!;
 	t.is(choiceLabel(chosen), 'Closed');
 });
 
 test('an issue that is already done defaults to leaving it', t => {
 	const closed = issue('Closed', 'completed');
-	t.is(defaultChoiceKey(buildStateChoices(STATES, closed), closed), 'leave');
+	t.is(defaultChoiceKey(buildStateChoices(STATES, closed)), 'leave');
 
 	const states = [...STATES, {id: 'in_review', name: 'In Review', done: true}];
 	const reviewed = issue('In Review', 'in_review');
-	t.is(
-		defaultChoiceKey(buildStateChoices(states, reviewed), reviewed),
-		'leave',
-	);
+	t.is(defaultChoiceKey(buildStateChoices(states, reviewed)), 'leave');
 });
 
 test('without a closed state the first done state is the default', t => {
@@ -56,10 +53,7 @@ test('without a closed state the first done state is the default', t => {
 		{id: 'open', name: 'Open', done: false},
 		{id: 'shipped', name: 'Shipped', done: true},
 	];
-	t.is(
-		defaultChoiceKey(buildStateChoices(states, IN_PROGRESS), IN_PROGRESS),
-		'set:shipped',
-	);
+	t.is(defaultChoiceKey(buildStateChoices(states, IN_PROGRESS)), 'set:shipped');
 });
 
 test('before states load, Enter still closes the issue', t => {
@@ -69,7 +63,7 @@ test('before states load, Enter still closes the issue', t => {
 			choices.map(choice => choice.kind),
 			['close', 'leave'],
 		);
-		t.is(defaultChoiceKey(choices, IN_PROGRESS), choiceKey({kind: 'close'}));
+		t.is(defaultChoiceKey(choices), choiceKey({kind: 'close'}));
 	}
 });
 
@@ -85,10 +79,17 @@ test('cycling wraps at both ends', t => {
 
 test('leave names the current state', t => {
 	t.is(
-		choiceLabel({kind: 'leave', currentName: 'In Progress'}),
+		choiceLabel({
+			kind: 'leave',
+			currentName: 'In Progress',
+			currentDone: false,
+		}),
 		'Leave as In Progress',
 	);
-	t.is(choiceLabel({kind: 'leave', currentName: undefined}), 'Leave unchanged');
+	t.is(
+		choiceLabel({kind: 'leave', currentName: undefined, currentDone: false}),
+		'Leave unchanged',
+	);
 });
 
 function recordingTracker(result: boolean) {
@@ -126,4 +127,11 @@ test('applying a choice makes the matching tracker call', async t => {
 test('a rejected write comes back false', async t => {
 	const {tracker} = recordingTracker(false);
 	t.false(await applyStateChoice(tracker, 'bd-1', {kind: 'close'}));
+});
+
+test('the current status is offered only as Leave', t => {
+	const labels = buildStateChoices(STATES, IN_PROGRESS).map(choice =>
+		choiceLabel(choice),
+	);
+	t.deepEqual(labels, ['Open', 'Closed', 'Deferred', 'Leave as In Progress']);
 });

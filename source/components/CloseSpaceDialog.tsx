@@ -102,7 +102,7 @@ export default function CloseSpaceDialog({
 	const effectiveKey =
 		selectedKey !== null && keys.includes(selectedKey)
 			? selectedKey
-			: defaultChoiceKey(choices, currentIssue);
+			: defaultChoiceKey(choices);
 	const index = Math.max(0, keys.indexOf(effectiveKey));
 	const selected = choices[index]!;
 

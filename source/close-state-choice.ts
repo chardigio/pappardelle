@@ -10,7 +10,7 @@ export type StateChoice =
 	// Enter pressed early still closes the issue.
 	| {kind: 'close'}
 	| {kind: 'set'; state: TrackerState}
-	| {kind: 'leave'; currentName: string | undefined};
+	| {kind: 'leave'; currentName: string | undefined; currentDone: boolean};
 
 export function closeSpaceContent(spaceName: string) {
 	return {
@@ -47,33 +47,28 @@ export function buildStateChoices(
 	states: TrackerState[] | null,
 	current: TrackerIssue | null | undefined,
 ): StateChoice[] {
-	const leave: StateChoice = {kind: 'leave', currentName: current?.state.name};
+	const currentName = current?.state.name;
+	const leave: StateChoice = {
+		kind: 'leave',
+		currentName,
+		currentDone:
+			(current !== null &&
+				current !== undefined &&
+				AUTO_REMOVE_STATE_TYPES.has(current.state.type)) ||
+			(states ?? []).some(state => state.done && state.name === currentName),
+	};
 	if (!states || states.length === 0) return [{kind: 'close'}, leave];
+	// The current state is already offered as "Leave as <current>".
+	const others = states.filter(state => state.name !== currentName);
 	return [
-		...states.map(state => ({kind: 'set', state}) satisfies StateChoice),
+		...others.map(state => ({kind: 'set', state}) satisfies StateChoice),
 		leave,
 	];
 }
 
-function isAlreadyDone(
-	choices: StateChoice[],
-	current: TrackerIssue | null | undefined,
-): boolean {
-	if (!current) return false;
-	if (AUTO_REMOVE_STATE_TYPES.has(current.state.type)) return true;
-	return choices.some(
-		choice =>
-			choice.kind === 'set' &&
-			choice.state.done &&
-			choice.state.name === current.state.name,
-	);
-}
-
-export function defaultChoiceKey(
-	choices: StateChoice[],
-	current: TrackerIssue | null | undefined,
-): string {
-	if (isAlreadyDone(choices, current)) return 'leave';
+export function defaultChoiceKey(choices: StateChoice[]): string {
+	if (choices.some(choice => choice.kind === 'leave' && choice.currentDone))
+		return 'leave';
 	if (choices.some(choice => choiceKey(choice) === DONE_KEY)) return DONE_KEY;
 	const firstDone = choices.find(
 		choice => choice.kind === 'set' && choice.state.done,
