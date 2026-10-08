@@ -327,7 +327,9 @@ const cleanup = () => {
 	process.stdout.write('\x1b[?1049l'); // Exit alt screen
 };
 
-process.on('exit', cleanup);
+// Ahead of the logger's exit flush, which blocks if log storage is stalled:
+// the user gets their terminal back instead of a frozen TUI.
+process.prependListener('exit', cleanup);
 // The default SIGHUP action skips 'exit' listeners, which would drop buffered
 // log lines. Quitting in layout mode kills our own tmux session, which sends it.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
