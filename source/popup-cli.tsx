@@ -51,6 +51,12 @@ const channel: PopupChannel = {
 
 function start(message: Extract<HostMessage, {type: 'init'}>) {
 	started = true;
+	// tmux starts the popup with its server's global environment, which can
+	// hold variables the TUI doesn't have (another space's repo root, say).
+	for (const key of Object.keys(process.env)) {
+		if (!(key in message.env)) Reflect.deleteProperty(process.env, key);
+	}
+
 	Object.assign(process.env, message.env);
 	process.chdir(message.cwd);
 	bootstrapRepo();

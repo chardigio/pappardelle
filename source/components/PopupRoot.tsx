@@ -109,6 +109,7 @@ export default function PopupRoot({
 					<TextViewer
 						argv={spec.props.argv}
 						title={spec.props.title}
+						width={width}
 						height={height}
 						onClose={cancel}
 					/>
@@ -133,6 +134,7 @@ export default function PopupRoot({
 							<TextViewer
 								argv={nestedIssue.argv}
 								title={nestedIssue.title}
+								width={width}
 								height={height}
 								onClose={() => {
 									setNestedIssue(null);

@@ -1,28 +1,43 @@
 import {execFile} from 'node:child_process';
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {handleTextViewerKey} from './text-viewer-keys.ts';
+import {toViewerLines} from './text-viewer-lines.ts';
 
 type Props = {
 	argv: string[];
 	title: string;
+	width: number;
 	height: number;
 	onClose: () => void;
 };
 
 // Border (2) plus the title row and the hint row.
 const CHROME_ROWS = 4;
+// Border (2) plus paddingX={1} on each side.
+const CHROME_COLUMNS = 4;
 
 /** Run a command and show its output in a scrollable, bordered view. */
-export default function TextViewer({argv, title, height, onClose}: Props) {
-	const [lines, setLines] = useState<string[] | null>(null);
+export default function TextViewer({
+	argv,
+	title,
+	width,
+	height,
+	onClose,
+}: Props) {
+	const [output, setOutput] = useState<string | null>(null);
 	const [top, setTop] = useState(0);
 	const viewHeight = Math.max(1, height - CHROME_ROWS);
+	const lines = useMemo(
+		() =>
+			output === null ? null : toViewerLines(output, width - CHROME_COLUMNS),
+		[output, width],
+	);
 
 	useEffect(() => {
 		const [command, ...args] = argv;
 		if (!command) {
-			setLines(['Nothing to show']);
+			setOutput('Nothing to show');
 			return;
 		}
 
@@ -31,8 +46,7 @@ export default function TextViewer({argv, title, height, onClose}: Props) {
 			args,
 			{encoding: 'utf8', maxBuffer: 16 * 1024 * 1024},
 			(error, stdout, stderr) => {
-				const output = error ? stderr || error.message : stdout;
-				setLines(output.replace(/\n$/, '').split('\n'));
+				setOutput(error ? stderr || error.message : stdout);
 			},
 		);
 	}, [argv]);
