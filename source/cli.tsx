@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import React from 'react';
 import {renderTui} from './render-tui.ts';
-import meow from 'meow';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -12,6 +11,7 @@ import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
 	isInTmux,
+	outerSessionName,
 	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
@@ -47,71 +47,41 @@ import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
+import {parseCli} from './cli-args.ts';
+import {tuiLaunchCommand} from './tui-sessions.ts';
+import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
+import {
+	defaultRestartCommandDeps,
+	hardRestart,
+	restartRepo,
+} from './restart-command.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
-/** Single-quote a path for safe inclusion in a shell command we hand to tmux. */
-function shellQuote(s: string): string {
-	return `'${s.replaceAll("'", `'\\''`)}'`;
+const cli = parseCli();
+
+const pappardelleDir = path.resolve(__dirname, '..');
+
+const isRestart = cli.input.length === 1 && cli.input[0] === 'restart';
+
+// Dispatched before checkConfig so these work from any directory, not just a
+// repo with a .pappardelle.yml.
+if (cli.input.length === 1 && cli.input[0] === 'update') {
+	process.exit(
+		await runUpdateCommand(
+			{restartTuis: cli.flags.restartTuis},
+			defaultUpdateCommandDeps(pappardelleDir),
+		),
+	);
 }
 
-const cli = meow(
-	`
-	Usage
-	  $ pappardelle [prompt]
-	  $ pappardelle highlight <issue-key>
-	  $ pappardelle send <issue-key> [text]
-
-	Description
-	  Interactive TUI for managing pappardelle workspaces.
-	  Displays worktree spaces in an fzf-style list with Claude and
-	  companion panes for the selected space.
-
-	  If a prompt is provided, creates a new session directly without
-	  entering the interactive TUI.
-
-	Commands
-	  highlight <key>  Select a row in the running TUI by issue key
-	  link-pr <url>    Record a verified PR/MR for the current workspace
-	  send <key> [text]
-	                   Submit text as a prompt to the space's Claude session.
-	                   Reads stdin when no text is given; use stdin for text
-	                   that starts with "-", which would parse as a flag
-
-	Controls
-	  j/k or arrows  Navigate between spaces
-	  Enter          Select space
-	  n              New space (create worktree + issue)
-	  o              Open workspace (apps, links, iTerm, etc.)
-	  d              Delete selected space
-	  r              Refresh list
-	  U              Update Pappardelle to the latest release
-	  q/Ctrl+C       Quit
-
-	Options
-	  --no-layout    Don't set up tmux pane layout (run standalone)
-	  --workspace    Outer workspace root when linking a nested repository
-
-	Examples
-	  $ pappardelle              # Run with tmux layout
-	  $ pappardelle --no-layout  # Run standalone (list only)
-	  $ pappardelle "fix auth bug"  # Create new session with prompt
-	  $ pappardelle highlight STA-313  # Highlight row in running TUI
-	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
-`,
-	{
-		importMeta: import.meta,
-		flags: {
-			workspace: {type: 'string'},
-			layout: {
-				type: 'boolean',
-				default: true,
-			},
-		},
-	},
-);
+if (isRestart && cli.flags.hard) {
+	process.exit(
+		await hardRestart(cli.flags.yes ?? false, defaultRestartCommandDeps()),
+	);
+}
 
 // Check for .pappardelle.yml config file
 function checkConfig(): void {
@@ -221,6 +191,10 @@ try {
 	// If loading fails the providers will fall back to defaults on first use.
 }
 
+if (isRestart) {
+	process.exit(restartRepo(repoName, defaultRestartCommandDeps()));
+}
+
 // Handle `pappardelle highlight STA-XXX` — write target file and exit
 if (cli.input[0] === 'highlight') {
 	const issueKey = cli.input[1];
@@ -313,7 +287,7 @@ if (cli.input.length > 0) {
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
-	const sessionName = `pappardelle-${repoName}`;
+	const sessionName = outerSessionName(repoName);
 
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
@@ -326,15 +300,13 @@ if (!isInTmux() && cli.flags.layout) {
 		process.exit(result.status ?? 0);
 	}
 
-	// No existing session - create a new one. Re-exec the same cli.js the
-	// user just ran (via process.execPath + process.argv[1]) so side-by-side
-	// installs (e.g. a dev build at ~/.local/bin/pappardelle-sta862) don't
-	// silently fall back to the global `pappardelle` binary on PATH.
-	const selfCmd = `${shellQuote(process.execPath)} ${shellQuote(
-		process.argv[1] ?? 'pappardelle',
-	)}`;
-	const args = process.argv.slice(2).join(' ');
-	const cmd = args ? `${selfCmd} ${args}` : selfCmd;
+	// No existing session - create a new one.
+	const cmd = tuiLaunchCommand({
+		execPath: process.execPath,
+		cliPath: process.argv[1] ?? 'pappardelle',
+		args: process.argv.slice(2),
+		home: homedir(),
+	});
 
 	const tmuxArgs = ['new-session', '-s', sessionName, cmd];
 	const result = spawnSync('tmux', tmuxArgs, {
@@ -421,7 +393,6 @@ process.on('SIGTERM', () => {
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
-const pappardelleDir = path.resolve(__dirname, '..');
 let commitSha = 'unknown';
 try {
 	commitSha = execSync('git log -1 --format=%h -- .', {

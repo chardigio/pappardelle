@@ -17,7 +17,8 @@ import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
-import {updateShellScript, type UpdateInfo} from './update-check.ts';
+import {runUpdateScript, type UpdateInfo} from './update-check.ts';
+import {respawnTuiWindow, tuiSessionNames} from './tui-sessions.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -124,6 +125,8 @@ import {
 	sendToPane,
 	getCurrentlyViewingSpace,
 	killSession,
+	outerSessionName,
+	currentDefaultServerSession,
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
@@ -364,7 +367,7 @@ export default function App({
 		initialPaneLayout,
 	);
 
-	// Run the installer to update to the latest release, then quit. Invoked from
+	// Run the installer to update to the latest release, then restart. Invoked from
 	// the update confirm dialog's onConfirm (STA-1548) — both the banner's U and
 	// the always-available U funnel through that dialog.
 	//
@@ -383,14 +386,18 @@ export default function App({
 		process.stdout.write('\x1b[?1006l'); // disable SGR mouse
 		process.stdout.write('\x1b[?1000l'); // disable basic mouse
 		process.stdout.write('\x1b[?1049l'); // exit alt screen
-		// PAPPARDELLE_NODE hands the installer the node this TUI runs on, which
-		// the tmux server's PATH may not contain.
-		spawnSync('bash', ['-c', updateShellScript()], {
-			stdio: 'inherit',
-			env: {...process.env, PAPPARDELLE_NODE: process.execPath},
-		});
-		if (paneLayout) {
-			killSession(`pappardelle-${repoName}`);
+		runUpdateScript({waitOnFailure: true});
+		// Respawning the TUI's window ends this process and reruns it on the new
+		// build (or the old one, after a failed install). Only this TUI's own
+		// session qualifies: another terminal may run the same repo's TUI, and a
+		// TUI started inside the user's own tmux session has no window to rerun.
+		const current = currentDefaultServerSession(process.env);
+		const restarted =
+			current !== null &&
+			tuiSessionNames(repoName).includes(current) &&
+			respawnTuiWindow(current);
+		if (paneLayout && !restarted) {
+			killSession(outerSessionName(repoName));
 		}
 		// eslint-disable-next-line unicorn/no-process-exit
 		process.exit(0);
@@ -1033,7 +1040,7 @@ export default function App({
 						// Quit Pappardelle — kill the tmux session so viewer panes
 						// are cleaned up too (workspace sessions stay alive).
 						if (paneLayout) {
-							killSession(`pappardelle-${repoName}`);
+							killSession(outerSessionName(repoName));
 						}
 						// eslint-disable-next-line unicorn/no-process-exit
 						process.exit(0);

@@ -1,6 +1,6 @@
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {execFileSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {createLogger} from './logger.ts';
 
@@ -290,17 +290,21 @@ export function pappardelleInstallCommand(): string {
 }
 
 /**
- * The script the `U` update runs. The TUI kills its own tmux session as soon
- * as the script returns, which takes the pane and any error text with it, so a
- * failed update used to look like Pappardelle quitting for no reason. On
- * failure this keeps the pane open until a key press and points at a log that
- * outlives the pane. `pipefail` keeps the installer's exit status through
- * `tee`. `read` takes one key because Ink leaves the tty in raw mode, where
- * Enter never ends a line.
+ * The script the `U` update and `pappardelle update` run. The TUI kills its own
+ * tmux session as soon as the script returns, which takes the pane and any
+ * error text with it, so a failed update used to look like Pappardelle quitting
+ * for no reason. On failure this points at a log that outlives the pane and,
+ * with `waitOnFailure`, keeps the pane open until a key press. `pipefail` keeps
+ * the installer's exit status through `tee`. `read` takes one key because Ink
+ * leaves the tty in raw mode, where Enter never ends a line.
  */
-export function updateShellScript(
-	installCommand: string = pappardelleInstallCommand(),
-): string {
+export function updateShellScript({
+	installCommand = pappardelleInstallCommand(),
+	waitOnFailure = true,
+}: {installCommand?: string; waitOnFailure?: boolean} = {}): string {
+	const failureMessage =
+		'The Pappardelle update failed (exit %s). The log is at %s.\\n' +
+		(waitOnFailure ? 'Press any key to close.\\n' : '');
 	return [
 		'set -o pipefail',
 		'log="$HOME/.pappardelle/logs/update.log"',
@@ -308,11 +312,22 @@ export function updateShellScript(
 		`{ ${installCommand}; } 2>&1 | tee "$log"`,
 		'status=$?',
 		'if [ "$status" -ne 0 ]; then',
-		'  printf "\\nThe Pappardelle update failed (exit %s). The log is at %s.\\nPress any key to close.\\n" "$status" "$log"',
-		'  read -rsn1 _ </dev/tty 2>/dev/null',
+		`  printf "\\n${failureMessage}" "$status" "$log"`,
+		...(waitOnFailure ? ['  read -rsn1 _ </dev/tty 2>/dev/null'] : []),
 		'fi',
 		'exit "$status"',
 	].join('\n');
+}
+
+// Runs the update script in the foreground and returns its exit status.
+// PAPPARDELLE_NODE hands the installer the node this process runs on, which
+// PATH (the tmux server's, or a shell's behind the pinned shim) may not contain.
+export function runUpdateScript(options: {waitOnFailure: boolean}): number {
+	const result = spawnSync('bash', ['-c', updateShellScript(options)], {
+		stdio: 'inherit',
+		env: {...process.env, PAPPARDELLE_NODE: process.execPath},
+	});
+	return result.status ?? 1;
 }
 
 // Exported only for tests — ensures the test file sees the cache dir constant.
