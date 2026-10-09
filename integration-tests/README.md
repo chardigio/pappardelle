@@ -1,6 +1,30 @@
 # Integration Tests — Local Verification
 
-Standalone scripts that exercise pappardelle's providers and config against **real instances**. They are _not_ ava tests and are never run in CI.
+Standalone scripts that exercise pappardelle's providers and config against **real instances**. They are _not_ ava tests. Account-free program status checks also run in CI.
+
+## Program status
+
+Build first, then run the deterministic checks with Node 22+, Python 3, and tmux installed:
+
+```bash
+npm run build
+npx tsx integration-tests/verify-program-status.ts
+npx tsx integration-tests/verify-program-status-app.ts
+```
+
+The transport test exercises both launch paths on an isolated tmux socket, including capability-query ordering, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. The app check requires no automatic watchlists in the merged local configuration.
+
+To drive real interactive Claude sessions, authenticate Claude Code 2.1.295 or newer and opt in explicitly:
+
+```bash
+npx tsx integration-tests/verify-program-status-claude.ts --live --keep
+```
+
+This uses native OSC in safe mode, then resumes with only fixture settings and Pappardelle's status hook. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
+
+Each scenario has a timeout. Claude does not necessarily emit every protocol field or state; auth/error/child records and hard limits use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior.
+
+Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
 
 ## Prerequisites
 

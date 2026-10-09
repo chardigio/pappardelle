@@ -3,12 +3,10 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
-import {
-	applyStatusUpdates,
-	watchStatuses,
-	type ClaudeStatusInfo,
-} from './claude-status.ts';
-import {ACTIVE_STATUS_TIMEOUT, type SpaceData} from './types.ts';
+import {watchStatuses, type ClaudeStatusInfo} from './claude-status.ts';
+import {ACTIVE_STATUS_TIMEOUT} from './claude-status.ts';
+import type {SpaceData} from './types.ts';
+import {applyStatusUpdates} from './workspace-status.ts';
 
 function statusDir(t: ExecutionContext): string {
 	const dir = mkdtempSync(path.join(tmpdir(), 'status-batch-'));
@@ -142,16 +140,16 @@ test('status batches preserve identity for unchanged rows and ignore other repos
 			name: 'main',
 			statusKey: 'repo-main',
 			worktreePath: null,
-			claudeStatus: 'processing',
+			programStatus: {status: 'working'},
 		},
-		{name: 'STA-1', worktreePath: null, claudeStatus: 'waiting_for_input'},
+		{name: 'STA-1', worktreePath: null, programStatus: {status: 'idle'}},
 	];
 	t.is(
 		applyStatusUpdates(
 			spaces,
 			new Map([
-				['main', {status: 'ended'}],
-				['repo-main', {status: 'processing'}],
+				['main', {status: 'idle'}],
+				['repo-main', {status: 'working'}],
 				['other-main', {status: 'error'}],
 			]),
 		),
@@ -159,18 +157,16 @@ test('status batches preserve identity for unchanged rows and ignore other repos
 	);
 	const updated = applyStatusUpdates(
 		spaces,
-		new Map([
-			['repo-main', {status: 'waiting_for_approval', tool: 'AskUserQuestion'}],
-		]),
+		new Map([['repo-main', {status: 'blocked', tool: 'AskUserQuestion'}]]),
 	);
 	t.not(updated, spaces);
 	t.is(updated[1], spaces[1]);
-	t.is(updated[0]?.claudeTool, 'AskUserQuestion');
-	t.is(spaces[0]?.claudeStatus, 'processing');
+	t.is(updated[0]?.programStatus?.tool, 'AskUserQuestion');
+	t.is(spaces[0]?.programStatus?.status, 'working');
 	const cleared = applyStatusUpdates(
 		updated,
-		new Map([['repo-main', {status: 'waiting_for_approval'}]]),
+		new Map([['repo-main', {status: 'blocked'}]]),
 	);
-	t.is(cleared[0]?.claudeTool, undefined);
+	t.is(cleared[0]?.programStatus?.tool, undefined);
 	t.not(cleared[0], updated[0]);
 });

@@ -2,7 +2,8 @@ import React, {memo} from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
-import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
+import {COLORS} from '../types.ts';
+import {programStatusDisplay} from '../program-status-display.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {resolveStateColor} from '../state-color-override.ts';
@@ -52,28 +53,20 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		isTwoLine,
 		isPending: space.isPending,
 	});
-	const baseStatusInfo = space.claudeStatus
-		? CLAUDE_STATUS_DISPLAY[space.claudeStatus]
-		: CLAUDE_STATUS_DISPLAY.unknown;
-
-	// AskUserQuestion is a question (blue '?'), not a permission approval (red '!')
+	const statusInfo = programStatusDisplay(space.programStatus);
 	const isQuestion =
-		space.claudeStatus === 'waiting_for_approval' &&
-		space.claudeTool === 'AskUserQuestion';
-
-	const statusInfo = isQuestion
-		? {color: 'blue', icon: '?', dim: false}
-		: baseStatusInfo;
+		space.programStatus?.status === 'blocked' &&
+		space.programStatus.kind === 'question';
 
 	// Pending rows always show the animation spinner
 	const isWorking =
 		space.isPending ||
-		space.claudeStatus === 'processing' ||
-		space.claudeStatus === 'running_tool';
+		(space.programStatus?.status === 'working' &&
+			space.programStatus.activity !== 'compacting');
 
 	// Determine if row needs attention (blinking background)
 	// Both approval requests and questions blink, but with different colors
-	const needsAttention = space.claudeStatus === 'waiting_for_approval';
+	const needsAttention = space.programStatus?.status === 'blocked';
 
 	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
 

@@ -98,6 +98,13 @@ export function buildHelpLines(rows: {
 			...rows.extraCustom.map(row => ({kind: 'row' as const, row})),
 		);
 	}
+	lines.push(
+		{kind: 'blank'},
+		{
+			kind: 'heading',
+			text: 'Program status: working · ● idle/done · ? question · ! blocked · ✗ error',
+		},
+	);
 
 	return lines;
 }

@@ -16,7 +16,8 @@
 		"test": "prettier --check . && xo && ava"
 	},
 	"files": [
-		"dist"
+		"dist",
+		"scripts/program-status-shell.py"
 	],
 	"dependencies": {
 		"ink": "^7.1.1",

@@ -37,6 +37,13 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATUS_SHELL=()
+STATUS_GATE=""
+if [[ -f "$SCRIPT_DIR/program-status-shell.py" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
+    STATUS_SHELL=(python3 "$SCRIPT_DIR/program-status-shell.py" "${SHELL:-/bin/sh}" -l)
+fi
+
 ISSUE_KEY=""
 REPO_NAME=""
 WORKTREE_PATH=""
@@ -190,7 +197,7 @@ AGENT_SESSION_ENV=(
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
     python3 -c "
 import json, os, sys
-config_path = os.path.expanduser('~/.claude.json')
+config_path = os.environ.get('PAPPARDELLE_CLAUDE_CONFIG_PATH', os.path.expanduser('~/.claude.json'))
 try:
     with open(config_path) as f:
         config = json.load(f)
@@ -216,6 +223,14 @@ fi
 new_launch_session() {
     local session="$1" command="$2"
     shift 2
+    if [[ "$session" == "$AGENT_SESSION" && ${#STATUS_SHELL[@]} -gt 0 ]]; then
+        STATUS_GATE="pappardelle-status-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+        # shellcheck disable=SC2016 # expanded by the inner sh, not here
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \
+            /bin/sh -c 'tmux -L "$1" wait-for "$2"; shift 2; exec "$@"' sh "$PAPPARDELLE_TMUX_SOCKET" "$STATUS_GATE" \
+            python3 "$SCRIPT_DIR/program-status-shell.py" /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+        return
+    fi
     # shellcheck disable=SC2016 # expanded by the inner sh, not here
     new_inner_session "$session" "$@" \
         /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
@@ -246,7 +261,7 @@ fi
 
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" == true ]]; then
-        new_inner_session "$AGENT_SESSION" "${AGENT_SESSION_ENV[@]}"
+        new_inner_session "$AGENT_SESSION" "${AGENT_SESSION_ENV[@]}" "${STATUS_SHELL[@]}"
     else
         # Claude agents get --dangerously-skip-permissions and --name set to the issue key so the session is findable via /resume
         # and shows up in the terminal title. Other agents run `{command} {args}`
@@ -287,6 +302,13 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev
             new_launch_session "$AGENT_SESSION" "${AGENT_CMD} ${SAFE_ARG}" "${AGENT_SESSION_ENV[@]}"
         fi
     fi
+fi
+
+if [[ -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
+    node "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
+fi
+if [[ -n "$STATUS_GATE" ]]; then
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" wait-for -S "$STATUS_GATE"
 fi
 
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).

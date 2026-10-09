@@ -86,6 +86,29 @@ This means:
 - **Attach from anywhere.** You can attach to any workspace's agent session from a separate terminal: `tmux -L pappardelle_inner attach -t agent-stardust-labs-STA-631`.
 - **Switching is instant.** After the first attachment, switching between workspaces uses tmux's fast `switch-client` path — no process restart, no visible flash.
 
+### Program status
+
+The ticket rail reads [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) revision 0.2 from programs running in the center pane. Claude Code 2.1.295 emits native status; other programs can use the same protocol when started in that pane.
+
+| Status                                                   | Indicator                                    |
+| -------------------------------------------------------- | -------------------------------------------- |
+| Working                                                  | Orange animation                             |
+| Idle or done                                             | Green dot                                    |
+| Blocked on a question                                    | Blue question mark and attention highlight   |
+| Blocked on permission, authentication, or another reason | Red exclamation mark and attention highlight |
+| Error                                                    | Red cross                                    |
+| Unknown                                                  | Dim question mark                            |
+
+Child records contribute to the workspace indicator. Priority is blocked, error, working, done, then idle; ties prefer the root record, then the latest update. Messages, titles, and progress are saved in snapshots. Workspace auto-removal follows the issue tracker's completion state.
+
+Claude hooks supply fallback status until the pane emits its first valid native report. A capability query alone does not change the source. After native reporting starts, OSC remains authoritative, including after a clear or terminal reset. Matching Claude hook details can supply the working tool or compaction indicator.
+
+Native working and blocked records have no timeout. A shell prompt reported through OSC 133 A or pane exit removes them; done and error survive. Replacing a pane creates a new generation. Monitors remain alive when the TUI closes and are removed with the workspace. Hook fallback retains its ten-minute timeout for active work.
+
+The agent shell runs through a small Python PTY proxy so OSC capability replies reach the program before tmux's device-attributes reply. A persistent `pipe-pane` monitor parses status and writes atomic snapshots. Existing unrelated pane pipes are left with their owner, with hooks providing fallback. See [local protocol verification](integration-tests/README.md#program-status).
+
+Existing sessions gain a monitor when the TUI opens. The PTY proxy is created with new agent sessions; older shells keep their existing terminal transport.
+
 ### tmux version
 
 Use a tmux build containing the [synchronized-output fix](https://github.com/tmux/tmux/commit/b2de803871e579565a6f79296f386115142593ed). Stable 3.7c and earlier can expose screen clears before an application finishes a synchronized frame, causing Codex and other TUIs to flash ([tmux/tmux#4983](https://github.com/tmux/tmux/issues/4983)). Pappardelle's incremental renderer reduces redraws, but the tmux fix is also needed to prevent these partial frames.
@@ -480,15 +503,16 @@ npm link                # makes `pappardelle` available globally
 
 **Directories created by the installer:**
 
-| Directory / File                                   | Purpose                                                   |
-| -------------------------------------------------- | --------------------------------------------------------- |
-| `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files              |
-| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                |
-| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots) |
-| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)               |
-| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks             |
-| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                         |
-| `~/.worktrees/`                                    | Git worktrees for all your workspaces                     |
+| Directory / File                                   | Purpose                                                              |
+| -------------------------------------------------- | -------------------------------------------------------------------- |
+| `~/.pappardelle/`                                  | Config, hooks, logs, and program status files                        |
+| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                           |
+| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)            |
+| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                          |
+| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks                        |
+| `~/.pappardelle/program-status/{repo}/`            | Native program snapshots, separated by workspace and pane generation |
+| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                                    |
+| `~/.worktrees/`                                    | Git worktrees for all your workspaces                                |
 
 > **Multi-repo support:** State is namespaced per repository under `~/.pappardelle/repos/{repoName}/`.
 > Running pappardelle in two different repos keeps their workspace registries completely separate.

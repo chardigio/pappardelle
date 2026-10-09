@@ -1,6 +1,7 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawnSync} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import {
 	existsSync,
 	readFileSync,
@@ -74,6 +75,11 @@ import {
 	type PaneWidths,
 } from './layout-sizing.ts';
 import {nextWidthOverride, type WindowSize} from './pane-drag.ts';
+import {
+	attachStatusMonitor,
+	statusShellCommand,
+	statusSocket,
+} from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -105,7 +111,8 @@ export const INNER_SOCKET = 'pappardelle_inner';
  * call site must route through this helper so the -L flag can't be forgotten.
  */
 export function innerTmuxArgs(args: readonly string[]): string[] {
-	return ['-L', INNER_SOCKET, ...args];
+	const socket = statusSocket();
+	return [socket.startsWith('/') ? '-S' : '-L', socket, ...args];
 }
 
 // Session naming convention (matches idow)
@@ -2266,7 +2273,10 @@ export function pretrustDirectoryForClaude(
 	worktreePath: string,
 	configPath?: string,
 ): void {
-	const resolvedConfigPath = configPath ?? join(homedir(), '.claude.json');
+	const resolvedConfigPath =
+		configPath ??
+		process.env['PAPPARDELLE_CLAUDE_CONFIG_PATH'] ??
+		join(homedir(), '.claude.json');
 	try {
 		let config: Record<string, unknown> = {};
 		try {
@@ -2335,6 +2345,13 @@ export async function ensureAgentSession(
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
+		await attachStatusMonitor(
+			getRepoName(),
+			issueKey,
+			sessionName,
+			statusSocket(),
+			run,
+		);
 		return true;
 	}
 
@@ -2350,6 +2367,17 @@ export async function ensureAgentSession(
 		pretrustDirectoryForClaude(worktreePath);
 	}
 
+	// Native agents report at startup, before an ungated monitor could attach.
+	const gate = `pappardelle-status-${randomUUID()}`;
+	const waitCommand = ['tmux', ...innerTmuxArgs(['wait-for', gate])]
+		.map(value => shellQuote(value))
+		.join(' ');
+	const launchCommand = `${waitCommand}; exec ${statusShellCommand(
+		buildShellLaunchArgs(
+			buildAgentResumeCommand(issueKey, skipPermissions, agentProfile, sessionId),
+		),
+	)}`;
+
 	try {
 		await run(
 			innerTmuxArgs([
@@ -2364,16 +2392,20 @@ export async function ensureAgentSession(
 					agentProfile,
 					getAgentSessionsPath(getRepoName(), issueKey),
 				),
-				...buildShellLaunchArgs(
-					buildAgentResumeCommand(
-						issueKey,
-						skipPermissions,
-						agentProfile,
-						sessionId,
-					),
-				),
+				launchCommand,
 			]),
 		);
+		try {
+			await attachStatusMonitor(
+				getRepoName(),
+				issueKey,
+				sessionName,
+				statusSocket(),
+				run,
+			);
+		} finally {
+			await run(innerTmuxArgs(['wait-for', '-S', gate]));
+		}
 
 		log.info(
 			`Created agent session: ${sessionName} (agent profile: ${agentProfile.name})`,

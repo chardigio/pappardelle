@@ -1,6 +1,7 @@
+import type {ProgramStatusInfo} from './program-status.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import {applyStatusUpdates, type ClaudeStatusInfo} from './claude-status.ts';
+import {applyStatusUpdates} from './workspace-status.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {pLimit} from './providers/concurrency.ts';
 import type {SpaceData, TrackerIssue} from './types.ts';
@@ -35,7 +36,10 @@ type MainWorktree = {path: string; branch: string};
 
 export interface WorkspaceRefreshDeps {
 	readRegistry: () => Promise<string[] | null>;
-	readStatus: (key: string) => Promise<ClaudeStatusInfo | null>;
+	readStatus: (
+		key: string,
+		sessionKey?: string,
+	) => Promise<ProgramStatusInfo | null>;
 	readWorktreePath: (key: string) => Promise<string | null>;
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
@@ -53,7 +57,9 @@ export interface WorkspaceRefreshDeps {
 
 function patchSpace(space: SpaceData, patch: Partial<SpaceData>): SpaceData {
 	return Object.entries(patch).every(([key, value]) =>
-		Object.is(space[key as keyof SpaceData], value),
+		key === 'programStatus'
+			? isDeepStrictEqual(space.programStatus, value)
+			: Object.is(space[key as keyof SpaceData], value),
 	)
 		? space
 		: {...space, ...patch};
@@ -115,7 +121,7 @@ export class WorkspaceRefresh {
 		await this.list.request();
 	}
 
-	applyHookUpdates(updates: ReadonlyMap<string, ClaudeStatusInfo>): void {
+	applyStatusUpdates(updates: ReadonlyMap<string, ProgramStatusInfo>): void {
 		if (this.stopped) return;
 		for (const key of updates.keys()) {
 			this.statusVersions.set(key, (this.statusVersions.get(key) ?? 0) + 1);
@@ -166,7 +172,7 @@ export class WorkspaceRefresh {
 						: {
 								name,
 								worktreePath: null,
-								claudeStatus: 'unknown',
+								programStatus: {status: 'unknown'},
 								linearIssue: this.deps.getCachedIssue(name) ?? undefined,
 							},
 				);
@@ -214,8 +220,7 @@ export class WorkspaceRefresh {
 						detail.status.value &&
 						detail.version === (this.statusVersions.get(space.name) ?? 0)
 					) {
-						patch.claudeStatus = detail.status.value.status;
-						patch.claudeTool = detail.status.value.tool;
+						patch.programStatus = detail.status.value;
 					}
 					return patchSpace(space, patch);
 				}),
@@ -283,7 +288,7 @@ export class WorkspaceRefresh {
 							name: MAIN_WORKTREE_KEY,
 							worktreePath: null,
 							isMainWorktree: true,
-							claudeStatus: 'unknown',
+							programStatus: {status: 'unknown'},
 						},
 						...previous,
 					],
@@ -297,7 +302,7 @@ export class WorkspaceRefresh {
 				name: MAIN_WORKTREE_KEY,
 				worktreePath: info.path,
 				isMainWorktree: true,
-				claudeStatus: 'unknown',
+				programStatus: {status: 'unknown'},
 			};
 			const main = patchSpace(base, {worktreePath: info.path, statusKey});
 			return reuseArray(previous, [
@@ -322,10 +327,10 @@ export class WorkspaceRefresh {
 			);
 		};
 		await Promise.allSettled([
-			this.deps.readStatus(statusKey).then(status => {
+			this.deps.readStatus(statusKey, MAIN_WORKTREE_KEY).then(status => {
 				if (status)
 					update(
-						{claudeStatus: status.status, claudeTool: status.tool},
+						{programStatus: status},
 						() => version === (this.statusVersions.get(statusKey) ?? 0),
 					);
 			}),

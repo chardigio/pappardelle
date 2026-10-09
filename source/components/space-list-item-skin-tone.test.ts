@@ -38,7 +38,7 @@ function renderRow(
 		name: 'TEST-1',
 		worktreePath: null,
 		profileEmoji: '💪🏼',
-		claudeStatus: 'waiting_for_input',
+		programStatus: {status: 'idle'},
 		linearIssue: {
 			identifier: 'TEST-1',
 			title,

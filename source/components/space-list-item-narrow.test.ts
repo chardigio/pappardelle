@@ -13,7 +13,7 @@ const space: SpaceData = {
 	name: ISSUE_KEY,
 	worktreePath: null,
 	profileEmoji: '🍝',
-	claudeStatus: 'waiting_for_input',
+	programStatus: {status: 'idle'},
 	linearIssue: {
 		identifier: ISSUE_KEY,
 		title: TITLE,
