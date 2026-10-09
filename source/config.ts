@@ -1141,6 +1141,15 @@ export function validateConfig(
 						errors.push(`agent_profiles.${name}.${field}: must be a string`);
 					}
 				}
+				// The fields are typed into the pane as one launch line.
+				for (const field of ['command', ...AGENT_PROFILE_STRING_FIELDS]) {
+					const value = agentProfile[field];
+					if (typeof value === 'string' && /[\r\n]/.test(value.trimEnd())) {
+						errors.push(
+							`agent_profiles.${name}.${field}: must be a single line`,
+						);
+					}
+				}
 				if (
 					agentProfile['is_claude'] !== undefined &&
 					typeof agentProfile['is_claude'] !== 'boolean'
@@ -2532,8 +2541,7 @@ function resolveAgentLaunchField(
 	profileName?: string,
 ): string {
 	const name = resolveAgentProfileName(config, issueTitle, profileName);
-	const definition =
-		config.agent_profiles?.[name] ?? BUILTIN_CLAUDE_AGENT_PROFILE;
+	const definition = lookupAgentProfile(config, name);
 	const own = definition[field];
 	if (own !== undefined) {
 		return own;
@@ -2619,10 +2627,9 @@ export function renderAgentLaunchFlags(
 		const value = launch[field];
 		const template = templates[field];
 		if (!value || !template) continue;
-		flags += ` ${template.replaceAll(
-			LAUNCH_PLACEHOLDERS[field],
-			quoteLaunchValue(value),
-		)}`;
+		const quoted = quoteLaunchValue(value);
+		// A function, so `$'` and `$&` in the value aren't replacement patterns.
+		flags += ` ${template.replaceAll(LAUNCH_PLACEHOLDERS[field], () => quoted)}`;
 	}
 	return flags;
 }
@@ -2642,6 +2649,26 @@ export interface AgentLaunchOptions {
  * Defining `agent_profiles.claude` shadows this.
  */
 const BUILTIN_CLAUDE_AGENT_PROFILE: AgentProfileConfig = {command: 'claude'};
+
+/**
+ * The named agent profile's definition, built-in claude when undefined.
+ * Trailing whitespace is trimmed: a YAML block scalar (`args: >`) ends in a
+ * newline, which would submit the typed launch line early.
+ * resolve-agent-config.sh trims the same way.
+ */
+function lookupAgentProfile(
+	config: PappardelleConfig,
+	name: string,
+): AgentProfileConfig {
+	const definition =
+		config.agent_profiles?.[name] ?? BUILTIN_CLAUDE_AGENT_PROFILE;
+	return Object.fromEntries(
+		Object.entries(definition).map(([key, value]) => [
+			key,
+			typeof value === 'string' ? value.trimEnd() : value,
+		]),
+	) as AgentProfileConfig;
+}
 
 /**
  * Stands in for the space's recorded agent session id in `resume_args`. A
@@ -2772,10 +2799,7 @@ export function getAgentProfile(
 	profileName?: string,
 ): ResolvedAgentProfile {
 	const name = resolveAgentProfileName(config, issueTitle, profileName);
-	return resolveAgentProfile(
-		name,
-		config.agent_profiles?.[name] ?? BUILTIN_CLAUDE_AGENT_PROFILE,
-	);
+	return resolveAgentProfile(name, lookupAgentProfile(config, name));
 }
 
 function resolveAgentProfileName(

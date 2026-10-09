@@ -5456,6 +5456,33 @@ test('validateConfig rejects non-string agent profile args and resume_args', t =
 	t.truthy(error?.message.includes('agent_profiles.codex.resume_args'));
 });
 
+test('validateConfig rejects agent profile fields spanning lines', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {
+						codex: {command: 'codex', args: '--yolo\n--search\n'},
+					},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(
+		error?.message.includes('agent_profiles.codex.args: must be a single line'),
+	);
+});
+
+test('validateConfig accepts the trailing newline of a YAML block scalar', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {codex: {command: 'codex', args: '--yolo\n'}},
+			}),
+		),
+	);
+});
+
 test('validateConfig rejects non-boolean is_claude', t => {
 	const error = t.throws(
 		() =>
@@ -5663,6 +5690,17 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 		modelArgs: '--model {model}',
 		effortArgs: '--effort {effort}',
 	});
+});
+
+test('getAgentProfile trims the trailing newline of a YAML block scalar', t => {
+	const config = agentProfileTestConfig({
+		agent_profile: 'codex',
+		agent_profiles: {
+			codex: {command: 'codex\n', args: '--yolo\n', model: 'gpt-5.5\n'},
+		},
+	});
+	t.like(getAgentProfile(config), {command: 'codex', args: '--yolo'});
+	t.is(getAgentModel(config), 'gpt-5.5');
 });
 
 test('getAgentProfile resolves a top-level agent_profile reference', t => {
@@ -5887,6 +5925,17 @@ test('renderAgentLaunchFlags quotes values that are not bare tokens', t => {
 			{model: "it's claude-opus-5[1m]"},
 		),
 		` --model='it'\\''s claude-opus-5[1m]'`,
+	);
+});
+
+test('renderAgentLaunchFlags inserts $ sequences in a value literally', t => {
+	t.is(
+		renderAgentLaunchFlags({modelArgs: '--model {model}'}, {model: 'foo$'}),
+		` --model 'foo$'`,
+	);
+	t.is(
+		renderAgentLaunchFlags({modelArgs: '--model {model}'}, {model: 'a$&b'}),
+		` --model 'a$&b'`,
 	);
 });
 

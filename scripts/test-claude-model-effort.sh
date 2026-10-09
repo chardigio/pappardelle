@@ -397,12 +397,37 @@ assert_eq "model without a flag template is an error" \
     'Error: agent_profiles.aider.model: "aider" has no built-in model flag; set model_args' "$ERR"
 cleanup; unset TMPDIR_ROOT
 
+# idow reads the resolved fields a line each, so a newline in one would shift
+# every field after it.
+setup_configs "version: 1
+agent_profile: codex
+agent_profiles:
+  codex:
+    command: codex
+    args: >
+      --yolo"
+OUT=$(resolve)
+assert_eq "a block scalar's trailing newline is trimmed" "--yolo" "$(echo "$OUT" | field agent_args)"
+assert_eq "fields after a trimmed one keep their values" "codex" "$(echo "$OUT" | field agent_profile)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+agent_profile: codex
+agent_profiles:
+  codex:
+    command: codex
+    args: |
+      --yolo
+      --search"
+ERR=$(resolve 2>&1 >/dev/null || true)
+assert_eq "a field spanning lines is an error" \
+    'Error: agent_profiles.codex.args: must be a single line' "$ERR"
+cleanup; unset TMPDIR_ROOT
+
 # ==========================================================================
 # open-iterm-agent.sh builds its own flag string because the command is
-# assembled inside AppleScript. Values are printf %q'd here (safe for the inner
-# `sh -c` tmux runs) and the whole string is then passed through AppleScript's
-# `quoted form of` (safe for the outer shell iTerm types into) — so nothing is
-# rejected or dropped, however exotic. Pin both the clean and the hostile case.
+# assembled inside AppleScript. The model/effort flags arrive rendered and
+# quoted by the resolver (pinned above); the launcher only orders them.
 
 echo -e "\n${BOLD}Test: open-iterm-agent.sh launch flags${RESET}"
 iterm_flags() {
@@ -410,22 +435,12 @@ iterm_flags() {
         --repo-name testrepo --prompt "" "$@" --print-launch-flags 2>/dev/null
 }
 assert_eq "no flags configured → empty" "" "$(iterm_flags)"
-assert_eq "model + effort" " --model sonnet --effort high" "$(iterm_flags --model sonnet --effort high)"
-assert_eq "model only" " --model opus" "$(iterm_flags --model opus)"
-assert_eq "effort only" " --effort max" "$(iterm_flags --effort max)"
-assert_eq "flag order: dsp → model → effort" \
-    " --dangerously-skip-permissions --model opus --effort high" \
-    "$(iterm_flags --skip-permissions --model opus --effort high)"
-assert_eq "provider-prefixed model id needs no escaping" " --model bedrock/anthropic.claude-v2" \
-    "$(iterm_flags --model 'bedrock/anthropic.claude-v2')"
-# Glob characters in a model id must reach claude literally, not be expanded.
-assert_eq "bracketed model id is escaped for the inner shell" ' --model claude-opus-5\[1m\]' \
-    "$(iterm_flags --model 'claude-opus-5[1m]')"
-# The value is neutralized by quoting rather than discarded — no silent drop.
-assert_eq "shell-hostile value is escaped, not dropped" ' --model ev\"il\;\ rm\ -rf\ /' \
-    "$(iterm_flags --model 'ev"il; rm -rf /')"
-assert_eq "a space-containing model still leaves a valid effort" ' --model bad\ value --effort high' \
-    "$(iterm_flags --model 'bad value' --effort high)"
+assert_eq "launch flags pass through as rendered" " --model 'claude-opus-5[1m]' --effort high" \
+    "$(iterm_flags --agent-launch-flags "--model 'claude-opus-5[1m]' --effort high")"
+assert_eq "flag order: dsp → args → launch flags" \
+    " --dangerously-skip-permissions --verbose --model opus" \
+    "$(iterm_flags --skip-permissions --agent-command claude --agent-is-claude true \
+        --agent-args --verbose --agent-launch-flags "--model opus")"
 
 # ==========================================================================
 # The command line open-iterm-agent.sh types is assembled inside AppleScript,
@@ -462,27 +477,29 @@ else
         *) assert_eq "flags referenced by expansion, not interpolated" 'contains "$AGENT_CMD$AGENT_FLAGS --name QA-1$AGENT_RESUME' "$LINE" ;;
     esac
 
-    LINE=$(iterm_command --model sonnet --effort medium)
+    LINE=$(iterm_command --agent-launch-flags "--model sonnet --effort medium")
     case "$LINE" in
         "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';"*)
             assert_eq "resolved flags land in the assignment" "ok" "ok" ;;
         *) assert_eq "resolved flags land in the assignment" "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';..." "$LINE" ;;
     esac
 
-    # A value full of shell metacharacters must stay inside the single-quoted
-    # assignment (escaped for the inner `sh -c`) and never reach the outer
-    # shell as syntax. See verify-claude-model-effort.ts for the live
-    # round-trip that runs this exact line and proves nothing is executed.
-    LINE=$(iterm_command --model 'ev"il; echo PWNED > /tmp/pwned.txt')
+    # A value full of shell metacharacters, quoted for the inner `sh -c` the
+    # way the resolver renders it, must stay inside the single-quoted
+    # assignment and never reach the outer shell as syntax. See
+    # verify-claude-model-effort.ts for the live round-trip that runs this
+    # exact line and proves nothing is executed.
+    LINE=$(iterm_command --agent-launch-flags "--model 'ev\"il; echo PWNED > /tmp/pwned.txt'")
+    HOSTILE_PREFIX="AGENT_CMD='claude'; AGENT_FLAGS=' --model '\\''ev\"il; echo PWNED > /tmp/pwned.txt'\\''';"
     case "$LINE" in
-        "AGENT_CMD='claude'; AGENT_FLAGS=' --model ev\\\"il\\;\\ echo\\ PWNED\\ \\>\\ /tmp/pwned.txt';"*)
+        "$HOSTILE_PREFIX"*)
             assert_eq "hostile value stays inside the quoted assignment" "ok" "ok" ;;
         *) assert_eq "hostile value stays inside the quoted assignment" "escaped assignment prefix" "$LINE" ;;
     esac
 
-    # STE-2: a non-claude agent gets its own command/args/resume assignments
-    # and none of the claude flags (--name/dsp/model/effort).
-    LINE=$(iterm_command --model sonnet --skip-permissions \
+    # A non-claude agent gets its own command/args/resume assignments and
+    # none of the claude flags (--name, dsp).
+    LINE=$(iterm_command --skip-permissions \
         --agent-command codex --agent-args "--yolo" \
         --agent-resume-args "resume --last" --agent-is-claude false)
     case "$LINE" in
@@ -491,7 +508,7 @@ else
         *) assert_eq "codex assignments carry command/args/resume" "AGENT_CMD='codex'; AGENT_FLAGS=' --yolo'; AGENT_RESUME=' resume --last';..." "$LINE" ;;
     esac
     case "$LINE" in
-        *--name*|*--model*|*--dangerously-skip-permissions*)
+        *--name*|*--dangerously-skip-permissions*)
             assert_eq "codex line has no claude flags" "no claude flags" "$LINE" ;;
         *) assert_eq "codex line has no claude flags" "ok" "ok" ;;
     esac
