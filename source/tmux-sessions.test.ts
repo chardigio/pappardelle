@@ -33,7 +33,7 @@ test('getSessionPrefix includes repo name for companion', t => {
 	t.is(prefix, 'companion-pappa-chex-');
 });
 
-test('getLegacyAgentSessionPrefix keeps the pre-STE-2 claude prefix', t => {
+test('getLegacyAgentSessionPrefix keeps the legacy claude prefix', t => {
 	t.is(getLegacyAgentSessionPrefix('pappa-chex'), 'claude-pappa-chex-');
 });
 
@@ -163,7 +163,7 @@ test('pretrustDirectoryForClaude handles corrupt JSON gracefully', t => {
 
 // buildAgentResumeCommand: generates the resume-then-launch fallback chain.
 // Without an agent profile argument the output must stay byte-identical to the
-// pre-STE-2 claude command — these assertions pin that.
+// claude command from before agent profiles — these assertions pin that.
 
 test('buildAgentResumeCommand resumes the recorded session first', t => {
 	const cmd = buildAgentResumeCommand('STA-806', false, {}, resumingClaude);

@@ -107,7 +107,7 @@ export function getSessionPrefix(
 }
 
 /**
- * Session prefix used for the agent pane before STE-2 renamed it to `agent-`.
+ * Session prefix used for the agent pane before it was renamed to `agent-`.
  * Live sessions carrying this prefix are renamed in place on sight (see
  * `migrateLegacyAgentSessions` / `ensureAgentSession`) and the orphan reapers
  * sweep it alongside the current prefixes.
@@ -877,7 +877,7 @@ export async function killSpaceSessions(
 	// after a companion failure must not recreate Claude with --continue.
 	if (!(await innerKillSession(sessions.companion, options?.run))) return false;
 	const killed = await innerKillSession(sessions.agent, options?.run);
-	// Also address the legacy pre-STE-2 name: a space whose session hasn't been
+	// Also address the legacy name: a space whose session hasn't been
 	// migrated yet would otherwise survive its own teardown (innerKillSession
 	// returns true for missing sessions, so the agent-name kill "succeeds").
 	const legacyKilled = await innerKillSession(
@@ -916,7 +916,7 @@ function renameLegacySession(
 }
 
 /**
- * Rename live pre-STE-2 `claude-{repo}-{key}` sessions on the inner socket to
+ * Rename live legacy `claude-{repo}-{key}` sessions on the inner socket to
  * their `agent-{repo}-{key}` names. Run once at startup (cli.tsx) before the
  * orphan reap; `ensureAgentSession` also migrates at point-of-use in case
  * idow or a second TUI touches a legacy session first.

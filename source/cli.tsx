@@ -333,7 +333,7 @@ if (isInTmux() && cli.flags.layout) {
 		);
 	}
 
-	// STE-2: migrate live pre-rename `claude-{repo}-*` sessions to their
+	// Migrate live legacy `claude-{repo}-*` sessions to their
 	// `agent-{repo}-*` names before the reap below decides what's an orphan —
 	// a rename preserves the running conversation, a reap would kill it.
 	const migrated = migrateLegacyAgentSessions();

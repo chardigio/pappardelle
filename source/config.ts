@@ -861,13 +861,10 @@ function renameDeprecatedInitializationCommand(
 }
 
 /**
- * Log a deprecation warning for a single config layer still using the old
- * `claude.initialization_command` spelling (top-level or per-profile). Runs
- * on the raw layer, before its rename, so the warning names the file to edit.
- *
- * Each distinct warning fires once per process: the TUI reloads config on
- * every space selection, and re-warning on each reload would fill the
- * logger's small recent-error buffer and evict real errors from the overlay.
+ * Each distinct deprecation warning fires once per process: the TUI reloads
+ * config on every space selection, and re-warning on each reload would fill
+ * the logger's small recent-error buffer and evict real errors from the
+ * overlay.
  */
 const emittedDeprecationWarnings = new Set<string>();
 
@@ -880,6 +877,11 @@ function warnDeprecatedOnce(message: string): void {
 	logger.warn(message);
 }
 
+/**
+ * Log a deprecation warning for a single config layer still using the old
+ * `claude.initialization_command` spelling (top-level or per-profile). Runs
+ * on the raw layer, before its rename, so the warning names the file to edit.
+ */
 function warnDeprecatedInitializationCommand(
 	layer: Record<string, unknown>,
 	file: string,
@@ -907,7 +909,7 @@ function warnDeprecatedClaudeLaunchFields(
 	for (const {container, label} of initCommandContainers(layer)) {
 		const {claude} = container;
 		if (!claude || typeof claude !== 'object') continue;
-		for (const field of CLAUDE_LAUNCH_FIELDS) {
+		for (const field of LAUNCH_FIELDS) {
 			if ((claude as Record<string, unknown>)[field] === undefined) continue;
 			warnDeprecatedOnce(
 				`${file}: ${label}claude.${field} is deprecated — set ${field} on an agent profile (agent_profiles.<name>.${field}) and select it with ${label}agent_profile`,
@@ -1420,13 +1422,11 @@ export function validateConfig(
 
 /**
  * Launch fields that exist identically on agent profiles and, deprecated, on
- * the top-level and per-profile `claude:` blocks. Kept as a list so adding a
- * third pass-through flag is a one-line change in both the validator and the
- * resolvers below.
+ * the top-level and per-profile `claude:` blocks.
  */
-const CLAUDE_LAUNCH_FIELDS = ['model', 'effort'] as const;
+const LAUNCH_FIELDS = ['model', 'effort'] as const;
 
-type ClaudeLaunchField = (typeof CLAUDE_LAUNCH_FIELDS)[number];
+type LaunchField = (typeof LAUNCH_FIELDS)[number];
 
 const AGENT_PROFILE_STRING_FIELDS = [
 	'args',
@@ -1449,11 +1449,11 @@ function validateAgentLaunchTemplates(
 ): string[] {
 	if (typeof agentProfile.command !== 'string') return [];
 	const errors: string[] = [];
-	const templates = builtinLaunchTemplates(
-		agentProfile.command,
-		agentProfile.is_claude,
-	);
-	for (const field of CLAUDE_LAUNCH_FIELDS) {
+	const templates = builtinLaunchTemplates({
+		command: agentProfile.command,
+		is_claude: agentProfile.is_claude,
+	});
+	for (const field of LAUNCH_FIELDS) {
 		const templateField = `${field}_args` as const;
 		const template = agentProfile[templateField];
 		const placeholder = LAUNCH_PLACEHOLDERS[field];
@@ -1494,7 +1494,7 @@ function validateClaudeLaunchFields(
 	prefix: string,
 ): string[] {
 	const errors: string[] = [];
-	for (const field of CLAUDE_LAUNCH_FIELDS) {
+	for (const field of LAUNCH_FIELDS) {
 		if (
 			claudeBlock[field] !== undefined &&
 			typeof claudeBlock[field] !== 'string'
@@ -2516,7 +2516,7 @@ function selectProfile(
  */
 function resolveClaudeLaunchField(
 	config: PappardelleConfig,
-	field: ClaudeLaunchField,
+	field: LaunchField,
 	issueTitle?: string,
 	profileName?: string,
 ): string {
@@ -2536,7 +2536,7 @@ function resolveClaudeLaunchField(
  */
 function resolveAgentLaunchField(
 	config: PappardelleConfig,
-	field: ClaudeLaunchField,
+	field: LaunchField,
 	issueTitle?: string,
 	profileName?: string,
 ): string {
@@ -2546,7 +2546,7 @@ function resolveAgentLaunchField(
 	if (own !== undefined) {
 		return own;
 	}
-	const isClaude = definition.is_claude ?? isClaudeCommand(definition.command);
+	const isClaude = isClaudeAgentProfile(definition);
 	return isClaude
 		? resolveClaudeLaunchField(config, field, issueTitle, profileName)
 		: '';
@@ -2576,7 +2576,7 @@ export function getAgentEffort(
 	return resolveAgentLaunchField(config, 'effort', issueTitle, profileName);
 }
 
-const LAUNCH_PLACEHOLDERS: Record<ClaudeLaunchField, string> = {
+const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
 	model: '{model}',
 	effort: '{effort}',
 };
@@ -2586,13 +2586,12 @@ const LAUNCH_PLACEHOLDERS: Record<ClaudeLaunchField, string> = {
  * string-only way as claude, so the bash resolver can apply the same rule.
  */
 function builtinLaunchTemplates(
-	command: string,
-	isClaudeOverride: boolean | undefined,
-): Partial<Record<ClaudeLaunchField, string>> {
-	if (isClaudeOverride ?? isClaudeCommand(command)) {
+	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
+): Partial<Record<LaunchField, string>> {
+	if (isClaudeAgentProfile(definition)) {
 		return {model: '--model {model}', effort: '--effort {effort}'};
 	}
-	if (commandBasename(command) === 'codex') {
+	if (commandBasename(definition.command) === 'codex') {
 		return {model: '-m {model}', effort: '-c model_reasoning_effort={effort}'};
 	}
 	return {};
@@ -2618,12 +2617,12 @@ export function renderAgentLaunchFlags(
 	agentProfile: Pick<ResolvedAgentProfile, 'modelArgs' | 'effortArgs'>,
 	launch: AgentLaunchOptions,
 ): string {
-	const templates: Record<ClaudeLaunchField, string | undefined> = {
+	const templates: Record<LaunchField, string | undefined> = {
 		model: agentProfile.modelArgs,
 		effort: agentProfile.effortArgs,
 	};
 	let flags = '';
-	for (const field of CLAUDE_LAUNCH_FIELDS) {
+	for (const field of LAUNCH_FIELDS) {
 		const value = launch[field];
 		const template = templates[field];
 		if (!value || !template) continue;
@@ -2719,6 +2718,12 @@ export function isClaudeCommand(command: string): boolean {
 	return commandBasename(command) === 'claude';
 }
 
+function isClaudeAgentProfile(
+	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
+): boolean {
+	return definition.is_claude ?? isClaudeCommand(definition.command);
+}
+
 function commandBasename(command: string): string {
 	const firstToken = command.trim().split(/\s+/)[0] ?? '';
 	return path.basename(firstToken);
@@ -2740,15 +2745,16 @@ export interface ResolvedAgentProfile {
 }
 
 /**
- * Apply the claude-gating predicate and resume default to one agent profile. `resume_args: ''` is an explicit "no resume attempt", matching
- * the bash resolvers, where an empty value means launch directly; only an
- * absent field gets claude's default.
+ * Apply the claude-gating predicate and resume default to one agent profile.
+ * `resume_args: ''` is an explicit "no resume attempt", matching the bash
+ * resolvers, where an empty value means launch directly; only an absent field
+ * gets claude's default.
  */
 function resolveAgentProfile(
 	name: string,
 	definition: AgentProfileConfig,
 ): ResolvedAgentProfile {
-	const isClaude = definition.is_claude ?? isClaudeCommand(definition.command);
+	const isClaude = isClaudeAgentProfile(definition);
 	let resumeArgs: string | undefined;
 	if (definition.resume_args !== undefined) {
 		resumeArgs = definition.resume_args || undefined;
@@ -2756,10 +2762,7 @@ function resolveAgentProfile(
 		resumeArgs = CLAUDE_RESUME_ARGS;
 	}
 
-	const builtin = builtinLaunchTemplates(
-		definition.command,
-		definition.is_claude,
-	);
+	const builtin = builtinLaunchTemplates(definition);
 	return {
 		name,
 		command: definition.command,

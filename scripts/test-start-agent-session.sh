@@ -501,7 +501,7 @@ fi
 
 # ==========================================================================
 
-# STE-2: pre-trust is claude-only. The claude shim runs above redirected HOME
+# Pre-trust is claude-only. The claude shim runs above redirected HOME
 # to SHIM_HOME, so ~/.claude.json must have appeared there; the codex run
 # below must NOT create one in its own home.
 echo -e "\n${BOLD}Test: pre-trust writes ~/.claude.json for claude agents only${RESET}"
@@ -515,8 +515,8 @@ fi
 
 # ==========================================================================
 
-# STE-2: a non-claude agent runs `{command} {args}` verbatim — no --name, no
-# dsp/model/effort, no pre-trust. With resume args the resume attempt runs
+# A non-claude agent runs `{command} {args}` verbatim — no --name, no
+# dsp, no pre-trust. With resume args the resume attempt runs
 # first (shim exits 0, so the fallback never fires).
 echo -e "\n${BOLD}Test: codex agent gets its own command line, no claude flags${RESET}"
 ISSUE_KEY9="${TEST_PREFIX}-950"
@@ -558,7 +558,7 @@ tmux -L "$SHIM_SOCKET9" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-# STE-2: with empty resume args a non-claude agent launches directly with the
+# With empty resume args a non-claude agent launches directly with the
 # prompt argument (init cmd + issue key) — no resume-fallback chain. The
 # resolver sends "" for agents without resume_args; when the flag is omitted
 # entirely the leaf script defaults to --continue for claude agents only.
@@ -623,7 +623,7 @@ tmux -L "$SHIM_SOCKET_LF" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-# STE-2: --agent-is-claude true forces claude treatment for a wrapper whose
+# --agent-is-claude true forces claude treatment for a wrapper whose
 # basename isn't "claude" (e.g. a claude-local alias).
 echo -e "\n${BOLD}Test: --agent-is-claude true gives a wrapper the claude flags${RESET}"
 ISSUE_KEY11="${TEST_PREFIX}-1100"
@@ -653,7 +653,7 @@ tmux -L "$SHIM_SOCKET11" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-# STE-2: a live pre-rename claude-<repo>-<key> session is renamed to the
+# A live legacy claude-<repo>-<key> session is renamed to the
 # agent- name instead of a duplicate being created beside it.
 echo -e "\n${BOLD}Test: legacy claude-* session is renamed, not duplicated${RESET}"
 ISSUE_KEY12="${TEST_PREFIX}-1200"
