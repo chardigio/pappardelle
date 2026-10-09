@@ -2,13 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import {PassThrough} from 'node:stream';
 import type {OuterTmuxRunner} from './tmux.ts';
-import {
-	confirm,
-	runUpdateCommand,
-	type UpdateCommandDeps,
-} from './update-command.ts';
+import {runUpdateCommand, type UpdateCommandDeps} from './update-command.ts';
 
 let counter = 0;
 function temporaryDir(): string {
@@ -211,20 +206,4 @@ test('the opening line names the version being replaced when known', async t => 
 	unknown.deps.installedVersion = null;
 	await runUpdateCommand({}, unknown.deps);
 	t.false(unknown.printed[0]!.includes('currently on'));
-});
-
-test('closing stdin at the quit prompt answers no instead of failing', async t => {
-	const input = new PassThrough();
-	const answer = confirm('Quit? ', input, new PassThrough());
-	input.end();
-
-	t.false(await answer);
-});
-
-test('y at the quit prompt answers yes', async t => {
-	const input = new PassThrough();
-	const answer = confirm('Quit? ', input, new PassThrough());
-	input.write('y\n');
-
-	t.true(await answer);
 });

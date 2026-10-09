@@ -1,13 +1,12 @@
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {createInterface} from 'node:readline/promises';
-import type {Readable, Writable} from 'node:stream';
 import {
 	currentDefaultServerSession,
 	defaultServerTmuxRunner,
 	type OuterTmuxRunner,
 } from './tmux.ts';
-import {listRunningTuis, respawnTuis} from './tui-sessions.ts';
+import {confirm} from './confirm.ts';
+import {listRunningTuis, plural, respawnTuis} from './tui-sessions.ts';
 import {resolveDisplayVersion, runUpdateScript} from './update-check.ts';
 
 // `pappardelle update`: the CLI twin of pressing U in the TUI. U runs the
@@ -46,9 +45,10 @@ export async function runUpdateCommand(
 		options.restartTuis ??
 		(deps.isTTY &&
 			(await deps.confirm(
-				`Restart ${running.length} running Pappardelle TUI${
-					running.length === 1 ? '' : 's'
-				} on the new build? [y/N] `,
+				`Restart ${running.length} running Pappardelle ${plural(
+					running.length,
+					'TUI',
+				)} on the new build? [y/N] `,
 			)));
 
 	if (!shouldRestart) {
@@ -62,28 +62,6 @@ export async function runUpdateCommand(
 
 	respawnTuis(running, deps);
 	return 0;
-}
-
-// Ctrl+D or a closed stdin at a y/N prompt means "no", not a crash.
-export async function confirm(
-	question: string,
-	input: Readable = process.stdin,
-	output: Writable = process.stdout,
-): Promise<boolean> {
-	const rl = createInterface({input, output});
-	const closed = new Promise<string>(resolve => {
-		rl.once('close', () => {
-			resolve('');
-		});
-	});
-	try {
-		const answer = await Promise.race([rl.question(question), closed]);
-		return /^y(es)?$/i.test(answer.trim());
-	} catch {
-		return false;
-	} finally {
-		rl.close();
-	}
 }
 
 export function defaultUpdateCommandDeps(

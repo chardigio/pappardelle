@@ -1,8 +1,10 @@
-import {readdirSync} from 'node:fs';
+import {existsSync, readdirSync} from 'node:fs';
+import path from 'node:path';
 import {
 	defaultServerTmuxRunner,
 	outerSessionName,
 	type OuterTmuxRunner,
+	shellQuote,
 } from './tmux.ts';
 
 // Some tmux releases rewrite `.` and `:` in session names to `_`, so a repo's
@@ -23,9 +25,6 @@ export function listRunningTuis(
 	tmux: OuterTmuxRunner,
 	repoStateRoot: string,
 ): string[] {
-	const result = tmux(['list-sessions', '-F', '#{session_name}']);
-	if (result.error || result.status !== 0) return [];
-
 	let repos: string[];
 	try {
 		repos = readdirSync(repoStateRoot);
@@ -34,10 +33,21 @@ export function listRunningTuis(
 	}
 
 	const names = new Set(repos.flatMap(repo => tuiSessionNames(repo)));
+	return listSessionNames(tmux).filter(name => names.has(name));
+}
+
+// An unreachable server (none running, or tmux missing) has no sessions.
+export function listSessionNames(tmux: OuterTmuxRunner): string[] {
+	const result = tmux(['list-sessions', '-F', '#{session_name}']);
+	if (result.error || result.status !== 0) return [];
 	return result.stdout
 		.split('\n')
 		.map(name => name.trim())
-		.filter(name => names.has(name));
+		.filter(Boolean);
+}
+
+export function plural(count: number, word: string): string {
+	return count === 1 ? word : `${word}s`;
 }
 
 // `=name:` is an exact session match (a bare name falls back to prefix
@@ -58,8 +68,8 @@ export function respawnTuiWindow(
 	return !result.error && result.status === 0;
 }
 
-// Respawning the session this process runs in ends this process, so it goes
-// last.
+// Respawning the session this process runs in may end this process (when it
+// runs in the TUI's window), so it goes last.
 export function orderCurrentLast(
 	names: string[],
 	current: string | null,
@@ -89,4 +99,33 @@ export function respawnTuis(
 	}
 
 	return failed;
+}
+
+// The command a new TUI session runs, which every later restart reruns. A TUI
+// started from the installed release runs through the ~/.local/bin shim, which
+// each install re-pins to a node meeting that release's floor; baking in the
+// launching node would outlive it. Other builds (e.g. a dev build at
+// ~/.local/bin/pappardelle-sta862) keep their own node and cli.js so they don't
+// fall back to the release.
+export function tuiLaunchCommand(options: {
+	execPath: string;
+	cliPath: string;
+	args: string[];
+	home: string;
+	exists?: (file: string) => boolean;
+}): string {
+	const exists = options.exists ?? existsSync;
+	const releaseCli = path.join(
+		options.home,
+		'.pappardelle',
+		'repo',
+		'dist',
+		'cli.js',
+	);
+	const shim = path.join(options.home, '.local', 'bin', 'pappardelle');
+	const command =
+		path.resolve(options.cliPath) === releaseCli && exists(shim)
+			? shellQuote(shim)
+			: `${shellQuote(options.execPath)} ${shellQuote(options.cliPath)}`;
+	return [command, ...options.args].join(' ');
 }

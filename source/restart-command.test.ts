@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import {runRestartCommand, type RestartCommandDeps} from './restart-command.ts';
+import {
+	hardRestart,
+	restartRepo,
+	type RestartCommandDeps,
+} from './restart-command.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 let counter = 0;
@@ -101,37 +105,37 @@ function mutations(h: Harness): string[] {
 // restart
 // ============================================================================
 
-test("restart respawns only this repo's TUI window", async t => {
+test("restart respawns only this repo's TUI window", t => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
 	});
 
-	t.is(await runRestartCommand({repoName: 'app'}, h.deps), 0);
+	t.is(restartRepo('app', h.deps), 0);
 	t.deepEqual(mutations(h), ['outer respawn-window -k -t =pappardelle-app:^']);
 	t.deepEqual(h.attached, []);
 });
 
-test('restart from a plain terminal attaches to the respawned TUI', async t => {
+test('restart from a plain terminal attaches to the respawned TUI', t => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
 		inTmux: false,
 	});
 
-	await runRestartCommand({repoName: 'app'}, h.deps);
+	restartRepo('app', h.deps);
 
 	t.deepEqual(h.attached, ['pappardelle-app']);
 });
 
-test('restart with no TUI running launches nothing', async t => {
+test('restart with no TUI running launches nothing', t => {
 	const h = harness({
 		sessions: ['pappardelle-web'],
 		repos: ['app', 'web'],
 		inTmux: false,
 	});
 
-	t.is(await runRestartCommand({repoName: 'app'}, h.deps), 0);
+	t.is(restartRepo('app', h.deps), 0);
 	t.deepEqual(mutations(h), []);
 	t.deepEqual(h.attached, []);
 	t.true(h.printed.at(-1)!.startsWith('No running Pappardelle TUI for app'));
@@ -149,10 +153,7 @@ test('--hard --yes kills the inner server before restarting every TUI', async t 
 		currentSession: 'pappardelle-app',
 	});
 
-	t.is(
-		await runRestartCommand({hard: true, yes: true, repoName: null}, h.deps),
-		0,
-	);
+	t.is(await hardRestart(true, h.deps), 0);
 	t.deepEqual(mutations(h), [
 		'inner kill-server',
 		'outer respawn-window -k -t =pappardelle-web:^',
@@ -169,16 +170,27 @@ test('--hard asks on a TTY and does nothing when declined', async t => {
 		confirmAnswer: false,
 	});
 
-	t.is(await runRestartCommand({hard: true, repoName: null}, h.deps), 0);
+	t.is(await hardRestart(false, h.deps), 0);
 	t.true(h.confirmCalls[0]!.startsWith('End 2 Claude/companion sessions'));
 	t.true(h.confirmCalls[0]!.includes('pappardelle-app'));
 	t.deepEqual(mutations(h), []);
 });
 
+test('--hard with no TUIs running only mentions the Claude sessions', async t => {
+	const h = harness({innerSessions: ['claude-app-STA-1'], isTTY: true});
+
+	await hardRestart(false, h.deps);
+
+	t.is(
+		h.confirmCalls[0],
+		'End 1 Claude/companion session (they resume with --continue)? [y/N] ',
+	);
+});
+
 test('--hard without a TTY or --yes refuses', async t => {
 	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
 
-	t.is(await runRestartCommand({hard: true, repoName: null}, h.deps), 1);
+	t.is(await hardRestart(false, h.deps), 1);
 	t.deepEqual(h.confirmCalls, []);
 	t.deepEqual(mutations(h), []);
 });
@@ -190,10 +202,7 @@ test('--hard from a claude pane hands the kill and respawns to a detached child,
 		onInnerServer: true,
 	});
 
-	t.is(
-		await runRestartCommand({hard: true, yes: true, repoName: null}, h.deps),
-		0,
-	);
+	t.is(await hardRestart(true, h.deps), 0);
 	t.deepEqual(mutations(h), []);
 	t.deepEqual(h.detached, [
 		[
@@ -211,10 +220,7 @@ test('--hard with no inner server still restarts the TUIs', async t => {
 		innerSessions: null,
 	});
 
-	t.is(
-		await runRestartCommand({hard: true, yes: true, repoName: null}, h.deps),
-		0,
-	);
+	t.is(await hardRestart(true, h.deps), 0);
 	t.true(
 		mutations(h).includes('outer respawn-window -k -t =pappardelle-app:^'),
 	);

@@ -3,7 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import type {OuterTmuxRunner} from './tmux.ts';
-import {listRunningTuis, respawnTuis} from './tui-sessions.ts';
+import {
+	listRunningTuis,
+	respawnTuis,
+	tuiLaunchCommand,
+} from './tui-sessions.ts';
 
 let counter = 0;
 function repoStateRoot(repos: string[]): string {
@@ -97,4 +101,43 @@ test('a session tmux refuses to respawn is reported and returned', t => {
 
 	t.deepEqual(failed, ['pappardelle-web']);
 	t.true(printed.at(-1)!.startsWith("Couldn't restart pappardelle-web"));
+});
+
+test('a TUI started from the installed release launches through the shim', t => {
+	t.is(
+		tuiLaunchCommand({
+			execPath: '/old/node',
+			cliPath: '/home/me/.pappardelle/repo/dist/cli.js',
+			args: [],
+			home: '/home/me',
+			exists: file => file === '/home/me/.local/bin/pappardelle',
+		}),
+		"'/home/me/.local/bin/pappardelle'",
+	);
+});
+
+test('a dev build keeps its own node and cli.js', t => {
+	t.is(
+		tuiLaunchCommand({
+			execPath: '/old/node',
+			cliPath: '/work/pappardelle/dist/cli.js',
+			args: ['--foo'],
+			home: '/home/me',
+			exists: () => true,
+		}),
+		"'/old/node' '/work/pappardelle/dist/cli.js' --foo",
+	);
+});
+
+test('the release falls back to node and cli.js when the shim is missing', t => {
+	t.is(
+		tuiLaunchCommand({
+			execPath: '/old/node',
+			cliPath: '/home/me/.pappardelle/repo/dist/cli.js',
+			args: [],
+			home: '/home/me',
+			exists: () => false,
+		}),
+		"'/old/node' '/home/me/.pappardelle/repo/dist/cli.js'",
+	);
 });

@@ -18,7 +18,7 @@ import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
-import {respawnTuiWindow} from './tui-sessions.ts';
+import {respawnTuiWindow, tuiSessionNames} from './tui-sessions.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -126,6 +126,7 @@ import {
 	getCurrentlyViewingSpace,
 	killSession,
 	outerSessionName,
+	currentDefaultServerSession,
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
@@ -387,9 +388,15 @@ export default function App({
 		process.stdout.write('\x1b[?1049l'); // exit alt screen
 		runUpdateScript({waitOnFailure: true});
 		// Respawning the TUI's window ends this process and reruns it on the new
-		// build (or the old one, after a failed install). Without an outer
-		// session to respawn, fall back to quitting.
-		if (paneLayout && !respawnTuiWindow(outerSessionName(repoName))) {
+		// build (or the old one, after a failed install). Only this TUI's own
+		// session qualifies: another terminal may run the same repo's TUI, and a
+		// TUI started inside the user's own tmux session has no window to rerun.
+		const current = currentDefaultServerSession(process.env);
+		const restarted =
+			current !== null &&
+			tuiSessionNames(repoName).includes(current) &&
+			respawnTuiWindow(current);
+		if (paneLayout && !restarted) {
 			killSession(outerSessionName(repoName));
 		}
 		// eslint-disable-next-line unicorn/no-process-exit

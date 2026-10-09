@@ -52,6 +52,7 @@ const helpText = `
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
+	  $ pappardelle restart --hard  # End Claude sessions, restart every TUI
 `;
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {

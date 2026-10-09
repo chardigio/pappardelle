@@ -48,20 +48,17 @@ import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
 import {parseCli} from './cli-args.ts';
+import {tuiLaunchCommand} from './tui-sessions.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
 	defaultRestartCommandDeps,
-	runRestartCommand,
+	hardRestart,
+	restartRepo,
 } from './restart-command.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
-
-/** Single-quote a path for safe inclusion in a shell command we hand to tmux. */
-function shellQuote(s: string): string {
-	return `'${s.replaceAll("'", `'\\''`)}'`;
-}
 
 const cli = parseCli();
 
@@ -82,10 +79,7 @@ if (cli.input.length === 1 && cli.input[0] === 'update') {
 
 if (isRestart && cli.flags.hard) {
 	process.exit(
-		await runRestartCommand(
-			{hard: true, yes: cli.flags.yes, repoName: null},
-			defaultRestartCommandDeps(),
-		),
+		await hardRestart(cli.flags.yes ?? false, defaultRestartCommandDeps()),
 	);
 }
 
@@ -198,9 +192,7 @@ try {
 }
 
 if (isRestart) {
-	process.exit(
-		await runRestartCommand({repoName}, defaultRestartCommandDeps()),
-	);
+	process.exit(restartRepo(repoName, defaultRestartCommandDeps()));
 }
 
 // Handle `pappardelle highlight STA-XXX` — write target file and exit
@@ -308,15 +300,13 @@ if (!isInTmux() && cli.flags.layout) {
 		process.exit(result.status ?? 0);
 	}
 
-	// No existing session - create a new one. Re-exec the same cli.js the
-	// user just ran (via process.execPath + process.argv[1]) so side-by-side
-	// installs (e.g. a dev build at ~/.local/bin/pappardelle-sta862) don't
-	// silently fall back to the global `pappardelle` binary on PATH.
-	const selfCmd = `${shellQuote(process.execPath)} ${shellQuote(
-		process.argv[1] ?? 'pappardelle',
-	)}`;
-	const args = process.argv.slice(2).join(' ');
-	const cmd = args ? `${selfCmd} ${args}` : selfCmd;
+	// No existing session - create a new one.
+	const cmd = tuiLaunchCommand({
+		execPath: process.execPath,
+		cliPath: process.argv[1] ?? 'pappardelle',
+		args: process.argv.slice(2),
+		home: homedir(),
+	});
 
 	const tmuxArgs = ['new-session', '-s', sessionName, cmd];
 	const result = spawnSync('tmux', tmuxArgs, {

@@ -14,11 +14,13 @@ import {
 } from './tmux.ts';
 import {
 	listRunningTuis,
+	listSessionNames,
+	plural,
 	respawnTuiArgs,
 	respawnTuis,
 	tuiSessionNames,
 } from './tui-sessions.ts';
-import {confirm} from './update-command.ts';
+import {confirm} from './confirm.ts';
 
 // `pappardelle restart` respawns this repo's TUI window in place.
 // `pappardelle restart --hard` also ends every Claude/companion session (the
@@ -39,16 +41,10 @@ export type RestartCommandDeps = {
 	print: (line: string) => void;
 };
 
-export async function runRestartCommand(
-	options: {hard?: boolean; yes?: boolean; repoName: string | null},
+export function restartRepo(
+	repoName: string,
 	deps: RestartCommandDeps,
-): Promise<number> {
-	return options.hard
-		? hardRestart(options.yes ?? false, deps)
-		: restartRepo(options.repoName!, deps);
-}
-
-function restartRepo(repoName: string, deps: RestartCommandDeps): number {
+): number {
 	const candidates = new Set(tuiSessionNames(repoName));
 	const name = listRunningTuis(deps.tmux, deps.repoStateRoot).find(session =>
 		candidates.has(session),
@@ -64,16 +60,12 @@ function restartRepo(repoName: string, deps: RestartCommandDeps): number {
 	return deps.inTmux ? 0 : deps.attach(name);
 }
 
-async function hardRestart(
+export async function hardRestart(
 	yes: boolean,
 	deps: RestartCommandDeps,
 ): Promise<number> {
 	const running = listRunningTuis(deps.tmux, deps.repoStateRoot);
-	const inner = deps.innerTmux(['list-sessions', '-F', '#{session_name}']);
-	const innerCount =
-		inner.error || inner.status !== 0
-			? 0
-			: inner.stdout.split('\n').filter(line => line.trim()).length;
+	const innerCount = listSessionNames(deps.innerTmux).length;
 
 	if (!yes) {
 		if (!deps.isTTY) {
@@ -83,16 +75,18 @@ async function hardRestart(
 			return 1;
 		}
 
-		const tuis =
+		const restartPart =
 			running.length === 0
-				? 'no running TUIs'
-				: `${running.length} TUI${
-						running.length === 1 ? '' : 's'
-					} (${running.join(', ')})`;
+				? ''
+				: ` and restart ${running.length} ${plural(
+						running.length,
+						'TUI',
+					)} (${running.join(', ')})`;
 		const ok = await deps.confirm(
-			`End ${innerCount} Claude/companion session${
-				innerCount === 1 ? '' : 's'
-			} (they resume with --continue) and restart ${tuis}? [y/N] `,
+			`End ${innerCount} Claude/companion ${plural(
+				innerCount,
+				'session',
+			)} (they resume with --continue)${restartPart}? [y/N] `,
 		);
 		if (!ok) return 0;
 	}
@@ -104,9 +98,10 @@ async function hardRestart(
 		// Killing the inner server ends this process, so a detached child runs
 		// the kill and the respawns.
 		deps.print(
-			`Ending Claude sessions and restarting ${running.length} TUI${
-				running.length === 1 ? '' : 's'
-			}...`,
+			`Ending Claude sessions and restarting ${running.length} ${plural(
+				running.length,
+				'TUI',
+			)}...`,
 		);
 		deps.runDetached([
 			innerTmuxArgs(['kill-server']),
