@@ -866,7 +866,8 @@ Relaunching a workspace's agent (the TUI recreating a dead session, `idow` reope
 - `{session_id}` in `resume_args` is replaced with that id, only when it was recorded by the same agent profile. With nothing recorded, claude falls back to `--continue`, which only looks in the workspace's directory, so spaces from before id recording keep their conversation. Other agents skip the resume attempt and launch fresh
 - Claude records through the `update-status.py` hook Pappardelle already installs. Codex records through `record-agent-session.py`, which `install.sh` adds to `~/.codex/hooks.json` (see `hooks/codex-hooks.json.example`). Codex asks to trust a new hook on its next launch; until it's trusted, codex spaces launch fresh
 - Any agent with Claude Code-style hooks (a JSON payload on stdin carrying `session_id`) can use `record-agent-session.py` the same way
-- Agents started from inside the agent (Claude running codex for a review, `claude -p` in a script) inherit the pane's environment, so the hook only records the agent that is the pane's top-level process
+- Agents started from inside the agent (Claude running codex for a review, `claude -p` in a script) inherit the pane's environment, so the hook only records the agent that is the pane's top-level process, and only when that process runs the agent profile's `command`. A different agent started by hand in the pane isn't recorded either
+- codex 0.159+ runs hooks in its shared app-server daemon, outside the pane. For those the hook finds the agent session whose directory holds the hook's `cwd` and records into that space, when the daemon is the agent profile's `command`
 - `idow` drops the recorded session when it creates the worktree, since it belonged to an earlier workspace with the same key
 
 ## Claude Configuration

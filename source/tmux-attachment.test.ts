@@ -420,7 +420,7 @@ test.serial(
 
 // The agent's hook records its session id under these (hooks/agent_session.py).
 test.serial(
-	'a new agent session tells the hook its agent profile and space-state file',
+	'a new agent session tells the hook its agent profile, command and space-state file',
 	async t => {
 		const calls: string[][] = [];
 		const run: AsyncTmuxRunner = async args => {
@@ -438,6 +438,7 @@ test.serial(
 		);
 		const created = calls.find(args => args.includes('new-session'))!;
 		t.true(created.includes('PAPPARDELLE_AGENT_PROFILE=codex'));
+		t.true(created.includes('PAPPARDELLE_AGENT_COMMAND=codex'));
 		t.true(
 			created.some(
 				arg =>

@@ -185,6 +185,7 @@ fi
 # space's agent, so its session id must not be recorded.
 AGENT_SESSION_ENV=(
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
+    -e "PAPPARDELLE_AGENT_COMMAND=$AGENT_COMMAND"
     -e "PAPPARDELLE_SPACE_STATE=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json"
 )
 

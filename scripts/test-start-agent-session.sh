@@ -123,6 +123,8 @@ assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY"
 # The agent's hook records its session id under these (hooks/agent_session.py)
 assert_eq "agent session env names the agent" "PAPPARDELLE_AGENT_PROFILE=claude" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null)"
+assert_eq "agent session env names the agent's command" "PAPPARDELLE_AGENT_COMMAND=claude" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_COMMAND 2>/dev/null)"
 assert_eq "agent session env names the space-state file" \
     "PAPPARDELLE_SPACE_STATE=$HOME/.pappardelle/repos/$TEST_REPO/space-state/$ISSUE_KEY.json" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_SPACE_STATE 2>/dev/null)"

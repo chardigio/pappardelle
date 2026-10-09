@@ -49,17 +49,20 @@ export function buildSessionEnvArgs(
 /**
  * The `-e` flags only the agent session gets, for the hook that records the
  * agent's session id (hooks/agent_session.py): which agent profile the pane
- * runs, so a later relaunch with a different one ignores the id, and the
- * space-state file to write it to. Kept off the companion session, where an agent started
- * by hand isn't the space's agent.
+ * runs, so a later relaunch with a different one ignores the id; its command,
+ * so an agent of another kind started by hand in the pane isn't recorded; and
+ * the space-state file to write it to. Kept off the companion session, where an
+ * agent started by hand isn't the space's agent.
  */
 export function buildAgentSessionEnvArgs(
-	agentProfileName: string,
+	agentProfile: {name: string; command: string},
 	spaceStatePath: string,
 ): string[] {
 	return [
 		'-e',
-		`PAPPARDELLE_AGENT_PROFILE=${agentProfileName}`,
+		`PAPPARDELLE_AGENT_PROFILE=${agentProfile.name}`,
+		'-e',
+		`PAPPARDELLE_AGENT_COMMAND=${agentProfile.command}`,
 		'-e',
 		`PAPPARDELLE_SPACE_STATE=${spaceStatePath}`,
 	];
