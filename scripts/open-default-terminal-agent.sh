@@ -163,7 +163,7 @@ COMPANION_START="${TMUX_L} new-session -A -s '${COMPANION_SESSION}'"
 if [[ -n "$COMPANION_COMMAND" ]]; then
     COMPANION_ASSIGN="COMPANION_CMD=$(quoted_form "$COMPANION_COMMAND"); "
     # shellcheck disable=SC2016 # expanded by the pane shell, not here
-    COMPANION_START="${COMPANION_START}"' /bin/sh -c '"'"'"$1" -ic "$2"; exec "$1" -l'"'"' sh "${SHELL:-/bin/sh}" "$COMPANION_CMD"'
+    COMPANION_START="${COMPANION_START}"' /bin/sh -c '"'"'"$1" -ic "$2$(printf "\n:")"; exec "$1" -l'"'"' sh "${SHELL:-/bin/sh}" "$COMPANION_CMD"'
 fi
 COMPANION_LINE="${COMPANION_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${COMPANION_START}"
 
