@@ -182,7 +182,10 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
     (if .agent_profile_ref == "" then "claude" else .agent_profile_ref end) as $agent_profile |
     (if .agent_profile_ref == "" then .agent_profile_defs.claude else .agent_profile_defs.ref end) as $def |
     (($def.command // "") != "") as $defined |
-    (if $defined then $def else {command: "claude"} end) as $def_resolved |
+    # Trailing whitespace trimmed like lookupAgentProfile(): a YAML block
+    # scalar (args: >) ends in a newline.
+    (if $defined then $def else {command: "claude"} end
+     | with_entries(if (.value | type) == "string" then .value |= sub("\\s+$"; "") else . end)) as $def_resolved |
     (if ($def_resolved.is_claude | type) == "boolean" then $def_resolved.is_claude
      else ($def_resolved.command | basename) == "claude"
      end) as $is_claude |
@@ -206,6 +209,9 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
         elif $l.value != "" and ($l.template_set | not) then
             "agent_profiles.\($agent_profile).\($f): \"\($def_resolved.command)\" has no built-in \($f) flag; set \($f)_args"
         else empty end
+    ] + [$def_resolved | to_entries[]
+        | select((.value | type) == "string" and (.value | test("[\r\n]")))
+        | "agent_profiles.\($agent_profile).\(.key): must be a single line"
     ] | join("\n")) as $launch_errors |
     {
         init_cmd: (.initialization_command // ""),

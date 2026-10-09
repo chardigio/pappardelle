@@ -2,7 +2,7 @@
 
 # start-agent-session.sh - Ensure agent and companion tmux sessions exist for an issue
 #
-# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # Creates detached tmux sessions (repo-qualified):
 #   agent-<REPO>-<KEY>      — runs the configured agent (default: Claude Code)
@@ -15,14 +15,11 @@
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
 # --no-agent: create sessions but don't launch the agent/companion command (for testing)
 # --skip-permissions: pass --dangerously-skip-permissions to claude (claude agents only)
-# --model / --effort: pass --model / --effort to claude (claude agents only).
-#                     Empty or omitted means the flag isn't passed at all
-#                     (Claude's own default wins). For direct callers; idow
-#                     passes --agent-launch-flags instead.
 # --agent-launch-flags: the agent profile's model/effort flags, already
 #                     rendered and shell-quoted by resolve-agent-config.sh
 #                     (e.g. "-m gpt-5.5 -c model_reasoning_effort=high").
-#                     Appended where --model/--effort go, for any agent.
+#                     Empty or omitted means no flag at all (the agent's
+#                     own default wins).
 # --agent-command / --agent-args / --agent-resume-args / --agent-is-claude:
 #                     the agent profile resolved by resolve-agent-config.sh
 #                     (agent_profiles.<name> in .pappardelle.yml). --agent-is-claude
@@ -45,8 +42,6 @@ WORKTREE_PATH=""
 INIT_CMD=""
 NO_AGENT=false
 SKIP_PERMISSIONS=false
-CLAUDE_MODEL=""
-CLAUDE_EFFORT=""
 AGENT_COMMAND=""
 AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
@@ -88,14 +83,6 @@ while [[ $# -gt 0 ]]; do
         --skip-permissions)
             SKIP_PERMISSIONS=true
             shift
-            ;;
-        --model)
-            CLAUDE_MODEL="$2"
-            shift 2
-            ;;
-        --effort)
-            CLAUDE_EFFORT="$2"
-            shift 2
             ;;
         --agent-command)
             AGENT_COMMAND="$2"
@@ -241,16 +228,13 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/
     if [[ "$NO_AGENT" == true ]]; then
         tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$AGENT_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "${AGENT_SESSION_ENV[@]}"
     else
-        # Claude agents get --dangerously-skip-permissions, --model / --effort,
-        # and --name set to the issue key so the session is findable via /resume
+        # Claude agents get --dangerously-skip-permissions and --name set to the issue key so the session is findable via /resume
         # and shows up in the terminal title. Other agents run `{command} {args}`
         # plus their rendered model/effort flags. Flag order matches
         # buildAgentResumeCommand() in source/tmux.ts and open-iterm-agent.sh:
         #   command → --dangerously-skip-permissions → args → model/effort → --name
         # Model/effort flags precede the resume args so a resume subcommand
         # (codex's `resume`) still follows every flag.
-        # printf %q quotes the config-supplied values so model ids with shell
-        # metacharacters (e.g. claude-opus-5[1m]) reach claude as literal arguments.
         # Agent args and launch flags arrive as ready-made shell words, so
         # they're not quoted again.
         AGENT_CMD="$AGENT_COMMAND"
@@ -259,14 +243,6 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/
         fi
         if [[ -n "$AGENT_ARGS" ]]; then
             AGENT_CMD="${AGENT_CMD} ${AGENT_ARGS}"
-        fi
-        if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
-            if [[ -n "$CLAUDE_MODEL" ]]; then
-                AGENT_CMD="${AGENT_CMD} --model $(printf '%q' "$CLAUDE_MODEL")"
-            fi
-            if [[ -n "$CLAUDE_EFFORT" ]]; then
-                AGENT_CMD="${AGENT_CMD} --effort $(printf '%q' "$CLAUDE_EFFORT")"
-            fi
         fi
         if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
             AGENT_CMD="${AGENT_CMD} ${AGENT_LAUNCH_FLAGS}"

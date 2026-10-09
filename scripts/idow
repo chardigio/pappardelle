@@ -866,8 +866,8 @@ elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
     fi
 fi
 # One array for the resolved agent profile, appended to both start-agent-session.sh
-# and open-iterm-agent.sh below so the two launch paths can't drift.
-AGENT_FLAG_ARGS=(--agent-command "$AGENT_COMMAND" --agent-args "$AGENT_ARGS" --agent-resume-args "$AGENT_RESUME_ARGS" --agent-is-claude "$AGENT_IS_CLAUDE" --agent-launch-flags "$AGENT_LAUNCH_FLAGS")
+# and the terminal launchers below so the two launch paths can't drift.
+AGENT_FLAG_ARGS=(--agent-command "$AGENT_COMMAND" --agent-args "$AGENT_ARGS" --agent-resume-args "$AGENT_RESUME_ARGS" --agent-is-claude "$AGENT_IS_CLAUDE" --agent-launch-flags "$AGENT_LAUNCH_FLAGS" --agent-profile "$AGENT_PROFILE")
 AGENT_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND")
 if [[ -n "$INIT_CMD" && "$RESUME_MODE" != true ]]; then
     AGENT_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
@@ -879,7 +879,7 @@ fi
 # getSessionNames(); see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
-AGENT_SESSION_ARGS+=("${AGENT_FLAG_ARGS[@]}" --agent-profile "$AGENT_PROFILE")
+AGENT_SESSION_ARGS+=("${AGENT_FLAG_ARGS[@]}")
 AGENT_SESSION_NAME="agent-${REPO_NAME}-${SESSION_KEY}"
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.

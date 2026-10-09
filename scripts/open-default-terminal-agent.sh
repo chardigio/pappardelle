@@ -25,8 +25,6 @@ REPO_NAME=""
 PROMPT=""
 COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
 SKIP_PERMISSIONS=false
-CLAUDE_MODEL=""
-CLAUDE_EFFORT=""
 # The --agent-* flags follow the same rules as in start-agent-session.sh; see its
 # header.
 AGENT_COMMAND=""
@@ -35,6 +33,7 @@ AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
 AGENT_LAUNCH_FLAGS=""
+AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 
@@ -46,13 +45,12 @@ while [[ $# -gt 0 ]]; do
         --prompt) PROMPT="$2"; shift 2 ;;
         --companion-command) COMPANION_COMMAND="$2"; shift 2 ;;
         --skip-permissions) SKIP_PERMISSIONS=true; shift ;;
-        --model) CLAUDE_MODEL="$2"; shift 2 ;;
-        --effort) CLAUDE_EFFORT="$2"; shift 2 ;;
         --agent-command) AGENT_COMMAND="$2"; shift 2 ;;
         --agent-args) AGENT_ARGS="$2"; shift 2 ;;
         --agent-resume-args) AGENT_RESUME_ARGS="$2"; AGENT_RESUME_ARGS_SET=true; shift 2 ;;
         --agent-is-claude) AGENT_IS_CLAUDE="$2"; shift 2 ;;
         --agent-launch-flags) AGENT_LAUNCH_FLAGS="$2"; shift 2 ;;
+        --agent-profile) AGENT_PROFILE="$2"; shift 2 ;;
         --print-launch-flags) PRINT_LAUNCH_FLAGS=true; shift ;;
         --print-command) PRINT_COMMAND=true; shift ;;
         *) echo "Error: Unknown option: $1" >&2; exit 1 ;;
@@ -107,26 +105,20 @@ if [[ -n "$AGENT_ARGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_ARGS}"
 fi
 
-append_launch_flag() {
-    local flag="$1"
-    local value="$2"
-    [[ -z "$value" ]] && return 0
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${flag} $(printf '%q' "$value")"
-    return 0
-}
-
-if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
-    append_launch_flag "--model" "$CLAUDE_MODEL"
-    append_launch_flag "--effort" "$CLAUDE_EFFORT"
-    NAME_FLAG=" --name ${ISSUE_KEY}"
-else
-    NAME_FLAG=""
-fi
 # The agent profile's model/effort flags arrive rendered and already quoted
 # for the inner shell by resolve-agent-config.sh, for any agent.
 if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_LAUNCH_FLAGS}"
 fi
+if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
+    NAME_FLAG=" --name ${ISSUE_KEY}"
+else
+    NAME_FLAG=""
+fi
+
+# Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
+# records its session id under these when this launcher creates the session.
+SPACE_STATE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json"
 
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
@@ -143,14 +135,16 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 # two-layer scheme the AppleScript launchers use.
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
-FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); "
+FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); SPACE_STATE=$(quoted_form "$SPACE_STATE"); "
+# shellcheck disable=SC2016  # expanded by the pane shell, not here
+AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_COMMAND=$AGENT_CMD" -e "PAPPARDELLE_SPACE_STATE=$SPACE_STATE"'
 RESUME_CHAIN=""
 if [[ -n "$AGENT_RESUME_STR" ]]; then
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
     RESUME_CHAIN='$AGENT_RESUME'" || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
 fi
 
-AGENT_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}' \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
+AGENT_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}'${AGENT_ENV} \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
 if [[ -z "$AGENT_PROMPT" ]]; then
     AGENT_LINE="${AGENT_PREFIX}\""
 else

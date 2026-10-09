@@ -335,7 +335,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 
 # ==========================================================================
 
-# STA-1829: --model / --effort are forwarded to the real claude invocation.
+# STA-1829: the rendered model/effort flags reach the real claude invocation.
 # A shim named `claude` on PATH records its argv, so these assertions read the
 # actual command line claude was launched with rather than a pane transcript.
 # The shim exits 0, so the `--continue` branch succeeds and runs exactly once.
@@ -344,7 +344,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 # shell tmux spawns would otherwise source the developer's ~/.zshrc and put the
 # real claude ahead of the shim on PATH. It also keeps the pre-trust step out of
 # the real ~/.claude.json.
-echo -e "\n${BOLD}Test: --model / --effort reach the claude command line${RESET}"
+echo -e "\n${BOLD}Test: launch flags reach the claude command line${RESET}"
 ISSUE_KEY7="${TEST_PREFIX}-700"
 WORKTREE_PATH7="$TMPDIR_ROOT/worktree7"
 SHIM_DIR="$TMPDIR_ROOT/shim"
@@ -367,7 +367,7 @@ SHIM_SOCKET="pappardelle_inner_shim_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET" \
     "$SCRIPT_DIR/start-agent-session.sh" \
     --issue-key "$ISSUE_KEY7" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH7" \
-    --model sonnet --effort high 2>/dev/null
+    --agent-launch-flags "--model sonnet --effort high" 2>/dev/null
 
 wait_for_file "$ARGV_LOG" || true
 ARGV=$(head -1 "$ARGV_LOG" 2>/dev/null || echo "")
@@ -406,7 +406,7 @@ tmux -L "$SHIM_SOCKET" kill-server 2>/dev/null || true
 
 # Off-by-default regression: omit both flags and the command line must be
 # exactly what it was before STA-1829.
-echo -e "\n${BOLD}Test: no --model/--effort → command line unchanged${RESET}"
+echo -e "\n${BOLD}Test: no launch flags → command line unchanged${RESET}"
 ISSUE_KEY8="${TEST_PREFIX}-800"
 WORKTREE_PATH8="$TMPDIR_ROOT/worktree8"
 ARGV_LOG8="$TMPDIR_ROOT/claude-argv-8.log"
@@ -538,7 +538,7 @@ SHIM_SOCKET9="pappardelle_inner_shim9_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
     "$SCRIPT_DIR/start-agent-session.sh" \
     --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
-    --skip-permissions --model sonnet --effort high \
+    --skip-permissions \
     --agent-command codex --agent-args "--yolo" --agent-resume-args "resume --last" --agent-is-claude false \
     2>/dev/null
 
@@ -641,7 +641,7 @@ SHIM_SOCKET11="pappardelle_inner_shim11_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET11" \
     "$SCRIPT_DIR/start-agent-session.sh" \
     --issue-key "$ISSUE_KEY11" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH11" \
-    --model sonnet \
+    --agent-launch-flags "--model sonnet" \
     --agent-command claude-local --agent-is-claude true --agent-resume-args --continue \
     2>/dev/null
 

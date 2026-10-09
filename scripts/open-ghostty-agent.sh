@@ -2,7 +2,7 @@
 
 # open-ghostty-agent.sh - Open a Ghostty tab with tmux, the configured agent, and the companion pane
 #
-# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>]
+# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # The Ghostty counterpart to open-iterm-agent.sh. Instead of a new window it
 # opens a new tab in the window the Pappardelle TUI is running in, split into:
@@ -32,8 +32,6 @@ REPO_NAME=""
 PROMPT=""
 WINDOW_ID=""
 SKIP_PERMISSIONS=false
-CLAUDE_MODEL=""
-CLAUDE_EFFORT=""
 # The --agent-* flags follow the same rules as in start-agent-session.sh; see its
 # header.
 AGENT_COMMAND=""
@@ -42,6 +40,7 @@ AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
 AGENT_LAUNCH_FLAGS=""
+AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
@@ -81,12 +80,8 @@ while [[ $# -gt 0 ]]; do
             SKIP_PERMISSIONS=true
             shift
             ;;
-        --model)
-            CLAUDE_MODEL="$2"
-            shift 2
-            ;;
         --print-launch-flags)
-            # Print the resolved claude launch flags and exit without opening
+            # Print the resolved launch flags and exit without opening
             # Ghostty. Exists so test-claude-model-effort.sh can assert on the
             # flag string without side effects.
             PRINT_LAUNCH_FLAGS=true
@@ -99,10 +94,6 @@ while [[ $# -gt 0 ]]; do
             # execute the real bytes rather than a bash-side reimplementation.
             PRINT_COMMAND=true
             shift
-            ;;
-        --effort)
-            CLAUDE_EFFORT="$2"
-            shift 2
             ;;
         --agent-command)
             AGENT_COMMAND="$2"
@@ -125,8 +116,12 @@ while [[ $# -gt 0 ]]; do
             AGENT_LAUNCH_FLAGS="$2"
             shift 2
             ;;
+        --agent-profile)
+            AGENT_PROFILE="$2"
+            shift 2
+            ;;
         --help|-h)
-            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS]"
+            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens Ghostty."
@@ -183,24 +178,20 @@ PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 AGENT_PROMPT="$PROMPT"
 
 # Build the launch-flag string appended to every agent invocation below.
-# Claude agents: --dangerously-skip-permissions → agent args → --model →
-# --effort, in that order, matching start-agent-session.sh and
+# Claude agents: --dangerously-skip-permissions → agent args → model/effort
+# flags, in that order, matching start-agent-session.sh and
 # buildAgentResumeCommand() in source/tmux.ts. Non-claude agents get only
-# their free-form args and the agent profile's model/effort flags, since the
-# claude flags would be meaningless to them.
+# their free-form args and the agent profile's model/effort flags, since
+# --dangerously-skip-permissions would be meaningless to them.
 # Leading spaces are intentional: the value is concatenated onto the agent
 # command word, so each space separates its flag cleanly.
 #
-# Two layers of quoting, because the string crosses two shells:
-#   1. printf %q here makes each config-supplied value safe for the INNER shell
-#      (tmux runs the new-session command through sh -c).
-#   2. `quoted form of` in the AppleScript makes the whole string safe for the
-#      OUTER shell Ghostty feeds it to. See the AGENT_FLAGS assignment below.
-# That pairing is what lets any value through unharmed, so there's no charset
-# restriction and nothing is ever silently dropped; the tmux path
-# (start-agent-session.sh) reaches the same place with printf %q alone.
-# Agent args are deliberately NOT %q'd — they're a user-authored multi-flag
-# string (e.g. "--yolo --foo bar"), same treatment as start-agent-session.sh.
+# The string crosses two shells. Agent args (a user-authored multi-flag
+# string like "--yolo --foo bar") and the model/effort flags (rendered and
+# quoted by resolve-agent-config.sh) arrive as ready-made words for the INNER
+# shell (tmux runs the new-session command through sh -c). `quoted form of` in
+# the AppleScript makes the whole string safe for the OUTER shell Ghostty
+# feeds it to. See the AGENT_FLAGS assignment below.
 LAUNCH_FLAGS=""
 if [[ "$AGENT_IS_CLAUDE" == "true" && "$SKIP_PERMISSIONS" == true ]]; then
     LAUNCH_FLAGS=" --dangerously-skip-permissions"
@@ -208,27 +199,18 @@ fi
 if [[ -n "$AGENT_ARGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_ARGS}"
 fi
-
-append_launch_flag() {
-    local flag="$1"
-    local value="$2"
-    [[ -z "$value" ]] && return 0
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${flag} $(printf '%q' "$value")"
-    return 0
-}
-
+if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_LAUNCH_FLAGS}"
+fi
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
-    append_launch_flag "--model" "$CLAUDE_MODEL"
-    append_launch_flag "--effort" "$CLAUDE_EFFORT"
     NAME_FLAG=" --name ${ISSUE_KEY}"
 else
     NAME_FLAG=""
 fi
-# The agent profile's model/effort flags arrive rendered and already quoted
-# for the inner shell by resolve-agent-config.sh, for any agent.
-if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_LAUNCH_FLAGS}"
-fi
+
+# Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
+# records its session id under these when this launcher creates the session.
+SPACE_STATE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json"
 
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
@@ -278,6 +260,8 @@ on run argv
     set agentCommand to item 12 of argv
     set nameFlag to item 13 of argv
     set resumeArgs to item 14 of argv
+    set agentProfile to item 15 of argv
+    set spaceState to item 16 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -304,16 +288,17 @@ on run argv
     -- `quoted form of` (the same pattern the companion command uses) and
     -- referenced as $AGENT_CMD / $AGENT_FLAGS / $AGENT_RESUME. The outer shell
     -- expands them *after* quote processing, so only the inner `sh -c` ever
-    -- parses the values — and the caller already ran each flag value through
-    -- printf %q for exactly that parse. Empty flags leave the command word
+    -- parses the values — and the caller already quoted each flag value for
+    -- exactly that parse. Empty flags leave the command word
     -- unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; "
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; SPACE_STATE=" & quoted form of spaceState & "; "
+    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_COMMAND=$AGENT_CMD\" -e \"PAPPARDELLE_SPACE_STATE=$SPACE_STATE\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
     set resumeChain to ""
     if resumeArgs is not equal to "" then
         set resumeChain to "$AGENT_RESUME || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
-    set agentPrefix to flagsAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"" & agentCmd & resumeChain
+    set agentPrefix to flagsAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "'" & agentEnv & " \"" & agentCmd & resumeChain
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
@@ -397,7 +382,7 @@ APPLESCRIPT_END
 # Run the AppleScript with arguments. Argument 9 is the print-only switch: when
 # true the script returns the assembled command lines and never touches Ghostty.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR")
+OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$SPACE_STATE")
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     printf '%s\n' "$OSA_OUTPUT"

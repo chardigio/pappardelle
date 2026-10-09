@@ -142,6 +142,7 @@ type Resolved = {
 	skip_permissions: string;
 	model: string;
 	effort: string;
+	agent_launch_flags: string;
 };
 
 function resolveViaBash(profile?: string): Resolved {
@@ -291,10 +292,8 @@ function main() {
 	}
 
 	const withFlags = launch('VERIFY-1', [
-		'--model',
-		backend.model,
-		'--effort',
-		backend.effort,
+		'--agent-launch-flags',
+		backend.agent_launch_flags,
 	]);
 	check(
 		'resolved backend values reach claude',
@@ -302,11 +301,14 @@ function main() {
 		'--model sonnet --effort medium --name VERIFY-1 --continue',
 	);
 
-	const exotic = launch('VERIFY-2', ['--model', frontend.model]);
+	const exotic = launch('VERIFY-2', [
+		'--agent-launch-flags',
+		frontend.agent_launch_flags,
+	]);
 	check(
 		'bracketed model id reaches claude intact',
 		exotic.argv,
-		'--model claude-opus-5[1m] --name VERIFY-2 --continue',
+		'--model claude-opus-5[1m] --effort high --name VERIFY-2 --continue',
 	);
 
 	const bare = launch('VERIFY-3', []);
@@ -355,10 +357,10 @@ function main() {
 				`pappaverify${process.pid}`,
 				'--prompt',
 				'',
-				'--model',
-				hostileModel,
-				'--effort',
-				'medium',
+				'--agent-launch-flags',
+				// Quoted for the inner shell the way resolve-agent-config.sh
+				// renders a value that isn't a bare token.
+				`--model '${hostileModel.replaceAll("'", String.raw`'\''`)}' --effort medium`,
 				'--companion-command',
 				'',
 				'--print-command',
