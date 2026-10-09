@@ -24,7 +24,7 @@ Config is assembled from up to three files, deep-merged lowest → highest prior
 | 2   | Project | `<repo-root>/.pappardelle.yml`       | Repo-level settings shared with the team | Yes                   |
 | 3   | Local   | `<repo-root>/.pappardelle.local.yml` | Your per-repo overrides                  | No (gitignored)       |
 
-Later layers override earlier ones key by key, so a home config setting `claude.model` still applies in a repo whose `.pappardelle.yml` never mentions it. Only the conflicting keys are replaced — `keybindings` are smart-merged rather than wholesale replaced.
+Later layers override earlier ones key by key, so a home config setting `initialization_command` still applies in a repo whose `.pappardelle.yml` never mentions it. Only the conflicting keys are replaced — `keybindings` are smart-merged rather than wholesale replaced.
 
 ## Configuration Schema
 
@@ -42,12 +42,31 @@ vcs_host:
   provider: github # "github" or "gitlab"
   # host: gitlab.mycompany.com  # Optional for self-hosted GitLab
 
-# Claude configuration (optional)
+# Claude configuration (optional; applies only when the agent is claude)
 claude:
-  initialization_command: '/idow' # Command passed to Claude on new sessions
   dangerously_skip_permissions: true # Pass --dangerously-skip-permissions to Claude (default: false)
-  model: opus # Pass --model to Claude (default: Claude's own default)
-  effort: high # Pass --effort to Claude (default: Claude's own default)
+
+# Command passed to the agent on new sessions (optional, agent-agnostic).
+# Replaces the deprecated claude.initialization_command, which is still
+# accepted with a warning.
+initialization_command: '/idow'
+
+# Agent profiles for the agent pane (optional). A built-in `claude` agent
+# profile always exists; see the Agent profiles section below.
+agent_profiles:
+  claude:
+    command: claude
+    model: opus # Launch model (optional, default: the CLI's own default)
+    effort: high # Reasoning effort (optional, default: the CLI's own default)
+  codex:
+    command: codex # Base binary (required)
+    args: --yolo # Appended to every invocation (optional)
+    resume_args: resume {session_id} # Appended for the resume attempt (optional)
+    model: gpt-5.5 # Rendered with codex's built-in `-m {model}` (optional)
+
+# Default agent profile for all profiles — a name from `agent_profiles:`
+# (optional, default: claude)
+# agent_profile: codex
 
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
@@ -330,7 +349,11 @@ When the input is a description (not an issue key):
 3. **Confirmation** (STA-1837): Enter moves focus to the picker, which lists _every_
    profile with the preselected one first; a second Enter accepts it, so
    Enter-Enter reproduces the old auto-select. Arrow keys (or `j`/`k`) pick any
-   other profile without rewording the prompt; Esc returns to the prompt
+   other profile without rewording the prompt; Esc returns to the prompt.
+   Picking a profile also picks its [agent profile](#agent-profiles), and the
+   choice is saved with the workspace, so reattaching later relaunches the same
+   agent even if
+   the issue title no longer matches the profile's keywords
 4. **Project assignment** (Linear, STA-959): The new issue is created in the
    profile's `tracker_projects[0]` Linear project. Resolved at create-time via
    `linctl project list --json --include-completed` (case-insensitive name
@@ -449,13 +472,27 @@ interface PappardelleConfig {
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
 	ide_command?: string; // Command the `d` key runs to open an editor (default: cursor). Per-profile overridable. "" = disable `d`.
+	initialization_command?: string; // Command passed to the agent on new sessions (e.g. "/idow"). Agent-agnostic; replaces claude.initialization_command.
+	agent_profiles?: Record<string, AgentProfileConfig>; // Named agent profiles for the agent pane. Built-in "claude" always exists.
+	agent_profile?: string; // Default agent profile name for all profiles (default: "claude"). Per-profile overridable.
 	claude?: {
-		initialization_command?: string; // Command passed to Claude on new sessions (e.g. "/idow")
-		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions
-		model?: string; // Launch with --model <value>. Omit for Claude's default. Per-profile overridable.
-		effort?: string; // Launch with --effort <value>. Omit for Claude's default. Per-profile overridable.
+		initialization_command?: string; // DEPRECATED: use the top-level initialization_command
+		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions (claude agents only)
+		model?: string; // DEPRECATED: set model on an agent profile. Still the fallback for claude agent profiles without one.
+		effort?: string; // DEPRECATED: set effort on an agent profile. Same fallback as model.
 	};
 	profiles: Record<string, Profile>;
+}
+
+interface AgentProfileConfig {
+	command: string; // Base binary or command (required), e.g. "codex"
+	args?: string; // Appended to every invocation (e.g. "--yolo")
+	resume_args?: string; // Appended for the resume attempt; {session_id} is the recorded session. Claude defaults to "--resume {session_id}"; others default to none.
+	is_claude?: boolean; // Force/suppress claude treatment. Unset = basename of first token == "claude".
+	model?: string; // Launch model, rendered through model_args. "" = no flag.
+	effort?: string; // Reasoning effort, rendered through effort_args. "" = no flag.
+	model_args?: string; // Flag template containing {model}. Built in for claude ("--model {model}") and codex ("-m {model}").
+	effort_args?: string; // Flag template containing {effort}. Built in for claude ("--effort {effort}") and codex ("-c model_reasoning_effort={effort}").
 }
 
 interface Profile {
@@ -467,10 +504,12 @@ interface Profile {
 	jira?: {
 		issue_type?: string; // Override the Jira issue type used when creating issues under this profile (e.g. "Feature", "Bug"). Falls back to issue_tracker.default_issue_type, then "Task".
 	};
+	agent_profile?: string; // Agent profile to run in this profile's agent pane. "" = clear an inherited reference back to claude.
+	initialization_command?: string; // Override the global init command for this profile (agent-agnostic)
 	claude?: {
-		initialization_command?: string; // Override global init command for this profile
-		model?: string; // Override global claude.model for this profile. "" = clear the global, launch with Claude's default.
-		effort?: string; // Override global claude.effort for this profile. "" = clear the global.
+		initialization_command?: string; // DEPRECATED: use the profile-level initialization_command
+		model?: string; // DEPRECATED: select an agent profile that sets model. Still overrides the global claude.model fallback.
+		effort?: string; // DEPRECATED: select an agent profile that sets effort.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
 	ide_command?: string; // Override the top-level `d`-key editor command for this profile. "" = disable `d` for this profile.
@@ -749,55 +788,143 @@ profiles:
 | GitHub   | `gh`     | `brew install gh`                                                                      |
 | GitLab   | `glab`   | `brew install glab`                                                                    |
 
+## Agent profiles
+
+An agent profile is a named launch definition for the agent pane (the pane that runs Claude Code by default): the command, its args and resume args, the model and reasoning effort, and whether it gets Claude treatment. The `agent_profiles` section defines them, and `agent_profile` — settable globally and per workspace profile — selects one by name. This is what lets a profile run the OpenAI Codex CLI (or any other CLI) instead of Claude.
+
+Agent profiles are separate from the workspace `profiles` section: a workspace profile picks the agent profile its spaces run with `agent_profile:`.
+
+```yaml
+agent_profiles:
+  codex:
+    command: codex # Base binary (required)
+    args: --yolo # Appended to every invocation (optional)
+    resume_args: resume {session_id} # Appended for the resume attempt (optional)
+    model: gpt-5.5 # Optional
+    effort: high # Optional
+  claude-local:
+    command: claude-local # A wrapper/alias around claude
+    is_claude: true # Force claude treatment despite the name (optional)
+  opus:
+    command: claude
+    model: opus
+    effort: max
+  aider:
+    command: aider
+    model: sonnet
+    model_args: --model {model} # Required before an unknown CLI can take a model
+
+# Global default (optional, default: claude)
+agent_profile: codex
+
+profiles:
+  codex-experiments:
+    agent_profile: codex # Per-profile reference (wins over the global `agent_profile`)
+  deep-work:
+    agent_profile: opus
+```
+
+| Field         | Type      | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------- | --------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`     | `string`  | —        | Base binary or command, e.g. `codex` or `/usr/local/bin/claude`. Required.                                                                                                                                                                                                                                                                                                                                                                                       |
+| `args`        | `string`  | `""`     | Free-form flag string appended to every invocation (launch and resume). Codex's `--yolo` goes here — the skip-permissions pattern for non-claude agents.                                                                                                                                                                                                                                                                                                         |
+| `resume_args` | `string`  | —        | Appended for the resume attempt of the resume-then-launch chain. `{session_id}` is replaced with the workspace's recorded session id (see [Session resume](#session-resume)); with none recorded, claude falls back to `--continue` and other agents launch fresh. Claude defaults to `--resume {session_id}`; other agents default to none (launch directly). An explicit `''` also means "launch directly". Skipped when `idow` has just created the worktree. |
+| `is_claude`   | `boolean` | derived  | Force or suppress claude treatment (see below). Unset ⇒ basename of the command's first token == `claude`.                                                                                                                                                                                                                                                                                                                                                       |
+| `model`       | `string`  | —        | Model to launch with, substituted into `model_args`. Not validated against known names, so a typo surfaces when the CLI rejects it. `''` passes no flag.                                                                                                                                                                                                                                                                                                         |
+| `effort`      | `string`  | —        | Reasoning effort to launch with, substituted into `effort_args`. `''` passes no flag.                                                                                                                                                                                                                                                                                                                                                                            |
+| `model_args`  | `string`  | built in | Flag template containing `{model}`. Built in: `--model {model}` for claude agent profiles, `-m {model}` when the command's basename is `codex`. Any other CLI needs it before `model` can be set.                                                                                                                                                                                                                                                                |
+| `effort_args` | `string`  | built in | Flag template containing `{effort}`. Built in: `--effort {effort}` for claude, `-c model_reasoning_effort={effort}` for codex.                                                                                                                                                                                                                                                                                                                                   |
+
+**Semantics:**
+
+- `agent_profile:` is a **string reference** into the `agent_profiles:` map — no inline definitions. A built-in `claude` agent profile (command `claude`, resume `--resume {session_id}`) always exists; defining `agent_profiles.claude` shadows it.
+- Resolution: workspace profile `agent_profile` → top-level `agent_profile` → `claude`. An explicit `agent_profile: ''` at the profile level clears an inherited reference back to claude.
+- Referencing an undefined agent profile is a validation error, as is an `agent_profiles` entry without a `command`. `idow` fails the same way on an undefined name.
+- `model` and `effort` reach the CLI through their templates, placed after `args` and before the resume args, so codex's `resume` subcommand still follows every flag. Values that aren't a bare token are single-quoted for the shell (`'claude-opus-5[1m]'`). Setting `model` or `effort` on a CLI with no template, or a template without its placeholder, is a validation error in the TUI and an error in `idow`
+- Claude agent profiles that set no `model` or `effort` of their own fall back to the deprecated `claude.model` / `claude.effort` (see [Claude Configuration](#claude-configuration)); other CLIs never read those
+
+**Claude gating.** Several behaviors Pappardelle injects are Claude Code features, not generic agent features: the `~/.claude.json` pre-trust write, the `--name`/`--dangerously-skip-permissions` flags, the `--model`/`--effort` templates, and the `--resume {session_id}` default. Whether an agent gets them is decided by the agent profile's explicit `is_claude` when set, else by whether the basename of the command's first token equals `claude`:
+
+- `command: claude` and `command: /usr/local/bin/claude` both gate as claude — a pinned install path keeps full behavior
+- Wrappers with other names (`claude-local`, `my-claude-wrapper`) don't auto-detect — they opt in with `is_claude: true`. Without it they're generic agents: the `claude:` block silently no-ops for them, and `model`/`effort` need templates
+- `is_claude: false` works in reverse: a binary that happens to be named `claude` can opt out of the injections
+- Not gated: `initialization_command` (the positional prompt — every agent gets it) and the companion pane
+
+**Sessions and status.** The agent pane's tmux sessions are named `agent-{repo}-{key}` (renamed from the old `claude-{repo}-{key}`; live legacy sessions are automatically renamed in place at startup and on attach). The profile a space was created or last picked with is persisted. When the TUI recreates a dead session, or `idow` reopens an existing space without `--profile`, it resolves the agent profile (and model/effort/companion) from that profile. Spaces that predate profile persistence fall back to issue-title keyword matching in the TUI and to `default_profile` in `idow`. The TUI's status rail is fed by Claude Code hooks, so non-claude agents show an `unknown` status icon.
+
+Example codex launch, given the config above and issue STA-123:
+
+```
+codex --yolo -m gpt-5.5 -c model_reasoning_effort=high resume <recorded id> || <clear-error> || codex --yolo -m gpt-5.5 -c model_reasoning_effort=high '/idow STA-123'
+```
+
+### Session resume
+
+Relaunching a workspace's agent (the TUI recreating a dead session, `idow` reopening a space) resumes the workspace's own conversation by id. "Most recent" resume flags aren't safe for this: codex's `resume --last` picks the newest codex session from any directory, so it would pull another workspace's conversation in.
+
+- The agent's hooks record its session id in the workspace's space-state file (`agentSession: {agentProfile, id}`) on `SessionStart` and `UserPromptSubmit`. A new conversation in the pane (Claude's `/clear`, say) replaces it
+- `{session_id}` in `resume_args` is replaced with that id, only when it was recorded by the same agent profile. With nothing recorded, claude falls back to `--continue`, which only looks in the workspace's directory, so spaces from before id recording keep their conversation. Other agents skip the resume attempt and launch fresh
+- Claude records through the `update-status.py` hook Pappardelle already installs. Codex records through `record-agent-session.py`, which `install.sh` adds to `~/.codex/hooks.json` (see `hooks/codex-hooks.json.example`). Codex asks to trust a new hook on its next launch; until it's trusted, codex spaces launch fresh
+- Any agent with Claude Code-style hooks (a JSON payload on stdin carrying `session_id`) can use `record-agent-session.py` the same way
+- Agents started from inside the agent (Claude running codex for a review, `claude -p` in a script) inherit the pane's environment, so the hook only records the agent that is the pane's top-level process, and only when that process runs the agent profile's `command`. A different agent started by hand in the pane isn't recorded either
+- codex 0.159+ runs hooks in its shared app-server daemon, outside the pane. For those the hook finds the agent session whose directory holds the hook's `cwd` and records into that space, when the daemon is the agent profile's `command`
+- `idow` drops the recorded session when it creates the worktree, since it belonged to an earlier workspace with the same key
+
 ## Claude Configuration
 
-The `claude` section configures how Claude is initialized when opening a new workspace session. It can be set globally and/or per-profile.
+The `claude` section configures Claude-specific launch flags. It can be set globally and/or per-profile, and applies only when the workspace's agent profile gates as claude (see Agent profiles above).
 
 ```yaml
 # Global (applies to all profiles unless overridden)
 claude:
-  initialization_command: '/idow' # Optional, default: empty
   dangerously_skip_permissions: true # Optional, default: false
-  model: opus # Optional, default: Claude's own default
-  effort: high # Optional, default: Claude's own default
+
+# Agent-agnostic initial prompt (top-level and/or per-profile)
+initialization_command: '/idow'
 
 profiles:
   stardust-jams:
-    # Per-profile override (takes precedence over global)
-    claude:
-      initialization_command: '/do-stardust'
-      model: sonnet
-      effort: medium
+    initialization_command: '/do-stardust'
 ```
 
-| Field                          | Type      | Default | Description                                                                                                                                                                                                  |
-| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command.                                                 |
-| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                            |
-| `model`                        | `string`  | `""`    | Passed through as `claude --model <value>`. Accepts an alias (`opus`, `sonnet`, `fable`) or a full model id (`claude-opus-5[1m]`). When empty, no `--model` flag is passed and Claude picks its own default. |
-| `effort`                       | `string`  | `""`    | Passed through as `claude --effort <value>` — `low`, `medium`, `high`, `xhigh`, `max` at time of writing. When empty, no `--effort` flag is passed.                                                          |
+| Field                          | Type      | Default | Description                                                                                                                                                                                         |
+| ------------------------------ | --------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialization_command`       | `string`  | `""`    | Top-level / profile-level (not inside `claude:`). Command passed to the agent when opening a new session, typically a skill name like `/idow`. When empty, the agent opens with just the issue key. |
+| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                   |
+| `model`                        | `string`  | `""`    | Deprecated: set `model` on an agent profile. Still the fallback for claude agent profiles that set no model of their own.                                                                           |
+| `effort`                       | `string`  | `""`    | Deprecated: set `effort` on an agent profile. Same fallback as `model`.                                                                                                                             |
 
-The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
+The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`). It applies to every agent, which is why it lives outside the `claude:` block. The old `claude.initialization_command` spelling is deprecated but still accepted (with a warning naming the file to edit); setting both spellings at the same level _in the same file_ is a validation error. Across config layers, each file's old spelling is read as the new key before the layers merge, so the more specific layer wins whichever spelling it uses: a project still on the old spelling overrides a home config that has migrated, and neither conflicts with the other.
 
-**Per-profile overrides**: When a profile defines `claude.initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
+**Per-profile overrides**: When a profile defines `initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
 
-**Model and effort** work the same way, a profile's value winning over the global one, with one extra rule: an explicit empty string at the profile level _clears_ an inherited global value rather than falling through to it.
+**Model and effort** moved to agent profiles (see [Agent profiles](#agent-profiles)), where they work for any CLI. `claude.model` and `claude.effort` still work, with a warning naming the file to edit, as the fallback for claude agent profiles that set no `model`/`effort` of their own. The fallback keeps its old layering: a profile's `claude.model` wins over the top-level one, and an explicit `''` at the profile level clears the inherited value.
+
+To migrate, move the values onto the agent profile a workspace profile selects:
 
 ```yaml
+# Before
 claude:
   model: opus
-  effort: high
-
 profiles:
   docs:
-    # Launches with Claude's own default model, ignoring the global `opus`.
     claude:
-      model: ''
+      model: sonnet
+
+# After
+agent_profiles:
+  claude:
+    command: claude
+    model: opus
+  claude-sonnet:
+    command: claude
+    model: sonnet
+profiles:
+  docs:
+    agent_profile: claude-sonnet
 ```
 
-`model` and `effort` are not validated against a list of known values, since model aliases and effort levels ship on Claude Code's schedule rather than Pappardelle's, so a typo surfaces when Claude Code rejects the flag at launch rather than at config load. Both fields apply everywhere a workspace's Claude session is created: `idow`, the TUI's session-create path, and the iTerm launcher.
-
-Omitting both fields leaves the launch command byte-identical to a config that predates them; nothing is passed to `claude` unless you ask for it.
+Omitting `model` and `effort` everywhere leaves the launch command byte-identical to a config that predates them; nothing is passed to the CLI unless you ask for it.
 
 ## Issue Watchlist
 
@@ -986,11 +1113,11 @@ companion_command?: string; // top-level and per-profile
 
 **How it works:**
 
-- **Resolution order** (first defined wins): the matched profile's `companion_command` → the top-level `companion_command` → the built-in default `GIT_OPTIONAL_LOCKS=0 gitui`. Mirrors `getCompanionCommand()` in `source/config.ts`; the bash side lives in `scripts/resolve-claude-config.sh`.
+- **Resolution order** (first defined wins): the matched profile's `companion_command` → the top-level `companion_command` → the built-in default `GIT_OPTIONAL_LOCKS=0 gitui`. Mirrors `getCompanionCommand()` in `source/config.ts`; the bash side lives in `scripts/resolve-agent-config.sh`.
 - **Any command works** — a different git UI (`lazygit`, `tig`), a dev server (`npm run dev`), a log tailer (`tail -f log`), etc. The string is run verbatim in a shell-backed tmux session, so it persists even if the command exits.
 - **Empty string = plain shell.** An explicitly empty `companion_command: ""` (top-level or per-profile) leaves the pane as a bare shell — nothing is launched. An _absent_ value falls through to the next resolution level; only an explicit `""` short-circuits to "run nothing".
 - **The default carries `GIT_OPTIONAL_LOCKS=0`**, which keeps the git UI from taking lock files for read-only ops, avoiding contention with Claude's concurrent git calls. Custom commands run exactly as written — add the prefix yourself if your command is git-heavy.
-- **Honored on every launch path** — the Pappardelle TUI, `idow`/`start-claude-session.sh`, and the iTerm opener all resolve the same value, so a session launched from any of them runs the same companion command.
+- **Honored on every launch path** — the Pappardelle TUI, `idow`/`start-agent-session.sh`, and the terminal launchers all resolve the same value, so a session launched from any of them runs the same companion command.
 - **Default change (STA-1464):** the default companion tool changed from `lazygit` to `gitui`. Restore the old behavior with `companion_command: lazygit`.
 
 ### Recipe: split the pane into two tools

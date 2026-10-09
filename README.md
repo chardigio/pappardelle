@@ -75,15 +75,15 @@ When you launch `pappardelle`, it creates a tmux session with three panes:
 
 Each workspace creates two independent tmux sessions:
 
-- `claude-{repo}-{issue-key}` — runs Claude Code
+- `agent-{repo}-{issue-key}` — runs the configured agent (Claude Code by default; see the `agent_profiles:` config section to run e.g. the OpenAI Codex CLI instead)
 - `companion-{repo}-{issue-key}` — runs the companion command (gitui by default)
 
 The center and right panes in the Pappardelle session are "viewers" — they run nested tmux clients that attach to these independent sessions. When you highlight a different workspace in the list, Pappardelle uses `tmux switch-client` to instantly swap which session the viewer pane displays.
 
 This means:
 
-- **Workspaces are independent.** Each Claude session runs in its own tmux session. If Pappardelle crashes, your Claude sessions keep running.
-- **Attach from anywhere.** You can attach to any workspace's Claude session from a separate terminal: `tmux attach -t claude-stardust-labs-STA-631`.
+- **Workspaces are independent.** Each agent session runs in its own tmux session. If Pappardelle crashes, your agent sessions keep running.
+- **Attach from anywhere.** You can attach to any workspace's agent session from a separate terminal: `tmux attach -t agent-stardust-labs-STA-631`.
 - **Switching is instant.** After the first attachment, switching between workspaces uses tmux's fast `switch-client` path — no process restart, no visible flash.
 
 ### tmux version
@@ -155,7 +155,9 @@ Enter moves focus to a **profile picker** below the prompt, with the
 keyword-matched profile already selected — so `Enter`, `Enter` spawns exactly
 what the keyword would have chosen on its own. Arrow (or `j`/`k`) to any other
 profile to override it without rewording your prompt, and `Esc` to go back to
-editing.
+editing. The profile also decides which agent runs in the agent pane (see
+[Agent profiles](pappardelle-config.md#agent-profiles)), and the choice is
+saved with the workspace so reattaching relaunches the same agent.
 
 ### Slash-command autocomplete
 
@@ -202,7 +204,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
-6. **Claude & companion sessions spawned** — A named tmux session is created and Claude Code is launched inside it. If `claude.initialization_command` is set in `.pappardelle.yml` (e.g., `/do`), that command is passed to Claude along with the issue key. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
+6. **Agent & companion sessions spawned** — A named tmux session is created and the configured agent (Claude Code by default) is launched inside it. If `initialization_command` is set in `.pappardelle.yml` (e.g., `/do`), that command is passed to the agent along with the issue key. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
 
 ---
 
@@ -210,7 +212,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 ![Spec-driven development in Linear](assets/spec-driven-development-linear.png)
 
-Pappardelle's recommended `/do` skill (set via `claude.initialization_command` in `.pappardelle.yml`) starts every Claude session with a **planning-first workflow**. Before writing any code, the agent researches and uses Claude Code's `AskUserQuestion` tool to clarify requirements — asking about ambiguous scope, confirming design decisions, and validating edge cases. The goal is to turn a rough prompt into a detailed, unambiguous spec — **written back to the issue description** — before the first line of code is written.
+Pappardelle's recommended `/do` skill (set via `initialization_command` in `.pappardelle.yml`) starts every Claude session with a **planning-first workflow**. Before writing any code, the agent researches and uses Claude Code's `AskUserQuestion` tool to clarify requirements — asking about ambiguous scope, confirming design decisions, and validating edge cases. The goal is to turn a rough prompt into a detailed, unambiguous spec — **written back to the issue description** — before the first line of code is written.
 
 ### Why this matters
 
@@ -461,13 +463,14 @@ npm link                # makes `pappardelle` available globally
 
 ### Claude Code hooks
 
-Pappardelle installs three Claude Code hooks that provide integration between Claude sessions and the TUI:
+Pappardelle installs these agent hooks for integration between agent sessions and the TUI:
 
-| Hook                           | Trigger                             | What it does                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/<space>.json` for live TUI updates. The space comes from `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>` |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                          |
-| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                 |
+| Hook                           | Trigger                                             | What it does                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update-status.py`             | Every Claude event in `hooks/settings.json.example` | Writes session status to `~/.pappardelle/claude-status/<space>.json` for live TUI updates. The space comes from `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>`. On `SessionStart` and `UserPromptSubmit` it also records Claude's session id for resume |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)                     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                                                                                                                   |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`                   | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                                                                                                          |
+| `record-agent-session.py`      | Codex `SessionStart`, `UserPromptSubmit`            | Records the agent's session id in the space-state file so a relaunch resumes the space's own conversation. See [Session resume](pappardelle-config.md#session-resume)                                                                                                                                                                                                                                                                   |
 
 ### Versioning and updates
 
@@ -503,7 +506,7 @@ Outside the TUI, `pappardelle update` runs the same installer from any directory
 
 `pappardelle restart` restarts this repo's TUI in its tmux window: it reruns the command that started the window, so your terminal stays attached and the layout rebuilds. Run from a plain terminal, it then attaches to the TUI. If no TUI is running for the repo, it says so and starts nothing. Restarting a TUI started from a dev build reruns that dev build.
 
-Restarting doesn't touch Claude and companion sessions; they live on a separate tmux server (`pappardelle_inner`). `pappardelle restart --hard` ends that server too, then restarts every running TUI. Each Claude session comes back with `claude --continue` the next time you select its space, so conversations survive but anything in flight stops. It asks first; `--yes` skips the question, and without a terminal it refuses unless `--yes` is passed. Your other tmux sessions are never touched.
+Restarting doesn't touch agent and companion sessions; they live on a separate tmux server (`pappardelle_inner`). `pappardelle restart --hard` ends that server too, then restarts every running TUI. Each agent resumes its own conversation the next time you select its space, so conversations survive but anything in flight stops. It asks first; `--yes` skips the question, and without a terminal it refuses unless `--yes` is passed. Your other tmux sessions are never touched.
 
 The version shown in the help (`?`) overlay follows the same source-of-truth but degrades differently, since `package.json` is never bumped on release and so is always a stale `0.1.0`:
 

@@ -5,6 +5,7 @@ import {
 	attachToSpace,
 	clearCurrentlyViewingSpace,
 	getCurrentlyViewingSpace,
+	ensureAgentSession,
 	ensureCompanionSession,
 	killSpaceSessions,
 	type AsyncTmuxRunner,
@@ -131,7 +132,7 @@ test.serial(
 			'/dev/claude',
 			'-t',
 		]);
-		t.true(batch[6]!.startsWith('=claude-'));
+		t.true(batch[6]!.startsWith('=agent-'));
 		t.true(batch[6]!.endsWith('-TEST-B'));
 		t.deepEqual(batch.slice(7, 12), [
 			';',
@@ -201,7 +202,7 @@ test.serial(
 			if (args.includes(';')) {
 				throw Object.assign(new Error('Command failed'), {
 					code: 1,
-					stderr: "can't find session: claude-TEST-B\n",
+					stderr: "can't find session: agent-TEST-B\n",
 				});
 			}
 
@@ -295,7 +296,7 @@ test.serial(
 			fake.calls.some(
 				args =>
 					args.includes('kill-session') &&
-					args.some(arg => arg.startsWith('=claude-')),
+					args.some(arg => /^=(?:agent|claude)-/.test(arg)),
 			),
 		);
 		await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
@@ -305,7 +306,7 @@ test.serial(
 			fake.calls.some(
 				args =>
 					args.includes('new-session') ||
-					args.some(arg => arg.includes('claude --continue')),
+					args.some(arg => arg.includes('claude --resume')),
 			),
 		);
 	},
@@ -410,5 +411,40 @@ test.serial(
 		);
 		t.true(calls[1]!.includes('PAPPARDELLE_SPACE=TEST-NEW'));
 		t.true(calls[1]!.includes('custom-ui'));
+		// An agent started by hand in the companion isn't the space's agent.
+		t.false(
+			calls[1]!.some(arg => arg.startsWith('PAPPARDELLE_AGENT_PROFILE=')),
+		);
+	},
+);
+
+// The agent's hook records its session id under these (hooks/agent_session.py).
+test.serial(
+	'a new agent session tells the hook its agent profile, command and space-state file',
+	async t => {
+		const calls: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args.includes('has-session')) throw new Error('no session');
+			return '';
+		};
+		t.true(
+			await ensureAgentSession('TEST-NEW', '/tmp', false, {}, run, {
+				name: 'codex',
+				command: 'codex',
+				args: '',
+				isClaude: false,
+			}),
+		);
+		const created = calls.find(args => args.includes('new-session'))!;
+		t.true(created.includes('PAPPARDELLE_AGENT_PROFILE=codex'));
+		t.true(created.includes('PAPPARDELLE_AGENT_COMMAND=codex'));
+		t.true(
+			created.some(
+				arg =>
+					arg.startsWith('PAPPARDELLE_SPACE_STATE=') &&
+					arg.endsWith('/space-state/TEST-NEW.json'),
+			),
+		);
 	},
 );

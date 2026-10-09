@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'ava';
 import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
 import {
+	bindResumeArgs,
 	matchProfiles,
 	matchProfileByProject,
 	getProfileDefaultProject,
@@ -43,6 +44,11 @@ import {
 	matchProfilesByKeyPrefix,
 	matchProfilesByInputKeyPrefix,
 	DEFERRED_PROFILE_DISPLAY_NAME,
+	getAgentProfile,
+	getAgentModel,
+	getAgentEffort,
+	isClaudeCommand,
+	renderAgentLaunchFlags,
 } from './config.ts';
 
 // Helper to create a minimal profile
@@ -5385,4 +5391,564 @@ test('getResolvedWatchlists keeps max_workspaces on an auto-scoped profile watch
 	const resolved = getResolvedWatchlists(createConfig({chaz}, 'chaz'));
 	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
 	t.is(resolved[0]!.watchlist.max_workspaces, 3);
+});
+
+// ============================================================================
+// Agent profiles — validation
+// ============================================================================
+
+function agentProfilesConfig(
+	extra: Record<string, unknown>,
+): Record<string, unknown> {
+	return {
+		version: 1,
+		default_profile: 'test',
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+		...extra,
+	};
+}
+
+test('validateConfig rejects non-object agent_profiles', t => {
+	const error = t.throws(
+		() => validateConfig(agentProfilesConfig({agent_profiles: ['x']})),
+		{
+			instanceOf: ConfigValidationError,
+		},
+	);
+	t.truthy(error?.message.includes('agent_profiles: must be an object'));
+});
+
+test('validateConfig rejects an agent_profiles entry without command', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({agent_profiles: {codex: {args: '--yolo'}}}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('agent_profiles.codex.command'));
+});
+
+test('validateConfig rejects an empty agent profile command', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({agent_profiles: {codex: {command: '  '}}}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('agent_profiles.codex.command'));
+});
+
+test('validateConfig rejects non-string agent profile args and resume_args', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {
+						codex: {command: 'codex', args: 1, resume_args: true},
+					},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('agent_profiles.codex.args'));
+	t.truthy(error?.message.includes('agent_profiles.codex.resume_args'));
+});
+
+test('validateConfig rejects agent profile fields spanning lines', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {
+						codex: {command: 'codex', args: '--yolo\n--search\n'},
+					},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(
+		error?.message.includes('agent_profiles.codex.args: must be a single line'),
+	);
+});
+
+test('validateConfig accepts the trailing newline of a YAML block scalar', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {codex: {command: 'codex', args: '--yolo\n'}},
+			}),
+		),
+	);
+});
+
+test('validateConfig rejects non-boolean is_claude', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {w: {command: 'w', is_claude: 'yes'}},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('agent_profiles.w.is_claude'));
+});
+
+test('validateConfig rejects model or effort on a CLI with no flag template', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {aider: {command: 'aider', model: 'x', effort: 'y'}},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('agent_profiles.aider.model'));
+	t.truthy(error?.message.includes('set model_args'));
+	t.truthy(error?.message.includes('agent_profiles.aider.effort'));
+});
+
+test('validateConfig accepts model and effort on claude, codex, or with a template', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {
+					opus: {command: 'claude', model: 'opus', effort: 'max'},
+					wrapped: {command: 'claude-local', is_claude: true, model: 'opus'},
+					codex: {command: '/opt/bin/codex', model: 'gpt-5.5', effort: 'high'},
+					aider: {
+						command: 'aider',
+						model: 'x',
+						model_args: '--model={model}',
+					},
+				},
+			}),
+		),
+	);
+});
+
+test('validateConfig rejects a flag template without its placeholder', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {
+						codex: {
+							command: 'codex',
+							model_args: '-m',
+							effort_args: '-c model_reasoning_effort=high',
+						},
+					},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(
+		error?.message.includes(
+			'agent_profiles.codex.model_args: must contain {model}',
+		),
+	);
+	t.truthy(
+		error?.message.includes(
+			'agent_profiles.codex.effort_args: must contain {effort}',
+		),
+	);
+});
+
+test('validateConfig rejects a top-level agent_profile reference to an unknown name', t => {
+	const error = t.throws(
+		() => validateConfig(agentProfilesConfig({agent_profile: 'codex'})),
+		{
+			instanceOf: ConfigValidationError,
+		},
+	);
+	t.truthy(error?.message.includes('agent profile "codex" not found'));
+});
+
+test('validateConfig accepts agent_profile "claude" without an agent_profiles entry', t => {
+	t.notThrows(() =>
+		validateConfig(agentProfilesConfig({agent_profile: 'claude'})),
+	);
+});
+
+test('validateConfig accepts a top-level agent_profile reference to a defined agent profile', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {codex: {command: 'codex'}},
+				agent_profile: 'codex',
+			}),
+		),
+	);
+});
+
+test('validateConfig rejects a profile agent_profile reference to an unknown name', t => {
+	const raw = agentProfilesConfig({});
+	(raw['profiles'] as Record<string, Record<string, unknown>>)['test']![
+		'agent_profile'
+	] = 'codex';
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('profiles.test.agent_profile'));
+});
+
+test('validateConfig accepts an empty-string profile agent_profile (clears inherited)', t => {
+	const raw = agentProfilesConfig({});
+	(raw['profiles'] as Record<string, Record<string, unknown>>)['test']![
+		'agent_profile'
+	] = '';
+	t.notThrows(() => validateConfig(raw));
+});
+
+// ============================================================================
+// initialization_command — rename + deprecated fallback
+// ============================================================================
+
+test('validateConfig rejects non-string initialization_command', t => {
+	const error = t.throws(
+		() => validateConfig(agentProfilesConfig({initialization_command: 5})),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('initialization_command: must be a string'));
+});
+
+test('getInitializationCommand prefers the new top-level key', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.initialization_command = '/new';
+	t.is(getInitializationCommand(config), '/new');
+});
+
+test('getInitializationCommand falls back to the deprecated claude spelling', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.claude = {initialization_command: '/old'};
+	t.is(getInitializationCommand(config), '/old');
+});
+
+// ============================================================================
+// getAgentProfile — resolution
+// ============================================================================
+
+function agentProfileTestConfig(
+	overrides: Partial<PappardelleConfig> = {},
+): PappardelleConfig {
+	const config = createConfig({
+		codexy: createProfile(['codexwork'], 'Codexy'),
+		plain: createProfile(['plainwork'], 'Plain'),
+	});
+	return {...config, ...overrides};
+}
+
+const codexResume = {resumeArgs: 'resume {session_id}', isClaude: false};
+const claudeResume = {resumeArgs: '--resume {session_id}', isClaude: true};
+
+test('bindResumeArgs fills the recorded session id', t => {
+	t.is(bindResumeArgs(codexResume, 'abc-123'), 'resume abc-123');
+	t.is(bindResumeArgs(claudeResume, 'abc-123'), '--resume abc-123');
+});
+
+test('bindResumeArgs drops the resume attempt without a recorded id', t => {
+	t.is(bindResumeArgs(codexResume, undefined), undefined);
+	t.is(bindResumeArgs(codexResume, ''), undefined);
+});
+
+test('bindResumeArgs falls back to --continue for claude without a recorded id', t => {
+	t.is(bindResumeArgs(claudeResume, undefined), '--continue');
+});
+
+test('bindResumeArgs rejects an id that is unsafe to put in a shell command', t => {
+	t.is(bindResumeArgs(codexResume, 'x; rm -rf ~'), undefined);
+	t.is(bindResumeArgs(codexResume, '--yolo'), undefined);
+	t.is(
+		bindResumeArgs(claudeResume, '--dangerously-skip-permissions'),
+		'--continue',
+	);
+});
+
+test('bindResumeArgs leaves resume args without the placeholder alone', t => {
+	t.is(
+		bindResumeArgs({resumeArgs: 'resume --last', isClaude: false}, undefined),
+		'resume --last',
+	);
+	t.is(
+		bindResumeArgs({resumeArgs: undefined, isClaude: true}, 'abc'),
+		undefined,
+	);
+});
+
+test('getAgentProfile defaults to the built-in claude agent profile', t => {
+	const agentProfile = getAgentProfile(agentProfileTestConfig());
+	t.deepEqual(agentProfile, {
+		name: 'claude',
+		command: 'claude',
+		args: '',
+		resumeArgs: '--resume {session_id}',
+		isClaude: true,
+		modelArgs: '--model {model}',
+		effortArgs: '--effort {effort}',
+	});
+});
+
+test('getAgentProfile trims the trailing newline of a YAML block scalar', t => {
+	const config = agentProfileTestConfig({
+		agent_profile: 'codex',
+		agent_profiles: {
+			codex: {command: 'codex\n', args: '--yolo\n', model: 'gpt-5.5\n'},
+		},
+	});
+	t.like(getAgentProfile(config), {command: 'codex', args: '--yolo'});
+	t.is(getAgentModel(config), 'gpt-5.5');
+});
+
+test('getAgentProfile resolves a top-level agent_profile reference', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {
+				codex: {command: 'codex', args: '--yolo', resume_args: 'resume --last'},
+			},
+			agent_profile: 'codex',
+		}),
+	);
+	t.is(agentProfile.command, 'codex');
+	t.is(agentProfile.args, '--yolo');
+	t.is(agentProfile.resumeArgs, 'resume --last');
+	t.false(agentProfile.isClaude);
+});
+
+test('getAgentProfile resolves a per-profile reference via issue title', t => {
+	const config = agentProfileTestConfig({
+		agent_profiles: {codex: {command: 'codex'}},
+	});
+	config.profiles['codexy']!.agent_profile = 'codex';
+	t.is(getAgentProfile(config, 'codexwork thing').command, 'codex');
+	t.is(getAgentProfile(config, 'plainwork thing').command, 'claude');
+	t.is(getAgentProfile(config).command, 'claude');
+});
+
+test('getAgentProfile: profile agent_profile "" clears an inherited reference back to claude', t => {
+	const config = agentProfileTestConfig({
+		agent_profiles: {codex: {command: 'codex'}},
+		agent_profile: 'codex',
+	});
+	config.profiles['plain']!.agent_profile = '';
+	t.is(getAgentProfile(config, 'plainwork thing').command, 'claude');
+	t.is(getAgentProfile(config, 'codexwork thing').command, 'codex');
+});
+
+test('getAgentProfile: shadowed agent_profiles.claude keeps claude gating', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {claude: {command: 'claude', args: '--verbose'}},
+		}),
+	);
+	t.is(agentProfile.args, '--verbose');
+	t.true(agentProfile.isClaude);
+	t.is(agentProfile.resumeArgs, '--resume {session_id}');
+});
+
+test('getAgentProfile: non-claude agent profile without resume_args gets none', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {codex: {command: 'codex'}},
+			agent_profile: 'codex',
+		}),
+	);
+	t.is(agentProfile.resumeArgs, undefined);
+});
+
+test('getAgentProfile: is_claude true forces claude treatment for a wrapper', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {local: {command: 'claude-local', is_claude: true}},
+			agent_profile: 'local',
+		}),
+	);
+	t.true(agentProfile.isClaude);
+	t.is(agentProfile.resumeArgs, '--resume {session_id}');
+});
+
+test('getAgentProfile: is_claude false suppresses claude treatment', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {sneaky: {command: 'claude', is_claude: false}},
+			agent_profile: 'sneaky',
+		}),
+	);
+	t.false(agentProfile.isClaude);
+	t.is(agentProfile.resumeArgs, undefined);
+});
+
+test('getAgentProfile: empty resume_args means no resume attempt', t => {
+	// '' must behave like the bash resolvers' empty value (launch directly),
+	// not slip through into a malformed `base  || … || base` chain.
+	const codex = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {codex: {command: 'codex', resume_args: ''}},
+			agent_profile: 'codex',
+		}),
+	);
+	t.is(codex.resumeArgs, undefined);
+
+	// Even for claude: an explicit '' opts out of the resume default.
+	const claude = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profiles: {claude: {command: 'claude', resume_args: ''}},
+		}),
+	);
+	t.is(claude.resumeArgs, undefined);
+});
+
+test('getAgentProfile: persisted profile name wins over title matching', t => {
+	const config = agentProfileTestConfig({
+		agent_profiles: {codex: {command: 'codex'}},
+	});
+	config.profiles['codexy']!.agent_profile = 'codex';
+	// Title has no profile keyword — the persisted profile still selects codex.
+	t.is(getAgentProfile(config, 'Fix parser bug', 'codexy').command, 'codex');
+	// Persisted name beats a conflicting keyword match.
+	t.is(getAgentProfile(config, 'plainwork thing', 'codexy').command, 'codex');
+	// A stale name that no longer exists falls back to title matching.
+	t.is(getAgentProfile(config, 'codexwork thing', 'deleted').command, 'codex');
+	t.is(getAgentProfile(config, 'Fix parser bug', 'deleted').command, 'claude');
+});
+
+test('launch fields and companion resolve via the persisted profile name', t => {
+	const config = agentProfileTestConfig();
+	config.profiles['codexy']!.claude = {model: 'sonnet'};
+	config.profiles['codexy']!.companion_command = 'lazygit';
+	t.is(getAgentModel(config, 'Fix parser bug', 'codexy'), 'sonnet');
+	t.is(getCompanionCommand(config, 'Fix parser bug', 'codexy'), 'lazygit');
+	// Stale persisted name → title match → top-level defaults.
+	t.is(getAgentModel(config, 'Fix parser bug', 'deleted'), '');
+});
+
+// ============================================================================
+// Agent profiles — model and effort
+// ============================================================================
+
+test('getAgentProfile gives codex its built-in model and effort flags', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profile: 'codex',
+			agent_profiles: {codex: {command: '/opt/bin/codex'}},
+		}),
+	);
+	t.is(agentProfile.modelArgs, '-m {model}');
+	t.is(agentProfile.effortArgs, '-c model_reasoning_effort={effort}');
+});
+
+test('getAgentProfile prefers configured flag templates over the built-in ones', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profile: 'codex',
+			agent_profiles: {
+				codex: {command: 'codex', model_args: '--model={model}'},
+			},
+		}),
+	);
+	t.is(agentProfile.modelArgs, '--model={model}');
+	t.is(agentProfile.effortArgs, '-c model_reasoning_effort={effort}');
+});
+
+test('getAgentProfile gives other CLIs no model or effort flags', t => {
+	const agentProfile = getAgentProfile(
+		agentProfileTestConfig({
+			agent_profile: 'aider',
+			agent_profiles: {aider: {command: 'aider'}},
+		}),
+	);
+	t.is(agentProfile.modelArgs, undefined);
+	t.is(agentProfile.effortArgs, undefined);
+});
+
+test("an agent profile's own model and effort beat the deprecated claude block", t => {
+	const config = agentProfileTestConfig({
+		claude: {model: 'sonnet', effort: 'low'},
+		agent_profile: 'opus',
+		agent_profiles: {opus: {command: 'claude', model: 'opus', effort: 'max'}},
+	});
+	t.is(getAgentModel(config), 'opus');
+	t.is(getAgentEffort(config), 'max');
+});
+
+test('a claude agent profile without its own model falls back to the claude block', t => {
+	const config = agentProfileTestConfig({
+		claude: {model: 'sonnet', effort: 'low'},
+		agent_profile: 'mine',
+		agent_profiles: {mine: {command: 'claude', effort: 'high'}},
+		profiles: {
+			codexy: {
+				...createProfile(['codexwork'], 'Codexy'),
+				claude: {model: 'haiku'},
+			},
+		},
+	});
+	t.is(getAgentModel(config), 'sonnet');
+	t.is(getAgentModel(config, 'codexwork'), 'haiku');
+	t.is(getAgentEffort(config), 'high');
+});
+
+test('a non-claude agent profile never reads the claude block', t => {
+	const config = agentProfileTestConfig({
+		claude: {model: 'sonnet', effort: 'low'},
+		agent_profile: 'codex',
+		agent_profiles: {codex: {command: 'codex'}},
+	});
+	t.is(getAgentModel(config), '');
+	t.is(getAgentEffort(config), '');
+});
+
+test("an agent profile's empty model clears the claude block's", t => {
+	const config = agentProfileTestConfig({
+		claude: {model: 'sonnet'},
+		agent_profile: 'plain-claude',
+		agent_profiles: {'plain-claude': {command: 'claude', model: ''}},
+	});
+	t.is(getAgentModel(config), '');
+});
+
+test('renderAgentLaunchFlags quotes values that are not bare tokens', t => {
+	const codex = {
+		modelArgs: '-m {model}',
+		effortArgs: '-c model_reasoning_effort={effort}',
+	};
+	t.is(
+		renderAgentLaunchFlags(codex, {model: 'gpt-5.5', effort: 'high'}),
+		' -m gpt-5.5 -c model_reasoning_effort=high',
+	);
+	t.is(
+		renderAgentLaunchFlags(
+			{modelArgs: '--model={model}'},
+			{model: "it's claude-opus-5[1m]"},
+		),
+		` --model='it'\\''s claude-opus-5[1m]'`,
+	);
+});
+
+test('renderAgentLaunchFlags inserts $ sequences in a value literally', t => {
+	t.is(
+		renderAgentLaunchFlags({modelArgs: '--model {model}'}, {model: 'foo$'}),
+		` --model 'foo$'`,
+	);
+	t.is(
+		renderAgentLaunchFlags({modelArgs: '--model {model}'}, {model: 'a$&b'}),
+		` --model 'a$&b'`,
+	);
+});
+
+test('renderAgentLaunchFlags passes no flag without a value or a template', t => {
+	t.is(renderAgentLaunchFlags({modelArgs: '-m {model}'}, {model: ''}), '');
+	t.is(renderAgentLaunchFlags({}, {model: 'gpt-5.5', effort: 'high'}), '');
+});
+
+test('isClaudeCommand matches bare names and paths, not wrappers', t => {
+	t.true(isClaudeCommand('claude'));
+	t.true(isClaudeCommand('/usr/local/bin/claude'));
+	t.true(isClaudeCommand('claude --some-flag'));
+	t.false(isClaudeCommand('codex'));
+	t.false(isClaudeCommand('claude-local'));
+	t.false(isClaudeCommand('my-claude-wrapper'));
 });

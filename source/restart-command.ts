@@ -23,9 +23,9 @@ import {
 import {confirm} from './confirm.ts';
 
 // `pappardelle restart` respawns this repo's TUI window in place.
-// `pappardelle restart --hard` also ends every Claude/companion session (the
-// inner tmux server); they come back with `claude --continue` the next time a
-// space is selected.
+// `pappardelle restart --hard` also ends every agent/companion session (the
+// inner tmux server); each agent resumes its own conversation the next time
+// its space is selected.
 
 export type RestartCommandDeps = {
 	tmux: OuterTmuxRunner;
@@ -70,7 +70,7 @@ export async function hardRestart(
 	if (!yes) {
 		if (!deps.isTTY) {
 			deps.print(
-				'restart --hard needs --yes when not run from a terminal; it ends every Claude session.',
+				'restart --hard needs --yes when not run from a terminal; it ends every agent session.',
 			);
 			return 1;
 		}
@@ -83,10 +83,10 @@ export async function hardRestart(
 						'TUI',
 					)} (${running.join(', ')})`;
 		const ok = await deps.confirm(
-			`End ${innerCount} Claude/companion ${plural(
+			`End ${innerCount} agent/companion ${plural(
 				innerCount,
 				'session',
-			)} (they resume with --continue)${restartPart}? [y/N] `,
+			)} (agents resume their conversations)${restartPart}? [y/N] `,
 		);
 		if (!ok) return 0;
 	}
@@ -98,7 +98,7 @@ export async function hardRestart(
 		// Killing the inner server ends this process, so a detached child runs
 		// the kill and the respawns.
 		deps.print(
-			`Ending Claude sessions and restarting ${running.length} ${plural(
+			`Ending agent sessions and restarting ${running.length} ${plural(
 				running.length,
 				'TUI',
 			)}...`,

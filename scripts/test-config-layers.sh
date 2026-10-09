@@ -2,7 +2,7 @@
 
 # Test: idow reads the merged home -> project -> local config
 #
-# idow used to layer only the Claude settings (through resolve-claude-config.sh)
+# idow used to layer only the Claude settings (through resolve-agent-config.sh)
 # and read everything else — profiles, team_prefix, providers, apps, links,
 # hooks, companion_command — from the project .pappardelle.yml alone, so a home
 # config never reached the launch path. It now merges the three layers once
@@ -120,7 +120,7 @@ profiles:
   api:
     display_name: API
     claude:
-      initialization_command: /do" "team_prefix: LOCAL
+      dangerously_skip_permissions: true" "team_prefix: LOCAL
 profiles:
   api:
     claude:
@@ -136,8 +136,8 @@ profiles:
 assert_eq "scalar: local wins" "LOCAL" "$(merged | yq -r '.team_prefix')"
 assert_eq "profile scalar: project beats home" "API" "$(merged | yq -r '.profiles.api.display_name')"
 assert_eq "profile key only in home survives" "X" "$(merged | yq -r '.profiles.api.emoji')"
-assert_eq "nested map merges across all three layers" "/do high opus" \
-    "$(merged | yq -r '.profiles.api.claude | [.initialization_command, .effort, .model] | join(" ")')"
+assert_eq "nested map merges across all three layers" "true high opus" \
+    "$(merged | yq -r '.profiles.api.claude | [.dangerously_skip_permissions, .effort, .model] | join(" ")')"
 assert_eq "home-only top-level key survives" "hunk diff --watch" "$(merged | yq -r '.companion_command')"
 cleanup; unset TMPDIR_ROOT
 
@@ -166,6 +166,34 @@ cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: layer precedence beats init command spelling${RESET}"
+# A project still on the deprecated claude.initialization_command must override
+# a home config that has migrated; each layer is renamed before the merge.
+setup_configs "version: 1
+claude:
+  initialization_command: /project
+profiles:
+  api:
+    claude:
+      initialization_command: /project-api" "" "version: 1
+initialization_command: /home
+profiles:
+  api:
+    initialization_command: /home-api"
+assert_eq "top level: project's old spelling beats home's new one" "/project" "$(merged | yq -r '.initialization_command')"
+assert_eq "profile: project's old spelling beats home's new one" "/project-api" "$(merged | yq -r '.profiles.api.initialization_command')"
+assert_eq "old spelling is gone after the rename" "null" "$(merged | yq -r '.claude.initialization_command')"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+initialization_command: /new
+claude:
+  initialization_command: /old"
+assert_eq "a layer with both spellings keeps the new one" "/new" "$(merged | yq -r '.initialization_command')"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: idow wiring${RESET}"
 IDOW="$SCRIPT_DIR/idow"
 assert_eq "idow merges the layers into CONFIG_PATH" "1" "$(grep -c 'CONFIG_PATH="\$MERGED_CONFIG_PATH"' "$IDOW" || true)"
@@ -173,7 +201,7 @@ assert_eq "merge runs before the first provider read" "yes" \
     "$(awk '/CONFIG_PATH="\$MERGED_CONFIG_PATH"/{m=NR} /get_issue_tracker_provider "\$CONFIG_PATH"/{r=NR} END{print (m && r && m<r) ? "yes" : "no"}' "$IDOW")"
 assert_eq "no yq read bypasses the merge via PROJECT_CONFIG_PATH" "0" "$(grep -c 'yq .*PROJECT_CONFIG_PATH' "$IDOW" || true)"
 assert_eq "resolver calls take the project layer and merge themselves" "0" \
-    "$(grep 'resolve-claude-config\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
+    "$(grep 'resolve-agent-config\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
 assert_eq "terminal resolver takes the project layer too" "0" \
     "$(grep 'resolve-terminal-app\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
 

@@ -7,6 +7,15 @@
 #
 # Requires: yq, jq, and the relevant CLI tools (linctl/acli, gh/glab)
 
+# yq expression that moves a layer's deprecated claude.initialization_command
+# (top-level and per-profile) to the initialization_command key beside it.
+# Applied to each layer before merging so layer precedence, not spelling,
+# decides which value wins. A layer that sets both keys keeps the new one,
+# and a non-string value is left alone. Mirrors
+# renameDeprecatedInitializationCommand() in source/config.ts.
+_RENAME_ONE_INIT_CMD='with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command))'
+RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles | tag == \"!!map\"); .profiles[] |= ($_RENAME_ONE_INIT_CMD)))"
+
 # Deep-merge the config layers into one YAML document on stdout, lowest to
 # highest priority: home -> project -> local. Missing files are skipped. Maps
 # merge key by key and arrays replace wholesale, which is what deepMerge() in
@@ -19,14 +28,27 @@ merge_config_layers() {
     done
     [[ ${#files[@]} -gt 0 ]] || { echo "{}"; return; }
     if [[ ${#files[@]} -eq 1 ]]; then
-        cat "${files[0]}"
+        yq "$RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[0]}"
         return
     fi
-    local expr="select(fileIndex==0)" i
-    for (( i=1; i<${#files[@]}; i++ )); do
-        expr="$expr * select(fileIndex==$i)"
-    done
-    yq eval-all "$expr" "${files[@]}"
+    # Each layer is rewritten to its own file first: yq's `*` ignores per-document
+    # rewrites done inside the same eval-all expression.
+    # The subshell scopes the EXIT trap, so a failed yq still removes the
+    # temp dir without replacing a trap the caller set.
+    (
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' EXIT
+        renamed=()
+        for (( i=0; i<${#files[@]}; i++ )); do
+            yq "$RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[$i]}" > "$tmpdir/$i.yml" || exit 1
+            renamed+=("$tmpdir/$i.yml")
+        done
+        expr="select(fileIndex==0)"
+        for (( i=1; i<${#renamed[@]}; i++ )); do
+            expr="$expr * select(fileIndex==$i)"
+        done
+        yq eval-all "$expr" "${renamed[@]}"
+    )
 }
 
 # Get the issue tracker provider from .pappardelle.yml

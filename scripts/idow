@@ -16,7 +16,7 @@
 #   3. Selects project profile from .pappardelle.yml
 #   4. Creates a git worktree at ~/.worktrees/<project>/<issue-key>
 #   5. Creates PR/MR (if new)
-#   6. Opens terminal with Claude (if --open)
+#   6. Opens terminal with the agent (if --open)
 #   7. Opens profile-configured apps, links, and commands (if --open)
 
 set -e
@@ -105,7 +105,7 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  Description: idow \"add dark mode to settings\""
     echo ""
     echo "Options:"
-    echo "  --resume          Open workspace without prompting Claude (for continuing work)"
+    echo "  --resume          Open workspace without prompting the agent (for continuing work)"
     echo "  --open            Also open apps, links, iTerm, and run commands (skipped by default)"
     echo "  --profile <name>  Force a specific profile from .pappardelle.yml"
     echo "  --issue-key <key> Use this issue key verbatim, skipping input-type detection"
@@ -175,16 +175,15 @@ if ! command -v yq &> /dev/null; then
     error "yq is required but not installed. Install with: brew install yq"
 fi
 
-# Resolve claude config values (initialization_command, dangerously_skip_permissions,
-# model, effort) with local override support from .pappardelle.local.yml.
-# These are the top-level values; once a profile is selected, the launch flags
-# are re-resolved profile-first via resolve_claude_launch_flags below.
+# Resolve the top-level initialization_command and dangerously_skip_permissions
+# across the config layers. The launch flags and agent depend on the profile,
+# so resolve_agent_launch_config sets them once one is selected.
 LOCAL_CONFIG_PATH=$(resolve_repo_config .pappardelle.local.yml)
-CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
-INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
-SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
-CLAUDE_MODEL=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.model')
-CLAUDE_EFFORT=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.effort')
+AGENT_CONFIG_JSON=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
+INIT_CMD=$(echo "$AGENT_CONFIG_JSON" | jq -r '.init_cmd')
+INIT_CMD_DEPRECATED=$(echo "$AGENT_CONFIG_JSON" | jq -r '.init_cmd_deprecated')
+CLAUDE_LAUNCH_DEPRECATED=$(echo "$AGENT_CONFIG_JSON" | jq -r '.claude_launch_deprecated')
+SKIP_PERMISSIONS=$(echo "$AGENT_CONFIG_JSON" | jq -r '.skip_permissions')
 
 # Resolve which terminal launcher to drive. terminal.app layers across the same
 # three config files, since terminal choice is a per-machine fact that belongs
@@ -193,21 +192,62 @@ TERMINAL_APP=$("$SCRIPT_DIR/resolve-terminal-app.sh" --config "$PROJECT_CONFIG_P
 
 TERMINAL_OPEN_FAILED=false
 
-# Re-resolve the Claude launch flags (model/effort) for the selected profile.
-# profiles.<name>.claude.<field> beats the top-level claude.<field>; an explicit
-# empty string at the profile level clears the inherited value. Called at each
-# point where SELECTED_PROFILE is assigned or changed. Empty ⇒ the flag is
-# omitted entirely, which is what keeps the launch identical for configs that
-# never mention model or effort (STA-1829).
-resolve_claude_launch_flags() {
+if [[ "$INIT_CMD_DEPRECATED" == "true" ]]; then
+    print_warning "claude.initialization_command is deprecated — rename it to the top-level initialization_command"
+fi
+for deprecated_key in $CLAUDE_LAUNCH_DEPRECATED; do
+    print_warning "$deprecated_key is deprecated — set ${deprecated_key#claude.} on an agent profile (agent_profiles.<name>.${deprecated_key#claude.}) and select it with agent_profile"
+done
+
+# Resolve the agent profile with its rendered model/effort flags, the companion
+# command, and the per-profile initialization_command for the selected profile.
+# profiles.<name>.<field> beats the top-level <field>; an explicit empty
+# string at the profile level clears the inherited value. Called at each
+# point where SELECTED_PROFILE is assigned or changed. No model or effort ⇒
+# no flags at all, which is what keeps the launch identical for configs that
+# never mention them (STA-1829).
+resolve_agent_launch_config() {
     local profile="$1"
     local json
-    json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
-    CLAUDE_MODEL=$(echo "$json" | jq -r '.model')
-    CLAUDE_EFFORT=$(echo "$json" | jq -r '.effort')
-    COMPANION_COMMAND=$(echo "$json" | jq -r '.companion_command')
-    [[ -n "$CLAUDE_MODEL" ]] && log "Claude model: $CLAUDE_MODEL"
-    [[ -n "$CLAUDE_EFFORT" ]] && log "Claude effort: $CLAUDE_EFFORT"
+    json=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
+    COMPANION_COMMAND=$(jq -r '.companion_command' <<< "$json")
+    {
+        IFS= read -r AGENT_MODEL
+        IFS= read -r AGENT_EFFORT
+        IFS= read -r AGENT_COMMAND
+        IFS= read -r AGENT_ARGS
+        IFS= read -r AGENT_RESUME_ARGS
+        IFS= read -r AGENT_IS_CLAUDE
+        IFS= read -r AGENT_PROFILE
+        IFS= read -r AGENT_LAUNCH_FLAGS
+    } < <(jq -r '.model, .effort, .agent_command, .agent_args, .agent_resume_args, .agent_is_claude, .agent_profile, .agent_launch_flags' <<< "$json")
+    [[ -n "$AGENT_MODEL" ]] && log "Model: $AGENT_MODEL"
+    [[ -n "$AGENT_EFFORT" ]] && log "Effort: $AGENT_EFFORT"
+    [[ "$AGENT_COMMAND" != "claude" ]] && log "Agent: $AGENT_COMMAND"
+
+    # Override global INIT_CMD with the profile's initialization_command. Key
+    # presence decides, not non-emptiness: an explicit '' clears the global
+    # command so the agent gets just the issue key. CONFIG_PATH is the merged
+    # config by the time this runs, with each layer's deprecated claude.*
+    # spelling already renamed (merge_config_layers), so the warning checks the
+    # raw layer files to name the one to edit. Per-profile init layering stays
+    # here rather than in resolve-agent-config.sh (see its header).
+    local init_cmd init_cmd_set layer field
+    init_cmd=$(yq -r ".profiles.$profile.initialization_command // \"\"" "$CONFIG_PATH")
+    init_cmd_set=$(yq -r ".profiles.$profile.initialization_command != null" "$CONFIG_PATH")
+    for layer in "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH"; do
+        [[ -n "$layer" && -f "$layer" ]] || continue
+        if [[ "$(yq -r ".profiles.$profile.claude.initialization_command != null" "$layer")" == "true" ]]; then
+            print_warning "$layer: profiles.$profile.claude.initialization_command is deprecated — rename it to profiles.$profile.initialization_command"
+        fi
+        for field in $(PROFILE="$profile" yq -r '.profiles[strenv(PROFILE)].claude // {} | pick(["model", "effort"]) | keys | .[]' "$layer"); do
+            print_warning "$layer: profiles.$profile.claude.$field is deprecated — set $field on an agent profile (agent_profiles.<name>.$field) and select it with profiles.$profile.agent_profile"
+        done
+    done
+    if [[ "$init_cmd_set" == "true" ]]; then
+        INIT_CMD="$init_cmd"
+        log "Using per-profile initialization_command: $INIT_CMD"
+    fi
     return 0
 }
 
@@ -217,7 +257,7 @@ source "$SCRIPT_DIR/provider-helpers.sh"
 
 # From here on, read the merged config so home and local layers apply to
 # every field (profiles, team_prefix, providers, apps, links, hooks, ...),
-# not only the Claude settings that resolve-claude-config.sh layers itself.
+# not only the Claude settings that resolve-agent-config.sh layers itself.
 MERGED_CONFIG_PATH=$(mktemp -t pappardelle-config.XXXXXX)
 trap 'rm -f "$MERGED_CONFIG_PATH"' EXIT
 merge_config_layers "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH" > "$MERGED_CONFIG_PATH"
@@ -500,10 +540,19 @@ elif [[ "$IS_NEW_ISSUE" == true ]]; then
     fi
     print_success "Selected profile: $(get_profile_display_name "$SELECTED_PROFILE")"
 else
-    # Existing issue - use default profile, Claude can adjust later
-    DEFAULT_PROFILE=$(yq -r '.default_profile' "$CONFIG_PATH")
-    SELECTED_PROFILE="$DEFAULT_PROFILE"
-    print_success "Using default profile: $(get_profile_display_name "$SELECTED_PROFILE")"
+    # An existing space keeps the profile it was created or last picked with,
+    # so reopening it can't relaunch a different agent. The TUI's
+    # attachToSpace() reads the same field.
+    PERSISTED_PROFILE=$(jq -r '.profile // ""' "$HOME/.pappardelle/repos/$(basename "$REPO_ROOT")/space-state/$ISSUE_KEY.json" 2>/dev/null || true)
+    if [[ -n "$PERSISTED_PROFILE" && "$(PROFILE="$PERSISTED_PROFILE" yq -r '.profiles | has(strenv(PROFILE))' "$CONFIG_PATH")" == "true" ]]; then
+        SELECTED_PROFILE="$PERSISTED_PROFILE"
+        print_success "Using the space's profile: $(get_profile_display_name "$SELECTED_PROFILE")"
+    else
+        PERSISTED_PROFILE=""
+        DEFAULT_PROFILE=$(yq -r '.default_profile' "$CONFIG_PATH")
+        SELECTED_PROFILE="$DEFAULT_PROFILE"
+        print_success "Using default profile: $(get_profile_display_name "$SELECTED_PROFILE")"
+    fi
 fi
 
 # Extract generic profile vars (bash 3.2 compatible — no associative arrays)
@@ -530,14 +579,7 @@ PROJECT_KEY="$SELECTED_PROFILE"
 # Get VCS label from profile (provider-agnostic, falls back to github.label)
 VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
 
-# Override global INIT_CMD with per-profile initialization_command (if set)
-PROFILE_INIT_CMD=$(yq -r ".profiles.$SELECTED_PROFILE.claude.initialization_command // \"\"" "$CONFIG_PATH")
-if [[ -n "$PROFILE_INIT_CMD" ]]; then
-    INIT_CMD="$PROFILE_INIT_CMD"
-    log "Using per-profile initialization_command: $INIT_CMD"
-fi
-
-resolve_claude_launch_flags "$SELECTED_PROFILE"
+resolve_agent_launch_config "$SELECTED_PROFILE"
 
 log "Profile: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
 
@@ -592,7 +634,7 @@ else
         print_success "Project: $TRACKER_PROJECT"
 
         # Try to match a profile by tracker project (if not already forced)
-        if [[ -z "$FORCED_PROFILE" ]]; then
+        if [[ -z "$FORCED_PROFILE" && -z "${PERSISTED_PROFILE:-}" ]]; then
             PROJECT_MATCHED_PROFILE=$(match_profile_by_tracker_project "$PROJECT_CANDIDATES" "$CONFIG_PATH")
             if [[ -n "$PROJECT_MATCHED_PROFILE" ]]; then
                 SELECTED_PROFILE="$PROJECT_MATCHED_PROFILE"
@@ -614,13 +656,7 @@ else
                 PROJECT_KEY="$SELECTED_PROFILE"
                 VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
 
-                PROFILE_INIT_CMD=$(yq -r ".profiles.$SELECTED_PROFILE.claude.initialization_command // \"\"" "$CONFIG_PATH")
-                if [[ -n "$PROFILE_INIT_CMD" ]]; then
-                    INIT_CMD="$PROFILE_INIT_CMD"
-                    log "Using per-profile initialization_command: $INIT_CMD"
-                fi
-
-                resolve_claude_launch_flags "$SELECTED_PROFILE"
+                resolve_agent_launch_config "$SELECTED_PROFILE"
 
                 log "Profile updated: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
             fi
@@ -690,45 +726,15 @@ print_step 5 "Setting up git worktree..."
 REPO_NAME=$(basename "$REPO_ROOT")
 WORKTREE_PATH="$HOME/.worktrees/$REPO_NAME/$ISSUE_KEY"
 
+WORKTREE_CREATED=false
 if [[ -d "$WORKTREE_PATH" ]]; then
     print_success "Worktree exists: $WORKTREE_PATH"
 else
+    WORKTREE_CREATED=true
     CREATE_WORKTREE_ARGS=(--issue-key "$ISSUE_KEY" --project-key "$PROJECT_KEY")
     WORKTREE_JSON=$("$SCRIPT_DIR/create-worktree.sh" "${CREATE_WORKTREE_ARGS[@]}") || error "Failed to create worktree"
     WORKTREE_PATH=$(echo "$WORKTREE_JSON" | jq -r '.worktree_path')
     print_success "Created worktree: $WORKTREE_PATH"
-
-    # Persist the resolved profile to space-state so the Pappardelle TUI can
-    # render the right ticket-rail emoji on first paint, before its in-memory
-    # issue cache fills via the background getIssues() batch (see STA-930).
-    # Only written on workspace creation — not on resume — so existing spaces
-    # keep their lazy emoji-pop behavior until they're recreated.
-    SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
-    SPACE_STATE_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.json"
-    mkdir -p "$SPACE_STATE_DIR"
-    NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    if [[ -f "$SPACE_STATE_FILE" ]]; then
-        # Merge so we don't clobber rail-status / recap fields written by the
-        # TUI poller (writeSpaceState in space-state.ts does the same merge).
-        # `&&` is part of a compound, so `set -e` doesn't trip on jq failure —
-        # gate the success log on the actual exit status and clean up the
-        # tempfile so a corrupted JSON read can't leak into /tmp.
-        TMP_FILE=$(mktemp)
-        if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
-                '. + {profile: $p, updatedAt: $t}' \
-                "$SPACE_STATE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$SPACE_STATE_FILE"; then
-            log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
-        else
-            log "Warning: failed to persist profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
-            rm -f "$TMP_FILE"
-        fi
-    else
-        # `jq -n` generates from scratch (no file input) so failure is
-        # essentially impossible; the redirect already creates the file.
-        jq -n --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
-            '{profile: $p, updatedAt: $t}' > "$SPACE_STATE_FILE"
-        log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
-    fi
 
     # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
     LOCAL_CONFIG="$LOCAL_CONFIG_PATH"
@@ -786,6 +792,43 @@ else
     fi
 fi
 
+SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
+SPACE_STATE_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.json"
+
+if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
+    # Persist the profile to space-state: the TUI renders the ticket-rail emoji
+    # from it on first paint (STA-930), and both the TUI and later idow runs launch
+    # the space's agent from it. Written when the workspace is created or a profile
+    # is picked explicitly (--profile). An unforced run on an existing space either
+    # read this value above or fell back to default_profile, which must not
+    # overwrite a real pick. A new worktree also drops the recorded agent
+    # session: it belonged to an earlier workspace with the same key.
+    mkdir -p "$SPACE_STATE_DIR"
+    NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [[ -f "$SPACE_STATE_FILE" ]]; then
+        # Merge so we don't clobber rail-status / recap fields written by the
+        # TUI poller (writeSpaceState in space-state.ts does the same merge).
+        # `&&` is part of a compound, so `set -e` doesn't trip on jq failure —
+        # gate the success log on the actual exit status and clean up the
+        # tempfile so a corrupted JSON read can't leak into /tmp.
+        TMP_FILE=$(mktemp)
+        if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" --argjson created "$WORKTREE_CREATED" \
+                '. + {profile: $p, updatedAt: $t} | if $created then del(.agentSession) else . end' \
+                "$SPACE_STATE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$SPACE_STATE_FILE"; then
+            log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
+        else
+            log "Warning: failed to persist profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
+            rm -f "$TMP_FILE"
+        fi
+    else
+        # `jq -n` generates from scratch (no file input) so failure is
+        # essentially impossible; the redirect already creates the file.
+        jq -n --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
+            '{profile: $p, updatedAt: $t}' > "$SPACE_STATE_FILE"
+        log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
+    fi
+fi
+
 # PR URLs are only needed when opening configured apps and links.
 PR_URL=""
 cd "$WORKTREE_PATH"
@@ -799,35 +842,54 @@ if [[ "$OPEN_WORKSPACE" == true ]]; then
     fi
 fi
 
-# Step 7: Ensure Claude and companion tmux sessions exist (always, regardless of --open)
-print_step 7 "Starting Claude tmux session..."
-CLAUDE_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND")
+# Step 7: Ensure agent and companion tmux sessions exist (always, regardless of --open)
+print_step 7 "Starting agent tmux session..."
+# A new worktree has no conversation of its own to resume, and resume args
+# that aren't tied to the space would find someone else's: codex's
+# `resume --last` picks the most recent session from any directory. Otherwise
+# {session_id} is the id the agent's hook recorded for this space
+# (hooks/agent_session.py), only if it was recorded by the same agent
+# profile. With none, claude falls back to its directory-scoped --continue and
+# other agents launch fresh with the prompt. Mirrors bindResumeArgs() in source/config.ts.
+if [[ "$WORKTREE_CREATED" == true ]]; then
+    AGENT_RESUME_ARGS=""
+elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
+    RECORDED_SESSION_ID=$(jq -r --arg profile "$AGENT_PROFILE" \
+        'select(.agentSession.agentProfile == $profile) | .agentSession.id // ""' \
+        "$SPACE_STATE_FILE" 2>/dev/null || true)
+    if [[ "$RECORDED_SESSION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+        AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//\{session_id\}/$RECORDED_SESSION_ID}"
+    elif [[ "$AGENT_IS_CLAUDE" == true ]]; then
+        AGENT_RESUME_ARGS="--continue"
+    else
+        AGENT_RESUME_ARGS=""
+    fi
+fi
+# One array for the resolved agent profile, appended to both start-agent-session.sh
+# and the terminal launchers below so the two launch paths can't drift.
+AGENT_FLAG_ARGS=(--agent-command "$AGENT_COMMAND" --agent-args "$AGENT_ARGS" --agent-resume-args "$AGENT_RESUME_ARGS" --agent-is-claude "$AGENT_IS_CLAUDE" --agent-launch-flags "$AGENT_LAUNCH_FLAGS" --agent-profile "$AGENT_PROFILE")
+AGENT_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND")
 if [[ -n "$INIT_CMD" && "$RESUME_MODE" != true ]]; then
-    CLAUDE_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
+    AGENT_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
 fi
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
-    CLAUDE_SESSION_ARGS+=(--skip-permissions)
+    AGENT_SESSION_ARGS+=(--skip-permissions)
 fi
-if [[ -n "$CLAUDE_MODEL" ]]; then
-    CLAUDE_SESSION_ARGS+=(--model "$CLAUDE_MODEL")
-fi
-if [[ -n "$CLAUDE_EFFORT" ]]; then
-    CLAUDE_SESSION_ARGS+=(--effort "$CLAUDE_EFFORT")
-fi
-# Matches the '.' → '_' encoding in start-claude-session.sh and
+# Matches the '.' → '_' encoding in start-agent-session.sh and
 # getSessionNames(); see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
-CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
-# Per-issue claude/companion sessions live on a dedicated tmux socket so the
+AGENT_SESSION_ARGS+=("${AGENT_FLAG_ARGS[@]}")
+AGENT_SESSION_NAME="agent-${REPO_NAME}-${SESSION_KEY}"
+# Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 export PAPPARDELLE_TMUX_SOCKET
-"$SCRIPT_DIR/start-claude-session.sh" "${CLAUDE_SESSION_ARGS[@]}" || print_warning "Failed to start Claude tmux session"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION_NAME" 2>/dev/null; then
-    print_success "Claude session: $CLAUDE_SESSION_NAME"
+"$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
+    print_success "Agent session: $AGENT_SESSION_NAME"
 else
-    print_warning "Claude session not created (is tmux running?)"
+    print_warning "Agent session not created (is tmux running?)"
 fi
 
 # Steps 8-11: Run commands, open apps, links, terminal
@@ -862,22 +924,17 @@ LAUNCHER_ARGS=(--worktree "$WORKTREE_PATH" --issue-key "$ISSUE_KEY" --repo-name 
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     LAUNCHER_ARGS+=(--skip-permissions)
 fi
-if [[ -n "$CLAUDE_MODEL" ]]; then
-    LAUNCHER_ARGS+=(--model "$CLAUDE_MODEL")
-fi
-if [[ -n "$CLAUDE_EFFORT" ]]; then
-    LAUNCHER_ARGS+=(--effort "$CLAUDE_EFFORT")
-fi
+LAUNCHER_ARGS+=("${AGENT_FLAG_ARGS[@]}")
 
-# In resume mode, start Claude without any prompt; otherwise use configured init command
+# In resume mode, start the agent without any prompt; otherwise use configured init command
 if [[ "$RESUME_MODE" == true ]]; then
-    CLAUDE_PROMPT=""
+    AGENT_PROMPT=""
     OPEN_DESCRIPTION="resume mode"
 elif [[ -n "$INIT_CMD" ]]; then
-    CLAUDE_PROMPT="$INIT_CMD $ISSUE_KEY"
+    AGENT_PROMPT="$INIT_CMD $ISSUE_KEY"
     OPEN_DESCRIPTION="$INIT_CMD"
 else
-    CLAUDE_PROMPT="$ISSUE_KEY"
+    AGENT_PROMPT="$ISSUE_KEY"
     OPEN_DESCRIPTION="issue key only"
 fi
 
@@ -887,7 +944,7 @@ if [[ "$TERMINAL_APP" == "Ghostty" ]]; then
     if [[ -n "$GHOSTTY_WINDOW_ID" ]]; then
         GHOSTTY_ARGS+=(--window-id "$GHOSTTY_WINDOW_ID")
     fi
-    if "$SCRIPT_DIR/open-ghostty-claude.sh" "${GHOSTTY_ARGS[@]}" --prompt "$CLAUDE_PROMPT"; then
+    if "$SCRIPT_DIR/open-ghostty-agent.sh" "${GHOSTTY_ARGS[@]}" --prompt "$AGENT_PROMPT"; then
         OPENED_APP="Ghostty"
     else
         # Automation permission denied, a pre-1.3 Ghostty, or the AppleScript
@@ -898,7 +955,7 @@ if [[ "$TERMINAL_APP" == "Ghostty" ]]; then
 fi
 
 if [[ -z "$OPENED_APP" && ("$TERMINAL_APP" == "iTerm" || "$TERMINAL_APP" == "Ghostty") ]]; then
-    if "$SCRIPT_DIR/open-iterm-claude.sh" "${LAUNCHER_ARGS[@]}" --prompt "$CLAUDE_PROMPT"; then
+    if "$SCRIPT_DIR/open-iterm-agent.sh" "${LAUNCHER_ARGS[@]}" --prompt "$AGENT_PROMPT"; then
         OPENED_APP="iTerm"
     fi
 fi
@@ -911,15 +968,15 @@ if [[ -z "$OPENED_APP" ]]; then
     if [[ "$TERMINAL_APP" != "iTerm" && "$TERMINAL_APP" != "Ghostty" ]]; then
         print_warning "Terminal '$TERMINAL_APP' is not driven directly; opening via the default terminal"
     fi
-    if "$SCRIPT_DIR/open-default-terminal-claude.sh" "${LAUNCHER_ARGS[@]}" --prompt "$CLAUDE_PROMPT"; then
+    if "$SCRIPT_DIR/open-default-terminal-agent.sh" "${LAUNCHER_ARGS[@]}" --prompt "$AGENT_PROMPT"; then
         OPENED_APP="The default terminal"
     fi
 fi
 
 if [[ -n "$OPENED_APP" ]]; then
-    print_success "$OPENED_APP opened with Claude ($OPEN_DESCRIPTION)"
+    print_success "$OPENED_APP opened with the agent ($OPEN_DESCRIPTION)"
 else
-    print_warning "Failed to open a terminal with Claude"
+    print_warning "Failed to open a terminal with the agent"
     TERMINAL_OPEN_FAILED=true
 fi
 
@@ -1044,16 +1101,16 @@ if [[ -n "$PR_URL" ]]; then
 fi
 echo "Worktree:  $WORKTREE_PATH"
 echo ""
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
     if [[ "$RESUME_MODE" == true ]]; then
-        echo "Claude session ready (resume mode)."
+        echo "Agent session ready (resume mode)."
     elif [[ -n "$INIT_CMD" ]]; then
-        echo "Claude session ready with $INIT_CMD."
+        echo "Agent session ready with $INIT_CMD."
     else
-        echo "Claude session ready: $CLAUDE_SESSION_NAME"
+        echo "Agent session ready: $AGENT_SESSION_NAME"
     fi
 else
-    echo "Warning: Claude session was not created."
+    echo "Warning: agent session was not created."
 fi
 echo ""
 
