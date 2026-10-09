@@ -1,4 +1,4 @@
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useRef} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
@@ -17,6 +17,7 @@ import type {IssueTrackerProvider} from '../providers/types.ts';
 import {
 	applySkillCompletion,
 	clampSelection,
+	reanchorSelection,
 	handleSkillListKey,
 	handleSkillPickerKey,
 	matchSkills,
@@ -98,6 +99,14 @@ export default function PromptDialog({
 		() => (query === null ? [] : matchSkills(skills, query)),
 		[skills, query],
 	);
+	const seenSkills = useRef(skills);
+	const highlightedName = useRef<string | undefined>(undefined);
+	if (seenSkills.current !== skills) {
+		seenSkills.current = skills;
+		const anchored = reanchorSelection(highlightedName.current, completions);
+		if (anchored !== completionIndex) setCompletionIndex(anchored);
+	}
+
 	// Cyan, the Skills box's own color, so a painted name reads as "this is one
 	// of those". Survives the space that closes the list, which is the point:
 	// past that space the list is gone and the color is the only confirmation
@@ -281,6 +290,7 @@ export default function PromptDialog({
 	// list would point past the end of a short one. Rendering and acceptance
 	// both read this, or Enter highlights one row and accepts nothing.
 	const activeCompletion = clampSelection(completionIndex, completions.length);
+	highlightedName.current = completions[activeCompletion]?.name;
 
 	const handlePromptSubmit = (value: string) => {
 		// Enter belongs to the completion list while it is open, but only to move

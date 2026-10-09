@@ -1,20 +1,11 @@
-import os from 'node:os';
 import {useEffect, useState} from 'react';
-import {getRepoRoot} from './config.ts';
 import {
+	skillRoots,
 	skillSnapshot,
 	type SkillEntry,
 	type SkillRoots,
 	type SkillSnapshot,
 } from './skill-completion.ts';
-
-export function skillRoots(): SkillRoots | null {
-	try {
-		return {repoRoot: getRepoRoot(), homeDir: os.homedir()};
-	} catch {
-		return null;
-	}
-}
 
 /**
  * The skills the new-session prompt completes against. The first frame gets

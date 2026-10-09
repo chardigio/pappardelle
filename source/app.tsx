@@ -162,8 +162,7 @@ import {
 	resolveSpaceProfileName,
 } from './space-emoji.ts';
 import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
-import {skillSnapshot} from './skill-completion.ts';
-import {skillRoots} from './use-skill-snapshot.ts';
+import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 function claimIssueInBackground(issueKey: string): void {

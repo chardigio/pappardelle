@@ -54,8 +54,8 @@ test('renders before the scan finishes, then shows what it found', async t => {
 	t.is(view.lastFrame(), '(none)');
 
 	scan.resolve([skill('alpha'), skill('beta')]);
-	await waitFor(() => view.lastFrame() === 'alpha,beta');
-	t.pass();
+	await waitFor(() => view.lastFrame() !== '(none)');
+	t.is(view.lastFrame(), 'alpha,beta');
 });
 
 test('a reopened prompt shows the last scan on its first frame, then the rescan', async t => {
@@ -70,8 +70,8 @@ test('a reopened prompt shows the last scan on its first frame, then the rescan'
 
 	t.is(renders[0], 'alpha');
 	next.resolve([skill('alpha'), skill('installed-since')]);
-	await waitFor(() => view.lastFrame() === 'alpha,installed-since');
-	t.pass();
+	await waitFor(() => view.lastFrame() !== 'alpha');
+	t.is(view.lastFrame(), 'alpha,installed-since');
 });
 
 test('a scan that lands after unmount updates the store but not the dead view', async t => {

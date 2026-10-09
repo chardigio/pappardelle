@@ -1,7 +1,9 @@
 import {Buffer} from 'node:buffer';
+import os from 'node:os';
 import type {Dirent} from 'node:fs';
 import fs, {type FileHandle} from 'node:fs/promises';
 import path from 'node:path';
+import {getRepoRoot} from './config.ts';
 import {pLimit} from './providers/concurrency.ts';
 
 /**
@@ -237,9 +239,8 @@ export function parseFrontmatterDescription(contents: string): string {
 }
 
 /**
- * The scan used to hold one file open at a time. Reading every file at once
- * instead holds one descriptor per skill, and past macOS's OPEN_MAX of 10240
- * every `spawn` in the app fails with EBADF for as long as the scan runs.
+ * Each in-flight read holds a descriptor, and past macOS's OPEN_MAX of 10240
+ * every `spawn` in the app fails with EBADF.
  */
 const SKILL_READ_CONCURRENCY = 32;
 
@@ -256,7 +257,7 @@ async function readDescription(file: string): Promise<string> {
 	try {
 		// Frontmatter lives at the top; skills run to thousands of lines. The
 		// window is 4096 characters, and a UTF-8 character is at most 4 bytes.
-		const buffer = Buffer.alloc(FRONTMATTER_CHARS * 4);
+		const buffer = Buffer.allocUnsafe(FRONTMATTER_CHARS * 4);
 		const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
 		return parseFrontmatterDescription(
 			buffer
@@ -308,27 +309,23 @@ async function listCommandCandidates(
 		return [];
 	}
 
-	const found = await Promise.all(
-		items.map(async (item): Promise<Candidate[]> => {
-			const full = path.join(dir, item.name);
-			if (item.isDirectory()) {
-				return listCommandCandidates(full, `${prefix}${item.name}:`);
-			}
+	const found: Candidate[] = [];
+	for (const item of items) {
+		const full = path.join(dir, item.name);
+		if (item.isDirectory()) {
+			found.push(
+				...(await listCommandCandidates(full, `${prefix}${item.name}:`)),
+			);
+		} else if (item.isFile() && item.name.endsWith('.md')) {
+			found.push({
+				name: `${prefix}${item.name.slice(0, -3)}`,
+				file: full,
+				kind: 'command',
+			});
+		}
+	}
 
-			if (item.isFile() && item.name.endsWith('.md')) {
-				return [
-					{
-						name: `${prefix}${item.name.slice(0, -3)}`,
-						file: full,
-						kind: 'command',
-					},
-				];
-			}
-
-			return [];
-		}),
-	);
-	return found.flat();
+	return found;
 }
 
 export type SkillRoots = {repoRoot: string; homeDir: string};
@@ -423,7 +420,7 @@ export function createSkillSnapshot(
 			const promise: Promise<SkillEntry[]> = Promise.resolve()
 				.then(async () => discover(roots))
 				.then(entries => {
-					stored = {key, entries};
+					if (inFlight?.promise === promise) stored = {key, entries};
 					return entries;
 				})
 				.catch(() => current(roots) ?? [])
@@ -437,3 +434,25 @@ export function createSkillSnapshot(
 }
 
 export const skillSnapshot = createSkillSnapshot();
+
+export function skillRoots(): SkillRoots | null {
+	try {
+		return {repoRoot: getRepoRoot(), homeDir: os.homedir()};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Where the highlight belongs after the skill list changes under it. The
+ * rescan can land while a row is highlighted, and a newly installed skill
+ * sorting ahead would otherwise shift a different skill under the same index,
+ * so Tab would accept something the user never saw highlighted.
+ */
+export function reanchorSelection(
+	highlightedName: string | undefined,
+	entries: readonly SkillEntry[],
+): number {
+	const index = entries.findIndex(entry => entry.name === highlightedName);
+	return Math.max(index, 0);
+}

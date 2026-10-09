@@ -7,6 +7,7 @@ import {
 	clampSelection,
 	createSkillSnapshot,
 	discoverSkills,
+	reanchorSelection,
 	handleSkillListKey,
 	handleSkillPickerKey,
 	matchSkills,
@@ -504,6 +505,22 @@ test('createSkillSnapshot keeps the previous snapshot when a rescan fails', asyn
 	t.deepEqual(store.current(rootsA), [entry('alpha')]);
 });
 
+test('createSkillSnapshot keeps the newer roots when an older scan lands last', async t => {
+	const scanA = deferred<SkillEntry[]>();
+	const scanB = deferred<SkillEntry[]>();
+	const store = createSkillSnapshot(async roots =>
+		roots === rootsA ? scanA.promise : scanB.promise,
+	);
+	const refreshA = store.refresh(rootsA);
+	const refreshB = store.refresh(rootsB);
+	scanB.resolve([entry('from-b')]);
+	await refreshB;
+	scanA.resolve([entry('from-a')]);
+	await refreshA;
+	t.deepEqual(store.current(rootsB), [entry('from-b')]);
+	t.is(store.current(rootsA), undefined);
+});
+
 test('createSkillSnapshot does not serve a snapshot taken for other roots', async t => {
 	const store = createSkillSnapshot(async roots => [entry(roots.repoRoot)]);
 	await store.refresh(rootsA);
@@ -547,4 +564,21 @@ test('regression: a narrowed list never strands Enter on a missing entry', t => 
 	const index = clampSelection(3, narrowed.length);
 	t.is(index, 0);
 	t.truthy(narrowed[index]);
+});
+
+// ============================================================================
+// reanchorSelection
+// ============================================================================
+
+test('reanchorSelection follows the highlighted skill when a new one sorts ahead', t => {
+	const after = [entry('do-alpha'), entry('do-new'), entry('do-plan')];
+	t.is(reanchorSelection('do-plan', after), 2);
+});
+
+test('reanchorSelection falls back to the top when the highlighted skill is gone', t => {
+	t.is(reanchorSelection('removed', [entry('a'), entry('b')]), 0);
+});
+
+test('reanchorSelection starts at the top when nothing was highlighted', t => {
+	t.is(reanchorSelection(undefined, [entry('a'), entry('b')]), 0);
 });
