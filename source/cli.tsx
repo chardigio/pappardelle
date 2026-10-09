@@ -381,17 +381,15 @@ const cleanup = () => {
 	process.stdout.write('\x1b[?1049l'); // Exit alt screen
 };
 
-// Ahead of the logger's exit flush, which blocks if log storage is stalled:
-// the user gets their terminal back instead of a frozen TUI.
-process.prependListener('exit', cleanup);
-// The default SIGHUP action skips 'exit' listeners, which would drop buffered
-// log lines. Quitting in layout mode kills our own tmux session, which sends it.
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-	process.on(signal, () => {
-		cleanup();
-		process.exit(0);
-	});
-}
+process.on('exit', cleanup);
+process.on('SIGINT', () => {
+	cleanup();
+	process.exit(0);
+});
+process.on('SIGTERM', () => {
+	cleanup();
+	process.exit(0);
+});
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
