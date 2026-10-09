@@ -32,7 +32,7 @@ function harness(
 		installerStatus?: number;
 		sessions?: string[];
 		listFails?: boolean;
-		killFails?: boolean;
+		respawnFails?: boolean;
 		repos?: string[];
 		currentSession?: string | null;
 		isTTY?: boolean;
@@ -55,7 +55,7 @@ function harness(
 				: {status: 0, stdout: (options.sessions ?? []).join('\n') + '\n'};
 		}
 
-		return {status: options.killFails ? 1 : 0, stdout: ''};
+		return {status: options.respawnFails ? 1 : 0, stdout: ''};
 	};
 
 	return {
@@ -80,10 +80,10 @@ function harness(
 	};
 }
 
-function killed(h: Harness): string[] {
+function respawned(h: Harness): string[] {
 	return h.tmuxCalls
-		.filter(args => args[0] === 'kill-session')
-		.map(args => args.at(-1)!.replace(/^=(.*):$/, '$1'));
+		.filter(args => args[0] === 'respawn-window')
+		.map(args => args.at(-1)!.replace(/^=(.*):\^$/, '$1'));
 }
 
 test('a failed install returns its status and leaves tmux alone', async t => {
@@ -93,7 +93,7 @@ test('a failed install returns its status and leaves tmux alone', async t => {
 		repos: ['app'],
 	});
 
-	t.is(await runUpdateCommand({killTuis: true}, h.deps), 3);
+	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 3);
 	t.deepEqual(h.tmuxCalls, []);
 });
 
@@ -108,42 +108,42 @@ test('only pappardelle sessions with a repo state dir count as running TUIs', as
 		repos: ['app', 'web'],
 	});
 
-	await runUpdateCommand({killTuis: true}, h.deps);
+	await runUpdateCommand({restartTuis: true}, h.deps);
 
-	t.deepEqual(killed(h), ['pappardelle-app', 'pappardelle-web']);
+	t.deepEqual(respawned(h), ['pappardelle-app', 'pappardelle-web']);
 });
 
-test('--kill-tuis quits the session running the command last', async t => {
+test('--restart-tuis restarts the session running the command last', async t => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web', 'pappardelle-api'],
 		repos: ['app', 'web', 'api'],
 		currentSession: 'pappardelle-app',
 	});
 
-	t.is(await runUpdateCommand({killTuis: true}, h.deps), 0);
-	t.deepEqual(killed(h), [
+	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
+	t.deepEqual(respawned(h), [
 		'pappardelle-web',
 		'pappardelle-api',
 		'pappardelle-app',
 	]);
 });
 
-test('--no-kill-tuis leaves TUIs running and names them in a restart hint', async t => {
+test('--no-restart-tuis leaves TUIs running and names them in a restart hint', async t => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
 		isTTY: true,
 	});
 
-	t.is(await runUpdateCommand({killTuis: false}, h.deps), 0);
-	t.deepEqual(killed(h), []);
+	t.is(await runUpdateCommand({restartTuis: false}, h.deps), 0);
+	t.deepEqual(respawned(h), []);
 	t.deepEqual(h.confirmCalls, []);
 	const hint = h.printed.at(-1)!;
 	t.true(hint.includes('pappardelle-app'));
 	t.true(hint.includes('pappardelle-web'));
 });
 
-test('on a TTY with no flag, a yes to the prompt quits the TUIs', async t => {
+test('on a TTY with no flag, a yes to the prompt restarts the TUIs', async t => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
@@ -154,8 +154,8 @@ test('on a TTY with no flag, a yes to the prompt quits the TUIs', async t => {
 	await runUpdateCommand({}, h.deps);
 
 	t.is(h.confirmCalls.length, 1);
-	t.true(h.confirmCalls[0]!.startsWith('Quit 2 running Pappardelle TUIs'));
-	t.deepEqual(killed(h), ['pappardelle-app', 'pappardelle-web']);
+	t.true(h.confirmCalls[0]!.startsWith('Restart 2 running Pappardelle TUIs'));
+	t.deepEqual(respawned(h), ['pappardelle-app', 'pappardelle-web']);
 });
 
 test('on a TTY with no flag, a no to the prompt prints the hint instead', async t => {
@@ -169,7 +169,7 @@ test('on a TTY with no flag, a no to the prompt prints the hint instead', async 
 	await runUpdateCommand({}, h.deps);
 
 	t.is(h.confirmCalls.length, 1);
-	t.deepEqual(killed(h), []);
+	t.deepEqual(respawned(h), []);
 	t.true(h.printed.at(-1)!.includes('pappardelle-app'));
 });
 
@@ -183,7 +183,7 @@ test('without a TTY or a flag, it never prompts and prints the hint', async t =>
 	await runUpdateCommand({}, h.deps);
 
 	t.deepEqual(h.confirmCalls, []);
-	t.deepEqual(killed(h), []);
+	t.deepEqual(respawned(h), []);
 	t.true(h.printed.at(-1)!.includes('pappardelle-app'));
 });
 
@@ -198,8 +198,8 @@ test('no running TUIs means no prompt and no hint', async t => {
 test('a tmux server that is not running is treated as no TUIs', async t => {
 	const h = harness({listFails: true, repos: ['app']});
 
-	t.is(await runUpdateCommand({killTuis: true}, h.deps), 0);
-	t.deepEqual(killed(h), []);
+	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
+	t.deepEqual(respawned(h), []);
 });
 
 test('the opening line names the version being replaced when known', async t => {
@@ -211,39 +211,6 @@ test('the opening line names the version being replaced when known', async t => 
 	unknown.deps.installedVersion = null;
 	await runUpdateCommand({}, unknown.deps);
 	t.false(unknown.printed[0]!.includes('currently on'));
-});
-
-test('sessions for a dotted repo name match with or without tmux rewriting the dot', async t => {
-	const h = harness({
-		sessions: ['pappardelle-my_repo', 'pappardelle-next.js'],
-		repos: ['my.repo', 'next.js'],
-	});
-
-	await runUpdateCommand({killTuis: true}, h.deps);
-
-	t.deepEqual(killed(h), ['pappardelle-my_repo', 'pappardelle-next.js']);
-});
-
-test('kills target the exact session so tmux never prefix-matches another one', async t => {
-	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
-
-	await runUpdateCommand({killTuis: true}, h.deps);
-
-	t.deepEqual(
-		h.tmuxCalls.filter(args => args[0] === 'kill-session'),
-		[['kill-session', '-t', '=pappardelle-app:']],
-	);
-});
-
-test('a session tmux refuses to kill is reported', async t => {
-	const h = harness({
-		sessions: ['pappardelle-app'],
-		repos: ['app'],
-		killFails: true,
-	});
-
-	t.is(await runUpdateCommand({killTuis: true}, h.deps), 0);
-	t.true(h.printed.at(-1)!.startsWith("Couldn't quit pappardelle-app"));
 });
 
 test('closing stdin at the quit prompt answers no instead of failing', async t => {

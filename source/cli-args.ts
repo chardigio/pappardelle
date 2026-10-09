@@ -5,7 +5,8 @@ const helpText = `
 	  $ pappardelle [prompt]
 	  $ pappardelle highlight <issue-key>
 	  $ pappardelle send <issue-key> [text]
-	  $ pappardelle update [--kill-tuis | --no-kill-tuis]
+	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
+	  $ pappardelle restart [--hard [--yes]]
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
@@ -23,6 +24,8 @@ const helpText = `
 	                   Reads stdin when no text is given; use stdin for text
 	                   that starts with "-", which would parse as a flag
 	  update           Update Pappardelle to the latest release (same as U)
+	  restart          Restart this repo's TUI in place
+	  restart --hard   End every Claude session, then restart every TUI
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -35,10 +38,11 @@ const helpText = `
 	  q/Ctrl+C       Quit
 
 	Options
-	  --no-layout      Don't set up tmux pane layout (run standalone)
-	  --workspace      Outer workspace root when linking a nested repository
-	  --kill-tuis      After update, quit running Pappardelle TUIs without asking
-	  --no-kill-tuis   After update, leave running TUIs alone and print a hint
+	  --no-layout         Don't set up tmux pane layout (run standalone)
+	  --workspace         Outer workspace root when linking a nested repository
+	  --restart-tuis      After update, restart running TUIs without asking
+	  --no-restart-tuis   After update, leave running TUIs alone and print a hint
+	  --yes               Skip restart --hard's confirmation
 
 	Examples
 	  $ pappardelle              # Run with tmux layout
@@ -46,15 +50,17 @@ const helpText = `
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
-	  $ pappardelle update       # Update, then ask before quitting running TUIs
+	  $ pappardelle update       # Update, then ask before restarting running TUIs
+	  $ pappardelle restart      # Restart this repo's TUI in place
 `;
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 	return meow(helpText, {
 		importMeta: import.meta,
 		argv: [...argv],
-		// `update` asks on a TTY only when neither --kill-tuis nor --no-kill-tuis
-		// was passed, which meow's default of false would make indistinguishable.
+		// `update` asks on a TTY only when neither --restart-tuis nor
+		// --no-restart-tuis was passed, which meow's default of false would make
+		// indistinguishable.
 		booleanDefault: undefined,
 		flags: {
 			workspace: {type: 'string'},
@@ -62,7 +68,13 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 				type: 'boolean',
 				default: true,
 			},
-			killTuis: {
+			restartTuis: {
+				type: 'boolean',
+			},
+			hard: {
+				type: 'boolean',
+			},
+			yes: {
 				type: 'boolean',
 			},
 		},

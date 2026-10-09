@@ -49,6 +49,10 @@ import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
 import {parseCli} from './cli-args.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
+import {
+	defaultRestartCommandDeps,
+	runRestartCommand,
+} from './restart-command.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,13 +67,24 @@ const cli = parseCli();
 
 const pappardelleDir = path.resolve(__dirname, '..');
 
-// Dispatched before checkConfig so updating works from any directory, not just
-// a repo with a .pappardelle.yml.
+const isRestart = cli.input.length === 1 && cli.input[0] === 'restart';
+
+// Dispatched before checkConfig so these work from any directory, not just a
+// repo with a .pappardelle.yml.
 if (cli.input.length === 1 && cli.input[0] === 'update') {
 	process.exit(
 		await runUpdateCommand(
-			{killTuis: cli.flags.killTuis},
+			{restartTuis: cli.flags.restartTuis},
 			defaultUpdateCommandDeps(pappardelleDir),
+		),
+	);
+}
+
+if (isRestart && cli.flags.hard) {
+	process.exit(
+		await runRestartCommand(
+			{hard: true, yes: cli.flags.yes, repoName: null},
+			defaultRestartCommandDeps(),
 		),
 	);
 }
@@ -180,6 +195,12 @@ try {
 	createVcsHost(providerCfg.vcs_host);
 } catch {
 	// If loading fails the providers will fall back to defaults on first use.
+}
+
+if (isRestart) {
+	process.exit(
+		await runRestartCommand({repoName}, defaultRestartCommandDeps()),
+	);
 }
 
 // Handle `pappardelle highlight STA-XXX` — write target file and exit

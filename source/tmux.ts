@@ -246,7 +246,7 @@ export function getSessionNames(
  * single quotes and escapes any embedded single quotes via the classic
  * `'\''` trick.
  */
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -589,6 +589,22 @@ function sameFile(a: string, b: string): boolean {
 	}
 }
 
+function envSocketIs(env: NodeJS.ProcessEnv, socketName: string): boolean {
+	const socket = env['TMUX']?.split(',')[0];
+	if (!socket) return false;
+	const uid = process.getuid?.() ?? 0;
+	return sameFile(
+		socket,
+		join(env['TMUX_TMPDIR'] || '/tmp', `tmux-${uid}`, socketName),
+	);
+}
+
+// True inside a claude/companion pane. Killing the inner server from there
+// ends this process.
+export function isOnInnerServer(env: NodeJS.ProcessEnv): boolean {
+	return envSocketIs(env, INNER_SOCKET);
+}
+
 // The default-server session this process runs in, or null when it runs
 // outside tmux or on another server (an inner claude pane, where killing an
 // outer session only detaches the client and leaves this process alive).
@@ -596,17 +612,8 @@ export function currentDefaultServerSession(
 	env: NodeJS.ProcessEnv,
 	runner: OuterTmuxRunner = defaultServerTmuxRunner,
 ): string | null {
-	const socket = env['TMUX']?.split(',')[0];
 	const pane = env['TMUX_PANE'];
-	if (!socket || !pane) return null;
-
-	const uid = process.getuid?.() ?? 0;
-	const defaultSocket = join(
-		env['TMUX_TMPDIR'] || '/tmp',
-		`tmux-${uid}`,
-		'default',
-	);
-	if (!sameFile(socket, defaultSocket)) return null;
+	if (!pane || !envSocketIs(env, 'default')) return null;
 
 	const result = runner([
 		'display-message',
@@ -681,7 +688,7 @@ export function cleanupOrphanedOuterSessions(
  * `cleanupOrphanedInnerSessions` can share the injectable-runner test
  * harness without duplicating the fake-runner plumbing.
  */
-const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
+export const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
 
 /**
  * DEC 2026 "synchronized output": the terminal buffers everything between

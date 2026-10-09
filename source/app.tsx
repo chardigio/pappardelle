@@ -18,6 +18,7 @@ import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
+import {respawnTuiWindow} from './tui-sessions.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -365,7 +366,7 @@ export default function App({
 		initialPaneLayout,
 	);
 
-	// Run the installer to update to the latest release, then quit. Invoked from
+	// Run the installer to update to the latest release, then restart. Invoked from
 	// the update confirm dialog's onConfirm (STA-1548) — both the banner's U and
 	// the always-available U funnel through that dialog.
 	//
@@ -385,7 +386,10 @@ export default function App({
 		process.stdout.write('\x1b[?1000l'); // disable basic mouse
 		process.stdout.write('\x1b[?1049l'); // exit alt screen
 		runUpdateScript({waitOnFailure: true});
-		if (paneLayout) {
+		// Respawning the TUI's window ends this process and reruns it on the new
+		// build (or the old one, after a failed install). Without an outer
+		// session to respawn, fall back to quitting.
+		if (paneLayout && !respawnTuiWindow(outerSessionName(repoName))) {
 			killSession(outerSessionName(repoName));
 		}
 		// eslint-disable-next-line unicorn/no-process-exit

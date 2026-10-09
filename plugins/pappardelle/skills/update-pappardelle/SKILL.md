@@ -14,10 +14,10 @@ Pappardelle now checks GitHub Releases on startup (cached once per 24h) and show
 
 1. Tell the user you're updating Pappardelle to the latest version.
 
-2. Run the update command. `--no-kill-tuis` keeps it from quitting running TUIs, since this session may be running inside one:
+2. Run the update command. `--no-restart-tuis` keeps it from restarting running TUIs, since this session may be running inside one:
 
 ```bash
-pappardelle update --no-kill-tuis
+pappardelle update --no-restart-tuis
 ```
 
 If `pappardelle` is not on PATH, or its shim errors before the update starts (e.g. a missing or too-old node), run the install script directly instead:
@@ -33,6 +33,6 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.
 
 4. After success, tell the user:
    - Pappardelle has been updated
-   - If the command named running TUIs, they're still on the old build — press `q` in each to quit, then re-launch with `pappardelle` (or run `pappardelle update --kill-tuis` from a shell outside the TUI to quit them all)
+   - If the command named running TUIs, they're still on the old build. `pappardelle restart`, run in each repo, restarts that repo's TUI on the new build
 
 Note: the installer also re-pins the `pappardelle` shim to the node binary currently on PATH, so re-running it is the fix when the shim complains about a missing or too-old node (e.g. after `nvm uninstall`).
