@@ -5,6 +5,7 @@ import test from 'ava';
 import {
 	applySkillCompletion,
 	clampSelection,
+	createSkillSnapshot,
 	discoverSkills,
 	handleSkillListKey,
 	handleSkillPickerKey,
@@ -319,10 +320,10 @@ test('handleSkillListKey ignores an ordinary letter', t => {
 // discoverSkills
 // ============================================================================
 
-test('discoverSkills reads repo skills with their descriptions', t => {
+test('discoverSkills reads repo skills with their descriptions', async t => {
 	const repo = makeTmpDir();
 	writeSkill(repo, 'do-pappardelle', 'Work through a TODO checklist.');
-	const found = discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
 	t.deepEqual(found, [
 		{
 			name: 'do-pappardelle',
@@ -333,28 +334,28 @@ test('discoverSkills reads repo skills with their descriptions', t => {
 	]);
 });
 
-test('discoverSkills tolerates a skill with no description', t => {
+test('discoverSkills tolerates a skill with no description', async t => {
 	const repo = makeTmpDir();
 	writeSkill(repo, 'bare', null);
-	const found = discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
 	t.is(found[0]?.description, '');
 });
 
-test('discoverSkills reads commands, including nested ones', t => {
+test('discoverSkills reads commands, including nested ones', async t => {
 	const repo = makeTmpDir();
 	writeCommand(repo, 'deploy', 'Ship it.');
 	writeCommand(repo, 'db/reset', 'Reset the database.');
-	const found = discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
 	t.deepEqual(found.map(f => f.name).sort(), ['db:reset', 'deploy']);
 	t.true(found.every(f => f.kind === 'command'));
 });
 
-test('discoverSkills includes user skills and marks their source', t => {
+test('discoverSkills includes user skills and marks their source', async t => {
 	const repo = makeTmpDir();
 	const home = makeTmpDir();
 	writeSkill(repo, 'repo-skill', 'From the repo.');
 	writeSkill(home, 'user-skill', 'From home.');
-	const found = discoverSkills({repoRoot: repo, homeDir: home});
+	const found = await discoverSkills({repoRoot: repo, homeDir: home});
 	t.deepEqual(
 		found.map(f => [f.name, f.source]),
 		[
@@ -364,40 +365,150 @@ test('discoverSkills includes user skills and marks their source', t => {
 	);
 });
 
-test('discoverSkills lets a repo entry hide a user entry of the same name', t => {
+test('discoverSkills lets a repo entry hide a user entry of the same name', async t => {
 	const repo = makeTmpDir();
 	const home = makeTmpDir();
 	writeSkill(repo, 'shared', 'Repo version.');
 	writeSkill(home, 'shared', 'User version.');
-	const found = discoverSkills({repoRoot: repo, homeDir: home});
+	const found = await discoverSkills({repoRoot: repo, homeDir: home});
 	t.is(found.length, 1);
 	t.is(found[0]?.description, 'Repo version.');
 	t.is(found[0]?.source, 'repo');
 });
 
-test('discoverSkills returns an empty list when nothing is installed', t => {
+test('discoverSkills returns an empty list when nothing is installed', async t => {
 	t.deepEqual(
-		discoverSkills({repoRoot: makeTmpDir(), homeDir: makeTmpDir()}),
+		await discoverSkills({repoRoot: makeTmpDir(), homeDir: makeTmpDir()}),
 		[],
 	);
 });
 
-test('discoverSkills skips a skill directory with no SKILL.md', t => {
+test('discoverSkills skips a skill directory with no SKILL.md', async t => {
 	const repo = makeTmpDir();
 	fs.mkdirSync(path.join(repo, '.claude', 'skills', 'empty'), {
 		recursive: true,
 	});
-	t.deepEqual(discoverSkills({repoRoot: repo, homeDir: makeTmpDir()}), []);
+	t.deepEqual(
+		await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()}),
+		[],
+	);
 });
 
-test('discoverSkills sorts entries by name within each source', t => {
+test('discoverSkills sorts entries by name within each source', async t => {
 	const repo = makeTmpDir();
 	writeSkill(repo, 'zebra', 'Z.');
 	writeSkill(repo, 'alpha', 'A.');
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
 	t.deepEqual(
-		discoverSkills({repoRoot: repo, homeDir: makeTmpDir()}).map(f => f.name),
+		found.map(f => f.name),
 		['alpha', 'zebra'],
 	);
+});
+
+test('discoverSkills reads a description from the top of a long SKILL.md', async t => {
+	const repo = makeTmpDir();
+	writeSkill(repo, 'long', 'Near the top.');
+	fs.appendFileSync(
+		path.join(repo, '.claude', 'skills', 'long', 'SKILL.md'),
+		'x'.repeat(64 * 1024),
+	);
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	t.is(found[0]?.description, 'Near the top.');
+});
+
+test('discoverSkills reads frontmatter up to 4096 characters, not bytes', async t => {
+	const repo = makeTmpDir();
+	const dir = path.join(repo, '.claude', 'skills', 'cjk');
+	fs.mkdirSync(dir, {recursive: true});
+	// 1500 three-byte characters push the description past byte 4096 while
+	// staying well inside the first 4096 characters.
+	fs.writeFileSync(
+		path.join(dir, 'SKILL.md'),
+		`---\nname: ${'漢'.repeat(1500)}\ndescription: cjk desc\n---\nbody\n`,
+	);
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	t.is(found[0]?.description, 'cjk desc');
+});
+
+test('discoverSkills keeps the other scope when one skills path is a file', async t => {
+	const repo = makeTmpDir();
+	const home = makeTmpDir();
+	fs.mkdirSync(path.join(repo, '.claude'), {recursive: true});
+	fs.writeFileSync(path.join(repo, '.claude', 'skills'), 'not a directory');
+	writeCommand(repo, 'deploy', 'Ship it.');
+	writeSkill(home, 'user-skill', 'From home.');
+	const found = await discoverSkills({repoRoot: repo, homeDir: home});
+	t.deepEqual(
+		found.map(f => [f.name, f.source]),
+		[
+			['deploy', 'repo'],
+			['user-skill', 'user'],
+		],
+	);
+});
+
+// ============================================================================
+// createSkillSnapshot
+// ============================================================================
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((_resolve, _reject) => {
+		resolve = _resolve;
+		reject = _reject;
+	});
+	return {promise, resolve, reject};
+}
+
+const rootsA = {repoRoot: '/repo-a', homeDir: '/home'};
+const rootsB = {repoRoot: '/repo-b', homeDir: '/home'};
+
+test('createSkillSnapshot holds nothing until a scan completes', async t => {
+	const scan = deferred<SkillEntry[]>();
+	const store = createSkillSnapshot(async () => scan.promise);
+	const refreshed = store.refresh(rootsA);
+	t.is(store.current(rootsA), undefined);
+	scan.resolve([entry('alpha')]);
+	t.deepEqual(await refreshed, [entry('alpha')]);
+	t.deepEqual(store.current(rootsA), [entry('alpha')]);
+});
+
+test('createSkillSnapshot joins a scan already running for the same roots', async t => {
+	const scan = deferred<SkillEntry[]>();
+	let calls = 0;
+	const store = createSkillSnapshot(async () => {
+		calls++;
+		return scan.promise;
+	});
+	const first = store.refresh(rootsA);
+	const second = store.refresh(rootsA);
+	scan.resolve([entry('alpha')]);
+	t.deepEqual(await Promise.all([first, second]), [
+		[entry('alpha')],
+		[entry('alpha')],
+	]);
+	t.is(calls, 1);
+	await store.refresh(rootsA);
+	t.is(calls, 2);
+});
+
+test('createSkillSnapshot keeps the previous snapshot when a rescan fails', async t => {
+	let next: () => Promise<SkillEntry[]> = async () => [entry('alpha')];
+	const store = createSkillSnapshot(async () => next());
+	await store.refresh(rootsA);
+	next = async () => {
+		throw new Error('EACCES');
+	};
+	t.deepEqual(await store.refresh(rootsA), [entry('alpha')]);
+	t.deepEqual(store.current(rootsA), [entry('alpha')]);
+});
+
+test('createSkillSnapshot does not serve a snapshot taken for other roots', async t => {
+	const store = createSkillSnapshot(async roots => [entry(roots.repoRoot)]);
+	await store.refresh(rootsA);
+	t.is(store.current(rootsB), undefined);
+	t.deepEqual(await store.refresh(rootsB), [entry('/repo-b')]);
 });
 
 test('SKILL_PICKER_MAX_VISIBLE keeps the box a sane height', t => {

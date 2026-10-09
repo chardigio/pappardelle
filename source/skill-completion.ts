@@ -1,5 +1,8 @@
-import fs from 'node:fs';
+import {Buffer} from 'node:buffer';
+import type {Dirent} from 'node:fs';
+import fs, {type FileHandle} from 'node:fs/promises';
 import path from 'node:path';
+import {pLimit} from './providers/concurrency.ts';
 
 /**
  * Slash-command autocomplete for the "+ New Session" prompt.
@@ -233,40 +236,60 @@ export function parseFrontmatterDescription(contents: string): string {
 	return '';
 }
 
-function readDescription(file: string): string {
+/**
+ * The scan used to hold one file open at a time. Reading every file at once
+ * instead holds one descriptor per skill, and past macOS's OPEN_MAX of 10240
+ * every `spawn` in the app fails with EBADF for as long as the scan runs.
+ */
+const SKILL_READ_CONCURRENCY = 32;
+
+const FRONTMATTER_CHARS = 4096;
+
+async function readDescription(file: string): Promise<string> {
+	let handle: FileHandle;
 	try {
-		// Frontmatter lives at the top; skills run to thousands of lines.
-		return parseFrontmatterDescription(
-			fs.readFileSync(file, 'utf8').slice(0, 4096),
-		);
+		handle = await fs.open(file, 'r');
 	} catch {
 		return '';
 	}
+
+	try {
+		// Frontmatter lives at the top; skills run to thousands of lines. The
+		// window is 4096 characters, and a UTF-8 character is at most 4 bytes.
+		const buffer = Buffer.alloc(FRONTMATTER_CHARS * 4);
+		const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
+		return parseFrontmatterDescription(
+			buffer
+				.subarray(0, bytesRead)
+				.toString('utf8')
+				.slice(0, FRONTMATTER_CHARS),
+		);
+	} catch {
+		return '';
+	} finally {
+		await handle.close().catch(() => undefined);
+	}
 }
 
-function scanSkillDir(dir: string, source: SkillEntry['source']): SkillEntry[] {
-	let names: string[];
+type Candidate = {
+	name: string;
+	file: string;
+	kind: SkillEntry['kind'];
+};
+
+async function listSkillCandidates(dir: string): Promise<Candidate[]> {
 	try {
-		names = fs
-			.readdirSync(dir, {withFileTypes: true})
+		const items = await fs.readdir(dir, {withFileTypes: true});
+		return items
 			.filter(item => item.isDirectory() || item.isSymbolicLink())
-			.map(item => item.name);
+			.map(item => ({
+				name: item.name,
+				file: path.join(dir, item.name, 'SKILL.md'),
+				kind: 'skill',
+			}));
 	} catch {
 		return [];
 	}
-
-	const found: SkillEntry[] = [];
-	for (const name of names) {
-		const file = path.join(dir, name, 'SKILL.md');
-		if (!fs.existsSync(file)) continue;
-		found.push({
-			name,
-			description: readDescription(file),
-			source,
-			kind: 'skill',
-		});
-	}
-	return found;
 }
 
 /**
@@ -274,33 +297,76 @@ function scanSkillDir(dir: string, source: SkillEntry['source']): SkillEntry[] {
  * `commands/db/reset.md` is `/db:reset`. Mirroring that here keeps an accepted
  * completion something you can actually run.
  */
-function scanCommandDir(
+async function listCommandCandidates(
 	dir: string,
-	source: SkillEntry['source'],
 	prefix = '',
-): SkillEntry[] {
-	let items: fs.Dirent[];
+): Promise<Candidate[]> {
+	let items: Dirent[];
 	try {
-		items = fs.readdirSync(dir, {withFileTypes: true});
+		items = await fs.readdir(dir, {withFileTypes: true});
 	} catch {
 		return [];
 	}
 
-	const found: SkillEntry[] = [];
-	for (const item of items) {
-		const full = path.join(dir, item.name);
-		if (item.isDirectory()) {
-			found.push(...scanCommandDir(full, source, `${prefix}${item.name}:`));
-		} else if (item.isFile() && item.name.endsWith('.md')) {
-			found.push({
-				name: `${prefix}${item.name.slice(0, -3)}`,
-				description: readDescription(full),
-				source,
-				kind: 'command',
-			});
-		}
-	}
-	return found;
+	const found = await Promise.all(
+		items.map(async (item): Promise<Candidate[]> => {
+			const full = path.join(dir, item.name);
+			if (item.isDirectory()) {
+				return listCommandCandidates(full, `${prefix}${item.name}:`);
+			}
+
+			if (item.isFile() && item.name.endsWith('.md')) {
+				return [
+					{
+						name: `${prefix}${item.name.slice(0, -3)}`,
+						file: full,
+						kind: 'command',
+					},
+				];
+			}
+
+			return [];
+		}),
+	);
+	return found.flat();
+}
+
+export type SkillRoots = {repoRoot: string; homeDir: string};
+
+async function scanScope(
+	root: string,
+	source: SkillEntry['source'],
+): Promise<SkillEntry[]> {
+	const claude = path.join(root, '.claude');
+	const [skills, commands] = await Promise.all([
+		listSkillCandidates(path.join(claude, 'skills')),
+		listCommandCandidates(path.join(claude, 'commands')),
+	]);
+
+	const entries = await pLimit(
+		[...skills, ...commands].map(
+			candidate => async (): Promise<SkillEntry | undefined> => {
+				if (candidate.kind === 'skill') {
+					try {
+						await fs.access(candidate.file);
+					} catch {
+						return undefined;
+					}
+				}
+
+				return {
+					name: candidate.name,
+					description: await readDescription(candidate.file),
+					source,
+					kind: candidate.kind,
+				};
+			},
+		),
+		SKILL_READ_CONCURRENCY,
+	);
+	return entries
+		.filter(entry => entry !== undefined)
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -311,31 +377,63 @@ function scanCommandDir(
  * resolves the two scopes: the more specific definition is the one that runs,
  * so it is the only one worth offering.
  */
-export function discoverSkills(roots: {
-	repoRoot: string;
-	homeDir: string;
-}): SkillEntry[] {
-	const byScope: Array<[string, SkillEntry['source']]> = [
-		[roots.repoRoot, 'repo'],
-		[roots.homeDir, 'user'],
-	];
+export async function discoverSkills(roots: SkillRoots): Promise<SkillEntry[]> {
+	const scopes = await Promise.all([
+		scanScope(roots.repoRoot, 'repo'),
+		scanScope(roots.homeDir, 'user'),
+	]);
 
 	const seen = new Set<string>();
 	const result: SkillEntry[] = [];
-
-	for (const [root, source] of byScope) {
-		const claude = path.join(root, '.claude');
-		const scoped = [
-			...scanSkillDir(path.join(claude, 'skills'), source),
-			...scanCommandDir(path.join(claude, 'commands'), source),
-		].sort((a, b) => a.name.localeCompare(b.name));
-
-		for (const entry of scoped) {
-			if (seen.has(entry.name)) continue;
-			seen.add(entry.name);
-			result.push(entry);
-		}
+	for (const entry of scopes.flat()) {
+		if (seen.has(entry.name)) continue;
+		seen.add(entry.name);
+		result.push(entry);
 	}
 
 	return result;
 }
+
+export type SkillSnapshot = {
+	/** The last completed scan for these roots, or undefined before one lands. */
+	current(roots: SkillRoots): SkillEntry[] | undefined;
+	refresh(roots: SkillRoots): Promise<SkillEntry[]>;
+};
+
+/**
+ * The last scan, kept across dialog opens so the prompt can offer completions
+ * on its first frame while a rescan picks up skills installed since.
+ */
+export function createSkillSnapshot(
+	discover: (roots: SkillRoots) => Promise<SkillEntry[]> = discoverSkills,
+): SkillSnapshot {
+	const keyFor = (roots: SkillRoots) => `${roots.repoRoot}\0${roots.homeDir}`;
+	let stored: {key: string; entries: SkillEntry[]} | undefined;
+	let inFlight: {key: string; promise: Promise<SkillEntry[]>} | undefined;
+
+	const current = (roots: SkillRoots) =>
+		stored?.key === keyFor(roots) ? stored.entries : undefined;
+
+	return {
+		current,
+		async refresh(roots) {
+			const key = keyFor(roots);
+			if (inFlight?.key === key) return inFlight.promise;
+
+			const promise: Promise<SkillEntry[]> = Promise.resolve()
+				.then(async () => discover(roots))
+				.then(entries => {
+					stored = {key, entries};
+					return entries;
+				})
+				.catch(() => current(roots) ?? [])
+				.finally(() => {
+					if (inFlight?.promise === promise) inFlight = undefined;
+				});
+			inFlight = {key, promise};
+			return promise;
+		},
+	};
+}
+
+export const skillSnapshot = createSkillSnapshot();
