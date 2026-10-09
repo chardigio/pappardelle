@@ -850,12 +850,12 @@ profiles:
 - `is_claude: false` works in reverse: a binary that happens to be named `claude` can opt out of the injections
 - Not gated: `initialization_command` (the positional prompt — every agent gets it) and the companion pane
 
-**Sessions and status.** The agent pane's tmux sessions are named `agent-{repo}-{key}` (renamed from the pre-STE-2 `claude-{repo}-{key}`; live legacy sessions are automatically renamed in place at startup and on attach). The profile a space was created or last picked with is persisted. When the TUI recreates a dead session, or `idow` reopens an existing space without `--profile`, it resolves the agent profile (and model/effort/companion) from that profile. Spaces that predate profile persistence fall back to issue-title keyword matching in the TUI and to `default_profile` in `idow`. The TUI's status rail is fed by Claude Code hooks, so non-claude agents show an `unknown` status icon — agent-aware status integration is tracked in STE-19.
+**Sessions and status.** The agent pane's tmux sessions are named `agent-{repo}-{key}` (renamed from the old `claude-{repo}-{key}`; live legacy sessions are automatically renamed in place at startup and on attach). The profile a space was created or last picked with is persisted. When the TUI recreates a dead session, or `idow` reopens an existing space without `--profile`, it resolves the agent profile (and model/effort/companion) from that profile. Spaces that predate profile persistence fall back to issue-title keyword matching in the TUI and to `default_profile` in `idow`. The TUI's status rail is fed by Claude Code hooks, so non-claude agents show an `unknown` status icon.
 
-Example codex launch, given the config above and issue STE-123:
+Example codex launch, given the config above and issue STA-123:
 
 ```
-codex --yolo -m gpt-5.5 -c model_reasoning_effort=high resume <recorded id> || <clear-error> || codex --yolo -m gpt-5.5 -c model_reasoning_effort=high '/idow STE-123'
+codex --yolo -m gpt-5.5 -c model_reasoning_effort=high resume <recorded id> || <clear-error> || codex --yolo -m gpt-5.5 -c model_reasoning_effort=high '/idow STA-123'
 ```
 
 ### Session resume

@@ -521,8 +521,8 @@ test('cleanupOrphanedInnerSessions handles a partial pair (only claude or compan
 // ============================================================================
 // migrateLegacyAgentSessions
 //
-// STE-2 renamed the agent-pane sessions from `claude-{repo}-{key}` to
-// `agent-{repo}-{key}`. Live pre-rename sessions are renamed in place at
+// The agent-pane sessions were renamed from `claude-{repo}-{key}` to
+// `agent-{repo}-{key}`. Live legacy sessions are renamed in place at
 // startup (a rename preserves panes and running processes) so an in-flight
 // conversation survives the upgrade instead of being orphaned or reaped.
 // ============================================================================

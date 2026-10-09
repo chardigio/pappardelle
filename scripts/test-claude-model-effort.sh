@@ -513,7 +513,7 @@ else
         *) assert_eq "codex line has no claude flags" "ok" "ok" ;;
     esac
 
-    # STE-2: empty resume args → launch-only, no fallback chain (the resolver
+    # Empty resume args → launch-only, no fallback chain (the resolver
     # sends "" for agents without resume_args; omitting the flag entirely
     # means claude defaults, i.e. --continue).
     LINE=$(iterm_command --agent-command codex --agent-args "--yolo" \

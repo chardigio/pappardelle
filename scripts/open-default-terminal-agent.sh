@@ -166,7 +166,7 @@ if [[ "$PRINT_COMMAND" == true ]]; then
     exit 0
 fi
 
-# A live pre-STE-2 claude-<REPO>-<KEY> session is the same space mid-upgrade.
+# A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade.
 # Rename it in place so `new-session -A` below attaches to it instead of
 # spawning a duplicate agent beside it. tmux may not be running yet; both
 # checks are best-effort. `=NAME` targets for the same reason
