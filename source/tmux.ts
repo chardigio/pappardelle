@@ -2331,7 +2331,7 @@ export async function ensureAgentSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 				...buildAgentSessionEnvArgs(
-					agentProfile.name,
+					agentProfile,
 					getSpaceStatePath(getRepoName(), issueKey),
 				),
 				...buildShellLaunchArgs(
