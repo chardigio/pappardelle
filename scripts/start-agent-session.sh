@@ -216,12 +216,16 @@ fi
 
 # Launches are handed to tmux as the pane's command rather than typed at a
 # prompt, so they never land in the user's shell history (pappardelle-2i0).
+# The trailing `:` stops the interactive shell from exec'ing its last command
+# in place, so it hands the terminal back when it exits. Without it, bash 3.2
+# (macOS /bin/sh and /bin/bash) starts the login shell outside the terminal's
+# foreground process group, where it spins at 100% CPU and never reads input.
 new_launch_session() {
     local session="$1" command="$2"
     shift 2
     # shellcheck disable=SC2016 # expanded by the inner sh, not here
     tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \
-        /bin/sh -c '"$1" -ic "$2"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+        /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
 }
 
 # A live pre-STE-2 claude-<REPO>-<KEY> session is the same space mid-upgrade.

@@ -22,7 +22,7 @@ function runWithStubShell(command: string): string[] {
 	const stub = join(dir, 'stub-shell');
 	writeFileSync(
 		stub,
-		`#!/bin/sh\nfor a in "$@"; do printf '<%s>' "$a"; done >> '${log}'\nprintf '\\n' >> '${log}'\n`,
+		`#!/bin/sh\nfor a in "$@"; do printf '<%s>' "$a"; done >> '${log}'\nprintf '\\0' >> '${log}'\n`,
 	);
 	chmodSync(stub, 0o755);
 
@@ -35,17 +35,17 @@ function runWithStubShell(command: string): string[] {
 		restoreShell(previousShell);
 	}
 
-	return readFileSync(log, 'utf-8').trim().split('\n');
+	return readFileSync(log, 'utf-8').split('\0').slice(0, -1);
 }
 
-test('runs the command verbatim in an interactive shell, then a login shell', t => {
+test('runs the command in an interactive shell, then a login shell', t => {
 	const command = `claude --model 'claude-opus-5[1m]' --continue || { printf '\\033[A'; false; }`;
-	t.deepEqual(runWithStubShell(command), [`<-ic><${command}>`, '<-l>']);
+	t.deepEqual(runWithStubShell(command), [`<-ic><${command}\n:>`, '<-l>']);
 });
 
 test('a trailing comment in the command does not swallow the login shell', t => {
 	t.deepEqual(runWithStubShell('gitui # my note'), [
-		'<-ic><gitui # my note>',
+		'<-ic><gitui # my note\n:>',
 		'<-l>',
 	]);
 });

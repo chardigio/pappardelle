@@ -283,10 +283,22 @@ export function shellQuote(value: string): string {
 /**
  * Argv that runs `command` as a tmux pane's process instead of typing it at a
  * prompt, so it never lands in the user's shell history (pappardelle-2i0).
+ *
+ * The trailing `:` stops the interactive shell from exec'ing its last command
+ * in place, so it hands the terminal back when it exits. Without it, bash 3.2
+ * (macOS /bin/sh and /bin/bash) starts the login shell outside the terminal's
+ * foreground process group, where it spins at 100% CPU and never reads input.
  */
 export function buildShellLaunchArgs(command: string): string[] {
 	const shell = process.env['SHELL'] || '/bin/sh';
-	return ['/bin/sh', '-c', '"$1" -ic "$2"; exec "$1" -l', 'sh', shell, command];
+	return [
+		'/bin/sh',
+		'-c',
+		'"$1" -ic "$2$(printf "\\n:")"; exec "$1" -l',
+		'sh',
+		shell,
+		command,
+	];
 }
 
 /**

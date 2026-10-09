@@ -334,7 +334,7 @@ on run argv
     set companionStart to tmuxL & " new-session -A -s '" & companionSession & "'"
     if companionCommand is not equal to "" then
         set companionAssign to "COMPANION_CMD=" & quoted form of companionCommand & "; "
-        set companionStart to companionStart & " /bin/sh -c '\"$1\" -ic \"$2\"; exec \"$1\" -l' sh \"${SHELL:-/bin/sh}\" \"$COMPANION_CMD\""
+        set companionStart to companionStart & " /bin/sh -c '\"$1\" -ic \"$2$(printf \"\\n:\")\"; exec \"$1\" -l' sh \"${SHELL:-/bin/sh}\" \"$COMPANION_CMD\""
     end if
     set companionLine to companionAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & companionStart
 

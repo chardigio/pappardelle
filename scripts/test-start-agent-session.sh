@@ -25,17 +25,35 @@ TEST_REPO="testrepo-$$"
 PAPPARDELLE_TMUX_SOCKET="pappardelle_inner_test_$$"
 export PAPPARDELLE_TMUX_SOCKET
 
+# Every server the run starts, on any -L name, lands in this directory, so the
+# exit trap can find them all: a test that aborts under `set -e` skips its own
+# kill-server. Kept short because tmux socket paths are limited to ~104 bytes.
+TMUX_TMPDIR=$(mktemp -d /tmp/pappardelle-test-tmux.XXXXXX)
+export TMUX_TMPDIR
+
+# shellcheck disable=SC2329  # invoked via trap
 cleanup() {
-    # Kill the per-run inner tmux server wholesale. Each test run uses a unique
-    # socket (pappardelle_inner_test_$$), so killing the server cleans up every
-    # session created during the run without touching the developer's real
-    # pappardelle_inner server.
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true
+    local socket pids pid
+    for socket in "$TMUX_TMPDIR"/tmux-*/*; do
+        [[ -S "$socket" ]] || continue
+        pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null || true)
+        tmux -S "$socket" kill-server 2>/dev/null || true
+        # A pane shell that never got the terminal ignores the SIGHUP from
+        # kill-server and keeps running as an orphan, so make sure.
+        for pid in $pids; do
+            pkill -9 -P "$pid" 2>/dev/null || true
+            kill -9 "$pid" 2>/dev/null || true
+        done
+    done
+    rm -rf "$TMUX_TMPDIR"
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
         rm -rf "$TMPDIR_ROOT"
     fi
 }
 trap cleanup EXIT
+# bash skips the EXIT trap when a signal kills it.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 assert_eq() {
     local test_name="$1"
@@ -504,6 +522,9 @@ WORKTREE_PATH9="$TMPDIR_ROOT/worktree9"
 CODEX_HOME="$TMPDIR_ROOT/codex-home"
 ARGV_LOG9="$TMPDIR_ROOT/codex-argv.log"
 mkdir -p "$WORKTREE_PATH9" "$CODEX_HOME"
+# An empty rc keeps zsh's first-run wizard from taking over the interactive
+# shell that runs the launch.
+touch "$CODEX_HOME/.zshrc"
 cat > "$SHIM_DIR/codex" <<SHIM
 #!/bin/bash
 printf '%s\n' "\$*" >> "$ARGV_LOG9"
@@ -512,8 +533,7 @@ SHIM
 chmod +x "$SHIM_DIR/codex"
 
 SHIM_SOCKET9="pappardelle_inner_shim9_$$"
-# An empty HOME makes an interactive zsh stop at zsh-newuser-install.
-SHELL=/bin/sh PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
+PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
     "$SCRIPT_DIR/start-agent-session.sh" \
     --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
     --skip-permissions --model sonnet --effort high \
@@ -553,7 +573,7 @@ SHIM
 chmod +x "$SHIM_DIR/codex"
 
 SHIM_SOCKET10="pappardelle_inner_shim10_$$"
-SHELL=/bin/sh PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET10" \
+PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET10" \
     "$SCRIPT_DIR/start-agent-session.sh" \
     --issue-key "$ISSUE_KEY10" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH10" \
     --init-cmd "/idow" \
@@ -734,6 +754,43 @@ else
     PASS=$((PASS + 1))
 fi
 tmux -L "$SHIM_SOCKET14" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
+# macOS /bin/sh and /bin/bash are bash 3.2. If the launch leaves the terminal
+# with the launch's process group, the login shell that follows never gets the
+# foreground: it spins at 100% CPU without reading input and outlives
+# kill-server as an orphan.
+echo -e "\n${BOLD}Test: a bash pane is a working shell after the launch exits${RESET}"
+ISSUE_KEY15="${TEST_PREFIX}-1500"
+WORKTREE_PATH15="$TMPDIR_ROOT/worktree15"
+ARGV_LOG15="$TMPDIR_ROOT/codex-argv-15.log"
+mkdir -p "$WORKTREE_PATH15"
+cat > "$SHIM_DIR/codex" <<SHIM
+#!/bin/bash
+printf '%s\n' "\$*" >> "$ARGV_LOG15"
+exit 0
+SHIM
+chmod +x "$SHIM_DIR/codex"
+
+SHIM_SOCKET15="pappardelle_inner_shim15_$$"
+SHELL=/bin/bash PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET15" \
+    "$SCRIPT_DIR/start-agent-session.sh" \
+    --issue-key "$ISSUE_KEY15" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH15" \
+    --companion-command "/usr/bin/true" \
+    --agent-command codex --agent-args "--yolo" --agent-resume-args "" --agent-is-claude false \
+    2>/dev/null
+
+wait_for_file "$ARGV_LOG15" || true
+for kind in agent companion; do
+    REPLY_FILE="$TMPDIR_ROOT/bash-reply-$kind"
+    tmux -L "$SHIM_SOCKET15" send-keys -t "=${kind}-${TEST_REPO}-${ISSUE_KEY15}:" -l "echo ok > $(printf '%q' "$REPLY_FILE")"
+    tmux -L "$SHIM_SOCKET15" send-keys -t "=${kind}-${TEST_REPO}-${ISSUE_KEY15}:" Enter
+    wait_for_file "$REPLY_FILE" || true
+    assert_eq "$kind pane answers input" "ok" "$(cat "$REPLY_FILE" 2>/dev/null)"
+done
+
+tmux -L "$SHIM_SOCKET15" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
