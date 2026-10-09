@@ -8,7 +8,7 @@
 #   agent-<REPO>-<KEY>      — runs the configured agent (default: Claude Code)
 #   companion-<REPO>-<KEY>  — runs the companion command (default: gitui; see --companion-command)
 #
-# Idempotent: if sessions already exist, does nothing. A live pre-STE-2
+# Idempotent: if sessions already exist, does nothing. A live legacy
 # claude-<REPO>-<KEY> session is renamed to the agent- name instead of being
 # duplicated, preserving its running conversation.
 # --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
@@ -216,7 +216,7 @@ new_launch_session() {
         /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
 }
 
-# A live pre-STE-2 claude-<REPO>-<KEY> session is the same space mid-upgrade.
+# A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade.
 # Rename it in place (panes and running processes survive a rename) rather
 # than spawning a duplicate agent beside it.
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/null \
