@@ -84,6 +84,7 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 
 const subcommands = {
 	restart: {
+		usage: 'pappardelle restart [--hard [--yes]]',
 		flags: ['--hard', '--yes'],
 		help: `
 	Usage
@@ -100,6 +101,7 @@ const subcommands = {
 `,
 	},
 	update: {
+		usage: 'pappardelle update [--restart-tuis | --no-restart-tuis]',
 		flags: ['--restart-tuis', '--no-restart-tuis'],
 		help: `
 	Usage
@@ -122,12 +124,12 @@ export type SubcommandGate =
 	| {action: 'reject'; message: string};
 
 // `restart` and `update` act on running TUIs, so a flag they don't know must
-// stop them: meow only answers --help when it is the sole argument and
-// otherwise ignores unknown flags, which let `restart --help` restart.
+// stop them. meow only answers --help when it is the sole argument and
+// otherwise ignores unknown flags.
 export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	const name = argv[0];
 	if (name !== 'restart' && name !== 'update') return {action: 'run'};
-	const {flags, help} = subcommands[name];
+	const {usage, flags, help} = subcommands[name];
 	const given = argv.slice(1).filter(arg => arg.startsWith('-'));
 	if (given.some(arg => arg === '--help' || arg === '-h')) {
 		return {action: 'help', text: help};
@@ -139,7 +141,7 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	if (unknown !== undefined) {
 		return {
 			action: 'reject',
-			message: `Unknown flag ${unknown} for pappardelle ${name}\n${help}`,
+			message: `Unknown flag ${unknown} for pappardelle ${name}\nUsage: ${usage}\nRun pappardelle ${name} --help for details`,
 		};
 	}
 

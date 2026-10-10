@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {
+	clearDeadRestartLock,
 	readTuiMarker,
 	restartLockPath,
 	tryRestartLock,
@@ -74,4 +75,31 @@ test('a lock held by a dead process, or unreadable, is taken over', t => {
 
 	fs.writeFileSync(restartLockPath(dir, 'app'), 'garbage');
 	t.true(tryRestartLock(dir, 'app', () => true).held);
+});
+
+test('a lock that cannot be created says why instead of throwing', t => {
+	const dir = root();
+	fs.writeFileSync(path.join(dir, 'app'), 'not a directory');
+
+	const lock = tryRestartLock(dir, 'app');
+
+	t.false(lock.held);
+	t.regex(lock.held ? '' : (lock.error ?? ''), /^E(EXIST|NOTDIR)/);
+});
+
+test("a starting TUI clears its predecessor's lock but not a live restart's", t => {
+	const dir = root();
+	fs.mkdirSync(path.join(dir, 'app'));
+	const file = restartLockPath(dir, 'app');
+
+	fs.writeFileSync(file, '777\n');
+	clearDeadRestartLock(dir, 'app', () => true);
+	t.true(fs.existsSync(file));
+
+	clearDeadRestartLock(dir, 'app', () => false);
+	t.false(fs.existsSync(file));
+
+	t.notThrows(() => {
+		clearDeadRestartLock(dir, 'app');
+	});
 });

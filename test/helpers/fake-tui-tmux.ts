@@ -17,19 +17,24 @@ export const REFUSAL = "can't find pane: %9";
 
 const repoOf = (session: string) => session.replace(/^pappardelle-/, '');
 
-// A default tmux server holding `sessions`, each with its TUI in pane %<index>.
+// A default tmux server holding `sessions`. Each window lists pane %<index>
+// first; `tuiPane` names a later pane for a TUI whose panes were rearranged.
 export function fakeTuiTmux(options: {
 	repoStateRoot: string;
 	sessions?: string[];
 	listFails?: boolean;
 	behavior?: Record<string, FakeTuiBehavior>;
+	tuiPane?: Record<string, string>;
 }): {tmux: OuterTmuxRunner; calls: string[][]} {
 	const sessions = options.sessions ?? [];
 	const calls: string[][] = [];
 	const paneOf = (session: string) => `%${sessions.indexOf(session)}`;
+	const sessionOf = (paneId: string) =>
+		sessions.find(
+			name => paneOf(name) === paneId || options.tuiPane?.[name] === paneId,
+		)!;
 	const behaviorOf = (paneId: string): FakeTuiBehavior =>
-		options.behavior?.[sessions.find(name => paneOf(name) === paneId)!] ??
-		'ready';
+		options.behavior?.[sessionOf(paneId)] ?? 'ready';
 
 	const tmux: OuterTmuxRunner = args => {
 		calls.push([...args]);
@@ -42,7 +47,10 @@ export function fakeTuiTmux(options: {
 
 			case 'list-panes': {
 				const session = args[2]!.replace(/^=(.*):\^$/, '$1');
-				return {status: 0, stdout: `${paneOf(session)}\n%90\n%91\n`};
+				return {
+					status: 0,
+					stdout: `${paneOf(session)}\n${options.tuiPane?.[session] ?? '%90'}\n%91\n`,
+				};
 			}
 
 			case 'kill-pane': {
@@ -53,7 +61,7 @@ export function fakeTuiTmux(options: {
 				}
 
 				if (behavior === 'ready' || typeof behavior === 'object') {
-					const session = sessions.find(name => paneOf(name) === paneId)!;
+					const session = sessionOf(paneId);
 					writeTuiMarker(options.repoStateRoot, repoOf(session), {
 						pid: 4242,
 						cliPath:

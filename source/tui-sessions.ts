@@ -36,11 +36,14 @@ export function listRunningTuis(
 		return [];
 	}
 
-	const repoBySession = new Map(
-		repos.flatMap(repo =>
+	// Two repos can claim one session name once tmux's rewriting is allowed
+	// for (`my.app` and `my_app`); the repo named exactly like the session wins.
+	const repoBySession = new Map([
+		...repos.flatMap(repo =>
 			tuiSessionNames(repo).map(session => [session, repo] as const),
 		),
-	);
+		...repos.map(repo => [outerSessionName(repo), repo] as const),
+	]);
 	return listSessionNames(tmux).flatMap(session => {
 		const repo = repoBySession.get(session);
 		return repo === undefined ? [] : [{session, repo}];
@@ -69,16 +72,20 @@ function tmuxFailure(result: ReturnType<OuterTmuxRunner>): string {
 	);
 }
 
-type PaneLookup = {ok: true; paneId: string} | {ok: false; reason: string};
+type PaneOutcome = {ok: true; paneId: string} | {ok: false; reason: string};
 
 // The pane the TUI itself runs in. `=name:` is an exact session match (a bare
 // name falls back to prefix matching and reads `.` as a pane separator), and
 // `^` is the session's lowest-numbered window, where new-session put the TUI.
-// The viewers are split off the TUI's pane, so it is listed first.
+// The TUI's ready marker names its pane; the user may have swapped panes
+// since. Without a marker for a pane still in that window (a TUI from before
+// markers existed), the first pane is the best guess: the viewers are split
+// off the TUI's pane.
 export function tuiListPane(
 	sessionName: string,
 	tmux: OuterTmuxRunner = defaultServerTmuxRunner,
-): PaneLookup {
+	markerPaneId: string | null = null,
+): PaneOutcome {
 	const result = tmux([
 		'list-panes',
 		'-t',
@@ -90,7 +97,14 @@ export function tuiListPane(
 		return {ok: false, reason: tmuxFailure(result)};
 	}
 
-	const paneId = result.stdout.split('\n')[0]?.trim();
+	const panes = result.stdout
+		.split('\n')
+		.map(pane => pane.trim())
+		.filter(Boolean);
+	const paneId =
+		markerPaneId !== null && panes.includes(markerPaneId)
+			? markerPaneId
+			: panes[0];
 	return paneId
 		? {ok: true, paneId}
 		: {ok: false, reason: `${sessionName} has no panes`};
@@ -116,17 +130,22 @@ export function restartTuiArgs(paneId: string, command: string): string[] {
 	];
 }
 
-export function restartTuiPane(
-	sessionName: string,
+function restartPane(
+	paneId: string,
 	command: string,
-	tmux: OuterTmuxRunner = defaultServerTmuxRunner,
-): PaneLookup {
-	const pane = tuiListPane(sessionName, tmux);
-	if (!pane.ok) return pane;
-	const result = tmux(restartTuiArgs(pane.paneId, command));
+	tmux: OuterTmuxRunner,
+): PaneOutcome {
+	const result = tmux(restartTuiArgs(paneId, command));
 	return result.error || result.status !== 0
 		? {ok: false, reason: tmuxFailure(result)}
-		: pane;
+		: {ok: true, paneId};
+}
+
+function lockRefusal(lock: {holder: number | null; error?: string}): string {
+	if (lock.error !== undefined) return lock.error;
+	return lock.holder === null
+		? 'another restart is still running'
+		: `another restart (pid ${lock.holder}) is still running`;
 }
 
 // Respawning the session this process runs in may end this process (when it
@@ -201,9 +220,8 @@ function sameFile(a: string, b: string): boolean {
 	}
 }
 
-// Restarts one TUI on `command` and waits for it to report ready. With an
-// `expectedCliPath`, a TUI that comes up on any other cli.js is a failure.
-// Prints the outcome and returns whether the TUI is confirmed running.
+// With an `expectedCliPath`, a TUI that comes up on any other cli.js is a
+// failure. Returns whether the TUI is confirmed running.
 export async function restartAndVerifyTui(
 	tui: RunningTui,
 	command: string,
@@ -214,10 +232,8 @@ export async function restartAndVerifyTui(
 	const lockDeadline = Date.now() + timing.lockTimeoutMs;
 	let lock = tryRestartLock(deps.repoStateRoot, tui.repo);
 	while (!lock.held) {
-		if (Date.now() >= lockDeadline) {
-			deps.print(
-				`Couldn't restart ${tui.session}: another restart (pid ${lock.holder}) is still running`,
-			);
+		if (lock.error !== undefined || Date.now() >= lockDeadline) {
+			deps.print(`Couldn't restart ${tui.session}: ${lockRefusal(lock)}`);
 			return false;
 		}
 
@@ -228,7 +244,14 @@ export async function restartAndVerifyTui(
 	try {
 		deps.print(`Restarting ${tui.session}`);
 		const since = Date.now();
-		const restarted = restartTuiPane(tui.session, command, deps.tmux);
+		const pane = tuiListPane(
+			tui.session,
+			deps.tmux,
+			readTuiMarker(deps.repoStateRoot, tui.repo)?.paneId,
+		);
+		const restarted = pane.ok
+			? restartPane(pane.paneId, command, deps.tmux)
+			: pane;
 		if (!restarted.ok) {
 			deps.print(`Couldn't restart ${tui.session}: ${restarted.reason}`);
 			return false;
@@ -336,15 +359,11 @@ function sleepSync(ms: number): void {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export type RestartOwnTuiDeps = {
-	tmux: OuterTmuxRunner;
-	repoStateRoot: string;
+export type RestartOwnTuiDeps = RestartTuiDeps & {
 	currentSession: () => string | null;
 	killSession: (sessionName: string) => void;
-	print: (line: string) => void;
 	waitForKey: () => void;
 	sleep?: (ms: number) => void;
-	timing?: Partial<RestartTiming>;
 };
 
 // The TUI restarting itself after U's install. A successful restart ends this
@@ -352,8 +371,17 @@ export type RestartOwnTuiDeps = {
 // Only this TUI's own session qualifies: another terminal may run the same
 // repo's TUI, and a TUI started inside the user's own tmux session has no pane
 // to rerun, so that one closes its layout instead.
+//
+// When the restart is refused, the session is closed once the user has read
+// why: left open it would hold only the viewers, and the next `pappardelle`
+// would attach to it instead of starting a TUI.
 export function restartOwnTui(
-	options: {repoName: string; command: string; hasPaneLayout: boolean},
+	options: {
+		repoName: string;
+		paneId: string;
+		command: string;
+		hasPaneLayout: boolean;
+	},
 	deps: RestartOwnTuiDeps,
 ): void {
 	const current = deps.currentSession();
@@ -372,21 +400,19 @@ export function restartOwnTui(
 	const sleep = deps.sleep ?? sleepSync;
 	const deadline = Date.now() + timing.lockTimeoutMs;
 	let lock = tryRestartLock(deps.repoStateRoot, options.repoName);
-	while (!lock.held && Date.now() < deadline) {
+	while (!lock.held && lock.error === undefined && Date.now() < deadline) {
 		sleep(timing.pollMs);
 		lock = tryRestartLock(deps.repoStateRoot, options.repoName);
 	}
 
-	const result: PaneLookup = lock.held
-		? restartTuiPane(current, options.command, deps.tmux)
-		: {
-				ok: false,
-				reason: `another restart (pid ${lock.holder}) is still running`,
-			};
+	const result: PaneOutcome = lock.held
+		? restartPane(options.paneId, options.command, deps.tmux)
+		: {ok: false, reason: lockRefusal(lock)};
 	if (result.ok) return;
 	if (lock.held) lock.release();
 	deps.print(
 		`Couldn't restart: ${result.reason}. Relaunch with pappardelle.\nPress any key to close.`,
 	);
 	deps.waitForKey();
+	deps.killSession(current);
 }

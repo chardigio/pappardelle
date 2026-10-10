@@ -36,11 +36,13 @@ test('restart and update reject flags that are not theirs', t => {
 		const gate = subcommandGate(argv);
 		t.is(gate.action, 'reject');
 		if (gate.action === 'reject') {
-			t.true(
-				gate.message.startsWith(
-					`Unknown flag ${flag} for pappardelle ${argv[0]}`,
-				),
-			);
+			t.deepEqual(gate.message.split('\n'), [
+				`Unknown flag ${flag} for pappardelle ${argv[0]}`,
+				argv[0] === 'restart'
+					? 'Usage: pappardelle restart [--hard [--yes]]'
+					: 'Usage: pappardelle update [--restart-tuis | --no-restart-tuis]',
+				`Run pappardelle ${argv[0]} --help for details`,
+			]);
 		}
 	}
 });

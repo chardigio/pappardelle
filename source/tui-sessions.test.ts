@@ -39,12 +39,18 @@ const COMMAND = "'/node' '/build/dist/cli.js'";
 function setup(
 	sessions: string[],
 	behavior: Parameters<typeof fakeTuiTmux>[0]['behavior'] = {},
+	tuiPane: Record<string, string> = {},
 ) {
 	const root = repoStateRoot(
 		sessions.map(name => name.replace(/^pappardelle-/, '')),
 	);
 	const printed: string[] = [];
-	const {tmux, calls} = fakeTuiTmux({repoStateRoot: root, sessions, behavior});
+	const {tmux, calls} = fakeTuiTmux({
+		repoStateRoot: root,
+		sessions,
+		behavior,
+		tuiPane,
+	});
 	return {
 		root,
 		calls,
@@ -91,6 +97,23 @@ test('a dotted repo name matches with or without tmux rewriting the dot', t => {
 		{session: 'pappardelle-my_repo', repo: 'my.repo'},
 		{session: 'pappardelle-next.js', repo: 'next.js'},
 	]);
+});
+
+test('when two repos could own a session, the one named exactly like it does', t => {
+	for (const repos of [
+		['my.app', 'my_app'],
+		['my_app', 'my.app'],
+	]) {
+		const root = repoStateRoot(repos);
+		const {tmux} = fakeTuiTmux({
+			repoStateRoot: root,
+			sessions: ['pappardelle-my_app'],
+		});
+		// Readdir order is the filesystem's; neither order may change the answer.
+		t.deepEqual(listRunningTuis(tmux, root), [
+			{session: 'pappardelle-my_app', repo: 'my_app'},
+		]);
+	}
 });
 
 test("a restart closes the viewers and reruns the command in the TUI's own pane", async t => {
@@ -183,6 +206,79 @@ test('a marker left by the previous TUI does not count as ready', async t => {
 	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
 });
 
+test("a marker written from another pane does not count as this TUI's", async t => {
+	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
+	setTimeout(() => {
+		fs.writeFileSync(
+			path.join(h.root, 'app', 'tui.json'),
+			JSON.stringify({
+				pid: 1,
+				cliPath: FAKE_CLI_PATH,
+				sha: FAKE_SHA,
+				paneId: '%7',
+				startedAt: Date.now(),
+			}),
+		);
+	}, 30);
+
+	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
+	t.true(h.printed.at(-1)!.startsWith('pappardelle-app did not report ready'));
+});
+
+test('a TUI whose panes were rearranged is restarted in the pane its marker names', async t => {
+	const h = setup(['pappardelle-app'], {}, {'pappardelle-app': '%5'});
+	fs.writeFileSync(
+		path.join(h.root, 'app', 'tui.json'),
+		JSON.stringify({
+			pid: 1,
+			cliPath: FAKE_CLI_PATH,
+			sha: FAKE_SHA,
+			paneId: '%5',
+			startedAt: Date.now() - 1000,
+		}),
+	);
+
+	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
+	t.deepEqual(
+		h.calls.filter(args => args[0] === 'kill-pane').map(args => args[3]),
+		['%5'],
+	);
+});
+
+test('a marker naming a pane that left the window falls back to the first pane', async t => {
+	const h = setup(['pappardelle-app']);
+	fs.writeFileSync(
+		path.join(h.root, 'app', 'tui.json'),
+		JSON.stringify({
+			pid: 1,
+			cliPath: FAKE_CLI_PATH,
+			sha: FAKE_SHA,
+			paneId: '%44',
+			startedAt: Date.now() - 1000,
+		}),
+	);
+
+	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
+	t.deepEqual(
+		h.calls.filter(args => args[0] === 'kill-pane').map(args => args[3]),
+		['%0'],
+	);
+});
+
+test('a state dir the lock cannot be created in fails at once with the reason', async t => {
+	const h = setup(['pappardelle-app']);
+	fs.rmSync(path.join(h.root, 'app'), {recursive: true});
+	fs.writeFileSync(path.join(h.root, 'app'), 'not a directory');
+	h.deps.timing = {...FAST, lockTimeoutMs: 60_000};
+
+	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
+	t.regex(
+		h.printed.at(-1)!,
+		/^Couldn't restart pappardelle-app: E(EXIST|NOTDIR)/,
+	);
+	t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
+});
+
 test('a second restart waits for the first instead of overlapping it', async t => {
 	const h = setup(['pappardelle-app']);
 	fs.writeFileSync(restartLockPath(h.root, 'app'), `${process.pid}\n`);
@@ -243,50 +339,79 @@ function ownHarness(
 		behavior?: Parameters<typeof fakeTuiTmux>[0]['behavior'];
 	} = {},
 ) {
-	const h = setup(['pappardelle-app'], options.behavior);
-	const killed: string[] = [];
-	let keyWaits = 0;
+	const h = setup(['pappardelle-app'], options.behavior, {
+		'pappardelle-app': '%3',
+	});
+	// Key waits and session kills, in the order they happened.
+	const events: string[] = [];
 	return {
 		...h,
-		killed,
-		keyWaits: () => keyWaits,
+		events,
 		deps: {
 			...h.deps,
 			currentSession: () =>
 				options.current === undefined ? 'pappardelle-app' : options.current,
 			killSession(name: string) {
-				killed.push(name);
+				events.push(`kill ${name}`);
 			},
 			waitForKey() {
-				keyWaits++;
+				events.push('wait for key');
 			},
 			sleep() {},
 		},
 	};
 }
 
-const own = {repoName: 'app', command: COMMAND, hasPaneLayout: true};
+const own = {
+	repoName: 'app',
+	paneId: '%3',
+	command: COMMAND,
+	hasPaneLayout: true,
+};
 
 test('U reruns its own pane and leaves the lock for the next restart to clear', t => {
 	const h = ownHarness();
 
 	restartOwnTui(own, h.deps);
 
-	t.deepEqual(restarted(h.calls, ['pappardelle-app']), ['pappardelle-app']);
-	t.deepEqual(h.killed, []);
-	t.is(h.keyWaits(), 0);
+	t.deepEqual(h.calls, [
+		[
+			'kill-pane',
+			'-a',
+			'-t',
+			'%3',
+			';',
+			'respawn-pane',
+			'-k',
+			'-t',
+			'%3',
+			COMMAND,
+		],
+	]);
+	t.deepEqual(h.events, []);
 	t.true(fs.existsSync(restartLockPath(h.root, 'app')));
 });
 
-test('U shows why tmux refused and waits for a key instead of killing the session', t => {
+test('U shows why tmux refused, waits for a key, then closes the TUI-less session', t => {
 	const h = ownHarness({behavior: {'pappardelle-app': 'refused'}});
 
 	restartOwnTui(own, h.deps);
 
-	t.deepEqual(h.killed, []);
-	t.is(h.keyWaits(), 1);
 	t.true(h.printed.at(-1)!.startsWith(`Couldn't restart: ${REFUSAL}.`));
+	t.deepEqual(h.events, ['wait for key', 'kill pappardelle-app']);
 	t.false(fs.existsSync(restartLockPath(h.root, 'app')));
+});
+
+test('U that cannot create its lock reports that and restarts nothing', t => {
+	const h = ownHarness();
+	fs.rmSync(path.join(h.root, 'app'), {recursive: true});
+	fs.writeFileSync(path.join(h.root, 'app'), 'not a directory');
+
+	restartOwnTui(own, h.deps);
+
+	t.regex(h.printed.at(-1)!, /^Couldn't restart: E(EXIST|NOTDIR)/);
+	t.deepEqual(h.calls, []);
+	t.deepEqual(h.events, ['wait for key', 'kill pappardelle-app']);
 });
 
 test("U inside the user's own tmux session closes the layout and restarts nothing", t => {
@@ -294,8 +419,8 @@ test("U inside the user's own tmux session closes the layout and restarts nothin
 
 	restartOwnTui(own, h.deps);
 
-	t.deepEqual(h.killed, ['pappardelle-app']);
-	t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
+	t.deepEqual(h.events, ['kill pappardelle-app']);
+	t.deepEqual(h.calls, []);
 });
 
 test('U without a pane layout leaves tmux alone', t => {
@@ -303,7 +428,7 @@ test('U without a pane layout leaves tmux alone', t => {
 
 	restartOwnTui({...own, hasPaneLayout: false}, h.deps);
 
-	t.deepEqual(h.killed, []);
+	t.deepEqual(h.events, []);
 	t.deepEqual(h.calls, []);
 });
 

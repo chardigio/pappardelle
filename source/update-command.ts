@@ -26,7 +26,8 @@ export type UpdateCommandDeps = {
 	runInstaller: () => number;
 	tmux: OuterTmuxRunner;
 	repoStateRoot: string;
-	launchCommand: string;
+	// Read after the install, which is what creates or re-pins the shim.
+	launchCommand: () => string;
 	timing?: Partial<RestartTiming>;
 	currentSession: () => string | null;
 	isTTY: boolean;
@@ -71,7 +72,7 @@ export async function runUpdateCommand(
 		return 0;
 	}
 
-	const failed = await restartTuis(running, deps.launchCommand, deps);
+	const failed = await restartTuis(running, deps.launchCommand(), deps);
 	if (failed.length === 0) return 0;
 	deps.print(
 		`Pappardelle is updated, but ${failed.join(', ')} ${
@@ -90,11 +91,12 @@ export function defaultUpdateCommandDeps(
 		runInstaller: () => runUpdateScript({waitOnFailure: false}),
 		tmux: defaultServerTmuxRunner,
 		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
-		launchCommand: installedLaunchCommand({
-			execPath: process.execPath,
-			cliPath: path.resolve(process.argv[1] ?? ''),
-			home: homedir(),
-		}),
+		launchCommand: () =>
+			installedLaunchCommand({
+				execPath: process.execPath,
+				cliPath: path.resolve(process.argv[1] ?? ''),
+				home: homedir(),
+			}),
 		currentSession: () => currentDefaultServerSession(process.env),
 		isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
 		async confirm(question) {

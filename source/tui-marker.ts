@@ -87,16 +87,39 @@ function processIsAlive(pid: number): boolean {
 	}
 }
 
+// `holder` is null when the lock exists but its pid can't be read. `error` is
+// set when the lock file can't be created at all, which no wait will fix.
 export type RestartLock =
 	| {held: true; release: () => void}
-	| {held: false; holder: number};
+	| {held: false; holder: number | null; error?: string};
 
-// One attempt. A lock left by a process that has died (a TUI restarting itself
-// dies in its own respawn) is taken over.
+function readLockHolder(file: string): number | null {
+	const holder = Number.parseInt(readFileSync(file, 'utf8'), 10);
+	return Number.isInteger(holder) ? holder : null;
+}
+
+// A lock left by a process that has died (a TUI restarting itself dies in its
+// own respawn) is taken over.
 export function tryRestartLock(
 	repoStateRoot: string,
 	repo: string,
 	isAlive: (pid: number) => boolean = processIsAlive,
+): RestartLock {
+	try {
+		return acquireRestartLock(repoStateRoot, repo, isAlive);
+	} catch (error) {
+		return {
+			held: false,
+			holder: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+function acquireRestartLock(
+	repoStateRoot: string,
+	repo: string,
+	isAlive: (pid: number) => boolean,
 ): RestartLock {
 	const file = restartLockPath(repoStateRoot, repo);
 	mkdirSync(path.dirname(file), {recursive: true});
@@ -117,15 +140,15 @@ export function tryRestartLock(
 			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 		}
 
-		let holder: number;
+		let holder: number | null;
 		try {
-			holder = Number.parseInt(readFileSync(file, 'utf8'), 10);
+			holder = readLockHolder(file);
 		} catch {
 			// Released between the write and the read.
 			continue;
 		}
 
-		if (Number.isInteger(holder) && isAlive(holder)) {
+		if (holder !== null && isAlive(holder)) {
 			return {held: false, holder};
 		}
 
@@ -136,5 +159,23 @@ export function tryRestartLock(
 		}
 	}
 
-	return {held: false, holder: Number.NaN};
+	return {held: false, holder: null};
+}
+
+// A TUI that restarted itself (U) left its lock behind and could not release
+// it. The TUI that replaced it clears it at startup, so the lock doesn't sit
+// there until its pid is reused by some unrelated process. A lock whose holder
+// is alive belongs to a restart command still waiting on this TUI.
+export function clearDeadRestartLock(
+	repoStateRoot: string,
+	repo: string,
+	isAlive: (pid: number) => boolean = processIsAlive,
+): void {
+	const file = restartLockPath(repoStateRoot, repo);
+	try {
+		const holder = readLockHolder(file);
+		if (holder !== null && !isAlive(holder)) unlinkSync(file);
+	} catch {
+		// No lock, or it went away first.
+	}
 }

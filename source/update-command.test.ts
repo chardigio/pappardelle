@@ -65,7 +65,7 @@ function harness(
 			runInstaller: () => options.installerStatus ?? 0,
 			tmux,
 			repoStateRoot,
-			launchCommand: SHIM,
+			launchCommand: () => SHIM,
 			timing: FAST,
 			currentSession: () => options.currentSession ?? null,
 			isTTY: options.isTTY ?? false,
@@ -82,7 +82,7 @@ function harness(
 
 const SHIM = "'/home/me/.local/bin/pappardelle'";
 
-function respawned(h: Harness): string[] {
+function restartedTuis(h: Harness): string[] {
 	return restarted(h.tmuxCalls, h.sessions);
 }
 
@@ -110,7 +110,7 @@ test('only pappardelle sessions with a repo state dir count as running TUIs', as
 
 	await runUpdateCommand({restartTuis: true}, h.deps);
 
-	t.deepEqual(respawned(h), ['pappardelle-app', 'pappardelle-web']);
+	t.deepEqual(restartedTuis(h), ['pappardelle-app', 'pappardelle-web']);
 });
 
 test('--restart-tuis restarts the session running the command last', async t => {
@@ -121,7 +121,7 @@ test('--restart-tuis restarts the session running the command last', async t => 
 	});
 
 	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
-	t.deepEqual(respawned(h), [
+	t.deepEqual(restartedTuis(h), [
 		'pappardelle-web',
 		'pappardelle-api',
 		'pappardelle-app',
@@ -136,7 +136,7 @@ test('--no-restart-tuis leaves TUIs running and names them in a restart hint', a
 	});
 
 	t.is(await runUpdateCommand({restartTuis: false}, h.deps), 0);
-	t.deepEqual(respawned(h), []);
+	t.deepEqual(restartedTuis(h), []);
 	t.deepEqual(h.confirmCalls, []);
 	const hint = h.printed.at(-1)!;
 	t.true(hint.includes('pappardelle-app'));
@@ -155,7 +155,7 @@ test('on a TTY with no flag, a yes to the prompt restarts the TUIs', async t => 
 
 	t.is(h.confirmCalls.length, 1);
 	t.true(h.confirmCalls[0]!.startsWith('Restart 2 running Pappardelle TUIs'));
-	t.deepEqual(respawned(h), ['pappardelle-app', 'pappardelle-web']);
+	t.deepEqual(restartedTuis(h), ['pappardelle-app', 'pappardelle-web']);
 });
 
 test('on a TTY with no flag, a no to the prompt prints the hint instead', async t => {
@@ -169,7 +169,7 @@ test('on a TTY with no flag, a no to the prompt prints the hint instead', async 
 	await runUpdateCommand({}, h.deps);
 
 	t.is(h.confirmCalls.length, 1);
-	t.deepEqual(respawned(h), []);
+	t.deepEqual(restartedTuis(h), []);
 	t.true(h.printed.at(-1)!.includes('pappardelle-app'));
 });
 
@@ -183,7 +183,7 @@ test('without a TTY or a flag, it never prompts and prints the hint', async t =>
 	await runUpdateCommand({}, h.deps);
 
 	t.deepEqual(h.confirmCalls, []);
-	t.deepEqual(respawned(h), []);
+	t.deepEqual(restartedTuis(h), []);
 	t.true(h.printed.at(-1)!.includes('pappardelle-app'));
 });
 
@@ -199,7 +199,7 @@ test('a tmux server that is not running is treated as no TUIs', async t => {
 	const h = harness({listFails: true, repos: ['app']});
 
 	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
-	t.deepEqual(respawned(h), []);
+	t.deepEqual(restartedTuis(h), []);
 });
 
 test('the opening line names the version being replaced when known', async t => {
@@ -236,4 +236,18 @@ test('a TUI that fails to restart or report ready fails the update and is named'
 		summary.includes('pappardelle-app, pappardelle-api are not confirmed'),
 	);
 	t.false(summary.includes('pappardelle-web'));
+});
+
+test('the restart command is chosen after the install, which is what creates the shim', async t => {
+	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
+	let installed = false;
+	h.deps.runInstaller = () => {
+		installed = true;
+		return 0;
+	};
+	h.deps.launchCommand = () => (installed ? SHIM : "'/old/node' '/old/cli.js'");
+
+	await runUpdateCommand({restartTuis: true}, h.deps);
+
+	t.is(h.tmuxCalls.find(args => args[0] === 'kill-pane')!.at(-1), SHIM);
 });

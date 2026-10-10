@@ -23,7 +23,7 @@ import {
 	tuiLaunchCommand,
 	tuiListPane,
 } from './tui-sessions.ts';
-import {DEFAULT_REPO_STATE_ROOT} from './tui-marker.ts';
+import {DEFAULT_REPO_STATE_ROOT, readTuiMarker} from './tui-marker.ts';
 import {confirm} from './confirm.ts';
 
 // `pappardelle restart` reruns this repo's TUI in its pane, on the build that
@@ -107,7 +107,11 @@ export async function hardRestart(
 		// the kill and the restarts, and nothing is left to confirm them.
 		const restarts: string[][] = [];
 		for (const tui of running) {
-			const pane = tuiListPane(tui.session, deps.tmux);
+			const pane = tuiListPane(
+				tui.session,
+				deps.tmux,
+				readTuiMarker(deps.repoStateRoot, tui.repo)?.paneId,
+			);
 			if (pane.ok) {
 				restarts.push(restartTuiArgs(pane.paneId, deps.launchCommand));
 			} else {

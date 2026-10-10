@@ -20,7 +20,11 @@ import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
 import {installedLaunchCommand, restartOwnTui} from './tui-sessions.ts';
-import {DEFAULT_REPO_STATE_ROOT, writeTuiMarker} from './tui-marker.ts';
+import {
+	DEFAULT_REPO_STATE_ROOT,
+	clearDeadRestartLock,
+	writeTuiMarker,
+} from './tui-marker.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -395,6 +399,7 @@ export default function App({
 		restartOwnTui(
 			{
 				repoName,
+				paneId: process.env['TMUX_PANE'] ?? '',
 				command: installedLaunchCommand({
 					execPath: process.execPath,
 					cliPath: path.resolve(process.argv[1] ?? ''),
@@ -427,6 +432,7 @@ export default function App({
 		const paneId = process.env['TMUX_PANE'];
 		if (!initialPaneLayout || !paneId) return;
 		try {
+			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
 			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
 				pid: process.pid,
 				cliPath: path.resolve(process.argv[1] ?? ''),
