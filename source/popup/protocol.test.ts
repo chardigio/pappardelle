@@ -3,27 +3,26 @@ import {
 	createMessageDecoder,
 	encodeMessage,
 	type ChildMessage,
+	type HostMessage,
 } from './protocol.ts';
 
 test('a message split across chunks arrives once, whole', t => {
-	const received: ChildMessage[] = [];
-	const decode = createMessageDecoder<ChildMessage>(message => {
+	const received: HostMessage[] = [];
+	const decode = createMessageDecoder<HostMessage>(message => {
 		received.push(message);
 	});
-	const wire = encodeMessage({
-		type: 'submit',
-		submission: {prompt: 'fix it', profileName: null, inputIsIssueKey: false},
-	});
+	const message: HostMessage = {
+		type: 'errors',
+		errors: [
+			{timestamp: 't', level: 'error', component: 'app', message: 'boom'},
+		],
+	};
+	const wire = encodeMessage(message);
 
 	decode(wire.slice(0, 7));
 	t.deepEqual(received, []);
 	decode(wire.slice(7));
-	t.deepEqual(received, [
-		{
-			type: 'submit',
-			submission: {prompt: 'fix it', profileName: null, inputIsIssueKey: false},
-		},
-	]);
+	t.deepEqual(received, [message]);
 });
 
 test('several messages in one chunk arrive in order', t => {

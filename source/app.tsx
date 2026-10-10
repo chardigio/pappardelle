@@ -1052,17 +1052,7 @@ export default function App({
 				handleFocusClaude();
 			} else if (input === 'n') {
 				// 'n' for new session
-				showDialog(
-					{kind: 'prompt', props: {}},
-					{
-						onSubmit({prompt, profileName, inputIsIssueKey}) {
-							handleNewSession(prompt, profileName, inputIsIssueKey);
-						},
-					},
-					() => {
-						setShowPromptDialog(true);
-					},
-				);
+				setShowPromptDialog(true);
 			} else if (isCloseSpaceKey(input, key)) {
 				// Backspace, Delete, or 'x' closes the selected space
 				const space = spaces[selectedIndex];

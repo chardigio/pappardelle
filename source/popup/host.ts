@@ -11,17 +11,12 @@ import {
 	type ChildMessage,
 	type HostMessage,
 	type PopupSpec,
-	type PromptSubmission,
 } from './protocol.ts';
 import {popupSize, type ClientSize, type PopupSize} from './size.ts';
 
 const log = createLogger('popup');
 
-export type PopupOutcome =
-	| 'confirmed'
-	| 'submitted'
-	| 'cancelled'
-	| 'unavailable';
+export type PopupOutcome = 'confirmed' | 'cancelled' | 'unavailable';
 
 export type PopupHandlers = {
 	onConfirm?: () => void | PromiseLike<void>;
@@ -31,7 +26,6 @@ export type PopupHandlers = {
 	 * would otherwise cover.
 	 */
 	closeBeforeConfirm?: boolean;
-	onSubmit?: (submission: PromptSubmission) => void | PromiseLike<void>;
 	onClearErrors?: () => void;
 	subscribeErrors?: (push: (errors: LogEntry[]) => void) => () => void;
 };
@@ -209,12 +203,6 @@ export async function openPopup(
 						run('confirmed', onConfirm);
 					}
 
-					break;
-				}
-
-				case 'submit': {
-					const {submission} = message;
-					run('submitted', () => handlers.onSubmit?.(submission));
 					break;
 				}
 

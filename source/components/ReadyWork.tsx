@@ -14,8 +14,9 @@ import {
 	moveSelection,
 	selectionAfterRemoval,
 	visibleWindow,
-	MAX_VISIBLE_SUGGESTIONS,
 } from './ready-picker.ts';
+
+const MAX_VISIBLE_SUGGESTIONS = 8;
 
 const CLOSE_KEY = 'x';
 

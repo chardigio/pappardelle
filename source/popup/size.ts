@@ -1,8 +1,5 @@
 import widestLine from 'widest-line';
 import {buildHelpRows} from '../components/help-rows.ts';
-import {MAX_VISIBLE_SUGGESTIONS} from '../components/ready-picker.ts';
-import {PICKER_MAX_VISIBLE} from '../profile-picker.ts';
-import {SKILL_PICKER_MAX_VISIBLE} from '../skill-completion.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 import type {PopupSpec} from './protocol.ts';
 
@@ -16,20 +13,6 @@ const HORIZONTAL_CHROME = 6;
 const VERTICAL_CHROME = 4;
 const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
 const HELP_FOOTER = 'Press Esc, Enter, or ? to close';
-
-// The tallest the new-session dialog gets. tmux can't resize an open popup,
-// so it is sized for the worst case: the prompt box, a full ready list with
-// scroll markers and its hint, the taller of the two pickers with markers and
-// hint, and an error line.
-const PROMPT_BOX_ROWS = 11;
-const LIST_CHROME_ROWS = 2 + 2 + 1;
-const PROMPT_MAX_ROWS =
-	PROMPT_BOX_ROWS +
-	MAX_VISIBLE_SUGGESTIONS +
-	LIST_CHROME_ROWS +
-	Math.max(PICKER_MAX_VISIBLE, SKILL_PICKER_MAX_VISIBLE) +
-	LIST_CHROME_ROWS +
-	2;
 
 /**
  * Rows a string takes once Ink word-wraps it at `width` columns. Words longer
@@ -121,16 +104,6 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			return clamp(
 				{width: contentWidth + HORIZONTAL_CHROME, height},
 				{cols: client.cols, rows: client.rows - 2},
-			);
-		}
-
-		case 'prompt': {
-			return clamp(
-				{
-					width: fraction(client).width,
-					height: Math.min(PROMPT_MAX_ROWS, client.rows - 2),
-				},
-				client,
 			);
 		}
 

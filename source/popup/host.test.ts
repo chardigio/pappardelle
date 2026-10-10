@@ -226,31 +226,6 @@ test('closeBeforeConfirm runs the action only after the popup has exited', async
 	t.deepEqual(order, ['exit', 'confirm']);
 });
 
-test('a submitted prompt reaches the handler', async t => {
-	const tmux = fakeTmux();
-	const submitted: unknown[] = [];
-	const result = openPopup(
-		{kind: 'prompt', props: {}},
-		{
-			onSubmit(submission) {
-				submitted.push(submission);
-			},
-		},
-		deps(tmux.launch),
-	);
-	const child = await tmux.child;
-	await child.next('init');
-
-	const submission = {
-		prompt: 'bd-1',
-		profileName: 'default',
-		inputIsIssueKey: true,
-	};
-	child.send({type: 'submit', submission});
-	t.is(await result, 'submitted');
-	t.deepEqual(submitted, [submission]);
-});
-
 test('the errors popup gets live updates and can clear', async t => {
 	const tmux = fakeTmux();
 	let push!: (errors: never[]) => void;

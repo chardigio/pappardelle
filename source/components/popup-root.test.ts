@@ -2,7 +2,6 @@ import test from 'ava';
 import React from 'react';
 import {render} from 'ink-testing-library';
 import {setTimeout as delay} from 'node:timers/promises';
-import {viewIssue} from '../popup/issue-viewer.ts';
 import type {ChildMessage, HostMessage, PopupSpec} from '../popup/protocol.ts';
 import PopupRoot, {type PopupChannel} from './PopupRoot.tsx';
 
@@ -114,35 +113,5 @@ test.serial(
 		popup.view.stdin.write('c');
 		await until(() => popup.sent.length > 0);
 		t.deepEqual(popup.sent, [{type: 'clear-errors'}]);
-	},
-);
-
-test.serial(
-	'an issue opened from the prompt shows in place and Esc returns to the typed prompt',
-	async t => {
-		const popup = setup({kind: 'prompt', props: {}});
-		t.teardown(() => popup.view.unmount());
-		await delay(50);
-
-		popup.view.stdin.write('fix the rail');
-		await until(
-			() => popup.view.lastFrame()?.includes('fix the rail') ?? false,
-		);
-
-		t.true(await viewIssue(['printf', 'issue body line'], 'bd-9'));
-		await until(
-			() => popup.view.lastFrame()?.includes('issue body line') ?? false,
-			() => popup.view.lastFrame(),
-		);
-		t.false(popup.view.lastFrame()?.includes('New Session'));
-
-		popup.view.stdin.write('q');
-		await until(
-			() => popup.view.lastFrame()?.includes('New Session') ?? false,
-			() => popup.view.lastFrame(),
-		);
-		t.true(popup.view.lastFrame()?.includes('fix the rail'));
-		t.deepEqual(popup.sent, []);
-		t.is(popup.exits(), 0);
 	},
 );

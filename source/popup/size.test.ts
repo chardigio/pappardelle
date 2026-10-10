@@ -79,14 +79,3 @@ test('scrolling views take 80% of the client', t => {
 		{width: 160, height: 40},
 	);
 });
-
-test('the new-session popup fits its tallest layout, or the client less two rows', t => {
-	t.deepEqual(popupSize({kind: 'prompt', props: {}}, {cols: 200, rows: 80}), {
-		width: 160,
-		height: 37,
-	});
-	t.deepEqual(popupSize({kind: 'prompt', props: {}}, {cols: 100, rows: 24}), {
-		width: 80,
-		height: 22,
-	});
-});

@@ -20,22 +20,13 @@ export type ErrorsPopupProps = {errors: LogEntry[]};
 
 export type IssuePopupProps = {argv: string[]; title: string};
 
-export type PromptPopupProps = Record<string, never>;
-
 export type PopupSpec =
 	| {kind: 'confirm'; props: ConfirmPopupProps}
 	| {kind: 'help'; props: HelpPopupProps}
 	| {kind: 'errors'; props: ErrorsPopupProps}
-	| {kind: 'issue'; props: IssuePopupProps}
-	| {kind: 'prompt'; props: PromptPopupProps};
+	| {kind: 'issue'; props: IssuePopupProps};
 
 export type PopupKind = PopupSpec['kind'];
-
-export type PromptSubmission = {
-	prompt: string;
-	profileName: string | null;
-	inputIsIssueKey: boolean;
-};
 
 export type HostMessage =
 	| ({type: 'init'; env: Record<string, string>; cwd: string} & PopupSpec)
@@ -45,7 +36,6 @@ export type HostMessage =
 export type ChildMessage =
 	| {type: 'confirm'}
 	| {type: 'cancel'}
-	| {type: 'submit'; submission: PromptSubmission}
 	| {type: 'clear-errors'};
 
 export function encodeMessage(message: HostMessage | ChildMessage): string {

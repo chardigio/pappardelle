@@ -1,17 +1,10 @@
 import React, {useEffect, useState} from 'react';
 import {Box} from 'ink';
 import type {LogEntry} from '../logger.ts';
-import {setIssueViewer} from '../popup/issue-viewer.ts';
-import type {
-	ChildMessage,
-	HostMessage,
-	IssuePopupProps,
-	PopupSpec,
-} from '../popup/protocol.ts';
+import type {ChildMessage, HostMessage, PopupSpec} from '../popup/protocol.ts';
 import ConfirmDialog from './ConfirmDialog.tsx';
 import ErrorDialog from './ErrorDialog.tsx';
 import HelpOverlay from './HelpOverlay.tsx';
-import PromptDialog from './PromptDialog.tsx';
 import TextViewer from './TextViewer.tsx';
 
 export type PopupChannel = {
@@ -42,7 +35,6 @@ export default function PopupRoot({
 	const [errors, setErrors] = useState<LogEntry[]>(
 		spec.kind === 'errors' ? spec.props.errors : [],
 	);
-	const [nestedIssue, setNestedIssue] = useState<IssuePopupProps | null>(null);
 
 	useEffect(
 		() =>
@@ -51,17 +43,6 @@ export default function PopupRoot({
 				else if (message.type === 'errors') setErrors(message.errors);
 			}),
 		[channel, onExit],
-	);
-
-	// tmux shows one popup per client, so an issue opened from the new-session
-	// dialog's ready list is shown here, in place of the dialog.
-	useEffect(
-		() =>
-			setIssueViewer(async (argv, title) => {
-				setNestedIssue({argv, title});
-				return true;
-			}),
-		[],
 	);
 
 	const cancel = () => {
@@ -113,35 +94,6 @@ export default function PopupRoot({
 						height={height}
 						onClose={cancel}
 					/>
-				);
-			}
-
-			case 'prompt': {
-				return (
-					<>
-						<PromptDialog
-							availableWidth={width}
-							isSuspended={nestedIssue !== null}
-							onSubmit={(prompt, profileName, inputIsIssueKey) => {
-								channel.send({
-									type: 'submit',
-									submission: {prompt, profileName, inputIsIssueKey},
-								});
-							}}
-							onCancel={cancel}
-						/>
-						{nestedIssue && (
-							<TextViewer
-								argv={nestedIssue.argv}
-								title={nestedIssue.title}
-								width={width}
-								height={height}
-								onClose={() => {
-									setNestedIssue(null);
-								}}
-							/>
-						)}
-					</>
 				);
 			}
 		}
