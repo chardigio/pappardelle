@@ -31,11 +31,22 @@ import {
 import {
 	createLogger,
 	subscribeToErrors,
+	clearRecentErrors,
+	getRecentErrors,
 	setStderrTerminalPassthrough,
 	type LogEntry,
 } from './logger.ts';
 
 const log = createLogger('app');
+
+function deleteConfirmContent(space: SpaceData) {
+	return {
+		title: 'Close Space',
+		message: `Close space ${space.name}?`,
+		detail: 'The worktree and git branch will remain on disk.',
+		processingMessage: `Closing space ${space.name}…`,
+	};
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,6 +78,8 @@ import {
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {openIssueForKey} from './open-issue.ts';
+import {isPopupAvailable, openPopup, type PopupHandlers} from './popup/host.ts';
+import type {PopupSpec} from './popup/protocol.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
@@ -211,7 +224,9 @@ export default function App({
 	);
 	const [loading, setLoading] = useState(true);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
-	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+	// Snapshotted at keypress like killDoneTargets below, so the 10s poll can't
+	// move the selection onto a different space while the confirm is open.
+	const [deleteTarget, setDeleteTarget] = useState<SpaceData | null>(null);
 	// The batch of done/canceled spaces the `K` shortcut is asking about
 	// (STA-2111). Null means the dialog is closed. The list is snapshotted at
 	// keypress time rather than recomputed on render, because the 10s
@@ -227,7 +242,8 @@ export default function App({
 	);
 	const [headerMessage, setHeaderMessage] = useState('');
 	const headerGeneration = useRef(0);
-	const [errorCount, setErrorCount] = useState(0);
+	const [recentErrors, setRecentErrors] = useState<LogEntry[]>([]);
+	const errorCount = recentErrors.length;
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -421,7 +437,7 @@ export default function App({
 	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
 	const anyDialogOpen =
 		showPromptDialog ||
-		showDeleteConfirm ||
+		deleteTarget !== null ||
 		killDoneTargets !== null ||
 		showUpdateConfirm ||
 		showHelp ||
@@ -495,9 +511,7 @@ export default function App({
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
-		const unsubscribe = subscribeToErrors((errors: LogEntry[]) => {
-			setErrorCount(errors.length);
-		});
+		const unsubscribe = subscribeToErrors(setRecentErrors);
 		return unsubscribe;
 	}, []);
 
@@ -749,7 +763,9 @@ export default function App({
 			return;
 		}
 
-		setHeaderWithTimeout(openIssueForKey(space.name).message, 3000);
+		void openIssueForKey(space.name).then(result => {
+			setHeaderWithTimeout(result.message, 3000);
+		});
 	};
 
 	// Open the configured editor at the worktree path for the selected space
@@ -971,11 +987,40 @@ export default function App({
 
 	const railDialogState = {
 		showPromptDialog,
-		showDeleteConfirm,
+		showDeleteConfirm: deleteTarget !== null,
 		killDoneTargets,
 		showUpdateConfirm,
 		showHelp,
 		showErrorDialog,
+	};
+
+	// Only one popup at a time, and "at a time" lasts until its action has
+	// finished: a close confirmed in a popup keeps running its deinit hooks
+	// after the popup is gone, and a second x must not start another.
+	const popupBusy = useRef(false);
+	const showDialog = (
+		spec: PopupSpec,
+		handlers: PopupHandlers,
+		showInline: () => void,
+	) => {
+		if (!isPopupAvailable()) {
+			showInline();
+			return;
+		}
+
+		if (popupBusy.current) {
+			setHeaderWithTimeout('Still working on the last dialog', 2000);
+			return;
+		}
+
+		popupBusy.current = true;
+		void openPopup(spec, handlers)
+			.then(outcome => {
+				if (outcome === 'unavailable') showInline();
+			})
+			.finally(() => {
+				popupBusy.current = false;
+			});
 	};
 
 	// Handle keyboard input
@@ -1013,8 +1058,14 @@ export default function App({
 				const space = spaces[selectedIndex];
 				if (space?.isMainWorktree) {
 					setHeaderWithTimeout('Cannot close main worktree', 2000);
-				} else if (selectedIndex < spaces.length) {
-					setShowDeleteConfirm(true);
+				} else if (space) {
+					showDialog(
+						{kind: 'confirm', props: deleteConfirmContent(space)},
+						{onConfirm: async () => handleDeleteSpace(space)},
+						() => {
+							setDeleteTarget(space);
+						},
+					);
 				}
 			} else if (input === 'K') {
 				// Shift+K closes every done/canceled space at once (STA-2111).
@@ -1024,7 +1075,16 @@ export default function App({
 				if (targets.length === 0) {
 					setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
 				} else {
-					setKillDoneTargets(targets);
+					showDialog(
+						{
+							kind: 'confirm',
+							props: buildKillDoneConfirmContent(targets.length),
+						},
+						{onConfirm: async () => handleKillDoneSpaces(targets)},
+						() => {
+							setKillDoneTargets(targets);
+						},
+					);
 				}
 			} else
 				switch (input) {
@@ -1049,7 +1109,21 @@ export default function App({
 					}
 					case '?': {
 						// Show help overlay
-						setShowHelp(true);
+						showDialog(
+							{
+								kind: 'help',
+								props: {
+									customKeybindings: keybindings,
+									commitSha,
+									installedVersion,
+									isDevBuild,
+								},
+							},
+							{},
+							() => {
+								setShowHelp(true);
+							},
+						);
 
 						// Default behaviors for overridable keys (only reached if not custom-bound)
 
@@ -1077,7 +1151,16 @@ export default function App({
 					}
 					case 'e': {
 						if (errorCount > 0) {
-							setShowErrorDialog(true);
+							showDialog(
+								{kind: 'errors', props: {errors: getRecentErrors()}},
+								{
+									onClearErrors: clearRecentErrors,
+									subscribeErrors: subscribeToErrors,
+								},
+								() => {
+									setShowErrorDialog(true);
+								},
+							);
 						}
 
 						break;
@@ -1096,7 +1179,16 @@ export default function App({
 							// U is always live (STA-1548): open the "are you sure?"
 							// confirm dialog. The installer only runs once the user
 							// confirms (handleUpdateConfirmed).
-							setShowUpdateConfirm(true);
+							showDialog(
+								{kind: 'confirm', props: updateConfirmContent},
+								{
+									closeBeforeConfirm: true,
+									onConfirm: handleUpdateConfirmed,
+								},
+								() => {
+									setShowUpdateConfirm(true);
+								},
+							);
 						} else if (updateAction === 'dismiss-banner') {
 							// Dismiss the banner for this session. Next launch re-checks
 							// against the cache on disk. Reset the measured height so
@@ -1735,7 +1827,9 @@ export default function App({
 			idowArg: route.issueKey ?? input,
 			inputIsIssueKey,
 			pendingTitle: route.pendingTitle,
-			prevSpaceCount: spaces.length,
+			// Read through the ref: a popup submits through the closure captured
+			// when `n` was pressed, and the list can change while it is open.
+			prevSpaceCount: spacesRef.current.length,
 			profileName,
 			profileEmoji: resolvePendingProfileEmoji(config, profileName),
 		};
@@ -1747,13 +1841,7 @@ export default function App({
 	// "Closing space…" loading state — the pre_workspace_deinit hooks can run
 	// for several seconds, and hiding the dialog up front made the TUI look
 	// frozen.
-	const handleDeleteSpace = async () => {
-		const space = spaces[selectedIndex];
-		if (!space) {
-			setShowDeleteConfirm(false);
-			return;
-		}
-
+	const handleDeleteSpace = async (space: SpaceData) => {
 		try {
 			const ok = await deleteSpace(space);
 			if (!ok) return;
@@ -1761,7 +1849,7 @@ export default function App({
 			// Reconcile with tmux reality in the background
 			loadSpaces();
 		} finally {
-			setShowDeleteConfirm(false);
+			setDeleteTarget(null);
 		}
 	};
 
@@ -1769,8 +1857,7 @@ export default function App({
 	// Runs sequentially rather than in parallel: each deleteSpace shells out to
 	// the user's pre_workspace_deinit hooks, and firing a dozen of those at once
 	// would fight over the same git worktree lock and flood the tracker API.
-	const handleKillDoneSpaces = async () => {
-		const targets = killDoneTargets ?? [];
+	const handleKillDoneSpaces = async (targets: SpaceData[]) => {
 		try {
 			let closed = 0;
 			for (const space of targets) {
@@ -1791,9 +1878,6 @@ export default function App({
 	const killDoneConfirmContent = buildKillDoneConfirmContent(
 		killDoneTargets?.length ?? 0,
 	);
-
-	// Get space to delete (for confirmation dialog)
-	const spaceToDelete = spaces[selectedIndex];
 
 	// Copy for the update confirm dialog (STA-1548). Shows the detected
 	// installed→latest delta when the banner surfaced one, else the current
@@ -1912,7 +1996,7 @@ export default function App({
 			if (event.button !== 'left') return;
 			if (
 				showPromptDialog ||
-				showDeleteConfirm ||
+				deleteTarget !== null ||
 				killDoneTargets !== null ||
 				showUpdateConfirm ||
 				showErrorDialog
@@ -1955,7 +2039,7 @@ export default function App({
 			displaySpaces,
 			spaces.length,
 			showPromptDialog,
-			showDeleteConfirm,
+			deleteTarget,
 			killDoneTargets,
 			showUpdateConfirm,
 			showErrorDialog,
@@ -1970,7 +2054,7 @@ export default function App({
 	useMouse(
 		handleMouse,
 		!showPromptDialog &&
-			!showDeleteConfirm &&
+			deleteTarget === null &&
 			!showUpdateConfirm &&
 			!showHelp &&
 			!showErrorDialog &&
@@ -2142,17 +2226,14 @@ export default function App({
 						message={killDoneConfirmContent.message}
 						detail={killDoneConfirmContent.detail}
 						processingMessage={killDoneConfirmContent.processingMessage}
-						onConfirm={handleKillDoneSpaces}
+						onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
 						onCancel={() => setKillDoneTargets(null)}
 					/>
-				) : showDeleteConfirm && spaceToDelete ? (
+				) : deleteTarget ? (
 					<ConfirmDialog
-						title="Close Space"
-						message={`Close space ${spaceToDelete.name}?`}
-						detail="The worktree and git branch will remain on disk."
-						processingMessage={`Closing space ${spaceToDelete.name}…`}
-						onConfirm={handleDeleteSpace}
-						onCancel={() => setShowDeleteConfirm(false)}
+						{...deleteConfirmContent(deleteTarget)}
+						onConfirm={async () => handleDeleteSpace(deleteTarget)}
+						onCancel={() => setDeleteTarget(null)}
 					/>
 				) : showHelp ? (
 					<HelpOverlay
@@ -2163,7 +2244,14 @@ export default function App({
 						isDevBuild={isDevBuild}
 					/>
 				) : showErrorDialog ? (
-					<ErrorDialog onClose={() => setShowErrorDialog(false)} />
+					<ErrorDialog
+						errors={recentErrors}
+						onClose={() => setShowErrorDialog(false)}
+						onClear={() => {
+							clearRecentErrors();
+							setShowErrorDialog(false);
+						}}
+					/>
 				) : (
 					renderList()
 				)}

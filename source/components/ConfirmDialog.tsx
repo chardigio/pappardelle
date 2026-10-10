@@ -26,6 +26,8 @@ interface Props {
 	 * knows which long-running action they triggered.
 	 */
 	processingMessage?: string;
+	/** Stretch to the parent's height, for a tmux popup sized to fit. */
+	isFullHeight?: boolean;
 }
 
 export default function ConfirmDialog({
@@ -35,6 +37,7 @@ export default function ConfirmDialog({
 	onConfirm,
 	onCancel,
 	processingMessage,
+	isFullHeight,
 }: Props) {
 	// Snapshot the message + title when entering processing state. The parent's
 	// props can shift mid-deletion — once `deleteSpace` finishes and the list
@@ -91,6 +94,7 @@ export default function ConfirmDialog({
 				flexDirection="column"
 				borderStyle="double"
 				borderColor="red"
+				flexGrow={isFullHeight ? 1 : 0}
 				paddingX={2}
 				paddingY={1}
 			>
@@ -113,6 +117,7 @@ export default function ConfirmDialog({
 			flexDirection="column"
 			borderStyle="double"
 			borderColor="red"
+			flexGrow={isFullHeight ? 1 : 0}
 			paddingX={2}
 			paddingY={1}
 		>
