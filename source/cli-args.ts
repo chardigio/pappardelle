@@ -81,3 +81,69 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 		},
 	});
 }
+
+const subcommands = {
+	restart: {
+		usage: 'pappardelle restart [--hard [--yes]]',
+		flags: ['--hard', '--yes'],
+		help: `
+	Usage
+	  $ pappardelle restart [--hard [--yes]]
+
+	Restarts this repo's TUI in its tmux pane on the build that ran this
+	command, then waits for it to report ready. Your terminal stays attached,
+	and Claude and companion sessions keep running. Exits non-zero when the
+	TUI is not confirmed on that build.
+
+	Options
+	  --hard  End every Claude and companion session, then restart every TUI
+	  --yes   Skip --hard's confirmation
+`,
+	},
+	update: {
+		usage: 'pappardelle update [--restart-tuis | --no-restart-tuis]',
+		flags: ['--restart-tuis', '--no-restart-tuis'],
+		help: `
+	Usage
+	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
+
+	Installs the latest release (same as U in the TUI). Running TUIs stay on
+	the old build until they restart; on a terminal it asks first.
+
+	Options
+	  --restart-tuis      Restart running TUIs without asking. Exits non-zero
+	                      when one is not confirmed running afterwards
+	  --no-restart-tuis   Leave running TUIs alone and print a hint
+`,
+	},
+} as const;
+
+export type SubcommandGate =
+	| {action: 'run'}
+	| {action: 'help'; text: string}
+	| {action: 'reject'; message: string};
+
+// `restart` and `update` act on running TUIs, so a flag they don't know must
+// stop them. meow only answers --help when it is the sole argument and
+// otherwise ignores unknown flags.
+export function subcommandGate(argv: readonly string[]): SubcommandGate {
+	const name = argv[0];
+	if (name !== 'restart' && name !== 'update') return {action: 'run'};
+	const {usage, flags, help} = subcommands[name];
+	const given = argv.slice(1).filter(arg => arg.startsWith('-'));
+	if (given.some(arg => arg === '--help' || arg === '-h')) {
+		return {action: 'help', text: help};
+	}
+
+	const unknown = given.find(
+		arg => !(flags as readonly string[]).includes(arg),
+	);
+	if (unknown !== undefined) {
+		return {
+			action: 'reject',
+			message: `Unknown flag ${unknown} for pappardelle ${name}\nUsage: ${usage}\nRun pappardelle ${name} --help for details`,
+		};
+	}
+
+	return {action: 'run'};
+}

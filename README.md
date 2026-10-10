@@ -491,17 +491,18 @@ On startup, the TUI checks the GitHub Releases API (cached for 24h at `~/.pappar
 Update available: v0.1.0 → v0.2.0 · U to update · X to dismiss
 ```
 
-The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to update to the latest release. `U` is **always live** — not just while the banner is showing: the 24h cache can lag a fresh release by hours, so you can pull a release that landed minutes ago without restarting and waiting out the cache. `U` opens an "are you sure?" confirm dialog (same style as closing a space); confirming re-runs the install script in place, then restarts the TUI in its window on the new build. If the install fails, it waits for a key and restarts on the old build. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
+The update-check's installed version is read from `git describe --tags --abbrev=0 --match 'v*.*.*'` on the install clone. Press `U` to update to the latest release. `U` is **always live** — not just while the banner is showing: the 24h cache can lag a fresh release by hours, so you can pull a release that landed minutes ago without restarting and waiting out the cache. `U` opens an "are you sure?" confirm dialog (same style as closing a space); confirming re-runs the install script in place, then restarts the TUI in its pane on the new build. If the install fails, it waits for a key and restarts on the old build. If tmux refuses the restart, it prints tmux's error and waits for a key before closing, and you relaunch with `pappardelle`. Press `X` to dismiss the banner for the current session — the next launch re-reads the cache.
 
 Outside the TUI, `pappardelle update` runs the same installer from any directory. It doesn't ask before installing. If the install fails, it prints the path of the log (`~/.pappardelle/logs/update.log`) and exits with the installer's status. After a successful install, any TUIs still running are on the old build, so the command offers to restart them:
 
 - On a terminal it asks `Restart N running Pappardelle TUIs on the new build? [y/N]`
 - `--restart-tuis` restarts them without asking; `--no-restart-tuis` leaves them running
+- If a TUI fails to restart, the command names it and exits 1
 - Without a terminal and without either flag, it leaves them running and names them
 
 #### Restarting
 
-`pappardelle restart` restarts this repo's TUI in its tmux window: it reruns the command that started the window, so your terminal stays attached and the layout rebuilds. Run from a plain terminal, it then attaches to the TUI. If no TUI is running for the repo, it says so and starts nothing. Restarting a TUI started from a dev build reruns that dev build.
+`pappardelle restart` restarts this repo's TUI in its tmux pane, so your terminal stays attached and the layout rebuilds. Run from a plain terminal, it then attaches to the TUI. If no TUI is running for the repo, it says so and starts nothing.
 
 Restarting doesn't touch Claude and companion sessions; they live on a separate tmux server (`pappardelle_inner`). `pappardelle restart --hard` ends that server too, then restarts every running TUI. Each Claude session comes back with `claude --continue` the next time you select its space, so conversations survive but anything in flight stops. It asks first; `--yes` skips the question, and without a terminal it refuses unless `--yes` is passed. Your other tmux sessions are never touched.
 
