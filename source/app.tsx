@@ -9,6 +9,7 @@ import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {fileURLToPath} from 'node:url';
+import {homedir} from 'node:os';
 import path from 'node:path';
 
 import SpaceListItem from './components/SpaceListItem.tsx';
@@ -18,7 +19,8 @@ import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
-import {respawnTuiWindow, tuiSessionNames} from './tui-sessions.ts';
+import {installedLaunchCommand, restartOwnTui} from './tui-sessions.ts';
+import {DEFAULT_REPO_STATE_ROOT, writeTuiMarker} from './tui-marker.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -127,6 +129,7 @@ import {
 	killSession,
 	outerSessionName,
 	currentDefaultServerSession,
+	defaultServerTmuxRunner,
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
@@ -387,21 +390,57 @@ export default function App({
 		process.stdout.write('\x1b[?1000l'); // disable basic mouse
 		process.stdout.write('\x1b[?1049l'); // exit alt screen
 		runUpdateScript({waitOnFailure: true});
-		// Respawning the TUI's window ends this process and reruns it on the new
-		// build (or the old one, after a failed install). Only this TUI's own
-		// session qualifies: another terminal may run the same repo's TUI, and a
-		// TUI started inside the user's own tmux session has no window to rerun.
-		const current = currentDefaultServerSession(process.env);
-		const restarted =
-			current !== null &&
-			tuiSessionNames(repoName).includes(current) &&
-			respawnTuiWindow(current);
-		if (paneLayout && !restarted) {
-			killSession(outerSessionName(repoName));
-		}
+		// Reruns the TUI through the shim the installer just re-pinned (which
+		// still points at the old build after a failed install).
+		restartOwnTui(
+			{
+				repoName,
+				command: installedLaunchCommand({
+					execPath: process.execPath,
+					cliPath: path.resolve(process.argv[1] ?? ''),
+					home: homedir(),
+				}),
+				hasPaneLayout: paneLayout !== null,
+			},
+			{
+				tmux: defaultServerTmuxRunner,
+				repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+				currentSession: () => currentDefaultServerSession(process.env),
+				killSession,
+				print(line) {
+					process.stdout.write(`\n${line}\n`);
+				},
+				waitForKey() {
+					spawnSync('bash', ['-c', 'read -rsn1 _ </dev/tty 2>/dev/null'], {
+						stdio: 'inherit',
+					});
+				},
+			},
+		);
 		// eslint-disable-next-line unicorn/no-process-exit
 		process.exit(0);
 	}, [paneLayout, repoName]);
+
+	// Tells `pappardelle restart` which build came up in this pane. Written on
+	// mount, so it also says the TUI got as far as rendering.
+	useEffect(() => {
+		const paneId = process.env['TMUX_PANE'];
+		if (!initialPaneLayout || !paneId) return;
+		try {
+			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
+				pid: process.pid,
+				cliPath: path.resolve(process.argv[1] ?? ''),
+				sha: commitSha,
+				paneId,
+				startedAt: Date.now(),
+			});
+		} catch (error) {
+			log.warn(
+				'Failed to write the TUI ready marker',
+				error instanceof Error ? error : undefined,
+			);
+		}
+	}, [initialPaneLayout, repoName, commitSha]);
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);

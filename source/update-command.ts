@@ -6,7 +6,14 @@ import {
 	type OuterTmuxRunner,
 } from './tmux.ts';
 import {confirm} from './confirm.ts';
-import {listRunningTuis, plural, respawnTuis} from './tui-sessions.ts';
+import {
+	installedLaunchCommand,
+	listRunningTuis,
+	plural,
+	type RestartTiming,
+	restartTuis,
+} from './tui-sessions.ts';
+import {DEFAULT_REPO_STATE_ROOT} from './tui-marker.ts';
 import {resolveDisplayVersion, runUpdateScript} from './update-check.ts';
 
 // `pappardelle update`: the CLI twin of pressing U in the TUI. U runs the
@@ -19,6 +26,8 @@ export type UpdateCommandDeps = {
 	runInstaller: () => number;
 	tmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	launchCommand: string;
+	timing?: Partial<RestartTiming>;
 	currentSession: () => string | null;
 	isTTY: boolean;
 	confirm: (question: string) => Promise<boolean>;
@@ -53,15 +62,23 @@ export async function runUpdateCommand(
 
 	if (!shouldRestart) {
 		deps.print(
-			`Running Pappardelle TUIs are still on the old build: ${running.join(
-				', ',
-			)}. Run pappardelle restart in each repo to pick up the update.`,
+			`Running Pappardelle TUIs are still on the old build: ${running
+				.map(tui => tui.session)
+				.join(
+					', ',
+				)}. Run pappardelle restart in each repo to pick up the update.`,
 		);
 		return 0;
 	}
 
-	respawnTuis(running, deps);
-	return 0;
+	const failed = await restartTuis(running, deps.launchCommand, deps);
+	if (failed.length === 0) return 0;
+	deps.print(
+		`Pappardelle is updated, but ${failed.join(', ')} ${
+			failed.length === 1 ? 'is' : 'are'
+		} not confirmed on the new build. Quit with q and relaunch.`,
+	);
+	return 1;
 }
 
 export function defaultUpdateCommandDeps(
@@ -72,7 +89,12 @@ export function defaultUpdateCommandDeps(
 		installedVersion: version && isDev ? `${version}-dev` : version,
 		runInstaller: () => runUpdateScript({waitOnFailure: false}),
 		tmux: defaultServerTmuxRunner,
-		repoStateRoot: path.join(homedir(), '.pappardelle', 'repos'),
+		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+		launchCommand: installedLaunchCommand({
+			execPath: process.execPath,
+			cliPath: path.resolve(process.argv[1] ?? ''),
+			home: homedir(),
+		}),
 		currentSession: () => currentDefaultServerSession(process.env),
 		isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
 		async confirm(question) {

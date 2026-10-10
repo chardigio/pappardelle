@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import type {OuterTmuxRunner} from './tmux.ts';
+import {
+	FAST,
+	type FakeTuiBehavior,
+	REFUSAL,
+	fakeTuiTmux,
+	restarted,
+} from '../test/helpers/fake-tui-tmux.ts';
 import {runUpdateCommand, type UpdateCommandDeps} from './update-command.ts';
 
 let counter = 0;
@@ -17,6 +23,7 @@ function temporaryDir(): string {
 
 type Harness = {
 	deps: UpdateCommandDeps;
+	sessions: string[];
 	tmuxCalls: string[][];
 	printed: string[];
 	confirmCalls: string[];
@@ -27,7 +34,7 @@ function harness(
 		installerStatus?: number;
 		sessions?: string[];
 		listFails?: boolean;
-		respawnFails?: boolean;
+		behavior?: Record<string, FakeTuiBehavior>;
 		repos?: string[];
 		currentSession?: string | null;
 		isTTY?: boolean;
@@ -39,21 +46,17 @@ function harness(
 		fs.mkdirSync(path.join(repoStateRoot, repo));
 	}
 
-	const tmuxCalls: string[][] = [];
 	const printed: string[] = [];
 	const confirmCalls: string[] = [];
-	const tmux: OuterTmuxRunner = args => {
-		tmuxCalls.push([...args]);
-		if (args[0] === 'list-sessions') {
-			return options.listFails
-				? {status: 1, stdout: ''}
-				: {status: 0, stdout: (options.sessions ?? []).join('\n') + '\n'};
-		}
-
-		return {status: options.respawnFails ? 1 : 0, stdout: ''};
-	};
+	const {tmux, calls: tmuxCalls} = fakeTuiTmux({
+		repoStateRoot,
+		sessions: options.sessions,
+		listFails: options.listFails,
+		behavior: options.behavior,
+	});
 
 	return {
+		sessions: options.sessions ?? [],
 		tmuxCalls,
 		printed,
 		confirmCalls,
@@ -62,6 +65,8 @@ function harness(
 			runInstaller: () => options.installerStatus ?? 0,
 			tmux,
 			repoStateRoot,
+			launchCommand: SHIM,
+			timing: FAST,
 			currentSession: () => options.currentSession ?? null,
 			isTTY: options.isTTY ?? false,
 			async confirm(question) {
@@ -75,10 +80,10 @@ function harness(
 	};
 }
 
+const SHIM = "'/home/me/.local/bin/pappardelle'";
+
 function respawned(h: Harness): string[] {
-	return h.tmuxCalls
-		.filter(args => args[0] === 'respawn-window')
-		.map(args => args.at(-1)!.replace(/^=(.*):\^$/, '$1'));
+	return restarted(h.tmuxCalls, h.sessions);
 }
 
 test('a failed install returns its status and leaves tmux alone', async t => {
@@ -206,4 +211,29 @@ test('the opening line names the version being replaced when known', async t => 
 	unknown.deps.installedVersion = null;
 	await runUpdateCommand({}, unknown.deps);
 	t.false(unknown.printed[0]!.includes('currently on'));
+});
+
+test('--restart-tuis reruns each TUI through the shim and reports its build', async t => {
+	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
+
+	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
+	t.is(h.tmuxCalls.find(args => args[0] === 'kill-pane')!.at(-1), SHIM);
+	t.true(h.printed.at(-1)!.startsWith('pappardelle-app is running '));
+});
+
+test('a TUI that fails to restart or report ready fails the update and is named', async t => {
+	const h = harness({
+		sessions: ['pappardelle-app', 'pappardelle-web', 'pappardelle-api'],
+		repos: ['app', 'web', 'api'],
+		behavior: {'pappardelle-app': 'refused', 'pappardelle-api': 'silent'},
+	});
+
+	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 1);
+	t.true(h.printed.includes(`Couldn't restart pappardelle-app: ${REFUSAL}`));
+	t.true(h.printed.some(line => line.startsWith('pappardelle-web is running')));
+	const summary = h.printed.at(-1)!;
+	t.true(
+		summary.includes('pappardelle-app, pappardelle-api are not confirmed'),
+	);
+	t.false(summary.includes('pappardelle-web'));
 });
