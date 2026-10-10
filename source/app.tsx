@@ -162,6 +162,7 @@ import {
 	resolveSpaceProfileName,
 } from './space-emoji.ts';
 import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
+import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 function claimIssueInBackground(issueKey: string): void {
@@ -473,6 +474,14 @@ export default function App({
 			workspaceRefresh.current = null;
 		};
 	}, [configMemo, repoName, setSpaces]);
+
+	// Warm the skill list once the rail has painted, so the first new-session
+	// prompt can offer completions without waiting on a scan of its own.
+	useEffect(() => {
+		if (loading) return;
+		const roots = skillRoots();
+		if (roots) void skillSnapshot.refresh(roots);
+	}, [loading]);
 
 	useEffect(
 		() =>

@@ -1,5 +1,9 @@
-import fs from 'node:fs';
+import {Buffer} from 'node:buffer';
+import os from 'node:os';
+import type {Dirent} from 'node:fs';
+import fs, {type FileHandle} from 'node:fs/promises';
 import path from 'node:path';
+import {getRepoRoot} from './config.ts';
 
 /**
  * Slash-command autocomplete for the "+ New Session" prompt.
@@ -27,9 +31,15 @@ export type SkillEntry = {
 	name: string;
 	/** First line of the frontmatter `description:`, or '' when absent. */
 	description: string;
-	/** Repo entries outrank user entries of equal match quality. */
-	source: 'repo' | 'user';
+	/** At equal match quality, repo outranks user, which outranks plugin. */
+	source: 'repo' | 'user' | 'plugin';
 	kind: 'skill' | 'command';
+};
+
+const SOURCE_RANK: Record<SkillEntry['source'], number> = {
+	repo: 0,
+	user: 1,
+	plugin: 2,
 };
 
 /**
@@ -104,8 +114,7 @@ export function matchSkills(
 		.filter(row => row.tier >= 0)
 		.sort((a, b) => {
 			if (a.tier !== b.tier) return a.tier - b.tier;
-			const sourceRank = (entry: SkillEntry) =>
-				entry.source === 'repo' ? 0 : 1;
+			const sourceRank = (entry: SkillEntry) => SOURCE_RANK[entry.source];
 			const bySource = sourceRank(a.entry) - sourceRank(b.entry);
 			if (bySource !== 0) return bySource;
 			// Stable within a tier: preserve discovery order (name-sorted).
@@ -214,128 +223,490 @@ export function handleSkillListKey(
 	return {action: 'ignore', index: selectedIndex};
 }
 
+export type Frontmatter = {
+	/** The `description:` value, or '' when absent. */
+	description: string;
+	/** False when the file sets `user-invocable: false`. */
+	userInvocable: boolean;
+};
+
 /**
- * Pull the `description:` out of a Claude markdown frontmatter block.
+ * Pull the keys the picker needs out of a Claude markdown frontmatter block.
  *
  * Hand-rolled rather than routed through js-yaml because a malformed SKILL.md
  * should cost that one entry its blurb, not throw the whole list away, and
- * because only one scalar key is ever wanted.
+ * because only two scalar keys are ever wanted.
  */
-export function parseFrontmatterDescription(contents: string): string {
+export function parseFrontmatter(contents: string): Frontmatter {
+	const result: Frontmatter = {description: '', userInvocable: true};
 	const match = /^---\r?\n([\S\s]*?)\r?\n---/.exec(contents);
-	if (!match) return '';
+	if (!match) return result;
+	let seenDescription = false;
 	for (const line of match[1]!.split('\n')) {
-		const field = /^description:\s*(.*)$/.exec(line.trim());
-		if (field) {
-			return field[1]!.trim().replace(/^["']|["']$/g, '');
+		const field = /^([\w-]+):\s*(.*)$/.exec(line.trim());
+		if (!field) continue;
+		const value = field[2]!.trim().replace(/^["']|["']$/g, '');
+		if (field[1] === 'description' && !seenDescription) {
+			seenDescription = true;
+			result.description = value;
+		} else if (field[1] === 'user-invocable') {
+			result.userInvocable = value !== 'false';
 		}
 	}
-	return '';
+
+	return result;
 }
 
-function readDescription(file: string): string {
+/**
+ * Each in-flight read or listing holds a descriptor, and past macOS's OPEN_MAX
+ * of 10240 every `spawn` in the app fails with EBADF.
+ */
+const SKILL_FS_CONCURRENCY = 32;
+
+type Limit = <T>(task: () => Promise<T>) => Promise<T>;
+
+function createLimit(concurrency: number): Limit {
+	let active = 0;
+	const waiting: Array<() => void> = [];
+	return async task => {
+		if (active < concurrency) {
+			active++;
+		} else {
+			await new Promise<void>(resolve => {
+				waiting.push(resolve);
+			});
+		}
+
+		try {
+			return await task();
+		} finally {
+			const next = waiting.shift();
+			if (next) next();
+			else active--;
+		}
+	};
+}
+
+const FRONTMATTER_CHARS = 4096;
+
+async function readFrontmatter(file: string): Promise<Frontmatter> {
+	let handle: FileHandle;
 	try {
-		// Frontmatter lives at the top; skills run to thousands of lines.
-		return parseFrontmatterDescription(
-			fs.readFileSync(file, 'utf8').slice(0, 4096),
+		handle = await fs.open(file, 'r');
+	} catch {
+		return parseFrontmatter('');
+	}
+
+	try {
+		// Frontmatter lives at the top; skills run to thousands of lines. The
+		// window is 4096 characters, and a UTF-8 character is at most 4 bytes.
+		const buffer = Buffer.allocUnsafe(FRONTMATTER_CHARS * 4);
+		const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
+		return parseFrontmatter(
+			buffer
+				.subarray(0, bytesRead)
+				.toString('utf8')
+				.slice(0, FRONTMATTER_CHARS),
 		);
 	} catch {
-		return '';
+		return parseFrontmatter('');
+	} finally {
+		await handle.close().catch(() => undefined);
 	}
 }
 
-function scanSkillDir(dir: string, source: SkillEntry['source']): SkillEntry[] {
-	let names: string[];
+type Candidate = {
+	name: string;
+	file: string;
+	kind: SkillEntry['kind'];
+};
+
+async function readEntries(dir: string, limit: Limit): Promise<Dirent[]> {
 	try {
-		names = fs
-			.readdirSync(dir, {withFileTypes: true})
-			.filter(item => item.isDirectory() || item.isSymbolicLink())
-			.map(item => item.name);
+		return await limit(async () => fs.readdir(dir, {withFileTypes: true}));
 	} catch {
 		return [];
 	}
+}
 
-	const found: SkillEntry[] = [];
-	for (const name of names) {
-		const file = path.join(dir, name, 'SKILL.md');
-		if (!fs.existsSync(file)) continue;
-		found.push({
-			name,
-			description: readDescription(file),
-			source,
-			kind: 'skill',
-		});
+/** Resolves a symlink to what it points at, or undefined when it dangles. */
+async function entryKind(
+	item: Dirent,
+	full: string,
+): Promise<'directory' | 'file' | undefined> {
+	if (item.isDirectory()) return 'directory';
+	if (item.isFile()) return 'file';
+	if (!item.isSymbolicLink()) return undefined;
+	try {
+		const stats = await fs.stat(full);
+		if (stats.isDirectory()) return 'directory';
+		return stats.isFile() ? 'file' : undefined;
+	} catch {
+		return undefined;
 	}
-	return found;
+}
+
+async function listSkillCandidates(
+	dir: string,
+	limit: Limit,
+): Promise<Candidate[]> {
+	const items = await readEntries(dir, limit);
+	return items
+		.filter(item => item.isDirectory() || item.isSymbolicLink())
+		.map(item => ({
+			name: item.name,
+			file: path.join(dir, item.name, 'SKILL.md'),
+			kind: 'skill',
+		}));
 }
 
 /**
  * Commands nest, and Claude addresses a nested one with a colon: a file at
  * `commands/db/reset.md` is `/db:reset`. Mirroring that here keeps an accepted
  * completion something you can actually run.
+ *
+ * Symlinked directories are followed, so a link back to an ancestor would
+ * recurse forever without the check against the real paths above it.
  */
-function scanCommandDir(
+async function listCommandCandidates(
 	dir: string,
-	source: SkillEntry['source'],
+	limit: Limit,
 	prefix = '',
-): SkillEntry[] {
-	let items: fs.Dirent[];
+	ancestors: ReadonlySet<string> = new Set(),
+): Promise<Candidate[]> {
+	let real: string;
 	try {
-		items = fs.readdirSync(dir, {withFileTypes: true});
+		real = await fs.realpath(dir);
 	} catch {
 		return [];
 	}
 
-	const found: SkillEntry[] = [];
-	for (const item of items) {
-		const full = path.join(dir, item.name);
-		if (item.isDirectory()) {
-			found.push(...scanCommandDir(full, source, `${prefix}${item.name}:`));
-		} else if (item.isFile() && item.name.endsWith('.md')) {
-			found.push({
-				name: `${prefix}${item.name.slice(0, -3)}`,
-				description: readDescription(full),
-				source,
-				kind: 'command',
-			});
-		}
+	if (ancestors.has(real)) return [];
+	const lineage = new Set(ancestors).add(real);
+
+	const items = await readEntries(dir, limit);
+	const nested = await Promise.all(
+		items.map(async (item): Promise<Candidate[]> => {
+			const full = path.join(dir, item.name);
+			const kind = await entryKind(item, full);
+			if (kind === 'directory') {
+				return listCommandCandidates(
+					full,
+					limit,
+					`${prefix}${item.name}:`,
+					lineage,
+				);
+			}
+
+			if (kind === 'file' && item.name.endsWith('.md')) {
+				return [
+					{
+						name: `${prefix}${item.name.slice(0, -3)}`,
+						file: full,
+						kind: 'command',
+					},
+				];
+			}
+
+			return [];
+		}),
+	);
+	return nested.flat();
+}
+
+async function readCandidates(
+	candidates: Candidate[],
+	source: SkillEntry['source'],
+	limit: Limit,
+): Promise<SkillEntry[]> {
+	const entries = await Promise.all(
+		candidates.map(
+			async (candidate): Promise<SkillEntry | undefined> =>
+				limit(async () => {
+					if (candidate.kind === 'skill') {
+						try {
+							await fs.access(candidate.file);
+						} catch {
+							return undefined;
+						}
+					}
+
+					const frontmatter = await readFrontmatter(candidate.file);
+					if (!frontmatter.userInvocable) return undefined;
+					return {
+						name: candidate.name,
+						description: frontmatter.description,
+						source,
+						kind: candidate.kind,
+					};
+				}),
+		),
+	);
+	return entries
+		.filter(entry => entry !== undefined)
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export type SkillRoots = {repoRoot: string; homeDir: string};
+
+async function scanScope(
+	root: string,
+	source: SkillEntry['source'],
+	limit: Limit,
+): Promise<SkillEntry[]> {
+	const claude = path.join(root, '.claude');
+	const [skills, commands] = await Promise.all([
+		listSkillCandidates(path.join(claude, 'skills'), limit),
+		listCommandCandidates(path.join(claude, 'commands'), limit),
+	]);
+	return readCandidates([...skills, ...commands], source, limit);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readJson(file: string): Promise<unknown> {
+	try {
+		return JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+	} catch {
+		return undefined;
 	}
-	return found;
 }
 
 /**
- * Every skill and command Claude could invoke from this worktree, repo entries
- * first and each group sorted by name.
- *
- * A repo entry hides a user entry of the same name, matching how Claude itself
- * resolves the two scopes: the more specific definition is the one that runs,
- * so it is the only one worth offering.
+ * Plugin keys (`name@marketplace`) switched on for this repo. Claude layers
+ * `enabledPlugins` from the user settings, then the repo's shared settings,
+ * then its local ones, with the later file winning per key.
  */
-export function discoverSkills(roots: {
-	repoRoot: string;
-	homeDir: string;
-}): SkillEntry[] {
-	const byScope: Array<[string, SkillEntry['source']]> = [
-		[roots.repoRoot, 'repo'],
-		[roots.homeDir, 'user'],
-	];
+async function enabledPluginKeys(roots: SkillRoots): Promise<Set<string>> {
+	const layers = await Promise.all(
+		[
+			path.join(roots.homeDir, '.claude', 'settings.json'),
+			path.join(roots.repoRoot, '.claude', 'settings.json'),
+			path.join(roots.repoRoot, '.claude', 'settings.local.json'),
+		].map(async file => readJson(file)),
+	);
+	const merged: Record<string, unknown> = {};
+	for (const layer of layers) {
+		if (isRecord(layer) && isRecord(layer['enabledPlugins'])) {
+			Object.assign(merged, layer['enabledPlugins']);
+		}
+	}
 
-	const seen = new Set<string>();
-	const result: SkillEntry[] = [];
+	return new Set(Object.keys(merged).filter(key => merged[key] === true));
+}
 
-	for (const [root, source] of byScope) {
-		const claude = path.join(root, '.claude');
-		const scoped = [
-			...scanSkillDir(path.join(claude, 'skills'), source),
-			...scanCommandDir(path.join(claude, 'commands'), source),
-		].sort((a, b) => a.name.localeCompare(b.name));
+type Plugin = {key: string; installPath: string};
 
-		for (const entry of scoped) {
-			if (seen.has(entry.name)) continue;
-			seen.add(entry.name);
-			result.push(entry);
+/**
+ * An install with a `projectPath` belongs to that one project; the rest are
+ * installed for the user and apply everywhere.
+ */
+async function enabledPlugins(roots: SkillRoots): Promise<Plugin[]> {
+	const [installed, enabled] = await Promise.all([
+		readJson(
+			path.join(roots.homeDir, '.claude', 'plugins', 'installed_plugins.json'),
+		),
+		enabledPluginKeys(roots),
+	]);
+	const plugins =
+		isRecord(installed) && isRecord(installed['plugins'])
+			? installed['plugins']
+			: {};
+
+	const result: Plugin[] = [];
+	for (const [key, installs] of Object.entries(plugins)) {
+		if (!enabled.has(key) || !Array.isArray(installs)) continue;
+		const install: unknown = installs.find(
+			candidate =>
+				isRecord(candidate) &&
+				typeof candidate['installPath'] === 'string' &&
+				(candidate['projectPath'] === undefined ||
+					candidate['projectPath'] === roots.repoRoot),
+		);
+		if (isRecord(install)) {
+			result.push({key, installPath: install['installPath'] as string});
 		}
 	}
 
 	return result;
+}
+
+function manifestPaths(
+	manifest: unknown,
+	field: 'skills' | 'commands',
+	installPath: string,
+): string[] {
+	const value = isRecord(manifest) ? manifest[field] : undefined;
+	const list =
+		typeof value === 'string'
+			? [value]
+			: Array.isArray(value)
+				? value.filter(item => typeof item === 'string')
+				: [];
+	return list.map(item => path.resolve(installPath, item));
+}
+
+/**
+ * A plugin's manifest can point at extra skill and command paths on top of
+ * the default `skills/` and `commands/` directories. A skill path is either a
+ * skill itself (it holds a SKILL.md) or a directory of skills; a command path
+ * is a markdown file or a directory of them.
+ */
+async function pluginCandidates(
+	plugin: Plugin,
+	limit: Limit,
+): Promise<Candidate[]> {
+	const manifest = await readJson(
+		path.join(plugin.installPath, '.claude-plugin', 'plugin.json'),
+	);
+	const name =
+		isRecord(manifest) && typeof manifest['name'] === 'string'
+			? manifest['name']
+			: plugin.key.split('@')[0]!;
+
+	const skillPaths = new Set([
+		path.join(plugin.installPath, 'skills'),
+		...manifestPaths(manifest, 'skills', plugin.installPath),
+	]);
+	const commandPaths = new Set([
+		path.join(plugin.installPath, 'commands'),
+		...manifestPaths(manifest, 'commands', plugin.installPath),
+	]);
+
+	const found = await Promise.all([
+		...[...skillPaths].map(async dir => {
+			const file = path.join(dir, 'SKILL.md');
+			try {
+				await fs.access(file);
+				const skill: Candidate = {
+					name: path.basename(dir),
+					file,
+					kind: 'skill',
+				};
+				return [skill];
+			} catch {
+				return listSkillCandidates(dir, limit);
+			}
+		}),
+		...[...commandPaths].map(async target => {
+			if (!target.endsWith('.md')) return listCommandCandidates(target, limit);
+			const command: Candidate = {
+				name: path.basename(target, '.md'),
+				file: target,
+				kind: 'command',
+			};
+			return [command];
+		}),
+	]);
+	return found.flat().map(candidate => ({
+		...candidate,
+		name: `${name}:${candidate.name}`,
+	}));
+}
+
+async function scanPlugins(
+	roots: SkillRoots,
+	limit: Limit,
+): Promise<SkillEntry[]> {
+	const plugins = await enabledPlugins(roots);
+	const candidates = await Promise.all(
+		plugins.map(async plugin => pluginCandidates(plugin, limit)),
+	);
+	return readCandidates(candidates.flat(), 'plugin', limit);
+}
+
+/**
+ * Every skill and command Claude could invoke from this worktree: repo
+ * entries, then user entries, then enabled plugins', each group sorted by name.
+ *
+ * A repo entry hides a user entry of the same name, matching how Claude itself
+ * resolves the two scopes: the more specific definition is the one that runs,
+ * so it is the only one worth offering. Plugin entries carry their plugin's
+ * name as a prefix, so they never collide with either.
+ */
+export async function discoverSkills(roots: SkillRoots): Promise<SkillEntry[]> {
+	const limit = createLimit(SKILL_FS_CONCURRENCY);
+	const scopes = await Promise.all([
+		scanScope(roots.repoRoot, 'repo', limit),
+		scanScope(roots.homeDir, 'user', limit),
+		scanPlugins(roots, limit),
+	]);
+
+	const seen = new Set<string>();
+	const result: SkillEntry[] = [];
+	for (const entry of scopes.flat()) {
+		if (seen.has(entry.name)) continue;
+		seen.add(entry.name);
+		result.push(entry);
+	}
+
+	return result;
+}
+
+export type SkillSnapshot = {
+	/** The last completed scan for these roots, or undefined before one lands. */
+	current(roots: SkillRoots): SkillEntry[] | undefined;
+	refresh(roots: SkillRoots): Promise<SkillEntry[]>;
+};
+
+/**
+ * The last scan, kept across dialog opens so the prompt can offer completions
+ * on its first frame while a rescan picks up skills installed since.
+ */
+export function createSkillSnapshot(
+	discover: (roots: SkillRoots) => Promise<SkillEntry[]> = discoverSkills,
+): SkillSnapshot {
+	const keyFor = (roots: SkillRoots) => `${roots.repoRoot}\0${roots.homeDir}`;
+	let stored: {key: string; entries: SkillEntry[]} | undefined;
+	let inFlight: {key: string; promise: Promise<SkillEntry[]>} | undefined;
+
+	const current = (roots: SkillRoots) =>
+		stored?.key === keyFor(roots) ? stored.entries : undefined;
+
+	return {
+		current,
+		async refresh(roots) {
+			const key = keyFor(roots);
+			if (inFlight?.key === key) return inFlight.promise;
+
+			const promise: Promise<SkillEntry[]> = Promise.resolve()
+				.then(async () => discover(roots))
+				.then(entries => {
+					if (inFlight?.promise === promise) stored = {key, entries};
+					return entries;
+				})
+				.catch(() => current(roots) ?? [])
+				.finally(() => {
+					if (inFlight?.promise === promise) inFlight = undefined;
+				});
+			inFlight = {key, promise};
+			return promise;
+		},
+	};
+}
+
+export const skillSnapshot = createSkillSnapshot();
+
+export function skillRoots(): SkillRoots | null {
+	try {
+		return {repoRoot: getRepoRoot(), homeDir: os.homedir()};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Where the highlight belongs after the skill list changes under it. The
+ * rescan can land while a row is highlighted, and a newly installed skill
+ * sorting ahead would otherwise shift a different skill under the same index,
+ * so Tab would accept something the user never saw highlighted.
+ */
+export function reanchorSelection(
+	highlightedName: string | undefined,
+	entries: readonly SkillEntry[],
+): number {
+	const index = entries.findIndex(entry => entry.name === highlightedName);
+	return Math.max(index, 0);
 }

@@ -1,5 +1,4 @@
-import os from 'node:os';
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useRef} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
@@ -8,7 +7,6 @@ import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {
-	getRepoRoot,
 	loadConfig,
 	determineProfileForInput,
 	type PappardelleConfig,
@@ -19,7 +17,7 @@ import type {IssueTrackerProvider} from '../providers/types.ts';
 import {
 	applySkillCompletion,
 	clampSelection,
-	discoverSkills,
+	reanchorSelection,
 	handleSkillListKey,
 	handleSkillPickerKey,
 	matchSkills,
@@ -37,6 +35,7 @@ import {
 	PICKER_MAX_VISIBLE,
 	type ProfileOption,
 } from '../profile-picker.ts';
+import {useSkillSnapshot} from '../use-skill-snapshot.ts';
 import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
 import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
 
@@ -93,21 +92,21 @@ export default function PromptDialog({
 	const {stdout} = useStdout();
 	const width = dialogWidth(availableWidth, stdout?.columns);
 
-	// One scan per dialog, not per keystroke: the skill set does not change
-	// while the prompt is open, and this walks a few hundred directories.
-	const skills = useMemo((): SkillEntry[] => {
-		try {
-			return discoverSkills({repoRoot: getRepoRoot(), homeDir: os.homedir()});
-		} catch {
-			return [];
-		}
-	}, []);
+	const skills = useSkillSnapshot();
 
 	const query = skillQuery(prompt);
 	const completions = useMemo(
 		() => (query === null ? [] : matchSkills(skills, query)),
 		[skills, query],
 	);
+	const seenSkills = useRef(skills);
+	const highlightedName = useRef<string | undefined>(undefined);
+	if (seenSkills.current !== skills) {
+		seenSkills.current = skills;
+		const anchored = reanchorSelection(highlightedName.current, completions);
+		if (anchored !== completionIndex) setCompletionIndex(anchored);
+	}
+
 	// Cyan, the Skills box's own color, so a painted name reads as "this is one
 	// of those". Survives the space that closes the list, which is the point:
 	// past that space the list is gone and the color is the only confirmation
@@ -291,6 +290,7 @@ export default function PromptDialog({
 	// list would point past the end of a short one. Rendering and acceptance
 	// both read this, or Enter highlights one row and accepts nothing.
 	const activeCompletion = clampSelection(completionIndex, completions.length);
+	highlightedName.current = completions[activeCompletion]?.name;
 
 	const handlePromptSubmit = (value: string) => {
 		// Enter belongs to the completion list while it is open, but only to move
