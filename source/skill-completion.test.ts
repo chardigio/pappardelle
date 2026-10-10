@@ -162,6 +162,17 @@ test('matchSkills ranks repo entries above user entries within a tier', t => {
 	);
 });
 
+test('matchSkills ranks plugin entries below user entries within a tier', t => {
+	const entries = [
+		entry('papa:plugin', {source: 'plugin'}),
+		entry('papa-user', {source: 'user'}),
+	];
+	t.deepEqual(
+		matchSkills(entries, 'papa').map(m => m.name),
+		['papa-user', 'papa:plugin'],
+	);
+});
+
 test('matchSkills does not match against descriptions', t => {
 	const entries = [entry('publish-hive-beta', {description: 'pappardelle'})];
 	t.deepEqual(matchSkills(entries, 'pappardelle'), []);
@@ -445,6 +456,210 @@ test('discoverSkills keeps the other scope when one skills path is a file', asyn
 			['deploy', 'repo'],
 			['user-skill', 'user'],
 		],
+	);
+});
+
+test('discoverSkills follows a symlinked command file and directory', async t => {
+	const repo = makeTmpDir();
+	const shared = makeTmpDir();
+	fs.writeFileSync(
+		path.join(shared, 'linked.md'),
+		'---\ndescription: Linked.\n---\n',
+	);
+	fs.mkdirSync(path.join(shared, 'ops'));
+	fs.writeFileSync(path.join(shared, 'ops', 'restart.md'), 'Restart.\n');
+	const commands = path.join(repo, '.claude', 'commands');
+	fs.mkdirSync(commands, {recursive: true});
+	fs.symlinkSync(
+		path.join(shared, 'linked.md'),
+		path.join(commands, 'linked.md'),
+	);
+	fs.symlinkSync(path.join(shared, 'ops'), path.join(commands, 'ops'));
+	fs.symlinkSync(
+		path.join(shared, 'missing.md'),
+		path.join(commands, 'dangling.md'),
+	);
+
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	t.deepEqual(
+		found.map(f => [f.name, f.description]),
+		[
+			['linked', 'Linked.'],
+			['ops:restart', ''],
+		],
+	);
+});
+
+test('discoverSkills stops at a command symlink back to an ancestor', async t => {
+	const repo = makeTmpDir();
+	writeCommand(repo, 'loop/inner', null);
+	const commands = path.join(repo, '.claude', 'commands');
+	fs.symlinkSync(commands, path.join(commands, 'loop', 'back'));
+
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	t.deepEqual(
+		found.map(f => f.name),
+		['loop:inner'],
+	);
+});
+
+test('discoverSkills hides skills and commands marked user-invocable: false', async t => {
+	const repo = makeTmpDir();
+	writeSkill(repo, 'visible', 'Shown.');
+	const hidden = path.join(repo, '.claude', 'skills', 'internal');
+	fs.mkdirSync(hidden, {recursive: true});
+	fs.writeFileSync(
+		path.join(hidden, 'SKILL.md'),
+		'---\nname: internal\ndescription: Model only.\nuser-invocable: false\n---\n',
+	);
+	const command = path.join(repo, '.claude', 'commands', 'quiet.md');
+	fs.mkdirSync(path.dirname(command), {recursive: true});
+	fs.writeFileSync(command, '---\nuser-invocable: false\n---\n');
+
+	const found = await discoverSkills({repoRoot: repo, homeDir: makeTmpDir()});
+	t.deepEqual(
+		found.map(f => f.name),
+		['visible'],
+	);
+});
+
+type PluginSpec = {
+	key: string;
+	manifest?: Record<string, unknown>;
+	projectPath?: string;
+};
+
+function installPlugin(home: string, spec: PluginSpec): string {
+	const installPath = makeTmpDir();
+	if (spec.manifest) {
+		fs.mkdirSync(path.join(installPath, '.claude-plugin'));
+		fs.writeFileSync(
+			path.join(installPath, '.claude-plugin', 'plugin.json'),
+			JSON.stringify(spec.manifest),
+		);
+	}
+
+	const registry = path.join(
+		home,
+		'.claude',
+		'plugins',
+		'installed_plugins.json',
+	);
+	fs.mkdirSync(path.dirname(registry), {recursive: true});
+	const current = fs.existsSync(registry)
+		? (JSON.parse(fs.readFileSync(registry, 'utf8')) as {
+				plugins: Record<string, unknown[]>;
+			})
+		: {plugins: {}};
+	current.plugins[spec.key] = [
+		{
+			scope: spec.projectPath ? 'project' : 'user',
+			installPath,
+			...(spec.projectPath ? {projectPath: spec.projectPath} : {}),
+		},
+	];
+	fs.writeFileSync(registry, JSON.stringify({version: 2, ...current}));
+	return installPath;
+}
+
+function enablePlugins(
+	root: string,
+	file: string,
+	keys: Record<string, boolean>,
+) {
+	fs.mkdirSync(path.join(root, '.claude'), {recursive: true});
+	fs.writeFileSync(
+		path.join(root, '.claude', file),
+		JSON.stringify({enabledPlugins: keys}),
+	);
+}
+
+test('discoverSkills lists enabled plugin skills and commands under the plugin name', async t => {
+	const repo = makeTmpDir();
+	const home = makeTmpDir();
+	const plugin = installPlugin(home, {
+		key: 'tools@market',
+		manifest: {name: 'tools'},
+	});
+	fs.mkdirSync(path.join(plugin, 'skills', 'lint'), {recursive: true});
+	fs.writeFileSync(
+		path.join(plugin, 'skills', 'lint', 'SKILL.md'),
+		'---\ndescription: Lint it.\n---\n',
+	);
+	fs.mkdirSync(path.join(plugin, 'commands', 'db'), {recursive: true});
+	fs.writeFileSync(path.join(plugin, 'commands', 'db', 'reset.md'), 'Reset.\n');
+	enablePlugins(home, 'settings.json', {'tools@market': true});
+
+	const found = await discoverSkills({repoRoot: repo, homeDir: home});
+	t.deepEqual(
+		found.map(f => [f.name, f.source, f.kind, f.description]),
+		[
+			['tools:db:reset', 'plugin', 'command', ''],
+			['tools:lint', 'plugin', 'skill', 'Lint it.'],
+		],
+	);
+});
+
+test('discoverSkills follows the skill and command paths a plugin manifest names', async t => {
+	const repo = makeTmpDir();
+	const home = makeTmpDir();
+	const plugin = installPlugin(home, {
+		key: 'deep@market',
+		manifest: {
+			name: 'deep',
+			skills: ['./skills/engineering/tdd', './bundle/'],
+			commands: './extra/run.md',
+		},
+	});
+	for (const dir of ['skills/engineering/tdd', 'bundle/review']) {
+		fs.mkdirSync(path.join(plugin, dir), {recursive: true});
+		fs.writeFileSync(path.join(plugin, dir, 'SKILL.md'), '---\n---\n');
+	}
+
+	fs.mkdirSync(path.join(plugin, 'skills', 'misc', 'unlisted'), {
+		recursive: true,
+	});
+	fs.writeFileSync(
+		path.join(plugin, 'skills', 'misc', 'unlisted', 'SKILL.md'),
+		'---\n---\n',
+	);
+	fs.mkdirSync(path.join(plugin, 'extra'));
+	fs.writeFileSync(path.join(plugin, 'extra', 'run.md'), 'Run.\n');
+	enablePlugins(home, 'settings.json', {'deep@market': true});
+
+	const found = await discoverSkills({repoRoot: repo, homeDir: home});
+	t.deepEqual(
+		found.map(f => f.name),
+		['deep:review', 'deep:run', 'deep:tdd'],
+	);
+});
+
+test('discoverSkills skips plugins that are disabled, not enabled here, or installed for another project', async t => {
+	const repo = makeTmpDir();
+	const home = makeTmpDir();
+	const keys = ['off@m', 'repo-off@m', 'other-project@m', 'repo-on@m'];
+	for (const key of keys) {
+		const plugin = installPlugin(home, {
+			key,
+			projectPath: key === 'other-project@m' ? makeTmpDir() : undefined,
+		});
+		fs.mkdirSync(path.join(plugin, 'commands'));
+		fs.writeFileSync(path.join(plugin, 'commands', 'go.md'), 'Go.\n');
+	}
+
+	installPlugin(home, {key: 'never-enabled@m'});
+	enablePlugins(home, 'settings.json', {
+		'off@m': false,
+		'repo-off@m': true,
+		'other-project@m': true,
+	});
+	enablePlugins(repo, 'settings.json', {'repo-on@m': true});
+	enablePlugins(repo, 'settings.local.json', {'repo-off@m': false});
+
+	const found = await discoverSkills({repoRoot: repo, homeDir: home});
+	t.deepEqual(
+		found.map(f => f.name),
+		['repo-on:go'],
 	);
 });
 
