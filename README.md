@@ -497,26 +497,14 @@ Outside the TUI, `pappardelle update` runs the same installer from any directory
 
 - On a terminal it asks `Restart N running Pappardelle TUIs on the new build? [y/N]`
 - `--restart-tuis` restarts them without asking; `--no-restart-tuis` leaves them running
-- A restarted TUI is confirmed the same way `pappardelle restart` confirms it (below). If one fails to restart or never reports ready, the command names it and exits 1
+- If a TUI fails to restart, the command names it and exits 1
 - Without a terminal and without either flag, it leaves them running and names them
 
 #### Restarting
 
 `pappardelle restart` restarts this repo's TUI in its tmux pane, so your terminal stays attached and the layout rebuilds. Run from a plain terminal, it then attaches to the TUI. If no TUI is running for the repo, it says so and starts nothing.
 
-The TUI comes back on the build that ran `restart`, whichever build it was on before. The command then waits for the TUI to report ready and prints `pappardelle-<repo> is running <path to cli.js> (<commit>)`. It exits 1 with the reason when tmux refuses the restart (tmux's own error is printed), the TUI exits during startup, it doesn't report ready within 15 seconds, or it comes up on a different cli.js. Restarts of one repo's TUI run one at a time; a second one waits for the first.
-
-To try a local build, run this from the checkout, in any terminal or from a Claude pane inside Pappardelle:
-
-```bash
-./install.sh && pappardelle restart
-```
-
-`install.sh` builds the checkout and points the `pappardelle` command at it, and `restart` moves the running TUI onto it.
-
-`pappardelle restart --help` and `pappardelle update --help` print help and change nothing. Both commands reject flags they don't know with exit 2.
-
-Restarting doesn't touch Claude and companion sessions; they live on a separate tmux server (`pappardelle_inner`). `pappardelle restart --hard` ends that server too, then restarts every running TUI on the build that ran the command. Each Claude session comes back with `claude --continue` the next time you select its space, so conversations survive but anything in flight stops. It asks first; `--yes` skips the question, and without a terminal it refuses unless `--yes` is passed. Your other tmux sessions are never touched.
+Restarting doesn't touch Claude and companion sessions; they live on a separate tmux server (`pappardelle_inner`). `pappardelle restart --hard` ends that server too, then restarts every running TUI. Each Claude session comes back with `claude --continue` the next time you select its space, so conversations survive but anything in flight stops. It asks first; `--yes` skips the question, and without a terminal it refuses unless `--yes` is passed. Your other tmux sessions are never touched.
 
 The version shown in the help (`?`) overlay follows the same source-of-truth but degrades differently, since `package.json` is never bumped on release and so is always a stale `0.1.0`:
 
