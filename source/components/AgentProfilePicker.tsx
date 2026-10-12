@@ -3,13 +3,15 @@ import React, {useState} from 'react';
 import {Box, Text, useApp, useInput, useStdout} from 'ink';
 import {renderTui} from '../render-tui.ts';
 import {createNormalizingStdin} from './kitty-keyboard.ts';
-import {computePickerWindow} from '../profile-picker.ts';
+import {
+	computePickerWindow,
+	handleFilterablePickerKey,
+	type FilterablePickerState,
+} from '../profile-picker.ts';
 import {
 	agentPopupVisibleRows,
 	agentProfileLabel,
 	filterAgentProfiles,
-	handleAgentPopupKey,
-	type AgentPopupState,
 	type AgentProfileRequest,
 } from '../agent-profile-popup.ts';
 
@@ -22,7 +24,7 @@ function AgentProfilePicker({
 }) {
 	const {exit} = useApp();
 	const {stdout} = useStdout();
-	const [state, setState] = useState<AgentPopupState>(() => ({
+	const [state, setState] = useState<FilterablePickerState>(() => ({
 		query: null,
 		index: Math.max(
 			0,
@@ -32,12 +34,12 @@ function AgentProfilePicker({
 	const options = filterAgentProfiles(request.options, state.query ?? '');
 
 	useInput((input, key) => {
-		const result = handleAgentPopupKey(state, input, key, options.length);
+		const result = handleFilterablePickerKey(state, input, key, options.length);
 		setState(result.state);
-		if (result.action === 'choose') {
+		if (result.action === 'submit' || result.action === 'select') {
 			onChoose(options[result.state.index]?.name ?? null);
 			exit();
-		} else if (result.action === 'cancel') {
+		} else if (result.action === 'back') {
 			onChoose(null);
 			exit();
 		}

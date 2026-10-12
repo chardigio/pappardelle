@@ -2,6 +2,8 @@ import test from 'ava';
 import {
 	buildProfileOptions,
 	computePickerWindow,
+	filterProfileOptions,
+	handleFilterablePickerKey,
 	handleProfilePickerKey,
 	resolvePromptSubmit,
 	focusFrame,
@@ -687,4 +689,81 @@ test('focusFrame gives the unfocused box a dim round outline', t => {
 
 test('focusFrame never marks two states the same', t => {
 	t.notDeepEqual(focusFrame(true), focusFrame(false));
+});
+
+// ============================================================================
+// handleFilterablePickerKey / filterProfileOptions — the `/` filter
+// ============================================================================
+
+test('/ starts a filter where j, k and a are text, not keys', t => {
+	let {state} = handleFilterablePickerKey({query: null, index: 3}, '/', {}, 7);
+	t.deepEqual(state, {query: '', index: 0});
+	for (const char of 'jka') {
+		({state} = handleFilterablePickerKey(state, char, {}, 7));
+	}
+
+	t.deepEqual(state, {query: 'jka', index: 0});
+	({state} = handleFilterablePickerKey(state, '', {backspace: true}, 0));
+	t.is(state.query, 'jk');
+});
+
+test('without a filter the picker keys pass through', t => {
+	t.deepEqual(handleFilterablePickerKey({query: null, index: 1}, 'a', {}, 3), {
+		state: {query: null, index: 1},
+		action: 'agent',
+	});
+	t.deepEqual(handleFilterablePickerKey({query: null, index: 1}, 'j', {}, 3), {
+		state: {query: null, index: 2},
+	});
+});
+
+test('Esc while filtering leaves the filter, not the picker', t => {
+	t.deepEqual(
+		handleFilterablePickerKey({query: 'so', index: 1}, '', {escape: true}, 2),
+		{state: {query: null, index: 0}},
+	);
+	t.is(
+		handleFilterablePickerKey({query: null, index: 1}, '', {escape: true}, 7)
+			.action,
+		'back',
+	);
+});
+
+test('Enter while filtering selects the highlighted match, if any', t => {
+	t.is(
+		handleFilterablePickerKey({query: 'so', index: 1}, '', {return: true}, 2)
+			.action,
+		'select',
+	);
+	t.is(
+		handleFilterablePickerKey({query: 'zz', index: 0}, '', {return: true}, 0)
+			.action,
+		undefined,
+	);
+});
+
+test('arrows move within the filtered list', t => {
+	const move = (key: {upArrow?: boolean; downArrow?: boolean}) =>
+		handleFilterablePickerKey({query: 'h', index: 1}, '', key, 2).state.index;
+	t.is(move({downArrow: true}), 1);
+	t.is(move({upArrow: true}), 0);
+});
+
+test('filterProfileOptions matches a display name or a profile key', t => {
+	const options = buildProfileOptions(
+		makeConfig(
+			{
+				'rex-ai': {display_name: 'REx AI'},
+				ste: {display_name: 'Personal'},
+			},
+			'rex-ai',
+		),
+		'',
+	);
+	const names = (query: string) =>
+		filterProfileOptions(options, query).map(option => option.name);
+	t.deepEqual(names('pers'), ['ste']);
+	t.deepEqual(names('ste'), ['ste']);
+	t.deepEqual(names('rx'), ['rex-ai']);
+	t.deepEqual(names(''), ['rex-ai', 'ste']);
 });
