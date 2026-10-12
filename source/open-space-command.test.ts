@@ -198,6 +198,39 @@ test('CLI resumes with the flag first and preserves existing spaces without dupl
 	}
 });
 
+test('CLI automatically resumes an existing worktree even when it is not registered', async t => {
+	const f = fixture(t);
+	fs.mkdirSync(path.join(f.home, '.worktrees', 'project', 'STE-20'), {
+		recursive: true,
+	});
+	for (const input of ['20', 'ste-20']) {
+		const result = await f.run([input]);
+		t.is(result.code, 0);
+		t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
+	}
+});
+
+test('CLI --no-resume overrides automatic resume for an existing worktree', async t => {
+	const f = fixture(t);
+	fs.mkdirSync(path.join(f.home, '.worktrees', 'project', 'STE-20'), {
+		recursive: true,
+	});
+	const result = await f.run(['STE-20', '--no-resume']);
+	t.is(result.code, 0);
+	t.deepEqual(f.readRecord().args, ['STE-20']);
+	t.deepEqual(f.readRegistry(), ['STE-20']);
+});
+
+test('CLI initializes a saved space again if its worktree is gone', async t => {
+	const f = fixture(t);
+	f.seed();
+	const result = await f.run(['STE-1']);
+	t.is(result.code, 0);
+	t.deepEqual(f.readRecord().args, ['STE-1']);
+	t.deepEqual(f.readRegistry(), ['STE-1']);
+});
+
 test('CLI saves the generated key from split, colored output for description and URL inputs', async t => {
 	const f = fixture(t);
 	for (const input of [

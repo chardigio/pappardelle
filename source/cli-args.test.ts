@@ -72,7 +72,7 @@ test('--resume accepts either position without consuming the input', t => {
 		t.deepEqual(cli.input, ['STE-20']);
 	}
 
-	t.falsy(parseCli(['STE-20']).flags.resume);
+	t.is(parseCli(['STE-20']).flags.resume, undefined);
 	t.false(parseCli(['STE-20', '--no-resume']).flags.resume);
 	t.deepEqual(parseCli(['--resume', 'fix auth bug']).input, ['fix auth bug']);
 });

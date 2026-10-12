@@ -16,6 +16,7 @@ const helpText = `
 
 	  If a prompt is provided, creates a new session directly without
 	  entering the interactive TUI.
+	  Existing workspaces resume automatically when opened by issue key.
 
 	Commands
 	  highlight <key>  Select a row in the running TUI by issue key
@@ -40,6 +41,7 @@ const helpText = `
 
 	Options
 	  --resume            Skip the initialization prompt when opening a space
+	  --no-resume         Enable the initialization prompt for an existing space
 	  --no-layout         Don't set up tmux pane layout (run standalone)
 	  --workspace         Outer workspace root when linking a nested repository
 	  --restart-tuis      After update, restart running TUIs without asking

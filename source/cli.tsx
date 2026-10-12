@@ -16,6 +16,7 @@ import {
 	sessionExists,
 	setupPappardellLayout,
 	getSessionNames,
+	getWorktreePath,
 	INNER_SOCKET,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
@@ -268,7 +269,9 @@ if (cli.input.length > 0) {
 		command: path.join(SCRIPTS_DIR, 'idow'),
 		prompt: finalPrompt,
 		issueKey: normalizedIssueKey,
-		resume: cli.flags.resume,
+		resume:
+			cli.flags.resume ??
+			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 	});

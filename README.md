@@ -157,10 +157,12 @@ pappardelle "fix auth bug"
 pappardelle --resume STE-20
 ```
 
-Successful command-line setup saves the space in the TUI's list. Use `--resume`
-to open a workspace without sending the configured initialization prompt again.
-It also works from a sous-chef session. A setup or registration failure returns
-a nonzero exit status.
+Successful command-line setup saves the space in the TUI's list. Opening an
+existing workspace by issue key resumes it automatically without sending the
+configured initialization prompt again. Use `--resume` to skip the prompt for
+any input, or `--no-resume` to enable it when the agent session starts. These
+commands also work from a sous-chef session. A setup or registration failure
+returns a nonzero exit status.
 
 ### From the TUI
 
