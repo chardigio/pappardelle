@@ -153,6 +153,7 @@ import {isWorktreeDirty} from './git-status.ts';
 import {
 	calculateVisibleWindow,
 	calculateListClickRow,
+	HEADER_ROWS,
 } from './list-view-sizing.ts';
 import {useMouse} from './use-mouse.ts';
 import {filterSpaces, tearDownSpace} from './space-utils.ts';
@@ -2094,6 +2095,7 @@ export default function App({
 
 	// Check if running in tmux
 	const inTmux = isInTmux();
+	const dialogHeight = termHeight - HEADER_ROWS - bannerHeight;
 
 	if (loading && spaces.length === 0) {
 		return (
@@ -2219,6 +2221,7 @@ export default function App({
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
 						availableWidth={termDimensions.cols}
+						availableHeight={dialogHeight}
 					/>
 				) : killDoneTargets !== null ? (
 					<ConfirmDialog
@@ -2242,6 +2245,7 @@ export default function App({
 						commitSha={commitSha}
 						installedVersion={installedVersion}
 						isDevBuild={isDevBuild}
+						availableHeight={dialogHeight}
 					/>
 				) : showErrorDialog ? (
 					<ErrorDialog

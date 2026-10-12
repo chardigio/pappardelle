@@ -1,5 +1,10 @@
 import widestLine from 'widest-line';
-import {buildHelpRows} from '../components/help-rows.ts';
+import {
+	buildHelpLines,
+	buildHelpRows,
+	helpFooter,
+	HELP_CHROME_ROWS,
+} from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 import type {PopupSpec} from './protocol.ts';
 
@@ -12,7 +17,6 @@ const HORIZONTAL_CHROME = 6;
 // Border (1 each side) plus paddingY={1}.
 const VERTICAL_CHROME = 4;
 const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
-const HELP_FOOTER = 'Press Esc, Enter, or ? to close';
 
 /**
  * Rows a string takes once Ink word-wraps it at `width` columns. Words longer
@@ -87,23 +91,16 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 					row => rows.maxKeyLength + 1 + widestLine(row.description),
 				),
 			);
+			const height = HELP_CHROME_ROWS + buildHelpLines(rows).length;
+			const maxHeight = client.rows - 2;
 			const contentWidth = Math.max(
 				rowWidth,
 				widestLine(formatVersionLine(installedVersion, commitSha, isDevBuild)),
-				widestLine(HELP_FOOTER),
+				widestLine(helpFooter(height > maxHeight)),
 			);
-			const height =
-				VERTICAL_CHROME +
-				// Title and version line, then a margin.
-				3 +
-				shortcutRows.length +
-				// "Custom Commands" heading with a margin on each side.
-				(customRows.length > 0 ? customRows.length + 3 : 0) +
-				// Margin, then the footer.
-				2;
 			return clamp(
 				{width: contentWidth + HORIZONTAL_CHROME, height},
-				{cols: client.cols, rows: client.rows - 2},
+				{cols: client.cols, rows: maxHeight},
 			);
 		}
 

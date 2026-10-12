@@ -39,7 +39,7 @@ export default function ConfirmDialog({
 	processingMessage,
 	isFullHeight,
 }: Props) {
-	// Snapshot the message + title when entering processing state. The parent's
+	// Snapshot the dialog's text when entering processing state. The parent's
 	// props can shift mid-deletion — once `deleteSpace` finishes and the list
 	// updates, `selectedIndex` may now point at the *next* space, so a naive
 	// re-read of `processingMessage` would flicker to "Closing space [next-
@@ -48,6 +48,8 @@ export default function ConfirmDialog({
 	const [processingFrame, setProcessingFrame] = useState<{
 		title: string;
 		message: string;
+		detail?: string;
+		status: string;
 	} | null>(null);
 
 	useInput((input, key) => {
@@ -69,7 +71,7 @@ export default function ConfirmDialog({
 				// hitting their first await. Without the deferral, that sync
 				// prefix runs in the same JS turn as the keystroke and the
 				// spinner doesn't appear until it's already done (STA-1373).
-				setProcessingFrame({title, message: processingMessage});
+				setProcessingFrame({title, message, detail, status: processingMessage});
 				setImmediate(() => {
 					runConfirmSafely(onConfirm);
 				});
@@ -82,35 +84,15 @@ export default function ConfirmDialog({
 				// confirm still works without a spinner flicker.
 				const result = runConfirmSafely(onConfirm);
 				if (isThenable(result)) {
-					setProcessingFrame({title, message: 'Processing…'});
+					setProcessingFrame({title, message, detail, status: 'Processing…'});
 				}
 			}
 		}
 	});
 
-	if (processingFrame !== null) {
-		return (
-			<Box
-				flexDirection="column"
-				borderStyle="double"
-				borderColor="red"
-				flexGrow={isFullHeight ? 1 : 0}
-				paddingX={2}
-				paddingY={1}
-			>
-				<Box marginBottom={1}>
-					<Text bold color="red">
-						{processingFrame.title}
-					</Text>
-				</Box>
-
-				<Box>
-					<ClaudeAnimation />
-					<Text> {processingFrame.message}</Text>
-				</Box>
-			</Box>
-		);
-	}
+	// The spinner takes the hint's row and the rest stays put, so a dialog in a
+	// fixed-size tmux popup keeps filling it.
+	const shown = processingFrame ?? {title, message, detail};
 
 	return (
 		<Box
@@ -123,27 +105,32 @@ export default function ConfirmDialog({
 		>
 			<Box marginBottom={1}>
 				<Text bold color="red">
-					{title}
+					{shown.title}
 				</Text>
 			</Box>
 
 			<Box marginBottom={1}>
-				<Text>{message}</Text>
+				<Text>{shown.message}</Text>
 			</Box>
 
-			{detail && (
+			{shown.detail && (
 				<Box marginBottom={1}>
-					<Text dimColor>{detail}</Text>
+					<Text dimColor>{shown.detail}</Text>
 				</Box>
 			)}
 
-			<Box>
+			{processingFrame ? (
+				<Box>
+					<ClaudeAnimation />
+					<Text> {processingFrame.status}</Text>
+				</Box>
+			) : (
 				<Text dimColor>
 					Press <Text color="green">y</Text> or <Text color="green">Enter</Text>{' '}
 					to confirm, <Text color="yellow">n</Text> or{' '}
 					<Text color="yellow">Esc</Text> to cancel
 				</Text>
-			</Box>
+			)}
 		</Box>
 	);
 }

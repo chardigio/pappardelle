@@ -62,3 +62,42 @@ export function buildHelpRows(customKeybindings: KeybindingConfig[] = []): {
 
 	return {fixed: fixedShortcuts, overridable, extraCustom, maxKeyLength};
 }
+
+export type HelpLine =
+	| {kind: 'row'; row: HelpRow}
+	| {kind: 'heading'; text: string}
+	| {kind: 'blank'};
+
+/**
+ * Rows the overlay spends outside the shortcut list: border and padding (4),
+ * the title, version line and margin (3), and the margin and footer (2).
+ */
+export const HELP_CHROME_ROWS = 9;
+
+export function helpFooter(isScrolling: boolean): string {
+	return isScrolling
+		? 'j/k scroll · Esc, Enter, or ? to close'
+		: 'Press Esc, Enter, or ? to close';
+}
+
+/** The shortcut list as one flat run of rows, which is what scrolls. */
+export function buildHelpLines(rows: {
+	fixed: HelpRow[];
+	overridable: HelpRow[];
+	extraCustom: HelpRow[];
+}): HelpLine[] {
+	const lines: HelpLine[] = [...rows.fixed, ...rows.overridable].map(row => ({
+		kind: 'row',
+		row,
+	}));
+	if (rows.extraCustom.length > 0) {
+		lines.push(
+			{kind: 'blank'},
+			{kind: 'heading', text: 'Custom Commands'},
+			{kind: 'blank'},
+			...rows.extraCustom.map(row => ({kind: 'row' as const, row})),
+		);
+	}
+
+	return lines;
+}

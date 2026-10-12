@@ -15,8 +15,7 @@ import {
 	selectionAfterRemoval,
 	visibleWindow,
 } from './ready-picker.ts';
-
-const MAX_VISIBLE_SUGGESTIONS = 8;
+import {READY_MAX_VISIBLE} from './prompt-dialog-layout.ts';
 
 const CLOSE_KEY = 'x';
 
@@ -170,17 +169,19 @@ export function ReadyWorkList({
 	width,
 	isFocused,
 	hasHints,
+	maxVisible = READY_MAX_VISIBLE,
 }: {
 	ready: ReadyWork;
 	width: number;
 	/** Whether the cursor is in this list, which owns the heavy outline. */
 	isFocused: boolean;
 	hasHints: boolean;
+	maxVisible?: number;
 }) {
 	const {issues, index} = ready;
 	const window = useMemo(
-		() => visibleWindow(index, issues.length, MAX_VISIBLE_SUGGESTIONS),
-		[index, issues.length],
+		() => visibleWindow(index, issues.length, maxVisible),
+		[index, issues.length, maxVisible],
 	);
 
 	if (ready.loading) {

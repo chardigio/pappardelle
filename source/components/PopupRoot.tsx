@@ -69,7 +69,14 @@ export default function PopupRoot({
 			}
 
 			case 'help': {
-				return <HelpOverlay isFullHeight {...spec.props} onClose={cancel} />;
+				return (
+					<HelpOverlay
+						isFullHeight
+						{...spec.props}
+						availableHeight={height}
+						onClose={cancel}
+					/>
+				);
 			}
 
 			case 'errors': {

@@ -64,10 +64,15 @@ test.serial(
 		t.teardown(() => popup.view.unmount());
 		await delay(20);
 
+		const rows = popup.view.lastFrame()?.split('\n').length;
 		popup.view.stdin.write('y');
 		await until(
 			() => popup.view.lastFrame()?.includes('Closing space bd-1…') ?? false,
 		);
+		const frame = popup.view.lastFrame() ?? '';
+		t.is(frame.split('\n').length, rows);
+		t.true(frame.includes('Close space bd-1?'));
+		t.false(frame.includes('to cancel'));
 		await until(() => popup.sent.length > 0);
 		t.deepEqual(popup.sent, [{type: 'confirm'}]);
 		t.is(popup.exits(), 0);

@@ -1,8 +1,14 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import type {KeybindingConfig} from '../config.ts';
 import {formatVersionLine} from '../help-version-line.ts';
-import {buildHelpRows} from './help-rows.ts';
+import {
+	buildHelpLines,
+	buildHelpRows,
+	helpFooter,
+	HELP_CHROME_ROWS,
+} from './help-rows.ts';
+import {handleTextViewerKey} from './text-viewer-keys.ts';
 
 interface Props {
 	onClose: () => void;
@@ -14,6 +20,8 @@ interface Props {
 	isDevBuild?: boolean;
 	/** Stretch to the parent's height, for a tmux popup sized to fit. */
 	isFullHeight?: boolean;
+	/** Rows the overlay may use. The shortcut list scrolls when it needs more. */
+	availableHeight?: number;
 }
 
 export default function HelpOverlay({
@@ -23,19 +31,30 @@ export default function HelpOverlay({
 	installedVersion,
 	isDevBuild,
 	isFullHeight,
+	availableHeight,
 }: Props) {
-	useInput((_input, key) => {
-		if (key.escape || _input === '?' || key.return) {
-			onClose();
-		}
-	});
+	const [top, setTop] = useState(0);
+	const rows = buildHelpRows(customKeybindings);
+	const lines = buildHelpLines(rows);
+	const viewHeight =
+		availableHeight === undefined
+			? lines.length
+			: Math.max(1, Math.min(lines.length, availableHeight - HELP_CHROME_ROWS));
+	const isScrolling = viewHeight < lines.length;
 
-	const {
-		fixed: fixedShortcuts,
-		overridable: overridableShortcuts,
-		extraCustom,
-		maxKeyLength: maxKeyLen,
-	} = buildHelpRows(customKeybindings);
+	useInput((input, key) => {
+		if (key.escape || input === '?' || key.return) {
+			onClose();
+			return;
+		}
+
+		const result = handleTextViewerKey(input, key, {
+			top,
+			lineCount: lines.length,
+			viewHeight,
+		});
+		if (result.action === 'scroll') setTop(result.top);
+	});
 
 	return (
 		<Box
@@ -55,44 +74,32 @@ export default function HelpOverlay({
 				</Text>
 			</Box>
 
-			{fixedShortcuts.map(s => (
-				<Box key={s.key}>
-					<Text color="yellow">{s.key.padEnd(maxKeyLen)}</Text>
-					<Text> {s.description}</Text>
-				</Box>
-			))}
-
-			{overridableShortcuts.length > 0 && (
-				<>
-					{overridableShortcuts.map(s => (
-						<Box key={s.key}>
-							<Text color={s.isCustom ? 'magenta' : 'yellow'}>
-								{s.key.padEnd(maxKeyLen)}
+			<Box flexDirection="column" height={viewHeight} overflow="hidden">
+				{lines.slice(top, top + viewHeight).map((line, index) => {
+					if (line.kind === 'blank') return <Text key={top + index}> </Text>;
+					if (line.kind === 'heading') {
+						return (
+							<Text key={top + index} bold color="cyan" wrap="truncate-end">
+								{line.text}
 							</Text>
-							<Text> {s.description}</Text>
-						</Box>
-					))}
-				</>
-			)}
+						);
+					}
 
-			{extraCustom.length > 0 && (
-				<>
-					<Box marginTop={1} marginBottom={1}>
-						<Text bold color="cyan">
-							Custom Commands
+					return (
+						<Text key={top + index} wrap="truncate-end">
+							<Text color={line.row.isCustom ? 'magenta' : 'yellow'}>
+								{line.row.key.padEnd(rows.maxKeyLength)}
+							</Text>{' '}
+							{line.row.description}
 						</Text>
-					</Box>
-					{extraCustom.map(kb => (
-						<Box key={kb.key}>
-							<Text color="magenta">{kb.key.padEnd(maxKeyLen)}</Text>
-							<Text> {kb.description}</Text>
-						</Box>
-					))}
-				</>
-			)}
+					);
+				})}
+			</Box>
 
 			<Box marginTop={1}>
-				<Text dimColor>Press Esc, Enter, or ? to close</Text>
+				<Text dimColor wrap="truncate-end">
+					{helpFooter(isScrolling)}
+				</Text>
 			</Box>
 		</Box>
 	);
