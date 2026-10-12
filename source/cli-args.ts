@@ -2,7 +2,7 @@ import meow from 'meow';
 
 const helpText = `
 	Usage
-	  $ pappardelle [prompt]
+	  $ pappardelle [--profile <name>] [prompt]
 	  $ pappardelle --resume <prompt or issue-key>
 	  $ pappardelle highlight <issue-key>
 	  $ pappardelle send <issue-key> [text]
@@ -40,6 +40,7 @@ const helpText = `
 	  q/Ctrl+C       Quit
 
 	Options
+	  --profile <name>    Use a configured profile instead of automatic selection
 	  --resume            Skip the initialization prompt when opening a space
 	  --no-resume         Enable the initialization prompt for an existing space
 	  --no-layout         Don't set up tmux pane layout (run standalone)
@@ -52,6 +53,7 @@ const helpText = `
 	  $ pappardelle              # Run with tmux layout
 	  $ pappardelle --no-layout  # Run standalone (list only)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
+	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
@@ -69,6 +71,7 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 		// indistinguishable.
 		booleanDefault: undefined,
 		flags: {
+			profile: {type: 'string'},
 			resume: {type: 'boolean'},
 			workspace: {type: 'string'},
 			layout: {

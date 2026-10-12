@@ -30,6 +30,7 @@ import {
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
 	getTeamPrefix,
+	getProfileTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
@@ -73,6 +74,14 @@ if (gate.action === 'reject') {
 }
 
 const cli = parseCli();
+
+if (
+	cli.flags.profile !== undefined &&
+	(!cli.flags.profile.trim() || cli.input.length === 0)
+) {
+	console.error('Usage: pappardelle --profile <name> <prompt or issue-key>');
+	process.exit(1);
+}
 
 if (cli.flags.resume && cli.input.length === 0) {
 	console.error('Usage: pappardelle --resume <prompt or issue-key>');
@@ -254,7 +263,11 @@ if (cli.input.length > 0) {
 		config = null;
 	}
 
-	const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	let teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	const profile = cli.flags.profile
+		? config?.profiles[cli.flags.profile]
+		: undefined;
+	if (config && profile) teamPrefix = getProfileTeamPrefix(profile, config);
 	const normalizedIssueKey = normalizeIssueIdentifier(
 		prompt,
 		teamPrefix,
@@ -269,6 +282,7 @@ if (cli.input.length > 0) {
 		command: path.join(SCRIPTS_DIR, 'idow'),
 		prompt: finalPrompt,
 		issueKey: normalizedIssueKey,
+		profileName: cli.flags.profile,
 		resume:
 			cli.flags.resume ??
 			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),

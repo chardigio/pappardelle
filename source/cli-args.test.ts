@@ -76,3 +76,16 @@ test('--resume accepts either position without consuming the input', t => {
 	t.false(parseCli(['STE-20', '--no-resume']).flags.resume);
 	t.deepEqual(parseCli(['--resume', 'fix auth bug']).input, ['fix auth bug']);
 });
+
+test('--profile preserves its name and positional input in either order', t => {
+	for (const argv of [
+		['--profile', 'mobile', 'STE-20'],
+		['STE-20', '--profile', 'mobile'],
+	]) {
+		const cli = parseCli(argv);
+		t.is(cli.flags.profile, 'mobile');
+		t.deepEqual(cli.input, ['STE-20']);
+	}
+	t.is(parseCli(['--profile', '123', 'STE-20']).flags.profile, '123');
+	t.is(parseCli(['STE-20']).flags.profile, undefined);
+});

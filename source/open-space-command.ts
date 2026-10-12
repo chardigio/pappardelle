@@ -2,7 +2,10 @@ import {spawn, type ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
 import {Writable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
-import {extractIssueKeyFromIdowOutput} from './session-routing.ts';
+import {
+	buildNewSessionArgs,
+	extractIssueKeyFromIdowOutput,
+} from './session-routing.ts';
 import {addSpace} from './space-registry.ts';
 
 export interface OpenSpaceCommandOptions {
@@ -10,6 +13,7 @@ export interface OpenSpaceCommandOptions {
 	prompt: string;
 	issueKey: string | null;
 	resume?: boolean;
+	profileName?: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
 }
@@ -41,7 +45,13 @@ export async function runOpenSpaceCommand(
 	try {
 		child = spawn(
 			options.command,
-			[...(options.resume ? ['--resume'] : []), options.prompt],
+			[
+				...(options.resume ? ['--resume'] : []),
+				...buildNewSessionArgs(options.prompt, {
+					profileName: options.profileName,
+					inputIsIssueKey: false,
+				}),
+			],
 			{
 				cwd: options.cwd,
 				env: options.env,

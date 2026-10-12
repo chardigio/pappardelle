@@ -154,6 +154,7 @@ Run these from the repository or one of its worktrees:
 ```bash
 pappardelle STE-20
 pappardelle "fix auth bug"
+pappardelle --profile mobile "fix auth bug"
 pappardelle --resume STE-20
 ```
 
@@ -163,6 +164,10 @@ configured initialization prompt again. Use `--resume` to skip the prompt for
 any input, or `--no-resume` to enable it when the agent session starts. These
 commands also work from a sous-chef session. A setup or registration failure
 returns a nonzero exit status.
+
+Use `--profile <name>` to select a profile configured in `.pappardelle.yml`
+instead of automatic selection. It also works with `--resume`. Bare issue numbers
+use the selected profile's team prefix when one is configured.
 
 ### From the TUI
 
