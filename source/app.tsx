@@ -90,6 +90,7 @@ import {
 	buildNewSessionArgs,
 	buildOpenWorkspaceArgs,
 	extractIssueKeyFromIdowOutput,
+	idowSkippedAgentOverride,
 	type PendingSession,
 } from './session-routing.ts';
 import {
@@ -1327,6 +1328,7 @@ export default function App({
 						path.join(SCRIPTS_DIR, 'idow'),
 						buildNewSessionArgs(pending.idowArg, {
 							profileName: pending.profileName,
+							agentProfileName: pending.agentProfileName,
 							inputIsIssueKey: pending.inputIsIssueKey,
 						}),
 						{
@@ -1346,6 +1348,16 @@ export default function App({
 						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
 					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
 					if (spaceKey) await addSpace(spaceKey);
+					if (
+						pending.agentProfileName &&
+						idowSkippedAgentOverride(result.stdout)
+					) {
+						setHeaderWithTimeout(
+							`Agent already running; ${pending.agentProfileName} not applied`,
+							5000,
+						);
+					}
+
 					await loadSpaces();
 				},
 				options ?? {queued: false},
@@ -1821,6 +1833,7 @@ export default function App({
 		input: string,
 		profileName: string | null,
 		inputIsIssueKey: boolean,
+		agentProfileName: string | null,
 	) => {
 		setShowPromptDialog(false);
 
@@ -1856,6 +1869,7 @@ export default function App({
 			// when `n` was pressed, and the list can change while it is open.
 			prevSpaceCount: spacesRef.current.length,
 			profileName,
+			agentProfileName,
 			profileEmoji: resolvePendingProfileEmoji(config, profileName),
 		};
 		spawnSession(pending);

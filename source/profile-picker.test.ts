@@ -552,6 +552,21 @@ test('handleProfilePickerKey moves up and clamps at the start', t => {
 	});
 });
 
+test('handleProfilePickerKey opens the agent override on a', t => {
+	t.deepEqual(handleProfilePickerKey('a', KEY.none, 1, 3), {
+		action: 'agent',
+		index: 1,
+	});
+	t.deepEqual(handleProfilePickerKey('a', KEY.none, 0, 0), {
+		action: 'ignore',
+		index: 0,
+	});
+	t.deepEqual(handleProfilePickerKey('a', {ctrl: true}, 1, 3), {
+		action: 'ignore',
+		index: 1,
+	});
+});
+
 test('handleProfilePickerKey supports j/k like the main list', t => {
 	t.deepEqual(handleProfilePickerKey('j', KEY.none, 0, 3), {
 		action: 'move',

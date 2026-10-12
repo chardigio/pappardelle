@@ -9,6 +9,9 @@ import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
+	listAgentProfiles,
+	loadAgentProfileSources,
+	resolveAgentProfileName,
 	type PappardelleConfig,
 	type ProfileSelection,
 } from '../config.ts';
@@ -36,6 +39,7 @@ import {
 	type ProfileOption,
 } from '../profile-picker.ts';
 import {useSkillSnapshot} from '../use-skill-snapshot.ts';
+import {pickAgentProfileInPopup} from '../agent-profile-popup.ts';
 import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
 import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
 import {promptDialogLayout} from './prompt-dialog-layout.ts';
@@ -43,11 +47,16 @@ import {promptDialogLayout} from './prompt-dialog-layout.ts';
 /** React key for the profile-less row, which has no profile name to use. */
 const DEFERRED_ROW_KEY = '__deferred__';
 
+function rowKey(option: ProfileOption): string {
+	return option.name ?? DEFERRED_ROW_KEY;
+}
+
 interface Props {
 	onSubmit: (
 		prompt: string,
 		profileName: string | null,
 		inputIsIssueKey: boolean,
+		agentProfileName: string | null,
 	) => void;
 	onCancel: () => void;
 	/**
@@ -71,6 +80,11 @@ export default function PromptDialog({
 	// Both boxes are always on screen; this is purely which one has focus.
 	const [isPicking, setIsPicking] = useState(false);
 	const [selectedIndex, setSelectedIndex] = useState(0);
+	// Keyed by row so an override stays with its profile while the list
+	// re-ranks under further typing.
+	const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>(
+		{},
+	);
 
 	// Escape closes the completion list without clearing what you typed, so the
 	// dismissal has to be remembered against the exact text it was made for:
@@ -270,7 +284,21 @@ export default function PromptDialog({
 
 				case 'submit': {
 					const chosen = options[result.index];
-					if (chosen) onSubmit(effectiveInput.trim(), chosen.name, ready.onRow);
+					if (chosen) {
+						onSubmit(
+							effectiveInput.trim(),
+							chosen.name,
+							ready.onRow,
+							agentOverrides[rowKey(chosen)] ?? null,
+						);
+					}
+
+					break;
+				}
+
+				case 'agent': {
+					const option = options[result.index];
+					if (option && config) void chooseAgentProfile(option, config);
 					break;
 				}
 
@@ -289,6 +317,43 @@ export default function PromptDialog({
 		},
 		{isActive: isPicking && ready.closeTarget === null},
 	);
+
+	const chooseAgentProfile = async (
+		option: ProfileOption,
+		loadedConfig: PappardelleConfig,
+	) => {
+		const key = rowKey(option);
+		const agentProfiles = listAgentProfiles(
+			loadedConfig,
+			loadAgentProfileSources(),
+		);
+		// The deferred row's profile isn't known until idow fetches the issue, so
+		// it gets a row of its own, named '', that leaves the choice to idow.
+		const profileDefault =
+			option.kind === 'profile'
+				? resolveAgentProfileName(
+						loadedConfig,
+						undefined,
+						option.name ?? undefined,
+					)
+				: '';
+		const name = await pickAgentProfileInPopup({
+			options:
+				option.kind === 'profile'
+					? agentProfiles
+					: [
+							{name: '', source: "whichever the issue's profile uses"},
+							...agentProfiles,
+						],
+			selected: agentOverrides[key] ?? profileDefault,
+			profileDefault,
+		});
+		if (name === null) return;
+		setAgentOverrides(current => {
+			const {[key]: _previous, ...rest} = current;
+			return name === profileDefault ? rest : {...rest, [key]: name};
+		});
+	};
 
 	// The list re-ranks on every keystroke, so an index parked deep in a long
 	// list would point past the end of a short one. Rendering and acceptance
@@ -315,7 +380,7 @@ export default function PromptDialog({
 			}
 
 			case 'spawn': {
-				onSubmit(resolved, decision.profileName, ready.onRow);
+				onSubmit(resolved, decision.profileName, ready.onRow, null);
 				break;
 			}
 
@@ -452,6 +517,7 @@ export default function PromptDialog({
 			) : (
 				<ProfilePicker
 					options={options}
+					agentOverrides={agentOverrides}
 					selectedIndex={activeIndex}
 					width={width}
 					frame={pickerFrame}
@@ -466,6 +532,7 @@ export default function PromptDialog({
 
 function ProfilePicker({
 	options,
+	agentOverrides,
 	selectedIndex,
 	width,
 	frame,
@@ -474,6 +541,7 @@ function ProfilePicker({
 	maxVisible,
 }: {
 	options: ProfileOption[];
+	agentOverrides: Record<string, string>;
 	selectedIndex: number;
 	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
@@ -522,8 +590,9 @@ function ProfilePicker({
 						// glyph wherever it appears. Sits right of the selection caret
 						// (which owns column 0 for every row) and left of the label.
 						const slot = resolveEmojiSlot(maybeStripSkinTones(option.emoji));
+						const agentOverride = agentOverrides[rowKey(option)];
 						return (
-							<Box key={option.name ?? DEFERRED_ROW_KEY}>
+							<Box key={rowKey(option)}>
 								<Text
 									color={isSelected ? 'green' : undefined}
 									bold={isSelected}
@@ -553,6 +622,7 @@ function ProfilePicker({
 								{option.isDefault && option.matchedKeywords.length === 0 && (
 									<Text dimColor> (default)</Text>
 								)}
+								{agentOverride && <Text color="cyan"> → {agentOverride}</Text>}
 							</Box>
 						);
 					})}
@@ -563,6 +633,11 @@ function ProfilePicker({
 				<Box paddingX={2}>
 					<Text dimColor>
 						<Text color="green">↑/↓</Text> select ·{' '}
+						{process.env['TMUX'] ? (
+							<>
+								<Text color="cyan">a</Text> agent ·{' '}
+							</>
+						) : null}
 						<Text color="green">Enter</Text> start ·{' '}
 						<Text color="yellow">Esc</Text> back
 					</Text>

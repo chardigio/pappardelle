@@ -140,6 +140,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 		vcsCalls,
 		launchers,
 		home,
+		bin,
 		config,
 		async run({
 			open = false,
@@ -147,12 +148,14 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 			onExit = () => {},
 			extraEnv = {},
 			profile,
+			agentProfile,
 		}: {
 			open?: boolean;
 			projectRoot?: boolean;
 			onExit?: () => void;
 			extraEnv?: Record<string, string>;
 			profile?: string;
+			agentProfile?: string;
 		} = {}): Promise<string> {
 			const env = {...process.env};
 			delete env.PAPPARDELLE_PROJECT_ROOT;
@@ -168,6 +171,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 						path.join(scripts, 'idow'),
 						...(open ? ['--resume', '--open'] : []),
 						...(profile ? ['--profile', profile] : []),
+						...(agentProfile ? ['--agent-profile', agentProfile] : []),
 						'--issue-key',
 						'test-abc',
 					],
@@ -503,6 +507,52 @@ test('a new worktree launches the agent without its resume args', async t => {
 		fs.readFileSync(fixture.launchers, 'utf8'),
 		/--agent-resume-args resume --last --agent-is-claude false/,
 	);
+});
+
+test('--agent-profile launches another agent profile for that run only', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+	);
+	const launchArg = (flag: string) => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf(flag) + 1];
+	};
+
+	const stdout = await fixture.run({agentProfile: 'codex'});
+	t.is(launchArg('--agent-profile'), 'codex');
+	t.is(launchArg('--agent-command'), 'codex');
+	t.notRegex(stdout, /override was not applied/);
+	const statePath = path.join(
+		fixture.home,
+		'.pappardelle/repos/linked checkout/space-state/test-abc.json',
+	);
+	t.false('agentProfile' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
+
+	await fixture.run();
+	t.is(launchArg('--agent-profile'), 'claude');
+});
+
+test('--agent-profile on a space whose agent is running says it was not applied', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+	);
+	writeScript(path.join(fixture.bin, 'tmux'), 'exit 0');
+
+	t.regex(
+		await fixture.run({agentProfile: 'codex'}),
+		/Agent session already running, so the agent profile override was not applied/,
+	);
+});
+
+test('an unknown --agent-profile stops idow before any setup', async t => {
+	const fixture = setup(t);
+	const error = await t.throwsAsync(fixture.run({agentProfile: 'codx'}));
+	t.regex(String(error), /agent profile "codx" not found in agent_profiles/);
+	t.false(fs.existsSync(fixture.workspace));
 });
 
 test('a reopened space resumes the session its agent recorded', async t => {

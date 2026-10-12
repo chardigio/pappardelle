@@ -4,7 +4,7 @@
 #
 # A command-line tool that sets up a development workspace.
 #
-# Usage: idow [--resume] [--open] [--profile <name>] [--issue-key <key>] <input>
+# Usage: idow [--resume] [--open] [--profile <name>] [--agent-profile <name>] [--issue-key <key>] <input>
 #   Input can be:
 #     - Issue key:   idow STA-123 | idow 123
 #     - Linear URL:  idow https://linear.app/stardust-labs/issue/STA-123
@@ -97,7 +97,7 @@ run_command() {
 
 # Handle help flag
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: idow [--resume] [--profile <name>] <input>"
+    echo "Usage: idow [--resume] [--open] [--profile <name>] [--agent-profile <name>] [--issue-key <key>] <input>"
     echo ""
     echo "Input can be:"
     echo "  Issue key:   idow STA-123 | idow 123"
@@ -108,6 +108,8 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  --resume          Open workspace without prompting the agent (for continuing work)"
     echo "  --open            Also open apps, links, iTerm, and run commands (skipped by default)"
     echo "  --profile <name>  Force a specific profile from .pappardelle.yml"
+    echo "  --agent-profile <name>"
+    echo "                    Launch this agent profile instead of the profile's, for this launch only"
     echo "  --issue-key <key> Use this issue key verbatim, skipping input-type detection"
     exit 0
 fi
@@ -209,7 +211,7 @@ done
 resolve_agent_launch_config() {
     local profile="$1"
     local json
-    json=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
+    json=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile" --agent-profile "$FORCED_AGENT_PROFILE")
     COMPANION_COMMAND=$(jq -r '.companion_command' <<< "$json")
     {
         IFS= read -r AGENT_MODEL
@@ -435,6 +437,25 @@ if [[ "$1" == "--profile" ]]; then
     fi
 fi
 
+# Not persisted: a later launch of the space goes back to the profile's agent.
+FORCED_AGENT_PROFILE=""
+if [[ "$1" == "--agent-profile" ]]; then
+    FORCED_AGENT_PROFILE="$2"
+    if [[ -z "$FORCED_AGENT_PROFILE" ]]; then
+        echo "Error: --agent-profile needs an agent profile name" >&2
+        exit 1
+    fi
+    shift 2
+
+    # Checked here rather than left to resolve-agent-config.sh, which only runs
+    # after the issue fetch and worktree setup.
+    if [[ "$FORCED_AGENT_PROFILE" != "claude" \
+          && "$(AGENT_PROFILE="$FORCED_AGENT_PROFILE" yq -r '.agent_profiles // {} | has(strenv(AGENT_PROFILE))' "$CONFIG_PATH")" != "true" ]]; then
+        echo -e "${YELLOW}Error: agent profile \"$FORCED_AGENT_PROFILE\" not found in agent_profiles${NC}" >&2
+        exit 1
+    fi
+fi
+
 # A beads ID is a content hash, so `myproj-a1b2` and the description `fix-crash`
 # are the same shape. Callers that already hold a resolved key say so rather than
 # leaving the detection below to guess.
@@ -448,7 +469,7 @@ fi
 INPUT="$*"
 
 if [[ -z "$INPUT" ]]; then
-    echo "Usage: idow [--profile <name>] <input>"
+    echo "Usage: idow [--profile <name>] [--agent-profile <name>] <input>"
     echo ""
     echo "Input can be:"
     echo "  Issue key:   idow STA-123 | idow 123"
@@ -885,6 +906,11 @@ AGENT_SESSION_NAME="agent-${REPO_NAME}-${SESSION_KEY}"
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 export PAPPARDELLE_TMUX_SOCKET
+# start-agent-session.sh leaves a running agent alone. The TUI matches this
+# message to tell the user their pick didn't take (idowSkippedAgentOverride).
+if [[ -n "$FORCED_AGENT_PROFILE" ]] && tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
+    print_warning "Agent session already running, so the agent profile override was not applied"
+fi
 "$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
     print_success "Agent session: $AGENT_SESSION_NAME"

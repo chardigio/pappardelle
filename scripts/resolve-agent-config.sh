@@ -2,7 +2,7 @@
 
 # resolve-agent-config.sh - Resolve the agent profile and claude config values with layered override support
 #
-# Usage: resolve-agent-config.sh --config <path> [--local-config <path>] [--home-config <path>] [--profile <name>]
+# Usage: resolve-agent-config.sh --config <path> [--local-config <path>] [--home-config <path>] [--profile <name>] [--agent-profile <name>]
 #
 # Layers (lowest → highest priority):
 #   1. Home config    (~/.pappardelle/.pappardelle.yml) — personal defaults across all repos
@@ -29,6 +29,10 @@
 # spelling, so idow can warn. Mirrored by getAgentModel()/getAgentEffort()/
 # getAgentProfile() in source/config.ts and pinned by
 # scripts/test-claude-model-effort.sh.
+#
+# --agent-profile <name> replaces the agent_profile reference for one launch
+# (the TUI's per-session override); everything else still resolves from the
+# profile.
 #
 # The agent_profile reference (profiles.<name>.agent_profile // .agent_profile
 # // "claude") is flattened to its name and resolved definition: agent_profile,
@@ -67,6 +71,7 @@ CONFIG_PATH=""
 LOCAL_CONFIG_PATH=""
 HOME_CONFIG_PATH=""
 PROFILE=""
+AGENT_PROFILE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -84,6 +89,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --profile)
             PROFILE="$2"
+            shift 2
+            ;;
+        --agent-profile)
+            AGENT_PROFILE_OVERRIDE="$2"
             shift 2
             ;;
         *)
@@ -149,9 +158,9 @@ RESOLVED=$(merge_config_layers "$HOME_CONFIG_PATH" "$CONFIG_PATH" "$LOCAL_CONFIG
 # model from an empty one. is_claude is read without `//`, which treats
 # `false` as missing. Mirrors getAgentProfile() in source/config.ts.
 # shellcheck disable=SC2016 # $selected, $agent_profile_ref, $def and strenv() are yq/jq, not shell
-RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
+RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVERRIDE="$AGENT_PROFILE_OVERRIDE" yq -o=json '
     (.profiles[strenv(PROFILE)] // {}) as $selected |
-    ($selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
+    ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
     ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args"] as $fields |
     {
         "initialization_command": .initialization_command,
