@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {spawn, type ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
 import {Writable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
@@ -32,8 +32,14 @@ export async function runOpenSpaceCommand(
 	let stdout = '';
 	let code: number | null;
 	let signal: NodeJS.Signals | null;
+	let child: ChildProcess | undefined;
+	let exited: ReturnType<typeof once> | undefined;
+	const handleOutputError = () => {
+		child?.kill();
+	};
+	process.stdout.on('error', handleOutputError);
 	try {
-		const child = spawn(
+		child = spawn(
 			options.command,
 			[...(options.resume ? ['--resume'] : []), options.prompt],
 			{
@@ -42,8 +48,9 @@ export async function runOpenSpaceCommand(
 				stdio: ['inherit', 'pipe', 'inherit'],
 			},
 		);
+		exited = once(child, 'exit');
 		const [exit] = await Promise.all([
-			once(child, 'close'),
+			exited,
 			pipeline(
 				child.stdout!.setEncoding('utf8'),
 				new Writable({
@@ -56,17 +63,22 @@ export async function runOpenSpaceCommand(
 			),
 		]);
 		[code, signal] = exit as [number | null, NodeJS.Signals | null];
+		// The startup banner may still be buffered even when idow produced no output.
+		await writeOutput(process.stdout, '');
 	} catch (error) {
+		child?.kill();
+		await exited?.catch(() => {});
 		await writeOutput(
 			process.stderr,
 			`Failed to run idow: ${error instanceof Error ? error.message : String(error)}\n`,
 		);
-		await writeOutput(process.stdout, '');
+		if (!process.stdout.errored)
+			await writeOutput(process.stdout, '').catch(() => {});
 		return 1;
+	} finally {
+		process.stdout.off('error', handleOutputError);
 	}
 
-	// The startup banner may still be buffered even when idow produced no output.
-	await writeOutput(process.stdout, '');
 	if (code !== 0) {
 		if (signal)
 			await writeOutput(process.stderr, `idow terminated by ${signal}\n`);

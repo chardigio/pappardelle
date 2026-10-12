@@ -58,6 +58,8 @@ fs.writeFileSync(process.env.IDOW_TEST_RECORD, JSON.stringify({
   stdin: fs.readFileSync(0, 'utf8'),
   stdinIsTTY: process.stdin.isTTY ?? false,
 }));
+if (process.env.IDOW_TEST_PID_FILE) fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
+if (process.env.IDOW_TEST_KEEP_ALIVE) setTimeout(() => {}, 30000);
 process.stderr.write('idow diagnostic\\n');
 const output = process.env.IDOW_TEST_OUTPUT ?? 'Workspace ' + process.argv.at(-1) + ' is ready!\\n';
 process.stdout.write('x'.repeat(Number(process.env.IDOW_TEST_BYTES ?? 0)));
@@ -217,6 +219,49 @@ test('CLI preserves lowercase beads keys and child issue suffixes', async t => {
 	t.is(result.code, 0);
 	t.deepEqual(f.readRegistry(), ['ste-a1b2.1']);
 	t.deepEqual(f.readRecord().args, ['ste-a1b2.1']);
+});
+
+test('CLI registers the final summary key when the description quotes another ready message', async t => {
+	const f = fixture(t);
+	const input = 'fix the misleading Workspace STE-1 is ready! message';
+	const result = await f.run([input], {
+		IDOW_TEST_OUTPUT:
+			`[2026-10-12 15:00:00] [startup] Input: ${input}\n` +
+			'\u001b[0;32mWorkspace STE-99 is ready!\u001b[0m\n',
+	});
+	t.is(result.code, 0);
+	t.deepEqual(f.readRegistry(), ['STE-99']);
+});
+
+test('CLI handles a broken stdout pipe and stops idow before returning failure', async t => {
+	const f = fixture(t);
+	f.seed();
+	const pidFile = path.join(f.root, 'idow.pid');
+	const child = f.start(['STE-20'], {
+		IDOW_TEST_PID_FILE: pidFile,
+		IDOW_TEST_KEEP_ALIVE: '1',
+	});
+	child.stdin.end();
+	const closed = once(child, 'close');
+	let stderr = '';
+	child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+		stderr += chunk;
+	});
+	child.stdout.once('data', () => child.stdout.destroy());
+	const [code] = await once(child, 'exit');
+	const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+	let idowAlive = false;
+	try {
+		process.kill(pid, 0);
+		idowAlive = true;
+	} catch {}
+	if (idowAlive) process.kill(pid, 'SIGKILL');
+	await closed;
+	t.is(code, 1);
+	t.false(idowAlive);
+	t.regex(stderr, /Failed to run idow:.*EPIPE/);
+	t.false(stderr.includes('Unhandled'));
+	t.deepEqual(f.readRegistry(), ['STE-1']);
 });
 
 test('CLI preserves idow failure status without saving a space even after a ready message', async t => {

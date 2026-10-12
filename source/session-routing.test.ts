@@ -316,6 +316,20 @@ test('extracts beads key wrapped in ANSI color codes', t => {
 	t.is(extractIssueKeyFromIdowOutput(stdout), 'pappardelle-osc');
 });
 
+test('uses the final summary instead of ready messages quoted in the input', t => {
+	const inputLog =
+		'[2026-10-12 15:00:00] [startup] Input: fix the misleading Workspace STE-1 is ready! message\n';
+	t.is(extractIssueKeyFromIdowOutput(inputLog), null);
+	t.is(
+		extractIssueKeyFromIdowOutput(
+			inputLog +
+				'Workspace STE-2 is ready!\n' +
+				'\u001b[0;32mWorkspace STE-99 is ready!\u001b[0m\n',
+		),
+		'STE-99',
+	);
+});
+
 test('returns null when idow output has no workspace line', t => {
 	t.is(extractIssueKeyFromIdowOutput(''), null);
 	t.is(extractIssueKeyFromIdowOutput('some random output'), null);
