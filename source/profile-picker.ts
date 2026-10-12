@@ -293,6 +293,129 @@ export function handleProfilePickerKey(
 }
 
 /**
+ * Narrow a list to the items with a label containing the query's characters
+ * in order, tightest match first: `sh` finds `sol-high` ahead of
+ * `sonnet-high`. An item's best-scoring label counts, and ties keep the list's
+ * own order.
+ */
+export function rankByFuzzyMatch<T>(
+	items: readonly T[],
+	query: string,
+	labels: (item: T) => string[],
+): T[] {
+	const needle = query.toLowerCase().replaceAll(/\s+/g, '');
+	if (!needle) return [...items];
+
+	const score = (label: string): number => {
+		const haystack = label.toLowerCase();
+		let position = haystack.indexOf(needle[0]!);
+		if (position === -1) return Number.POSITIVE_INFINITY;
+		let total = position;
+		for (const char of needle.slice(1)) {
+			const next = haystack.indexOf(char, position + 1);
+			if (next === -1) return Number.POSITIVE_INFINITY;
+			total += next - position - 1;
+			position = next;
+		}
+
+		return total;
+	};
+
+	return items
+		.map((item, index) => ({
+			item,
+			index,
+			score: Math.min(...labels(item).map(label => score(label))),
+		}))
+		.filter(row => Number.isFinite(row.score))
+		.sort((a, b) => a.score - b.score || a.index - b.index)
+		.map(row => row.item);
+}
+
+/** Matches a profile row by its display name or its config key. */
+export function filterProfileOptions(
+	options: readonly ProfileOption[],
+	query: string,
+): ProfileOption[] {
+	return rankByFuzzyMatch(options, query, option => [
+		option.displayName,
+		option.name ?? '',
+	]);
+}
+
+/** `query` is null until `/` starts filtering. */
+export type FilterablePickerState = {query: string | null; index: number};
+
+type FilterablePickerKey = PickerKey & {
+	backspace?: boolean;
+	delete?: boolean;
+	tab?: boolean;
+};
+
+export type FilterablePickerKeyResult = {
+	state: FilterablePickerState;
+	/** `select` is Enter on a filtered list: the caller decides what picking means. */
+	action?: 'submit' | 'back' | 'agent' | 'select';
+};
+
+/**
+ * handleProfilePickerKey plus a `/` filter. While filtering, every printable
+ * key is part of the query, so `j`/`k`/`a` are text, and Esc leaves the filter
+ * rather than the picker. `total` is the length of the list as filtered.
+ */
+export function handleFilterablePickerKey(
+	state: FilterablePickerState,
+	input: string,
+	key: FilterablePickerKey,
+	total: number,
+): FilterablePickerKeyResult {
+	if (state.query === null) {
+		if (input === '/') return {state: {query: '', index: 0}};
+		const result = handleProfilePickerKey(input, key, state.index, total);
+		switch (result.action) {
+			case 'move': {
+				return {state: {...state, index: result.index}};
+			}
+
+			case 'submit':
+			case 'back':
+			case 'agent': {
+				return {state, action: result.action};
+			}
+
+			case 'ignore': {
+				return {state};
+			}
+		}
+	}
+
+	if (key.escape) return {state: {query: null, index: 0}};
+	if (key.return) return total > 0 ? {state, action: 'select'} : {state};
+	if (key.upArrow) {
+		return {state: {...state, index: Math.max(0, state.index - 1)}};
+	}
+
+	if (key.downArrow) {
+		return {
+			state: {
+				...state,
+				index: Math.max(0, Math.min(total - 1, state.index + 1)),
+			},
+		};
+	}
+
+	if (key.backspace || key.delete) {
+		return {state: {query: state.query.slice(0, -1), index: 0}};
+	}
+
+	if (input && !key.ctrl && !key.meta && !key.tab) {
+		return {state: {query: state.query + input, index: 0}};
+	}
+
+	return {state};
+}
+
+/**
  * Which of the two stacked frames owns the double outline.
  *
  * Both boxes are on screen at all times, so the outline is the only thing
