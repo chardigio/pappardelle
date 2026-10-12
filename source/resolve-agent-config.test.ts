@@ -4,8 +4,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-	getAgentEffort,
-	getAgentModel,
 	getAgentProfile,
 	loadConfigFromPaths,
 	renderAgentLaunchFlags,
@@ -971,10 +969,6 @@ for (const [profile, expected] of [
 			});
 			const tsFlags = renderAgentLaunchFlags(
 				getAgentProfile(config, undefined, profile),
-				{
-					model: getAgentModel(config, undefined, profile),
-					effort: getAgentEffort(config, undefined, profile),
-				},
 			);
 			const result = runResolver(
 				fixture.configPath,

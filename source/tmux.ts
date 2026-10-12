@@ -30,10 +30,7 @@ import {
 	bindResumeArgs,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	getAgentProfile,
-	getAgentEffort,
-	getAgentModel,
 	renderAgentLaunchFlags,
-	type AgentLaunchOptions,
 	getCompanionCommand,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
@@ -367,11 +364,11 @@ export function displayPopup(argv: string[]): boolean {
 export function buildAgentResumeCommand(
 	issueKey: string,
 	skipPermissions = false,
-	launch: AgentLaunchOptions = {},
 	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
+	sessionId?: string,
 ): string {
 	let base: string;
-	const launchFlags = renderAgentLaunchFlags(agentProfile, launch);
+	const launchFlags = renderAgentLaunchFlags(agentProfile);
 	if (agentProfile.isClaude) {
 		const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
 			? issueKey
@@ -392,8 +389,7 @@ export function buildAgentResumeCommand(
 
 	// Falsy covers both undefined and a defensive '' — either way there is no
 	// resume attempt, matching the bash scripts' [[ -n "$AGENT_RESUME_ARGS" ]].
-	// Callers bind {session_id} first; one still unbound has no id to resume.
-	const resumeArgs = bindResumeArgs(agentProfile, undefined);
+	const resumeArgs = bindResumeArgs(agentProfile, sessionId);
 	if (!resumeArgs) {
 		return base;
 	}
@@ -1558,24 +1554,16 @@ export async function attachToSpace(
 	// the space was created with.
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
-	let launch: AgentLaunchOptions = {};
 	let agentProfile: ResolvedAgentProfile | undefined;
+	let sessionId: string | undefined;
 	try {
 		const config = loadConfig();
 		const spaceState = readSpaceState(getRepoName(), issueKey);
 		const profileName = spaceState?.profile;
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
-		launch = {
-			model: getAgentModel(config, issueTitle, profileName),
-			effort: getAgentEffort(config, issueTitle, profileName),
-		};
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
-		const recorded = spaceState?.agentSession;
-		agentProfile.resumeArgs = bindResumeArgs(
-			agentProfile,
-			recorded?.agentProfile === agentProfile.name ? recorded.id : undefined,
-		);
+		sessionId = spaceState?.agentSessions?.[agentProfile.name];
 	} catch {
 		// Config load failed — use safe defaults.
 	}
@@ -1587,9 +1575,9 @@ export async function attachToSpace(
 			issueKey,
 			mainWorktreePath,
 			skipPermissions,
-			launch,
 			options.run ?? runTmux,
 			agentProfile,
+			sessionId,
 		);
 		signal?.throwIfAborted();
 		const hasCompanionSession = companionViewerPaneId
@@ -2284,9 +2272,9 @@ export async function ensureAgentSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	skipPermissions = false,
-	launch: AgentLaunchOptions = {},
 	run: AsyncTmuxRunner = runTmux,
 	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
+	sessionId?: string,
 ): Promise<boolean> {
 	const sessions = getSessionNames(issueKey);
 	const sessionName = sessions.agent;
@@ -2347,8 +2335,8 @@ export async function ensureAgentSession(
 					buildAgentResumeCommand(
 						issueKey,
 						skipPermissions,
-						launch,
 						agentProfile,
+						sessionId,
 					),
 				),
 			]),

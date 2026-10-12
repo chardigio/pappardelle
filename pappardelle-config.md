@@ -839,7 +839,7 @@ profiles:
 
 **Semantics:**
 
-- In the new-session profile picker, `a` on a profile opens a tmux popup to pick a different agent profile for that one launch (`idow --agent-profile <name>`). It isn't persisted: a relaunch of the space uses the profile's own `agent_profile` again, and won't resume the overridden agent's conversation.
+- In the new-session profile picker, `a` on a profile opens a tmux popup to pick a different agent profile for that one launch (`idow --agent-profile <name>`). It isn't persisted: a relaunch of the space uses the profile's own `agent_profile` again and resumes that agent profile's conversation. Picking the same override again later resumes the override's.
 - `agent_profile:` is a **string reference** into the `agent_profiles:` map — no inline definitions. A built-in `claude` agent profile (command `claude`, resume `--resume {session_id}`) always exists; defining `agent_profiles.claude` shadows it.
 - Resolution: workspace profile `agent_profile` → top-level `agent_profile` → `claude`. An explicit `agent_profile: ''` at the profile level clears an inherited reference back to claude.
 - Referencing an undefined agent profile is a validation error, as is an `agent_profiles` entry without a `command`. `idow` fails the same way on an undefined name.
@@ -865,8 +865,8 @@ codex --yolo -m gpt-5.5 -c model_reasoning_effort=high resume <recorded id> || <
 
 Relaunching a workspace's agent (the TUI recreating a dead session, `idow` reopening a space) resumes the workspace's own conversation by id. "Most recent" resume flags aren't safe for this: codex's `resume --last` picks the newest codex session from any directory, so it would pull another workspace's conversation in.
 
-- The agent's hooks record its session id in the workspace's space-state file (`agentSession: {agentProfile, id}`) on `SessionStart` and `UserPromptSubmit`. A new conversation in the pane (Claude's `/clear`, say) replaces it
-- `{session_id}` in `resume_args` is replaced with that id, only when it was recorded by the same agent profile. With nothing recorded, claude falls back to `--continue`, which only looks in the workspace's directory, so spaces from before id recording keep their conversation. Other agents skip the resume attempt and launch fresh
+- The agent's hooks record its session id in the workspace's space-state file, under its agent profile's name (`agentSessions: {<agent profile>: <id>}`), on `SessionStart` and `UserPromptSubmit`. A new conversation in the pane (Claude's `/clear`, say) replaces that agent profile's id.
+- `{session_id}` in `resume_args` is replaced with the id recorded under the launching agent profile. With nothing recorded, claude falls back to `--continue`, which only looks in the workspace's directory, so spaces from before id recording keep their conversation. Other agents skip the resume attempt and launch fresh
 - Claude records through the `update-status.py` hook Pappardelle already installs. Codex records through `record-agent-session.py`, which `install.sh` adds to `~/.codex/hooks.json` (see `hooks/codex-hooks.json.example`). Codex asks to trust a new hook on its next launch; until it's trusted, codex spaces launch fresh
 - Any agent with Claude Code-style hooks (a JSON payload on stdin carrying `session_id`) can use `record-agent-session.py` the same way
 - Agents started from inside the agent (Claude running codex for a review, `claude -p` in a script) inherit the pane's environment, so the hook only records the agent that is the pane's top-level process, and only when that process runs the agent profile's `command`. A different agent started by hand in the pane isn't recorded either

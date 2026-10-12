@@ -164,7 +164,7 @@ def record_agent_session(
     process_table: Callable[[], ProcessTable] = read_process_table,
     session_env_for_cwd: Callable[[str], Optional[dict[str, str]]] = tmux_agent_session_env,
 ) -> bool:
-    """Write {agentProfile, id} to the space-state file. Returns whether it wrote."""
+    """Record the id under agentSessions[agentProfile] in the space-state file. Returns whether it wrote."""
     env = os.environ if environ is None else environ
     session_id = payload.get("session_id")
     if (
@@ -178,7 +178,7 @@ def record_agent_session(
     # the id would change.
     env_state = read_state(env.get("PAPPARDELLE_SPACE_STATE", "").strip())
     env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
-    if env_state and env_state.get("agentSession") == {"agentProfile": env_profile, "id": session_id}:
+    if env_state and recorded_sessions(env_state).get(env_profile) == session_id:
         return False
 
     chain, in_tmux = ancestors(hook_pid or os.getpid(), process_table())
@@ -212,10 +212,10 @@ def record_agent_session(
     if not isinstance(state, dict):
         return False
 
-    recorded = {"agentProfile": agent_profile, "id": session_id}
-    if state.get("agentSession") == recorded:
+    sessions = recorded_sessions(state)
+    if sessions.get(agent_profile) == session_id:
         return False
-    state["agentSession"] = recorded
+    state["agentSessions"] = {**sessions, agent_profile: session_id}
     state["updatedAt"] = (
         datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     )
@@ -228,6 +228,11 @@ def record_agent_session(
         tmp.unlink(missing_ok=True)
         raise
     return True
+
+
+def recorded_sessions(state: dict[str, Any]) -> dict[str, Any]:
+    sessions = state.get("agentSessions")
+    return sessions if isinstance(sessions, dict) else {}
 
 
 def read_state(state_path: str) -> Optional[dict[str, Any]]:

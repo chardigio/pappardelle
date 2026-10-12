@@ -429,11 +429,13 @@ test.serial(
 			return '';
 		};
 		t.true(
-			await ensureAgentSession('TEST-NEW', '/tmp', false, {}, run, {
+			await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
 				name: 'codex',
 				command: 'codex',
 				args: '',
 				isClaude: false,
+				model: '',
+				effort: '',
 			}),
 		);
 		const created = calls.find(args => args.includes('new-session'))!;
