@@ -126,7 +126,7 @@ def test_records_the_session_and_keeps_other_fields(state_file: Path):
         payload(), env_for(state_file), HOOK_PID, lambda: TOP_LEVEL_CODEX
     )
     state = json.loads(state_file.read_text())
-    assert state["agentSession"] == {"agentProfile": "codex", "id": "01a117bd-5978"}
+    assert state["agentSessions"] == {"codex": "01a117bd-5978"}
     assert state["profile"] == "codex"
     assert state["prNumber"] == 7
 
@@ -136,7 +136,7 @@ def test_creates_the_state_file_when_missing(tmp_path: Path):
     assert record_agent_session(
         payload(), env_for(path, "claude"), HOOK_PID, lambda: TOP_LEVEL_CLAUDE
     )
-    assert json.loads(path.read_text())["agentSession"]["agentProfile"] == "claude"
+    assert json.loads(path.read_text())["agentSessions"] == {"claude": "01a117bd-5978"}
 
 
 def test_a_new_conversation_replaces_the_recorded_one(state_file: Path):
@@ -144,7 +144,7 @@ def test_a_new_conversation_replaces_the_recorded_one(state_file: Path):
     record_agent_session(
         payload("second", "UserPromptSubmit"), env_for(state_file), HOOK_PID, lambda: TOP_LEVEL_CODEX
     )
-    assert json.loads(state_file.read_text())["agentSession"]["id"] == "second"
+    assert json.loads(state_file.read_text())["agentSessions"] == {"codex": "second"}
 
 
 def test_a_nested_agent_does_not_overwrite_the_id(state_file: Path):
@@ -152,7 +152,15 @@ def test_a_nested_agent_does_not_overwrite_the_id(state_file: Path):
     assert not record_agent_session(
         payload("codex-id"), env_for(state_file, "claude"), HOOK_PID, lambda: CODEX_INSIDE_CLAUDE
     )
-    assert json.loads(state_file.read_text())["agentSession"]["id"] == "claude-id"
+    assert json.loads(state_file.read_text())["agentSessions"] == {"claude": "claude-id"}
+
+
+def test_each_agent_profile_keeps_its_own_id(state_file: Path):
+    record_agent_session(payload("codex-id"), env_for(state_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    record_agent_session(
+        payload("claude-id"), env_for(state_file, "opus-high", "claude"), HOOK_PID, lambda: TOP_LEVEL_CLAUDE
+    )
+    assert json.loads(state_file.read_text())["agentSessions"] == {"codex": "codex-id", "opus-high": "claude-id"}
 
 
 def test_an_unchanged_id_skips_the_process_walk(state_file: Path):
@@ -175,7 +183,7 @@ def test_an_unchanged_id_skips_the_process_walk(state_file: Path):
 def test_outside_an_agent_session_nothing_is_written(state_file: Path, env_overrides):
     env = {**env_for(state_file), **env_overrides}
     assert not record_agent_session(payload(), env, HOOK_PID, lambda: TOP_LEVEL_CODEX)
-    assert "agentSession" not in json.loads(state_file.read_text())
+    assert "agentSessions" not in json.loads(state_file.read_text())
 
 
 @pytest.mark.parametrize("event", ["PreToolUse", "Stop", "SessionEnd"])
@@ -186,7 +194,7 @@ def test_other_events_are_ignored(state_file: Path, event: str):
 def test_a_python_agent_records_its_session(state_file: Path):
     env = env_for(state_file, "aider", "/usr/local/bin/aider")
     assert record_agent_session(payload(), env, HOOK_PID, lambda: TOP_LEVEL_PYTHON_AGENT, no_session)
-    assert json.loads(state_file.read_text())["agentSession"]["agentProfile"] == "aider"
+    assert json.loads(state_file.read_text())["agentSessions"] == {"aider": "01a117bd-5978"}
 
 
 def test_a_different_agent_run_by_hand_in_the_pane_is_not_recorded(state_file: Path):
@@ -194,7 +202,7 @@ def test_a_different_agent_run_by_hand_in_the_pane_is_not_recorded(state_file: P
     assert not record_agent_session(
         payload("claude-id"), env_for(state_file), HOOK_PID, lambda: TOP_LEVEL_CLAUDE, no_session
     )
-    assert json.loads(state_file.read_text())["agentSession"]["id"] == "codex-id"
+    assert json.loads(state_file.read_text())["agentSessions"] == {"codex": "codex-id"}
 
 
 @pytest.mark.parametrize("content", ["", '{"profile": "co', "[]"])
@@ -224,7 +232,7 @@ def test_the_codex_daemon_records_into_the_space_holding_its_cwd(tmp_path: Path)
         session_for,
     )
     assert lookups == ["/Users/me/.worktrees/repo/STA-2"]
-    assert json.loads(space.read_text())["agentSession"] == {"agentProfile": "codex", "id": "01a117bd-5978"}
+    assert json.loads(space.read_text())["agentSessions"] == {"codex": "01a117bd-5978"}
     assert json.loads(started_from.read_text()) == {}
 
 
@@ -236,14 +244,14 @@ def test_the_codex_daemon_does_not_record_into_a_claude_space(state_file: Path):
         lambda: CODEX_DAEMON,
         lambda _cwd: env_for(state_file, "claude"),
     )
-    assert "agentSession" not in json.loads(state_file.read_text())
+    assert "agentSessions" not in json.loads(state_file.read_text())
 
 
 def test_a_hook_outside_tmux_and_any_space_is_not_recorded(state_file: Path):
     assert not record_agent_session(
         payload(cwd="/tmp/elsewhere"), env_for(state_file), HOOK_PID, lambda: CODEX_DAEMON, lambda _cwd: None
     )
-    assert "agentSession" not in json.loads(state_file.read_text())
+    assert "agentSessions" not in json.loads(state_file.read_text())
 
 
 @pytest.fixture

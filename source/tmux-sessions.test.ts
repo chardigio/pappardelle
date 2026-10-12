@@ -11,16 +11,9 @@ import {
 	buildAgentResumeCommand,
 } from './tmux.ts';
 import {
-	bindResumeArgs,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
 } from './config.ts';
-
-// The built-in claude agent profile once the space has a recorded session.
-const resumingClaude: ResolvedAgentProfile = {
-	...DEFAULT_RESOLVED_AGENT_PROFILE,
-	resumeArgs: bindResumeArgs(DEFAULT_RESOLVED_AGENT_PROFILE, 'sess-1'),
-};
 
 // getSessionPrefix: returns repo-qualified prefix
 test('getSessionPrefix includes repo name for agent', t => {
@@ -166,17 +159,32 @@ test('pretrustDirectoryForClaude handles corrupt JSON gracefully', t => {
 // claude command from before agent profiles — these assertions pin that.
 
 test('buildAgentResumeCommand resumes the recorded session first', t => {
-	const cmd = buildAgentResumeCommand('STA-806', false, {}, resumingClaude);
+	const cmd = buildAgentResumeCommand(
+		'STA-806',
+		false,
+		DEFAULT_RESOLVED_AGENT_PROFILE,
+		'sess-1',
+	);
 	t.true(cmd.startsWith('claude --name STA-806 --resume sess-1'));
 });
 
 test('buildAgentResumeCommand falls back to bare claude with --name', t => {
-	const cmd = buildAgentResumeCommand('STA-806', false, {}, resumingClaude);
+	const cmd = buildAgentResumeCommand(
+		'STA-806',
+		false,
+		DEFAULT_RESOLVED_AGENT_PROFILE,
+		'sess-1',
+	);
 	t.true(cmd.endsWith('|| claude --name STA-806'));
 });
 
 test('buildAgentResumeCommand includes ANSI escape to clear error line', t => {
-	const cmd = buildAgentResumeCommand('STA-806', false, {}, resumingClaude);
+	const cmd = buildAgentResumeCommand(
+		'STA-806',
+		false,
+		DEFAULT_RESOLVED_AGENT_PROFILE,
+		'sess-1',
+	);
 	t.true(cmd.includes("printf '\\033[A\\033[2K'"));
 });
 
@@ -198,12 +206,19 @@ test('buildAgentResumeCommand without a recorded session launches other agents d
 		args: '',
 		resumeArgs: 'resume {session_id}',
 		isClaude: false,
+		model: '',
+		effort: '',
 	};
-	t.is(buildAgentResumeCommand('STA-806', false, {}, codex), 'codex');
+	t.is(buildAgentResumeCommand('STA-806', false, codex), 'codex');
 });
 
 test('buildAgentResumeCommand with skipPermissions includes flag in both branches', t => {
-	const cmd = buildAgentResumeCommand('STA-806', true, {}, resumingClaude);
+	const cmd = buildAgentResumeCommand(
+		'STA-806',
+		true,
+		DEFAULT_RESOLVED_AGENT_PROFILE,
+		'sess-1',
+	);
 	// resume attempt should have both flags
 	t.true(
 		cmd.startsWith(
@@ -229,7 +244,12 @@ test('buildAgentResumeCommand default is skipPermissions=false', t => {
 });
 
 test('buildAgentResumeCommand sets --name to the issue key on both branches', t => {
-	const cmd = buildAgentResumeCommand('CHEX-42', false, {}, resumingClaude);
+	const cmd = buildAgentResumeCommand(
+		'CHEX-42',
+		false,
+		DEFAULT_RESOLVED_AGENT_PROFILE,
+		'sess-1',
+	);
 	// --name appears in both the resume attempt and the fallback
 	const occurrences = cmd.match(/--name CHEX-42/g) ?? [];
 	t.is(occurrences.length, 2);
@@ -240,8 +260,8 @@ test('buildAgentResumeCommand shell-quotes non-standard issue keys', t => {
 	const cmd = buildAgentResumeCommand(
 		'weird key; rm -rf /',
 		false,
-		{},
-		resumingClaude,
+		DEFAULT_RESOLVED_AGENT_PROFILE,
+		'sess-1',
 	);
 	// Must not contain the raw unquoted metacharacters inline as an arg.
 	t.false(cmd.includes('--name weird key; rm -rf /'));
@@ -296,10 +316,12 @@ const codexAgentProfile: ResolvedAgentProfile = {
 	args: '--yolo',
 	resumeArgs: 'resume --last',
 	isClaude: false,
+	model: '',
+	effort: '',
 };
 
 test('non-claude agent with resume args gets the fallback chain', t => {
-	const cmd = buildAgentResumeCommand('STA-1', false, {}, codexAgentProfile);
+	const cmd = buildAgentResumeCommand('STA-1', false, codexAgentProfile);
 	t.is(
 		cmd,
 		"codex --yolo resume --last || { printf '\\033[A\\033[2K'; false; } || codex --yolo",
@@ -307,31 +329,23 @@ test('non-claude agent with resume args gets the fallback chain', t => {
 });
 
 test('non-claude agent without resume args launches directly', t => {
-	const cmd = buildAgentResumeCommand(
-		'STA-1',
-		false,
-		{},
-		{
-			...codexAgentProfile,
-			resumeArgs: undefined,
-		},
-	);
+	const cmd = buildAgentResumeCommand('STA-1', false, {
+		...codexAgentProfile,
+		resumeArgs: undefined,
+	});
 	t.is(cmd, 'codex --yolo');
 });
 
 // Codex's `resume` is a subcommand, so every flag has to come before it.
 test('model and effort flags precede the resume args', t => {
-	const cmd = buildAgentResumeCommand(
-		'STA-1',
-		false,
-		{model: 'gpt-5.5', effort: 'high'},
-		{
-			...codexAgentProfile,
-			resumeArgs: 'resume abc',
-			modelArgs: '-m {model}',
-			effortArgs: '-c model_reasoning_effort={effort}',
-		},
-	);
+	const cmd = buildAgentResumeCommand('STA-1', false, {
+		...codexAgentProfile,
+		resumeArgs: 'resume abc',
+		modelArgs: '-m {model}',
+		effortArgs: '-c model_reasoning_effort={effort}',
+		model: 'gpt-5.5',
+		effort: 'high',
+	});
 	const base = 'codex --yolo -m gpt-5.5 -c model_reasoning_effort=high';
 	t.is(
 		cmd,
@@ -340,12 +354,11 @@ test('model and effort flags precede the resume args', t => {
 });
 
 test('non-claude agent without flag templates gets no --name, dsp, model, or effort flags', t => {
-	const cmd = buildAgentResumeCommand(
-		'STA-1',
-		true,
-		{model: 'opus', effort: 'high'},
-		codexAgentProfile,
-	);
+	const cmd = buildAgentResumeCommand('STA-1', true, {
+		...codexAgentProfile,
+		model: 'opus',
+		effort: 'high',
+	});
 	t.false(cmd.includes('--name'));
 	t.false(cmd.includes('--dangerously-skip-permissions'));
 	t.false(cmd.includes('--model'));
@@ -356,31 +369,23 @@ test('empty-string resume args also launch directly (no malformed chain)', t => 
 	// getAgentProfile never emits '' (it normalizes to undefined), but the
 	// builder guards on falsy too so a hand-built ResolvedAgentProfile can't produce
 	// a `base  || … || base` double-launch chain.
-	const cmd = buildAgentResumeCommand(
-		'STA-1',
-		false,
-		{},
-		{
-			...codexAgentProfile,
-			resumeArgs: '',
-		},
-	);
+	const cmd = buildAgentResumeCommand('STA-1', false, {
+		...codexAgentProfile,
+		resumeArgs: '',
+	});
 	t.is(cmd, 'codex --yolo');
 });
 
 test('non-claude agent without args uses the bare command', t => {
-	const cmd = buildAgentResumeCommand(
-		'STA-1',
-		false,
-		{},
-		{
-			name: 'codex',
-			command: 'codex',
-			args: '',
-			resumeArgs: undefined,
-			isClaude: false,
-		},
-	);
+	const cmd = buildAgentResumeCommand('STA-1', false, {
+		name: 'codex',
+		command: 'codex',
+		args: '',
+		resumeArgs: undefined,
+		isClaude: false,
+		model: '',
+		effort: '',
+	});
 	t.is(cmd, 'codex');
 });
 
@@ -393,9 +398,11 @@ test('claude agent profile passed explicitly matches the default output', t => {
 		args: '',
 		resumeArgs: '--resume {session_id}',
 		isClaude: true,
+		model: '',
+		effort: '',
 	};
 	t.is(
-		buildAgentResumeCommand('STA-806', false, {}, claudeAgentProfile),
+		buildAgentResumeCommand('STA-806', false, claudeAgentProfile),
 		buildAgentResumeCommand('STA-806'),
 	);
 });
@@ -407,12 +414,10 @@ test('claude-gated wrapper gets the full claude treatment under its own command'
 		command: 'claude-local',
 		resumeArgs: '--continue',
 	};
-	const cmd = buildAgentResumeCommand(
-		'STA-806',
-		true,
-		{model: 'opus'},
-		wrapper,
-	);
+	const cmd = buildAgentResumeCommand('STA-806', true, {
+		...wrapper,
+		model: 'opus',
+	});
 	t.true(
 		cmd.startsWith(
 			'claude-local --dangerously-skip-permissions --model opus --name STA-806 --continue',
@@ -426,12 +431,10 @@ test('claude-gated agent args slot between dsp and model flags', t => {
 		args: '--verbose',
 		resumeArgs: '--continue',
 	};
-	const cmd = buildAgentResumeCommand(
-		'STA-806',
-		true,
-		{model: 'opus'},
-		shadowed,
-	);
+	const cmd = buildAgentResumeCommand('STA-806', true, {
+		...shadowed,
+		model: 'opus',
+	});
 	t.true(
 		cmd.startsWith(
 			'claude --dangerously-skip-permissions --verbose --model opus --name STA-806 --continue',

@@ -1,8 +1,7 @@
 import test from 'ava';
 import type {PappardelleConfig} from './config.ts';
 import {
-	getAgentEffort,
-	getAgentModel,
+	getAgentProfile,
 	getClaudeExtraArgs,
 	getCompanionCommand,
 	validateConfig,
@@ -10,17 +9,9 @@ import {
 } from './config.ts';
 import {buildAgentResumeCommand} from './tmux.ts';
 import {
-	bindResumeArgs,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
 } from './config.ts';
-
-// The built-in claude agent profile once the space has a recorded session, so the
-// flags show up on both branches of the resume chain.
-const resumingClaude: ResolvedAgentProfile = {
-	...DEFAULT_RESOLVED_AGENT_PROFILE,
-	resumeArgs: bindResumeArgs(DEFAULT_RESOLVED_AGENT_PROFILE, 'sess-1'),
-};
 
 // ============================================================================
 // Helpers
@@ -56,7 +47,7 @@ function makeConfig(
 }
 
 // ============================================================================
-// getAgentModel / getAgentEffort — resolution matrix
+// getAgentProfile model / effort — resolution matrix
 // ============================================================================
 //
 // Both fields resolve identically: per-profile value (when the key is present,
@@ -66,35 +57,35 @@ function makeConfig(
 
 test('model + effort: unset everywhere → empty strings', t => {
 	const config = makeConfig();
-	t.is(getAgentModel(config), '');
-	t.is(getAgentEffort(config), '');
-	t.is(getAgentModel(config, 'backend work'), '');
-	t.is(getAgentEffort(config, 'backend work'), '');
+	t.is(getAgentProfile(config).model, '');
+	t.is(getAgentProfile(config).effort, '');
+	t.is(getAgentProfile(config, 'backend work').model, '');
+	t.is(getAgentProfile(config, 'backend work').effort, '');
 });
 
 test('model + effort: top-level only → applies to every profile', t => {
 	const config = makeConfig({claude: {model: 'opus', effort: 'high'}});
-	t.is(getAgentModel(config, 'backend work'), 'opus');
-	t.is(getAgentEffort(config, 'backend work'), 'high');
-	t.is(getAgentModel(config, 'frontend work'), 'opus');
-	t.is(getAgentEffort(config, 'frontend work'), 'high');
+	t.is(getAgentProfile(config, 'backend work').model, 'opus');
+	t.is(getAgentProfile(config, 'backend work').effort, 'high');
+	t.is(getAgentProfile(config, 'frontend work').model, 'opus');
+	t.is(getAgentProfile(config, 'frontend work').effort, 'high');
 });
 
 test('model + effort: top-level applies when no issue title is given', t => {
 	const config = makeConfig({claude: {model: 'opus', effort: 'high'}});
-	t.is(getAgentModel(config), 'opus');
-	t.is(getAgentEffort(config), 'high');
+	t.is(getAgentProfile(config).model, 'opus');
+	t.is(getAgentProfile(config).effort, 'high');
 });
 
 test('model + effort: profile-only → applies to that profile alone', t => {
 	const config = makeConfig({}, {model: 'sonnet', effort: 'medium'});
-	t.is(getAgentModel(config, 'backend work'), 'sonnet');
-	t.is(getAgentEffort(config, 'backend work'), 'medium');
+	t.is(getAgentProfile(config, 'backend work').model, 'sonnet');
+	t.is(getAgentProfile(config, 'backend work').effort, 'medium');
 	// A profile without its own values, and the no-title case, stay empty.
-	t.is(getAgentModel(config, 'frontend work'), '');
-	t.is(getAgentEffort(config, 'frontend work'), '');
-	t.is(getAgentModel(config), '');
-	t.is(getAgentEffort(config), '');
+	t.is(getAgentProfile(config, 'frontend work').model, '');
+	t.is(getAgentProfile(config, 'frontend work').effort, '');
+	t.is(getAgentProfile(config).model, '');
+	t.is(getAgentProfile(config).effort, '');
 });
 
 test('model + effort: profile beats top-level', t => {
@@ -102,19 +93,19 @@ test('model + effort: profile beats top-level', t => {
 		{claude: {model: 'opus', effort: 'high'}},
 		{model: 'sonnet', effort: 'medium'},
 	);
-	t.is(getAgentModel(config, 'backend work'), 'sonnet');
-	t.is(getAgentEffort(config, 'backend work'), 'medium');
+	t.is(getAgentProfile(config, 'backend work').model, 'sonnet');
+	t.is(getAgentProfile(config, 'backend work').effort, 'medium');
 	// The unconfigured profile still inherits the top-level values.
-	t.is(getAgentModel(config, 'frontend work'), 'opus');
-	t.is(getAgentEffort(config, 'frontend work'), 'high');
+	t.is(getAgentProfile(config, 'frontend work').model, 'opus');
+	t.is(getAgentProfile(config, 'frontend work').effort, 'high');
 });
 
 test('model + effort: profile can set one field and inherit the other', t => {
 	const config = makeConfig({claude: {model: 'opus', effort: 'high'}}, {
 		effort: 'max',
 	} as PappardelleConfig['claude']);
-	t.is(getAgentModel(config, 'backend work'), 'opus');
-	t.is(getAgentEffort(config, 'backend work'), 'max');
+	t.is(getAgentProfile(config, 'backend work').model, 'opus');
+	t.is(getAgentProfile(config, 'backend work').effort, 'max');
 });
 
 test('model + effort: explicit empty string at profile level clears the global', t => {
@@ -122,16 +113,16 @@ test('model + effort: explicit empty string at profile level clears the global',
 		{claude: {model: 'opus', effort: 'high'}},
 		{model: '', effort: ''},
 	);
-	t.is(getAgentModel(config, 'backend work'), '');
-	t.is(getAgentEffort(config, 'backend work'), '');
+	t.is(getAgentProfile(config, 'backend work').model, '');
+	t.is(getAgentProfile(config, 'backend work').effort, '');
 	// Sibling profile is unaffected.
-	t.is(getAgentModel(config, 'frontend work'), 'opus');
+	t.is(getAgentProfile(config, 'frontend work').model, 'opus');
 });
 
 test('model + effort: explicit empty string at top level behaves as unset', t => {
 	const config = makeConfig({claude: {model: '', effort: ''}});
-	t.is(getAgentModel(config, 'backend work'), '');
-	t.is(getAgentEffort(config, 'backend work'), '');
+	t.is(getAgentProfile(config, 'backend work').model, '');
+	t.is(getAgentProfile(config, 'backend work').effort, '');
 });
 
 test('model + effort: unmatched issue title falls back to top-level', t => {
@@ -139,8 +130,8 @@ test('model + effort: unmatched issue title falls back to top-level', t => {
 		{claude: {model: 'opus', effort: 'high'}},
 		{model: 'sonnet', effort: 'medium'},
 	);
-	t.is(getAgentModel(config, 'something unrelated'), 'opus');
-	t.is(getAgentEffort(config, 'something unrelated'), 'high');
+	t.is(getAgentProfile(config, 'something unrelated').model, 'opus');
+	t.is(getAgentProfile(config, 'something unrelated').effort, 'high');
 });
 
 test('model + effort: a profile claude section without them inherits top-level', t => {
@@ -148,8 +139,8 @@ test('model + effort: a profile claude section without them inherits top-level',
 		{claude: {model: 'opus', effort: 'high'}},
 		{initialization_command: '/do'},
 	);
-	t.is(getAgentModel(config, 'backend work'), 'opus');
-	t.is(getAgentEffort(config, 'backend work'), 'high');
+	t.is(getAgentProfile(config, 'backend work').model, 'opus');
+	t.is(getAgentProfile(config, 'backend work').effort, 'high');
 });
 
 // ============================================================================
@@ -237,13 +228,21 @@ test('buildAgentResumeCommand: no model/effort → byte-identical to master', t 
 	// this test fails.
 	const expected =
 		"claude --name STA-1 --resume sess-1 || { printf '\\033[A\\033[2K'; false; } || claude --name STA-1";
-	t.is(buildAgentResumeCommand('STA-1', false, {}, resumingClaude), expected);
 	t.is(
 		buildAgentResumeCommand(
 			'STA-1',
 			false,
-			{model: '', effort: ''},
-			resumingClaude,
+			DEFAULT_RESOLVED_AGENT_PROFILE,
+			'sess-1',
+		),
+		expected,
+	);
+	t.is(
+		buildAgentResumeCommand(
+			'STA-1',
+			false,
+			DEFAULT_RESOLVED_AGENT_PROFILE,
+			'sess-1',
 		),
 		expected,
 	);
@@ -252,15 +251,23 @@ test('buildAgentResumeCommand: no model/effort → byte-identical to master', t 
 test('buildAgentResumeCommand: skip-permissions only is unchanged', t => {
 	const expected =
 		"claude --dangerously-skip-permissions --name STA-1 --resume sess-1 || { printf '\\033[A\\033[2K'; false; } || claude --dangerously-skip-permissions --name STA-1";
-	t.is(buildAgentResumeCommand('STA-1', true, {}, resumingClaude), expected);
+	t.is(
+		buildAgentResumeCommand(
+			'STA-1',
+			true,
+			DEFAULT_RESOLVED_AGENT_PROFILE,
+			'sess-1',
+		),
+		expected,
+	);
 });
 
 test('buildAgentResumeCommand: model only', t => {
 	const cmd = buildAgentResumeCommand(
 		'STA-1',
 		false,
-		{model: 'sonnet'},
-		resumingClaude,
+		{...DEFAULT_RESOLVED_AGENT_PROFILE, model: 'sonnet'},
+		'sess-1',
 	);
 	t.true(cmd.startsWith('claude --model sonnet --name STA-1 --resume sess-1'));
 	// Both branches of the || fallback carry the flag.
@@ -272,8 +279,8 @@ test('buildAgentResumeCommand: effort only', t => {
 	const cmd = buildAgentResumeCommand(
 		'STA-1',
 		false,
-		{effort: 'high'},
-		resumingClaude,
+		{...DEFAULT_RESOLVED_AGENT_PROFILE, effort: 'high'},
+		'sess-1',
 	);
 	t.true(cmd.startsWith('claude --effort high --name STA-1 --resume sess-1'));
 	t.is(cmd.split('--effort high').length - 1, 2);
@@ -284,8 +291,8 @@ test('buildAgentResumeCommand: full flag order is dsp → model → effort → n
 	const cmd = buildAgentResumeCommand(
 		'STA-1',
 		true,
-		{model: 'opus', effort: 'max'},
-		resumingClaude,
+		{...DEFAULT_RESOLVED_AGENT_PROFILE, model: 'opus', effort: 'max'},
+		'sess-1',
 	);
 	t.true(
 		cmd.startsWith(
@@ -296,6 +303,7 @@ test('buildAgentResumeCommand: full flag order is dsp → model → effort → n
 
 test('buildAgentResumeCommand: shell-quotes exotic model values', t => {
 	const cmd = buildAgentResumeCommand('STA-1', false, {
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		model: 'claude-opus-5[1m]',
 	});
 	t.true(cmd.includes(`--model 'claude-opus-5[1m]'`));
@@ -303,7 +311,10 @@ test('buildAgentResumeCommand: shell-quotes exotic model values', t => {
 });
 
 test('buildAgentResumeCommand: escapes embedded single quotes', t => {
-	const cmd = buildAgentResumeCommand('STA-1', false, {model: "we'ird"});
+	const cmd = buildAgentResumeCommand('STA-1', false, {
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
+		model: "we'ird",
+	});
 	t.true(cmd.includes(`--model 'we'\\''ird'`));
 });
 
