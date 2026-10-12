@@ -58,6 +58,20 @@ CODEX_INSIDE_CLAUDE = {
     91: (1, "tmux"),
 }
 
+# An MCP server Claude started runs codex with no shell in between, so the
+# two agents form one run.
+CODEX_IN_CLAUDE_MCP = {
+    100: (99, "python3 record-agent-session.py"),
+    99: (98, "sh -c python3 record-agent-session.py"),
+    98: (97, "codex mcp-server"),
+    97: (96, "node /opt/homebrew/bin/codex mcp-server"),
+    96: (95, "node mcp-bridge.js"),
+    95: (94, "claude"),
+    94: (93, "zsh -ic claude"),
+    93: (92, "sh -c"),
+    92: (1, "tmux"),
+}
+
 # A Python agent that runs its hooks without a shell in between.
 TOP_LEVEL_PYTHON_AGENT = {
     100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
@@ -161,6 +175,13 @@ def test_each_agent_profile_keeps_its_own_id(state_file: Path):
         payload("claude-id"), env_for(state_file, "opus-high", "claude"), HOOK_PID, lambda: TOP_LEVEL_CLAUDE
     )
     assert json.loads(state_file.read_text())["agentSessions"] == {"codex": "codex-id", "opus-high": "claude-id"}
+
+
+def test_a_nested_agent_without_a_shell_between_is_not_recorded(state_file: Path):
+    assert not record_agent_session(
+        payload("codex-id"), env_for(state_file, "claude"), HOOK_PID, lambda: CODEX_IN_CLAUDE_MCP
+    )
+    assert "agentSessions" not in json.loads(state_file.read_text())
 
 
 def test_an_unchanged_id_skips_the_process_walk(state_file: Path):

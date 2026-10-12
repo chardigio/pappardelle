@@ -15,7 +15,8 @@ buildAgentSessionEnvArgs() in source/spawn-env.ts:
 Anything the agent spawns inherits them, including other agents: Claude
 running codex for a review, or `claude -p` in a script. Those must not
 overwrite the id, so a session is only recorded when its agent is the only run
-of non-shell processes under tmux, and that run is the agent profile's command.
+of non-shell processes under tmux, and the process in that run that fired the
+hook is the agent profile's command.
 A different agent started by hand in the pane is rejected by the same check.
 
 codex 0.159+ runs hooks in its shared app-server daemon, which is not under
@@ -198,7 +199,11 @@ def record_agent_session(
     if not agent_profile or not command or not state_path:
         return False
     command_name = _basename(command.split()[0])
-    if not any(_runs_command(args, command_name) for args in agent_processes):
+    # Under tmux the run's first process fired the hook. A parent agent in the
+    # same run (an MCP server Claude started, spawning codex with no shell
+    # between) must not claim the child's id as its own.
+    callers = agent_processes[:1] if in_tmux else agent_processes
+    if not any(_runs_command(args, command_name) for args in callers):
         return False
 
     path = Path(state_path)
