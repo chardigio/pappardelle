@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {handleProfilePickerKey} from './profile-picker.ts';
+import {rankByFuzzyMatch} from './profile-picker.ts';
 import {shellQuote} from './tmux.ts';
 
 export type AgentProfileChoice = {name: string; source: string};
@@ -123,124 +123,14 @@ export function agentProfileLabel(name: string): string {
 }
 
 /**
- * Narrow the list to the options whose label contains the query's characters
- * in order, tightest match first: `sh` finds `sol-high` ahead of
- * `sonnet-high`. Ties keep config order.
+ * Narrow the list to the agent profiles whose name (or the profile's-agent
+ * label) matches the query; see rankByFuzzyMatch.
  */
 export function filterAgentProfiles(
 	options: AgentProfileChoice[],
 	query: string,
 ): AgentProfileChoice[] {
-	const needle = query.toLowerCase().replaceAll(/\s+/g, '');
-	if (!needle) return options;
-
-	const score = (label: string): number | undefined => {
-		const haystack = label.toLowerCase();
-		let position = haystack.indexOf(needle[0]!);
-		if (position === -1) return undefined;
-		let total = position;
-		for (const char of needle.slice(1)) {
-			const next = haystack.indexOf(char, position + 1);
-			if (next === -1) return undefined;
-			total += next - position - 1;
-			position = next;
-		}
-
-		return total;
-	};
-
-	return options
-		.map((option, index) => ({
-			option,
-			index,
-			score: score(agentProfileLabel(option.name)),
-		}))
-		.filter(
-			(
-				row,
-			): row is {option: AgentProfileChoice; index: number; score: number} =>
-				row.score !== undefined,
-		)
-		.sort((a, b) => a.score - b.score || a.index - b.index)
-		.map(row => row.option);
-}
-
-/** `query` is null until `/` starts filtering. */
-export type AgentPopupState = {query: string | null; index: number};
-
-type AgentPopupKey = {
-	upArrow?: boolean;
-	downArrow?: boolean;
-	return?: boolean;
-	escape?: boolean;
-	backspace?: boolean;
-	delete?: boolean;
-	ctrl?: boolean;
-	meta?: boolean;
-	tab?: boolean;
-};
-
-export type AgentPopupKeyResult = {
-	state: AgentPopupState;
-	action?: 'choose' | 'cancel';
-};
-
-/**
- * While filtering, every printable key is part of the query, so `j`/`k` stop
- * moving the selection and Esc leaves the filter rather than the popup.
- * `total` is the length of the list as currently filtered.
- */
-export function handleAgentPopupKey(
-	state: AgentPopupState,
-	input: string,
-	key: AgentPopupKey,
-	total: number,
-): AgentPopupKeyResult {
-	if (state.query === null) {
-		if (input === '/') return {state: {query: '', index: 0}};
-		const result = handleProfilePickerKey(input, key, state.index, total);
-		switch (result.action) {
-			case 'move': {
-				return {state: {...state, index: result.index}};
-			}
-
-			case 'submit': {
-				return {state, action: 'choose'};
-			}
-
-			case 'back': {
-				return {state, action: 'cancel'};
-			}
-
-			case 'agent':
-			case 'ignore': {
-				return {state};
-			}
-		}
-	}
-
-	if (key.escape) return {state: {query: null, index: 0}};
-	if (key.return) return total > 0 ? {state, action: 'choose'} : {state};
-	if (key.upArrow) {
-		return {state: {...state, index: Math.max(0, state.index - 1)}};
-	}
-
-	if (key.downArrow) {
-		return {
-			state: {
-				...state,
-				index: Math.max(0, Math.min(total - 1, state.index + 1)),
-			},
-		};
-	}
-
-	if (key.backspace || key.delete) {
-		return {state: {query: state.query.slice(0, -1), index: 0}};
-	}
-
-	if (input && !key.ctrl && !key.meta && !key.tab) {
-		return {state: {query: state.query + input, index: 0}};
-	}
-
-	return {state};
+	return rankByFuzzyMatch(options, query, option => [
+		agentProfileLabel(option.name),
+	]);
 }

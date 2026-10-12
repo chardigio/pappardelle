@@ -349,7 +349,9 @@ When the input is a description (not an issue key):
 3. **Confirmation** (STA-1837): Enter moves focus to the picker, which lists _every_
    profile with the preselected one first; a second Enter accepts it, so
    Enter-Enter reproduces the old auto-select. Arrow keys (or `j`/`k`) pick any
-   other profile without rewording the prompt; Esc returns to the prompt.
+   other profile without rewording the prompt, `/` filters the list by display
+   name or profile key (Enter selects the highlighted match), and Esc returns
+   to the prompt.
    Picking a profile also picks its [agent profile](#agent-profiles), and the
    choice is saved with the workspace, so reattaching later relaunches the same
    agent even if

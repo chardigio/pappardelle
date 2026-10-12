@@ -3,7 +3,6 @@ import {
 	agentPopupVisibleRows,
 	buildAgentProfilePopupArgs,
 	filterAgentProfiles,
-	handleAgentPopupKey,
 } from './agent-profile-popup.ts';
 
 test('the popup command survives paths with spaces', t => {
@@ -68,52 +67,5 @@ test('filterAgentProfiles keeps the full list in order for an empty query', t =>
 	t.deepEqual(
 		names(' '),
 		choices.map(choice => choice.name),
-	);
-});
-
-test('/ starts a filter where j and k are text, not movement', t => {
-	let {state} = handleAgentPopupKey({query: null, index: 3}, '/', {}, 7);
-	t.deepEqual(state, {query: '', index: 0});
-	({state} = handleAgentPopupKey(state, 'j', {}, 7));
-	({state} = handleAgentPopupKey(state, 'k', {}, 1));
-	t.deepEqual(state, {query: 'jk', index: 0});
-	({state} = handleAgentPopupKey(state, '', {backspace: true}, 0));
-	t.is(state.query, 'j');
-});
-
-test('Esc while filtering leaves the filter, not the popup', t => {
-	t.deepEqual(
-		handleAgentPopupKey({query: 'so', index: 1}, '', {escape: true}, 2),
-		{
-			state: {query: null, index: 0},
-		},
-	);
-	t.is(
-		handleAgentPopupKey({query: null, index: 1}, '', {escape: true}, 7).action,
-		'cancel',
-	);
-});
-
-test('Enter while filtering chooses the highlighted match, if any', t => {
-	t.is(
-		handleAgentPopupKey({query: 'so', index: 1}, '', {return: true}, 2).action,
-		'choose',
-	);
-	t.is(
-		handleAgentPopupKey({query: 'zz', index: 0}, '', {return: true}, 0).action,
-		undefined,
-	);
-});
-
-test('arrows move within the filtered list', t => {
-	t.is(
-		handleAgentPopupKey({query: 'h', index: 1}, '', {downArrow: true}, 2).state
-			.index,
-		1,
-	);
-	t.is(
-		handleAgentPopupKey({query: 'h', index: 1}, '', {upArrow: true}, 2).state
-			.index,
-		0,
 	);
 });

@@ -156,8 +156,8 @@ Press `n` in the workspace list to open the prompt dialog.
 Enter moves focus to a **profile picker** below the prompt, with the
 keyword-matched profile already selected — so `Enter`, `Enter` spawns exactly
 what the keyword would have chosen on its own. Arrow (or `j`/`k`) to any other
-profile to override it without rewording your prompt, and `Esc` to go back to
-editing. The profile also decides which agent runs in the agent pane (see
+profile to override it without rewording your prompt, or press `/` to filter
+the list by name, and `Esc` to go back to editing. The profile also decides which agent runs in the agent pane (see
 [Agent profiles](pappardelle-config.md#agent-profiles)), and the choice is
 saved with the workspace so reattaching relaunches the same agent.
 
