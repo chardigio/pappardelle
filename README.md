@@ -183,6 +183,12 @@ editing. The profile also decides which agent runs in the agent pane (see
 [Agent profiles](pappardelle-config.md#agent-profiles)), and the choice is
 saved with the workspace so reattaching relaunches the same agent.
 
+To run a different agent this once, press `a` on a profile: a tmux popup lists
+every agent profile with the config file that defines it (`/` filters the
+list by name), and the one you choose shows next to the profile (`→ codex`)
+until `Enter` starts it. The override isn't saved with the workspace,
+so a later relaunch goes back to the profile's own agent.
+
 ### Slash-command autocomplete
 
 Start the prompt with `/` and the **Profile** box gives way to a **Skills** box

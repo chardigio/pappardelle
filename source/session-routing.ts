@@ -57,6 +57,11 @@ export interface PendingSession {
 	 */
 	profileName?: string | null;
 	/**
+	 * Agent profile picked in the new-session dialog in place of the profile's
+	 * own, forwarded to idow as --agent-profile. It applies to this launch only.
+	 */
+	agentProfileName?: string | null;
+	/**
 	 * The key came from the tracker (watchlist poll, ready-work picker) rather
 	 * than from something the user typed, so idow takes it verbatim instead of
 	 * running its own input-type detection.
@@ -106,15 +111,22 @@ export function getSpaceCount(
  *
  * When the caller has already decided which profile to use, forward it as
  * --profile <name> so idow skips its own (less sophisticated) bash matcher.
- * The flag must come before the positional idow arg — idow only checks $1
- * for it.
+ * idow reads its flags positionally, in exactly this order, before the
+ * positional idow arg.
  */
 export function buildNewSessionArgs(
 	idowArg: string,
-	opts: {profileName?: string | null; inputIsIssueKey: boolean},
+	opts: {
+		profileName?: string | null;
+		agentProfileName?: string | null;
+		inputIsIssueKey: boolean;
+	},
 ): string[] {
 	const args: string[] = [];
 	if (opts.profileName) args.push('--profile', opts.profileName);
+	if (opts.agentProfileName) {
+		args.push('--agent-profile', opts.agentProfileName);
+	}
 	if (opts.inputIsIssueKey) args.push('--issue-key');
 	args.push(idowArg);
 	return args;
@@ -148,6 +160,14 @@ export function isPendingSessionResolved(
  *
  * Returns the issue key (e.g. "STA-633") or null if not found.
  */
+/**
+ * idow leaves an already-running agent alone, so an agent profile picked for
+ * an existing space only takes effect once its session is recreated.
+ */
+export function idowSkippedAgentOverride(stdout: string): boolean {
+	return stdout.includes('the agent profile override was not applied');
+}
+
 export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
 	const matches = [
 		...stripVTControlCharacters(stdout).matchAll(

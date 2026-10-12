@@ -243,7 +243,7 @@ export function computePickerWindow(
 }
 
 export type PickerKeyResult = {
-	action: 'move' | 'submit' | 'back' | 'ignore';
+	action: 'move' | 'submit' | 'back' | 'agent' | 'ignore';
 	index: number;
 };
 
@@ -252,6 +252,8 @@ type PickerKey = {
 	downArrow?: boolean;
 	return?: boolean;
 	escape?: boolean;
+	ctrl?: boolean;
+	meta?: boolean;
 };
 
 /**
@@ -272,6 +274,11 @@ export function handleProfilePickerKey(
 	if (key.return) {
 		if (total <= 0) return {action: 'ignore', index: selectedIndex};
 		return {action: 'submit', index: selectedIndex};
+	}
+
+	if (input === 'a' && !key.ctrl && !key.meta) {
+		if (total <= 0) return {action: 'ignore', index: selectedIndex};
+		return {action: 'agent', index: selectedIndex};
 	}
 
 	if (key.upArrow || input === 'k') {
