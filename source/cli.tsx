@@ -47,6 +47,7 @@ import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
 import {parseCli, subcommandGate} from './cli-args.ts';
+import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
@@ -71,6 +72,11 @@ if (gate.action === 'reject') {
 }
 
 const cli = parseCli();
+
+if (cli.flags.resume && cli.input.length === 0) {
+	console.error('Usage: pappardelle --resume <prompt or issue-key>');
+	process.exit(1);
+}
 
 const pappardelleDir = path.resolve(__dirname, '..');
 
@@ -258,13 +264,16 @@ if (cli.input.length > 0) {
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
 
-	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
-		stdio: 'inherit',
+	const status = await runOpenSpaceCommand({
+		command: path.join(SCRIPTS_DIR, 'idow'),
+		prompt: finalPrompt,
+		issueKey: normalizedIssueKey,
+		resume: cli.flags.resume,
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 	});
 
-	process.exit(result.status ?? 0);
+	process.exit(status);
 }
 
 // If not in tmux, re-exec inside tmux

@@ -61,3 +61,18 @@ test('known flags and every other command pass through', t => {
 		t.deepEqual(subcommandGate(argv), {action: 'run'});
 	}
 });
+
+test('--resume accepts either position without consuming the input', t => {
+	for (const argv of [
+		['--resume', 'STE-20'],
+		['STE-20', '--resume'],
+	]) {
+		const cli = parseCli(argv);
+		t.true(cli.flags.resume);
+		t.deepEqual(cli.input, ['STE-20']);
+	}
+
+	t.falsy(parseCli(['STE-20']).flags.resume);
+	t.false(parseCli(['STE-20', '--no-resume']).flags.resume);
+	t.deepEqual(parseCli(['--resume', 'fix auth bug']).input, ['fix auth bug']);
+});

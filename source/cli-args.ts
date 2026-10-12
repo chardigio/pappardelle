@@ -3,6 +3,7 @@ import meow from 'meow';
 const helpText = `
 	Usage
 	  $ pappardelle [prompt]
+	  $ pappardelle --resume <prompt or issue-key>
 	  $ pappardelle highlight <issue-key>
 	  $ pappardelle send <issue-key> [text]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
@@ -38,6 +39,7 @@ const helpText = `
 	  q/Ctrl+C       Quit
 
 	Options
+	  --resume            Skip the initialization prompt when opening a space
 	  --no-layout         Don't set up tmux pane layout (run standalone)
 	  --workspace         Outer workspace root when linking a nested repository
 	  --restart-tuis      After update, restart running TUIs without asking
@@ -48,6 +50,7 @@ const helpText = `
 	  $ pappardelle              # Run with tmux layout
 	  $ pappardelle --no-layout  # Run standalone (list only)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
+	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
@@ -64,6 +67,7 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 		// indistinguishable.
 		booleanDefault: undefined,
 		flags: {
+			resume: {type: 'boolean'},
 			workspace: {type: 'string'},
 			layout: {
 				type: 'boolean',

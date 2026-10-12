@@ -147,6 +147,21 @@ tmux kill-server
 
 ## 3. Spawning New Sessions
 
+### From the command line
+
+Run these from the repository or one of its worktrees:
+
+```bash
+pappardelle STE-20
+pappardelle "fix auth bug"
+pappardelle --resume STE-20
+```
+
+Successful command-line setup saves the space in the TUI's list. Use `--resume`
+to open a workspace without sending the configured initialization prompt again.
+It also works from a sous-chef session. A setup or registration failure returns
+a nonzero exit status.
+
 ### From the TUI
 
 Press `n` in the workspace list to open the prompt dialog.
