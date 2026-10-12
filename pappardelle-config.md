@@ -837,6 +837,7 @@ profiles:
 
 **Semantics:**
 
+- In the new-session profile picker, `a` on a profile opens a tmux popup to pick a different agent profile for that one launch (`idow --agent-profile <name>`). It isn't persisted: a relaunch of the space uses the profile's own `agent_profile` again, and won't resume the overridden agent's conversation.
 - `agent_profile:` is a **string reference** into the `agent_profiles:` map — no inline definitions. A built-in `claude` agent profile (command `claude`, resume `--resume {session_id}`) always exists; defining `agent_profiles.claude` shadows it.
 - Resolution: workspace profile `agent_profile` → top-level `agent_profile` → `claude`. An explicit `agent_profile: ''` at the profile level clears an inherited reference back to claude.
 - Referencing an undefined agent profile is a validation error, as is an `agent_profiles` entry without a `command`. `idow` fails the same way on an undefined name.

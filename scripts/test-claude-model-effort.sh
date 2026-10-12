@@ -368,6 +368,16 @@ assert_eq "configured template, value quoted for the shell" "--model='x y'" "$(e
 OUT=$(resolve --profile plain)
 assert_eq "built-in claude still reads the claude block" "--model sonnet --effort low" "$(echo "$OUT" | field agent_launch_flags)"
 assert_eq "deprecated top-level keys are reported" "claude.effort claude.model" "$(echo "$OUT" | field claude_launch_deprecated)"
+OUT=$(resolve --profile plain --agent-profile codex)
+assert_eq "--agent-profile replaces the profile's agent profile" "codex" "$(echo "$OUT" | field agent_command)"
+assert_eq "the override brings its own launch flags" "-m gpt-5.5 -c model_reasoning_effort=high" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile codex --agent-profile claude)
+assert_eq "--agent-profile claude is the built-in claude" "claude" "$(echo "$OUT" | field agent_command)"
+assert_eq "a claude override reads the claude block" "--model sonnet --effort low" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile codex --agent-profile "")
+assert_eq "an empty --agent-profile keeps the profile's" "codex" "$(echo "$OUT" | field agent_profile)"
+ERR=$(resolve --profile plain --agent-profile nope 2>&1 >/dev/null || true)
+assert_eq "an unknown --agent-profile is an error" 'Error: agent profile "nope" not found in agent_profiles' "$ERR"
 cleanup; unset TMPDIR_ROOT
 
 setup_configs "version: 1

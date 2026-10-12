@@ -931,28 +931,31 @@ export function loadConfig(): PappardelleConfig {
 	});
 }
 
-/**
- * Load just the provider configs (issue_tracker, vcs_host) from the merged
- * home -> project -> local layers, without validating the rest of the config
- * so providers can be initialized even when unrelated sections (e.g.
- * profiles) have errors. A layer that fails to parse is skipped for the same
- * reason. Reads the same files as loadConfigFromPaths(); the defaults are
- * what loadConfig() uses.
- */
-export function loadProviderConfigs(opts?: {
+type ConfigPaths = {
 	homeConfigDir?: string;
 	projectDir?: string;
 	fallbackProjectDir?: () => string | undefined;
-}): {
-	issue_tracker?: IssueTrackerConfig;
-	vcs_host?: VcsHostConfig;
-} {
-	const {homeConfigDir, projectDir, fallbackProjectDir} = opts ?? {
+};
+
+function defaultConfigPaths(): ConfigPaths {
+	return {
 		homeConfigDir: getDefaultHomeConfigDir(),
 		projectDir: getRepoRoot(),
 		fallbackProjectDir: getMainRepoRoot,
 	};
+}
 
+/**
+ * The raw config layers, lowest priority first, labeled the way config errors
+ * name them. A layer that is missing or fails to parse is null, so callers
+ * that only need part of the config keep working while another section is
+ * broken.
+ */
+function readConfigLayers({
+	homeConfigDir,
+	projectDir,
+	fallbackProjectDir,
+}: ConfigPaths): Array<{label: string; layer: Record<string, unknown> | null}> {
 	const resolveProjectFile = (filename: string): string | undefined => {
 		if (projectDir) {
 			const candidate = path.join(projectDir, filename);
@@ -982,17 +985,70 @@ export function loadProviderConfigs(opts?: {
 		}
 	};
 
+	return [
+		{
+			label: '~/.pappardelle/.pappardelle.yml',
+			layer: readLayer(
+				homeConfigDir
+					? path.join(homeConfigDir, '.pappardelle.yml')
+					: undefined,
+			),
+		},
+		{
+			label: '.pappardelle.yml',
+			layer: readLayer(resolveProjectFile('.pappardelle.yml')),
+		},
+		{
+			label: '.pappardelle.local.yml',
+			layer: readLayer(resolveProjectFile('.pappardelle.local.yml')),
+		},
+	];
+}
+
+/**
+ * Load just the provider configs (issue_tracker, vcs_host) from the merged
+ * home -> project -> local layers, without validating the rest of the config
+ * so providers can be initialized even when unrelated sections (e.g.
+ * profiles) have errors. A layer that fails to parse is skipped for the same
+ * reason. Reads the same files as loadConfigFromPaths(); the defaults are
+ * what loadConfig() uses.
+ */
+export function loadProviderConfigs(opts?: ConfigPaths): {
+	issue_tracker?: IssueTrackerConfig;
+	vcs_host?: VcsHostConfig;
+} {
+	const [home, project, local] = readConfigLayers(
+		opts ?? defaultConfigPaths(),
+	).map(({layer}) => layer);
 	const merged = mergeConfigLayers(
-		readLayer(
-			homeConfigDir ? path.join(homeConfigDir, '.pappardelle.yml') : undefined,
-		),
-		readLayer(resolveProjectFile('.pappardelle.yml')),
-		readLayer(resolveProjectFile('.pappardelle.local.yml')),
+		home ?? null,
+		project ?? null,
+		local ?? null,
 	);
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
 	};
+}
+
+/**
+ * The config files that define each agent profile, lowest priority first. A
+ * profile can be spread over several layers, e.g. a command in the home config
+ * with a model overridden in `.pappardelle.local.yml`.
+ */
+export function loadAgentProfileSources(
+	opts?: ConfigPaths,
+): Record<string, string[]> {
+	const sources: Record<string, string[]> = {};
+	for (const {label, layer} of readConfigLayers(opts ?? defaultConfigPaths())) {
+		const agentProfiles = layer?.['agent_profiles'];
+		if (!agentProfiles || typeof agentProfiles !== 'object') continue;
+		for (const name of Object.keys(agentProfiles)) {
+			(sources[name] ??= []).push(label);
+		}
+	}
+
+	return sources;
 }
 
 /**
@@ -2805,7 +2861,7 @@ export function getAgentProfile(
 	return resolveAgentProfile(name, lookupAgentProfile(config, name));
 }
 
-function resolveAgentProfileName(
+export function resolveAgentProfileName(
 	config: PappardelleConfig,
 	issueTitle?: string,
 	profileName?: string,
@@ -2816,6 +2872,23 @@ function resolveAgentProfileName(
 		name = profile.agent_profile;
 	}
 	return name === '' ? 'claude' : name;
+}
+
+/**
+ * Every agent profile a session can launch with, labeled with the config files
+ * that define it (see loadAgentProfileSources). The built-in claude is
+ * selectable even in configs that never define `agent_profiles:`.
+ */
+export function listAgentProfiles(
+	config: PappardelleConfig,
+	sources: Record<string, string[]>,
+): Array<{name: string; source: string}> {
+	const names = Object.keys(config.agent_profiles ?? {});
+	if (!names.includes('claude')) names.unshift('claude');
+	return names.map(name => ({
+		name,
+		source: sources[name]?.join(' + ') ?? 'built-in',
+	}));
 }
 
 /**

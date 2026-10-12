@@ -45,6 +45,8 @@ import {
 	matchProfilesByInputKeyPrefix,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 	getAgentProfile,
+	listAgentProfiles,
+	loadAgentProfileSources,
 	getAgentModel,
 	getAgentEffort,
 	isClaudeCommand,
@@ -5701,6 +5703,78 @@ test('getAgentProfile trims the trailing newline of a YAML block scalar', t => {
 	});
 	t.like(getAgentProfile(config), {command: 'codex', args: '--yolo'});
 	t.is(getAgentModel(config), 'gpt-5.5');
+});
+
+test('listAgentProfiles labels each agent profile with its config files', t => {
+	t.deepEqual(
+		listAgentProfiles(
+			agentProfileTestConfig({
+				agent_profiles: {codex: {command: 'codex'}, aider: {command: 'aider'}},
+			}),
+			{codex: ['~/.pappardelle/.pappardelle.yml', '.pappardelle.local.yml']},
+		),
+		[
+			{name: 'claude', source: 'built-in'},
+			{
+				name: 'codex',
+				source: '~/.pappardelle/.pappardelle.yml + .pappardelle.local.yml',
+			},
+			{name: 'aider', source: 'built-in'},
+		],
+	);
+});
+
+test('listAgentProfiles keeps a shadowing claude where it was declared', t => {
+	t.deepEqual(
+		listAgentProfiles(
+			agentProfileTestConfig({
+				agent_profiles: {
+					codex: {command: 'codex'},
+					claude: {command: '/opt/bin/claude'},
+				},
+			}),
+			{codex: ['.pappardelle.yml'], claude: ['.pappardelle.yml']},
+		),
+		[
+			{name: 'codex', source: '.pappardelle.yml'},
+			{name: 'claude', source: '.pappardelle.yml'},
+		],
+	);
+});
+
+test('loadAgentProfileSources names every layer that defines an agent profile', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-sources-'));
+	const write = (file: string, content: string) => {
+		fs.mkdirSync(path.dirname(path.join(dir, file)), {recursive: true});
+		fs.writeFileSync(path.join(dir, file), content);
+	};
+
+	write(
+		'home/.pappardelle.yml',
+		'agent_profiles:\n  codex:\n    command: codex\n',
+	);
+	write(
+		'project/.pappardelle.yml',
+		'agent_profiles:\n  opus:\n    command: claude\n',
+	);
+	write(
+		'project/.pappardelle.local.yml',
+		'agent_profiles:\n  codex:\n    model: gpt-5.5\n',
+	);
+	try {
+		t.deepEqual(
+			loadAgentProfileSources({
+				homeConfigDir: path.join(dir, 'home'),
+				projectDir: path.join(dir, 'project'),
+			}),
+			{
+				codex: ['~/.pappardelle/.pappardelle.yml', '.pappardelle.local.yml'],
+				opus: ['.pappardelle.yml'],
+			},
+		);
+	} finally {
+		fs.rmSync(dir, {recursive: true, force: true});
+	}
 });
 
 test('getAgentProfile resolves a top-level agent_profile reference', t => {
