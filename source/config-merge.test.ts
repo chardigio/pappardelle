@@ -11,7 +11,7 @@ import {
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	getInitializationCommand,
-	getAgentModel,
+	getAgentProfile,
 	getDangerouslySkipPermissions,
 	getKeybindings,
 	getIssueWatchlist,
@@ -1328,7 +1328,7 @@ profiles:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getAgentModel(config), 'claudemodelwarn');
+		t.is(getAgentProfile(config).model, 'claudemodelwarn');
 		const messages = getRecentErrors().map(entry => entry.message);
 		t.true(
 			messages.some(

@@ -619,14 +619,11 @@ test('a reopened space resumes the session its agent recorded', async t => {
 		fixture.home,
 		'.pappardelle/repos/linked checkout/space-state/test-abc.json',
 	);
-	const record = (agentProfile: string) => {
+	const record = (agentSessions: Record<string, string>) => {
 		fs.mkdirSync(path.dirname(statePath), {recursive: true});
 		fs.writeFileSync(
 			statePath,
-			JSON.stringify({
-				profile: 'other',
-				agentSession: {agentProfile, id: 'thread-1'},
-			}),
+			JSON.stringify({profile: 'other', agentSessions}),
 		);
 	};
 	const launchArg = (flag: string) => {
@@ -635,23 +632,31 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	};
 
 	// A new worktree drops a session left by an earlier space with the same key.
-	record('codex');
+	record({codex: 'thread-1'});
 	await fixture.run({profile: 'other'});
 	t.is(launchArg('--agent-resume-args'), '');
-	t.false('agentSession' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
+	t.false('agentSessions' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
 
 	fs.mkdirSync(path.join(fixture.home, '.worktrees/linked checkout/test-abc'), {
 		recursive: true,
 	});
-	record('codex');
+	record({codex: 'thread-1'});
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
 	t.is(launchArg('--agent-profile'), 'codex');
 
 	// An id recorded by another agent profile is not this one's conversation.
-	record('claude');
+	record({claude: 'thread-2'});
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), '');
+
+	// An override launch resumes its own agent profile's conversation, and the
+	// profile's agent still finds its own afterwards.
+	record({codex: 'thread-1', claude: 'thread-2'});
+	await fixture.run({open: true, agentProfile: 'claude'});
+	t.is(launchArg('--agent-resume-args'), '--resume thread-2');
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
 });
 
 test('a reopened claude space with no recorded session continues its conversation', async t => {

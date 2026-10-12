@@ -823,7 +823,7 @@ if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
     # is picked explicitly (--profile). An unforced run on an existing space either
     # read this value above or fell back to default_profile, which must not
     # overwrite a real pick. A new worktree also drops the recorded agent
-    # session: it belonged to an earlier workspace with the same key.
+    # sessions: they belonged to an earlier workspace with the same key.
     mkdir -p "$SPACE_STATE_DIR"
     NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     if [[ -f "$SPACE_STATE_FILE" ]]; then
@@ -834,7 +834,7 @@ if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
         # tempfile so a corrupted JSON read can't leak into /tmp.
         TMP_FILE=$(mktemp)
         if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" --argjson created "$WORKTREE_CREATED" \
-                '. + {profile: $p, updatedAt: $t} | if $created then del(.agentSession) else . end' \
+                '. + {profile: $p, updatedAt: $t} | if $created then del(.agentSessions) else . end' \
                 "$SPACE_STATE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$SPACE_STATE_FILE"; then
             log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
         else
@@ -868,15 +868,14 @@ print_step 7 "Starting agent tmux session..."
 # A new worktree has no conversation of its own to resume, and resume args
 # that aren't tied to the space would find someone else's: codex's
 # `resume --last` picks the most recent session from any directory. Otherwise
-# {session_id} is the id the agent's hook recorded for this space
-# (hooks/agent_session.py), only if it was recorded by the same agent
-# profile. With none, claude falls back to its directory-scoped --continue and
+# {session_id} is the id the agent's hook recorded for this space under the
+# same agent profile (hooks/agent_session.py). With none, claude falls back to its directory-scoped --continue and
 # other agents launch fresh with the prompt. Mirrors bindResumeArgs() in source/config.ts.
 if [[ "$WORKTREE_CREATED" == true ]]; then
     AGENT_RESUME_ARGS=""
 elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
     RECORDED_SESSION_ID=$(jq -r --arg profile "$AGENT_PROFILE" \
-        'select(.agentSession.agentProfile == $profile) | .agentSession.id // ""' \
+        '.agentSessions[$profile]? // ""' \
         "$SPACE_STATE_FILE" 2>/dev/null || true)
     if [[ "$RECORDED_SESSION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
         AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//\{session_id\}/$RECORDED_SESSION_ID}"

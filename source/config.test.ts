@@ -47,8 +47,6 @@ import {
 	getAgentProfile,
 	listAgentProfiles,
 	loadAgentProfileSources,
-	getAgentModel,
-	getAgentEffort,
 	isClaudeCommand,
 	renderAgentLaunchFlags,
 } from './config.ts';
@@ -5689,6 +5687,8 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 		args: '',
 		resumeArgs: '--resume {session_id}',
 		isClaude: true,
+		model: '',
+		effort: '',
 		modelArgs: '--model {model}',
 		effortArgs: '--effort {effort}',
 	});
@@ -5702,7 +5702,7 @@ test('getAgentProfile trims the trailing newline of a YAML block scalar', t => {
 		},
 	});
 	t.like(getAgentProfile(config), {command: 'codex', args: '--yolo'});
-	t.is(getAgentModel(config), 'gpt-5.5');
+	t.is(getAgentProfile(config).model, 'gpt-5.5');
 });
 
 test('listAgentProfiles labels each agent profile with its config files', t => {
@@ -5893,10 +5893,10 @@ test('launch fields and companion resolve via the persisted profile name', t => 
 	const config = agentProfileTestConfig();
 	config.profiles['codexy']!.claude = {model: 'sonnet'};
 	config.profiles['codexy']!.companion_command = 'lazygit';
-	t.is(getAgentModel(config, 'Fix parser bug', 'codexy'), 'sonnet');
+	t.is(getAgentProfile(config, 'Fix parser bug', 'codexy').model, 'sonnet');
 	t.is(getCompanionCommand(config, 'Fix parser bug', 'codexy'), 'lazygit');
 	// Stale persisted name → title match → top-level defaults.
-	t.is(getAgentModel(config, 'Fix parser bug', 'deleted'), '');
+	t.is(getAgentProfile(config, 'Fix parser bug', 'deleted').model, '');
 });
 
 // ============================================================================
@@ -5944,8 +5944,8 @@ test("an agent profile's own model and effort beat the deprecated claude block",
 		agent_profile: 'opus',
 		agent_profiles: {opus: {command: 'claude', model: 'opus', effort: 'max'}},
 	});
-	t.is(getAgentModel(config), 'opus');
-	t.is(getAgentEffort(config), 'max');
+	t.is(getAgentProfile(config).model, 'opus');
+	t.is(getAgentProfile(config).effort, 'max');
 });
 
 test('a claude agent profile without its own model falls back to the claude block', t => {
@@ -5960,9 +5960,9 @@ test('a claude agent profile without its own model falls back to the claude bloc
 			},
 		},
 	});
-	t.is(getAgentModel(config), 'sonnet');
-	t.is(getAgentModel(config, 'codexwork'), 'haiku');
-	t.is(getAgentEffort(config), 'high');
+	t.is(getAgentProfile(config).model, 'sonnet');
+	t.is(getAgentProfile(config, 'codexwork').model, 'haiku');
+	t.is(getAgentProfile(config).effort, 'high');
 });
 
 test('a non-claude agent profile never reads the claude block', t => {
@@ -5971,8 +5971,8 @@ test('a non-claude agent profile never reads the claude block', t => {
 		agent_profile: 'codex',
 		agent_profiles: {codex: {command: 'codex'}},
 	});
-	t.is(getAgentModel(config), '');
-	t.is(getAgentEffort(config), '');
+	t.is(getAgentProfile(config).model, '');
+	t.is(getAgentProfile(config).effort, '');
 });
 
 test("an agent profile's empty model clears the claude block's", t => {
@@ -5981,7 +5981,7 @@ test("an agent profile's empty model clears the claude block's", t => {
 		agent_profile: 'plain-claude',
 		agent_profiles: {'plain-claude': {command: 'claude', model: ''}},
 	});
-	t.is(getAgentModel(config), '');
+	t.is(getAgentProfile(config).model, '');
 });
 
 test('renderAgentLaunchFlags quotes values that are not bare tokens', t => {
@@ -5990,32 +5990,32 @@ test('renderAgentLaunchFlags quotes values that are not bare tokens', t => {
 		effortArgs: '-c model_reasoning_effort={effort}',
 	};
 	t.is(
-		renderAgentLaunchFlags(codex, {model: 'gpt-5.5', effort: 'high'}),
+		renderAgentLaunchFlags({...codex, model: 'gpt-5.5', effort: 'high'}),
 		' -m gpt-5.5 -c model_reasoning_effort=high',
 	);
 	t.is(
-		renderAgentLaunchFlags(
-			{modelArgs: '--model={model}'},
-			{model: "it's claude-opus-5[1m]"},
-		),
+		renderAgentLaunchFlags({
+			modelArgs: '--model={model}',
+			model: "it's claude-opus-5[1m]",
+		}),
 		` --model='it'\\''s claude-opus-5[1m]'`,
 	);
 });
 
 test('renderAgentLaunchFlags inserts $ sequences in a value literally', t => {
 	t.is(
-		renderAgentLaunchFlags({modelArgs: '--model {model}'}, {model: 'foo$'}),
+		renderAgentLaunchFlags({modelArgs: '--model {model}', model: 'foo$'}),
 		` --model 'foo$'`,
 	);
 	t.is(
-		renderAgentLaunchFlags({modelArgs: '--model {model}'}, {model: 'a$&b'}),
+		renderAgentLaunchFlags({modelArgs: '--model {model}', model: 'a$&b'}),
 		` --model 'a$&b'`,
 	);
 });
 
 test('renderAgentLaunchFlags passes no flag without a value or a template', t => {
-	t.is(renderAgentLaunchFlags({modelArgs: '-m {model}'}, {model: ''}), '');
-	t.is(renderAgentLaunchFlags({}, {model: 'gpt-5.5', effort: 'high'}), '');
+	t.is(renderAgentLaunchFlags({modelArgs: '-m {model}', model: ''}), '');
+	t.is(renderAgentLaunchFlags({model: 'gpt-5.5', effort: 'high'}), '');
 });
 
 test('isClaudeCommand matches bare names and paths, not wrappers', t => {

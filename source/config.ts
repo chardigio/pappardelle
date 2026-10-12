@@ -58,7 +58,7 @@ export interface ClaudeConfig {
 	/**
 	 * @deprecated Set `model` on an agent profile instead. Still read as the
 	 * fallback for claude agent profiles that set no model of their own; see
-	 * `getAgentModel`.
+	 * `getAgentProfile`.
 	 */
 	model?: string;
 	/**
@@ -2614,12 +2614,11 @@ function resolveClaudeLaunchField(
  */
 function resolveAgentLaunchField(
 	config: PappardelleConfig,
+	definition: AgentProfileConfig,
 	field: LaunchField,
 	issueTitle?: string,
 	profileName?: string,
 ): string {
-	const name = resolveAgentProfileName(config, issueTitle, profileName);
-	const definition = lookupAgentProfile(config, name);
 	const own = definition[field];
 	if (own !== undefined) {
 		return own;
@@ -2628,30 +2627,6 @@ function resolveAgentLaunchField(
 	return isClaude
 		? resolveClaudeLaunchField(config, field, issueTitle, profileName)
 		: '';
-}
-
-/**
- * Get the model to launch a workspace's agent with. Returns '' when no model
- * is configured; pass no flag at all in that case.
- */
-export function getAgentModel(
-	config: PappardelleConfig,
-	issueTitle?: string,
-	profileName?: string,
-): string {
-	return resolveAgentLaunchField(config, 'model', issueTitle, profileName);
-}
-
-/**
- * Get the reasoning effort to launch a workspace's agent with. Returns ''
- * when unconfigured.
- */
-export function getAgentEffort(
-	config: PappardelleConfig,
-	issueTitle?: string,
-	profileName?: string,
-): string {
-	return resolveAgentLaunchField(config, 'effort', issueTitle, profileName);
 }
 
 const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
@@ -2692,8 +2667,9 @@ function quoteLaunchValue(value: string): string {
  * template passes no flag.
  */
 export function renderAgentLaunchFlags(
-	agentProfile: Pick<ResolvedAgentProfile, 'modelArgs' | 'effortArgs'>,
-	launch: AgentLaunchOptions,
+	agentProfile: Partial<
+		Pick<ResolvedAgentProfile, 'model' | 'effort' | 'modelArgs' | 'effortArgs'>
+	>,
 ): string {
 	const templates: Record<LaunchField, string | undefined> = {
 		model: agentProfile.modelArgs,
@@ -2701,7 +2677,7 @@ export function renderAgentLaunchFlags(
 	};
 	let flags = '';
 	for (const field of LAUNCH_FIELDS) {
-		const value = launch[field];
+		const value = agentProfile[field];
 		const template = templates[field];
 		if (!value || !template) continue;
 		const quoted = quoteLaunchValue(value);
@@ -2709,16 +2685,6 @@ export function renderAgentLaunchFlags(
 		flags += ` ${template.replaceAll(LAUNCH_PLACEHOLDERS[field], () => quoted)}`;
 	}
 	return flags;
-}
-
-/**
- * Resolved model/effort values for a launch. An empty/absent value means
- * "don't pass the flag at all", which is what keeps the launch command
- * byte-identical for configs that never mention model or effort.
- */
-export interface AgentLaunchOptions {
-	model?: string;
-	effort?: string;
 }
 
 /**
@@ -2817,6 +2783,12 @@ export interface ResolvedAgentProfile {
 	args: string;
 	resumeArgs?: string;
 	isClaude: boolean;
+	/**
+	 * Values to launch with. `''` passes no flag, which keeps the launch
+	 * byte-identical for configs that never mention model or effort.
+	 */
+	model: string;
+	effort: string;
 	/** Flag templates for model/effort; undefined means the CLI gets none. */
 	modelArgs?: string;
 	effortArgs?: string;
@@ -2847,6 +2819,8 @@ function resolveAgentProfile(
 		args: definition.args ?? '',
 		resumeArgs,
 		isClaude,
+		model: definition.model ?? '',
+		effort: definition.effort ?? '',
 		modelArgs: definition.model_args ?? builtin.model,
 		effortArgs: definition.effort_args ?? builtin.effort,
 	};
@@ -2880,7 +2854,24 @@ export function getAgentProfile(
 	profileName?: string,
 ): ResolvedAgentProfile {
 	const name = resolveAgentProfileName(config, issueTitle, profileName);
-	return resolveAgentProfile(name, lookupAgentProfile(config, name));
+	const definition = lookupAgentProfile(config, name);
+	return {
+		...resolveAgentProfile(name, definition),
+		model: resolveAgentLaunchField(
+			config,
+			definition,
+			'model',
+			issueTitle,
+			profileName,
+		),
+		effort: resolveAgentLaunchField(
+			config,
+			definition,
+			'effort',
+			issueTitle,
+			profileName,
+		),
+	};
 }
 
 export function resolveAgentProfileName(
