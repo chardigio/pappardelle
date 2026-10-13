@@ -29,7 +29,7 @@ AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
-AGENT_LAUNCH_FLAGS=""
+MODEL_EFFORT_FLAGS=""
 AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --agent-launch-flags)
-            AGENT_LAUNCH_FLAGS="$2"
+            MODEL_EFFORT_FLAGS="$2"
             shift 2
             ;;
         --agent-profile)
@@ -182,8 +182,8 @@ fi
 if [[ -n "$AGENT_ARGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_ARGS}"
 fi
-if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_LAUNCH_FLAGS}"
+if [[ -n "$MODEL_EFFORT_FLAGS" ]]; then
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${MODEL_EFFORT_FLAGS}"
 fi
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
     NAME_FLAG=" --name ${ISSUE_KEY}"

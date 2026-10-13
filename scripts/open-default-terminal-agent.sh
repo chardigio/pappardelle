@@ -32,7 +32,7 @@ AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
-AGENT_LAUNCH_FLAGS=""
+MODEL_EFFORT_FLAGS=""
 AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
         --agent-args) AGENT_ARGS="$2"; shift 2 ;;
         --agent-resume-args) AGENT_RESUME_ARGS="$2"; AGENT_RESUME_ARGS_SET=true; shift 2 ;;
         --agent-is-claude) AGENT_IS_CLAUDE="$2"; shift 2 ;;
-        --agent-launch-flags) AGENT_LAUNCH_FLAGS="$2"; shift 2 ;;
+        --agent-launch-flags) MODEL_EFFORT_FLAGS="$2"; shift 2 ;;
         --agent-profile) AGENT_PROFILE="$2"; shift 2 ;;
         --print-launch-flags) PRINT_LAUNCH_FLAGS=true; shift ;;
         --print-command) PRINT_COMMAND=true; shift ;;
@@ -107,8 +107,8 @@ fi
 
 # The agent profile's model/effort flags arrive rendered and already quoted
 # for the inner shell by resolve-agent-config.sh, for any agent.
-if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_LAUNCH_FLAGS}"
+if [[ -n "$MODEL_EFFORT_FLAGS" ]]; then
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${MODEL_EFFORT_FLAGS}"
 fi
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
     NAME_FLAG=" --name ${ISSUE_KEY}"

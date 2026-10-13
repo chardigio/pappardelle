@@ -47,7 +47,7 @@ AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
-AGENT_LAUNCH_FLAGS=""
+MODEL_EFFORT_FLAGS=""
 AGENT_PROFILE="claude"
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
@@ -102,7 +102,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --agent-launch-flags)
-            AGENT_LAUNCH_FLAGS="$2"
+            MODEL_EFFORT_FLAGS="$2"
             shift 2
             ;;
         --agent-is-claude)
@@ -244,8 +244,8 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/
         if [[ -n "$AGENT_ARGS" ]]; then
             AGENT_CMD="${AGENT_CMD} ${AGENT_ARGS}"
         fi
-        if [[ -n "$AGENT_LAUNCH_FLAGS" ]]; then
-            AGENT_CMD="${AGENT_CMD} ${AGENT_LAUNCH_FLAGS}"
+        if [[ -n "$MODEL_EFFORT_FLAGS" ]]; then
+            AGENT_CMD="${AGENT_CMD} ${MODEL_EFFORT_FLAGS}"
         fi
         if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
             AGENT_CMD="${AGENT_CMD} --name $(printf '%q' "$ISSUE_KEY")"

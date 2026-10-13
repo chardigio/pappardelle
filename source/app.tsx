@@ -615,7 +615,7 @@ export default function App({
 						if (current !== desired) {
 							const next = await rebuildLayout(
 								layout.listPaneId,
-								layout.claudeViewerPaneId,
+								layout.agentViewerPaneId,
 								layout.companionViewerPaneId,
 							);
 							if (!next) throw new Error('Failed to rebuild pane layout');
@@ -725,7 +725,7 @@ export default function App({
 				const layout = paneLayoutRef.current;
 				if (!layout) return;
 				const success = await attachToSpace(
-					layout.claudeViewerPaneId,
+					layout.agentViewerPaneId,
 					layout.companionViewerPaneId,
 					selectedSpaceName,
 					layout.listPaneId,
@@ -763,7 +763,7 @@ export default function App({
 
 		if (spaces.length === 0) {
 			displayMessageInPane(
-				paneLayout.claudeViewerPaneId,
+				paneLayout.agentViewerPaneId,
 				'No spaces found. Press n to create a new space.',
 			);
 			// Only clear companion pane if it exists (may not on narrow screens)
@@ -906,7 +906,7 @@ export default function App({
 	const handleFocusClaude = () => {
 		if (!paneLayout) return;
 
-		spawnSync('tmux', ['select-pane', '-t', paneLayout.claudeViewerPaneId], {
+		spawnSync('tmux', ['select-pane', '-t', paneLayout.agentViewerPaneId], {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
@@ -970,7 +970,7 @@ export default function App({
 
 		const targetSpace = selectedSpaceNameRef.current;
 		if (!targetSpace) return;
-		const paneId = paneLayout.claudeViewerPaneId;
+		const paneId = paneLayout.agentViewerPaneId;
 		void sendToSelectedClaude({
 			queue: attachmentTask,
 			targetSpace,
@@ -1609,7 +1609,7 @@ export default function App({
 					if (layout && selectedSpaceNameRef.current === space.name) {
 						await Promise.all([
 							displayMessageInPaneAsync(
-								layout.claudeViewerPaneId,
+								layout.agentViewerPaneId,
 								'Session closed',
 							),
 							displayMessageInPaneAsync(

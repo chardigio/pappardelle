@@ -58,7 +58,7 @@ const helpText = `
 	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
-	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
+	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
 	  $ pappardelle close STA-313 --yes  # Close STA-313 without asking
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
