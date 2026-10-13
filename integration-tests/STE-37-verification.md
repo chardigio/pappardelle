@@ -1,6 +1,6 @@
 # STE-37 acceptance verification
 
-Verified locally on 2026-10-08 with Claude Code 2.1.295, Node 26.11.1, and tmux next-3.9.
+Claude verified locally on 2026-10-08 with Claude Code 2.1.295. Codex verified on 2026-10-13 with Codex CLI 0.163.0-alpha.10. Both used Node 26.11.1 and tmux next-3.9.
 
 ## Native interactive Claude
 
@@ -18,9 +18,29 @@ Verified locally on 2026-10-08 with Claude Code 2.1.295, Node 26.11.1, and tmux 
 | Resume                              | Native idle, working, and done reports continued on the existing pane                                                                             |
 | Resume with Pappardelle hooks       | Native status remained authoritative against conflicting hook state; matching Bash tool details appeared during working and cleared on completion |
 
-Only parsed status events and fixture indicator frames are retained. Native auth, error, child records, and optional progress/title were not triggered; deterministic fixtures cover them. Released Codex 0.162.0 was not verified as an OSC 7501 emitter.
+Only parsed status events and fixture indicator frames are retained. Native auth, error, child records, and optional progress/title were not triggered; deterministic fixtures cover them.
 
 The initial raw `pipe-pane -IO` prototype received queries and returned replies, but tmux's DA response reached Claude first and disabled native reporting. The authorized PTY proxy replies before forwarding that DA probe. The deterministic fixture verifies this ordering on every run, and Python tests cover every split boundary and opaque-string preservation.
+
+## Native interactive Codex
+
+Codex's [OSC 7501 change](https://github.com/openai/codex/pull/52725) merged after stable `0.162.1` was published. Verification used the [0.163.0-alpha.10 prerelease](https://github.com/openai/codex/releases/tag/rust-v0.163.0-alpha.10), downloaded to a temporary directory with its matching code-mode host. The normal Codex installation was unchanged.
+
+`verify-program-status-codex.ts --live --keep` passed 14 checks through the production PTY proxy, persistent monitor, workspace source resolver, and Ink row. Repeating with `--without-proxy` passed the same 14 checks in a plain tmux pane.
+
+| Scenario              | Observed native reports and result                                                     |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| Fresh session         | `idle:app=codex`; green idle indicator                                                 |
+| Turn and another turn | `working:app=codex`, then `idle:app=codex` on completion                               |
+| Permission request    | `blocked:app=codex`; attention indicator                                               |
+| Permission approval   | `working`, then `idle`; the harmless fixture file contained the expected text          |
+| Conflicting hook      | Native Codex idle remained authoritative over a Claude error hook                      |
+| Exit                  | `clear`; indicator became authoritative unknown                                        |
+| Resume                | Native idle, working, idle on completion, and clear on exit continued on the same pane |
+
+This Codex version reports completion as `idle`, and does not emit `done`, blocking kind, message, title, progress, or child ids in these scenarios. It emits OSC 7501 without a capability query, including through tmux, so its native reporting works without the proxy. Claude still needs the proxy for its capability-query ordering.
+
+The initial standalone Codex download lacked its code-mode host, so tool execution could not request approval. Adding the matching host resolved that fixture setup failure; both complete runs passed. Authentication used a temporary symlink to the existing auth file; the temporary Codex home and link were removed before preserving evidence. No credentials or Codex transcripts were retained in the fixture.
 
 ## Deterministic transport and full app
 

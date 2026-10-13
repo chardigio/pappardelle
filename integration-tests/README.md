@@ -22,6 +22,15 @@ npx tsx integration-tests/verify-program-status-claude.ts --live --keep
 
 This uses native OSC in safe mode, then resumes with only fixture settings and Pappardelle's status hook. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
 
+To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with `0.163.0-alpha.10`):
+
+```bash
+npx tsx integration-tests/verify-program-status-codex.ts --live --keep
+npx tsx integration-tests/verify-program-status-codex.ts --live --keep --without-proxy
+```
+
+`PAPPARDELLE_CODEX_BIN` selects a binary outside your normal installation. Standalone release downloads also require their matching `codex-code-mode-host` executable alongside the Codex binary for tool calls. The fixture uses a temporary Codex configuration, an authentication-file symlink, a read-only sandbox with approval requests, and a harmless approved file write. It verifies idle/working/blocked, completion returning to idle, native precedence, exit, and resume through the monitor and Ink row. It deletes its temporary Codex home and authentication link even with `--keep`; only fixture files, parsed protocol evidence, and indicator frames remain. It never runs in CI.
+
 Each scenario has a timeout. Claude does not necessarily emit every protocol field or state; auth/error/child records and hard limits use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior.
 
 Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
