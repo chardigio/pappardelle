@@ -6,6 +6,7 @@ import {
 	handleFilterablePickerKey,
 	handleProfilePickerKey,
 	resolvePromptSubmit,
+	pickerOptions,
 	focusFrame,
 	PICKER_MAX_VISIBLE,
 } from './profile-picker.ts';
@@ -431,6 +432,33 @@ test('resolvePromptSubmit opens the picker for an issue key whose prefix is clai
 		// --profile — the picker only adds the ability to override it.
 		t.is(result.options[0]!.name, null);
 	}
+});
+
+test('resolvePromptSubmit gives unclaimed inputs a deferred-only picker when an agent can be swapped in', t => {
+	for (const input of ['123', 'ZZZ-123']) {
+		const result = resolvePromptSubmit(CONFIG, input, true);
+		t.is(result.kind, 'pick');
+		if (result.kind !== 'pick') continue;
+		t.deepEqual(
+			result.options.map(option => option.kind),
+			['deferred'],
+		);
+	}
+});
+
+test('pickerOptions only narrows inputs the picker would otherwise skip', t => {
+	t.deepEqual(
+		pickerOptions(CONFIG, '123', true).map(option => option.kind),
+		['deferred'],
+	);
+	t.deepEqual(
+		pickerOptions(CONFIG, 'STA-123', true),
+		buildProfileOptions(CONFIG, 'STA-123'),
+	);
+	t.deepEqual(
+		pickerOptions(CONFIG, '123', false),
+		buildProfileOptions(CONFIG, '123'),
+	);
 });
 
 test('resolvePromptSubmit ignores blank input', t => {
