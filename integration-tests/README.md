@@ -31,6 +31,18 @@ npx tsx integration-tests/verify-program-status-codex.ts --live --keep --without
 
 `PAPPARDELLE_CODEX_BIN` selects a binary outside your normal installation. Standalone release downloads also require their matching `codex-code-mode-host` executable alongside the Codex binary for tool calls. The fixture uses a temporary Codex configuration, an authentication-file symlink, a read-only sandbox with approval requests, and a harmless approved file write. It verifies idle/working/blocked, completion returning to idle, native precedence, exit, and resume through the monitor and Ink row. It deletes its temporary Codex home and authentication link even with `--keep`; only fixture files, parsed protocol evidence, and indicator frames remain. It never runs in CI.
 
+Other installed CLI checks are also opt-in:
+
+```bash
+npx tsx integration-tests/verify-program-status-pi.ts --live --keep
+npx tsx integration-tests/verify-program-status-unavailable.ts --agent opencode --live --keep
+npx tsx integration-tests/verify-program-status-unavailable.ts --agent agy --live --keep
+```
+
+Pi uses its normal provider configuration (`PAPPARDELLE_PI_MODEL` defaults to `openai/gpt-6.1-sol`, and `PAPPARDELLE_PI_BIN` can select another binary). The fixture leaves capability detection active and registers two temporary extension commands that open Pi's own question and confirmation dialogs; the extension emits no protocol reports. It verifies decoded messages and blocking kinds, real model turns, interruption, hook precedence, exit, and resume. Other extensions, MCP, tools, skills, and context-file discovery are disabled for this fixture.
+
+The negative verifier covers installed OpenCode and agy versions without OSC 7501 support. It requires a real model reply that cannot be confused with the echoed prompt, checks that the monitor sees no reports, verifies the unknown Ink indicator, and waits for the CLI to return to its fixture shell. OpenCode's selected model and configured Aperture endpoint are checked from its own session metadata and configuration. It fails if a future CLI starts emitting native reports, so that version can be given positive coverage. These checks preserve normal provider configuration and permissions, add no sign-ins, and never run in CI.
+
 Each scenario has a timeout. Claude does not necessarily emit every protocol field or state; auth/error/child records and hard limits use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior.
 
 Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.

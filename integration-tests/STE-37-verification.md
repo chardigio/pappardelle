@@ -1,6 +1,6 @@
 # STE-37 acceptance verification
 
-Claude verified locally on 2026-10-08 with Claude Code 2.1.295. Codex verified on 2026-10-13 with Codex CLI 0.163.0-alpha.10. Both used Node 26.11.1 and tmux next-3.9.
+Claude verified locally on 2026-10-08 with Claude Code 2.1.295. Codex, Pi, OpenCode, and agy were verified on 2026-10-13. All fixtures used Node 26.11.1 and tmux next-3.9.
 
 ## Native interactive Claude
 
@@ -41,6 +41,18 @@ Codex's [OSC 7501 change](https://github.com/openai/codex/pull/52725) merged aft
 This Codex version reports completion as `idle`, and does not emit `done`, blocking kind, message, title, progress, or child ids in these scenarios. It emits OSC 7501 without a capability query, including through tmux, so its native reporting works without the proxy. Claude still needs the proxy for its capability-query ordering.
 
 The initial standalone Codex download lacked its code-mode host, so tool execution could not request approval. Adding the matching host resolved that fixture setup failure; both complete runs passed. Authentication used a temporary symlink to the existing auth file; the temporary Codex home and link were removed before preserving evidence. No credentials or Codex transcripts were retained in the fixture.
+
+## Installed Pi, OpenCode, and agy
+
+| Installed CLI   | Provider used in the fixture                                                                                 | Result                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Pi 1.2.0        | OpenAI `gpt-6.1-sol` through configured Tailscale Aperture (`http://ai/v1`)                                  | 21 positive native-status checks passed                                               |
+| OpenCode 2.0.28 | OpenAI `gpt-6.1-sol`; its session metadata and provider config confirmed Tailscale Aperture (`http://ai/v1`) | Real model turn and exit succeeded; no OSC 7501 reports; four negative checks passed  |
+| agy 1.3.4       | Existing Antigravity Gemini 3.8 Flash configuration, with low effort for this invocation                     | Real model turn and exit succeeded; no OSC 7501 reports; three negative checks passed |
+
+Pi's [native implementation](https://github.com/earendil-works/pi/issues/10607) detects support before DA1. The fixture did not force `PI_PROGRAM_STATUS`; the production proxy answered detection. Native `idle`, `working`, `done`, `blocked:kind=question`, `blocked:kind=permission`, and `clear` reports reached the monitor, source resolver, and Ink row. Question and confirmation messages decoded correctly. Answering, approving, denying, interrupting, starting another turn, and resuming all restored the expected state. A conflicting Claude hook could not replace native completion. The temporary extension only invoked Pi's own UI dialogs and emitted no OSC sequences. Native auth, error, compaction, and child records were not triggered.
+
+OpenCode's [OSC 7501 PR](https://github.com/anomalyco/opencode/pull/54560) was still open at verification time. Neither installed OpenCode nor agy emitted native reports during startup, a completed real turn, or exit. Their indicators correctly remained unknown with no native records or hook producer; this is an emitter limitation, not a successful native-status integration. No provider sign-ins or global model settings were changed. OpenCode and Pi used their existing Aperture configuration; agy's installed configuration had no model endpoint override.
 
 ## Deterministic transport and full app
 

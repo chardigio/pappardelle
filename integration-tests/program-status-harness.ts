@@ -198,6 +198,21 @@ export class StatusHarness {
 		this.view?.unmount();
 	}
 
+	async expectUnknown(label: string) {
+		assert.equal(this.spaces[0]?.programStatus?.status ?? 'unknown', 'unknown');
+		await until(
+			() => this.view?.lastFrame() ?? '',
+			frame => frame.includes(`? ${this.spaces[0]!.name}`),
+			`${label} visible indicator`,
+		);
+		this.checks.push({
+			label,
+			info: this.spaces[0]?.programStatus,
+			frame: this.view?.lastFrame(),
+		});
+		console.log(`PASS ${label}`);
+	}
+
 	async cleanup(repo?: string, key?: string) {
 		this.unmount();
 		try {
