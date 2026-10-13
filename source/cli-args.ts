@@ -49,7 +49,7 @@ const helpText = `
 	  $ pappardelle --no-layout  # Run standalone (list only)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
-	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
+	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
 	  $ pappardelle restart --hard  # End agent sessions, restart every TUI

@@ -801,7 +801,7 @@ function initCommandSpellings(container: Record<string, unknown>): {
  * level plus each profile — with the message label for each (`''` at the top
  * level, `profiles.<name>.` per profile, ready to prefix a key path).
  */
-function initCommandContainers(
+function configContainers(
 	layer: Record<string, unknown>,
 ): Array<{container: Record<string, unknown>; label: string}> {
 	const containers = [{container: layer, label: ''}];
@@ -829,7 +829,7 @@ function initializationCommandConflictErrors(
 	file: string,
 ): string[] {
 	const errors: string[] = [];
-	for (const {container, label} of initCommandContainers(layer)) {
+	for (const {container, label} of configContainers(layer)) {
 		const {newKey, oldKey} = initCommandSpellings(container);
 		if (newKey && oldKey) {
 			errors.push(
@@ -849,7 +849,7 @@ function initializationCommandConflictErrors(
 function renameDeprecatedInitializationCommand(
 	layer: Record<string, unknown>,
 ): void {
-	for (const {container} of initCommandContainers(layer)) {
+	for (const {container} of configContainers(layer)) {
 		const {claude} = container;
 		if (!claude || typeof claude !== 'object') continue;
 		const claudeFields = claude as Record<string, unknown>;
@@ -886,7 +886,7 @@ function warnDeprecatedInitializationCommand(
 	layer: Record<string, unknown>,
 	file: string,
 ): void {
-	for (const {container, label} of initCommandContainers(layer)) {
+	for (const {container, label} of configContainers(layer)) {
 		if (!initCommandSpellings(container).oldKey) continue;
 		const target = label
 			? `${label}initialization_command`
@@ -906,7 +906,7 @@ function warnDeprecatedClaudeLaunchFields(
 	layer: Record<string, unknown>,
 	file: string,
 ): void {
-	for (const {container, label} of initCommandContainers(layer)) {
+	for (const {container, label} of configContainers(layer)) {
 		const {claude} = container;
 		if (!claude || typeof claude !== 'object') continue;
 		for (const field of LAUNCH_FIELDS) {

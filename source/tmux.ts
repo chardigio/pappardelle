@@ -132,11 +132,11 @@ export function extractIssueKeyFromSession(
 let currentlyViewingSpace: string | null = null;
 
 // Track if panes have active nested tmux clients (vs just shell)
-let claudeViewerHasClient = false;
+let agentViewerHasClient = false;
 let companionViewerHasClient = false;
 
 // Cache pane TTYs for fast client switching
-let claudeViewerTty: string | null = null;
+let agentViewerTty: string | null = null;
 let companionViewerTty: string | null = null;
 let viewerPaneIds: string | null = null;
 
@@ -882,7 +882,7 @@ export async function killSpaceSessions(
 	);
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
-		claudeViewerHasClient = false;
+		agentViewerHasClient = false;
 		companionViewerHasClient = false;
 	}
 	return killed && legacyKilled;
@@ -898,17 +898,31 @@ function renameLegacySession(
 	target: string,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
 ): boolean {
-	const r = runner([
-		'rename-session',
-		'-t',
-		exactSessionTarget(legacyName),
-		target,
-	]);
+	const r = runner(legacyRenameArgs(legacyName, target));
 	if (r.error || r.status !== 0) {
 		return false;
 	}
 	log.info(`Migrated legacy session ${legacyName} → ${target}`);
 	return true;
+}
+
+async function renameLegacySessionAsync(
+	legacyName: string,
+	target: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	try {
+		await run(innerTmuxArgs(legacyRenameArgs(legacyName, target)));
+	} catch (error) {
+		if (error instanceof Error && error.name === 'AbortError') throw error;
+		return false;
+	}
+	log.info(`Migrated legacy session ${legacyName} → ${target}`);
+	return true;
+}
+
+function legacyRenameArgs(legacyName: string, target: string): string[] {
+	return ['rename-session', '-t', exactSessionTarget(legacyName), target];
 }
 
 /**
@@ -1268,7 +1282,7 @@ function recordPaneSample(
 
 /**
  * Set up the pane layout for pappardelle
- * Returns pane IDs for [list, claudeViewer, companionViewer]
+ * Returns pane IDs for [list, agentViewer, companionViewer]
  *
  * Layout depends on screen width:
  * - Narrow screens (< 100 chars): Vertical layout [list on top] [claude below], no companion
@@ -1276,7 +1290,7 @@ function recordPaneSample(
  */
 export function setupPappardellLayout(): {
 	listPaneId: string;
-	claudeViewerPaneId: string;
+	agentViewerPaneId: string;
 	companionViewerPaneId: string;
 } | null {
 	try {
@@ -1298,13 +1312,13 @@ export function setupPappardellLayout(): {
 			`Terminal size: ${totalWidth}x${totalHeight}, layout: ${layout.direction}`,
 		);
 
-		let claudeViewerPaneId: string;
+		let agentViewerPaneId: string;
 		let companionViewerPaneId = ''; // Empty by default (not created for vertical layout)
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL LAYOUT: list on top, claude below, no companion
 			// Use -v for vertical split (top/bottom)
-			const claudeResult = spawnSync(
+			const agentResult = spawnSync(
 				'tmux',
 				[
 					'split-window',
@@ -1322,12 +1336,12 @@ export function setupPappardellLayout(): {
 				{encoding: 'utf-8', timeout: 10000},
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
-				log.error(`Failed to create agent viewer pane: ${claudeResult.stderr}`);
+			if (agentResult.error || agentResult.status !== 0) {
+				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
 				return null;
 			}
 
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			log.info(
 				`Vertical layout: list=${layout.listHeight} rows, claude=${layout.claudeHeight} rows`,
@@ -1338,7 +1352,7 @@ export function setupPappardellLayout(): {
 			const rightPortionWidth =
 				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
 
-			const claudeResult = spawnSync(
+			const agentResult = spawnSync(
 				'tmux',
 				[
 					'split-window',
@@ -1356,12 +1370,12 @@ export function setupPappardellLayout(): {
 				{encoding: 'utf-8', timeout: 10000},
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
-				log.error(`Failed to create agent viewer pane: ${claudeResult.stderr}`);
+			if (agentResult.error || agentResult.status !== 0) {
+				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
 				return null;
 			}
 
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			// Create right pane (companion viewer) from the claude pane
 			// Only create if we have space for companion
@@ -1372,7 +1386,7 @@ export function setupPappardellLayout(): {
 						'split-window',
 						'-h',
 						'-t',
-						claudeViewerPaneId,
+						agentViewerPaneId,
 						'-c',
 						cwd,
 						'-l',
@@ -1408,7 +1422,7 @@ export function setupPappardellLayout(): {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
-		execSync(`tmux select-pane -t "${claudeViewerPaneId}" -T "agent-viewer"`, {
+		execSync(`tmux select-pane -t "${agentViewerPaneId}" -T "agent-viewer"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
@@ -1442,14 +1456,14 @@ export function setupPappardellLayout(): {
 		});
 
 		log.info(
-			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, companion=${
+			`Set up pappardelle layout: list=${listPaneId}, agent=${agentViewerPaneId}, companion=${
 				companionViewerPaneId || '(none)'
 			}`,
 		);
 
 		recordPaneSample(listPaneId, companionViewerPaneId, getTmuxWindowSize());
 
-		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
+		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
 			'Failed to set up pappardelle layout',
@@ -1481,7 +1495,7 @@ function isMissingSessionError(err: unknown): boolean {
  * with an attach command for the initial attachment.
  */
 export async function attachToSpace(
-	claudeViewerPaneId: string,
+	agentViewerPaneId: string,
 	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
@@ -1497,7 +1511,7 @@ export async function attachToSpace(
 		return output;
 	};
 	if (signal?.aborted) return false;
-	const paneIds = JSON.stringify([claudeViewerPaneId, companionViewerPaneId]);
+	const paneIds = JSON.stringify([agentViewerPaneId, companionViewerPaneId]);
 	if (viewerPaneIds !== paneIds) {
 		clearCurrentlyViewingSpace();
 		viewerPaneIds = paneIds;
@@ -1508,15 +1522,15 @@ export async function attachToSpace(
 	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
 	if (
-		claudeViewerHasClient &&
-		claudeViewerTty &&
+		agentViewerHasClient &&
+		agentViewerTty &&
 		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
 	) {
 		try {
 			const commands = [
 				'switch-client',
 				'-c',
-				claudeViewerTty,
+				agentViewerTty,
 				'-t',
 				exactSessionTarget(sessions.agent),
 			];
@@ -1590,8 +1604,8 @@ export async function attachToSpace(
 			: false;
 		signal?.throwIfAborted();
 
-		if (!claudeViewerTty)
-			claudeViewerTty = await getPaneTty(claudeViewerPaneId, run);
+		if (!agentViewerTty)
+			agentViewerTty = await getPaneTty(agentViewerPaneId, run);
 		if (!companionViewerTty && companionViewerPaneId) {
 			companionViewerTty = await getPaneTty(companionViewerPaneId, run);
 		}
@@ -1615,9 +1629,9 @@ export async function attachToSpace(
 			// client by its tty.
 			return {attached: exists, tty: await getPaneTty(paneId, run)};
 		};
-		({attached: claudeViewerHasClient, tty: claudeViewerTty} = await attach(
-			claudeViewerPaneId,
-			claudeViewerTty,
+		({attached: agentViewerHasClient, tty: agentViewerTty} = await attach(
+			agentViewerPaneId,
+			agentViewerTty,
 			sessions.agent,
 			hasAgentSession,
 		));
@@ -1715,9 +1729,9 @@ export function getCurrentlyViewingSpace(): string | null {
  */
 export function clearCurrentlyViewingSpace(): void {
 	currentlyViewingSpace = null;
-	claudeViewerHasClient = false;
+	agentViewerHasClient = false;
 	companionViewerHasClient = false;
-	claudeViewerTty = null;
+	agentViewerTty = null;
 	companionViewerTty = null;
 	viewerPaneIds = null;
 }
@@ -1782,7 +1796,7 @@ export async function rebuildLayout(
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<{
 	listPaneId: string;
-	claudeViewerPaneId: string;
+	agentViewerPaneId: string;
 	companionViewerPaneId: string;
 } | null> {
 	try {
@@ -1795,7 +1809,7 @@ export async function rebuildLayout(
 
 		// Detach any nested clients before killing panes
 		if (oldClaudeViewerPaneId) {
-			if (claudeViewerHasClient) {
+			if (agentViewerHasClient) {
 				await run(['send-keys', '-t', oldClaudeViewerPaneId, 'C-b', 'd']);
 			}
 			await killPane(oldClaudeViewerPaneId, run);
@@ -1808,9 +1822,9 @@ export async function rebuildLayout(
 		}
 
 		// Reset cached state since panes are destroyed
-		claudeViewerHasClient = false;
+		agentViewerHasClient = false;
 		companionViewerHasClient = false;
-		claudeViewerTty = null;
+		agentViewerTty = null;
 		companionViewerTty = null;
 		currentlyViewingSpace = null;
 
@@ -1823,12 +1837,12 @@ export async function rebuildLayout(
 			`Rebuilding layout: ${totalWidth}x${totalHeight}, mode=${layout.direction}`,
 		);
 
-		let claudeViewerPaneId: string;
+		let agentViewerPaneId: string;
 		let companionViewerPaneId = '';
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL: list on top, claude below
-			const claudeResult = await runLayoutCommand(
+			const agentResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-v',
@@ -1845,13 +1859,13 @@ export async function rebuildLayout(
 				run,
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
+			if (agentResult.error || agentResult.status !== 0) {
 				log.error(
-					`Rebuild: failed to create claude pane: ${claudeResult.stderr}`,
+					`Rebuild: failed to create agent viewer pane: ${agentResult.stderr}`,
 				);
 				return null;
 			}
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			log.info(
 				`Rebuilt vertical: list=${layout.listHeight}, claude=${layout.claudeHeight}`,
@@ -1861,7 +1875,7 @@ export async function rebuildLayout(
 			const rightPortionWidth =
 				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
 
-			const claudeResult = await runLayoutCommand(
+			const agentResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-h',
@@ -1878,13 +1892,13 @@ export async function rebuildLayout(
 				run,
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
+			if (agentResult.error || agentResult.status !== 0) {
 				log.error(
-					`Rebuild: failed to create claude pane: ${claudeResult.stderr}`,
+					`Rebuild: failed to create agent viewer pane: ${agentResult.stderr}`,
 				);
 				return null;
 			}
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
 				const companionResult = await runLayoutCommand(
@@ -1892,7 +1906,7 @@ export async function rebuildLayout(
 						'split-window',
 						'-h',
 						'-t',
-						claudeViewerPaneId,
+						agentViewerPaneId,
 						'-c',
 						cwd,
 						'-l',
@@ -1916,13 +1930,7 @@ export async function rebuildLayout(
 
 		// Set pane titles
 		try {
-			await run([
-				'select-pane',
-				'-t',
-				claudeViewerPaneId,
-				'-T',
-				'agent-viewer',
-			]);
+			await run(['select-pane', '-t', agentViewerPaneId, '-T', 'agent-viewer']);
 			if (companionViewerPaneId) {
 				await run([
 					'select-pane',
@@ -1940,7 +1948,7 @@ export async function rebuildLayout(
 		await runLayoutCommand(['select-pane', '-t', listPaneId], run);
 
 		log.info(
-			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
+			`Layout rebuilt: agent=${agentViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
 		await recordPaneSampleAsync(
@@ -1950,7 +1958,7 @@ export async function rebuildLayout(
 			run,
 		);
 
-		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
+		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
 			'Failed to rebuild layout',
@@ -2286,23 +2294,11 @@ export async function ensureAgentSession(
 
 	// A legacy claude-{repo}-{key} session is the same space mid-upgrade —
 	// rename it in place rather than spawning a duplicate agent beside it.
-	if (await innerSessionExistsAsync(sessions.legacyAgent, run)) {
-		try {
-			await run(
-				innerTmuxArgs([
-					'rename-session',
-					'-t',
-					exactSessionTarget(sessions.legacyAgent),
-					sessionName,
-				]),
-			);
-			log.info(
-				`Migrated legacy session ${sessions.legacyAgent} → ${sessionName}`,
-			);
-			return true;
-		} catch (err) {
-			if (err instanceof Error && err.name === 'AbortError') throw err;
-		}
+	if (
+		(await innerSessionExistsAsync(sessions.legacyAgent, run)) &&
+		(await renameLegacySessionAsync(sessions.legacyAgent, sessionName, run))
+	) {
+		return true;
 	}
 
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);

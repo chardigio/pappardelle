@@ -65,7 +65,7 @@ export interface SpaceData {
  */
 export interface PaneLayout {
 	listPaneId: string;
-	claudeViewerPaneId: string; // Viewer pane that attaches to claude-STA-XXX session
+	agentViewerPaneId: string; // Viewer pane that attaches to agent-STA-XXX session
 	companionViewerPaneId: string; // Viewer pane that attaches to companion-STA-XXX session
 }
 

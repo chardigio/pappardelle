@@ -418,6 +418,24 @@ test.serial(
 	},
 );
 
+test.serial(
+	'a live legacy claude- session is renamed rather than shadowed by a new agent',
+	async t => {
+		const calls: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args.includes('has-session') && args.at(-1)!.startsWith('=agent-'))
+				throw new Error('no session');
+			return '';
+		};
+		t.true(await ensureAgentSession('TEST-OLD', '/tmp', false, run));
+		const rename = calls.find(args => args.includes('rename-session'))!;
+		t.true(rename.at(-2)!.startsWith('=claude-'));
+		t.true(rename.at(-1)!.startsWith('agent-'));
+		t.false(calls.some(args => args.includes('new-session')));
+	},
+);
+
 // The agent's hook records its session id under these (hooks/agent_session.py).
 test.serial(
 	'a new agent session tells the hook its agent profile, command and space-state file',
