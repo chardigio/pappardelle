@@ -46,6 +46,15 @@ export interface SpaceState {
 	 * Written once per workspace creation; never updated by the rail-status poller.
 	 */
 	profile?: string;
+	/**
+	 * Each agent profile's latest conversation in this space, by agent profile
+	 * name, written by the agent's SessionStart/UserPromptSubmit hook
+	 * (hooks/agent_session.py). Relaunching resumes the launching agent
+	 * profile's id when its `resume_args` carry `{session_id}`. Keyed by agent
+	 * profile so a one-launch override doesn't take the profile's own
+	 * conversation away. idow drops them when it creates the worktree.
+	 */
+	agentSessions?: Record<string, string>;
 }
 
 /**
@@ -142,7 +151,11 @@ export function writeSpaceState(
 	const p = getSpaceStatePath(repoName, issueKey, baseDir);
 	try {
 		fs.mkdirSync(path.dirname(p), {recursive: true});
-		fs.writeFileSync(p, JSON.stringify(next, null, 2) + '\n');
+		// Renamed into place: the agent's hook reads and rewrites this file
+		// concurrently, and must never see it half-written.
+		const temporary = `${p}.tmp.${process.pid}`;
+		fs.writeFileSync(temporary, JSON.stringify(next, null, 2) + '\n');
+		fs.renameSync(temporary, p);
 	} catch {
 		// Non-critical — cache will be rebuilt on next poll.
 	}

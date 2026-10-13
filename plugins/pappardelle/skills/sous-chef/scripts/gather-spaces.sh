@@ -138,7 +138,7 @@ for space in spaces:
     # Same encoding as toSessionKey in source/tmux.ts: tmux rejects '.' in
     # session names, so '_' is doubled to keep the mapping reversible.
     session_key = space.replace('_', '__').replace('.', '_')
-    entry['tmuxSession'] = f'claude-{repo_name}-{session_key}'
+    entry['tmuxSession'] = f'agent-{repo_name}-{session_key}'
 
     results.append(entry)
 

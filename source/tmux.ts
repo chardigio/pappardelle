@@ -1,5 +1,5 @@
 // Tmux session attachment for pappardelle
-// Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
+// Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {
 	existsSync,
@@ -27,19 +27,23 @@ const runTmux: AsyncTmuxRunner = async args => {
 };
 import {
 	DEFAULT_COMPANION_COMMAND,
-	getClaudeEffort,
-	getClaudeModel,
+	bindResumeArgs,
+	DEFAULT_RESOLVED_AGENT_PROFILE,
+	getAgentProfile,
+	renderAgentLaunchFlags,
 	getCompanionCommand,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
 	getPaneWidths,
 	getRepoName,
 	loadConfig,
+	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
-import {buildSessionEnvArgs} from './spawn-env.ts';
+import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {getRegisteredSpaces, isSpaceRegistered} from './space-registry.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
+import {getSpaceStatePath, readSpaceState} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -85,14 +89,14 @@ export function innerTmuxArgs(args: readonly string[]): string[] {
 }
 
 // Session naming convention (matches idow)
-// Sessions are repo-qualified: claude-{repoName}-{key}, e.g. claude-pappa-chex-CHEX-313
+// Sessions are repo-qualified: agent-{repoName}-{key}, e.g. agent-pappa-chex-CHEX-313
 
 /**
  * Get the session prefix for a given type and repo name.
- * e.g. getSessionPrefix('claude', 'pappa-chex') → 'claude-pappa-chex-'
+ * e.g. getSessionPrefix('agent', 'pappa-chex') → 'agent-pappa-chex-'
  */
 export function getSessionPrefix(
-	type: 'claude' | 'companion',
+	type: 'agent' | 'companion',
 	repoName?: string,
 ): string {
 	const repo = repoName ?? getRepoName();
@@ -100,15 +104,26 @@ export function getSessionPrefix(
 }
 
 /**
+ * Session prefix used for the agent pane before it was renamed to `agent-`.
+ * Live sessions carrying this prefix are renamed in place on sight (see
+ * `migrateLegacyAgentSessions` / `ensureAgentSession`) and the orphan reapers
+ * sweep it alongside the current prefixes.
+ */
+export function getLegacyAgentSessionPrefix(repoName?: string): string {
+	const repo = repoName ?? getRepoName();
+	return `claude-${repo}-`;
+}
+
+/**
  * Extract the space key from a repo-qualified session name.
- * e.g. extractIssueKeyFromSession('claude-pappa-chex-CHEX-313', 'pappa-chex') → 'CHEX-313'
+ * e.g. extractIssueKeyFromSession('agent-pappa-chex-CHEX-313', 'pappa-chex') → 'CHEX-313'
  * Returns null if the session doesn't match the expected prefix.
  */
 export function extractIssueKeyFromSession(
 	sessionName: string,
 	repoName?: string,
 ): string | null {
-	const prefix = getSessionPrefix('claude', repoName);
+	const prefix = getSessionPrefix('agent', repoName);
 	if (!sessionName.startsWith(prefix)) return null;
 	return fromSessionKey(sessionName.slice(prefix.length));
 }
@@ -117,11 +132,11 @@ export function extractIssueKeyFromSession(
 let currentlyViewingSpace: string | null = null;
 
 // Track if panes have active nested tmux clients (vs just shell)
-let claudeViewerHasClient = false;
+let agentViewerHasClient = false;
 let companionViewerHasClient = false;
 
 // Cache pane TTYs for fast client switching
-let claudeViewerTty: string | null = null;
+let agentViewerTty: string | null = null;
 let companionViewerTty: string | null = null;
 let viewerPaneIds: string | null = null;
 
@@ -172,6 +187,16 @@ export function isInTmux(): boolean {
 }
 
 /**
+ * A tmux target that only matches a session with exactly this name. A bare
+ * name falls back to prefix matching when no session has it exactly, so a
+ * lookup or kill for STA-1 would hit STA-12, and `pappardelle-pappa` would hit
+ * `pappardelle-pappa-chex`.
+ */
+export function exactSessionTarget(sessionName: string): string {
+	return sessionName.startsWith('=') ? sessionName : `=${sessionName}`;
+}
+
+/**
  * Check if a tmux session exists on the default socket. Used for the outer
  * `pappardelle-{repo}` session. Do not call for per-issue claude/companion
  * sessions — those live on the inner socket; use `innerSessionExists` instead.
@@ -181,7 +206,7 @@ export function isInTmux(): boolean {
  */
 export function sessionExists(sessionName: string): boolean {
 	try {
-		execSync(`tmux has-session -t "=${sessionName}"`, {
+		execSync(`tmux has-session -t "${exactSessionTarget(sessionName)}"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
@@ -200,7 +225,7 @@ export function innerSessionExists(sessionName: string): boolean {
 	try {
 		const result = spawnSync(
 			'tmux',
-			innerTmuxArgs(['has-session', '-t', sessionName]),
+			innerTmuxArgs(['has-session', '-t', exactSessionTarget(sessionName)]),
 			{
 				encoding: 'utf-8',
 				timeout: 5000,
@@ -229,15 +254,17 @@ export function getSessionNames(
 	issueKey: string,
 	repoName?: string,
 ): {
-	claude: string;
+	agent: string;
 	companion: string;
+	legacyAgent: string;
 } {
-	const claudePrefix = getSessionPrefix('claude', repoName);
+	const agentPrefix = getSessionPrefix('agent', repoName);
 	const companionPrefix = getSessionPrefix('companion', repoName);
 	const key = toSessionKey(issueKey);
 	return {
-		claude: `${claudePrefix}${key}`,
+		agent: `${agentPrefix}${key}`,
 		companion: `${companionPrefix}${key}`,
+		legacyAgent: `${getLegacyAgentSessionPrefix(repoName)}${key}`,
 	};
 }
 
@@ -253,10 +280,22 @@ export function shellQuote(value: string): string {
 /**
  * Argv that runs `command` as a tmux pane's process instead of typing it at a
  * prompt, so it never lands in the user's shell history (pappardelle-2i0).
+ *
+ * The trailing `:` stops the interactive shell from exec'ing its last command
+ * in place, so it hands the terminal back when it exits. Without it, bash 3.2
+ * (macOS /bin/sh and /bin/bash) starts the login shell outside the terminal's
+ * foreground process group, where it spins at 100% CPU and never reads input.
  */
 export function buildShellLaunchArgs(command: string): string[] {
 	const shell = process.env['SHELL'] || '/bin/sh';
-	return ['/bin/sh', '-c', '"$1" -ic "$2"; exec "$1" -l', 'sh', shell, command];
+	return [
+		'/bin/sh',
+		'-c',
+		'"$1" -ic "$2$(printf "\\n:")"; exec "$1" -l',
+		'sh',
+		shell,
+		command,
+	];
 }
 
 /**
@@ -271,29 +310,6 @@ function viewerRespawnArgs(paneId: string, command: string): string[] {
 
 function viewerMessageCommand(message: string): string {
 	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
-}
-
-/**
- * Pass-through flags resolved from the `claude:` config block (top-level or
- * per-profile). An empty/absent value means "don't pass the flag at all", which
- * is what keeps the launch command byte-identical for configs that never
- * mention model or effort.
- */
-export interface ClaudeLaunchOptions {
-	model?: string;
-	effort?: string;
-}
-
-/**
- * Render a `--flag value` pair for the claude command line, or '' when the
- * value is unset. Values come from user config, so anything that isn't a bare
- * token gets single-quoted (model ids like `claude-opus-5[1m]` contain glob
- * characters the shell would otherwise try to expand).
- */
-function claudeFlag(flag: string, value?: string): string {
-	if (!value) return '';
-	const safe = /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
-	return ` ${flag} ${safe}`;
 }
 
 const POPUP_PAGER = 'less -R';
@@ -325,74 +341,59 @@ export function displayPopup(argv: string[]): boolean {
 }
 
 /**
- * Build the shell command for starting Claude with --continue fallback.
- * Tries to resume the most recent conversation in the worktree directory,
- * falling back to bare claude if no prior conversation exists.
+ * Build the shell command for starting the agent pane's agent with a
+ * resume-then-launch fallback. Tries to resume the space's own conversation
+ * (see bindResumeArgs), falling back to a fresh launch if that fails.
  * The ANSI escape clears the "No conversation found" error line on failure.
  *
- * `--name <issueKey>` is included on both branches so the session shows up
- * under the issue key in `/resume` and in the terminal title.
+ * Claude agent profiles (the default when `agentProfile` is omitted) get the
+ * claude-specific injections: `--name <issueKey>` on both branches so the
+ * session shows up under the issue key in `/resume` and the terminal title,
+ * plus the skip-permissions flag. Model/effort flags come from the agent
+ * profile's templates, for any CLI that has them. Without `resumeArgs` there
+ * is no resume attempt at all (a made-up resume flag would error confusingly
+ * on unknown CLIs).
  *
- * Flag order (`--dangerously-skip-permissions --model --effort --name`) is
- * mirrored by start-claude-session.sh; keep the two in sync so a session
- * created by the TUI and one created by idow are indistinguishable.
+ * The model/effort flags sit before `--name` and the resume args, so a
+ * subcommand like codex's `resume` still comes after every flag. Flag order
+ * (`--dangerously-skip-permissions`, args, model, effort, `--name`) and the
+ * agent composition rule are mirrored by start-agent-session.sh and the
+ * open-*-agent.sh launchers; keep them in sync so a session created by the TUI
+ * and one created by idow are indistinguishable.
  */
-export function buildClaudeResumeCommand(
+export function buildAgentResumeCommand(
 	issueKey: string,
 	skipPermissions = false,
-	launch: ClaudeLaunchOptions = {},
+	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
+	sessionId?: string,
 ): string {
-	const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
-		? issueKey
-		: shellQuote(issueKey);
-	const base = skipPermissions
-		? 'claude --dangerously-skip-permissions'
-		: 'claude';
-	const claudeCmd = `${base}${claudeFlag('--model', launch.model)}${claudeFlag(
-		'--effort',
-		launch.effort,
-	)} --name ${safeKey}`;
-	return `${claudeCmd} --continue || { printf '\\033[A\\033[2K'; false; } || ${claudeCmd}`;
-}
-
-/**
- * Check if sessions exist for a space (created by idow).
- * Queries the inner socket since per-issue sessions live there.
- */
-export function spaceHasSessions(issueKey: string): {
-	claude: boolean;
-	companion: boolean;
-} {
-	const names = getSessionNames(issueKey);
-	return {
-		claude: innerSessionExists(names.claude),
-		companion: innerSessionExists(names.companion),
-	};
-}
-
-/**
- * List all claude sessions for this repo (claude-{repoName}-*)
- * on the inner socket.
- */
-export function listClaudeSessions(): string[] {
-	try {
-		const prefix = getSessionPrefix('claude');
-		const result = spawnSync(
-			'tmux',
-			innerTmuxArgs(['list-sessions', '-F', '#{session_name}']),
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return [];
-		}
-
-		return result.stdout
-			.trim()
-			.split('\n')
-			.filter(name => name.startsWith(prefix));
-	} catch {
-		return [];
+	let base: string;
+	const launchFlags = renderAgentLaunchFlags(agentProfile);
+	if (agentProfile.isClaude) {
+		const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
+			? issueKey
+			: shellQuote(issueKey);
+		const withDsp = skipPermissions
+			? `${agentProfile.command} --dangerously-skip-permissions`
+			: agentProfile.command;
+		const withArgs = agentProfile.args
+			? `${withDsp} ${agentProfile.args}`
+			: withDsp;
+		base = `${withArgs}${launchFlags} --name ${safeKey}`;
+	} else {
+		const withArgs = agentProfile.args
+			? `${agentProfile.command} ${agentProfile.args}`
+			: agentProfile.command;
+		base = `${withArgs}${launchFlags}`;
 	}
+
+	// Falsy covers both undefined and a defensive '' — either way there is no
+	// resume attempt, matching the bash scripts' [[ -n "$AGENT_RESUME_ARGS" ]].
+	const resumeArgs = bindResumeArgs(agentProfile, sessionId);
+	if (!resumeArgs) {
+		return base;
+	}
+	return `${base} ${resumeArgs} || { printf '\\033[A\\033[2K'; false; } || ${base}`;
 }
 
 /**
@@ -459,7 +460,13 @@ async function switchClientToSession(
 	run: AsyncTmuxRunner,
 ): Promise<void> {
 	await run(
-		innerTmuxArgs(['switch-client', '-c', clientTty, '-t', `=${sessionName}`]),
+		innerTmuxArgs([
+			'switch-client',
+			'-c',
+			clientTty,
+			'-t',
+			exactSessionTarget(sessionName),
+		]),
 	);
 	log.debug(`Switched client ${clientTty} to session ${sessionName}`);
 }
@@ -475,7 +482,7 @@ export function killSession(sessionName: string): boolean {
 			return true;
 		}
 
-		execSync(`tmux kill-session -t "=${sessionName}"`, {
+		execSync(`tmux kill-session -t "${exactSessionTarget(sessionName)}"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
@@ -500,7 +507,9 @@ export async function innerKillSession(
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<boolean> {
 	try {
-		await run(innerTmuxArgs(['kill-session', '-t', `=${sessionName}`]));
+		await run(
+			innerTmuxArgs(['kill-session', '-t', exactSessionTarget(sessionName)]),
+		);
 		log.info(`Killed inner session: ${sessionName}`);
 		return true;
 	} catch (err) {
@@ -627,10 +636,11 @@ export function currentDefaultServerSession(
 }
 
 /**
- * Kill any leftover `claude-{repo}-*` and `companion-{repo}-*` sessions still
- * living on the default tmux socket from a pre-STA-860 Pappardelle run. They
- * can't be migrated (tmux doesn't move sessions between servers), so we drop
- * them and let idow/Pappardelle recreate them on the inner socket.
+ * Kill any leftover `agent-{repo}-*` / `claude-{repo}-*` and
+ * `companion-{repo}-*` sessions still living on the default tmux socket from
+ * a pre-STA-860 Pappardelle run. They can't be migrated (tmux doesn't move
+ * sessions between servers), so we drop them and let idow/Pappardelle
+ * recreate them on the inner socket.
  *
  * Intentionally targets the default socket (no `-L pappardelle_inner`) and
  * uses bare `kill-session` — this is the one inner-session-name operation
@@ -646,7 +656,8 @@ export function cleanupOrphanedOuterSessions(
 	runner: OuterTmuxRunner = defaultOuterTmuxRunner,
 ): number {
 	try {
-		const claudePrefix = getSessionPrefix('claude', repoName);
+		const agentPrefix = getSessionPrefix('agent', repoName);
+		const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
 		const companionPrefix = getSessionPrefix('companion', repoName);
 		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Sweep that
 		// legacy prefix too so an upgrade doesn't strand old git-UI sessions.
@@ -663,7 +674,8 @@ export function cleanupOrphanedOuterSessions(
 			.split('\n')
 			.filter(
 				name =>
-					name.startsWith(claudePrefix) ||
+					name.startsWith(agentPrefix) ||
+					name.startsWith(legacyAgentPrefix) ||
 					name.startsWith(companionPrefix) ||
 					name.startsWith(legacyCompanionPrefix),
 			);
@@ -768,8 +780,8 @@ export function enableSynchronizedOutput(
 }
 
 /**
- * STA-1420 layer 2: reap orphaned `claude-{repo}-*` / `companion-{repo}-*`
- * (and legacy `lazygit-{repo}-*`) sessions on the inner socket whose key is
+ * STA-1420 layer 2: reap orphaned `agent-{repo}-*` / `companion-{repo}-*`
+ * (and legacy `claude-{repo}-*` / `lazygit-{repo}-*`) sessions on the inner socket whose key is
  * neither in the registry nor the
  * main worktree (`'main'`). Symmetric to `cleanupOrphanedOuterSessions` but
  * for inner-socket leftovers — these accumulate when Pappardelle is hard-quit
@@ -780,7 +792,7 @@ export function enableSynchronizedOutput(
  *
  * Conservative on purpose: only kills sessions whose key is missing from the
  * registry AND isn't `MAIN_WORKTREE_KEY`. The main worktree row in app.tsx
- * uses the same constant, so its sessions (`claude-{repo}-main`,
+ * uses the same constant, so its sessions (`agent-{repo}-main`,
  * `companion-{repo}-main`) are legitimate but never appear in the registry —
  * the constant keeps the "never reap main" coupling explicit on both sides.
  *
@@ -792,7 +804,8 @@ export function cleanupOrphanedInnerSessions(
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
 ): number {
 	try {
-		const claudePrefix = getSessionPrefix('claude', repoName);
+		const agentPrefix = getSessionPrefix('agent', repoName);
+		const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
 		const companionPrefix = getSessionPrefix('companion', repoName);
 		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Reap that
 		// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
@@ -808,8 +821,10 @@ export function cleanupOrphanedInnerSessions(
 		const orphans: string[] = [];
 		for (const name of result.stdout.trim().split('\n')) {
 			let key: string | null = null;
-			if (name.startsWith(claudePrefix)) {
-				key = fromSessionKey(name.slice(claudePrefix.length));
+			if (name.startsWith(agentPrefix)) {
+				key = fromSessionKey(name.slice(agentPrefix.length));
+			} else if (name.startsWith(legacyAgentPrefix)) {
+				key = fromSessionKey(name.slice(legacyAgentPrefix.length));
 			} else if (name.startsWith(companionPrefix)) {
 				key = fromSessionKey(name.slice(companionPrefix.length));
 			} else if (name.startsWith(legacyCompanionPrefix)) {
@@ -857,13 +872,107 @@ export async function killSpaceSessions(
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
 	if (!(await innerKillSession(sessions.companion, options?.run))) return false;
-	const killed = await innerKillSession(sessions.claude, options?.run);
+	const killed = await innerKillSession(sessions.agent, options?.run);
+	// Also address the legacy name: a space whose session hasn't been
+	// migrated yet would otherwise survive its own teardown (innerKillSession
+	// returns true for missing sessions, so the agent-name kill "succeeds").
+	const legacyKilled = await innerKillSession(
+		sessions.legacyAgent,
+		options?.run,
+	);
 	if (currentlyViewingSpace === issueKey) {
 		currentlyViewingSpace = null;
-		claudeViewerHasClient = false;
+		agentViewerHasClient = false;
 		companionViewerHasClient = false;
 	}
-	return killed;
+	return killed && legacyKilled;
+}
+
+/**
+ * Rename one legacy `claude-*` session to its `agent-*` name. `rename-session`
+ * leaves panes and running processes untouched, so an in-flight conversation
+ * survives.
+ */
+function renameLegacySession(
+	legacyName: string,
+	target: string,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): boolean {
+	const r = runner(legacyRenameArgs(legacyName, target));
+	if (r.error || r.status !== 0) {
+		return false;
+	}
+	log.info(`Migrated legacy session ${legacyName} → ${target}`);
+	return true;
+}
+
+async function renameLegacySessionAsync(
+	legacyName: string,
+	target: string,
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	try {
+		await run(innerTmuxArgs(legacyRenameArgs(legacyName, target)));
+	} catch (error) {
+		if (error instanceof Error && error.name === 'AbortError') throw error;
+		return false;
+	}
+	log.info(`Migrated legacy session ${legacyName} → ${target}`);
+	return true;
+}
+
+function legacyRenameArgs(legacyName: string, target: string): string[] {
+	return ['rename-session', '-t', exactSessionTarget(legacyName), target];
+}
+
+/**
+ * Rename live legacy `claude-{repo}-{key}` sessions on the inner socket to
+ * their `agent-{repo}-{key}` names. Run once at startup (cli.tsx) before the
+ * orphan reap; `ensureAgentSession` also migrates at point-of-use in case
+ * idow or a second TUI touches a legacy session first.
+ *
+ * A legacy session whose `agent-` name is already taken (an old and a new
+ * build both launched the space during the upgrade) is killed: pappardelle
+ * only ever attaches the `agent-` session, and the orphan reaper keeps both
+ * for a registered key, so the legacy process would otherwise run unseen
+ * forever.
+ *
+ * Returns the number of sessions renamed. `runner` is exposed for tests only.
+ */
+export function migrateLegacyAgentSessions(
+	repoName?: string,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): number {
+	try {
+		const agentPrefix = getSessionPrefix('agent', repoName);
+		const legacyPrefix = getLegacyAgentSessionPrefix(repoName);
+
+		const result = runner(['list-sessions', '-F', '#{session_name}']);
+		if (result.error || result.status !== 0) {
+			return 0;
+		}
+
+		const sessions = result.stdout.trim().split('\n');
+		const existing = new Set(sessions);
+		let renamed = 0;
+		for (const name of sessions) {
+			if (!name.startsWith(legacyPrefix)) continue;
+			const target = `${agentPrefix}${name.slice(legacyPrefix.length)}`;
+			if (existing.has(target)) {
+				runner(['kill-session', '-t', exactSessionTarget(name)]);
+				log.warn(
+					`Killed legacy session ${name}: ${target} already exists and is the one pappardelle attaches`,
+				);
+				continue;
+			}
+			if (renameLegacySession(name, target, runner)) {
+				renamed++;
+			}
+		}
+		return renamed;
+	} catch {
+		return 0;
+	}
 }
 
 /**
@@ -933,8 +1042,8 @@ export function sendToSpaceAgent(
 	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const {claude} = getSessionNames(issueKey, options.repoName);
-	const target = resolveInnerSessionTarget(claude, runner);
+	const {agent} = getSessionNames(issueKey, options.repoName);
+	const target = resolveInnerSessionTarget(agent, runner);
 	if (!target) return 'no-session';
 	return sendKeysLiteralThenEnter(runner, target, text) ? 'sent' : 'failed';
 }
@@ -1173,7 +1282,7 @@ function recordPaneSample(
 
 /**
  * Set up the pane layout for pappardelle
- * Returns pane IDs for [list, claudeViewer, companionViewer]
+ * Returns pane IDs for [list, agentViewer, companionViewer]
  *
  * Layout depends on screen width:
  * - Narrow screens (< 100 chars): Vertical layout [list on top] [claude below], no companion
@@ -1181,7 +1290,7 @@ function recordPaneSample(
  */
 export function setupPappardellLayout(): {
 	listPaneId: string;
-	claudeViewerPaneId: string;
+	agentViewerPaneId: string;
 	companionViewerPaneId: string;
 } | null {
 	try {
@@ -1203,13 +1312,13 @@ export function setupPappardellLayout(): {
 			`Terminal size: ${totalWidth}x${totalHeight}, layout: ${layout.direction}`,
 		);
 
-		let claudeViewerPaneId: string;
+		let agentViewerPaneId: string;
 		let companionViewerPaneId = ''; // Empty by default (not created for vertical layout)
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL LAYOUT: list on top, claude below, no companion
 			// Use -v for vertical split (top/bottom)
-			const claudeResult = spawnSync(
+			const agentResult = spawnSync(
 				'tmux',
 				[
 					'split-window',
@@ -1227,14 +1336,12 @@ export function setupPappardellLayout(): {
 				{encoding: 'utf-8', timeout: 10000},
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
-				log.error(
-					`Failed to create claude viewer pane: ${claudeResult.stderr}`,
-				);
+			if (agentResult.error || agentResult.status !== 0) {
+				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
 				return null;
 			}
 
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			log.info(
 				`Vertical layout: list=${layout.listHeight} rows, claude=${layout.claudeHeight} rows`,
@@ -1245,7 +1352,7 @@ export function setupPappardellLayout(): {
 			const rightPortionWidth =
 				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
 
-			const claudeResult = spawnSync(
+			const agentResult = spawnSync(
 				'tmux',
 				[
 					'split-window',
@@ -1263,14 +1370,12 @@ export function setupPappardellLayout(): {
 				{encoding: 'utf-8', timeout: 10000},
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
-				log.error(
-					`Failed to create claude viewer pane: ${claudeResult.stderr}`,
-				);
+			if (agentResult.error || agentResult.status !== 0) {
+				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
 				return null;
 			}
 
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			// Create right pane (companion viewer) from the claude pane
 			// Only create if we have space for companion
@@ -1281,7 +1386,7 @@ export function setupPappardellLayout(): {
 						'split-window',
 						'-h',
 						'-t',
-						claudeViewerPaneId,
+						agentViewerPaneId,
 						'-c',
 						cwd,
 						'-l',
@@ -1317,7 +1422,7 @@ export function setupPappardellLayout(): {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
-		execSync(`tmux select-pane -t "${claudeViewerPaneId}" -T "claude-viewer"`, {
+		execSync(`tmux select-pane -t "${agentViewerPaneId}" -T "agent-viewer"`, {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
@@ -1351,14 +1456,14 @@ export function setupPappardellLayout(): {
 		});
 
 		log.info(
-			`Set up pappardelle layout: list=${listPaneId}, claude=${claudeViewerPaneId}, companion=${
+			`Set up pappardelle layout: list=${listPaneId}, agent=${agentViewerPaneId}, companion=${
 				companionViewerPaneId || '(none)'
 			}`,
 		);
 
 		recordPaneSample(listPaneId, companionViewerPaneId, getTmuxWindowSize());
 
-		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
+		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
 			'Failed to set up pappardelle layout',
@@ -1390,7 +1495,7 @@ function isMissingSessionError(err: unknown): boolean {
  * with an attach command for the initial attachment.
  */
 export async function attachToSpace(
-	claudeViewerPaneId: string,
+	agentViewerPaneId: string,
 	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
@@ -1406,7 +1511,7 @@ export async function attachToSpace(
 		return output;
 	};
 	if (signal?.aborted) return false;
-	const paneIds = JSON.stringify([claudeViewerPaneId, companionViewerPaneId]);
+	const paneIds = JSON.stringify([agentViewerPaneId, companionViewerPaneId]);
 	if (viewerPaneIds !== paneIds) {
 		clearCurrentlyViewingSpace();
 		viewerPaneIds = paneIds;
@@ -1417,17 +1522,17 @@ export async function attachToSpace(
 	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
 	if (
-		claudeViewerHasClient &&
-		claudeViewerTty &&
+		agentViewerHasClient &&
+		agentViewerTty &&
 		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
 	) {
 		try {
 			const commands = [
 				'switch-client',
 				'-c',
-				claudeViewerTty,
+				agentViewerTty,
 				'-t',
-				`=${sessions.claude}`,
+				exactSessionTarget(sessions.agent),
 			];
 			if (companionViewerPaneId) {
 				commands.push(
@@ -1436,7 +1541,7 @@ export async function attachToSpace(
 					'-c',
 					companionViewerTty!,
 					'-t',
-					`=${sessions.companion}`,
+					exactSessionTarget(sessions.companion),
 				);
 			}
 			// Existing clients can switch directly. tmux validates both targets;
@@ -1456,17 +1561,23 @@ export async function attachToSpace(
 			viewerPaneIds = paneIds;
 		}
 	}
+	// The profile persisted in the space-state file (the one actually picked at
+	// creation) wins over issue-title keyword matching, which remains the
+	// fallback for spaces that predate profile persistence. Without it,
+	// recreating a dead session could launch a different agent or model than
+	// the space was created with.
 	let skipPermissions = false;
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
-	let launch: ClaudeLaunchOptions = {};
+	let agentProfile: ResolvedAgentProfile | undefined;
+	let sessionId: string | undefined;
 	try {
 		const config = loadConfig();
+		const spaceState = readSpaceState(getRepoName(), issueKey);
+		const profileName = spaceState?.profile;
 		skipPermissions = getDangerouslySkipPermissions(config);
-		companionCommand = getCompanionCommand(config, issueTitle);
-		launch = {
-			model: getClaudeModel(config, issueTitle),
-			effort: getClaudeEffort(config, issueTitle),
-		};
+		companionCommand = getCompanionCommand(config, issueTitle, profileName);
+		agentProfile = getAgentProfile(config, issueTitle, profileName);
+		sessionId = spaceState?.agentSessions?.[agentProfile.name];
 	} catch {
 		// Config load failed — use safe defaults.
 	}
@@ -1474,12 +1585,13 @@ export async function attachToSpace(
 	try {
 		// Complete session creation and command launch together so a superseded
 		// selection can't leave an existing session with no agent running.
-		const hasClaudeSession = await ensureClaudeSession(
+		const hasAgentSession = await ensureAgentSession(
 			issueKey,
 			mainWorktreePath,
 			skipPermissions,
-			launch,
 			options.run ?? runTmux,
+			agentProfile,
+			sessionId,
 		);
 		signal?.throwIfAborted();
 		const hasCompanionSession = companionViewerPaneId
@@ -1492,8 +1604,8 @@ export async function attachToSpace(
 			: false;
 		signal?.throwIfAborted();
 
-		if (!claudeViewerTty)
-			claudeViewerTty = await getPaneTty(claudeViewerPaneId, run);
+		if (!agentViewerTty)
+			agentViewerTty = await getPaneTty(agentViewerPaneId, run);
 		if (!companionViewerTty && companionViewerPaneId) {
 			companionViewerTty = await getPaneTty(companionViewerPaneId, run);
 		}
@@ -1510,18 +1622,18 @@ export async function attachToSpace(
 				return {attached: true, tty: tty!};
 			}
 			const command = exists
-				? `tmux -L ${INNER_SOCKET} attach -t ${shellQuote(session)}`
+				? `tmux -L ${INNER_SOCKET} attach -t ${shellQuote(exactSessionTarget(session))}`
 				: viewerMessageCommand(`No session for ${issueKey}`);
 			await run(viewerRespawnArgs(paneId, command));
 			// Respawning allocates a new pty, and the fast path finds the nested
 			// client by its tty.
 			return {attached: exists, tty: await getPaneTty(paneId, run)};
 		};
-		({attached: claudeViewerHasClient, tty: claudeViewerTty} = await attach(
-			claudeViewerPaneId,
-			claudeViewerTty,
-			sessions.claude,
-			hasClaudeSession,
+		({attached: agentViewerHasClient, tty: agentViewerTty} = await attach(
+			agentViewerPaneId,
+			agentViewerTty,
+			sessions.agent,
+			hasAgentSession,
 		));
 		if (companionViewerPaneId) {
 			({attached: companionViewerHasClient, tty: companionViewerTty} =
@@ -1551,7 +1663,9 @@ async function innerSessionExistsAsync(
 	run: AsyncTmuxRunner,
 ): Promise<boolean> {
 	try {
-		await run(innerTmuxArgs(['has-session', '-t', `=${session}`]));
+		await run(
+			innerTmuxArgs(['has-session', '-t', exactSessionTarget(session)]),
+		);
 		return true;
 	} catch (error) {
 		if (error instanceof Error && error.name === 'AbortError') throw error;
@@ -1615,9 +1729,9 @@ export function getCurrentlyViewingSpace(): string | null {
  */
 export function clearCurrentlyViewingSpace(): void {
 	currentlyViewingSpace = null;
-	claudeViewerHasClient = false;
+	agentViewerHasClient = false;
 	companionViewerHasClient = false;
-	claudeViewerTty = null;
+	agentViewerTty = null;
 	companionViewerTty = null;
 	viewerPaneIds = null;
 }
@@ -1682,7 +1796,7 @@ export async function rebuildLayout(
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<{
 	listPaneId: string;
-	claudeViewerPaneId: string;
+	agentViewerPaneId: string;
 	companionViewerPaneId: string;
 } | null> {
 	try {
@@ -1695,7 +1809,7 @@ export async function rebuildLayout(
 
 		// Detach any nested clients before killing panes
 		if (oldClaudeViewerPaneId) {
-			if (claudeViewerHasClient) {
+			if (agentViewerHasClient) {
 				await run(['send-keys', '-t', oldClaudeViewerPaneId, 'C-b', 'd']);
 			}
 			await killPane(oldClaudeViewerPaneId, run);
@@ -1708,9 +1822,9 @@ export async function rebuildLayout(
 		}
 
 		// Reset cached state since panes are destroyed
-		claudeViewerHasClient = false;
+		agentViewerHasClient = false;
 		companionViewerHasClient = false;
-		claudeViewerTty = null;
+		agentViewerTty = null;
 		companionViewerTty = null;
 		currentlyViewingSpace = null;
 
@@ -1723,12 +1837,12 @@ export async function rebuildLayout(
 			`Rebuilding layout: ${totalWidth}x${totalHeight}, mode=${layout.direction}`,
 		);
 
-		let claudeViewerPaneId: string;
+		let agentViewerPaneId: string;
 		let companionViewerPaneId = '';
 
 		if (layout.direction === 'vertical') {
 			// VERTICAL: list on top, claude below
-			const claudeResult = await runLayoutCommand(
+			const agentResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-v',
@@ -1745,13 +1859,13 @@ export async function rebuildLayout(
 				run,
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
+			if (agentResult.error || agentResult.status !== 0) {
 				log.error(
-					`Rebuild: failed to create claude pane: ${claudeResult.stderr}`,
+					`Rebuild: failed to create agent viewer pane: ${agentResult.stderr}`,
 				);
 				return null;
 			}
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			log.info(
 				`Rebuilt vertical: list=${layout.listHeight}, claude=${layout.claudeHeight}`,
@@ -1761,7 +1875,7 @@ export async function rebuildLayout(
 			const rightPortionWidth =
 				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
 
-			const claudeResult = await runLayoutCommand(
+			const agentResult = await runLayoutCommand(
 				[
 					'split-window',
 					'-h',
@@ -1778,13 +1892,13 @@ export async function rebuildLayout(
 				run,
 			);
 
-			if (claudeResult.error || claudeResult.status !== 0) {
+			if (agentResult.error || agentResult.status !== 0) {
 				log.error(
-					`Rebuild: failed to create claude pane: ${claudeResult.stderr}`,
+					`Rebuild: failed to create agent viewer pane: ${agentResult.stderr}`,
 				);
 				return null;
 			}
-			claudeViewerPaneId = claudeResult.stdout.trim();
+			agentViewerPaneId = agentResult.stdout.trim();
 
 			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
 				const companionResult = await runLayoutCommand(
@@ -1792,7 +1906,7 @@ export async function rebuildLayout(
 						'split-window',
 						'-h',
 						'-t',
-						claudeViewerPaneId,
+						agentViewerPaneId,
 						'-c',
 						cwd,
 						'-l',
@@ -1816,13 +1930,7 @@ export async function rebuildLayout(
 
 		// Set pane titles
 		try {
-			await run([
-				'select-pane',
-				'-t',
-				claudeViewerPaneId,
-				'-T',
-				'claude-viewer',
-			]);
+			await run(['select-pane', '-t', agentViewerPaneId, '-T', 'agent-viewer']);
 			if (companionViewerPaneId) {
 				await run([
 					'select-pane',
@@ -1840,7 +1948,7 @@ export async function rebuildLayout(
 		await runLayoutCommand(['select-pane', '-t', listPaneId], run);
 
 		log.info(
-			`Layout rebuilt: claude=${claudeViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
+			`Layout rebuilt: agent=${agentViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
 		await recordPaneSampleAsync(
@@ -1850,7 +1958,7 @@ export async function rebuildLayout(
 			run,
 		);
 
-		return {listPaneId, claudeViewerPaneId, companionViewerPaneId};
+		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
 		log.error(
 			'Failed to rebuild layout',
@@ -2159,34 +2267,51 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 }
 
 /**
- * Create a claude session for an issue if it doesn't exist
+ * Create an agent session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
- * The session outlives claude: a login shell takes over the pane when claude
- * exits (see buildShellLaunchArgs).
+ * The session outlives the agent: a login shell takes over the pane when the
+ * agent exits (see buildShellLaunchArgs).
+ * A live pre-rename `claude-{repo}-{key}` session is migrated to the `agent-`
+ * name instead of being shadowed by a fresh one, so an in-flight conversation
+ * survives.
  */
-export async function ensureClaudeSession(
+export async function ensureAgentSession(
 	issueKey: string,
 	explicitWorktreePath?: string,
 	skipPermissions = false,
-	launch: ClaudeLaunchOptions = {},
 	run: AsyncTmuxRunner = runTmux,
+	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
+	sessionId?: string,
 ): Promise<boolean> {
-	const sessionName = getSessionNames(issueKey).claude;
+	const sessions = getSessionNames(issueKey);
+	const sessionName = sessions.agent;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
 		return true;
 	}
 
+	// A legacy claude-{repo}-{key} session is the same space mid-upgrade —
+	// rename it in place rather than spawning a duplicate agent beside it.
+	if (
+		(await innerSessionExistsAsync(sessions.legacyAgent, run)) &&
+		(await renameLegacySessionAsync(sessions.legacyAgent, sessionName, run))
+	) {
+		return true;
+	}
+
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
-		log.warn(`Cannot create claude session for ${issueKey}: no worktree found`);
+		log.warn(`Cannot create agent session for ${issueKey}: no worktree found`);
 		return false;
 	}
 
-	// Pre-trust the worktree directory so Claude doesn't ask "do you trust this folder?"
-	pretrustDirectoryForClaude(worktreePath);
+	// Pre-trust the worktree directory so Claude doesn't ask "do you trust this
+	// folder?" — a Claude Code behavior, skipped for other agents.
+	if (agentProfile.isClaude) {
+		pretrustDirectoryForClaude(worktreePath);
+	}
 
 	try {
 		await run(
@@ -2198,17 +2323,28 @@ export async function ensureClaudeSession(
 				'-c',
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
+				...buildAgentSessionEnvArgs(
+					agentProfile,
+					getSpaceStatePath(getRepoName(), issueKey),
+				),
 				...buildShellLaunchArgs(
-					buildClaudeResumeCommand(issueKey, skipPermissions, launch),
+					buildAgentResumeCommand(
+						issueKey,
+						skipPermissions,
+						agentProfile,
+						sessionId,
+					),
 				),
 			]),
 		);
 
-		log.info(`Created claude session: ${sessionName}`);
+		log.info(
+			`Created agent session: ${sessionName} (agent profile: ${agentProfile.name})`,
+		);
 		return true;
 	} catch (err) {
 		log.error(
-			`Failed to create claude session for ${issueKey}`,
+			`Failed to create agent session for ${issueKey}`,
 			err instanceof Error ? err : undefined,
 		);
 		return false;

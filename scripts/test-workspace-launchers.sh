@@ -2,8 +2,8 @@
 
 # Test: the three workspace launchers emit identical command lines
 #
-# open-iterm-claude.sh, open-ghostty-claude.sh and open-default-terminal-claude.sh
-# each assemble the same Claude and companion pane command lines. The two
+# open-iterm-agent.sh, open-ghostty-agent.sh and open-default-terminal-agent.sh
+# each assemble the same agent and companion pane command lines. The two
 # AppleScript launchers build theirs inside osascript, out of reach of a shared
 # bash helper, and the default-terminal launcher has no AppleScript at all, so
 # the assembly exists three times. For identical inputs all three must emit
@@ -51,21 +51,19 @@ fi
 KEY="QA-1"
 base_args() { printf '%s\n' --worktree /tmp/wt --issue-key "$KEY" --repo-name testrepo; }
 
-iterm() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-iterm-claude.sh" "${a[@]}" "$@" 2>/dev/null; }
-ghostty() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-ghostty-claude.sh" "${a[@]}" "$@" 2>/dev/null; }
-default_term() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-default-terminal-claude.sh" "${a[@]}" "$@" 2>/dev/null; }
+iterm() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-iterm-agent.sh" "${a[@]}" "$@" 2>/dev/null; }
+ghostty() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-ghostty-agent.sh" "${a[@]}" "$@" 2>/dev/null; }
+default_term() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-default-terminal-agent.sh" "${a[@]}" "$@" 2>/dev/null; }
 
-# Every flag permutation test-claude-model-effort.sh pins for the iTerm script,
-# so drift in any one of them is caught here too.
+# Single-word flag permutations, including non-claude agents and a claude
+# wrapper. Model/effort flags are one multi-word value, so they're below.
 FLAG_CASES=(
     ""
     "--skip-permissions"
-    "--model opus"
-    "--effort max"
-    "--model sonnet --effort high"
-    "--skip-permissions --model opus --effort high"
-    "--model bedrock/anthropic.claude-v2"
-    "--model claude-opus-5[1m]"
+    "--agent-profile reviewer"
+    "--agent-command codex --agent-is-claude false --agent-args --yolo --agent-profile codex"
+    "--agent-command codex --agent-is-claude false --agent-resume-args resume"
+    "--agent-command claude-local --agent-is-claude true --skip-permissions"
 )
 
 echo -e "${BOLD}Test: launch flags are byte-identical${RESET}"
@@ -90,7 +88,47 @@ for flags in "${FLAG_CASES[@]}"; do
         "$(default_term --prompt "/idow QA-1" "${flag_args[@]}" --print-command)"
 done
 
-# Session names encode '.' as '_' and '_' as '__' (see start-claude-session.sh).
+# The agent profile's model/effort flags arrive as one multi-word value, so
+# they can't ride the whitespace-split FLAG_CASES above.
+echo -e "\n${BOLD}Test: agent profile launch flags are byte-identical${RESET}"
+LAUNCH_FLAG_CASES=(
+    "codex|false|-m 'gpt-5.5 [1m]' -c model_reasoning_effort=high"
+    "claude|true|--model opus --effort max"
+    "claude|true|--model 'claude-opus-5[1m]'"
+)
+for launch_case in "${LAUNCH_FLAG_CASES[@]}"; do
+    IFS='|' read -r lf_command lf_is_claude lf_flags <<< "$launch_case"
+    lf_args=(--agent-command "$lf_command" --agent-is-claude "$lf_is_claude" \
+        --agent-args "--yolo" --agent-resume-args "resume abc" --agent-launch-flags "$lf_flags")
+    for mode in --print-launch-flags --print-command; do
+        assert_eq "$lf_command $mode" \
+            "$(iterm --prompt "/idow QA-1" "${lf_args[@]}" "$mode")" \
+            "$(ghostty --prompt "/idow QA-1" "${lf_args[@]}" "$mode")"
+        assert_eq "$lf_command $mode (default)" \
+            "$(iterm --prompt "/idow QA-1" "${lf_args[@]}" "$mode")" \
+            "$(default_term --prompt "/idow QA-1" "${lf_args[@]}" "$mode")"
+    done
+done
+
+# A launcher creates the agent session itself when start-agent-session.sh
+# failed, and must then give it the env the session-recording hook reads.
+echo -e "\n${BOLD}Test: the agent session gets the hook's env${RESET}"
+LINE=$(default_term --prompt "" --agent-command codex --agent-is-claude false \
+    --agent-profile "codex high" --print-command | head -1)
+case "$LINE" in
+    *"AGENT_PROFILE='codex high'; SPACE_STATE='$HOME/.pappardelle/repos/testrepo/space-state/$KEY.json';"*)
+        assert_eq "profile and state path assigned" "ok" "ok" ;;
+    *) assert_eq "profile and state path assigned" "AGENT_PROFILE='codex high'; SPACE_STATE=...;" "$LINE" ;;
+esac
+# shellcheck disable=SC2016  # matched literally; the pane shell expands them
+HOOK_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_COMMAND=$AGENT_CMD" -e "PAPPARDELLE_SPACE_STATE=$SPACE_STATE" '
+case "$LINE" in
+    *"new-session -A -s 'agent-testrepo-$KEY'$HOOK_ENV"*)
+        assert_eq "new-session sets the hook's env" "ok" "ok" ;;
+    *) assert_eq "new-session sets the hook's env" "...new-session -A -s 'agent-testrepo-$KEY'$HOOK_ENV..." "$LINE" ;;
+esac
+
+# Session names encode '.' as '_' and '_' as '__' (see start-agent-session.sh).
 # QA-1 has neither, so a launcher that skipped the encoding would still pass
 # every assertion above while attaching `o` to a session nothing else uses.
 echo -e "\n${BOLD}Test: session-key encoding is identical across launchers${RESET}"

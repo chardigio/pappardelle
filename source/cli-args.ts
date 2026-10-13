@@ -20,12 +20,12 @@ const helpText = `
 	  highlight <key>  Select a row in the running TUI by issue key
 	  link-pr <url>    Record a verified PR/MR for the current workspace
 	  send <key> [text]
-	                   Submit text as a prompt to the space's Claude session.
+	                   Submit text as a prompt to the space's agent session.
 	                   Reads stdin when no text is given; use stdin for text
 	                   that starts with "-", which would parse as a flag
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
-	  restart --hard   End every Claude session, then restart every TUI
+	  restart --hard   End every agent session, then restart every TUI
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -49,10 +49,10 @@ const helpText = `
 	  $ pappardelle --no-layout  # Run standalone (list only)
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
-	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
+	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
-	  $ pappardelle restart --hard  # End Claude sessions, restart every TUI
+	  $ pappardelle restart --hard  # End agent sessions, restart every TUI
 `;
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {

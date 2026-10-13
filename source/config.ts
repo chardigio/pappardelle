@@ -17,6 +17,7 @@ import {
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
+import {logger} from './logger.ts';
 
 // ============================================================================
 // Types
@@ -51,27 +52,75 @@ export interface KeybindingConfig {
 }
 
 export interface ClaudeConfig {
+	/** @deprecated Use the top-level / profile-level `initialization_command` instead. Accepted for backwards compat. */
 	initialization_command?: string;
 	dangerously_skip_permissions?: boolean;
 	/**
-	 * Model to launch Claude with, forwarded verbatim to `claude --model`.
-	 * Accepts an alias ("opus", "sonnet", "fable") or a full model id
-	 * ("claude-opus-5[1m]"). Unvalidated beyond "is a string", since the set of
-	 * valid names changes faster than this config schema.
-	 *
-	 * Absent ⇒ no `--model` flag is passed at all and Claude picks its own
-	 * default. Settable top-level and per-profile; see `getClaudeModel`.
+	 * @deprecated Set `model` on an agent profile instead. Still read as the
+	 * fallback for claude agent profiles that set no model of their own; see
+	 * `getAgentProfile`.
 	 */
 	model?: string;
 	/**
-	 * Reasoning effort to launch Claude with, forwarded verbatim to
-	 * `claude --effort` (low, medium, high, xhigh, max at time of writing).
-	 * Unvalidated for the same reason as `model`: new levels ship on Claude
-	 * Code's schedule, not ours.
-	 *
-	 * Absent ⇒ no `--effort` flag is passed at all.
+	 * @deprecated Set `effort` on an agent profile instead. Same fallback as
+	 * `model`.
 	 */
 	effort?: string;
+}
+
+/**
+ * A named agent profile: how to launch the agent in the agent pane. The
+ * `agent_profiles:` map is where these live; workspace profiles (and the top
+ * level) select one by name via `agent_profile:`.
+ *
+ * `args` and `resume_args` are free-form strings appended verbatim, so no
+ * per-CLI knowledge is baked in here — codex's `--yolo` goes in `args`, its
+ * `resume {session_id}` in `resume_args`. When the agent is claude, pappardelle
+ * additionally injects its claude-specific flags (see `getAgentProfile`).
+ */
+export interface AgentProfileConfig {
+	/** Base binary or command (required), e.g. `codex` or `/usr/local/bin/claude`. */
+	command: string;
+	/** Appended to every invocation (launch and resume). */
+	args?: string;
+	/**
+	 * Appended for the resume attempt of the resume-then-launch chain.
+	 * `{session_id}` is replaced with the session id the agent's hook recorded
+	 * for the space (see hooks/agent_session.py); with none recorded, the
+	 * resume attempt is skipped (claude falls back to `--continue`). Claude
+	 * defaults to `--resume {session_id}`; other agents default to none, which
+	 * skips the resume attempt entirely (a made-up resume flag would error
+	 * confusingly on unknown CLIs).
+	 */
+	resume_args?: string;
+	/**
+	 * Force or suppress claude treatment (pre-trust, --name/model/effort/dsp
+	 * injection, resume default) regardless of the command's basename.
+	 * Lets a wrapper like `claude-local` opt in, or a binary that happens to
+	 * be named `claude` opt out. Unset ⇒ basename-of-first-token == 'claude'.
+	 */
+	is_claude?: boolean;
+	/**
+	 * Model to launch the agent with, substituted into `model_args`. Accepts
+	 * whatever the CLI accepts (an alias like "opus" or a full id like
+	 * "claude-opus-5[1m]"): the set of valid names changes faster than this
+	 * schema, so a typo surfaces when the CLI rejects it. `''` passes no flag.
+	 */
+	model?: string;
+	/** Reasoning effort to launch the agent with, substituted into `effort_args`. */
+	effort?: string;
+	/**
+	 * How `model` reaches the CLI, with `{model}` standing in for the value.
+	 * Defaults to `--model {model}` for claude and `-m {model}` for codex;
+	 * any other CLI needs it set before `model` can be used.
+	 */
+	model_args?: string;
+	/**
+	 * How `effort` reaches the CLI, with `{effort}` standing in for the value.
+	 * Defaults to `--effort {effort}` for claude and
+	 * `-c model_reasoning_effort={effort}` for codex.
+	 */
+	effort_args?: string;
 }
 
 export interface HooksConfig {
@@ -161,6 +210,19 @@ export interface Profile {
 	team_prefix?: string;
 	/** Per-profile Claude config override. Falls back to the global `claude` section. */
 	claude?: ClaudeConfig;
+	/**
+	 * Agent profile to run in the agent pane for spaces matched to this profile —
+	 * a reference into the top-level `agent_profiles:` map. Falls back to the
+	 * top-level `agent_profile`, then the built-in `claude`. An empty string clears an inherited
+	 * reference back to claude (same empty-string-is-meaningful convention as
+	 * `companion_command`).
+	 */
+	agent_profile?: string;
+	/**
+	 * Initial prompt sent to the agent on first launch (positional argument,
+	 * agent-agnostic). Overrides the top-level `initialization_command`.
+	 */
+	initialization_command?: string;
 	/** Generic template variables injected into the workspace context. */
 	vars?: Record<string, string>;
 	github?: GitHubConfig;
@@ -223,6 +285,19 @@ export interface PappardelleConfig {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
 	claude?: ClaudeConfig;
+	/**
+	 * Named agent profiles for the agent pane. A built-in `claude` agent profile
+	 * always exists; defining `agent_profiles.claude` shadows it.
+	 */
+	agent_profiles?: Record<string, AgentProfileConfig>;
+	/** Default agent profile for all profiles — a name from `agent_profiles:` (or `claude`). */
+	agent_profile?: string;
+	/**
+	 * Initial prompt sent to the agent on first launch (positional argument,
+	 * agent-agnostic). Replaces the deprecated `claude.initialization_command`,
+	 * which is still read as a fallback.
+	 */
+	initialization_command?: string;
 	/** Poll the issue tracker for issues assigned to a user with matching statuses. */
 	issue_watchlist?: IssueWatchlistConfig;
 	/**
@@ -675,9 +750,172 @@ export function loadConfigFromPaths(opts: {
 		throw new ConfigNotFoundError(projectDir ?? '(no project dir)');
 	}
 
+	// The two initialization_command spellings are only ambiguous within one
+	// file. Across layers, whichever spelling a file uses, the more specific
+	// layer must win, so each layer is rewritten to the new spelling before the
+	// merge and ordinary layer precedence applies. The conflict check therefore
+	// runs per layer too: a home config still on the deprecated spelling must
+	// not brick a project that has migrated.
+	const layers: Array<[Record<string, unknown> | null, string]> = [
+		[home, '~/.pappardelle/.pappardelle.yml'],
+		[project, '.pappardelle.yml'],
+		[local, '.pappardelle.local.yml'],
+	];
+	const conflictErrors = layers.flatMap(([layer, file]) =>
+		layer ? initializationCommandConflictErrors(layer, file) : [],
+	);
+	if (conflictErrors.length > 0) {
+		throw new ConfigValidationError(conflictErrors);
+	}
+
+	for (const [layer, file] of layers) {
+		if (layer) {
+			warnDeprecatedInitializationCommand(layer, file);
+			warnDeprecatedClaudeLaunchFields(layer, file);
+			renameDeprecatedInitializationCommand(layer);
+		}
+	}
+
 	const merged = mergeConfigLayers(home, project, local);
 	validateConfig(merged);
 	return merged as PappardelleConfig;
+}
+
+function initCommandSpellings(container: Record<string, unknown>): {
+	newKey: boolean;
+	oldKey: boolean;
+} {
+	const {claude} = container;
+	return {
+		newKey: container['initialization_command'] !== undefined,
+		oldKey:
+			claude !== null &&
+			typeof claude === 'object' &&
+			(claude as Record<string, unknown>)['initialization_command'] !==
+				undefined,
+	};
+}
+
+/**
+ * The containers an initialization_command can live on — the config's top
+ * level plus each profile — with the message label for each (`''` at the top
+ * level, `profiles.<name>.` per profile, ready to prefix a key path).
+ */
+function configContainers(
+	layer: Record<string, unknown>,
+): Array<{container: Record<string, unknown>; label: string}> {
+	const containers = [{container: layer, label: ''}];
+	const {profiles} = layer;
+	if (profiles && typeof profiles === 'object') {
+		for (const [name, profile] of Object.entries(
+			profiles as Record<string, unknown>,
+		)) {
+			if (!profile || typeof profile !== 'object') continue;
+			containers.push({
+				container: profile as Record<string, unknown>,
+				label: `profiles.${name}.`,
+			});
+		}
+	}
+	return containers;
+}
+
+/**
+ * Same-file both-spellings conflicts, top-level and per-profile, labeled with
+ * the layer's file name. Runs on a single raw layer before merging.
+ */
+function initializationCommandConflictErrors(
+	layer: Record<string, unknown>,
+	file: string,
+): string[] {
+	const errors: string[] = [];
+	for (const {container, label} of configContainers(layer)) {
+		const {newKey, oldKey} = initCommandSpellings(container);
+		if (newKey && oldKey) {
+			errors.push(
+				`${file}: ${label}initialization_command and ${label}claude.initialization_command cannot both be specified (use initialization_command)`,
+			);
+		}
+	}
+	return errors;
+}
+
+/**
+ * Move a raw layer's deprecated `claude.initialization_command` to the
+ * `initialization_command` key beside it. Runs after the per-layer conflict
+ * check, so the new key is never already set. A non-string value stays put so
+ * validateConfig reports the type error under the key the user wrote.
+ */
+function renameDeprecatedInitializationCommand(
+	layer: Record<string, unknown>,
+): void {
+	for (const {container} of configContainers(layer)) {
+		const {claude} = container;
+		if (!claude || typeof claude !== 'object') continue;
+		const claudeFields = claude as Record<string, unknown>;
+		const value = claudeFields['initialization_command'];
+		if (typeof value !== 'string') continue;
+		container['initialization_command'] = value;
+		delete claudeFields['initialization_command'];
+	}
+}
+
+/**
+ * Each distinct deprecation warning fires once per process: the TUI reloads
+ * config on every space selection, and re-warning on each reload would fill
+ * the logger's small recent-error buffer and evict real errors from the
+ * overlay.
+ */
+const emittedDeprecationWarnings = new Set<string>();
+
+function warnDeprecatedOnce(message: string): void {
+	if (emittedDeprecationWarnings.has(message)) {
+		return;
+	}
+
+	emittedDeprecationWarnings.add(message);
+	logger.warn(message);
+}
+
+/**
+ * Log a deprecation warning for a single config layer still using the old
+ * `claude.initialization_command` spelling (top-level or per-profile). Runs
+ * on the raw layer, before its rename, so the warning names the file to edit.
+ */
+function warnDeprecatedInitializationCommand(
+	layer: Record<string, unknown>,
+	file: string,
+): void {
+	for (const {container, label} of configContainers(layer)) {
+		if (!initCommandSpellings(container).oldKey) continue;
+		const target = label
+			? `${label}initialization_command`
+			: 'the top-level initialization_command';
+		warnDeprecatedOnce(
+			`${file}: ${label}claude.initialization_command is deprecated — rename it to ${target}`,
+		);
+	}
+}
+
+/**
+ * `claude.model` / `claude.effort` predate agent profiles. They keep working
+ * as the fallback for claude agent profiles, so unlike the init command they
+ * are not renamed; the warning only points at where the value belongs now.
+ */
+function warnDeprecatedClaudeLaunchFields(
+	layer: Record<string, unknown>,
+	file: string,
+): void {
+	for (const {container, label} of configContainers(layer)) {
+		const {claude} = container;
+		if (!claude || typeof claude !== 'object') continue;
+		for (const field of LAUNCH_FIELDS) {
+			if ((claude as Record<string, unknown>)[field] === undefined) continue;
+			warnDeprecatedOnce(
+				`${file}: ${label}claude.${field} is deprecated — set ${field} on an agent profile (agent_profiles.<name>.${field}) and select it with ${label}agent_profile`,
+			);
+		}
+	}
 }
 
 /**
@@ -693,28 +931,31 @@ export function loadConfig(): PappardelleConfig {
 	});
 }
 
-/**
- * Load just the provider configs (issue_tracker, vcs_host) from the merged
- * home -> project -> local layers, without validating the rest of the config
- * so providers can be initialized even when unrelated sections (e.g.
- * profiles) have errors. A layer that fails to parse is skipped for the same
- * reason. Reads the same files as loadConfigFromPaths(); the defaults are
- * what loadConfig() uses.
- */
-export function loadProviderConfigs(opts?: {
+type ConfigPaths = {
 	homeConfigDir?: string;
 	projectDir?: string;
 	fallbackProjectDir?: () => string | undefined;
-}): {
-	issue_tracker?: IssueTrackerConfig;
-	vcs_host?: VcsHostConfig;
-} {
-	const {homeConfigDir, projectDir, fallbackProjectDir} = opts ?? {
+};
+
+function defaultConfigPaths(): ConfigPaths {
+	return {
 		homeConfigDir: getDefaultHomeConfigDir(),
 		projectDir: getRepoRoot(),
 		fallbackProjectDir: getMainRepoRoot,
 	};
+}
 
+/**
+ * The raw config layers, lowest priority first, labeled the way config errors
+ * name them. A layer that is missing or fails to parse is null, so callers
+ * that only need part of the config keep working while another section is
+ * broken.
+ */
+function readConfigLayers({
+	homeConfigDir,
+	projectDir,
+	fallbackProjectDir,
+}: ConfigPaths): Array<{label: string; layer: Record<string, unknown> | null}> {
 	const resolveProjectFile = (filename: string): string | undefined => {
 		if (projectDir) {
 			const candidate = path.join(projectDir, filename);
@@ -744,17 +985,70 @@ export function loadProviderConfigs(opts?: {
 		}
 	};
 
+	return [
+		{
+			label: '~/.pappardelle/.pappardelle.yml',
+			layer: readLayer(
+				homeConfigDir
+					? path.join(homeConfigDir, '.pappardelle.yml')
+					: undefined,
+			),
+		},
+		{
+			label: '.pappardelle.yml',
+			layer: readLayer(resolveProjectFile('.pappardelle.yml')),
+		},
+		{
+			label: '.pappardelle.local.yml',
+			layer: readLayer(resolveProjectFile('.pappardelle.local.yml')),
+		},
+	];
+}
+
+/**
+ * Load just the provider configs (issue_tracker, vcs_host) from the merged
+ * home -> project -> local layers, without validating the rest of the config
+ * so providers can be initialized even when unrelated sections (e.g.
+ * profiles) have errors. A layer that fails to parse is skipped for the same
+ * reason. Reads the same files as loadConfigFromPaths(); the defaults are
+ * what loadConfig() uses.
+ */
+export function loadProviderConfigs(opts?: ConfigPaths): {
+	issue_tracker?: IssueTrackerConfig;
+	vcs_host?: VcsHostConfig;
+} {
+	const [home, project, local] = readConfigLayers(
+		opts ?? defaultConfigPaths(),
+	).map(({layer}) => layer);
 	const merged = mergeConfigLayers(
-		readLayer(
-			homeConfigDir ? path.join(homeConfigDir, '.pappardelle.yml') : undefined,
-		),
-		readLayer(resolveProjectFile('.pappardelle.yml')),
-		readLayer(resolveProjectFile('.pappardelle.local.yml')),
+		home ?? null,
+		project ?? null,
+		local ?? null,
 	);
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
 	};
+}
+
+/**
+ * The config files that define each agent profile, lowest priority first. A
+ * profile can be spread over several layers, e.g. a command in the home config
+ * with a model overridden in `.pappardelle.local.yml`.
+ */
+export function loadAgentProfileSources(
+	opts?: ConfigPaths,
+): Record<string, string[]> {
+	const sources: Record<string, string[]> = {};
+	for (const {label, layer} of readConfigLayers(opts ?? defaultConfigPaths())) {
+		const agentProfiles = layer?.['agent_profiles'];
+		if (!agentProfiles || typeof agentProfiles !== 'object') continue;
+		for (const name of Object.keys(agentProfiles)) {
+			(sources[name] ??= []).push(label);
+		}
+	}
+
+	return sources;
 }
 
 /**
@@ -865,6 +1159,81 @@ export function validateConfig(
 			}
 			errors.push(...validateClaudeLaunchFields(cl, 'claude'));
 		}
+	}
+
+	// Check initialization_command (optional)
+	errors.push(...validateInitializationCommandField(cfg, ''));
+
+	// Check agent_profiles (optional map of named agent profiles)
+	const agentProfileNames = new Set<string>(['claude']);
+	if (cfg['agent_profiles'] !== undefined) {
+		if (
+			typeof cfg['agent_profiles'] !== 'object' ||
+			cfg['agent_profiles'] === null ||
+			Array.isArray(cfg['agent_profiles'])
+		) {
+			errors.push('agent_profiles: must be an object');
+		} else {
+			for (const [name, def] of Object.entries(
+				cfg['agent_profiles'] as Record<string, unknown>,
+			)) {
+				agentProfileNames.add(name);
+				if (typeof def !== 'object' || def === null) {
+					errors.push(`agent_profiles.${name}: must be an object`);
+					continue;
+				}
+				const agentProfile = def as Record<string, unknown>;
+				if (
+					typeof agentProfile['command'] !== 'string' ||
+					agentProfile['command'].trim().length === 0
+				) {
+					errors.push(
+						`agent_profiles.${name}.command: required non-empty string`,
+					);
+				}
+				for (const field of AGENT_PROFILE_STRING_FIELDS) {
+					if (
+						agentProfile[field] !== undefined &&
+						typeof agentProfile[field] !== 'string'
+					) {
+						errors.push(`agent_profiles.${name}.${field}: must be a string`);
+					}
+				}
+				// The fields are typed into the pane as one launch line.
+				for (const field of ['command', ...AGENT_PROFILE_STRING_FIELDS]) {
+					const value = agentProfile[field];
+					if (typeof value === 'string' && /[\r\n]/.test(value.trimEnd())) {
+						errors.push(
+							`agent_profiles.${name}.${field}: must be a single line`,
+						);
+					}
+				}
+				if (
+					agentProfile['is_claude'] !== undefined &&
+					typeof agentProfile['is_claude'] !== 'boolean'
+				) {
+					errors.push(`agent_profiles.${name}.is_claude: must be a boolean`);
+				}
+				errors.push(
+					...validateAgentLaunchTemplates(
+						name,
+						agentProfile as Partial<AgentProfileConfig>,
+					),
+				);
+			}
+		}
+	}
+
+	// Check agent_profile (optional reference into the agent_profiles map;
+	// 'claude' is built in)
+	if (cfg['agent_profile'] !== undefined) {
+		errors.push(
+			...validateAgentProfileReference(
+				cfg['agent_profile'],
+				'agent_profile',
+				agentProfileNames,
+			),
+		);
 	}
 
 	// Check issue_watchlist (optional). Same shape is also accepted per-profile,
@@ -1097,7 +1466,7 @@ export function validateConfig(
 
 		// Validate each profile
 		for (const [name, profile] of Object.entries(profiles)) {
-			const profileErrors = validateProfile(name, profile);
+			const profileErrors = validateProfile(name, profile, agentProfileNames);
 			errors.push(...profileErrors);
 		}
 	}
@@ -1108,13 +1477,61 @@ export function validateConfig(
 }
 
 /**
- * Claude launch fields that exist identically on the top-level `claude:` block
- * and on each profile's. Kept as a list so adding a third pass-through flag is
- * a one-line change in both the validator and the resolvers below.
+ * Launch fields that exist identically on agent profiles and, deprecated, on
+ * the top-level and per-profile `claude:` blocks.
  */
-const CLAUDE_LAUNCH_FIELDS = ['model', 'effort'] as const;
+const LAUNCH_FIELDS = ['model', 'effort'] as const;
 
-type ClaudeLaunchField = (typeof CLAUDE_LAUNCH_FIELDS)[number];
+type LaunchField = (typeof LAUNCH_FIELDS)[number];
+
+const AGENT_PROFILE_STRING_FIELDS = [
+	'args',
+	'resume_args',
+	'model',
+	'effort',
+	'model_args',
+	'effort_args',
+] as const;
+
+/**
+ * A template must carry its placeholder, or the configured value would be
+ * silently dropped; and a value with no template, built in or configured,
+ * has no way to reach the CLI. Mirrored by resolve-agent-config.sh, which
+ * idow runs instead of this validator.
+ */
+function validateAgentLaunchTemplates(
+	name: string,
+	agentProfile: Partial<AgentProfileConfig>,
+): string[] {
+	if (typeof agentProfile.command !== 'string') return [];
+	const errors: string[] = [];
+	const templates = builtinLaunchTemplates({
+		command: agentProfile.command,
+		is_claude: agentProfile.is_claude,
+	});
+	for (const field of LAUNCH_FIELDS) {
+		const templateField = `${field}_args` as const;
+		const template = agentProfile[templateField];
+		const placeholder = LAUNCH_PLACEHOLDERS[field];
+		if (typeof template === 'string' && !template.includes(placeholder)) {
+			errors.push(
+				`agent_profiles.${name}.${templateField}: must contain ${placeholder}`,
+			);
+		}
+		const value = agentProfile[field];
+		if (
+			typeof value === 'string' &&
+			value !== '' &&
+			template === undefined &&
+			templates[field] === undefined
+		) {
+			errors.push(
+				`agent_profiles.${name}.${field}: "${agentProfile.command}" has no built-in ${field} flag; set ${templateField}`,
+			);
+		}
+	}
+	return errors;
+}
 
 /**
  * Validate the pass-through launch flags in a `claude:` block.
@@ -1133,7 +1550,7 @@ function validateClaudeLaunchFields(
 	prefix: string,
 ): string[] {
 	const errors: string[] = [];
-	for (const field of CLAUDE_LAUNCH_FIELDS) {
+	for (const field of LAUNCH_FIELDS) {
 		if (
 			claudeBlock[field] !== undefined &&
 			typeof claudeBlock[field] !== 'string'
@@ -1213,7 +1630,50 @@ function validateIssueWatchlist(value: unknown, prefix: string): string[] {
 	return errors;
 }
 
-function validateProfile(name: string, profile: unknown): string[] {
+/**
+ * Type-check `initialization_command` on one container (top level or profile).
+ * Shared by validateConfig and validateProfile, keyed by an error-message
+ * prefix (`''` at the top level, `profiles.<name>.` per profile) like
+ * validateIssueWatchlist. Both-spellings conflicts are rejected per file in
+ * loadConfigFromPaths, before layers merge.
+ */
+function validateInitializationCommandField(
+	container: Record<string, unknown>,
+	prefix: string,
+): string[] {
+	const errors: string[] = [];
+	if (
+		container['initialization_command'] !== undefined &&
+		typeof container['initialization_command'] !== 'string'
+	) {
+		errors.push(`${prefix}initialization_command: must be a string`);
+	}
+	return errors;
+}
+
+/**
+ * Validate an `agent_profile:` reference (top-level or per-profile). `''` clears an
+ * inherited reference back to claude, so only non-empty names must resolve.
+ */
+function validateAgentProfileReference(
+	value: unknown,
+	label: string,
+	agentProfileNames: Set<string>,
+): string[] {
+	if (typeof value !== 'string') {
+		return [`${label}: must be a string`];
+	}
+	if (value !== '' && !agentProfileNames.has(value)) {
+		return [`${label}: agent profile "${value}" not found in agent_profiles`];
+	}
+	return [];
+}
+
+function validateProfile(
+	name: string,
+	profile: unknown,
+	agentProfileNames: Set<string>,
+): string[] {
 	const errors: string[] = [];
 	const prefix = `profiles.${name}`;
 
@@ -1324,6 +1784,20 @@ function validateProfile(name: string, profile: unknown): string[] {
 			errors.push(...validateClaudeLaunchFields(cl, `${prefix}.claude`));
 		}
 	}
+
+	// Optional per-profile agent_profile reference ('' clears an inherited reference)
+	if (p['agent_profile'] !== undefined) {
+		errors.push(
+			...validateAgentProfileReference(
+				p['agent_profile'],
+				`${prefix}.agent_profile`,
+				agentProfileNames,
+			),
+		);
+	}
+
+	// Optional per-profile initialization_command
+	errors.push(...validateInitializationCommandField(p, `${prefix}.`));
 
 	// Optional per-profile post_workspace_init / post_worktree_init (mutually exclusive)
 	if (
@@ -2029,11 +2503,18 @@ export function resolvePendingProfileEmoji(
 }
 
 /**
- * Get the Claude initialization command from config.
+ * Get the agent initialization command from config (the positional prompt
+ * passed on first launch). The top-level `initialization_command` wins; the
+ * deprecated `claude.initialization_command` spelling is read as a fallback.
  * Returns the command string (e.g., "/idow") or empty string if not configured.
  */
 export function getInitializationCommand(config: PappardelleConfig): string {
-	return config.claude?.initialization_command ?? '';
+	return (
+		config.initialization_command ??
+		// eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards-compat fallback for the old spelling
+		config.claude?.initialization_command ??
+		''
+	);
 }
 
 /**
@@ -2047,12 +2528,39 @@ export function getDangerouslySkipPermissions(
 }
 
 /**
+ * Pick the profile a launch resolver should read overrides from.
+ *
+ * `profileName` — the profile persisted in the per-space state file (written
+ * by idow at workspace creation) — wins over keyword-matching `issueTitle`:
+ * a title with no profile keyword would otherwise silently fall back to
+ * top-level values on reattach, recreating the space with a different agent /
+ * model than it was created with. A persisted name that no longer exists in
+ * the config falls through to title matching.
+ */
+function selectProfile(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	profileName?: string,
+): Profile | undefined {
+	if (profileName) {
+		const profile = config.profiles[profileName];
+		if (profile) {
+			return profile;
+		}
+	}
+	if (issueTitle) {
+		return matchProfiles(config, issueTitle)[0]?.profile;
+	}
+	return undefined;
+}
+
+/**
  * Resolve one of the pass-through Claude launch flags for a workspace.
  *
- * Resolution order: per-profile value, then top-level value, then `''`. The profile is
- * matched from `issueTitle` the same way `getCompanionCommand` does it, so a
- * space with no title (the main worktree, or a call site that doesn't have one
- * handy) simply gets the top-level value.
+ * Resolution order: per-profile value, then top-level value, then `''`. The
+ * profile comes from `selectProfile` (persisted name first, then `issueTitle`
+ * keyword match, same as `getCompanionCommand`), so a space with neither
+ * simply gets the top-level value.
  *
  * The profile layer wins whenever the *key is present*, not merely when it's
  * truthy. That's what makes `model: ""` on a profile mean "ignore the global
@@ -2064,39 +2572,314 @@ export function getDangerouslySkipPermissions(
  */
 function resolveClaudeLaunchField(
 	config: PappardelleConfig,
-	field: ClaudeLaunchField,
+	field: LaunchField,
 	issueTitle?: string,
+	profileName?: string,
 ): string {
-	if (issueTitle) {
-		const profile = matchProfiles(config, issueTitle)[0]?.profile;
-		const profileValue = profile?.claude?.[field];
-		if (profileValue !== undefined) {
-			return profileValue;
-		}
+	const profile = selectProfile(config, issueTitle, profileName);
+	const profileValue = profile?.claude?.[field];
+	if (profileValue !== undefined) {
+		return profileValue;
 	}
 	return config.claude?.[field] ?? '';
 }
 
 /**
- * Get the Claude model to launch a workspace with (`claude --model <value>`).
- * Returns '' when no model is configured; pass no flag at all in that case.
+ * The agent profile's own value wins on key presence (`''` passes no flag).
+ * Without one, claude agent profiles fall back to the deprecated `claude:`
+ * blocks with their usual profile-over-top-level layering; other CLIs never
+ * read them, since those values were written for claude.
  */
-export function getClaudeModel(
+function resolveAgentLaunchField(
 	config: PappardelleConfig,
+	definition: AgentProfileConfig,
+	field: LaunchField,
 	issueTitle?: string,
+	profileName?: string,
 ): string {
-	return resolveClaudeLaunchField(config, 'model', issueTitle);
+	const own = definition[field];
+	if (own !== undefined) {
+		return own;
+	}
+	const isClaude = isClaudeAgentProfile(definition);
+	return isClaude
+		? resolveClaudeLaunchField(config, field, issueTitle, profileName)
+		: '';
+}
+
+const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
+	model: '{model}',
+	effort: '{effort}',
+};
+
+/**
+ * Flag templates for the CLIs pappardelle knows. Codex is detected the same
+ * string-only way as claude, so the bash resolver can apply the same rule.
+ */
+function builtinLaunchTemplates(
+	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
+): Partial<Record<LaunchField, string>> {
+	if (isClaudeAgentProfile(definition)) {
+		return {model: '--model {model}', effort: '--effort {effort}'};
+	}
+	if (commandBasename(definition.command) === 'codex') {
+		return {model: '-m {model}', effort: '-c model_reasoning_effort={effort}'};
+	}
+	return {};
 }
 
 /**
- * Get the Claude reasoning effort to launch a workspace with
- * (`claude --effort <value>`). Returns '' when unconfigured.
+ * Model ids like `claude-opus-5[1m]` carry glob characters, so anything that
+ * isn't a bare token is single-quoted. resolve-agent-config.sh quotes the same
+ * way, which keeps TUI- and idow-created launch lines identical.
  */
-export function getClaudeEffort(
+function quoteLaunchValue(value: string): string {
+	return /^[A-Za-z0-9._-]+$/.test(value)
+		? value
+		: `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Render the model/effort flags for an agent profile, each with a leading
+ * space, or '' when neither applies. An unset value or a CLI without a
+ * template passes no flag.
+ */
+export function renderAgentLaunchFlags(
+	agentProfile: Partial<
+		Pick<ResolvedAgentProfile, 'model' | 'effort' | 'modelArgs' | 'effortArgs'>
+	>,
+): string {
+	const templates: Record<LaunchField, string | undefined> = {
+		model: agentProfile.modelArgs,
+		effort: agentProfile.effortArgs,
+	};
+	let flags = '';
+	for (const field of LAUNCH_FIELDS) {
+		const value = agentProfile[field];
+		const template = templates[field];
+		if (!value || !template) continue;
+		const quoted = quoteLaunchValue(value);
+		// A function, so `$'` and `$&` in the value aren't replacement patterns.
+		flags += ` ${template.replaceAll(LAUNCH_PLACEHOLDERS[field], () => quoted)}`;
+	}
+	return flags;
+}
+
+/**
+ * The agent profile every config gets without any `agent_profiles:` section.
+ * Defining `agent_profiles.claude` shadows this.
+ */
+const BUILTIN_CLAUDE_AGENT_PROFILE: AgentProfileConfig = {command: 'claude'};
+
+/**
+ * The named agent profile's definition, built-in claude when undefined.
+ * Trailing whitespace is trimmed: a YAML block scalar (`args: >`) ends in a
+ * newline, which would submit the typed launch line early.
+ * resolve-agent-config.sh trims the same way.
+ */
+function lookupAgentProfile(
+	config: PappardelleConfig,
+	name: string,
+): AgentProfileConfig {
+	const definition =
+		config.agent_profiles?.[name] ?? BUILTIN_CLAUDE_AGENT_PROFILE;
+	return Object.fromEntries(
+		Object.entries(definition).map(([key, value]) => [
+			key,
+			typeof value === 'string' ? value.trimEnd() : value,
+		]),
+	) as AgentProfileConfig;
+}
+
+/**
+ * Stands in for the space's recorded agent session id in `resume_args`. A
+ * resume by id is what keeps a space on its own conversation: "most recent"
+ * flags like codex's `resume --last` aren't scoped to the directory, so they
+ * resume whichever space ran that agent last.
+ */
+export const SESSION_ID_PLACEHOLDER = '{session_id}';
+
+/** Resume args a claude agent profile gets when it doesn't set any. */
+const CLAUDE_RESUME_ARGS = `--resume ${SESSION_ID_PLACEHOLDER}`;
+
+/**
+ * Claude's `--continue` is scoped to the directory, so it is a safe stand-in
+ * when no id was recorded: spaces whose sessions predate id recording, or
+ * whose hook never ran, keep their conversation.
+ */
+const CLAUDE_UNRECORDED_RESUME_ARGS = '--continue';
+
+/**
+ * Fill `{session_id}` in an agent profile's resume args. Without a usable id,
+ * claude falls back to `--continue` and any other agent drops the resume attempt
+ * (`undefined`) rather than run with a literal placeholder. The id lands
+ * unquoted in a shell command, hence the charset check; claude and codex ids
+ * are UUIDs, and a leading dash would turn the id into a flag.
+ */
+export function bindResumeArgs(
+	agentProfile: Pick<ResolvedAgentProfile, 'resumeArgs' | 'isClaude'>,
+	sessionId: string | undefined,
+): string | undefined {
+	const {resumeArgs} = agentProfile;
+	if (!resumeArgs?.includes(SESSION_ID_PLACEHOLDER)) return resumeArgs;
+	if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sessionId)) {
+		return agentProfile.isClaude ? CLAUDE_UNRECORDED_RESUME_ARGS : undefined;
+	}
+
+	return resumeArgs.replaceAll(SESSION_ID_PLACEHOLDER, sessionId);
+}
+
+/**
+ * Whether a command string gets claude treatment (pre-trust, --name/model/
+ * effort/dsp injection): basename of the first whitespace-separated token
+ * equals 'claude'. String inspection only — no probing the binary — so the
+ * bash resolver (resolve-agent-config.sh) can apply the identical rule. An agent
+ * profile's explicit `is_claude` overrides this.
+ */
+export function isClaudeCommand(command: string): boolean {
+	return commandBasename(command) === 'claude';
+}
+
+function isClaudeAgentProfile(
+	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
+): boolean {
+	return definition.is_claude ?? isClaudeCommand(definition.command);
+}
+
+function commandBasename(command: string): string {
+	const firstToken = command.trim().split(/\s+/)[0] ?? '';
+	return path.basename(firstToken);
+}
+
+/**
+ * An agent profile resolved for a workspace, ready for command assembly.
+ * `resumeArgs === undefined` means "no resume attempt — launch directly".
+ */
+export interface ResolvedAgentProfile {
+	name: string;
+	command: string;
+	args: string;
+	resumeArgs?: string;
+	isClaude: boolean;
+	/**
+	 * Values to launch with. `''` passes no flag, which keeps the launch
+	 * byte-identical for configs that never mention model or effort.
+	 */
+	model: string;
+	effort: string;
+	/** Flag templates for model/effort; undefined means the CLI gets none. */
+	modelArgs?: string;
+	effortArgs?: string;
+}
+
+/**
+ * Apply the claude-gating predicate and resume default to one agent profile.
+ * `resume_args: ''` is an explicit "no resume attempt", matching the bash
+ * resolvers, where an empty value means launch directly; only an absent field
+ * gets claude's default.
+ */
+function resolveAgentProfile(
+	name: string,
+	definition: AgentProfileConfig,
+): ResolvedAgentProfile {
+	const isClaude = isClaudeAgentProfile(definition);
+	let resumeArgs: string | undefined;
+	if (definition.resume_args !== undefined) {
+		resumeArgs = definition.resume_args || undefined;
+	} else if (isClaude) {
+		resumeArgs = CLAUDE_RESUME_ARGS;
+	}
+
+	const builtin = builtinLaunchTemplates(definition);
+	return {
+		name,
+		command: definition.command,
+		args: definition.args ?? '',
+		resumeArgs,
+		isClaude,
+		model: definition.model ?? '',
+		effort: definition.effort ?? '',
+		modelArgs: definition.model_args ?? builtin.model,
+		effortArgs: definition.effort_args ?? builtin.effort,
+	};
+}
+
+/**
+ * What getAgentProfile returns for a config with no agent profile settings.
+ * buildAgentResumeCommand and ensureAgentSession default to it.
+ */
+export const DEFAULT_RESOLVED_AGENT_PROFILE: ResolvedAgentProfile =
+	resolveAgentProfile('claude', BUILTIN_CLAUDE_AGENT_PROFILE);
+
+/**
+ * Resolve which agent profile runs in a workspace's agent pane.
+ *
+ * Name resolution follows the launch-field convention: the matched profile's
+ * `agent_profile` → top-level `agent_profile` → `'claude'`, where the profile layer wins on
+ * key presence and an explicit `''` clears an inherited reference back to
+ * claude. The name is then looked up in `agent_profiles:`, with the built-in claude
+ * definition as the fallback — both for the name `claude` when it isn't
+ * shadowed and for dangling references (validation rejects those, but config
+ * can arrive unvalidated via older layers).
+ *
+ * Claude's `--resume {session_id}` default only applies when the resolved agent
+ * profile gates as claude; other agents launch directly unless they declare
+ * `resume_args`. Mirrored by resolve-agent-config.sh — keep in sync.
+ */
+export function getAgentProfile(
 	config: PappardelleConfig,
 	issueTitle?: string,
+	profileName?: string,
+): ResolvedAgentProfile {
+	const name = resolveAgentProfileName(config, issueTitle, profileName);
+	const definition = lookupAgentProfile(config, name);
+	return {
+		...resolveAgentProfile(name, definition),
+		model: resolveAgentLaunchField(
+			config,
+			definition,
+			'model',
+			issueTitle,
+			profileName,
+		),
+		effort: resolveAgentLaunchField(
+			config,
+			definition,
+			'effort',
+			issueTitle,
+			profileName,
+		),
+	};
+}
+
+export function resolveAgentProfileName(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	profileName?: string,
 ): string {
-	return resolveClaudeLaunchField(config, 'effort', issueTitle);
+	let name = config.agent_profile ?? 'claude';
+	const profile = selectProfile(config, issueTitle, profileName);
+	if (profile?.agent_profile !== undefined) {
+		name = profile.agent_profile;
+	}
+	return name === '' ? 'claude' : name;
+}
+
+/**
+ * Every agent profile a session can launch with, labeled with the config files
+ * that define it (see loadAgentProfileSources). The built-in claude is
+ * selectable even in configs that never define `agent_profiles:`.
+ */
+export function listAgentProfiles(
+	config: PappardelleConfig,
+	sources: Record<string, string[]>,
+): Array<{name: string; source: string}> {
+	const names = Object.keys(config.agent_profiles ?? {});
+	if (!names.includes('claude')) names.unshift('claude');
+	return names.map(name => ({
+		name,
+		source: sources[name]?.join(' + ') ?? 'built-in',
+	}));
 }
 
 /**
@@ -2285,12 +3068,11 @@ export const DEFAULT_COMPANION_COMMAND = 'GIT_OPTIONAL_LOCKS=0 gitui';
 export function getCompanionCommand(
 	config: PappardelleConfig,
 	issueTitle?: string,
+	profileName?: string,
 ): string {
-	if (issueTitle) {
-		const profile = matchProfiles(config, issueTitle)[0]?.profile;
-		if (profile?.companion_command !== undefined) {
-			return profile.companion_command;
-		}
+	const profile = selectProfile(config, issueTitle, profileName);
+	if (profile?.companion_command !== undefined) {
+		return profile.companion_command;
 	}
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
 }
