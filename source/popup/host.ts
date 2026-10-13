@@ -64,9 +64,14 @@ export function buildDisplayPopupArgs({
 	size,
 	cwd,
 }: PopupLaunch): string[] {
-	const command = [process.execPath, POPUP_CLI, socketPath]
+	const node = [process.execPath, POPUP_CLI, socketPath]
 		.map(arg => shellQuote(arg))
 		.join(' ');
+	// The popup's tty starts cooked and node takes a moment to load, so a key
+	// typed right behind the one that opened the popup would be echoed over the
+	// first frame and Enter would arrive as a line feed, which Ink doesn't read
+	// as Return. Raw from the start, the keys wait unchanged for Ink.
+	const command = `stty -icanon -echo -icrnl min 1 time 0 2>/dev/null; exec ${node}`;
 	return [
 		'display-popup',
 		'-B',
