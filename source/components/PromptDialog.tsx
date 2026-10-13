@@ -32,7 +32,7 @@ import {
 	type SkillEntry,
 } from '../skill-completion.ts';
 import {
-	buildProfileOptions,
+	pickerOptions,
 	computePickerWindow,
 	filterProfileOptions,
 	focusFrame,
@@ -182,17 +182,25 @@ export default function PromptDialog({
 		if (!config) return null;
 		return determineProfileForInput(config, effectiveInput);
 	}, [config, effectiveInput]);
+	const canOverrideAgent = useMemo(
+		() =>
+			Boolean(process.env['TMUX']) &&
+			config !== null &&
+			listAgentProfiles(config, {}).length > 1,
+		[config],
+	);
 	const opensPicker =
 		preview?.kind === 'resolved' ||
-		(preview?.kind === 'deferred' && preview.canPick);
+		(preview?.kind === 'deferred' && (preview.canPick || canOverrideAgent));
 
 	// Derived from the current prompt rather than snapshotted on Enter, because
 	// the list is visible while you type and has to re-rank as you go. Once the
 	// picker takes focus the text input is frozen, so the list is stable for as
 	// long as a selection can move within it.
 	const options = useMemo(
-		() => (config ? buildProfileOptions(config, effectiveInput) : []),
-		[config, effectiveInput],
+		() =>
+			config ? pickerOptions(config, effectiveInput, canOverrideAgent) : [],
+		[config, effectiveInput, canOverrideAgent],
 	);
 
 	const shownOptions =
@@ -386,7 +394,7 @@ export default function PromptDialog({
 		const resolved = resolveSubmission(value, ready.identifiers, ready.index);
 		if (resolved === null) return;
 
-		const decision = resolvePromptSubmit(config, resolved);
+		const decision = resolvePromptSubmit(config, resolved, canOverrideAgent);
 		switch (decision.kind) {
 			case 'none': {
 				break;

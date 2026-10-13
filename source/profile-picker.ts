@@ -164,6 +164,29 @@ export function buildProfileOptions(
 	return ordered;
 }
 
+/**
+ * The picker's rows for an input. An input the picker would skip (a bare number,
+ * an unclaimed issue key) gets just the deferred row when there is another
+ * agent profile to launch with, so `a` has a row to act on and the profile is
+ * still left to idow.
+ */
+export function pickerOptions(
+	config: PappardelleConfig,
+	input: string,
+	canOverrideAgent = false,
+): ProfileOption[] {
+	const selection = determineProfileForInput(config, input);
+	if (
+		canOverrideAgent &&
+		selection?.kind === 'deferred' &&
+		!selection.canPick
+	) {
+		return [deferredOption(config)];
+	}
+
+	return buildProfileOptions(config, input);
+}
+
 export type PromptSubmit =
 	/** Blank input: stay where you are. */
 	| {kind: 'none'}
@@ -171,7 +194,7 @@ export type PromptSubmit =
 	 * Spawn without showing the picker. Used for bare numbers and for issue keys
 	 * whose prefix no profile claims, where the profile is resolved downstream by
 	 * idow from the fetched issue's tracker project — there is nothing meaningful
-	 * to preselect.
+	 * to preselect — unless there is an agent profile to swap in.
 	 */
 	| {kind: 'spawn'; profileName: string | null}
 	/** Advance to the picker with these options, index 0 preselected. */
@@ -182,10 +205,14 @@ export type PromptSubmit =
  * makes the backwards-compatibility guarantee (an unclaimed issue key still
  * spawns on a single Enter with no `--profile`, and a claimed one still spawns
  * that way on Enter-Enter) something a test can pin down.
+ *
+ * `canOverrideAgent` breaks that guarantee on purpose for unclaimed keys (see
+ * pickerOptions).
  */
 export function resolvePromptSubmit(
 	config: PappardelleConfig | null,
 	input: string,
+	canOverrideAgent = false,
 ): PromptSubmit {
 	const trimmed = input.trim();
 	if (!trimmed) return {kind: 'none'};
@@ -194,11 +221,15 @@ export function resolvePromptSubmit(
 	const selection = determineProfileForInput(config, trimmed);
 	if (!selection) return {kind: 'spawn', profileName: null};
 
-	if (selection.kind === 'deferred' && !selection.canPick) {
+	if (
+		selection.kind === 'deferred' &&
+		!selection.canPick &&
+		!canOverrideAgent
+	) {
 		return {kind: 'spawn', profileName: null};
 	}
 
-	const options = buildProfileOptions(config, trimmed);
+	const options = pickerOptions(config, trimmed, canOverrideAgent);
 	if (options.length === 0) {
 		return {
 			kind: 'spawn',

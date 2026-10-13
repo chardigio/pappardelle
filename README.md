@@ -165,7 +165,10 @@ To run a different agent this once, press `a` on a profile: a tmux popup lists
 every agent profile with the config file that defines it (`/` filters the
 list by name), and the one you choose shows next to the profile (`→ codex`)
 until `Enter` starts it. The override isn't saved with the workspace,
-so a later relaunch goes back to the profile's own agent.
+so a later relaunch goes back to the profile's own agent. A bare issue number
+or a key no profile claims normally starts on the first `Enter`; when you have
+agent profiles to choose from, it gets a one-row picker instead, so `a` has a
+row to act on.
 
 ### Slash-command autocomplete
 
