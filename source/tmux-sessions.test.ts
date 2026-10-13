@@ -6,7 +6,6 @@ import {
 	getSessionNames,
 	extractIssueKeyFromSession,
 	getSessionPrefix,
-	getLegacyAgentSessionPrefix,
 	pretrustDirectoryForClaude,
 	buildAgentResumeCommand,
 } from './tmux.ts';
@@ -24,10 +23,6 @@ test('getSessionPrefix includes repo name for agent', t => {
 test('getSessionPrefix includes repo name for companion', t => {
 	const prefix = getSessionPrefix('companion', 'pappa-chex');
 	t.is(prefix, 'companion-pappa-chex-');
-});
-
-test('getLegacyAgentSessionPrefix keeps the legacy claude prefix', t => {
-	t.is(getLegacyAgentSessionPrefix('pappa-chex'), 'claude-pappa-chex-');
 });
 
 // getSessionNames: repo-qualified session names
