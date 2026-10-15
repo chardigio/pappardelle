@@ -2,7 +2,7 @@
 
 # start-claude-session.sh - Ensure Claude and companion tmux sessions exist for an issue
 #
-# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>]
+# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>] [--extra-arg <ARG>]...
 #
 # Creates detached tmux sessions (repo-qualified):
 #   claude-<REPO>-<KEY>     — runs Claude (with --dangerously-skip-permissions if --skip-permissions is set)
@@ -17,6 +17,10 @@
 #                     the flag isn't passed at all (Claude's own default wins).
 #                     Resolved per-profile by idow; mirrored by
 #                     buildClaudeResumeCommand() in pappardelle/source/tmux.ts.
+# --extra-arg: one raw argument for claude (repeat it for each), from
+#              claude.extra_args. Each one is quoted on its own and placed after
+#              --effort. A restricted profile (robodogfood) uses this to pass
+#              --tools and --strict-mcp-config (STA-2663).
 
 set -e
 
@@ -28,6 +32,7 @@ NO_CLAUDE=false
 SKIP_PERMISSIONS=false
 CLAUDE_MODEL=""
 CLAUDE_EFFORT=""
+CLAUDE_EXTRA_ARGS=()
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
 # shell; the non-empty default means the companion command is sent.
@@ -69,6 +74,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --effort)
             CLAUDE_EFFORT="$2"
+            shift 2
+            ;;
+        --extra-arg)
+            CLAUDE_EXTRA_ARGS+=("$2")
             shift 2
             ;;
         *)
@@ -158,7 +167,7 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION" 2>/dev
         # --model / --effort, and --name set to the issue key so the session is
         # findable via /resume and shows up in the terminal title.
         # Flag order matches buildClaudeResumeCommand() in source/tmux.ts:
-        #   --dangerously-skip-permissions → --model → --effort → --name
+        #   --dangerously-skip-permissions → --model → --effort → extra args → --name
         # printf %q quotes the config-supplied values so model ids with shell
         # metacharacters (e.g. claude-opus-5[1m]) reach claude as literal arguments.
         SAFE_NAME=$(printf '%q' "$ISSUE_KEY")
@@ -172,6 +181,10 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION" 2>/dev
         if [[ -n "$CLAUDE_EFFORT" ]]; then
             CLAUDE_CMD="${CLAUDE_CMD} --effort $(printf '%q' "$CLAUDE_EFFORT")"
         fi
+        # ${arr[@]+...} keeps bash 3.2 (macOS) from calling an empty array unbound.
+        for EXTRA_ARG in ${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}; do
+            CLAUDE_CMD="${CLAUDE_CMD} $(printf '%q' "$EXTRA_ARG")"
+        done
         CLAUDE_CMD="${CLAUDE_CMD} --name ${SAFE_NAME}"
 
         # Build the Claude prompt argument, quoting it to handle special characters

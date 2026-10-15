@@ -2,7 +2,9 @@ import test from 'ava';
 import type {PappardelleConfig} from './config.ts';
 import {
 	getClaudeEffort,
+	getClaudeExtraArgs,
 	getClaudeModel,
+	getCompanionCommand,
 	validateConfig,
 	ConfigValidationError,
 } from './config.ts';
@@ -277,4 +279,132 @@ test('buildClaudeResumeCommand: shell-quotes exotic model values', t => {
 test('buildClaudeResumeCommand: escapes embedded single quotes', t => {
 	const cmd = buildClaudeResumeCommand('STA-1', false, {model: "we'ird"});
 	t.true(cmd.includes(`--model 'we'\\''ird'`));
+});
+
+// ============================================================================
+// extra_args (STA-2663)
+// ============================================================================
+//
+// A list of raw flags for `claude`. The run-robodogfood profile uses it to give an
+// unattended QA agent only the tools it needs (`--tools`, `--strict-mcp-config`,
+// `--no-chrome`). It resolves like model/effort: the profile key wins whenever
+// it is present, so `extra_args: []` on a profile clears a top-level list.
+
+const QA_ARGS = ['--strict-mcp-config', '--tools', 'Bash,Read'];
+
+test('extra_args: unset everywhere → empty list', t => {
+	t.deepEqual(getClaudeExtraArgs(makeConfig()), []);
+	t.deepEqual(getClaudeExtraArgs(makeConfig(), 'backend work'), []);
+});
+
+test('extra_args: top-level applies to every profile', t => {
+	const config = makeConfig({claude: {extra_args: ['--no-chrome']}});
+	t.deepEqual(getClaudeExtraArgs(config), ['--no-chrome']);
+	t.deepEqual(getClaudeExtraArgs(config, 'frontend work'), ['--no-chrome']);
+});
+
+test('extra_args: profile list replaces the top-level list', t => {
+	const config = makeConfig(
+		{claude: {extra_args: ['--no-chrome']}},
+		{extra_args: QA_ARGS},
+	);
+	t.deepEqual(getClaudeExtraArgs(config, 'backend work'), QA_ARGS);
+	t.deepEqual(getClaudeExtraArgs(config, 'frontend work'), ['--no-chrome']);
+});
+
+test('extra_args: an empty profile list clears the top-level list', t => {
+	const config = makeConfig(
+		{claude: {extra_args: ['--no-chrome']}},
+		{extra_args: []},
+	);
+	t.deepEqual(getClaudeExtraArgs(config, 'backend work'), []);
+});
+
+// The saved profile (idow writes it to space-state) beats the title match
+// (STA-2663). A dev issue titled with the runner's keyword must not get the
+// runner's locked-down tools when the TUI starts its session again.
+
+test('saved profile: beats a title that matches a different profile', t => {
+	const config = makeConfig(
+		{companion_command: 'gitui'},
+		{model: 'sonnet', effort: 'high', extra_args: QA_ARGS},
+		{model: 'opus', effort: 'low'},
+	);
+	config.profiles['frontend']!.companion_command = '';
+	const title = 'backend work';
+	t.deepEqual(getClaudeExtraArgs(config, title, 'frontend'), []);
+	t.is(getClaudeModel(config, title, 'frontend'), 'opus');
+	t.is(getClaudeEffort(config, title, 'frontend'), 'low');
+	t.is(getCompanionCommand(config, title, 'frontend'), '');
+	t.deepEqual(getClaudeExtraArgs(config, 'frontend work', 'backend'), QA_ARGS);
+});
+
+test('saved profile: a name that no longer exists falls back to the title', t => {
+	// A profile rename leaves the old name in space-state.
+	const config = makeConfig({}, {extra_args: QA_ARGS});
+	t.deepEqual(getClaudeExtraArgs(config, 'backend work', 'renamed'), QA_ARGS);
+	t.is(
+		getCompanionCommand(config, 'backend work', 'renamed'),
+		'GIT_OPTIONAL_LOCKS=0 gitui',
+	);
+});
+
+test('validateConfig accepts extra_args at top level and per profile', t => {
+	t.notThrows(() => {
+		validateConfig(
+			makeConfig({claude: {extra_args: ['--no-chrome']}}, {extra_args: []}),
+		);
+	});
+});
+
+test('validateConfig rejects extra_args that is not a list of strings', t => {
+	const config = makeConfig(
+		{claude: {extra_args: '--no-chrome' as unknown as string[]}},
+		{extra_args: ['--tools', 5] as unknown as string[]},
+	);
+	const error = t.throws(
+		() => {
+			validateConfig(config);
+		},
+		{instanceOf: ConfigValidationError},
+	);
+	t.true(
+		error!.errors.some(e =>
+			e.includes('claude.extra_args: must be a list of strings'),
+		),
+	);
+	t.true(
+		error!.errors.some(e =>
+			e.includes(
+				'profiles.backend.claude.extra_args: must be a list of strings',
+			),
+		),
+	);
+});
+
+test('buildClaudeResumeCommand: extra args go after effort and before name, on both branches', t => {
+	const cmd = buildClaudeResumeCommand('QA-1', true, {
+		effort: 'high',
+		extraArgs: QA_ARGS,
+	});
+	t.true(
+		cmd.startsWith(
+			'claude --dangerously-skip-permissions --effort high --strict-mcp-config --tools Bash,Read --name QA-1 --continue',
+		),
+	);
+	t.is(cmd.split('--strict-mcp-config').length - 1, 2);
+});
+
+test('buildClaudeResumeCommand: shell-quotes each extra arg', t => {
+	const cmd = buildClaudeResumeCommand('QA-1', false, {
+		extraArgs: ['--mcp-config', '{"mcpServers": {}}'],
+	});
+	t.true(cmd.includes(`--mcp-config '{"mcpServers": {}}' --name QA-1`));
+});
+
+test('buildClaudeResumeCommand: an empty extra args list changes nothing', t => {
+	t.is(
+		buildClaudeResumeCommand('STA-1', false, {extraArgs: []}),
+		buildClaudeResumeCommand('STA-1'),
+	);
 });

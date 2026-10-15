@@ -292,6 +292,26 @@ assert_eq "idow's home path matches getDefaultHomeConfigDir()" \
     'HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"' \
     "$(grep -o 'HOME_CONFIG_PATH="\$HOME/[^"]*"' "$SCRIPT_DIR/idow" | head -1)"
 
+echo -e "\n${BOLD}Test: idow splits extra_args into one argument each${RESET}"
+# The function runs on its own: pulled out of idow and evaluated here, so the test
+# runs the real code without tmux or a git repo.
+eval "$(sed -n '/^read_claude_extra_args() {/,/^}/p' "$SCRIPT_DIR/idow")"
+read_claude_extra_args '{"extra_args":["--tools","Bash,Read","two words"]}'
+assert_eq "three elements" "3" "${#CLAUDE_EXTRA_ARGS[@]}"
+assert_eq "a value with a space stays one argument" "two words" "${CLAUDE_EXTRA_ARGS[2]}"
+read_claude_extra_args '{"extra_args":[]}'
+assert_eq "an empty list clears the earlier args" "0" "${#CLAUDE_EXTRA_ARGS[@]}"
+
+echo -e "\n${BOLD}Test: idow passes extra_args to the session and to the launcher${RESET}"
+# Inspection, as above: a loop that skipped one call site would start the tmux session
+# or the terminal launcher with every tool.
+assert_eq "start-claude-session.sh gets --extra-arg" "1" \
+    "$(grep -c 'CLAUDE_SESSION_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
+assert_eq "the terminal launcher gets --extra-arg" "1" \
+    "$(grep -c 'LAUNCHER_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
+assert_eq "the profile re-resolve reads extra_args again" "1" \
+    "$(sed -n '/^resolve_claude_launch_flags() {/,/^}/p' "$SCRIPT_DIR/idow" | grep -c 'read_claude_extra_args "\$json"' || true)"
+
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: exotic model ids survive the JSON round-trip${RESET}"
@@ -352,6 +372,15 @@ assert_eq "shell-hostile value is escaped, not dropped" ' --model ev\"il\;\ rm\ 
     "$(iterm_flags --model 'ev"il; rm -rf /')"
 assert_eq "a space-containing model still leaves a valid effort" ' --model bad\ value --effort high' \
     "$(iterm_flags --model 'bad value' --effort high)"
+# STA-2663: every launcher carries claude.extra_args after --effort, one
+# quoted word per item, so an --open fallback keeps the robodogfood limits.
+for LAUNCHER in open-iterm-claude.sh open-ghostty-claude.sh open-default-terminal-claude.sh; do
+    assert_eq "$LAUNCHER: extra args follow effort, each quoted" \
+        ' --effort high --strict-mcp-config --tools Bash\,Read' \
+        "$("$SCRIPT_DIR/$LAUNCHER" --worktree /tmp --issue-key QA-1 --repo-name testrepo --prompt "" \
+            --effort high --extra-arg --strict-mcp-config --extra-arg --tools --extra-arg 'Bash,Read' \
+            --print-launch-flags 2>/dev/null)"
+done
 
 # ==========================================================================
 # The command line open-iterm-claude.sh types is assembled inside AppleScript,
@@ -400,6 +429,41 @@ else
         *) assert_eq "hostile value stays inside the quoted assignment" "escaped assignment prefix" "$LINE" ;;
     esac
 fi
+
+# ==========================================================================
+
+# STA-2663: claude.extra_args is a list, so it is emitted as a JSON array (not
+# stringified like model/effort). The profile list replaces the top-level one,
+# and an explicit [] on a profile clears it.
+echo -e "\n${BOLD}Test: extra_args resolves profile-first as a JSON array${RESET}"
+setup_configs "version: 1
+claude:
+  extra_args: [--no-chrome]
+profiles:
+  backend:
+    display_name: Backend
+    keywords: [backend]
+    claude:
+      extra_args: [--strict-mcp-config, --tools, 'Bash,Read']
+  frontend:
+    display_name: Frontend
+    keywords: [frontend]
+  bare:
+    display_name: Bare
+    keywords: [bare]
+    claude:
+      extra_args: []"
+assert_eq "no profile → top-level list" '["--no-chrome"]' "$(resolve | jq -c '.extra_args')"
+assert_eq "profile list replaces top-level" '["--strict-mcp-config","--tools","Bash,Read"]' "$(resolve --profile backend | jq -c '.extra_args')"
+assert_eq "profile without the key inherits" '["--no-chrome"]' "$(resolve --profile frontend | jq -c '.extra_args')"
+assert_eq "profile [] clears the list" '[]' "$(resolve --profile bare | jq -c '.extra_args')"
+cleanup
+
+setup_configs "version: 1
+$BASE_PROFILES"
+assert_eq "unset everywhere → []" '[]' "$(resolve --profile backend | jq -c '.extra_args')"
+assert_eq "model still a string beside it" "" "$(resolve --profile backend | field model)"
+cleanup
 
 # ==========================================================================
 

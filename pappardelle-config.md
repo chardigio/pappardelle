@@ -48,6 +48,7 @@ claude:
   dangerously_skip_permissions: true # Pass --dangerously-skip-permissions to Claude (default: false)
   model: opus # Pass --model to Claude (default: Claude's own default)
   effort: high # Pass --effort to Claude (default: Claude's own default)
+  extra_args: [] # Raw flags appended to claude after --effort (default: none)
 
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
@@ -454,6 +455,7 @@ interface PappardelleConfig {
 		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions
 		model?: string; // Launch with --model <value>. Omit for Claude's default. Per-profile overridable.
 		effort?: string; // Launch with --effort <value>. Omit for Claude's default. Per-profile overridable.
+		extra_args?: string[]; // Raw flags appended after --effort, one quoted word each. Per-profile overridable.
 	};
 	profiles: Record<string, Profile>;
 }
@@ -471,6 +473,7 @@ interface Profile {
 		initialization_command?: string; // Override global init command for this profile
 		model?: string; // Override global claude.model for this profile. "" = clear the global, launch with Claude's default.
 		effort?: string; // Override global claude.effort for this profile. "" = clear the global.
+		extra_args?: string[]; // Replace global claude.extra_args for this profile. [] = clear the global.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
 	ide_command?: string; // Override the top-level `d`-key editor command for this profile. "" = disable `d` for this profile.
@@ -770,12 +773,13 @@ profiles:
       effort: medium
 ```
 
-| Field                          | Type      | Default | Description                                                                                                                                                                                                  |
-| ------------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `initialization_command`       | `string`  | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command.                                                 |
-| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                            |
-| `model`                        | `string`  | `""`    | Passed through as `claude --model <value>`. Accepts an alias (`opus`, `sonnet`, `fable`) or a full model id (`claude-opus-5[1m]`). When empty, no `--model` flag is passed and Claude picks its own default. |
-| `effort`                       | `string`  | `""`    | Passed through as `claude --effort <value>` — `low`, `medium`, `high`, `xhigh`, `max` at time of writing. When empty, no `--effort` flag is passed.                                                          |
+| Field                          | Type       | Default | Description                                                                                                                                                                                                  |
+| ------------------------------ | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `initialization_command`       | `string`   | `""`    | Command passed to Claude when opening a new session. Typically a skill name like `/idow` or `/dow`. When empty, Claude opens with no initialization command.                                                 |
+| `dangerously_skip_permissions` | `boolean`  | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                            |
+| `model`                        | `string`   | `""`    | Passed through as `claude --model <value>`. Accepts an alias (`opus`, `sonnet`, `fable`) or a full model id (`claude-opus-5[1m]`). When empty, no `--model` flag is passed and Claude picks its own default. |
+| `effort`                       | `string`   | `""`    | Passed through as `claude --effort <value>` — `low`, `medium`, `high`, `xhigh`, `max` at time of writing. When empty, no `--effort` flag is passed.                                                          |
+| `extra_args`                   | `string[]` | `[]`    | Raw flags appended to `claude` after `--effort`, each item shell-quoted as one argument. A profile list replaces the global list; `[]` on a profile clears it.                                               |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`).
 
@@ -796,6 +800,21 @@ profiles:
 ```
 
 `model` and `effort` are not validated against a list of known values, since model aliases and effort levels ship on Claude Code's schedule rather than Pappardelle's, so a typo surfaces when Claude Code rejects the flag at launch rather than at config load. Both fields apply everywhere a workspace's Claude session is created: `idow`, the TUI's session-create path, and the iTerm launcher.
+
+**Extra args** take any `claude` flag that has no field of its own. The main use is a profile that runs with no human watching and must have fewer tools. This is the run-robodogfood profile in this repo:
+
+```yaml
+profiles:
+  run-robodogfood:
+    claude:
+      extra_args:
+        - --strict-mcp-config # load no MCP servers (also removes claude.ai connectors and plugin servers)
+        - --no-chrome # Claude in Chrome is not an MCP server, so it needs its own flag
+        - --tools
+        - Bash,Read,Write,Edit,Glob,Grep,Agent,Skill,Monitor
+```
+
+When the TUI creates a space's session again (after a crash, or after `claude` exits), it uses the profile that `idow` saved for the space in `~/.pappardelle/repos/<repo>/space-state/<KEY>.json`. Only a space with no saved profile (or a saved name that no profile has now) falls back to the issue title's keywords. So still give a restricted profile a keyword that its issue titles always contain, and put it above any profile that shares a keyword with it, because file order wins a tie. The same order applies to `companion_command`.
 
 Omitting both fields leaves the launch command byte-identical to a config that predates them; nothing is passed to `claude` unless you ask for it.
 

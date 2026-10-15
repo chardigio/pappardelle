@@ -390,6 +390,39 @@ tmux -L "$SHIM_SOCKET8" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
+# STA-2663: each --extra-arg reaches claude as one argument, after --effort and
+# before --name. The shim brackets every argument so a value with spaces or
+# JSON braces shows whether it was split.
+echo -e "\n${BOLD}Test: --extra-arg values reach claude as separate arguments${RESET}"
+ISSUE_KEY9="${TEST_PREFIX}-900"
+WORKTREE_PATH9="$TMPDIR_ROOT/worktree9"
+ARGV_LOG9="$TMPDIR_ROOT/claude-argv-9.log"
+mkdir -p "$WORKTREE_PATH9"
+cat > "$SHIM_DIR/claude" <<SHIM
+#!/bin/bash
+printf '[%s]' "\$@" >> "$ARGV_LOG9"
+printf '\n' >> "$ARGV_LOG9"
+exit 0
+SHIM
+chmod +x "$SHIM_DIR/claude"
+
+SHIM_SOCKET9="pappardelle_inner_shim9_$$"
+PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
+    "$SCRIPT_DIR/start-claude-session.sh" \
+    --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
+    --effort high --extra-arg --strict-mcp-config --extra-arg --tools \
+    --extra-arg 'Bash,Read' --extra-arg '{"mcpServers": {}}' 2>/dev/null
+
+sleep 1
+ARGV9=$(head -1 "$ARGV_LOG9" 2>/dev/null || echo "")
+assert_eq "extra args keep their boundaries and order" \
+    "[--effort][high][--strict-mcp-config][--tools][Bash,Read][--mcpServers-placeholder]" \
+    "$(echo "$ARGV9" | sed 's/\[{"mcpServers": {}}\]/[--mcpServers-placeholder]/; s/\[--name\].*//')"
+
+tmux -L "$SHIM_SOCKET9" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
 # pappardelle-2i0: launches must not be typed at a prompt, or the user's shell
 # records them in its history file. An isolated zsh (ZDOTDIR) with its own
 # HISTFILE and INC_APPEND_HISTORY writes every line it reads from the prompt

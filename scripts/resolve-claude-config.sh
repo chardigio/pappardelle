@@ -13,7 +13,7 @@
 # is automatically resolved without per-field override logic.
 #
 # --profile <name> additionally resolves the pass-through launch flags
-# (model, effort) profile-first: profiles.<name>.claude.<field> beats the
+# (model, effort, extra_args) profile-first: profiles.<name>.claude.<field> beats the
 # top-level claude.<field>. An explicit empty string at the profile level is
 # preserved, which is how a profile opts out of an inherited value — same
 # empty-string-is-meaningful convention companion_command uses.
@@ -31,7 +31,9 @@
 #
 # Output: JSON object with resolved values:
 #   {"init_cmd": "...", "skip_permissions": "true|false", "model": "...", "effort": "...",
-#    "companion_command": "..."}
+#    "companion_command": "...", "extra_args": ["..."]}
+# extra_args is the one value that is not a string: a JSON array, so each item
+# stays one argument all the way to claude (STA-2663).
 
 set -eo pipefail
 
@@ -101,16 +103,18 @@ printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
             "initialization_command": .claude.initialization_command,
             "dangerously_skip_permissions": .claude.dangerously_skip_permissions,
             "model": .claude.model,
-            "effort": .claude.effort
+            "effort": .claude.effort,
+            "extra_args": .claude.extra_args
         },
         "companion_command": .companion_command,
         "selected": {
-            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort},
+            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort, "extra_args": $selected.claude.extra_args},
             "companion_command": $selected.companion_command
         }
     }
 ' | jq '
     .selected as $selected |
+    ($selected.claude.extra_args // .claude.extra_args // [] | map(tostring)) as $extra_args |
     {
         init_cmd: (.claude.initialization_command // ""),
         skip_permissions: (.claude.dangerously_skip_permissions // false),
@@ -119,5 +123,6 @@ printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
         companion_command: ($selected.companion_command // .companion_command // "GIT_OPTIONAL_LOCKS=0 gitui")
     } |
     with_entries(.value |= tostring) |
-    .skip_permissions = ((.skip_permissions == "true") | tostring)
+    .skip_permissions = ((.skip_permissions == "true") | tostring) |
+    .extra_args = $extra_args
 '

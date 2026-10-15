@@ -185,6 +185,16 @@ INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
 SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
 CLAUDE_MODEL=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.model')
 CLAUDE_EFFORT=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.effort')
+# claude.extra_args as one array element per argument (STA-2663). A while-read
+# loop, because macOS bash 3.2 has no mapfile.
+read_claude_extra_args() {
+    CLAUDE_EXTRA_ARGS=()
+    local arg
+    while IFS= read -r arg; do
+        CLAUDE_EXTRA_ARGS+=("$arg")
+    done < <(echo "$1" | jq -r '.extra_args[]?')
+}
+read_claude_extra_args "$CLAUDE_CONFIG_JSON"
 
 # Resolve which terminal launcher to drive. terminal.app layers across the same
 # three config files, since terminal choice is a per-machine fact that belongs
@@ -205,9 +215,11 @@ resolve_claude_launch_flags() {
     json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
     CLAUDE_MODEL=$(echo "$json" | jq -r '.model')
     CLAUDE_EFFORT=$(echo "$json" | jq -r '.effort')
+    read_claude_extra_args "$json"
     COMPANION_COMMAND=$(echo "$json" | jq -r '.companion_command')
     [[ -n "$CLAUDE_MODEL" ]] && log "Claude model: $CLAUDE_MODEL"
     [[ -n "$CLAUDE_EFFORT" ]] && log "Claude effort: $CLAUDE_EFFORT"
+    [[ ${#CLAUDE_EXTRA_ARGS[@]} -gt 0 ]] && log "Claude extra args: ${CLAUDE_EXTRA_ARGS[*]}"
     return 0
 }
 
@@ -814,6 +826,9 @@ fi
 if [[ -n "$CLAUDE_EFFORT" ]]; then
     CLAUDE_SESSION_ARGS+=(--effort "$CLAUDE_EFFORT")
 fi
+for EXTRA_ARG in ${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}; do
+    CLAUDE_SESSION_ARGS+=(--extra-arg "$EXTRA_ARG")
+done
 # Matches the '.' → '_' encoding in start-claude-session.sh and
 # getSessionNames(); see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
@@ -868,6 +883,9 @@ fi
 if [[ -n "$CLAUDE_EFFORT" ]]; then
     LAUNCHER_ARGS+=(--effort "$CLAUDE_EFFORT")
 fi
+for EXTRA_ARG in ${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}; do
+    LAUNCHER_ARGS+=(--extra-arg "$EXTRA_ARG")
+done
 
 # In resume mode, start Claude without any prompt; otherwise use configured init command
 if [[ "$RESUME_MODE" == true ]]; then

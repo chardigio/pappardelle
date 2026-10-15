@@ -72,6 +72,18 @@ export interface ClaudeConfig {
 	 * Absent ⇒ no `--effort` flag is passed at all.
 	 */
 	effort?: string;
+	/**
+	 * Raw flags appended to the `claude` command after `--effort`, each one
+	 * shell-quoted on its own. It exists so a profile that runs with no human
+	 * watching (robodogfood, STA-2663) can take tools away from the agent with
+	 * `--tools`, `--strict-mcp-config` and `--no-chrome`, without one config key
+	 * per Claude Code flag. Like `model`, the values are not checked against
+	 * Claude Code's flag list, because that list changes on its own schedule.
+	 *
+	 * A profile list replaces the top-level list; it never adds to it, so
+	 * `extra_args: []` on a profile clears an inherited list.
+	 */
+	extra_args?: string[];
 }
 
 export interface HooksConfig {
@@ -1141,6 +1153,16 @@ function validateClaudeLaunchFields(
 			errors.push(`${prefix}.${field}: must be a string`);
 		}
 	}
+	const extraArgs = claudeBlock['extra_args'];
+	if (
+		extraArgs !== undefined &&
+		!(
+			Array.isArray(extraArgs) &&
+			extraArgs.every(arg => typeof arg === 'string')
+		)
+	) {
+		errors.push(`${prefix}.extra_args: must be a list of strings`);
+	}
 	return errors;
 }
 
@@ -2047,12 +2069,35 @@ export function getDangerouslySkipPermissions(
 }
 
 /**
+ * The profile whose launch settings (claude flags, companion command) a space
+ * gets.
+ *
+ * The profile that idow saved for the space wins, because idow chose it from the
+ * issue's tracker project or from `--profile`, and the title match is only a
+ * fallback for a space with no saved profile. Two profiles can share a keyword
+ * (`robodogfood` for work on the QA runner and `run-robodogfood` for its
+ * scheduled runs, STA-2663). With the title alone, a dev space that the TUI
+ * starts again could get the runner's locked-down `--tools` list, or a run could
+ * get every tool. A saved name that no longer names a profile (a profile was
+ * renamed) falls back to the title too.
+ */
+function launchProfile(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	savedProfile?: string,
+): Profile | undefined {
+	const saved = savedProfile ? config.profiles[savedProfile] : undefined;
+	if (saved) return saved;
+	return issueTitle ? matchProfiles(config, issueTitle)[0]?.profile : undefined;
+}
+
+/**
  * Resolve one of the pass-through Claude launch flags for a workspace.
  *
- * Resolution order: per-profile value, then top-level value, then `''`. The profile is
- * matched from `issueTitle` the same way `getCompanionCommand` does it, so a
- * space with no title (the main worktree, or a call site that doesn't have one
- * handy) simply gets the top-level value.
+ * Resolution order: per-profile value, then top-level value, then `''`. The
+ * profile comes from `launchProfile` (the space's saved profile, else a match on
+ * `issueTitle`), so a space with neither (the main worktree, or a call site that
+ * doesn't have one handy) simply gets the top-level value.
  *
  * The profile layer wins whenever the *key is present*, not merely when it's
  * truthy. That's what makes `model: ""` on a profile mean "ignore the global
@@ -2066,13 +2111,12 @@ function resolveClaudeLaunchField(
 	config: PappardelleConfig,
 	field: ClaudeLaunchField,
 	issueTitle?: string,
+	savedProfile?: string,
 ): string {
-	if (issueTitle) {
-		const profile = matchProfiles(config, issueTitle)[0]?.profile;
-		const profileValue = profile?.claude?.[field];
-		if (profileValue !== undefined) {
-			return profileValue;
-		}
+	const profileValue = launchProfile(config, issueTitle, savedProfile)
+		?.claude?.[field];
+	if (profileValue !== undefined) {
+		return profileValue;
 	}
 	return config.claude?.[field] ?? '';
 }
@@ -2084,8 +2128,9 @@ function resolveClaudeLaunchField(
 export function getClaudeModel(
 	config: PappardelleConfig,
 	issueTitle?: string,
+	savedProfile?: string,
 ): string {
-	return resolveClaudeLaunchField(config, 'model', issueTitle);
+	return resolveClaudeLaunchField(config, 'model', issueTitle, savedProfile);
 }
 
 /**
@@ -2095,8 +2140,27 @@ export function getClaudeModel(
 export function getClaudeEffort(
 	config: PappardelleConfig,
 	issueTitle?: string,
+	savedProfile?: string,
 ): string {
-	return resolveClaudeLaunchField(config, 'effort', issueTitle);
+	return resolveClaudeLaunchField(config, 'effort', issueTitle, savedProfile);
+}
+
+/**
+ * Get the raw flags to append to `claude` for a workspace. Resolves like
+ * `getClaudeModel`: the profile list wins whenever the key is present, else
+ * the top-level list, else `[]`.
+ */
+export function getClaudeExtraArgs(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	savedProfile?: string,
+): string[] {
+	const profileValue = launchProfile(config, issueTitle, savedProfile)?.claude
+		?.extra_args;
+	if (profileValue !== undefined) {
+		return profileValue;
+	}
+	return config.claude?.extra_args ?? [];
 }
 
 /**
@@ -2275,8 +2339,9 @@ export const DEFAULT_COMPANION_COMMAND = 'GIT_OPTIONAL_LOCKS=0 gitui';
  *
  * Resolution order (first defined wins): the matched profile's
  * `companion_command` → the top-level `companion_command` → the built-in
- * default (`gitui`). `issueTitle` is matched against profile keywords to find
- * the per-profile override; omit it to resolve top-level/default only.
+ * default (`gitui`). The profile comes from `launchProfile`: the space's saved
+ * profile, else a keyword match on `issueTitle`. Omit both to resolve
+ * top-level/default only.
  *
  * An explicitly configured empty string is preserved (it means "run nothing,
  * leave a plain shell") — only an *absent* value falls through to the next
@@ -2285,12 +2350,11 @@ export const DEFAULT_COMPANION_COMMAND = 'GIT_OPTIONAL_LOCKS=0 gitui';
 export function getCompanionCommand(
 	config: PappardelleConfig,
 	issueTitle?: string,
+	savedProfile?: string,
 ): string {
-	if (issueTitle) {
-		const profile = matchProfiles(config, issueTitle)[0]?.profile;
-		if (profile?.companion_command !== undefined) {
-			return profile.companion_command;
-		}
+	const profile = launchProfile(config, issueTitle, savedProfile);
+	if (profile?.companion_command !== undefined) {
+		return profile.companion_command;
 	}
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
 }

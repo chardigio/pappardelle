@@ -27,6 +27,7 @@ COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
 SKIP_PERMISSIONS=false
 CLAUDE_MODEL=""
 CLAUDE_EFFORT=""
+CLAUDE_EXTRA_ARGS=()
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
         --skip-permissions) SKIP_PERMISSIONS=true; shift ;;
         --model) CLAUDE_MODEL="$2"; shift 2 ;;
         --effort) CLAUDE_EFFORT="$2"; shift 2 ;;
+        --extra-arg) CLAUDE_EXTRA_ARGS+=("$2"); shift 2 ;;
         --print-launch-flags) PRINT_LAUNCH_FLAGS=true; shift ;;
         --print-command) PRINT_COMMAND=true; shift ;;
         *) echo "Error: Unknown option: $1" >&2; exit 1 ;;
@@ -91,6 +93,10 @@ append_launch_flag() {
 
 append_launch_flag "--model" "$CLAUDE_MODEL"
 append_launch_flag "--effort" "$CLAUDE_EFFORT"
+# claude.extra_args (STA-2663): each one quoted on its own, after --effort.
+for EXTRA_ARG in ${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}; do
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} $(printf '%q' "$EXTRA_ARG")"
+done
 
 if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
     printf '%s\n' "$LAUNCH_FLAGS"

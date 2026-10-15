@@ -28,6 +28,7 @@ const runTmux: AsyncTmuxRunner = async args => {
 import {
 	DEFAULT_COMPANION_COMMAND,
 	getClaudeEffort,
+	getClaudeExtraArgs,
 	getClaudeModel,
 	getCompanionCommand,
 	getDangerouslySkipPermissions,
@@ -41,6 +42,7 @@ import {buildSessionEnvArgs} from './spawn-env.ts';
 import {getRegisteredSpaces, isSpaceRegistered} from './space-registry.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {readSpaceState} from './space-state.ts';
 import {
 	calculateIdealListHeightForCount,
 	calculateLayoutForSize,
@@ -282,6 +284,8 @@ function viewerMessageCommand(message: string): string {
 export interface ClaudeLaunchOptions {
 	model?: string;
 	effort?: string;
+	/** Raw flags from `claude.extra_args`, each shell-quoted on its own. */
+	extraArgs?: string[];
 }
 
 /**
@@ -333,7 +337,7 @@ export function displayPopup(argv: string[]): boolean {
  * `--name <issueKey>` is included on both branches so the session shows up
  * under the issue key in `/resume` and in the terminal title.
  *
- * Flag order (`--dangerously-skip-permissions --model --effort --name`) is
+ * Flag order (`--dangerously-skip-permissions --model --effort <extra args> --name`) is
  * mirrored by start-claude-session.sh; keep the two in sync so a session
  * created by the TUI and one created by idow are indistinguishable.
  */
@@ -348,10 +352,13 @@ export function buildClaudeResumeCommand(
 	const base = skipPermissions
 		? 'claude --dangerously-skip-permissions'
 		: 'claude';
+	const extra = (launch.extraArgs ?? [])
+		.map(arg => ` ${/^[A-Za-z0-9._,=/-]+$/.test(arg) ? arg : shellQuote(arg)}`)
+		.join('');
 	const claudeCmd = `${base}${claudeFlag('--model', launch.model)}${claudeFlag(
 		'--effort',
 		launch.effort,
-	)} --name ${safeKey}`;
+	)}${extra} --name ${safeKey}`;
 	return `${claudeCmd} --continue || { printf '\\033[A\\033[2K'; false; } || ${claudeCmd}`;
 }
 
@@ -1461,11 +1468,17 @@ export async function attachToSpace(
 	let launch: ClaudeLaunchOptions = {};
 	try {
 		const config = loadConfig();
+		// The profile idow saved for the space beats a title match (STA-2663).
+		const savedProfile =
+			issueKey === MAIN_WORKTREE_KEY
+				? undefined
+				: readSpaceState(getRepoName(), issueKey)?.profile;
 		skipPermissions = getDangerouslySkipPermissions(config);
-		companionCommand = getCompanionCommand(config, issueTitle);
+		companionCommand = getCompanionCommand(config, issueTitle, savedProfile);
 		launch = {
-			model: getClaudeModel(config, issueTitle),
-			effort: getClaudeEffort(config, issueTitle),
+			model: getClaudeModel(config, issueTitle, savedProfile),
+			effort: getClaudeEffort(config, issueTitle, savedProfile),
+			extraArgs: getClaudeExtraArgs(config, issueTitle, savedProfile),
 		};
 	} catch {
 		// Config load failed — use safe defaults.
