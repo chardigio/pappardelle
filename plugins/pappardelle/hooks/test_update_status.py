@@ -3,7 +3,7 @@
 Tests for update-status.py hook script.
 
 Uses pytest to verify the status determination logic for various Claude hook events.
-Run with: uv run pytest _dev/scripts/pappardelle/hooks/test_update_status.py -v
+Run with: uv run pytest plugins/pappardelle/hooks/test_update_status.py -v
 """
 
 # Import the module under test (has hyphen in filename, so use importlib)

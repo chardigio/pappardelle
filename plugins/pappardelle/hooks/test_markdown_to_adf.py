@@ -2,7 +2,7 @@
 """
 Tests for markdown_to_adf.py converter module.
 
-Run with: uv run pytest hooks/test_markdown_to_adf.py -v
+Run with: uv run pytest plugins/pappardelle/hooks/test_markdown_to_adf.py -v
 Or from hooks dir: python3 -m pytest test_markdown_to_adf.py -v
 """
 

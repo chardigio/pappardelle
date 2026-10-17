@@ -11,9 +11,12 @@ import path from 'node:path';
 
 const PLUGIN_ID = 'pappardelle@pappardelle-marketplace';
 
-// Before the hooks shipped in the plugin, install.sh copied them here and
-// users merged hooks/settings.json.example into ~/.claude/settings.json.
-// Left in place, every hook would fire twice.
+// Before the hooks shipped in the plugin, install.sh copied them to
+// ~/.pappardelle/hooks and users merged commands running them into
+// ~/.claude/settings.json. Left in place, every hook would fire twice. The
+// scripts themselves stay: sessions open during an update keep running the old
+// commands until they reload.
+const LEGACY_HOOK_DIR = '~/.pappardelle/hooks/';
 const LEGACY_HOOK_COMMAND = '.pappardelle/hooks/';
 
 export type RunResult = {
@@ -25,10 +28,8 @@ export type PluginInstallDeps = {
 	run: (command: string, args: string[]) => RunResult;
 	repoDir: string;
 	settingsPath: string;
-	legacyHooksDir: string;
 	readFile: (file: string) => string | undefined;
 	writeFile: (file: string, content: string) => void;
-	removeDir: (dir: string) => void;
 	print: (line: string) => void;
 };
 
@@ -56,42 +57,34 @@ export function installPlugin(deps: PluginInstallDeps): number {
 }
 
 type HookGroup = {hooks?: Array<{command?: unknown}>};
+type ClaudeSettings = {hooks?: Record<string, HookGroup[]>};
 
 function removeLegacyHooks(deps: PluginInstallDeps): void {
 	const original = deps.readFile(deps.settingsPath);
-	if (original !== undefined) {
-		let settings: {hooks?: Record<string, HookGroup[]>};
-		try {
-			settings = JSON.parse(original) as typeof settings;
-		} catch {
-			deps.print(
-				`Could not parse ${deps.settingsPath}; remove any hooks that run ~/.pappardelle/hooks/ by hand.`,
-			);
-			return;
-		}
-
-		if (settings.hooks && withoutLegacyHooks(settings)) {
-			deps.writeFile(`${deps.settingsPath}.bak`, original);
-			deps.writeFile(
-				deps.settingsPath,
-				JSON.stringify(settings, null, 2) + '\n',
-			);
-			deps.print(
-				`Removed the old Pappardelle hooks from ${deps.settingsPath} (backup: ${deps.settingsPath}.bak).`,
-			);
-		}
+	if (original === undefined) return;
+	let settings: ClaudeSettings;
+	try {
+		settings = JSON.parse(original) as ClaudeSettings;
+	} catch {
+		deps.print(
+			`Could not parse ${deps.settingsPath}; remove any hooks that run ${LEGACY_HOOK_DIR} by hand.`,
+		);
+		return;
 	}
 
-	deps.removeDir(deps.legacyHooksDir);
+	if (!stripLegacyHooks(settings)) return;
+	deps.writeFile(`${deps.settingsPath}.bak`, original);
+	deps.writeFile(deps.settingsPath, JSON.stringify(settings, null, 2) + '\n');
+	deps.print(
+		`Removed the old Pappardelle hooks from ${deps.settingsPath} (backup: ${deps.settingsPath}.bak).`,
+	);
 }
 
 const isLegacyHook = (hook: {command?: unknown}) =>
 	typeof hook.command === 'string' &&
 	hook.command.includes(LEGACY_HOOK_COMMAND);
 
-function withoutLegacyHooks(settings: {
-	hooks?: Record<string, HookGroup[]>;
-}): boolean {
+function stripLegacyHooks(settings: ClaudeSettings): boolean {
 	let changed = false;
 	const hooks: Record<string, HookGroup[]> = {};
 	for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
@@ -102,10 +95,14 @@ function withoutLegacyHooks(settings: {
 
 		const kept: HookGroup[] = [];
 		for (const group of groups) {
-			const remaining = Array.isArray(group.hooks)
-				? group.hooks.filter(hook => !isLegacyHook(hook))
-				: undefined;
-			if (!remaining || remaining.length === group.hooks!.length) {
+			const groupHooks = group?.hooks;
+			if (!Array.isArray(groupHooks)) {
+				kept.push(group);
+				continue;
+			}
+
+			const remaining = groupHooks.filter(hook => !isLegacyHook(hook));
+			if (remaining.length === groupHooks.length) {
 				kept.push(group);
 				continue;
 			}
@@ -131,7 +128,6 @@ export function defaultPluginInstallDeps(
 	return {
 		repoDir: pappardelleDir,
 		settingsPath: path.join(claudeDir, 'settings.json'),
-		legacyHooksDir: path.join(homedir(), '.pappardelle', 'hooks'),
 		run(command, args) {
 			const result = spawnSync(command, args, {stdio: 'inherit'});
 			return {status: result.status, error: result.error};
@@ -145,9 +141,6 @@ export function defaultPluginInstallDeps(
 		},
 		writeFile(file, content) {
 			fs.writeFileSync(file, content);
-		},
-		removeDir(dir) {
-			fs.rmSync(dir, {recursive: true, force: true});
 		},
 		print(line) {
 			console.log(line);

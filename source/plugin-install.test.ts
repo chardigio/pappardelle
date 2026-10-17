@@ -7,7 +7,6 @@ import {
 
 const REPO = '/home/me/.pappardelle/repo';
 const SETTINGS = '/home/me/.claude/settings.json';
-const LEGACY_DIR = '/home/me/.pappardelle/hooks';
 
 const legacy = (script: string) => ({
 	type: 'command',
@@ -21,12 +20,10 @@ function fakeDeps(
 	const calls: string[] = [];
 	const files = new Map<string, string>();
 	if (options.settings !== undefined) files.set(SETTINGS, options.settings);
-	const removed: string[] = [];
 	const printed: string[] = [];
 	const deps: PluginInstallDeps = {
 		repoDir: REPO,
 		settingsPath: SETTINGS,
-		legacyHooksDir: LEGACY_DIR,
 		run(command, args) {
 			calls.push([command, ...args].join(' '));
 			return options.respond?.(args) ?? {status: 0};
@@ -35,14 +32,11 @@ function fakeDeps(
 		writeFile(file, content) {
 			files.set(file, content);
 		},
-		removeDir(dir) {
-			removed.push(dir);
-		},
 		print(line) {
 			printed.push(line);
 		},
 	};
-	return {deps, calls, files, removed, printed};
+	return {deps, calls, files, printed};
 }
 
 test('points the marketplace at the checkout, then installs the plugin for the user', t => {
@@ -56,7 +50,7 @@ test('points the marketplace at the checkout, then installs the plugin for the u
 
 test('without the claude CLI it fails with a hint and leaves the old hooks running', t => {
 	const settings = JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}});
-	const {deps, files, removed, printed} = fakeDeps({
+	const {deps, files, printed} = fakeDeps({
 		settings,
 		respond: () => ({
 			status: null,
@@ -66,18 +60,16 @@ test('without the claude CLI it fails with a hint and leaves the old hooks runni
 	t.is(installPlugin(deps), 1);
 	t.true(printed[0]!.includes('not on PATH'));
 	t.is(files.get(SETTINGS), settings);
-	t.deepEqual(removed, []);
 });
 
 test('a failed marketplace add skips the install and the hook cleanup', t => {
-	const {deps, calls, files, removed} = fakeDeps({
+	const {deps, calls, files} = fakeDeps({
 		settings: JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}}),
 		respond: args => (args[1] === 'marketplace' ? {status: 1} : undefined),
 	});
 	t.is(installPlugin(deps), 1);
 	t.is(calls.length, 1);
 	t.false(files.has(`${SETTINGS}.bak`));
-	t.deepEqual(removed, []);
 });
 
 test('removes only the old Pappardelle hooks from settings, keeping a backup', t => {
@@ -92,7 +84,7 @@ test('removes only the old Pappardelle hooks from settings, keeping a backup', t
 			SessionStart: [{hooks: [mine]}],
 		},
 	});
-	const {deps, files, removed} = fakeDeps({settings: original});
+	const {deps, files} = fakeDeps({settings: original});
 	t.is(installPlugin(deps), 0);
 	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {
 		model: 'opus',
@@ -102,7 +94,6 @@ test('removes only the old Pappardelle hooks from settings, keeping a backup', t
 		},
 	});
 	t.is(files.get(`${SETTINGS}.bak`), original);
-	t.deepEqual(removed, [LEGACY_DIR]);
 });
 
 test('drops the hooks key when only Pappardelle hooks were configured', t => {
@@ -118,11 +109,20 @@ test('drops the hooks key when only Pappardelle hooks were configured', t => {
 
 test('leaves settings without old hooks untouched', t => {
 	const settings = JSON.stringify({hooks: {SessionStart: [{hooks: [mine]}]}});
-	const {deps, files, removed} = fakeDeps({settings});
+	const {deps, files} = fakeDeps({settings});
 	t.is(installPlugin(deps), 0);
 	t.is(files.get(SETTINGS), settings);
 	t.false(files.has(`${SETTINGS}.bak`));
-	t.deepEqual(removed, [LEGACY_DIR]);
+});
+
+test('keeps hook groups it does not recognise', t => {
+	const {deps, files} = fakeDeps({
+		settings: JSON.stringify({
+			hooks: {Stop: [null, {hooks: [legacy('update-status.py')]}]},
+		}),
+	});
+	t.is(installPlugin(deps), 0);
+	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {hooks: {Stop: [null]}});
 });
 
 test('leaves unparseable settings alone and still succeeds', t => {

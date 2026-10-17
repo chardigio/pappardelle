@@ -37,7 +37,7 @@ Install Pappardelle. This builds the CLI and installs its Claude Code plugin: th
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-Run the setup wizard from any repo where you want to use Pappardelle. This installs pappardelle configures your .pappardelle.yml:
+Run the setup wizard from any repo where you want to use Pappardelle. It writes your `.pappardelle.yml`:
 
 ```bash
 claude /init-pappardelle
@@ -633,7 +633,7 @@ Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappard
 
 They ship in the `pappardelle` plugin with the [hooks](#claude-code-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which adds the `pappardelle-marketplace` marketplace from the checkout it installed and installs the plugin at user scope. Claude Code loads a plugin from a local marketplace in place, so the skills and hooks always match that checkout: run `/reload-plugins` in open sessions after an update, or after editing a local clone you installed from.
 
-Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the checkout and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.bak` first), so the hooks don't run twice.
+Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the checkout and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.bak` first), so the hooks don't run twice. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
 
 To use the skills with other agents, install them with the [skills CLI](https://github.com/vercel-labs/skills#supported-agents):
 
