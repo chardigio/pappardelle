@@ -63,6 +63,12 @@ export function shouldAttach(
 	return registered.includes(space.name);
 }
 
+export type ClosingSpace = {
+	name: string;
+	worktreePath: string | null;
+	trackerIssue: TrackerIssue | null | undefined;
+};
+
 export type CloseHooksDeps = {
 	loadConfig: () => PappardelleConfig;
 	runDeinit: (
@@ -84,11 +90,7 @@ export const defaultCloseHooksDeps: CloseHooksDeps = {
 };
 
 export async function runCloseHooks(
-	space: {
-		name: string;
-		worktreePath: string | null;
-		trackerIssue: TrackerIssue | null | undefined;
-	},
+	space: ClosingSpace,
 	deps: CloseHooksDeps = defaultCloseHooksDeps,
 ): Promise<DeinitResult> {
 	try {

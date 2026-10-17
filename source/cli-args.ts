@@ -161,11 +161,11 @@ export type SubcommandGate =
 // otherwise ignores unknown flags.
 export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	const name = argv[0];
-	if (name !== 'close' && name !== 'restart' && name !== 'update') {
+	if (name === undefined || !Object.hasOwn(subcommands, name)) {
 		return {action: 'run'};
 	}
 
-	const {usage, flags, help} = subcommands[name];
+	const {usage, flags, help} = subcommands[name as keyof typeof subcommands];
 	const given = argv.slice(1).filter(arg => arg.startsWith('-'));
 	if (given.some(arg => arg === '--help' || arg === '-h')) {
 		return {action: 'help', text: help};

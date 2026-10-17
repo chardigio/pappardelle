@@ -78,6 +78,16 @@ if (gate.action === 'reject') {
 	process.exit(2);
 }
 
+// Hooks and config resolve from the repo root the way they do in the TUI,
+// which runs from the main checkout, not from the worktree being closed.
+if (process.argv[2] === 'close') {
+	try {
+		process.chdir(getMainRepoRoot());
+	} catch {
+		// Outside a git repo; checkConfig reports it.
+	}
+}
+
 const cli = parseCli();
 
 if (
@@ -221,6 +231,22 @@ if (cli.input[0] === 'highlight') {
 	process.exit(0);
 }
 
+function resolveCliSpaceKey(rawKey: string): string {
+	let config;
+	try {
+		config = loadConfig();
+	} catch {
+		config = null;
+	}
+
+	return resolveSpaceKey(
+		rawKey,
+		config ? getTeamPrefix(config) : 'STA',
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+}
+
 // Handle `pappardelle send STA-XXX text` — submit a prompt to a space's Claude
 if (cli.input[0] === 'send') {
 	const rawKey = cli.input[1];
@@ -236,19 +262,7 @@ if (cli.input[0] === 'send') {
 		process.exit(1);
 	}
 
-	let config;
-	try {
-		config = loadConfig();
-	} catch {
-		config = null;
-	}
-
-	const issueKey = resolveSpaceKey(
-		rawKey,
-		config ? getTeamPrefix(config) : 'STA',
-		createIssueTracker().name,
-		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
-	);
+	const issueKey = resolveCliSpaceKey(rawKey);
 	const result = sendToSpaceAgent(issueKey, text);
 	if (result === 'no-session') {
 		const session = getSessionNames(issueKey).claude;
@@ -273,19 +287,7 @@ if (cli.input[0] === 'close') {
 		process.exit(1);
 	}
 
-	let config;
-	try {
-		config = loadConfig();
-	} catch {
-		config = null;
-	}
-
-	const issueKey = resolveSpaceKey(
-		rawKey,
-		config ? getTeamPrefix(config) : 'STA',
-		createIssueTracker().name,
-		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
-	);
+	const issueKey = resolveCliSpaceKey(rawKey);
 	process.exit(
 		await runCloseCommand(
 			{key: issueKey, yes: cli.flags.yes ?? false},

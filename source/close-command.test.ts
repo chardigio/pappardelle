@@ -43,9 +43,6 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 		}),
 		currentInnerSession: () => null,
 		mainRepoRoot: '/repo',
-		chdir(dir) {
-			events.push(`chdir ${dir}`);
-		},
 		spawnTeardown(key, cwd) {
 			events.push(`spawn ${key} ${cwd}`);
 		},
@@ -71,7 +68,6 @@ test('--yes runs hooks, then kills before unregistering', async t => {
 	t.deepEqual(events, [
 		'print Running pre_workspace_deinit hooks...',
 		'hooks STA-1 /wt/STA-1 STA-1',
-		'chdir /repo',
 		'print Ending sessions...',
 		'kill STA-1',
 		'unregister STA-1',
@@ -163,7 +159,6 @@ test('closing the space this process runs in hands teardown to a detached child'
 		t.deepEqual(events, [
 			'print Running pre_workspace_deinit hooks...',
 			'hooks STA-1 /wt/STA-1 STA-1',
-			'chdir /repo',
 			'print Ending this session; teardown finishes in the background',
 			'spawn STA-1 /repo',
 		]);
@@ -195,4 +190,34 @@ test('teardown-only skips the prompt and hooks and logs failures', async t => {
 	const ok = fakeDeps();
 	t.is(await runCloseTeardown('STA-1', ok.deps), 0);
 	t.deepEqual(ok.events, ['kill STA-1', 'unregister STA-1', 'cleanup STA-1']);
+});
+
+test('teardown-only refuses main and keys that are not open', async t => {
+	for (const key of ['main', 'STA-9']) {
+		const {deps, events} = fakeDeps({
+			registeredSpaces: () => ['STA-1', 'main'],
+		});
+		t.is(await runCloseTeardown(key, deps), 1);
+		t.deepEqual(events, [`log No open space ${key}`]);
+	}
+});
+
+test('close waits for simulator cleanup before it returns', async t => {
+	for (const close of [
+		async (deps: CloseCommandDeps) =>
+			runCloseCommand({key: 'STA-1', yes: true}, deps),
+		async (deps: CloseCommandDeps) => runCloseTeardown('STA-1', deps),
+	]) {
+		const {deps, events} = fakeDeps({
+			async cleanup(key) {
+				await new Promise(resolve => {
+					setTimeout(resolve, 20);
+				});
+				events.push(`cleanup done ${key}`);
+				return true;
+			},
+		});
+		t.is(await close(deps), 0);
+		t.is(events.at(-1), 'cleanup done STA-1');
+	}
 });

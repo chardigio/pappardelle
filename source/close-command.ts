@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {getMainRepoRoot} from './config.ts';
 import {confirm} from './confirm.ts';
-import {runCloseHooks} from './close-space.ts';
+import {runCloseHooks, type ClosingSpace} from './close-space.ts';
 import {createLogger} from './logger.ts';
 import type {TrackerIssue} from './providers/types.ts';
 import {getRegisteredSpaces, removeSpace} from './space-registry.ts';
@@ -27,20 +27,15 @@ export type CloseCommandDeps = {
 	registeredSpaces: () => string[];
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
-	runHooks: (space: {
-		name: string;
-		worktreePath: string | null;
-		trackerIssue: TrackerIssue | null;
-	}) => Promise<DeinitResult>;
+	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
 	killSpaceSessions: (key: string) => Promise<boolean>;
 	removeSpace: (key: string) => Promise<void>;
 	cleanup: (key: string) => Promise<boolean>;
 	sessionNames: (key: string) => {claude: string; companion: string};
 	currentInnerSession: () => string | null;
-	// Resolved before hooks run: a hook may delete the worktree this process
-	// started in, and git can't find the repo from a deleted directory.
+	// The detached teardown starts here: a hook may have deleted the worktree
+	// the close was run from.
 	mainRepoRoot: string;
-	chdir: (dir: string) => void;
 	spawnTeardown: (key: string, cwd: string) => void;
 	isTTY: boolean;
 	confirm: (question: string) => Promise<boolean>;
@@ -53,7 +48,7 @@ export async function runCloseCommand(
 	deps: CloseCommandDeps,
 ): Promise<number> {
 	const {key} = options;
-	if (key === MAIN_WORKTREE_KEY || !deps.registeredSpaces().includes(key)) {
+	if (!isOpenSpace(key, deps)) {
 		deps.print(`No open space ${key}`);
 		return 1;
 	}
@@ -70,12 +65,7 @@ export async function runCloseCommand(
 		if (!ok) return 0;
 	}
 
-	let trackerIssue: TrackerIssue | null = null;
-	try {
-		trackerIssue = await deps.getIssue(key);
-	} catch {
-		// Reported below, same as a missing issue.
-	}
+	const trackerIssue = await deps.getIssue(key).catch(() => null);
 
 	if (!trackerIssue) {
 		deps.print(
@@ -96,8 +86,6 @@ export async function runCloseCommand(
 		return 1;
 	}
 
-	deps.chdir(deps.mainRepoRoot);
-
 	const sessions = deps.sessionNames(key);
 	const current = deps.currentInnerSession();
 	if (current === sessions.claude || current === sessions.companion) {
@@ -116,18 +104,35 @@ export async function runCloseTeardown(
 	key: string,
 	deps: CloseCommandDeps,
 ): Promise<number> {
+	if (!isOpenSpace(key, deps)) {
+		deps.logError(`No open space ${key}`);
+		return 1;
+	}
+
 	return (await tearDown(key, {...deps, print: deps.logError})) ? 0 : 1;
 }
 
+function isOpenSpace(key: string, deps: CloseCommandDeps): boolean {
+	return key !== MAIN_WORKTREE_KEY && deps.registeredSpaces().includes(key);
+}
+
+// The TUI leaves simulator cleanup running in the background; this process
+// exits right after teardown, so it waits for the cleanup first.
 async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
-	return tearDownSpace(key, {
+	let cleanup: Promise<boolean> | undefined;
+	const tornDown = await tearDownSpace(key, {
 		killSpaceSessions: deps.killSpaceSessions,
 		removeSpace: deps.removeSpace,
-		cleanup: deps.cleanup,
+		async cleanup(cleanupKey) {
+			cleanup = deps.cleanup(cleanupKey);
+			return cleanup;
+		},
 		onKillFailure(failedKey) {
 			deps.print(`Failed to end the tmux sessions for ${failedKey}`);
 		},
 	});
+	await cleanup?.catch(() => false);
+	return tornDown;
 }
 
 export function defaultCloseCommandDeps(): CloseCommandDeps {
@@ -146,9 +151,6 @@ export function defaultCloseCommandDeps(): CloseCommandDeps {
 		sessionNames: key => getSessionNames(key),
 		currentInnerSession: () => currentInnerServerSession(process.env),
 		mainRepoRoot: getMainRepoRoot(),
-		chdir(dir) {
-			process.chdir(dir);
-		},
 		spawnTeardown(key, cwd) {
 			spawn(
 				process.execPath,
