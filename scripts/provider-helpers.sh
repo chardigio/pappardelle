@@ -401,7 +401,7 @@ $quoted_prompt"
             # Convert markdown description to ADF JSON via the converter script
             local script_dir
             script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            local hooks_dir="$script_dir/../hooks"
+            local hooks_dir="$script_dir/../plugins/pappardelle/hooks"
             local adf_tmp
             adf_tmp=$(mktemp /tmp/pappardelle-desc-XXXXXX.json)
             if ! python3 "$hooks_dir/markdown_to_adf.py" "$description" > "$adf_tmp"; then

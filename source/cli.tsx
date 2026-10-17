@@ -54,6 +54,7 @@ import {
 	runCloseCommand,
 	runCloseTeardown,
 } from './close-command.ts';
+import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
@@ -127,6 +128,14 @@ if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
 	process.exit(
 		await runCloseTeardown(cli.input[1]!, defaultCloseCommandDeps()),
 	);
+}
+
+if (
+	cli.input.length === 2 &&
+	cli.input[0] === 'plugin' &&
+	cli.input[1] === 'install'
+) {
+	process.exit(installPlugin(defaultPluginInstallDeps(pappardelleDir)));
 }
 
 if (isRestart && cli.flags.hard) {

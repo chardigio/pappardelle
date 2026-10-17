@@ -530,7 +530,7 @@ function resolveMainRepoRoot(): string {
  * `.pappardelle.yml` is checked out into the worktree and found there; one kept
  * out of git exists only in the main checkout. `.pappardelle.local.yml` is
  * gitignored but copied into each worktree by workspace setup, so the worktree's
- * copy wins. Mirrors `find_repo_config` in hooks/tracker_config.py.
+ * copy wins. Mirrors `find_repo_config` in plugins/pappardelle/hooks/tracker_config.py.
  */
 export function findRepoConfig(filename: string): string | undefined {
 	const inWorkingTree = path.join(getRepoRoot(), filename);
