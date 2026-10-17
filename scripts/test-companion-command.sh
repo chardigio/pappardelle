@@ -185,7 +185,7 @@ cleanup; unset TMPDIR_ROOT
 echo -e "\n${BOLD}Test: idow reads companion_command from the layered resolver, not the project file${RESET}"
 IDOW_RAW_LOOKUPS=$(grep -c 'companion_command // .companion_command' "$SCRIPT_DIR/idow" || true)
 assert_eq "no single-file yq lookup left in idow" "0" "$IDOW_RAW_LOOKUPS"
-IDOW_RESOLVER_LOOKUPS=$(grep -c "jq -r '.companion_command'" "$SCRIPT_DIR/idow" || true)
+IDOW_RESOLVER_LOOKUPS=$(grep -c 'read .*COMPANION_COMMAND' "$SCRIPT_DIR/idow" || true)
 assert_eq "idow takes companion_command from resolver JSON" "1" "$IDOW_RESOLVER_LOOKUPS"
 
 # ==========================================================================

@@ -178,6 +178,53 @@ assert_main_repo_unchanged "clean repo"
 
 teardown_repo
 
+# A local branch named origin/master makes --short emit remotes/origin/master.
+# Default-branch resolution must use the full ref instead of an ambiguous name.
+echo -e "\n${BOLD}Test: local branch names cannot confuse origin's default branch${RESET}"
+setup_repo
+git -C "$MAIN_REPO" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+git -C "$MAIN_REPO" branch origin/master
+snapshot_main_repo
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key STA-125 --project-key test 2>/dev/null)
+assert_valid_json "ambiguous short ref still creates a worktree" "$OUTPUT"
+assert_eq "worktree uses origin's default branch" "$SNAPSHOT_HEAD" \
+    "$(git -C "$WORKTREES_ROOT/repo/STA-125" rev-parse HEAD)"
+assert_main_repo_unchanged "ambiguous ref"
+teardown_repo
+
+# Respect the repository tag-fetch policy for setup/version commands.
+echo -e "\n${BOLD}Test: new worktrees honor the repository tag-fetch policy${RESET}"
+setup_repo
+git -C "$MAIN_REPO" config remote.origin.tagOpt --tags
+tag_clone="$TMPDIR_ROOT/tag-clone"
+git clone --quiet "$TMPDIR_ROOT/origin.git" "$tag_clone"
+printf 'release\n' >> "$tag_clone/README.md"
+git -C "$tag_clone" add README.md
+git -C "$tag_clone" commit -m release --quiet
+git -C "$tag_clone" tag -a v1.2.3 -m release
+git -C "$tag_clone" push --quiet origin master v1.2.3
+snapshot_main_repo
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key STA-130 --project-key test 2>/dev/null)
+assert_valid_json "tagged history creates a worktree" "$OUTPUT"
+assert_eq "git describe sees the newly fetched tag" "v1.2.3" \
+    "$(git -C "$WORKTREES_ROOT/repo/STA-130" describe --tags --exact-match)"
+assert_main_repo_unchanged "release tags"
+teardown_repo
+
+# Existing issue branches do not depend on origin's default branch. Reopening
+# one should work immediately even when the remote is unreachable.
+echo -e "\n${BOLD}Test: reuses an existing branch without fetching${RESET}"
+setup_repo
+git -C "$MAIN_REPO" branch STA-150
+git -C "$MAIN_REPO" remote set-url origin "$TMPDIR_ROOT/missing-origin.git"
+snapshot_main_repo
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key STA-150 --project-key test 2>/dev/null)
+assert_valid_json "offline branch reuse succeeds" "$OUTPUT"
+assert_eq "reused branch preserves its commit" "$SNAPSHOT_HEAD" \
+    "$(git -C "$WORKTREES_ROOT/repo/STA-150" rev-parse HEAD)"
+assert_main_repo_unchanged "offline branch reuse"
+teardown_repo
+
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: create-worktree with uncommitted changes (no auto-stash, no checkout)${RESET}"

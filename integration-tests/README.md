@@ -87,3 +87,19 @@ npx tsx integration-tests/verify-watchlist.ts
 | `EXISTING_SPACES` | verify-watchlist               | (empty)                     |
 
 A non-zero exit code means something failed.
+
+### Workspace startup benchmark
+
+Measure local workspace setup and reopening overhead against another checkout:
+
+```bash
+python3 integration-tests/benchmark-workspace-startup.py --baseline /path/to/base-checkout
+```
+
+Requires Bash, Mike Farah's `yq`, `jq`, and Git. Each revision uses isolated home,
+config, and workspace directories. Seven samples alternate between revisions;
+the report includes median time, YAML parser invocations, and config merges.
+Tracker/VCS calls, worktree checkout, terminal launchers, and Claude are stubbed,
+and configured commands are no-ops. These timings measure Pappardelle's local
+orchestration cost; actual network, checkout, setup commands, and agent startup
+add to the time a user experiences.

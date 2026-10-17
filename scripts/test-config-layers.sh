@@ -172,10 +172,10 @@ assert_eq "idow merges the layers into CONFIG_PATH" "1" "$(grep -c 'CONFIG_PATH=
 assert_eq "merge runs before the first provider read" "yes" \
     "$(awk '/CONFIG_PATH="\$MERGED_CONFIG_PATH"/{m=NR} /get_issue_tracker_provider "\$CONFIG_PATH"/{r=NR} END{print (m && r && m<r) ? "yes" : "no"}' "$IDOW")"
 assert_eq "no yq read bypasses the merge via PROJECT_CONFIG_PATH" "0" "$(grep -c 'yq .*PROJECT_CONFIG_PATH' "$IDOW" || true)"
-assert_eq "resolver calls take the project layer and merge themselves" "0" \
-    "$(grep 'resolve-claude-config\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
-assert_eq "terminal resolver takes the project layer too" "0" \
-    "$(grep 'resolve-terminal-app\.sh"' "$IDOW" | grep -vc -- '--config "$PROJECT_CONFIG_PATH"' || true)"
+assert_eq "resolver calls reuse the merged snapshot" "0" \
+    "$(grep 'resolve-claude-config\.sh"' "$IDOW" | grep -vc -- '--config "$CONFIG_PATH"' || true)"
+assert_eq "terminal resolver reuses the merged snapshot" "0" \
+    "$(grep 'resolve-terminal-app\.sh"' "$IDOW" | grep -vc -- '--config "$CONFIG_PATH"' || true)"
 
 # The merge is subtle enough (yq eval-all fileIndex chaining, single-file
 # shortcut, missing-layer skipping) that a second copy drifts silently, which is
