@@ -1861,38 +1861,41 @@ export default function App({
 		spawnSession(pending);
 	};
 
-	// Handle user-triggered space deletion (the 'd' key with confirm dialog).
+	const writeIssueState = async (space: SpaceData, choice: StateChoice) => {
+		let written = false;
+		try {
+			written = await applyStateChoice(
+				createIssueTracker(),
+				space.name,
+				choice,
+			);
+		} catch (error) {
+			log.warn(
+				`Failed to set ${space.name}'s issue state`,
+				error instanceof Error ? error : undefined,
+			);
+		}
+
+		if (!written) {
+			setHeaderWithTimeout(
+				`Closed ${space.name}, but could not set its issue to ${choiceLabel(choice)}`,
+				5000,
+			);
+		}
+	};
+
+	// Handle user-triggered space deletion (the `x` key with confirm dialog).
 	// STA-1373: keep the dialog mounted across the await so it can render its
 	// "Closing space…" loading state — the pre_workspace_deinit hooks can run
 	// for several seconds, and hiding the dialog up front made the TUI look
-	// frozen.
+	// frozen. The issue-state write runs after the dialog closes: `bd close`
+	// can take seconds after the row has already left the rail.
 	const handleDeleteSpace = async (space: SpaceData, choice?: StateChoice) => {
 		try {
 			const ok = await deleteSpace(space);
 			if (!ok) return;
 
-			if (choice) {
-				let written = false;
-				try {
-					written = await applyStateChoice(
-						createIssueTracker(),
-						space.name,
-						choice,
-					);
-				} catch (error) {
-					log.warn(
-						`Failed to set ${space.name}'s issue state`,
-						error instanceof Error ? error : undefined,
-					);
-				}
-
-				if (!written) {
-					setHeaderWithTimeout(
-						`Closed ${space.name}, but could not set its issue to ${choiceLabel(choice)}`,
-						5000,
-					);
-				}
-			}
+			if (choice) void writeIssueState(space, choice);
 
 			// Reconcile with tmux reality in the background
 			loadSpaces();
