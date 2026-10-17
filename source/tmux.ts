@@ -515,7 +515,6 @@ export type OuterTmuxRunner = (args: readonly string[]) => {
 	error?: Error;
 	status: number | null;
 	stdout: string;
-	stderr?: string;
 };
 
 function spawnTmuxRunner(
@@ -533,7 +532,6 @@ function spawnTmuxRunner(
 			error: r.error,
 			status: r.status,
 			stdout: r.stdout ?? '',
-			stderr: r.stderr ?? '',
 		};
 	};
 }

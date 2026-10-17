@@ -2,8 +2,8 @@
 name: sous-chef
 description: >-
   Kitchen-style coordinator for managing Pappardelle worktree spaces. Use when you want a quick
-  overview of active Claude sessions, need to check on a specific space, want to create or
-  reopen a workspace, relay instructions to a running Claude session, or update or restart Pappardelle.
+  overview of active Claude sessions, need to check on a specific space, want to relay
+  instructions to a running Claude session, or want to update or restart Pappardelle.
 disable-model-invocation: true
 model: haiku
 ---
@@ -159,54 +159,26 @@ If `pappardelle send` exits non-zero with "No active session", report it:
 696 — no active session. Space may need to be reopened in Pappardelle.
 ```
 
-## Creating or Reopening a Workspace
-
-When the chef asks to open, create, or reopen a workspace, run `pappardelle` with the issue key, Linear issue URL, or quoted description from the repo or one of its worktrees. These commands work from this session without a terminal:
-
-```bash
-pappardelle STA-696
-pappardelle "fix auth bug"
-pappardelle --profile mobile "fix auth bug"
-```
-
-Use `pappardelle` rather than calling `idow` directly: a successful command saves the space in the registry used by the TUI and `gather-spaces.sh`.
-
-- Opening an existing worktree by issue key automatically resumes it without sending the configured initialization prompt again
-- `--resume` skips that prompt for any input, including a Linear issue URL or description; it does not require an existing workspace
-- `--no-resume` overrides automatic resume and enables the initialization prompt when the agent session starts
-- `--profile <name>` selects a profile configured in `.pappardelle.yml` and can be combined with either resume flag. Use the requested profile's config key, not its display name. Without this flag, idow selects the profile
-- Bare issue numbers use the selected profile's team prefix when configured, otherwise the repo's team prefix. Prefer the full issue key when its prefix is already known
-
-```bash
-pappardelle --resume --profile mobile STA-696
-pappardelle --no-resume STA-696
-```
-
-After exit status zero, refresh the board with `gather-spaces.sh` and confirm the opened space. A nonzero status means setup or registration failed; report the diagnostic. If the command says setup completed but registration failed, the workspace may already exist even though it is missing from the board. Do not claim success or blindly repeat a description that could create another issue.
-
 ## Managing Pappardelle Itself
 
 Every `pappardelle` subcommand works from this session. Run them from the repo or any of its worktrees.
 
-| Command                                | What it does                                                                                                                                                                                                                                                                             | From here                                                        |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `pappardelle highlight STA-XXX`        | Selects the space in the TUI                                                                                                                                                                                                                                                             | Safe                                                             |
-| `pappardelle send STA-XXX 'text'`      | Submits text as a prompt to the space's Claude session (quoting rules above)                                                                                                                                                                                                             | Safe                                                             |
-| `pappardelle "<prompt or issue key>"`  | Creates or reopens a space and saves it in the board; existing issue-key worktrees resume automatically (a bare number like `696` resolves with the team prefix)                                                                                                                         | Safe                                                             |
-| `pappardelle update --no-restart-tuis` | Installs the latest release and leaves running TUIs on the old build, naming them                                                                                                                                                                                                        | Safe                                                             |
-| `pappardelle update --restart-tuis`    | Installs the latest release, then restarts every running TUI in place and reports the build each one came up on. Exits 1 if a TUI fails to restart or report ready                                                                                                                       | Safe; Claude sessions, this one included, keep running           |
-| `pappardelle restart`                  | Restarts this repo's TUI in place (same tmux pane, layout rebuilt) on the build that ran the command, then confirms it with `pappardelle-<repo> is running <cli.js> (<commit>)`. Exits 1 with the reason if the TUI isn't confirmed. Prints a line and does nothing if no TUI is running | Safe                                                             |
-| `./install.sh && pappardelle restart`  | Run from a Pappardelle checkout: builds that checkout, points the `pappardelle` command at it, and moves this repo's TUI onto it                                                                                                                                                         | Safe; changes which build every later `pappardelle` command runs |
-| `pappardelle restart --hard --yes`     | Ends every Claude and companion session, then restarts every TUI. Sessions come back with `claude --continue` when their space is next selected; in-flight work stops                                                                                                                    | Ends this session too                                            |
+| Command                                | What it does                                                                                                                                                          | From here                                              |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `pappardelle highlight STA-XXX`        | Selects the space in the TUI                                                                                                                                          | Safe                                                   |
+| `pappardelle send STA-XXX 'text'`      | Submits text as a prompt to the space's Claude session (quoting rules above)                                                                                          | Safe                                                   |
+| `pappardelle "<prompt or issue key>"`  | Opens a new space (a bare number like `696` resolves with the team prefix)                                                                                            | Safe                                                   |
+| `pappardelle update --no-restart-tuis` | Installs the latest release and leaves running TUIs on the old build, naming them                                                                                     | Safe                                                   |
+| `pappardelle update --restart-tuis`    | Installs the latest release, then restarts every running TUI in place                                                                                                 | Safe; Claude sessions, this one included, keep running |
+| `pappardelle restart`                  | Restarts this repo's TUI in place (same tmux window, layout rebuilt). Prints a line and does nothing if no TUI is running                                             | Safe                                                   |
+| `pappardelle restart --hard --yes`     | Ends every Claude and companion session, then restarts every TUI. Sessions come back with `claude --continue` when their space is next selected; in-flight work stops | Ends this session too                                  |
 
 Rules:
 
 1. Always pass a flag to `update`. This session has no terminal, so without one it never restarts TUIs and only prints a hint.
-2. "Update pappa" means `pappardelle update --restart-tuis` unless the chef says to leave the TUIs alone. A non-zero exit after a successful install means a TUI is not confirmed on the new build: relay the `Couldn't restart <session>: <reason>`, "exited during startup" or "did not report ready" line and tell the chef which TUI to quit and relaunch.
-3. Reach for `pappardelle restart` when the TUI looks frozen, stale, or wrong. It doesn't touch any Claude session. Its last line names the build the TUI is running; if it exits non-zero, relay the reason it printed instead of saying the restart worked.
-4. To put the TUI on a local build, run `./install.sh && pappardelle restart` from that checkout. `install.sh` installs whichever checkout it is run from, so run it from the worktree whose build the chef wants, not from here by default.
-5. `--help` on `restart` or `update` prints help and changes nothing. Both reject flags they don't know with exit 2.
-6. Run `restart --hard --yes` only on an explicit order to reset every session. Say first that it ends every Claude session, this one included, and wait for the go. It needs `--yes` because there is no terminal here to confirm on. Your reply won't arrive after it runs, so say what's about to happen before running it. From here it restarts the TUIs without confirming them, since this session ends before they come up.
+2. "Update pappa" means `pappardelle update --restart-tuis` unless the chef says to leave the TUIs alone. If it prints "Couldn't restart", tell the chef which TUI to quit and relaunch.
+3. Reach for `pappardelle restart` when the TUI looks frozen, stale, or wrong. It doesn't touch any Claude session.
+4. Run `restart --hard --yes` only on an explicit order to reset every session. Say first that it ends every Claude session, this one included, and wait for the go. It needs `--yes` because there is no terminal here to confirm on. Your reply won't arrive after it runs, so say what's about to happen before running it.
 
 Callouts: "Updated, TUIs restarting." "Pappa restarted." "Resetting the line, all sessions 86'd, back on select."
 
