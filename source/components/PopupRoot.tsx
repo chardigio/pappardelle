@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Box} from 'ink';
 import type {LogEntry} from '../logger.ts';
 import type {ChildMessage, HostMessage, PopupSpec} from '../popup/protocol.ts';
+import CloseSpaceDialog from './CloseSpaceDialog.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
 import ErrorDialog from './ErrorDialog.tsx';
 import HelpOverlay from './HelpOverlay.tsx';
@@ -61,6 +62,22 @@ export default function PopupRoot({
 							new Promise<void>(() => {
 								// Never resolves: the TUI's `done` exits the popup.
 								channel.send({type: 'confirm'});
+							})
+						}
+						onCancel={cancel}
+					/>
+				);
+			}
+
+			case 'close-space': {
+				return (
+					<CloseSpaceDialog
+						isFullHeight
+						{...spec.props}
+						onConfirm={async choice =>
+							new Promise<void>(() => {
+								// Never resolves: the TUI's `done` exits the popup.
+								channel.send({type: 'confirm', payload: {choice}});
 							})
 						}
 						onCancel={cancel}

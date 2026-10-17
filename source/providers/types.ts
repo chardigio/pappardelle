@@ -134,6 +134,20 @@ export interface IssueTrackerProvider {
 	 * workspace starts building.
 	 */
 	claimIssue?(issueKey: string): Promise<boolean>;
+
+	/** Every state an issue can be put in, offered when closing a workspace. */
+	listStates?(): Promise<TrackerState[]>;
+
+	setIssueState?(issueKey: string, stateId: string): Promise<boolean>;
+}
+
+export interface TrackerState {
+	/** Value the tracker writes, e.g. beads `in_progress`. */
+	id: string;
+	/** Matches `TrackerIssue.state.name` for an issue in this state. */
+	name: string;
+	/** Terminal: the work counts as finished. */
+	done: boolean;
 }
 
 /**

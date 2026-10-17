@@ -45,15 +45,6 @@ import {
 
 const log = createLogger('app');
 
-function deleteConfirmContent(space: SpaceData) {
-	return {
-		title: 'Close Space',
-		message: `Close space ${space.name}?`,
-		detail: 'The worktree and git branch will remain on disk.',
-		processingMessage: `Closing space ${space.name}…`,
-	};
-}
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
@@ -84,6 +75,12 @@ import {
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {openIssueForKey} from './open-issue.ts';
+import {
+	applyStateChoice,
+	choiceLabel,
+	type StateChoice,
+} from './close-state-choice.ts';
+import CloseSpaceDialog from './components/CloseSpaceDialog.tsx';
 import {isPopupAvailable, openPopup, type PopupHandlers} from './popup/host.ts';
 import type {PopupSpec} from './popup/protocol.ts';
 import {
@@ -1115,8 +1112,17 @@ export default function App({
 					setHeaderWithTimeout('Cannot close main worktree', 2000);
 				} else if (space) {
 					showDialog(
-						{kind: 'confirm', props: deleteConfirmContent(space)},
-						{onConfirm: async () => handleDeleteSpace(space)},
+						{
+							kind: 'close-space',
+							props: {
+								spaceName: space.name,
+								currentIssue: space.trackerIssue ?? space.linearIssue ?? null,
+							},
+						},
+						{
+							onConfirm: async payload =>
+								handleDeleteSpace(space, payload?.choice),
+						},
 						() => {
 							setDeleteTarget(space);
 						},
@@ -1896,10 +1902,33 @@ export default function App({
 	// "Closing space…" loading state — the pre_workspace_deinit hooks can run
 	// for several seconds, and hiding the dialog up front made the TUI look
 	// frozen.
-	const handleDeleteSpace = async (space: SpaceData) => {
+	const handleDeleteSpace = async (space: SpaceData, choice?: StateChoice) => {
 		try {
 			const ok = await deleteSpace(space);
 			if (!ok) return;
+
+			if (choice) {
+				let written = false;
+				try {
+					written = await applyStateChoice(
+						createIssueTracker(),
+						space.name,
+						choice,
+					);
+				} catch (error) {
+					log.warn(
+						`Failed to set ${space.name}'s issue state`,
+						error instanceof Error ? error : undefined,
+					);
+				}
+
+				if (!written) {
+					setHeaderWithTimeout(
+						`Closed ${space.name}, but could not set its issue to ${choiceLabel(choice)}`,
+						5000,
+					);
+				}
+			}
 
 			// Reconcile with tmux reality in the background
 			loadSpaces();
@@ -2287,9 +2316,12 @@ export default function App({
 						onCancel={() => setKillDoneTargets(null)}
 					/>
 				) : deleteTarget ? (
-					<ConfirmDialog
-						{...deleteConfirmContent(deleteTarget)}
-						onConfirm={async () => handleDeleteSpace(deleteTarget)}
+					<CloseSpaceDialog
+						spaceName={deleteTarget.name}
+						currentIssue={
+							deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
+						}
+						onConfirm={async choice => handleDeleteSpace(deleteTarget, choice)}
 						onCancel={() => setDeleteTarget(null)}
 					/>
 				) : showHelp ? (
