@@ -48,6 +48,11 @@ import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
+import {
+	defaultCloseCommandDeps,
+	runCloseCommand,
+	runCloseTeardown,
+} from './close-command.ts';
 import {parseCli, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
@@ -100,6 +105,16 @@ if (cli.input.length === 1 && cli.input[0] === 'update') {
 			{restartTuis: cli.flags.restartTuis},
 			defaultUpdateCommandDeps(pappardelleDir),
 		),
+	);
+}
+
+// The detached half of a self-close. Its cwd is the main repo root and its key
+// is already resolved, and the worktree it was asked from may be gone.
+if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
+	if (cli.input.length !== 2) process.exit(1);
+	bootstrapRepo();
+	process.exit(
+		await runCloseTeardown(cli.input[1]!, defaultCloseCommandDeps()),
 	);
 }
 
@@ -249,6 +264,34 @@ if (cli.input[0] === 'send') {
 	}
 
 	process.exit(0);
+}
+
+if (cli.input[0] === 'close') {
+	const rawKey = cli.input[1];
+	if (!rawKey || cli.input.length !== 2) {
+		console.error('Usage: pappardelle close <issue-key> [--yes]');
+		process.exit(1);
+	}
+
+	let config;
+	try {
+		config = loadConfig();
+	} catch {
+		config = null;
+	}
+
+	const issueKey = resolveSpaceKey(
+		rawKey,
+		config ? getTeamPrefix(config) : 'STA',
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+	process.exit(
+		await runCloseCommand(
+			{key: issueKey, yes: cli.flags.yes ?? false},
+			defaultCloseCommandDeps(),
+		),
+	);
 }
 
 // If a prompt is provided as positional argument, spawn idow directly and exit

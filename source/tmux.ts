@@ -593,8 +593,25 @@ export function currentDefaultServerSession(
 	env: NodeJS.ProcessEnv,
 	runner: OuterTmuxRunner = defaultServerTmuxRunner,
 ): string | null {
+	return currentSession(env, 'default', runner);
+}
+
+// The inner-server session this process runs in: a space's claude or
+// companion session, which ends this process when it is killed.
+export function currentInnerServerSession(
+	env: NodeJS.ProcessEnv,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): string | null {
+	return currentSession(env, INNER_SOCKET, runner);
+}
+
+function currentSession(
+	env: NodeJS.ProcessEnv,
+	socketName: string,
+	runner: OuterTmuxRunner,
+): string | null {
 	const pane = env['TMUX_PANE'];
-	if (!pane || !envSocketIs(env, 'default')) return null;
+	if (!pane || !envSocketIs(env, socketName)) return null;
 
 	const result = runner([
 		'display-message',

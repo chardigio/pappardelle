@@ -12,8 +12,10 @@ test('--layout still defaults on', t => {
 	t.false(parseCli(['--no-layout']).flags.layout);
 });
 
-test("--help on restart or update prints that command's help and runs nothing", t => {
+test("--help on close, restart or update prints that command's help and runs nothing", t => {
 	for (const argv of [
+		['close', '--help'],
+		['close', 'STA-1', '--yes', '-h'],
 		['restart', '--help'],
 		['restart', '--hard', '--yes', '-h'],
 		['update', '--help'],
@@ -26,8 +28,15 @@ test("--help on restart or update prints that command's help and runs nothing", 
 	}
 });
 
-test('restart and update reject flags that are not theirs', t => {
+test('close, restart and update reject flags that are not theirs', t => {
+	const usages: Record<string, string> = {
+		close: 'Usage: pappardelle close <issue-key> [--yes]',
+		restart: 'Usage: pappardelle restart [--hard [--yes]]',
+		update: 'Usage: pappardelle update [--restart-tuis | --no-restart-tuis]',
+	};
 	for (const [argv, flag] of [
+		[['close', 'STA-1', '--bogus'], '--bogus'],
+		[['close', 'STA-1', '--hard'], '--hard'],
 		[['restart', '--bogus'], '--bogus'],
 		[['restart', '--restart-tuis'], '--restart-tuis'],
 		[['update', '--hard'], '--hard'],
@@ -38,9 +47,7 @@ test('restart and update reject flags that are not theirs', t => {
 		if (gate.action === 'reject') {
 			t.deepEqual(gate.message.split('\n'), [
 				`Unknown flag ${flag} for pappardelle ${argv[0]}`,
-				argv[0] === 'restart'
-					? 'Usage: pappardelle restart [--hard [--yes]]'
-					: 'Usage: pappardelle update [--restart-tuis | --no-restart-tuis]',
+				usages[argv[0]],
 				`Run pappardelle ${argv[0]} --help for details`,
 			]);
 		}
@@ -49,6 +56,9 @@ test('restart and update reject flags that are not theirs', t => {
 
 test('known flags and every other command pass through', t => {
 	for (const argv of [
+		['close', 'STA-1'],
+		['close', 'STA-1', '--yes'],
+		['close', 'STA-1', '--yes', '--teardown-only'],
 		['restart'],
 		['restart', '--hard', '--yes'],
 		['update', '--restart-tuis'],
@@ -88,4 +98,16 @@ test('--profile preserves its name and positional input in either order', t => {
 	}
 	t.is(parseCli(['--profile', '123', 'STE-20']).flags.profile, '123');
 	t.is(parseCli(['STE-20']).flags.profile, undefined);
+});
+
+test('close --help documents --yes but not the internal --teardown-only', t => {
+	const gate = subcommandGate(['close', '--help']);
+	t.is(gate.action, 'help');
+	if (gate.action === 'help') {
+		t.true(gate.text.includes('--yes'));
+		t.false(gate.text.includes('--teardown-only'));
+	}
+
+	t.false(parseCli([]).help.includes('--teardown-only'));
+	t.true(parseCli(['close', 'STA-1', '--teardown-only']).flags.teardownOnly);
 });

@@ -6,6 +6,7 @@ const helpText = `
 	  $ pappardelle --resume <prompt or issue-key>
 	  $ pappardelle highlight <issue-key>
 	  $ pappardelle send <issue-key> [text]
+	  $ pappardelle close <issue-key> [--yes]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
 
@@ -25,6 +26,7 @@ const helpText = `
 	                   Submit text as a prompt to the space's Claude session.
 	                   Reads stdin when no text is given; use stdin for text
 	                   that starts with "-", which would parse as a flag
+	  close <key>      Close a space, same as d in the TUI
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every Claude session, then restart every TUI
@@ -47,7 +49,7 @@ const helpText = `
 	  --workspace         Outer workspace root when linking a nested repository
 	  --restart-tuis      After update, restart running TUIs without asking
 	  --no-restart-tuis   After update, leave running TUIs alone and print a hint
-	  --yes               Skip restart --hard's confirmation
+	  --yes               Skip the confirmation for close or restart --hard
 
 	Examples
 	  $ pappardelle              # Run with tmux layout
@@ -57,6 +59,7 @@ const helpText = `
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
+	  $ pappardelle close STA-313 --yes  # Close STA-313 without asking
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
 	  $ pappardelle restart --hard  # End Claude sessions, restart every TUI
@@ -87,11 +90,32 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 			yes: {
 				type: 'boolean',
 			},
+			teardownOnly: {
+				type: 'boolean',
+			},
 		},
 	});
 }
 
 const subcommands = {
+	close: {
+		usage: 'pappardelle close <issue-key> [--yes]',
+		// --teardown-only is internal: a self-close hands the session kill to a
+		// detached copy of itself, because the kill ends the calling process.
+		flags: ['--yes', '--teardown-only'],
+		help: `
+	Usage
+	  $ pappardelle close <issue-key> [--yes]
+
+	Closes a space, same as d in the TUI: runs its pre_workspace_deinit
+	hooks, ends its Claude and companion sessions, and removes it from the
+	list. The worktree stays on disk. A running TUI drops the row within
+	10 seconds. On a terminal it asks first.
+
+	Options
+	  --yes  Skip the confirmation. Required when not run from a terminal
+`,
+	},
 	restart: {
 		usage: 'pappardelle restart [--hard [--yes]]',
 		flags: ['--hard', '--yes'],
@@ -132,12 +156,15 @@ export type SubcommandGate =
 	| {action: 'help'; text: string}
 	| {action: 'reject'; message: string};
 
-// `restart` and `update` act on running TUIs, so a flag they don't know must
-// stop them. meow only answers --help when it is the sole argument and
+// `close`, `restart` and `update` act on live spaces or TUIs, so a flag they
+// don't know must stop them. meow only answers --help when it is the sole argument and
 // otherwise ignores unknown flags.
 export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	const name = argv[0];
-	if (name !== 'restart' && name !== 'update') return {action: 'run'};
+	if (name !== 'close' && name !== 'restart' && name !== 'update') {
+		return {action: 'run'};
+	}
+
 	const {usage, flags, help} = subcommands[name];
 	const given = argv.slice(1).filter(arg => arg.startsWith('-'));
 	if (given.some(arg => arg === '--help' || arg === '-h')) {
