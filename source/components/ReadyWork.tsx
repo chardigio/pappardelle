@@ -15,8 +15,7 @@ import {
 	selectionAfterRemoval,
 	visibleWindow,
 } from './ready-picker.ts';
-
-const MAX_VISIBLE_SUGGESTIONS = 8;
+import {READY_MAX_VISIBLE} from './prompt-dialog-layout.ts';
 
 const CLOSE_KEY = 'x';
 
@@ -122,8 +121,9 @@ export function useReadyWork(
 			if (openKeyActive && input === OPEN_KEY) {
 				// Read-only, so the cursor stays where it is: the popup is a detour
 				// on the way to picking this row up, not a replacement for it.
-				const result = openIssueForKey(issue.identifier);
-				setErrorMessage(result.ok ? null : result.message);
+				void openIssueForKey(issue.identifier).then(result => {
+					setErrorMessage(result.ok ? null : result.message);
+				});
 			}
 		},
 		{isActive: isActive && closeTarget === null},
@@ -169,17 +169,19 @@ export function ReadyWorkList({
 	width,
 	isFocused,
 	hasHints,
+	maxVisible = READY_MAX_VISIBLE,
 }: {
 	ready: ReadyWork;
 	width: number;
 	/** Whether the cursor is in this list, which owns the heavy outline. */
 	isFocused: boolean;
 	hasHints: boolean;
+	maxVisible?: number;
 }) {
 	const {issues, index} = ready;
 	const window = useMemo(
-		() => visibleWindow(index, issues.length, MAX_VISIBLE_SUGGESTIONS),
-		[index, issues.length],
+		() => visibleWindow(index, issues.length, maxVisible),
+		[index, issues.length, maxVisible],
 	);
 
 	if (ready.loading) {

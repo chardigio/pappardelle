@@ -17,7 +17,6 @@ import {
 	type SleepFn,
 } from './providers/beads-provider.ts';
 import {StateColorCache} from './providers/state-color-cache.ts';
-import {buildPopupCommand} from './tmux.ts';
 
 function makeEnoentError(): Error & {code: string} {
 	const err = new Error('spawn bd ENOENT') as Error & {code: string};
@@ -692,12 +691,12 @@ test('createComment gives up immediately when bd is missing', async t => {
 
 // Misc surface
 
-test('openIssue reports failure outside tmux', t => {
+test('openIssue reports failure outside tmux', async t => {
 	const previous = process.env['TMUX'];
 	delete process.env['TMUX'];
 	try {
 		const {provider} = providerReturning('[]');
-		t.false(provider.openIssue('bd-a1b2'));
+		t.false(await provider.openIssue('bd-a1b2'));
 	} finally {
 		if (previous !== undefined) process.env['TMUX'] = previous;
 	}
@@ -708,16 +707,6 @@ test('openIssue popup is pinned to the main repo root', t => {
 	// checked-out .beads/ copy instead of the database the rail is showing.
 	const argv = buildIssuePopupArgv(REPO_ROOT, 'bd-a1b2');
 	t.is(argv[argv.indexOf('-C') + 1], REPO_ROOT);
-});
-
-test('issue popup output goes through a pager', t => {
-	// display-popup -E tears the popup down the moment its command exits, and
-	// `bd show` prints and exits immediately — without the pager the popup
-	// flashes for a single frame and the issue is never readable.
-	const command = buildPopupCommand(buildIssuePopupArgv(REPO_ROOT, 'bd-a1b2'));
-	t.true(command.includes("'bd' '-C'"));
-	t.true(command.endsWith('| less -R'));
-	t.false(command.includes('-F'));
 });
 
 test('getWorkflowStateColor resolves a display name back to its color', async t => {

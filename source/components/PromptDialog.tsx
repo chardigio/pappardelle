@@ -39,6 +39,7 @@ import {
 } from '../profile-picker.ts';
 import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
 import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
+import {promptDialogLayout} from './prompt-dialog-layout.ts';
 
 /** React key for the profile-less row, which has no profile name to use. */
 const DEFERRED_ROW_KEY = '__deferred__';
@@ -57,12 +58,15 @@ interface Props {
 	 * edge and wrap it onto its own line.
 	 */
 	availableWidth?: number;
+	/** Rows available to the dialog, which drops to a compact layout to fit. */
+	availableHeight?: number;
 }
 
 export default function PromptDialog({
 	onSubmit,
 	onCancel,
 	availableWidth,
+	availableHeight,
 }: Props) {
 	const [prompt, setPrompt] = useState('');
 	// Both boxes are always on screen; this is purely which one has focus.
@@ -343,6 +347,24 @@ export default function PromptDialog({
 		!isPicking && !isSkillFocused && ready.index === INPUT_INDEX,
 	);
 	const pickerFrame = focusFrame(isPicking);
+	const deferredLabel =
+		preview?.kind === 'deferred' && !preview.canPick
+			? preview.displayName
+			: undefined;
+	const layout = promptDialogLayout(
+		availableHeight,
+		isCompleting ? SKILL_PICKER_MAX_VISIBLE : PICKER_MAX_VISIBLE,
+		{
+			readyCount: ready.issues.length,
+			isReadyLoading: ready.loading,
+			hasError: ready.errorMessage !== null,
+			pickerCount: isCompleting
+				? completions.length
+				: deferredLabel
+					? 1
+					: options.length,
+		},
+	);
 
 	return (
 		<Box flexDirection="column">
@@ -353,8 +375,13 @@ export default function PromptDialog({
 				borderStyle={promptFrame.borderStyle}
 				isDim={promptFrame.isDim}
 				width={width}
+				paddingY={layout.paddingY}
 			>
-				<Box marginBottom={1} flexDirection="column">
+				<Box
+					marginBottom={1}
+					flexDirection="column"
+					display={layout.showInstructions ? 'flex' : 'none'}
+				>
 					<Text dimColor>Enter a prompt or issue key:</Text>
 					<Text dimColor>
 						- <Text color="cyan">STA-123</Text> or <Text color="cyan">123</Text>{' '}
@@ -411,6 +438,7 @@ export default function PromptDialog({
 				width={width}
 				isFocused={!isPicking && ready.index >= 0}
 				hasHints={!isPicking}
+				maxVisible={layout.readyMaxVisible}
 			/>
 			{isCompleting ? (
 				<SkillPicker
@@ -419,6 +447,7 @@ export default function PromptDialog({
 					width={width}
 					frame={focusFrame(isSkillFocused)}
 					isFocused={isSkillFocused}
+					maxVisible={layout.pickerMaxVisible}
 				/>
 			) : (
 				<ProfilePicker
@@ -427,11 +456,8 @@ export default function PromptDialog({
 					width={width}
 					frame={pickerFrame}
 					isFocused={isPicking}
-					deferredLabel={
-						preview?.kind === 'deferred' && !preview.canPick
-							? preview.displayName
-							: undefined
-					}
+					deferredLabel={deferredLabel}
+					maxVisible={layout.pickerMaxVisible}
 				/>
 			)}
 		</Box>
@@ -445,6 +471,7 @@ function ProfilePicker({
 	frame,
 	isFocused,
 	deferredLabel,
+	maxVisible,
 }: {
 	options: ProfileOption[];
 	selectedIndex: number;
@@ -459,11 +486,12 @@ function ProfilePicker({
 	 * inert row instead of a list, so it's visibly not somewhere Enter stops.
 	 */
 	deferredLabel?: string;
+	maxVisible: number;
 }) {
 	const {start, end, above, below} = computePickerWindow(
 		options.length,
 		selectedIndex,
-		PICKER_MAX_VISIBLE,
+		maxVisible,
 	);
 
 	return (
@@ -559,17 +587,19 @@ function SkillPicker({
 	width,
 	frame,
 	isFocused,
+	maxVisible,
 }: {
 	entries: SkillEntry[];
 	selectedIndex: number;
 	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
+	maxVisible: number;
 }) {
 	const {start, end, above, below} = computePickerWindow(
 		entries.length,
 		selectedIndex,
-		SKILL_PICKER_MAX_VISIBLE,
+		maxVisible,
 	);
 
 	return (

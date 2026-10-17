@@ -1,0 +1,112 @@
+import widestLine from 'widest-line';
+import {
+	buildHelpLines,
+	buildHelpRows,
+	helpFooter,
+	HELP_CHROME_ROWS,
+} from '../components/help-rows.ts';
+import {formatVersionLine} from '../help-version-line.ts';
+import type {PopupSpec} from './protocol.ts';
+
+export type ClientSize = {cols: number; rows: number};
+export type PopupSize = {width: number; height: number};
+
+const CONFIRM_MAX_WIDTH = 72;
+// Border (1 each side) plus paddingX={2} on the dialog Box.
+const HORIZONTAL_CHROME = 6;
+// Border (1 each side) plus paddingY={1}.
+const VERTICAL_CHROME = 4;
+const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
+
+/**
+ * Rows a string takes once Ink word-wraps it at `width` columns. Words longer
+ * than the line are split, which is what Ink's hard wrap does too.
+ */
+export function wrappedLineCount(text: string, width: number): number {
+	if (width <= 0) return 1;
+	let lines = 0;
+	for (const paragraph of text.split('\n')) {
+		let current = 0;
+		lines++;
+		for (const word of paragraph.split(' ')) {
+			let wordWidth = widestLine(word);
+			const needed = current === 0 ? wordWidth : current + 1 + wordWidth;
+			if (needed <= width) {
+				current = needed;
+				continue;
+			}
+
+			if (current > 0) lines++;
+			while (wordWidth > width) {
+				wordWidth -= width;
+				lines++;
+			}
+
+			current = wordWidth;
+		}
+	}
+
+	return lines;
+}
+
+function clamp(size: PopupSize, client: ClientSize): PopupSize {
+	return {
+		width: Math.max(1, Math.min(size.width, client.cols)),
+		height: Math.max(1, Math.min(size.height, client.rows)),
+	};
+}
+
+function fraction(client: ClientSize): PopupSize {
+	return {
+		width: Math.floor(client.cols * 0.8),
+		height: Math.floor(client.rows * 0.8),
+	};
+}
+
+export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
+	switch (spec.kind) {
+		case 'confirm': {
+			const width = Math.min(CONFIRM_MAX_WIDTH, client.cols - 4);
+			const inner = width - HORIZONTAL_CHROME;
+			const {title, message, detail} = spec.props;
+			const height =
+				VERTICAL_CHROME +
+				wrappedLineCount(title, inner) +
+				1 +
+				wrappedLineCount(message, inner) +
+				1 +
+				(detail ? wrappedLineCount(detail, inner) + 1 : 0) +
+				wrappedLineCount(CONFIRM_HINT, inner);
+			return clamp({width, height}, client);
+		}
+
+		case 'help': {
+			const {customKeybindings, commitSha, installedVersion, isDevBuild} =
+				spec.props;
+			const rows = buildHelpRows(customKeybindings);
+			const shortcutRows = [...rows.fixed, ...rows.overridable];
+			const customRows = rows.extraCustom;
+			const rowWidth = Math.max(
+				...[...shortcutRows, ...customRows].map(
+					row => rows.maxKeyLength + 1 + widestLine(row.description),
+				),
+			);
+			const height = HELP_CHROME_ROWS + buildHelpLines(rows).length;
+			const maxHeight = client.rows - 2;
+			const contentWidth = Math.max(
+				rowWidth,
+				widestLine(formatVersionLine(installedVersion, commitSha, isDevBuild)),
+				widestLine(helpFooter(height > maxHeight)),
+			);
+			return clamp(
+				{width: contentWidth + HORIZONTAL_CHROME, height},
+				{cols: client.cols, rows: maxHeight},
+			);
+		}
+
+		case 'errors':
+		case 'issue': {
+			return clamp(fraction(client), client);
+		}
+	}
+}

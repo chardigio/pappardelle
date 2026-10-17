@@ -5,14 +5,14 @@ const urlTracker = {
 	buildIssueUrl: (issueKey: string) => `https://example.test/${issueKey}`,
 };
 
-test('a tracker that shows issues in place is used instead of the browser', t => {
+test('a tracker that shows issues in place is used instead of the browser', async t => {
 	const opened: string[] = [];
 	const shown: string[] = [];
 
-	const result = openIssueForKey('bd-a1b2', {
+	const result = await openIssueForKey('bd-a1b2', {
 		createTracker: () => ({
 			...urlTracker,
-			openIssue(issueKey: string) {
+			async openIssue(issueKey: string) {
 				shown.push(issueKey);
 				return true;
 			},
@@ -25,11 +25,11 @@ test('a tracker that shows issues in place is used instead of the browser', t =>
 	t.deepEqual(result, {ok: true, message: 'Showing bd-a1b2'});
 });
 
-test('an in-place tracker that cannot display reports it without falling back to the browser', t => {
+test('an in-place tracker that cannot display reports it without falling back to the browser', async t => {
 	const opened: string[] = [];
 
-	const result = openIssueForKey('bd-a1b2', {
-		createTracker: () => ({...urlTracker, openIssue: () => false}),
+	const result = await openIssueForKey('bd-a1b2', {
+		createTracker: () => ({...urlTracker, openIssue: async () => false}),
 		openUrl: (url: string) => opened.push(url),
 	});
 
@@ -37,10 +37,10 @@ test('an in-place tracker that cannot display reports it without falling back to
 	t.deepEqual(result, {ok: false, message: 'Cannot show issue outside tmux'});
 });
 
-test('a tracker with a web UI opens the issue URL', t => {
+test('a tracker with a web UI opens the issue URL', async t => {
 	const opened: string[] = [];
 
-	const result = openIssueForKey('STA-123', {
+	const result = await openIssueForKey('STA-123', {
 		createTracker: () => urlTracker,
 		openUrl: (url: string) => opened.push(url),
 	});
@@ -49,8 +49,8 @@ test('a tracker with a web UI opens the issue URL', t => {
 	t.deepEqual(result, {ok: true, message: 'Opened STA-123'});
 });
 
-test('a tracker that cannot be constructed fails without throwing', t => {
-	const result = openIssueForKey('STA-123', {
+test('a tracker that cannot be constructed fails without throwing', async t => {
+	const result = await openIssueForKey('STA-123', {
 		createTracker() {
 			throw new Error('no tracker configured');
 		},
@@ -59,8 +59,8 @@ test('a tracker that cannot be constructed fails without throwing', t => {
 	t.deepEqual(result, {ok: false, message: 'Failed to look up issue'});
 });
 
-test('a URL that cannot be built fails without throwing', t => {
-	const result = openIssueForKey('STA-123', {
+test('a URL that cannot be built fails without throwing', async t => {
+	const result = await openIssueForKey('STA-123', {
 		createTracker: () => ({
 			buildIssueUrl() {
 				throw new Error('no base_url');

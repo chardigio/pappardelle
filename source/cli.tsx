@@ -36,13 +36,12 @@ import {captureStderr, setStderrTerminalPassthrough} from './logger.ts';
 
 // Capture stderr early so Ink/React rendering errors go to the log file
 captureStderr();
-import {loadEnvrcIntoProcessEnv} from './envrc.ts';
-import {createIssueTracker, createVcsHost} from './providers/index.ts';
+import {bootstrapRepo} from './repo-bootstrap.ts';
+import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {getRegisteredSpaces, initForRepo} from './space-registry.ts';
-import {initStateColorCacheDir} from './providers/state-color-cache.ts';
+import {getRegisteredSpaces} from './space-registry.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
@@ -162,34 +161,7 @@ if (cli.input[0] === 'link-pr') {
 
 checkConfig();
 
-// Load $REPO_ROOT/.envrc (plain `export KEY=VAL` lines) into process.env so
-// per-repo Linear credentials and similar reach the providers even when
-// pappardelle was launched from a shell or tmux server that didn't have
-// direnv hooked. Mirrors STA-1422's idow-level fix one layer up so the TUI's
-// bulk GraphQL fetch — which reads LINCTL_API_KEY from process.env — uses
-// the right workspace's key instead of falling back to ~/.linctl-auth.json.
-// Existing process.env values win; .envrc only fills gaps.
-loadEnvrcIntoProcessEnv(getRepoRoot());
-
-// Initialize per-repo state directories so state is kept separate
-// from other repos that may also use pappardelle.
-const repoName = getRepoName();
-const repoStateDir = path.join(homedir(), '.pappardelle', 'repos', repoName);
-initForRepo(repoName);
-initStateColorCacheDir(repoStateDir);
-
-// Initialize provider singletons from config so that all subsequent
-// no-arg calls (e.g. from tracker.ts facade) use the correct provider.
-// Uses loadProviderConfigs() instead of loadConfig() so that provider
-// initialization succeeds even when unrelated config sections (e.g.
-// profiles) have validation errors.
-try {
-	const providerCfg = loadProviderConfigs();
-	createIssueTracker(providerCfg.issue_tracker);
-	createVcsHost(providerCfg.vcs_host);
-} catch {
-	// If loading fails the providers will fall back to defaults on first use.
-}
+const {repoName} = bootstrapRepo();
 
 if (isRestart) {
 	process.exit(restartRepo(repoName, defaultRestartCommandDeps()));

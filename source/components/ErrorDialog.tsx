@@ -1,29 +1,26 @@
-import React, {useEffect, useState} from 'react';
+import React from 'react';
 import {Box, Text, useInput} from 'ink';
-import {
-	subscribeToErrors,
-	clearRecentErrors,
-	type LogEntry,
-} from '../logger.ts';
+import type {LogEntry} from '../logger.ts';
 
 interface Props {
+	errors: LogEntry[];
 	onClose: () => void;
+	onClear: () => void;
+	/** Stretch to the parent's height, for a tmux popup sized to fit. */
+	isFullHeight?: boolean;
 }
 
-export default function ErrorDialog({onClose}: Props) {
-	const [errors, setErrors] = useState<LogEntry[]>([]);
-
-	useEffect(() => {
-		const unsubscribe = subscribeToErrors(setErrors);
-		return unsubscribe;
-	}, []);
-
+export default function ErrorDialog({
+	errors,
+	onClose,
+	onClear,
+	isFullHeight,
+}: Props) {
 	useInput((input, key) => {
 		if (key.escape) {
 			onClose();
 		} else if (input === 'c') {
-			clearRecentErrors();
-			onClose();
+			onClear();
 		}
 	});
 
@@ -32,6 +29,7 @@ export default function ErrorDialog({onClose}: Props) {
 			flexDirection="column"
 			borderStyle="double"
 			borderColor="red"
+			flexGrow={isFullHeight ? 1 : 0}
 			paddingX={2}
 			paddingY={1}
 		>
