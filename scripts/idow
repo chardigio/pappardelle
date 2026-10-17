@@ -176,8 +176,8 @@ if ! command -v yq &> /dev/null; then
     error "yq is required but not installed. Install with: brew install yq"
 fi
 
-# Merge once per invocation. All resolvers consume this same snapshot, including
-# the selected profile; repeated merges were a large part of startup overhead.
+# Merge once per invocation so every resolver, including the selected
+# profile's, reads the same layered values.
 LOCAL_CONFIG_PATH=$(resolve_repo_config .pappardelle.local.yml)
 # shellcheck source=provider-helpers.sh
 source "$SCRIPT_DIR/provider-helpers.sh"
@@ -188,11 +188,11 @@ merge_config_layers "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PA
 CONFIG_PATH="$MERGED_CONFIG_PATH"
 TERMINAL_OPEN_FAILED=false
 
-# Read selected records as NUL-delimited fields. One YAML parse handles an
-# entire command/app/link list, preserving empty strings, tabs and internal
-# newlines. Strip trailing newlines to match the previous $(...) field reads.
-# Only selected fields pass through JSON, so unrelated YAML-only values remain
-# valid. Field values are read as data, never evaluated as shell assignments.
+# Write a command/app/link list as NUL-delimited fields, so empty strings,
+# tabs and internal newlines survive. Trailing newlines are stripped, as YAML
+# block scalars add one that would otherwise end up in the command. Only the
+# selected fields go through JSON, because yq cannot write some YAML-only
+# values (.inf, huge integers) as JSON.
 config_records() (
     # Validate the whole list before running any command. A process substitution
     # would hide parser failures and could silently skip required setup steps.
@@ -200,9 +200,29 @@ config_records() (
     yq -o=json "$1" "$CONFIG_PATH" | jq -j '.[] | .[] | (tostring | sub("\n+$"; "")) + "\u0000"' > "$CONFIG_RECORDS_PATH"
 )
 
-# Expand aliases before inspecting consumers, retaining YAML-only values that
-# cannot be serialized as JSON. On inspection failure, keep the old lookup
-# behavior rather than silently dropping a configured PR link.
+# Run every {name, run, continue_on_error, background} entry of the list at
+# yq path $1. Returns 1 when the list is empty or missing.
+run_configured_commands() {
+    local list_path="$1" label="$2" i=0 name run_tmpl run continue_on_error background
+    config_records "[($list_path // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]" ||
+        error "Could not read $label commands from config"
+    [[ -s "$CONFIG_RECORDS_PATH" ]] || return 1
+    log "Running $label commands..."
+    while IFS= read -r -u 3 -d '' name &&
+          IFS= read -r -u 3 -d '' run_tmpl &&
+          IFS= read -r -u 3 -d '' continue_on_error &&
+          IFS= read -r -u 3 -d '' background; do
+        name="${name:-$label $i}"
+        run=$(expand_var "$run_tmpl")
+        log "  $label: $name -> $run"
+        run_command "$name" "$run" "$continue_on_error" "$background" 3<&-
+        i=$((i + 1))
+    done 3< "$CONFIG_RECORDS_PATH"
+}
+
+# The PR/MR lookup is a network call, so only make it when something in the
+# profile or hooks references PR_URL/MR_URL. If the config can't be inspected,
+# look it up anyway rather than drop a configured PR link.
 profile_uses_pr_url() {
     local consumers
     if ! consumers=$(yq -r "explode(.) | [.profiles.$SELECTED_PROFILE.vars, .profiles.$SELECTED_PROFILE.commands, .profiles.$SELECTED_PROFILE.apps, .profiles.$SELECTED_PROFILE.links, .hooks.post_workspace_create]" "$CONFIG_PATH"); then
@@ -626,10 +646,7 @@ read_claude_launch_config() {
 }
 CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --profile "$SELECTED_PROFILE")
 read_claude_launch_config "$CLAUDE_CONFIG_JSON"
-PROFILE_INIT_CMD=$(yq -r ".profiles.$SELECTED_PROFILE.claude.initialization_command // \"\"" "$CONFIG_PATH")
-if [[ -n "$PROFILE_INIT_CMD" ]]; then
-    INIT_CMD="$PROFILE_INIT_CMD"
-fi
+[[ -z "$INIT_CMD" ]] || log "Claude init command: $INIT_CMD"
 [[ -z "$CLAUDE_MODEL" ]] || log "Claude model: $CLAUDE_MODEL"
 [[ -z "$CLAUDE_EFFORT" ]] || log "Claude effort: $CLAUDE_EFFORT"
 [[ ${#CLAUDE_EXTRA_ARGS[@]} -eq 0 ]] || log "Claude extra args: ${CLAUDE_EXTRA_ARGS[*]}"
@@ -752,51 +769,9 @@ else
         print_success "Copied .claude/settings.local.json"
     fi
 
-    # Run post_workspace_init commands from config (falls back to legacy post_worktree_init)
-    POST_INIT_KEY="post_workspace_init"
-    POST_INIT_COUNT=$(yq -r '.post_workspace_init | explode(.) | length // 0' "$CONFIG_PATH" 2>/dev/null)
-    if [[ "$POST_INIT_COUNT" -eq 0 ]]; then
-        POST_INIT_KEY="post_worktree_init"
-        POST_INIT_COUNT=$(yq -r '.post_worktree_init | explode(.) | length // 0' "$CONFIG_PATH" 2>/dev/null)
-    fi
-    if [[ "$POST_INIT_COUNT" -gt 0 ]]; then
-        log "Running $POST_INIT_COUNT $POST_INIT_KEY command(s)..."
-        config_records "[(.${POST_INIT_KEY} // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]"
-        i=0
-        while IFS= read -r -u 3 -d '' CMD_NAME &&
-              IFS= read -r -u 3 -d '' CMD_RUN_TMPL &&
-              IFS= read -r -u 3 -d '' CMD_CONTINUE &&
-              IFS= read -r -u 3 -d '' CMD_BG; do
-            CMD_NAME="${CMD_NAME:-${POST_INIT_KEY}[$i]}"
-            CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
-            log "  $POST_INIT_KEY: $CMD_NAME -> $CMD_RUN"
-            run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG" 3<&-
-            i=$((i + 1))
-        done 3< "$CONFIG_RECORDS_PATH"
-    fi
-
-    # Run profile-specific post_workspace_init commands (falls back to legacy post_worktree_init)
-    PROFILE_POST_INIT_KEY="post_workspace_init"
-    PROFILE_POST_INIT_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.post_workspace_init | explode(.) | length // 0" "$CONFIG_PATH" 2>/dev/null)
-    if [[ "$PROFILE_POST_INIT_COUNT" -eq 0 ]]; then
-        PROFILE_POST_INIT_KEY="post_worktree_init"
-        PROFILE_POST_INIT_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.post_worktree_init | explode(.) | length // 0" "$CONFIG_PATH" 2>/dev/null)
-    fi
-    if [[ "$PROFILE_POST_INIT_COUNT" -gt 0 ]]; then
-        log "Running $PROFILE_POST_INIT_COUNT profile $PROFILE_POST_INIT_KEY command(s)..."
-        config_records "[(.profiles.$SELECTED_PROFILE.${PROFILE_POST_INIT_KEY} // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]"
-        i=0
-        while IFS= read -r -u 3 -d '' CMD_NAME &&
-              IFS= read -r -u 3 -d '' CMD_RUN_TMPL &&
-              IFS= read -r -u 3 -d '' CMD_CONTINUE &&
-              IFS= read -r -u 3 -d '' CMD_BG; do
-            CMD_NAME="${CMD_NAME:-profile_post_init[$i]}"
-            CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
-            log "  profile $PROFILE_POST_INIT_KEY: $CMD_NAME -> $CMD_RUN"
-            run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG" 3<&-
-            i=$((i + 1))
-        done 3< "$CONFIG_RECORDS_PATH"
-    fi
+    # post_worktree_init is the legacy name, used only when post_workspace_init is empty
+    run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init || true
+    run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" || true
 fi
 
 PR_URL=""
@@ -862,23 +837,8 @@ fi
 # Step 8: Run profile commands BEFORE opening apps (so xcodegen, etc. are ready)
 print_step 8 "Running profile commands..."
 
-CMD_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.commands | explode(.) | length // 0" "$CONFIG_PATH" 2>/dev/null)
-if [[ "$CMD_COUNT" -gt 0 ]]; then
-    config_records "[(.profiles.$SELECTED_PROFILE.commands // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]"
-    i=0
-    while IFS= read -r -u 3 -d '' CMD_NAME &&
-          IFS= read -r -u 3 -d '' CMD_RUN_TMPL &&
-          IFS= read -r -u 3 -d '' CMD_CONTINUE &&
-          IFS= read -r -u 3 -d '' CMD_BG; do
-        CMD_NAME="${CMD_NAME:-command $i}"
-        CMD_RUN=$(expand_var "$CMD_RUN_TMPL")
-        log "  Command: $CMD_NAME -> $CMD_RUN"
-        run_command "$CMD_NAME" "$CMD_RUN" "$CMD_CONTINUE" "$CMD_BG" 3<&-
-        i=$((i + 1))
-    done 3< "$CONFIG_RECORDS_PATH"
-else
+run_configured_commands ".profiles.$SELECTED_PROFILE.commands" profile ||
     print_success "No commands configured in profile"
-fi
 
 # Step 9: Open terminal
 print_step 9 "Opening terminal..."
@@ -953,9 +913,8 @@ fi
 # Step 10: Open apps from profile
 print_step 10 "Opening profile apps..."
 
-APP_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.apps | explode(.) | length // 0" "$CONFIG_PATH" 2>/dev/null)
-if [[ "$APP_COUNT" -gt 0 ]]; then
-    config_records "[(.profiles.$SELECTED_PROFILE.apps // [])[] | [.name // \"\", .path // \"\", .command // \"\", .if_set // \"\"]]"
+config_records "[(.profiles.$SELECTED_PROFILE.apps // [])[] | [.name // \"\", .path // \"\", .command // \"\", .if_set // \"\"]]"
+if [[ -s "$CONFIG_RECORDS_PATH" ]]; then
     while IFS= read -r -u 3 -d '' APP_NAME &&
           IFS= read -r -u 3 -d '' APP_PATH_TMPL &&
           IFS= read -r -u 3 -d '' APP_CMD_TMPL &&
@@ -974,20 +933,20 @@ if [[ "$APP_COUNT" -gt 0 ]]; then
             eval "$APP_CMD" 3<&- || print_warning "Failed: $APP_NAME"
             print_success "$APP_NAME opened (command)"
         elif [[ "$APP_NAME" == "Cursor" ]]; then
-            cursor "$APP_PATH" || print_warning "Failed to open Cursor"
+            cursor "$APP_PATH" 3<&- || print_warning "Failed to open Cursor"
             print_success "Cursor opened"
         elif [[ "$APP_NAME" == "Xcode" ]]; then
             if [[ -n "$APP_PATH" && -d "$APP_PATH" ]]; then
-                open "$APP_PATH"
+                open "$APP_PATH" 3<&-
                 print_success "Xcode opened"
             else
                 log "  Skipping Xcode (path not found: $APP_PATH)"
             fi
         else
             if [[ -n "$APP_PATH" ]]; then
-                open -a "$APP_NAME" "$APP_PATH" || print_warning "Failed to open $APP_NAME"
+                open -a "$APP_NAME" "$APP_PATH" 3<&- || print_warning "Failed to open $APP_NAME"
             else
-                open -a "$APP_NAME" || print_warning "Failed to open $APP_NAME"
+                open -a "$APP_NAME" 3<&- || print_warning "Failed to open $APP_NAME"
             fi
             print_success "$APP_NAME opened"
         fi
@@ -999,10 +958,9 @@ fi
 # Step 11: Open links from profile
 print_step 11 "Opening profile links..."
 
-LINK_COUNT=$(yq -r ".profiles.$SELECTED_PROFILE.links | explode(.) | length // 0" "$CONFIG_PATH" 2>/dev/null)
-if [[ "$LINK_COUNT" -gt 0 ]]; then
+config_records "[(.profiles.$SELECTED_PROFILE.links // [])[] | [.url // \"\", .title // \"\", .if_set // \"\"]]"
+if [[ -s "$CONFIG_RECORDS_PATH" ]]; then
     LINK_URLS=()
-    config_records "[(.profiles.$SELECTED_PROFILE.links // [])[] | [.url // \"\", .title // \"\", .if_set // \"\"]]"
     while IFS= read -r -u 3 -d '' LINK_URL_TMPL &&
           IFS= read -r -u 3 -d '' LINK_TITLE &&
           IFS= read -r -u 3 -d '' LINK_IF_SET; do
@@ -1030,10 +988,9 @@ else
 fi
 
 # Global post_workspace_create hooks (run after everything is open so windows exist)
-HOOK_COUNT=$(yq -r '.hooks.post_workspace_create | explode(.) | length // 0' "$CONFIG_PATH" 2>/dev/null)
-if [[ "$HOOK_COUNT" -gt 0 ]]; then
-    log "Running $HOOK_COUNT post_workspace_create hook(s)..."
-    config_records "[(.hooks.post_workspace_create // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]"
+config_records "[(.hooks.post_workspace_create // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]"
+if [[ -s "$CONFIG_RECORDS_PATH" ]]; then
+    log "Running post_workspace_create hook(s)..."
     i=0
     while IFS= read -r -u 3 -d '' HOOK_NAME &&
           IFS= read -r -u 3 -d '' HOOK_RUN &&

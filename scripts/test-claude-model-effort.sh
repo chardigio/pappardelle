@@ -318,8 +318,6 @@ assert_eq "start-claude-session.sh gets --extra-arg" "1" \
     "$(grep -c 'CLAUDE_SESSION_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
 assert_eq "the terminal launcher gets --extra-arg" "1" \
     "$(grep -c 'LAUNCHER_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
-assert_eq "the profile-resolved config is read once" "1" \
-    "$(grep -c '^read_claude_launch_config "\$CLAUDE_CONFIG_JSON"$' "$SCRIPT_DIR/idow" || true)"
 
 # ==========================================================================
 
@@ -444,6 +442,39 @@ fi
 # STA-2663: claude.extra_args is a list, so it is emitted as a JSON array (not
 # stringified like model/effort). The profile list replaces the top-level one,
 # and an explicit [] on a profile clears it.
+echo -e "\n${BOLD}Test: init_cmd resolves profile-first, an empty profile value falls back${RESET}"
+setup_configs "version: 1
+claude:
+  initialization_command: /idow
+profiles:
+  backend:
+    display_name: Backend
+    claude:
+      initialization_command: /dow
+  frontend:
+    display_name: Frontend
+    claude:
+      initialization_command: \"\"
+  plain:
+    display_name: Plain"
+assert_eq "no profile → top-level" "/idow" "$(resolve | field init_cmd)"
+assert_eq "profile value wins" "/dow" "$(resolve --profile backend | field init_cmd)"
+assert_eq "empty profile value falls back" "/idow" "$(resolve --profile frontend | field init_cmd)"
+assert_eq "profile without the key inherits" "/idow" "$(resolve --profile plain | field init_cmd)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+profiles:
+  backend:
+    display_name: Backend
+    claude:
+      initialization_command: /dow"
+assert_eq "profile-only value" "/dow" "$(resolve --profile backend | field init_cmd)"
+assert_eq "unset everywhere → empty" "" "$(resolve | field init_cmd)"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: extra_args resolves profile-first as a JSON array${RESET}"
 setup_configs "version: 1
 claude:
