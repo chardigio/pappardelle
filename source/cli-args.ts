@@ -26,7 +26,7 @@ const helpText = `
 	                   Submit text as a prompt to the space's Claude session.
 	                   Reads stdin when no text is given; use stdin for text
 	                   that starts with "-", which would parse as a flag
-	  close <key>      Close a space, same as d in the TUI
+	  close <key>      Close a space, same as x in the TUI
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every Claude session, then restart every TUI
@@ -107,7 +107,7 @@ const subcommands = {
 	Usage
 	  $ pappardelle close <issue-key> [--yes]
 
-	Closes a space, same as d in the TUI: runs its pre_workspace_deinit
+	Closes a space, same as x in the TUI: runs its pre_workspace_deinit
 	hooks, ends its Claude and companion sessions, and removes it from the
 	list. The worktree stays on disk. A running TUI drops the row within
 	10 seconds. On a terminal it asks first.

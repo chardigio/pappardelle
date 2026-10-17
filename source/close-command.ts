@@ -17,7 +17,7 @@ import {
 import {getIssue} from './tracker.ts';
 import type {DeinitResult} from './workspace-deinit.ts';
 
-// `pappardelle close <space>`: the CLI twin of pressing d in the TUI, for
+// `pappardelle close <space>`: the CLI twin of pressing x in the TUI, for
 // agents and scripts that can't answer the TUI's confirm popup. A running TUI
 // drops the row on its next registry refresh.
 

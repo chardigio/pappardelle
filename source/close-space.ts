@@ -1,4 +1,4 @@
-// The hook half of closing a space, shared by the TUI's `d`/`K`/auto-remove
+// The hook half of closing a space, shared by the TUI's `x`/`K`/auto-remove
 // path and `pappardelle close`, so both run the same pre_workspace_deinit
 // hooks for the same space.
 
