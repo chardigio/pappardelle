@@ -16,13 +16,18 @@ import {
 	listRunningTuis,
 	listSessionNames,
 	plural,
-	respawnTuiArgs,
-	respawnTuis,
-	tuiSessionNames,
+	restartAndVerifyTui,
+	restartTuiArgs,
+	restartTuis,
+	type RestartTiming,
+	tuiLaunchCommand,
+	tuiListPane,
 } from './tui-sessions.ts';
+import {DEFAULT_REPO_STATE_ROOT, readTuiMarker} from './tui-marker.ts';
 import {confirm} from './confirm.ts';
 
-// `pappardelle restart` respawns this repo's TUI window in place.
+// `pappardelle restart` reruns this repo's TUI in its pane, on the build that
+// ran the command, and waits for it to report ready.
 // `pappardelle restart --hard` also ends every Claude/companion session (the
 // inner tmux server); they come back with `claude --continue` the next time a
 // space is selected.
@@ -31,6 +36,9 @@ export type RestartCommandDeps = {
 	tmux: OuterTmuxRunner;
 	innerTmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	launchCommand: string;
+	cliPath: string;
+	timing?: Partial<RestartTiming>;
 	currentSession: () => string | null;
 	onInnerServer: boolean;
 	inTmux: boolean;
@@ -41,23 +49,23 @@ export type RestartCommandDeps = {
 	print: (line: string) => void;
 };
 
-export function restartRepo(
+export async function restartRepo(
 	repoName: string,
 	deps: RestartCommandDeps,
-): number {
-	const candidates = new Set(tuiSessionNames(repoName));
-	const name = listRunningTuis(deps.tmux, deps.repoStateRoot).find(session =>
-		candidates.has(session),
+): Promise<number> {
+	const tui = listRunningTuis(deps.tmux, deps.repoStateRoot).find(
+		running => running.repo === repoName,
 	);
-	if (!name) {
+	if (!tui) {
 		deps.print(
 			`No running Pappardelle TUI for ${repoName}. Start one with pappardelle.`,
 		);
 		return 0;
 	}
 
-	if (respawnTuis([name], deps).length > 0) return 1;
-	return deps.inTmux ? 0 : deps.attach(name);
+	if (!(await restartAndVerifyTui(tui, deps.launchCommand, deps.cliPath, deps)))
+		return 1;
+	return deps.inTmux ? 0 : deps.attach(tui.session);
 }
 
 export async function hardRestart(
@@ -81,7 +89,7 @@ export async function hardRestart(
 				: ` and restart ${running.length} ${plural(
 						running.length,
 						'TUI',
-					)} (${running.join(', ')})`;
+					)} (${running.map(tui => tui.session).join(', ')})`;
 		const ok = await deps.confirm(
 			`End ${innerCount} Claude/companion ${plural(
 				innerCount,
@@ -96,29 +104,49 @@ export async function hardRestart(
 	// then keep the dead viewers on screen after the kill.
 	if (deps.onInnerServer) {
 		// Killing the inner server ends this process, so a detached child runs
-		// the kill and the respawns.
+		// the kill and the restarts, and nothing is left to confirm them.
+		const restarts: string[][] = [];
+		for (const tui of running) {
+			const pane = tuiListPane(
+				tui.session,
+				deps.tmux,
+				readTuiMarker(deps.repoStateRoot, tui.repo)?.paneId,
+			);
+			if (pane.ok) {
+				restarts.push(restartTuiArgs(pane.paneId, deps.launchCommand));
+			} else {
+				deps.print(`Couldn't restart ${tui.session}: ${pane.reason}`);
+			}
+		}
+
 		deps.print(
-			`Ending Claude sessions and restarting ${running.length} ${plural(
-				running.length,
+			`Ending Claude sessions and restarting ${restarts.length} ${plural(
+				restarts.length,
 				'TUI',
 			)}...`,
 		);
-		deps.runDetached([
-			innerTmuxArgs(['kill-server']),
-			...running.map(name => respawnTuiArgs(name)),
-		]);
-		return 0;
+		deps.runDetached([innerTmuxArgs(['kill-server']), ...restarts]);
+		return restarts.length === running.length ? 0 : 1;
 	}
 
 	deps.innerTmux(['kill-server']);
-	return respawnTuis(running, deps).length > 0 ? 1 : 0;
+	const failed = await restartTuis(running, deps.launchCommand, deps);
+	return failed.length > 0 ? 1 : 0;
 }
 
 export function defaultRestartCommandDeps(): RestartCommandDeps {
+	const cliPath = path.resolve(process.argv[1] ?? '');
 	return {
 		tmux: defaultServerTmuxRunner,
 		innerTmux: defaultInnerTmuxRunner,
-		repoStateRoot: path.join(homedir(), '.pappardelle', 'repos'),
+		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+		launchCommand: tuiLaunchCommand({
+			execPath: process.execPath,
+			cliPath,
+			args: [],
+			home: homedir(),
+		}),
+		cliPath,
 		currentSession: () => currentDefaultServerSession(process.env),
 		onInnerServer: isOnInnerServer(process.env),
 		inTmux: isInTmux(),

@@ -46,7 +46,7 @@ import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
-import {parseCli} from './cli-args.ts';
+import {parseCli, subcommandGate} from './cli-args.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
@@ -58,6 +58,17 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+
+const gate = subcommandGate(process.argv.slice(2));
+if (gate.action === 'help') {
+	console.log(gate.text);
+	process.exit(0);
+}
+
+if (gate.action === 'reject') {
+	console.error(gate.message);
+	process.exit(2);
+}
 
 const cli = parseCli();
 
@@ -164,7 +175,7 @@ checkConfig();
 const {repoName} = bootstrapRepo();
 
 if (isRestart) {
-	process.exit(restartRepo(repoName, defaultRestartCommandDeps()));
+	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
 }
 
 // Handle `pappardelle highlight STA-XXX` — write target file and exit
