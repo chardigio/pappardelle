@@ -10,6 +10,7 @@ const helpText = `
 	  $ pappardelle close <issue-key> [--yes]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
+	  $ pappardelle plugin install
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
@@ -31,6 +32,8 @@ const helpText = `
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
+	  plugin install   Install the Claude Code plugin (skills and hooks) from
+	                   this checkout. install.sh runs this
 
 	Controls
 	  j/k or arrows  Navigate between spaces
