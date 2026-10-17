@@ -13,9 +13,10 @@
 # 2. Clones or updates chardigio/pappardelle to ~/.pappardelle/repo/
 # 3. Builds and links the npm package (makes `pappardelle` available globally)
 # 4. Symlinks `idow` to ~/.local/bin/
-# 5. Installs Claude Code hooks for status tracking
-# 6. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
-# 7. Installs skill helper scripts to ~/.pappardelle/scripts/
+# 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
+# 6. Installs skill helper scripts to ~/.pappardelle/scripts/
+# 7. Installs the Claude Code plugin (skills and status hooks) from this
+#    checkout (`pappardelle plugin install`)
 
 set -e
 
@@ -372,48 +373,10 @@ else
 fi
 
 # ============================================================================
-# Install Claude Code Hooks
+# Install the Codex Session Hook
 # ============================================================================
 
-HOOKS_DIR="$PAPPARDELLE_DIR/hooks"
-HOOKS_SRC="$REPO_DIR/hooks"
-CLAUDE_SETTINGS="$HOME/.claude/settings.json"
-
-if [[ -d "$HOOKS_SRC" ]]; then
-    mkdir -p "$HOOKS_DIR"
-
-    # Copy hook scripts
-    for hook in update-status.py comment-question-answered.py zap-notification.py record-agent-session.py; do
-        if [[ -f "$HOOKS_SRC/$hook" ]]; then
-            cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
-            chmod +x "$HOOKS_DIR/$hook"
-        fi
-    done
-
-    # Helper modules imported by the hooks above
-    for module in markdown_to_adf.py acli_helpers.py tracker_config.py agent_session.py; do
-        if [[ -f "$HOOKS_SRC/$module" ]]; then
-            cp "$HOOKS_SRC/$module" "$HOOKS_DIR/"
-        fi
-    done
-    print_status "Installed Claude Code hooks to $HOOKS_DIR/"
-
-    # Show instructions for Claude settings
-    if [[ -f "$CLAUDE_SETTINGS" ]]; then
-        print_info "Claude settings exists at $CLAUDE_SETTINGS"
-        print_info "Merge hooks config from: $HOOKS_SRC/settings.json.example"
-    else
-        if [[ -f "$HOOKS_SRC/settings.json.example" ]]; then
-            mkdir -p "$(dirname "$CLAUDE_SETTINGS")"
-            cp "$HOOKS_SRC/settings.json.example" "$CLAUDE_SETTINGS"
-            print_status "Created $CLAUDE_SETTINGS with Pappardelle hooks"
-        fi
-    fi
-
-    "$HOOKS_SRC/install-codex-hooks.sh"
-else
-    print_warning "Hooks directory not found at $HOOKS_SRC"
-fi
+"$REPO_DIR/plugins/pappardelle/hooks/install-codex-hooks.sh"
 
 # ============================================================================
 # Create Required Directories
@@ -449,6 +412,15 @@ install_skill_scripts() {
 
 install_skill_scripts sous-chef
 install_skill_scripts init-pappardelle
+
+# ============================================================================
+# Install the Claude Code Plugin
+# ============================================================================
+
+if ! "$NODE_BIN" "$CLI_JS" plugin install; then
+    print_warning "Could not install the Pappardelle Claude Code plugin (skills and hooks)"
+    print_info "Retry with: pappardelle plugin install"
+fi
 
 # ============================================================================
 # Check PATH
