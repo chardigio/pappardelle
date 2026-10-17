@@ -2,7 +2,7 @@
 
 # start-claude-session.sh - Ensure Claude and companion tmux sessions exist for an issue
 #
-# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>] [--extra-arg <ARG>]...
+# Usage: start-claude-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-claude] [--fresh] [--skip-permissions] [--model <MODEL>] [--effort <LEVEL>] [--extra-arg <ARG>]...
 #
 # Creates detached tmux sessions (repo-qualified):
 #   claude-<REPO>-<KEY>     — runs Claude (with --dangerously-skip-permissions if --skip-permissions is set)
@@ -11,6 +11,7 @@
 # Idempotent: if sessions already exist, does nothing.
 # --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
+# --fresh: a newly created issue/worktree has no conversation to resume.
 # --no-claude: create sessions but don't launch claude/the companion command (for testing)
 # --skip-permissions: pass --dangerously-skip-permissions to claude
 # --model / --effort: pass --model / --effort to claude. Empty or omitted means
@@ -29,6 +30,7 @@ REPO_NAME=""
 WORKTREE_PATH=""
 INIT_CMD=""
 NO_CLAUDE=false
+FRESH=false
 SKIP_PERMISSIONS=false
 CLAUDE_MODEL=""
 CLAUDE_EFFORT=""
@@ -59,6 +61,10 @@ while [[ $# -gt 0 ]]; do
         --companion-command)
             COMPANION_COMMAND="$2"
             shift 2
+            ;;
+        --fresh)
+            FRESH=true
+            shift
             ;;
         --no-claude)
             NO_CLAUDE=true
@@ -195,11 +201,15 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION" 2>/dev
         fi
         # Use printf %q to safely quote the argument for the shell inside tmux
         SAFE_ARG=$(printf '%q' "$CLAUDE_ARG")
-        CONTINUE_CMD="${CLAUDE_CMD} --continue"
-        if [[ -n "$INIT_CMD" ]]; then
-            CONTINUE_CMD="${CONTINUE_CMD} ${SAFE_ARG}"
+        if [[ "$FRESH" == true ]]; then
+            new_launch_session "$CLAUDE_SESSION" "${CLAUDE_CMD} ${SAFE_ARG}"
+        else
+            CONTINUE_CMD="${CLAUDE_CMD} --continue"
+            if [[ -n "$INIT_CMD" ]]; then
+                CONTINUE_CMD="${CONTINUE_CMD} ${SAFE_ARG}"
+            fi
+            new_launch_session "$CLAUDE_SESSION" "${CONTINUE_CMD} || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}"
         fi
-        new_launch_session "$CLAUDE_SESSION" "${CONTINUE_CMD} || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}"
     fi
 fi
 

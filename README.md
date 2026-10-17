@@ -222,7 +222,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
-4. **PR/MR lookup** — When opening workspace apps and links (`o` or `idow --open`), an existing PR (GitHub) or MR (GitLab) is resolved into `${PR_URL}`. Setup-only creation skips this network request. Provisioning never _opens_ a PR: the agent opens it at its first real commit. Anything keyed off `${PR_URL}` should be gated with `if_set: PR_URL`.
+4. **PR/MR lookup** — When opening workspace apps and links (`o` or `idow --open`), an existing PR (GitHub) or MR (GitLab) is resolved into `${PR_URL}`. Setup-only creation skips this network request, as does opening a profile whose commands, apps, links, and hooks do not use `${PR_URL}` or `${MR_URL}`. When lookup is skipped, the final workspace summary also omits the `PR:` line. Claude and companion sessions start before any PR/MR lookup. Provisioning never _opens_ a PR: the agent opens it at its first real commit. Anything keyed off `${PR_URL}` should be gated with `if_set: PR_URL`.
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
