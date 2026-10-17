@@ -18,10 +18,10 @@
 # preserved, which is how a profile opts out of an inherited value — same
 # empty-string-is-meaningful convention companion_command uses.
 #
-# init_cmd and skip_permissions stay top-level-only here even when --profile is
-# given: idow layers the per-profile initialization_command itself (and has
-# since before this script was profile-aware), so resolving it here too would
-# change which layer wins. Mirrored by getClaudeModel()/getClaudeEffort() in
+# init_cmd also resolves profile-first, but an empty profile value falls back
+# to the top-level one instead of clearing it: a workspace always gets its
+# initialization command unless no layer sets one. skip_permissions stays
+# top-level-only. Mirrored by getClaudeModel()/getClaudeEffort() in
 # source/config.ts and pinned by scripts/test-claude-model-effort.sh.
 #
 # companion_command is resolved here too, profile-first over the merged layers,
@@ -108,7 +108,7 @@ printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
         },
         "companion_command": .companion_command,
         "selected": {
-            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort, "extra_args": $selected.claude.extra_args},
+            "claude": {"initialization_command": $selected.claude.initialization_command, "model": $selected.claude.model, "effort": $selected.claude.effort, "extra_args": $selected.claude.extra_args},
             "companion_command": $selected.companion_command
         }
     }
@@ -116,7 +116,7 @@ printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" yq -o=json '
     .selected as $selected |
     ($selected.claude.extra_args // .claude.extra_args // [] | map(tostring)) as $extra_args |
     {
-        init_cmd: (.claude.initialization_command // ""),
+        init_cmd: ([$selected.claude.initialization_command, .claude.initialization_command] | map(select(. != null and . != "")) | first // ""),
         skip_permissions: (.claude.dangerously_skip_permissions // false),
         model: ($selected.claude.model // .claude.model // ""),
         effort: ($selected.claude.effort // .claude.effort // ""),

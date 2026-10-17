@@ -178,8 +178,8 @@ assert_main_repo_unchanged "clean repo"
 
 teardown_repo
 
-# A local branch named origin/master makes --short emit remotes/origin/master.
-# Default-branch resolution must use the full ref instead of an ambiguous name.
+# A local branch named origin/master shadows refs/remotes/origin/master when the
+# start point is the short name origin/master, so it must be the full ref.
 echo -e "\n${BOLD}Test: local branch names cannot confuse origin's default branch${RESET}"
 setup_repo
 git -C "$MAIN_REPO" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
