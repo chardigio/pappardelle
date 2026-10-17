@@ -2,7 +2,7 @@
 """
 Tests for zap-notification.py hook script.
 
-Run with: uv run pytest _dev/scripts/pappardelle/hooks/test_zap_notification.py -v
+Run with: uv run pytest plugins/pappardelle/hooks/test_zap_notification.py -v
 """
 
 import importlib.util

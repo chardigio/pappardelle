@@ -44,13 +44,13 @@ bun --bun ava 'source/**/*.test.ts'
 
 # Python hook tests
 pip install pytest
-pytest hooks/ -v
+pytest plugins/pappardelle/hooks/ -v
 ```
 
 ## Code style
 
 - TypeScript source lives in `source/`
-- Python hooks live in `hooks/`
+- Python hooks live in `plugins/pappardelle/hooks/`
 - Prettier handles formatting (see `.prettierignore`)
 - Keep changes focused — one logical change per PR
 
