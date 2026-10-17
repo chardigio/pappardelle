@@ -96,32 +96,33 @@ if [[ ! -d "$WORKTREE_PATH" ]]; then
     # Clean up any stale index.lock before running git operations
     remove_stale_index_lock
 
-    # Detect default branch (main or master)
-    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    if [[ -z "$DEFAULT_BRANCH" ]]; then
-        # Fallback: check which branch exists on remote
-        if git show-ref --verify --quiet refs/remotes/origin/main 2>/dev/null; then
-            DEFAULT_BRANCH="main"
-        else
-            DEFAULT_BRANCH="master"
-        fi
-    fi
-
-    # Fetch latest default branch so the new worktree branches from up-to-date
-    # origin/<default>. We deliberately do NOT checkout, pull, or stash the
-    # main repo here — `git worktree add ... origin/<default>` works regardless
-    # of what's checked out, and silently mutating the main repo can revert
-    # merged commits when a stale auto-stash later pops over a newer master.
-    log "Fetching latest $DEFAULT_BRANCH..."
-    git fetch origin "$DEFAULT_BRANCH" --quiet >&2 2>&1
-
     # Create worktree — reuse existing branch or create a new one
     if git show-ref --verify --quiet "refs/heads/$ISSUE_KEY"; then
         log "Branch $ISSUE_KEY already exists, reusing it"
         git worktree add "$WORKTREE_PATH" "$ISSUE_KEY" >&2 2>&1
     else
+        # Detect default branch (main or master)
+        DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || true)
+        DEFAULT_BRANCH="${DEFAULT_BRANCH#refs/remotes/origin/}"
+        if [[ -z "$DEFAULT_BRANCH" ]]; then
+            # Fallback: check which branch exists on remote
+            if git show-ref --verify --quiet refs/remotes/origin/main 2>/dev/null; then
+                DEFAULT_BRANCH="main"
+            else
+                DEFAULT_BRANCH="master"
+            fi
+        fi
+
+        # Fetch latest default branch so the new worktree branches from up-to-date
+        # origin/<default>. We deliberately do NOT checkout, pull, or stash the
+        # main repo here — `git worktree add ... origin/<default>` works regardless
+        # of what's checked out, and silently mutating the main repo can revert
+        # merged commits when a stale auto-stash later pops over a newer master.
+        log "Fetching latest $DEFAULT_BRANCH..."
+        git fetch --no-recurse-submodules origin "$DEFAULT_BRANCH" --quiet >&2 2>&1
+
         log "Preparing worktree (new branch '$ISSUE_KEY')"
-        git worktree add "$WORKTREE_PATH" -b "$ISSUE_KEY" "origin/$DEFAULT_BRANCH" >&2 2>&1
+        git worktree add "$WORKTREE_PATH" -b "$ISSUE_KEY" "refs/remotes/origin/$DEFAULT_BRANCH" >&2 2>&1
     fi
     log "Worktree created with branch $ISSUE_KEY"
 else
