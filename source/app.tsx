@@ -199,7 +199,16 @@ import {
 	reconcilePaneLayout,
 	runningAgentProfile,
 	installSousChefKey,
+	measurePaneWidth,
+	setSpaceCompanionWidth,
+	setSpaceCompanionDragHandler,
 } from './tmux.ts';
+import {
+	getCompanionWidth,
+	setCompanionWidth,
+	watchWidthRequests,
+	writeWidthAck,
+} from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
 	calculateRowWindow,
@@ -868,6 +877,9 @@ export default function App({
 	}, [loading, isZooming, backgroundReady, onFirstRailPaint, renderer]);
 	const syncingTerminalSize = useRef(false);
 	const stackedLayoutRef = useRef(false);
+	// Whether the most recent pane layout went through, for the ack a
+	// `companion width` request waits on.
+	const layoutSucceeded = useRef(true);
 	const layoutTasks = useMemo(
 		() =>
 			new PaneLayoutTask({
@@ -886,6 +898,7 @@ export default function App({
 					return reconciled.dimensions;
 				},
 				onReady(_zoomed, dimensions, revision) {
+					layoutSucceeded.current = true;
 					syncingTerminalSize.current = true;
 					try {
 						if (stdout) syncTerminalDimensions(stdout, dimensions);
@@ -898,6 +911,7 @@ export default function App({
 					setSettledRevision(revision);
 				},
 				onError(error, revision) {
+					layoutSucceeded.current = false;
 					log.error(
 						'Failed to update pane layout',
 						error instanceof Error ? error : undefined,
@@ -974,6 +988,91 @@ export default function App({
 		: undefined;
 	const selectedIssueTitle =
 		selectedSpace?.trackerIssue?.title ?? selectedSpace?.linearIssue?.title;
+
+	// A space's own companion width applies only while that space is selected.
+	const appliedSpaceWidth = useRef<string | null>(null);
+	useEffect(() => {
+		if (!selectedSpaceName) return;
+		const width = getCompanionWidth(repoName, selectedSpaceName);
+		const signature = width === null ? null : `${selectedSpaceName}=${width}`;
+		setSpaceCompanionWidth(
+			width === null ? null : {key: selectedSpaceName, width},
+		);
+		if (signature === appliedSpaceWidth.current) return;
+		appliedSpaceWidth.current = signature;
+		if (paneLayoutRef.current)
+			void layoutTasks.request(
+				dialogOpenRef.current,
+				dialogRequest.current.revision,
+			);
+	}, [repoName, selectedSpaceName, layoutTasks]);
+
+	useEffect(() => {
+		setSpaceCompanionDragHandler((key, columns) => {
+			if (key === selectedSpaceNameRef.current)
+				appliedSpaceWidth.current = `${key}=${columns}`;
+			setCompanionWidth(repoName, key, columns).catch((error: unknown) =>
+				log.warn(
+					`Failed to store the companion width for ${key}`,
+					error instanceof Error ? error : undefined,
+				),
+			);
+		});
+		return () => setSpaceCompanionDragHandler(null);
+	}, [repoName]);
+
+	// Requests from `pappardelle companion width`. The CLI has already stored
+	// the width; this applies it when the space is showing and says whether
+	// the pane really took it.
+	useEffect(() => {
+		const handled = new Set<string>();
+		const ack = (ackValue: Parameters<typeof writeWidthAck>[1]) => {
+			try {
+				writeWidthAck(repoName, ackValue);
+			} catch (error) {
+				log.warn(
+					'Failed to answer a companion width request',
+					error instanceof Error ? error : undefined,
+				);
+			}
+		};
+
+		return watchWidthRequests(repoName, request => {
+			if (handled.has(request.id)) return;
+			handled.add(request.id);
+			const layout = paneLayoutRef.current;
+			if (
+				request.space !== selectedSpaceNameRef.current ||
+				!layout?.companionViewerPaneId
+			) {
+				ack({id: request.id, result: 'stored'});
+				return;
+			}
+
+			void (async () => {
+				const width = getCompanionWidth(repoName, request.space);
+				setSpaceCompanionWidth(
+					width === null ? null : {key: request.space, width},
+				);
+				appliedSpaceWidth.current =
+					width === null ? null : `${request.space}=${width}`;
+				await layoutTasks.request(
+					dialogOpenRef.current,
+					dialogRequest.current.revision,
+				);
+				const columns = layoutSucceeded.current
+					? await measurePaneWidth(layout.companionViewerPaneId).catch(
+							() => null,
+						)
+					: null;
+				ack(
+					columns === null
+						? {id: request.id, result: 'failed'}
+						: {id: request.id, result: 'applied', columns},
+				);
+			})();
+		});
+	}, [repoName, layoutTasks]);
 
 	useEffect(() => {
 		if (

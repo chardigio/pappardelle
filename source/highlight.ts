@@ -127,7 +127,18 @@ export function watchHighlightTarget(
 	callback: (request: HighlightRequest) => void,
 	baseDir?: string,
 ): () => void {
-	const filePath = getHighlightFilePath(repoName, baseDir);
+	return watchFileContent(getHighlightFilePath(repoName, baseDir), callback);
+}
+
+/**
+ * Call `callback` with the trimmed content of `filePath` each time it is
+ * written. The directory is watched rather than the file, so writes that
+ * replace the file by rename are seen too.
+ */
+export function watchFileContent(
+	filePath: string,
+	callback: (content: string) => void,
+): () => void {
 	const dir = path.dirname(filePath);
 	const filename = path.basename(filePath);
 

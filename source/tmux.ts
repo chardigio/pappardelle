@@ -187,6 +187,7 @@ import {
 	MIN_COMPANION_WIDTH,
 	NARROW_SCREEN_THRESHOLD,
 	type LayoutConfig,
+	type PaneWidth,
 	type PaneWidths,
 } from './layout-sizing.ts';
 import {nextWidthOverride, type WindowSize} from './pane-drag.ts';
@@ -304,6 +305,29 @@ let viewerPaneIds: string | null = null;
  */
 let railWidthOverride: number | null = null;
 let companionWidthOverride: number | null = null;
+
+/**
+ * The selected space's own companion width, set by `pappardelle companion
+ * width`, or null when the space has none. It beats the drag override and the
+ * config. A hand-drag while it applies changes this width, and is handed to
+ * `onSpaceCompanionDrag` to store, instead of becoming the session-wide drag
+ * override.
+ */
+let spaceCompanionWidth: {key: string; width: PaneWidth} | null = null;
+let onSpaceCompanionDrag: ((key: string, columns: number) => void) | null =
+	null;
+
+export function setSpaceCompanionWidth(
+	value: {key: string; width: PaneWidth} | null,
+): void {
+	spaceCompanionWidth = value;
+}
+
+export function setSpaceCompanionDragHandler(
+	handler: ((key: string, columns: number) => void) | null,
+): void {
+	onSpaceCompanionDrag = handler;
+}
 
 /**
  * Window size and measured side-pane widths at the end of the previous
@@ -1658,6 +1682,30 @@ export async function sendToSpaceAgent(
 }
 
 /**
+ * Press tmux key names such as Escape or S-Tab in a space's agent session,
+ * in order. Nothing is cleared or submitted around them, so a keybinding
+ * reaches the TUI exactly as if the user pressed it.
+ */
+export function sendKeysToSpaceAgent(
+	issueKey: string,
+	keys: readonly string[],
+	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
+): SendToSpaceAgentResult {
+	const runner = options.runner ?? defaultInnerTmuxRunner;
+	const target = resolveInnerSessionTarget(
+		getSessionNames(issueKey, options.repoName).agent,
+		runner,
+	);
+	if (!target) return 'no-session';
+	for (const key of keys) {
+		const r = runner(['send-keys', '-t', target, key]);
+		if (r.error || r.status !== 0) return 'failed';
+	}
+
+	return 'sent';
+}
+
+/**
  * Detach from any tmux session running in a pane
  * This sends the detach command (prefix + d) to the nested tmux
  */
@@ -1704,6 +1752,15 @@ function recordGeometry(
 	lastRailWidth = paneGeometry(snapshot, listPaneId).cols;
 	// The companion pane closes when the shell left in it exits.
 	lastCompanionWidth = snapshot.panes.get(companionPaneId)?.cols ?? null;
+}
+
+export async function measurePaneWidth(
+	paneId: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<number | null> {
+	if (!paneId) return null;
+	const geometry = parseWindowGeometry(await run(paneGeometryArgs(paneId)));
+	return paneGeometry(geometry, paneId).cols;
 }
 
 function readGeometrySync(paneId: string): WindowGeometry | null {
@@ -1776,10 +1833,16 @@ export function calculateLayout(
  */
 function currentPaneWidths(): PaneWidths {
 	const configured = getConfiguredPaneWidths();
-	const dragged = railWidthOverride !== null || companionWidthOverride !== null;
+	const dragged =
+		railWidthOverride !== null ||
+		companionWidthOverride !== null ||
+		spaceCompanionWidth !== null;
 	return {
 		rail: railWidthOverride ?? configured.rail,
-		companion: companionWidthOverride ?? configured.companion,
+		companion:
+			spaceCompanionWidth?.width ??
+			companionWidthOverride ??
+			configured.companion,
 		claude: dragged ? null : configured.claude,
 	};
 }
@@ -2691,6 +2754,9 @@ async function relayoutGeometry(
 	run: AsyncTmuxRunner,
 	snapshot?: WindowGeometry,
 ): Promise<WindowGeometry | null> {
+	// Captured before any await: the selection can change while this relayout
+	// waits on tmux, and a drag belongs to the space that was showing.
+	const spaceWidth = spaceCompanionWidth;
 	try {
 		// Get current terminal dimensions from the window (not individual panes)
 		const geometry =
@@ -2716,13 +2782,23 @@ async function relayoutGeometry(
 			currentWidth: measuredRailWidth,
 			currentOverride: railWidthOverride,
 		});
-		companionWidthOverride = nextWidthOverride({
+		const companionDrag = nextWidthOverride({
 			previousWindow: lastWindowSize,
 			currentWindow: windowDims,
 			previousWidth: lastCompanionWidth,
 			currentWidth: measuredCompanionWidth,
-			currentOverride: companionWidthOverride,
+			currentOverride: null,
 		});
+		if (companionDrag !== null && spaceWidth) {
+			if (spaceCompanionWidth?.key === spaceWidth.key)
+				spaceCompanionWidth = {key: spaceWidth.key, width: companionDrag};
+			log.info(
+				`Companion resized by hand for ${spaceWidth.key}: width=${companionDrag} (was ${String(spaceWidth.width)})`,
+			);
+			onSpaceCompanionDrag?.(spaceWidth.key, companionDrag);
+		} else if (companionDrag !== null) {
+			companionWidthOverride = companionDrag;
+		}
 		// A configured claude width can be what sized the other side pane, and
 		// that width is dropped once anything is dragged. Pinning the other side
 		// keeps it where it was instead of jumping to its derived width.
@@ -3303,6 +3379,18 @@ export async function ensureCompanionSession(
 			]),
 		);
 
+		// `pappardelle companion` addresses panes by name; the first one is main.
+		// It names main itself when this fails, so the failure doesn't matter.
+		await run(
+			innerTmuxArgs([
+				'set-option',
+				'-p',
+				'-t',
+				`=${sessionName}:`,
+				'@pappa_pane',
+				'main',
+			]),
+		).catch(() => undefined);
 		log.info(`Created companion session: ${sessionName}`);
 		traceDone?.();
 		return true;

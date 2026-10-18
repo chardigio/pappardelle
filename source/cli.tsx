@@ -18,6 +18,7 @@ import {
 	exactSessionTarget,
 	isInTmux,
 	outerSessionName,
+	sendKeysToSpaceAgent,
 	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
@@ -84,6 +85,17 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
+import {runCompanionCommand} from './companion-command.ts';
+import {resolveTargetSpace} from './space-target.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {findLatestSessionJsonl} from './space-state.ts';
+import {formatTurns, readTurns, turnsJson} from './read-command.ts';
+import {
+	formatSpaces,
+	gatherSpaces,
+	worktreeGitSummary,
+} from './spaces-command.ts';
+import {getIssues} from './tracker.ts';
 
 const SCRIPTS_DIR = scriptsDir;
 
@@ -106,6 +118,42 @@ if (process.argv[2] === 'close') {
 	} catch {
 		// Outside a git repo; checkConfig reports it.
 	}
+}
+
+function resolveCliSpaceKey(rawKey: string): string {
+	let config;
+	try {
+		config = loadConfig();
+	} catch {
+		config = null;
+	}
+
+	return resolveSpaceKey(
+		rawKey,
+		config ? getTeamPrefix(config) : 'STA',
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+}
+
+// Dispatched before meow, which would read the wrapped command's flags
+// (including --help) as Pappardelle's own.
+if (process.argv[2] === 'companion') {
+	const companionArgv = process.argv.slice(3);
+	process.exit(
+		await runCompanionCommand(companionArgv, {
+			resolveSpace(flag) {
+				checkConfig();
+				bootstrapRepo();
+				return resolveTargetSpace({
+					flag,
+					env: process.env,
+					resolve: resolveCliSpaceKey,
+				});
+			},
+			repoName: getRepoName,
+		}),
+	);
 }
 
 const cli = parseCli();
@@ -266,40 +314,32 @@ if (cli.input[0] === 'highlight') {
 	process.exit(0);
 }
 
-function resolveCliSpaceKey(rawKey: string): string {
-	let config;
-	try {
-		config = loadConfig();
-	} catch {
-		config = null;
-	}
-
-	return resolveSpaceKey(
-		rawKey,
-		config ? getTeamPrefix(config) : 'STA',
-		createIssueTracker().name,
-		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
-	);
-}
-
 // Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
-	const {key: rawKey, text: argText} = parseSendArgs(process.argv.slice(2));
+	const {key: rawKey, text: argText, keys} = parseSendArgs(process.argv.slice(2));
 	let text = argText;
-	if (!text && !process.stdin.isTTY) {
+	if (keys.length > 0 && text) {
+		console.error('Pass text or --keys, not both');
+		process.exit(1);
+	}
+
+	if (!text && keys.length === 0 && !process.stdin.isTTY) {
 		text = readFileSync(0, 'utf8').replace(/\n$/, '');
 	}
 
-	if (!rawKey || !text) {
+	if (!rawKey || (!text && keys.length === 0)) {
 		console.error(
-			'Usage: pappardelle send <issue-key> [text]  (or text on stdin)',
+			'Usage: pappardelle send <issue-key> [text]  (or text on stdin)\n       pappardelle send <issue-key> --keys <key> [--keys <key>]...',
 		);
 		process.exit(1);
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
 	migrateLegacyAgentSessions();
-	const result = await sendToSpaceAgent(issueKey, text);
+	const result =
+		keys.length > 0
+			? sendKeysToSpaceAgent(issueKey, keys)
+			: await sendToSpaceAgent(issueKey, text);
 	if (result === 'no-session') {
 		const session = getSessionNames(issueKey).agent;
 		console.error(
@@ -337,6 +377,57 @@ if (cli.input[0] === 'close') {
 			defaultCloseCommandDeps(),
 		),
 	);
+}
+
+if (cli.input[0] === 'spaces') {
+	const report = await gatherSpaces({
+		repoName,
+		home: homedir(),
+		async fetchTitles(keys) {
+			const issues = await getIssues(keys);
+			return new Map(
+				[...issues].map(([key, issue]) => [key, issue?.title ?? null]),
+			);
+		},
+		gitSummary: worktreeGitSummary,
+	});
+	console.log(
+		cli.flags.json ? JSON.stringify(report, null, 2) : formatSpaces(report),
+	);
+	process.exit(0);
+}
+
+if (cli.input[0] === 'read') {
+	const rawKey = cli.input[1];
+	const turns = cli.flags.turns ?? 5;
+	if (
+		!rawKey ||
+		cli.input.length > 2 ||
+		!Number.isInteger(turns) ||
+		turns < 1
+	) {
+		console.error('Usage: pappardelle read <issue-key> [--turns N] [--json]');
+		process.exit(1);
+	}
+
+	const issueKey = resolveCliSpaceKey(rawKey);
+	const worktree =
+		issueKey === MAIN_WORKTREE_KEY
+			? getMainRepoRoot()
+			: getWorktreePath(issueKey);
+	const log = worktree ? await findLatestSessionJsonl(worktree) : null;
+	if (!log) {
+		console.error(`No conversation log for ${issueKey}`);
+		process.exit(1);
+	}
+
+	const parsed = readTurns(log);
+	console.log(
+		cli.flags.json
+			? JSON.stringify(turnsJson(issueKey, parsed, turns), null, 2)
+			: formatTurns(issueKey, parsed, turns),
+	);
+	process.exit(0);
 }
 
 // If a prompt is provided as positional argument, spawn idow directly and exit

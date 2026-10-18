@@ -117,6 +117,9 @@ else
 fi
 
 # The session environment names the space, for a Claude started later in the pane
+MAIN_PANE=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "=$COMPANION_SESSION:" '#{@pappa_pane}' 2>/dev/null)
+assert_eq "companion's first pane is named main" "main" "$MAIN_PANE"
+
 SPACE_ENV=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_SPACE 2>/dev/null)
 assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY" "$SPACE_ENV"
 

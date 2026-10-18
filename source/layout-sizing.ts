@@ -61,6 +61,15 @@ export interface PaneWidths {
 	companion?: PaneWidth | null;
 }
 
+export function isPaneWidth(value: unknown): value is PaneWidth {
+	if (typeof value === 'number') return Number.isInteger(value) && value > 0;
+	if (typeof value !== 'string') return false;
+	const match = /^(\d+(?:\.\d+)?)%$/.exec(value);
+	if (!match) return false;
+	const percent = Number(match[1]);
+	return percent > 0 && percent <= 100;
+}
+
 export function resolvePaneWidth(
 	width: PaneWidth,
 	usableWidth: number,
