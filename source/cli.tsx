@@ -88,14 +88,9 @@ import {
 import {runCompanionCommand} from './companion-command.ts';
 import {resolveTargetSpace} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
-import {findLatestSessionJsonl} from './space-state.ts';
-import {formatTurns, readTurns, turnsJson} from './read-command.ts';
-import {
-	formatSpaces,
-	gatherSpaces,
-	worktreeGitSummary,
-} from './spaces-command.ts';
-import {getIssues} from './tracker.ts';
+import {runReadCommand} from './read-command.ts';
+import {runSpacesCommand} from './spaces-command.ts';
+import {exitAfterFlush} from './exit-after-flush.ts';
 
 const SCRIPTS_DIR = scriptsDir;
 
@@ -140,7 +135,7 @@ function resolveCliSpaceKey(rawKey: string): string {
 // (including --help) as Pappardelle's own.
 if (process.argv[2] === 'companion') {
 	const companionArgv = process.argv.slice(3);
-	process.exit(
+	await exitAfterFlush(
 		await runCompanionCommand(companionArgv, {
 			resolveSpace(flag) {
 				checkConfig();
@@ -377,54 +372,37 @@ if (cli.input[0] === 'close') {
 }
 
 if (cli.input[0] === 'spaces') {
-	const report = await gatherSpaces({
-		repoName,
-		home: homedir(),
-		async fetchTitles(keys) {
-			const issues = await getIssues(keys);
-			return new Map(
-				[...issues].map(([key, issue]) => [key, issue?.title ?? null]),
-			);
-		},
-		gitSummary: worktreeGitSummary,
-	});
-	console.log(
-		cli.flags.json ? JSON.stringify(report, null, 2) : formatSpaces(report),
+	await exitAfterFlush(
+		await runSpacesCommand({
+			repoName,
+			home: homedir(),
+			json: cli.flags.json ?? false,
+			out: text => console.log(text),
+		}),
 	);
-	process.exit(0);
 }
 
 if (cli.input[0] === 'read') {
 	const rawKey = cli.input[1];
-	const turns = cli.flags.turns ?? 5;
-	if (
-		!rawKey ||
-		cli.input.length > 2 ||
-		!Number.isInteger(turns) ||
-		turns < 1
-	) {
+	if (!rawKey || cli.input.length > 2) {
 		console.error('Usage: pappardelle read <issue-key> [--turns N] [--json]');
 		process.exit(1);
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
-	const worktree =
-		issueKey === MAIN_WORKTREE_KEY
-			? getMainRepoRoot()
-			: getWorktreePath(issueKey);
-	const log = worktree ? await findLatestSessionJsonl(worktree) : null;
-	if (!log) {
-		console.error(`No conversation log for ${issueKey}`);
-		process.exit(1);
-	}
-
-	const parsed = readTurns(log);
-	console.log(
-		cli.flags.json
-			? JSON.stringify(turnsJson(issueKey, parsed, turns), null, 2)
-			: formatTurns(issueKey, parsed, turns),
+	await exitAfterFlush(
+		await runReadCommand({
+			issueKey,
+			worktree:
+				issueKey === MAIN_WORKTREE_KEY
+					? getMainRepoRoot()
+					: getWorktreePath(issueKey),
+			turns: cli.flags.turns,
+			json: cli.flags.json ?? false,
+			out: text => console.log(text),
+			err: text => console.error(text),
+		}),
 	);
-	process.exit(0);
 }
 
 // If a prompt is provided as positional argument, spawn idow directly and exit

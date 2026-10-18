@@ -1,5 +1,6 @@
-import {MAIN_PANE, type SplitDirection} from './companion-args.ts';
+import type {SplitDirection} from './companion-args.ts';
 import {
+	MAIN_PANE,
 	buildShellLaunchArgs,
 	defaultInnerTmuxRunner,
 	getSessionNames,
@@ -140,7 +141,7 @@ function findPane(panes: CompanionPane[], name: string): CompanionPane {
 	return pane;
 }
 
-function open(spaceKey: string, deps: CompanionDeps) {
+function loadCompanionPanes(spaceKey: string, deps: CompanionDeps) {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
 	const target = companionSessionTarget(spaceKey, {...deps, runner});
 	return {runner, panes: listCompanionPanes(target, runner)};
@@ -158,7 +159,7 @@ export function runInCompanion(
 	},
 	deps: CompanionDeps = {},
 ): RunResult {
-	const {runner, panes} = open(spaceKey, deps);
+	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
 	const launch = buildShellLaunchArgs(options.command);
 	const existing = panes.find(p => p.name === options.pane);
 	if (existing) {
@@ -229,7 +230,7 @@ export function sendCompanionKeys(
 	options: {pane: string; text?: string; keys: string[]; enter: boolean},
 	deps: CompanionDeps = {},
 ): void {
-	const {runner, panes} = open(spaceKey, deps);
+	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
 	const {paneId} = findPane(panes, options.pane);
 	if (options.keys.length > 0) {
 		for (const key of options.keys) {
@@ -240,7 +241,7 @@ export function sendCompanionKeys(
 	}
 
 	if (options.text)
-		tmux(runner, ['send-keys', '-t', paneId, '-l', options.text]);
+		tmux(runner, ['send-keys', '-t', paneId, '-l', '--', options.text]);
 	if (options.enter) tmux(runner, ['send-keys', '-t', paneId, 'Enter']);
 }
 
@@ -249,7 +250,7 @@ export function readCompanionPane(
 	options: {pane: string; lines: number},
 	deps: CompanionDeps = {},
 ): string {
-	const {runner, panes} = open(spaceKey, deps);
+	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
 	const {paneId} = findPane(panes, options.pane);
 	const output = tmux(runner, [
 		'capture-pane',
@@ -260,7 +261,13 @@ export function readCompanionPane(
 		'-t',
 		paneId,
 	]);
-	return output.replace(/\n+$/, '');
+	// capture-pane runs from -S through the bottom of the screen, so a short
+	// --lines still captures a whole screenful.
+	return output
+		.replace(/\n+$/, '')
+		.split('\n')
+		.slice(-options.lines)
+		.join('\n');
 }
 
 export function resizeCompanionPane(
@@ -268,7 +275,7 @@ export function resizeCompanionPane(
 	options: {pane: string; width?: string; height?: string},
 	deps: CompanionDeps = {},
 ): void {
-	const {runner, panes} = open(spaceKey, deps);
+	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
 	const {paneId} = findPane(panes, options.pane);
 	tmux(runner, [
 		'resize-pane',
@@ -290,7 +297,7 @@ export function closeCompanionPane(
 		);
 	}
 
-	const {runner, panes} = open(spaceKey, deps);
+	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
 	tmux(runner, ['kill-pane', '-t', findPane(panes, pane).paneId]);
 }
 
@@ -298,7 +305,7 @@ export function listCompanion(
 	spaceKey: string,
 	deps: CompanionDeps = {},
 ): CompanionPane[] {
-	return open(spaceKey, deps).panes;
+	return loadCompanionPanes(spaceKey, deps).panes;
 }
 
 export function formatPaneList(panes: CompanionPane[]): string {

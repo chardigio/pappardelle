@@ -135,6 +135,16 @@ async function execute(
 					return 0;
 				}
 
+				case 'no-pane': {
+					deps.out(`${label}; applies when the companion pane is showing`);
+					return 0;
+				}
+
+				case 'deferred': {
+					deps.out(`${label}; applies when the open dialog closes`);
+					return 0;
+				}
+
 				case 'no-tui': {
 					deps.out(`${label}; applies when Pappardelle next launches`);
 					return 0;

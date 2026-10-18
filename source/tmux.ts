@@ -222,6 +222,9 @@ const log = createLogger('tmux');
 // in _dev/scripts/dow/*.sh — the two sides have to agree.
 export const INNER_SOCKET = 'pappardelle_inner';
 
+/** The `@pappa_pane` name of the pane a companion session starts with. */
+export const MAIN_PANE = 'main';
+
 /**
  * Prefix `['-L', INNER_SOCKET, ...]` onto a tmux argv. Every inner-session
  * call site must route through this helper so the -L flag can't be forgotten.
@@ -341,6 +344,11 @@ let lastRailWidth: number | null = null;
 let lastCompanionWidth: number | null = null;
 
 let configuredPaneWidths: PaneWidths | undefined;
+
+/** Replace the configured pane widths, which are otherwise read once from the repo config. */
+export function setConfiguredPaneWidthsForTests(widths: PaneWidths): void {
+	configuredPaneWidths = widths;
+}
 
 function getConfiguredPaneWidths(): PaneWidths {
 	if (configuredPaneWidths === undefined) {
@@ -2734,12 +2742,13 @@ async function relayoutGeometry(
 			companionWidthOverride = companionDrag;
 		}
 		// A configured claude width can be what sized the other side pane, and
-		// that width is dropped once anything is dragged. Pinning the other side
-		// keeps it where it was instead of jumping to its derived width.
+		// that width is dropped once anything is dragged or a space sets its own
+		// companion width. Pinning the other side keeps it where it was instead
+		// of jumping to its derived width.
 		if (getConfiguredPaneWidths().claude !== undefined) {
 			if (railWidthOverride !== previousRail)
 				companionWidthOverride ??= measuredCompanionWidth;
-			if (companionWidthOverride !== previousCompanion)
+			if (companionWidthOverride !== previousCompanion || spaceWidth)
 				railWidthOverride ??= measuredRailWidth;
 		}
 
@@ -3317,7 +3326,7 @@ export async function ensureCompanionSession(
 				'-t',
 				`=${sessionName}:`,
 				'@pappa_pane',
-				'main',
+				MAIN_PANE,
 			]),
 		).catch(() => undefined);
 		log.info(`Created companion session: ${sessionName}`);

@@ -59,7 +59,7 @@ Panes have names. The pane the companion starts with is `main`.
 
 Verb names are reserved: a command that starts with `run`, `keys`, `read`, `resize`, `close`, `list` or `width` needs `pappardelle companion run -- <cmd>`. One command argument is a shell line, so pipes and redirects work; several arguments are quoted one by one.
 
-`companion width` prints whether the TUI applied it: `Applied ... N columns` (the TUI may clamp it to fit), `applies when KEY is selected`, or `applies when Pappardelle next launches`. It exits 1 when the TUI couldn't apply it or didn't answer.
+`companion width` prints whether the TUI applied it: `Applied ... N columns` (the TUI may clamp it to fit), `applies when KEY is selected`, `applies when the companion pane is showing` (the window is too narrow for one), `applies when the open dialog closes`, or `applies when Pappardelle next launches`. It exits 1 when the TUI couldn't apply it or didn't answer.
 
 A companion verb fails with "No companion session" when the space hasn't been selected in the TUI since its sessions stopped. Tell the user to select it.
 

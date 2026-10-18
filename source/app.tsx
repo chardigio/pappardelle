@@ -980,30 +980,45 @@ export default function App({
 		return watchWidthRequests(repoName, request => {
 			if (handled.has(request.id)) return;
 			handled.add(request.id);
-			const layout = paneLayoutRef.current;
-			if (
-				request.space !== selectedSpaceNameRef.current ||
-				!layout?.companionViewerPaneId
-			) {
+			if (request.space !== selectedSpaceNameRef.current) {
 				ack({id: request.id, result: 'stored'});
 				return;
 			}
 
+			// Set even when nothing can show it yet, so the next layout of this
+			// space (a wider window, a closed dialog) uses the new width.
+			const width = getCompanionWidth(repoName, request.space);
+			setSpaceCompanionWidth(
+				width === null ? null : {key: request.space, width},
+			);
+			appliedSpaceWidth.current =
+				width === null ? null : `${request.space}=${width}`;
+			if (!paneLayoutRef.current?.companionViewerPaneId) {
+				ack({id: request.id, result: 'no-pane'});
+				return;
+			}
+
+			// An open dialog zooms the rail, and the layout under it waits until
+			// the dialog closes.
+			if (dialogOpenRef.current) {
+				ack({id: request.id, result: 'deferred'});
+				return;
+			}
+
 			void (async () => {
-				const width = getCompanionWidth(repoName, request.space);
-				setSpaceCompanionWidth(
-					width === null ? null : {key: request.space, width},
-				);
-				appliedSpaceWidth.current =
-					width === null ? null : `${request.space}=${width}`;
 				await layoutTasks.request(
 					dialogOpenRef.current,
 					dialogRequest.current.revision,
 				);
+				// The layout may have been rebuilt with new pane ids.
+				const companion = paneLayoutRef.current?.companionViewerPaneId;
+				if (!companion) {
+					ack({id: request.id, result: 'no-pane'});
+					return;
+				}
+
 				const columns = layoutSucceeded.current
-					? await measurePaneWidth(layout.companionViewerPaneId).catch(
-							() => null,
-						)
+					? await measurePaneWidth(companion).catch(() => null)
 					: null;
 				ack(
 					columns === null
