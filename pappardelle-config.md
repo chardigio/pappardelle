@@ -906,8 +906,8 @@ auto_remove_when_done?: boolean;
 
 - Triggered by the tracker's normalized `state.type` — `completed` (Linear "Done", Jira "Done") and `canceled` (Linear "Cancelled").
 - Jira has no separate canceled category. Pappardelle reads the locale-independent `statusCategory.key` (`new` / `indeterminate` / `done`), so every status in the Done category counts as `completed`, "Won't Do" included.
-- Runs the same teardown as pressing `d`: executes `pre_workspace_deinit` hooks (global + profile-matched), removes the space from the persisted registry, kills its tmux sessions, and clears the viewer panes if it was active.
-- The on-disk worktree is **not** deleted — same as the manual `d` flow.
+- Runs the same teardown as closing with `x`/`Delete`: executes `pre_workspace_deinit` hooks (global + profile-matched), removes the space from the persisted registry, kills its tmux sessions, and clears the viewer panes if it was active.
+- The on-disk worktree is **not** deleted — same as a manual close.
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
@@ -1139,7 +1139,7 @@ post_workspace_init:
 
 ## Pre-Workspace-Deinit Commands
 
-The `pre_workspace_deinit` section defines commands to run **before** a workspace is deleted from the Pappardelle TUI. If any command fails (without `continue_on_error: true`), the deletion is aborted and the user sees an error message.
+The `pre_workspace_deinit` section defines commands to run **before** a workspace is deleted from the Pappardelle TUI or closed with `pappardelle close`. If any command fails (without `continue_on_error: true`), the deletion is aborted and the space stays open: the TUI shows an error message, and `pappardelle close` names the failed command and exits 1.
 
 This is useful for cleanup tasks like closing tracker issues, removing git worktrees from disk, or any other teardown that should happen before the space disappears from the TUI.
 
