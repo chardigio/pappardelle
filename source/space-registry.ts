@@ -383,7 +383,19 @@ async function withRegistryLock<T>(
 	fn: (p: string) => T,
 	signal?: AbortSignal,
 ): Promise<T> {
-	const p = registryPath;
+	return withFileLock(registryPath, fn, signal);
+}
+
+/**
+ * Run `fn` while holding the advisory lock `${p}.lock`, shared with every
+ * other process that locks the same path. Calls in this process queue behind
+ * each other. Times out instead of running `fn` when the lock stays held.
+ */
+export async function withFileLock<T>(
+	p: string,
+	fn: (p: string) => T,
+	signal?: AbortSignal,
+): Promise<T> {
 	const previous = mutationQueues.get(p) ?? Promise.resolve();
 	const task = previous
 		.catch(() => {})
@@ -432,9 +444,7 @@ async function withRegistryLock<T>(
 					}
 				}
 				if (Date.now() >= deadline)
-					throw new Error(
-						`Registry lock timed out after ${lockTimeoutMs}ms: ${p}`,
-					);
+					throw new Error(`Lock timed out after ${lockTimeoutMs}ms: ${p}`);
 				await delay(lockRetryMs, undefined, {signal});
 			}
 		});

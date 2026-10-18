@@ -23,7 +23,7 @@ import {
 	issueKeyTeamPrefix,
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
-import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
+import {isPaneWidth, type PaneWidth, type PaneWidths} from './layout-sizing.ts';
 import {BUILTIN_AGENTS, type BuiltinAgentDefaults} from './builtin-agents.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
@@ -3388,15 +3388,6 @@ export function getSousChefKey(
 	const key = config?.sous_chef_key;
 	if (key === false) return null;
 	return key ?? DEFAULT_SOUS_CHEF_KEY;
-}
-
-function isPaneWidth(value: unknown): value is PaneWidth {
-	if (typeof value === 'number') return Number.isInteger(value) && value > 0;
-	if (typeof value !== 'string') return false;
-	const match = /^(\d+(?:\.\d+)?)%$/.exec(value);
-	if (!match) return false;
-	const percent = Number(match[1]);
-	return percent > 0 && percent <= 100;
 }
 
 export function getPaneWidths(config: PappardelleConfig | null): PaneWidths {

@@ -339,7 +339,7 @@ function applyRecapLine(recap: SpaceRecap, line: string): void {
 	}
 }
 
-function extractAssistantText(entry: any): string | undefined {
+export function extractAssistantText(entry: any): string | undefined {
 	const msg = entry.message;
 	if (!msg) return undefined;
 	const {content} = msg;
