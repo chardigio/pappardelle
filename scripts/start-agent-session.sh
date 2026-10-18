@@ -376,4 +376,6 @@ if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$COMPANION_SESSION:" 2>/dev/
     else
         new_inner_session "$COMPANION_SESSION"
     fi
+    # `pappardelle companion` addresses panes by name; the first one is main.
+    tmux "${TMUX_SOCKET_ARGS[@]}" set-option -p -t "=$COMPANION_SESSION:" @pappa_pane main 2>/dev/null || true
 fi

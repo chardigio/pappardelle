@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
+import {gatherSpaces} from './spaces-command.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
@@ -179,21 +180,14 @@ test.serial(
 		});
 		t.true(result.stdout.includes('Workspace STE-20 is ready!'));
 		t.true(result.stderr.includes('idow diagnostic'));
-		const spaces = JSON.parse(
-			execFileSync(
-				'bash',
-				[
-					path.join(
-						projectRoot,
-						'plugins/pappardelle/skills/sous-chef/scripts/gather-spaces.sh',
-					),
-					'project',
-				],
-				{env: {...process.env, HOME: f.home}, encoding: 'utf8'},
-			),
-		) as {spaces: Array<{name: string}>};
+		const spaces = await gatherSpaces({
+			repoName: 'project',
+			home: f.home,
+			fetchTitles: async () => new Map(),
+			gitSummary: async () => null,
+		});
 		t.deepEqual(
-			spaces.spaces.map(space => space.name),
+			'error' in spaces ? spaces.error : spaces.spaces.map(space => space.name),
 			['STE-20'],
 		);
 	},

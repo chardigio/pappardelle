@@ -194,6 +194,22 @@ Use `--profile <name>` to select a profile configured in `.pappardelle.yml`
 instead of automatic selection. It also works with `--resume`. Bare issue numbers
 use the selected profile's team prefix when one is configured.
 
+### Agents in a workspace
+
+Agents can see and change their workspace from the command line:
+
+```bash
+pappardelle companion hunk diff --watch            # replace this space's companion command
+pappardelle companion run --pane app --split right -- npm run dev
+pappardelle companion read --pane app              # last lines of a pane
+pappardelle companion width 40%                    # this space's companion width in the TUI
+pappardelle spaces --json                          # every space: status, title, PR, branch summary
+pappardelle read STE-20 --turns 3                  # recent turns of another space's conversation
+pappardelle send STE-20 --keys Escape              # press a key in another space's Claude
+```
+
+Run `pappardelle companion --help` for every companion verb.
+
 ### From the TUI
 
 Press `n` in the workspace list to open the prompt dialog.
@@ -643,6 +659,9 @@ Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappard
 | `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                                                                                                    | Yes             |
 | `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send`, open or reopen spaces with `pappardelle`, close spaces with `pappardelle close` | No              |
 | `/link-pr`               | Records a verified PR/MR for the current workspace with `pappardelle link-pr`                                                                                                                                                                         | Yes             |
+| `pappardelle-agent`      | Workspace context and the `pappardelle` command reference for any agent in a space, including how to keep the companion pane showing its work                                                                                                         | Yes             |
+
+The plugin also has a SessionStart hook. In a session inside a space (`PAPPARDELLE_SPACE` is set), it tells the agent which space it is in and to load `pappardelle-agent`. Elsewhere it prints nothing.
 
 They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the checkout it installed into each agent it finds:
 

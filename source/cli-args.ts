@@ -8,6 +8,10 @@ const helpText = `
 	  $ pappardelle highlight <issue-key>
 	  $ pappardelle send <issue-key> [text]
 	  $ pappardelle close <issue-key> [--yes]
+	  $ pappardelle send <issue-key> --keys <key>...
+	  $ pappardelle spaces [--json]
+	  $ pappardelle read <issue-key> [--turns N] [--json]
+	  $ pappardelle companion <command...>
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
 	  $ pappardelle plugin install
@@ -29,6 +33,16 @@ const helpText = `
 	                   Everything after the key is sent as is, flags
 	                   included. Reads stdin when no text is given
 	  close <key>      Close a space, same as x in the TUI
+	  send <key> --keys <key>
+	                   Press tmux key names (Escape, S-Tab, C-c) in the space's
+	                   agent session, in order, without submitting anything.
+	                   Repeat --keys for several
+	  spaces           List open spaces with status, title, PR and branch
+	                   summary (--json for the full record)
+	  read <key>       Print the last turns of a space's conversation
+	                   (--turns N, default 5; --json)
+	  companion        Run, type into, read, resize and close panes in a
+	                   space's companion. See pappardelle companion --help
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
@@ -65,7 +79,9 @@ const helpText = `
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
+	  $ pappardelle send 313 --keys Escape  # Interrupt STA-313's agent
 	  $ pappardelle close STA-313 --yes  # Close STA-313 without asking
+	  $ pappardelle companion hunk diff --watch  # Show a diff in this space's companion
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
 	  $ pappardelle restart --hard  # End agent sessions, restart every TUI
@@ -99,6 +115,16 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 			},
 			teardownOnly: {
 				type: 'boolean',
+			},
+			keys: {
+				type: 'string',
+				isMultiple: true,
+			},
+			json: {
+				type: 'boolean',
+			},
+			turns: {
+				type: 'number',
 			},
 		},
 	});
@@ -178,13 +204,23 @@ const subcommands = {
 
 // The prompt is read from raw argv because meow would pull anything
 // flag-shaped out of it.
+// Only --keys right after the key is a flag, so a prompt that mentions
+// `--keys` later on is still sent as text.
 export function parseSendArgs(argv: readonly string[]): {
 	key?: string;
 	text: string;
+	keys: string[];
 } {
-	const [key, ...text] = argv.slice(argv.indexOf('send') + 1);
-	if (key === undefined || key.startsWith('-')) return {text: ''};
-	return {key, text: text.join(' ')};
+	const [key, ...rest] = argv.slice(argv.indexOf('send') + 1);
+	if (key === undefined || key.startsWith('-')) return {text: '', keys: []};
+	const keys: string[] = [];
+	while (rest[0] === '--keys' || rest[0]?.startsWith('--keys=')) {
+		const flag = rest.shift()!;
+		const value = flag === '--keys' ? rest.shift() : flag.slice(7);
+		if (value) keys.push(value);
+	}
+
+	return {key, text: rest.join(' '), keys};
 }
 
 export type SubcommandGate =

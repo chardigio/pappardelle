@@ -938,8 +938,15 @@ test.serial(
 		t.true(await ensureCompanionSession('TEST-NEW', '/tmp', 'custom-ui', run));
 		t.deepEqual(
 			calls.map(args => args[2]),
-			['has-session', 'new-session'],
+			['has-session', 'new-session', 'set-option'],
 		);
+		t.deepEqual(calls[2]!.slice(3), [
+			'-p',
+			'-t',
+			`=${calls[1]![calls[1]!.indexOf('-s') + 1]}:`,
+			'@pappa_pane',
+			'main',
+		]);
 		t.true(
 			calls.every(args => args[0] === '-L' && args[1] === 'pappardelle_inner'),
 		);
