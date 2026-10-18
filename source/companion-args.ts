@@ -1,6 +1,7 @@
 import {parseArgs} from 'node:util';
 import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
 import {shellQuote} from './shell-quote.ts';
+import {MAIN_PANE} from './tmux.ts';
 
 export const COMPANION_VERBS = [
 	'run',
@@ -47,8 +48,6 @@ export type CompanionCommand =
 	| {verb: 'help'; text: string};
 
 export class CompanionUsageError extends Error {}
-
-export const MAIN_PANE = 'main';
 
 const companionHelp = `
 	Usage
@@ -106,7 +105,7 @@ export function commandFromArgs(args: readonly string[]): string {
 	return args.map(arg => shellQuote(arg)).join(' ');
 }
 
-function parsing<T>(verb: string, parse: () => T): T {
+function withUsageError<T>(verb: string, parse: () => T): T {
 	try {
 		return parse();
 	} catch (error) {
@@ -185,7 +184,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 
 	switch (verb) {
 		case 'run': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,
@@ -223,7 +222,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		}
 
 		case 'keys': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,
@@ -255,7 +254,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		}
 
 		case 'read': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,
@@ -284,7 +283,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		}
 
 		case 'resize': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,
@@ -316,7 +315,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		}
 
 		case 'close': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,
@@ -333,7 +332,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		}
 
 		case 'list': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,
@@ -356,7 +355,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		}
 
 		case 'width': {
-			const {values, positionals} = parsing(verb, () =>
+			const {values, positionals} = withUsageError(verb, () =>
 				parseArgs({
 					args: flags,
 					allowPositionals: true,

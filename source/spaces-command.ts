@@ -7,7 +7,9 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
+import {claudeProjectDir} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
+import {getIssues} from './tracker.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -17,6 +19,8 @@ export interface GitSummary {
 	filesChanged: number;
 	insertions: number;
 	deletions: number;
+	/** New files git doesn't track yet; the line counts leave them out. */
+	untracked: number;
 }
 
 export type SpaceEntry = {
@@ -247,8 +251,9 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 			}
 
 			const worktree = path.join(home, '.worktrees', repoName, name);
-			const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
-			const log = newestJsonl(path.join(home, '.claude', 'projects', encoded));
+			const log = newestJsonl(
+				claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
+			);
 			if (log) {
 				entry.conversationLog = log.file;
 				entry.logModified = log.mtimeMs / 1000;
@@ -321,8 +326,16 @@ export async function worktreeGitSummary(
 		git(cwd, ['rev-list', '--count', `${base}..HEAD`]),
 		git(cwd, ['merge-base', base, 'HEAD']),
 	]);
-	const stat = await git(cwd, ['diff', '--shortstat', mergeBase]);
-	return {base, ahead: Number(ahead), ...parseShortstat(stat)};
+	const [stat, untracked] = await Promise.all([
+		git(cwd, ['diff', '--shortstat', mergeBase]),
+		git(cwd, ['ls-files', '--others', '--exclude-standard']),
+	]);
+	return {
+		base,
+		ahead: Number(ahead),
+		...parseShortstat(stat),
+		untracked: untracked ? untracked.split('\n').length : 0,
+	};
 }
 
 function age(minutes: number | undefined): string {
@@ -344,6 +357,9 @@ export function formatSpaces(report: SpacesReport): string {
 				(typeof recap['customTitle'] === 'string' ? recap['customTitle'] : '');
 			const flags = [
 				space.git && space.git.ahead > 0 ? `+${space.git.ahead} commits` : '',
+				space.git && space.git.untracked > 0
+					? `+${space.git.untracked} new files`
+					: '',
 				space.pipeline === 'failing' ? '[pipeline red]' : '',
 				typeof space.unresolvedCommentCount === 'number' &&
 				space.unresolvedCommentCount > 0
@@ -355,4 +371,27 @@ export function formatSpaces(report: SpacesReport): string {
 				.join('  ');
 		})
 		.join('\n');
+}
+
+export async function runSpacesCommand(options: {
+	repoName: string;
+	home: string;
+	json: boolean;
+	out: (text: string) => void;
+}): Promise<number> {
+	const report = await gatherSpaces({
+		repoName: options.repoName,
+		home: options.home,
+		async fetchTitles(keys) {
+			const issues = await getIssues(keys);
+			return new Map(
+				[...issues].map(([key, issue]) => [key, issue?.title ?? null]),
+			);
+		},
+		gitSummary: worktreeGitSummary,
+	});
+	options.out(
+		options.json ? JSON.stringify(report, null, 2) : formatSpaces(report),
+	);
+	return 0;
 }

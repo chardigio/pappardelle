@@ -248,12 +248,14 @@ test('the git summary counts commits ahead of main and the diff since the branch
 	git(repo, 'add', '.');
 	git(repo, 'commit', '-qm', 'upstream');
 	git(repo, 'checkout', '-q', 'work');
+	fs.writeFileSync(path.join(repo, 'new.txt'), 'not added\n');
 	t.deepEqual(await worktreeGitSummary(repo), {
 		base: 'main',
 		ahead: 2,
 		filesChanged: 2,
 		insertions: 2,
 		deletions: 0,
+		untracked: 1,
 	});
 });
 
@@ -292,6 +294,7 @@ test('text output puts one space per line with its flags', t => {
 					filesChanged: 1,
 					insertions: 1,
 					deletions: 0,
+					untracked: 2,
 				},
 				pipeline: 'failing',
 				unresolvedCommentCount: 2,
@@ -300,6 +303,6 @@ test('text output puts one space per line with its flags', t => {
 	});
 	t.is(
 		text,
-		'STA-1  waiting_for_input  12m ago  Fix auth  +3 commits  [pipeline red]  [2 unresolved]',
+		'STA-1  waiting_for_input  12m ago  Fix auth  +3 commits  +2 new files  [pipeline red]  [2 unresolved]',
 	);
 });

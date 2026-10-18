@@ -91,6 +91,8 @@ for (const [name, answer, expected] of [
 	],
 	['stored', {result: 'stored'}, {outcome: 'stored'}],
 	['failed', {result: 'failed'}, {outcome: 'failed'}],
+	['no-pane', {result: 'no-pane'}, {outcome: 'no-pane'}],
+	['deferred', {result: 'deferred'}, {outcome: 'deferred'}],
 ] as const) {
 	test(`the TUI's ${name} answer comes back to the CLI`, async t => {
 		const base = tempBase(t);
