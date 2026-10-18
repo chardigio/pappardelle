@@ -2,8 +2,8 @@
 name: sous-chef
 description: >-
   Kitchen-style coordinator for managing Pappardelle worktree spaces. Use when you want a quick
-  overview of active Claude sessions, need to check on a specific space, want to create or
-  reopen a workspace, relay instructions to a running Claude session, or update or restart Pappardelle.
+  overview of active Claude sessions, need to check on a specific space, want to create,
+  reopen or close a workspace, relay instructions to a running Claude session, or update or restart Pappardelle.
 disable-model-invocation: true
 model: haiku
 ---
@@ -184,6 +184,23 @@ pappardelle --no-resume STA-696
 
 After exit status zero, refresh the board with `gather-spaces.sh` and confirm the opened space. A nonzero status means setup or registration failed; report the diagnostic. If the command says setup completed but registration failed, the workspace may already exist even though it is missing from the board. Do not claim success or blindly repeat a description that could create another issue.
 
+## Closing a Space
+
+When the chef says to close, kill, or 86 a space, run:
+
+```bash
+pappardelle close STA-XXX --yes
+```
+
+This is the same close as `x` in the TUI: it runs the space's `pre_workspace_deinit` hooks, ends its Claude and companion sessions, and removes it from the board. The worktree stays on disk unless a hook removes it. A running TUI drops the row within 10 seconds. It needs `--yes` because there is no terminal here to confirm on.
+
+- It doesn't change the issue's state. If the chef wants the issue closed too, do that separately with the tracker
+- Exit 1 with "No open space" means the key isn't on the board; `main` can't be closed
+- Exit 1 naming a failed hook means the space is still open. Relay the hook name
+- Closing the space this session runs in ends this session. Say so and wait for the go, then say what's about to happen before running it; the teardown finishes after this session is gone
+
+After exit status zero, confirm: "696 closed, 86'd."
+
 ## Managing Pappardelle Itself
 
 Every `pappardelle` subcommand works from this session. Run them from the repo or any of its worktrees.
@@ -193,6 +210,7 @@ Every `pappardelle` subcommand works from this session. Run them from the repo o
 | `pappardelle highlight STA-XXX`        | Selects the space in the TUI                                                                                                                                                                                                                                                             | Safe                                                             |
 | `pappardelle send STA-XXX 'text'`      | Submits text as a prompt to the space's Claude session (quoting rules above)                                                                                                                                                                                                             | Safe                                                             |
 | `pappardelle "<prompt or issue key>"`  | Creates or reopens a space and saves it in the board; existing issue-key worktrees resume automatically (a bare number like `696` resolves with the team prefix)                                                                                                                         | Safe                                                             |
+| `pappardelle close STA-XXX --yes`      | Closes the space like `x` in the TUI: runs its deinit hooks, ends its sessions, removes it from the board                                                                                                                                                                                | Safe; ends this session if it's this space                       |
 | `pappardelle update --no-restart-tuis` | Installs the latest release and leaves running TUIs on the old build, naming them                                                                                                                                                                                                        | Safe                                                             |
 | `pappardelle update --restart-tuis`    | Installs the latest release, then restarts every running TUI in place and reports the build each one came up on. Exits 1 if a TUI fails to restart or report ready                                                                                                                       | Safe; Claude sessions, this one included, keep running           |
 | `pappardelle restart`                  | Restarts this repo's TUI in place (same tmux pane, layout rebuilt) on the build that ran the command, then confirms it with `pappardelle-<repo> is running <cli.js> (<commit>)`. Exits 1 with the reason if the TUI isn't confirmed. Prints a line and does nothing if no TUI is running | Safe                                                             |
