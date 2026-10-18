@@ -16,6 +16,7 @@ import {
 	sessionExists,
 	setupPappardellLayout,
 	getSessionNames,
+	getWorktreePath,
 	INNER_SOCKET,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
@@ -29,6 +30,7 @@ import {
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
 	getTeamPrefix,
+	getProfileTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
@@ -46,7 +48,8 @@ import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
-import {parseCli} from './cli-args.ts';
+import {parseCli, subcommandGate} from './cli-args.ts';
+import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
@@ -59,7 +62,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
 
+const gate = subcommandGate(process.argv.slice(2));
+if (gate.action === 'help') {
+	console.log(gate.text);
+	process.exit(0);
+}
+
+if (gate.action === 'reject') {
+	console.error(gate.message);
+	process.exit(2);
+}
+
 const cli = parseCli();
+
+if (
+	cli.flags.profile !== undefined &&
+	(!cli.flags.profile.trim() || cli.input.length === 0)
+) {
+	console.error('Usage: pappardelle --profile <name> <prompt or issue-key>');
+	process.exit(1);
+}
+
+if (cli.flags.resume && cli.input.length === 0) {
+	console.error('Usage: pappardelle --resume <prompt or issue-key>');
+	process.exit(1);
+}
 
 const pappardelleDir = path.resolve(__dirname, '..');
 
@@ -164,7 +191,7 @@ checkConfig();
 const {repoName} = bootstrapRepo();
 
 if (isRestart) {
-	process.exit(restartRepo(repoName, defaultRestartCommandDeps()));
+	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
 }
 
 // Handle `pappardelle highlight STA-XXX` — write target file and exit
@@ -236,7 +263,11 @@ if (cli.input.length > 0) {
 		config = null;
 	}
 
-	const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	let teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	const profile = cli.flags.profile
+		? config?.profiles[cli.flags.profile]
+		: undefined;
+	if (config && profile) teamPrefix = getProfileTeamPrefix(profile, config);
 	const normalizedIssueKey = normalizeIssueIdentifier(
 		prompt,
 		teamPrefix,
@@ -247,13 +278,19 @@ if (cli.input.length > 0) {
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
 
-	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
-		stdio: 'inherit',
+	const status = await runOpenSpaceCommand({
+		command: path.join(SCRIPTS_DIR, 'idow'),
+		prompt: finalPrompt,
+		issueKey: normalizedIssueKey,
+		profileName: cli.flags.profile,
+		resume:
+			cli.flags.resume ??
+			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 	});
 
-	process.exit(result.status ?? 0);
+	process.exit(status);
 }
 
 // If not in tmux, re-exec inside tmux

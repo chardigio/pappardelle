@@ -34,9 +34,13 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+      # Full history, so the next step can diff the commit(s) that the merge
+      # put on main. This checks out `main` (our own code), never the PR head.
       - name: Checkout
         if: steps.check.outputs.skip != 'true'
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Sync changes to monorepo
         if: steps.check.outputs.skip != 'true'
@@ -46,6 +50,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
         run: |
           if [ -z "$STARDUST_LABS_PAT" ]; then
             echo "::error::STARDUST_LABS_PAT secret is not set. Cannot sync back to monorepo."
@@ -56,25 +62,36 @@ jobs:
           AUTHOR_NAME=$(gh api /repos/${{ github.repository }}/commits/$HEAD_SHA --jq '.commit.author.name')
           AUTHOR_EMAIL=$(gh api /repos/${{ github.repository }}/commits/$HEAD_SHA --jq '.commit.author.email')
 
-          # Get the PR diff as a raw unified patch.
+          # Diff what the merge put on main, not the PR's own diff.
           #
-          # This deliberately uses curl rather than any `gh` subcommand. `gh`
-          # guards its own output: it renders a decorated diff that `git apply`
-          # cannot read, and it refuses to print at all, with a non-zero exit,
-          # when the payload holds terminal escape codes. That is what broke
-          # the sync-back of chardigio/pappardelle#18 (v2.4.2) and left the
-          # monorepo a whole release behind; see STA-2275. `gh` has since grown
-          # an `--allow-escape-sequences` opt-out, but only on some subcommands
-          # and only in recent versions, so depending on it would swap one
-          # version-sensitive failure for another. curl has no such guard on
-          # any version, and the diff media type always returns a plain
-          # `git apply`-compatible patch.
-          curl -fsSL \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github.v3.diff' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER" \
-            -o /tmp/pr.diff
+          # The PR diff runs from the merge base of the PR branch, so it is
+          # stale when main moved after the branch was cut. The monorepo
+          # mirrors main, so that stale patch does not apply, and the job
+          # fails. That dropped chardigio/pappardelle#40, #41 and #42 (each
+          # branched before #36, which touched the same lines), and the next
+          # forward sync then erased them from main too; see STA-2708. The
+          # change on main always starts from the tree the monorepo holds.
+          #
+          # The diff comes from local git, not from `gh`: `gh` decorates diffs
+          # so `git apply` cannot read them, and it refuses to print a payload
+          # that holds terminal escape codes (that broke the sync-back of
+          # chardigio/pappardelle#18; see STA-2275).
+          #
+          # Squash and merge-commit merges put one commit on main, so its first
+          # parent is the old main. A rebase merge puts the PR's N commits on
+          # main, so the old main is N commits back. We know it was a rebase
+          # when the last N subjects on main match the PR's commit subjects.
+          BASE="$MERGE_SHA^1"
+          PARENT_COUNT=$(($(git rev-list --parents -n1 "$MERGE_SHA" | wc -w) - 1))
+          if [ "$PARENT_COUNT" -eq 1 ] && [ "$PR_COMMITS" -gt 1 ]; then
+            PR_SUBJECTS=$(gh api --paginate "/repos/${{ github.repository }}/pulls/$PR_NUMBER/commits" --jq '.[].commit.message | split("\n")[0]')
+            MAIN_SUBJECTS=$(git log --first-parent --reverse --format=%s -n "$PR_COMMITS" "$MERGE_SHA")
+            if [ "$PR_SUBJECTS" = "$MAIN_SUBJECTS" ]; then
+              BASE="$MERGE_SHA~$PR_COMMITS"
+              echo "Rebase merge: diffing the last $PR_COMMITS commits on main"
+            fi
+          fi
+          git diff --binary "$BASE" "$MERGE_SHA" > /tmp/pr.diff
 
           if [ ! -s /tmp/pr.diff ]; then
             echo "Empty diff, nothing to sync"
@@ -100,5 +117,14 @@ jobs:
           GIT_AUTHOR_EMAIL="$AUTHOR_EMAIL" \
           git commit -m "$PR_TITLE (chardigio/pappardelle#$PR_NUMBER)"
 
-          git push origin master
+          # Two PRs merged close together run this job at the same time, so
+          # master can move between our clone and our push. Rebase and retry.
+          for attempt in 1 2 3 4 5; do
+            git push origin master && break
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::git push failed 5 times. See _docs/2026-03-11-pappardelle-bidirectional-sync.md for manual fallback steps."
+              exit 1
+            fi
+            git pull --rebase --depth=50 origin master
+          done
           echo "Successfully synced PR #$PR_NUMBER to stardust-labs monorepo"

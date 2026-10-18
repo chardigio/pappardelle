@@ -1,6 +1,8 @@
 // Pure logic for determining how to spawn an idow session
 // Extracted from handleNewSession in app.tsx for testability
 
+import {stripVTControlCharacters} from 'node:util';
+
 export type SessionRoute = {
 	type: 'issue' | 'description';
 	/** Issue key for issue routes, null for description routes */
@@ -147,8 +149,10 @@ export function isPendingSessionResolved(
  * Returns the issue key (e.g. "STA-633") or null if not found.
  */
 export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
-	const match = stdout.match(
-		/Workspace ([A-Za-z\d_]+(?:-[A-Za-z\d_]+)+(?:\.\d+){0,3}) is ready/,
-	);
-	return match ? match[1]! : null;
+	const matches = [
+		...stripVTControlCharacters(stdout).matchAll(
+			/^Workspace ([A-Za-z\d_]+(?:-[A-Za-z\d_]+)+(?:\.\d+){0,3}) is ready!\r?$/gm,
+		),
+	];
+	return matches.at(-1)?.[1] ?? null;
 }
