@@ -2752,15 +2752,10 @@ async function relayoutGeometry(
 	listPaneId: string,
 	companionViewerPaneId: string,
 	run: AsyncTmuxRunner,
-	snapshot?: WindowGeometry,
+	geometry: WindowGeometry,
+	spaceWidth: typeof spaceCompanionWidth,
 ): Promise<WindowGeometry | null> {
-	// Captured before any await: the selection can change while this relayout
-	// waits on tmux, and a drag belongs to the space that was showing.
-	const spaceWidth = spaceCompanionWidth;
 	try {
-		// Get current terminal dimensions from the window (not individual panes)
-		const geometry =
-			snapshot ?? parseWindowGeometry(await run(paneGeometryArgs(listPaneId)));
 		const windowDims = geometry.window;
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
@@ -2909,6 +2904,9 @@ export async function reconcilePaneLayout(
 	zoomed: boolean,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<{layout: PaneLayout; dimensions: {rows: number; cols: number}}> {
+	// Captured before any await: the selection can change while this waits on
+	// tmux, and a drag belongs to the space that was showing.
+	const spaceWidth = spaceCompanionWidth;
 	let geometry = parseWindowGeometry(
 		await run(paneGeometryArgs(layout.listPaneId)),
 	);
@@ -2938,6 +2936,7 @@ export async function reconcilePaneLayout(
 				layout.companionViewerPaneId,
 				run,
 				geometry,
+				spaceWidth,
 			);
 			if (!measured) throw new Error('Failed to resize pane layout');
 			geometry = measured;

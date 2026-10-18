@@ -1,4 +1,4 @@
-// Per-space companion widths in relayoutPanes, on an isolated tmux server.
+// Per-space companion widths in a relayout, on an isolated tmux server.
 // tmux.ts keeps its overrides in module state, so the steps run in order in
 // one test.
 import {execFile} from 'node:child_process';
@@ -9,7 +9,7 @@ import test from 'ava';
 import {
 	measurePaneWidth,
 	rebuildLayout,
-	relayoutPanes,
+	reconcilePaneLayout,
 	setSpaceCompanionDragHandler,
 	setSpaceCompanionWidth,
 } from './tmux.ts';
@@ -64,7 +64,8 @@ test.serial(
 		await run(['set-option', '-g', 'status', 'off']);
 		const paneOutput = await run(['display-message', '-p', '#{pane_id}']);
 		const pane = paneOutput.trim();
-		const layout = await rebuildLayout(pane, '', '', run);
+		const rebuilt = await rebuildLayout(pane, '', '', run);
+		const layout = rebuilt?.layout;
 		if (!layout) {
 			t.fail('layout');
 			return;
@@ -75,21 +76,21 @@ test.serial(
 		const drags: Array<[string, number]> = [];
 		setSpaceCompanionDragHandler((key, columns) => drags.push([key, columns]));
 
-		t.true(await relayoutPanes(pane, companion, run));
+		await reconcilePaneLayout(layout, false, run);
 		const derived = await width();
 
 		setSpaceCompanionWidth({key: 'A', width: 50});
-		t.true(await relayoutPanes(pane, companion, run));
+		await reconcilePaneLayout(layout, false, run);
 		t.is(await width(), 50);
 
 		setSpaceCompanionWidth(null);
-		t.true(await relayoutPanes(pane, companion, run));
+		await reconcilePaneLayout(layout, false, run);
 		t.is(await width(), derived);
 
 		// A drag on A is A's even when the selection moves to B before the
 		// relayout that notices it finishes.
 		setSpaceCompanionWidth({key: 'A', width: 50});
-		t.true(await relayoutPanes(pane, companion, run));
+		await reconcilePaneLayout(layout, false, run);
 		await run(['resize-pane', '-t', companion, '-x', '70']);
 		let switched = false;
 		const switching = async (args: string[]) => {
@@ -101,16 +102,16 @@ test.serial(
 			return run(args);
 		};
 
-		t.true(await relayoutPanes(pane, companion, switching));
+		await reconcilePaneLayout(layout, false, switching);
 		t.deepEqual(drags, [['A', 70]]);
 		t.is(await width(), 40);
 
 		// With no space width, a drag is the session-wide override, as before.
 		setSpaceCompanionWidth(null);
-		t.true(await relayoutPanes(pane, companion, run));
+		await reconcilePaneLayout(layout, false, run);
 		await run(['resize-pane', '-t', companion, '-x', '64']);
-		t.true(await relayoutPanes(pane, companion, run));
-		t.true(await relayoutPanes(pane, companion, run));
+		await reconcilePaneLayout(layout, false, run);
+		await reconcilePaneLayout(layout, false, run);
 		t.is(await width(), 64);
 		t.deepEqual(drags, [['A', 70]]);
 	},
