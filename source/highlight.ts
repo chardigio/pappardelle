@@ -10,13 +10,13 @@ import {
 	mkdirSync,
 	readFileSync,
 	unlinkSync,
-	watch,
 	writeFileSync,
 } from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {shellQuote} from './shell-quote.ts';
 import type {SpaceData} from './types.ts';
+import {watchFileContent} from './file-watch.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 const FOCUS_MARKER = 'focus';
@@ -127,32 +127,8 @@ export function watchHighlightTarget(
 	callback: (request: HighlightRequest) => void,
 	baseDir?: string,
 ): () => void {
-	return watchFileContent(getHighlightFilePath(repoName, baseDir), callback);
-}
-
-/**
- * Call `callback` with the trimmed content of `filePath` each time it is
- * written. The directory is watched rather than the file, so writes that
- * replace the file by rename are seen too.
- */
-export function watchFileContent(
-	filePath: string,
-	callback: (content: string) => void,
-): () => void {
-	const dir = path.dirname(filePath);
-	const filename = path.basename(filePath);
-
-	mkdirSync(dir, {recursive: true});
-
-	const watcher = watch(dir, (_eventType, changedFile) => {
-		if (changedFile !== filename) return;
-		try {
-			const request = parseRequest(readFileSync(filePath, 'utf-8'));
-			if (request) callback(request);
-		} catch {
-			// File may have been deleted between event and read
-		}
+	return watchFileContent(getHighlightFilePath(repoName, baseDir), content => {
+		const request = parseRequest(content);
+		if (request) callback(request);
 	});
-
-	return () => watcher.close();
 }

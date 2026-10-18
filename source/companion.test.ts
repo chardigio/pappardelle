@@ -3,6 +3,7 @@ import {
 	closeCompanionPane,
 	CompanionError,
 	listCompanion,
+	readCompanionPane,
 	runInCompanion,
 	sendCompanionKeys,
 } from './companion.ts';
@@ -43,6 +44,16 @@ function fakeTmux(panes: Pane[], sessions = ['companion-repo-STA-1']) {
 							].join('\t'),
 						)
 						.join('\n'),
+				};
+			}
+
+			case 'capture-pane': {
+				// tmux returns the history lines plus the whole visible screen.
+				return {
+					status: 0,
+					stdout:
+						Array.from({length: 30}, (_, i) => `line ${i + 1}`).join('\n') +
+						'\n\n\n',
 				};
 			}
 
@@ -182,7 +193,7 @@ test('keys types text literally then presses Enter, with no C-u', t => {
 	t.deepEqual(
 		tmux.calls.filter(c => c[0] === 'send-keys'),
 		[
-			['send-keys', '-t', '%1', '-l', '-x'],
+			['send-keys', '-t', '%1', '-l', '--', '-x'],
 			['send-keys', '-t', '%1', 'Enter'],
 		],
 	);
@@ -234,5 +245,13 @@ test('no verb targets the agent session', t => {
 		targets
 			.filter(target => target.startsWith('='))
 			.every(target => target === '=companion-repo-STA-1:'),
+	);
+});
+
+test('read returns only the last N lines of what tmux captured', t => {
+	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
+	t.is(
+		readCompanionPane('STA-1', {pane: 'main', lines: 3}, deps(tmux.runner)),
+		'line 28\nline 29\nline 30',
 	);
 });

@@ -1,22 +1,17 @@
-// Per-space companion widths, and the request/ack exchange that lets
-// `pappardelle companion width` report whether the running TUI applied one.
-//
-// Files under ~/.pappardelle/repos/{repo}/:
-//   companion-widths.json         {KEY: PaneWidth}, the durable store
-//   companion-width-request.json  {id, space}, written by the CLI
-//   companion-width-ack.json      {id, result, columns?}, written by the TUI
-//
-// The store is written by the CLI and by the TUI when the user drags the
-// border, so every read-modify-write holds the store's file lock.
+// Per-space companion widths. The CLI and the TUI exchange request and ack
+// files under ~/.pappardelle/repos/{repo}/ so `pappardelle companion width`
+// can report whether the running TUI applied the width. The store is written
+// by the CLI and by the TUI when the user drags the border, so every
+// read-modify-write holds the store's file lock.
 
 import {randomUUID} from 'node:crypto';
 import {mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {watchFileContent} from './highlight.ts';
+import {watchFileContent} from './file-watch.ts';
 import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
-import {withFileLock} from './space-registry.ts';
+import {withFileLock} from './file-lock.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 
@@ -95,7 +90,7 @@ export type WidthRequest = {id: string; space: string};
 
 export type WidthAck = {
 	id: string;
-	result: 'applied' | 'stored' | 'failed';
+	result: 'applied' | 'stored' | 'no-pane' | 'deferred' | 'failed';
 	columns?: number;
 };
 
@@ -136,6 +131,8 @@ export function watchWidthRequests(
 export type WidthOutcome =
 	| {outcome: 'applied'; columns: number}
 	| {outcome: 'stored'}
+	| {outcome: 'no-pane'}
+	| {outcome: 'deferred'}
 	| {outcome: 'failed'}
 	| {outcome: 'no-ack'}
 	| {outcome: 'no-tui'};
@@ -171,7 +168,9 @@ export async function requestCompanionWidth(options: {
 			if (ack?.id === id) {
 				if (ack.result === 'applied' && typeof ack.columns === 'number')
 					return {outcome: 'applied', columns: ack.columns};
-				return {outcome: ack.result === 'stored' ? 'stored' : 'failed'};
+				return {
+					outcome: ack.result === 'applied' ? 'failed' : ack.result,
+				};
 			}
 
 			await delay(pollMs);

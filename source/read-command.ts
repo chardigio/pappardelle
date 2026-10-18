@@ -4,7 +4,7 @@
 // reminders) arrive as user entries too, and are skipped.
 
 import {readFileSync} from 'node:fs';
-import {extractAssistantText} from './space-state.ts';
+import {extractAssistantText, findLatestSessionJsonl} from './space-state.ts';
 
 const MAX_TEXT = 500;
 
@@ -97,4 +97,36 @@ export function formatTurns(
 
 export function turnsJson(issueKey: string, turns: Turn[], count: number) {
 	return {issueKey, totalTurns: turns.length, turns: turns.slice(-count)};
+}
+
+export async function runReadCommand(options: {
+	issueKey: string;
+	/** The space's checkout, or null when it has none. */
+	worktree: string | null;
+	turns: number | undefined;
+	json: boolean;
+	out: (text: string) => void;
+	err: (text: string) => void;
+}): Promise<number> {
+	const count = options.turns ?? 5;
+	if (!Number.isInteger(count) || count < 1) {
+		options.err('Usage: pappardelle read <issue-key> [--turns N] [--json]');
+		return 1;
+	}
+
+	const log = options.worktree
+		? await findLatestSessionJsonl(options.worktree)
+		: null;
+	if (!log) {
+		options.err(`No conversation log for ${options.issueKey}`);
+		return 1;
+	}
+
+	const turns = readTurns(log);
+	options.out(
+		options.json
+			? JSON.stringify(turnsJson(options.issueKey, turns, count), null, 2)
+			: formatTurns(options.issueKey, turns, count),
+	);
+	return 0;
 }

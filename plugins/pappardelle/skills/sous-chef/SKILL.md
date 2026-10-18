@@ -63,7 +63,7 @@ WORKING:
 What's the call, chef?
 ```
 
-Keep it tight. Show just the number (e.g. "696" not "STA-696") — the prefix is noise. After the number, include a short gist of the issue title (3-6 words, from the Linear issue title or conversation context). This helps the chef remember what each space is about without having to drill in. Once an issue has been mentioned in the current conversation, you can drop the title on subsequent mentions. Show time since last update. Skip categories that have zero items. When the user refers to a space by number (e.g. "696"), resolve it to the full key (e.g. "STA-696") for `pappardelle` commands.
+Keep it tight. Show just the number (e.g. "696" not "STA-696") — the prefix is noise. After the number, include a short gist of the issue title (3-6 words, from the space's `title`, its recap title, or conversation context). This helps the chef remember what each space is about without having to drill in. Once an issue has been mentioned in the current conversation, you can drop the title on subsequent mentions. Show time since last update. Skip categories that have zero items. When the user refers to a space by number (e.g. "696"), resolve it to the full key (e.g. "STA-696") for `pappardelle` commands.
 
 ## When User Picks a Space
 
@@ -81,7 +81,7 @@ pappardelle highlight STA-XXX
 pappardelle read STA-XXX --json
 ```
 
-Take commits ahead and the diff size from the space's `git` field in the last `pappardelle spaces --json`; run it again if the board is more than a few minutes old.
+Take commits ahead, the diff size and new untracked files (`untracked`) from the space's `git` field in the last `pappardelle spaces --json`; run it again if the board is more than a few minutes old.
 
 **Step 3: Brief the chef**
 

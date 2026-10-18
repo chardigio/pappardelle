@@ -12,11 +12,10 @@ import {
 	resetRegistryPath,
 	getRegistryPathForRepo,
 	initForRepo,
-	setLockTimingForTests,
-	resetLockTimingForTests,
 	tryReserveWatchlistSlots,
 	releaseWatchlistReservation,
 } from './space-registry.ts';
+import {setLockTimingForTests, resetLockTimingForTests} from './file-lock.ts';
 
 let tempCounter = 0;
 function tempRegistryPath(): string {
