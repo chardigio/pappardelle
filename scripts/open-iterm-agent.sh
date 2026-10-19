@@ -29,7 +29,7 @@ AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
-MODEL_EFFORT_FLAGS=""
+PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --agent-launch-flags)
-            MODEL_EFFORT_FLAGS="$2"
+            PROFILE_LAUNCH_FLAGS="$2"
             shift 2
             ;;
         --agent-profile)
@@ -161,16 +161,16 @@ PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 AGENT_PROMPT="$PROMPT"
 
 # Build the launch-flag string appended to every agent invocation below.
-# Claude agents: --dangerously-skip-permissions → agent args → model/effort
-# flags, in that order, matching start-agent-session.sh and
+# Claude agents: --dangerously-skip-permissions → agent args → launch flags
+# (model, effort, extra args), in that order, matching start-agent-session.sh and
 # buildAgentResumeCommand() in source/tmux.ts. Non-claude agents get only
-# their free-form args and the agent profile's model/effort flags, since
+# their free-form args and the agent profile's launch flags, since
 # --dangerously-skip-permissions would be meaningless to them.
 # Leading spaces are intentional: the value is concatenated onto the agent
 # command word, so each space separates its flag cleanly.
 #
 # The string crosses two shells. Agent args (a user-authored multi-flag
-# string like "--yolo --foo bar") and the model/effort flags (rendered and
+# string like "--yolo --foo bar") and the launch flags (rendered and
 # quoted by resolve-agent-config.sh) arrive as ready-made words for the INNER
 # shell (tmux runs the new-session command through sh -c). `quoted form of` in
 # the AppleScript makes the whole string safe for the OUTER shell iTerm
@@ -182,8 +182,8 @@ fi
 if [[ -n "$AGENT_ARGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_ARGS}"
 fi
-if [[ -n "$MODEL_EFFORT_FLAGS" ]]; then
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${MODEL_EFFORT_FLAGS}"
+if [[ -n "$PROFILE_LAUNCH_FLAGS" ]]; then
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${PROFILE_LAUNCH_FLAGS}"
 fi
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
     NAME_FLAG=" --name ${ISSUE_KEY}"

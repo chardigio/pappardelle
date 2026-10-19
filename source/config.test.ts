@@ -5691,6 +5691,7 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 		effort: '',
 		modelArgs: '--model {model}',
 		effortArgs: '--effort {effort}',
+		extraArgs: [],
 	});
 });
 

@@ -67,15 +67,16 @@ export interface ClaudeConfig {
 	 */
 	effort?: string;
 	/**
-	 * Raw flags appended to the `claude` command after `--effort`, each one
-	 * shell-quoted on its own. It exists so a profile that runs with no human
-	 * watching (robodogfood, STA-2663) can take tools away from the agent with
-	 * `--tools`, `--strict-mcp-config` and `--no-chrome`, without one config key
-	 * per Claude Code flag. Like `model`, the values are not checked against
-	 * Claude Code's flag list, because that list changes on its own schedule.
+	 * @deprecated Set `args` on an agent profile instead. Raw flags for claude
+	 * agent profiles, each shell-quoted on its own, placed after the
+	 * model/effort flags. A profile that runs with no human watching
+	 * (robodogfood, STA-2663) takes tools away from the agent with `--tools`,
+	 * `--strict-mcp-config` and `--no-chrome`.
 	 *
 	 * A profile list replaces the top-level list; it never adds to it, so
-	 * `extra_args: []` on a profile clears an inherited list.
+	 * `extra_args: []` on a profile clears an inherited list. An agent
+	 * profile's own `args` don't replace it, so a restricted profile keeps its
+	 * limits under any claude agent profile.
 	 */
 	extra_args?: string[];
 }
@@ -910,9 +911,10 @@ function warnDeprecatedInitializationCommand(
 }
 
 /**
- * `claude.model` / `claude.effort` predate agent profiles. They keep working
- * as the fallback for claude agent profiles, so unlike the init command they
- * are not renamed; the warning only points at where the value belongs now.
+ * `claude.model` / `claude.effort` / `claude.extra_args` predate agent
+ * profiles. They keep working for claude agent profiles, so unlike the init
+ * command they are not renamed; the warning only points at where the value
+ * belongs now.
  */
 function warnDeprecatedClaudeLaunchFields(
 	layer: Record<string, unknown>,
@@ -925,6 +927,11 @@ function warnDeprecatedClaudeLaunchFields(
 			if ((claude as Record<string, unknown>)[field] === undefined) continue;
 			warnDeprecatedOnce(
 				`${file}: ${label}claude.${field} is deprecated — set ${field} on an agent profile (agent_profiles.<name>.${field}) and select it with ${label}agent_profile`,
+			);
+		}
+		if ((claude as Record<string, unknown>)['extra_args'] !== undefined) {
+			warnDeprecatedOnce(
+				`${file}: ${label}claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with ${label}agent_profile`,
 			);
 		}
 	}
@@ -2629,6 +2636,26 @@ function resolveAgentLaunchField(
 		: '';
 }
 
+/**
+ * The deprecated `claude.extra_args` for a claude agent profile, profile list
+ * over top-level list. Other CLIs never get them, since they are claude flags.
+ */
+function resolveClaudeExtraArgs(
+	config: PappardelleConfig,
+	definition: AgentProfileConfig,
+	issueTitle?: string,
+	profileName?: string,
+): string[] {
+	if (!isClaudeAgentProfile(definition)) return [];
+	return (
+		// eslint-disable-next-line @typescript-eslint/no-deprecated -- the deprecated field's fallback
+		selectProfile(config, issueTitle, profileName)?.claude?.extra_args ??
+		// eslint-disable-next-line @typescript-eslint/no-deprecated -- the deprecated field's fallback
+		config.claude?.extra_args ??
+		[]
+	);
+}
+
 const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
 	model: '{model}',
 	effort: '{effort}',
@@ -2662,13 +2689,16 @@ function quoteLaunchValue(value: string): string {
 }
 
 /**
- * Render the model/effort flags for an agent profile, each with a leading
- * space, or '' when neither applies. An unset value or a CLI without a
- * template passes no flag.
+ * Render the model/effort flags, then the extra args, for an agent profile,
+ * each with a leading space, or '' when none apply. An unset value or a CLI
+ * without a template passes no flag.
  */
 export function renderAgentLaunchFlags(
 	agentProfile: Partial<
-		Pick<ResolvedAgentProfile, 'model' | 'effort' | 'modelArgs' | 'effortArgs'>
+		Pick<
+			ResolvedAgentProfile,
+			'model' | 'effort' | 'modelArgs' | 'effortArgs' | 'extraArgs'
+		>
 	>,
 ): string {
 	const templates: Record<LaunchField, string | undefined> = {
@@ -2683,6 +2713,9 @@ export function renderAgentLaunchFlags(
 		const quoted = quoteLaunchValue(value);
 		// A function, so `$'` and `$&` in the value aren't replacement patterns.
 		flags += ` ${template.replaceAll(LAUNCH_PLACEHOLDERS[field], () => quoted)}`;
+	}
+	for (const arg of agentProfile.extraArgs ?? []) {
+		flags += ` ${quoteLaunchValue(arg)}`;
 	}
 	return flags;
 }
@@ -2792,6 +2825,8 @@ export interface ResolvedAgentProfile {
 	/** Flag templates for model/effort; undefined means the CLI gets none. */
 	modelArgs?: string;
 	effortArgs?: string;
+	/** The deprecated `claude.extra_args`, rendered after model/effort. */
+	extraArgs: string[];
 }
 
 /**
@@ -2823,6 +2858,7 @@ function resolveAgentProfile(
 		effort: definition.effort ?? '',
 		modelArgs: definition.model_args ?? builtin.model,
 		effortArgs: definition.effort_args ?? builtin.effort,
+		extraArgs: [],
 	};
 }
 
@@ -2868,6 +2904,12 @@ export function getAgentProfile(
 			config,
 			definition,
 			'effort',
+			issueTitle,
+			profileName,
+		),
+		extraArgs: resolveClaudeExtraArgs(
+			config,
+			definition,
 			issueTitle,
 			profileName,
 		),

@@ -48,7 +48,9 @@
 # into agent_launch_flags through the agent profile's model_args / effort_args,
 # or the built-in templates for claude (--model {model}, --effort {effort}) and
 # codex (-m {model}, -c model_reasoning_effort={effort}), quoting values the way
-# renderAgentLaunchFlags() does so TUI and idow launch lines match.
+# renderAgentLaunchFlags() does so TUI and idow launch lines match. Claude agent
+# profiles then get the deprecated claude.extra_args, profile list over
+# top-level list, one quoted word each.
 # claude_launch_deprecated lists the deprecated top-level keys any raw layer
 # still sets, so idow can warn.
 #
@@ -167,11 +169,12 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         "claude": {
             "dangerously_skip_permissions": .claude.dangerously_skip_permissions,
             "model": .claude.model,
-            "effort": .claude.effort
+            "effort": .claude.effort,
+            "extra_args": .claude.extra_args
         },
         "companion_command": .companion_command,
         "selected": {
-            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort},
+            "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort, "extra_args": $selected.claude.extra_args},
             "companion_command": $selected.companion_command
         },
         "agent_profile_ref": $agent_profile_ref,
@@ -212,6 +215,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
             template_set: (($def_resolved | has($f + "_args")) or ($builtin | has($f)))
         }
     }] | from_entries) as $launch |
+    (if $is_claude then ($selected.claude.extra_args // $claude.extra_args // []) else [] end) as $extra_args |
     ([("model", "effort") as $f | $launch[$f] as $l |
         if $l.template_set and ($l.template | contains("{" + $f + "}") | not) then
             "agent_profiles.\($agent_profile).\($f)_args: must contain {\($f)}"
@@ -235,7 +239,8 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
                             elif $is_claude then "--resume {session_id}" else "" end),
         agent_is_claude: $is_claude,
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
-                              render($launch.effort.template; "{effort}"; $launch.effort.value)] | join(" ")),
+                              render($launch.effort.template; "{effort}"; $launch.effort.value),
+                              ($extra_args[] | tostring | quote_value)] | join(" ")),
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_launch_errors: $launch_errors
     } |
@@ -261,7 +266,7 @@ fi
 # per layer; the marker lets idow warn if any raw layer still uses it.
 INIT_CMD_DEPRECATED=$(yq ea '[.claude.initialization_command | select(. != null)] | length > 0' "${LAYERS[@]}")
 # shellcheck disable=SC2016 # yq expression, not shell
-CLAUDE_LAUNCH_DEPRECATED=$(yq ea -o=json -I=0 '[.claude | select(. != null) | (pick(["model", "effort"]) | keys | .[])] | unique | sort | map("claude." + .) | join(" ")' "${LAYERS[@]}")
+CLAUDE_LAUNCH_DEPRECATED=$(yq ea -o=json -I=0 '[.claude | select(. != null) | (pick(["model", "effort", "extra_args"]) | keys | .[])] | unique | sort | map("claude." + .) | join(" ")' "${LAYERS[@]}")
 
 jq --arg init_cmd_deprecated "$INIT_CMD_DEPRECATED" --argjson claude_launch_deprecated "$CLAUDE_LAUNCH_DEPRECATED" \
     'del(.agent_profile_missing, .agent_launch_errors) | .init_cmd_deprecated = $init_cmd_deprecated | .claude_launch_deprecated = $claude_launch_deprecated' <<< "$RESOLVED_JSON"

@@ -482,6 +482,7 @@ interface PappardelleConfig {
 		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions (claude agents only)
 		model?: string; // DEPRECATED: set model on an agent profile. Still the fallback for claude agent profiles without one.
 		effort?: string; // DEPRECATED: set effort on an agent profile. Same fallback as model.
+		extra_args?: string[]; // DEPRECATED: set args on an agent profile. Raw flags for claude agent profiles, after model/effort.
 	};
 	profiles: Record<string, Profile>;
 }
@@ -512,6 +513,7 @@ interface Profile {
 		initialization_command?: string; // DEPRECATED: use the profile-level initialization_command
 		model?: string; // DEPRECATED: select an agent profile that sets model. Still overrides the global claude.model fallback.
 		effort?: string; // DEPRECATED: select an agent profile that sets effort.
+		extra_args?: string[]; // DEPRECATED: select an agent profile that sets args. Replaces the global claude.extra_args; [] clears it.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
 	ide_command?: string; // Override the top-level `d`-key editor command for this profile. "" = disable `d` for this profile.
@@ -890,12 +892,13 @@ profiles:
     initialization_command: '/do-stardust'
 ```
 
-| Field                          | Type      | Default | Description                                                                                                                                                                                                                                        |
-| ------------------------------ | --------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `initialization_command`       | `string`  | `""`    | Top-level / profile-level (not inside `claude:`). Command passed to the agent when opening a new session, typically a skill name like `/idow`. When empty, the agent opens with just the issue key; a profile's `''` clears the top-level command. |
-| `dangerously_skip_permissions` | `boolean` | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                                                                  |
-| `model`                        | `string`  | `""`    | Deprecated: set `model` on an agent profile. Still the fallback for claude agent profiles that set no model of their own.                                                                                                                          |
-| `effort`                       | `string`  | `""`    | Deprecated: set `effort` on an agent profile. Same fallback as `model`.                                                                                                                                                                            |
+| Field                          | Type       | Default | Description                                                                                                                                                                                                                                        |
+| ------------------------------ | ---------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialization_command`       | `string`   | `""`    | Top-level / profile-level (not inside `claude:`). Command passed to the agent when opening a new session, typically a skill name like `/idow`. When empty, the agent opens with just the issue key; a profile's `''` clears the top-level command. |
+| `dangerously_skip_permissions` | `boolean`  | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                                                                  |
+| `model`                        | `string`   | `""`    | Deprecated: set `model` on an agent profile. Still the fallback for claude agent profiles that set no model of their own.                                                                                                                          |
+| `effort`                       | `string`   | `""`    | Deprecated: set `effort` on an agent profile. Same fallback as `model`.                                                                                                                                                                            |
+| `extra_args`                   | `string[]` | `[]`    | Deprecated: set `args` on an agent profile. Raw flags for claude agent profiles, each shell-quoted as one argument, placed after the model/effort flags. A profile list replaces the global list; `[]` on a profile clears it.                     |
 
 The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`). It applies to every agent, which is why it lives outside the `claude:` block. The old `claude.initialization_command` spelling is deprecated but still accepted (with a warning naming the file to edit); setting both spellings at the same level _in the same file_ is a validation error. Across config layers, each file's old spelling is read as the new key before the layers merge, so the more specific layer wins whichever spelling it uses: a project still on the old spelling overrides a home config that has migrated, and neither conflicts with the other.
 
@@ -927,7 +930,22 @@ profiles:
     agent_profile: claude-sonnet
 ```
 
-Omitting `model` and `effort` everywhere leaves the launch command byte-identical to a config that predates them; nothing is passed to the CLI unless you ask for it.
+**Extra args** (`claude.extra_args`) take any `claude` flag that has no field of its own. They are deprecated like `model` and `effort`, since an agent profile's `args` does the same job, but they keep working for claude agent profiles. An agent profile's own `args` don't replace them, so a profile that restricts tools keeps its limits whichever claude agent profile it runs. The main use is a profile that runs with no human watching and must have fewer tools, like the run-robodogfood profile in this repo:
+
+```yaml
+profiles:
+  run-robodogfood:
+    claude:
+      extra_args:
+        - --strict-mcp-config # load no MCP servers (also removes claude.ai connectors and plugin servers)
+        - --no-chrome # Claude in Chrome is not an MCP server, so it needs its own flag
+        - --tools
+        - Bash,Read,Write,Edit,Glob,Grep,Agent,Skill,Monitor
+```
+
+When the TUI creates a space's session again (after a crash, or after the agent exits), it uses the profile that `idow` saved for the space in `~/.pappardelle/repos/<repo>/space-state/<KEY>.json`. Only a space with no saved profile (or a saved name that no profile has now) falls back to the issue title's keywords. So still give a restricted profile a keyword that its issue titles always contain, and put it above any profile that shares a keyword with it, because file order wins a tie. The same order applies to `agent_profile` and `companion_command`.
+
+Omitting `model`, `effort` and `extra_args` everywhere leaves the launch command byte-identical to a config that predates them; nothing is passed to the CLI unless you ask for it.
 
 ## Issue Watchlist
 
