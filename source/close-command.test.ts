@@ -96,7 +96,7 @@ test('without --yes on a terminal it asks, and a no closes nothing', async t => 
 	const {deps, events} = fakeDeps({isTTY: true});
 	t.is(await runCloseCommand({key: 'STA-1', yes: false}, deps), 0);
 	t.deepEqual(events, [
-		'confirm Close STA-1? Runs pre_workspace_deinit hooks and ends its Claude and companion sessions. [y/N] ',
+		'confirm Close STA-1? Runs pre_workspace_deinit hooks and ends its agent and companion sessions. [y/N] ',
 	]);
 });
 

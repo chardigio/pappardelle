@@ -268,6 +268,42 @@ def test_the_codex_daemon_does_not_record_into_a_claude_space(state_file: Path):
     assert "agentSessions" not in json.loads(state_file.read_text())
 
 
+@pytest.mark.parametrize(
+    "table",
+    [
+        # claude in a second terminal, cd'd into the space's worktree.
+        {
+            100: (99, "python3 /Users/me/.pappardelle/hooks/update-status.py"),
+            99: (98, "claude"),
+            98: (97, "-zsh"),
+            97: (1, "/Applications/Ghostty.app/Contents/MacOS/ghostty"),
+        },
+        # The Claude codex plugin's own app-server, not the managed daemon.
+        {
+            100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
+            99: (98, "codex app-server"),
+            98: (1, "node /Users/me/.claude/plugins/codex/scripts/app-server-broker.mjs serve"),
+        },
+    ],
+)
+def test_an_agent_outside_tmux_other_than_the_codex_daemon_is_not_recorded(state_file: Path, table):
+    assert not record_agent_session(
+        payload(cwd="/Users/me/.worktrees/repo/STA-1"),
+        {},
+        HOOK_PID,
+        lambda: table,
+        lambda _cwd: env_for(state_file, "codex"),
+    )
+    assert not record_agent_session(
+        payload(cwd="/Users/me/.worktrees/repo/STA-1"),
+        {},
+        HOOK_PID,
+        lambda: table,
+        lambda _cwd: env_for(state_file, "claude"),
+    )
+    assert "agentSessions" not in json.loads(state_file.read_text())
+
+
 def test_a_hook_outside_tmux_and_any_space_is_not_recorded(state_file: Path):
     assert not record_agent_session(
         payload(cwd="/tmp/elsewhere"), env_for(state_file), HOOK_PID, lambda: CODEX_DAEMON, lambda _cwd: None

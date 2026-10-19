@@ -22,6 +22,16 @@ export const PROFILE_AGENT_LABEL = "profile's agent";
  */
 export const AGENT_PICKER_CHROME_ROWS = 6;
 
+/** Border and paddingX={1} on both sides. */
+const HORIZONTAL_CHROME = 4;
+
+/** The picker's hint, which sets its minimum width. */
+export const AGENT_PICKER_HINT =
+	'↑/↓ select · / filter · Enter choose · Esc cancel';
+
+/** Names longer than this are cut so the source column keeps its room. */
+export const AGENT_PICKER_NAME_MAX_WIDTH = 32;
+
 /** Room for the "↑/↓ N more" rows once the list scrolls. */
 const SCROLL_MARKER_ROWS = 2;
 
@@ -31,6 +41,14 @@ export function agentPickerHeight(optionCount: number): number {
 		AGENT_PICKER_CHROME_ROWS +
 		Math.min(optionCount, AGENT_POPUP_MAX_VISIBLE) +
 		(optionCount > AGENT_POPUP_MAX_VISIBLE ? SCROLL_MARKER_ROWS : 0)
+	);
+}
+
+/** Columns the picker wants: 60% of the client, but never narrower than its hint. */
+export function agentPickerWidth(clientCols: number): number {
+	return Math.max(
+		Math.floor(clientCols * 0.6),
+		AGENT_PICKER_HINT.length + HORIZONTAL_CHROME,
 	);
 }
 

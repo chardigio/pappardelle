@@ -110,7 +110,7 @@ Options:
 
 - **Yes, use `/do`** (default) — set `initialization_command: '/do'`
 - **Custom** — let them type a skill name
-- **No** — omit the `claude` section
+- **No** — omit `initialization_command`
 
 If they chose `/do`, also offer to install the starter `/do` skill. Both files are required: `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
 
@@ -148,12 +148,12 @@ Options:
 - **No** (default) — set `dangerously_skip_permissions: false`
 - **Yes** — set `dangerously_skip_permissions: true`. Warn the user: "This means Claude can read, write, and execute anything without confirmation. Only enable this if you trust the skills and prompts being used in your workspaces."
 
-This setting is only relevant if a `claude` section exists (i.e., the user chose an initialization command in 1A.iv). If they opted out of `claude` in 1A.iv, skip this question.
+Write it under `claude:` (`claude.dangerously_skip_permissions`). It only affects claude agent profiles.
 
-Don't ask about `claude.model` / `claude.effort` at first setup — omitting them
-launches with Claude's own default, which is the right answer for nearly every
-new repo. Mention in the wrap-up that both exist (globally and per-profile) and
-that `/configure-pappardelle` can set them later.
+Don't ask about model or effort at first setup — omitting them launches with
+Claude's own default, which is the right answer for nearly every new repo.
+Mention in the wrap-up that agent profiles can set both, and run codex or
+another CLI instead, and that `/configure-pappardelle` can set them up later.
 
 #### 1A.vi. Write `.pappardelle.yml`
 

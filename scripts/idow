@@ -194,13 +194,19 @@ TERMINAL_APP=$("$SCRIPT_DIR/resolve-terminal-app.sh" --config "$PROJECT_CONFIG_P
 
 TERMINAL_OPEN_FAILED=false
 
-if [[ "$INIT_CMD_DEPRECATED" == "true" ]]; then
-    print_warning "claude.initialization_command is deprecated — rename it to the top-level initialization_command"
-fi
-for deprecated_key in $CLAUDE_LAUNCH_DEPRECATED; do
-    target=${deprecated_key#claude.}
-    [[ "$target" == extra_args ]] && target=args
-    print_warning "$deprecated_key is deprecated — set $target on an agent profile (agent_profiles.<name>.$target) and select it with agent_profile"
+# The resolver reports the merged layers; each warning names the file to edit,
+# like the per-profile ones in resolve_agent_launch_config.
+for layer in "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH"; do
+    [[ -n "$layer" && -f "$layer" ]] || continue
+    if [[ "$INIT_CMD_DEPRECATED" == "true" && "$(yq -r '.claude.initialization_command != null' "$layer")" == "true" ]]; then
+        print_warning "$layer: claude.initialization_command is deprecated — rename it to the top-level initialization_command"
+    fi
+    for deprecated_key in $CLAUDE_LAUNCH_DEPRECATED; do
+        [[ "$(yq -r ".$deprecated_key != null" "$layer")" == "true" ]] || continue
+        target=${deprecated_key#claude.}
+        [[ "$target" == extra_args ]] && target=args
+        print_warning "$layer: $deprecated_key is deprecated — set $target on an agent profile (agent_profiles.<name>.$target) and select it with agent_profile"
+    done
 done
 
 # Resolve the agent profile with its rendered launch flags, the companion

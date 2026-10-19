@@ -32,6 +32,7 @@ Options:
 - **Edit local overrides** — personal keybinding overrides in `.pappardelle.local.yml`
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions
+- **Configure agent profiles** — run codex or another CLI in the agent pane, or set model and effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
@@ -319,7 +320,7 @@ CLI. Agent profiles are separate from workspace `profiles`, which pick one with
 agent_profiles:
   codex:
     command: codex # Required — base binary
-    args: --yolo # Optional — free-form, prefixes every invocation
+    args: --yolo # Optional — free-form, appended to every invocation
     resume_args: resume {session_id} # Optional — resume attempt; omit to always launch fresh
     model: gpt-5.5 # Optional — rendered as -m gpt-5.5
     effort: high # Optional — rendered as -c model_reasoning_effort=high
