@@ -41,7 +41,7 @@ import {
 	type ProfileOption,
 } from '../profile-picker.ts';
 import {useSkillSnapshot} from '../use-skill-snapshot.ts';
-import {pickAgentProfileInPopup} from '../agent-profile-popup.ts';
+import {pickAgentProfileInPopup} from '../popup/agent-profile.ts';
 import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
 import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
 import {promptDialogLayout} from './prompt-dialog-layout.ts';

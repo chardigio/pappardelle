@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Box} from 'ink';
 import type {LogEntry} from '../logger.ts';
 import type {ChildMessage, HostMessage, PopupSpec} from '../popup/protocol.ts';
+import AgentProfilePicker from './AgentProfilePicker.tsx';
 import CloseSpaceDialog from './CloseSpaceDialog.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
 import ErrorDialog from './ErrorDialog.tsx';
@@ -117,6 +118,19 @@ export default function PopupRoot({
 						width={width}
 						height={height}
 						onClose={cancel}
+					/>
+				);
+			}
+
+			case 'agent-profile': {
+				return (
+					<AgentProfilePicker
+						request={spec.props}
+						availableHeight={height}
+						onChoose={agentProfile => {
+							channel.send({type: 'confirm', payload: {agentProfile}});
+						}}
+						onCancel={cancel}
 					/>
 				);
 			}

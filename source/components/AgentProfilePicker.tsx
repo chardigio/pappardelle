@@ -1,8 +1,5 @@
-import fs from 'node:fs';
 import React, {useState} from 'react';
-import {Box, Text, useApp, useInput, useStdout} from 'ink';
-import {renderTui} from '../render-tui.ts';
-import {createNormalizingStdin} from './kitty-keyboard.ts';
+import {Box, Text, useInput} from 'ink';
 import {
 	computePickerWindow,
 	handleFilterablePickerKey,
@@ -13,17 +10,21 @@ import {
 	agentProfileLabel,
 	filterAgentProfiles,
 	type AgentProfileRequest,
-} from '../agent-profile-popup.ts';
+} from '../agent-profile-picker.ts';
 
-function AgentProfilePicker({
-	request,
-	onChoose,
-}: {
+type Props = {
 	request: AgentProfileRequest;
-	onChoose: (name: string | null) => void;
-}) {
-	const {exit} = useApp();
-	const {stdout} = useStdout();
+	availableHeight: number;
+	onChoose: (name: string) => void;
+	onCancel: () => void;
+};
+
+export default function AgentProfilePicker({
+	request,
+	availableHeight,
+	onChoose,
+	onCancel,
+}: Props) {
 	const [state, setState] = useState<FilterablePickerState>(() => ({
 		query: null,
 		index: Math.max(
@@ -37,21 +38,18 @@ function AgentProfilePicker({
 		const result = handleFilterablePickerKey(state, input, key, options.length);
 		setState(result.state);
 		if (result.action === 'submit' || result.action === 'select') {
-			onChoose(options[result.state.index]?.name ?? null);
-			exit();
+			const chosen = options[result.state.index];
+			if (chosen) onChoose(chosen.name);
+			else onCancel();
 		} else if (result.action === 'back') {
-			onChoose(null);
-			exit();
+			onCancel();
 		}
 	});
 
 	const {start, end, above, below} = computePickerWindow(
 		options.length,
 		state.index,
-		agentPopupVisibleRows(
-			request.options.length,
-			stdout?.rows ?? Number.POSITIVE_INFINITY,
-		),
+		agentPopupVisibleRows(request.options.length, availableHeight),
 	);
 	// The default marker sits with the name so a truncated source can't hide it.
 	const label = (name: string) =>
@@ -63,7 +61,18 @@ function AgentProfilePicker({
 	);
 
 	return (
-		<Box flexDirection="column" paddingX={1}>
+		<Box
+			flexDirection="column"
+			borderStyle="round"
+			borderColor="cyan"
+			flexGrow={1}
+			paddingX={1}
+		>
+			<Box marginBottom={1}>
+				<Text bold color="cyan">
+					Agent profile
+				</Text>
+			</Box>
 			{above > 0 && <Text dimColor>↑ {above} more</Text>}
 			{options.length === 0 && <Text dimColor>No match</Text>}
 			{options.slice(start, end).map((option, offset) => {
@@ -104,34 +113,4 @@ function AgentProfilePicker({
 			</Box>
 		</Box>
 	);
-}
-
-/**
- * The `pappardelle pick-agent-profile` entry point that runs inside the popup.
- * A dismissed popup leaves no result file, which the TUI reads as "no change".
- */
-export async function runAgentProfilePicker(
-	requestPath: string,
-	resultPath: string,
-): Promise<number> {
-	const request = JSON.parse(
-		fs.readFileSync(requestPath, 'utf8'),
-	) as AgentProfileRequest;
-	let chosen: string | null = null;
-	const app = renderTui(
-		<AgentProfilePicker
-			request={request}
-			onChoose={name => {
-				chosen = name;
-			}}
-		/>,
-		{
-			stdin: process.stdin.isTTY
-				? createNormalizingStdin(process.stdin)
-				: process.stdin,
-		},
-	);
-	await app.waitUntilExit();
-	if (chosen !== null) fs.writeFileSync(resultPath, chosen);
-	return 0;
 }

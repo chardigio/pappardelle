@@ -1,4 +1,5 @@
 import type {Buffer} from 'node:buffer';
+import type {AgentProfileRequest} from '../agent-profile-picker.ts';
 import type {KeybindingConfig} from '../config.ts';
 import type {StateChoice} from '../close-state-choice.ts';
 import type {LogEntry} from '../logger.ts';
@@ -32,7 +33,8 @@ export type PopupSpec =
 	| {kind: 'close-space'; props: CloseSpacePopupProps}
 	| {kind: 'help'; props: HelpPopupProps}
 	| {kind: 'errors'; props: ErrorsPopupProps}
-	| {kind: 'issue'; props: IssuePopupProps};
+	| {kind: 'issue'; props: IssuePopupProps}
+	| {kind: 'agent-profile'; props: AgentProfileRequest};
 
 export type PopupKind = PopupSpec['kind'];
 
@@ -41,7 +43,7 @@ export type HostMessage =
 	| {type: 'done'}
 	| {type: 'errors'; errors: LogEntry[]};
 
-export type ConfirmPayload = {choice?: StateChoice};
+export type ConfirmPayload = {choice?: StateChoice; agentProfile?: string};
 
 export type ChildMessage =
 	| {type: 'confirm'; payload?: ConfirmPayload}
