@@ -1,38 +1,20 @@
 import test from 'ava';
 import {
+	agentPickerHeight,
 	agentPopupVisibleRows,
-	buildAgentProfilePopupArgs,
 	filterAgentProfiles,
-} from './agent-profile-popup.ts';
+} from './agent-profile-picker.ts';
 
-test('the popup command survives paths with spaces', t => {
-	const args = buildAgentProfilePopupArgs(
-		['/usr/local/bin/node', '/Users/me/My Tools/cli.js'],
-		'/tmp/a b/request.json',
-		'/tmp/a b/result',
-		2,
-	);
-	t.is(
-		args.at(-1),
-		"'/usr/local/bin/node' '/Users/me/My Tools/cli.js' 'pick-agent-profile' '/tmp/a b/request.json' '/tmp/a b/result'",
-	);
-});
-
-test('the popup is as tall as its list until the list scrolls', t => {
-	const height = (count: number) => {
-		const args = buildAgentProfilePopupArgs(['p'], 'r', 'o', count);
-		return Number(args[args.indexOf('-h') + 1]);
-	};
-
-	t.is(height(2), 6);
-	t.is(height(16), 20);
-	t.is(height(30), 22);
+test('the picker is as tall as its list until the list scrolls', t => {
+	t.is(agentPickerHeight(2), 8);
+	t.is(agentPickerHeight(16), 22);
+	t.is(agentPickerHeight(30), 24);
 });
 
 test('a popup shorter than its list scrolls instead of overflowing', t => {
 	t.is(agentPopupVisibleRows(12, 40), 12);
-	// tmux shrank the popup to 10 rows: 2 for the hint, 2 for the scroll markers.
-	t.is(agentPopupVisibleRows(12, 10), 6);
+	// tmux shrank the popup to 14 rows: 6 for the chrome, 2 for the scroll markers.
+	t.is(agentPopupVisibleRows(12, 14), 6);
 	t.is(agentPopupVisibleRows(30, 40), 14);
 });
 

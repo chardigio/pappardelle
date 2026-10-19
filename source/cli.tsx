@@ -49,7 +49,6 @@ import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
-import {runAgentProfilePicker} from './components/AgentProfilePicker.tsx';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
@@ -134,20 +133,6 @@ if (isRestart && cli.flags.hard) {
 	process.exit(
 		await hardRestart(cli.flags.yes ?? false, defaultRestartCommandDeps()),
 	);
-}
-
-// Runs inside the new-session dialog's tmux popup, whose cwd is wherever the
-// tmux server says, so it must not need a repo.
-if (cli.input[0] === 'pick-agent-profile') {
-	const [, requestPath, resultPath] = cli.input;
-	if (!requestPath || !resultPath) {
-		console.error(
-			'Usage: pappardelle pick-agent-profile <request-file> <result-file>',
-		);
-		process.exit(1);
-	}
-
-	process.exit(await runAgentProfilePicker(requestPath, resultPath));
 }
 
 // Check for .pappardelle.yml config file

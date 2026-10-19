@@ -7,6 +7,7 @@ import {
 } from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 import {closeSpaceContent} from '../close-state-choice.ts';
+import {agentPickerHeight} from '../agent-profile-picker.ts';
 import type {ConfirmPopupProps, PopupSpec} from './protocol.ts';
 
 export type ClientSize = {cols: number; rows: number};
@@ -124,6 +125,16 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			return clamp(
 				{width: contentWidth + HORIZONTAL_CHROME, height},
 				{cols: client.cols, rows: maxHeight},
+			);
+		}
+
+		case 'agent-profile': {
+			return clamp(
+				{
+					width: Math.floor(client.cols * 0.6),
+					height: agentPickerHeight(spec.props.options.length),
+				},
+				client,
 			);
 		}
 
