@@ -83,7 +83,7 @@ The center and right panes in the Pappardelle session are "viewers" — they run
 This means:
 
 - **Workspaces are independent.** Each agent session runs in its own tmux session. If Pappardelle crashes, your agent sessions keep running.
-- **Attach from anywhere.** You can attach to any workspace's agent session from a separate terminal: `tmux attach -t agent-stardust-labs-STA-631`.
+- **Attach from anywhere.** You can attach to any workspace's agent session from a separate terminal: `tmux -L pappardelle_inner attach -t agent-stardust-labs-STA-631`.
 - **Switching is instant.** After the first attachment, switching between workspaces uses tmux's fast `switch-client` path — no process restart, no visible flash.
 
 ### tmux version

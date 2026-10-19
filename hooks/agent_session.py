@@ -22,7 +22,9 @@ A different agent started by hand in the pane is rejected by the same check.
 codex 0.159+ runs hooks in its shared app-server daemon, which is not under
 tmux and carries the env of whichever pane started it. For a hook outside tmux
 the variables come from the agent session whose directory holds the payload's
-cwd instead, and the command check runs against the hook's whole ancestry.
+cwd instead, and only that managed daemon may record: an agent in another
+terminal, or the app-server the Claude codex plugin runs, can share the
+worktree without being the pane's agent.
 """
 
 import json
@@ -76,6 +78,11 @@ def _name(args: str) -> str:
 def _runs_command(args: str, command: str) -> bool:
     # The second word catches interpreters: `node .../bin/codex`, `bash ~/bin/agent`.
     return command in (_basename(word) for word in args.split()[:2])
+
+
+def _is_managed_daemon(args: str) -> bool:
+    words = args.split()
+    return "app-server" in words and "--managed-daemon" in words
 
 
 def ancestors(hook_pid: int, table: ProcessTable) -> tuple[list[str], bool]:
@@ -188,7 +195,7 @@ def record_agent_session(
         session_env: Optional[Mapping[str, str]] = env
     else:
         cwd = payload.get("cwd")
-        agent_processes = chain
+        agent_processes = [args for args in chain if _is_managed_daemon(args)]
         session_env = session_env_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
     if agent_processes is None or session_env is None:
         return False

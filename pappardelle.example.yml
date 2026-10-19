@@ -48,8 +48,8 @@ team_prefix: ENG
 # Agent profiles for the agent pane (optional). The built-in `claude` agent
 # profile is the default; define others here and reference them by name via
 # `agent_profile:`
-# (top-level for a global default, or per-profile — see codex-experiments
-# below). `args` is free-form and prefixes every invocation, so codex's
+# (top-level for a global default, or per-profile — see ios-app below).
+# `args` is free-form and appended to every invocation, so codex's
 # --yolo goes there. Non-claude agents skip the claude-only flags
 # (--name/dsp) and the ~/.claude.json pre-trust; a wrapper around claude that
 # isn't named `claude` can opt back in with is_claude. model/effort are

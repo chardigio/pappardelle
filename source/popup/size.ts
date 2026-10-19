@@ -7,7 +7,7 @@ import {
 } from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 import {closeSpaceContent} from '../close-state-choice.ts';
-import {agentPickerHeight} from '../agent-profile-picker.ts';
+import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
 import type {ConfirmPopupProps, PopupSpec} from './protocol.ts';
 
 export type ClientSize = {cols: number; rows: number};
@@ -129,12 +129,13 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 		}
 
 		case 'agent-profile': {
+			// tmux refuses a popup as tall as the client when a status line is on.
 			return clamp(
 				{
-					width: Math.floor(client.cols * 0.6),
+					width: agentPickerWidth(client.cols),
 					height: agentPickerHeight(spec.props.options.length),
 				},
-				client,
+				{cols: client.cols, rows: client.rows - 2},
 			);
 		}
 

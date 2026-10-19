@@ -161,6 +161,7 @@ RESOLVED=$(merge_config_layers "$HOME_CONFIG_PATH" "$CONFIG_PATH" "$LOCAL_CONFIG
 # `false` as missing. Mirrors getAgentProfile() in source/config.ts.
 # shellcheck disable=SC2016 # $selected, $agent_profile_ref, $def and strenv() are yq/jq, not shell
 RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVERRIDE="$AGENT_PROFILE_OVERRIDE" yq -o=json '
+    ((.agent_profiles // {}) | keys) as $agent_profile_names |
     (.profiles[strenv(PROFILE)] // {}) as $selected |
     ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
     ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args"] as $fields |
@@ -181,7 +182,8 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         "agent_profile_defs": {
             "ref": ((.agent_profiles[$agent_profile_ref] // {}) | pick($fields)),
             "claude": ((.agent_profiles.claude // {}) | pick($fields))
-        }
+        },
+        "agent_profile_names": $agent_profile_names
     }
 ' | jq '
     def quote_value: if test("^[A-Za-z0-9._-]+$") then . else @sh end;
@@ -193,7 +195,19 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     .claude as $claude |
     (if .agent_profile_ref == "" then "claude" else .agent_profile_ref end) as $agent_profile |
     (if .agent_profile_ref == "" then .agent_profile_defs.claude else .agent_profile_defs.ref end) as $def |
-    (($def.command // "") != "") as $defined |
+    (.agent_profile_names | index($agent_profile) != null) as $defined |
+    # Same checks as validateConfig() in source/config.ts, which idow never runs.
+    ([if $defined and (($def.command | type) != "string" or ($def.command | test("^\\s*$"))) then
+        "agent_profiles.\($agent_profile).command: required non-empty string" else empty end
+    ] + [$def | to_entries[]
+        | select(.key != "command" and .key != "is_claude" and (.value | type) != "string")
+        | "agent_profiles.\($agent_profile).\(.key): must be a string"
+    ] + [$def | select(has("is_claude") and (.is_claude | type) != "boolean")
+        | "agent_profiles.\($agent_profile).is_claude: must be a boolean"
+    ]) as $type_errors |
+    if $type_errors != [] then
+        {agent_profile_missing: "", agent_type_errors: ($type_errors | join("\n")), agent_launch_errors: ""}
+    else
     # Trailing whitespace trimmed like lookupAgentProfile(): a YAML block
     # scalar (args: >) ends in a newline.
     (if $defined then $def else {command: "claude"} end
@@ -242,12 +256,19 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
+        agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors
     } |
     with_entries(.value |= tostring) |
     .skip_permissions = ((.skip_permissions == "true") | tostring)
+    end
 ')
 
+AGENT_TYPE_ERRORS=$(jq -r '.agent_type_errors' <<< "$RESOLVED_JSON")
+if [[ -n "$AGENT_TYPE_ERRORS" ]]; then
+    printf 'Error: %s\n' "$AGENT_TYPE_ERRORS" >&2
+    exit 1
+fi
 # The TUI rejects a reference to an undefined agent profile at config load;
 # idow never runs that validator, so a typo would otherwise quietly launch
 # claude.
@@ -269,4 +290,4 @@ INIT_CMD_DEPRECATED=$(yq ea '[.claude.initialization_command | select(. != null)
 CLAUDE_LAUNCH_DEPRECATED=$(yq ea -o=json -I=0 '[.claude | select(. != null) | (pick(["model", "effort", "extra_args"]) | keys | .[])] | unique | sort | map("claude." + .) | join(" ")' "${LAYERS[@]}")
 
 jq --arg init_cmd_deprecated "$INIT_CMD_DEPRECATED" --argjson claude_launch_deprecated "$CLAUDE_LAUNCH_DEPRECATED" \
-    'del(.agent_profile_missing, .agent_launch_errors) | .init_cmd_deprecated = $init_cmd_deprecated | .claude_launch_deprecated = $claude_launch_deprecated' <<< "$RESOLVED_JSON"
+    'del(.agent_profile_missing, .agent_type_errors, .agent_launch_errors) | .init_cmd_deprecated = $init_cmd_deprecated | .claude_launch_deprecated = $claude_launch_deprecated' <<< "$RESOLVED_JSON"

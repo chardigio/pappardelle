@@ -225,8 +225,7 @@ profiles:
       - guess
     display_name: 'King Bee'
     emoji: '🐝'
-    claude:
-      initialization_command: '/do-king-bee' # Each profile can have its own Claude init command
+    initialization_command: '/do-king-bee' # Each profile can have its own init command
     vars:
       IOS_APP_DIR: '_ios/King Bee'
       BUNDLE_ID: 'com.cd17822.King-Bee'

@@ -1024,7 +1024,7 @@ export function resolveInnerSessionTarget(
 export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'failed';
 
 /**
- * Submit `text` as a prompt to the Claude session of a space.
+ * Submit `text` as a prompt to the agent session of a space.
  * Backs `pappardelle send`, which the sous-chef skill relays through.
  */
 export function sendToSpaceAgent(
@@ -1033,8 +1033,17 @@ export function sendToSpaceAgent(
 	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const {agent} = getSessionNames(issueKey, options.repoName);
-	const target = resolveInnerSessionTarget(agent, runner);
+	const {agent, legacyAgent} = getSessionNames(issueKey, options.repoName);
+	let target = resolveInnerSessionTarget(agent, runner);
+	// A space the TUI hasn't migrated yet still runs under its claude-* name.
+	if (
+		!target &&
+		resolveInnerSessionTarget(legacyAgent, runner) &&
+		renameLegacySession(legacyAgent, agent, runner)
+	) {
+		target = exactSessionTarget(agent) + ':';
+	}
+
 	if (!target) return 'no-session';
 	return sendKeysLiteralThenEnter(runner, target, text) ? 'sent' : 'failed';
 }

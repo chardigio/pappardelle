@@ -5712,13 +5712,13 @@ test('listAgentProfiles labels each agent profile with its config files', t => {
 			agentProfileTestConfig({
 				agent_profiles: {codex: {command: 'codex'}, aider: {command: 'aider'}},
 			}),
-			{codex: ['~/.pappardelle/.pappardelle.yml', '.pappardelle.local.yml']},
+			{codex: ['.pappardelle.local.yml', '~/.pappardelle/.pappardelle.yml']},
 		),
 		[
 			{name: 'claude', source: 'built-in'},
 			{
 				name: 'codex',
-				source: '~/.pappardelle/.pappardelle.yml + .pappardelle.local.yml',
+				source: '.pappardelle.local.yml + ~/.pappardelle/.pappardelle.yml',
 			},
 			{name: 'aider', source: 'built-in'},
 		],
@@ -5743,7 +5743,7 @@ test('listAgentProfiles keeps a shadowing claude where it was declared', t => {
 	);
 });
 
-test('loadAgentProfileSources names every layer that defines an agent profile', t => {
+test('loadAgentProfileSources names every layer that defines an agent profile, the winning one first', t => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-sources-'));
 	const write = (file: string, content: string) => {
 		fs.mkdirSync(path.dirname(path.join(dir, file)), {recursive: true});
@@ -5769,7 +5769,7 @@ test('loadAgentProfileSources names every layer that defines an agent profile', 
 				projectDir: path.join(dir, 'project'),
 			}),
 			{
-				codex: ['~/.pappardelle/.pappardelle.yml', '.pappardelle.local.yml'],
+				codex: ['.pappardelle.local.yml', '~/.pappardelle/.pappardelle.yml'],
 				opus: ['.pappardelle.yml'],
 			},
 		);

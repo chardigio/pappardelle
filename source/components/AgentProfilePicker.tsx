@@ -6,6 +6,7 @@ import {
 	type FilterablePickerState,
 } from '../profile-picker.ts';
 import {
+	AGENT_PICKER_NAME_MAX_WIDTH,
 	agentPopupVisibleRows,
 	agentProfileLabel,
 	filterAgentProfiles,
@@ -53,7 +54,7 @@ export default function AgentProfilePicker({
 	);
 	// The default marker sits with the name so a truncated source can't hide it.
 	const label = (name: string) =>
-		agentProfileLabel(name) +
+		cutName(agentProfileLabel(name)) +
 		(name === request.profileDefault ? ' (default)' : '');
 	// Sized from the whole list so the columns don't shift as the filter narrows.
 	const nameWidth = Math.max(
@@ -94,7 +95,7 @@ export default function AgentProfilePicker({
 			{below > 0 && <Text dimColor>↓ {below} more</Text>}
 			<Box marginTop={1}>
 				{state.query === null ? (
-					<Text dimColor>
+					<Text dimColor wrap="truncate-end">
 						<Text color="green">↑/↓</Text> select · <Text color="cyan">/</Text>{' '}
 						filter · <Text color="green">Enter</Text> choose ·{' '}
 						<Text color="yellow">Esc</Text> cancel
@@ -113,4 +114,10 @@ export default function AgentProfilePicker({
 			</Box>
 		</Box>
 	);
+}
+
+function cutName(name: string): string {
+	return name.length > AGENT_PICKER_NAME_MAX_WIDTH
+		? name.slice(0, AGENT_PICKER_NAME_MAX_WIDTH - 1) + '…'
+		: name;
 }

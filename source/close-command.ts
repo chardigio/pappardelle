@@ -64,7 +64,7 @@ export async function runCloseCommand(
 		}
 
 		const ok = await deps.confirm(
-			`Close ${key}? Runs pre_workspace_deinit hooks and ends its Claude and companion sessions. [y/N] `,
+			`Close ${key}? Runs pre_workspace_deinit hooks and ends its agent and companion sessions. [y/N] `,
 		);
 		if (!ok) return 0;
 	}

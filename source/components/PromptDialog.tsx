@@ -323,7 +323,9 @@ export default function PromptDialog({
 
 				case 'agent': {
 					const option = shownOptions[result.state.index];
-					if (option && config) void chooseAgentProfile(option, config);
+					if (option && config && canOverrideAgent) {
+						void chooseAgentProfile(option, config);
+					}
 					break;
 				}
 
@@ -437,8 +439,10 @@ export default function PromptDialog({
 		!isPicking && !isSkillFocused && ready.index === INPUT_INDEX,
 	);
 	const pickerFrame = focusFrame(isPicking);
+	// With an agent to swap in, pickerOptions gives the deferred input a real
+	// row so `a` has something to act on.
 	const deferredLabel =
-		preview?.kind === 'deferred' && !preview.canPick
+		preview?.kind === 'deferred' && !preview.canPick && !canOverrideAgent
 			? preview.displayName
 			: undefined;
 	const layout = promptDialogLayout(
@@ -549,6 +553,7 @@ export default function PromptDialog({
 					frame={pickerFrame}
 					isFocused={isPicking}
 					deferredLabel={deferredLabel}
+					hasAgentChoice={canOverrideAgent}
 					maxVisible={layout.pickerMaxVisible}
 				/>
 			)}
@@ -565,6 +570,7 @@ function ProfilePicker({
 	frame,
 	isFocused,
 	deferredLabel,
+	hasAgentChoice,
 	maxVisible,
 }: {
 	options: ProfileOption[];
@@ -583,6 +589,8 @@ function ProfilePicker({
 	 * inert row instead of a list, so it's visibly not somewhere Enter stops.
 	 */
 	deferredLabel?: string;
+	/** Whether `a` can swap in another agent profile. */
+	hasAgentChoice: boolean;
 	maxVisible: number;
 }) {
 	const {start, end, above, below} = computePickerWindow(
@@ -678,7 +686,7 @@ function ProfilePicker({
 					<Text dimColor>
 						<Text color="green">↑/↓</Text> select · <Text color="cyan">/</Text>{' '}
 						filter ·{' '}
-						{process.env['TMUX'] ? (
+						{hasAgentChoice ? (
 							<>
 								<Text color="cyan">a</Text> agent ·{' '}
 							</>

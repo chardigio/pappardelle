@@ -407,6 +407,52 @@ assert_eq "model without a flag template is an error" \
     'Error: agent_profiles.aider.model: "aider" has no built-in model flag; set model_args' "$ERR"
 cleanup; unset TMPDIR_ROOT
 
+# idow never runs the TUI's validateConfig, so the resolver rejects the same
+# agent profile definitions with the same messages.
+setup_configs "version: 1
+agent_profiles:
+  claude:
+    model: opus
+  codex:
+    command: ''
+  numeric:
+    command: codex
+    effort: 3
+  wrap:
+    command: claude-local
+    is_claude: 'yes'
+profiles:
+  plain:
+    display_name: Plain
+  codex:
+    display_name: Codex
+    agent_profile: codex"
+ERR=$(resolve --profile plain 2>&1 >/dev/null || true)
+assert_eq "a claude entry without a command is an error, not the built-in" \
+    'Error: agent_profiles.claude.command: required non-empty string' "$ERR"
+ERR=$(resolve --profile codex 2>&1 >/dev/null || true)
+assert_eq "an empty command is an error, not an unknown name" \
+    'Error: agent_profiles.codex.command: required non-empty string' "$ERR"
+ERR=$(resolve --profile plain --agent-profile numeric 2>&1 >/dev/null || true)
+assert_eq "a number for effort is an error" 'Error: agent_profiles.numeric.effort: must be a string' "$ERR"
+ERR=$(resolve --profile plain --agent-profile wrap 2>&1 >/dev/null || true)
+assert_eq "a string is_claude is an error" 'Error: agent_profiles.wrap.is_claude: must be a boolean' "$ERR"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+agent_profiles:
+  codex:
+    command: codex
+profiles:
+  plain:
+    display_name: Plain" "agent_profiles:
+  codex:
+    model: ~"
+ERR=$(resolve --profile plain --agent-profile codex 2>&1 >/dev/null || true)
+assert_eq "a null model in a higher layer is an error" 'Error: agent_profiles.codex.model: must be a string' "$ERR"
+assert_eq "an undefined claude still resolves to the built-in" "claude" "$(resolve --profile plain | field agent_command)"
+cleanup; unset TMPDIR_ROOT
+
 # idow reads the resolved fields a line each, so a newline in one would shift
 # every field after it.
 setup_configs "version: 1

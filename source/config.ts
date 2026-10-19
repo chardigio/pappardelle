@@ -1051,7 +1051,8 @@ export function loadProviderConfigs(opts?: ConfigPaths): {
 }
 
 /**
- * The config files that define each agent profile, lowest priority first. A
+ * The config files that define each agent profile, highest priority first so
+ * the picker's truncated source column keeps the file whose values win. A
  * profile can be spread over several layers, e.g. a command in the home config
  * with a model overridden in `.pappardelle.local.yml`.
  */
@@ -1063,7 +1064,7 @@ export function loadAgentProfileSources(
 		const agentProfiles = layer?.['agent_profiles'];
 		if (!agentProfiles || typeof agentProfiles !== 'object') continue;
 		for (const name of Object.keys(agentProfiles)) {
-			(sources[name] ??= []).push(label);
+			(sources[name] ??= []).unshift(label);
 		}
 	}
 
