@@ -199,10 +199,12 @@ if [[ "$INIT_CMD_DEPRECATED" == "true" ]]; then
     print_warning "claude.initialization_command is deprecated — rename it to the top-level initialization_command"
 fi
 for deprecated_key in $CLAUDE_LAUNCH_DEPRECATED; do
-    print_warning "$deprecated_key is deprecated — set ${deprecated_key#claude.} on an agent profile (agent_profiles.<name>.${deprecated_key#claude.}) and select it with agent_profile"
+    target=${deprecated_key#claude.}
+    [[ "$target" == extra_args ]] && target=args
+    print_warning "$deprecated_key is deprecated — set $target on an agent profile (agent_profiles.<name>.$target) and select it with agent_profile"
 done
 
-# Resolve the agent profile with its rendered model/effort flags, the companion
+# Resolve the agent profile with its rendered launch flags, the companion
 # command, and the per-profile initialization_command for the selected profile.
 # profiles.<name>.<field> beats the top-level <field>; an explicit empty
 # string at the profile level clears the inherited value. Called at each
@@ -243,8 +245,10 @@ resolve_agent_launch_config() {
         if [[ "$(yq -r ".profiles.$profile.claude.initialization_command != null" "$layer")" == "true" ]]; then
             print_warning "$layer: profiles.$profile.claude.initialization_command is deprecated — rename it to profiles.$profile.initialization_command"
         fi
-        for field in $(PROFILE="$profile" yq -r '.profiles[strenv(PROFILE)].claude // {} | pick(["model", "effort"]) | keys | .[]' "$layer"); do
-            print_warning "$layer: profiles.$profile.claude.$field is deprecated — set $field on an agent profile (agent_profiles.<name>.$field) and select it with profiles.$profile.agent_profile"
+        for field in $(PROFILE="$profile" yq -r '.profiles[strenv(PROFILE)].claude // {} | pick(["model", "effort", "extra_args"]) | keys | .[]' "$layer"); do
+            target=$field
+            [[ "$target" == extra_args ]] && target=args
+            print_warning "$layer: profiles.$profile.claude.$field is deprecated — set $target on an agent profile (agent_profiles.<name>.$target) and select it with profiles.$profile.agent_profile"
         done
     done
     if [[ "$init_cmd_set" == "true" ]]; then

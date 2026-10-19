@@ -2,7 +2,6 @@ import test from 'ava';
 import type {PappardelleConfig} from './config.ts';
 import {
 	getAgentProfile,
-	getClaudeExtraArgs,
 	getCompanionCommand,
 	validateConfig,
 	ConfigValidationError,
@@ -322,22 +321,29 @@ test('buildAgentResumeCommand: escapes embedded single quotes', t => {
 // extra_args (STA-2663)
 // ============================================================================
 //
-// A list of raw flags for `claude`. The run-robodogfood profile uses it to give an
-// unattended QA agent only the tools it needs (`--tools`, `--strict-mcp-config`,
-// `--no-chrome`). It resolves like model/effort: the profile key wins whenever
-// it is present, so `extra_args: []` on a profile clears a top-level list.
+// The deprecated `claude.extra_args`: raw flags for claude agent profiles. The
+// run-robodogfood profile uses it to give an unattended QA agent only the tools
+// it needs (`--tools`, `--strict-mcp-config`, `--no-chrome`). The profile key
+// wins whenever it is present, so `extra_args: []` on a profile clears a
+// top-level list.
 
 const QA_ARGS = ['--strict-mcp-config', '--tools', 'Bash,Read'];
 
+const extraArgs = (
+	config: PappardelleConfig,
+	issueTitle?: string,
+	profileName?: string,
+) => getAgentProfile(config, issueTitle, profileName).extraArgs;
+
 test('extra_args: unset everywhere → empty list', t => {
-	t.deepEqual(getClaudeExtraArgs(makeConfig()), []);
-	t.deepEqual(getClaudeExtraArgs(makeConfig(), 'backend work'), []);
+	t.deepEqual(extraArgs(makeConfig()), []);
+	t.deepEqual(extraArgs(makeConfig(), 'backend work'), []);
 });
 
 test('extra_args: top-level applies to every profile', t => {
 	const config = makeConfig({claude: {extra_args: ['--no-chrome']}});
-	t.deepEqual(getClaudeExtraArgs(config), ['--no-chrome']);
-	t.deepEqual(getClaudeExtraArgs(config, 'frontend work'), ['--no-chrome']);
+	t.deepEqual(extraArgs(config), ['--no-chrome']);
+	t.deepEqual(extraArgs(config, 'frontend work'), ['--no-chrome']);
 });
 
 test('extra_args: profile list replaces the top-level list', t => {
@@ -345,8 +351,8 @@ test('extra_args: profile list replaces the top-level list', t => {
 		{claude: {extra_args: ['--no-chrome']}},
 		{extra_args: QA_ARGS},
 	);
-	t.deepEqual(getClaudeExtraArgs(config, 'backend work'), QA_ARGS);
-	t.deepEqual(getClaudeExtraArgs(config, 'frontend work'), ['--no-chrome']);
+	t.deepEqual(extraArgs(config, 'backend work'), QA_ARGS);
+	t.deepEqual(extraArgs(config, 'frontend work'), ['--no-chrome']);
 });
 
 test('extra_args: an empty profile list clears the top-level list', t => {
@@ -354,12 +360,43 @@ test('extra_args: an empty profile list clears the top-level list', t => {
 		{claude: {extra_args: ['--no-chrome']}},
 		{extra_args: []},
 	);
-	t.deepEqual(getClaudeExtraArgs(config, 'backend work'), []);
+	t.deepEqual(extraArgs(config, 'backend work'), []);
 });
 
-// The saved profile (idow writes it to space-state) beats the title match
-// (STA-2663). A dev issue titled with the runner's keyword must not get the
-// runner's locked-down tools when the TUI starts its session again.
+test('extra_args: only claude agent profiles get them', t => {
+	const config = makeConfig(
+		{
+			agent_profiles: {codex: {command: 'codex'}},
+			agent_profile: 'codex',
+		},
+		{extra_args: QA_ARGS},
+	);
+	t.deepEqual(extraArgs(config, 'backend work'), []);
+});
+
+test("extra_args: an agent profile's own args don't drop them", t => {
+	const config = makeConfig(
+		{
+			agent_profiles: {verbose: {command: 'claude', args: '--verbose'}},
+			agent_profile: 'verbose',
+		},
+		{extra_args: QA_ARGS},
+	);
+	const cmd = buildAgentResumeCommand(
+		'QA-1',
+		false,
+		getAgentProfile(config, 'backend work'),
+	);
+	t.true(
+		cmd.startsWith(
+			"claude --verbose --strict-mcp-config --tools 'Bash,Read' --name QA-1",
+		),
+	);
+});
+
+// The saved profile (idow writes it to space-state) beats the title match. A
+// dev issue titled with the runner's keyword must not get the runner's
+// locked-down tools when the TUI starts its session again.
 
 test('saved profile: beats a title that matches a different profile', t => {
 	const config = makeConfig(
@@ -369,17 +406,18 @@ test('saved profile: beats a title that matches a different profile', t => {
 	);
 	config.profiles['frontend']!.companion_command = '';
 	const title = 'backend work';
-	t.deepEqual(getClaudeExtraArgs(config, title, 'frontend'), []);
-	t.is(getClaudeModel(config, title, 'frontend'), 'opus');
-	t.is(getClaudeEffort(config, title, 'frontend'), 'low');
+	const frontend = getAgentProfile(config, title, 'frontend');
+	t.deepEqual(frontend.extraArgs, []);
+	t.is(frontend.model, 'opus');
+	t.is(frontend.effort, 'low');
 	t.is(getCompanionCommand(config, title, 'frontend'), '');
-	t.deepEqual(getClaudeExtraArgs(config, 'frontend work', 'backend'), QA_ARGS);
+	t.deepEqual(extraArgs(config, 'frontend work', 'backend'), QA_ARGS);
 });
 
 test('saved profile: a name that no longer exists falls back to the title', t => {
 	// A profile rename leaves the old name in space-state.
 	const config = makeConfig({}, {extra_args: QA_ARGS});
-	t.deepEqual(getClaudeExtraArgs(config, 'backend work', 'renamed'), QA_ARGS);
+	t.deepEqual(extraArgs(config, 'backend work', 'renamed'), QA_ARGS);
 	t.is(
 		getCompanionCommand(config, 'backend work', 'renamed'),
 		'GIT_OPTIONAL_LOCKS=0 gitui',
@@ -419,29 +457,25 @@ test('validateConfig rejects extra_args that is not a list of strings', t => {
 	);
 });
 
-test('buildClaudeResumeCommand: extra args go after effort and before name, on both branches', t => {
-	const cmd = buildClaudeResumeCommand('QA-1', true, {
-		effort: 'high',
-		extraArgs: QA_ARGS,
-	});
+test('buildAgentResumeCommand: extra args go after effort and before name, on both branches', t => {
+	const cmd = buildAgentResumeCommand(
+		'QA-1',
+		true,
+		{...DEFAULT_RESOLVED_AGENT_PROFILE, effort: 'high', extraArgs: QA_ARGS},
+		'sess-1',
+	);
 	t.true(
 		cmd.startsWith(
-			'claude --dangerously-skip-permissions --effort high --strict-mcp-config --tools Bash,Read --name QA-1 --continue',
+			"claude --dangerously-skip-permissions --effort high --strict-mcp-config --tools 'Bash,Read' --name QA-1 --resume sess-1",
 		),
 	);
 	t.is(cmd.split('--strict-mcp-config').length - 1, 2);
 });
 
-test('buildClaudeResumeCommand: shell-quotes each extra arg', t => {
-	const cmd = buildClaudeResumeCommand('QA-1', false, {
+test('buildAgentResumeCommand: shell-quotes each extra arg', t => {
+	const cmd = buildAgentResumeCommand('QA-1', false, {
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		extraArgs: ['--mcp-config', '{"mcpServers": {}}'],
 	});
 	t.true(cmd.includes(`--mcp-config '{"mcpServers": {}}' --name QA-1`));
-});
-
-test('buildClaudeResumeCommand: an empty extra args list changes nothing', t => {
-	t.is(
-		buildClaudeResumeCommand('STA-1', false, {extraArgs: []}),
-		buildClaudeResumeCommand('STA-1'),
-	);
 });

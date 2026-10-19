@@ -906,13 +906,15 @@ profiles:
 );
 
 // ============================================================================
-// model / effort through agent profiles — bash must render what the TUI does
+// model / effort / extra args through agent profiles — bash must render what
+// the TUI does
 // ============================================================================
 
 const LAUNCH_PARITY_CONFIG = `version: 1
 claude:
   model: "claude-opus-5[1m]"
   effort: xhigh
+  extra_args: [--no-chrome]
 agent_profiles:
   codex:
     command: /opt/bin/codex
@@ -949,40 +951,50 @@ profiles:
   aider:
     display_name: Aider
     agent_profile: aider
+  qa:
+    display_name: QA
+    claude:
+      extra_args: [--tools, "Bash,Read", "it's"]
+  cleared:
+    display_name: Cleared
+    claude:
+      extra_args: []
 `;
 
 for (const [profile, expected] of [
-	['default-claude', " --model 'claude-opus-5[1m]' --effort xhigh"],
-	['claude-profile', ' --model sonnet --effort xhigh'],
+	['default-claude', " --model 'claude-opus-5[1m]' --effort xhigh --no-chrome"],
+	['claude-profile', ' --model sonnet --effort xhigh --no-chrome'],
 	['codex', ' -m gpt-5.5 -c model_reasoning_effort=high'],
 	['bare-codex', ''],
-	['opus', ' --model opus --effort xhigh'],
+	['opus', ' --model opus --effort xhigh --no-chrome'],
 	['aider', " --model='it'\\''s [1m]' --reasoning hard --effort=hard"],
+	[
+		'qa',
+		" --model 'claude-opus-5[1m]' --effort xhigh --tools 'Bash,Read' 'it'\\''s'",
+	],
+	['cleared', " --model 'claude-opus-5[1m]' --effort xhigh"],
 ] as const) {
-	maybeMacro(
-		`model/effort flags for the ${profile} profile match the TUI`,
-		t => {
-			const fixture = setupConfigFiles(LAUNCH_PARITY_CONFIG);
-			t.teardown(fixture.cleanup);
-			const config = loadConfigFromPaths({
-				projectDir: path.dirname(fixture.configPath),
-			});
-			const tsFlags = renderAgentLaunchFlags(
-				getAgentProfile(config, undefined, profile),
-			);
-			const result = runResolver(
-				fixture.configPath,
-				fixture.localConfigPath,
-				undefined,
-				profile,
-			);
-			const bashFlags = result.agent_launch_flags
-				? ` ${result.agent_launch_flags}`
-				: '';
-			t.is(tsFlags, expected);
-			t.is(bashFlags, expected);
-		},
-	);
+	maybeMacro(`launch flags for the ${profile} profile match the TUI`, t => {
+		const fixture = setupConfigFiles(LAUNCH_PARITY_CONFIG);
+		t.teardown(fixture.cleanup);
+		const config = loadConfigFromPaths({
+			projectDir: path.dirname(fixture.configPath),
+		});
+		const tsFlags = renderAgentLaunchFlags(
+			getAgentProfile(config, undefined, profile),
+		);
+		const result = runResolver(
+			fixture.configPath,
+			fixture.localConfigPath,
+			undefined,
+			profile,
+		);
+		const bashFlags = result.agent_launch_flags
+			? ` ${result.agent_launch_flags}`
+			: '';
+		t.is(tsFlags, expected);
+		t.is(bashFlags, expected);
+	});
 }
 
 maybeMacro('model on a CLI with no flag template is an error', t => {

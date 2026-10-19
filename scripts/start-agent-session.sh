@@ -15,7 +15,8 @@
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
 # --no-agent: create sessions but don't launch the agent/companion command (for testing)
 # --skip-permissions: pass --dangerously-skip-permissions to claude (claude agents only)
-# --agent-launch-flags: the agent profile's model/effort flags, already
+# --agent-launch-flags: the agent profile's model/effort flags, then (claude
+#                     only) the deprecated claude.extra_args, already
 #                     rendered and shell-quoted by resolve-agent-config.sh
 #                     (e.g. "-m gpt-5.5 -c model_reasoning_effort=high").
 #                     Empty or omitted means no flag at all (the agent's
@@ -47,7 +48,7 @@ AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
 AGENT_IS_CLAUDE=""
-MODEL_EFFORT_FLAGS=""
+PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE="claude"
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
@@ -102,7 +103,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --agent-launch-flags)
-            MODEL_EFFORT_FLAGS="$2"
+            PROFILE_LAUNCH_FLAGS="$2"
             shift 2
             ;;
         --agent-is-claude)
@@ -230,9 +231,9 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/
     else
         # Claude agents get --dangerously-skip-permissions and --name set to the issue key so the session is findable via /resume
         # and shows up in the terminal title. Other agents run `{command} {args}`
-        # plus their rendered model/effort flags. Flag order matches
+        # plus their rendered launch flags. Flag order matches
         # buildAgentResumeCommand() in source/tmux.ts and open-iterm-agent.sh:
-        #   command → --dangerously-skip-permissions → args → model/effort → --name
+        #   command → --dangerously-skip-permissions → args → model/effort → extra args → --name
         # Model/effort flags precede the resume args so a resume subcommand
         # (codex's `resume`) still follows every flag.
         # Agent args and launch flags arrive as ready-made shell words, so
@@ -244,8 +245,8 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/
         if [[ -n "$AGENT_ARGS" ]]; then
             AGENT_CMD="${AGENT_CMD} ${AGENT_ARGS}"
         fi
-        if [[ -n "$MODEL_EFFORT_FLAGS" ]]; then
-            AGENT_CMD="${AGENT_CMD} ${MODEL_EFFORT_FLAGS}"
+        if [[ -n "$PROFILE_LAUNCH_FLAGS" ]]; then
+            AGENT_CMD="${AGENT_CMD} ${PROFILE_LAUNCH_FLAGS}"
         fi
         if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
             AGENT_CMD="${AGENT_CMD} --name $(printf '%q' "$ISSUE_KEY")"

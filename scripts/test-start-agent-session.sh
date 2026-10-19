@@ -432,10 +432,11 @@ tmux -L "$SHIM_SOCKET8" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-# STA-2663: each --extra-arg reaches claude as one argument, after --effort and
-# before --name. The shim brackets every argument so a value with spaces or
-# JSON braces shows whether it was split.
-echo -e "\n${BOLD}Test: --extra-arg values reach claude as separate arguments${RESET}"
+# STA-2663: claude.extra_args arrive inside the rendered launch flags, quoted
+# by resolve-agent-config.sh, and each reaches claude as one argument after
+# --effort and before --name. The shim brackets every argument so a value with
+# spaces or JSON braces shows whether it was split.
+echo -e "\n${BOLD}Test: rendered extra args reach claude as separate arguments${RESET}"
 ISSUE_KEY9="${TEST_PREFIX}-900"
 WORKTREE_PATH9="$TMPDIR_ROOT/worktree9"
 ARGV_LOG9="$TMPDIR_ROOT/claude-argv-9.log"
@@ -452,8 +453,7 @@ SHIM_SOCKET9="pappardelle_inner_shim9_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
     "$SCRIPT_DIR/start-agent-session.sh" \
     --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
-    --effort high --extra-arg --strict-mcp-config --extra-arg --tools \
-    --extra-arg 'Bash,Read' --extra-arg '{"mcpServers": {}}' 2>/dev/null
+    --agent-launch-flags "--effort high --strict-mcp-config --tools 'Bash,Read' '{\"mcpServers\": {}}'" 2>/dev/null
 
 sleep 1
 ARGV9=$(head -1 "$ARGV_LOG9" 2>/dev/null || echo "")
