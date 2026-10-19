@@ -110,12 +110,9 @@ import {
 	buildWorkspaceTemplateVars,
 	getIdeCommand,
 	DEFAULT_IDE_COMMAND,
-	matchProfiles,
-	matchProfileByProject,
 	resolvePendingProfileEmoji,
 	type KeybindingConfig,
 	type ResolvedWatchlist,
-	type CommandConfig,
 } from './config.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
@@ -126,7 +123,7 @@ import {
 	KILL_DONE_EMPTY_MESSAGE,
 } from './kill-done-spaces.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
+import {runCloseHooks, shouldAttach} from './close-space.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {LatestTask} from './latest-task.ts';
@@ -708,6 +705,22 @@ export default function App({
 		void attachmentTask
 			.run(async signal => {
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
+				const registered = await getRegisteredSpacesAsync().catch(() => null);
+				if (signal.aborted) return;
+				if (
+					!shouldAttach(
+						{
+							name: selectedSpaceName,
+							isMainWorktree: selectedSpace?.isMainWorktree,
+							isPending: selectedSpace?.isPending,
+						},
+						registered,
+					)
+				) {
+					void workspaceRefresh.current?.refreshListOnly();
+					return;
+				}
+
 				const layout = paneLayoutRef.current;
 				if (!layout) return;
 				const success = await attachToSpace(
@@ -734,6 +747,7 @@ export default function App({
 		selectedSpaceName,
 		selectedWorktreePath,
 		selectedSpace?.isMainWorktree,
+		selectedSpace?.isPending,
 		selectedIssueTitle,
 		paneLayout,
 		attachmentTask,
@@ -1535,67 +1549,17 @@ export default function App({
 	// auto-remove-on-done flow.
 	const performDeleteSpace = useCallback(
 		async (space: SpaceData): Promise<boolean> => {
-			// Run pre_workspace_deinit commands before deletion
-			try {
-				const config = loadConfig();
-				const deinitCommands: CommandConfig[] = [];
-
-				if (config.pre_workspace_deinit) {
-					deinitCommands.push(...config.pre_workspace_deinit);
-				}
-
-				const trackerIssue = space.trackerIssue ?? space.linearIssue;
-				let matchedProfile:
-					| {profile: {pre_workspace_deinit?: CommandConfig[]}}
-					| undefined;
-
-				if (trackerIssue?.project?.name) {
-					const projectMatch = matchProfileByProject(
-						config,
-						trackerIssue.project.name,
-						trackerIssue.project.key,
-					);
-					if (projectMatch) {
-						matchedProfile = projectMatch;
-					}
-				}
-
-				if (!matchedProfile && trackerIssue?.title) {
-					const profileMatches = matchProfiles(config, trackerIssue.title);
-					if (profileMatches.length > 0) {
-						matchedProfile = profileMatches[0]!;
-					}
-				}
-
-				if (matchedProfile?.profile.pre_workspace_deinit) {
-					deinitCommands.push(...matchedProfile.profile.pre_workspace_deinit);
-				}
-
-				if (deinitCommands.length > 0 && space.worktreePath) {
-					const result = await runPreWorkspaceDeinit(
-						deinitCommands,
-						space.worktreePath,
-						{
-							issueKey: space.name,
-							repoRoot: getRepoRoot(),
-							mainRepoRoot: getMainRepoRoot(),
-							repoName: getRepoName(),
-						},
-					);
-					if (!result.success) {
-						setHeaderWithTimeout(
-							`Deinit failed: ${result.failedCommand ?? 'unknown'} — deletion aborted`,
-							5000,
-						);
-						return false;
-					}
-				}
-			} catch (err) {
-				log.error(
-					'pre_workspace_deinit error',
-					err instanceof Error ? err : undefined,
+			const deinit = await runCloseHooks({
+				name: space.name,
+				worktreePath: space.worktreePath,
+				trackerIssue: space.trackerIssue ?? space.linearIssue,
+			});
+			if (!deinit.success) {
+				setHeaderWithTimeout(
+					`Deinit failed: ${deinit.failedCommand ?? 'unknown'} — deletion aborted`,
+					5000,
 				);
-				// Config load failure shouldn't block deletion
+				return false;
 			}
 
 			// Prevent reattachment until the deleted space has left the list.
@@ -1897,38 +1861,41 @@ export default function App({
 		spawnSession(pending);
 	};
 
-	// Handle user-triggered space deletion (the 'd' key with confirm dialog).
+	const writeIssueState = async (space: SpaceData, choice: StateChoice) => {
+		let written = false;
+		try {
+			written = await applyStateChoice(
+				createIssueTracker(),
+				space.name,
+				choice,
+			);
+		} catch (error) {
+			log.warn(
+				`Failed to set ${space.name}'s issue state`,
+				error instanceof Error ? error : undefined,
+			);
+		}
+
+		if (!written) {
+			setHeaderWithTimeout(
+				`Closed ${space.name}, but could not set its issue to ${choiceLabel(choice)}`,
+				5000,
+			);
+		}
+	};
+
+	// Handle user-triggered space deletion (the `x` key with confirm dialog).
 	// STA-1373: keep the dialog mounted across the await so it can render its
 	// "Closing space…" loading state — the pre_workspace_deinit hooks can run
 	// for several seconds, and hiding the dialog up front made the TUI look
-	// frozen.
+	// frozen. The issue-state write runs after the dialog closes: `bd close`
+	// can take seconds after the row has already left the rail.
 	const handleDeleteSpace = async (space: SpaceData, choice?: StateChoice) => {
 		try {
 			const ok = await deleteSpace(space);
 			if (!ok) return;
 
-			if (choice) {
-				let written = false;
-				try {
-					written = await applyStateChoice(
-						createIssueTracker(),
-						space.name,
-						choice,
-					);
-				} catch (error) {
-					log.warn(
-						`Failed to set ${space.name}'s issue state`,
-						error instanceof Error ? error : undefined,
-					);
-				}
-
-				if (!written) {
-					setHeaderWithTimeout(
-						`Closed ${space.name}, but could not set its issue to ${choiceLabel(choice)}`,
-						5000,
-					);
-				}
-			}
+			if (choice) void writeIssueState(space, choice);
 
 			// Reconcile with tmux reality in the background
 			loadSpaces();

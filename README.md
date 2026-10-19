@@ -136,7 +136,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples
 
 Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux session and all its viewer panes, returning you to your original terminal. Your Claude and companion workspace sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.
 
-To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting. `K` closes every workspace whose issue is already done or canceled in one confirmed step. Or nuke everything with:
+To also kill all workspace sessions, use `Delete` on each workspace from the TUI before quitting, or run `pappardelle close <issue-key>` from a shell (`--yes` skips the question, and is required without a terminal). It runs the same close as `Delete`: deinit hooks, then its sessions end and it leaves the list; the worktree stays on disk. `K` closes every workspace whose issue is already done or canceled in one confirmed step. Or nuke everything with:
 
 ```bash
 tmux -L pappardelle_inner kill-server
@@ -585,12 +585,12 @@ See [`integration-tests/README.md`](integration-tests/README.md) for env vars an
 
 Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pappardelle` plugin containing four skills:
 
-| Skill                    | Description                                                                                                                                                          | Model-invocable |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                                  | No              |
-| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                               | No              |
-| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                   | Yes             |
-| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send` | No              |
+| Skill                    | Description                                                                                                                                                                                                 | Model-invocable |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                                                                         | No              |
+| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                                                                      | No              |
+| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                                                          | Yes             |
+| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send`, close spaces with `pappardelle close` | No              |
 
 **Install the plugin:**
 
