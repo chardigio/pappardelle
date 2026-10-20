@@ -14,6 +14,8 @@ npx tsx integration-tests/verify-program-status-app.ts
 
 The transport test exercises both launch paths on an isolated tmux socket, including capability-query ordering, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. The app check requires no automatic watchlists in the merged local configuration.
 
+`source/program-status-launch.test.ts` adds eight account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. Build first; these checks run with the normal AVA suite when tmux is installed.
+
 To drive real interactive Claude sessions, authenticate Claude Code 2.1.295 or newer and opt in explicitly:
 
 ```bash

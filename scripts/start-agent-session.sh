@@ -39,9 +39,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATUS_SHELL=()
+STATUS_PROXY=()
+STATUS_MONITOR=()
 STATUS_GATE=""
-if [[ -f "$SCRIPT_DIR/program-status-shell.py" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
-    STATUS_SHELL=(python3 "$SCRIPT_DIR/program-status-shell.py" "${SHELL:-/bin/sh}" -l)
+STATUS_PYTHON="$(command -v python3 || true)"
+STATUS_NODE="${PAPPARDELLE_NODE:-$(command -v node || true)}"
+if [[ -n "$STATUS_PYTHON" && -f "$SCRIPT_DIR/program-status-shell.py" ]]; then
+    STATUS_PROXY=("$STATUS_PYTHON" "$SCRIPT_DIR/program-status-shell.py")
+    STATUS_SHELL=("${STATUS_PROXY[@]}" "${SHELL:-/bin/sh}" -l)
+fi
+if [[ -x "$STATUS_NODE" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
+    STATUS_MONITOR=("$STATUS_NODE" "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
 fi
 
 ISSUE_KEY=""
@@ -223,12 +231,12 @@ fi
 new_launch_session() {
     local session="$1" command="$2"
     shift 2
-    if [[ "$session" == "$AGENT_SESSION" && ${#STATUS_SHELL[@]} -gt 0 ]]; then
-        STATUS_GATE="pappardelle-status-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+    if [[ "$session" == "$AGENT_SESSION" && ${#STATUS_MONITOR[@]} -gt 0 ]]; then
+        STATUS_GATE="pappardelle-status-$$"
         # shellcheck disable=SC2016 # expanded by the inner sh, not here
         tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \
             /bin/sh -c 'tmux -L "$1" wait-for "$2"; shift 2; exec "$@"' sh "$PAPPARDELLE_TMUX_SOCKET" "$STATUS_GATE" \
-            python3 "$SCRIPT_DIR/program-status-shell.py" /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+            "${STATUS_PROXY[@]}" /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
         return
     fi
     # shellcheck disable=SC2016 # expanded by the inner sh, not here
@@ -304,8 +312,8 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev
     fi
 fi
 
-if [[ -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
-    node "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
+if [[ ${#STATUS_MONITOR[@]} -gt 0 ]]; then
+    "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
 fi
 if [[ -n "$STATUS_GATE" ]]; then
     tmux -L "$PAPPARDELLE_TMUX_SOCKET" wait-for -S "$STATUS_GATE"

@@ -61,6 +61,20 @@ Rebased onto [PR #37](https://github.com/chardigio/pappardelle/pull/37) at `3f3f
 
 The main workspace selects `codex-rail` through the top-level `agent_profile` setting. The fixture saves a rail transcript and parsed protocol evidence. Its isolated home and tmux socket directory avoid user configuration and sessions; the temporary Codex home and authentication symlink are deleted even when keeping evidence.
 
+### Review regressions (2026-10-20)
+
+All eight `program-status-launch.test.ts` checks passed through real production launchers on isolated tmux servers. The recording cases use persistent fixture agents and real hook subprocesses, exercising process ancestry without model accounts.
+
+| Finding                              | Verified behavior                                                                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Proxy breaks primary-agent recording | Both launchers record the primary session for Claude and Codex profiles through the proxy; a nested agent cannot overwrite it                                |
+| Missing Python prevents startup      | Both launchers start the agent, capture its initial blocked report, deliver keyboard input, and return to a responsive shell with no Python on the pane PATH |
+| Shell monitor uses PATH Node         | The shell launcher captures the first blocked report using the TUI's selected Node with either no Node or a deliberately failing Node on PATH                |
+
+The proxy marks its own PID in the child environment so the recorder can ignore that infrastructure process while retaining the actual agent ancestors. Python is checked before proxy execution, and missing Python falls back to the ordinary shell. `buildSpawnEnv()` passes `process.execPath` as `PAPPARDELLE_NODE`; the shell launcher uses it for monitoring and gates startup independently of Python availability.
+
+Installed Codex `0.163.0` passed all six real TUI rail checks again after these fixes. The build, Prettier, XO, and all 2,535 AVA checks passed on Node 22.22.3. The 21 deterministic transport checks, four App checks, 46 agent-launch shell checks, shellcheck, and 191 Python hook/proxy tests also passed.
+
 ## Installed Pi, OpenCode, and agy
 
 | Installed CLI   | Provider used in the fixture                                                                                 | Result                                                                                |

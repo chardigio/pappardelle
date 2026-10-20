@@ -212,6 +212,23 @@ def test_records_the_session(sessions_file: Path):
     assert recorded(sessions_file) == {"codex": "01a117bd-5978"}
 
 
+@pytest.mark.parametrize("is_claude", [True, False])
+def test_the_status_proxy_is_transparent_but_nested_agents_are_not(sessions_file: Path, is_claude):
+    table = dict(TOP_LEVEL_CLAUDE if is_claude else TOP_LEVEL_CODEX)
+    tmux_pid = 95 if is_claude else 94
+    launch_pid = tmux_pid + 1
+    table[launch_pid] = (90, table[launch_pid][1])
+    table[90] = (tmux_pid, "python3 /repo/scripts/program-status-shell.py /bin/sh -c launch")
+    env = {**env_for(sessions_file, "profile", is_claude), "PAPPARDELLE_STATUS_PROXY_PID": "90"}
+    assert record_agent_session(payload("primary"), is_claude, env, HOOK_PID, lambda: table)
+    table[100] = (103, table[100][1])
+    table[103] = (102, "sh -c run-hook")
+    table[102] = (101, "claude" if is_claude else "codex")
+    table[101] = (99, "sh -c nested-agent")
+    assert not record_agent_session(payload("nested"), is_claude, env, HOOK_PID, lambda: table)
+    assert recorded(sessions_file) == {"profile": "primary"}
+
+
 def test_a_new_conversation_replaces_the_recorded_one(sessions_file: Path):
     record_agent_session(payload("first"), False, env_for(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
     record_agent_session(

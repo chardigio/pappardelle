@@ -76,6 +76,7 @@ def main():
     shell = sys.argv[1:] or [os.environ.get("SHELL", "/bin/sh"), "-l"]
     pid, master = pty.fork()
     if pid == 0:
+        os.environ["PAPPARDELLE_STATUS_PROXY_PID"] = str(os.getppid())
         os.execvp(shell[0], shell)
 
     def resize(_signal=None, _frame=None):

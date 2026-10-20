@@ -116,7 +116,14 @@ export function statusShellCommand(
 	const script = fileURLToPath(
 		new URL('../scripts/program-status-shell.py', import.meta.url),
 	);
-	return ['python3', script, ...args]
+	return [
+		'/bin/sh',
+		'-c',
+		'if command -v python3 >/dev/null 2>&1; then exec python3 "$@"; fi; shift; exec "$@"',
+		'sh',
+		script,
+		...args,
+	]
 		.map(value => shellQuoteStatus(value))
 		.join(' ');
 }
