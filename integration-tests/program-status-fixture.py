@@ -24,11 +24,12 @@ try:
     os.write(1, b"\x1b]7501;?\x1b\\\x1b[c")
     response = b""
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and b"\x1b\\" not in response:
+    while time.monotonic() < deadline and not response.endswith(b"c"):
         if select.select([0], [], [], 0.1)[0]:
             response += os.read(0, 65536)
-    assert response.startswith(b"\x1b]7501;?\x1b\\"), repr(response)
-    Path(sys.argv[1]).write_text(json.dumps({"reply": response[:10].hex()}))
+    assert response.startswith(b"\x1b[?") and response.endswith(b"c"), repr(response)
+    assert b"7501" not in response, repr(response)
+    Path(sys.argv[1]).write_text(json.dumps({"reply": response.hex()}))
     emit("state=idle:app=fixture")
     pending = b""
     while True:

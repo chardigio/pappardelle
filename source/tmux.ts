@@ -75,11 +75,7 @@ import {
 	type PaneWidths,
 } from './layout-sizing.ts';
 import {nextWidthOverride, type WindowSize} from './pane-drag.ts';
-import {
-	attachStatusMonitor,
-	statusShellCommand,
-	statusSocket,
-} from './program-status-monitor.ts';
+import {attachStatusMonitor, statusSocket} from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -2372,16 +2368,11 @@ export async function ensureAgentSession(
 	const waitCommand = ['tmux', ...innerTmuxArgs(['wait-for', gate])]
 		.map(value => shellQuote(value))
 		.join(' ');
-	const launchCommand = `${waitCommand}; exec ${statusShellCommand(
-		buildShellLaunchArgs(
-			buildAgentResumeCommand(
-				issueKey,
-				skipPermissions,
-				agentProfile,
-				sessionId,
-			),
-		),
-	)}`;
+	const launchCommand = `${waitCommand}; exec ${buildShellLaunchArgs(
+		buildAgentResumeCommand(issueKey, skipPermissions, agentProfile, sessionId),
+	)
+		.map(value => shellQuote(value))
+		.join(' ')}`;
 
 	try {
 		await run(

@@ -105,9 +105,7 @@ def _is_managed_daemon(args: str) -> bool:
     return "app-server" in words and "--managed-daemon" in words
 
 
-def ancestors(
-    hook_pid: int, table: ProcessTable, proxy_pid: Optional[int] = None
-) -> tuple[Chain, bool]:
+def ancestors(hook_pid: int, table: ProcessTable) -> tuple[Chain, bool]:
     """
     The processes above the hook process, nearest first, and whether the walk
     reached tmux (the chain stops below it).
@@ -120,8 +118,7 @@ def ancestors(
         ppid, args = table[pid]
         if _name(args).startswith("tmux"):
             return chain, True
-        if pid != proxy_pid:
-            chain.append((pid, args))
+        chain.append((pid, args))
         pid = ppid
     return chain, False
 
@@ -283,11 +280,7 @@ def record_agent_session(
         return False
 
     table = process_table()
-    # The PTY relay is infrastructure, not another agent run. Its child names
-    # that exact parent; nested agents still have the real pane agent above them.
-    proxy = env.get("PAPPARDELLE_STATUS_PROXY_PID", "")
-    proxy_pid = int(proxy) if proxy.isdecimal() else None
-    chain, in_tmux = ancestors(hook_pid or os.getpid(), table, proxy_pid)
+    chain, in_tmux = ancestors(hook_pid or os.getpid(), table)
     session_env: Optional[Mapping[str, str]]
     if in_tmux:
         if sole_agent_run(chain) is None or split_pane(env):

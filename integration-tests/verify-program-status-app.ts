@@ -18,10 +18,7 @@ import {
 	resetProviders,
 } from '../source/providers/index.ts';
 import {getSessionNames} from '../source/tmux.ts';
-import {
-	attachStatusMonitor,
-	statusShellCommand,
-} from '../source/program-status-monitor.ts';
+import {attachStatusMonitor} from '../source/program-status-monitor.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
 
@@ -71,7 +68,8 @@ try {
 		session,
 		'-c',
 		harness.root,
-		statusShellCommand(),
+		'/bin/bash',
+		'-l',
 	]);
 	await attachStatusMonitor(repo, key, session);
 	await harness.fixture(session);

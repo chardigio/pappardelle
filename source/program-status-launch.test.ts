@@ -140,8 +140,10 @@ if (${JSON.stringify(launcher)} === 'tui') {
 	writeFileSync(
 		blockedAgent,
 		`#!/bin/sh
-printf '\\033]7501;state=blocked:app=fixture\\007'
+printf '%s' "\${PI_PROGRAM_STATUS:-}" > ${shellQuoteStatus(path.join(root, 'pi-status'))}
+{ /usr/bin/yes | /usr/bin/head -n 1 >/dev/null; } 2> ${shellQuoteStatus(path.join(root, 'pipeline-errors'))}
 printf launched > ${shellQuoteStatus(path.join(root, 'started'))}
+printf '\\033]7501;state=blocked:app=fixture\\007'
 IFS= read -r reply
 printf '%s' "$reply" > ${shellQuoteStatus(path.join(root, 'reply'))}
 `,
@@ -164,7 +166,7 @@ async function until(read: () => boolean, label: string) {
 for (const launcher of ['tui', 'shell'] as const) {
 	for (const isClaude of [true, false]) {
 		runtimeTest(
-			`${launcher} proxy records the primary session for a ${isClaude ? 'Claude' : 'Codex'} profile and rejects a nested agent`,
+			`${launcher} records the primary session for a ${isClaude ? 'Claude' : 'Codex'} profile and rejects a nested agent`,
 			async t => {
 				const h = fixture(t, true);
 				const python = execFileSync('which', ['python3'], {
@@ -189,12 +191,26 @@ for (const launcher of ['tui', 'shell'] as const) {
 				t.like(h.read('recording.json'), {
 					primary: true,
 					nested: false,
-					sessions: {fixture: 'primary'},
+					sessions: {fixture: {session_id: 'primary'}},
 				});
-				t.truthy(h.read('recording.json')['proxy_pid']);
 			},
 		);
 	}
+	runtimeTest(
+		`${launcher} enables Pi reporting and preserves pipeline signals with Python installed`,
+		async t => {
+			const h = fixture(t, true);
+			h.launch(launcher, h.blockedAgent);
+			await until(
+				() =>
+					h.status()?.info.status === 'blocked' &&
+					readFileSync(path.join(h.root, 'pi-status'), 'utf8') !== '',
+				'initial status and Pi environment',
+			);
+			t.is(readFileSync(path.join(h.root, 'pi-status'), 'utf8'), '1');
+			t.is(readFileSync(path.join(h.root, 'pipeline-errors'), 'utf8'), '');
+		},
+	);
 	runtimeTest(
 		`${launcher} starts the agent and preserves input and initial status without Python`,
 		async t => {

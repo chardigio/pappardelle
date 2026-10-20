@@ -52,9 +52,9 @@ const env = {
 	PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(root, 'trace'),
 	PAPPARDELLE_STATUS_DIR: path.join(root, 'hooks'),
 };
-delete env.PAPPARDELLE_TMUX_SOCKET;
-delete env.TMUX;
-delete env.TMUX_PANE;
+Reflect.deleteProperty(env, 'PAPPARDELLE_TMUX_SOCKET');
+Reflect.deleteProperty(env, 'TMUX');
+Reflect.deleteProperty(env, 'TMUX_PANE');
 
 function tmux(socket: string, ...args: string[]) {
 	return execFileSync('tmux', ['-L', socket, ...args], {

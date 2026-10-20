@@ -1,108 +1,66 @@
 # STE-37 acceptance verification
 
-Claude verified locally on 2026-10-08 with Claude Code 2.1.295. Codex, Pi, OpenCode, and agy were verified on 2026-10-13. Those fixtures used Node 26.11.1 and tmux next-3.9. The installed stable Codex and PR #37 TUI checks used Node 26.12.0 and the same tmux version.
+Verified on 2026-10-20 with Claude Code 2.1.302, Pi 1.3.0, Codex 0.163.0, and tmux next-3.9. The branch remains based on [PR #37](https://github.com/chardigio/pappardelle/pull/37) at `3f3fab8898b5591af5b550d165a28b63fd80e16c`.
 
-## Native interactive Claude
+## Transport
 
-`npx tsx integration-tests/verify-program-status-claude.ts --live --keep` passed 27 checks through the production PTY proxy, persistent monitor, workspace source resolver, and actual Ink row.
+Agents run directly in the normal launch shell. There is no Python PTY proxy or proxy-specific process-ancestry handling. A persistent, read-only `pipe-pane -Oo` monitor captures native reports and writes atomic snapshots. It never injects capability replies or keyboard input.
 
-| Scenario                            | Observed native reports and result                                                                                                                |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fresh interactive safe-mode session | `idle:app=claude-code`                                                                                                                            |
-| Simple turn and another turn        | `working`, then `done`; completion message arrived as a subsequent replacement report                                                             |
-| AskUserQuestion                     | `blocked:kind=question`, then working/completion after Enter; question indicator rendered                                                         |
-| Bash permission                     | `blocked:kind=permission`, then working/completion after approval; fixture file contained the expected text                                       |
-| Permission denial                   | `idle` after Escape; denied fixture file was absent                                                                                               |
-| Keyboard interruption               | Working settled to idle/done; another turn succeeded                                                                                              |
-| Exit to shell                       | `clear`; indicator became authoritative unknown                                                                                                   |
-| Resume                              | Native idle, working, and done reports continued on the existing pane                                                                             |
-| Resume with Pappardelle hooks       | Native status remained authoritative against conflicting hook state; matching Bash tool details appeared during working and cleared on completion |
+Agent sessions set `PI_PROGRAM_STATUS=1` through both production launchers, including shells where the agent is later restarted by hand. Pi bypasses capability negotiation; Codex reports without negotiation. Claude retains its existing hooks. Other programs that require a successful capability query are not enabled by this monitor.
 
-Only parsed status events and fixture indicator frames are retained. Native auth, error, child records, and optional progress/title were not triggered; deterministic fixtures cover them.
+The startup gate remains so the monitor attaches before an agent can emit its first report. The shell launcher uses the TUI's selected Node executable, including when PATH has no Node or a stale Node. Python is no longer required for status transport or agent startup; the existing Claude hooks still use Python.
 
-The initial raw `pipe-pane -IO` prototype received queries and returned replies, but tmux's DA response reached Claude first and disabled native reporting. The authorized PTY proxy replies before forwarding that DA probe. The deterministic fixture verifies this ordering on every run, and Python tests cover every split boundary and opaque-string preservation.
+## Installed agents
 
-## Native interactive Codex
+| Agent               | Source                                                          | Result                                               |
+| ------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| Claude Code 2.1.302 | Existing status hooks                                           | 18 live checks passed                                |
+| Pi 1.3.0            | Native OSC 7501, forced with the production session environment | 21 live checks passed                                |
+| Codex 0.163.0       | Native OSC 7501 through the real TUI workspace                  | Six live rail checks and 14 standalone checks passed |
 
-Codex's [OSC 7501 change](https://github.com/openai/codex/pull/52725) merged after stable `0.162.1` was published. Verification used the [0.163.0-alpha.10 prerelease](https://github.com/openai/codex/releases/tag/rust-v0.163.0-alpha.10), downloaded to a temporary directory with its matching code-mode host. The normal Codex installation was unchanged.
+### Claude
 
-`verify-program-status-codex.ts --live --keep` passed 14 checks through the production PTY proxy, persistent monitor, workspace source resolver, and Ink row. Repeating with `--without-proxy` passed the same 14 checks in a plain tmux pane.
+`verify-program-status-claude.ts --live --keep` uses only the status-update entries from `hooks/settings.json.example`. Authentication and manual permissions remain active. Startup and resume report idle, prompts report working, questions render a question mark, Bash permission requests render attention, and Stop reports idle. Approved writes are checked in the disposable fixture; cancelled writes remain absent. Subsequent turns, keyboard interruption, shell return, and resume work. Parsed traces contain no native status reports.
 
-Retested on 2026-10-19 with the installed stable `codex-cli 0.163.0`: all 14 checks passed with the proxy and all 14 passed without it. Both runs verified native idle/working/blocked reports, approval and its resulting fixture file, precedence over a conflicting Claude hook, exit cleanup, and resume through the monitor and Ink row. No verifier changes were needed.
+Legacy behavior is preserved: Escape cancellation can leave the last hook status active or waiting until another hook event occurs. The next prompt and completion recover the indicator. SessionEnd maps to idle rather than authoritative native clear.
 
-| Scenario              | Observed native reports and result                                                     |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| Fresh session         | `idle:app=codex`; green idle indicator                                                 |
-| Turn and another turn | `working:app=codex`, then `idle:app=codex` on completion                               |
-| Permission request    | `blocked:app=codex`; attention indicator                                               |
-| Permission approval   | `working`, then `idle`; the harmless fixture file contained the expected text          |
-| Conflicting hook      | Native Codex idle remained authoritative over a Claude error hook                      |
-| Exit                  | `clear`; indicator became authoritative unknown                                        |
-| Resume                | Native idle, working, idle on completion, and clear on exit continued on the same pane |
+Evidence: `pappa-program-status-SB5PB9/verification.json` in the printed temporary directory.
 
-This Codex version reports completion as `idle`, and does not emit `done`, blocking kind, message, title, progress, or child ids in these scenarios. It emits OSC 7501 without a capability query, including through tmux, so its native reporting works without the proxy. Claude still needs the proxy for its capability-query ordering.
+### Pi
 
-The initial standalone Codex download lacked its code-mode host, so tool execution could not request approval. Adding the matching host resolved that fixture setup failure; both complete runs passed. Authentication used a temporary symlink to the existing auth file; the temporary Codex home and link were removed before preserving evidence. No credentials or Codex transcripts were retained in the fixture.
+`verify-program-status-pi.ts --live --keep` uses its existing Tailscale Aperture provider configuration (`openai/gpt-6.1-sol`). Native idle, working, done, question and permission dialogs, decoded messages, approval, denial, interruption, another turn, exit/clear, and resume reach the monitor, source resolver, and Ink row. A conflicting Claude hook cannot replace native completion. The temporary extension opens Pi's own dialogs and emits no protocol sequences.
 
-### PR #37 agent-profile integration
+Evidence: `pappa-program-status-pfNnDD/pi-verification.json` in the printed temporary directory.
 
-Rebased onto [PR #37](https://github.com/chardigio/pappardelle/pull/37) at `3f3fab8898b5591af5b550d165a28b63fd80e16c`. The monitor gate now wraps the generic agent launcher, and the rail resolves the renamed `agent-*` sessions.
+### Codex workspace
 
-`verify-program-status-codex-workspace.ts --live --keep` passed six checks with installed `codex-cli 0.163.0`. It ran the built CLI with its real three-pane tmux layout in a disposable repository, using a named `codex-rail` agent profile with `command: codex`. The TUI created and attached the main workspace's agent session; the fixture checked its profile environment and both native snapshots and the actual rail text.
+`verify-program-status-codex-workspace.ts --live --keep` runs the built TUI with its real three-pane layout in an isolated home and repository. A named agent profile has `command: codex` and is selected for the main workspace. The production TUI launches its agent session, and the fixture checks both native snapshots and actual rail text.
 
-| Scenario                   | Rail result                                       |
-| -------------------------- | ------------------------------------------------- |
-| Profile launches Codex     | `● main`, native idle                             |
-| Real model turn            | Animated working indicator                        |
-| Turn completes             | `● main`, native idle                             |
-| Command needs approval     | `! main`, native blocked                          |
-| Approved command completes | `● main`; fixture file contains the expected text |
-| Codex exits                | `? main`, authoritative unknown                   |
+| Scenario                   | Rail result                                         |
+| -------------------------- | --------------------------------------------------- |
+| Profile launches Codex     | Green idle dot                                      |
+| Real model turn            | Animated working indicator                          |
+| Turn completes             | Green idle dot                                      |
+| Command needs approval     | Attention indicator                                 |
+| Approved command completes | Green idle dot; fixture file contains expected text |
+| Agent exits                | Authoritative unknown indicator                     |
 
-The main workspace selects `codex-rail` through the top-level `agent_profile` setting. The fixture saves a rail transcript and parsed protocol evidence. Its isolated home and tmux socket directory avoid user configuration and sessions; the temporary Codex home and authentication symlink are deleted even when keeping evidence.
+Codex reports completion as idle in these scenarios. Its optional kind, message, progress, title, error, and child records were not triggered. Temporary authentication symlinks and Codex homes are removed even with `--keep`.
 
-### Review regressions (2026-10-20)
+Evidence: `/private/tmp/pappa-codex-rail-r85RFW/codex-workspace-verification.json` and `codex-rail-transcript.md`.
 
-All eight `program-status-launch.test.ts` checks passed through real production launchers on isolated tmux servers. The recording cases use persistent fixture agents and real hook subprocesses, exercising process ancestry without model accounts.
+### Earlier negative checks
 
-| Finding                              | Verified behavior                                                                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Proxy breaks primary-agent recording | Both launchers record the primary session for Claude and Codex profiles through the proxy; a nested agent cannot overwrite it                                |
-| Missing Python prevents startup      | Both launchers start the agent, capture its initial blocked report, deliver keyboard input, and return to a responsive shell with no Python on the pane PATH |
-| Shell monitor uses PATH Node         | The shell launcher captures the first blocked report using the TUI's selected Node with either no Node or a deliberately failing Node on PATH                |
+On 2026-10-13, installed OpenCode 2.0.28 and agy 1.3.4 completed real model turns but emitted no native status. Their indicators remained unknown. OpenCode used Tailscale Aperture; agy used its existing Gemini configuration. Those versions were not rerun for proxy removal. Their negative verifier now uses a plain shell.
 
-The proxy marks its own PID in the child environment so the recorder can ignore that infrastructure process while retaining the actual agent ancestors. Python is checked before proxy execution, and missing Python falls back to the ordinary shell. `buildSpawnEnv()` passes `process.execPath` as `PAPPARDELLE_NODE`; the shell launcher uses it for monitoring and gates startup independently of Python availability.
+## Account-free verification
 
-Installed Codex `0.163.0` passed all six real TUI rail checks again after these fixes. The build, Prettier, XO, and all 2,535 AVA checks passed on Node 22.22.3. The 21 deterministic transport checks, four App checks, 46 agent-launch shell checks, shellcheck, and 191 Python hook/proxy tests also passed.
+- Ten production-launcher checks pass: primary-session recording and nested-agent rejection for Claude and Codex through both launchers; Pi's environment and normal shell-pipeline SIGPIPE behavior; startup, input, initial status, and shell return without Python; selected Node monitoring with missing or stale PATH Node
+- The deterministic transport verifier passes 21 checks, including unanswered capability queries, native reports, both launch paths, hook fallback, source precedence, child records, monitor persistence, keyboard input, resizing, pane generations, concurrent attachments, repository isolation, unrelated pipes, and deletion followed by late monitor exit
+- Four checks pass through the actual Ink App, filesystem watcher, and WorkspaceRefresh: persisted idle, child question, authentication attention, and completion
+- All 186 Python hook checks pass, including primary-agent recording; proxy tests are removed with the proxy
+- All 46 shell-launch checks and shellcheck pass
+- TypeScript build, integration-verifier type checks, and package dry run pass; the package no longer includes a Python proxy
+- Full npm test passes Prettier, XO, and all 2,537 AVA checks on Node 22.22.3 with concurrency one
 
-## Installed Pi, OpenCode, and agy
-
-| Installed CLI   | Provider used in the fixture                                                                                 | Result                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Pi 1.2.0        | OpenAI `gpt-6.1-sol` through configured Tailscale Aperture (`http://ai/v1`)                                  | 21 positive native-status checks passed                                               |
-| OpenCode 2.0.28 | OpenAI `gpt-6.1-sol`; its session metadata and provider config confirmed Tailscale Aperture (`http://ai/v1`) | Real model turn and exit succeeded; no OSC 7501 reports; four negative checks passed  |
-| agy 1.3.4       | Existing Antigravity Gemini 3.8 Flash configuration, with low effort for this invocation                     | Real model turn and exit succeeded; no OSC 7501 reports; three negative checks passed |
-
-Pi's [native implementation](https://github.com/earendil-works/pi/issues/10607) detects support before DA1. The fixture did not force `PI_PROGRAM_STATUS`; the production proxy answered detection. Native `idle`, `working`, `done`, `blocked:kind=question`, `blocked:kind=permission`, and `clear` reports reached the monitor, source resolver, and Ink row. Question and confirmation messages decoded correctly. Answering, approving, denying, interrupting, starting another turn, and resuming all restored the expected state. A conflicting Claude hook could not replace native completion. The temporary extension only invoked Pi's own UI dialogs and emitted no OSC sequences. Native auth, error, compaction, and child records were not triggered.
-
-OpenCode's [OSC 7501 PR](https://github.com/anomalyco/opencode/pull/54560) was still open at verification time. Neither installed OpenCode nor agy emitted native reports during startup, a completed real turn, or exit. Their indicators correctly remained unknown with no native records or hook producer; this is an emitter limitation, not a successful native-status integration. No provider sign-ins or global model settings were changed. OpenCode and Pi used their existing Aperture configuration; agy's installed configuration had no model endpoint override.
-
-## Deterministic transport and full app
-
-`verify-program-status.ts --keep` passed 21 checks on an isolated server, including both launch paths, BEL reports, messages/progress, inherited child app, source precedence, TUI restart, prompt cleanup, terminal reset behavior, keyboard input/resizing, pane replacement, concurrent attachment, concurrent repositories, unrelated pipes, and deletion followed by late monitor exit.
-
-`verify-program-status-app.ts --keep` passed four checks mounting the real `App`: persisted idle, child question through the watcher and refresh pipeline, authentication attention, and done while the issue remained open. Tracker/VCS providers used fixture data; status transport and rendering used production code.
-
-AVA covers strict parsing, full replacement, all byte boundaries, exact complete-sequence limits, invalid text, record eviction, aggregation, source changes, stale generations, dead panes, corrupted snapshots, and asynchronous refresh races. Python tests cover hooks and the proxy. Deterministic transport and app checks run in CI; live Claude is opt-in.
-
-## Repository checks
-
-- TypeScript build, package dry run, repository Prettier/XO, and full AVA suite passed through `npm test`
-- Python hook/proxy suite: 159 passed
-- Session-launch shell suite: 25 passed, including shell-history isolation and a responsive login shell after Claude exits; companion command suite: 12 passed; session-name encoding: 8 passed
-- Model/effort shell suite: 44 of 48 passed; four existing iTerm command-assembly assertions could not run because the unchanged AppleScript fails compilation with `Expected “,” but found class name. (-2741)`
-- Shellcheck passed for the changed launch script
-
-After rebasing onto main `1a0a6ba`, the build, full `npm test`, deterministic transport, full App checks, and session-launch/companion shell suites passed again. Both launch paths gate the initial command until monitoring is attached, and execute it through the proxy without typing it into shell history.
-
-After rebasing onto PR #37 at `3f3fab8`, the build and full `npm test` passed on Node 22.22.3 (CI's Node major): formatting, XO, and 2,527 AVA checks. The deterministic transport checks (21), full App checks (4), generic agent-launch shell checks (46), shellcheck, and Python hook/proxy checks (189) also passed. The six live Codex workspace checks passed on Node 26.12.0. Node 26 full-suite runs still intermittently miss initial filesystem watcher events in tests; the targeted watcher suites passed five repeated runs on Node 22. The tests now yield before their first fixture write, and the native-status watcher test waits for actual publications instead of a fixed 150 ms sleep.
+The live agent checks use Node 26.12.0. Repository checks use Node 22.22.3, matching CI's Node major. The existing filesystem-watcher test can miss its initial event under load; it passed separately and in the final serial full-suite run after one parallel full-suite timeout.

@@ -44,7 +44,6 @@ nested = subprocess.run(
 Path(root, "recording.json").write_text(json.dumps({
     "primary": primary,
     "nested": json.loads(nested.stdout),
-    "proxy_pid": os.environ.get("PAPPARDELLE_STATUS_PROXY_PID"),
     "sessions": json.loads(Path(os.environ["PAPPARDELLE_AGENT_SESSIONS"]).read_text()),
 }))
 sys.stdout.write("\x1b]7501;state=idle:app=fixture\x07")

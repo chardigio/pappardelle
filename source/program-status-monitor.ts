@@ -110,24 +110,6 @@ export function parseStatusPane(
 
 export const STATUS_PANE_FORMAT = `#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{${STATUS_MONITOR_OPTION}}`;
 
-export function statusShellCommand(
-	args = [process.env['SHELL'] ?? '/bin/sh', '-l'],
-): string {
-	const script = fileURLToPath(
-		new URL('../scripts/program-status-shell.py', import.meta.url),
-	);
-	return [
-		'/bin/sh',
-		'-c',
-		'if command -v python3 >/dev/null 2>&1; then exec python3 "$@"; fi; shift; exec "$@"',
-		'sh',
-		script,
-		...args,
-	]
-		.map(value => shellQuoteStatus(value))
-		.join(' ');
-}
-
 export interface ProgramStatusSnapshot {
 	version: 1;
 	repo: string;
@@ -257,7 +239,7 @@ export async function attachStatusMonitor(
 			['set-option', '-p', '-t', pane.id, STATUS_MONITOR_OPTION, marker],
 			[
 				'pipe-pane',
-				'-IOo',
+				'-Oo',
 				'-t',
 				pane.id,
 				command.replaceAll('%', '%%').replaceAll('#', '##'),
@@ -353,10 +335,7 @@ export function monitorPane(
 				if (traceBytes <= 1024 * 1024) appendFileSync(trace, line);
 			} catch {}
 		}
-		if (event.type === 'query') {
-			process.stdout.write('\x1b]7501;?\x1b\\');
-			return;
-		}
+		if (event.type === 'query') return;
 		if (event.type === 'report') store.apply(event.report);
 		else if (event.type === 'prompt') store.processExit();
 		else store.reset();
@@ -388,7 +367,6 @@ export function monitorPane(
 	process.stdin.on('data', (bytes: Buffer) => parser.feed(bytes));
 	process.stdin.on('end', stop);
 	process.stdin.on('error', stop);
-	process.stdout.on('error', stop);
 	process.once('SIGTERM', stop);
 	process.once('SIGHUP', stop);
 	if (!existsSync(target)) publish();

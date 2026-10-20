@@ -15,7 +15,6 @@ import {
 	programStatusDir,
 	removeProgramSnapshots,
 	shellQuoteStatus,
-	statusShellCommand,
 } from '../source/program-status-monitor.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
@@ -36,11 +35,11 @@ try {
 				const command = fixtureArgs.at(-1)!;
 				fixtureArgs[fixtureArgs.length - 1] =
 					command.slice(0, command.indexOf('; exec ')) +
-					`; exec ${statusShellCommand(
-						buildShellLaunchArgs(
-							`printf '%s' launched > ${shellQuoteStatus(launchMarker)}`,
-						),
-					)}`;
+					`; exec ${buildShellLaunchArgs(
+						`printf '%s' launched > ${shellQuoteStatus(launchMarker)}`,
+					)
+						.map(value => shellQuoteStatus(value))
+						.join(' ')}`;
 			}
 			return harness.tmux(fixtureArgs);
 		},
@@ -55,7 +54,7 @@ try {
 			}
 		},
 		value => value,
-		'TypeScript launch executes command through proxy',
+		'TypeScript launch executes command in the ordinary shell',
 	);
 	await harness.tmux([
 		'set-option',
@@ -76,7 +75,7 @@ try {
 	await harness.fixture(session);
 	await harness.expect(
 		'idle',
-		'fixed capability reply wins DA race; native idle reaches Ink',
+		'read-only monitor preserves queries and captures native idle',
 		{source: 'osc', app: 'fixture'},
 		'●',
 	);
@@ -191,7 +190,8 @@ try {
 		session,
 		'-c',
 		harness.root,
-		statusShellCommand(),
+		'/bin/bash',
+		'-l',
 	]);
 	await harness.mount(repo, key, session);
 	await harness.expect(

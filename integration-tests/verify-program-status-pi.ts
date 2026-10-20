@@ -7,8 +7,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {
 	attachStatusMonitor,
 	shellQuoteStatus,
-	statusShellCommand,
 } from '../source/program-status-monitor.ts';
+import {buildAgentSessionEnvArgs} from '../source/spawn-env.ts';
 import {StatusHarness} from './program-status-harness.ts';
 
 assert.ok(process.argv.includes('--live'), 'Pass --live to run interactive Pi');
@@ -47,9 +47,6 @@ async function prompt(text: string) {
 
 async function launch(label: string) {
 	const args = [
-		'env',
-		'-u',
-		'PI_PROGRAM_STATUS',
 		binary,
 		'--model',
 		model,
@@ -76,7 +73,7 @@ async function launch(label: string) {
 	);
 	await harness.expect(
 		'idle',
-		`${label}: detected native idle`,
+		`${label}: forced native idle`,
 		{source: 'osc', app: 'pi'},
 		'●',
 		60000,
@@ -115,7 +112,12 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
-		statusShellCommand(),
+		...buildAgentSessionEnvArgs(
+			{name: 'pi', isClaude: false},
+			path.join(harness.root, 'agent-sessions.json'),
+		),
+		'/bin/bash',
+		'-l',
 	]);
 	await attachStatusMonitor(repo, key, session);
 	await harness.mount(repo, key, session);

@@ -6,7 +6,6 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {
 	attachStatusMonitor,
 	shellQuoteStatus,
-	statusShellCommand,
 } from '../source/program-status-monitor.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
@@ -60,13 +59,11 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
-		statusShellCommand([
-			'/bin/bash',
-			'--noprofile',
-			'--rcfile',
-			shellStartup,
-			'-i',
-		]),
+		'/bin/bash',
+		'--noprofile',
+		'--rcfile',
+		shellStartup,
+		'-i',
 	]);
 	await attachStatusMonitor(repo, key, session);
 	const statuses = await harness.mount(repo, key, session);

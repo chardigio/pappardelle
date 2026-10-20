@@ -110,7 +110,7 @@ export class StatusHarness {
 				}
 			},
 			Boolean,
-			`${session} capability reply before DA`,
+			`${session} receives only tmux device attributes`,
 		);
 	}
 

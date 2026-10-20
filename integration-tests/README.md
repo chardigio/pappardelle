@@ -12,23 +12,22 @@ npx tsx integration-tests/verify-program-status.ts
 npx tsx integration-tests/verify-program-status-app.ts
 ```
 
-The transport test exercises both launch paths on an isolated tmux socket, including capability-query ordering, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. The app check requires no automatic watchlists in the merged local configuration.
+The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. The app check requires no automatic watchlists in the merged local configuration.
 
-`source/program-status-launch.test.ts` adds eight account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. Build first; these checks run with the normal AVA suite when tmux is installed.
+`source/program-status-launch.test.ts` adds ten account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. With Python installed, both launchers also verify Pi's forced reporting environment and normal SIGPIPE behavior in shell pipelines. Build first; these checks run with the normal AVA suite when tmux is installed.
 
-To drive real interactive Claude sessions, authenticate Claude Code 2.1.295 or newer and opt in explicitly:
+To drive real interactive Claude sessions, authenticate Claude Code and opt in explicitly:
 
 ```bash
 npx tsx integration-tests/verify-program-status-claude.ts --live --keep
 ```
 
-This uses native OSC in safe mode, then resumes with only fixture settings and Pappardelle's status hook. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
+This uses the existing status-hook configuration from `hooks/settings.json.example`, restricted to status updates, with no PTY proxy or capability replies. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
 
 To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with stable `0.163.0`):
 
 ```bash
 npx tsx integration-tests/verify-program-status-codex.ts --live --keep
-npx tsx integration-tests/verify-program-status-codex.ts --live --keep --without-proxy
 npx tsx integration-tests/verify-program-status-codex-workspace.ts --live --keep
 ```
 
@@ -44,11 +43,11 @@ npx tsx integration-tests/verify-program-status-unavailable.ts --agent opencode 
 npx tsx integration-tests/verify-program-status-unavailable.ts --agent agy --live --keep
 ```
 
-Pi uses its normal provider configuration (`PAPPARDELLE_PI_MODEL` defaults to `openai/gpt-6.1-sol`, and `PAPPARDELLE_PI_BIN` can select another binary). The fixture leaves capability detection active and registers two temporary extension commands that open Pi's own question and confirmation dialogs; the extension emits no protocol reports. It verifies decoded messages and blocking kinds, real model turns, interruption, hook precedence, exit, and resume. Other extensions, MCP, tools, skills, and context-file discovery are disabled for this fixture.
+Pi uses its normal provider configuration (`PAPPARDELLE_PI_MODEL` defaults to `openai/gpt-6.1-sol`, and `PAPPARDELLE_PI_BIN` can select another binary). The fixture uses the production agent-session environment to set `PI_PROGRAM_STATUS=1` and registers two temporary extension commands that open Pi's own question and confirmation dialogs; the extension emits no protocol reports. It verifies decoded messages and blocking kinds, real model turns, interruption, hook precedence, exit, and resume. Other extensions, MCP, tools, skills, and context-file discovery are disabled for this fixture.
 
 The negative verifier covers installed OpenCode and agy versions without OSC 7501 support. It requires a real model reply that cannot be confused with the echoed prompt, checks that the monitor sees no reports, verifies the unknown Ink indicator, and waits for the CLI to return to its fixture shell. OpenCode's selected model and configured Aperture endpoint are checked from its own session metadata and configuration. It fails if a future CLI starts emitting native reports, so that version can be given positive coverage. These checks preserve normal provider configuration and permissions, add no sign-ins, and never run in CI.
 
-Each scenario has a timeout. Claude does not necessarily emit every protocol field or state; auth/error/child records and hard limits use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior.
+Each scenario has a timeout. Claude uses hooks, while Pi and Codex use native reports; auth/error/child records and hard limits also use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior.
 
 Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
 

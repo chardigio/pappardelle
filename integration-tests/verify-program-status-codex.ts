@@ -14,7 +14,6 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {
 	attachStatusMonitor,
 	shellQuoteStatus,
-	statusShellCommand,
 } from '../source/program-status-monitor.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
@@ -24,7 +23,6 @@ assert.ok(
 );
 const binary = process.env['PAPPARDELLE_CODEX_BIN'] ?? 'codex';
 const version = execFileSync(binary, ['--version'], {encoding: 'utf8'}).trim();
-const withoutProxy = process.argv.includes('--without-proxy');
 const auth = path.join(
 	process.env['CODEX_HOME'] ?? path.join(homedir(), '.codex'),
 	'auth.json',
@@ -121,11 +119,12 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
-		...(withoutProxy ? ['/bin/bash', '-l'] : [statusShellCommand()]),
+		'/bin/bash',
+		'-l',
 	]);
 	await attachStatusMonitor(repo, key, session);
 	await harness.mount(repo, key, session);
-	console.log(`Fixture ${harness.root}; ${version}; proxy=${!withoutProxy}`);
+	console.log(`Fixture ${harness.root}; ${version}`);
 	await launch();
 	await turn(
 		'Reply with exactly: native Codex status verified. Do not use tools.',
@@ -199,11 +198,7 @@ try {
 	);
 	writeFileSync(
 		path.join(harness.root, 'codex-verification.json'),
-		JSON.stringify(
-			{version, proxy: !withoutProxy, checks: harness.checks},
-			null,
-			2,
-		),
+		JSON.stringify({version, checks: harness.checks}, null, 2),
 	);
 	console.log(
 		`Passed ${harness.checks.length} checks; evidence ${harness.root}/codex-verification.json`,
@@ -214,7 +209,6 @@ try {
 		JSON.stringify(
 			{
 				version,
-				proxy: !withoutProxy,
 				checks: harness.checks,
 				error: String(error),
 			},

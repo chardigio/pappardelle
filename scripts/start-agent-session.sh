@@ -38,16 +38,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATUS_SHELL=()
-STATUS_PROXY=()
 STATUS_MONITOR=()
 STATUS_GATE=""
-STATUS_PYTHON="$(command -v python3 || true)"
 STATUS_NODE="${PAPPARDELLE_NODE:-$(command -v node || true)}"
-if [[ -n "$STATUS_PYTHON" && -f "$SCRIPT_DIR/program-status-shell.py" ]]; then
-    STATUS_PROXY=("$STATUS_PYTHON" "$SCRIPT_DIR/program-status-shell.py")
-    STATUS_SHELL=("${STATUS_PROXY[@]}" "${SHELL:-/bin/sh}" -l)
-fi
 if [[ -x "$STATUS_NODE" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
     STATUS_MONITOR=("$STATUS_NODE" "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
 fi
@@ -191,6 +184,7 @@ fi
 # source/spawn-env.ts: an agent started by hand in the companion pane isn't the
 # space's agent, so its session id must not be recorded.
 AGENT_SESSION_ENV=(
+    -e "PI_PROGRAM_STATUS=1"
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
     -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
     -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
@@ -236,7 +230,7 @@ new_launch_session() {
         # shellcheck disable=SC2016 # expanded by the inner sh, not here
         tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \
             /bin/sh -c 'tmux -L "$1" wait-for "$2"; shift 2; exec "$@"' sh "$PAPPARDELLE_TMUX_SOCKET" "$STATUS_GATE" \
-            "${STATUS_PROXY[@]}" /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+            /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
         return
     fi
     # shellcheck disable=SC2016 # expanded by the inner sh, not here
@@ -269,7 +263,7 @@ fi
 
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" == true ]]; then
-        new_inner_session "$AGENT_SESSION" "${AGENT_SESSION_ENV[@]}" "${STATUS_SHELL[@]}"
+        new_inner_session "$AGENT_SESSION" "${AGENT_SESSION_ENV[@]}"
     else
         # Claude agents get --dangerously-skip-permissions and --name set to the issue key so the session is findable via /resume
         # and shows up in the terminal title. Other agents run `{command} {args}`

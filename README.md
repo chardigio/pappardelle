@@ -88,7 +88,7 @@ This means:
 
 ### Program status
 
-The ticket rail reads [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) revision 0.2 from programs running in the center pane. Claude Code 2.1.295 emits native status; other programs can use the same protocol when started in that pane.
+The ticket rail reads [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) revision 0.2 from programs running in the center pane. Codex and Pi report native status; Claude Code uses its existing status hooks.
 
 | Status                                                   | Indicator                                    |
 | -------------------------------------------------------- | -------------------------------------------- |
@@ -105,9 +105,9 @@ Claude hooks supply fallback status until the pane emits its first valid native 
 
 Native working and blocked records have no timeout. A shell prompt reported through OSC 133 A or pane exit removes them; done and error survive. Replacing a pane creates a new generation. Monitors remain alive when the TUI closes and are removed with the workspace. Hook fallback retains its ten-minute timeout for active work.
 
-The agent shell runs through a small Python PTY proxy so OSC capability replies reach the program before tmux's device-attributes reply. A persistent `pipe-pane` monitor parses status and writes atomic snapshots. Existing unrelated pane pipes are left with their owner, with hooks providing fallback. See [local protocol verification](integration-tests/README.md#program-status).
+A read-only `pipe-pane` monitor parses status and writes atomic snapshots without wrapping the agent. Agent sessions set `PI_PROGRAM_STATUS=1` so Pi reports through tmux without capability negotiation. Existing unrelated pane pipes are left with their owner, with hooks providing fallback. See [local protocol verification](integration-tests/README.md#program-status).
 
-Existing sessions gain a monitor when the TUI opens. The PTY proxy is created with new agent sessions; older shells keep their existing terminal transport.
+Existing sessions gain a monitor when the TUI opens.
 
 ### tmux version
 
