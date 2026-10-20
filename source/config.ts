@@ -17,7 +17,7 @@ import {
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
-import {logger} from './logger.ts';
+import {dismissRecentErrors, logger} from './logger.ts';
 
 // ============================================================================
 // Types
@@ -686,13 +686,28 @@ export function getDefaultHomeConfigDir(): string {
  *
  * At least one layer must provide a config file, otherwise throws ConfigNotFoundError.
  */
-export function loadConfigFromPaths(opts: {
-	homeConfigDir?: string;
-	projectDir?: string;
-	fallbackProjectDir?: () => string | undefined;
-}): PappardelleConfig {
-	const {homeConfigDir, projectDir, fallbackProjectDir} = opts;
+export function loadConfigFromPaths(opts: ConfigPaths): PappardelleConfig {
+	const layers = configLayerFiles(opts).map(({label, path: filePath}) =>
+		filePath
+			? {
+					label,
+					layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
+				}
+			: {label, layer: null},
+	);
+	if (layers.every(({layer}) => !layer)) {
+		throw new ConfigNotFoundError(opts.projectDir ?? '(no project dir)');
+	}
 
+	return buildConfigFromLayers(layers);
+}
+
+/** The three config files, lowest priority first; `path` is unset for a missing file. */
+export function configLayerFiles({
+	homeConfigDir,
+	projectDir,
+	fallbackProjectDir,
+}: ConfigPaths): Array<{label: string; path: string | undefined}> {
 	const resolveProjectFile = (filename: string): string | undefined => {
 		if (projectDir) {
 			const candidate = path.join(projectDir, filename);
@@ -708,88 +723,71 @@ export function loadConfigFromPaths(opts: {
 		return undefined;
 	};
 
-	// Load each layer if its file exists
-	let home: Record<string, unknown> | null = null;
-	let project: Record<string, unknown> | null = null;
-	let local: Record<string, unknown> | null = null;
+	const homePath = homeConfigDir
+		? path.join(homeConfigDir, '.pappardelle.yml')
+		: undefined;
+	return [
+		{
+			label: '~/.pappardelle/.pappardelle.yml',
+			path: homePath && fs.existsSync(homePath) ? homePath : undefined,
+		},
+		{label: '.pappardelle.yml', path: resolveProjectFile('.pappardelle.yml')},
+		{
+			label: '.pappardelle.local.yml',
+			path: resolveProjectFile('.pappardelle.local.yml'),
+		},
+	];
+}
 
-	if (homeConfigDir) {
-		const homePath = path.join(homeConfigDir, '.pappardelle.yml');
-		if (fs.existsSync(homePath)) {
-			try {
-				const content = fs.readFileSync(homePath, 'utf-8');
-				const parsed = YAML.load(content);
-				if (parsed && typeof parsed === 'object') {
-					home = parsed as Record<string, unknown>;
-				}
-			} catch (error) {
-				const msg = error instanceof Error ? error.message : String(error);
-				throw new ConfigValidationError([
-					`~/.pappardelle/.pappardelle.yml: ${msg}`,
-				]);
-			}
-		}
+/** Parse one config file's text; null when it holds no mapping. */
+export function parseConfigLayer(
+	label: string,
+	content: string,
+): Record<string, unknown> | null {
+	try {
+		const parsed = YAML.load(content);
+		return parsed && typeof parsed === 'object'
+			? (parsed as Record<string, unknown>)
+			: null;
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : String(error);
+		throw new ConfigValidationError([`${label}: ${msg}`]);
 	}
+}
 
-	const projectPath = resolveProjectFile('.pappardelle.yml');
-	if (projectPath) {
-		try {
-			const content = fs.readFileSync(projectPath, 'utf-8');
-			const parsed = YAML.load(content);
-			if (parsed && typeof parsed === 'object') {
-				project = parsed as Record<string, unknown>;
-			}
-		} catch (error) {
-			const msg = error instanceof Error ? error.message : String(error);
-			throw new ConfigValidationError([`.pappardelle.yml: ${msg}`]);
-		}
-	}
-
-	const localPath = resolveProjectFile('.pappardelle.local.yml');
-	if (localPath) {
-		try {
-			const content = fs.readFileSync(localPath, 'utf-8');
-			const parsed = YAML.load(content);
-			if (parsed && typeof parsed === 'object') {
-				local = parsed as Record<string, unknown>;
-			}
-		} catch (error) {
-			const msg = error instanceof Error ? error.message : String(error);
-			throw new ConfigValidationError([`.pappardelle.local.yml: ${msg}`]);
-		}
-	}
-
-	if (!home && !project && !local) {
-		throw new ConfigNotFoundError(projectDir ?? '(no project dir)');
-	}
-
+/**
+ * Merge and validate parsed layers (lowest priority first, as
+ * configLayerFiles lists them). The layers are modified in place.
+ */
+export function buildConfigFromLayers(
+	layers: Array<{label: string; layer: Record<string, unknown> | null}>,
+): PappardelleConfig {
 	// The two initialization_command spellings are only ambiguous within one
 	// file. Across layers, whichever spelling a file uses, the more specific
 	// layer must win, so each layer is rewritten to the new spelling before the
 	// merge and ordinary layer precedence applies. The conflict check therefore
 	// runs per layer too: a home config still on the deprecated spelling must
 	// not brick a project that has migrated.
-	const layers: Array<[Record<string, unknown> | null, string]> = [
-		[home, '~/.pappardelle/.pappardelle.yml'],
-		[project, '.pappardelle.yml'],
-		[local, '.pappardelle.local.yml'],
-	];
-	const conflictErrors = layers.flatMap(([layer, file]) =>
-		layer ? initializationCommandConflictErrors(layer, file) : [],
+	const conflictErrors = layers.flatMap(({layer, label}) =>
+		layer ? initializationCommandConflictErrors(layer, label) : [],
 	);
 	if (conflictErrors.length > 0) {
 		throw new ConfigValidationError(conflictErrors);
 	}
 
-	for (const [layer, file] of layers) {
+	for (const {layer, label} of layers) {
 		if (layer) {
-			warnDeprecatedInitializationCommand(layer, file);
-			warnDeprecatedClaudeLaunchFields(layer, file);
+			warnDeprecatedClaudeFields(layer, label);
 			renameDeprecatedInitializationCommand(layer);
 		}
 	}
 
-	const merged = mergeConfigLayers(home, project, local);
+	const [home, project, local] = layers.map(({layer}) => layer);
+	const merged = mergeConfigLayers(
+		home ?? null,
+		project ?? null,
+		local ?? null,
+	);
 	validateConfig(merged);
 	return merged as PappardelleConfig;
 }
@@ -814,10 +812,16 @@ function initCommandSpellings(container: Record<string, unknown>): {
  * level plus each profile — with the message label for each (`''` at the top
  * level, `profiles.<name>.` per profile, ready to prefix a key path).
  */
-function configContainers(
-	layer: Record<string, unknown>,
-): Array<{container: Record<string, unknown>; label: string}> {
-	const containers = [{container: layer, label: ''}];
+function configContainers(layer: Record<string, unknown>): Array<{
+	container: Record<string, unknown>;
+	label: string;
+	profileName?: string;
+}> {
+	const containers: Array<{
+		container: Record<string, unknown>;
+		label: string;
+		profileName?: string;
+	}> = [{container: layer, label: ''}];
 	const {profiles} = layer;
 	if (profiles && typeof profiles === 'object') {
 		for (const [name, profile] of Object.entries(
@@ -827,6 +831,7 @@ function configContainers(
 			containers.push({
 				container: profile as Record<string, unknown>,
 				label: `profiles.${name}.`,
+				profileName: name,
 			});
 		}
 	}
@@ -890,51 +895,81 @@ function warnDeprecatedOnce(message: string): void {
 	logger.warn(message);
 }
 
-/**
- * Log a deprecation warning for a single config layer still using the old
- * `claude.initialization_command` spelling (top-level or per-profile). Runs
- * on the raw layer, before its rename, so the warning names the file to edit.
- */
-function warnDeprecatedInitializationCommand(
-	layer: Record<string, unknown>,
-	file: string,
+/** Drop the deprecation warnings from the error pane, except the `remaining` ones the config still earns. */
+export function dismissDeprecationWarnings(
+	remaining: ReadonlySet<string> = new Set(),
 ): void {
-	for (const {container, label} of configContainers(layer)) {
-		if (!initCommandSpellings(container).oldKey) continue;
-		const target = label
-			? `${label}initialization_command`
-			: 'the top-level initialization_command';
-		warnDeprecatedOnce(
-			`${file}: ${label}claude.initialization_command is deprecated — rename it to ${target}`,
-		);
+	const stale = new Set(
+		[...emittedDeprecationWarnings].filter(message => !remaining.has(message)),
+	);
+	dismissRecentErrors(entry => stale.has(entry.message));
+	for (const message of stale) emittedDeprecationWarnings.delete(message);
+}
+
+/**
+ * Every deprecated `claude.<field>` a raw layer sets, top-level or
+ * per-profile, with the profile-name label of the container it sits in.
+ */
+export function findDeprecatedClaudeFields(
+	layer: Record<string, unknown>,
+): Array<{label: string; profileName?: string; field: DeprecatedClaudeField}> {
+	return configContainers(layer).flatMap(({container, label, profileName}) => {
+		const {claude} = container;
+		if (!claude || typeof claude !== 'object') return [];
+		return DEPRECATED_CLAUDE_FIELDS.filter(
+			field => (claude as Record<string, unknown>)[field] !== undefined,
+		).map(field => ({label, profileName, field}));
+	});
+}
+
+function deprecationMessage(
+	file: string,
+	label: string,
+	field: DeprecatedClaudeField,
+): string {
+	switch (field) {
+		case 'initialization_command': {
+			const target = label
+				? `${label}initialization_command`
+				: 'the top-level initialization_command';
+			return `${file}: ${label}claude.initialization_command is deprecated — rename it to ${target}`;
+		}
+
+		case 'extra_args': {
+			return `${file}: ${label}claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with ${label}agent_profile`;
+		}
+
+		case 'model':
+		case 'effort': {
+			return `${file}: ${label}claude.${field} is deprecated — set ${field} on an agent profile (agent_profiles.<name>.${field}) and select it with ${label}agent_profile`;
+		}
 	}
 }
 
 /**
- * `claude.model` / `claude.effort` / `claude.extra_args` predate agent
- * profiles. They keep working for claude agent profiles, so unlike the init
+ * Log a deprecation warning per deprecated `claude.<field>` in a single
+ * config layer. Runs on the raw layer, before the initialization_command
+ * rename, so the warning names the file to edit. `claude.model` / `effort` /
+ * `extra_args` keep working for claude agent profiles, so unlike the init
  * command they are not renamed; the warning only points at where the value
  * belongs now.
  */
-function warnDeprecatedClaudeLaunchFields(
+function warnDeprecatedClaudeFields(
 	layer: Record<string, unknown>,
 	file: string,
 ): void {
-	for (const {container, label} of configContainers(layer)) {
-		const {claude} = container;
-		if (!claude || typeof claude !== 'object') continue;
-		for (const field of LAUNCH_FIELDS) {
-			if ((claude as Record<string, unknown>)[field] === undefined) continue;
-			warnDeprecatedOnce(
-				`${file}: ${label}claude.${field} is deprecated — set ${field} on an agent profile (agent_profiles.<name>.${field}) and select it with ${label}agent_profile`,
-			);
-		}
-		if ((claude as Record<string, unknown>)['extra_args'] !== undefined) {
-			warnDeprecatedOnce(
-				`${file}: ${label}claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with ${label}agent_profile`,
-			);
-		}
+	for (const message of deprecationWarnings(layer, file)) {
+		warnDeprecatedOnce(message);
 	}
+}
+
+export function deprecationWarnings(
+	layer: Record<string, unknown>,
+	file: string,
+): string[] {
+	return findDeprecatedClaudeFields(layer).map(({label, field}) =>
+		deprecationMessage(file, label, field),
+	);
 }
 
 /**
@@ -950,13 +985,13 @@ export function loadConfig(): PappardelleConfig {
 	});
 }
 
-type ConfigPaths = {
+export type ConfigPaths = {
 	homeConfigDir?: string;
 	projectDir?: string;
 	fallbackProjectDir?: () => string | undefined;
 };
 
-function defaultConfigPaths(): ConfigPaths {
+export function defaultConfigPaths(): ConfigPaths {
 	return {
 		homeConfigDir: getDefaultHomeConfigDir(),
 		projectDir: getRepoRoot(),
@@ -970,58 +1005,20 @@ function defaultConfigPaths(): ConfigPaths {
  * that only need part of the config keep working while another section is
  * broken.
  */
-function readConfigLayers({
-	homeConfigDir,
-	projectDir,
-	fallbackProjectDir,
-}: ConfigPaths): Array<{label: string; layer: Record<string, unknown> | null}> {
-	const resolveProjectFile = (filename: string): string | undefined => {
-		if (projectDir) {
-			const candidate = path.join(projectDir, filename);
-			if (fs.existsSync(candidate)) return candidate;
-		}
-
-		const fallbackDir = fallbackProjectDir?.();
-		if (fallbackDir) {
-			const candidate = path.join(fallbackDir, filename);
-			if (fs.existsSync(candidate)) return candidate;
-		}
-
-		return undefined;
-	};
-
-	const readLayer = (
-		filePath: string | undefined,
-	): Record<string, unknown> | null => {
-		if (!filePath || !fs.existsSync(filePath)) return null;
+function readConfigLayers(
+	paths: ConfigPaths,
+): Array<{label: string; layer: Record<string, unknown> | null}> {
+	return configLayerFiles(paths).map(({label, path: filePath}) => {
+		if (!filePath) return {label, layer: null};
 		try {
-			const parsed = YAML.load(fs.readFileSync(filePath, 'utf-8'));
-			return parsed && typeof parsed === 'object'
-				? (parsed as Record<string, unknown>)
-				: null;
+			return {
+				label,
+				layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
+			};
 		} catch {
-			return null;
+			return {label, layer: null};
 		}
-	};
-
-	return [
-		{
-			label: '~/.pappardelle/.pappardelle.yml',
-			layer: readLayer(
-				homeConfigDir
-					? path.join(homeConfigDir, '.pappardelle.yml')
-					: undefined,
-			),
-		},
-		{
-			label: '.pappardelle.yml',
-			layer: readLayer(resolveProjectFile('.pappardelle.yml')),
-		},
-		{
-			label: '.pappardelle.local.yml',
-			layer: readLayer(resolveProjectFile('.pappardelle.local.yml')),
-		},
-	];
+	});
 }
 
 /**
@@ -1500,9 +1497,17 @@ export function validateConfig(
  * Launch fields that exist identically on agent profiles and, deprecated, on
  * the top-level and per-profile `claude:` blocks.
  */
-const LAUNCH_FIELDS = ['model', 'effort'] as const;
+export const LAUNCH_FIELDS = ['model', 'effort'] as const;
 
 type LaunchField = (typeof LAUNCH_FIELDS)[number];
+
+const DEPRECATED_CLAUDE_FIELDS = [
+	'initialization_command',
+	...LAUNCH_FIELDS,
+	'extra_args',
+] as const;
+
+type DeprecatedClaudeField = (typeof DEPRECATED_CLAUDE_FIELDS)[number];
 
 const AGENT_PROFILE_STRING_FIELDS = [
 	'args',
@@ -2683,7 +2688,7 @@ function builtinLaunchTemplates(
  * isn't a bare token is single-quoted. resolve-agent-config.sh quotes the same
  * way, which keeps TUI- and idow-created launch lines identical.
  */
-function quoteLaunchValue(value: string): string {
+export function quoteLaunchValue(value: string): string {
 	return /^[A-Za-z0-9._-]+$/.test(value)
 		? value
 		: `'${value.replace(/'/g, `'\\''`)}'`;
@@ -2890,7 +2895,21 @@ export function getAgentProfile(
 	issueTitle?: string,
 	profileName?: string,
 ): ResolvedAgentProfile {
-	const name = resolveAgentProfileName(config, issueTitle, profileName);
+	return getNamedAgentProfile(
+		config,
+		resolveAgentProfileName(config, issueTitle, profileName),
+		issueTitle,
+		profileName,
+	);
+}
+
+/** getAgentProfile for an agent profile chosen by name rather than resolved. */
+export function getNamedAgentProfile(
+	config: PappardelleConfig,
+	name: string,
+	issueTitle?: string,
+	profileName?: string,
+): ResolvedAgentProfile {
 	const definition = lookupAgentProfile(config, name);
 	return {
 		...resolveAgentProfile(name, definition),

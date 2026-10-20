@@ -101,6 +101,7 @@ const closed: RailDialogState = {
 	showUpdateConfirm: false,
 	showHelp: false,
 	showErrorDialog: false,
+	showConfigMigration: false,
 };
 
 test('rail input is live with every dialog closed', t => {
@@ -115,6 +116,7 @@ const openDialogs: Array<[string, Partial<RailDialogState>]> = [
 	['update confirm', {showUpdateConfirm: true}],
 	['help', {showHelp: true}],
 	['error', {showErrorDialog: true}],
+	['config migration', {showConfigMigration: true}],
 ];
 
 for (const [name, patch] of openDialogs) {
