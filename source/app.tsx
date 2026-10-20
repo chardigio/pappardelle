@@ -9,7 +9,8 @@ import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {fileURLToPath} from 'node:url';
-import {homedir} from 'node:os';
+import fs from 'node:fs';
+import {homedir, tmpdir} from 'node:os';
 import path from 'node:path';
 
 import SpaceListItem from './components/SpaceListItem.tsx';
@@ -38,6 +39,7 @@ import {
 	createLogger,
 	subscribeToErrors,
 	clearRecentErrors,
+	dismissRecentErrors,
 	getRecentErrors,
 	setStderrTerminalPassthrough,
 	type LogEntry,
@@ -81,7 +83,13 @@ import {
 	type StateChoice,
 } from './close-state-choice.ts';
 import CloseSpaceDialog from './components/CloseSpaceDialog.tsx';
-import {isPopupAvailable, openPopup, type PopupHandlers} from './popup/host.ts';
+import {
+	isPopupAvailable,
+	openPopup,
+	runCommandPopup,
+	shellQuote,
+	type PopupHandlers,
+} from './popup/host.ts';
 import type {PopupSpec} from './popup/protocol.ts';
 import {
 	routeSession,
@@ -90,9 +98,11 @@ import {
 	buildNewSessionArgs,
 	buildOpenWorkspaceArgs,
 	extractIssueKeyFromIdowOutput,
+	idowSkippedAgentOverride,
 	type PendingSession,
 } from './session-routing.ts';
 import {
+	getDefaultHomeConfigDir,
 	loadConfig,
 	getStateColors,
 	getBeadsPrefixes,
@@ -123,6 +133,15 @@ import {
 	KILL_DONE_EMPTY_MESSAGE,
 } from './kill-done-spaces.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
+import {
+	buildConfigFixConfirmContent,
+	buildConfigFixPrompt,
+	buildConfigMigrationConfirmContent,
+	confirmConfigMigrations,
+	dismissResolvedDeprecationWarnings,
+	planConfigMigrations,
+	type ConfigMigration,
+} from './config-migration.ts';
 import {runCloseHooks, shouldAttach} from './close-space.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
@@ -240,6 +259,9 @@ export default function App({
 	);
 	const [showHelp, setShowHelp] = useState(false);
 	const [showErrorDialog, setShowErrorDialog] = useState(false);
+	const [configMigrations, setConfigMigrations] = useState<
+		ConfigMigration[] | null
+	>(null);
 	const [pendingSession, setPendingSession] = useState<PendingSession | null>(
 		null,
 	);
@@ -475,15 +497,19 @@ export default function App({
 		cols: stdout?.columns ?? 80,
 	});
 
+	const railDialogState = {
+		showPromptDialog,
+		showDeleteConfirm: deleteTarget !== null,
+		killDoneTargets,
+		showUpdateConfirm,
+		showHelp,
+		showErrorDialog,
+		showConfigMigration: configMigrations !== null,
+	};
+	const railInputBlocked = isRailInputBlocked(railDialogState);
+
 	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
-	const anyDialogOpen =
-		showPromptDialog ||
-		deleteTarget !== null ||
-		killDoneTargets !== null ||
-		showUpdateConfirm ||
-		showHelp ||
-		showErrorDialog ||
-		isSearching;
+	const anyDialogOpen = railInputBlocked || isSearching;
 
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
@@ -614,7 +640,7 @@ export default function App({
 						if (current !== desired) {
 							const next = await rebuildLayout(
 								layout.listPaneId,
-								layout.claudeViewerPaneId,
+								layout.agentViewerPaneId,
 								layout.companionViewerPaneId,
 							);
 							if (!next) throw new Error('Failed to rebuild pane layout');
@@ -724,7 +750,7 @@ export default function App({
 				const layout = paneLayoutRef.current;
 				if (!layout) return;
 				const success = await attachToSpace(
-					layout.claudeViewerPaneId,
+					layout.agentViewerPaneId,
 					layout.companionViewerPaneId,
 					selectedSpaceName,
 					layout.listPaneId,
@@ -762,7 +788,7 @@ export default function App({
 
 		if (spaces.length === 0) {
 			displayMessageInPane(
-				paneLayout.claudeViewerPaneId,
+				paneLayout.agentViewerPaneId,
 				'No spaces found. Press n to create a new space.',
 			);
 			// Only clear companion pane if it exists (may not on narrow screens)
@@ -905,7 +931,7 @@ export default function App({
 	const handleFocusClaude = () => {
 		if (!paneLayout) return;
 
-		spawnSync('tmux', ['select-pane', '-t', paneLayout.claudeViewerPaneId], {
+		spawnSync('tmux', ['select-pane', '-t', paneLayout.agentViewerPaneId], {
 			encoding: 'utf-8',
 			timeout: 5000,
 		});
@@ -969,7 +995,7 @@ export default function App({
 
 		const targetSpace = selectedSpaceNameRef.current;
 		if (!targetSpace) return;
-		const paneId = paneLayout.claudeViewerPaneId;
+		const paneId = paneLayout.agentViewerPaneId;
 		void sendToSelectedClaude({
 			queue: attachmentTask,
 			targetSpace,
@@ -1051,15 +1077,6 @@ export default function App({
 		child.unref();
 	};
 
-	const railDialogState = {
-		showPromptDialog,
-		showDeleteConfirm: deleteTarget !== null,
-		killDoneTargets,
-		showUpdateConfirm,
-		showHelp,
-		showErrorDialog,
-	};
-
 	// Only one popup at a time, and "at a time" lasts until its action has
 	// finished: a close confirmed in a popup keeps running its deinit hooks
 	// after the popup is gone, and a second x must not start another.
@@ -1089,10 +1106,101 @@ export default function App({
 			});
 	};
 
+	// Opened straight through openPopup: it follows the rewrite confirm, whose
+	// popup has already closed but still counts as busy until its action ends.
+	const offerConfigFix = (reason: string) => {
+		const warning = `Config not rewritten: ${reason}`;
+		log.warn(warning);
+		if (!isPopupAvailable()) return;
+		openPopup(
+			{kind: 'confirm', props: buildConfigFixConfirmContent(reason)},
+			{
+				closeBeforeConfirm: true,
+				async onConfirm() {
+					// Read from a file: tmux refuses a command line over about
+					// 16KB, which a config with many deprecated keys reaches.
+					const dir = fs.mkdtempSync(
+						path.join(tmpdir(), 'pappardelle-config-fix-'),
+					);
+					const promptFile = path.join(dir, 'prompt.md');
+					fs.writeFileSync(promptFile, buildConfigFixPrompt(reason));
+					try {
+						// --add-dir: the home config sits outside the repo, where
+						// claude would otherwise ask before every edit.
+						const exitCode = await runCommandPopup(
+							`claude --add-dir ${shellQuote(getDefaultHomeConfigDir())} "$(cat ${shellQuote(promptFile)})"`,
+							{cwd: process.cwd(), title: ' Fix pappardelle config '},
+						);
+						if (exitCode !== 0) {
+							log.warn(`claude for the config fix exited with ${exitCode}`);
+						}
+					} finally {
+						fs.rmSync(dir, {recursive: true, force: true});
+					}
+
+					if (dismissResolvedDeprecationWarnings()) {
+						dismissRecentErrors(entry => entry.message === warning);
+					}
+				},
+			},
+		).catch((error: unknown) => {
+			log.error(
+				'Config fix offer failed',
+				error instanceof Error ? error : undefined,
+			);
+		});
+	};
+
+	const handleConfigMigration = (approved: ConfigMigration[]) => {
+		const outcome = confirmConfigMigrations(approved);
+		switch (outcome.kind) {
+			case 'rewritten': {
+				setHeaderWithTimeout('Config rewritten', 4000);
+				break;
+			}
+
+			case 'changed': {
+				setHeaderWithTimeout('Config changed; not rewritten', 4000);
+				break;
+			}
+
+			case 'failed': {
+				setHeaderWithTimeout('Config rewrite failed', 4000);
+				offerConfigFix(outcome.reason);
+				break;
+			}
+		}
+	};
+
+	// Offered once per launch; declining leaves the config and its warnings as
+	// they are until the next start.
+	useEffect(() => {
+		const plan = planConfigMigrations();
+		if (plan.kind === 'unsupported') offerConfigFix(plan.reason);
+		if (plan.kind !== 'ready') return;
+		const {migrations} = plan;
+		showDialog(
+			{
+				kind: 'confirm',
+				props: buildConfigMigrationConfirmContent(migrations),
+			},
+			{
+				closeBeforeConfirm: true,
+				onConfirm() {
+					handleConfigMigration(migrations);
+				},
+			},
+			() => {
+				setConfigMigrations(migrations);
+			},
+		);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
 	// Handle keyboard input
 	useInput(
 		(input, key) => {
-			if (isRailInputBlocked(railDialogState)) return;
+			if (railInputBlocked) return;
 
 			const totalItems = spaces.length;
 
@@ -1276,7 +1384,7 @@ export default function App({
 				}
 		},
 		{
-			isActive: !isRailInputBlocked(railDialogState) && !isSearching,
+			isActive: !anyDialogOpen,
 		},
 	);
 
@@ -1327,6 +1435,7 @@ export default function App({
 						path.join(SCRIPTS_DIR, 'idow'),
 						buildNewSessionArgs(pending.idowArg, {
 							profileName: pending.profileName,
+							agentProfileName: pending.agentProfileName,
 							inputIsIssueKey: pending.inputIsIssueKey,
 						}),
 						{
@@ -1346,6 +1455,16 @@ export default function App({
 						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
 					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
 					if (spaceKey) await addSpace(spaceKey);
+					if (
+						pending.agentProfileName &&
+						idowSkippedAgentOverride(result.stdout)
+					) {
+						setHeaderWithTimeout(
+							`Agent already running; ${pending.agentProfileName} not applied`,
+							5000,
+						);
+					}
+
 					await loadSpaces();
 				},
 				options ?? {queued: false},
@@ -1597,7 +1716,7 @@ export default function App({
 					if (layout && selectedSpaceNameRef.current === space.name) {
 						await Promise.all([
 							displayMessageInPaneAsync(
-								layout.claudeViewerPaneId,
+								layout.agentViewerPaneId,
 								'Session closed',
 							),
 							displayMessageInPaneAsync(
@@ -1821,6 +1940,7 @@ export default function App({
 		input: string,
 		profileName: string | null,
 		inputIsIssueKey: boolean,
+		agentProfileName: string | null,
 	) => {
 		setShowPromptDialog(false);
 
@@ -1856,6 +1976,7 @@ export default function App({
 			// when `n` was pressed, and the list can change while it is open.
 			prevSpaceCount: spacesRef.current.length,
 			profileName,
+			agentProfileName,
 			profileEmoji: resolvePendingProfileEmoji(config, profileName),
 		};
 		spawnSession(pending);
@@ -2045,14 +2166,7 @@ export default function App({
 	const handleMouse = useCallback(
 		(event: {x: number; y: number; button: string}) => {
 			if (event.button !== 'left') return;
-			if (
-				showPromptDialog ||
-				deleteTarget !== null ||
-				killDoneTargets !== null ||
-				showUpdateConfirm ||
-				showErrorDialog
-			)
-				return;
+			if (railInputBlocked) return;
 			if (displaySpaces.length === 0) return;
 
 			// Map the raw mouse y into a visible-list row index. `bannerHeight`
@@ -2089,11 +2203,7 @@ export default function App({
 			setSelectedIndex,
 			displaySpaces,
 			spaces.length,
-			showPromptDialog,
-			deleteTarget,
-			killDoneTargets,
-			showUpdateConfirm,
-			showErrorDialog,
+			railInputBlocked,
 			scrollOffset,
 			visibleDisplaySpaces.length,
 			pendingInsertIndex,
@@ -2102,15 +2212,7 @@ export default function App({
 		],
 	);
 
-	useMouse(
-		handleMouse,
-		!showPromptDialog &&
-			deleteTarget === null &&
-			!showUpdateConfirm &&
-			!showHelp &&
-			!showErrorDialog &&
-			!isSearching,
-	);
+	useMouse(handleMouse, !anyDialogOpen);
 
 	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
 	const spaceCount = getSpaceCount(spaces);
@@ -2266,12 +2368,22 @@ export default function App({
 						onConfirm={handleUpdateConfirmed}
 						onCancel={() => setShowUpdateConfirm(false)}
 					/>
+				) : configMigrations ? (
+					<ConfirmDialog
+						{...buildConfigMigrationConfirmContent(configMigrations)}
+						onConfirm={() => {
+							handleConfigMigration(configMigrations);
+							setConfigMigrations(null);
+						}}
+						onCancel={() => setConfigMigrations(null)}
+					/>
 				) : showPromptDialog ? (
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
 						availableWidth={termDimensions.cols}
 						availableHeight={dialogHeight}
+						isInTmux={inTmux}
 					/>
 				) : killDoneTargets !== null ? (
 					<ConfirmDialog

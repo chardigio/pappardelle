@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test: claude.model / claude.effort resolution in resolve-claude-config.sh (STA-1829)
+# Test: claude.model / claude.effort resolution in resolve-agent-config.sh (STA-1829)
 #
 # Exercises the REAL script (not a mirror of its yq expression) across every
 # layer/profile permutation:
@@ -51,7 +51,7 @@ assert_eq() {
 # Run the real resolver. Args: [--profile <name>] — config paths are wired to
 # whatever setup_configs() last wrote.
 resolve() {
-    "$SCRIPT_DIR/resolve-claude-config.sh" \
+    "$SCRIPT_DIR/resolve-agent-config.sh" \
         --config "$TMPDIR_ROOT/.pappardelle.yml" \
         --local-config "$TMPDIR_ROOT/.pappardelle.local.yml" \
         --home-config "$TMPDIR_ROOT/home/.pappardelle.yml" \
@@ -285,32 +285,12 @@ echo -e "\n${BOLD}Test: idow passes the home layer to the resolver${RESET}"
 # catch — zero calls carrying --home-config — kills the suite mid-test instead
 # of failing it, printing no FAIL line, no summary, and silently skipping every
 # test block below.
-IDOW_CALLS=$(grep -c 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" || true)
-IDOW_HOME_CALLS=$(grep 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" | grep -c -- '--home-config' || true)
+IDOW_CALLS=$(grep -c 'resolve-agent-config\.sh"' "$SCRIPT_DIR/idow" || true)
+IDOW_HOME_CALLS=$(grep 'resolve-agent-config\.sh"' "$SCRIPT_DIR/idow" | grep -c -- '--home-config' || true)
 assert_eq "every idow resolver call passes --home-config" "$IDOW_CALLS" "$IDOW_HOME_CALLS"
 assert_eq "idow's home path matches getDefaultHomeConfigDir()" \
     'HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"' \
     "$(grep -o 'HOME_CONFIG_PATH="\$HOME/[^"]*"' "$SCRIPT_DIR/idow" | head -1)"
-
-echo -e "\n${BOLD}Test: idow splits extra_args into one argument each${RESET}"
-# The function runs on its own: pulled out of idow and evaluated here, so the test
-# runs the real code without tmux or a git repo.
-eval "$(sed -n '/^read_claude_extra_args() {/,/^}/p' "$SCRIPT_DIR/idow")"
-read_claude_extra_args '{"extra_args":["--tools","Bash,Read","two words"]}'
-assert_eq "three elements" "3" "${#CLAUDE_EXTRA_ARGS[@]}"
-assert_eq "a value with a space stays one argument" "two words" "${CLAUDE_EXTRA_ARGS[2]}"
-read_claude_extra_args '{"extra_args":[]}'
-assert_eq "an empty list clears the earlier args" "0" "${#CLAUDE_EXTRA_ARGS[@]}"
-
-echo -e "\n${BOLD}Test: idow passes extra_args to the session and to the launcher${RESET}"
-# Inspection, as above: a loop that skipped one call site would start the tmux session
-# or the terminal launcher with every tool.
-assert_eq "start-claude-session.sh gets --extra-arg" "1" \
-    "$(grep -c 'CLAUDE_SESSION_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
-assert_eq "the terminal launcher gets --extra-arg" "1" \
-    "$(grep -c 'LAUNCHER_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
-assert_eq "the profile re-resolve reads extra_args again" "1" \
-    "$(sed -n '/^resolve_claude_launch_flags() {/,/^}/p' "$SCRIPT_DIR/idow" | grep -c 'read_claude_extra_args "\$json"' || true)"
 
 # ==========================================================================
 
@@ -344,107 +324,284 @@ assert_eq "hyphenated profile effort" "medium" "$(echo "$OUT" | field effort)"
 cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
-# open-iterm-claude.sh builds its own flag string because the command is
-# assembled inside AppleScript. Values are printf %q'd here (safe for the inner
-# `sh -c` tmux runs) and the whole string is then passed through AppleScript's
-# `quoted form of` (safe for the outer shell iTerm types into) — so nothing is
-# rejected or dropped, however exotic. Pin both the clean and the hostile case.
+# Agent profiles carry their own model/effort, rendered into agent_launch_flags
+# through built-in (claude, codex) or configured templates. The deprecated
+# claude block only fills in for claude agent profiles.
 
-echo -e "\n${BOLD}Test: open-iterm-claude.sh launch flags${RESET}"
+echo -e "\n${BOLD}Test: agent profile model/effort and their flags${RESET}"
+setup_configs "version: 1
+claude:
+  model: sonnet
+  effort: low
+agent_profiles:
+  codex:
+    command: codex
+    model: gpt-5.5
+    effort: high
+  opus:
+    command: claude
+    model: opus
+  aider:
+    command: aider
+    model: \"x y\"
+    model_args: --model={model}
+profiles:
+  codex:
+    display_name: Codex
+    agent_profile: codex
+  opus:
+    display_name: Opus
+    agent_profile: opus
+  aider:
+    display_name: Aider
+    agent_profile: aider
+  plain:
+    display_name: Plain"
+OUT=$(resolve --profile codex)
+assert_eq "codex gets its own model" "gpt-5.5" "$(echo "$OUT" | field model)"
+assert_eq "codex flags use the built-in template" "-m gpt-5.5 -c model_reasoning_effort=high" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile opus)
+assert_eq "claude agent profile model beats the claude block" "opus" "$(echo "$OUT" | field model)"
+assert_eq "claude agent profile falls back to the claude block per field" "--model opus --effort low" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile aider)
+assert_eq "configured template, value quoted for the shell" "--model='x y'" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile plain)
+assert_eq "built-in claude still reads the claude block" "--model sonnet --effort low" "$(echo "$OUT" | field agent_launch_flags)"
+assert_eq "deprecated top-level keys are reported" "claude.effort claude.model" \
+    "$(echo "$OUT" | field deprecation_warnings | grep -o 'claude\.[a-z_]* is deprecated' | cut -d' ' -f1 | xargs)"
+OUT=$(resolve --profile plain --agent-profile codex)
+assert_eq "--agent-profile replaces the profile's agent profile" "codex" "$(echo "$OUT" | field agent_command)"
+assert_eq "the override brings its own launch flags" "-m gpt-5.5 -c model_reasoning_effort=high" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile codex --agent-profile claude)
+assert_eq "--agent-profile claude is the built-in claude" "claude" "$(echo "$OUT" | field agent_command)"
+assert_eq "a claude override reads the claude block" "--model sonnet --effort low" "$(echo "$OUT" | field agent_launch_flags)"
+OUT=$(resolve --profile codex --agent-profile "")
+assert_eq "an empty --agent-profile keeps the profile's" "codex" "$(echo "$OUT" | field agent_profile)"
+ERR=$(resolve --profile plain --agent-profile nope 2>&1 >/dev/null || true)
+assert_eq "an unknown --agent-profile is an error" 'Error: agent profile "nope" not found in agent_profiles' "$ERR"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+claude:
+  model: sonnet
+agent_profiles:
+  codex:
+    command: codex
+profiles:
+  codex:
+    display_name: Codex
+    agent_profile: codex"
+assert_eq "codex ignores the claude block" "" "$(resolve --profile codex | field agent_launch_flags)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+agent_profiles:
+  aider:
+    command: aider
+    model: x
+profiles:
+  aider:
+    display_name: Aider
+    agent_profile: aider"
+ERR=$(resolve --profile aider 2>&1 >/dev/null || true)
+assert_eq "model without a flag template is an error" \
+    'Error: agent_profiles.aider.model: "aider" has no built-in model flag; set model_args' "$ERR"
+cleanup; unset TMPDIR_ROOT
+
+# idow never runs the TUI's validateConfig, so the resolver rejects the same
+# agent profile definitions with the same messages.
+setup_configs "version: 1
+agent_profiles:
+  claude:
+    model: opus
+  codex:
+    command: ''
+  numeric:
+    command: codex
+    effort: 3
+  wrap:
+    command: claude-local
+    is_claude: 'yes'
+profiles:
+  plain:
+    display_name: Plain
+  codex:
+    display_name: Codex
+    agent_profile: codex"
+ERR=$(resolve --profile plain 2>&1 >/dev/null || true)
+assert_eq "a claude entry without a command is an error, not the built-in" \
+    'Error: agent_profiles.claude.command: required non-empty string' "$ERR"
+ERR=$(resolve --profile codex 2>&1 >/dev/null || true)
+assert_eq "an empty command is an error, not an unknown name" \
+    'Error: agent_profiles.codex.command: required non-empty string' "$ERR"
+ERR=$(resolve --profile plain --agent-profile numeric 2>&1 >/dev/null || true)
+assert_eq "a number for effort is an error" 'Error: agent_profiles.numeric.effort: must be a string' "$ERR"
+ERR=$(resolve --profile plain --agent-profile wrap 2>&1 >/dev/null || true)
+assert_eq "a string is_claude is an error" 'Error: agent_profiles.wrap.is_claude: must be a boolean' "$ERR"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+agent_profiles:
+  codex:
+    command: codex
+profiles:
+  plain:
+    display_name: Plain" "agent_profiles:
+  codex:
+    model: ~"
+ERR=$(resolve --profile plain --agent-profile codex 2>&1 >/dev/null || true)
+assert_eq "a null model in a higher layer is an error" 'Error: agent_profiles.codex.model: must be a string' "$ERR"
+assert_eq "an undefined claude still resolves to the built-in" "claude" "$(resolve --profile plain | field agent_command)"
+cleanup; unset TMPDIR_ROOT
+
+# idow reads the resolved fields a line each, so a newline in one would shift
+# every field after it.
+setup_configs "version: 1
+agent_profile: codex
+agent_profiles:
+  codex:
+    command: codex
+    args: >
+      --yolo"
+OUT=$(resolve)
+assert_eq "a block scalar's trailing newline is trimmed" "--yolo" "$(echo "$OUT" | field agent_args)"
+assert_eq "fields after a trimmed one keep their values" "codex" "$(echo "$OUT" | field agent_profile)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+agent_profile: codex
+agent_profiles:
+  codex:
+    command: codex
+    args: |
+      --yolo
+      --search"
+ERR=$(resolve 2>&1 >/dev/null || true)
+assert_eq "a field spanning lines is an error" \
+    'Error: agent_profiles.codex.args: must be a single line' "$ERR"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+# open-iterm-agent.sh builds its own flag string because the command is
+# assembled inside AppleScript. The model/effort flags arrive rendered and
+# quoted by the resolver (pinned above); the launcher only orders them.
+
+echo -e "\n${BOLD}Test: open-iterm-agent.sh launch flags${RESET}"
 iterm_flags() {
-    "$SCRIPT_DIR/open-iterm-claude.sh" --worktree /tmp --issue-key STA-1 \
+    "$SCRIPT_DIR/open-iterm-agent.sh" --worktree /tmp --issue-key STA-1 \
         --repo-name testrepo --prompt "" "$@" --print-launch-flags 2>/dev/null
 }
 assert_eq "no flags configured → empty" "" "$(iterm_flags)"
-assert_eq "model + effort" " --model sonnet --effort high" "$(iterm_flags --model sonnet --effort high)"
-assert_eq "model only" " --model opus" "$(iterm_flags --model opus)"
-assert_eq "effort only" " --effort max" "$(iterm_flags --effort max)"
-assert_eq "flag order: dsp → model → effort" \
-    " --dangerously-skip-permissions --model opus --effort high" \
-    "$(iterm_flags --skip-permissions --model opus --effort high)"
-assert_eq "provider-prefixed model id needs no escaping" " --model bedrock/anthropic.claude-v2" \
-    "$(iterm_flags --model 'bedrock/anthropic.claude-v2')"
-# Glob characters in a model id must reach claude literally, not be expanded.
-assert_eq "bracketed model id is escaped for the inner shell" ' --model claude-opus-5\[1m\]' \
-    "$(iterm_flags --model 'claude-opus-5[1m]')"
-# The value is neutralized by quoting rather than discarded — no silent drop.
-assert_eq "shell-hostile value is escaped, not dropped" ' --model ev\"il\;\ rm\ -rf\ /' \
-    "$(iterm_flags --model 'ev"il; rm -rf /')"
-assert_eq "a space-containing model still leaves a valid effort" ' --model bad\ value --effort high' \
-    "$(iterm_flags --model 'bad value' --effort high)"
-# STA-2663: every launcher carries claude.extra_args after --effort, one
-# quoted word per item, so an --open fallback keeps the robodogfood limits.
-for LAUNCHER in open-iterm-claude.sh open-ghostty-claude.sh open-default-terminal-claude.sh; do
-    assert_eq "$LAUNCHER: extra args follow effort, each quoted" \
-        ' --effort high --strict-mcp-config --tools Bash\,Read' \
-        "$("$SCRIPT_DIR/$LAUNCHER" --worktree /tmp --issue-key QA-1 --repo-name testrepo --prompt "" \
-            --effort high --extra-arg --strict-mcp-config --extra-arg --tools --extra-arg 'Bash,Read' \
-            --print-launch-flags 2>/dev/null)"
-done
+assert_eq "launch flags pass through as rendered" " --model 'claude-opus-5[1m]' --effort high" \
+    "$(iterm_flags --agent-launch-flags "--model 'claude-opus-5[1m]' --effort high")"
+assert_eq "flag order: dsp → args → launch flags" \
+    " --dangerously-skip-permissions --verbose --model opus" \
+    "$(iterm_flags --skip-permissions --agent-command claude --agent-is-claude true \
+        --agent-args --verbose --agent-launch-flags "--model opus")"
 
 # ==========================================================================
-# The command line open-iterm-claude.sh types is assembled inside AppleScript,
+# The command line open-iterm-agent.sh types is assembled inside AppleScript,
 # so assert on the bytes the AppleScript itself returns (--print-command)
 # rather than on a bash-side reimplementation of the concatenation. The key
-# property: the flags are referenced as $CLAUDE_FLAGS inside the double-quoted
-# tmux argument and only ever appear literally inside a single-quoted
-# assignment, so no config value can break the string apart.
-# osascript is macOS-only; skipped elsewhere (CI runs ubuntu).
+# property: the agent command, flags, and resume args are referenced as
+# $AGENT_CMD / $AGENT_FLAGS / $AGENT_RESUME inside the double-quoted tmux
+# argument and only ever appear literally inside single-quoted assignments,
+# so no config value can break the string apart.
+# osascript is macOS-only; skipped elsewhere (CI runs ubuntu). Compiling the
+# AppleScript needs iTerm's scripting dictionary, so machines without iTerm
+# installed skip too.
 
-echo -e "\n${BOLD}Test: open-iterm-claude.sh assembled command line${RESET}"
+echo -e "\n${BOLD}Test: open-iterm-agent.sh assembled command line${RESET}"
+iterm_command() {
+    "$SCRIPT_DIR/open-iterm-agent.sh" --worktree /tmp/wt --issue-key QA-1 \
+        --repo-name testrepo --prompt "" "$@" --print-command 2>/dev/null | head -1
+}
+
 if ! command -v osascript >/dev/null 2>&1; then
     echo "  SKIP (no osascript — macOS only)"
+elif [[ -z "$(iterm_command)" ]]; then
+    echo "  SKIP (osascript can't compile the iTerm AppleScript — is iTerm installed?)"
 else
-    iterm_command() {
-        "$SCRIPT_DIR/open-iterm-claude.sh" --worktree /tmp/wt --issue-key QA-1 \
-            --repo-name testrepo --prompt "" "$@" --print-command 2>/dev/null | head -1
-    }
-
     LINE=$(iterm_command)
     case "$LINE" in
-        "CLAUDE_FLAGS='';"*) assert_eq "no flags → empty CLAUDE_FLAGS assignment" "ok" "ok" ;;
-        *) assert_eq "no flags → empty CLAUDE_FLAGS assignment" "CLAUDE_FLAGS='';..." "$LINE" ;;
+        "AGENT_CMD='claude'; AGENT_FLAGS=''; AGENT_RESUME=' --continue';"*)
+            assert_eq "no flags → claude defaults in the assignments" "ok" "ok" ;;
+        *) assert_eq "no flags → claude defaults in the assignments" "AGENT_CMD='claude'; AGENT_FLAGS=''; AGENT_RESUME=' --continue';..." "$LINE" ;;
     esac
     case "$LINE" in
-        *'"claude$CLAUDE_FLAGS --name QA-1 --continue'*)
+        *'"$AGENT_CMD$AGENT_FLAGS --name QA-1$AGENT_RESUME'*)
             assert_eq "flags referenced by expansion, not interpolated" "ok" "ok" ;;
-        *) assert_eq "flags referenced by expansion, not interpolated" 'contains "claude$CLAUDE_FLAGS --name QA-1 --continue"' "$LINE" ;;
+        *) assert_eq "flags referenced by expansion, not interpolated" 'contains "$AGENT_CMD$AGENT_FLAGS --name QA-1$AGENT_RESUME' "$LINE" ;;
     esac
 
-    LINE=$(iterm_command --model sonnet --effort medium)
+    LINE=$(iterm_command --agent-launch-flags "--model sonnet --effort medium")
     case "$LINE" in
-        "CLAUDE_FLAGS=' --model sonnet --effort medium';"*)
+        "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';"*)
             assert_eq "resolved flags land in the assignment" "ok" "ok" ;;
-        *) assert_eq "resolved flags land in the assignment" "CLAUDE_FLAGS=' --model sonnet --effort medium';..." "$LINE" ;;
+        *) assert_eq "resolved flags land in the assignment" "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';..." "$LINE" ;;
     esac
 
-    # A value full of shell metacharacters must stay inside the single-quoted
-    # assignment (escaped for the inner `sh -c`) and never reach the outer
-    # shell as syntax. See verify-claude-model-effort.ts for the live
-    # round-trip that runs this exact line and proves nothing is executed.
-    LINE=$(iterm_command --model 'ev"il; echo PWNED > /tmp/pwned.txt')
+    # A value full of shell metacharacters, quoted for the inner `sh -c` the
+    # way the resolver renders it, must stay inside the single-quoted
+    # assignment and never reach the outer shell as syntax. See
+    # verify-claude-model-effort.ts for the live round-trip that runs this
+    # exact line and proves nothing is executed.
+    LINE=$(iterm_command --agent-launch-flags "--model 'ev\"il; echo PWNED > /tmp/pwned.txt'")
+    HOSTILE_PREFIX="AGENT_CMD='claude'; AGENT_FLAGS=' --model '\\''ev\"il; echo PWNED > /tmp/pwned.txt'\\''';"
     case "$LINE" in
-        "CLAUDE_FLAGS=' --model ev\\\"il\\;\\ echo\\ PWNED\\ \\>\\ /tmp/pwned.txt';"*)
+        "$HOSTILE_PREFIX"*)
             assert_eq "hostile value stays inside the quoted assignment" "ok" "ok" ;;
         *) assert_eq "hostile value stays inside the quoted assignment" "escaped assignment prefix" "$LINE" ;;
+    esac
+
+    # A non-claude agent gets its own command/args/resume assignments and
+    # none of the claude flags (--name, dsp).
+    LINE=$(iterm_command --skip-permissions \
+        --agent-command codex --agent-args "--yolo" \
+        --agent-resume-args "resume --last" --agent-is-claude false)
+    case "$LINE" in
+        "AGENT_CMD='codex'; AGENT_FLAGS=' --yolo'; AGENT_RESUME=' resume --last';"*)
+            assert_eq "codex assignments carry command/args/resume" "ok" "ok" ;;
+        *) assert_eq "codex assignments carry command/args/resume" "AGENT_CMD='codex'; AGENT_FLAGS=' --yolo'; AGENT_RESUME=' resume --last';..." "$LINE" ;;
+    esac
+    case "$LINE" in
+        *--name*|*--dangerously-skip-permissions*)
+            assert_eq "codex line has no claude flags" "no claude flags" "$LINE" ;;
+        *) assert_eq "codex line has no claude flags" "ok" "ok" ;;
+    esac
+
+    # Empty resume args → launch-only, no fallback chain (the resolver
+    # sends "" for agents without resume_args; omitting the flag entirely
+    # means claude defaults, i.e. --continue).
+    LINE=$(iterm_command --agent-command codex --agent-args "--yolo" \
+        --agent-resume-args "" --agent-is-claude false)
+    case "$LINE" in
+        *'||'*) assert_eq "codex without resume args has no fallback chain" "no || chain" "$LINE" ;;
+        *'"$AGENT_CMD$AGENT_FLAGS"'*) assert_eq "codex without resume args has no fallback chain" "ok" "ok" ;;
+        *) assert_eq "codex without resume args has no fallback chain" 'contains "$AGENT_CMD$AGENT_FLAGS"' "$LINE" ;;
     esac
 fi
 
 # ==========================================================================
 
-# STA-2663: claude.extra_args is a list, so it is emitted as a JSON array (not
-# stringified like model/effort). The profile list replaces the top-level one,
-# and an explicit [] on a profile clears it.
-echo -e "\n${BOLD}Test: extra_args resolves profile-first as a JSON array${RESET}"
+# STA-2663: the deprecated claude.extra_args reach claude agent profiles as
+# rendered launch flags after model/effort, one quoted word per item. The
+# profile list replaces the top-level one, an explicit [] on a profile clears
+# it, and other CLIs never get them.
+echo -e "\n${BOLD}Test: extra_args render into claude's launch flags, profile-first${RESET}"
 setup_configs "version: 1
 claude:
+  effort: high
   extra_args: [--no-chrome]
+agent_profiles:
+  codex:
+    command: codex
 profiles:
   backend:
     display_name: Backend
     keywords: [backend]
     claude:
-      extra_args: [--strict-mcp-config, --tools, 'Bash,Read']
+      extra_args: [--strict-mcp-config, --tools, 'Bash,Read', '{\"mcpServers\": {}}']
   frontend:
     display_name: Frontend
     keywords: [frontend]
@@ -452,17 +609,23 @@ profiles:
     display_name: Bare
     keywords: [bare]
     claude:
-      extra_args: []"
-assert_eq "no profile → top-level list" '["--no-chrome"]' "$(resolve | jq -c '.extra_args')"
-assert_eq "profile list replaces top-level" '["--strict-mcp-config","--tools","Bash,Read"]' "$(resolve --profile backend | jq -c '.extra_args')"
-assert_eq "profile without the key inherits" '["--no-chrome"]' "$(resolve --profile frontend | jq -c '.extra_args')"
-assert_eq "profile [] clears the list" '[]' "$(resolve --profile bare | jq -c '.extra_args')"
-cleanup
-
-setup_configs "version: 1
-$BASE_PROFILES"
-assert_eq "unset everywhere → []" '[]' "$(resolve --profile backend | jq -c '.extra_args')"
-assert_eq "model still a string beside it" "" "$(resolve --profile backend | field model)"
+      extra_args: []
+  cx:
+    display_name: Codex
+    keywords: [cx]
+    agent_profile: codex"
+assert_eq "no profile → top-level list" "--effort high --no-chrome" "$(resolve | field agent_launch_flags)"
+assert_eq "profile list replaces top-level, each word quoted" \
+    "--effort high --strict-mcp-config --tools 'Bash,Read' '{\"mcpServers\": {}}'" \
+    "$(resolve --profile backend | field agent_launch_flags)"
+assert_eq "profile without the key inherits" "--effort high --no-chrome" "$(resolve --profile frontend | field agent_launch_flags)"
+assert_eq "profile [] clears the list" "--effort high" "$(resolve --profile bare | field agent_launch_flags)"
+assert_eq "codex never gets claude's extra args" "" "$(resolve --profile cx | field agent_launch_flags)"
+assert_eq "extra_args is reported as deprecated" "claude.effort claude.extra_args" \
+    "$(resolve | field deprecation_warnings | grep -o 'claude\.[a-z_]* is deprecated' | cut -d' ' -f1 | xargs)"
+assert_eq "a profile's extra_args is reported as deprecated, naming the file" \
+    "$TMPDIR_ROOT/.pappardelle.yml: profiles.backend.claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with profiles.backend.agent_profile" \
+    "$(resolve --profile backend | field profile_deprecation_warnings)"
 cleanup
 
 # ==========================================================================

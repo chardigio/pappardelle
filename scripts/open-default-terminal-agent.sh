@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# open-default-terminal-claude.sh - Open a workspace in the default terminal
+# open-default-terminal-agent.sh - Open a workspace in the default terminal
 #
-# Usage: open-default-terminal-claude.sh --worktree <path> --issue-key <key> [options]
+# Usage: open-default-terminal-agent.sh --worktree <path> --issue-key <key> [options]
 #
 # The last rung of idow's step 9, reached when the terminal is one Pappardelle
 # cannot drive directly (no AppleScript dictionary, or terminal.app naming
@@ -25,9 +25,15 @@ REPO_NAME=""
 PROMPT=""
 COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
 SKIP_PERMISSIONS=false
-CLAUDE_MODEL=""
-CLAUDE_EFFORT=""
-CLAUDE_EXTRA_ARGS=()
+# The --agent-* flags follow the same rules as in start-agent-session.sh; see its
+# header.
+AGENT_COMMAND=""
+AGENT_ARGS=""
+AGENT_RESUME_ARGS=""
+AGENT_RESUME_ARGS_SET=false
+AGENT_IS_CLAUDE=""
+PROFILE_LAUNCH_FLAGS=""
+AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 
@@ -39,9 +45,12 @@ while [[ $# -gt 0 ]]; do
         --prompt) PROMPT="$2"; shift 2 ;;
         --companion-command) COMPANION_COMMAND="$2"; shift 2 ;;
         --skip-permissions) SKIP_PERMISSIONS=true; shift ;;
-        --model) CLAUDE_MODEL="$2"; shift 2 ;;
-        --effort) CLAUDE_EFFORT="$2"; shift 2 ;;
-        --extra-arg) CLAUDE_EXTRA_ARGS+=("$2"); shift 2 ;;
+        --agent-command) AGENT_COMMAND="$2"; shift 2 ;;
+        --agent-args) AGENT_ARGS="$2"; shift 2 ;;
+        --agent-resume-args) AGENT_RESUME_ARGS="$2"; AGENT_RESUME_ARGS_SET=true; shift 2 ;;
+        --agent-is-claude) AGENT_IS_CLAUDE="$2"; shift 2 ;;
+        --agent-launch-flags) PROFILE_LAUNCH_FLAGS="$2"; shift 2 ;;
+        --agent-profile) AGENT_PROFILE="$2"; shift 2 ;;
         --print-launch-flags) PRINT_LAUNCH_FLAGS=true; shift ;;
         --print-command) PRINT_COMMAND=true; shift ;;
         *) echo "Error: Unknown option: $1" >&2; exit 1 ;;
@@ -58,17 +67,26 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
+if [[ -z "$AGENT_COMMAND" ]]; then
+    AGENT_COMMAND="claude"
+    AGENT_IS_CLAUDE="true"
+    [[ "$AGENT_RESUME_ARGS_SET" == true ]] || AGENT_RESUME_ARGS="--continue"
+elif [[ "$AGENT_IS_CLAUDE" != "true" && "$AGENT_IS_CLAUDE" != "false" ]]; then
+    echo "Error: --agent-command requires --agent-is-claude true|false" >&2
+    exit 1
+fi
+
 # Create the tmux session name based on repo and issue key. The '.' → '_'
-# encoding matches start-claude-session.sh; see the comment there.
+# encoding matches start-agent-session.sh; see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
-TMUX_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
+TMUX_SESSION="agent-${REPO_NAME}-${SESSION_KEY}"
 
-# Per-issue claude/companion sessions live on a dedicated tmux socket so the
+# Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 
-CLAUDE_PROMPT="$PROMPT"
+AGENT_PROMPT="$PROMPT"
 
 # AppleScript's `quoted form of`, reproduced so the assembled lines match the
 # other two launchers byte for byte: always single-quoted, embedded quotes
@@ -79,24 +97,30 @@ quoted_form() {
 }
 
 LAUNCH_FLAGS=""
-if [[ "$SKIP_PERMISSIONS" == true ]]; then
+if [[ "$AGENT_IS_CLAUDE" == "true" && "$SKIP_PERMISSIONS" == true ]]; then
     LAUNCH_FLAGS=" --dangerously-skip-permissions"
 fi
+if [[ -n "$AGENT_ARGS" ]]; then
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${AGENT_ARGS}"
+fi
 
-append_launch_flag() {
-    local flag="$1"
-    local value="$2"
-    [[ -z "$value" ]] && return 0
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${flag} $(printf '%q' "$value")"
-    return 0
-}
+# The agent profile's launch flags arrive rendered and already quoted
+# for the inner shell by resolve-agent-config.sh, for any agent.
+if [[ -n "$PROFILE_LAUNCH_FLAGS" ]]; then
+    LAUNCH_FLAGS="${LAUNCH_FLAGS} ${PROFILE_LAUNCH_FLAGS}"
+fi
+if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
+    NAME_FLAG=" --name ${ISSUE_KEY}"
+else
+    NAME_FLAG=""
+fi
 
-append_launch_flag "--model" "$CLAUDE_MODEL"
-append_launch_flag "--effort" "$CLAUDE_EFFORT"
-# claude.extra_args (STA-2663): each one quoted on its own, after --effort.
-for EXTRA_ARG in ${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}; do
-    LAUNCH_FLAGS="${LAUNCH_FLAGS} $(printf '%q' "$EXTRA_ARG")"
-done
+# Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
+# records its session id under these when this launcher creates the session.
+AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
+
+# Resume args carry their own leading space (concatenated onto the command).
+AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
 if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
     printf '%s\n' "$LAUNCH_FLAGS"
@@ -105,34 +129,42 @@ fi
 
 TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 
-# $CLAUDE_FLAGS stays literal here: the pane shell expands it after the value
-# has crossed this script unparsed, the same two-layer scheme the AppleScript
-# launchers use.
-# shellcheck disable=SC2016  # $CLAUDE_FLAGS is expanded by the pane shell, not here
-CLAUDE_CMD='claude$CLAUDE_FLAGS'" --name ${ISSUE_KEY}"
-FLAGS_ASSIGN="CLAUDE_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); "
-
-CLAUDE_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}' \"${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD}"
-if [[ -z "$CLAUDE_PROMPT" ]]; then
-    CLAUDE_LINE="${CLAUDE_PREFIX}\""
-else
-    CLAUDE_LINE="${CLAUDE_PREFIX} '${CLAUDE_PROMPT}'\""
+# $AGENT_CMD, $AGENT_FLAGS and $AGENT_RESUME stay literal here: the pane shell
+# expands them after the values have crossed this script unparsed, the same
+# two-layer scheme the AppleScript launchers use.
+# shellcheck disable=SC2016  # expanded by the pane shell, not here
+AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
+FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
+# shellcheck disable=SC2016  # expanded by the pane shell, not here
+AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_IS_CLAUDE='"$AGENT_IS_CLAUDE"'" -e "PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS"'
+RESUME_CHAIN=""
+if [[ -n "$AGENT_RESUME_STR" ]]; then
+    # shellcheck disable=SC2016  # expanded by the pane shell, not here
+    RESUME_CHAIN='$AGENT_RESUME'" || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
 fi
 
-COMPANION_SESSION="companion-${TMUX_SESSION:7}"
+AGENT_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}'${AGENT_ENV} \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
+if [[ -z "$AGENT_PROMPT" ]]; then
+    AGENT_LINE="${AGENT_PREFIX}\""
+else
+    AGENT_LINE="${AGENT_PREFIX} '${AGENT_PROMPT}'\""
+fi
+
+COMPANION_SESSION="companion-${REPO_NAME}-${SESSION_KEY}"
 COMPANION_ASSIGN=""
 COMPANION_START="${TMUX_L} new-session -A -s '${COMPANION_SESSION}'"
 if [[ -n "$COMPANION_COMMAND" ]]; then
     COMPANION_ASSIGN="COMPANION_CMD=$(quoted_form "$COMPANION_COMMAND"); "
     # shellcheck disable=SC2016 # expanded by the pane shell, not here
-    COMPANION_START="${COMPANION_START}"' /bin/sh -c '"'"'"$1" -ic "$2"; exec "$1" -l'"'"' sh "${SHELL:-/bin/sh}" "$COMPANION_CMD"'
+    COMPANION_START="${COMPANION_START}"' /bin/sh -c '"'"'"$1" -ic "$2$(printf "\n:")"; exec "$1" -l'"'"' sh "${SHELL:-/bin/sh}" "$COMPANION_CMD"'
 fi
 COMPANION_LINE="${COMPANION_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${COMPANION_START}"
 
 if [[ "$PRINT_COMMAND" == true ]]; then
-    printf '%s\n%s\n' "$CLAUDE_LINE" "$COMPANION_LINE"
+    printf '%s\n%s\n' "$AGENT_LINE" "$COMPANION_LINE"
     exit 0
 fi
+
 
 # The viewer session sits on the default socket, so its panes can attach to the
 # inner socket without tmux's nesting check rejecting them.
@@ -149,13 +181,13 @@ CMD_FILE="${LAUNCH_DIR}/${REPO_NAME}-${SESSION_KEY}.command"
     printf '%s\n' '#!/bin/bash'
     printf 'VIEW_SESSION=%q\n' "$VIEW_SESSION"
     printf 'WORKTREE=%q\n' "$WORKTREE"
-    printf 'CLAUDE_PANE=%q\n' "$CLAUDE_LINE"
+    printf 'AGENT_PANE=%q\n' "$AGENT_LINE"
     printf 'COMPANION_PANE=%q\n' "$COMPANION_LINE"
     cat <<'LAUNCHER_END'
 
 # Reopening attaches to the viewer already there; splitting again would stack
 # a duplicate pane pair on every press of `o`. A viewer down to one pane lost
-# the session behind the other (the TUI's kill deletes the inner Claude
+# the session behind the other (the TUI's kill deletes the inner agent
 # session), and reattaching it would never bring that pane back.
 if tmux has-session -t "=$VIEW_SESSION" 2>/dev/null; then
     if [[ "$(tmux list-panes -t "=$VIEW_SESSION:" 2>/dev/null | wc -l)" -eq 2 ]]; then
@@ -164,7 +196,7 @@ if tmux has-session -t "=$VIEW_SESSION" 2>/dev/null; then
     tmux kill-session -t "=$VIEW_SESSION"
 fi
 
-tmux new-session -d -s "$VIEW_SESSION" -c "$WORKTREE" "$CLAUDE_PANE"
+tmux new-session -d -s "$VIEW_SESSION" -c "$WORKTREE" "$AGENT_PANE"
 tmux split-window -h -t "=$VIEW_SESSION:" -c "$WORKTREE" "$COMPANION_PANE"
 tmux select-pane -t "=$VIEW_SESSION:.0"
 exec tmux attach -t "=$VIEW_SESSION"
@@ -177,4 +209,4 @@ if ! open "$CMD_FILE"; then
     exit 1
 fi
 
-echo "Default terminal opened with Claude and companion pane for $ISSUE_KEY"
+echo "Default terminal opened with the agent and companion pane for $ISSUE_KEY"

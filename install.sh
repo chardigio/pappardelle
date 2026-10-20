@@ -383,7 +383,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
     mkdir -p "$HOOKS_DIR"
 
     # Copy hook scripts
-    for hook in update-status.py comment-question-answered.py zap-notification.py; do
+    for hook in update-status.py comment-question-answered.py zap-notification.py record-agent-session.py; do
         if [[ -f "$HOOKS_SRC/$hook" ]]; then
             cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
             chmod +x "$HOOKS_DIR/$hook"
@@ -391,7 +391,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
     done
 
     # Helper modules imported by the hooks above
-    for module in markdown_to_adf.py acli_helpers.py tracker_config.py; do
+    for module in markdown_to_adf.py acli_helpers.py tracker_config.py agent_session.py; do
         if [[ -f "$HOOKS_SRC/$module" ]]; then
             cp "$HOOKS_SRC/$module" "$HOOKS_DIR/"
         fi
@@ -407,6 +407,31 @@ if [[ -d "$HOOKS_SRC" ]]; then
             mkdir -p "$(dirname "$CLAUDE_SETTINGS")"
             cp "$HOOKS_SRC/settings.json.example" "$CLAUDE_SETTINGS"
             print_status "Created $CLAUDE_SETTINGS with Pappardelle hooks"
+        fi
+    fi
+
+    # Codex records its session id through its own hooks.json (Claude does it
+    # in update-status.py), so a relaunch resumes the space's own conversation.
+    # Merged rather than replaced: the file usually carries other tools' hooks.
+    CODEX_HOOKS="$HOME/.codex/hooks.json"
+    if [[ -d "$HOME/.codex" ]] && command -v jq &> /dev/null; then
+        if [[ -f "$CODEX_HOOKS" ]] && grep -q 'record-agent-session.py' "$CODEX_HOOKS"; then
+            print_status "Codex session hook already in $CODEX_HOOKS"
+        else
+            CODEX_HOOKS_TMP=$(mktemp)
+            if jq -s '.[0] as $mine | (.[1] // {}) as $theirs
+                    | $theirs | .hooks = (($theirs.hooks // {}) as $h
+                        | reduce ($mine.hooks | keys[]) as $event ($h;
+                            .[$event] = ((.[$event] // []) + $mine.hooks[$event])))' \
+                    "$HOOKS_SRC/codex-hooks.json.example" \
+                    <( [[ -f "$CODEX_HOOKS" ]] && cat "$CODEX_HOOKS" || echo '{}' ) > "$CODEX_HOOKS_TMP" \
+                && mv "$CODEX_HOOKS_TMP" "$CODEX_HOOKS"; then
+                print_status "Added the Codex session hook to $CODEX_HOOKS"
+                print_info "Codex asks to trust new hooks on its next launch; trust it so spaces resume their own session"
+            else
+                rm -f "$CODEX_HOOKS_TMP"
+                print_warning "Could not update $CODEX_HOOKS; merge $HOOKS_SRC/codex-hooks.json.example by hand"
+            fi
         fi
     fi
 else
