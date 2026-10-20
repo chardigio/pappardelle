@@ -237,19 +237,32 @@ test.serial(
 test.serial(
 	'both status sources trigger resolved updates and closing cancels queued publications',
 	async t => {
+		t.timeout(5000);
 		const h = setup(t);
 		await h.status.read('TASK-1');
 		const batches: Array<ReadonlyMap<string, ProgramStatusInfo>> = [];
+		let published: () => void = () => {};
+		const nextPublication = async () =>
+			new Promise<void>(resolve => {
+				published = resolve;
+			});
 		const stop = h.status.watch(
-			updates => batches.push(updates),
+			updates => {
+				batches.push(updates);
+				published();
+			},
 			key => key === 'TASK-1',
 		);
 		t.teardown(stop);
+		// The first fixture write can otherwise precede filesystem watch registration.
+		await delay(0);
+		const hookPublished = nextPublication();
 		h.writeHook('processing');
-		await delay(150);
+		await hookPublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.source, 'hook');
+		const donePublished = nextPublication();
 		h.writeOsc({status: 'done', app: 'claude-code'});
-		await delay(150);
+		await donePublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.status, 'done');
 		const before = batches.length;
 		h.writeHook('error');

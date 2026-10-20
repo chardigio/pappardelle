@@ -107,6 +107,8 @@ test.serial(
 			for (const [name, info] of updates) latest.set(name, info);
 		});
 		t.teardown(stop);
+		// The first fixture write can otherwise precede filesystem watch registration.
+		await delay(0);
 		const old = Date.now() - ACTIVE_STATUS_TIMEOUT - 1;
 		writeStatus(dir, 'active', {status: 'processing'}, old);
 		writeStatus(dir, 'stable', {status: 'waiting_for_input'}, old);

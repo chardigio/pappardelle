@@ -561,8 +561,13 @@ ZSHRC
         PASS=$((PASS + 1))
     fi
 
-    assert_eq "agent session leaves a shell after claude exits" "zsh" \
-        "$(tmux -L "$HIST_SOCKET" display-message -p -t "agent-${TEST_REPO}-${KEY9}" '#{pane_current_command}' 2>/dev/null)"
+    SHELL_RESULT="$TMPDIR_ROOT/shell-result"
+    tmux -L "$HIST_SOCKET" send-keys -t "agent-${TEST_REPO}-${KEY9}" -l \
+        "printf '%s' \"\${ZSH_VERSION:+zsh}\" > $(printf '%q' "$SHELL_RESULT")"
+    tmux -L "$HIST_SOCKET" send-keys -t "agent-${TEST_REPO}-${KEY9}" Enter
+    sleep 1
+    assert_eq "agent session leaves a responsive login shell after claude exits" "zsh" \
+        "$(cat "$SHELL_RESULT" 2>/dev/null)"
     assert_eq "companion session leaves a shell after the command exits" "zsh" \
         "$(tmux -L "$HIST_SOCKET" display-message -p -t "companion-${TEST_REPO}-${KEY9}" '#{pane_current_command}' 2>/dev/null)"
     tmux -L "$HIST_SOCKET" kill-server 2>/dev/null || true

@@ -22,14 +22,17 @@ npx tsx integration-tests/verify-program-status-claude.ts --live --keep
 
 This uses native OSC in safe mode, then resumes with only fixture settings and Pappardelle's status hook. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
 
-To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with `0.163.0-alpha.10`):
+To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with stable `0.163.0`):
 
 ```bash
 npx tsx integration-tests/verify-program-status-codex.ts --live --keep
 npx tsx integration-tests/verify-program-status-codex.ts --live --keep --without-proxy
+npx tsx integration-tests/verify-program-status-codex-workspace.ts --live --keep
 ```
 
 `PAPPARDELLE_CODEX_BIN` selects a binary outside your normal installation. Standalone release downloads also require their matching `codex-code-mode-host` executable alongside the Codex binary for tool calls. The fixture uses a temporary Codex configuration, an authentication-file symlink, a read-only sandbox with approval requests, and a harmless approved file write. It verifies idle/working/blocked, completion returning to idle, native precedence, exit, and resume through the monitor and Ink row. It deletes its temporary Codex home and authentication link even with `--keep`; only fixture files, parsed protocol evidence, and indicator frames remain. It never runs in CI.
+
+The workspace verifier runs the built TUI in real tmux panes with an isolated home, repository, and socket directory. A named agent profile uses `command: codex`, and the TUI launches it through normal workspace attachment. It checks native snapshots and the rendered main-workspace rail for idle, working, approval attention, completion, and exit, then saves a rail transcript. `--keep` retains evidence while still removing the temporary Codex home and authentication symlink.
 
 Other installed CLI checks are also opt-in:
 

@@ -259,7 +259,7 @@ export default function App({
 		() =>
 			new WorkspaceStatuses(
 				repoName,
-				key => getSessionNames(key, repoName).claude,
+				key => getSessionNames(key, repoName).agent,
 			),
 		[repoName],
 	);

@@ -2374,7 +2374,12 @@ export async function ensureAgentSession(
 		.join(' ');
 	const launchCommand = `${waitCommand}; exec ${statusShellCommand(
 		buildShellLaunchArgs(
-			buildAgentResumeCommand(issueKey, skipPermissions, agentProfile, sessionId),
+			buildAgentResumeCommand(
+				issueKey,
+				skipPermissions,
+				agentProfile,
+				sessionId,
+			),
 		),
 	)}`;
 

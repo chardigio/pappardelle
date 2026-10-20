@@ -7,7 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {getRepoName} from '../source/config.ts';
 import {
 	buildShellLaunchArgs,
-	ensureClaudeSession,
+	ensureAgentSession,
 	getSessionNames,
 } from '../source/tmux.ts';
 import {
@@ -22,15 +22,14 @@ import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 const harness = new StatusHarness();
 const repo = getRepoName();
 const key = 'STATUS-TS';
-const session = getSessionNames(key, repo).claude;
+const session = getSessionNames(key, repo).agent;
 const launchMarker = path.join(harness.root, 'launch-marker');
 
 try {
-	const launched = await ensureClaudeSession(
+	const launched = await ensureAgentSession(
 		key,
 		harness.root,
 		false,
-		{},
 		async args => {
 			const fixtureArgs = args.slice(2);
 			if (fixtureArgs.includes('new-session')) {
@@ -215,18 +214,18 @@ try {
 	);
 	const shellKey = 'STATUS-SHELL';
 	const shellRepo = 'second-repo';
-	const shellSession = getSessionNames(shellKey, shellRepo).claude;
+	const shellSession = getSessionNames(shellKey, shellRepo).agent;
 	execFileSync(
 		'bash',
 		[
-			path.join(projectRoot, 'scripts/start-claude-session.sh'),
+			path.join(projectRoot, 'scripts/start-agent-session.sh'),
 			'--issue-key',
 			shellKey,
 			'--repo-name',
 			shellRepo,
 			'--worktree',
 			harness.root,
-			'--no-claude',
+			'--no-agent',
 		],
 		{env: process.env, timeout: 10000},
 	);

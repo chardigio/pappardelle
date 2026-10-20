@@ -1,6 +1,6 @@
 # STE-37 acceptance verification
 
-Claude verified locally on 2026-10-08 with Claude Code 2.1.295. Codex, Pi, OpenCode, and agy were verified on 2026-10-13. All fixtures used Node 26.11.1 and tmux next-3.9.
+Claude verified locally on 2026-10-08 with Claude Code 2.1.295. Codex, Pi, OpenCode, and agy were verified on 2026-10-13. Those fixtures used Node 26.11.1 and tmux next-3.9. The installed stable Codex and PR #37 TUI checks used Node 26.12.0 and the same tmux version.
 
 ## Native interactive Claude
 
@@ -28,6 +28,8 @@ Codex's [OSC 7501 change](https://github.com/openai/codex/pull/52725) merged aft
 
 `verify-program-status-codex.ts --live --keep` passed 14 checks through the production PTY proxy, persistent monitor, workspace source resolver, and Ink row. Repeating with `--without-proxy` passed the same 14 checks in a plain tmux pane.
 
+Retested on 2026-10-19 with the installed stable `codex-cli 0.163.0`: all 14 checks passed with the proxy and all 14 passed without it. Both runs verified native idle/working/blocked reports, approval and its resulting fixture file, precedence over a conflicting Claude hook, exit cleanup, and resume through the monitor and Ink row. No verifier changes were needed.
+
 | Scenario              | Observed native reports and result                                                     |
 | --------------------- | -------------------------------------------------------------------------------------- |
 | Fresh session         | `idle:app=codex`; green idle indicator                                                 |
@@ -41,6 +43,23 @@ Codex's [OSC 7501 change](https://github.com/openai/codex/pull/52725) merged aft
 This Codex version reports completion as `idle`, and does not emit `done`, blocking kind, message, title, progress, or child ids in these scenarios. It emits OSC 7501 without a capability query, including through tmux, so its native reporting works without the proxy. Claude still needs the proxy for its capability-query ordering.
 
 The initial standalone Codex download lacked its code-mode host, so tool execution could not request approval. Adding the matching host resolved that fixture setup failure; both complete runs passed. Authentication used a temporary symlink to the existing auth file; the temporary Codex home and link were removed before preserving evidence. No credentials or Codex transcripts were retained in the fixture.
+
+### PR #37 agent-profile integration
+
+Rebased onto [PR #37](https://github.com/chardigio/pappardelle/pull/37) at `3f3fab8898b5591af5b550d165a28b63fd80e16c`. The monitor gate now wraps the generic agent launcher, and the rail resolves the renamed `agent-*` sessions.
+
+`verify-program-status-codex-workspace.ts --live --keep` passed six checks with installed `codex-cli 0.163.0`. It ran the built CLI with its real three-pane tmux layout in a disposable repository, using a named `codex-rail` agent profile with `command: codex`. The TUI created and attached the main workspace's agent session; the fixture checked its profile environment and both native snapshots and the actual rail text.
+
+| Scenario                   | Rail result                                       |
+| -------------------------- | ------------------------------------------------- |
+| Profile launches Codex     | `● main`, native idle                             |
+| Real model turn            | Animated working indicator                        |
+| Turn completes             | `● main`, native idle                             |
+| Command needs approval     | `! main`, native blocked                          |
+| Approved command completes | `● main`; fixture file contains the expected text |
+| Codex exits                | `? main`, authoritative unknown                   |
+
+The main workspace selects `codex-rail` through the top-level `agent_profile` setting. The fixture saves a rail transcript and parsed protocol evidence. Its isolated home and tmux socket directory avoid user configuration and sessions; the temporary Codex home and authentication symlink are deleted even when keeping evidence.
 
 ## Installed Pi, OpenCode, and agy
 
@@ -71,3 +90,5 @@ AVA covers strict parsing, full replacement, all byte boundaries, exact complete
 - Shellcheck passed for the changed launch script
 
 After rebasing onto main `1a0a6ba`, the build, full `npm test`, deterministic transport, full App checks, and session-launch/companion shell suites passed again. Both launch paths gate the initial command until monitoring is attached, and execute it through the proxy without typing it into shell history.
+
+After rebasing onto PR #37 at `3f3fab8`, the build and full `npm test` passed on Node 22.22.3 (CI's Node major): formatting, XO, and 2,527 AVA checks. The deterministic transport checks (21), full App checks (4), generic agent-launch shell checks (46), shellcheck, and Python hook/proxy checks (189) also passed. The six live Codex workspace checks passed on Node 26.12.0. Node 26 full-suite runs still intermittently miss initial filesystem watcher events in tests; the targeted watcher suites passed five repeated runs on Node 22. The tests now yield before their first fixture write, and the native-status watcher test waits for actual publications instead of a fixed 150 ms sleep.

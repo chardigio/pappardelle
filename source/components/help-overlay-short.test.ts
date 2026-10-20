@@ -31,7 +31,8 @@ test.serial('a short pane keeps the title and footer and scrolls', async t => {
 	lines = (view.lastFrame() ?? '').split('\n');
 	t.is(lines.length, 13);
 	t.true(lines[2]!.includes('Keyboard Shortcuts'));
-	t.true(lines[8]!.includes('Close all done/canceled spaces'));
+	t.true(lines[6]!.includes('Close all done/canceled spaces'));
+	t.true(lines[8]!.includes('Program status:'));
 	t.false(view.lastFrame()!.includes('Move down'));
 });
 

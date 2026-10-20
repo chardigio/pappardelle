@@ -63,7 +63,7 @@ try {
 		);
 	const vcs = createVcsHost();
 	vcs.getBulkRailStatus = async () => new Map();
-	const session = getSessionNames(key, repo).claude;
+	const session = getSessionNames(key, repo).agent;
 	await harness.tmux([
 		'new-session',
 		'-d',
