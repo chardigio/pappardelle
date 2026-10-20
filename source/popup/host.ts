@@ -56,7 +56,7 @@ const POPUP_CLI = path.resolve(
 	'popup-cli.js',
 );
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
@@ -89,6 +89,47 @@ export function buildDisplayPopupArgs({
 
 function launchTmuxPopup(launch: PopupLaunch): PopupProcess {
 	return spawn('tmux', buildDisplayPopupArgs(launch), {stdio: 'ignore'});
+}
+
+/**
+ * Run a shell command in a tmux popup over the TUI, sized for an interactive
+ * program such as claude. A failing command keeps the popup open so its error
+ * can be read. The popup's shell starts from the tmux server's environment,
+ * so PATH is passed along for a command installed where only the TUI's
+ * environment finds it. Resolves with the command's exit code.
+ */
+export async function runCommandPopup(
+	command: string,
+	{cwd, title}: {cwd: string; title: string},
+): Promise<number | undefined> {
+	return new Promise(resolve => {
+		const popup = spawn(
+			'tmux',
+			[
+				'display-popup',
+				'-EE',
+				'-w',
+				'90%',
+				'-h',
+				'90%',
+				'-T',
+				title,
+				'-d',
+				cwd,
+				'-e',
+				`PATH=${process.env['PATH'] ?? ''}`,
+				command,
+			],
+			{stdio: 'ignore'},
+		);
+		popup.on('error', error => {
+			log.warn(`Popup for ${title} failed to open`, error);
+			resolve(undefined);
+		});
+		popup.on('exit', code => {
+			resolve(code ?? undefined);
+		});
+	});
 }
 
 async function tmuxClientSize(): Promise<ClientSize> {

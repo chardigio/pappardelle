@@ -46,6 +46,7 @@ export type RailDialogState = {
 	showUpdateConfirm: boolean;
 	showHelp: boolean;
 	showErrorDialog: boolean;
+	showConfigMigration: boolean;
 };
 
 /**
@@ -59,6 +60,7 @@ export function isRailInputBlocked(state: RailDialogState): boolean {
 		state.killDoneTargets !== null ||
 		state.showUpdateConfirm ||
 		state.showHelp ||
-		state.showErrorDialog
+		state.showErrorDialog ||
+		state.showConfigMigration
 	);
 }
