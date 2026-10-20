@@ -25,9 +25,7 @@
 # change which layer wins. The deprecated claude.initialization_command is
 # renamed to initialization_command in each layer before the merge (see
 # merge_config_layers), so a more specific layer wins whichever spelling it
-# uses; init_cmd_deprecated is true when any layer still uses the old
-# spelling, so idow can warn. Mirrored by getAgentModel()/getAgentEffort()/
-# getAgentProfile() in source/config.ts and pinned by
+# uses. Mirrored by getAgentProfile() in source/config.ts and pinned by
 # scripts/test-claude-model-effort.sh.
 #
 # --agent-profile <name> replaces the agent_profile reference for one launch
@@ -41,7 +39,7 @@
 # the name "claude" unless agent_profiles.claude shadows it. agent_is_claude honors an explicit is_claude field, else
 # basename-of-first-token == "claude" — same predicate as getAgentProfile().
 # agent_resume_args comes back with {session_id} unfilled; idow fills it from
-# the space-state file.
+# the space's agent-sessions file.
 #
 # model and effort are the agent profile's own values, else (claude agent
 # profiles only) the deprecated claude.model / claude.effort. They are rendered
@@ -51,8 +49,10 @@
 # renderAgentLaunchFlags() does so TUI and idow launch lines match. Claude agent
 # profiles then get the deprecated claude.extra_args, profile list over
 # top-level list, one quoted word each.
-# claude_launch_deprecated lists the deprecated top-level keys any raw layer
-# still sets, so idow can warn.
+#
+# deprecation_warnings and profile_deprecation_warnings hold one line per
+# deprecated claude.* key a raw layer still sets, top-level and for --profile,
+# each naming the file. idow prints them.
 #
 # companion_command is resolved here too, profile-first over the merged layers,
 # so a top-level value in the home config reaches every repo. The built-in
@@ -60,12 +60,13 @@
 # "" (plain shell) is preserved. Mirrors getCompanionCommand() in source/config.ts.
 #
 # Output: JSON object with resolved values:
-#   {"init_cmd": "...", "init_cmd_deprecated": "true|false",
+#   {"init_cmd": "...",
 #    "skip_permissions": "true|false", "model": "...", "effort": "...",
 #    "companion_command": "...",
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
 #    "agent_resume_args": "...", "agent_is_claude": "true|false",
-#    "agent_launch_flags": "...", "claude_launch_deprecated": "..."}
+#    "agent_launch_flags": "...", "deprecation_warnings": "...",
+#    "profile_deprecation_warnings": "..."}
 
 set -eo pipefail
 
@@ -283,11 +284,34 @@ if [[ -n "$AGENT_LAUNCH_ERRORS" ]]; then
     exit 1
 fi
 
-# merge_config_layers already renamed the deprecated claude.initialization_command
-# per layer; the marker lets idow warn if any raw layer still uses it.
-INIT_CMD_DEPRECATED=$(yq ea '[.claude.initialization_command | select(. != null)] | length > 0' "${LAYERS[@]}")
-# shellcheck disable=SC2016 # yq expression, not shell
-CLAUDE_LAUNCH_DEPRECATED=$(yq ea -o=json -I=0 '[.claude | select(. != null) | (pick(["model", "effort", "extra_args"]) | keys | .[])] | unique | sort | map("claude." + .) | join(" ")' "${LAYERS[@]}")
+# merge_config_layers already renamed the deprecated claude.* spellings per
+# layer, so the warnings read the raw layers to name the file to edit: the
+# top-level ones, and the selected profile's. `eval` (not eval-all) keeps
+# filename per file.
+# shellcheck disable=SC2016 # yq and jq expressions, not shell
+DEPRECATIONS=$(PROFILE="$PROFILE" yq eval -o=json -I=0 '
+    ["model", "effort", "extra_args"] as $launch_keys |
+    (.profiles[strenv(PROFILE)].claude // {}) as $profile_claude |
+    {
+        "file": filename,
+        "init": (.claude.initialization_command != null),
+        "keys": ((.claude // {}) | pick($launch_keys) | keys),
+        "profile_init": ($profile_claude.initialization_command != null),
+        "profile_keys": ($profile_claude | pick($launch_keys) | keys)
+    }
+' "${LAYERS[@]}" | jq -s --arg profile "$PROFILE" '
+    def target: if . == "extra_args" then "args" else . end;
+    {
+        deprecation_warnings: [.[] | .file as $f |
+            (select(.init) | "\($f): claude.initialization_command is deprecated — rename it to the top-level initialization_command"),
+            (.keys | sort[] | "\($f): claude.\(.) is deprecated — set \(target) on an agent profile (agent_profiles.<name>.\(target)) and select it with agent_profile")
+        ] | join("\n"),
+        profile_deprecation_warnings: (if $profile == "" then "" else [.[] | .file as $f |
+            (select(.profile_init) | "\($f): profiles.\($profile).claude.initialization_command is deprecated — rename it to profiles.\($profile).initialization_command"),
+            (.profile_keys | sort[] | "\($f): profiles.\($profile).claude.\(.) is deprecated — set \(target) on an agent profile (agent_profiles.<name>.\(target)) and select it with profiles.\($profile).agent_profile")
+        ] | join("\n") end)
+    }
+')
 
-jq --arg init_cmd_deprecated "$INIT_CMD_DEPRECATED" --argjson claude_launch_deprecated "$CLAUDE_LAUNCH_DEPRECATED" \
-    'del(.agent_profile_missing, .agent_type_errors, .agent_launch_errors) | .init_cmd_deprecated = $init_cmd_deprecated | .claude_launch_deprecated = $claude_launch_deprecated' <<< "$RESOLVED_JSON"
+jq --argjson deprecations "$DEPRECATIONS" \
+    'del(.agent_profile_missing, .agent_type_errors, .agent_launch_errors) + $deprecations' <<< "$RESOLVED_JSON"

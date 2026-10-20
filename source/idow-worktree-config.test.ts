@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
 import YAML from 'js-yaml';
+import {idowSkippedAgentOverride} from './session-routing.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
 
@@ -523,7 +524,7 @@ test('--agent-profile launches another agent profile for that run only', async t
 	const stdout = await fixture.run({agentProfile: 'codex'});
 	t.is(launchArg('--agent-profile'), 'codex');
 	t.is(launchArg('--agent-command'), 'codex');
-	t.notRegex(stdout, /override was not applied/);
+	t.false(idowSkippedAgentOverride(stdout));
 	const statePath = path.join(
 		fixture.home,
 		'.pappardelle/repos/linked checkout/space-state/test-abc.json',
@@ -542,10 +543,25 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 	);
 	writeScript(path.join(fixture.bin, 'tmux'), 'exit 0');
 
-	t.regex(
-		await fixture.run({agentProfile: 'codex'}),
-		/Agent session already running, so the agent profile override was not applied/,
+	const stdout = await fixture.run({agentProfile: 'codex'});
+	t.regex(stdout, /Agent session already running/);
+	t.true(idowSkippedAgentOverride(stdout));
+});
+
+// start-agent-session.sh renames a pre-upgrade claude-* session rather than
+// starting the picked agent profile.
+test('--agent-profile on a space still running under its legacy session name says it was not applied', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
 	);
+	writeScript(
+		path.join(fixture.bin, 'tmux'),
+		'[[ "$*" != *"has-session"* || "$*" == *"=claude-"* ]]',
+	);
+
+	t.true(idowSkippedAgentOverride(await fixture.run({agentProfile: 'codex'})));
 });
 
 test('an unknown --agent-profile stops idow before any setup', async t => {
@@ -566,16 +582,13 @@ test('a reopened space resumes the session its agent recorded', async t => {
 			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
 		}),
 	);
-	const statePath = path.join(
+	const sessionsPath = path.join(
 		fixture.home,
-		'.pappardelle/repos/linked checkout/space-state/test-abc.json',
+		'.pappardelle/repos/linked checkout/space-state/test-abc.agent-sessions.json',
 	);
 	const record = (agentSessions: Record<string, string>) => {
-		fs.mkdirSync(path.dirname(statePath), {recursive: true});
-		fs.writeFileSync(
-			statePath,
-			JSON.stringify({profile: 'other', agentSessions}),
-		);
+		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
+		fs.writeFileSync(sessionsPath, JSON.stringify(agentSessions));
 	};
 	const launchArg = (flag: string) => {
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
@@ -586,7 +599,7 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	record({codex: 'thread-1'});
 	await fixture.run({profile: 'other'});
 	t.is(launchArg('--agent-resume-args'), '');
-	t.false('agentSessions' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
+	t.false(fs.existsSync(sessionsPath));
 
 	fs.mkdirSync(path.join(fixture.home, '.worktrees/linked checkout/test-abc'), {
 		recursive: true,

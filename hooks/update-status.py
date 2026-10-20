@@ -190,7 +190,7 @@ def main() -> None:
     # Claude already runs this hook on every event, so it records Claude's
     # session id here rather than through a second hook entry.
     try:
-        record_agent_session(input_data)
+        record_agent_session(input_data, is_claude_hook=True)
     except Exception as e:
         log_debug(f"Recording the agent session failed: {e}")
 

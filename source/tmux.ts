@@ -43,7 +43,11 @@ import {createLogger} from './logger.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {getRegisteredSpaces, isSpaceRegistered} from './space-registry.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
-import {getSpaceStatePath, readSpaceState} from './space-state.ts';
+import {
+	getAgentSessionsPath,
+	readAgentSession,
+	readSpaceState,
+} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -897,30 +901,16 @@ function renameLegacySession(
 	return true;
 }
 
-async function renameLegacySessionAsync(
-	legacyName: string,
-	target: string,
-	run: AsyncTmuxRunner,
-): Promise<boolean> {
-	try {
-		await run(innerTmuxArgs(legacyRenameArgs(legacyName, target)));
-	} catch (error) {
-		if (error instanceof Error && error.name === 'AbortError') throw error;
-		return false;
-	}
-	log.info(`Migrated legacy session ${legacyName} → ${target}`);
-	return true;
-}
-
 function legacyRenameArgs(legacyName: string, target: string): string[] {
 	return ['rename-session', '-t', exactSessionTarget(legacyName), target];
 }
 
 /**
  * Rename live legacy `claude-{repo}-{key}` sessions on the inner socket to
- * their `agent-{repo}-{key}` names. Run once at startup (cli.tsx) before the
- * orphan reap; `ensureAgentSession` also migrates at point-of-use in case
- * idow or a second TUI touches a legacy session first.
+ * their `agent-{repo}-{key}` names. cli.tsx runs it when the TUI starts,
+ * before the orphan reap, and before `pappardelle send`, which can run before
+ * the TUI restarts. start-agent-session.sh does the same for the one space
+ * idow opens.
  *
  * A legacy session whose `agent-` name is already taken (an old and a new
  * build both launched the space during the upgrade) is killed: pappardelle
@@ -1033,17 +1023,10 @@ export function sendToSpaceAgent(
 	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const {agent, legacyAgent} = getSessionNames(issueKey, options.repoName);
-	let target = resolveInnerSessionTarget(agent, runner);
-	// A space the TUI hasn't migrated yet still runs under its claude-* name.
-	if (
-		!target &&
-		resolveInnerSessionTarget(legacyAgent, runner) &&
-		renameLegacySession(legacyAgent, agent, runner)
-	) {
-		target = exactSessionTarget(agent) + ':';
-	}
-
+	const target = resolveInnerSessionTarget(
+		getSessionNames(issueKey, options.repoName).agent,
+		runner,
+	);
 	if (!target) return 'no-session';
 	return sendKeysLiteralThenEnter(runner, target, text) ? 'sent' : 'failed';
 }
@@ -1572,12 +1555,14 @@ export async function attachToSpace(
 	let sessionId: string | undefined;
 	try {
 		const config = loadConfig();
-		const spaceState = readSpaceState(getRepoName(), issueKey);
-		const profileName = spaceState?.profile;
+		const profileName =
+			issueKey === MAIN_WORKTREE_KEY
+				? undefined
+				: readSpaceState(getRepoName(), issueKey)?.profile;
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
-		sessionId = spaceState?.agentSessions?.[agentProfile.name];
+		sessionId = readAgentSession(getRepoName(), issueKey, agentProfile.name);
 	} catch {
 		// Config load failed — use safe defaults.
 	}
@@ -2272,9 +2257,6 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
  *
  * The session outlives the agent: a login shell takes over the pane when the
  * agent exits (see buildShellLaunchArgs).
- * A live pre-rename `claude-{repo}-{key}` session is migrated to the `agent-`
- * name instead of being shadowed by a fresh one, so an in-flight conversation
- * survives.
  */
 export async function ensureAgentSession(
 	issueKey: string,
@@ -2289,15 +2271,6 @@ export async function ensureAgentSession(
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
-		return true;
-	}
-
-	// A legacy claude-{repo}-{key} session is the same space mid-upgrade —
-	// rename it in place rather than spawning a duplicate agent beside it.
-	if (
-		(await innerSessionExistsAsync(sessions.legacyAgent, run)) &&
-		(await renameLegacySessionAsync(sessions.legacyAgent, sessionName, run))
-	) {
 		return true;
 	}
 
@@ -2325,7 +2298,7 @@ export async function ensureAgentSession(
 				...spaceSessionEnvArgs(issueKey),
 				...buildAgentSessionEnvArgs(
 					agentProfile,
-					getSpaceStatePath(getRepoName(), issueKey),
+					getAgentSessionsPath(getRepoName(), issueKey),
 				),
 				...buildShellLaunchArgs(
 					buildAgentResumeCommand(

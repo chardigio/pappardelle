@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import test from 'ava';
 import {
 	routeSession,
@@ -8,7 +6,6 @@ import {
 	buildNewSessionArgs,
 	buildOpenWorkspaceArgs,
 	extractIssueKeyFromIdowOutput,
-	idowSkippedAgentOverride,
 	type PendingSession,
 } from './session-routing.ts';
 
@@ -358,17 +355,4 @@ test('returns null when idow output has no workspace line', t => {
 test('returns null for partial workspace line', t => {
 	t.is(extractIssueKeyFromIdowOutput('Workspace is ready'), null);
 	t.is(extractIssueKeyFromIdowOutput('Workspace STA- is ready'), null);
-});
-
-test("idowSkippedAgentOverride matches idow's warning", t => {
-	const idow = fs.readFileSync(
-		path.resolve(import.meta.dirname!, '..', 'scripts', 'idow'),
-		'utf8',
-	);
-	const warning = idow
-		.split('\n')
-		.find(line => line.includes('print_warning') && line.includes('override'));
-	t.truthy(warning);
-	t.true(idowSkippedAgentOverride(warning!));
-	t.false(idowSkippedAgentOverride('  ✓ Agent session: agent-repo-STA-1'));
 });

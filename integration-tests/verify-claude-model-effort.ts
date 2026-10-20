@@ -7,7 +7,7 @@
  *
  *   1. A throwaway 3-layer config on disk (home / project / local)
  *   2. resolve-agent-config.sh  — the bash resolver idow calls
- *   3. getAgentModel/getAgentEffort — the TS resolver the TUI calls
+ *   3. getAgentProfile — the TS resolver the TUI calls
  *      → asserts the two languages agree on every permutation
  *   4. start-agent-session.sh   — launched for real against a throwaway tmux
  *      socket with a `claude` shim on PATH that records its argv, proving the
@@ -32,11 +32,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {
-	getAgentEffort,
-	getAgentModel,
-	loadConfigFromPaths,
-} from '../source/config.ts';
+import {getAgentProfile, loadConfigFromPaths} from '../source/config.ts';
 
 const scriptsDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -195,7 +191,7 @@ function main() {
 
 	// ── Step 3: the TS resolver, on the same bytes ─────────────────────────
 
-	header('2. getAgentModel/getAgentEffort (the resolver the TUI calls)');
+	header('2. getAgentProfile (the resolver the TUI calls)');
 
 	const config = loadConfigFromPaths({homeConfigDir: homeDir, projectDir});
 	pass('3-layer config loaded and validated by the TS loader');
@@ -211,8 +207,7 @@ function main() {
 
 	for (const {title, profile} of cases) {
 		const bash = resolveViaBash(profile);
-		const tsModel = getAgentModel(config, title);
-		const tsEffort = getAgentEffort(config, title);
+		const {model: tsModel, effort: tsEffort} = getAgentProfile(config, title);
 		const label = profile ?? '(no profile)';
 		if (tsModel === bash.model && tsEffort === bash.effort) {
 			pass(

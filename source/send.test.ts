@@ -101,15 +101,3 @@ test('resolveSpaceKey keeps a key outside the tracker grammar as typed', t => {
 		'pappardelle-tqq',
 	);
 });
-
-test('sendToSpaceAgent renames a space still on its legacy claude-* session, then sends to it', t => {
-	const {runner, sendKeysCalls} = makeRunner({sessions: ['claude-r-STA-1']});
-
-	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'sent');
-	t.deepEqual(sendKeysCalls, [
-		['rename-session', '-t', '=claude-r-STA-1', 'agent-r-STA-1'],
-		['send-keys', '-t', '=agent-r-STA-1:', 'C-u'],
-		['send-keys', '-t', '=agent-r-STA-1:', '-l', 'hi'],
-		['send-keys', '-t', '=agent-r-STA-1:', 'Enter'],
-	]);
-});

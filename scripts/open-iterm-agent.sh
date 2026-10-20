@@ -148,7 +148,6 @@ fi
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
 TMUX_SESSION="agent-${REPO_NAME}-${SESSION_KEY}"
-LEGACY_TMUX_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
@@ -193,7 +192,7 @@ fi
 
 # Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
 # records its session id under these when this launcher creates the session.
-SPACE_STATE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json"
+AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
 
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
@@ -203,17 +202,6 @@ if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
     exit 0
 fi
 
-# A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade.
-# Rename it in place so `new-session -A` below attaches to it instead of
-# spawning a duplicate agent beside it. tmux may not be running yet; both
-# checks are best-effort. Skipped in --print-command mode, which promises to
-# print without touching any live state. `=NAME` targets for the same reason
-# as start-agent-session.sh: a bare name can prefix-match another space.
-if [[ "$PRINT_COMMAND" != true ]] \
-    && ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$TMUX_SESSION" 2>/dev/null \
-    && tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_TMUX_SESSION" 2>/dev/null; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_TMUX_SESSION" "$TMUX_SESSION" 2>/dev/null || true
-fi
 
 # Write the AppleScript to a temp file to avoid heredoc escaping issues.
 # Removed via trap so a failing osascript under set -e doesn't leak it.
@@ -242,7 +230,8 @@ on run argv
     set nameFlag to item 12 of argv
     set resumeArgs to item 13 of argv
     set agentProfile to item 14 of argv
-    set spaceState to item 15 of argv
+    set agentSessions to item 15 of argv
+    set agentIsClaude to item 16 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -272,8 +261,8 @@ on run argv
     -- parses the values — and the caller already quoted each flag value for
     -- exactly that parse. Empty flags leave the command word
     -- unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; SPACE_STATE=" & quoted form of spaceState & "; "
-    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_COMMAND=$AGENT_CMD\" -e \"PAPPARDELLE_SPACE_STATE=$SPACE_STATE\""
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
+    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
     set resumeChain to ""
     if resumeArgs is not equal to "" then
@@ -350,7 +339,7 @@ APPLESCRIPT_END
 # switch: when true the script returns the assembled command lines and never
 # touches iTerm.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$SPACE_STATE"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE"
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     exit 0

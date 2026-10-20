@@ -418,27 +418,9 @@ test.serial(
 	},
 );
 
-test.serial(
-	'a live legacy claude- session is renamed rather than shadowed by a new agent',
-	async t => {
-		const calls: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (args.includes('has-session') && args.at(-1)!.startsWith('=agent-'))
-				throw new Error('no session');
-			return '';
-		};
-		t.true(await ensureAgentSession('TEST-OLD', '/tmp', false, run));
-		const rename = calls.find(args => args.includes('rename-session'))!;
-		t.true(rename.at(-2)!.startsWith('=claude-'));
-		t.true(rename.at(-1)!.startsWith('agent-'));
-		t.false(calls.some(args => args.includes('new-session')));
-	},
-);
-
 // The agent's hook records its session id under these (hooks/agent_session.py).
 test.serial(
-	'a new agent session tells the hook its agent profile, command and space-state file',
+	'a new agent session tells the hook its agent profile, its kind and the agent-sessions file',
 	async t => {
 		const calls: string[][] = [];
 		const run: AsyncTmuxRunner = async args => {
@@ -458,12 +440,12 @@ test.serial(
 		);
 		const created = calls.find(args => args.includes('new-session'))!;
 		t.true(created.includes('PAPPARDELLE_AGENT_PROFILE=codex'));
-		t.true(created.includes('PAPPARDELLE_AGENT_COMMAND=codex'));
+		t.true(created.includes('PAPPARDELLE_AGENT_IS_CLAUDE=false'));
 		t.true(
 			created.some(
 				arg =>
-					arg.startsWith('PAPPARDELLE_SPACE_STATE=') &&
-					arg.endsWith('/space-state/TEST-NEW.json'),
+					arg.startsWith('PAPPARDELLE_AGENT_SESSIONS=') &&
+					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
 			),
 		);
 	},

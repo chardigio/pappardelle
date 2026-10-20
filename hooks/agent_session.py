@@ -1,23 +1,27 @@
 """
-Record the session id of a space's agent in its space-state file.
+Record the session id of a space's agent in its agent-sessions file.
 
 Pappardelle relaunches an agent by resuming this id when its agent profile's
 resume_args carry {session_id}. "Most recent" resume flags aren't scoped to the
 directory (codex's `resume --last` resumes whichever space ran codex last), so
-the id is what keeps each space on its own conversation.
+the id is what keeps each space on its own conversation. The ids get a file of
+their own, beside the space-state file the TUI rewrites after every rail poll,
+so neither writer can drop the other's update.
 
 The agent session carries three variables, set by start-agent-session.sh and
 buildAgentSessionEnvArgs() in source/spawn-env.ts:
-    PAPPARDELLE_AGENT_PROFILE  - the agent profile the pane runs, from `agent_profiles:`
-    PAPPARDELLE_AGENT_COMMAND  - that agent profile's command
-    PAPPARDELLE_SPACE_STATE    - the space-state file to write
+    PAPPARDELLE_AGENT_PROFILE   - the agent profile the pane runs, from `agent_profiles:`
+    PAPPARDELLE_AGENT_IS_CLAUDE - whether that agent profile is a claude one
+    PAPPARDELLE_AGENT_SESSIONS  - the agent-sessions file to write
 
 Anything the agent spawns inherits them, including other agents: Claude
 running codex for a review, or `claude -p` in a script. Those must not
-overwrite the id, so a session is only recorded when its agent is the only run
-of non-shell processes under tmux, and the process in that run that fired the
-hook is the agent profile's command.
-A different agent started by hand in the pane is rejected by the same check.
+overwrite the id. Each hook knows which kind of agent fired it (update-status.py
+is Claude's, record-agent-session.py everyone else's), so an agent of the other
+kind is rejected outright, whatever the agent profile's command is called. One
+of the same kind is rejected when a shell separates it from the pane's agent: a
+session is only recorded when its agent is the only run of non-shell processes
+under tmux.
 
 codex 0.159+ runs hooks in its shared app-server daemon, which is not under
 tmux and carries the env of whichever pane started it. For a hook outside tmux
@@ -31,7 +35,6 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
@@ -41,8 +44,8 @@ SHELLS = {"sh", "bash", "zsh", "dash", "fish", "ksh", "tcsh", "csh"}
 
 SESSION_VARIABLES = (
     "PAPPARDELLE_AGENT_PROFILE",
-    "PAPPARDELLE_AGENT_COMMAND",
-    "PAPPARDELLE_SPACE_STATE",
+    "PAPPARDELLE_AGENT_IS_CLAUDE",
+    "PAPPARDELLE_AGENT_SESSIONS",
 )
 
 # pid: (ppid, command line)
@@ -73,11 +76,6 @@ def _basename(word: str) -> str:
 def _name(args: str) -> str:
     words = args.split()
     return _basename(words[0]).lower() if words else ""
-
-
-def _runs_command(args: str, command: str) -> bool:
-    # The second word catches interpreters: `node .../bin/codex`, `bash ~/bin/agent`.
-    return command in (_basename(word) for word in args.split()[:2])
 
 
 def _is_managed_daemon(args: str) -> bool:
@@ -167,12 +165,17 @@ def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
 
 def record_agent_session(
     payload: dict[str, Any],
-    environ: Optional[dict[str, str]] = None,
+    is_claude_hook: bool,
+    environ: Optional[Mapping[str, str]] = None,
     hook_pid: Optional[int] = None,
     process_table: Callable[[], ProcessTable] = read_process_table,
     session_env_for_cwd: Callable[[str], Optional[dict[str, str]]] = tmux_agent_session_env,
 ) -> bool:
-    """Record the id under agentSessions[agentProfile] in the space-state file. Returns whether it wrote."""
+    """
+    Record the id under the agent profile's name in the agent-sessions file.
+    is_claude_hook says whether Claude Code fired the hook. Returns whether it
+    wrote.
+    """
     env = os.environ if environ is None else environ
     session_id = payload.get("session_id")
     if (
@@ -184,57 +187,49 @@ def record_agent_session(
 
     # UserPromptSubmit fires on every prompt; the process walk only runs when
     # the id would change.
-    env_state = read_state(env.get("PAPPARDELLE_SPACE_STATE", "").strip())
-    env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
-    if env_state and recorded_sessions(env_state).get(env_profile) == session_id:
+    env_sessions_path = env.get("PAPPARDELLE_AGENT_SESSIONS", "").strip()
+    if env_sessions_path:
+        env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
+        recorded = read_sessions(Path(env_sessions_path))
+        if recorded is not None and recorded.get(env_profile) == session_id:
+            return False
+    elif is_claude_hook:
+        # Only codex's daemon runs hooks away from the agent's own env, so a
+        # Claude without the variables isn't a pappardelle agent.
         return False
 
     chain, in_tmux = ancestors(hook_pid or os.getpid(), process_table())
+    session_env: Optional[Mapping[str, str]]
     if in_tmux:
-        agent_processes = sole_agent_run(chain)
-        session_env: Optional[Mapping[str, str]] = env
+        if sole_agent_run(chain) is None:
+            return False
+        session_env = env
     else:
         cwd = payload.get("cwd")
-        agent_processes = [args for args in chain if _is_managed_daemon(args)]
+        if not any(_is_managed_daemon(args) for args in chain):
+            return False
         session_env = session_env_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
-    if agent_processes is None or session_env is None:
+    if session_env is None:
         return False
 
     agent_profile = session_env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
-    command = session_env.get("PAPPARDELLE_AGENT_COMMAND", "").strip()
-    state_path = session_env.get("PAPPARDELLE_SPACE_STATE", "").strip()
-    if not agent_profile or not command or not state_path:
-        return False
-    command_name = _basename(command.split()[0])
-    # Under tmux the run's first process fired the hook. A parent agent in the
-    # same run (an MCP server Claude started, spawning codex with no shell
-    # between) must not claim the child's id as its own.
-    callers = agent_processes[:1] if in_tmux else agent_processes
-    if not any(_runs_command(args, command_name) for args in callers):
+    sessions_path = session_env.get("PAPPARDELLE_AGENT_SESSIONS", "").strip()
+    is_claude = session_env.get("PAPPARDELLE_AGENT_IS_CLAUDE", "").strip() == "true"
+    if not agent_profile or not sessions_path or is_claude != is_claude_hook:
         return False
 
-    path = Path(state_path)
-    try:
-        state = json.loads(path.read_text())
-    except FileNotFoundError:
-        state = {}
-    except (OSError, ValueError):
-        # A half-written file; writing over it would drop the TUI's fields.
+    path = Path(sessions_path)
+    sessions = read_sessions(path)
+    if sessions is None:
+        # A half-written file; writing over it would drop other agent profiles' ids.
         return False
-    if not isinstance(state, dict):
-        return False
-
-    sessions = recorded_sessions(state)
     if sessions.get(agent_profile) == session_id:
         return False
-    state["agentSessions"] = {**sessions, agent_profile: session_id}
-    state["updatedAt"] = (
-        datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    )
+    sessions[agent_profile] = session_id
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
     try:
-        tmp.write_text(json.dumps(state, indent=2) + "\n")
+        tmp.write_text(json.dumps(sessions, indent=2) + "\n")
         os.replace(tmp, path)
     except Exception:
         tmp.unlink(missing_ok=True)
@@ -242,16 +237,12 @@ def record_agent_session(
     return True
 
 
-def recorded_sessions(state: dict[str, Any]) -> dict[str, Any]:
-    sessions = state.get("agentSessions")
-    return sessions if isinstance(sessions, dict) else {}
-
-
-def read_state(state_path: str) -> Optional[dict[str, Any]]:
-    if not state_path:
-        return None
+def read_sessions(path: Path) -> Optional[dict[str, Any]]:
+    """The recorded ids, {} for a missing file, or None for an unreadable one."""
     try:
-        state = json.loads(Path(state_path).read_text())
+        sessions = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
     except (OSError, ValueError):
         return None
-    return state if isinstance(state, dict) else None
+    return sessions if isinstance(sessions, dict) else None
