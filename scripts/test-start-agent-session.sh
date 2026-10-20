@@ -123,11 +123,11 @@ assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY"
 # The agent's hook records its session id under these (hooks/agent_session.py)
 assert_eq "agent session env names the agent" "PAPPARDELLE_AGENT_PROFILE=claude" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null)"
-assert_eq "agent session env names the agent's command" "PAPPARDELLE_AGENT_COMMAND=claude" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_COMMAND 2>/dev/null)"
-assert_eq "agent session env names the space-state file" \
-    "PAPPARDELLE_SPACE_STATE=$HOME/.pappardelle/repos/$TEST_REPO/space-state/$ISSUE_KEY.json" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_SPACE_STATE 2>/dev/null)"
+assert_eq "agent session env says the agent is claude" "PAPPARDELLE_AGENT_IS_CLAUDE=true" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_IS_CLAUDE 2>/dev/null)"
+assert_eq "agent session env names the agent-sessions file" \
+    "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$TEST_REPO/space-state/$ISSUE_KEY.agent-sessions.json" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS 2>/dev/null)"
 # An agent started by hand in the companion isn't the space's agent
 assert_eq "companion session env has no agent profile" "" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null || true)"
@@ -745,6 +745,25 @@ fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$RENAMED_SESSION" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
+
+# With both names live, the agent- session is the one pappardelle attaches, so
+# the legacy one would run unseen.
+echo -e "\n${BOLD}Test: a legacy session beside its agent- session is killed${RESET}"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORKTREE_PATH12"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$RENAMED_SESSION" -c "$WORKTREE_PATH12"
+
+"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
+
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_SESSION" 2>/dev/null; then
+    echo -e "  ${RED}FAIL${RESET} legacy session killed"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${RESET} legacy session killed"
+    PASS=$((PASS + 1))
+fi
+
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
 
 # ==========================================================================
 

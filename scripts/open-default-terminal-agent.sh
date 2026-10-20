@@ -81,7 +81,6 @@ fi
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
 TMUX_SESSION="agent-${REPO_NAME}-${SESSION_KEY}"
-LEGACY_TMUX_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
@@ -118,7 +117,7 @@ fi
 
 # Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
 # records its session id under these when this launcher creates the session.
-SPACE_STATE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json"
+AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
 
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
@@ -135,9 +134,9 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 # two-layer scheme the AppleScript launchers use.
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
-FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); SPACE_STATE=$(quoted_form "$SPACE_STATE"); "
+FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
-AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_COMMAND=$AGENT_CMD" -e "PAPPARDELLE_SPACE_STATE=$SPACE_STATE"'
+AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_IS_CLAUDE='"$AGENT_IS_CLAUDE"'" -e "PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS"'
 RESUME_CHAIN=""
 if [[ -n "$AGENT_RESUME_STR" ]]; then
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
@@ -170,15 +169,6 @@ if [[ "$PRINT_COMMAND" == true ]]; then
     exit 0
 fi
 
-# A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade.
-# Rename it in place so `new-session -A` below attaches to it instead of
-# spawning a duplicate agent beside it. tmux may not be running yet; both
-# checks are best-effort. `=NAME` targets for the same reason
-# as start-agent-session.sh: a bare name can prefix-match another space.
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$TMUX_SESSION" 2>/dev/null \
-    && tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_TMUX_SESSION" 2>/dev/null; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_TMUX_SESSION" "$TMUX_SESSION" 2>/dev/null || true
-fi
 
 # The viewer session sits on the default socket, so its panes can attach to the
 # inner socket without tmux's nesting check rejecting them.

@@ -184,8 +184,6 @@ fi
 LOCAL_CONFIG_PATH=$(resolve_repo_config .pappardelle.local.yml)
 AGENT_CONFIG_JSON=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
 INIT_CMD=$(echo "$AGENT_CONFIG_JSON" | jq -r '.init_cmd')
-INIT_CMD_DEPRECATED=$(echo "$AGENT_CONFIG_JSON" | jq -r '.init_cmd_deprecated')
-CLAUDE_LAUNCH_DEPRECATED=$(echo "$AGENT_CONFIG_JSON" | jq -r '.claude_launch_deprecated')
 SKIP_PERMISSIONS=$(echo "$AGENT_CONFIG_JSON" | jq -r '.skip_permissions')
 
 # Resolve which terminal launcher to drive. terminal.app layers across the same
@@ -195,20 +193,10 @@ TERMINAL_APP=$("$SCRIPT_DIR/resolve-terminal-app.sh" --config "$PROJECT_CONFIG_P
 
 TERMINAL_OPEN_FAILED=false
 
-# The resolver reports the merged layers; each warning names the file to edit,
-# like the per-profile ones in resolve_agent_launch_config.
-for layer in "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH"; do
-    [[ -n "$layer" && -f "$layer" ]] || continue
-    if [[ "$INIT_CMD_DEPRECATED" == "true" && "$(yq -r '.claude.initialization_command != null' "$layer")" == "true" ]]; then
-        print_warning "$layer: claude.initialization_command is deprecated — rename it to the top-level initialization_command"
-    fi
-    for deprecated_key in $CLAUDE_LAUNCH_DEPRECATED; do
-        [[ "$(yq -r ".$deprecated_key != null" "$layer")" == "true" ]] || continue
-        target=${deprecated_key#claude.}
-        [[ "$target" == extra_args ]] && target=args
-        print_warning "$layer: $deprecated_key is deprecated — set $target on an agent profile (agent_profiles.<name>.$target) and select it with agent_profile"
-    done
-done
+# Each warning names the file to edit.
+while IFS= read -r warning; do
+    if [[ -n "$warning" ]]; then print_warning "$warning"; fi
+done < <(jq -r '.deprecation_warnings' <<< "$AGENT_CONFIG_JSON")
 
 # Resolve the agent profile with its rendered launch flags, the companion
 # command, and the per-profile initialization_command for the selected profile.
@@ -240,23 +228,14 @@ resolve_agent_launch_config() {
     # presence decides, not non-emptiness: an explicit '' clears the global
     # command so the agent gets just the issue key. CONFIG_PATH is the merged
     # config by the time this runs, with each layer's deprecated claude.*
-    # spelling already renamed (merge_config_layers), so the warning checks the
-    # raw layer files to name the one to edit. Per-profile init layering stays
-    # here rather than in resolve-agent-config.sh (see its header).
-    local init_cmd init_cmd_set layer field
+    # spelling already renamed (merge_config_layers). Per-profile init layering
+    # stays here rather than in resolve-agent-config.sh (see its header).
+    local init_cmd init_cmd_set warning
     init_cmd=$(yq -r ".profiles.$profile.initialization_command // \"\"" "$CONFIG_PATH")
     init_cmd_set=$(yq -r ".profiles.$profile.initialization_command != null" "$CONFIG_PATH")
-    for layer in "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH"; do
-        [[ -n "$layer" && -f "$layer" ]] || continue
-        if [[ "$(yq -r ".profiles.$profile.claude.initialization_command != null" "$layer")" == "true" ]]; then
-            print_warning "$layer: profiles.$profile.claude.initialization_command is deprecated — rename it to profiles.$profile.initialization_command"
-        fi
-        for field in $(PROFILE="$profile" yq -r '.profiles[strenv(PROFILE)].claude // {} | pick(["model", "effort", "extra_args"]) | keys | .[]' "$layer"); do
-            target=$field
-            [[ "$target" == extra_args ]] && target=args
-            print_warning "$layer: profiles.$profile.claude.$field is deprecated — set $target on an agent profile (agent_profiles.<name>.$target) and select it with profiles.$profile.agent_profile"
-        done
-    done
+    while IFS= read -r warning; do
+        if [[ -n "$warning" ]]; then print_warning "$warning"; fi
+    done < <(jq -r '.profile_deprecation_warnings' <<< "$json")
     if [[ "$init_cmd_set" == "true" ]]; then
         INIT_CMD="$init_cmd"
         log "Using per-profile initialization_command: $INIT_CMD"
@@ -825,6 +804,11 @@ fi
 
 SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
 SPACE_STATE_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.json"
+AGENT_SESSIONS_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.agent-sessions.json"
+# The recorded agent sessions belonged to an earlier workspace with the same key.
+if [[ "$WORKTREE_CREATED" == true ]]; then
+    rm -f "$AGENT_SESSIONS_FILE"
+fi
 
 if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
     # Persist the profile to space-state: the TUI renders the ticket-rail emoji
@@ -832,8 +816,7 @@ if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
     # the space's agent from it. Written when the workspace is created or a profile
     # is picked explicitly (--profile). An unforced run on an existing space either
     # read this value above or fell back to default_profile, which must not
-    # overwrite a real pick. A new worktree also drops the recorded agent
-    # sessions: they belonged to an earlier workspace with the same key.
+    # overwrite a real pick.
     mkdir -p "$SPACE_STATE_DIR"
     NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     if [[ -f "$SPACE_STATE_FILE" ]]; then
@@ -843,8 +826,8 @@ if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
         # gate the success log on the actual exit status and clean up the
         # tempfile so a corrupted JSON read can't leak into /tmp.
         TMP_FILE=$(mktemp)
-        if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" --argjson created "$WORKTREE_CREATED" \
-                '. + {profile: $p, updatedAt: $t} | if $created then del(.agentSessions) else . end' \
+        if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
+                '. + {profile: $p, updatedAt: $t}' \
                 "$SPACE_STATE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$SPACE_STATE_FILE"; then
             log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
         else
@@ -885,8 +868,8 @@ if [[ "$WORKTREE_CREATED" == true ]]; then
     AGENT_RESUME_ARGS=""
 elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
     RECORDED_SESSION_ID=$(jq -r --arg profile "$AGENT_PROFILE" \
-        '.agentSessions[$profile]? // ""' \
-        "$SPACE_STATE_FILE" 2>/dev/null || true)
+        '.[$profile]? // ""' \
+        "$AGENT_SESSIONS_FILE" 2>/dev/null || true)
     if [[ "$RECORDED_SESSION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
         AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//\{session_id\}/$RECORDED_SESSION_ID}"
     elif [[ "$AGENT_IS_CLAUDE" == true ]]; then
@@ -911,14 +894,20 @@ SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
 AGENT_SESSION_ARGS+=("${AGENT_FLAG_ARGS[@]}")
 AGENT_SESSION_NAME="agent-${REPO_NAME}-${SESSION_KEY}"
+LEGACY_AGENT_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 export PAPPARDELLE_TMUX_SOCKET
-# start-agent-session.sh leaves a running agent alone. The TUI matches this
-# message to tell the user their pick didn't take (idowSkippedAgentOverride).
-if [[ -n "$FORCED_AGENT_PROFILE" ]] && tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
+# start-agent-session.sh leaves a running agent alone, and renames a
+# pre-upgrade claude-* one instead of starting the picked agent profile.
+if [[ -n "$FORCED_AGENT_PROFILE" ]] && {
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null ||
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION_NAME" 2>/dev/null
+}; then
     print_warning "Agent session already running, so the agent profile override was not applied"
+    # Read by idowSkippedAgentOverride() in source/session-routing.ts.
+    echo "PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped"
 fi
 "$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then

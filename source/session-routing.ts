@@ -160,14 +160,6 @@ export function isPendingSessionResolved(
  *
  * Returns the issue key (e.g. "STA-633") or null if not found.
  */
-/**
- * idow leaves an already-running agent alone, so an agent profile picked for
- * an existing space only takes effect once its session is recreated.
- */
-export function idowSkippedAgentOverride(stdout: string): boolean {
-	return stdout.includes('the agent profile override was not applied');
-}
-
 export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
 	const matches = [
 		...stripVTControlCharacters(stdout).matchAll(
@@ -175,4 +167,15 @@ export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
 		),
 	];
 	return matches.at(-1)?.[1] ?? null;
+}
+
+/**
+ * idow leaves an already-running agent alone, so an agent profile picked for
+ * an existing space only takes effect once its session is recreated. idow
+ * prints this line when that happens.
+ */
+export function idowSkippedAgentOverride(stdout: string): boolean {
+	return stdout
+		.split('\n')
+		.includes('PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped');
 }

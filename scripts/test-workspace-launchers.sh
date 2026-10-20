@@ -116,12 +116,12 @@ echo -e "\n${BOLD}Test: the agent session gets the hook's env${RESET}"
 LINE=$(default_term --prompt "" --agent-command codex --agent-is-claude false \
     --agent-profile "codex high" --print-command | head -1)
 case "$LINE" in
-    *"AGENT_PROFILE='codex high'; SPACE_STATE='$HOME/.pappardelle/repos/testrepo/space-state/$KEY.json';"*)
-        assert_eq "profile and state path assigned" "ok" "ok" ;;
-    *) assert_eq "profile and state path assigned" "AGENT_PROFILE='codex high'; SPACE_STATE=...;" "$LINE" ;;
+    *"AGENT_PROFILE='codex high'; AGENT_SESSIONS='$HOME/.pappardelle/repos/testrepo/space-state/$KEY.agent-sessions.json';"*)
+        assert_eq "profile and sessions path assigned" "ok" "ok" ;;
+    *) assert_eq "profile and sessions path assigned" "AGENT_PROFILE='codex high'; AGENT_SESSIONS=...;" "$LINE" ;;
 esac
 # shellcheck disable=SC2016  # matched literally; the pane shell expands them
-HOOK_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_COMMAND=$AGENT_CMD" -e "PAPPARDELLE_SPACE_STATE=$SPACE_STATE" '
+HOOK_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_IS_CLAUDE=false" -e "PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS" '
 case "$LINE" in
     *"new-session -A -s 'agent-testrepo-$KEY'$HOOK_ENV"*)
         assert_eq "new-session sets the hook's env" "ok" "ok" ;;

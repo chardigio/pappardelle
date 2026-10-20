@@ -2286,6 +2286,7 @@ export default function App({
 						onCancel={() => setShowPromptDialog(false)}
 						availableWidth={termDimensions.cols}
 						availableHeight={dialogHeight}
+						isInTmux={inTmux}
 					/>
 				) : killDoneTargets !== null ? (
 					<ConfirmDialog

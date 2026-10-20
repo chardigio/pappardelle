@@ -70,6 +70,8 @@ interface Props {
 	availableWidth?: number;
 	/** Rows available to the dialog, which drops to a compact layout to fit. */
 	availableHeight?: number;
+	/** The agent profile popup is a tmux popup, so the override needs tmux. */
+	isInTmux: boolean;
 }
 
 export default function PromptDialog({
@@ -77,6 +79,7 @@ export default function PromptDialog({
 	onCancel,
 	availableWidth,
 	availableHeight,
+	isInTmux,
 }: Props) {
 	const [prompt, setPrompt] = useState('');
 	// Both boxes are always on screen; this is purely which one has focus.
@@ -187,10 +190,8 @@ export default function PromptDialog({
 	}, [config, effectiveInput]);
 	const canOverrideAgent = useMemo(
 		() =>
-			Boolean(process.env['TMUX']) &&
-			config !== null &&
-			listAgentProfiles(config, {}).length > 1,
-		[config],
+			isInTmux && config !== null && listAgentProfiles(config, {}).length > 1,
+		[config, isInTmux],
 	);
 	const opensPicker =
 		preview?.kind === 'resolved' ||

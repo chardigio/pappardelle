@@ -64,7 +64,6 @@ function runResolver(
 	profile?: string,
 ): {
 	init_cmd: string;
-	init_cmd_deprecated: string;
 	skip_permissions: string;
 	agent_command: string;
 	agent_args: string;
@@ -73,7 +72,7 @@ function runResolver(
 	agent_launch_flags: string;
 	model: string;
 	effort: string;
-	claude_launch_deprecated: string;
+	deprecation_warnings: string;
 } {
 	let cmd = `bash "${SCRIPT_PATH}" --config "${configPath}" --local-config "${localConfigPath}"`;
 	if (homeConfigPath) {
@@ -850,7 +849,7 @@ profiles:
 	try {
 		const result = runResolver(configPath, localConfigPath);
 		t.is(result.init_cmd, '/new');
-		t.is(result.init_cmd_deprecated, 'false');
+		t.is(result.deprecation_warnings, '');
 	} finally {
 		cleanup();
 	}
@@ -876,7 +875,10 @@ initialization_command: /home
 		try {
 			const result = runResolver(configPath, localConfigPath, homeConfigPath);
 			t.is(result.init_cmd, '/project');
-			t.is(result.init_cmd_deprecated, 'true');
+			t.is(
+				result.deprecation_warnings,
+				`${configPath}: claude.initialization_command is deprecated — rename it to the top-level initialization_command`,
+			);
 		} finally {
 			cleanup();
 		}
@@ -898,7 +900,10 @@ profiles:
 		try {
 			const result = runResolver(configPath, localConfigPath);
 			t.is(result.init_cmd, '/old');
-			t.is(result.init_cmd_deprecated, 'true');
+			t.regex(
+				result.deprecation_warnings,
+				/claude\.initialization_command is deprecated/,
+			);
 		} finally {
 			cleanup();
 		}
@@ -1068,7 +1073,10 @@ claude:
 		fixture.localConfigPath,
 		fixture.homeConfigPath,
 	);
-	t.is(result.claude_launch_deprecated, 'claude.effort claude.model');
+	t.deepEqual(result.deprecation_warnings.split('\n'), [
+		`${fixture.homeConfigPath}: claude.effort is deprecated — set effort on an agent profile (agent_profiles.<name>.effort) and select it with agent_profile`,
+		`${fixture.configPath}: claude.model is deprecated — set model on an agent profile (agent_profiles.<name>.model) and select it with agent_profile`,
+	]);
 	const clean = setupConfigFiles(`version: 1
 profiles:
   test:
@@ -1076,8 +1084,7 @@ profiles:
 `);
 	t.teardown(clean.cleanup);
 	t.is(
-		runResolver(clean.configPath, clean.localConfigPath)
-			.claude_launch_deprecated,
+		runResolver(clean.configPath, clean.localConfigPath).deprecation_warnings,
 		'',
 	);
 });

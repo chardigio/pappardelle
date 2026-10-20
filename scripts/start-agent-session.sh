@@ -173,8 +173,8 @@ fi
 # space's agent, so its session id must not be recorded.
 AGENT_SESSION_ENV=(
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
-    -e "PAPPARDELLE_AGENT_COMMAND=$AGENT_COMMAND"
-    -e "PAPPARDELLE_SPACE_STATE=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json"
+    -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
+    -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
 )
 
 # Pre-trust the worktree directory for Claude Code (skipped for other agents:
@@ -217,12 +217,18 @@ new_launch_session() {
         /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
 }
 
-# A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade.
-# Rename it in place (panes and running processes survive a rename) rather
-# than spawning a duplicate agent beside it.
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/null \
-    && tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION" 2>/dev/null; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_AGENT_SESSION" "$AGENT_SESSION" 2>/dev/null || true
+# A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:
+# idow can run before the TUI restarts and migrates it. Rename it in place
+# (panes and running processes survive a rename) rather than spawning a
+# duplicate agent beside it. When both names exist, the legacy one is killed,
+# as migrateLegacyAgentSessions() in source/tmux.ts does: pappardelle only
+# attaches the agent- session.
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION" 2>/dev/null; then
+    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/null; then
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$LEGACY_AGENT_SESSION" 2>/dev/null || true
+    else
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_AGENT_SESSION" "$AGENT_SESSION" 2>/dev/null || true
+    fi
 fi
 
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/null; then

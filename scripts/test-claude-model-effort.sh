@@ -367,7 +367,8 @@ OUT=$(resolve --profile aider)
 assert_eq "configured template, value quoted for the shell" "--model='x y'" "$(echo "$OUT" | field agent_launch_flags)"
 OUT=$(resolve --profile plain)
 assert_eq "built-in claude still reads the claude block" "--model sonnet --effort low" "$(echo "$OUT" | field agent_launch_flags)"
-assert_eq "deprecated top-level keys are reported" "claude.effort claude.model" "$(echo "$OUT" | field claude_launch_deprecated)"
+assert_eq "deprecated top-level keys are reported" "claude.effort claude.model" \
+    "$(echo "$OUT" | field deprecation_warnings | grep -o 'claude\.[a-z_]* is deprecated' | cut -d' ' -f1 | xargs)"
 OUT=$(resolve --profile plain --agent-profile codex)
 assert_eq "--agent-profile replaces the profile's agent profile" "codex" "$(echo "$OUT" | field agent_command)"
 assert_eq "the override brings its own launch flags" "-m gpt-5.5 -c model_reasoning_effort=high" "$(echo "$OUT" | field agent_launch_flags)"
@@ -620,7 +621,11 @@ assert_eq "profile list replaces top-level, each word quoted" \
 assert_eq "profile without the key inherits" "--effort high --no-chrome" "$(resolve --profile frontend | field agent_launch_flags)"
 assert_eq "profile [] clears the list" "--effort high" "$(resolve --profile bare | field agent_launch_flags)"
 assert_eq "codex never gets claude's extra args" "" "$(resolve --profile cx | field agent_launch_flags)"
-assert_eq "extra_args is reported as deprecated" "claude.effort claude.extra_args" "$(resolve | field claude_launch_deprecated)"
+assert_eq "extra_args is reported as deprecated" "claude.effort claude.extra_args" \
+    "$(resolve | field deprecation_warnings | grep -o 'claude\.[a-z_]* is deprecated' | cut -d' ' -f1 | xargs)"
+assert_eq "a profile's extra_args is reported as deprecated, naming the file" \
+    "$TMPDIR_ROOT/.pappardelle.yml: profiles.backend.claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with profiles.backend.agent_profile" \
+    "$(resolve --profile backend | field profile_deprecation_warnings)"
 cleanup
 
 # ==========================================================================

@@ -46,15 +46,6 @@ export interface SpaceState {
 	 * Written once per workspace creation; never updated by the rail-status poller.
 	 */
 	profile?: string;
-	/**
-	 * Each agent profile's latest conversation in this space, by agent profile
-	 * name, written by the agent's SessionStart/UserPromptSubmit hook
-	 * (hooks/agent_session.py). Relaunching resumes the launching agent
-	 * profile's id when its `resume_args` carry `{session_id}`. Keyed by agent
-	 * profile so a one-launch override doesn't take the profile's own
-	 * conversation away. idow drops them when it creates the worktree.
-	 */
-	agentSessions?: Record<string, string>;
 }
 
 /**
@@ -111,6 +102,49 @@ export function getSpaceStatePath(
 	return path.join(getSpaceStateDir(repoName, baseDir), `${issueKey}.json`);
 }
 
+/**
+ * Each agent profile's latest conversation in a space, by agent profile name,
+ * written only by the agent's SessionStart/UserPromptSubmit hook
+ * (hooks/agent_session.py). It lives beside the space-state file rather than
+ * in it: the TUI rewrites that file after every rail poll, and a hook write
+ * landing between the TUI's read and its rename would be lost. Keyed by agent
+ * profile so a one-launch override doesn't take the profile's own
+ * conversation away. idow deletes it when it creates the worktree.
+ */
+export function getAgentSessionsPath(
+	repoName: string,
+	issueKey: string,
+	baseDir?: string,
+): string {
+	return path.join(
+		getSpaceStateDir(repoName, baseDir),
+		`${issueKey}.agent-sessions.json`,
+	);
+}
+
+export function readAgentSession(
+	repoName: string,
+	issueKey: string,
+	agentProfile: string,
+	baseDir?: string,
+): string | undefined {
+	try {
+		const sessions: unknown = JSON.parse(
+			fs.readFileSync(
+				getAgentSessionsPath(repoName, issueKey, baseDir),
+				'utf-8',
+			),
+		);
+		const id =
+			sessions && typeof sessions === 'object'
+				? (sessions as Record<string, unknown>)[agentProfile]
+				: undefined;
+		return typeof id === 'string' ? id : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function readSpaceState(
 	repoName: string,
 	issueKey: string,
@@ -151,11 +185,7 @@ export function writeSpaceState(
 	const p = getSpaceStatePath(repoName, issueKey, baseDir);
 	try {
 		fs.mkdirSync(path.dirname(p), {recursive: true});
-		// Renamed into place: the agent's hook reads and rewrites this file
-		// concurrently, and must never see it half-written.
-		const temporary = `${p}.tmp.${process.pid}`;
-		fs.writeFileSync(temporary, JSON.stringify(next, null, 2) + '\n');
-		fs.renameSync(temporary, p);
+		fs.writeFileSync(p, JSON.stringify(next, null, 2) + '\n');
 	} catch {
 		// Non-critical — cache will be rebuilt on next poll.
 	}

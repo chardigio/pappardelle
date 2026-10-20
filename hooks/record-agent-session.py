@@ -19,7 +19,7 @@ if __name__ == "__main__":
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            module.record_agent_session(json.load(sys.stdin))
+            module.record_agent_session(json.load(sys.stdin), is_claude_hook=False)
     except Exception:
         # Never let hook failures reach the agent.
         pass
