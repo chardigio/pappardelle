@@ -195,7 +195,11 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$CLAUDE_SESSION" 2>/dev
         fi
         # Use printf %q to safely quote the argument for the shell inside tmux
         SAFE_ARG=$(printf '%q' "$CLAUDE_ARG")
-        new_launch_session "$CLAUDE_SESSION" "${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}"
+        CONTINUE_CMD="${CLAUDE_CMD} --continue"
+        if [[ -n "$INIT_CMD" ]]; then
+            CONTINUE_CMD="${CONTINUE_CMD} ${SAFE_ARG}"
+        fi
+        new_launch_session "$CLAUDE_SESSION" "${CONTINUE_CMD} || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD} ${SAFE_ARG}"
     fi
 fi
 

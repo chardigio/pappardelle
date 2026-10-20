@@ -401,6 +401,120 @@ test.serial(
 );
 
 test.serial(
+	'CLI cancels idow subprocesses on a broken pipe even after the shell exits',
+	async t => {
+		t.timeout(30_000);
+		for (const background of [false, true]) {
+			const f = fixture(t);
+			f.seed();
+			const pidFile = path.join(f.root, 'worker.pid');
+			const sideEffect = path.join(f.root, 'worker.finished');
+			const worker = path.join(f.root, 'worker.mjs');
+			fs.writeFileSync(
+				worker,
+				`import fs from 'node:fs';
+fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
+process.stdout.write('worker started\\n');
+setTimeout(() => process.stdout.write('worker progress\\n'), 50);
+setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished'), 500);
+setTimeout(() => {}, 30000);
+`,
+			);
+			fs.writeFileSync(
+				f.idow,
+				'#!/bin/bash\n"$IDOW_TEST_NODE" "$IDOW_TEST_WORKER"' +
+					(background ? ' &\nexit 0\n' : '\n:\n'),
+			);
+			t.teardown(() => {
+				if (!fs.existsSync(pidFile)) return;
+				try {
+					process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
+				} catch {}
+			});
+			const child = f.start(['STE-20'], {
+				IDOW_TEST_NODE: process.execPath,
+				IDOW_TEST_WORKER: worker,
+				IDOW_TEST_PID_FILE: pidFile,
+				IDOW_TEST_SIDE_EFFECT: sideEffect,
+			});
+			child.stdin.end();
+			const completion = once(child, 'close');
+			let stderr = '';
+			child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+				stderr += chunk;
+			});
+			let stdout = '';
+			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+				stdout += chunk;
+				if (stdout.includes('worker started')) child.stdout.destroy();
+			});
+			const [code] = await once(child, 'exit');
+			await delay(600);
+			const workerFinished = fs.existsSync(sideEffect);
+			try {
+				process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
+			} catch {}
+			await completion;
+			t.is(code, 1);
+			t.false(workerFinished);
+			t.regex(stderr, /Failed to run idow:.*EPIPE/);
+			t.deepEqual(f.readRegistry(), ['STE-1']);
+		}
+	},
+);
+
+test.serial(
+	'CLI forwards termination signals to idow subprocesses and preserves its signal exit',
+	async t => {
+		t.timeout(30_000);
+		for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+			const f = fixture(t);
+			f.seed();
+			const pidFile = path.join(f.root, 'worker.pid');
+			const sideEffect = path.join(f.root, 'worker.finished');
+			const worker = path.join(f.root, 'worker.mjs');
+			fs.writeFileSync(
+				worker,
+				`import fs from 'node:fs';
+fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
+process.stdout.write('worker started\\n');
+setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished'), 500);
+setTimeout(() => {}, 30000);
+`,
+			);
+			fs.writeFileSync(
+				f.idow,
+				'#!/bin/bash\n"$IDOW_TEST_NODE" "$IDOW_TEST_WORKER"\n:\n',
+			);
+			const child = f.start(['STE-20'], {
+				IDOW_TEST_NODE: process.execPath,
+				IDOW_TEST_WORKER: worker,
+				IDOW_TEST_PID_FILE: pidFile,
+				IDOW_TEST_SIDE_EFFECT: sideEffect,
+			});
+			child.stdin.end();
+			child.stderr.resume();
+			const completion = once(child, 'close');
+			let stdout = '';
+			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+				stdout += chunk;
+				if (stdout.includes('worker started')) child.kill(signal);
+			});
+			const exit = await once(child, 'exit');
+			await delay(600);
+			const workerFinished = fs.existsSync(sideEffect);
+			try {
+				process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
+			} catch {}
+			await completion;
+			t.deepEqual(exit, [null, signal]);
+			t.false(workerFinished);
+			t.deepEqual(f.readRegistry(), ['STE-1']);
+		}
+	},
+);
+
+test.serial(
 	'CLI preserves idow failure status without saving a space even after a ready message',
 	async t => {
 		const f = fixture(t);

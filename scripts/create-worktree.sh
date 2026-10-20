@@ -16,7 +16,7 @@
 set -e
 
 # Configuration (overridable via env vars for testing)
-MAIN_REPO="${MAIN_REPO:-${PAPPARDELLE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}}"
+MAIN_REPO="${MAIN_REPO:-${PAPPARDELLE_MAIN_REPO_ROOT:-${PAPPARDELLE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}}}"
 WORKTREES_ROOT="${WORKTREES_ROOT:-$HOME/.worktrees}"
 
 # Parse arguments

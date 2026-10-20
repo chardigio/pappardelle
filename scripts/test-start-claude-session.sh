@@ -423,6 +423,34 @@ tmux -L "$SHIM_SOCKET9" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: initialization prompt reaches a continued conversation${RESET}"
+ISSUE_KEY10="${TEST_PREFIX}-1000"
+WORKTREE_PATH10="$TMPDIR_ROOT/worktree10"
+ARGV_LOG10="$TMPDIR_ROOT/claude-argv-10.log"
+mkdir -p "$WORKTREE_PATH10"
+cat > "$SHIM_DIR/claude" <<SHIM
+#!/bin/bash
+printf '[%s]' "\$@" >> "$ARGV_LOG10"
+printf '\n' >> "$ARGV_LOG10"
+exit 0
+SHIM
+chmod +x "$SHIM_DIR/claude"
+
+SHIM_SOCKET10="pappardelle_inner_shim10_$$"
+PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET10" \
+    "$SCRIPT_DIR/start-claude-session.sh" \
+    --issue-key "$ISSUE_KEY10" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH10" \
+    --init-cmd '/test-skill --mode "strict"' --companion-command "" 2>/dev/null
+
+sleep 1
+ARGV10=$(cat "$ARGV_LOG10" 2>/dev/null || echo "")
+assert_eq "continued conversation receives initialization as one argument without a fresh fallback" \
+    "[--name][$ISSUE_KEY10][--continue][/test-skill --mode \"strict\" $ISSUE_KEY10]" "$ARGV10"
+
+tmux -L "$SHIM_SOCKET10" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
 # pappardelle-2i0: launches must not be typed at a prompt, or the user's shell
 # records them in its history file. An isolated zsh (ZDOTDIR) with its own
 # HISTFILE and INC_APPEND_HISTORY writes every line it reads from the prompt

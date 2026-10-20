@@ -236,7 +236,11 @@ on run argv
     set nameFlag to " --name " & issueKey
     set flagsAssign to "CLAUDE_FLAGS=" & quoted form of launchFlags & "; "
     set claudeCmd to "claude$CLAUDE_FLAGS" & nameFlag
-    set claudePrefix to flagsAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"" & claudeCmd & " --continue || { printf '\\033[A\\033[2K'; false; } || " & claudeCmd
+    set continueCmd to claudeCmd & " --continue"
+    if claudePrompt is not equal to "" then
+        set continueCmd to continueCmd & " '" & claudePrompt & "'"
+    end if
+    set claudePrefix to flagsAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "' \"" & continueCmd & " || { printf '\\033[A\\033[2K'; false; } || " & claudeCmd
     if claudePrompt is equal to "" then
         set claudeLine to claudePrefix & "\""
     else

@@ -129,6 +129,7 @@ fi
 # Handed to the workspace's tmux sessions so the hooks running inside them read
 # it instead of walking back out to the main checkout on every tool use.
 export PAPPARDELLE_MAIN_REPO_ROOT="$MAIN_REPO_ROOT"
+REPO_NAME=$(basename "$MAIN_REPO_ROOT")
 
 # Untracked project config may exist only in the main checkout, while a linked
 # worktree can carry its own local overrides. Resolve each file independently.
@@ -578,7 +579,7 @@ if [[ "$IS_NEW_ISSUE" == true ]]; then
 
     # Write issue metadata for hook tracking (plan → description vs comment)
     # Namespaced per-repo under ~/.pappardelle/repos/{repoName}/issue-meta/
-    ISSUE_META_DIR="$HOME/.pappardelle/repos/$(basename "$REPO_ROOT")/issue-meta"
+    ISSUE_META_DIR="$HOME/.pappardelle/repos/$REPO_NAME/issue-meta"
     mkdir -p "$ISSUE_META_DIR"
     echo "{\"created_by_pappardelle\": true, \"created_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$ISSUE_META_DIR/$ISSUE_KEY.json"
 else
@@ -699,7 +700,6 @@ var_is_set() {
 
 # Step 5: Create or find worktree
 print_step 5 "Setting up git worktree..."
-REPO_NAME=$(basename "$REPO_ROOT")
 WORKTREE_PATH="$HOME/.worktrees/$REPO_NAME/$ISSUE_KEY"
 
 if [[ -d "$WORKTREE_PATH" ]]; then

@@ -38,10 +38,24 @@ export async function runOpenSpaceCommand(
 	let signal: NodeJS.Signals | null;
 	let child: ChildProcess | undefined;
 	let exited: ReturnType<typeof once> | undefined;
-	const handleOutputError = () => {
-		child?.kill();
+	let terminationSignal: NodeJS.Signals | undefined;
+	const stopChild = (signal: NodeJS.Signals = 'SIGTERM') => {
+		if (!child?.pid) return;
+		try {
+			process.kill(-child.pid, signal);
+		} catch {
+			child.kill(signal);
+		}
+	};
+	const handleOutputError = () => stopChild();
+	const handleTermination = (signal: NodeJS.Signals) => {
+		terminationSignal = signal;
+		stopChild(signal);
 	};
 	process.stdout.on('error', handleOutputError);
+	process.on('SIGINT', handleTermination);
+	process.on('SIGTERM', handleTermination);
+	process.on('SIGHUP', handleTermination);
 	try {
 		child = spawn(
 			options.command,
@@ -55,6 +69,8 @@ export async function runOpenSpaceCommand(
 			{
 				cwd: options.cwd,
 				env: options.env,
+				// Setup commands must stop with idow when forwarding its output fails.
+				detached: true,
 				stdio: ['inherit', 'pipe', 'inherit'],
 			},
 		);
@@ -76,7 +92,7 @@ export async function runOpenSpaceCommand(
 		// The startup banner may still be buffered even when idow produced no output.
 		await writeOutput(process.stdout, '');
 	} catch (error) {
-		child?.kill();
+		stopChild();
 		await exited?.catch(() => {});
 		await writeOutput(
 			process.stderr,
@@ -87,6 +103,10 @@ export async function runOpenSpaceCommand(
 		return 1;
 	} finally {
 		process.stdout.off('error', handleOutputError);
+		process.off('SIGINT', handleTermination);
+		process.off('SIGTERM', handleTermination);
+		process.off('SIGHUP', handleTermination);
+		if (terminationSignal) process.kill(process.pid, terminationSignal);
 	}
 
 	if (code !== 0) {
