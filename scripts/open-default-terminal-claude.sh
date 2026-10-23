@@ -112,7 +112,11 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 CLAUDE_CMD='claude$CLAUDE_FLAGS'" --name ${ISSUE_KEY}"
 FLAGS_ASSIGN="CLAUDE_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); "
 
-CLAUDE_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}' \"${CLAUDE_CMD} --continue || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD}"
+CONTINUE_CMD="${CLAUDE_CMD} --continue"
+if [[ -n "$CLAUDE_PROMPT" ]]; then
+    CONTINUE_CMD="${CONTINUE_CMD} '${CLAUDE_PROMPT}'"
+fi
+CLAUDE_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}' \"${CONTINUE_CMD} || { printf '\\033[A\\033[2K'; false; } || ${CLAUDE_CMD}"
 if [[ -z "$CLAUDE_PROMPT" ]]; then
     CLAUDE_LINE="${CLAUDE_PREFIX}\""
 else

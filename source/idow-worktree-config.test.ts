@@ -19,7 +19,7 @@ function writeScript(filename: string, body: string) {
 	fs.writeFileSync(filename, script, {mode: 0o755});
 }
 
-function setup(t: ExecutionContext) {
+function setup(t: ExecutionContext, realWorktree = false) {
 	const root = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'idow-config-')),
 	);
@@ -29,7 +29,9 @@ function setup(t: ExecutionContext) {
 	const scripts = path.join(root, 'scripts');
 	const bin = path.join(root, 'bin');
 	const home = path.join(root, 'home');
-	const workspace = path.join(root, 'new workspace');
+	const workspace = realWorktree
+		? path.join(home, '.worktrees', path.basename(main), 'test-abc')
+		: path.join(root, 'new workspace');
 	const launchArgs = path.join(root, 'launch-args');
 	const vcsCalls = path.join(root, 'vcs-calls');
 	const launchers = path.join(root, 'launchers');
@@ -91,6 +93,22 @@ function setup(t: ExecutionContext) {
 		`mkdir -p "$IDOW_TEST_WORKSPACE"
 jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path}'`,
 	);
+	if (realWorktree) {
+		fs.copyFileSync(
+			path.join(scriptsDir, 'create-worktree.sh'),
+			path.join(scripts, 'create-worktree.sh'),
+		);
+		const origin = path.join(root, 'origin.git');
+		git('init', '--bare', origin);
+		git('remote', 'add', 'origin', origin);
+		const branch = git('branch', '--show-current').toString().trim();
+		git('push', '-u', 'origin', branch);
+		git(
+			'symbolic-ref',
+			'refs/remotes/origin/HEAD',
+			`refs/remotes/origin/${branch}`,
+		);
+	}
 	fs.writeFileSync(path.join(main, '.env'), 'FROM_MAIN=1\n');
 
 	const config = (displayName: string) =>
@@ -154,6 +172,8 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 		} = {}): Promise<string> {
 			const env = {...process.env};
 			delete env.PAPPARDELLE_PROJECT_ROOT;
+			delete env.MAIN_REPO;
+			delete env.WORKTREES_ROOT;
 			delete env.MAIN_REPO_ROOT;
 			// idow exports this into every workspace it spawns, so a suite run
 			// from inside a Pappardelle session inherits it and the fixture
@@ -194,6 +214,35 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 		},
 	};
 }
+
+test('idow creates and reopens real worktrees in the main repository namespace', async t => {
+	const fixture = setup(t, true);
+	fs.writeFileSync(
+		path.join(fixture.linked, '.pappardelle.local.yml'),
+		'claude:\n  model: linked-model\n',
+	);
+	const output = await fixture.run();
+	t.true(output.includes(`Worktree:  ${fixture.workspace}`), output);
+	t.true(fs.existsSync(path.join(fixture.workspace, '.git')));
+	const args = fs.readFileSync(fixture.launchArgs, 'utf8');
+	t.true(args.includes(`--repo-name\n${path.basename(fixture.main)}\n`));
+	t.true(args.includes('--model\nlinked-model\n'));
+	t.true(
+		fs.existsSync(
+			path.join(
+				fixture.home,
+				'.pappardelle',
+				'repos',
+				path.basename(fixture.main),
+				'space-state',
+				'test-abc.json',
+			),
+		),
+	);
+	const reopened = await fixture.run();
+	t.true(reopened.includes(`Worktree exists: ${fixture.workspace}`), reopened);
+	t.false(reopened.includes('Created worktree:'));
+});
 
 test('idow creates a session using main config and worktree-local overrides', async t => {
 	const fixture = setup(t);
