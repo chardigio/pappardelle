@@ -1,0 +1,37 @@
+# Claude PR review (https://github.com/sddamico/claude-review). No secrets: the
+# job signs in to Anthropic with its GitHub identity token, matched by the
+# federation rule below.
+name: Claude review
+
+on:
+  # pull_request_target runs this file from the base branch with secrets
+  # available, so PRs from forks get reviewed too. It is safe here because the
+  # job never checks out or runs the PR's code on the runner; the code is only
+  # read inside Anthropic's sandbox.
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Reviews start on their own for PRs from the owner, org members, and
+    # collaborators. Anyone else's PR is reviewed when a maintainer adds the
+    # "claude-review" label, which is also how to ask for a fresh review.
+    if: >-
+      (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
+      (github.event.action != 'labeled' && !github.event.pull_request.draft &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: sddamico/claude-review@main
+        with:
+          anthropic-federation-rule-id: fdrl_01WVxMn1oPkYEh13DtYcBgd7
