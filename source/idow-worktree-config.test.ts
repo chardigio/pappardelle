@@ -234,7 +234,7 @@ test('idow creates and reopens real worktrees in the main repository namespace',
 	t.true(fs.existsSync(path.join(fixture.workspace, '.git')));
 	const args = fs.readFileSync(fixture.launchArgs, 'utf8');
 	t.true(args.includes(`--repo-name\n${path.basename(fixture.main)}\n`));
-	t.true(args.includes('--model\nlinked-model\n'));
+	t.true(args.includes('--agent-launch-flags\n--model linked-model\n'));
 	t.true(
 		fs.existsSync(
 			path.join(
@@ -496,7 +496,7 @@ test('an explicit profile pick on an existing space is persisted and reused', as
 	);
 	const statePath = path.join(
 		fixture.home,
-		'.pappardelle/repos/linked checkout/space-state/test-abc.json',
+		'.pappardelle/repos/main checkout/space-state/test-abc.json',
 	);
 	const persisted = () =>
 		(JSON.parse(fs.readFileSync(statePath, 'utf8')) as {profile: string})
@@ -510,7 +510,7 @@ test('an explicit profile pick on an existing space is persisted and reused', as
 	t.is(persisted(), 'dev');
 	// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
 	// only sees an existing worktree once its own path exists.
-	fs.mkdirSync(path.join(fixture.home, '.worktrees/linked checkout/test-abc'), {
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
 		recursive: true,
 	});
 
@@ -547,7 +547,7 @@ test('a new worktree launches the agent without its resume args', async t => {
 	t.is(resumeArgs(), '');
 	// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
 	// only sees an existing worktree once its own path exists.
-	fs.mkdirSync(path.join(fixture.home, '.worktrees/linked checkout/test-abc'), {
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
 		recursive: true,
 	});
 
@@ -576,7 +576,7 @@ test('--agent-profile launches another agent profile for that run only', async t
 	t.false(idowSkippedAgentOverride(stdout));
 	const statePath = path.join(
 		fixture.home,
-		'.pappardelle/repos/linked checkout/space-state/test-abc.json',
+		'.pappardelle/repos/main checkout/space-state/test-abc.json',
 	);
 	t.false('agentProfile' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
 
@@ -633,7 +633,7 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	);
 	const sessionsPath = path.join(
 		fixture.home,
-		'.pappardelle/repos/linked checkout/space-state/test-abc.agent-sessions.json',
+		'.pappardelle/repos/main checkout/space-state/test-abc.agent-sessions.json',
 	);
 	const record = (agentSessions: Record<string, string>) => {
 		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
@@ -650,7 +650,7 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	t.is(launchArg('--agent-resume-args'), '');
 	t.false(fs.existsSync(sessionsPath));
 
-	fs.mkdirSync(path.join(fixture.home, '.worktrees/linked checkout/test-abc'), {
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
 		recursive: true,
 	});
 	record({codex: 'thread-1'});
@@ -682,7 +682,7 @@ test('a reopened claude space with no recorded session continues its conversatio
 	await fixture.run({});
 	t.is(launchArg('--agent-resume-args'), '');
 
-	fs.mkdirSync(path.join(fixture.home, '.worktrees/linked checkout/test-abc'), {
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
 		recursive: true,
 	});
 	await fixture.run({open: true});

@@ -554,7 +554,7 @@ else
     # An existing space keeps the profile it was created or last picked with,
     # so reopening it can't relaunch a different agent. The TUI's
     # attachToSpace() reads the same field.
-    PERSISTED_PROFILE=$(jq -r '.profile // ""' "$HOME/.pappardelle/repos/$(basename "$REPO_ROOT")/space-state/$ISSUE_KEY.json" 2>/dev/null || true)
+    PERSISTED_PROFILE=$(jq -r '.profile // ""' "$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json" 2>/dev/null || true)
     if [[ -n "$PERSISTED_PROFILE" && "$(PROFILE="$PERSISTED_PROFILE" yq -r '.profiles | has(strenv(PROFILE))' "$CONFIG_PATH")" == "true" ]]; then
         SELECTED_PROFILE="$PERSISTED_PROFILE"
         print_success "Using the space's profile: $(get_profile_display_name "$SELECTED_PROFILE")"
