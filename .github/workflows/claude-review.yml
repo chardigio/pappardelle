@@ -38,13 +38,19 @@ jobs:
           # The action adds the "**<severity>:**" label and the validation
           # line to each comment itself, so a body that also starts with the
           # label shows it two times. These rules control only how the agent
-          # turns the /code-review output into comments.
+          # turns the /code-review output into comments. GitHub rejects the
+          # whole review when one comment points outside the diff, and the
+          # action then puts every finding in one long body (PR #48), so the
+          # line check below matters most.
           extra-instructions: |
+            Choose the inline comments like this:
+            - An inline comment's line, and its start_line when set, must be inside a hunk of pr.diff (an added line or a context line that the hunk shows). Before you write the file, check each one against the "@@ -a,b +c,d @@" ranges for its file. Put a finding on any other line in the summary.
+            - Only a finding with the verdict "valid" is an inline comment. Put a finding with any other verdict in the summary.
             Format each inline comment like this:
             - Do not start the body with the severity ("bug:", "risk:", "nit:"), in bold or not. The action adds that label.
-            - Start with one bold sentence that states the problem. Then give the failure scenario and the fix in a few short lines. Do not repeat the file name or line number.
+            - Start with one bold sentence that states the problem. Then give the failure scenario and the fix in two or three short sentences, with no "Failure:" or "Fix:" headings. Do not repeat the file name or line number.
             - When the fix is a direct edit of the lines that the comment covers, add a GitHub suggestion block (```suggestion) after the text. The block replaces lines start_line through line (or only line) in full, so it must hold every one of those lines as they must read after the fix, with the same indentation, and nothing else. Set start_line when the fix covers more than one line. Do not add a suggestion block when the fix touches other lines or files, or when you are not sure that it is correct.
             Format the summary like this:
             - One or two sentences. Do not repeat or list the findings that are inline comments.
-            - Give a finding that is not an inline comment as one short bullet with its verdict.
+            - Give each finding that is not an inline comment as one bullet of one line: `path:line`, the problem in a few words, and the verdict in parentheses. Do not add the failure scenario or the verdict reason.
             - In the "Earlier findings" list, show only the findings that are still open, each in a few words. Give the number that are fixed or no longer relevant as one line.
