@@ -24,11 +24,16 @@ type Content = {
 	isReadyLoading: boolean;
 	hasError: boolean;
 	pickerCount: number;
+	/**
+	 * The profile search row is on screen. It takes one row above the list,
+	 * and an empty result still shows one row that says so.
+	 */
+	isSearching?: boolean;
 };
 
 export function promptDialogRows(
 	layout: PromptDialogLayout,
-	{readyCount, isReadyLoading, hasError, pickerCount}: Content,
+	{readyCount, isReadyLoading, hasError, pickerCount, isSearching}: Content,
 ): number {
 	// Top rule, input, margin, hint and bottom border.
 	const prompt =
@@ -41,7 +46,9 @@ export function promptDialogRows(
 	// Frame (2), the rows, and the hint under the frame.
 	else if (readyCount > 0)
 		ready = 3 + listRows(readyCount, layout.readyMaxVisible);
-	const picker = 3 + listRows(pickerCount, layout.pickerMaxVisible);
+	const picker = isSearching
+		? 4 + listRows(Math.max(1, pickerCount), layout.pickerMaxVisible)
+		: 3 + listRows(pickerCount, layout.pickerMaxVisible);
 	return prompt + ready + picker;
 }
 

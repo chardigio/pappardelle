@@ -60,3 +60,19 @@ test('each list keeps two rows however short the pane is', t => {
 	t.is(layout.readyMaxVisible, 2);
 	t.is(layout.pickerMaxVisible, 2);
 });
+
+test('the search row adds one row to the picker', t => {
+	const layout = promptDialogLayout(undefined, 4, busy);
+	t.is(
+		promptDialogRows(layout, {...busy, isSearching: true}),
+		promptDialogRows(layout, busy) + 1,
+	);
+});
+
+test('an empty search result still keeps one row for its message', t => {
+	const layout = promptDialogLayout(undefined, 4, busy);
+	t.is(
+		promptDialogRows(layout, {...busy, pickerCount: 0, isSearching: true}),
+		promptDialogRows(layout, {...busy, pickerCount: 1}) + 1,
+	);
+});

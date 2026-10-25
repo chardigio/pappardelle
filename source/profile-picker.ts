@@ -243,8 +243,16 @@ export function computePickerWindow(
 }
 
 export type PickerKeyResult = {
-	action: 'move' | 'submit' | 'back' | 'ignore';
+	action: 'move' | 'submit' | 'back' | 'search' | 'clear-search' | 'ignore';
 	index: number;
+};
+
+/** Where the selection sits in the rows on screen. */
+export type PickerList = {
+	index: number;
+	total: number;
+	/** A search filter is locked on the list. */
+	hasFilter?: boolean;
 };
 
 type PickerKey = {
@@ -258,20 +266,30 @@ type PickerKey = {
  * Movement clamps rather than wraps, matching the main space list: arrowing
  * past the end of a four-item list should not silently teleport you back to the
  * profile you were trying to move away from.
+ *
+ * With a locked search filter, Esc clears the filter before it goes back. The
+ * filter hides rows, so leaving with it still on would bring you back later to
+ * a list with profiles missing and no reason on screen why.
  */
 export function handleProfilePickerKey(
 	input: string,
 	key: PickerKey,
-	selectedIndex: number,
-	total: number,
+	{index: selectedIndex, total, hasFilter = false}: PickerList,
 ): PickerKeyResult {
 	if (key.escape) {
-		return {action: 'back', index: selectedIndex};
+		return {
+			action: hasFilter ? 'clear-search' : 'back',
+			index: selectedIndex,
+		};
 	}
 
 	if (key.return) {
 		if (total <= 0) return {action: 'ignore', index: selectedIndex};
 		return {action: 'submit', index: selectedIndex};
+	}
+
+	if (input === '/') {
+		return {action: 'search', index: selectedIndex};
 	}
 
 	if (key.upArrow || input === 'k') {
@@ -283,6 +301,85 @@ export function handleProfilePickerKey(
 	}
 
 	return {action: 'ignore', index: selectedIndex};
+}
+
+/**
+ * Narrow the picker to the profiles whose name or display name contains the
+ * query. Keywords are left out on purpose: they already ranked the list from
+ * the prompt, and a search for "web" that surfaced a profile only because one
+ * of its keywords is "webhook" would read as a wrong match.
+ *
+ * The filter keeps the ranked order rather than re-ranking by match quality, so
+ * the inferred profile stays on top whenever it still matches.
+ */
+export function filterProfileOptions(
+	options: ProfileOption[],
+	query: string,
+): ProfileOption[] {
+	const needle = query.trim().toLowerCase();
+	if (!needle) return options;
+	return options.filter(
+		option =>
+			option.displayName.toLowerCase().includes(needle) ||
+			(option.name?.toLowerCase().includes(needle) ?? false),
+	);
+}
+
+export type SearchKeyResult =
+	| {action: 'edit'; query: string}
+	| {action: 'move'; index: number}
+	/** Keep the filter, hand the keys back to the list (`less`-style). */
+	| {action: 'lock'}
+	/** Drop the filter and the search row. */
+	| {action: 'cancel'}
+	| {action: 'ignore'};
+
+type SearchKey = PickerKey & {
+	backspace?: boolean;
+	delete?: boolean;
+	ctrl?: boolean;
+	meta?: boolean;
+	tab?: boolean;
+};
+
+/**
+ * Keys while the `/` search row has the focus. Every printable key is text
+ * here, `j` and `k` included, so only the arrows move the selection. Enter
+ * locks the filter instead of starting the session: the search is a way to
+ * reach a row, and the start stays one deliberate Enter away in list mode.
+ */
+export function handleProfileSearchKey(
+	input: string,
+	key: SearchKey,
+	query: string,
+	{index: selectedIndex, total}: PickerList,
+): SearchKeyResult {
+	if (key.escape) return {action: 'cancel'};
+	if (key.return) return {action: 'lock'};
+
+	if (key.upArrow) {
+		return {action: 'move', index: Math.max(0, selectedIndex - 1)};
+	}
+
+	if (key.downArrow) {
+		return {
+			action: 'move',
+			index: Math.max(0, Math.min(total - 1, selectedIndex + 1)),
+		};
+	}
+
+	if (key.backspace || key.delete) {
+		// Like vim's `/`: backspace past the start closes the search.
+		if (!query) return {action: 'cancel'};
+		return {action: 'edit', query: query.slice(0, -1)};
+	}
+
+	if (key.ctrl || key.meta || key.tab) return {action: 'ignore'};
+
+	// eslint-disable-next-line no-control-regex
+	const text = input.replaceAll(/[\u0000-\u001F\u007F]/g, '');
+	if (!text) return {action: 'ignore'};
+	return {action: 'edit', query: query + text};
 }
 
 /**
