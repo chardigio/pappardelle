@@ -81,9 +81,10 @@ export function useReadyWork(
 		};
 	}, [tracker]);
 
-	const identifiers = useMemo(() => issues.map(issue => issue.identifier), [
-		issues,
-	]);
+	const identifiers = useMemo(
+		() => issues.map(issue => issue.identifier),
+		[issues],
+	);
 
 	// Trackers that can't close an issue locally leave closeIssue undefined; the
 	// keybinding and its hint disappear rather than failing on the keystroke.

@@ -243,8 +243,8 @@ function parseKeypress(input: string): Keypress {
 		typeof input === 'string'
 			? input
 			: Buffer.isBuffer(input)
-			? String(input)
-			: '';
+				? String(input)
+				: '';
 	const k: Keypress = {
 		name: '',
 		ctrl: false,

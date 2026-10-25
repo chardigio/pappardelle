@@ -22,9 +22,7 @@ let tempCounter = 0;
 function tempRegistryPath(): string {
 	return path.join(
 		os.tmpdir(),
-		`pappardelle-registry-test-${
-			process.pid
-		}-${Date.now()}-${tempCounter++}.json`,
+		`pappardelle-registry-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
 	);
 }
 

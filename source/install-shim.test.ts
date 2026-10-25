@@ -30,9 +30,7 @@ let temporaryCounter = 0;
 function createTemporaryDir(suffix = ''): string {
 	const dir = path.join(
 		os.tmpdir(),
-		`install-shim-test-${
-			process.pid
-		}-${Date.now()}-${temporaryCounter++}${suffix}`,
+		`install-shim-test-${process.pid}-${Date.now()}-${temporaryCounter++}${suffix}`,
 	);
 	fs.mkdirSync(dir, {recursive: true});
 	return dir;

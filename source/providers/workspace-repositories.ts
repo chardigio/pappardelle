@@ -112,8 +112,8 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 	await visit(directory, 0);
 	const identity = await workspaceIdentity(directory).catch(() => null);
 	const links = identity
-		? readSpaceState(identity.repoName, identity.issueKey, stateBaseDir)
-				?.prLinks ?? []
+		? (readSpaceState(identity.repoName, identity.issueKey, stateBaseDir)
+				?.prLinks ?? [])
 		: [];
 	return repositories.map(repository => {
 		const link = links.find(

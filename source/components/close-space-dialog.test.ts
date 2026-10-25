@@ -28,11 +28,11 @@ function trackerWithStates() {
 	const loaded = new Promise<TrackerState[]>(_resolve => {
 		resolve = _resolve;
 	});
-	const tracker = ({
+	const tracker = {
 		listStates: async () => loaded,
 		setIssueState: async () => true,
 		closeIssue: async () => true,
-	} as unknown) as IssueTrackerProvider;
+	} as unknown as IssueTrackerProvider;
 	return {tracker, load: () => resolve(STATES)};
 }
 

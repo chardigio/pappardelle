@@ -4,9 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {loadProviderConfigs} from './config.ts';
 
-function setupTempDir(
-	files: Record<string, string>,
-): {
+function setupTempDir(files: Record<string, string>): {
 	dir: string;
 	cleanup: () => void;
 } {

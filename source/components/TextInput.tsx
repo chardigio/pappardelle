@@ -102,7 +102,7 @@ export default function TextInput({
 	let renderedValue =
 		highlight && highlight.length > 0
 			? HIGHLIGHT_COLORS[highlight.color](value.slice(0, highlight.length)) +
-			  value.slice(highlight.length)
+				value.slice(highlight.length)
 			: value;
 	let renderedPlaceholder = placeholder ? chalk.grey(placeholder) : undefined;
 

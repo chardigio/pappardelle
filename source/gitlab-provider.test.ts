@@ -50,9 +50,7 @@ test('opening an MR returns its canonical URL without downloading a diff', async
 });
 
 for (const diff of ['', 'diff --git a/file b/file\n+changed']) {
-	test(`commit checking still inspects the MR diff: ${
-		diff ? 'changed' : 'empty'
-	}`, async t => {
+	test(`commit checking still inspects the MR diff: ${diff ? 'changed' : 'empty'}`, async t => {
 		const calls: string[][] = [];
 		const provider = new GitLabProvider(undefined, async args => {
 			calls.push(args);
@@ -62,7 +60,7 @@ for (const diff of ['', 'diff --git a/file b/file\n+changed']) {
 							iid: 42,
 							web_url: 'https://gitlab.com/team/project/-/merge_requests/42',
 						},
-				  ])
+					])
 				: diff;
 		});
 		const result = await provider.checkIssueHasPRWithCommits('STA-42');

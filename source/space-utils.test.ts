@@ -235,9 +235,7 @@ type TearDownCalls = {
 	killFailures: string[];
 };
 
-function makeTearDownDeps(
-	killReturns: boolean,
-): {
+function makeTearDownDeps(killReturns: boolean): {
 	deps: Parameters<typeof tearDownSpace>[1];
 	calls: TearDownCalls;
 } {

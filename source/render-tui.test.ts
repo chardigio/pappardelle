@@ -33,7 +33,7 @@ test('dialog first frame uses confirmed zoom geometry even before SIGWINCH', asy
 	const dialog = () =>
 		React.createElement(Text, {wrap: 'truncate-end'}, message);
 	const view = renderTui(dialog(), {
-		stdout: (output.stdout as unknown) as NodeJS.WriteStream,
+		stdout: output.stdout as unknown as NodeJS.WriteStream,
 		patchConsole: false,
 		interactive: true,
 	});
@@ -60,7 +60,7 @@ const list = (height: number, query: string, rows: string[]) =>
 test('typing updates only the query line and skips identical full-height frames', async t => {
 	const output = terminalOutput();
 	const view = renderTui(list(12, 'a', ['main', 'TEST-1 Fix flickering']), {
-		stdout: (output.stdout as unknown) as NodeJS.WriteStream,
+		stdout: output.stdout as unknown as NodeJS.WriteStream,
 		patchConsole: false,
 		interactive: true,
 	});
@@ -95,7 +95,7 @@ test('filtering and resizing remove stale rows and keep the list at the top', as
 	const view = renderTui(
 		list(12, '', ['main', 'TEST-1 Fix flickering', 'OLD-ROW']),
 		{
-			stdout: (output.stdout as unknown) as NodeJS.WriteStream,
+			stdout: output.stdout as unknown as NodeJS.WriteStream,
 			patchConsole: false,
 			interactive: true,
 		},

@@ -83,10 +83,10 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	// lingered from a previous fetch.
 	const pipeline = space.railStatus?.pipeline ?? null;
 	const commentCount =
-		pipeline === null ? 0 : space.railStatus?.unresolvedCommentCount ?? 0;
+		pipeline === null ? 0 : (space.railStatus?.unresolvedCommentCount ?? 0);
 	// Conflict indicator only meaningful when there's an open PR (pipeline !== null).
 	const hasConflict =
-		pipeline === null ? false : space.railStatus?.hasConflict ?? false;
+		pipeline === null ? false : (space.railStatus?.hasConflict ?? false);
 	const pipelineToken = pipeline
 		? pipeline === 'progressing_dirty'
 			? '◐◑'
@@ -175,19 +175,14 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	};
 	const stateColor = getStateColor();
 
-	const {
-		useBlinkInverse,
-		useInverse,
-		textColor,
-		keyColor,
-		titleColor,
-	} = resolveRowHighlight({
-		isSelected,
-		needsAttention,
-		blinkOn,
-		isQuestion,
-		stateColor,
-	});
+	const {useBlinkInverse, useInverse, textColor, keyColor, titleColor} =
+		resolveRowHighlight({
+			isSelected,
+			needsAttention,
+			blinkOn,
+			isQuestion,
+			stateColor,
+		});
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
@@ -301,8 +296,8 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 							useBlinkInverse
 								? textColor
 								: space.isPending
-								? COLORS.CLAUDE_ORANGE
-								: statusInfo.color
+									? COLORS.CLAUDE_ORANGE
+									: statusInfo.color
 						}
 						inverse={useBlinkInverse}
 					/>

@@ -390,10 +390,11 @@ export class BeadsProvider implements IssueTrackerProvider {
 			const unresolved = issueKeys.filter(key => !found.has(key));
 			if (unresolved.length > 0) {
 				const fetched = await pLimit(
-					unresolved.map(key => async () =>
-						this.getIssue(key).then(
-							issue => [key, issue] as [string, TrackerIssue | null],
-						),
+					unresolved.map(
+						key => async () =>
+							this.getIssue(key).then(
+								issue => [key, issue] as [string, TrackerIssue | null],
+							),
 					),
 					3,
 				);
@@ -417,10 +418,11 @@ export class BeadsProvider implements IssueTrackerProvider {
 		}
 
 		const fetched = await pLimit(
-			issueKeys.map(key => async () =>
-				this.getIssue(key).then(
-					issue => [key, issue] as [string, TrackerIssue | null],
-				),
+			issueKeys.map(
+				key => async () =>
+					this.getIssue(key).then(
+						issue => [key, issue] as [string, TrackerIssue | null],
+					),
 			),
 			3,
 		);
@@ -484,9 +486,7 @@ export class BeadsProvider implements IssueTrackerProvider {
 		const unreachable = unreachableReadyStatuses(statuses);
 		if (unreachable.length > 0) {
 			log.warn(
-				`issue_watchlist.statuses includes ${unreachable.join(
-					', ',
-				)}, which \`bd ready\` never returns — it excludes in_progress, blocked, deferred and hooked issues. Those statuses will match nothing.`,
+				`issue_watchlist.statuses includes ${unreachable.join(', ')}, which \`bd ready\` never returns — it excludes in_progress, blocked, deferred and hooked issues. Those statuses will match nothing.`,
 			);
 		}
 
@@ -511,9 +511,7 @@ export class BeadsProvider implements IssueTrackerProvider {
 
 			if (results.length > 0) {
 				log.info(
-					`Watchlist results: ${results
-						.map(i => `${i.identifier} (${i.state.name})`)
-						.join(', ')}`,
+					`Watchlist results: ${results.map(i => `${i.identifier} (${i.state.name})`).join(', ')}`,
 				);
 			} else {
 				log.info('Watchlist results: none');

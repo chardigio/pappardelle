@@ -163,9 +163,7 @@ export function writeCachedCheck(cachePath: string, entry: CacheEntry): void {
 		writeFileSync(cachePath, JSON.stringify(entry, null, 2));
 	} catch (err) {
 		log.warn(
-			`Failed to write update-check cache: ${
-				err instanceof Error ? err.message : String(err)
-			}`,
+			`Failed to write update-check cache: ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
 }
@@ -213,9 +211,7 @@ async function fetchLatestVersion(): Promise<string | null> {
 		return null;
 	} catch (err) {
 		log.warn(
-			`Update check network error: ${
-				err instanceof Error ? err.message : String(err)
-			}`,
+			`Update check network error: ${err instanceof Error ? err.message : String(err)}`,
 		);
 		return null;
 	} finally {
@@ -246,9 +242,7 @@ export async function safeCheckForUpdate(
 		return await checkForUpdate(opts);
 	} catch (err) {
 		log.warn(
-			`Update check failed: ${
-				err instanceof Error ? err.message : String(err)
-			}`,
+			`Update check failed: ${err instanceof Error ? err.message : String(err)}`,
 		);
 		return null;
 	}

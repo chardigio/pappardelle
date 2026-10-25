@@ -17,9 +17,7 @@ test('slow session kills and simulator cleanup leave the event loop responsive',
 			`#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
-fs.appendFileSync(process.env.CLOSE_CALLS, JSON.stringify({command: ${JSON.stringify(
-				command,
-			)}, args}) + '\\n');
+fs.appendFileSync(process.env.CLOSE_CALLS, JSON.stringify({command: ${JSON.stringify(command)}, args}) + '\\n');
 setTimeout(() => {
   if (args.includes('list')) console.log(JSON.stringify({devices: {runtime: [{name: 'QA-A', udid: 'fixture-device'}]}}));
 }, args.includes('delete') ? 300 : 100);
@@ -32,12 +30,8 @@ setTimeout(() => {
 	const utilsUrl = new URL('space-utils.ts', import.meta.url).href;
 	const simulatorUrl = new URL('qa-simulator.ts', import.meta.url).href;
 	const script = `
-import {killSpaceSessions, displayMessageInPaneAsync} from ${JSON.stringify(
-		tmuxUrl,
-	)};
-import {setRegistryPath, addSpace, removeSpace, getRegisteredSpaces} from ${JSON.stringify(
-		registryUrl,
-	)};
+import {killSpaceSessions, displayMessageInPaneAsync} from ${JSON.stringify(tmuxUrl)};
+import {setRegistryPath, addSpace, removeSpace, getRegisteredSpaces} from ${JSON.stringify(registryUrl)};
 import {tearDownSpace} from ${JSON.stringify(utilsUrl)};
 import {QaSimulatorCleanup} from ${JSON.stringify(simulatorUrl)};
 setRegistryPath(process.env.CLOSE_REGISTRY);
@@ -118,9 +112,7 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 		['simctl', 'delete', 'fixture-device'],
 	);
 	t.log(
-		`close dispatched/completed in ${result.closeMs.toFixed(1)} ms; ${
-			result.closeTicks
-		} timer ticks during session close, ${result.ticks} including cleanup`,
+		`close dispatched/completed in ${result.closeMs.toFixed(1)} ms; ${result.closeTicks} timer ticks during session close, ${result.ticks} including cleanup`,
 	);
 });
 

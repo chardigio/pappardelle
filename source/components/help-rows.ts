@@ -29,9 +29,7 @@ function describe(kb: KeybindingConfig): string {
 	return kb.name + (kb.send_to_claude ? ' → Claude' : '');
 }
 
-export function buildHelpRows(
-	customKeybindings: KeybindingConfig[] = [],
-): {
+export function buildHelpRows(customKeybindings: KeybindingConfig[] = []): {
 	fixed: HelpRow[];
 	overridable: HelpRow[];
 	extraCustom: HelpRow[];

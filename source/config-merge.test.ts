@@ -23,9 +23,7 @@ import {
 // Helper: temp directory with config files
 // ============================================================================
 
-function setupTempDir(
-	files: Record<string, string>,
-): {
+function setupTempDir(files: Record<string, string>): {
 	dir: string;
 	cleanup: () => void;
 } {

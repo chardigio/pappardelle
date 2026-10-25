@@ -462,9 +462,8 @@ try {
 // reports its own vX.Y.Z tag; a dev/worktree build (run from the monorepo, where
 // no release tag exists) reports the latest installed release flagged `-dev`;
 // neither resolvable → null, and the help line degrades to sha-only (STA-1494).
-const {version: installedVersion, isDev: isDevBuild} = resolveDisplayVersion(
-	pappardelleDir,
-);
+const {version: installedVersion, isDev: isDevBuild} =
+	resolveDisplayVersion(pappardelleDir);
 
 // Kick off the update check asynchronously — never blocks startup, fails silent.
 // safeCheckForUpdate swallows all errors, so the promise will only ever

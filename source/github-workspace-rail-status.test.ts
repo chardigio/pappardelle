@@ -117,7 +117,7 @@ test('partial repository failure preserves the whole workspace, not independent 
 				? [
 						{project: 'org/a', branch: 'one'},
 						{project: 'org/b', branch: 'two'},
-				  ]
+					]
 				: [{project: 'org/a', branch: 'three'}],
 	);
 	const result = await provider.getBulkRailStatus(['a', 'b'], paths);

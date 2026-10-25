@@ -349,11 +349,8 @@ export function renderListView(
 	termHeight: number,
 	width: number,
 ): string {
-	const {
-		scrollOffset,
-		visibleCount,
-		adjustedSelectedIndex,
-	} = calculateVisibleWindow(selectedIndex, items.length, termHeight);
+	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
+		calculateVisibleWindow(selectedIndex, items.length, termHeight);
 
 	const visibleItems = items.slice(scrollOffset, scrollOffset + visibleCount);
 	const rows: string[] = [];
