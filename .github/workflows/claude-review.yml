@@ -35,3 +35,16 @@ jobs:
       - uses: sddamico/claude-review@main
         with:
           anthropic-federation-rule-id: fdrl_01WVxMn1oPkYEh13DtYcBgd7
+          # The action adds the "**<severity>:**" label and the validation
+          # line to each comment itself, so a body that also starts with the
+          # label shows it two times. These rules control only how the agent
+          # turns the /code-review output into comments.
+          extra-instructions: |
+            Format each inline comment like this:
+            - Do not start the body with the severity ("bug:", "risk:", "nit:"), in bold or not. The action adds that label.
+            - Start with one bold sentence that states the problem. Then give the failure scenario and the fix in a few short lines. Do not repeat the file name or line number.
+            - When the fix is a direct edit of the lines that the comment covers, add a GitHub suggestion block (```suggestion) after the text. The block replaces lines start_line through line (or only line) in full, so it must hold every one of those lines as they must read after the fix, with the same indentation, and nothing else. Set start_line when the fix covers more than one line. Do not add a suggestion block when the fix touches other lines or files, or when you are not sure that it is correct.
+            Format the summary like this:
+            - One or two sentences. Do not repeat or list the findings that are inline comments.
+            - Give a finding that is not an inline comment as one short bullet with its verdict.
+            - In the "Earlier findings" list, show only the findings that are still open, each in a few words. Give the number that are fixed or no longer relevant as one line.
