@@ -84,7 +84,7 @@ test('a lock that cannot be created says why instead of throwing', t => {
 	const lock = tryRestartLock(dir, 'app');
 
 	t.false(lock.held);
-	t.regex(lock.held ? '' : (lock.error ?? ''), /^E(EXIST|NOTDIR)/);
+	t.regex(lock.held ? '' : lock.error ?? '', /^E(EXIST|NOTDIR)/);
 });
 
 test("a starting TUI clears its predecessor's lock but not a live restart's", t => {

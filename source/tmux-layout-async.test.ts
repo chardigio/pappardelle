@@ -110,7 +110,11 @@ test.serial(
 		}
 		const median = (values: number[]) => values.sort((a, b) => a - b)[1]!;
 		t.log(
-			`isolated tmux zoom readiness: ${median(before).toFixed(1)} ms with old 100ms wait, ${median(after).toFixed(1)} ms with confirmed geometry`,
+			`isolated tmux zoom readiness: ${median(before).toFixed(
+				1,
+			)} ms with old 100ms wait, ${median(after).toFixed(
+				1,
+			)} ms with confirmed geometry`,
 		);
 		await setPaneZoom(pane, true, run);
 		t.deepEqual(await getPaneDimensions(pane, run), {cols: 220, rows: 50});

@@ -14,7 +14,9 @@ test('slow gh/glab lookups keep timers running and opening an MR never fetches a
 			`#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
-fs.appendFileSync(process.env.VCS_CALLS, JSON.stringify({command: ${JSON.stringify(command)}, args, host: process.env.GITLAB_HOST}) + '\\n');
+fs.appendFileSync(process.env.VCS_CALLS, JSON.stringify({command: ${JSON.stringify(
+				command,
+			)}, args, host: process.env.GITLAB_HOST}) + '\\n');
 setTimeout(() => {
   if (${JSON.stringify(command)} === 'glab') {
     if (args[1] !== 'list') process.exit(20);

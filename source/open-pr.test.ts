@@ -76,7 +76,9 @@ test('a superseded lookup failure does not replace a newer action message', asyn
 });
 
 for (const fails of [false, true]) {
-	test(`late browser ${fails ? 'failure' : 'success'} does not replace a newer action message`, async t => {
+	test(`late browser ${
+		fails ? 'failure' : 'success'
+	} does not replace a newer action message`, async t => {
 		const launch = deferred<void>();
 		const started = deferred<void>();
 		let current = true;
@@ -133,8 +135,8 @@ for (const outcome of [
 			outcome === 'missing'
 				? 'No PR found for STA-1'
 				: outcome === 'lookup failure'
-					? 'Failed to look up PR'
-					: 'Could not launch open',
+				? 'Failed to look up PR'
+				: 'Could not launch open',
 		]);
 	});
 }

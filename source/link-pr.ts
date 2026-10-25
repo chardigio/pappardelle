@@ -65,7 +65,7 @@ export async function linkPr(
 	)
 		throw new Error('Expected an HTTPS GitHub PR or GitLab MR URL');
 	const [, target, kind, id] = match;
-	const host = kind === 'pull' ? url.host : (options.gitlabHost ?? url.host);
+	const host = kind === 'pull' ? url.host : options.gitlabHost ?? url.host;
 	let project: string;
 	let remoteBranch: string;
 	if (kind === 'pull') {

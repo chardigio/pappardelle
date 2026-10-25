@@ -37,7 +37,9 @@ function makeFakeEditor(dir: string): {bin: string; argsFile: string} {
 	const argsFile = path.join(dir, 'args.txt');
 	fs.writeFileSync(
 		bin,
-		`#!/bin/bash\nfor a in "$@"; do printf '%s\\n' "$a" >> ${JSON.stringify(argsFile)}; done\n`,
+		`#!/bin/bash\nfor a in "$@"; do printf '%s\\n' "$a" >> ${JSON.stringify(
+			argsFile,
+		)}; done\n`,
 		{mode: 0o755},
 	);
 	return {bin, argsFile};

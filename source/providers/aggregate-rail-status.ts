@@ -19,10 +19,10 @@ export function aggregateRailStatus(statuses: RailStatus[]): RailStatus {
 				? 'progressing_dirty'
 				: 'progressing_clean'
 			: failing
-				? 'failing'
-				: prs.some(status => status.pipeline !== null)
-					? 'passing'
-					: null,
+			? 'failing'
+			: prs.some(status => status.pipeline !== null)
+			? 'passing'
+			: null,
 		unresolvedCommentCount: prs.reduce(
 			(count, status) => count + status.unresolvedCommentCount,
 			0,

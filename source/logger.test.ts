@@ -105,7 +105,9 @@ test.serial('pruneExpiredErrors prunes at exactly 5 minutes', t => {
 
 type Captured = {written: string[]; logged: string[]};
 
-function buildInterceptor(passthrough: () => boolean): {
+function buildInterceptor(
+	passthrough: () => boolean,
+): {
 	interceptor: ReturnType<typeof makeStderrInterceptor>;
 	captured: Captured;
 } {

@@ -45,8 +45,7 @@ export function isIssueNumber(input: string): boolean {
 	return /^\d+$/.test(input.trim());
 }
 
-const LINEAR_URL_ISSUE_KEY =
-	/^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
+const LINEAR_URL_ISSUE_KEY = /^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
 
 /**
  * Extract the team prefix an issue identifier belongs to (e.g. 'STA' for

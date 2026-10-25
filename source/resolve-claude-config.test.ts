@@ -391,19 +391,23 @@ profiles:
 maybeMacro(
 	'home config provides defaults when project has no claude section',
 	t => {
-		const {configPath, localConfigPath, homeConfigPath, cleanup} =
-			setupConfigFiles(
-				`version: 1
+		const {
+			configPath,
+			localConfigPath,
+			homeConfigPath,
+			cleanup,
+		} = setupConfigFiles(
+			`version: 1
 profiles:
   test:
     display_name: Test
 `,
-				undefined,
-				`claude:
+			undefined,
+			`claude:
   dangerously_skip_permissions: true
   initialization_command: "/dow"
 `,
-			);
+		);
 		try {
 			const result = runResolver(configPath, localConfigPath, homeConfigPath);
 			t.is(result.skip_permissions, 'true');
@@ -415,9 +419,13 @@ profiles:
 );
 
 maybeMacro('project config overrides home config', t => {
-	const {configPath, localConfigPath, homeConfigPath, cleanup} =
-		setupConfigFiles(
-			`version: 1
+	const {
+		configPath,
+		localConfigPath,
+		homeConfigPath,
+		cleanup,
+	} = setupConfigFiles(
+		`version: 1
 claude:
   dangerously_skip_permissions: false
   initialization_command: "/idow"
@@ -425,12 +433,12 @@ profiles:
   test:
     display_name: Test
 `,
-			undefined,
-			`claude:
+		undefined,
+		`claude:
   dangerously_skip_permissions: true
   initialization_command: "/dow"
 `,
-		);
+	);
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
 		t.is(result.skip_permissions, 'false');
@@ -441,9 +449,13 @@ profiles:
 });
 
 maybeMacro('local config overrides both home and project config', t => {
-	const {configPath, localConfigPath, homeConfigPath, cleanup} =
-		setupConfigFiles(
-			`version: 1
+	const {
+		configPath,
+		localConfigPath,
+		homeConfigPath,
+		cleanup,
+	} = setupConfigFiles(
+		`version: 1
 claude:
   dangerously_skip_permissions: false
   initialization_command: "/idow"
@@ -451,15 +463,15 @@ profiles:
   test:
     display_name: Test
 `,
-			`claude:
+		`claude:
   dangerously_skip_permissions: true
   initialization_command: "/do-stardust"
 `,
-			`claude:
+		`claude:
   dangerously_skip_permissions: false
   initialization_command: "/dow"
 `,
-		);
+	);
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
 		t.is(result.skip_permissions, 'true');
@@ -470,22 +482,26 @@ profiles:
 });
 
 maybeMacro('partial overrides at each layer merge correctly', t => {
-	const {configPath, localConfigPath, homeConfigPath, cleanup} =
-		setupConfigFiles(
-			`version: 1
+	const {
+		configPath,
+		localConfigPath,
+		homeConfigPath,
+		cleanup,
+	} = setupConfigFiles(
+		`version: 1
 claude:
   initialization_command: "/idow"
 profiles:
   test:
     display_name: Test
 `,
-			`claude:
+		`claude:
   dangerously_skip_permissions: true
 `,
-			`claude:
+		`claude:
   dangerously_skip_permissions: false
 `,
-		);
+	);
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
 		// init_cmd from project (/idow), skip_permissions from local (true)

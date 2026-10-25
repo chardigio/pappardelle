@@ -64,7 +64,7 @@ function headerLines(width: number, fixed: boolean): string[] {
 				Box,
 				{height: 1, overflowX: 'hidden'},
 				React.createElement(Box, {flexShrink: 0}, ...children),
-			)
+		  )
 		: React.createElement(Box, null, ...children);
 	const {lastFrame} = render(React.createElement(Box, {width}, header));
 	return (lastFrame() ?? '').replace(/\n+$/, '').split('\n');
@@ -131,7 +131,7 @@ function searchLines(width: number, fixed: boolean): string[] {
 				...children.map((child, index) =>
 					React.createElement(Box, {key: index, flexShrink: 0}, child),
 				),
-			)
+		  )
 		: React.createElement(React.Fragment, null, ...children);
 	const line = React.createElement(
 		Box,

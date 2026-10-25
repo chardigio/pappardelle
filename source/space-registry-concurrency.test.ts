@@ -45,12 +45,16 @@ test.serial(
 					'--input-type=module',
 					'-e',
 					`
-import {setRegistryPath, addSpace, removeSpace, tryReserveWatchlistSlots} from ${JSON.stringify(registryUrl)};
+import {setRegistryPath, addSpace, removeSpace, tryReserveWatchlistSlots} from ${JSON.stringify(
+						registryUrl,
+					)};
 setRegistryPath(${JSON.stringify(file)});
 const keys = Array.from({length:30}, (_, i) => ${JSON.stringify(prefix)} + i);
 await Promise.all(keys.map(key => addSpace(key)));
 await Promise.all(keys.filter((_, i) => i % 2 === 0).map(key => removeSpace(key)));
-const slots = await tryReserveWatchlistSlots('shared', keys.map(key => 'watch-' + key), 3, {pid:${process.pid}});
+const slots = await tryReserveWatchlistSlots('shared', keys.map(key => 'watch-' + key), 3, {pid:${
+						process.pid
+					}});
 console.log(JSON.stringify(slots));
 `,
 				],
@@ -86,7 +90,11 @@ test.serial(
 		const lock = `${file}.lock`;
 		await exec(process.execPath, [
 			'-e',
-			`const fs = require('node:fs'); fs.mkdirSync(${JSON.stringify(lock)}); fs.writeFileSync(${JSON.stringify(lock)} + '/' + process.pid + '-abcdef', '');`,
+			`const fs = require('node:fs'); fs.mkdirSync(${JSON.stringify(
+				lock,
+			)}); fs.writeFileSync(${JSON.stringify(
+				lock,
+			)} + '/' + process.pid + '-abcdef', '');`,
 		]);
 		await addSpace('recovered');
 		t.deepEqual(getRegisteredSpaces(), ['recovered']);

@@ -132,7 +132,7 @@ export function mapJiraIssue(raw: Record<string, unknown>): TrackerIssue {
 			? {
 					name: project['name'] as string,
 					...(typeof project['key'] === 'string' ? {key: project['key']} : {}),
-				}
+			  }
 			: null,
 		labels,
 	};
@@ -338,11 +338,10 @@ export class JiraProvider implements IssueTrackerProvider {
 			// moves get aliased back to the requested key, and misses cache null.
 			const unresolved = issueKeys.filter(key => !found.has(key));
 			if (unresolved.length > 0) {
-				const tasks = unresolved.map(
-					key => async () =>
-						this.getIssue(key).then(
-							issue => [key, issue] as [string, TrackerIssue | null],
-						),
+				const tasks = unresolved.map(key => async () =>
+					this.getIssue(key).then(
+						issue => [key, issue] as [string, TrackerIssue | null],
+					),
 				);
 				const fetched = await pLimit(tasks, 3);
 				for (const entry of fetched) {
@@ -368,11 +367,10 @@ export class JiraProvider implements IssueTrackerProvider {
 		}
 
 		// Fallback: individual getIssue() calls with concurrency limit
-		const tasks = issueKeys.map(
-			key => async () =>
-				this.getIssue(key).then(
-					issue => [key, issue] as [string, TrackerIssue | null],
-				),
+		const tasks = issueKeys.map(key => async () =>
+			this.getIssue(key).then(
+				issue => [key, issue] as [string, TrackerIssue | null],
+			),
 		);
 		const fetched = await pLimit(tasks, 3);
 		for (const entry of fetched) {
@@ -462,7 +460,9 @@ export class JiraProvider implements IssueTrackerProvider {
 
 			if (results.length > 0) {
 				log.info(
-					`Watchlist results: ${results.map(i => `${i.identifier} (${i.state.name})`).join(', ')}`,
+					`Watchlist results: ${results
+						.map(i => `${i.identifier} (${i.state.name})`)
+						.join(', ')}`,
 				);
 			} else {
 				log.info('Watchlist results: none');

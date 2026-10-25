@@ -33,6 +33,7 @@ import {
 	focusFrame,
 	handleProfilePickerKey,
 	handleProfileSearchKey,
+	profilePickerHint,
 	resolvePromptSubmit,
 	PICKER_MAX_VISIBLE,
 	type ProfileOption,
@@ -189,7 +190,9 @@ export default function PromptDialog({
 		() => filterProfileOptions(options, searchQuery),
 		[options, searchQuery],
 	);
-	const isSearching = isPicking && (isSearchEditing || searchQuery !== '');
+	// Trimmed like the filter itself, so a blank query never counts as a filter.
+	const hasFilter = searchQuery.trim() !== '';
+	const isSearching = isPicking && (isSearchEditing || hasFilter);
 	const resetSearch = () => {
 		setSearchQuery('');
 		setIsSearchEditing(false);
@@ -275,7 +278,7 @@ export default function PromptDialog({
 			const result = handleProfilePickerKey(input, key, {
 				index: selectedIndex,
 				total: visibleOptions.length,
-				hasFilter: searchQuery !== '',
+				hasFilter,
 			});
 			switch (result.action) {
 				case 'move': {
@@ -591,11 +594,13 @@ function ProfilePicker({
 					</Box>
 				) : null}
 				{search ? (
-					<Box>
+					// One row whatever the query's length: the layout counts it as one,
+					// and the end of the query is the part you are typing.
+					<Text wrap="truncate-start">
 						<Text color="green">/</Text>
-						<Text>{search.query}</Text>
+						{search.query}
 						{search.isEditing ? <Text inverse> </Text> : null}
-					</Box>
+					</Text>
 				) : null}
 				{search && options.length === 0 ? (
 					<Text dimColor italic>
@@ -651,20 +656,12 @@ function ProfilePicker({
 			{isFocused ? (
 				<Box paddingX={2}>
 					<Text dimColor>
-						{search?.isEditing ? (
-							<>
-								type to filter · <Text color="green">↑/↓</Text> select ·{' '}
-								<Text color="green">Enter</Text> lock ·{' '}
-								<Text color="yellow">Esc</Text> clear
-							</>
-						) : (
-							<>
-								<Text color="green">↑/↓</Text> select ·{' '}
-								<Text color="green">Enter</Text> start ·{' '}
-								<Text color="green">/</Text> {search ? 'edit' : 'search'} ·{' '}
-								<Text color="yellow">Esc</Text> {search ? 'clear' : 'back'}
-							</>
-						)}
+						{profilePickerHint(search).map((segment, index) => (
+							<React.Fragment key={segment.key}>
+								{index > 0 ? ' · ' : ''}
+								<Text color={segment.color}>{segment.key}</Text> {segment.label}
+							</React.Fragment>
+						))}
 					</Text>
 				</Box>
 			) : null}

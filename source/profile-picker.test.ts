@@ -5,10 +5,12 @@ import {
 	filterProfileOptions,
 	handleProfilePickerKey,
 	handleProfileSearchKey,
+	profilePickerHint,
 	resolvePromptSubmit,
 	focusFrame,
 	PICKER_MAX_VISIBLE,
 } from './profile-picker.ts';
+import {MAX_LIST_WIDTH} from './layout-sizing.ts';
 import {
 	DEFERRED_PROFILE_DISPLAY_NAME,
 	type PappardelleConfig,
@@ -869,4 +871,50 @@ test('handleProfileSearchKey ignores modified keys and Tab', t => {
 			action: 'ignore',
 		},
 	);
+});
+
+test('handleProfilePickerKey keeps the index at 0 when a locked filter matches nothing', t => {
+	t.deepEqual(handleProfilePickerKey('j', KEY.none, {index: 0, total: 0}), {
+		action: 'move',
+		index: 0,
+	});
+});
+
+test('handleProfileSearchKey closes the search when Enter locks a blank query', t => {
+	// A blank filter hides nothing, so locking it would leave a search row and
+	// an "Esc clear" hint on screen for a filter that does not exist.
+	t.deepEqual(
+		handleProfileSearchKey('', KEY.enter, '  ', {index: 0, total: 3}),
+		{
+			action: 'cancel',
+		},
+	);
+});
+
+test('profilePickerHint fits the 40-column list pane in every mode', t => {
+	// The hint sits in a Box with paddingX={2}. A wrapped hint takes a row the
+	// dialog layout does not count, and the dialog overflows its pane.
+	const room = MAX_LIST_WIDTH - 4;
+	for (const search of [null, {isEditing: true}, {isEditing: false}] as const) {
+		const text = profilePickerHint(search)
+			.map(segment => `${segment.key} ${segment.label}`)
+			.join(' · ');
+		t.true(text.length <= room, `${text} (${text.length} > ${room})`);
+	}
+});
+
+test('profilePickerHint says what / and Esc do in each mode', t => {
+	const labels = (search: Parameters<typeof profilePickerHint>[0]) =>
+		profilePickerHint(search).map(segment => `${segment.key} ${segment.label}`);
+	t.deepEqual(labels(null), ['Enter start', '/ search', 'Esc back']);
+	t.deepEqual(labels({isEditing: false}), [
+		'Enter start',
+		'/ edit',
+		'Esc clear',
+	]);
+	t.deepEqual(labels({isEditing: true}), [
+		'↑/↓ select',
+		'Enter lock',
+		'Esc clear',
+	]);
 });

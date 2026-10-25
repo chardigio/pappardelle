@@ -33,12 +33,12 @@ function makeConfig(
 }
 
 function makeIssue(projectName: string | undefined): TrackerIssue {
-	return {
+	return ({
 		identifier: 'STA-1',
 		title: 't',
 		state: {name: 'In Progress', color: '#fff'},
 		project: projectName ? {name: projectName} : undefined,
-	} as unknown as TrackerIssue;
+	} as unknown) as TrackerIssue;
 }
 
 test('async emoji resync honors persisted profiles and backfills without dropping other state', async t => {

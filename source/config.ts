@@ -1126,7 +1126,7 @@ export function validateConfig(
  */
 const CLAUDE_LAUNCH_FIELDS = ['model', 'effort'] as const;
 
-type ClaudeLaunchField = (typeof CLAUDE_LAUNCH_FIELDS)[number];
+type ClaudeLaunchField = typeof CLAUDE_LAUNCH_FIELDS[number];
 
 /**
  * Validate the pass-through launch flags in a `claude:` block.
@@ -1838,8 +1838,7 @@ export function matchProfilesByInputKeyPrefix(
 // same profile decision too.
 const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/i;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
-const DETERMINE_PROFILE_LINEAR_URL =
-	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/i;
+const DETERMINE_PROFILE_LINEAR_URL = /^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/i;
 
 /**
  * Label shown in the TUI when profile selection is deferred to idow's
@@ -1939,7 +1938,9 @@ export function determineProfileForInput(
  * Get the default profile.
  * Uses `default_profile` if set, otherwise falls back to the first profile.
  */
-export function getDefaultProfile(config: PappardelleConfig): {
+export function getDefaultProfile(
+	config: PappardelleConfig,
+): {
 	name: string;
 	profile: Profile;
 } {

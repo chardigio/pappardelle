@@ -29,9 +29,13 @@ function trackerInFreshProcess(bootstrap: boolean): string {
 		);
 		const script = [
 			bootstrap
-				? `const {bootstrapRepo} = await import(${JSON.stringify(path.join(here, 'repo-bootstrap.ts'))}); bootstrapRepo();`
+				? `const {bootstrapRepo} = await import(${JSON.stringify(
+						path.join(here, 'repo-bootstrap.ts'),
+				  )}); bootstrapRepo();`
 				: '',
-			`const {createIssueTracker} = await import(${JSON.stringify(path.join(here, 'providers', 'index.ts'))});`,
+			`const {createIssueTracker} = await import(${JSON.stringify(
+				path.join(here, 'providers', 'index.ts'),
+			)});`,
 			'console.log(createIssueTracker().name);',
 		].join('\n');
 		return execFileSync(

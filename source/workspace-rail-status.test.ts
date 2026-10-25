@@ -25,7 +25,7 @@ test('workspace repos and actual branches are batched across projects and aggreg
 					{project: 'rex/agent', branch: 'sd-RXAI-197-feature'},
 					{project: 'rex/catalyst', branch: 'sd-ui'},
 					{project: 'rex/agent', branch: 'sd-RXAI-197-feature'},
-				]
+			  ]
 			: [{project: 'rex/agent', branch: 'sd-other'}];
 	const provider = new GitLabProvider(
 		undefined,
@@ -98,7 +98,7 @@ test('failed project preserves entire workspace while independent workspace upda
 			? [
 					{project: 'rex/a', branch: 'one'},
 					{project: 'rex/b', branch: 'two'},
-				]
+			  ]
 			: [{project: 'rex/a', branch: 'three'}];
 	const provider = new GitLabProvider(
 		undefined,

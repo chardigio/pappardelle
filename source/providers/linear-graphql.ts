@@ -217,7 +217,7 @@ async function fetchBatch(
 export function makeLinearGraphQLClient(
 	opts: LinearGraphQLClientOptions,
 ): LinearGraphQLClient {
-	const fetchImpl = opts.fetchImpl ?? (fetch as unknown as FetchLike);
+	const fetchImpl = opts.fetchImpl ?? ((fetch as unknown) as FetchLike);
 	const batchSize = opts.batchSize ?? BULK_BATCH_SIZE;
 	const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
 

@@ -104,8 +104,12 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 		}
 
 		case 'help': {
-			const {customKeybindings, commitSha, installedVersion, isDevBuild} =
-				spec.props;
+			const {
+				customKeybindings,
+				commitSha,
+				installedVersion,
+				isDevBuild,
+			} = spec.props;
 			const rows = buildHelpRows(customKeybindings);
 			const shortcutRows = [...rows.fixed, ...rows.overridable];
 			const customRows = rows.extraCustom;

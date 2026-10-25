@@ -71,7 +71,9 @@ function fakeNodeScript(version: string): string {
 	return `#!/bin/bash
 case "$1" in
 	-p)
-		if [[ "$2" == *execPath* ]]; then echo "$0"; else echo "${version.split('.')[0]!}"; fi
+		if [[ "$2" == *execPath* ]]; then echo "$0"; else echo "${version.split(
+			'.',
+		)[0]!}"; fi
 		;;
 	--version) echo "v${version}" ;;
 esac

@@ -163,7 +163,7 @@ test('validateConfig accepts an explicit empty string (means "no flag")', t => {
 
 test('validateConfig rejects a non-string top-level model', t => {
 	const config = makeConfig({
-		claude: {model: 5 as unknown as string},
+		claude: {model: (5 as unknown) as string},
 	});
 	const error = t.throws(
 		() => {
@@ -176,7 +176,7 @@ test('validateConfig rejects a non-string top-level model', t => {
 
 test('validateConfig rejects a non-string top-level effort', t => {
 	const config = makeConfig({
-		claude: {effort: true as unknown as string},
+		claude: {effort: (true as unknown) as string},
 	});
 	const error = t.throws(
 		() => {
@@ -193,8 +193,8 @@ test('validateConfig rejects a non-string per-profile model/effort', t => {
 	const config = makeConfig(
 		{},
 		{
-			model: 1 as unknown as string,
-			effort: [] as unknown as string,
+			model: (1 as unknown) as string,
+			effort: ([] as unknown) as string,
 		},
 	);
 	const error = t.throws(
@@ -359,8 +359,8 @@ test('validateConfig accepts extra_args at top level and per profile', t => {
 
 test('validateConfig rejects extra_args that is not a list of strings', t => {
 	const config = makeConfig(
-		{claude: {extra_args: '--no-chrome' as unknown as string[]}},
-		{extra_args: ['--tools', 5] as unknown as string[]},
+		{claude: {extra_args: ('--no-chrome' as unknown) as string[]}},
+		{extra_args: (['--tools', 5] as unknown) as string[]},
 	);
 	const error = t.throws(
 		() => {

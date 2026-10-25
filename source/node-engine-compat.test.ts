@@ -99,7 +99,9 @@ for (const dep of Object.keys(rootPkg.dependencies ?? {})) {
 			return;
 		}
 
-		const message = `${dep}@${installed.version ?? '?'} requires Node "${depNode}", which excludes Node ${floorRange}. Pin a release compatible with the engines.node floor, or raise engines.node + install.sh + the README badge together.`;
+		const message = `${dep}@${
+			installed.version ?? '?'
+		} requires Node "${depNode}", which excludes Node ${floorRange}. Pin a release compatible with the engines.node floor, or raise engines.node + install.sh + the README badge together.`;
 		t.true(semver.intersects(depNode, floorRange, {loose: true}), message);
 	});
 }

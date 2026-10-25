@@ -297,7 +297,11 @@ export function handleProfilePickerKey(
 	}
 
 	if (key.downArrow || input === 'j') {
-		return {action: 'move', index: Math.min(total - 1, selectedIndex + 1)};
+		// A locked filter can leave zero rows, and the index must not go to -1.
+		return {
+			action: 'move',
+			index: Math.max(0, Math.min(total - 1, selectedIndex + 1)),
+		};
 	}
 
 	return {action: 'ignore', index: selectedIndex};
@@ -355,7 +359,8 @@ export function handleProfileSearchKey(
 	{index: selectedIndex, total}: PickerList,
 ): SearchKeyResult {
 	if (key.escape) return {action: 'cancel'};
-	if (key.return) return {action: 'lock'};
+	// A blank filter hides nothing, so there is nothing to lock.
+	if (key.return) return query.trim() ? {action: 'lock'} : {action: 'cancel'};
 
 	if (key.upArrow) {
 		return {action: 'move', index: Math.max(0, selectedIndex - 1)};
@@ -380,6 +385,37 @@ export function handleProfileSearchKey(
 	const text = input.replaceAll(/[\u0000-\u001F\u007F]/g, '');
 	if (!text) return {action: 'ignore'};
 	return {action: 'edit', query: query + text};
+}
+
+export type HintSegment = {
+	key: string;
+	label: string;
+	color: 'green' | 'yellow';
+};
+
+/**
+ * The key hint under the focused picker. It must fit on one row of the list
+ * pane (`MAX_LIST_WIDTH` less the hint's padding): the dialog layout counts it
+ * as one row, so a wrapped hint pushes the dialog past its pane. That budget is
+ * why list mode leaves out the arrows: the caret already shows that the list
+ * moves, and `/` is the key nobody would guess.
+ */
+export function profilePickerHint(
+	search: {isEditing: boolean} | null,
+): HintSegment[] {
+	if (search?.isEditing) {
+		return [
+			{key: '↑/↓', label: 'select', color: 'green'},
+			{key: 'Enter', label: 'lock', color: 'green'},
+			{key: 'Esc', label: 'clear', color: 'yellow'},
+		];
+	}
+
+	return [
+		{key: 'Enter', label: 'start', color: 'green'},
+		{key: '/', label: search ? 'edit' : 'search', color: 'green'},
+		{key: 'Esc', label: search ? 'clear' : 'back', color: 'yellow'},
+	];
 }
 
 /**

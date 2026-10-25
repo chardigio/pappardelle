@@ -22,7 +22,7 @@ const CACHE_TTL_MS = 60_000; // 60 seconds
  * slug rather than a hardcoded one.
  */
 function parseLinearIssue(raw: Record<string, unknown>): TrackerIssue {
-	const issue = raw as unknown as TrackerIssue;
+	const issue = (raw as unknown) as TrackerIssue;
 	// Extract label names from Linear's labels.nodes structure
 	const labelsObj = raw['labels'] as
 		| {nodes?: Array<{name?: string}>}
@@ -281,7 +281,9 @@ export class LinearProvider implements IssueTrackerProvider {
 		for (const status of statuses) {
 			const assigneeArgs = assignee ? ['--assignee', assignee] : [];
 			log.info(
-				`Watchlist query: linctl issue list${assignee ? ` --assignee ${assignee}` : ''} --state "${status}"`,
+				`Watchlist query: linctl issue list${
+					assignee ? ` --assignee ${assignee}` : ''
+				} --state "${status}"`,
 			);
 			try {
 				const output = await this.execCli(
@@ -324,7 +326,9 @@ export class LinearProvider implements IssueTrackerProvider {
 
 		if (results.length > 0) {
 			log.info(
-				`Watchlist results: ${results.map(i => `${i.identifier} (${i.state.name})`).join(', ')}`,
+				`Watchlist results: ${results
+					.map(i => `${i.identifier} (${i.state.name})`)
+					.join(', ')}`,
 			);
 		} else {
 			log.info('Watchlist results: none');
