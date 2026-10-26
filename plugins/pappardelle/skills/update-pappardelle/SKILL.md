@@ -33,6 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.
 
 4. After success, tell the user:
    - Pappardelle has been updated, including its plugin. Open Claude Code sessions (this one included) load the new skills and hooks after `/reload-plugins`
+   - If the output says "Could not install the Pappardelle Claude Code plugin", the CLI updated but the skills and hooks did not. Pass on the error printed above it and have the user run `pappardelle plugin install` once it's fixed
    - If the command named running TUIs, they're still on the old build. `pappardelle restart`, run in each repo, restarts that repo's TUI on the new build. It is safe to run from this session: it only touches the TUI's pane, and Claude sessions keep running
    - `pappardelle restart` ends with `pappardelle-<repo> is running <cli.js> (<commit>)`. If it exits non-zero instead, the TUI is not confirmed on the new build; pass on the reason it printed
 
