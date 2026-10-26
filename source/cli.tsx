@@ -391,12 +391,8 @@ if (isInTmux() && cli.flags.layout) {
 	// Migrate live legacy `claude-{repo}-*` sessions to their
 	// `agent-{repo}-*` names before the reap below decides what's an orphan —
 	// a rename preserves the running conversation, a reap would kill it.
-	const migrated = migrateLegacyAgentSessions();
-	if (migrated > 0) {
-		console.error(
-			`\x1b[33mPappardelle: renamed ${migrated} legacy claude-* session(s) to agent-*.\x1b[0m`,
-		);
-	}
+	// Each rename is logged at info; stderr would list them as TUI errors.
+	migrateLegacyAgentSessions();
 
 	// STA-1420: also reap inner-socket orphans whose key isn't in the registry
 	// and isn't the main worktree. These accumulate when Pappardelle is

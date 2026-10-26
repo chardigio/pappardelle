@@ -494,8 +494,7 @@ export default function PromptDialog({
 						= open workspace for existing issue
 					</Text>
 					<Text dimColor>
-						- <Text color="cyan">description</Text> = start new workspace with
-						Claude
+						- <Text color="cyan">description</Text> = start new workspace
 					</Text>
 				</Box>
 
@@ -530,8 +529,12 @@ export default function PromptDialog({
 							) : (
 								<>
 									Press <Text color="green">Enter</Text> to{' '}
-									{opensPicker ? 'choose a profile' : 'start'},{' '}
-									<Text color="yellow">Esc</Text> to cancel
+									{opensPicker
+										? preview?.kind === 'deferred' && !preview.canPick
+											? 'start or pick an agent'
+											: 'choose a profile'
+										: 'start'}
+									, <Text color="yellow">Esc</Text> to cancel
 								</>
 							)}
 						</Text>
