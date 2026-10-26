@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.
    - Network errors → suggest checking internet connectivity
 
 4. After success, tell the user:
-   - Pappardelle has been updated, including its plugin. Open Claude Code sessions (this one included) load the new skills and hooks after `/reload-plugins`
+   - Pappardelle has been updated, including its plugin. The installer sends `/reload-plugins` to Pappardelle's Claude sessions (this one runs it when the turn ends) and lists any it skipped; those, and Claude sessions outside Pappardelle, need `/reload-plugins` run by hand
    - If the command named running TUIs, they're still on the old build. `pappardelle restart`, run in each repo, restarts that repo's TUI on the new build. It is safe to run from this session: it only touches the TUI's pane, and Claude sessions keep running
    - `pappardelle restart` ends with `pappardelle-<repo> is running <build path> (<commit>)`. If it exits non-zero instead, the TUI is not confirmed on the new build; pass on the reason it printed
 
