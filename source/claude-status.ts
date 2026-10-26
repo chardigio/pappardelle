@@ -153,6 +153,30 @@ export function setClaudeStatus(
 	}
 }
 
+export function readAllSessionStates(): ClaudeSessionState[] {
+	const dir = getStatusDir();
+	let files: string[];
+	try {
+		files = readdirSync(dir);
+	} catch {
+		return [];
+	}
+
+	return files
+		.filter(file => file.endsWith('.json'))
+		.flatMap(file => {
+			try {
+				return [
+					JSON.parse(
+						readFileSync(path.join(dir, file), 'utf-8'),
+					) as ClaudeSessionState,
+				];
+			} catch {
+				return [];
+			}
+		});
+}
+
 /**
  * Find the index of a space matching a status file workspace name.
  * Uses statusKey (repo-qualified) when present, falls back to name.
