@@ -80,7 +80,8 @@ fi
 # encoding matches start-agent-session.sh; see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
-TMUX_SESSION="agent-${REPO_NAME}-${SESSION_KEY}"
+SESSION_REPO="${REPO_NAME//[.:]/_}"
+TMUX_SESSION="agent-${SESSION_REPO}-${SESSION_KEY}"
 
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
@@ -154,7 +155,7 @@ else
     AGENT_LINE="${AGENT_PREFIX} '${AGENT_PROMPT}'\""
 fi
 
-COMPANION_SESSION="companion-${REPO_NAME}-${SESSION_KEY}"
+COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"
 COMPANION_ASSIGN=""
 COMPANION_START="${TMUX_L} new-session -A -s '${COMPANION_SESSION}'"
 if [[ -n "$COMPANION_COMMAND" ]]; then
@@ -172,7 +173,7 @@ fi
 
 # The viewer session sits on the default socket, so its panes can attach to the
 # inner socket without tmux's nesting check rejecting them.
-VIEW_SESSION="pappardelle-view-${REPO_NAME}-${SESSION_KEY}"
+VIEW_SESSION="pappardelle-view-${SESSION_REPO}-${SESSION_KEY}"
 
 # Kept under $HOME rather than mktemp: `open` returns as soon as the terminal is
 # handed the file, so deleting it here would race the shell that has to read it.

@@ -141,11 +141,15 @@ elif [[ "$AGENT_IS_CLAUDE" != "true" && "$AGENT_IS_CLAUDE" != "false" ]]; then
     exit 1
 fi
 
+# tmux 3.6 and older store '.' and ':' in a session name as '_', so names are
+# built in that spelling to read back the same on every release. The key's '_'
+# is doubled first so the space key can be recovered from the name.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
-AGENT_SESSION="agent-${REPO_NAME}-${SESSION_KEY}"
-LEGACY_AGENT_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
-COMPANION_SESSION="companion-${REPO_NAME}-${SESSION_KEY}"
+SESSION_REPO="${REPO_NAME//[.:]/_}"
+AGENT_SESSION="agent-${SESSION_REPO}-${SESSION_KEY}"
+LEGACY_AGENT_SESSION="claude-${SESSION_REPO}-${SESSION_KEY}"
+COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"
 # Session lookups use `=NAME` targets: a bare name falls back to prefix
 # matching when no session has it exactly, so STA-1's checks would find (and
 # the legacy rename would take) STA-12's sessions.
