@@ -192,6 +192,7 @@ import {
 	writeSpaceState,
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
+	getSpaceStateDir,
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {
@@ -1167,7 +1168,10 @@ export default function App({
 	};
 
 	const handleConfigMigration = (approved: ConfigMigration[]) => {
-		const outcome = confirmConfigMigrations(approved);
+		const outcome = confirmConfigMigrations(
+			approved,
+			getSpaceStateDir(repoName),
+		);
 		switch (outcome.kind) {
 			case 'rewritten': {
 				setHeaderWithTimeout('Config rewritten', 4000);
