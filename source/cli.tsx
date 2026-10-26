@@ -249,7 +249,7 @@ function resolveCliSpaceKey(rawKey: string): string {
 	);
 }
 
-// Handle `pappardelle send STA-XXX text` — submit a prompt to a space's Claude
+// Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
 	const rawKey = cli.input[1];
 	let text = cli.input.slice(2).join(' ');
