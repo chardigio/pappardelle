@@ -884,7 +884,7 @@ if [[ "$FRESH_WORKSPACE" == true ]]; then
     AGENT_RESUME_ARGS=""
 elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
     RECORDED_SESSION_ID=$(jq -r --arg profile "$AGENT_PROFILE" \
-        '.[$profile].session_id? // ""' \
+        '.[$profile].session_id? | strings' \
         "$AGENT_SESSIONS_FILE" 2>/dev/null || true)
     if [[ "$RECORDED_SESSION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
         AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//\{session_id\}/$RECORDED_SESSION_ID}"

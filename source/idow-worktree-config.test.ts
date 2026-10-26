@@ -743,6 +743,14 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), '');
 
+	// A hand-edited, non-string id is skipped, as the TUI does.
+	fs.writeFileSync(
+		sessionsPath,
+		JSON.stringify({codex: {session_id: 123, pid: 1}}),
+	);
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), '');
+
 	// An override launch resumes its own agent profile's conversation, and the
 	// profile's agent still finds its own afterwards.
 	record({codex: 'thread-1', claude: 'thread-2'});
