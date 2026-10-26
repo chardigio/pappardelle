@@ -41,6 +41,7 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
 	getRegisteredSpaces,
@@ -293,10 +294,6 @@ export function getSessionNames(
  * single quotes and escapes any embedded single quotes via the classic
  * `'\''` trick.
  */
-export function shellQuote(value: string): string {
-	return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
 /**
  * Argv that runs `command` as a tmux pane's process instead of typing it at a
  * prompt, so it never lands in the user's shell history (pappardelle-2i0).

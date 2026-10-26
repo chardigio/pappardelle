@@ -11,8 +11,8 @@ import {
 	isInTmux,
 	isOnInnerServer,
 	type OuterTmuxRunner,
-	shellQuote,
 } from './tmux.ts';
+import {shellQuote} from './shell-quote.ts';
 import {
 	listRunningTuis,
 	listSessionNames,

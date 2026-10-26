@@ -18,6 +18,7 @@ import {
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
+import {shellQuote} from './shell-quote.ts';
 
 // ============================================================================
 // Types
@@ -2689,9 +2690,7 @@ function builtinLaunchTemplates(
  * way, which keeps TUI- and idow-created launch lines identical.
  */
 export function quoteLaunchValue(value: string): string {
-	return /^[A-Za-z0-9._-]+$/.test(value)
-		? value
-		: `'${value.replace(/'/g, `'\\''`)}'`;
+	return /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
 }
 
 /**

@@ -5,11 +5,8 @@ import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {restartRepo, type RestartCommandDeps} from './restart-command.ts';
-import {
-	defaultServerTmuxEnv,
-	defaultServerTmuxRunner,
-	shellQuote,
-} from './tmux.ts';
+import {defaultServerTmuxEnv, defaultServerTmuxRunner} from './tmux.ts';
+import {shellQuote} from './shell-quote.ts';
 
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
