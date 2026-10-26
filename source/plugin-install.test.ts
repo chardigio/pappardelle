@@ -19,7 +19,6 @@ function fakeDeps(
 		settings?: string;
 		respond?: (args: string[]) => RunResult;
 		worktree?: boolean;
-		reload?: {reloaded: string[]; skipped: string[]};
 	} = {},
 ) {
 	const calls: string[] = [];
@@ -41,7 +40,6 @@ function fakeDeps(
 			printed.push(line);
 		},
 		isLinkedWorktree: () => options.worktree ?? false,
-		reloadSessions: () => options.reload ?? {reloaded: [], skipped: []},
 	};
 	return {deps, calls, files, printed};
 }
@@ -168,33 +166,4 @@ test('warns that removing the worktree it installed from drops the plugin', t =>
 	const fromMain = fakeDeps();
 	installPlugin(fromMain.deps);
 	t.false(fromMain.printed.some(line => line.includes('git worktree')));
-});
-
-test('names the sessions it reloaded and the ones left to reload by hand', t => {
-	const {deps, printed} = fakeDeps({
-		reload: {reloaded: ['STA-1', 'STA-2'], skipped: ['STA-3']},
-	});
-	t.is(installPlugin(deps), 0);
-	t.true(
-		printed.includes(
-			'Sent /reload-plugins to 2 Pappardelle Claude sessions (STA-1, STA-2).',
-		),
-	);
-	t.true(
-		printed.includes(
-			'Run /reload-plugins by hand in STA-3, which was not at an empty prompt.',
-		),
-	);
-});
-
-test('a failed install reloads no sessions', t => {
-	let reloads = 0;
-	const {deps} = fakeDeps({respond: () => ({status: 1})});
-	deps.reloadSessions = () => {
-		reloads++;
-		return {reloaded: [], skipped: []};
-	};
-
-	t.is(installPlugin(deps), 1);
-	t.is(reloads, 0);
 });
