@@ -279,28 +279,39 @@ cleanup; unset TMPDIR_ROOT
 # it — the two resolvers disagreeing is the exact failure this file exists to
 # prevent.
 
-echo -e "\n${BOLD}Test: idow passes the home layer to the resolver${RESET}"
-# `|| true` on both counts: grep -c exits 1 when it matches nothing, and this
-# file runs under `set -e`. Without it the regression case this test exists to
-# catch — zero calls carrying --home-config — kills the suite mid-test instead
-# of failing it, printing no FAIL line, no summary, and silently skipping every
-# test block below.
+echo -e "\n${BOLD}Test: idow passes its merged snapshot to the resolver${RESET}"
 IDOW_CALLS=$(grep -c 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" || true)
-IDOW_HOME_CALLS=$(grep 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" | grep -c -- '--home-config' || true)
-assert_eq "every idow resolver call passes --home-config" "$IDOW_CALLS" "$IDOW_HOME_CALLS"
+IDOW_MERGED_CALLS=$(grep 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" | grep -c -- '--config "$CONFIG_PATH"' || true)
+assert_eq "every idow resolver call reuses the merged config" "$IDOW_CALLS" "$IDOW_MERGED_CALLS"
 assert_eq "idow's home path matches getDefaultHomeConfigDir()" \
     'HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"' \
     "$(grep -o 'HOME_CONFIG_PATH="\$HOME/[^"]*"' "$SCRIPT_DIR/idow" | head -1)"
 
-echo -e "\n${BOLD}Test: idow splits extra_args into one argument each${RESET}"
+echo -e "\n${BOLD}Test: idow reads the launch fields and extra_args in one pass${RESET}"
 # The function runs on its own: pulled out of idow and evaluated here, so the test
 # runs the real code without tmux or a git repo.
-eval "$(sed -n '/^read_claude_extra_args() {/,/^}/p' "$SCRIPT_DIR/idow")"
-read_claude_extra_args '{"extra_args":["--tools","Bash,Read","two words"]}'
+eval "$(sed -n '/^read_claude_launch_config() {/,/^}/p' "$SCRIPT_DIR/idow")"
+read_claude_launch_config '{"init_cmd":"/do","skip_permissions":"true","model":"opus","effort":"high","companion_command":"lazygit","extra_args":["--tools","Bash,Read","two words"]}'
+assert_eq "init command" "/do" "$INIT_CMD"
+assert_eq "skip permissions" "true" "$SKIP_PERMISSIONS"
+assert_eq "model" "opus" "$CLAUDE_MODEL"
+assert_eq "effort" "high" "$CLAUDE_EFFORT"
+assert_eq "companion command" "lazygit" "$COMPANION_COMMAND"
 assert_eq "three elements" "3" "${#CLAUDE_EXTRA_ARGS[@]}"
+assert_eq "a value with a comma stays one argument" "Bash,Read" "${CLAUDE_EXTRA_ARGS[1]}"
 assert_eq "a value with a space stays one argument" "two words" "${CLAUDE_EXTRA_ARGS[2]}"
-read_claude_extra_args '{"extra_args":[]}'
+read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"","effort":"","companion_command":"","extra_args":["--append-system-prompt","line one\nline two"]}'
+assert_eq "a value with a newline stays one argument" "2" "${#CLAUDE_EXTRA_ARGS[@]}"
+assert_eq "the newline survives" "line one
+line two" "${CLAUDE_EXTRA_ARGS[1]}"
+read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"","effort":"","companion_command":"","extra_args":["blockarg\n"]}'
+assert_eq "a block-scalar arg loses its trailing newline" "blockarg" "${CLAUDE_EXTRA_ARGS[0]}"
+assert_eq "an empty model reads as empty" "" "$CLAUDE_MODEL"
+read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"","effort":"","companion_command":"","extra_args":[]}'
 assert_eq "an empty list clears the earlier args" "0" "${#CLAUDE_EXTRA_ARGS[@]}"
+read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"sonnet","effort":"","companion_command":""}'
+assert_eq "a missing extra_args gives no args" "0" "${#CLAUDE_EXTRA_ARGS[@]}"
+assert_eq "fields still read without extra_args" "sonnet" "$CLAUDE_MODEL"
 
 echo -e "\n${BOLD}Test: idow passes extra_args to the session and to the launcher${RESET}"
 # Inspection, as above: a loop that skipped one call site would start the tmux session
@@ -309,8 +320,6 @@ assert_eq "start-claude-session.sh gets --extra-arg" "1" \
     "$(grep -c 'CLAUDE_SESSION_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
 assert_eq "the terminal launcher gets --extra-arg" "1" \
     "$(grep -c 'LAUNCHER_ARGS+=(--extra-arg "\$EXTRA_ARG")' "$SCRIPT_DIR/idow" || true)"
-assert_eq "the profile re-resolve reads extra_args again" "1" \
-    "$(sed -n '/^resolve_claude_launch_flags() {/,/^}/p' "$SCRIPT_DIR/idow" | grep -c 'read_claude_extra_args "\$json"' || true)"
 
 # ==========================================================================
 
@@ -435,6 +444,39 @@ fi
 # STA-2663: claude.extra_args is a list, so it is emitted as a JSON array (not
 # stringified like model/effort). The profile list replaces the top-level one,
 # and an explicit [] on a profile clears it.
+echo -e "\n${BOLD}Test: init_cmd resolves profile-first, an empty profile value falls back${RESET}"
+setup_configs "version: 1
+claude:
+  initialization_command: /idow
+profiles:
+  backend:
+    display_name: Backend
+    claude:
+      initialization_command: /dow
+  frontend:
+    display_name: Frontend
+    claude:
+      initialization_command: \"\"
+  plain:
+    display_name: Plain"
+assert_eq "no profile → top-level" "/idow" "$(resolve | field init_cmd)"
+assert_eq "profile value wins" "/dow" "$(resolve --profile backend | field init_cmd)"
+assert_eq "empty profile value falls back" "/idow" "$(resolve --profile frontend | field init_cmd)"
+assert_eq "profile without the key inherits" "/idow" "$(resolve --profile plain | field init_cmd)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+profiles:
+  backend:
+    display_name: Backend
+    claude:
+      initialization_command: /dow"
+assert_eq "profile-only value" "/dow" "$(resolve --profile backend | field init_cmd)"
+assert_eq "unset everywhere → empty" "" "$(resolve | field init_cmd)"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: extra_args resolves profile-first as a JSON array${RESET}"
 setup_configs "version: 1
 claude:
