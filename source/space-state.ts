@@ -136,9 +136,13 @@ export function readAgentSession(
 				'utf-8',
 			),
 		);
-		const id =
+		const entry: unknown =
 			sessions && typeof sessions === 'object'
 				? (sessions as Record<string, unknown>)[agentProfile]
+				: undefined;
+		const id =
+			entry && typeof entry === 'object'
+				? (entry as Record<string, unknown>)['session_id']
 				: undefined;
 		return typeof id === 'string' ? id : undefined;
 	} catch {
