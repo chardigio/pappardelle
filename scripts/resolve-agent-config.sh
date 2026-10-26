@@ -2,7 +2,7 @@
 
 # resolve-agent-config.sh - Resolve the agent profile and claude config values with layered override support
 #
-# Usage: resolve-agent-config.sh --config <path> [--local-config <path>] [--home-config <path>] [--profile <name>] [--agent-profile <name>]
+# Usage: resolve-agent-config.sh --config <path> [--local-config <path>] [--home-config <path>] [--merged <path>] [--profile <name>] [--agent-profile <name>]
 #
 # Layers (lowest → highest priority):
 #   1. Home config    (~/.pappardelle/.pappardelle.yml) — personal defaults across all repos
@@ -20,13 +20,19 @@
 # companion_command uses.
 #
 # init_cmd and skip_permissions stay top-level-only here even when --profile is
-# given: idow layers the per-profile initialization_command itself (and has
-# since before this script was profile-aware), so resolving it here too would
-# change which layer wins. The deprecated claude.initialization_command is
+# given. The selected profile's initialization_command comes back on its own as
+# profile_init_cmd, with profile_init_cmd_set saying whether the profile sets
+# the key at all: an explicit '' clears the top-level command, which idow
+# applies. The deprecated claude.initialization_command is
 # renamed to initialization_command in each layer before the merge (see
 # merge_config_layers), so a more specific layer wins whichever spelling it
 # uses. Mirrored by getAgentProfile() in source/config.ts and pinned by
 # scripts/test-claude-model-effort.sh.
+#
+# --merged <path> is the three layers already merged by merge_config_layers,
+# which idow does once per run; values resolve from it instead of merging
+# again. The raw layers are still read for the warnings, which name the file
+# to edit, and for the init command conflict check.
 #
 # --agent-profile <name> replaces the agent_profile reference for one launch
 # (the TUI's per-session override); everything else still resolves from the
@@ -60,7 +66,7 @@
 # "" (plain shell) is preserved. Mirrors getCompanionCommand() in source/config.ts.
 #
 # Output: JSON object with resolved values:
-#   {"init_cmd": "...",
+#   {"init_cmd": "...", "profile_init_cmd_set": true|false, "profile_init_cmd": "...",
 #    "skip_permissions": "true|false", "model": "...", "effort": "...",
 #    "companion_command": "...",
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
@@ -73,6 +79,7 @@ set -eo pipefail
 CONFIG_PATH=""
 LOCAL_CONFIG_PATH=""
 HOME_CONFIG_PATH=""
+MERGED_CONFIG_PATH=""
 PROFILE=""
 AGENT_PROFILE_OVERRIDE=""
 
@@ -88,6 +95,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --home-config)
             HOME_CONFIG_PATH="$2"
+            shift 2
+            ;;
+        --merged)
+            MERGED_CONFIG_PATH="$2"
             shift 2
             ;;
         --profile)
@@ -123,31 +134,11 @@ for layer in "$HOME_CONFIG_PATH" "$CONFIG_PATH" "$LOCAL_CONFIG_PATH"; do
     [[ -n "$layer" && -f "$layer" ]] && LAYERS+=("$layer")
 done
 
-# Both spellings of the init command in one file is ambiguous; the per-layer
-# rename below would silently keep the new one. Same error as
-# initializationCommandConflictErrors() in source/config.ts, which idow never
-# runs.
-# Each check is a {prefix, conflict} row filtered by select(): yq still emits a
-# string literal piped after an empty select(), so the message must be built
-# from the surviving row. `eval` (not eval-all) keeps filename per file.
-# shellcheck disable=SC2016 # $f is yq, not shell
-INIT_CMD_CONFLICTS=$(yq eval '
-    filename as $f |
-    (
-        [{"p": "", "c": (.initialization_command != null and .claude.initialization_command != null)}] +
-        ((.profiles // {}) | to_entries | map({
-            "p": "profiles." + .key + ".",
-            "c": (.value.initialization_command != null and .value.claude.initialization_command != null)
-        }))
-    ) | .[] | select(.c) | .f = $f |
-    .f + ": " + .p + "initialization_command and " + .p + "claude.initialization_command cannot both be specified (use initialization_command)"
-' "${LAYERS[@]}")
-if [[ -n "$INIT_CMD_CONFLICTS" ]]; then
-    printf 'Error: %s\n' "$INIT_CMD_CONFLICTS" >&2
-    exit 1
+if [[ -n "$MERGED_CONFIG_PATH" ]]; then
+    RESOLVED=$(<"$MERGED_CONFIG_PATH")
+else
+    RESOLVED=$(merge_config_layers "$HOME_CONFIG_PATH" "$CONFIG_PATH" "$LOCAL_CONFIG_PATH")
 fi
-
-RESOLVED=$(merge_config_layers "$HOME_CONFIG_PATH" "$CONFIG_PATH" "$LOCAL_CONFIG_PATH")
 
 # Resolve all fields from one parse; startup calls this for the selected profile.
 # Select only the keys read below before the JSON step: yq cannot write values
@@ -179,6 +170,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
             "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort, "extra_args": $selected.claude.extra_args},
             "companion_command": $selected.companion_command
         },
+        "profile_init": ($selected | pick(["initialization_command"])),
         "agent_profile_ref": $agent_profile_ref,
         "agent_profile_defs": {
             "ref": ((.agent_profiles[$agent_profile_ref] // {}) | pick($fields)),
@@ -223,14 +215,16 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         key: $f,
         value: {
             value: (if $def_resolved | has($f) then ($def_resolved[$f] // "")
-                    elif $is_claude then ($selected.claude[$f] // $claude[$f] // "")
+                    elif $is_claude then ($selected.claude[$f] // $claude[$f] // "" | tostring | sub("\n+$"; ""))
                     else "" end),
             template: (if $def_resolved | has($f + "_args") then ($def_resolved[$f + "_args"] // "")
                        else ($builtin[$f] // "") end),
             template_set: (($def_resolved | has($f + "_args")) or ($builtin | has($f)))
         }
     }] | from_entries) as $launch |
-    (if $is_claude then ($selected.claude.extra_args // $claude.extra_args // []) else [] end) as $extra_args |
+    # A block-scalar item ends in a newline that is not part of the argument.
+    (if $is_claude then ($selected.claude.extra_args // $claude.extra_args // [] | map(tostring | sub("\n+$"; "")))
+     else [] end) as $extra_args |
     ([("model", "effort") as $f | $launch[$f] as $l |
         if $l.template_set and ($l.template | contains("{" + $f + "}") | not) then
             "agent_profiles.\($agent_profile).\($f)_args: must contain {\($f)}"
@@ -243,10 +237,12 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ] | join("\n")) as $launch_errors |
     {
         init_cmd: (.initialization_command // ""),
+        profile_init_cmd_set: (.profile_init | has("initialization_command")),
+        profile_init_cmd: (.profile_init.initialization_command // ""),
         skip_permissions: (.claude.dangerously_skip_permissions // false),
         model: $launch.model.value,
         effort: $launch.effort.value,
-        companion_command: ($selected.companion_command // .companion_command // "GIT_OPTIONAL_LOCKS=0 gitui"),
+        companion_command: ($selected.companion_command // .companion_command // "GIT_OPTIONAL_LOCKS=0 gitui" | sub("\n+$"; "")),
         agent_profile: $agent_profile,
         agent_command: $def_resolved.command,
         agent_args: ($def_resolved.args // ""),
@@ -265,22 +261,14 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     end
 ')
 
-AGENT_TYPE_ERRORS=$(jq -r '.agent_type_errors' <<< "$RESOLVED_JSON")
-if [[ -n "$AGENT_TYPE_ERRORS" ]]; then
-    printf 'Error: %s\n' "$AGENT_TYPE_ERRORS" >&2
-    exit 1
-fi
 # The TUI rejects a reference to an undefined agent profile at config load;
 # idow never runs that validator, so a typo would otherwise quietly launch
-# claude.
-AGENT_PROFILE_MISSING=$(jq -r '.agent_profile_missing' <<< "$RESOLVED_JSON")
-if [[ -n "$AGENT_PROFILE_MISSING" ]]; then
-    echo "Error: agent profile \"$AGENT_PROFILE_MISSING\" not found in agent_profiles" >&2
-    exit 1
-fi
-AGENT_LAUNCH_ERRORS=$(jq -r '.agent_launch_errors' <<< "$RESOLVED_JSON")
-if [[ -n "$AGENT_LAUNCH_ERRORS" ]]; then
-    printf 'Error: %s\n' "$AGENT_LAUNCH_ERRORS" >&2
+# claude. The first kind of error found is reported.
+AGENT_ERRORS=$(jq -r '[.agent_type_errors,
+    (if .agent_profile_missing == "" then "" else "agent profile \"\(.agent_profile_missing)\" not found in agent_profiles" end),
+    .agent_launch_errors] | map(select(. != "")) | first // ""' <<< "$RESOLVED_JSON")
+if [[ -n "$AGENT_ERRORS" ]]; then
+    printf 'Error: %s\n' "$AGENT_ERRORS" >&2
     exit 1
 fi
 
@@ -288,8 +276,13 @@ fi
 # layer, so the warnings read the raw layers to name the file to edit: the
 # top-level ones, and the selected profile's. `eval` (not eval-all) keeps
 # filename per file.
+#
+# The same pass finds a file that sets both spellings of an init command, which
+# is ambiguous: the per-layer rename silently keeps the new one. Same error as
+# initializationCommandConflictErrors() in source/config.ts, which idow never
+# runs.
 # shellcheck disable=SC2016 # yq and jq expressions, not shell
-DEPRECATIONS=$(PROFILE="$PROFILE" yq eval -o=json -I=0 '
+LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval -o=json -I=0 '
     ["model", "effort", "extra_args"] as $launch_keys |
     (.profiles[strenv(PROFILE)].claude // {}) as $profile_claude |
     {
@@ -297,9 +290,23 @@ DEPRECATIONS=$(PROFILE="$PROFILE" yq eval -o=json -I=0 '
         "init": (.claude.initialization_command != null),
         "keys": ((.claude // {}) | pick($launch_keys) | keys),
         "profile_init": ($profile_claude.initialization_command != null),
-        "profile_keys": ($profile_claude | pick($launch_keys) | keys)
+        "profile_keys": ($profile_claude | pick($launch_keys) | keys),
+        "init_conflicts": (
+            [{"p": "", "c": (.initialization_command != null and .claude.initialization_command != null)}] +
+            ((.profiles // {}) | to_entries | map({
+                "p": "profiles." + .key + ".",
+                "c": (.value.initialization_command != null and .value.claude.initialization_command != null)
+            }))
+        )
     }
-' "${LAYERS[@]}" | jq -s --arg profile "$PROFILE" '
+' "${LAYERS[@]}")
+INIT_CMD_CONFLICTS=$(jq -rs '.[] | .file as $f | .init_conflicts[] | select(.c)
+    | "\($f): \(.p)initialization_command and \(.p)claude.initialization_command cannot both be specified (use initialization_command)"' <<< "$LAYER_CHECKS")
+if [[ -n "$INIT_CMD_CONFLICTS" ]]; then
+    printf 'Error: %s\n' "$INIT_CMD_CONFLICTS" >&2
+    exit 1
+fi
+DEPRECATIONS=$(jq -s --arg profile "$PROFILE" '
     def target: if . == "extra_args" then "args" else . end;
     {
         deprecation_warnings: [.[] | .file as $f |
@@ -311,7 +318,7 @@ DEPRECATIONS=$(PROFILE="$PROFILE" yq eval -o=json -I=0 '
             (.profile_keys | sort[] | "\($f): profiles.\($profile).claude.\(.) is deprecated — set \(target) on an agent profile (agent_profiles.<name>.\(target)) and select it with profiles.\($profile).agent_profile")
         ] | join("\n") end)
     }
-')
+' <<< "$LAYER_CHECKS")
 
 jq --argjson deprecations "$DEPRECATIONS" \
     'del(.agent_profile_missing, .agent_type_errors, .agent_launch_errors) + $deprecations' <<< "$RESOLVED_JSON"
