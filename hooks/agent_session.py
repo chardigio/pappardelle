@@ -21,7 +21,8 @@ is Claude's, record-agent-session.py everyone else's), so an agent of the other
 kind is rejected outright, whatever the agent profile's command is called. One
 of the same kind is rejected when a shell separates it from the pane's agent: a
 session is only recorded when its agent is the only run of non-shell processes
-under tmux.
+under tmux. The variables are set on the whole tmux session, so an agent in a
+pane split off the agent's own (an Agent Teams teammate) is rejected too.
 
 codex 0.159+ runs hooks in its shared app-server daemon, which is not under
 tmux and carries the env of whichever pane started it. For a hook outside tmux
@@ -163,6 +164,28 @@ def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
     return env
 
 
+def in_split_pane(environ: Mapping[str, str]) -> bool:
+    """
+    Whether the hook runs in a pane other than the first one of its tmux
+    session, which is where the agent was launched. False when that can't be
+    told.
+    """
+    pane = environ.get("TMUX_PANE", "")
+    tmux = shutil.which("tmux")
+    if not pane or not environ.get("TMUX") or not tmux:
+        return False
+    # With TMUX set, tmux talks to the server the pane belongs to.
+    result = subprocess.run(
+        [tmux, "list-panes", "-s", "-t", pane, "-F", "#{pane_id}"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        env=dict(environ),
+    )
+    panes = result.stdout.split()
+    return result.returncode == 0 and bool(panes) and panes[0] != pane
+
+
 def record_agent_session(
     payload: dict[str, Any],
     is_claude_hook: bool,
@@ -170,6 +193,7 @@ def record_agent_session(
     hook_pid: Optional[int] = None,
     process_table: Callable[[], ProcessTable] = read_process_table,
     session_env_for_cwd: Callable[[str], Optional[dict[str, str]]] = tmux_agent_session_env,
+    split_pane: Callable[[Mapping[str, str]], bool] = in_split_pane,
 ) -> bool:
     """
     Record the id under the agent profile's name in the agent-sessions file.
@@ -201,7 +225,7 @@ def record_agent_session(
     chain, in_tmux = ancestors(hook_pid or os.getpid(), process_table())
     session_env: Optional[Mapping[str, str]]
     if in_tmux:
-        if sole_agent_run(chain) is None:
+        if sole_agent_run(chain) is None or split_pane(env):
             return False
         session_env = env
     else:

@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +21,7 @@ _spec.loader.exec_module(agent_session)
 record_agent_session = agent_session.record_agent_session
 ancestors = agent_session.ancestors
 sole_agent_run = agent_session.sole_agent_run
+in_split_pane = agent_session.in_split_pane
 
 HOOK_PID = 100
 
@@ -182,6 +184,41 @@ def test_each_agent_profile_keeps_its_own_id(sessions_file: Path):
         payload("claude-id"), True, claude_env(sessions_file, "opus-high"), HOOK_PID, lambda: TOP_LEVEL_CLAUDE
     )
     assert recorded(sessions_file) == {"codex": "codex-id", "opus-high": "claude-id"}
+
+
+def test_an_agent_in_a_pane_split_off_the_agents_is_not_recorded(sessions_file: Path):
+    assert not record_agent_session(
+        payload("teammate-id"),
+        True,
+        claude_env(sessions_file),
+        HOOK_PID,
+        lambda: TOP_LEVEL_CLAUDE,
+        split_pane=lambda _env: True,
+    )
+    assert not sessions_file.exists()
+
+
+@pytest.mark.skipif(not shutil.which("tmux"), reason="tmux not installed")
+def test_only_the_sessions_first_pane_counts_as_the_agents():
+    # tmux sockets must fit a short path, which pytest's tmp_path doesn't.
+    socket_dir = tempfile.mkdtemp(dir="/tmp")
+    socket = os.path.join(socket_dir, "s")
+
+    def tmux(*args: str) -> str:
+        return subprocess.run(
+            ["tmux", "-S", socket, *args], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    try:
+        first = tmux("new-session", "-d", "-P", "-F", "#{pane_id}", "sleep 30")
+        split = tmux("split-window", "-d", "-P", "-F", "#{pane_id}", "-t", first, "sleep 30")
+        env = {"TMUX": f"{socket},1,0"}
+        assert not in_split_pane({**env, "TMUX_PANE": first})
+        assert in_split_pane({**env, "TMUX_PANE": split})
+        assert not in_split_pane({"TMUX_PANE": split})
+    finally:
+        subprocess.run(["tmux", "-S", socket, "kill-server"], capture_output=True)
+        shutil.rmtree(socket_dir, ignore_errors=True)
 
 
 def test_a_nested_agent_without_a_shell_between_is_not_recorded(sessions_file: Path):
