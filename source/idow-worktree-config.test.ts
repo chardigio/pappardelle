@@ -607,6 +607,29 @@ test('a recreated worktree keeps claude resume args without a session id', async
 	);
 });
 
+// The TUI renders the rail emoji and picks the agent profile from space-state,
+// and a slow post_workspace_init must not leave that window open.
+test('the profile is persisted before post_workspace_init runs', async t => {
+	const fixture = setup(t);
+	fs.appendFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			post_workspace_init: [
+				{
+					run: 'cp "$HOME/.pappardelle/repos/main checkout/space-state/test-abc.json" "$WORKTREE_PATH/state-during-init.json"',
+				},
+			],
+		}),
+	);
+
+	await fixture.run();
+	const seen = fs.readFileSync(
+		path.join(fixture.workspace, 'state-during-init.json'),
+		'utf8',
+	);
+	t.is((JSON.parse(seen) as {profile: string}).profile, 'dev');
+});
+
 test('--agent-profile launches another agent profile for that run only', async t => {
 	const fixture = setup(t);
 	fs.writeFileSync(
