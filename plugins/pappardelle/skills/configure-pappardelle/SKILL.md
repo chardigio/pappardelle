@@ -308,6 +308,8 @@ profiles:
 `claude.model` / `claude.effort` / `claude.extra_args` are deprecated: model,
 effort and args live on agent profiles (next section). Never write them into new
 configs; when you find them, offer to move them onto an agent profile.
+`claude.extra_args` come after the flags rendered from `model`/`effort`, so an
+extra arg repeating `--model` or `--effort` wins today; keep its value when moving it.
 Pappardelle also offers this rewrite on startup. It can copy home-config values
 into the repo file, so check that diff before the user commits it.
 

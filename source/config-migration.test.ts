@@ -520,7 +520,41 @@ test('an extra arg repeating the model flag blocks the rewrite', t => {
 	t.deepEqual(planConfigMigrations(paths), {
 		kind: 'unsupported',
 		reason:
-			'claude.extra_args for the top level repeats --model, and the rewrite would change which model wins',
+			'claude.extra_args repeats --model, and the rewrite would change which model wins at the top level',
+	});
+});
+
+test('an extra arg repeating a model flag written with = blocks the rewrite', t => {
+	const paths = setup({
+		version: 1,
+		agent_profiles: {
+			wrapper: {
+				command: 'my-claude',
+				is_claude: true,
+				model_args: '--model={model}',
+			},
+		},
+		agent_profile: 'wrapper',
+		claude: {model: 'opus', extra_args: ['--model=sonnet']},
+		profiles: {},
+	});
+
+	t.like(planConfigMigrations(paths), {
+		reason:
+			'claude.extra_args repeats --model, and the rewrite would change which model wins at the top level',
+	});
+});
+
+test('an end-of-options marker in extra args blocks the rewrite', t => {
+	const paths = setup({
+		version: 1,
+		claude: {model: 'opus', extra_args: ['--verbose', '--']},
+		profiles: {},
+	});
+
+	t.like(planConfigMigrations(paths), {
+		reason:
+			'claude.extra_args has --, and the rewrite would put the model flag at the top level after it',
 	});
 });
 
