@@ -510,6 +510,20 @@ test('a multi-line extra arg is named as the reason it cannot be rewritten', t =
 	});
 });
 
+test('an extra arg repeating the model flag blocks the rewrite', t => {
+	const paths = setup({
+		version: 1,
+		claude: {model: 'opus', extra_args: ['--model', 'sonnet']},
+		profiles: {},
+	});
+
+	t.deepEqual(planConfigMigrations(paths), {
+		kind: 'unsupported',
+		reason:
+			'claude.extra_args for the top level repeats --model, and the rewrite would change which model wins',
+	});
+});
+
 test('a partial fix clears the warnings for the keys that are gone', t => {
 	const paths = setup(
 		{version: 1, claude: {model: 'opus'}, profiles: {}},
