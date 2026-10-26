@@ -62,9 +62,18 @@ beads_id_prefixes() {
     local config_path="$1" beads_config="${2-}"
     [[ -n "$beads_config" ]] || beads_config="$(beads_repo_root)/.beads/config.yaml"
     {
+        local config_prefix=""
         [[ -f "$beads_config" ]] &&
-            yq -r '.["issue-prefix"] | select(. != null and . != "")' \
-                "$beads_config" 2>/dev/null
+            config_prefix=$(yq -r '.["issue-prefix"] | select(. != null and . != "")' \
+                "$beads_config" 2>/dev/null)
+        # bd init --prefix (bd 1.3+) keeps the prefix in its database and leaves
+        # issue-prefix commented out in config.yaml.
+        if [[ -z "$config_prefix" && -d "$(dirname "$beads_config")" ]]; then
+            config_prefix=$(cd "$(dirname "$(dirname "$beads_config")")" &&
+                bd config get issue_prefix --json 2>/dev/null |
+                jq -r '(.data // .).value | select(. != null and . != "")' 2>/dev/null)
+        fi
+        [[ -n "$config_prefix" ]] && echo "$config_prefix"
         yq -r '[.team_prefix, .profiles[].team_prefix, .profiles[].tracker_projects[]]
                | .[] | select(. != null and . != "")' \
             "$config_path" 2>/dev/null
