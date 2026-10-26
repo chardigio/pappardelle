@@ -77,7 +77,7 @@ export function installPlugin(deps: PluginInstallDeps): number {
 
 	if (skipped.length > 0) {
 		deps.print(
-			`Run /reload-plugins by hand in ${skipped.join(', ')}: ${skipped.length === 1 ? 'it was' : 'they were'} waiting on a question or permission prompt, or had no status.`,
+			`Run /reload-plugins by hand in ${skipped.join(', ')}, which ${skipped.length === 1 ? 'was' : 'were'} not at an empty prompt.`,
 		);
 	}
 
@@ -148,6 +148,15 @@ function stripLegacyHooks(settings: ClaudeSettings): boolean {
 	return true;
 }
 
+function readEditorMode(file: string): unknown {
+	try {
+		return (JSON.parse(fs.readFileSync(file, 'utf8')) as {editorMode?: unknown})
+			.editorMode;
+	} catch {
+		return undefined;
+	}
+}
+
 export function defaultPluginInstallDeps(
 	pappardelleDir: string,
 ): PluginInstallDeps {
@@ -190,6 +199,13 @@ export function defaultPluginInstallDeps(
 			reloadClaudeSessions({
 				innerTmux: defaultInnerTmuxRunner,
 				readStatuses: readAllSessionStates,
+				vimMode: [
+					path.join(
+						process.env['CLAUDE_CONFIG_DIR'] ?? homedir(),
+						'.claude.json',
+					),
+					path.join(claudeDir, 'settings.json'),
+				].some(file => readEditorMode(file) === 'vim'),
 			}),
 	};
 }

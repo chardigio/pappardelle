@@ -4,6 +4,7 @@ import {sendKeysLiteralThenEnter, type OuterTmuxRunner} from './tmux.ts';
 export type ReloadDeps = {
 	innerTmux: OuterTmuxRunner;
 	readStatuses: () => ClaudeSessionState[];
+	vimMode: boolean;
 };
 
 export type ReloadResult = {reloaded: string[]; skipped: string[]};
@@ -24,6 +25,42 @@ function acceptsTypedInput(state: ClaudeSessionState | undefined): boolean {
 		typeableStatuses.has(state.status) &&
 		state.currentTool !== 'AskUserQuestion'
 	);
+}
+
+/* eslint-disable no-control-regex */
+const sgr = /\u001B\[[\d;]*m/g;
+const leadingSgr = /^(?:\u001B\[[\d;]*m)*/;
+/* eslint-enable no-control-regex */
+const ruleLine = /^─{10,}$/;
+
+// The keys go through the input box as typed: C-u clears only the line under
+// the cursor, so any draft text would be submitted with the command, and in
+// vim normal mode the letters run as motions. Matches the box Claude Code
+// draws: a `❯` line between two rules, where an empty input shows nothing or
+// the dimmed placeholder.
+export function inputBoxIsEmpty(screen: string, vimMode: boolean): boolean {
+	const lines = screen.split('\n');
+	const plain = lines.map(line => line.replaceAll(sgr, '').trim());
+	if (vimMode && !plain.some(line => line.includes('-- INSERT --'))) {
+		return false;
+	}
+
+	for (let i = plain.length - 2; i > 0; i--) {
+		if (!plain[i]!.startsWith('❯')) continue;
+		if (!ruleLine.test(plain[i - 1]!) || !ruleLine.test(plain[i + 1]!)) {
+			continue;
+		}
+
+		const raw = lines[i]!;
+		const afterPrompt = raw
+			.slice(raw.indexOf('❯') + 1)
+			.replace(/^[\u00A0 ]/, '');
+		const leading = leadingSgr.exec(afterPrompt)![0];
+		const text = afterPrompt.slice(leading.length).replaceAll(sgr, '').trim();
+		return text === '' || leading.endsWith('\u001B[2m');
+	}
+
+	return false;
 }
 
 export function reloadClaudeSessions(deps: ReloadDeps): ReloadResult {
@@ -51,15 +88,18 @@ export function reloadClaudeSessions(deps: ReloadDeps): ReloadResult {
 		if (!session?.startsWith('claude-') || cwd === undefined) continue;
 		const state = latestByCwd.get(cwd);
 		const name = state?.workspaceName ?? session;
+		const target = `=${session}:`;
 		const sent =
 			acceptsTypedInput(state) &&
-			sendKeysLiteralThenEnter(
-				deps.innerTmux,
-				`=${session}:`,
-				'/reload-plugins',
-			);
+			inputBoxIsEmpty(capture(deps.innerTmux, target), deps.vimMode) &&
+			sendKeysLiteralThenEnter(deps.innerTmux, target, '/reload-plugins');
 		(sent ? result.reloaded : result.skipped).push(name);
 	}
 
 	return result;
+}
+
+function capture(innerTmux: OuterTmuxRunner, target: string): string {
+	const result = innerTmux(['capture-pane', '-p', '-e', '-t', target]);
+	return result.error || result.status !== 0 ? '' : result.stdout;
 }
