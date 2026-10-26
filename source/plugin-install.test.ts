@@ -181,8 +181,8 @@ test('names the sessions it reloaded and the ones left to reload by hand', t => 
 		),
 	);
 	t.true(
-		printed.some(line =>
-			line.startsWith('Run /reload-plugins by hand in STA-3:'),
+		printed.includes(
+			'Run /reload-plugins by hand in STA-3, which was not at an empty prompt.',
 		),
 	);
 });
