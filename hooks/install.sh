@@ -49,6 +49,9 @@ else
     echo "Created $CLAUDE_SETTINGS with Pappardelle hooks"
 fi
 
+echo ""
+"$SCRIPT_DIR/install-codex-hooks.sh"
+
 # Create status and metadata directories
 mkdir -p "$HOME/.pappardelle/claude-status"
 mkdir -p "$HOME/.pappardelle/repos"

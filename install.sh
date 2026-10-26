@@ -410,30 +410,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
         fi
     fi
 
-    # Codex records its session id through its own hooks.json (Claude does it
-    # in update-status.py), so a relaunch resumes the space's own conversation.
-    # Merged rather than replaced: the file usually carries other tools' hooks.
-    CODEX_HOOKS="$HOME/.codex/hooks.json"
-    if [[ -d "$HOME/.codex" ]] && command -v jq &> /dev/null; then
-        if [[ -f "$CODEX_HOOKS" ]] && grep -q 'record-agent-session.py' "$CODEX_HOOKS"; then
-            print_status "Codex session hook already in $CODEX_HOOKS"
-        else
-            CODEX_HOOKS_TMP=$(mktemp)
-            if jq -s '.[0] as $mine | (.[1] // {}) as $theirs
-                    | $theirs | .hooks = (($theirs.hooks // {}) as $h
-                        | reduce ($mine.hooks | keys[]) as $event ($h;
-                            .[$event] = ((.[$event] // []) + $mine.hooks[$event])))' \
-                    "$HOOKS_SRC/codex-hooks.json.example" \
-                    <( [[ -f "$CODEX_HOOKS" ]] && cat "$CODEX_HOOKS" || echo '{}' ) > "$CODEX_HOOKS_TMP" \
-                && mv "$CODEX_HOOKS_TMP" "$CODEX_HOOKS"; then
-                print_status "Added the Codex session hook to $CODEX_HOOKS"
-                print_info "Codex asks to trust new hooks on its next launch; trust it so spaces resume their own session"
-            else
-                rm -f "$CODEX_HOOKS_TMP"
-                print_warning "Could not update $CODEX_HOOKS; merge $HOOKS_SRC/codex-hooks.json.example by hand"
-            fi
-        fi
-    fi
+    "$HOOKS_SRC/install-codex-hooks.sh"
 else
     print_warning "Hooks directory not found at $HOOKS_SRC"
 fi
