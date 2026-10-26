@@ -918,11 +918,13 @@ function legacyRenameArgs(legacyName: string, target: string): string[] {
  * the sessions of a repo named proj-x.
  */
 function siblingRepoPrefixes(repo: string, knownRepos: string[]): string[] {
+	const own = `${tmuxSessionRepo(repo)}-`;
 	return knownRepos
-		.filter(other => other.startsWith(`${repo}-`))
+		.map(other => tmuxSessionRepo(other))
+		.filter(other => other.startsWith(own))
 		.flatMap(other =>
 			['agent', 'claude', 'companion', 'lazygit'].map(
-				kind => `${kind}-${tmuxSessionRepo(other)}-`,
+				kind => `${kind}-${other}-`,
 			),
 		);
 }

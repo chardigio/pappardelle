@@ -463,6 +463,23 @@ test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as 
 	);
 });
 
+test('cleanupOrphanedInnerSessions knows a sibling repo by its tmux spelling', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'agent-a_b-c-STA-1', // a_b-c's live space → keep
+			'agent-a_b-STA-9', // a.b's orphan → kill
+		].join('\n'),
+	});
+	t.is(
+		cleanupOrphanedInnerSessions(new Set(), 'a.b', runner, ['a.b', 'a_b-c']),
+		1,
+	);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=agent-a_b-STA-9:'],
+	);
+});
+
 test('cleanupOrphanedInnerSessions decodes encoded keys before matching the registry', t => {
 	// Session names carry the '.'/'_' encoding; the registry holds keys as the
 	// tracker spells them. Comparing raw reaped every beads child issue and every
