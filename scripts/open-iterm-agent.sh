@@ -147,7 +147,8 @@ fi
 # encoding matches start-agent-session.sh; see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
-TMUX_SESSION="agent-${REPO_NAME}-${SESSION_KEY}"
+SESSION_REPO="${REPO_NAME//[.:]/_}"
+TMUX_SESSION="agent-${SESSION_REPO}-${SESSION_KEY}"
 
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.

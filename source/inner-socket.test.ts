@@ -17,6 +17,7 @@ import {
 	migrateLegacyAgentSessions,
 	cleanupOrphanedOuterSessions,
 	exactSessionTarget,
+	getSessionPrefix,
 	innerTmuxArgs,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -209,13 +210,11 @@ test('exactSessionTarget stops tmux prefix-matching another session', t => {
 			tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1')).status,
 			0,
 		);
-		t.is(tmux('new-session', '-d', '-s', 'agent-my.repo-STA-1').status, 0);
-		// tmux 3.6 stores the '.' as '_'; newer releases keep it.
-		const dotted = tmux('list-sessions', '-F', '#{session_name}')
-			.stdout.split('\n')
-			.find(name => name.endsWith('repo-STA-1'));
-		t.truthy(dotted);
-		t.is(tmux('has-session', '-t', exactSessionTarget(dotted!)).status, 0);
+		// tmux 3.6 and older store a '.' as '_', so a name built with a dotted
+		// repo must already be in that spelling to be found again.
+		const dotted = `${getSessionPrefix('agent', 'my.repo')}STA-1`;
+		t.is(tmux('new-session', '-d', '-s', dotted).status, 0);
+		t.is(tmux('has-session', '-t', exactSessionTarget(dotted)).status, 0);
 	} finally {
 		tmux('kill-server');
 	}

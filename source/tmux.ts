@@ -101,6 +101,15 @@ export function innerTmuxArgs(args: readonly string[]): string[] {
 // Sessions are repo-qualified: agent-{repoName}-{key}, e.g. agent-pappa-chex-CHEX-313
 
 /**
+ * tmux 3.6 and older store `.` and `:` in a session name as `_`, so the repo
+ * part of a session name is spelled this way to read back the same on every
+ * release.
+ */
+export function tmuxSessionRepo(repoName: string): string {
+	return repoName.replaceAll(/[.:]/g, '_');
+}
+
+/**
  * Get the session prefix for a given type and repo name.
  * e.g. getSessionPrefix('agent', 'pappa-chex') → 'agent-pappa-chex-'
  */
@@ -109,7 +118,7 @@ export function getSessionPrefix(
 	repoName?: string,
 ): string {
 	const repo = repoName ?? getRepoName();
-	return `${type}-${repo}-`;
+	return `${type}-${tmuxSessionRepo(repo)}-`;
 }
 
 /**
@@ -121,7 +130,7 @@ export function getSessionPrefix(
  */
 export function getLegacyAgentSessionPrefix(repoName?: string): string {
 	const repo = repoName ?? getRepoName();
-	return `claude-${repo}-`;
+	return `claude-${tmuxSessionRepo(repo)}-`;
 }
 
 /**
@@ -660,7 +669,7 @@ export function cleanupOrphanedOuterSessions(
 		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Sweep that
 		// legacy prefix too so an upgrade doesn't strand old git-UI sessions.
 		const repo = repoName ?? getRepoName();
-		const legacyCompanionPrefix = `lazygit-${repo}-`;
+		const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -810,7 +819,7 @@ export function cleanupOrphanedInnerSessions(
 		// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
 		// git-UI sessions on the inner socket. Mirrors cleanupOrphanedOuterSessions.
 		const repo = repoName ?? getRepoName();
-		const legacyCompanionPrefix = `lazygit-${repo}-`;
+		const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
 
 		const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
@@ -921,7 +930,7 @@ function siblingRepoPrefixes(repo: string, knownRepos: string[]): string[] {
 		.filter(other => other.startsWith(`${repo}-`))
 		.flatMap(other =>
 			['agent', 'claude', 'companion', 'lazygit'].map(
-				kind => `${kind}-${other}-`,
+				kind => `${kind}-${tmuxSessionRepo(other)}-`,
 			),
 		);
 }

@@ -9,9 +9,9 @@
 # silently, because `new-session -d -s` just creates whatever name it is handed,
 # orphaning the companion session that already existed.
 #
-# Contrary to a natural assumption, tmux does not normalize '.' in a session
-# name: `new-session -s 'bd-a3f8e9.1'` reports back 'bd-a3f8e9.1' (verified on
-# tmux 3.7b), so beads child issues diverged too.
+# tmux 3.6 and older store '.' in a session name as '_', but newer releases
+# keep it: `new-session -s 'bd-a3f8e9.1'` reports back 'bd-a3f8e9.1' on tmux
+# 3.7b, so beads child issues diverged too.
 #
 # The command lines are assembled inside open-iterm-agent.sh's AppleScript, so
 # this runs that AppleScript directly. Its `tell application "iTerm"` block is

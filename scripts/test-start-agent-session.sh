@@ -211,6 +211,25 @@ done
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: a repo name with a '.' gets one session on any tmux${RESET}"
+# tmux 3.6 and older store '.' in a session name as '_', so a name built with
+# the dot is never found again and every reopen adds another session.
+DOTTED_KEY="${TEST_PREFIX}-260"
+DOTTED_SESSIONS=$(for _ in 1 2; do
+    "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$DOTTED_KEY" --repo-name "my.repo" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
+done; tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -- "-my.repo-${DOTTED_KEY}$\|-my_repo-${DOTTED_KEY}$" | sort | tr '\n' ' ')
+if [[ "$DOTTED_SESSIONS" == "agent-my_repo-${DOTTED_KEY} companion-my_repo-${DOTTED_KEY} " ]]; then
+    echo -e "  ${GREEN}PASS${RESET} one agent and one companion session, named with '_'"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} one agent and one companion session, named with '_' (got: $DOTTED_SESSIONS)"
+    FAIL=$((FAIL + 1))
+fi
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-my_repo-${DOTTED_KEY}:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-my_repo-${DOTTED_KEY}:" 2>/dev/null || true
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: --repo-name is required${RESET}"
 OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "repo-name is required"; then

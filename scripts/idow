@@ -916,9 +916,10 @@ fi
 # getSessionNames(); see the comment there.
 SESSION_KEY="${ISSUE_KEY//_/__}"
 SESSION_KEY="${SESSION_KEY//./_}"
+SESSION_REPO="${REPO_NAME//[.:]/_}"
 AGENT_SESSION_ARGS+=("${AGENT_FLAG_ARGS[@]}")
-AGENT_SESSION_NAME="agent-${REPO_NAME}-${SESSION_KEY}"
-LEGACY_AGENT_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
+AGENT_SESSION_NAME="agent-${SESSION_REPO}-${SESSION_KEY}"
+LEGACY_AGENT_SESSION_NAME="claude-${SESSION_REPO}-${SESSION_KEY}"
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
