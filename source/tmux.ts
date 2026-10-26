@@ -290,11 +290,6 @@ export function getSessionNames(
 }
 
 /**
- * Single-quote a string for safe use as a shell argument. Wraps the value in
- * single quotes and escapes any embedded single quotes via the classic
- * `'\''` trick.
- */
-/**
  * Argv that runs `command` as a tmux pane's process instead of typing it at a
  * prompt, so it never lands in the user's shell history (pappardelle-2i0).
  *
