@@ -32,6 +32,7 @@ import {
 	getAgentProfile,
 	renderAgentLaunchFlags,
 	getCompanionCommand,
+	quoteLaunchValue,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
 	getPaneWidths,
@@ -352,9 +353,7 @@ export function buildAgentResumeCommand(
 	let base: string;
 	const launchFlags = renderAgentLaunchFlags(agentProfile);
 	if (agentProfile.isClaude) {
-		const safeKey = /^[A-Za-z0-9._-]+$/.test(issueKey)
-			? issueKey
-			: shellQuote(issueKey);
+		const safeKey = quoteLaunchValue(issueKey);
 		const withDsp = skipPermissions
 			? `${agentProfile.command} --dangerously-skip-permissions`
 			: agentProfile.command;
@@ -369,8 +368,6 @@ export function buildAgentResumeCommand(
 		base = `${withArgs}${launchFlags}`;
 	}
 
-	// Falsy covers both undefined and a defensive '' — either way there is no
-	// resume attempt, matching the bash scripts' [[ -n "$AGENT_RESUME_ARGS" ]].
 	const resumeArgs = bindResumeArgs(agentProfile, sessionId);
 	if (!resumeArgs) {
 		return base;
@@ -1026,7 +1023,7 @@ export function resolveInnerSessionTarget(
 	const result = runner(['list-sessions', '-F', '#{session_name}']);
 	if (result.error || result.status !== 0) return null;
 	const live = result.stdout.trim().split('\n');
-	return live.includes(sessionName) ? `=${sessionName}:` : null;
+	return live.includes(sessionName) ? exactSessionTarget(sessionName) : null;
 }
 
 export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'failed';
