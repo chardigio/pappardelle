@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {Box} from 'ink';
 import type {LogEntry} from '../logger.ts';
-import type {ChildMessage, HostMessage, PopupSpec} from '../popup/protocol.ts';
+import type {PopupActions, PopupSpec} from '../popup/spec.ts';
 import AgentProfilePicker from './AgentProfilePicker.tsx';
 import CloseSpaceDialog from './CloseSpaceDialog.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
@@ -9,48 +9,24 @@ import ErrorDialog from './ErrorDialog.tsx';
 import HelpOverlay from './HelpOverlay.tsx';
 import TextViewer from './TextViewer.tsx';
 
-export type PopupChannel = {
-	send(message: ChildMessage): void;
-	onMessage(listener: (message: HostMessage) => void): () => void;
-};
-
 type Props = {
 	spec: PopupSpec;
-	channel: PopupChannel;
+	actions: PopupActions;
 	width: number;
 	height: number;
-	onExit: () => void;
 };
 
 /**
- * The dialog shown inside a tmux popup. Answers go to the TUI over `channel`;
- * the popup stays up until the TUI replies `done`, which is what keeps the
- * close-space spinner on screen while the deinit hooks run.
+ * The dialog shown inside a tmux popup. It stays up until the TUI closes the
+ * popup, which happens once the action an answer asked for has finished; that
+ * is what keeps the close-space spinner on screen while the deinit hooks run.
  */
-export default function PopupRoot({
-	spec,
-	channel,
-	width,
-	height,
-	onExit,
-}: Props) {
+export default function PopupRoot({spec, actions, width, height}: Props) {
 	const [errors, setErrors] = useState<LogEntry[]>(
 		spec.kind === 'errors' ? spec.props.errors : [],
 	);
 
-	useEffect(
-		() =>
-			channel.onMessage(message => {
-				if (message.type === 'done') onExit();
-				else if (message.type === 'errors') setErrors(message.errors);
-			}),
-		[channel, onExit],
-	);
-
-	const cancel = () => {
-		channel.send({type: 'cancel'});
-		onExit();
-	};
+	useEffect(() => actions.subscribeErrors?.(setErrors), [actions]);
 
 	const renderDialog = () => {
 		switch (spec.kind) {
@@ -59,13 +35,8 @@ export default function PopupRoot({
 					<ConfirmDialog
 						isFullHeight
 						{...spec.props}
-						onConfirm={async () =>
-							new Promise<void>(() => {
-								// Never resolves: the TUI's `done` exits the popup.
-								channel.send({type: 'confirm'});
-							})
-						}
-						onCancel={cancel}
+						onConfirm={async () => actions.confirm()}
+						onCancel={actions.cancel}
 					/>
 				);
 			}
@@ -75,13 +46,8 @@ export default function PopupRoot({
 					<CloseSpaceDialog
 						isFullHeight
 						{...spec.props}
-						onConfirm={async choice =>
-							new Promise<void>(() => {
-								// Never resolves: the TUI's `done` exits the popup.
-								channel.send({type: 'confirm', payload: {choice}});
-							})
-						}
-						onCancel={cancel}
+						onConfirm={async choice => actions.confirm({choice})}
+						onCancel={actions.cancel}
 					/>
 				);
 			}
@@ -92,7 +58,7 @@ export default function PopupRoot({
 						isFullHeight
 						{...spec.props}
 						availableHeight={height}
-						onClose={cancel}
+						onClose={actions.cancel}
 					/>
 				);
 			}
@@ -102,9 +68,9 @@ export default function PopupRoot({
 					<ErrorDialog
 						isFullHeight
 						errors={errors}
-						onClose={cancel}
+						onClose={actions.cancel}
 						onClear={() => {
-							channel.send({type: 'clear-errors'});
+							void actions.clearErrors();
 						}}
 					/>
 				);
@@ -117,7 +83,7 @@ export default function PopupRoot({
 						title={spec.props.title}
 						width={width}
 						height={height}
-						onClose={cancel}
+						onClose={actions.cancel}
 					/>
 				);
 			}
@@ -128,9 +94,9 @@ export default function PopupRoot({
 						request={spec.props}
 						availableHeight={height}
 						onChoose={agentProfile => {
-							channel.send({type: 'confirm', payload: {agentProfile}});
+							void actions.confirm({agentProfile});
 						}}
-						onCancel={cancel}
+						onCancel={actions.cancel}
 					/>
 				);
 			}

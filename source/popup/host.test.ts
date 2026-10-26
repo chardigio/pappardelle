@@ -1,123 +1,109 @@
-import {EventEmitter, once} from 'node:events';
-import {existsSync} from 'node:fs';
-import {connect, type Socket} from 'node:net';
-import path from 'node:path';
 import test from 'ava';
-import {openPopup, type PopupLaunch} from './host.ts';
-import {
-	createMessageDecoder,
-	encodeMessage,
-	type ChildMessage,
-	type HostMessage,
-	type PopupSpec,
-} from './protocol.ts';
-
-// Stands in for the ChildProcess that spawn() returns, which is an EventEmitter.
-// eslint-disable-next-line unicorn/prefer-event-target
-const fakeProcess = () => new EventEmitter();
+import {openPopup, type ShowPopup} from './host.ts';
+import type {PopupActions, PopupSpec} from './spec.ts';
+import type {PopupSize} from './size.ts';
 
 const CONFIRM: PopupSpec = {
 	kind: 'confirm',
 	props: {title: 'Close Space', message: 'Close space bd-1?'},
 };
 
-type FakeChild = {
-	popup: EventEmitter;
-	launch: PopupLaunch;
-	socket: Socket;
-	received: HostMessage[];
-	send(message: ChildMessage): void;
-	next(type: HostMessage['type']): Promise<HostMessage>;
+type FakeDialog = {
+	size: PopupSize;
+	actions: PopupActions;
+	/** How many times the host asked to close the popup. */
+	closes: () => number;
+	closed: Promise<void>;
+	/** The popup going away, as tmux closing it would. */
+	closeFromTmux: () => void;
 };
 
 /**
- * Stand in for `tmux display-popup`: instead of running popup-cli.js, connect
- * to the host's socket from the test and play the child's side by hand.
+ * Stand in for the popup: instead of rendering PopupRoot into a tmux popup,
+ * hold the actions and answer by hand.
  */
 function fakeTmux() {
-	let resolveChild: (child: FakeChild) => void;
-	const child = new Promise<FakeChild>(resolve => {
-		resolveChild = resolve;
+	let resolveDialog: (dialog: FakeDialog) => void;
+	const dialog = new Promise<FakeDialog>(resolve => {
+		resolveDialog = resolve;
 	});
-	const launch = (popupLaunch: PopupLaunch) => {
-		const popup = fakeProcess();
-		const socket = connect(popupLaunch.socketPath);
-		const received: HostMessage[] = [];
-		const events = fakeProcess();
-		socket.on(
-			'data',
-			createMessageDecoder<HostMessage>(message => {
-				received.push(message);
-				events.emit(message.type, message);
-			}),
-		);
-		// A real popup closes when popup-cli exits, which it does on `done`.
-		socket.on('close', () => popup.emit('exit', 0));
-		resolveChild({
-			popup,
-			launch: popupLaunch,
-			socket,
-			received,
-			send(message) {
-				socket.write(encodeMessage(message));
-			},
-			async next(type) {
-				const seen = received.find(message => message.type === type);
-				if (seen) return seen;
-				const [message] = (await once(events, type)) as [HostMessage];
-				return message;
-			},
+	const show: ShowPopup = async (_spec, size, actions) => {
+		let closeFromTmux!: () => void;
+		const closed = new Promise<void>(resolve => {
+			closeFromTmux = resolve;
 		});
-		return popup;
+		let closes = 0;
+		resolveDialog({
+			size,
+			actions,
+			closes: () => closes,
+			closed,
+			closeFromTmux,
+		});
+		return {
+			closed,
+			close() {
+				closes++;
+				closeFromTmux();
+			},
+		};
 	};
 
-	return {launch, child};
+	return {show, dialog};
 }
 
-const deps = (launch: (popupLaunch: PopupLaunch) => EventEmitter) => ({
-	launch,
-	env: {TMUX: '/tmp/tmux-test,1,0', LINCTL_API_KEY: 'secret'},
-	cwd: '/repo',
+const deps = (show: ShowPopup) => ({
+	show,
+	env: {TMUX: '/tmp/tmux-test,1,0'},
 	clientSize: async () => ({cols: 100, rows: 40}),
 });
 
-test('without tmux the popup is unavailable and nothing launches', async t => {
-	let launched = false;
+const tick = async (ms = 20) =>
+	new Promise(resolve => {
+		setTimeout(resolve, ms);
+	});
+
+test('without tmux the popup is unavailable and nothing is shown', async t => {
+	let shown = false;
 	const outcome = await openPopup(
 		CONFIRM,
 		{},
 		{
 			env: {},
-			launch() {
-				launched = true;
-				return fakeProcess();
+			async show() {
+				shown = true;
+				return undefined;
 			},
 		},
 	);
 
 	t.is(outcome, 'unavailable');
-	t.false(launched);
+	t.false(shown);
 });
 
-test('the child gets the dialog, the TUI env and cwd, and a size', async t => {
+test('a popup that cannot be shown is unavailable', async t => {
+	const outcome = await openPopup(
+		CONFIRM,
+		{},
+		deps(async () => undefined),
+	);
+
+	t.is(outcome, 'unavailable');
+});
+
+test('the dialog is sized for the client', async t => {
 	const tmux = fakeTmux();
-	const result = openPopup(CONFIRM, {}, deps(tmux.launch));
-	const child = await tmux.child;
+	const result = openPopup(CONFIRM, {}, deps(tmux.show));
+	const dialog = await tmux.dialog;
 
-	const init = await child.next('init');
-	t.like(init, {
-		type: 'init',
-		kind: 'confirm',
-		cwd: '/repo',
-		env: {LINCTL_API_KEY: 'secret'},
-	});
-	t.is(child.launch.size.width, 72);
+	t.is(dialog.size.width, 72);
 
-	child.send({type: 'cancel'});
+	dialog.actions.cancel();
 	t.is(await result, 'cancelled');
+	t.is(dialog.closes(), 1);
 });
 
-test('done is sent only after the confirm handler finishes', async t => {
+test('the popup closes only after the confirm handler finishes', async t => {
 	const tmux = fakeTmux();
 	let finishDelete!: () => void;
 	const deleting = new Promise<void>(resolve => {
@@ -132,21 +118,19 @@ test('done is sent only after the confirm handler finishes', async t => {
 				await deleting;
 			},
 		},
-		deps(tmux.launch),
+		deps(tmux.show),
 	);
-	const child = await tmux.child;
-	await child.next('init');
+	const dialog = await tmux.dialog;
 
-	child.send({type: 'confirm'});
-	await new Promise(resolve => {
-		setTimeout(resolve, 50);
-	});
+	const confirmed = dialog.actions.confirm();
+	await tick();
 	t.true(handlerRan);
-	t.false(child.received.some(message => message.type === 'done'));
+	t.is(dialog.closes(), 0);
 
 	finishDelete();
-	await child.next('done');
+	await confirmed;
 	t.is(await result, 'confirmed');
+	t.is(dialog.closes(), 1);
 });
 
 test('the popup closing before an answer is a cancel, and no handler runs', async t => {
@@ -159,12 +143,11 @@ test('the popup closing before an answer is a cancel, and no handler runs', asyn
 				handlerRan = true;
 			},
 		},
-		deps(tmux.launch),
+		deps(tmux.show),
 	);
-	const child = await tmux.child;
-	await child.next('init');
+	const dialog = await tmux.dialog;
 
-	child.socket.destroy();
+	dialog.closeFromTmux();
 	t.is(await result, 'cancelled');
 	t.false(handlerRan);
 });
@@ -179,30 +162,26 @@ test('the popup closing mid-action does not resolve until the action finishes', 
 	const result = openPopup(
 		CONFIRM,
 		{onConfirm: async () => deleting},
-		deps(tmux.launch),
+		deps(tmux.show),
 	);
 	void result.then(() => {
 		resolved = true;
 	});
-	const child = await tmux.child;
-	await child.next('init');
+	const dialog = await tmux.dialog;
 
-	child.send({type: 'confirm'});
-	await new Promise(resolve => {
-		setTimeout(resolve, 20);
-	});
-	child.socket.destroy();
-	child.popup.emit('exit', 0);
-	await new Promise(resolve => {
-		setTimeout(resolve, 20);
-	});
+	void dialog.actions.confirm();
+	await tick();
+	dialog.closeFromTmux();
+	// The dialog unmounting reports a cancel, which must not end the action.
+	dialog.actions.cancel();
+	await tick();
 	t.false(resolved);
 
 	finishDelete();
 	t.is(await result, 'confirmed');
 });
 
-test('closeBeforeConfirm runs the action only after the popup has exited', async t => {
+test('closeBeforeConfirm runs the action only after the popup has closed', async t => {
 	const tmux = fakeTmux();
 	const order: string[] = [];
 	const result = openPopup(
@@ -213,68 +192,37 @@ test('closeBeforeConfirm runs the action only after the popup has exited', async
 				order.push('confirm');
 			},
 		},
-		deps(tmux.launch),
+		deps(tmux.show),
 	);
-	const child = await tmux.child;
-	child.popup.on('exit', () => order.push('exit'));
-	await child.next('init');
+	const dialog = await tmux.dialog;
+	void dialog.closed.then(() => order.push('closed'));
 
-	child.send({type: 'confirm'});
-	await child.next('done');
-	child.socket.end();
+	void dialog.actions.confirm();
 	t.is(await result, 'confirmed');
-	t.deepEqual(order, ['exit', 'confirm']);
+	t.deepEqual(order, ['closed', 'confirm']);
 });
 
-test('the errors popup gets live updates and can clear', async t => {
+test('clearing errors runs the handler, then closes the popup', async t => {
 	const tmux = fakeTmux();
-	let push!: (errors: never[]) => void;
 	let cleared = false;
-	let unsubscribed = false;
 	const result = openPopup(
 		{kind: 'errors', props: {errors: []}},
 		{
-			subscribeErrors(listener) {
-				push = listener;
-				return () => {
-					unsubscribed = true;
-				};
-			},
 			onClearErrors() {
 				cleared = true;
 			},
 		},
-		deps(tmux.launch),
+		deps(tmux.show),
 	);
-	const child = await tmux.child;
-	await child.next('init');
+	const dialog = await tmux.dialog;
 
-	push([]);
-	await child.next('errors');
-	child.send({type: 'clear-errors'});
-	await result;
+	await dialog.actions.clearErrors();
+	t.is(await result, 'confirmed');
 	t.true(cleared);
-	t.true(unsubscribed);
+	t.is(dialog.closes(), 1);
 });
 
-test('a popup that fails to start is unavailable and leaves no socket dir', async t => {
-	let socketPath = '';
-	const outcome = await openPopup(
-		CONFIRM,
-		{},
-		deps(popupLaunch => {
-			socketPath = popupLaunch.socketPath;
-			const popup = fakeProcess();
-			setImmediate(() => popup.emit('error', new Error('spawn tmux ENOENT')));
-			return popup;
-		}),
-	);
-
-	t.is(outcome, 'unavailable');
-	t.false(existsSync(path.dirname(socketPath)));
-});
-
-test('the payload the child confirms with reaches the handler', async t => {
+test('the payload the dialog confirms with reaches the handler', async t => {
 	const tmux = fakeTmux();
 	let received: unknown;
 	const result = openPopup(
@@ -284,17 +232,15 @@ test('the payload the child confirms with reaches the handler', async t => {
 				received = payload;
 			},
 		},
-		deps(tmux.launch),
+		deps(tmux.show),
 	);
-	const child = await tmux.child;
-	await child.next('init');
+	const dialog = await tmux.dialog;
 
 	const choice = {
 		kind: 'set',
 		state: {id: 'deferred', name: 'Deferred', done: false},
 	};
-	child.send({type: 'confirm', payload: {choice}} as never);
-	await child.next('done');
+	await dialog.actions.confirm({choice} as never);
 	t.is(await result, 'confirmed');
 	t.deepEqual(received, {choice});
 });

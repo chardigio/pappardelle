@@ -90,7 +90,7 @@ import {
 	runCommandPopup,
 	type PopupHandlers,
 } from './popup/host.ts';
-import type {PopupSpec} from './popup/protocol.ts';
+import type {PopupSpec} from './popup/spec.ts';
 import {shellQuote} from './shell-quote.ts';
 import {
 	routeSession,

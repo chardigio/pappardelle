@@ -8,7 +8,7 @@ import {
 import {formatVersionLine} from '../help-version-line.ts';
 import {closeSpaceContent} from '../close-state-choice.ts';
 import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
-import type {ConfirmPopupProps, PopupSpec} from './protocol.ts';
+import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
 
 export type ClientSize = {cols: number; rows: number};
 export type PopupSize = {width: number; height: number};
