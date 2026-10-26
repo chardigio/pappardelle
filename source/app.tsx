@@ -87,10 +87,10 @@ import {
 	isPopupAvailable,
 	openPopup,
 	runCommandPopup,
-	shellQuote,
 	type PopupHandlers,
 } from './popup/host.ts';
 import type {PopupSpec} from './popup/protocol.ts';
+import {shellQuote} from './shell-quote.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
@@ -122,6 +122,7 @@ import {
 	DEFAULT_IDE_COMMAND,
 	resolvePendingProfileEmoji,
 	type KeybindingConfig,
+	type PappardelleConfig,
 	type ResolvedWatchlist,
 } from './config.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
@@ -186,6 +187,7 @@ import {
 	releaseWatchlistReservation,
 } from './space-registry.ts';
 import {
+	readSpaceState,
 	writeSpaceState,
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
@@ -218,6 +220,20 @@ interface AppProps {
 
 log.info('Pappardelle starting');
 
+function issueKeyForInput(
+	input: string,
+	inputIsIssueKey: boolean,
+	config: PappardelleConfig | null,
+): string | null {
+	if (inputIsIssueKey) return input.trim();
+	return normalizeIssueIdentifier(
+		input,
+		config ? getTeamPrefix(config) : 'STA',
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+}
+
 export default function App({
 	paneLayout: initialPaneLayout,
 	commitSha,
@@ -234,6 +250,13 @@ export default function App({
 			return 'unknown';
 		}
 	}, []);
+	const savedProfileFor = React.useCallback(
+		(input: string, config: PappardelleConfig | null) => {
+			const key = issueKeyForInput(input, false, config);
+			return key ? readSpaceState(repoName, key)?.profile : undefined;
+		},
+		[repoName],
+	);
 
 	const {spaces, setSpaces, selectedIndex, setSelectedIndex, selectSpace} =
 		useSpaceSelection();
@@ -1953,15 +1976,7 @@ export default function App({
 			config = null;
 		}
 
-		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-		const normalizedIssueKey = inputIsIssueKey
-			? input.trim()
-			: normalizeIssueIdentifier(
-					input,
-					teamPrefix,
-					createIssueTracker().name,
-					config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
-				);
+		const normalizedIssueKey = issueKeyForInput(input, inputIsIssueKey, config);
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
@@ -2381,6 +2396,7 @@ export default function App({
 					<PromptDialog
 						onSubmit={handleNewSession}
 						onCancel={() => setShowPromptDialog(false)}
+						savedProfileFor={savedProfileFor}
 						availableWidth={termDimensions.cols}
 						availableHeight={dialogHeight}
 						isInTmux={inTmux}

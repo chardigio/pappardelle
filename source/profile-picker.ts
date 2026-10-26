@@ -169,11 +169,16 @@ export function buildProfileOptions(
  * an unclaimed issue key) gets just the deferred row when there is another
  * agent profile to launch with, so `a` has a row to act on and the profile is
  * still left to idow.
+ *
+ * Input naming an existing space leads with the profile it was saved with:
+ * idow saves whichever profile is picked, so Enter-Enter on a preselected
+ * guess would otherwise replace it.
  */
 export function pickerOptions(
 	config: PappardelleConfig,
 	input: string,
 	canOverrideAgent = false,
+	savedProfile?: string,
 ): ProfileOption[] {
 	const selection = determineProfileForInput(config, input);
 	if (
@@ -184,7 +189,13 @@ export function pickerOptions(
 		return [deferredOption(config)];
 	}
 
-	return buildProfileOptions(config, input);
+	const options = buildProfileOptions(config, input);
+	const saved = options.find(
+		option => option.kind === 'profile' && option.name === savedProfile,
+	);
+	return saved
+		? [saved, ...options.filter(option => option !== saved)]
+		: options;
 }
 
 export type PromptSubmit =
