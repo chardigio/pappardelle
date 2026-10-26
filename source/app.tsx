@@ -76,6 +76,7 @@ import {
 	ensureStatusDir,
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
+import {resolveSpaceKey} from './issue-utils.ts';
 import {openIssueForKey} from './open-issue.ts';
 import {
 	applyStateChoice,
@@ -220,20 +221,6 @@ interface AppProps {
 
 log.info('Pappardelle starting');
 
-function issueKeyForInput(
-	input: string,
-	inputIsIssueKey: boolean,
-	config: PappardelleConfig | null,
-): string | null {
-	if (inputIsIssueKey) return input.trim();
-	return normalizeIssueIdentifier(
-		input,
-		config ? getTeamPrefix(config) : 'STA',
-		createIssueTracker().name,
-		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
-	);
-}
-
 export default function App({
 	paneLayout: initialPaneLayout,
 	commitSha,
@@ -252,7 +239,12 @@ export default function App({
 	}, []);
 	const savedProfileFor = React.useCallback(
 		(input: string, config: PappardelleConfig | null) => {
-			const key = issueKeyForInput(input, false, config);
+			const key = resolveSpaceKey(
+				input,
+				config ? getTeamPrefix(config) : 'STA',
+				createIssueTracker().name,
+				config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+			);
 			return key ? readSpaceState(repoName, key)?.profile : undefined;
 		},
 		[repoName],
@@ -1976,7 +1968,15 @@ export default function App({
 			config = null;
 		}
 
-		const normalizedIssueKey = issueKeyForInput(input, inputIsIssueKey, config);
+		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+		const normalizedIssueKey = inputIsIssueKey
+			? input.trim()
+			: normalizeIssueIdentifier(
+					input,
+					teamPrefix,
+					createIssueTracker().name,
+					config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+				);
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
