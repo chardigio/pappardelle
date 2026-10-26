@@ -42,6 +42,7 @@ import {
 } from '../profile-picker.ts';
 import {useSkillSnapshot} from '../use-skill-snapshot.ts';
 import {pickAgentProfileInPopup} from '../popup/agent-profile.ts';
+import {cutAgentProfileName} from '../agent-profile-picker.ts';
 import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
 import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
 import {promptDialogLayout} from './prompt-dialog-layout.ts';
@@ -702,9 +703,10 @@ function ProfilePicker({
 									)}
 								</Text>
 								{agentOverride && (
-									<Box flexShrink={0}>
-										<Text color="cyan"> → {agentOverride}</Text>
-									</Box>
+									<Text color="cyan" wrap="truncate-end">
+										{' '}
+										→ {cutAgentProfileName(agentOverride)}
+									</Text>
 								)}
 							</Box>
 						);

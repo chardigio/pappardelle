@@ -32,6 +32,12 @@ export const AGENT_PICKER_HINT =
 /** Names longer than this are cut so the source column keeps its room. */
 export const AGENT_PICKER_NAME_MAX_WIDTH = 32;
 
+export function cutAgentProfileName(name: string): string {
+	return name.length > AGENT_PICKER_NAME_MAX_WIDTH
+		? name.slice(0, AGENT_PICKER_NAME_MAX_WIDTH - 1) + '…'
+		: name;
+}
+
 /** Room for the "↑/↓ N more" rows once the list scrolls. */
 const SCROLL_MARKER_ROWS = 2;
 
