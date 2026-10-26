@@ -183,7 +183,8 @@ fi
 # so resolve_agent_launch_config sets them once one is selected.
 LOCAL_CONFIG_PATH=$(resolve_repo_config .pappardelle.local.yml)
 AGENT_CONFIG_JSON=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
-INIT_CMD=$(echo "$AGENT_CONFIG_JSON" | jq -r '.init_cmd')
+GLOBAL_INIT_CMD=$(echo "$AGENT_CONFIG_JSON" | jq -r '.init_cmd')
+INIT_CMD="$GLOBAL_INIT_CMD"
 SKIP_PERMISSIONS=$(echo "$AGENT_CONFIG_JSON" | jq -r '.skip_permissions')
 
 # Resolve which terminal launcher to drive. terminal.app layers across the same
@@ -236,6 +237,9 @@ resolve_agent_launch_config() {
     while IFS= read -r warning; do
         if [[ -n "$warning" ]]; then print_warning "$warning"; fi
     done < <(jq -r '.profile_deprecation_warnings' <<< "$json")
+    # Runs again when a tracker project re-selects the profile, so start from
+    # the global command rather than the previously selected profile's.
+    INIT_CMD="$GLOBAL_INIT_CMD"
     if [[ "$init_cmd_set" == "true" ]]; then
         INIT_CMD="$init_cmd"
         log "Using per-profile initialization_command: $INIT_CMD"
