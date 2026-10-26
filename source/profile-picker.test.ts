@@ -2,11 +2,15 @@ import test from 'ava';
 import {
 	buildProfileOptions,
 	computePickerWindow,
+	filterProfileOptions,
 	handleProfilePickerKey,
+	handleProfileSearchKey,
+	profilePickerHint,
 	resolvePromptSubmit,
 	focusFrame,
 	PICKER_MAX_VISIBLE,
 } from './profile-picker.ts';
+import {MAX_LIST_WIDTH} from './layout-sizing.ts';
 import {
 	DEFERRED_PROFILE_DISPLAY_NAME,
 	type PappardelleConfig,
@@ -531,61 +535,61 @@ const KEY = {
 } as const;
 
 test('handleProfilePickerKey moves down and clamps at the end', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.down, 0, 3), {
+	t.deepEqual(handleProfilePickerKey('', KEY.down, {index: 0, total: 3}), {
 		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('', KEY.down, 2, 3), {
+	t.deepEqual(handleProfilePickerKey('', KEY.down, {index: 2, total: 3}), {
 		action: 'move',
 		index: 2,
 	});
 });
 
 test('handleProfilePickerKey moves up and clamps at the start', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.up, 2, 3), {
+	t.deepEqual(handleProfilePickerKey('', KEY.up, {index: 2, total: 3}), {
 		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('', KEY.up, 0, 3), {
+	t.deepEqual(handleProfilePickerKey('', KEY.up, {index: 0, total: 3}), {
 		action: 'move',
 		index: 0,
 	});
 });
 
 test('handleProfilePickerKey supports j/k like the main list', t => {
-	t.deepEqual(handleProfilePickerKey('j', KEY.none, 0, 3), {
+	t.deepEqual(handleProfilePickerKey('j', KEY.none, {index: 0, total: 3}), {
 		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('k', KEY.none, 2, 3), {
+	t.deepEqual(handleProfilePickerKey('k', KEY.none, {index: 2, total: 3}), {
 		action: 'move',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey submits on Enter', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.enter, 1, 3), {
+	t.deepEqual(handleProfilePickerKey('', KEY.enter, {index: 1, total: 3}), {
 		action: 'submit',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey goes back on Escape', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.escape, 1, 3), {
+	t.deepEqual(handleProfilePickerKey('', KEY.escape, {index: 1, total: 3}), {
 		action: 'back',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey ignores unrelated keys', t => {
-	t.deepEqual(handleProfilePickerKey('x', KEY.none, 1, 3), {
+	t.deepEqual(handleProfilePickerKey('x', KEY.none, {index: 1, total: 3}), {
 		action: 'ignore',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey refuses to submit an empty list', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.enter, 0, 0), {
+	t.deepEqual(handleProfilePickerKey('', KEY.enter, {index: 0, total: 0}), {
 		action: 'ignore',
 		index: 0,
 	});
@@ -672,4 +676,245 @@ test('focusFrame gives the unfocused box a dim round outline', t => {
 
 test('focusFrame never marks two states the same', t => {
 	t.notDeepEqual(focusFrame(true), focusFrame(false));
+});
+
+// ============================================================================
+// Profile search (`/` in the focused picker)
+// ============================================================================
+
+test('handleProfilePickerKey opens the search on /', t => {
+	t.deepEqual(handleProfilePickerKey('/', KEY.none, {index: 2, total: 4}), {
+		action: 'search',
+		index: 2,
+	});
+});
+
+test('handleProfilePickerKey clears a locked filter before it goes back', t => {
+	// Two-stage Esc, like the skill list: the first one undoes the filter, the
+	// next one (now with no filter) hands the focus back to the prompt.
+	t.deepEqual(
+		handleProfilePickerKey('', KEY.escape, {
+			index: 1,
+			total: 3,
+			hasFilter: true,
+		}),
+		{
+			action: 'clear-search',
+			index: 1,
+		},
+	);
+	t.deepEqual(
+		handleProfilePickerKey('', KEY.escape, {
+			index: 1,
+			total: 3,
+			hasFilter: false,
+		}),
+		{
+			action: 'back',
+			index: 1,
+		},
+	);
+});
+
+test('filterProfileOptions keeps every option for a blank query', t => {
+	const options = buildProfileOptions(CONFIG, '');
+	t.deepEqual(filterProfileOptions(options, ''), options);
+	t.deepEqual(filterProfileOptions(options, '   '), options);
+});
+
+test('filterProfileOptions matches the display name case-insensitively', t => {
+	const options = buildProfileOptions(CONFIG, '');
+	t.deepEqual(
+		filterProfileOptions(options, 'JAMS').map(o => o.name),
+		['stardust'],
+	);
+});
+
+test('filterProfileOptions matches the profile name as well', t => {
+	// `hive` is the key; "The Hive" also contains it, so use a key-only hit.
+	const config = makeConfig(
+		{
+			web: {display_name: 'Website'},
+			tb: {display_name: 'TrotBooks'},
+		},
+		'web',
+	);
+	const options = buildProfileOptions(config, '');
+	t.deepEqual(
+		filterProfileOptions(options, 'tb').map(o => o.name),
+		['tb'],
+	);
+});
+
+test('filterProfileOptions does not match keywords', t => {
+	const options = buildProfileOptions(CONFIG, '');
+	t.deepEqual(filterProfileOptions(options, 'sllib'), []);
+});
+
+test('filterProfileOptions keeps the list order', t => {
+	const options = buildProfileOptions(CONFIG, 'trot');
+	t.deepEqual(
+		filterProfileOptions(options, 't').map(o => o.name),
+		['trotbooks', 'platform', 'stardust', 'hive'],
+	);
+});
+
+test('filterProfileOptions matches the profile-less row by its label', t => {
+	const options = buildProfileOptions(CONFIG, 'STA-1');
+	const query = DEFERRED_PROFILE_DISPLAY_NAME.slice(0, 4);
+	t.true(filterProfileOptions(options, query).some(o => o.name === null));
+});
+
+test('handleProfileSearchKey appends typed text, j and k included', t => {
+	t.deepEqual(
+		handleProfileSearchKey('j', KEY.none, 'tro', {index: 0, total: 3}),
+		{
+			action: 'edit',
+			query: 'troj',
+		},
+	);
+	t.deepEqual(
+		handleProfileSearchKey('ka', KEY.none, '', {index: 0, total: 3}),
+		{
+			action: 'edit',
+			query: 'ka',
+		},
+	);
+});
+
+test('handleProfileSearchKey drops control characters from pasted text', t => {
+	t.deepEqual(
+		handleProfileSearchKey('a\nb\tc', KEY.none, '', {index: 0, total: 3}),
+		{
+			action: 'edit',
+			query: 'abc',
+		},
+	);
+});
+
+test('handleProfileSearchKey deletes the last character on backspace', t => {
+	t.deepEqual(
+		handleProfileSearchKey('', {backspace: true}, 'tro', {index: 0, total: 3}),
+		{
+			action: 'edit',
+			query: 'tr',
+		},
+	);
+	// macOS terminals send DEL for Backspace, which Ink reports as `delete`.
+	t.deepEqual(
+		handleProfileSearchKey('', {delete: true}, 'tro', {index: 0, total: 3}),
+		{
+			action: 'edit',
+			query: 'tr',
+		},
+	);
+});
+
+test('handleProfileSearchKey closes the search on backspace over an empty query', t => {
+	t.deepEqual(
+		handleProfileSearchKey('', {backspace: true}, '', {index: 0, total: 3}),
+		{
+			action: 'cancel',
+		},
+	);
+});
+
+test('handleProfileSearchKey moves with the arrows and clamps', t => {
+	t.deepEqual(handleProfileSearchKey('', KEY.down, 'a', {index: 0, total: 2}), {
+		action: 'move',
+		index: 1,
+	});
+	t.deepEqual(handleProfileSearchKey('', KEY.down, 'a', {index: 1, total: 2}), {
+		action: 'move',
+		index: 1,
+	});
+	t.deepEqual(handleProfileSearchKey('', KEY.up, 'a', {index: 0, total: 2}), {
+		action: 'move',
+		index: 0,
+	});
+});
+
+test('handleProfileSearchKey locks the filter on Enter', t => {
+	t.deepEqual(
+		handleProfileSearchKey('', KEY.enter, 'tro', {index: 0, total: 1}),
+		{
+			action: 'lock',
+		},
+	);
+});
+
+test('handleProfileSearchKey cancels on Escape', t => {
+	t.deepEqual(
+		handleProfileSearchKey('', KEY.escape, 'tro', {index: 0, total: 1}),
+		{
+			action: 'cancel',
+		},
+	);
+});
+
+test('handleProfileSearchKey ignores modified keys and Tab', t => {
+	t.deepEqual(
+		handleProfileSearchKey('c', {ctrl: true}, 'a', {index: 0, total: 1}),
+		{
+			action: 'ignore',
+		},
+	);
+	t.deepEqual(
+		handleProfileSearchKey('b', {meta: true}, 'a', {index: 0, total: 1}),
+		{
+			action: 'ignore',
+		},
+	);
+	t.deepEqual(
+		handleProfileSearchKey('', {tab: true}, 'a', {index: 0, total: 1}),
+		{
+			action: 'ignore',
+		},
+	);
+});
+
+test('handleProfilePickerKey keeps the index at 0 when a locked filter matches nothing', t => {
+	t.deepEqual(handleProfilePickerKey('j', KEY.none, {index: 0, total: 0}), {
+		action: 'move',
+		index: 0,
+	});
+});
+
+test('handleProfileSearchKey closes the search when Enter locks a blank query', t => {
+	// A blank filter hides nothing, so locking it would leave a search row and
+	// an "Esc clear" hint on screen for a filter that does not exist.
+	t.deepEqual(
+		handleProfileSearchKey('', KEY.enter, '  ', {index: 0, total: 3}),
+		{
+			action: 'cancel',
+		},
+	);
+});
+
+test('profilePickerHint fits the 40-column list pane in every mode', t => {
+	// The hint sits in a Box with paddingX={2}. A wrapped hint takes a row the
+	// dialog layout does not count, and the dialog overflows its pane.
+	const room = MAX_LIST_WIDTH - 4;
+	for (const search of [null, {isEditing: true}, {isEditing: false}] as const) {
+		const text = profilePickerHint(search)
+			.map(segment => `${segment.key} ${segment.label}`)
+			.join(' · ');
+		t.true(text.length <= room, `${text} (${text.length} > ${room})`);
+	}
+});
+
+test('profilePickerHint says what / and Esc do in each mode', t => {
+	const labels = (search: Parameters<typeof profilePickerHint>[0]) =>
+		profilePickerHint(search).map(segment => `${segment.key} ${segment.label}`);
+	t.deepEqual(labels(null), ['Enter start', '/ search', 'Esc back']);
+	t.deepEqual(labels({isEditing: false}), [
+		'Enter start',
+		'/ edit',
+		'Esc clear',
+	]);
+	t.deepEqual(labels({isEditing: true}), [
+		'↑/↓ select',
+		'Enter lock',
+		'Esc clear',
+	]);
 });

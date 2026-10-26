@@ -29,8 +29,11 @@ import {
 import {
 	buildProfileOptions,
 	computePickerWindow,
+	filterProfileOptions,
 	focusFrame,
 	handleProfilePickerKey,
+	handleProfileSearchKey,
+	profilePickerHint,
 	resolvePromptSubmit,
 	PICKER_MAX_VISIBLE,
 	type ProfileOption,
@@ -71,6 +74,10 @@ export default function PromptDialog({
 	// Both boxes are always on screen; this is purely which one has focus.
 	const [isPicking, setIsPicking] = useState(false);
 	const [selectedIndex, setSelectedIndex] = useState(0);
+	// `/` in the focused picker. The query outlives the editing, so Enter can
+	// lock a filter and give `j`/`k` back to the list without dropping it.
+	const [searchQuery, setSearchQuery] = useState('');
+	const [isSearchEditing, setIsSearchEditing] = useState(false);
 
 	// Escape closes the completion list without clearing what you typed, so the
 	// dismissal has to be remembered against the exact text it was made for:
@@ -179,6 +186,18 @@ export default function PromptDialog({
 		[config, effectiveInput],
 	);
 
+	const visibleOptions = useMemo(
+		() => filterProfileOptions(options, searchQuery),
+		[options, searchQuery],
+	);
+	// Trimmed like the filter itself, so a blank query never counts as a filter.
+	const hasFilter = searchQuery.trim() !== '';
+	const isSearching = isPicking && (isSearchEditing || hasFilter);
+	const resetSearch = () => {
+		setSearchQuery('');
+		setIsSearchEditing(false);
+	};
+
 	// While typing, the preselected row IS the answer the old "Profile:" line
 	// used to spell out, so it always tracks the top of the list; the stored
 	// index only matters once the picker has focus.
@@ -256,12 +275,11 @@ export default function PromptDialog({
 
 	useInput(
 		(input, key) => {
-			const result = handleProfilePickerKey(
-				input,
-				key,
-				selectedIndex,
-				options.length,
-			);
+			const result = handleProfilePickerKey(input, key, {
+				index: selectedIndex,
+				total: visibleOptions.length,
+				hasFilter,
+			});
 			switch (result.action) {
 				case 'move': {
 					setSelectedIndex(result.index);
@@ -269,8 +287,19 @@ export default function PromptDialog({
 				}
 
 				case 'submit': {
-					const chosen = options[result.index];
+					const chosen = visibleOptions[result.index];
 					if (chosen) onSubmit(effectiveInput.trim(), chosen.name, ready.onRow);
+					break;
+				}
+
+				case 'search': {
+					setIsSearchEditing(true);
+					break;
+				}
+
+				case 'clear-search': {
+					resetSearch();
+					setSelectedIndex(0);
 					break;
 				}
 
@@ -278,6 +307,47 @@ export default function PromptDialog({
 					// First Esc hands focus back to the prompt; a second one (handled by
 					// the other useInput, now re-armed) cancels the dialog.
 					setIsPicking(false);
+					setSelectedIndex(0);
+					resetSearch();
+					break;
+				}
+
+				case 'ignore': {
+					break;
+				}
+			}
+		},
+		{isActive: isPicking && !isSearchEditing && ready.closeTarget === null},
+	);
+
+	// The `/` search row. Printable keys are text here, so this map cannot share
+	// `j`/`k` with the list and only the arrows move.
+	useInput(
+		(input, key) => {
+			const result = handleProfileSearchKey(input, key, searchQuery, {
+				index: selectedIndex,
+				total: visibleOptions.length,
+			});
+			switch (result.action) {
+				case 'edit': {
+					setSearchQuery(result.query);
+					// The list just changed under the cursor; the best match is on top.
+					setSelectedIndex(0);
+					break;
+				}
+
+				case 'move': {
+					setSelectedIndex(result.index);
+					break;
+				}
+
+				case 'lock': {
+					setIsSearchEditing(false);
+					break;
+				}
+
+				case 'cancel': {
+					resetSearch();
 					setSelectedIndex(0);
 					break;
 				}
@@ -287,7 +357,7 @@ export default function PromptDialog({
 				}
 			}
 		},
-		{isActive: isPicking && ready.closeTarget === null},
+		{isActive: isPicking && isSearchEditing && ready.closeTarget === null},
 	);
 
 	// The list re-ranks on every keystroke, so an index parked deep in a long
@@ -322,6 +392,7 @@ export default function PromptDialog({
 			case 'pick': {
 				setIsPicking(true);
 				setSelectedIndex(0);
+				resetSearch();
 				break;
 			}
 		}
@@ -362,7 +433,8 @@ export default function PromptDialog({
 				? completions.length
 				: deferredLabel
 					? 1
-					: options.length,
+					: visibleOptions.length,
+			isSearching: !isCompleting && isSearching,
 		},
 	);
 
@@ -451,7 +523,12 @@ export default function PromptDialog({
 				/>
 			) : (
 				<ProfilePicker
-					options={options}
+					options={visibleOptions}
+					search={
+						isSearching
+							? {query: searchQuery, isEditing: isSearchEditing}
+							: null
+					}
 					selectedIndex={activeIndex}
 					width={width}
 					frame={pickerFrame}
@@ -466,6 +543,7 @@ export default function PromptDialog({
 
 function ProfilePicker({
 	options,
+	search,
 	selectedIndex,
 	width,
 	frame,
@@ -474,6 +552,8 @@ function ProfilePicker({
 	maxVisible,
 }: {
 	options: ProfileOption[];
+	/** The `/` filter, or null when no search is open. */
+	search: {query: string; isEditing: boolean} | null;
 	selectedIndex: number;
 	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
@@ -512,6 +592,20 @@ function ProfilePicker({
 							{deferredLabel}
 						</Text>
 					</Box>
+				) : null}
+				{search ? (
+					// One row whatever the query's length: the layout counts it as one,
+					// and the end of the query is the part you are typing.
+					<Text wrap="truncate-start">
+						<Text color="green">/</Text>
+						{search.query}
+						{search.isEditing ? <Text inverse> </Text> : null}
+					</Text>
+				) : null}
+				{search && options.length === 0 ? (
+					<Text dimColor italic>
+						{'  '}No matching profiles
+					</Text>
 				) : null}
 				{!deferredLabel && above > 0 && <Text dimColor>↑ {above} more</Text>}
 				{!deferredLabel &&
@@ -562,9 +656,12 @@ function ProfilePicker({
 			{isFocused ? (
 				<Box paddingX={2}>
 					<Text dimColor>
-						<Text color="green">↑/↓</Text> select ·{' '}
-						<Text color="green">Enter</Text> start ·{' '}
-						<Text color="yellow">Esc</Text> back
+						{profilePickerHint(search).map((segment, index) => (
+							<React.Fragment key={segment.key}>
+								{index > 0 ? ' · ' : ''}
+								<Text color={segment.color}>{segment.key}</Text> {segment.label}
+							</React.Fragment>
+						))}
 					</Text>
 				</Box>
 			) : null}

@@ -181,6 +181,12 @@ what the keyword would have chosen on its own. Arrow (or `j`/`k`) to any other
 profile to override it without rewording your prompt, and `Esc` to go back to
 editing.
 
+With many profiles, press `/` in the picker to search. The list narrows to the
+profiles whose name or display name contains what you type, and `↑`/`↓` move in
+it. `Enter` locks the filter and gives `j`/`k` back to the list, so a second
+`Enter` starts the session; `/` edits the locked filter. `Esc` clears the
+search, and the `Esc` after that goes back to the prompt.
+
 ### Slash-command autocomplete
 
 Start the prompt with `/` and the **Profile** box gives way to a **Skills** box
