@@ -162,10 +162,8 @@ const subcommands = {
 
 	Points Claude Code's pappardelle-marketplace at this checkout and installs
 	the Pappardelle plugin (skills and hooks) from it. Claude Code loads it in
-	place, so edits take effect after /reload-plugins, which this sends to
-	Pappardelle's Claude sessions unless one is waiting on a question or
-	permission prompt. Also removes the hooks that older installs merged into
-	~/.claude/settings.json, keeping a backup.
+	place, so edits take effect after /reload-plugins. Also removes the hooks
+	that older installs merged into ~/.claude/settings.json, keeping a backup.
 `,
 	},
 } as const;

@@ -2,10 +2,6 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {readAllSessionStates} from './claude-status.ts';
-import {reloadClaudeSessions, type ReloadResult} from './plugin-reload.ts';
-import {defaultInnerTmuxRunner} from './tmux.ts';
-import {plural} from './tui-sessions.ts';
 
 // A marketplace added from a local directory loads its plugins in place, so
 // pointing it at the checkout makes skill and hook edits live after
@@ -36,7 +32,6 @@ export type PluginInstallDeps = {
 	writeFile: (file: string, content: string) => void;
 	print: (line: string) => void;
 	isLinkedWorktree: () => boolean;
-	reloadSessions: () => ReloadResult;
 };
 
 export function installPlugin(deps: PluginInstallDeps): number {
@@ -59,7 +54,9 @@ export function installPlugin(deps: PluginInstallDeps): number {
 	}
 
 	if (original !== undefined) removeLegacyHooks(deps, original);
-	deps.print(`Installed the Pappardelle plugin from ${deps.repoDir}.`);
+	deps.print(
+		`Installed the Pappardelle plugin from ${deps.repoDir}. Run /reload-plugins in open Claude Code sessions to load it.`,
+	);
 	// Closing a workspace removes its worktree, and with it the plugin every
 	// Claude session loads.
 	if (deps.isLinkedWorktree()) {
@@ -68,20 +65,6 @@ export function installPlugin(deps: PluginInstallDeps): number {
 		);
 	}
 
-	const {reloaded, skipped} = deps.reloadSessions();
-	if (reloaded.length > 0) {
-		deps.print(
-			`Sent /reload-plugins to ${reloaded.length} Pappardelle Claude ${plural(reloaded.length, 'session')} (${reloaded.join(', ')}).`,
-		);
-	}
-
-	if (skipped.length > 0) {
-		deps.print(
-			`Run /reload-plugins by hand in ${skipped.join(', ')}, which ${skipped.length === 1 ? 'was' : 'were'} not at an empty prompt.`,
-		);
-	}
-
-	deps.print('Other open Claude Code sessions load it after /reload-plugins.');
 	return 0;
 }
 
@@ -148,15 +131,6 @@ function stripLegacyHooks(settings: ClaudeSettings): boolean {
 	return true;
 }
 
-function readEditorMode(file: string): unknown {
-	try {
-		return (JSON.parse(fs.readFileSync(file, 'utf8')) as {editorMode?: unknown})
-			.editorMode;
-	} catch {
-		return undefined;
-	}
-}
-
 export function defaultPluginInstallDeps(
 	pappardelleDir: string,
 ): PluginInstallDeps {
@@ -195,17 +169,5 @@ export function defaultPluginInstallDeps(
 				.map(dir => path.resolve(pappardelleDir, dir));
 			return gitDir !== commonDir;
 		},
-		reloadSessions: () =>
-			reloadClaudeSessions({
-				innerTmux: defaultInnerTmuxRunner,
-				readStatuses: readAllSessionStates,
-				vimMode: [
-					path.join(
-						process.env['CLAUDE_CONFIG_DIR'] ?? homedir(),
-						'.claude.json',
-					),
-					path.join(claudeDir, 'settings.json'),
-				].some(file => readEditorMode(file) === 'vim'),
-			}),
 	};
 }
