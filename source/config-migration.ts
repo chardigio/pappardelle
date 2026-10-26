@@ -46,7 +46,9 @@ export type ConfigMigrationPlan =
 	/** The old format is in use but can't be rewritten automatically. */
 	| {kind: 'unsupported'; reason: string};
 
-const HOME_LABEL = configLayerFiles({})[0]!.label;
+const [HOME_LABEL, PROJECT_LABEL] = configLayerFiles({}).map(
+	({label}) => label,
+);
 
 type LayerFile = {
 	label: string;
@@ -590,14 +592,23 @@ export function dismissResolvedDeprecationWarnings(
 export function buildConfigMigrationConfirmContent(
 	migrations: ConfigMigration[],
 ) {
+	const rewritesHome = migrations.some(m => m.label === HOME_LABEL);
 	return {
 		title: 'Update Config Format',
 		message:
 			'Your config uses deprecated claude: settings that agent profiles replaced. Rewrite it to the new format?',
 		detail: [
 			`Rewrites ${migrations.map(m => m.displayPath).join(', ')}, keeping comments and formatting.`,
-			migrations.some(m => m.label === HOME_LABEL)
-				? `${HOME_LABEL} is shared by every repo: one still on the old format may launch differently until it is rewritten too.`
+			// Each file's agent profiles get the values they launched with, and
+			// some of those came from the home config.
+			rewritesHome && migrations.some(m => m.label === PROJECT_LABEL)
+				? `Settings from ${HOME_LABEL} are copied into ${PROJECT_LABEL} so every profile launches as it does now. That file is usually committed, so check the diff before you share it.`
+				: '',
+			// An agent profile's own model or effort beats the claude.* fallback
+			// of a repo still on the old format, and that repo's rewrite then
+			// compares against the changed launch.
+			rewritesHome
+				? `${HOME_LABEL} is shared by every repo. A repo still on the old format stops using its own claude.model and claude.effort wherever the rewritten home config sets them, and rewriting that repo later won't bring them back.`
 				: '',
 		]
 			.filter(Boolean)
