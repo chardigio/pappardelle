@@ -7,7 +7,8 @@ import {
 } from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 import {closeSpaceContent} from '../close-state-choice.ts';
-import type {ConfirmPopupProps, PopupSpec} from './protocol.ts';
+import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
+import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
 
 export type ClientSize = {cols: number; rows: number};
 export type PopupSize = {width: number; height: number};
@@ -51,10 +52,13 @@ export function wrappedLineCount(text: string, width: number): number {
 	return lines;
 }
 
+// tmux refuses a popup as tall as the client when a status line is on.
+const STATUS_LINE_ROWS = 2;
+
 function clamp(size: PopupSize, client: ClientSize): PopupSize {
 	return {
 		width: Math.max(1, Math.min(size.width, client.cols)),
-		height: Math.max(1, Math.min(size.height, client.rows)),
+		height: Math.max(1, Math.min(size.height, client.rows - STATUS_LINE_ROWS)),
 	};
 }
 
@@ -115,15 +119,22 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 				),
 			);
 			const height = HELP_CHROME_ROWS + buildHelpLines(rows).length;
-			const maxHeight = client.rows - 2;
+			const maxHeight = client.rows - STATUS_LINE_ROWS;
 			const contentWidth = Math.max(
 				rowWidth,
 				widestLine(formatVersionLine(installedVersion, commitSha, isDevBuild)),
 				widestLine(helpFooter(height > maxHeight)),
 			);
+			return clamp({width: contentWidth + HORIZONTAL_CHROME, height}, client);
+		}
+
+		case 'agent-profile': {
 			return clamp(
-				{width: contentWidth + HORIZONTAL_CHROME, height},
-				{cols: client.cols, rows: maxHeight},
+				{
+					width: agentPickerWidth(client.cols),
+					height: agentPickerHeight(spec.props.options.length),
+				},
+				client,
 			);
 		}
 

@@ -12,7 +12,7 @@ const helpText = `
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
-	  Displays worktree spaces in an fzf-style list with Claude and
+	  Displays worktree spaces in an fzf-style list with agent and
 	  companion panes for the selected space.
 
 	  If a prompt is provided, creates a new session directly without
@@ -23,13 +23,13 @@ const helpText = `
 	  highlight <key>  Select a row in the running TUI by issue key
 	  link-pr <url>    Record a verified PR/MR for the current workspace
 	  send <key> [text]
-	                   Submit text as a prompt to the space's Claude session.
+	                   Submit text as a prompt to the space's agent session.
 	                   Reads stdin when no text is given; use stdin for text
 	                   that starts with "-", which would parse as a flag
 	  close <key>      Close a space, same as x in the TUI
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
-	  restart --hard   End every Claude session, then restart every TUI
+	  restart --hard   End every agent session, then restart every TUI
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -58,11 +58,11 @@ const helpText = `
 	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
-	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's Claude
+	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
 	  $ pappardelle close STA-313 --yes  # Close STA-313 without asking
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
-	  $ pappardelle restart --hard  # End Claude sessions, restart every TUI
+	  $ pappardelle restart --hard  # End agent sessions, restart every TUI
 `;
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
@@ -108,7 +108,7 @@ const subcommands = {
 	  $ pappardelle close <issue-key> [--yes]
 
 	Closes a space, same as x in the TUI: runs its pre_workspace_deinit
-	hooks, ends its Claude and companion sessions, and removes it from the
+	hooks, ends its agent and companion sessions, and removes it from the
 	list. The worktree stays on disk. A running TUI drops the row within
 	10 seconds. On a terminal it asks first.
 
@@ -125,11 +125,11 @@ const subcommands = {
 
 	Restarts this repo's TUI in its tmux pane on the build that ran this
 	command, then waits for it to report ready. Your terminal stays attached,
-	and Claude and companion sessions keep running. Exits non-zero when the
+	and agent and companion sessions keep running. Exits non-zero when the
 	TUI is not confirmed on that build.
 
 	Options
-	  --hard  End every Claude and companion session, then restart every TUI
+	  --hard  End every agent and companion session, then restart every TUI
 	  --yes   Skip --hard's confirmation
 `,
 	},

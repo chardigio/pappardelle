@@ -16,7 +16,7 @@ const defaultKeyDescriptions: Record<string, string> = {
 const fixedShortcuts: HelpRow[] = [
 	{key: 'j / ↓', description: 'Move down', isCustom: false},
 	{key: 'k / ↑', description: 'Move up', isCustom: false},
-	{key: 'Enter / →', description: 'Focus Claude pane', isCustom: false},
+	{key: 'Enter / →', description: 'Focus agent pane', isCustom: false},
 	{key: 'n', description: 'New space', isCustom: false},
 	{key: 'x / Del', description: 'Close space', isCustom: false},
 	{key: '/', description: 'Search spaces', isCustom: false},
@@ -26,7 +26,7 @@ const fixedShortcuts: HelpRow[] = [
 ];
 
 function describe(kb: KeybindingConfig): string {
-	return kb.name + (kb.send_to_claude ? ' → Claude' : '');
+	return kb.name + (kb.send_to_claude ? ' → agent' : '');
 }
 
 export function buildHelpRows(customKeybindings: KeybindingConfig[] = []): {

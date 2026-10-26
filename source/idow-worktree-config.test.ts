@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
 import YAML from 'js-yaml';
+import {idowSkippedAgentOverride} from './session-routing.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
 
@@ -56,7 +57,7 @@ function setup(t: ExecutionContext, realWorktree = false) {
 	for (const file of [
 		'idow',
 		'provider-helpers.sh',
-		'resolve-claude-config.sh',
+		'resolve-agent-config.sh',
 		'resolve-terminal-app.sh',
 		'derive-title.sh',
 	]) {
@@ -67,9 +68,9 @@ function setup(t: ExecutionContext, realWorktree = false) {
 	// on the machine running the suite, and which one it picked would depend on
 	// the host's terminal rather than the fixture.
 	for (const [launcher, name] of [
-		['open-ghostty-claude.sh', 'ghostty'],
-		['open-iterm-claude.sh', 'iterm'],
-		['open-default-terminal-claude.sh', 'default'],
+		['open-ghostty-agent.sh', 'ghostty'],
+		['open-iterm-agent.sh', 'iterm'],
+		['open-default-terminal-agent.sh', 'default'],
 	] as const) {
 		writeScript(
 			path.join(scripts, launcher),
@@ -102,7 +103,7 @@ fi
 exec "$IDOW_TEST_YQ" "$@"`,
 	);
 	writeScript(
-		path.join(scripts, 'start-claude-session.sh'),
+		path.join(scripts, 'start-agent-session.sh'),
 		`printf '%s\\n' "$@" > "$IDOW_TEST_LAUNCH_ARGS"`,
 	);
 	writeScript(
@@ -178,18 +179,23 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 		openCalls,
 		launchers,
 		home,
+		bin,
 		config,
 		async run({
 			open = false,
 			projectRoot = true,
 			onExit = () => {},
 			extraEnv = {},
+			profile,
+			agentProfile,
 			input,
 		}: {
 			open?: boolean;
 			projectRoot?: boolean;
 			onExit?: () => void;
 			extraEnv?: Record<string, string>;
+			profile?: string;
+			agentProfile?: string;
 			input?: string;
 		} = {}): Promise<string> {
 			const env = {...process.env};
@@ -207,6 +213,8 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 					[
 						path.join(scripts, 'idow'),
 						...(open ? ['--resume', '--open'] : []),
+						...(profile ? ['--profile', profile] : []),
+						...(agentProfile ? ['--agent-profile', agentProfile] : []),
 						...(input
 							? ['--profile', 'dev', input]
 							: ['--issue-key', 'test-abc']),
@@ -253,7 +261,7 @@ test('idow creates and reopens real worktrees in the main repository namespace',
 	t.true(fs.existsSync(path.join(fixture.workspace, '.git')));
 	const args = fs.readFileSync(fixture.launchArgs, 'utf8');
 	t.true(args.includes(`--repo-name\n${path.basename(fixture.main)}\n`));
-	t.true(args.includes('--model\nlinked-model\n'));
+	t.true(args.includes('--agent-launch-flags\n--model linked-model\n'));
 	t.true(
 		fs.existsSync(
 			path.join(
@@ -284,7 +292,7 @@ test('idow creates a session using main config and worktree-local overrides', as
 	t.true(
 		fs
 			.readFileSync(fixture.launchArgs, 'utf8')
-			.includes('--model\nlinked-model\n'),
+			.includes('--agent-launch-flags\n--model linked-model\n'),
 	);
 	t.is(
 		fs.readFileSync(
@@ -310,7 +318,7 @@ test('idow opens from a linked checkout and expands both repository roots', asyn
 	t.true(
 		fs
 			.readFileSync(fixture.launchArgs, 'utf8')
-			.includes('--model\nmain-model\n'),
+			.includes('--agent-launch-flags\n--model main-model\n'),
 	);
 	t.is(
 		fs.readFileSync(path.join(fixture.workspace, 'roots'), 'utf8'),
@@ -329,7 +337,7 @@ test('idow prefers a worktree project config while falling back for local config
 	t.true(
 		fs
 			.readFileSync(fixture.launchArgs, 'utf8')
-			.includes('--model\nmain-model\n'),
+			.includes('--agent-launch-flags\n--model main-model\n'),
 	);
 });
 
@@ -504,6 +512,295 @@ test('step 9 hands Ghostty the window captured at startup', async t => {
 	);
 });
 
+test('an explicit profile pick on an existing space is persisted and reused', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}},
+			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
+		}),
+	);
+	const statePath = path.join(
+		fixture.home,
+		'.pappardelle/repos/main checkout/space-state/test-abc.json',
+	);
+	const persisted = () =>
+		(JSON.parse(fs.readFileSync(statePath, 'utf8')) as {profile: string})
+			.profile;
+	const agentCommand = () => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf('--agent-command') + 1];
+	};
+
+	await fixture.run();
+	t.is(persisted(), 'dev');
+	// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
+	// only sees an existing worktree once its own path exists.
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+		recursive: true,
+	});
+
+	// Reopening with a different pick: the worktree already exists.
+	await fixture.run({profile: 'other'});
+	t.is(persisted(), 'other');
+	t.is(agentCommand(), 'codex');
+
+	// An unforced run (the TUI's `o`) keeps the picked profile instead of
+	// falling back to default_profile.
+	const output = await fixture.run({open: true});
+	t.is(persisted(), 'other');
+	t.is(agentCommand(), 'codex');
+	t.true(output.includes('Profile:   Other'), output);
+});
+
+// codex's `resume --last` is not scoped to the cwd, so resuming in a brand new
+// worktree would reopen another workspace's conversation.
+test('a recreated worktree launches the agent without resume args not tied to it', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}},
+			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
+		}),
+	);
+	const resumeArgs = () => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf('--agent-resume-args') + 1];
+	};
+
+	await fixture.run({profile: 'other'});
+	t.is(resumeArgs(), '');
+	// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
+	// only sees an existing worktree once its own path exists.
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+		recursive: true,
+	});
+
+	await fixture.run({open: true});
+	t.is(resumeArgs(), 'resume --last');
+	t.regex(
+		fs.readFileSync(fixture.launchers, 'utf8'),
+		/--agent-resume-args resume --last --agent-is-claude false/,
+	);
+});
+
+// Claude keys --continue by directory, and a recreated worktree reuses the
+// same path, so the space's conversation is still there to continue.
+test('a recreated worktree keeps claude resume args without a session id', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {
+				claude: {command: 'claude', resume_args: '--continue --fork-session'},
+			},
+		}),
+	);
+
+	await fixture.run();
+	const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+	t.is(
+		args[args.indexOf('--agent-resume-args') + 1],
+		'--continue --fork-session',
+	);
+});
+
+// The TUI renders the rail emoji and picks the agent profile from space-state,
+// and a slow post_workspace_init must not leave that window open.
+test('the profile is persisted before post_workspace_init runs', async t => {
+	const fixture = setup(t);
+	fs.appendFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			post_workspace_init: [
+				{
+					run: 'cp "$HOME/.pappardelle/repos/main checkout/space-state/test-abc.json" "$WORKTREE_PATH/state-during-init.json"',
+				},
+			],
+		}),
+	);
+
+	await fixture.run();
+	const seen = fs.readFileSync(
+		path.join(fixture.workspace, 'state-during-init.json'),
+		'utf8',
+	);
+	t.is((JSON.parse(seen) as {profile: string}).profile, 'dev');
+});
+
+test('--agent-profile launches another agent profile for that run only', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+	);
+	const launchArg = (flag: string) => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf(flag) + 1];
+	};
+
+	const stdout = await fixture.run({agentProfile: 'codex'});
+	t.is(launchArg('--agent-profile'), 'codex');
+	t.is(launchArg('--agent-command'), 'codex');
+	t.false(idowSkippedAgentOverride(stdout));
+	const statePath = path.join(
+		fixture.home,
+		'.pappardelle/repos/main checkout/space-state/test-abc.json',
+	);
+	t.false('agentProfile' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
+
+	await fixture.run();
+	t.is(launchArg('--agent-profile'), 'claude');
+});
+
+test('--agent-profile on a space whose agent is running says it was not applied', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+	);
+	writeScript(path.join(fixture.bin, 'tmux'), 'exit 0');
+
+	const stdout = await fixture.run({agentProfile: 'codex'});
+	t.regex(stdout, /Agent session already running/);
+	t.true(idowSkippedAgentOverride(stdout));
+});
+
+// start-agent-session.sh renames a pre-upgrade claude-* session rather than
+// starting the picked agent profile.
+test('--agent-profile on a space still running under its legacy session name says it was not applied', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+	);
+	writeScript(
+		path.join(fixture.bin, 'tmux'),
+		'[[ "$*" != *"has-session"* || "$*" == *"=claude-"* ]]',
+	);
+
+	t.true(idowSkippedAgentOverride(await fixture.run({agentProfile: 'codex'})));
+});
+
+test('an unknown --agent-profile stops idow before any setup', async t => {
+	const fixture = setup(t);
+	const error = await t.throwsAsync(fixture.run({agentProfile: 'codx'}));
+	t.regex(String(error), /agent profile "codx" not found in agent_profiles/);
+	t.false(fs.existsSync(fixture.workspace));
+});
+
+test('a reopened space resumes the session its agent recorded', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {
+				codex: {command: 'codex', resume_args: 'resume {session_id}'},
+			},
+			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
+		}),
+	);
+	const sessionsPath = path.join(
+		fixture.home,
+		'.pappardelle/repos/main checkout/space-state/test-abc.agent-sessions.json',
+	);
+	const record = (agentSessions: Record<string, string>) => {
+		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
+		fs.writeFileSync(
+			sessionsPath,
+			JSON.stringify(
+				Object.fromEntries(
+					Object.entries(agentSessions).map(([profile, id]) => [
+						profile,
+						{session_id: id, pid: 1},
+					]),
+				),
+			),
+		);
+	};
+	const launchArg = (flag: string) => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf(flag) + 1];
+	};
+
+	// An existing issue resumes its conversation even in a recreated worktree.
+	record({codex: 'thread-1'});
+	await fixture.run({profile: 'other'});
+	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
+
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+		recursive: true,
+	});
+	record({codex: 'thread-1'});
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
+	t.is(launchArg('--agent-profile'), 'codex');
+
+	// An id recorded by another agent profile is not this one's conversation.
+	record({claude: 'thread-2'});
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), '');
+
+	// A hand-edited, non-string id is skipped, as the TUI does.
+	fs.writeFileSync(
+		sessionsPath,
+		JSON.stringify({codex: {session_id: 123, pid: 1}}),
+	);
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), '');
+
+	// An override launch resumes its own agent profile's conversation, and the
+	// profile's agent still finds its own afterwards.
+	record({codex: 'thread-1', claude: 'thread-2'});
+	await fixture.run({open: true, agentProfile: 'claude'});
+	t.is(launchArg('--agent-resume-args'), '--resume thread-2');
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
+});
+
+test('a reopened claude space with no recorded session continues its conversation', async t => {
+	const fixture = setup(t);
+	const launchArg = (flag: string) => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf(flag) + 1];
+	};
+
+	// An existing issue continues even in a recreated worktree; only a new
+	// issue launches fresh.
+	await fixture.run({});
+	t.is(launchArg('--agent-resume-args'), '--continue');
+
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+		recursive: true,
+	});
+	await fixture.run({open: true});
+	t.is(launchArg('--agent-resume-args'), '--continue');
+});
+
+test('a claude space with no recorded session keeps its other resume flags', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {
+				claude: {
+					command: 'claude',
+					resume_args: '--resume {session_id} --fork-session',
+				},
+			},
+		}),
+	);
+	const launchArg = (flag: string) => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf(flag) + 1];
+	};
+
+	await fixture.run();
+	t.is(launchArg('--agent-resume-args'), '--continue --fork-session');
+});
+
 test('setup merges config once and does not resolve the terminal', async t => {
 	const fixture = setup(t);
 	await fixture.run();
@@ -527,10 +824,14 @@ test('opening without PR consumers skips VCS lookup', async t => {
 
 test('newly created issues launch fresh; existing keys keep conversation resume', async t => {
 	const fixture = setup(t);
+	const resumeArgs = () => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf('--agent-resume-args') + 1];
+	};
 	await fixture.run({input: 'Make workspace startup faster'});
-	t.true(fs.readFileSync(fixture.launchArgs, 'utf8').includes('--fresh\n'));
+	t.is(resumeArgs(), '');
 	await fixture.run();
-	t.false(fs.readFileSync(fixture.launchArgs, 'utf8').includes('--fresh\n'));
+	t.is(resumeArgs(), '--continue');
 });
 
 test('a bad claude config fails before the issue is created', async t => {
@@ -610,6 +911,10 @@ test('a failing required command still stops setup before Claude starts', async 
 
 test('adding commands does not add YAML parser processes', async t => {
 	const fixture = setup(t);
+	// Reopening an existing space reads its saved profile, which the first run
+	// writes, so compare two reopens.
+	await fixture.run();
+	fs.writeFileSync(fixture.configCalls, '');
 	await fixture.run();
 	const count = fs
 		.readFileSync(fixture.configCalls, 'utf8')
@@ -730,17 +1035,12 @@ companion_command: |
 		.slice(0, -1);
 	for (const [flag, value] of [
 		['--init-cmd', '/do'],
-		['--model', 'opus'],
-		['--effort', 'high'],
+		['--agent-launch-flags', '--model opus --effort high'],
 		['--companion-command', 'echo companion'],
 	]) {
 		t.true(args.includes(flag));
 		t.is(args[args.indexOf(flag) + 1], value);
 	}
-	t.false(
-		args.includes(''),
-		'launch settings must not contain trailing newlines',
-	);
 });
 
 test.serial(

@@ -5,7 +5,11 @@ import path from 'node:path';
 import test from 'ava';
 
 for (const scenario of [
-	{title: 'fresh workspace launches Claude once', fresh: true, resume: false},
+	{
+		title: 'fresh workspace launches the agent once',
+		fresh: true,
+		resume: false,
+	},
 	{title: 'existing conversation resumes', fresh: false, resume: true},
 	{
 		title: 'missing conversation falls back to the prompt',
@@ -48,7 +52,7 @@ fi
 		execFileSync(
 			'bash',
 			[
-				path.resolve(import.meta.dirname, '../scripts/start-claude-session.sh'),
+				path.resolve(import.meta.dirname, '../scripts/start-agent-session.sh'),
 				'--issue-key',
 				'TEST-123',
 				'--repo-name',
@@ -59,11 +63,15 @@ fi
 				'',
 				'--init-cmd',
 				'/do',
-				'--model',
-				'claude-opus-5[1m]',
-				'--effort',
-				'high',
-				...(scenario.fresh ? ['--fresh'] : []),
+				'--agent-command',
+				'claude',
+				'--agent-is-claude',
+				'true',
+				'--agent-launch-flags',
+				"--model 'claude-opus-5[1m]' --effort high",
+				// idow passes no resume args for a newly created issue.
+				'--agent-resume-args',
+				scenario.fresh ? '' : '--continue',
 			],
 			{
 				stdio: 'pipe',

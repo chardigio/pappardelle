@@ -10,7 +10,9 @@ test('kill targets exact inner sessions without probing first', async t => {
 			return '';
 		}),
 	);
-	t.deepEqual(calls, [innerTmuxArgs(['kill-session', '-t', '=claude-repo-A'])]);
+	t.deepEqual(calls, [
+		innerTmuxArgs(['kill-session', '-t', '=claude-repo-A:']),
+	]);
 });
 
 for (const stderr of [
@@ -57,7 +59,7 @@ test('a failed session kill does not schedule simulator cleanup', async t => {
 				repoName: 'fixture',
 				async run(args) {
 					calls.push(args);
-					if (args.includes('=companion-fixture-A'))
+					if (args.includes('=companion-fixture-A:'))
 						throw new Error('kill failed');
 					return '';
 				},
@@ -74,7 +76,7 @@ test('a failed session kill does not schedule simulator cleanup', async t => {
 	});
 	t.false(result);
 	t.is(calls.length, 1);
-	t.true(calls[0]!.includes('=companion-fixture-A'));
+	t.true(calls[0]!.includes('=companion-fixture-A:'));
 });
 
 test('successful session close returns while simulator cleanup is still pending', async t => {

@@ -102,6 +102,54 @@ export function getSpaceStatePath(
 	return path.join(getSpaceStateDir(repoName, baseDir), `${issueKey}.json`);
 }
 
+/**
+ * Each agent profile's latest conversation in a space, by agent profile name,
+ * written only by the agent's SessionStart/UserPromptSubmit hook
+ * (hooks/agent_session.py). It lives beside the space-state file rather than
+ * in it: the TUI rewrites that file after every rail poll, and a hook write
+ * landing between the TUI's read and its rename would be lost. Keyed by agent
+ * profile so a one-launch override doesn't take the profile's own
+ * conversation away. idow deletes it when it creates a workspace for a new
+ * issue, whose key can't own an earlier conversation.
+ */
+export function getAgentSessionsPath(
+	repoName: string,
+	issueKey: string,
+	baseDir?: string,
+): string {
+	return path.join(
+		getSpaceStateDir(repoName, baseDir),
+		`${issueKey}.agent-sessions.json`,
+	);
+}
+
+export function readAgentSession(
+	repoName: string,
+	issueKey: string,
+	agentProfile: string,
+	baseDir?: string,
+): string | undefined {
+	try {
+		const sessions: unknown = JSON.parse(
+			fs.readFileSync(
+				getAgentSessionsPath(repoName, issueKey, baseDir),
+				'utf-8',
+			),
+		);
+		const entry: unknown =
+			sessions && typeof sessions === 'object'
+				? (sessions as Record<string, unknown>)[agentProfile]
+				: undefined;
+		const id =
+			entry && typeof entry === 'object'
+				? (entry as Record<string, unknown>)['session_id']
+				: undefined;
+		return typeof id === 'string' ? id : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function readSpaceState(
 	repoName: string,
 	issueKey: string,

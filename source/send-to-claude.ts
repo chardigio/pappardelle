@@ -8,7 +8,7 @@ export type SendToClaudeResult = 'sent' | 'wrong-space' | 'failed';
  * or /clear must never reach that agent, so the send waits behind any running
  * attachment and then goes only to the workspace the user selected.
  */
-export async function sendToSelectedClaude(options: {
+export async function sendToSelectedAgent(options: {
 	queue: Pick<LatestTask, 'exclusive'>;
 	targetSpace: string;
 	viewingSpace: () => string | null;

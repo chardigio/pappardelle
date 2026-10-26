@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'ava';
 import {
 	clearDeadRestartLock,
+	isTuiDead,
 	readTuiMarker,
 	restartLockPath,
 	tryRestartLock,
@@ -30,6 +31,15 @@ test('a written marker reads back, creating the repo state dir', t => {
 
 	t.deepEqual(readTuiMarker(dir, 'app'), marker);
 	t.deepEqual(fs.readdirSync(path.join(dir, 'app')), ['tui.json']);
+});
+
+test('a TUI is dead once the pid in its marker has exited', t => {
+	const dir = root();
+	t.false(isTuiDead(dir, 'app', () => false));
+
+	writeTuiMarker(dir, 'app', marker);
+	t.false(isTuiDead(dir, 'app', pid => pid === 4242));
+	t.true(isTuiDead(dir, 'app', () => false));
 });
 
 test('a missing, truncated or incomplete marker reads as none', t => {
