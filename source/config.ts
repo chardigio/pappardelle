@@ -106,7 +106,7 @@ export interface AgentProfileConfig {
 	/**
 	 * Appended for the resume attempt of the resume-then-launch chain.
 	 * `{session_id}` is replaced with the session id the agent's hook recorded
-	 * for the space (see hooks/agent_session.py); with none recorded, the
+	 * for the space (see plugins/pappardelle/hooks/agent_session.py); with none recorded, the
 	 * resume attempt is skipped (claude falls back to `--continue`). Built in
 	 * for the agents in scripts/builtin-agents.json; any other agent defaults
 	 * to none, which skips the resume attempt entirely (a made-up resume flag
