@@ -210,11 +210,12 @@ test('exactSessionTarget stops tmux prefix-matching another session', t => {
 			0,
 		);
 		t.is(tmux('new-session', '-d', '-s', 'agent-my.repo-STA-1').status, 0);
-		t.is(
-			tmux('has-session', '-t', exactSessionTarget('agent-my.repo-STA-1'))
-				.status,
-			0,
-		);
+		// tmux 3.6 stores the '.' as '_'; newer releases keep it.
+		const dotted = tmux('list-sessions', '-F', '#{session_name}')
+			.stdout.split('\n')
+			.find(name => name.endsWith('repo-STA-1'));
+		t.truthy(dotted);
+		t.is(tmux('has-session', '-t', exactSessionTarget(dotted!)).status, 0);
 	} finally {
 		tmux('kill-server');
 	}
