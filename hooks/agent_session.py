@@ -24,6 +24,13 @@ session is only recorded when its agent is the only run of non-shell processes
 under tmux. The variables are set on the whole tmux session, so an agent in a
 pane split off the agent's own (an Agent Teams teammate) is rejected too.
 
+An agent that spawns another of its own kind without a shell between them (an
+MCP server running `claude -p`) makes one run, so the run alone can't tell them
+apart. Each id is recorded with the pid of the agent process that fired the
+hook, and only that process may replace it while it lives. The pane's agent
+records first, at SessionStart; it keeps its pid across `/clear` or a new
+chat, and a relaunch ends it.
+
 codex 0.159+ runs hooks in its shared app-server daemon, which is not under
 tmux and carries the env of whichever pane started it. For a hook outside tmux
 the variables come from the agent session whose directory holds the payload's
@@ -51,6 +58,9 @@ SESSION_VARIABLES = (
 
 # pid: (ppid, command line)
 ProcessTable = dict[int, tuple[int, str]]
+
+# The ancestors of a hook process, nearest first: (pid, command line).
+Chain = list[tuple[int, str]]
 
 
 def read_process_table() -> ProcessTable:
@@ -84,12 +94,12 @@ def _is_managed_daemon(args: str) -> bool:
     return "app-server" in words and "--managed-daemon" in words
 
 
-def ancestors(hook_pid: int, table: ProcessTable) -> tuple[list[str], bool]:
+def ancestors(hook_pid: int, table: ProcessTable) -> tuple[Chain, bool]:
     """
-    The command lines above the hook process, nearest first, and whether the
-    walk reached tmux (the chain stops below it).
+    The processes above the hook process, nearest first, and whether the walk
+    reached tmux (the chain stops below it).
     """
-    chain: list[str] = []
+    chain: Chain = []
     seen: set[int] = set()
     pid = table[hook_pid][0] if hook_pid in table else 0
     while pid in table and pid not in seen:
@@ -97,12 +107,12 @@ def ancestors(hook_pid: int, table: ProcessTable) -> tuple[list[str], bool]:
         ppid, args = table[pid]
         if _name(args).startswith("tmux"):
             return chain, True
-        chain.append(args)
+        chain.append((pid, args))
         pid = ppid
     return chain, False
 
 
-def sole_agent_run(chain: list[str]) -> Optional[list[str]]:
+def sole_agent_run(chain: Chain) -> Optional[list[str]]:
     """
     The pane's agent processes, when the chain holds exactly one run of
     non-shell processes. Under tmux it reads: the shell running the hook, the
@@ -111,7 +121,7 @@ def sole_agent_run(chain: list[str]) -> Optional[list[str]]:
     """
     runs: list[list[str]] = []
     in_run = False
-    for args in chain:
+    for _pid, args in chain:
         if _name(args) in SHELLS:
             in_run = False
         elif in_run:
@@ -120,6 +130,21 @@ def sole_agent_run(chain: list[str]) -> Optional[list[str]]:
             runs.append([args])
             in_run = True
     return runs[0] if len(runs) == 1 else None
+
+
+def hook_agent_pid(chain: Chain) -> Optional[int]:
+    """The agent process that fired the hook: its nearest non-shell ancestor."""
+    return next((pid for pid, args in chain if _name(args) not in SHELLS), None)
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
@@ -194,13 +219,15 @@ def record_agent_session(
     process_table: Callable[[], ProcessTable] = read_process_table,
     session_env_for_cwd: Callable[[str], Optional[dict[str, str]]] = tmux_agent_session_env,
     split_pane: Callable[[Mapping[str, str]], bool] = in_split_pane,
+    alive: Optional[Callable[[int], bool]] = None,
 ) -> bool:
     """
-    Record the id under the agent profile's name in the agent-sessions file.
-    is_claude_hook says whether Claude Code fired the hook. Returns whether it
-    wrote.
+    Record the id and the agent's pid under the agent profile's name in the
+    agent-sessions file. is_claude_hook says whether Claude Code fired the
+    hook. Returns whether it wrote.
     """
     env = os.environ if environ is None else environ
+    alive = alive or pid_alive
     session_id = payload.get("session_id")
     if (
         payload.get("hook_event_name") not in RECORDED_EVENTS
@@ -210,12 +237,14 @@ def record_agent_session(
         return False
 
     # UserPromptSubmit fires on every prompt; the process walk only runs when
-    # the id would change.
+    # the entry would change. A relaunch resuming the same id still records its
+    # new pid.
     env_sessions_path = env.get("PAPPARDELLE_AGENT_SESSIONS", "").strip()
     if env_sessions_path:
         env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
         recorded = read_sessions(Path(env_sessions_path))
-        if recorded is not None and recorded.get(env_profile) == session_id:
+        entry = recorded.get(env_profile) if recorded is not None else None
+        if entry_session_id(entry) == session_id and owner_alive(entry, alive):
             return False
     elif is_claude_hook:
         # Only codex's daemon runs hooks away from the agent's own env, so a
@@ -230,10 +259,11 @@ def record_agent_session(
         session_env = env
     else:
         cwd = payload.get("cwd")
-        if not any(_is_managed_daemon(args) for args in chain):
+        if not any(_is_managed_daemon(args) for _pid, args in chain):
             return False
         session_env = session_env_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
-    if session_env is None:
+    agent_pid = hook_agent_pid(chain)
+    if session_env is None or agent_pid is None:
         return False
 
     agent_profile = session_env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
@@ -247,9 +277,13 @@ def record_agent_session(
     if sessions is None:
         # A half-written file; writing over it would drop other agent profiles' ids.
         return False
-    if sessions.get(agent_profile) == session_id:
+    entry = sessions.get(agent_profile)
+    owner = entry.get("pid") if isinstance(entry, dict) else None
+    if owner == agent_pid and entry_session_id(entry) == session_id:
         return False
-    sessions[agent_profile] = session_id
+    if owner != agent_pid and owner_alive(entry, alive):
+        return False
+    sessions[agent_profile] = {"session_id": session_id, "pid": agent_pid}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
     try:
@@ -259,6 +293,16 @@ def record_agent_session(
         tmp.unlink(missing_ok=True)
         raise
     return True
+
+
+def entry_session_id(entry: Any) -> Optional[str]:
+    session_id = entry.get("session_id") if isinstance(entry, dict) else None
+    return session_id if isinstance(session_id, str) else None
+
+
+def owner_alive(entry: Any, alive: Callable[[int], bool]) -> bool:
+    pid = entry.get("pid") if isinstance(entry, dict) else None
+    return isinstance(pid, int) and alive(pid)
 
 
 def read_sessions(path: Path) -> Optional[dict[str, Any]]:

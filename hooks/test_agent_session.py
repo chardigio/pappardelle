@@ -74,6 +74,26 @@ CODEX_IN_CLAUDE_MCP = {
     92: (1, "tmux"),
 }
 
+# An MCP server the pane's claude started runs `claude -p` with no shell in
+# between, so the two claudes form one run.
+CLAUDE_IN_CLAUDE_MCP = {
+    **TOP_LEVEL_CLAUDE,
+    99: (90, "/bin/sh -c python3 ~/.pappardelle/hooks/update-status.py"),
+    90: (91, "claude -p summarize"),
+    91: (98, "node mcp-server.js"),
+}
+
+# The space's codex after a relaunch: a new process for the same pane.
+RELAUNCHED_CODEX = {
+    100: (99, "Python record-agent-session.py"),
+    99: (88, "sh -c python3 record-agent-session.py"),
+    88: (87, "/opt/homebrew/lib/node_modules/@openai/codex/vendor/codex --yolo"),
+    87: (86, "node /opt/homebrew/bin/codex --yolo"),
+    86: (85, "zsh -ic codex --yolo"),
+    85: (84, "sh -c"),
+    84: (1, "/usr/local/bin/tmux"),
+}
+
 # A Python agent that runs its hooks without a shell in between.
 TOP_LEVEL_PYTHON_AGENT = {
     100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
@@ -124,6 +144,11 @@ CLAUDE_WRAPPER = {
 }
 
 
+@pytest.fixture(autouse=True)
+def every_process_alive(monkeypatch):
+    monkeypatch.setattr(agent_session, "pid_alive", lambda _pid: True)
+
+
 @pytest.fixture
 def sessions_file(tmp_path: Path) -> Path:
     return tmp_path / "space-state" / "STA-1.agent-sessions.json"
@@ -145,8 +170,12 @@ def payload(session_id: str = "01a117bd-5978", event: str = "SessionStart", cwd:
     return {"session_id": session_id, "hook_event_name": event, "cwd": cwd}
 
 
-def recorded(sessions_file: Path):
+def entries(sessions_file: Path):
     return json.loads(sessions_file.read_text()) if sessions_file.exists() else {}
+
+
+def recorded(sessions_file: Path):
+    return {profile: entry["session_id"] for profile, entry in entries(sessions_file).items()}
 
 
 def no_session(_cwd: str):
@@ -219,6 +248,48 @@ def test_only_the_sessions_first_pane_counts_as_the_agents():
     finally:
         subprocess.run(["tmux", "-S", socket, "kill-server"], capture_output=True)
         shutil.rmtree(socket_dir, ignore_errors=True)
+
+
+def test_the_agent_process_is_recorded_with_its_id(sessions_file: Path):
+    record_agent_session(payload(), False, env_for(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert entries(sessions_file) == {"codex": {"session_id": "01a117bd-5978", "pid": 98}}
+
+
+def test_an_agent_of_the_same_kind_spawned_without_a_shell_does_not_overwrite_the_id(sessions_file: Path):
+    record_agent_session(payload("pane-id"), True, claude_env(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CLAUDE)
+    assert not record_agent_session(
+        payload("nested-id"), True, claude_env(sessions_file), HOOK_PID, lambda: CLAUDE_IN_CLAUDE_MCP
+    )
+    assert recorded(sessions_file) == {"claude": "pane-id"}
+
+
+def test_a_relaunched_agent_takes_over_once_the_old_one_has_exited(sessions_file: Path):
+    record_agent_session(payload("first"), False, env_for(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert not record_agent_session(
+        payload("second"), False, env_for(sessions_file), HOOK_PID, lambda: RELAUNCHED_CODEX
+    )
+    assert record_agent_session(
+        payload("second"),
+        False,
+        env_for(sessions_file),
+        HOOK_PID,
+        lambda: RELAUNCHED_CODEX,
+        alive=lambda pid: pid != 98,
+    )
+    assert entries(sessions_file) == {"codex": {"session_id": "second", "pid": 88}}
+
+
+def test_resuming_the_recorded_id_after_a_relaunch_takes_it_over(sessions_file: Path):
+    record_agent_session(payload("same"), False, env_for(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert record_agent_session(
+        payload("same"),
+        False,
+        env_for(sessions_file),
+        HOOK_PID,
+        lambda: RELAUNCHED_CODEX,
+        alive=lambda pid: pid != 98,
+    )
+    assert entries(sessions_file) == {"codex": {"session_id": "same", "pid": 88}}
 
 
 def test_a_nested_agent_without_a_shell_between_is_not_recorded(sessions_file: Path):

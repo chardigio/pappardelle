@@ -708,7 +708,17 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	);
 	const record = (agentSessions: Record<string, string>) => {
 		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
-		fs.writeFileSync(sessionsPath, JSON.stringify(agentSessions));
+		fs.writeFileSync(
+			sessionsPath,
+			JSON.stringify(
+				Object.fromEntries(
+					Object.entries(agentSessions).map(([profile, id]) => [
+						profile,
+						{session_id: id, pid: 1},
+					]),
+				),
+			),
+		);
 	};
 	const launchArg = (flag: string) => {
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
