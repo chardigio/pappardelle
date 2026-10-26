@@ -305,9 +305,11 @@ profiles:
     initialization_command: '/do-custom'
 ```
 
-`claude.model` / `claude.effort` are deprecated: model and effort live on agent
-profiles (next section). Never write them into new configs; when you find them,
-offer to move them onto an agent profile.
+`claude.model` / `claude.effort` / `claude.extra_args` are deprecated: model,
+effort and args live on agent profiles (next section). Never write them into new
+configs; when you find them, offer to move them onto an agent profile.
+Pappardelle also offers this rewrite on startup. It can copy home-config values
+into the repo file, so check that diff before the user commits it.
 
 ## Configuring Agent Profiles (running codex instead of Claude)
 

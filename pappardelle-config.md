@@ -930,6 +930,11 @@ profiles:
     agent_profile: claude-sonnet
 ```
 
+Pappardelle offers to do this for you when it starts on an old-format config. It rewrites every file that still has `claude.model`, `claude.effort`, `claude.extra_args` or `claude.initialization_command` (the home, repo and local files), keeping comments, and only when the rewritten config launches every profile exactly as before. Otherwise it says why and offers to open Claude with a prompt describing the change. Declining leaves the files and their warnings alone until the next start. Two things to know before accepting:
+
+- Each file's agent profiles take the values they launch with today, and some of those may come from your home config, so the repo `.pappardelle.yml` can pick up personal settings. Check the diff before committing it
+- The home config is shared by every repo. Once it is rewritten, a repo still on the old format stops using its own `claude.model` / `claude.effort` wherever the home config's agent profile sets them, and that repo's own rewrite can't bring them back. Rewrite those repos first, or move their values by hand
+
 **Extra args** (`claude.extra_args`) take any `claude` flag that has no field of its own. They are deprecated like `model` and `effort`, since an agent profile's `args` does the same job, but they keep working for claude agent profiles. An agent profile's own `args` don't replace them, so a profile that restricts tools keeps its limits whichever claude agent profile it runs. The main use is a profile that runs with no human watching and must have fewer tools, like the run-robodogfood profile in this repo:
 
 ```yaml
