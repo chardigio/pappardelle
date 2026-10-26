@@ -515,7 +515,7 @@ test.serial(
 	},
 );
 
-// The agent's hook records its session id under these (hooks/agent_session.py).
+// The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py).
 test.serial(
 	'a new agent session tells the hook its agent profile, its kind and the agent-sessions file',
 	async t => {

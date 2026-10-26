@@ -51,7 +51,7 @@ export function buildSessionEnvArgs(
 
 /**
  * The `-e` flags only the agent session gets, for the hook that records the
- * agent's session id (hooks/agent_session.py): which agent profile the pane
+ * agent's session id (plugins/pappardelle/hooks/agent_session.py): which agent profile the pane
  * runs, so a later relaunch with a different one ignores the id; whether it is
  * a claude agent profile, so the hook of an agent of the other kind started in
  * the pane isn't recorded; and the file to write the id to. Kept off the

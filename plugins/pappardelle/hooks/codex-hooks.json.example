@@ -6,7 +6,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/record-agent-session.py"
+						"command": "python3 ~/.pappardelle/repo/plugins/pappardelle/hooks/record-agent-session.py"
 					}
 				]
 			}
@@ -16,7 +16,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 ~/.pappardelle/hooks/record-agent-session.py"
+						"command": "python3 ~/.pappardelle/repo/plugins/pappardelle/hooks/record-agent-session.py"
 					}
 				]
 			}

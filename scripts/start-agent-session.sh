@@ -38,7 +38,7 @@
 #                     filled in, or empty when no session is recorded.
 # --agent-profile: the agent profile's name in agent_profiles: (default: claude).
 #                  Set on the agent session as PAPPARDELLE_AGENT_PROFILE so the
-#                  hook that records its session id (hooks/agent_session.py)
+#                  hook that records its session id (plugins/pappardelle/hooks/agent_session.py)
 #                  can tag it.
 
 set -e
