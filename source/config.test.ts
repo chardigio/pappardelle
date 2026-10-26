@@ -1975,38 +1975,6 @@ test('getProfileVcsLabel prefers vcs.label over github.label', t => {
 });
 
 // ============================================================================
-// getInitializationCommand Tests
-// ============================================================================
-
-test('getInitializationCommand returns configured command', t => {
-	const config = createConfig(
-		{'test-profile': createProfile(['test'], 'Test')},
-		'test-profile',
-	);
-	(config as Record<string, unknown>)['claude'] = {
-		initialization_command: '/idow',
-	};
-	t.is(getInitializationCommand(config), '/idow');
-});
-
-test('getInitializationCommand returns empty string when not configured', t => {
-	const config = createConfig(
-		{'test-profile': createProfile(['test'], 'Test')},
-		'test-profile',
-	);
-	t.is(getInitializationCommand(config), '');
-});
-
-test('getInitializationCommand returns empty string when claude section exists but no command', t => {
-	const config = createConfig(
-		{'test-profile': createProfile(['test'], 'Test')},
-		'test-profile',
-	);
-	(config as Record<string, unknown>)['claude'] = {};
-	t.is(getInitializationCommand(config), '');
-});
-
-// ============================================================================
 // getDangerouslySkipPermissions Tests
 // ============================================================================
 
