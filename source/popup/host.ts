@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createLogger, type LogEntry} from '../logger.ts';
+import {shellQuote} from '../shell-quote.ts';
 import {
 	createMessageDecoder,
 	encodeMessage,
@@ -55,10 +56,6 @@ const POPUP_CLI = path.resolve(
 	'..',
 	'popup-cli.js',
 );
-
-export function shellQuote(value: string): string {
-	return `'${value.replaceAll("'", `'\\''`)}'`;
-}
 
 export function buildDisplayPopupArgs({
 	socketPath,

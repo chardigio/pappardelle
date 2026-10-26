@@ -5,9 +5,9 @@ import {
 	defaultServerTmuxRunner,
 	outerSessionName,
 	type OuterTmuxRunner,
-	shellQuote,
 	tmuxSessionRepo,
 } from './tmux.ts';
+import {shellQuote} from './shell-quote.ts';
 import {readTuiMarker, tryRestartLock, type TuiMarker} from './tui-marker.ts';
 
 // The TUI session is created with the repo's own spelling, which tmux 3.6 and
