@@ -348,6 +348,36 @@ function multiLineExtraArg(files: LayerFile[]): string | undefined {
 	return undefined;
 }
 
+/**
+ * The rewrite moves extra_args ahead of the model and effort flags, and claude
+ * takes the last of a repeated flag, so an extra arg repeating one of them
+ * would flip which value wins.
+ */
+function repeatedLaunchFlag(config: PappardelleConfig): string | undefined {
+	for (const profileName of [undefined, ...Object.keys(config.profiles)]) {
+		const agent = getAgentProfile(config, undefined, profileName);
+		if (!agent.isClaude) continue;
+		const templates = {model: agent.modelArgs, effort: agent.effortArgs};
+		for (const field of LAUNCH_FIELDS) {
+			if (!agent[field]) continue;
+			const flag = templates[field]
+				?.split(/\s+/)
+				.find(token => token.startsWith('-'));
+			if (
+				flag &&
+				agent.extraArgs.some(arg => arg === flag || arg.startsWith(`${flag}=`))
+			) {
+				const where = profileName
+					? `profile "${profileName}"`
+					: 'the top level';
+				return `claude.extra_args for ${where} repeats ${flag}, and the rewrite would change which ${field} wins`;
+			}
+		}
+	}
+
+	return undefined;
+}
+
 /** What a space launches with, for comparing a config before and after. */
 function launches(config: PappardelleConfig): Record<string, string> {
 	const topInit = getInitializationCommand(config);
@@ -438,6 +468,8 @@ function planRewrite(
 ): ConfigMigrationPlan {
 	const multiLine = multiLineExtraArg(files);
 	if (multiLine) return {kind: 'unsupported', reason: multiLine};
+	const repeated = repeatedLaunchFlag(whole);
+	if (repeated) return {kind: 'unsupported', reason: repeated};
 	const migrations: ConfigMigration[] = [];
 	const rewritten = files.map((file, index) => {
 		if (!file.layer) return file;
