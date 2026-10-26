@@ -32,7 +32,7 @@ import {
 } from './update-action.ts';
 import {
 	isCloseSpaceKey,
-	isFocusClaudeKey,
+	isFocusAgentKey,
 	isRailInputBlocked,
 } from './rail-input.ts';
 import {
@@ -146,7 +146,7 @@ import {runCloseHooks, shouldAttach} from './close-space.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {LatestTask} from './latest-task.ts';
-import {sendToSelectedClaude} from './send-to-claude.ts';
+import {sendToSelectedAgent} from './send-to-claude.ts';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -928,7 +928,7 @@ export default function App({
 	};
 
 	// Focus the Claude viewer pane (Enter or right arrow)
-	const handleFocusClaude = () => {
+	const handleFocusAgent = () => {
 		if (!paneLayout) return;
 
 		spawnSync('tmux', ['select-pane', '-t', paneLayout.agentViewerPaneId], {
@@ -996,7 +996,7 @@ export default function App({
 		const targetSpace = selectedSpaceNameRef.current;
 		if (!targetSpace) return;
 		const paneId = paneLayout.agentViewerPaneId;
-		void sendToSelectedClaude({
+		void sendToSelectedAgent({
 			queue: attachmentTask,
 			targetSpace,
 			viewingSpace: getCurrentlyViewingSpace,
@@ -1222,8 +1222,8 @@ export default function App({
 				if (selectedIndex < totalItems - 1) {
 					setSelectedIndex(selectedIndex + 1);
 				}
-			} else if (isFocusClaudeKey(key)) {
-				handleFocusClaude();
+			} else if (isFocusAgentKey(key)) {
+				handleFocusAgent();
 			} else if (input === 'n') {
 				// 'n' for new session
 				setShowPromptDialog(true);

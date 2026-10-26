@@ -100,11 +100,11 @@ export interface LayoutConfig {
 	direction: 'horizontal' | 'vertical';
 	// For horizontal layout: widths
 	listWidth?: number;
-	claudeWidth?: number;
+	agentWidth?: number;
 	companionWidth?: number;
 	// For vertical layout: heights
 	listHeight?: number;
-	claudeHeight?: number;
+	agentHeight?: number;
 }
 
 // ============================================================================
@@ -157,7 +157,7 @@ export function calculateIdealListHeightForCount(sessionCount: number): number {
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
- * - Narrow screens (< 100 chars): Vertical layout with list on top, claude below, no companion
+ * - Narrow screens (< 100 chars): Vertical layout with list on top, agent below, no companion
  * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
  */
 export function calculateLayoutForSize(
@@ -180,12 +180,12 @@ export function calculateLayoutForSize(
 			calculateIdealListHeightForCount(sessionCount),
 			maxListForScreen,
 		);
-		const claudeHeight = usableHeight - listHeight;
+		const agentHeight = usableHeight - listHeight;
 
 		return {
 			direction: 'vertical',
 			listHeight,
-			claudeHeight,
+			agentHeight,
 		};
 	}
 
@@ -202,7 +202,7 @@ export function calculateLayoutForSize(
 		return {
 			direction: 'horizontal',
 			listWidth: MIN_LIST_WIDTH,
-			claudeWidth: MIN_CLAUDE_WIDTH,
+			agentWidth: MIN_CLAUDE_WIDTH,
 			companionWidth: Math.max(0, remaining),
 		};
 	}
@@ -214,8 +214,8 @@ export function calculateLayoutForSize(
 		MAX_LIST_WIDTH,
 		Math.max(MIN_LIST_WIDTH, Math.floor(usableWidth * 0.24)),
 	);
-	let claudeWidth = Math.max(MIN_CLAUDE_WIDTH, Math.floor(usableWidth * 0.38));
-	let companionWidth = usableWidth - listWidth - claudeWidth;
+	let agentWidth = Math.max(MIN_CLAUDE_WIDTH, Math.floor(usableWidth * 0.38));
+	let companionWidth = usableWidth - listWidth - agentWidth;
 
 	// Ensure companion doesn't go below minimum (give back from largest panes)
 	if (companionWidth < MIN_COMPANION_WIDTH) {
@@ -226,14 +226,14 @@ export function calculateLayoutForSize(
 			MAX_LIST_WIDTH,
 			Math.max(MIN_LIST_WIDTH, Math.floor((remaining * 0.24) / 0.62)),
 		);
-		claudeWidth = remaining - listWidth;
+		agentWidth = remaining - listWidth;
 	}
 
 	// Cap companion at maximum, give excess to claude
 	if (companionWidth > MAX_COMPANION_WIDTH) {
 		const excess = companionWidth - MAX_COMPANION_WIDTH;
 		companionWidth = MAX_COMPANION_WIDTH;
-		claudeWidth += excess;
+		agentWidth += excess;
 	}
 
 	const resolve = (width: PaneWidth | null | undefined) =>
@@ -259,13 +259,13 @@ export function calculateLayoutForSize(
 		const fitted = fitSidePanes(railTarget, companionTarget, usableWidth);
 		listWidth = fitted.railWidth;
 		companionWidth = fitted.companionWidth;
-		claudeWidth = usableWidth - listWidth - companionWidth;
+		agentWidth = usableWidth - listWidth - companionWidth;
 	}
 
 	return {
 		direction: 'horizontal',
 		listWidth,
-		claudeWidth,
+		agentWidth,
 		companionWidth,
 	};
 }

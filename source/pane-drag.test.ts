@@ -193,14 +193,11 @@ test('an override sets the rail width and gives the columns to claude', t => {
 
 	t.is(dragged.listWidth, 12);
 	t.is(dragged.companionWidth, base.companionWidth);
-	t.is(
-		dragged.claudeWidth,
-		(base.claudeWidth ?? 0) + (base.listWidth ?? 0) - 12,
-	);
+	t.is(dragged.agentWidth, (base.agentWidth ?? 0) + (base.listWidth ?? 0) - 12);
 	// The three panes plus two borders still fill the terminal.
 	t.is(
 		(dragged.listWidth ?? 0) +
-			(dragged.claudeWidth ?? 0) +
+			(dragged.agentWidth ?? 0) +
 			(dragged.companionWidth ?? 0),
 		198,
 	);
@@ -227,10 +224,10 @@ test('an override may go above the derived ceiling', t => {
 
 test('an oversized override still leaves claude its minimum', t => {
 	const dragged = calculateLayoutForSize(200, 50, 5, {rail: 500});
-	t.true((dragged.claudeWidth ?? 0) >= MIN_CLAUDE_WIDTH);
+	t.true((dragged.agentWidth ?? 0) >= MIN_CLAUDE_WIDTH);
 	t.is(
 		(dragged.listWidth ?? 0) +
-			(dragged.claudeWidth ?? 0) +
+			(dragged.agentWidth ?? 0) +
 			(dragged.companionWidth ?? 0),
 		198,
 	);
@@ -240,10 +237,10 @@ test('the override survives every wide terminal size', t => {
 	for (const width of [110, 140, 200, 260, 400]) {
 		const dragged = calculateLayoutForSize(width, 50, 5, {rail: 12});
 		t.is(dragged.listWidth, 12, `width ${width}`);
-		t.true((dragged.claudeWidth ?? 0) >= MIN_CLAUDE_WIDTH, `width ${width}`);
+		t.true((dragged.agentWidth ?? 0) >= MIN_CLAUDE_WIDTH, `width ${width}`);
 		t.is(
 			(dragged.listWidth ?? 0) +
-				(dragged.claudeWidth ?? 0) +
+				(dragged.agentWidth ?? 0) +
 				(dragged.companionWidth ?? 0),
 			width - 2,
 			`width ${width}`,
@@ -263,7 +260,7 @@ test('the override is honored at the narrowest horizontal terminal', t => {
 	const cramped = calculateLayoutForSize(100, 50, 5, {rail: 12});
 	t.is(cramped.direction, 'horizontal');
 	t.is(cramped.listWidth, 12);
-	t.true((cramped.claudeWidth ?? 0) >= MIN_CLAUDE_WIDTH);
+	t.true((cramped.agentWidth ?? 0) >= MIN_CLAUDE_WIDTH);
 	t.true((cramped.companionWidth ?? 0) >= MIN_COMPANION_WIDTH);
 });
 
@@ -273,12 +270,12 @@ test('an oversized override on a narrow terminal falls back to the widest fit', 
 		cramped.listWidth,
 		98 - (cramped.companionWidth ?? 0) - MIN_CLAUDE_WIDTH,
 	);
-	t.is(cramped.claudeWidth, MIN_CLAUDE_WIDTH);
+	t.is(cramped.agentWidth, MIN_CLAUDE_WIDTH);
 });
 
 const total = (layout: ReturnType<typeof calculateLayoutForSize>) =>
 	(layout.listWidth ?? 0) +
-	(layout.claudeWidth ?? 0) +
+	(layout.agentWidth ?? 0) +
 	(layout.companionWidth ?? 0);
 
 test('a companion width replaces the derived one and claude absorbs the difference', t => {
@@ -306,7 +303,7 @@ test('a companion width below its floor is clamped up', t => {
 
 test('an oversized companion width leaves claude its minimum', t => {
 	const layout = calculateLayoutForSize(200, 50, 5, {companion: 500});
-	t.is(layout.claudeWidth, MIN_CLAUDE_WIDTH);
+	t.is(layout.agentWidth, MIN_CLAUDE_WIDTH);
 	t.is(total(layout), 198);
 });
 
@@ -318,7 +315,7 @@ test('10/45/45 percentages split the usable width', t => {
 	});
 	t.is(layout.listWidth, 19);
 	t.is(layout.companionWidth, 89);
-	t.is(layout.claudeWidth, 90);
+	t.is(layout.agentWidth, 90);
 });
 
 test('claude takes the remainder when both side panes are set', t => {
@@ -328,7 +325,7 @@ test('claude takes the remainder when both side panes are set', t => {
 		companion: 60,
 	});
 	t.deepEqual(
-		[layout.listWidth, layout.claudeWidth, layout.companionWidth],
+		[layout.listWidth, layout.agentWidth, layout.companionWidth],
 		[20, 118, 60],
 	);
 });
@@ -336,7 +333,7 @@ test('claude takes the remainder when both side panes are set', t => {
 test('a claude width with the rail set sizes the companion', t => {
 	const layout = calculateLayoutForSize(200, 50, 5, {rail: 20, claude: 100});
 	t.deepEqual(
-		[layout.listWidth, layout.claudeWidth, layout.companionWidth],
+		[layout.listWidth, layout.agentWidth, layout.companionWidth],
 		[20, 100, 78],
 	);
 });
@@ -347,7 +344,7 @@ test('a claude width with the companion set sizes the rail', t => {
 		companion: 70,
 	});
 	t.deepEqual(
-		[layout.listWidth, layout.claudeWidth, layout.companionWidth],
+		[layout.listWidth, layout.agentWidth, layout.companionWidth],
 		[28, 100, 70],
 	);
 });
@@ -356,7 +353,7 @@ test('a claude width alone keeps the derived rail and sizes the companion', t =>
 	const base = calculateLayoutForSize(200, 50, 5);
 	const layout = calculateLayoutForSize(200, 50, 5, {claude: '60%'});
 	t.is(layout.listWidth, base.listWidth);
-	t.is(layout.claudeWidth, 118);
+	t.is(layout.agentWidth, 118);
 	t.is(total(layout), 198);
 });
 
