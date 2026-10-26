@@ -812,15 +812,7 @@ export function cleanupOrphanedInnerSessions(
 		const repo = repoName ?? getRepoName();
 		const legacyCompanionPrefix = `lazygit-${repo}-`;
 
-		// The inner socket is shared by every repo, and `agent-proj-` also
-		// prefixes the sessions of a repo named proj-x.
-		const longerRepoPrefixes = knownRepos
-			.filter(other => other.startsWith(`${repo}-`))
-			.flatMap(other =>
-				['agent', 'claude', 'companion', 'lazygit'].map(
-					kind => `${kind}-${other}-`,
-				),
-			);
+		const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -921,6 +913,20 @@ function legacyRenameArgs(legacyName: string, target: string): string[] {
 }
 
 /**
+ * The inner socket is shared by every repo, and `agent-proj-` also prefixes
+ * the sessions of a repo named proj-x.
+ */
+function siblingRepoPrefixes(repo: string, knownRepos: string[]): string[] {
+	return knownRepos
+		.filter(other => other.startsWith(`${repo}-`))
+		.flatMap(other =>
+			['agent', 'claude', 'companion', 'lazygit'].map(
+				kind => `${kind}-${other}-`,
+			),
+		);
+}
+
+/**
  * Rename live legacy `claude-{repo}-{key}` sessions on the inner socket to
  * their `agent-{repo}-{key}` names. cli.tsx runs it when the TUI starts,
  * before the orphan reap, and before `pappardelle send`, which can run before
@@ -938,10 +944,15 @@ function legacyRenameArgs(legacyName: string, target: string): string[] {
 export function migrateLegacyAgentSessions(
 	repoName?: string,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
 		const agentPrefix = getSessionPrefix('agent', repoName);
 		const legacyPrefix = getLegacyAgentSessionPrefix(repoName);
+		const siblingPrefixes = siblingRepoPrefixes(
+			repoName ?? getRepoName(),
+			knownRepos,
+		);
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -953,6 +964,7 @@ export function migrateLegacyAgentSessions(
 		let renamed = 0;
 		for (const name of sessions) {
 			if (!name.startsWith(legacyPrefix)) continue;
+			if (siblingPrefixes.some(prefix => name.startsWith(prefix))) continue;
 			const target = `${agentPrefix}${name.slice(legacyPrefix.length)}`;
 			if (existing.has(target)) {
 				runner(['kill-session', '-t', exactSessionTarget(name)]);

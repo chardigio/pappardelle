@@ -594,6 +594,21 @@ test('migrateLegacyAgentSessions kills a legacy session whose agent name is take
 	);
 });
 
+test("migrateLegacyAgentSessions leaves a sibling repo's sessions alone", t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-x-STA-1',
+			'claude-repo-x-STA-2',
+			'agent-repo-x-STA-2',
+		].join('\n'),
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner, ['repo', 'repo-x']), 0);
+	t.deepEqual(
+		calls.filter(c => c[0] !== 'list-sessions'),
+		[],
+	);
+});
+
 test('migrateLegacyAgentSessions returns 0 when list-sessions errors', t => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStatus: 1,
