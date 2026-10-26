@@ -18,8 +18,14 @@ const execFileAsync = promisify(execFile);
 
 export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
 
+// The command that starts a tmux server sets the server's working directory.
+// Started from a worktree that is later removed, tmux next-3.9 starts every
+// later session in that deleted directory, even with -c.
+const TMUX_SERVER_CWD = homedir();
+
 const runTmux: AsyncTmuxRunner = async args => {
 	const {stdout} = await execFileAsync('tmux', args, {
+		cwd: TMUX_SERVER_CWD,
 		encoding: 'utf-8',
 		timeout: args.includes('new-session') ? 10_000 : 5000,
 	});
@@ -534,6 +540,7 @@ function spawnTmuxRunner(
 ): OuterTmuxRunner {
 	return args => {
 		const r = spawnSync('tmux', toArgv(args), {
+			cwd: TMUX_SERVER_CWD,
 			encoding: 'utf-8',
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
