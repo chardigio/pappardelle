@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {
 	computePickerWindow,
@@ -34,12 +34,25 @@ export default function AgentProfilePicker({
 		),
 	}));
 	const options = filterAgentProfiles(request.options, state.query ?? '');
+	// Ink hands every key of a burst to the handler before React re-renders,
+	// so keys read the latest state here.
+	const stateRef = useRef(state);
 
 	useInput((input, key) => {
-		const result = handleFilterablePickerKey(state, input, key, options.length);
+		const shown = filterAgentProfiles(
+			request.options,
+			stateRef.current.query ?? '',
+		);
+		const result = handleFilterablePickerKey(
+			stateRef.current,
+			input,
+			key,
+			shown.length,
+		);
+		stateRef.current = result.state;
 		setState(result.state);
 		if (result.action === 'submit' || result.action === 'select') {
-			const chosen = options[result.state.index];
+			const chosen = shown[result.state.index];
 			if (chosen) onChoose(chosen.name);
 			else onCancel();
 		} else if (result.action === 'back') {

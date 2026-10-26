@@ -88,6 +88,13 @@ export default function PromptDialog({
 		query: null,
 		index: 0,
 	});
+	// Ink hands every key of a burst (a paste, or arrows sent in one write) to
+	// the handler before React re-renders, so keys read the latest state here.
+	const pickerStateRef = useRef(pickerState);
+	const updatePickerState = (state: FilterablePickerState) => {
+		pickerStateRef.current = state;
+		setPickerState(state);
+	};
 	// Keyed by row so an override stays with its profile while the list
 	// re-ranks under further typing.
 	const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>(
@@ -289,16 +296,20 @@ export default function PromptDialog({
 
 	useInput(
 		(input, key) => {
+			const {current} = pickerStateRef;
+			const shown = current.query
+				? filterProfileOptions(options, current.query)
+				: options;
 			const result = handleFilterablePickerKey(
-				pickerState,
+				current,
 				input,
 				key,
-				shownOptions.length,
+				shown.length,
 			);
-			setPickerState(result.state);
+			updatePickerState(result.state);
 			switch (result.action) {
 				case 'submit': {
-					const chosen = shownOptions[result.state.index];
+					const chosen = shown[result.state.index];
 					if (chosen) {
 						onSubmit(
 							effectiveInput.trim(),
@@ -314,8 +325,8 @@ export default function PromptDialog({
 				case 'select': {
 					// Back to the full list with the match highlighted, so starting the
 					// session (or `a`) is still its own keystroke.
-					const chosen = shownOptions[result.state.index];
-					setPickerState({
+					const chosen = shown[result.state.index];
+					updatePickerState({
 						query: null,
 						index: chosen ? Math.max(0, options.indexOf(chosen)) : 0,
 					});
@@ -323,7 +334,7 @@ export default function PromptDialog({
 				}
 
 				case 'agent': {
-					const option = shownOptions[result.state.index];
+					const option = shown[result.state.index];
 					if (option && config && canOverrideAgent) {
 						void chooseAgentProfile(option, config);
 					}
@@ -334,7 +345,7 @@ export default function PromptDialog({
 					// First Esc hands focus back to the prompt; a second one (handled by
 					// the other useInput, now re-armed) cancels the dialog.
 					setIsPicking(false);
-					setPickerState({query: null, index: 0});
+					updatePickerState({query: null, index: 0});
 					break;
 				}
 
@@ -414,7 +425,7 @@ export default function PromptDialog({
 
 			case 'pick': {
 				setIsPicking(true);
-				setPickerState({query: null, index: 0});
+				updatePickerState({query: null, index: 0});
 				break;
 			}
 		}
