@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared tracker detection for Pappardelle's Claude Code hooks."""
 
+import json
 import os
 import re
 import subprocess
@@ -113,6 +114,28 @@ def get_tracker_provider(start: Optional[str] = None) -> str:
     return match.group(1).strip() if match else "linear"
 
 
+def _bd_issue_prefix(beads_config: Optional[str]) -> Optional[str]:
+    """`bd init --prefix` (bd 1.3+) keeps the prefix in its database and leaves
+    `issue-prefix` commented out in config.yaml."""
+    if not beads_config:
+        return None
+    try:
+        result = subprocess.run(
+            ["bd", "config", "get", "issue_prefix", "--json"],
+            cwd=os.path.dirname(os.path.dirname(beads_config)),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        payload = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    value = payload.get("value") if isinstance(payload, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def get_beads_prefix(start: Optional[str] = None) -> Optional[str]:
     """The beads ID prefix for this repo.
 
@@ -121,9 +144,13 @@ def get_beads_prefix(start: Optional[str] = None) -> Optional[str]:
     trackers. Returns None when neither is set, in which case callers should
     keep the strict Linear/Jira key matching rather than guess.
     """
-    match = _BEADS_PREFIX_RE.search(_read(find_repo_config(os.path.join(".beads", "config.yaml"), start)))
+    beads_config = find_repo_config(os.path.join(".beads", "config.yaml"), start)
+    match = _BEADS_PREFIX_RE.search(_read(beads_config))
     if match:
         return match.group(1).strip().lower()
+    database_prefix = _bd_issue_prefix(beads_config)
+    if database_prefix:
+        return database_prefix.lower()
 
     match = _TEAM_PREFIX_RE.search(_read(find_repo_config(".pappardelle.yml", start)))
     if match:
