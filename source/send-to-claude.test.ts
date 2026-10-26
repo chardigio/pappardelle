@@ -1,7 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
-import {sendToSelectedClaude} from './send-to-claude.ts';
+import {sendToSelectedAgent} from './send-to-claude.ts';
 
 test('a send waits for the running attachment and reaches the new workspace', async t => {
 	const queue = new LatestTask();
@@ -11,7 +11,7 @@ test('a send waits for the running attachment and reaches the new workspace', as
 		await delay(30);
 		viewing = 'STA-2';
 	});
-	const result = await sendToSelectedClaude({
+	const result = await sendToSelectedAgent({
 		queue,
 		targetSpace: 'STA-2',
 		viewingSpace: () => viewing,
@@ -28,7 +28,7 @@ test('a send waits for the running attachment and reaches the new workspace', as
 test('a send is dropped when the viewer shows a different workspace', async t => {
 	const queue = new LatestTask();
 	let sent = false;
-	const result = await sendToSelectedClaude({
+	const result = await sendToSelectedAgent({
 		queue,
 		targetSpace: 'STA-2',
 		viewingSpace: () => 'STA-1',
@@ -42,7 +42,7 @@ test('a send is dropped when the viewer shows a different workspace', async t =>
 });
 
 test('a failed send is reported as failed', async t => {
-	const result = await sendToSelectedClaude({
+	const result = await sendToSelectedAgent({
 		queue: new LatestTask(),
 		targetSpace: 'STA-2',
 		viewingSpace: () => 'STA-2',

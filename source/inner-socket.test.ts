@@ -58,7 +58,7 @@ test('innerTmuxArgs does not mutate the input array', t => {
 // ============================================================================
 
 test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
-	// The two call sites that create claude/companion sessions (ensureClaudeSession
+	// The two call sites that create claude/companion sessions (ensureAgentSession
 	// and ensureCompanionSession) both call innerTmuxArgs with 'new-session'.
 	const matches =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"]/g) ?? [];

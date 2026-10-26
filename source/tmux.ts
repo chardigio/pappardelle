@@ -1283,7 +1283,7 @@ function recordPaneSample(
  * Returns pane IDs for [list, agentViewer, companionViewer]
  *
  * Layout depends on screen width:
- * - Narrow screens (< 100 chars): Vertical layout [list on top] [claude below], no companion
+ * - Narrow screens (< 100 chars): Vertical layout [list on top] [agent below], no companion
  * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
  */
 export function setupPappardellLayout(): {
@@ -1314,7 +1314,7 @@ export function setupPappardellLayout(): {
 		let companionViewerPaneId = ''; // Empty by default (not created for vertical layout)
 
 		if (layout.direction === 'vertical') {
-			// VERTICAL LAYOUT: list on top, claude below, no companion
+			// VERTICAL LAYOUT: list on top, agent below, no companion
 			// Use -v for vertical split (top/bottom)
 			const agentResult = spawnSync(
 				'tmux',
@@ -1326,7 +1326,7 @@ export function setupPappardellLayout(): {
 					'-c',
 					cwd,
 					'-l',
-					String(layout.claudeHeight), // claude pane gets this many rows
+					String(layout.agentHeight), // claude pane gets this many rows
 					'-P',
 					'-F',
 					'#{pane_id}',
@@ -1342,13 +1342,13 @@ export function setupPappardellLayout(): {
 			agentViewerPaneId = agentResult.stdout.trim();
 
 			log.info(
-				`Vertical layout: list=${layout.listHeight} rows, claude=${layout.claudeHeight} rows`,
+				`Vertical layout: list=${layout.listHeight} rows, agent=${layout.agentHeight} rows`,
 			);
 		} else {
 			// HORIZONTAL LAYOUT: list | claude | companion (existing logic)
 			// Create the right portion (claude + companion combined)
 			const rightPortionWidth =
-				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
+				(layout.agentWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
 
 			const agentResult = spawnSync(
 				'tmux',
@@ -1411,7 +1411,7 @@ export function setupPappardellLayout(): {
 			}
 
 			log.info(
-				`Horizontal layout: list=${layout.listWidth}, claude=${layout.claudeWidth}, companion=${layout.companionWidth}`,
+				`Horizontal layout: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
 			);
 		}
 
@@ -1791,7 +1791,7 @@ async function killPane(
  */
 export async function rebuildLayout(
 	listPaneId: string,
-	oldClaudeViewerPaneId: string,
+	oldAgentViewerPaneId: string,
 	oldCompanionViewerPaneId: string,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<{
@@ -1808,11 +1808,11 @@ export async function rebuildLayout(
 		}
 
 		// Detach any nested clients before killing panes
-		if (oldClaudeViewerPaneId) {
+		if (oldAgentViewerPaneId) {
 			if (agentViewerHasClient) {
-				await run(['send-keys', '-t', oldClaudeViewerPaneId, 'C-b', 'd']);
+				await run(['send-keys', '-t', oldAgentViewerPaneId, 'C-b', 'd']);
 			}
-			await killPane(oldClaudeViewerPaneId, run);
+			await killPane(oldAgentViewerPaneId, run);
 		}
 		if (oldCompanionViewerPaneId) {
 			if (companionViewerHasClient) {
@@ -1841,7 +1841,7 @@ export async function rebuildLayout(
 		let companionViewerPaneId = '';
 
 		if (layout.direction === 'vertical') {
-			// VERTICAL: list on top, claude below
+			// VERTICAL: list on top, agent below
 			const agentResult = await runLayoutCommand(
 				[
 					'split-window',
@@ -1851,7 +1851,7 @@ export async function rebuildLayout(
 					'-c',
 					cwd,
 					'-l',
-					String(layout.claudeHeight),
+					String(layout.agentHeight),
 					'-P',
 					'-F',
 					'#{pane_id}',
@@ -1868,12 +1868,12 @@ export async function rebuildLayout(
 			agentViewerPaneId = agentResult.stdout.trim();
 
 			log.info(
-				`Rebuilt vertical: list=${layout.listHeight}, claude=${layout.claudeHeight}`,
+				`Rebuilt vertical: list=${layout.listHeight}, agent=${layout.agentHeight}`,
 			);
 		} else {
 			// HORIZONTAL: list | claude | companion
 			const rightPortionWidth =
-				(layout.claudeWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
+				(layout.agentWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
 
 			const agentResult = await runLayoutCommand(
 				[
@@ -1924,7 +1924,7 @@ export async function rebuildLayout(
 			}
 
 			log.info(
-				`Rebuilt horizontal: list=${layout.listWidth}, claude=${layout.claudeWidth}, companion=${layout.companionWidth}`,
+				`Rebuilt horizontal: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
 			);
 		}
 
