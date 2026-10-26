@@ -53,21 +53,22 @@ export function agentPickerWidth(clientCols: number): number {
 }
 
 /**
- * How many options fit in a picker `height` rows tall. tmux shrinks a popup
- * that doesn't fit the client, and output taller than the popup scrolls its
- * first rows out of view.
+ * How many options fit in a picker `height` rows tall, and whether the
+ * "↑/↓ N more" rows fit beside them. tmux shrinks a popup that doesn't fit the
+ * client, and output taller than the popup scrolls its first rows out of
+ * view. A popup too short for both drops the markers to keep one option.
  */
-export function agentPopupVisibleRows(
+export function agentPopupList(
 	optionCount: number,
 	height: number,
-): number {
+): {rows: number; scrollMarkers: boolean} {
 	const room = height - AGENT_PICKER_CHROME_ROWS;
 	if (optionCount <= Math.min(AGENT_POPUP_MAX_VISIBLE, room))
-		return optionCount;
-	return Math.max(
-		1,
-		Math.min(AGENT_POPUP_MAX_VISIBLE, room - SCROLL_MARKER_ROWS),
-	);
+		return {rows: optionCount, scrollMarkers: false};
+	const rows = Math.min(AGENT_POPUP_MAX_VISIBLE, room - SCROLL_MARKER_ROWS);
+	return rows >= 1
+		? {rows, scrollMarkers: true}
+		: {rows: 1, scrollMarkers: false};
 }
 
 export function agentProfileLabel(name: string): string {

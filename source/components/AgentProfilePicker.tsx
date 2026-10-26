@@ -7,7 +7,7 @@ import {
 } from '../profile-picker.ts';
 import {
 	AGENT_PICKER_NAME_MAX_WIDTH,
-	agentPopupVisibleRows,
+	agentPopupList,
 	agentProfileLabel,
 	filterAgentProfiles,
 	type AgentProfileRequest,
@@ -60,10 +60,11 @@ export default function AgentProfilePicker({
 		}
 	});
 
+	const list = agentPopupList(request.options.length, availableHeight);
 	const {start, end, above, below} = computePickerWindow(
 		options.length,
 		state.index,
-		agentPopupVisibleRows(request.options.length, availableHeight),
+		list.rows,
 	);
 	// The default marker sits with the name so a truncated source can't hide it.
 	const label = (name: string) =>
@@ -87,7 +88,7 @@ export default function AgentProfilePicker({
 					Agent profile
 				</Text>
 			</Box>
-			{above > 0 && <Text dimColor>↑ {above} more</Text>}
+			{list.scrollMarkers && above > 0 && <Text dimColor>↑ {above} more</Text>}
 			{options.length === 0 && <Text dimColor>No match</Text>}
 			{options.slice(start, end).map((option, offset) => {
 				const isSelected = start + offset === state.index;
@@ -105,7 +106,7 @@ export default function AgentProfilePicker({
 					</Box>
 				);
 			})}
-			{below > 0 && <Text dimColor>↓ {below} more</Text>}
+			{list.scrollMarkers && below > 0 && <Text dimColor>↓ {below} more</Text>}
 			<Box marginTop={1}>
 				{state.query === null ? (
 					<Text dimColor wrap="truncate-end">
