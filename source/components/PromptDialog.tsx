@@ -134,6 +134,9 @@ export default function PromptDialog({
 	);
 	const seenSkills = useRef(skills);
 	const highlightedName = useRef<string | undefined>(undefined);
+	// Keys that arrive with `a` in one write (a paste, a slow SSH link) would
+	// otherwise move or start the picker behind the popup.
+	const agentPopupOpen = useRef(false);
 	if (seenSkills.current !== skills) {
 		seenSkills.current = skills;
 		const anchored = reanchorSelection(highlightedName.current, completions);
@@ -296,6 +299,7 @@ export default function PromptDialog({
 
 	useInput(
 		(input, key) => {
+			if (agentPopupOpen.current) return;
 			const {current} = pickerStateRef;
 			const shown = current.query
 				? filterProfileOptions(options, current.query)
@@ -376,6 +380,7 @@ export default function PromptDialog({
 						option.name ?? undefined,
 					)
 				: '';
+		agentPopupOpen.current = true;
 		const name = await pickAgentProfileInPopup({
 			options:
 				option.kind === 'profile'
@@ -386,6 +391,8 @@ export default function PromptDialog({
 						],
 			selected: agentOverrides[key] ?? profileDefault,
 			profileDefault,
+		}).finally(() => {
+			agentPopupOpen.current = false;
 		});
 		if (name === null) return;
 		setAgentOverrides(current => {
@@ -648,17 +655,19 @@ function ProfilePicker({
 						const agentOverride = agentOverrides[rowKey(option)];
 						return (
 							<Box key={rowKey(option)}>
-								<Text
-									color={isSelected ? 'green' : undefined}
-									bold={isSelected}
-								>
-									{isSelected ? '❯ ' : '  '}
-								</Text>
+								<Box flexShrink={0}>
+									<Text
+										color={isSelected ? 'green' : undefined}
+										bold={isSelected}
+									>
+										{isSelected ? '❯ ' : '  '}
+									</Text>
+								</Box>
 								{slot ? (
-									<>
+									<Box flexShrink={0}>
 										<Text>{slot.text}</Text>
 										{slot.needsSeparator ? <Text> </Text> : null}
-									</>
+									</Box>
 								) : null}
 								<Text wrap="truncate-end">
 									<Text
@@ -678,10 +687,12 @@ function ProfilePicker({
 									{option.isDefault && option.matchedKeywords.length === 0 && (
 										<Text dimColor> (default)</Text>
 									)}
-									{agentOverride && (
-										<Text color="cyan"> → {agentOverride}</Text>
-									)}
 								</Text>
+								{agentOverride && (
+									<Box flexShrink={0}>
+										<Text color="cyan"> → {agentOverride}</Text>
+									</Box>
+								)}
 							</Box>
 						);
 					})}
