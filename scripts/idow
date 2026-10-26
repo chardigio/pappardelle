@@ -801,25 +801,6 @@ else
     # Existing issue keys may have resumable history even after their worktree
     # was deleted; only a newly created issue is guaranteed to have none.
     FRESH_WORKSPACE="$IS_NEW_ISSUE"
-
-    # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
-    LOCAL_CONFIG="$LOCAL_CONFIG_PATH"
-    if [[ -f "$LOCAL_CONFIG" ]]; then
-        cp -n "$LOCAL_CONFIG" "$WORKTREE_PATH/.pappardelle.local.yml" 2>/dev/null || true
-        print_success "Copied .pappardelle.local.yml"
-    fi
-
-    # Copy .claude/settings.local.json to the new worktree (gitignored personal overrides)
-    CLAUDE_LOCAL_SETTINGS="$REPO_ROOT/.claude/settings.local.json"
-    if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
-        mkdir -p "$WORKTREE_PATH/.claude"
-        cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
-        print_success "Copied .claude/settings.local.json"
-    fi
-
-    # post_worktree_init is the legacy name, used only when post_workspace_init is empty
-    run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init 'post_workspace_init[%d]' || true
-    run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" 'profile_post_init[%d]' || true
 fi
 
 SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
@@ -862,6 +843,27 @@ if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
             '{profile: $p, updatedAt: $t}' > "$SPACE_STATE_FILE"
         log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
     fi
+fi
+
+if [[ "$WORKTREE_CREATED" == true ]]; then
+    # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
+    LOCAL_CONFIG="$LOCAL_CONFIG_PATH"
+    if [[ -f "$LOCAL_CONFIG" ]]; then
+        cp -n "$LOCAL_CONFIG" "$WORKTREE_PATH/.pappardelle.local.yml" 2>/dev/null || true
+        print_success "Copied .pappardelle.local.yml"
+    fi
+
+    # Copy .claude/settings.local.json to the new worktree (gitignored personal overrides)
+    CLAUDE_LOCAL_SETTINGS="$REPO_ROOT/.claude/settings.local.json"
+    if [[ -f "$CLAUDE_LOCAL_SETTINGS" ]]; then
+        mkdir -p "$WORKTREE_PATH/.claude"
+        cp -n "$CLAUDE_LOCAL_SETTINGS" "$WORKTREE_PATH/.claude/settings.local.json" 2>/dev/null || true
+        print_success "Copied .claude/settings.local.json"
+    fi
+
+    # post_worktree_init is the legacy name, used only when post_workspace_init is empty
+    run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init 'post_workspace_init[%d]' || true
+    run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" 'profile_post_init[%d]' || true
 fi
 
 # PR URLs are only needed when opening configured apps and links.
