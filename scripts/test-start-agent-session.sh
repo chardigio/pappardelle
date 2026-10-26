@@ -894,6 +894,30 @@ done
 tmux -L "$SHIM_SOCKET15" kill-server 2>/dev/null || true
 
 # ==========================================================================
+# tmux next-3.9 starts every session in the server's own working directory
+# once that directory is deleted, whatever -c says.
+echo -e "\n${BOLD}Test: the inner server outlives the worktree it was started from${RESET}"
+WORKTREE_PATH16="$TMPDIR_ROOT/worktree16"
+WORKTREE_PATH17="$TMPDIR_ROOT/worktree17"
+mkdir -p "$WORKTREE_PATH16" "$WORKTREE_PATH17"
+SHIM_SOCKET16="pappardelle_inner_shim16_$$"
+start_space() {
+    (cd "$2" && PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET16" \
+        "$SCRIPT_DIR/start-agent-session.sh" \
+        --issue-key "$1" --repo-name "$TEST_REPO" --worktree "$2" \
+        --no-agent 2>/dev/null)
+}
+start_space "${TEST_PREFIX}-1600" "$WORKTREE_PATH16"
+rm -rf "$WORKTREE_PATH16"
+start_space "${TEST_PREFIX}-1700" "$WORKTREE_PATH17"
+CWD_FILE="$TMPDIR_ROOT/cwd17"
+tmux -L "$SHIM_SOCKET16" send-keys -t "=agent-${TEST_REPO}-${TEST_PREFIX}-1700:" -l "pwd -P > $(printf '%q' "$CWD_FILE")"
+tmux -L "$SHIM_SOCKET16" send-keys -t "=agent-${TEST_REPO}-${TEST_PREFIX}-1700:" Enter
+wait_for_file "$CWD_FILE" || true
+assert_eq "a later space starts in its own worktree" "$(cd "$WORKTREE_PATH17" && pwd -P)" "$(cat "$CWD_FILE" 2>/dev/null)"
+tmux -L "$SHIM_SOCKET16" kill-server 2>/dev/null || true
+
+# ==========================================================================
 
 rm -rf "$TMPDIR_ROOT"
 

@@ -217,8 +217,17 @@ new_launch_session() {
     local session="$1" command="$2"
     shift 2
     # shellcheck disable=SC2016 # expanded by the inner sh, not here
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \
+    new_inner_session "$session" "$@" \
         /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+}
+
+# The command that starts the inner server sets the server's working
+# directory. Started from a worktree that is later removed, tmux next-3.9
+# starts every later session in that deleted directory, even with -c.
+new_inner_session() {
+    local session="$1"
+    shift
+    (cd "$HOME" && tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@")
 }
 
 # A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:
@@ -237,7 +246,7 @@ fi
 
 if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" == true ]]; then
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$AGENT_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "${AGENT_SESSION_ENV[@]}"
+        new_inner_session "$AGENT_SESSION" "${AGENT_SESSION_ENV[@]}"
     else
         # Claude agents get --dangerously-skip-permissions and --name set to the issue key so the session is findable via /resume
         # and shows up in the terminal title. Other agents run `{command} {args}`
@@ -286,6 +295,6 @@ if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$COMPANION_SESSION:" 2>
     if [[ "$NO_AGENT" != true && -n "$COMPANION_COMMAND" ]]; then
         new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
     else
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$COMPANION_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}"
+        new_inner_session "$COMPANION_SESSION"
     fi
 fi
