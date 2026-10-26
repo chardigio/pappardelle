@@ -109,8 +109,9 @@ export function getSessionPrefix(
 
 /**
  * Session prefix used for the agent pane before it was renamed to `agent-`.
- * Live sessions carrying this prefix are renamed in place on sight (see
- * `migrateLegacyAgentSessions` / `ensureAgentSession`) and the orphan reapers
+ * Live sessions carrying this prefix are renamed in place when the TUI starts,
+ * before `pappardelle send`, and when idow opens the space (see
+ * `migrateLegacyAgentSessions` and start-agent-session.sh). The orphan reapers
  * sweep it alongside the current prefixes.
  */
 export function getLegacyAgentSessionPrefix(repoName?: string): string {
@@ -194,10 +195,11 @@ export function isInTmux(): boolean {
  * A tmux target that only matches a session with exactly this name. A bare
  * name falls back to prefix matching when no session has it exactly, so a
  * lookup or kill for STA-1 would hit STA-12, and `pappardelle-pappa` would hit
- * `pappardelle-pappa-chex`.
+ * `pappardelle-pappa-chex`. The trailing `:` ends the session part, so a `.` in
+ * the repo name is not read as a window or pane separator.
  */
 export function exactSessionTarget(sessionName: string): string {
-	return sessionName.startsWith('=') ? sessionName : `=${sessionName}`;
+	return `=${sessionName}:`;
 }
 
 /**

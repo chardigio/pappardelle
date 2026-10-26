@@ -64,8 +64,8 @@ test.serial(
 				args => args[0] === '-L' && args[1] === 'pappardelle_inner',
 			),
 		);
-		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1'));
-		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1'));
+		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1:'));
+		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1:'));
 		t.deepEqual(fake.calls.at(-1), ['select-pane', '-t', '%0']);
 	},
 );
@@ -133,7 +133,7 @@ test.serial(
 			'-t',
 		]);
 		t.true(batch[6]!.startsWith('=agent-'));
-		t.true(batch[6]!.endsWith('-TEST-B'));
+		t.true(batch[6]!.endsWith('-TEST-B:'));
 		t.deepEqual(batch.slice(7, 12), [
 			';',
 			'switch-client',
@@ -142,7 +142,7 @@ test.serial(
 			'-t',
 		]);
 		t.true(batch[12]!.startsWith('=companion-'));
-		t.true(batch[12]!.endsWith('-TEST-B'));
+		t.true(batch[12]!.endsWith('-TEST-B:'));
 		t.deepEqual(fake.calls[1], ['select-pane', '-t', '%0']);
 	},
 );
@@ -180,7 +180,7 @@ test.serial(
 			retries.map(args => args[4]),
 			['/dev/new-claude', '/dev/new-companion'],
 		);
-		t.true(retries.every(args => args.at(-1)!.endsWith('-TEST-B')));
+		t.true(retries.every(args => args.at(-1)!.endsWith('-TEST-B:')));
 		t.is(getCurrentlyViewingSpace(), 'TEST-B');
 		t.true(
 			getRecentErrors().some(error =>
@@ -364,8 +364,8 @@ test.serial(
 			.filter(args => args.includes('switch-client'))
 			.map(args => args.at(-1));
 		t.is(targets.length, 2);
-		t.true(targets.every(target => target!.endsWith('-TEST-C')));
-		t.false(fake.calls.some(args => args.some(arg => arg.endsWith('-TEST-B'))));
+		t.true(targets.every(target => target!.endsWith('-TEST-C:')));
+		t.false(fake.calls.some(args => args.some(arg => arg.includes('-TEST-B'))));
 		t.is(getCurrentlyViewingSpace(), 'TEST-C');
 	},
 );

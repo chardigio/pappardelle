@@ -902,15 +902,15 @@ export PAPPARDELLE_TMUX_SOCKET
 # start-agent-session.sh leaves a running agent alone, and renames a
 # pre-upgrade claude-* one instead of starting the picked agent profile.
 if [[ -n "$FORCED_AGENT_PROFILE" ]] && {
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null ||
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION_NAME" 2>/dev/null
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null ||
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION_NAME:" 2>/dev/null
 }; then
     print_warning "Agent session already running, so the agent profile override was not applied"
     # Read by idowSkippedAgentOverride() in source/session-routing.ts.
     echo "PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped"
 fi
 "$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
     print_success "Agent session: $AGENT_SESSION_NAME"
 else
     print_warning "Agent session not created (is tmux running?)"
@@ -1125,7 +1125,7 @@ if [[ -n "$PR_URL" ]]; then
 fi
 echo "Worktree:  $WORKTREE_PATH"
 echo ""
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
     if [[ "$RESUME_MODE" == true ]]; then
         echo "Agent session ready (resume mode)."
     elif [[ -n "$INIT_CMD" ]]; then

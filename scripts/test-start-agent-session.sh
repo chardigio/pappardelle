@@ -754,7 +754,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$RENAMED_SESSION" -c "$WOR
 
 "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_SESSION" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_SESSION:" 2>/dev/null; then
     echo -e "  ${RED}FAIL${RESET} legacy session killed"
     FAIL=$((FAIL + 1))
 else
@@ -762,7 +762,7 @@ else
     PASS=$((PASS + 1))
 fi
 
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
 
 # ==========================================================================
@@ -783,7 +783,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "companion-${TEST_REPO}-${O
 
 "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY13" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH13" --no-agent 2>/dev/null
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$OTHER_LEGACY13" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$OTHER_LEGACY13:" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} other space's legacy session kept its name"
     PASS=$((PASS + 1))
 else
@@ -807,7 +807,7 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$OTHER_LEGACY13" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$OTHER_LEGACY13:" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${OTHER_KEY13}" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}" 2>/dev/null || true

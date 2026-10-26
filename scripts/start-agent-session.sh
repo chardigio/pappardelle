@@ -223,15 +223,15 @@ new_launch_session() {
 # duplicate agent beside it. When both names exist, the legacy one is killed,
 # as migrateLegacyAgentSessions() in source/tmux.ts does: pappardelle only
 # attaches the agent- session.
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION" 2>/dev/null; then
-    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/null; then
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$LEGACY_AGENT_SESSION" 2>/dev/null || true
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION:" 2>/dev/null; then
+    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$LEGACY_AGENT_SESSION:" 2>/dev/null || true
     else
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_AGENT_SESSION" "$AGENT_SESSION" 2>/dev/null || true
+        tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_AGENT_SESSION:" "$AGENT_SESSION" 2>/dev/null || true
     fi
 fi
 
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION" 2>/dev/null; then
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" == true ]]; then
         tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$AGENT_SESSION" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "${AGENT_SESSION_ENV[@]}"
     else
@@ -278,7 +278,7 @@ fi
 
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).
 # An empty command leaves a plain shell.
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$COMPANION_SESSION" 2>/dev/null; then
+if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$COMPANION_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" != true && -n "$COMPANION_COMMAND" ]]; then
         new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
     else

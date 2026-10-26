@@ -209,7 +209,12 @@ test('exactSessionTarget stops tmux prefix-matching another session', t => {
 			tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1')).status,
 			0,
 		);
-		t.is(exactSessionTarget('=agent-repo-STA-1'), '=agent-repo-STA-1');
+		t.is(tmux('new-session', '-d', '-s', 'agent-my.repo-STA-1').status, 0);
+		t.is(
+			tmux('has-session', '-t', exactSessionTarget('agent-my.repo-STA-1'))
+				.status,
+			0,
+		);
 	} finally {
 		tmux('kill-server');
 	}
@@ -545,8 +550,8 @@ test('migrateLegacyAgentSessions renames claude-{repo}-* to agent-{repo}-*', t =
 	// `=` forces an exact target; a bare name would let tmux prefix-match
 	// another space's session (STA-1 → STA-12).
 	t.deepEqual(renames, [
-		['=claude-repo-STA-1', 'agent-repo-STA-1'],
-		['=claude-repo-main', 'agent-repo-main'],
+		['=claude-repo-STA-1:', 'agent-repo-STA-1'],
+		['=claude-repo-main:', 'agent-repo-main'],
 	]);
 });
 
@@ -563,11 +568,11 @@ test('migrateLegacyAgentSessions kills a legacy session whose agent name is take
 	t.is(migrateLegacyAgentSessions('repo', runner), 1);
 	t.deepEqual(
 		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
-		['=claude-repo-STA-1'],
+		['=claude-repo-STA-1:'],
 	);
 	t.deepEqual(
 		calls.filter(c => c[0] === 'rename-session').map(c => [c[2], c[3]]),
-		[['=claude-repo-STA-2', 'agent-repo-STA-2']],
+		[['=claude-repo-STA-2:', 'agent-repo-STA-2']],
 	);
 });
 
