@@ -144,9 +144,12 @@ CLAUDE_WRAPPER = {
 }
 
 
+STARTED = "Mon Oct 26 09:00:00 2026"
+
+
 @pytest.fixture(autouse=True)
 def every_process_alive(monkeypatch):
-    monkeypatch.setattr(agent_session, "pid_alive", lambda _pid: True)
+    monkeypatch.setattr(agent_session, "process_start", lambda _pid: STARTED)
 
 
 @pytest.fixture
@@ -252,7 +255,7 @@ def test_only_the_sessions_first_pane_counts_as_the_agents():
 
 def test_the_agent_process_is_recorded_with_its_id(sessions_file: Path):
     record_agent_session(payload(), False, env_for(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
-    assert entries(sessions_file) == {"codex": {"session_id": "01a117bd-5978", "pid": 98}}
+    assert entries(sessions_file) == {"codex": {"session_id": "01a117bd-5978", "pid": 98, "started": STARTED}}
 
 
 def test_an_agent_of_the_same_kind_spawned_without_a_shell_does_not_overwrite_the_id(sessions_file: Path):
@@ -274,9 +277,9 @@ def test_a_relaunched_agent_takes_over_once_the_old_one_has_exited(sessions_file
         env_for(sessions_file),
         HOOK_PID,
         lambda: RELAUNCHED_CODEX,
-        alive=lambda pid: pid != 98,
+        started=lambda pid: None if pid == 98 else STARTED,
     )
-    assert entries(sessions_file) == {"codex": {"session_id": "second", "pid": 88}}
+    assert entries(sessions_file) == {"codex": {"session_id": "second", "pid": 88, "started": STARTED}}
 
 
 def test_resuming_the_recorded_id_after_a_relaunch_takes_it_over(sessions_file: Path):
@@ -287,9 +290,31 @@ def test_resuming_the_recorded_id_after_a_relaunch_takes_it_over(sessions_file: 
         env_for(sessions_file),
         HOOK_PID,
         lambda: RELAUNCHED_CODEX,
-        alive=lambda pid: pid != 98,
+        started=lambda pid: None if pid == 98 else STARTED,
     )
-    assert entries(sessions_file) == {"codex": {"session_id": "same", "pid": 88}}
+    assert entries(sessions_file) == {"codex": {"session_id": "same", "pid": 88, "started": STARTED}}
+
+
+def test_a_reused_pid_does_not_keep_the_lock(sessions_file: Path):
+    record_agent_session(payload("first"), False, env_for(sessions_file), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert record_agent_session(
+        payload("second"),
+        False,
+        env_for(sessions_file),
+        HOOK_PID,
+        lambda: RELAUNCHED_CODEX,
+        started=lambda pid: "Tue Oct 27 10:00:00 2026" if pid == 98 else STARTED,
+    )
+    assert entries(sessions_file) == {"codex": {"session_id": "second", "pid": 88, "started": STARTED}}
+
+
+def test_an_entry_without_a_start_time_has_no_owner(sessions_file: Path):
+    sessions_file.parent.mkdir(parents=True)
+    sessions_file.write_text(json.dumps({"codex": {"session_id": "first", "pid": 98}}))
+    assert record_agent_session(
+        payload("second"), False, env_for(sessions_file), HOOK_PID, lambda: RELAUNCHED_CODEX
+    )
+    assert recorded(sessions_file) == {"codex": "second"}
 
 
 def test_a_nested_agent_without_a_shell_between_is_not_recorded(sessions_file: Path):

@@ -137,14 +137,18 @@ def hook_agent_pid(chain: Chain) -> Optional[int]:
     return next((pid for pid, args in chain if _name(args) not in SHELLS), None)
 
 
-def pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+def process_start(pid: int) -> Optional[str]:
+    """When the process started, or None once it has exited. Pids are reused,
+    so a pid alone can't say the recording agent is still running."""
+    result = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        env={**os.environ, "LC_ALL": "C"},
+    )
+    started = result.stdout.strip()
+    return started if result.returncode == 0 and started else None
 
 
 def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
@@ -219,7 +223,7 @@ def record_agent_session(
     process_table: Callable[[], ProcessTable] = read_process_table,
     session_env_for_cwd: Callable[[str], Optional[dict[str, str]]] = tmux_agent_session_env,
     split_pane: Callable[[Mapping[str, str]], bool] = in_split_pane,
-    alive: Optional[Callable[[int], bool]] = None,
+    started: Optional[Callable[[int], Optional[str]]] = None,
 ) -> bool:
     """
     Record the id and the agent's pid under the agent profile's name in the
@@ -227,7 +231,7 @@ def record_agent_session(
     hook. Returns whether it wrote.
     """
     env = os.environ if environ is None else environ
-    alive = alive or pid_alive
+    started = started or process_start
     session_id = payload.get("session_id")
     if (
         payload.get("hook_event_name") not in RECORDED_EVENTS
@@ -244,7 +248,7 @@ def record_agent_session(
         env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
         recorded = read_sessions(Path(env_sessions_path))
         entry = recorded.get(env_profile) if recorded is not None else None
-        if entry_session_id(entry) == session_id and owner_alive(entry, alive):
+        if entry_session_id(entry) == session_id and owner_alive(entry, started):
             return False
     elif is_claude_hook:
         # Only codex's daemon runs hooks away from the agent's own env, so a
@@ -279,11 +283,12 @@ def record_agent_session(
         return False
     entry = sessions.get(agent_profile)
     owner = entry.get("pid") if isinstance(entry, dict) else None
-    if owner == agent_pid and entry_session_id(entry) == session_id:
+    if owner != agent_pid and owner_alive(entry, started):
         return False
-    if owner != agent_pid and owner_alive(entry, alive):
+    recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
+    if entry == recording:
         return False
-    sessions[agent_profile] = {"session_id": session_id, "pid": agent_pid}
+    sessions[agent_profile] = recording
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
     try:
@@ -300,9 +305,11 @@ def entry_session_id(entry: Any) -> Optional[str]:
     return session_id if isinstance(session_id, str) else None
 
 
-def owner_alive(entry: Any, alive: Callable[[int], bool]) -> bool:
-    pid = entry.get("pid") if isinstance(entry, dict) else None
-    return isinstance(pid, int) and alive(pid)
+def owner_alive(entry: Any, started: Callable[[int], Optional[str]]) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    pid, recorded_start = entry.get("pid"), entry.get("started")
+    return isinstance(pid, int) and recorded_start is not None and started(pid) == recorded_start
 
 
 def read_sessions(path: Path) -> Optional[dict[str, Any]]:
