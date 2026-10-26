@@ -15,7 +15,9 @@ test('a popup shorter than its list scrolls instead of overflowing', t => {
 	t.is(agentPopupVisibleRows(12, 40), 12);
 	// tmux shrank the popup to 14 rows: 6 for the chrome, 2 for the scroll markers.
 	t.is(agentPopupVisibleRows(12, 14), 6);
-	t.is(agentPopupVisibleRows(30, 40), 14);
+	t.is(agentPopupVisibleRows(30, 40), 16);
+	// A popup sized for 30 options fills every row.
+	t.is(agentPopupVisibleRows(30, agentPickerHeight(30)), 16);
 });
 
 const choices = [

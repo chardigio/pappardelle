@@ -61,12 +61,13 @@ export function agentPopupVisibleRows(
 	optionCount: number,
 	height: number,
 ): number {
-	const room = Math.min(
-		AGENT_POPUP_MAX_VISIBLE,
-		height - AGENT_PICKER_CHROME_ROWS,
+	const room = height - AGENT_PICKER_CHROME_ROWS;
+	if (optionCount <= Math.min(AGENT_POPUP_MAX_VISIBLE, room))
+		return optionCount;
+	return Math.max(
+		1,
+		Math.min(AGENT_POPUP_MAX_VISIBLE, room - SCROLL_MARKER_ROWS),
 	);
-	if (optionCount <= room) return optionCount;
-	return Math.max(1, room - SCROLL_MARKER_ROWS);
 }
 
 export function agentProfileLabel(name: string): string {

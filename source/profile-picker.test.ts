@@ -725,12 +725,12 @@ test('focusFrame never marks two states the same', t => {
 
 test('/ starts a filter where j, k and a are text, not keys', t => {
 	let {state} = handleFilterablePickerKey({query: null, index: 3}, '/', {}, 7);
-	t.deepEqual(state, {query: '', index: 0});
+	t.deepEqual(state, {query: '', index: 0, indexBeforeQuery: 3});
 	for (const char of 'jka') {
 		({state} = handleFilterablePickerKey(state, char, {}, 7));
 	}
 
-	t.deepEqual(state, {query: 'jka', index: 0});
+	t.deepEqual(state, {query: 'jka', index: 0, indexBeforeQuery: 3});
 	({state} = handleFilterablePickerKey(state, '', {backspace: true}, 0));
 	t.is(state.query, 'jk');
 });
@@ -747,8 +747,13 @@ test('without a filter the picker keys pass through', t => {
 
 test('Esc while filtering leaves the filter, not the picker', t => {
 	t.deepEqual(
-		handleFilterablePickerKey({query: 'so', index: 1}, '', {escape: true}, 2),
-		{state: {query: null, index: 0}},
+		handleFilterablePickerKey(
+			{query: 'so', index: 1, indexBeforeQuery: 4},
+			'',
+			{escape: true},
+			2,
+		),
+		{state: {query: null, index: 4}},
 	);
 	t.is(
 		handleFilterablePickerKey({query: null, index: 1}, '', {escape: true}, 7)

@@ -657,24 +657,28 @@ function ProfilePicker({
 										{slot.needsSeparator ? <Text> </Text> : null}
 									</>
 								) : null}
-								<Text
-									color={isSelected ? 'green' : undefined}
-									bold={isSelected}
-									italic={option.kind === 'deferred'}
-								>
-									{option.displayName}
+								<Text wrap="truncate-end">
+									<Text
+										color={isSelected ? 'green' : undefined}
+										bold={isSelected}
+										italic={option.kind === 'deferred'}
+									>
+										{option.displayName}
+									</Text>
+									{option.matchedKeywords.length > 0 && (
+										<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
+									)}
+									{option.matchedPrefix && (
+										<Text dimColor> ← {option.matchedPrefix}</Text>
+									)}
+									{option.enforced && <Text color="magenta"> (enforced)</Text>}
+									{option.isDefault && option.matchedKeywords.length === 0 && (
+										<Text dimColor> (default)</Text>
+									)}
+									{agentOverride && (
+										<Text color="cyan"> → {agentOverride}</Text>
+									)}
 								</Text>
-								{option.matchedKeywords.length > 0 && (
-									<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
-								)}
-								{option.matchedPrefix && (
-									<Text dimColor> ← {option.matchedPrefix}</Text>
-								)}
-								{option.enforced && <Text color="magenta"> (enforced)</Text>}
-								{option.isDefault && option.matchedKeywords.length === 0 && (
-									<Text dimColor> (default)</Text>
-								)}
-								{agentOverride && <Text color="cyan"> → {agentOverride}</Text>}
 							</Box>
 						);
 					})}
@@ -695,7 +699,7 @@ function ProfilePicker({
 				</Box>
 			) : isFocused ? (
 				<Box paddingX={2}>
-					<Text dimColor>
+					<Text dimColor wrap="truncate-end">
 						<Text color="green">↑/↓</Text> select · <Text color="cyan">/</Text>{' '}
 						filter ·{' '}
 						{hasAgentChoice ? (

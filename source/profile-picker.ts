@@ -375,7 +375,12 @@ export function filterProfileOptions(
 }
 
 /** `query` is null until `/` starts filtering. */
-export type FilterablePickerState = {query: string | null; index: number};
+export type FilterablePickerState = {
+	query: string | null;
+	index: number;
+	/** Where the highlight was when the filter opened, for Esc to go back to. */
+	indexBeforeQuery?: number;
+};
 
 type FilterablePickerKey = PickerKey & {
 	backspace?: boolean;
@@ -401,7 +406,9 @@ export function handleFilterablePickerKey(
 	total: number,
 ): FilterablePickerKeyResult {
 	if (state.query === null) {
-		if (input === '/') return {state: {query: '', index: 0}};
+		if (input === '/') {
+			return {state: {query: '', index: 0, indexBeforeQuery: state.index}};
+		}
 		const result = handleProfilePickerKey(input, key, state.index, total);
 		switch (result.action) {
 			case 'move': {
@@ -420,7 +427,9 @@ export function handleFilterablePickerKey(
 		}
 	}
 
-	if (key.escape) return {state: {query: null, index: 0}};
+	if (key.escape) {
+		return {state: {query: null, index: state.indexBeforeQuery ?? 0}};
+	}
 	if (key.return) return total > 0 ? {state, action: 'select'} : {state};
 	if (key.upArrow) {
 		return {state: {...state, index: Math.max(0, state.index - 1)}};
@@ -436,11 +445,11 @@ export function handleFilterablePickerKey(
 	}
 
 	if (key.backspace || key.delete) {
-		return {state: {query: state.query.slice(0, -1), index: 0}};
+		return {state: {...state, query: state.query.slice(0, -1), index: 0}};
 	}
 
 	if (input && !key.ctrl && !key.meta && !key.tab) {
-		return {state: {query: state.query + input, index: 0}};
+		return {state: {...state, query: state.query + input, index: 0}};
 	}
 
 	return {state};
