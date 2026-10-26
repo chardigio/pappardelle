@@ -61,6 +61,11 @@ interface Props {
 		agentProfileName: string | null,
 	) => void;
 	onCancel: () => void;
+	/** The profile a space was saved with, for input that names one. */
+	savedProfileFor?: (
+		input: string,
+		config: PappardelleConfig | null,
+	) => string | undefined;
 	/**
 	 * Columns available to the dialog. Callers inside tmux should pass the pane
 	 * width; `stdout.columns` can be a full terminal-width stale value right
@@ -77,6 +82,7 @@ interface Props {
 export default function PromptDialog({
 	onSubmit,
 	onCancel,
+	savedProfileFor,
 	availableWidth,
 	availableHeight,
 	isInTmux,
@@ -213,8 +219,15 @@ export default function PromptDialog({
 	// long as a selection can move within it.
 	const options = useMemo(
 		() =>
-			config ? pickerOptions(config, effectiveInput, canOverrideAgent) : [],
-		[config, effectiveInput, canOverrideAgent],
+			config
+				? pickerOptions(
+						config,
+						effectiveInput,
+						canOverrideAgent,
+						savedProfileFor?.(effectiveInput, config),
+					)
+				: [],
+		[config, effectiveInput, canOverrideAgent, savedProfileFor],
 	);
 
 	const shownOptions =

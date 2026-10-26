@@ -461,6 +461,14 @@ test('pickerOptions only narrows inputs the picker would otherwise skip', t => {
 	);
 });
 
+test("pickerOptions leads with an existing space's saved profile", t => {
+	const guessed = buildProfileOptions(CONFIG, 'STA-123');
+	const options = pickerOptions(CONFIG, 'STA-123', false, 'hive');
+	t.is(options[0]?.name, 'hive');
+	t.is(options.length, guessed.length);
+	t.deepEqual(pickerOptions(CONFIG, 'STA-123', false, 'gone'), guessed);
+});
+
 test('resolvePromptSubmit ignores blank input', t => {
 	t.is(resolvePromptSubmit(CONFIG, '   ').kind, 'none');
 });
