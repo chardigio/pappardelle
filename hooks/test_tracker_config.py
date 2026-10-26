@@ -3,6 +3,7 @@
 
 import importlib.util
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -80,6 +81,20 @@ def test_beads_prefix_falls_back_to_team_prefix(tmp_path):
     # is what most repos will actually have set.
     repo = write_repo(tmp_path, "version: 1\nteam_prefix: Pap\n", beads='# issue-prefix: ""\n')
     assert tracker_config.get_beads_prefix(str(repo)) == "pap"
+
+
+def test_beads_prefix_falls_back_to_the_bd_database(tmp_path, monkeypatch):
+    # bd init --prefix (bd 1.3+) leaves issue-prefix commented out in
+    # config.yaml and keeps the prefix in its database.
+    repo = write_repo(tmp_path, "version: 1\nteam_prefix: pap\n", beads='# issue-prefix: ""\n')
+
+    def fake_run(args, cwd, **_kwargs):
+        assert args == ["bd", "config", "get", "issue_prefix", "--json"]
+        assert cwd == str(repo)
+        return subprocess.CompletedProcess(args, 0, stdout='{"key": "issue_prefix", "value": "QA"}\n')
+
+    monkeypatch.setattr(tracker_config.subprocess, "run", fake_run)
+    assert tracker_config.get_beads_prefix(str(repo)) == "qa"
 
 
 def test_beads_prefix_is_none_when_unset(tmp_path):

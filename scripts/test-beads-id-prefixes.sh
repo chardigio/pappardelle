@@ -143,6 +143,20 @@ solo" \
 assert_eq "just the database issue-prefix when the config sets nothing" \
     "dbprefix" "$(beads_id_prefixes "$BARE" "$BEADS_CONFIG")"
 
+# bd init --prefix (bd 1.3+) leaves issue-prefix commented out in config.yaml
+# and keeps the prefix in its database, which only bd reads.
+DB_ONLY_CONFIG="$TMPDIR_ROOT/db-only/.beads/config.yaml"
+mkdir -p "$(dirname "$DB_ONLY_CONFIG")" "$TMPDIR_ROOT/fakebin"
+printf '# issue-prefix: ""\n' > "$DB_ONLY_CONFIG"
+cat > "$TMPDIR_ROOT/fakebin/bd" <<'SH'
+#!/bin/sh
+[ "$*" = "config get issue_prefix --json" ] && [ -d .beads ] &&
+    printf '{"key":"issue_prefix","value":"QA"}\n'
+SH
+chmod +x "$TMPDIR_ROOT/fakebin/bd"
+assert_eq "the bd database prefix when config.yaml has none" \
+    "qa" "$(PATH="$TMPDIR_ROOT/fakebin:$PATH" beads_id_prefixes "$BARE" "$DB_ONLY_CONFIG")"
+
 echo ""
 echo -e "${BOLD}is_beads_issue_key${RESET}"
 
