@@ -522,6 +522,7 @@ test('opening without PR consumers skips VCS lookup', async t => {
 	t.false(fs.existsSync(fixture.vcsCalls));
 	t.true(fs.existsSync(fixture.launchArgs));
 	t.false(output.includes('PR:'));
+	t.true(output.includes('Skipping PR/MR lookup'), output);
 });
 
 test('newly created issues launch fresh; existing keys keep conversation resume', async t => {
@@ -550,6 +551,10 @@ test('batched commands preserve order, multiline strings and command stdin', asy
 	const output = await fixture.run();
 	t.true(output.includes('Read stdin\n'), output);
 	t.false(output.includes('Read stdin\n\n'), output);
+	t.true(
+		output.includes('post_workspace_init: post_workspace_init[1] ->'),
+		output,
+	);
 	t.is(fs.readFileSync(path.join(fixture.workspace, 'stdin'), 'utf8'), '');
 	t.is(
 		fs.readFileSync(path.join(fixture.workspace, 'value'), 'utf8'),

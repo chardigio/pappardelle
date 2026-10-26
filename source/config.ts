@@ -2051,14 +2051,6 @@ export function resolvePendingProfileEmoji(
 }
 
 /**
- * Get the Claude initialization command from config.
- * Returns the command string (e.g., "/idow") or empty string if not configured.
- */
-export function getInitializationCommand(config: PappardelleConfig): string {
-	return config.claude?.initialization_command ?? '';
-}
-
-/**
  * Get the Claude dangerously_skip_permissions flag from config.
  * Returns false if not configured (safe default).
  */

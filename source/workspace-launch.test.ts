@@ -80,8 +80,8 @@ fi
 		const expected = scenario.fresh
 			? [`${base} /do TEST-123`]
 			: scenario.resume
-				? [`${base} --continue`]
-				: [`${base} --continue`, `${base} /do TEST-123`];
+				? [`${base} --continue /do TEST-123`]
+				: [`${base} --continue /do TEST-123`, `${base} /do TEST-123`];
 		t.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), expected);
 	});
 }

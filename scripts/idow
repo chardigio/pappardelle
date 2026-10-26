@@ -201,9 +201,10 @@ config_records() (
 )
 
 # Run every {name, run, continue_on_error, background} entry of the list at
-# yq path $1. Returns 1 when the list is empty or missing.
+# yq path $1, naming unnamed entries with the printf format $3 and their index.
+# Returns 1 when the list is empty or missing.
 run_configured_commands() {
-    local list_path="$1" label="$2" i=0 name run_tmpl run continue_on_error background
+    local list_path="$1" label="$2" name_format="$3" i=0 name run_tmpl run continue_on_error background
     config_records "[($list_path // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]" ||
         error "Could not read $label commands from config"
     [[ -s "$CONFIG_RECORDS_PATH" ]] || return 1
@@ -212,7 +213,8 @@ run_configured_commands() {
           IFS= read -r -u 3 -d '' run_tmpl &&
           IFS= read -r -u 3 -d '' continue_on_error &&
           IFS= read -r -u 3 -d '' background; do
-        name="${name:-$label $i}"
+        # shellcheck disable=SC2059 # the format is one of this file's literals
+        [[ -n "$name" ]] || printf -v name "$name_format" "$i"
         run=$(expand_var "$run_tmpl")
         log "  $label: $name -> $run"
         run_command "$name" "$run" "$continue_on_error" "$background" 3<&-
@@ -770,8 +772,8 @@ else
     fi
 
     # post_worktree_init is the legacy name, used only when post_workspace_init is empty
-    run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init || true
-    run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" || true
+    run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init 'post_workspace_init[%d]' || true
+    run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" 'profile_post_init[%d]' || true
 fi
 
 PR_URL=""
@@ -814,11 +816,11 @@ else
     print_warning "Claude session not created (is tmux running?)"
 fi
 
-# Steps 8-11: Run commands, open apps, links, terminal
+# Steps 7-11: Find the PR, run commands, open apps, links, terminal
 # Skipped by default. Pass --open to run these steps.
 # In pappardelle, user presses 'o' on a space to open.
 if [[ "$OPEN_WORKSPACE" != true ]]; then
-    print_step 8 "Skipping open steps (pass --open to open apps)"
+    print_step 7 "Skipping open steps (pass --open to open apps)"
     print_success "Setup complete"
 else
 
@@ -832,12 +834,14 @@ if profile_uses_pr_url; then
     else
         print_success "No PR/MR yet (the agent opens one at its first real commit)"
     fi
+else
+    print_step 7 "Skipping PR/MR lookup (no profile config uses PR_URL)"
 fi
 
 # Step 8: Run profile commands BEFORE opening apps (so xcodegen, etc. are ready)
 print_step 8 "Running profile commands..."
 
-run_configured_commands ".profiles.$SELECTED_PROFILE.commands" profile ||
+run_configured_commands ".profiles.$SELECTED_PROFILE.commands" profile 'command %d' ||
     print_success "No commands configured in profile"
 
 # Step 9: Open terminal
@@ -913,7 +917,8 @@ fi
 # Step 10: Open apps from profile
 print_step 10 "Opening profile apps..."
 
-config_records "[(.profiles.$SELECTED_PROFILE.apps // [])[] | [.name // \"\", .path // \"\", .command // \"\", .if_set // \"\"]]"
+config_records "[(.profiles.$SELECTED_PROFILE.apps // [])[] | [.name // \"\", .path // \"\", .command // \"\", .if_set // \"\"]]" ||
+    error "Could not read profile apps from config"
 if [[ -s "$CONFIG_RECORDS_PATH" ]]; then
     while IFS= read -r -u 3 -d '' APP_NAME &&
           IFS= read -r -u 3 -d '' APP_PATH_TMPL &&
@@ -958,7 +963,8 @@ fi
 # Step 11: Open links from profile
 print_step 11 "Opening profile links..."
 
-config_records "[(.profiles.$SELECTED_PROFILE.links // [])[] | [.url // \"\", .title // \"\", .if_set // \"\"]]"
+config_records "[(.profiles.$SELECTED_PROFILE.links // [])[] | [.url // \"\", .title // \"\", .if_set // \"\"]]" ||
+    error "Could not read profile links from config"
 if [[ -s "$CONFIG_RECORDS_PATH" ]]; then
     LINK_URLS=()
     while IFS= read -r -u 3 -d '' LINK_URL_TMPL &&
@@ -988,7 +994,8 @@ else
 fi
 
 # Global post_workspace_create hooks (run after everything is open so windows exist)
-config_records "[(.hooks.post_workspace_create // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]"
+config_records "[(.hooks.post_workspace_create // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]" ||
+    error "Could not read post_workspace_create hooks from config"
 if [[ -s "$CONFIG_RECORDS_PATH" ]]; then
     log "Running post_workspace_create hook(s)..."
     i=0

@@ -10,7 +10,6 @@ import {
 	validateConfig,
 	getTeamPrefix,
 	getProfileTeamPrefix,
-	getInitializationCommand,
 	getDangerouslySkipPermissions,
 	getKeybindings,
 	getIssueWatchlist,
@@ -377,7 +376,7 @@ test('claude config from home works', t => {
 	);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(getInitializationCommand(config), '/dow');
+	t.is(config.claude?.initialization_command, '/dow');
 	t.is(getDangerouslySkipPermissions(config), true);
 });
 
@@ -636,7 +635,7 @@ test('config works without project config when home provides everything', t => {
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getTeamPrefix(config), 'HOME');
-	t.is(getInitializationCommand(config), '/dow');
+	t.is(config.claude?.initialization_command, '/dow');
 	t.truthy(getIssueWatchlist(config));
 	t.is(getKeybindings(config).length, 1);
 	t.truthy(config.profiles['music']);
@@ -673,7 +672,7 @@ test('home + local works without project config', t => {
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getTeamPrefix(config), 'LOCAL');
-	t.is(getInitializationCommand(config), '/dow');
+	t.is(config.claude?.initialization_command, '/dow');
 	t.is(getDangerouslySkipPermissions(config), true);
 });
 
@@ -833,7 +832,7 @@ profiles:
 		// project overrides home's team_prefix
 		t.is(getTeamPrefix(config), 'STA');
 		// home's claude config preserved
-		t.is(getInitializationCommand(config), '/dow');
+		t.is(config.claude?.initialization_command, '/dow');
 		// profiles from both
 		t.truthy(config.profiles['music']);
 		t.truthy(config.profiles['hive']);
@@ -875,7 +874,7 @@ profiles:
 			projectDir: path.join(dir, 'project'),
 		});
 		t.is(getTeamPrefix(config), 'STA');
-		t.is(getInitializationCommand(config), '/idow');
+		t.is(config.claude?.initialization_command, '/idow');
 		t.is(getDangerouslySkipPermissions(config), true);
 		t.truthy(config.profiles['music']);
 		t.truthy(config.profiles['hive']);
@@ -925,7 +924,7 @@ claude:
 			projectDir: path.join(dir, 'project'),
 		});
 		t.is(getTeamPrefix(config), 'STA');
-		t.is(getInitializationCommand(config), '/idow');
+		t.is(config.claude?.initialization_command, '/idow');
 		// Profiles come from home
 		t.truthy(config.profiles['music']);
 		t.truthy(config.profiles['hive']);

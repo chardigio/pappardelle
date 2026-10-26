@@ -21,8 +21,9 @@
 # init_cmd also resolves profile-first, but an empty profile value falls back
 # to the top-level one instead of clearing it: a workspace always gets its
 # initialization command unless no layer sets one. skip_permissions stays
-# top-level-only. Mirrored by getClaudeModel()/getClaudeEffort() in
-# source/config.ts and pinned by scripts/test-claude-model-effort.sh.
+# top-level-only. Only idow reads init_cmd; model and effort are mirrored by
+# getClaudeModel()/getClaudeEffort() in source/config.ts. All are pinned by
+# scripts/test-claude-model-effort.sh.
 #
 # companion_command is resolved here too, profile-first over the merged layers,
 # so a top-level value in the home config reaches every repo. The built-in
