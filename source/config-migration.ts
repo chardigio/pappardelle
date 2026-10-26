@@ -312,7 +312,9 @@ function migrateLayer(
 		}
 	}
 
-	return String(document);
+	// yaml pads flow collections and folds long lines by default, which would
+	// rewrite lines the migration never touched.
+	return document.toString({lineWidth: 0, flowCollectionPadding: false});
 }
 
 /**
@@ -508,7 +510,10 @@ export function applyConfigMigrations(migrations: ConfigMigration[]): void {
 				path.dirname(target),
 				`.${path.basename(target)}.pappardelle-migration`,
 			);
-			fs.writeFileSync(temporary, content, {mode: fs.statSync(target).mode});
+			const {mode} = fs.statSync(target);
+			fs.writeFileSync(temporary, content);
+			// The umask applies to a create mode, and a leftover temporary keeps its own.
+			fs.chmodSync(temporary, mode);
 			staged.push({target, temporary});
 		}
 	} catch (error) {

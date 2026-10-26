@@ -241,6 +241,7 @@ test('comments and untouched keys keep their formatting', t => {
 		[
 			'# my config',
 			'version: 1',
+			`docs: "https://example.com/${'a'.repeat(100)}"`,
 			'claude:',
 			'  model: opus # the big one',
 			'  dangerously_skip_permissions: true',
@@ -257,10 +258,11 @@ test('comments and untouched keys keep their formatting', t => {
 		[
 			'# my config',
 			'version: 1',
+			`docs: "https://example.com/${'a'.repeat(100)}"`,
 			'claude:',
 			'  dangerously_skip_permissions: true',
 			'profiles:',
-			'  plain: { display_name: "Plain" }',
+			'  plain: {display_name: "Plain"}',
 			'agent_profiles:',
 			'  claude:',
 			'    command: claude',
@@ -399,7 +401,7 @@ test('a symlinked config is rewritten at its target with its permissions', t => 
 	const paths = setup(undefined, {version: 1, profiles: {}});
 	const dotfiles = path.join(root(), 'pappardelle.yml');
 	fs.writeFileSync(dotfiles, YAML.dump({version: 1, claude: {model: 'opus'}}));
-	fs.chmodSync(dotfiles, 0o600);
+	fs.chmodSync(dotfiles, 0o664);
 	fs.mkdirSync(paths.homeConfigDir, {recursive: true});
 	const link = path.join(paths.homeConfigDir, '.pappardelle.yml');
 	fs.symlinkSync(dotfiles, link);
@@ -413,7 +415,7 @@ test('a symlinked config is rewritten at its target with its permissions', t => 
 		),
 		[],
 	);
-	t.is((fs.statSync(dotfiles).mode % 0o1000).toString(8), '600');
+	t.is((fs.statSync(dotfiles).mode % 0o1000).toString(8), '664');
 });
 
 test('a read-only config is not rewritten', t => {
