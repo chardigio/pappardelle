@@ -58,6 +58,7 @@ import {
 import {parseCli, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
+import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
 	defaultRestartCommandDeps,
@@ -345,6 +346,13 @@ if (cli.input.length > 0) {
 if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
 	const sessionName = outerSessionName(repoName);
+
+	if (
+		sessionExists(sessionName) &&
+		isTuiDead(DEFAULT_REPO_STATE_ROOT, repoName)
+	) {
+		spawnSync('tmux', ['kill-session', '-t', exactSessionTarget(sessionName)]);
+	}
 
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
