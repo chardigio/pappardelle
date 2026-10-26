@@ -22,8 +22,10 @@ record_agent_session = agent_session.record_agent_session
 ancestors = agent_session.ancestors
 sole_agent_run = agent_session.sole_agent_run
 in_split_pane = agent_session.in_split_pane
+AgentPane = agent_session.AgentPane
 
 HOOK_PID = 100
+AGENT_PANE_PID = 50
 
 # pid: (ppid, command line), from the hook process up to tmux.
 TOP_LEVEL_CLAUDE = {
@@ -107,6 +109,22 @@ CODEX_DAEMON = {
     100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
     99: (98, "sh -c python3 record-agent-session.py"),
     98: (1, "/Users/me/.codex/packages/app-server-daemon/bin/codex app-server --managed-daemon"),
+}
+
+# The space's agent pane, as the daemon's hook finds it by cwd.
+AGENT_PANE = {
+    50: (49, "/bin/sh -c \"$1\" -ic \"$2\"; exec \"$1\" -l"),
+    51: (50, "zsh -ic codex --yolo"),
+    52: (51, "node /opt/homebrew/bin/codex --yolo"),
+    53: (52, "/opt/homebrew/lib/node_modules/@openai/codex/vendor/codex --yolo"),
+    49: (1, "/usr/local/bin/tmux"),
+}
+
+# The agent quit, and codex was started again by hand in the pane's login shell.
+AGENT_PANE_RESTARTED = {
+    50: (49, "-zsh"),
+    54: (50, "node /opt/homebrew/bin/codex"),
+    49: (1, "/usr/local/bin/tmux"),
 }
 
 
@@ -394,21 +412,55 @@ def test_the_codex_daemon_records_into_the_space_holding_its_cwd(tmp_path: Path)
     space = tmp_path / "STA-2.agent-sessions.json"
     lookups: list[str] = []
 
-    def session_for(cwd: str):
+    def pane_for(cwd: str):
         lookups.append(cwd)
-        return env_for(space)
+        return AgentPane(env_for(space), AGENT_PANE_PID)
 
     assert record_agent_session(
         payload(cwd="/Users/me/.worktrees/repo/STA-2"),
         False,
         env_for(started_from),
         HOOK_PID,
-        lambda: CODEX_DAEMON,
-        session_for,
+        lambda: {**CODEX_DAEMON, **AGENT_PANE},
+        pane_for,
+        started=lambda _pid: STARTED,
     )
     assert lookups == ["/Users/me/.worktrees/repo/STA-2"]
-    assert recorded(space) == {"codex": "01a117bd-5978"}
+    assert entries(space) == {"codex": {"session_id": "01a117bd-5978", "pid": 52, "started": STARTED}}
     assert not started_from.exists()
+
+
+def test_the_codex_daemon_keeps_the_first_id_while_the_pane_agent_lives(sessions_file: Path):
+    # codex run by hand in the companion pane shares the daemon and the cwd.
+    def record(session_id: str, pane, started):
+        return record_agent_session(
+            payload(session_id, cwd="/Users/me/.worktrees/repo/STA-1"),
+            False,
+            {},
+            HOOK_PID,
+            lambda: {**CODEX_DAEMON, **pane},
+            lambda _cwd: AgentPane(env_for(sessions_file), AGENT_PANE_PID),
+            started=started,
+        )
+
+    assert record("pane-convo", AGENT_PANE, lambda _pid: STARTED)
+    assert not record("companion-convo", AGENT_PANE, lambda _pid: STARTED)
+    assert recorded(sessions_file) == {"codex": "pane-convo"}
+
+    assert record("restarted-convo", AGENT_PANE_RESTARTED, lambda pid: None if pid == 52 else STARTED)
+    assert entries(sessions_file) == {"codex": {"session_id": "restarted-convo", "pid": 54, "started": STARTED}}
+
+
+def test_the_codex_daemon_records_nothing_while_the_pane_runs_no_agent(sessions_file: Path):
+    assert not record_agent_session(
+        payload(cwd="/Users/me/.worktrees/repo/STA-1"),
+        False,
+        {},
+        HOOK_PID,
+        lambda: {**CODEX_DAEMON, 50: (49, "-zsh"), 49: (1, "tmux")},
+        lambda _cwd: AgentPane(env_for(sessions_file), AGENT_PANE_PID),
+    )
+    assert not sessions_file.exists()
 
 
 def test_the_codex_daemon_does_not_record_into_a_claude_space(sessions_file: Path):
@@ -417,8 +469,8 @@ def test_the_codex_daemon_does_not_record_into_a_claude_space(sessions_file: Pat
         False,
         {},
         HOOK_PID,
-        lambda: CODEX_DAEMON,
-        lambda _cwd: claude_env(sessions_file),
+        lambda: {**CODEX_DAEMON, **AGENT_PANE},
+        lambda _cwd: AgentPane(claude_env(sessions_file), AGENT_PANE_PID),
     )
     assert not sessions_file.exists()
 
@@ -499,9 +551,13 @@ def test_the_session_env_comes_from_the_agent_session_holding_the_cwd(tmp_path: 
                 "-e", "PAPPARDELLE_AGENT_IS_CLAUDE=false",
             )
 
-    assert agent_session.tmux_agent_session_env(str(tmp_path / "STA-1" / "sub")) == {
+    pane = agent_session.tmux_agent_pane(str(tmp_path / "STA-1" / "sub"))
+    assert pane is not None
+    assert pane.env == {
         "PAPPARDELLE_AGENT_SESSIONS": "agent-STA-1.json",
         "PAPPARDELLE_AGENT_PROFILE": "codex",
         "PAPPARDELLE_AGENT_IS_CLAUDE": "false",
     }
-    assert agent_session.tmux_agent_session_env(str(tmp_path)) is None
+    shell = subprocess.run(["ps", "-o", "args=", "-p", str(pane.pid)], capture_output=True, text=True).stdout
+    assert shell.strip()
+    assert agent_session.tmux_agent_pane(str(tmp_path)) is None

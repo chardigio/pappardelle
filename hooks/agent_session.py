@@ -36,7 +36,11 @@ tmux and carries the env of whichever pane started it. For a hook outside tmux
 the variables come from the agent session whose directory holds the payload's
 cwd instead, and only that managed daemon may record: an agent in another
 terminal, or the app-server the Claude codex plugin runs, can share the
-worktree without being the pane's agent.
+worktree without being the pane's agent. Every codex conversation sends its
+hooks through the same daemon, so one run by hand in the companion pane looks
+just like the pane's own. The id is recorded under the pid of the agent
+running in the agent session's first pane instead, and is never replaced
+while that agent lives: its first conversation keeps it until the agent exits.
 """
 
 import json
@@ -44,7 +48,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, NamedTuple, Optional
 
 RECORDED_EVENTS = {"SessionStart", "UserPromptSubmit"}
 
@@ -61,6 +65,13 @@ ProcessTable = dict[int, tuple[int, str]]
 
 # The ancestors of a hook process, nearest first: (pid, command line).
 Chain = list[tuple[int, str]]
+
+
+class AgentPane(NamedTuple):
+    """The session variables of an agent session and the pid of its first pane."""
+
+    env: dict[str, str]
+    pid: int
 
 
 def read_process_table() -> ProcessTable:
@@ -132,6 +143,17 @@ def sole_agent_run(chain: Chain) -> Optional[list[str]]:
     return runs[0] if len(runs) == 1 else None
 
 
+def pane_agent_pid(pane_pid: int, table: ProcessTable) -> Optional[int]:
+    """The agent under a pane's launch shells: the first non-shell process."""
+    pids = [pane_pid]
+    while pids:
+        pid = pids.pop(0)
+        if pid in table and _name(table[pid][1]) not in SHELLS:
+            return pid
+        pids.extend(child for child, (ppid, _args) in table.items() if ppid == pid)
+    return None
+
+
 def hook_agent_pid(chain: Chain) -> Optional[int]:
     """The agent process that fired the hook: its nearest non-shell ancestor."""
     return next((pid for pid, args in chain if _name(args) not in SHELLS), None)
@@ -151,8 +173,8 @@ def process_start(pid: int) -> Optional[str]:
     return started if result.returncode == 0 and started else None
 
 
-def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
-    """The session variables of the agent session whose directory holds cwd."""
+def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
+    """The agent session whose directory holds cwd."""
     tmux = shutil.which("tmux")
     if not tmux:
         return None
@@ -182,15 +204,17 @@ def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
     if len(matches) > 1 and matches[0][0] == matches[1][0]:
         return None
 
-    output = run("show-environment", "-t", f"={matches[0][1]}:")
-    if output is None:
+    target_session = f"={matches[0][1]}:"
+    output = run("show-environment", "-t", target_session)
+    panes = run("list-panes", "-s", "-t", target_session, "-F", "#{pane_pid}")
+    if output is None or not panes or not panes.split()[0].isdigit():
         return None
     env: dict[str, str] = {}
     for line in output.splitlines():
         key, sep, value = line.partition("=")
         if sep and key in SESSION_VARIABLES:
             env[key] = value
-    return env
+    return AgentPane(env, int(panes.split()[0]))
 
 
 def in_split_pane(environ: Mapping[str, str]) -> bool:
@@ -221,7 +245,7 @@ def record_agent_session(
     environ: Optional[Mapping[str, str]] = None,
     hook_pid: Optional[int] = None,
     process_table: Callable[[], ProcessTable] = read_process_table,
-    session_env_for_cwd: Callable[[str], Optional[dict[str, str]]] = tmux_agent_session_env,
+    agent_pane_for_cwd: Callable[[str], Optional[AgentPane]] = tmux_agent_pane,
     split_pane: Callable[[Mapping[str, str]], bool] = in_split_pane,
     started: Optional[Callable[[int], Optional[str]]] = None,
 ) -> bool:
@@ -255,18 +279,21 @@ def record_agent_session(
         # Claude without the variables isn't a pappardelle agent.
         return False
 
-    chain, in_tmux = ancestors(hook_pid or os.getpid(), process_table())
+    table = process_table()
+    chain, in_tmux = ancestors(hook_pid or os.getpid(), table)
     session_env: Optional[Mapping[str, str]]
     if in_tmux:
         if sole_agent_run(chain) is None or split_pane(env):
             return False
         session_env = env
+        agent_pid = hook_agent_pid(chain)
     else:
         cwd = payload.get("cwd")
         if not any(_is_managed_daemon(args) for _pid, args in chain):
             return False
-        session_env = session_env_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
-    agent_pid = hook_agent_pid(chain)
+        pane = agent_pane_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
+        session_env = pane.env if pane else None
+        agent_pid = pane_agent_pid(pane.pid, table) if pane else None
     if session_env is None or agent_pid is None:
         return False
 
@@ -283,7 +310,7 @@ def record_agent_session(
         return False
     entry = sessions.get(agent_profile)
     owner = entry.get("pid") if isinstance(entry, dict) else None
-    if owner != agent_pid and owner_alive(entry, started):
+    if (owner != agent_pid or not in_tmux) and owner_alive(entry, started):
         return False
     recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
     if entry == recording:
