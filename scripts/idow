@@ -887,7 +887,11 @@ elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
     if [[ "$RECORDED_SESSION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
         AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//\{session_id\}/$RECORDED_SESSION_ID}"
     elif [[ "$AGENT_IS_CLAUDE" == true ]]; then
-        AGENT_RESUME_ARGS="--continue"
+        # Only the resume-by-id flag becomes --continue; other flags stay.
+        AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//--resume \{session_id\}/--continue}"
+        AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//--resume=\{session_id\}/--continue}"
+        AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//-r \{session_id\}/--continue}"
+        [[ "$AGENT_RESUME_ARGS" != *"{session_id}"* ]] || AGENT_RESUME_ARGS="--continue"
     else
         AGENT_RESUME_ARGS=""
     fi

@@ -2770,9 +2770,13 @@ const CLAUDE_RESUME_ARGS = `--resume ${SESSION_ID_PLACEHOLDER}`;
  */
 const CLAUDE_UNRECORDED_RESUME_ARGS = '--continue';
 
+/** Claude's resume-by-id flag, in each spelling claude accepts. */
+const CLAUDE_RESUME_BY_ID = /(?:--resume[ =]|-r )\{session_id\}/g;
+
 /**
  * Fill `{session_id}` in an agent profile's resume args. Without a usable id,
- * claude falls back to `--continue` and any other agent drops the resume attempt
+ * claude's resume-by-id flag becomes `--continue`, keeping any other flags
+ * (`--fork-session`), and any other agent drops the resume attempt
  * (`undefined`) rather than run with a literal placeholder. The id lands
  * unquoted in a shell command, hence the charset check; claude and codex ids
  * are UUIDs, and a leading dash would turn the id into a flag.
@@ -2784,7 +2788,14 @@ export function bindResumeArgs(
 	const {resumeArgs} = agentProfile;
 	if (!resumeArgs?.includes(SESSION_ID_PLACEHOLDER)) return resumeArgs;
 	if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sessionId)) {
-		return agentProfile.isClaude ? CLAUDE_UNRECORDED_RESUME_ARGS : undefined;
+		if (!agentProfile.isClaude) return undefined;
+		const continued = resumeArgs.replaceAll(
+			CLAUDE_RESUME_BY_ID,
+			CLAUDE_UNRECORDED_RESUME_ARGS,
+		);
+		return continued.includes(SESSION_ID_PLACEHOLDER)
+			? CLAUDE_UNRECORDED_RESUME_ARGS
+			: continued;
 	}
 
 	return resumeArgs.replaceAll(SESSION_ID_PLACEHOLDER, sessionId);

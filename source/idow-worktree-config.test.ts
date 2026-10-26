@@ -717,6 +717,28 @@ test('a reopened claude space with no recorded session continues its conversatio
 	t.is(launchArg('--agent-resume-args'), '--continue');
 });
 
+test('a claude space with no recorded session keeps its other resume flags', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {
+				claude: {
+					command: 'claude',
+					resume_args: '--resume {session_id} --fork-session',
+				},
+			},
+		}),
+	);
+	const launchArg = (flag: string) => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf(flag) + 1];
+	};
+
+	await fixture.run();
+	t.is(launchArg('--agent-resume-args'), '--continue --fork-session');
+});
+
 test('setup merges config once and does not resolve the terminal', async t => {
 	const fixture = setup(t);
 	await fixture.run();

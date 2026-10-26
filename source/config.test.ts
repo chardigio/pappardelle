@@ -5627,6 +5627,22 @@ test('bindResumeArgs falls back to --continue for claude without a recorded id',
 	t.is(bindResumeArgs(claudeResume, undefined), '--continue');
 });
 
+test('bindResumeArgs keeps claude flags around the resume when no id was recorded', t => {
+	const resume = (resumeArgs: string) =>
+		bindResumeArgs({resumeArgs, isClaude: true}, undefined);
+	t.is(
+		resume('--resume {session_id} --fork-session'),
+		'--continue --fork-session',
+	);
+	t.is(
+		resume('--fork-session --resume={session_id}'),
+		'--fork-session --continue',
+	);
+	t.is(resume('-r {session_id} --fork-session'), '--continue --fork-session');
+	// A spelling it can't map still resumes the directory's conversation.
+	t.is(resume('--from {session_id} --fork-session'), '--continue');
+});
+
 test('bindResumeArgs rejects an id that is unsafe to put in a shell command', t => {
 	t.is(bindResumeArgs(codexResume, 'x; rm -rf ~'), undefined);
 	t.is(bindResumeArgs(codexResume, '--yolo'), undefined);
