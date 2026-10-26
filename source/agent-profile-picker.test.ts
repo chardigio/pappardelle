@@ -1,7 +1,7 @@
 import test from 'ava';
 import {
 	agentPickerHeight,
-	agentPopupVisibleRows,
+	agentPopupList,
 	filterAgentProfiles,
 } from './agent-profile-picker.ts';
 
@@ -12,12 +12,19 @@ test('the picker is as tall as its list until the list scrolls', t => {
 });
 
 test('a popup shorter than its list scrolls instead of overflowing', t => {
-	t.is(agentPopupVisibleRows(12, 40), 12);
+	t.deepEqual(agentPopupList(12, 40), {rows: 12, scrollMarkers: false});
 	// tmux shrank the popup to 14 rows: 6 for the chrome, 2 for the scroll markers.
-	t.is(agentPopupVisibleRows(12, 14), 6);
-	t.is(agentPopupVisibleRows(30, 40), 16);
+	t.deepEqual(agentPopupList(12, 14), {rows: 6, scrollMarkers: true});
+	t.deepEqual(agentPopupList(30, 40), {rows: 16, scrollMarkers: true});
 	// A popup sized for 30 options fills every row.
-	t.is(agentPopupVisibleRows(30, agentPickerHeight(30)), 16);
+	t.deepEqual(agentPopupList(30, agentPickerHeight(30)), {
+		rows: 16,
+		scrollMarkers: true,
+	});
+});
+
+test('a popup with room for one option drops the scroll markers', t => {
+	t.deepEqual(agentPopupList(12, 8), {rows: 1, scrollMarkers: false});
 });
 
 const choices = [
