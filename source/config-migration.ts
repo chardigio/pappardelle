@@ -351,26 +351,31 @@ function multiLineExtraArg(files: LayerFile[]): string | undefined {
 /**
  * The rewrite moves extra_args ahead of the model and effort flags, and claude
  * takes the last of a repeated flag, so an extra arg repeating one of them
- * would flip which value wins.
+ * would flip which value wins, and a `--` would turn them into arguments.
  */
 function repeatedLaunchFlag(config: PappardelleConfig): string | undefined {
 	for (const profileName of [undefined, ...Object.keys(config.profiles)]) {
 		const agent = getAgentProfile(config, undefined, profileName);
 		if (!agent.isClaude) continue;
+		const where = profileName
+			? `for profile "${profileName}"`
+			: 'at the top level';
 		const templates = {model: agent.modelArgs, effort: agent.effortArgs};
 		for (const field of LAUNCH_FIELDS) {
 			if (!agent[field]) continue;
+			if (agent.extraArgs.includes('--')) {
+				return `claude.extra_args has --, and the rewrite would put the ${field} flag ${where} after it`;
+			}
+
 			const flag = templates[field]
 				?.split(/\s+/)
-				.find(token => token.startsWith('-'));
+				.find(token => token.startsWith('-'))
+				?.split('=')[0];
 			if (
 				flag &&
 				agent.extraArgs.some(arg => arg === flag || arg.startsWith(`${flag}=`))
 			) {
-				const where = profileName
-					? `profile "${profileName}"`
-					: 'the top level';
-				return `claude.extra_args for ${where} repeats ${flag}, and the rewrite would change which ${field} wins`;
+				return `claude.extra_args repeats ${flag}, and the rewrite would change which ${field} wins ${where}`;
 			}
 		}
 	}
@@ -691,7 +696,7 @@ export function buildConfigFixPrompt(
 		'- claude.initialization_command becomes initialization_command at the same level',
 		'- a space launches the agent profile its profile selects (profiles.<name>.agent_profile, else the top-level agent_profile, else the built-in claude agent profile `command: claude`)',
 		"- an agent profile's own model/effort always win, an empty string included; claude.model/effort only fill in for claude agent profiles (command claude, or is_claude: true) that leave them unset, and other CLIs never read them",
-		"- profiles.<name>.claude.* beat the top-level claude.* for that profile; extra_args (profile list over top-level list) are appended after the agent profile's args",
+		"- profiles.<name>.claude.* beat the top-level claude.* for that profile; extra_args (profile list over top-level list) are appended after the agent profile's args and after the flags rendered from model/effort, so an extra arg repeating --model or --effort wins today; keep that value",
 		"- if part of it can't be kept exactly (for example an extra arg spanning several lines, since args are one line), stop and ask me how to handle that part rather than change the launch",
 		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, is_claude) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
 		'- keep comments and formatting',
