@@ -586,6 +586,27 @@ test('a recreated worktree launches the agent without resume args not tied to it
 	);
 });
 
+// Claude keys --continue by directory, and a recreated worktree reuses the
+// same path, so the space's conversation is still there to continue.
+test('a recreated worktree keeps claude resume args without a session id', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {
+				claude: {command: 'claude', resume_args: '--continue --fork-session'},
+			},
+		}),
+	);
+
+	await fixture.run();
+	const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+	t.is(
+		args[args.indexOf('--agent-resume-args') + 1],
+		'--continue --fork-session',
+	);
+});
+
 test('--agent-profile launches another agent profile for that run only', async t => {
 	const fixture = setup(t);
 	fs.writeFileSync(

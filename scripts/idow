@@ -895,8 +895,9 @@ elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
     else
         AGENT_RESUME_ARGS=""
     fi
-elif [[ "$WORKTREE_CREATED" == true ]]; then
-    # Not tied to this space, so a recreated worktree can't trust them.
+elif [[ "$WORKTREE_CREATED" == true && "$AGENT_IS_CLAUDE" != true ]]; then
+    # Not tied to this space, so a recreated worktree can't trust them. Claude's
+    # --continue is scoped to the worktree's directory, which outlives it.
     AGENT_RESUME_ARGS=""
 fi
 # One array for the resolved agent profile, appended to both start-agent-session.sh
