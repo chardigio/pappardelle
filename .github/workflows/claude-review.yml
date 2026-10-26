@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: sddamico/claude-review@main
+      - uses: damico-dev/claude-review@main
         with:
           anthropic-federation-rule-id: fdrl_01WVxMn1oPkYEh13DtYcBgd7
           # The action adds the "**<severity>:**" label and the validation
