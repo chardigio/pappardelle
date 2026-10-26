@@ -453,8 +453,56 @@ test('confirming rewrites the files the user was shown', t => {
 	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 
-	t.deepEqual(confirmConfigMigrations(approved, paths), {kind: 'rewritten'});
+	t.deepEqual(confirmConfigMigrations(approved, root(), paths), {
+		kind: 'rewritten',
+	});
 	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+});
+
+test('a space whose profile moves to a new agent profile keeps its session id', t => {
+	const paths = setup({
+		version: 1,
+		profiles: {
+			alpha: {display_name: 'Alpha', claude: {model: 'opus'}},
+			beta: {display_name: 'Beta'},
+		},
+	});
+	const stateDir = root();
+	const space = (key: string, profile: string | undefined) => {
+		if (profile) {
+			fs.writeFileSync(
+				path.join(stateDir, `${key}.json`),
+				JSON.stringify({profile}),
+			);
+		}
+
+		fs.writeFileSync(
+			path.join(stateDir, `${key}.agent-sessions.json`),
+			JSON.stringify({claude: {session_id: `${key}-id`, pid: 1}}),
+		);
+		return () =>
+			JSON.parse(
+				fs.readFileSync(
+					path.join(stateDir, `${key}.agent-sessions.json`),
+					'utf8',
+				),
+			) as Record<string, {session_id: string}>;
+	};
+
+	const alpha = space('A-1', 'alpha');
+	const beta = space('B-1', 'beta');
+	const unknown = space('U-1', undefined);
+	const main = space('main', undefined);
+
+	t.deepEqual(
+		confirmConfigMigrations(readyMigrations(paths), stateDir, paths),
+		{kind: 'rewritten'},
+	);
+	t.deepEqual(Object.keys(alpha()), ['alpha-claude']);
+	t.is(alpha()['alpha-claude']?.session_id, 'A-1-id');
+	t.deepEqual(Object.keys(beta()), ['claude']);
+	t.deepEqual(Object.keys(unknown()), ['claude']);
+	t.deepEqual(Object.keys(main()), ['claude']);
 });
 
 test('confirming keeps edits made while the dialog was open', t => {
@@ -466,7 +514,9 @@ test('confirming keeps edits made while the dialog was open', t => {
 		profiles: {added: {display_name: 'Added'}},
 	});
 
-	t.deepEqual(confirmConfigMigrations(approved, paths), {kind: 'rewritten'});
+	t.deepEqual(confirmConfigMigrations(approved, root(), paths), {
+		kind: 'rewritten',
+	});
 	t.truthy(loadConfigFromPaths(paths).profiles['added']);
 });
 
@@ -484,7 +534,9 @@ test('confirming writes nothing once the rewrite covers files the user was not s
 	});
 	const edited = fs.readFileSync(homeFile, 'utf8');
 
-	t.deepEqual(confirmConfigMigrations(approved, paths), {kind: 'changed'});
+	t.deepEqual(confirmConfigMigrations(approved, root(), paths), {
+		kind: 'changed',
+	});
 	t.is(fs.readFileSync(homeFile, 'utf8'), edited);
 });
 
@@ -493,7 +545,7 @@ test('confirming reports a failed write so it can be handed to Claude', t => {
 	const approved = readyMigrations(paths);
 	fs.chmodSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 0o444);
 
-	t.like(confirmConfigMigrations(approved, paths), {kind: 'failed'});
+	t.like(confirmConfigMigrations(approved, root(), paths), {kind: 'failed'});
 });
 
 test('a multi-line extra arg is named as the reason it cannot be rewritten', t => {

@@ -10,6 +10,7 @@ import {
 	type Node,
 	type Pair,
 } from 'yaml';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildConfigFromLayers,
 	configLayerFiles,
@@ -25,6 +26,7 @@ import {
 	parseConfigLayer,
 	quoteLaunchValue,
 	renderAgentLaunchFlags,
+	resolveAgentProfileName,
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
@@ -40,9 +42,21 @@ export type ConfigMigration = {
 	content: string;
 };
 
+/** A profile whose spaces launch a differently named agent profile after the rewrite. */
+export type AgentProfileRename = {
+	/** Undefined for spaces without a profile, like the main space. */
+	profileName: string | undefined;
+	from: string;
+	to: string;
+};
+
 export type ConfigMigrationPlan =
 	| {kind: 'none'}
-	| {kind: 'ready'; migrations: ConfigMigration[]}
+	| {
+			kind: 'ready';
+			migrations: ConfigMigration[];
+			renames: AgentProfileRename[];
+	  }
 	/** The old format is in use but can't be rewritten automatically. */
 	| {kind: 'unsupported'; reason: string};
 
@@ -530,7 +544,83 @@ function planRewrite(
 		};
 	}
 
-	return {kind: 'ready', migrations};
+	return {
+		kind: 'ready',
+		migrations,
+		renames: agentProfileRenames(whole, after),
+	};
+}
+
+function agentProfileRenames(
+	before: PappardelleConfig,
+	after: PappardelleConfig,
+): AgentProfileRename[] {
+	return [undefined, ...Object.keys(before.profiles)].flatMap(profileName => {
+		const from = resolveAgentProfileName(before, undefined, profileName);
+		const to = resolveAgentProfileName(after, undefined, profileName);
+		return from === to ? [] : [{profileName, from, to}];
+	});
+}
+
+/**
+ * Session ids are recorded per agent profile name, so a space whose profile
+ * moved to a new agent profile would relaunch without resuming its
+ * conversation. Its id moves to the new name.
+ */
+export function moveAgentSessions(
+	renames: AgentProfileRename[],
+	stateDir: string,
+): void {
+	if (renames.length === 0) return;
+	let files: string[];
+	try {
+		files = fs.readdirSync(stateDir);
+	} catch {
+		return;
+	}
+
+	for (const file of files) {
+		const key = file.endsWith('.agent-sessions.json')
+			? file.slice(0, -'.agent-sessions.json'.length)
+			: undefined;
+		if (!key) continue;
+		const profileName = savedProfile(stateDir, key);
+		// Only the main space launches without a profile. Another space without
+		// a saved one predates saving it, so its profile isn't known.
+		if (profileName === undefined && key !== MAIN_WORKTREE_KEY) continue;
+		const rename = renames.find(rename => rename.profileName === profileName);
+		if (rename) moveAgentSession(path.join(stateDir, file), rename);
+	}
+}
+
+function savedProfile(stateDir: string, key: string): string | undefined {
+	try {
+		const state = asFields(
+			JSON.parse(fs.readFileSync(path.join(stateDir, `${key}.json`), 'utf8')),
+		);
+		const profile = state?.['profile'];
+		return typeof profile === 'string' ? profile : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function moveAgentSession(file: string, {from, to}: AgentProfileRename) {
+	try {
+		const sessions = asFields(JSON.parse(fs.readFileSync(file, 'utf8')));
+		if (!sessions || !(from in sessions) || to in sessions) return;
+		const moved = Object.fromEntries(
+			Object.entries(sessions).map(([name, entry]) => [
+				name === from ? to : name,
+				entry,
+			]),
+		);
+		const temporary = `${file}.tmp.${process.pid}`;
+		fs.writeFileSync(temporary, JSON.stringify(moved, null, 2) + '\n');
+		fs.renameSync(temporary, file);
+	} catch {
+		// The space relaunches with --continue instead.
+	}
 }
 
 /**
@@ -581,6 +671,7 @@ export type ConfigMigrationOutcome =
  */
 export function confirmConfigMigrations(
 	approved: ConfigMigration[],
+	stateDir: string,
 	paths: ConfigPaths = defaultConfigPaths(),
 ): ConfigMigrationOutcome {
 	const plan = planConfigMigrations(paths);
@@ -594,6 +685,7 @@ export function confirmConfigMigrations(
 
 	try {
 		applyConfigMigrations(plan.migrations);
+		moveAgentSessions(plan.renames, stateDir);
 		return {kind: 'rewritten'};
 	} catch (error) {
 		return {
