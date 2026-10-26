@@ -1,20 +1,9 @@
 import {execFile, spawn} from 'node:child_process';
-import {mkdtempSync, rmSync} from 'node:fs';
-import {createServer, type Socket} from 'node:net';
-import {tmpdir} from 'node:os';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {createLogger, type LogEntry} from '../logger.ts';
-import {shellQuote} from '../shell-quote.ts';
-import {
-	createMessageDecoder,
-	encodeMessage,
-	type ChildMessage,
-	type ConfirmPayload,
-	type HostMessage,
-	type PopupSpec,
-} from './protocol.ts';
+import {presentPopup} from './present.tsx';
+import type {ConfirmPayload, PopupActions, PopupSpec} from './spec.ts';
 import {popupSize, type ClientSize, type PopupSize} from './size.ts';
+import {openPopupTerminal, type PopupTerminal} from './terminal.ts';
 
 const log = createLogger('popup');
 
@@ -32,61 +21,47 @@ export type PopupHandlers = {
 	subscribeErrors?: (push: (errors: LogEntry[]) => void) => () => void;
 };
 
-/** The running `tmux display-popup`, reduced to what the host listens for. */
-export type PopupProcess = {
-	on(event: 'error', listener: (error: Error) => void): unknown;
-	on(event: 'exit', listener: (code: number | null) => void): unknown;
+/** A popup on screen. */
+export type ShownPopup = {
+	/** Resolves once the popup has closed, whoever closed it. */
+	closed: Promise<void>;
+	close: () => void;
 };
 
-export type PopupLaunch = {
-	socketPath: string;
-	size: PopupSize;
-	cwd: string;
-};
+/**
+ * Put the dialog on screen, answering through `actions`, or resolve undefined
+ * when the popup could not be shown.
+ */
+export type ShowPopup = (
+	spec: PopupSpec,
+	size: PopupSize,
+	actions: PopupActions,
+) => Promise<ShownPopup | undefined>;
 
 export type PopupDeps = {
-	launch?: (launch: PopupLaunch) => PopupProcess;
+	show?: ShowPopup;
 	clientSize?: () => Promise<ClientSize>;
 	env?: NodeJS.ProcessEnv;
-	cwd?: string;
 };
 
-const POPUP_CLI = path.resolve(
-	path.dirname(fileURLToPath(import.meta.url)),
-	'..',
-	'popup-cli.js',
-);
-
-export function buildDisplayPopupArgs({
-	socketPath,
-	size,
-	cwd,
-}: PopupLaunch): string[] {
-	const node = [process.execPath, POPUP_CLI, socketPath]
-		.map(arg => shellQuote(arg))
-		.join(' ');
-	// The popup's tty starts cooked and node takes a moment to load, so a key
-	// typed right behind the one that opened the popup would be echoed over the
-	// first frame and Enter would arrive as a line feed, which Ink doesn't read
-	// as Return. Raw from the start, the keys wait unchanged for Ink.
-	const command = `stty -icanon -echo -icrnl min 1 time 0 2>/dev/null; exec ${node}`;
-	return [
-		'display-popup',
-		'-B',
-		'-E',
-		'-w',
-		String(size.width),
-		'-h',
-		String(size.height),
-		'-d',
-		cwd,
-		command,
-	];
-}
-
-function launchTmuxPopup(launch: PopupLaunch): PopupProcess {
-	return spawn('tmux', buildDisplayPopupArgs(launch), {stdio: 'ignore'});
-}
+const showInTmux: ShowPopup = async (spec, size, actions) => {
+	let terminal: PopupTerminal | undefined;
+	try {
+		terminal = await openPopupTerminal(size);
+		if (!terminal) return undefined;
+		return {
+			closed: terminal.closed,
+			close: presentPopup(spec, actions, terminal),
+		};
+	} catch (error) {
+		terminal?.close();
+		log.warn(
+			'Popup failed to open',
+			error instanceof Error ? error : undefined,
+		);
+		return undefined;
+	}
+};
 
 /**
  * Run a shell command in a tmux popup over the TUI, sized for an interactive
@@ -153,65 +128,47 @@ export function isPopupAvailable(
 	return Boolean(env['TMUX']);
 }
 
-function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-	const result: Record<string, string> = {};
-	for (const [key, value] of Object.entries(env)) {
-		if (value !== undefined) result[key] = value;
-	}
-
-	return result;
-}
-
 /**
  * Show a dialog in a tmux popup over the current client and resolve once the
  * user has answered and any action the answer triggered has finished.
  *
- * The popup runs `popup-cli.js`, which renders the dialog with Ink and reports
- * back over a unix socket. Once a confirm or submit handler has started, the
- * popup disappearing does not cut it short: the promise waits for the handler,
- * so a caller that blocks new popups until it resolves never lets a second
- * close overlap one still running its deinit hooks.
+ * The TUI process renders the dialog into the popup's terminal itself. Once a
+ * confirm or clear has started, the popup disappearing does not cut it short:
+ * the promise waits for the handler, so a caller that blocks new popups until
+ * it resolves never lets a second close overlap one still running its deinit
+ * hooks.
  */
 export async function openPopup(
 	spec: PopupSpec,
 	handlers: PopupHandlers = {},
 	deps: PopupDeps = {},
 ): Promise<PopupOutcome> {
-	const env = deps.env ?? process.env;
-	if (!isPopupAvailable(env)) return 'unavailable';
+	if (!isPopupAvailable(deps.env)) return 'unavailable';
 
 	const client = await (deps.clientSize ?? tmuxClientSize)();
-	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
-	const socketPath = path.join(dir, 's.sock');
-
-	let popupExited: () => void = () => {};
-	const popupGone = new Promise<void>(resolve => {
-		popupExited = resolve;
-	});
 
 	return new Promise<PopupOutcome>(resolve => {
 		let settled = false;
-		let connected = false;
-		let socket: Socket | undefined;
 		let running: Promise<PopupOutcome> | undefined;
-		let unsubscribeErrors: (() => void) | undefined;
-
-		const server = createServer();
+		let popup: ShownPopup | undefined;
+		let closeRequested = false;
+		let markPopupClosed: () => void = () => {};
+		const popupClosed = new Promise<void>(resolve => {
+			markPopupClosed = resolve;
+		});
 
 		const finish = (outcome: PopupOutcome) => {
 			if (settled) return;
 			settled = true;
-			unsubscribeErrors?.();
-			server.close();
-			rmSync(dir, {recursive: true, force: true});
 			resolve(outcome);
 		};
 
-		const send = (message: HostMessage) => {
-			if (socket && !socket.destroyed) socket.write(encodeMessage(message));
+		const closePopup = () => {
+			closeRequested = true;
+			popup?.close();
 		};
 
-		const run = (
+		const run = async (
 			outcome: PopupOutcome,
 			action: () => void | PromiseLike<void>,
 		) => {
@@ -225,104 +182,50 @@ export async function openPopup(
 					);
 				}
 
-				send({type: 'done'});
 				return outcome;
 			})();
-			void running.then(finish);
+			finish(await running);
+			closePopup();
 		};
 
-		const handle = (message: ChildMessage) => {
-			switch (message.type) {
-				case 'confirm': {
-					const {payload} = message;
-					const onConfirm = async () => handlers.onConfirm?.(payload);
-					if (handlers.closeBeforeConfirm) {
-						running ??= (async () => {
-							send({type: 'done'});
-							await popupGone;
-							await onConfirm();
-							return 'confirmed' as const;
-						})();
-						void running.then(finish);
-					} else {
-						run('confirmed', onConfirm);
-					}
-
-					break;
-				}
-
-				case 'clear-errors': {
-					run('confirmed', () => handlers.onClearErrors?.());
-					break;
-				}
-
-				case 'cancel': {
-					if (!running) finish('cancelled');
-					break;
-				}
-			}
-		};
-
-		const onSocketClosed = () => {
-			if (!running) finish('cancelled');
-		};
-
-		const onPopupExited = () => {
-			popupExited();
-			if (!running) finish(connected ? 'cancelled' : 'unavailable');
-		};
-
-		server.on('connection', connection => {
-			if (connected) {
-				connection.destroy();
-				return;
-			}
-
-			connected = true;
-			socket = connection;
-			connection.on('data', createMessageDecoder<ChildMessage>(handle));
-			connection.on('error', () => {});
-			connection.on('close', onSocketClosed);
-			send({
-				type: 'init',
-				env: stringEnv(env),
-				cwd: deps.cwd ?? process.cwd(),
-				...spec,
-			} as HostMessage);
-			if (handlers.subscribeErrors) {
-				unsubscribeErrors = handlers.subscribeErrors(errors => {
-					send({type: 'errors', errors});
-				});
-			}
-		});
-
-		server.on('error', error => {
-			log.warn('Popup socket failed', error);
-			finish('unavailable');
-		});
-
-		server.listen(socketPath, () => {
-			let popup: PopupProcess;
-			try {
-				popup = (deps.launch ?? launchTmuxPopup)({
-					socketPath,
-					size: popupSize(spec, client),
-					cwd: deps.cwd ?? process.cwd(),
-				});
-			} catch (error) {
-				log.warn(
-					'display-popup failed',
-					error instanceof Error ? error : undefined,
+		const actions: PopupActions = {
+			async confirm(payload) {
+				const onConfirm = async () => handlers.onConfirm?.(payload);
+				await run(
+					'confirmed',
+					handlers.closeBeforeConfirm
+						? async () => {
+								closePopup();
+								await popupClosed;
+								await onConfirm();
+							}
+						: onConfirm,
 				);
-				finish('unavailable');
-				return;
-			}
+			},
+			async clearErrors() {
+				await run('confirmed', () => handlers.onClearErrors?.());
+			},
+			cancel() {
+				if (!running) finish('cancelled');
+				closePopup();
+			},
+			subscribeErrors: handlers.subscribeErrors,
+		};
 
-			popup.on('error', error => {
-				log.warn('display-popup failed', error);
-				onPopupExited();
-			});
-			popup.on('exit', onPopupExited);
-		});
+		void (deps.show ?? showInTmux)(spec, popupSize(spec, client), actions).then(
+			shown => {
+				if (!shown) {
+					finish('unavailable');
+					return;
+				}
+
+				popup = shown;
+				if (closeRequested) shown.close();
+				void shown.closed.then(() => {
+					markPopupClosed();
+					if (!running) finish('cancelled');
+				});
+			},
+		);
 	});
 }
