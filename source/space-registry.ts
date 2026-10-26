@@ -60,6 +60,15 @@ export function getRegistryPathForRepo(
 	return path.join(base, 'repos', repoName, 'open-spaces.json');
 }
 
+/** Every repo with pappardelle state, by the name its sessions carry. */
+export function listKnownRepos(baseDir?: string): string[] {
+	try {
+		return fs.readdirSync(path.join(baseDir ?? DEFAULT_BASE_DIR, 'repos'));
+	} catch {
+		return [];
+	}
+}
+
 let registryPath = getLegacyRegistryPath(DEFAULT_BASE_DIR);
 
 /**

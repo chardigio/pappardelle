@@ -41,7 +41,11 @@ import {
 } from './config.ts';
 import {createLogger} from './logger.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
-import {getRegisteredSpaces, isSpaceRegistered} from './space-registry.ts';
+import {
+	getRegisteredSpaces,
+	isSpaceRegistered,
+	listKnownRepos,
+} from './space-registry.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
 import {
 	getAgentSessionsPath,
@@ -679,7 +683,7 @@ export function cleanupOrphanedOuterSessions(
 
 		let killed = 0;
 		for (const name of orphans) {
-			const k = runner(['kill-session', '-t', name]);
+			const k = runner(['kill-session', '-t', exactSessionTarget(name)]);
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned outer-socket session: ${name}`);
@@ -799,6 +803,7 @@ export function cleanupOrphanedInnerSessions(
 	registeredKeys: Set<string>,
 	repoName?: string,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
 		const agentPrefix = getSessionPrefix('agent', repoName);
@@ -810,6 +815,16 @@ export function cleanupOrphanedInnerSessions(
 		const repo = repoName ?? getRepoName();
 		const legacyCompanionPrefix = `lazygit-${repo}-`;
 
+		// The inner socket is shared by every repo, and `agent-proj-` also
+		// prefixes the sessions of a repo named proj-x.
+		const longerRepoPrefixes = knownRepos
+			.filter(other => other.startsWith(`${repo}-`))
+			.flatMap(other =>
+				['agent', 'claude', 'companion', 'lazygit'].map(
+					kind => `${kind}-${other}-`,
+				),
+			);
+
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
 			return 0;
@@ -817,6 +832,7 @@ export function cleanupOrphanedInnerSessions(
 
 		const orphans: string[] = [];
 		for (const name of result.stdout.trim().split('\n')) {
+			if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
 			let key: string | null = null;
 			if (name.startsWith(agentPrefix)) {
 				key = fromSessionKey(name.slice(agentPrefix.length));
@@ -836,7 +852,7 @@ export function cleanupOrphanedInnerSessions(
 
 		let killed = 0;
 		for (const name of orphans) {
-			const k = runner(['kill-session', '-t', name]);
+			const k = runner(['kill-session', '-t', exactSessionTarget(name)]);
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned inner-socket session: ${name}`);

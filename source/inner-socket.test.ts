@@ -344,9 +344,9 @@ test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / companion-{repo}
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	t.deepEqual(killed, [
-		'claude-repo-STA-1',
-		'claude-repo-foo',
-		'companion-repo-STA-1',
+		'=claude-repo-STA-1:',
+		'=claude-repo-foo:',
+		'=companion-repo-STA-1:',
 	]);
 });
 
@@ -366,7 +366,7 @@ test('cleanupOrphanedOuterSessions sweeps legacy lazygit-{repo}-* sessions (STA-
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['companion-repo-STA-1', 'lazygit-repo-STA-1']);
+	t.deepEqual(killed, ['=companion-repo-STA-1:', '=lazygit-repo-STA-1:']);
 });
 
 test('cleanupOrphanedOuterSessions counts only successful kills', t => {
@@ -376,7 +376,7 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 			'claude-repo-STA-2',
 			'companion-repo-STA-1',
 		].join('\n'),
-		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
+		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 matched orphans, 1 kill fails → return 2.
 	t.is(cleanupOrphanedOuterSessions('repo', runner), 2);
@@ -442,7 +442,25 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['claude-repo-STA-999', 'companion-repo-STA-999']);
+	t.deepEqual(killed, ['=claude-repo-STA-999:', '=companion-repo-STA-999:']);
+});
+
+test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as its prefix alone', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'agent-proj-x-STA-1', // proj-x's live space → keep
+			'companion-proj-x-STA-1',
+			'agent-proj-STA-9', // proj's orphan → kill
+		].join('\n'),
+	});
+	t.is(
+		cleanupOrphanedInnerSessions(new Set(), 'proj', runner, ['proj', 'proj-x']),
+		1,
+	);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=agent-proj-STA-9:'],
+	);
 });
 
 test('cleanupOrphanedInnerSessions decodes encoded keys before matching the registry', t => {
@@ -466,7 +484,7 @@ test('cleanupOrphanedInnerSessions decodes encoded keys before matching the regi
 	);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['claude-repo-bd-dead_9']);
+	t.deepEqual(killed, ['=claude-repo-bd-dead_9:']);
 });
 
 test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {
@@ -486,7 +504,7 @@ test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1
 	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 1);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['lazygit-repo-STA-999']);
+	t.deepEqual(killed, ['=lazygit-repo-STA-999:']);
 });
 
 test('cleanupOrphanedInnerSessions never touches main-worktree sessions', t => {
@@ -506,7 +524,7 @@ test('cleanupOrphanedInnerSessions counts only successful kills', t => {
 			'claude-repo-STA-2',
 			'companion-repo-STA-1',
 		].join('\n'),
-		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
+		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 orphans (empty registry), 1 kill fails → return 2.
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
@@ -520,7 +538,7 @@ test('cleanupOrphanedInnerSessions handles a partial pair (only claude or compan
 	});
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 1);
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['claude-repo-STA-999']);
+	t.deepEqual(killed, ['=claude-repo-STA-999:']);
 });
 
 // ============================================================================
