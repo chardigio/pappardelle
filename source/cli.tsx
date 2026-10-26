@@ -11,6 +11,7 @@ import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
+	exactSessionTarget,
 	isInTmux,
 	outerSessionName,
 	sendToSpaceAgent,
@@ -348,7 +349,7 @@ if (!isInTmux() && cli.flags.layout) {
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
 		// Attach to the existing session
-		const tmuxArgs = ['attach-session', '-t', `=${sessionName}:`];
+		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(sessionName)];
 		const result = spawnSync('tmux', tmuxArgs, {
 			stdio: 'inherit',
 			env: process.env,

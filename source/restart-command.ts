@@ -6,6 +6,7 @@ import {
 	defaultInnerTmuxRunner,
 	defaultServerTmuxEnv,
 	defaultServerTmuxRunner,
+	exactSessionTarget,
 	innerTmuxArgs,
 	isInTmux,
 	isOnInnerServer,
@@ -153,7 +154,7 @@ export function defaultRestartCommandDeps(): RestartCommandDeps {
 		attach(sessionName) {
 			const result = spawnSync(
 				'tmux',
-				['attach-session', '-t', `=${sessionName}:`],
+				['attach-session', '-t', exactSessionTarget(sessionName)],
 				{
 					stdio: 'inherit',
 				},

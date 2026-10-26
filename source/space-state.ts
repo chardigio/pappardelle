@@ -109,7 +109,8 @@ export function getSpaceStatePath(
  * in it: the TUI rewrites that file after every rail poll, and a hook write
  * landing between the TUI's read and its rename would be lost. Keyed by agent
  * profile so a one-launch override doesn't take the profile's own
- * conversation away. idow deletes it when it creates the worktree.
+ * conversation away. idow deletes it when it creates a workspace for a new
+ * issue, whose key can't own an earlier conversation.
  */
 export function getAgentSessionsPath(
 	repoName: string,
