@@ -19,20 +19,25 @@ if ! command -v jq &> /dev/null; then
     exit 0
 fi
 
-if [[ -f "$CODEX_HOOKS" ]] && grep -q 'record-agent-session.py' "$CODEX_HOOKS"; then
-    echo "✓ Codex session hook already in $CODEX_HOOKS"
-    exit 0
-fi
-
+current=$( [[ -f "$CODEX_HOOKS" ]] && cat "$CODEX_HOOKS" || echo '{}' )
+# Per event, so a file that registers the hook for only some events (or
+# mentions the script elsewhere) still gets the rest.
 merged=$(jq -s '.[0] as $mine | (.[1] // {}) as $theirs
-        | $theirs | .hooks = (($theirs.hooks // {}) as $h
+        | def registered($entries): any($entries[]?.hooks[]?;
+            (.command // "") | contains("record-agent-session.py"));
+        $theirs | .hooks = (($theirs.hooks // {}) as $h
             | reduce ($mine.hooks | keys[]) as $event ($h;
-                .[$event] = ((.[$event] // []) + $mine.hooks[$event])))' \
-        "$SCRIPT_DIR/codex-hooks.json.example" \
-        <( [[ -f "$CODEX_HOOKS" ]] && cat "$CODEX_HOOKS" || echo '{}' )) || {
+                if registered(.[$event]) then .
+                else .[$event] = ((.[$event] // []) + $mine.hooks[$event]) end))' \
+        "$SCRIPT_DIR/codex-hooks.json.example" <(printf '%s' "$current")) || {
     echo "! Could not update $CODEX_HOOKS; merge $SCRIPT_DIR/codex-hooks.json.example by hand"
     exit 0
 }
+
+if [[ -f "$CODEX_HOOKS" ]] && [[ "$(jq -S . <<< "$merged")" == "$(jq -S . <<< "$current" 2>/dev/null)" ]]; then
+    echo "✓ Codex session hook already in $CODEX_HOOKS"
+    exit 0
+fi
 
 # Written in place rather than moved over, so a symlinked hooks.json (a
 # dotfiles checkout) keeps its link and the file keeps its mode.
