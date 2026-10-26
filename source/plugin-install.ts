@@ -2,6 +2,10 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {readAllSessionStates} from './claude-status.ts';
+import {reloadClaudeSessions, type ReloadResult} from './plugin-reload.ts';
+import {defaultInnerTmuxRunner} from './tmux.ts';
+import {plural} from './tui-sessions.ts';
 
 // A marketplace added from a local directory loads its plugins in place, so
 // pointing it at the checkout makes skill and hook edits live after
@@ -31,9 +35,14 @@ export type PluginInstallDeps = {
 	readFile: (file: string) => string | undefined;
 	writeFile: (file: string, content: string) => void;
 	print: (line: string) => void;
+	isLinkedWorktree: () => boolean;
+	reloadSessions: () => ReloadResult;
 };
 
 export function installPlugin(deps: PluginInstallDeps): number {
+	// `marketplace add` rewrites settings.json too, so the backup is taken
+	// before it runs to keep the file exactly as the user left it.
+	const original = deps.readFile(deps.settingsPath);
 	const steps = [
 		['plugin', 'marketplace', 'add', deps.repoDir],
 		['plugin', 'install', PLUGIN_ID, '--scope', 'user'],
@@ -49,22 +58,41 @@ export function installPlugin(deps: PluginInstallDeps): number {
 		return 1;
 	}
 
-	removeLegacyHooks(deps);
-	deps.print(
-		`Installed the Pappardelle plugin from ${deps.repoDir}. Run /reload-plugins in open Claude Code sessions to load it.`,
-	);
+	if (original !== undefined) removeLegacyHooks(deps, original);
+	deps.print(`Installed the Pappardelle plugin from ${deps.repoDir}.`);
+	// Closing a workspace removes its worktree, and with it the plugin every
+	// Claude session loads.
+	if (deps.isLinkedWorktree()) {
+		deps.print(
+			'This is a git worktree: run install.sh from your main checkout before removing it, or Claude Code loses the plugin.',
+		);
+	}
+
+	const {reloaded, skipped} = deps.reloadSessions();
+	if (reloaded.length > 0) {
+		deps.print(
+			`Sent /reload-plugins to ${reloaded.length} Pappardelle Claude ${plural(reloaded.length, 'session')} (${reloaded.join(', ')}).`,
+		);
+	}
+
+	if (skipped.length > 0) {
+		deps.print(
+			`Run /reload-plugins by hand in ${skipped.join(', ')}: ${skipped.length === 1 ? 'it was' : 'they were'} waiting on a question or permission prompt, or had no status.`,
+		);
+	}
+
+	deps.print('Other open Claude Code sessions load it after /reload-plugins.');
 	return 0;
 }
 
 type HookGroup = {hooks?: Array<{command?: unknown}>};
 type ClaudeSettings = {hooks?: Record<string, HookGroup[]>};
 
-function removeLegacyHooks(deps: PluginInstallDeps): void {
-	const original = deps.readFile(deps.settingsPath);
-	if (original === undefined) return;
+function removeLegacyHooks(deps: PluginInstallDeps, original: string): void {
+	const current = deps.readFile(deps.settingsPath) ?? original;
 	let settings: ClaudeSettings;
 	try {
-		settings = JSON.parse(original) as ClaudeSettings;
+		settings = JSON.parse(current) as ClaudeSettings;
 	} catch {
 		deps.print(
 			`Could not parse ${deps.settingsPath}; remove any hooks that run ${LEGACY_HOOK_DIR} by hand.`,
@@ -145,5 +173,23 @@ export function defaultPluginInstallDeps(
 		print(line) {
 			console.log(line);
 		},
+		isLinkedWorktree() {
+			const result = spawnSync(
+				'git',
+				['-C', pappardelleDir, 'rev-parse', '--git-dir', '--git-common-dir'],
+				{encoding: 'utf8'},
+			);
+			if (result.status !== 0) return false;
+			const [gitDir, commonDir] = result.stdout
+				.trim()
+				.split('\n')
+				.map(dir => path.resolve(pappardelleDir, dir));
+			return gitDir !== commonDir;
+		},
+		reloadSessions: () =>
+			reloadClaudeSessions({
+				innerTmux: defaultInnerTmuxRunner,
+				readStatuses: readAllSessionStates,
+			}),
 	};
 }

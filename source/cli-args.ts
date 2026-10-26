@@ -161,8 +161,10 @@ const subcommands = {
 
 	Points Claude Code's pappardelle-marketplace at this checkout and installs
 	the Pappardelle plugin (skills and hooks) from it. Claude Code loads it in
-	place, so edits take effect after /reload-plugins. Also removes the hooks
-	that older installs merged into ~/.claude/settings.json, keeping a backup.
+	place, so edits take effect after /reload-plugins, which this sends to
+	Pappardelle's Claude sessions unless one is waiting on a question or
+	permission prompt. Also removes the hooks that older installs merged into
+	~/.claude/settings.json, keeping a backup.
 `,
 	},
 } as const;
@@ -177,8 +179,9 @@ export type SubcommandGate =
 // them. meow only answers --help when it is the sole argument and otherwise
 // ignores unknown flags.
 export function subcommandGate(argv: readonly string[]): SubcommandGate {
-	const name =
-		argv[0] === 'plugin' && argv[1] === 'install' ? 'plugin install' : argv[0];
+	// Any other `plugin ...` is a typo, not a prompt, and as a prompt it would
+	// create a workspace.
+	const name = argv[0] === 'plugin' ? 'plugin install' : argv[0];
 	if (name === undefined || !Object.hasOwn(subcommands, name)) {
 		return {action: 'run'};
 	}
@@ -187,6 +190,16 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	const given = argv.filter(arg => arg.startsWith('-'));
 	if (given.some(arg => arg === '--help' || arg === '-h')) {
 		return {action: 'help', text: help};
+	}
+
+	if (
+		name === 'plugin install' &&
+		argv.filter(arg => !arg.startsWith('-')).join(' ') !== 'plugin install'
+	) {
+		return {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: ${usage}`,
+		};
 	}
 
 	const unknown = given.find(

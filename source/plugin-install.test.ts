@@ -15,7 +15,12 @@ const legacy = (script: string) => ({
 const mine = {type: 'command', command: 'bd prime'};
 
 function fakeDeps(
-	options: {settings?: string; respond?: (args: string[]) => RunResult} = {},
+	options: {
+		settings?: string;
+		respond?: (args: string[]) => RunResult;
+		worktree?: boolean;
+		reload?: {reloaded: string[]; skipped: string[]};
+	} = {},
 ) {
 	const calls: string[] = [];
 	const files = new Map<string, string>();
@@ -35,6 +40,8 @@ function fakeDeps(
 		print(line) {
 			printed.push(line);
 		},
+		isLinkedWorktree: () => options.worktree ?? false,
+		reloadSessions: () => options.reload ?? {reloaded: [], skipped: []},
 	};
 	return {deps, calls, files, printed};
 }
@@ -96,6 +103,27 @@ test('removes only the old Pappardelle hooks from settings, keeping a backup', t
 	t.is(files.get(`${SETTINGS}.bak`), original);
 });
 
+test('backs up settings as they were before claude rewrote them', t => {
+	const original = JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}});
+	const {deps, files} = fakeDeps({settings: original});
+	const {run} = deps;
+	deps.run = (command, args) => {
+		if (args[1] === 'marketplace') {
+			const settings = JSON.parse(files.get(SETTINGS)!) as object;
+			files.set(
+				SETTINGS,
+				JSON.stringify({...settings, extraKnownMarketplaces: {}}),
+			);
+		}
+
+		return run(command, args);
+	};
+
+	t.is(installPlugin(deps), 0);
+	t.is(files.get(`${SETTINGS}.bak`), original);
+	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {extraKnownMarketplaces: {}});
+});
+
 test('drops the hooks key when only Pappardelle hooks were configured', t => {
 	const {deps, files} = fakeDeps({
 		settings: JSON.stringify({
@@ -130,4 +158,43 @@ test('leaves unparseable settings alone and still succeeds', t => {
 	t.is(installPlugin(deps), 0);
 	t.is(files.get(SETTINGS), '{not json');
 	t.true(printed.some(line => line.includes('by hand')));
+});
+
+test('warns that removing the worktree it installed from drops the plugin', t => {
+	const fromWorktree = fakeDeps({worktree: true});
+	installPlugin(fromWorktree.deps);
+	t.true(fromWorktree.printed.some(line => line.includes('git worktree')));
+
+	const fromMain = fakeDeps();
+	installPlugin(fromMain.deps);
+	t.false(fromMain.printed.some(line => line.includes('git worktree')));
+});
+
+test('names the sessions it reloaded and the ones left to reload by hand', t => {
+	const {deps, printed} = fakeDeps({
+		reload: {reloaded: ['STA-1', 'STA-2'], skipped: ['STA-3']},
+	});
+	t.is(installPlugin(deps), 0);
+	t.true(
+		printed.includes(
+			'Sent /reload-plugins to 2 Pappardelle Claude sessions (STA-1, STA-2).',
+		),
+	);
+	t.true(
+		printed.some(line =>
+			line.startsWith('Run /reload-plugins by hand in STA-3:'),
+		),
+	);
+});
+
+test('a failed install reloads no sessions', t => {
+	let reloads = 0;
+	const {deps} = fakeDeps({respond: () => ({status: 1})});
+	deps.reloadSessions = () => {
+		reloads++;
+		return {reloaded: [], skipped: []};
+	};
+
+	t.is(installPlugin(deps), 1);
+	t.is(reloads, 0);
 });

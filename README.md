@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
 
 The fastest way to get set up is with `/init-pappardelle`.
 
-Install Pappardelle. This builds the CLI and installs its Claude Code plugin: the status hooks plus four skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), `/configure-pappardelle` (interactive config editor), and `/sous-chef` (optional workspace coordinator):
+Install Pappardelle. This builds the CLI and installs its Claude Code plugin: the hooks below plus five skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), `/configure-pappardelle` (interactive config editor), `/sous-chef` (optional workspace coordinator), and `/link-pr` (record a PR/MR for the workspace):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
@@ -631,7 +631,7 @@ Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappard
 | `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send`, open or reopen spaces with `pappardelle`, close spaces with `pappardelle close` | No              |
 | `/link-pr`               | Records a verified PR/MR for the current workspace with `pappardelle link-pr`                                                                                                                                                                         | Yes             |
 
-They ship in the `pappardelle` plugin with the [hooks](#claude-code-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which adds the `pappardelle-marketplace` marketplace from the checkout it installed and installs the plugin at user scope. Claude Code loads a plugin from a local marketplace in place, so the skills and hooks always match that checkout: run `/reload-plugins` in open sessions after an update, or after editing a local clone you installed from.
+They ship in the `pappardelle` plugin with the [hooks](#claude-code-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which adds the `pappardelle-marketplace` marketplace from the checkout it installed and installs the plugin at user scope. Claude Code loads a plugin from a local marketplace in place, so the skills and hooks always match that checkout. Open sessions pick up a change after `/reload-plugins`: `plugin install` types it into each Pappardelle Claude session, busy ones included (Claude Code runs it when the turn ends), and names any session waiting on a question or permission prompt for you to reload by hand. Claude sessions outside Pappardelle, and edits to a local clone between installs, need `/reload-plugins` run by hand. If you install from a worktree, run `install.sh` from your main checkout before removing that worktree, since Claude Code loads the plugin from it.
 
 Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the checkout and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.bak` first), so the hooks don't run twice. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
 

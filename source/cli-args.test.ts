@@ -68,6 +68,22 @@ test('close, restart and update reject flags that are not theirs', t => {
 	}
 });
 
+test('plugin commands other than install are rejected, not run as a prompt', t => {
+	for (const argv of [
+		['plugin'],
+		['plugin', 'instal'],
+		['plugin', 'uninstall'],
+		['plugin', 'install', 'extra'],
+	]) {
+		t.deepEqual(subcommandGate(argv), {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: pappardelle plugin install`,
+		});
+	}
+
+	t.is(subcommandGate(['plugin', '--help']).action, 'help');
+});
+
 test('known flags and every other command pass through', t => {
 	for (const argv of [
 		['close', 'STA-1'],
@@ -82,7 +98,6 @@ test('known flags and every other command pass through', t => {
 		['fix the --verbose flag'],
 		['send', 'STA-1', '--help'],
 		['plugin', 'install'],
-		['plugin', 'page', '--help'],
 	]) {
 		t.deepEqual(subcommandGate(argv), {action: 'run'});
 	}
