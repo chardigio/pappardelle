@@ -152,7 +152,7 @@ def tmux_agent_session_env(cwd: str) -> Optional[dict[str, str]]:
     if len(matches) > 1 and matches[0][0] == matches[1][0]:
         return None
 
-    output = run("show-environment", "-t", f"={matches[0][1]}")
+    output = run("show-environment", "-t", f"={matches[0][1]}:")
     if output is None:
         return None
     env: dict[str, str] = {}

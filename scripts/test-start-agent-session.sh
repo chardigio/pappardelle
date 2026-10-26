@@ -763,7 +763,7 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}:" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -791,7 +791,7 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} a fresh agent session was created for the new space"
     PASS=$((PASS + 1))
 else
@@ -799,7 +799,7 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}" 2>/dev/null; then
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} a companion session was created despite another space's companion"
     PASS=$((PASS + 1))
 else
@@ -808,9 +808,9 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$OTHER_LEGACY13:" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${OTHER_KEY13}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${OTHER_KEY13}:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null || true
 
 # ==========================================================================
 
@@ -828,7 +828,7 @@ else
     echo -e "  ${GREEN}PASS${RESET} script exits non-zero"
     PASS=$((PASS + 1))
 fi
-if tmux -L "$SHIM_SOCKET14" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY14}" 2>/dev/null; then
+if tmux -L "$SHIM_SOCKET14" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY14}:" 2>/dev/null; then
     echo -e "  ${RED}FAIL${RESET} no session is created"
     FAIL=$((FAIL + 1))
 else
