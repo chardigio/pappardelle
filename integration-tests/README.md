@@ -96,8 +96,10 @@ Measure local workspace setup and reopening overhead against another checkout:
 python3 integration-tests/benchmark-workspace-startup.py --baseline /path/to/base-checkout
 ```
 
+`--candidate` defaults to this checkout and `--samples` to 7.
+
 Requires Bash, Mike Farah's `yq`, `jq`, and Git. Each revision uses isolated home,
-config, and workspace directories. Seven samples alternate between revisions;
+config, and workspace directories. Samples alternate between revisions;
 the report includes median time, YAML parser invocations, and config merges.
 Tracker/VCS calls, worktree checkout, terminal launchers, and Claude are stubbed,
 and configured commands are no-ops. These timings measure Pappardelle's local

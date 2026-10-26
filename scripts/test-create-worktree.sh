@@ -32,7 +32,7 @@ assert_valid_json() {
     local test_name="$1"
     local output="$2"
 
-    if echo "$output" | jq empty 2>/dev/null; then
+    if [[ -n "$output" ]] && echo "$output" | jq empty 2>/dev/null; then
         echo -e "  ${GREEN}PASS${RESET} $test_name"
         PASS=$((PASS + 1))
     else

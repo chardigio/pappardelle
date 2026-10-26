@@ -533,6 +533,20 @@ test('newly created issues launch fresh; existing keys keep conversation resume'
 	t.false(fs.readFileSync(fixture.launchArgs, 'utf8').includes('--fresh\n'));
 });
 
+test('a bad claude config fails before the issue is created', async t => {
+	const fixture = setup(t);
+	fs.appendFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({claude: {extra_args: '--verbose'}}),
+	);
+	await t.throwsAsync(fixture.run({input: 'Make workspace startup faster'}));
+	t.false(
+		fs.existsSync(
+			path.join(fixture.home, '.pappardelle', 'repos', 'main checkout'),
+		),
+	);
+});
+
 test('batched commands preserve order, multiline strings and command stdin', async t => {
 	const fixture = setup(t);
 	const expected = 'a\tb\nquoted "text" and \u0024(literal)\n';
@@ -560,6 +574,22 @@ test('batched commands preserve order, multiline strings and command stdin', asy
 		fs.readFileSync(path.join(fixture.workspace, 'value'), 'utf8'),
 		expected + 'done',
 	);
+});
+
+test('an aliased post_workspace_init list still runs', async t => {
+	const fixture = setup(t);
+	const config = YAML.load(fixture.config('Main config')) as Record<
+		string,
+		unknown
+	>;
+	delete config['post_workspace_init'];
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.yml'),
+		YAML.dump(config) +
+			'common: &common\n  - run: touch "${WORKTREE_PATH}/aliased"\npost_workspace_init: *common\n',
+	);
+	await fixture.run();
+	t.true(fs.existsSync(path.join(fixture.workspace, 'aliased')));
 });
 
 test('a failing required command still stops setup before Claude starts', async t => {

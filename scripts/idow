@@ -197,18 +197,19 @@ config_records() (
     # Validate the whole list before running any command. A process substitution
     # would hide parser failures and could silently skip required setup steps.
     set -o pipefail
-    yq -o=json "$1" "$CONFIG_PATH" | jq -j '.[] | .[] | (tostring | sub("\n+$"; "")) + "\u0000"' > "$CONFIG_RECORDS_PATH"
+    yq -o=json "explode(.) | $1" "$CONFIG_PATH" | jq -j '.[] | .[] | (tostring | sub("\n+$"; "")) + "\u0000"' > "$CONFIG_RECORDS_PATH"
 )
 
 # Run every {name, run, continue_on_error, background} entry of the list at
 # yq path $1, naming unnamed entries with the printf format $3 and their index.
+# Pass --no-header as $4 when a step header already announces the list.
 # Returns 1 when the list is empty or missing.
 run_configured_commands() {
-    local list_path="$1" label="$2" name_format="$3" i=0 name run_tmpl run continue_on_error background
+    local list_path="$1" label="$2" name_format="$3" header="${4:-}" i=0 name run_tmpl run continue_on_error background
     config_records "[($list_path // [])[] | [.name // \"\", .run // \"\", .continue_on_error // false, .background // false]]" ||
         error "Could not read $label commands from config"
     [[ -s "$CONFIG_RECORDS_PATH" ]] || return 1
-    log "Running $label commands..."
+    [[ "$header" == --no-header ]] || log "Running $label commands..."
     while IFS= read -r -u 3 -d '' name &&
           IFS= read -r -u 3 -d '' run_tmpl &&
           IFS= read -r -u 3 -d '' continue_on_error &&
@@ -546,6 +547,37 @@ VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_
 
 log "Profile: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
 
+# Launch settings resolve from the already-merged config as soon as a profile
+# is picked, so a bad claude config fails before any issue is created.
+# claude.extra_args stays one array element per argument (STA-2663), read from
+# the same jq stream as the scalar fields. A while-read loop, because macOS
+# bash 3.2 has no mapfile.
+read_claude_launch_config() {
+    local arg
+    CLAUDE_EXTRA_ARGS=()
+    {
+        IFS= read -r -d '' INIT_CMD
+        IFS= read -r -d '' SKIP_PERMISSIONS
+        IFS= read -r -d '' CLAUDE_MODEL
+        IFS= read -r -d '' CLAUDE_EFFORT
+        IFS= read -r -d '' COMPANION_COMMAND
+        while IFS= read -r -d '' arg; do
+            CLAUDE_EXTRA_ARGS+=("$arg")
+        done
+    } < <(printf '%s\n' "$1" | jq -j '([.init_cmd, .skip_permissions, .model, .effort, .companion_command][] | sub("\n+$"; "") + "\u0000"), (.extra_args[]? | tostring | sub("\n+$"; "") + "\u0000")')
+}
+resolve_claude_launch_config() {
+    local config_json
+    config_json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --profile "$SELECTED_PROFILE") ||
+        error "Could not resolve the claude config for profile $SELECTED_PROFILE"
+    read_claude_launch_config "$config_json"
+    [[ -z "$INIT_CMD" ]] || log "Claude init command: $INIT_CMD"
+    [[ -z "$CLAUDE_MODEL" ]] || log "Claude model: $CLAUDE_MODEL"
+    [[ -z "$CLAUDE_EFFORT" ]] || log "Claude effort: $CLAUDE_EFFORT"
+    [[ ${#CLAUDE_EXTRA_ARGS[@]} -eq 0 ]] || log "Claude extra args: ${CLAUDE_EXTRA_ARGS[*]}"
+}
+resolve_claude_launch_config
+
 # Step 2: Get or create issue
 print_step 2 "Setting up issue ($TRACKER_PROVIDER)..."
 
@@ -600,6 +632,7 @@ else
         if [[ -z "$FORCED_PROFILE" ]]; then
             PROJECT_MATCHED_PROFILE=$(match_profile_by_tracker_project "$PROJECT_CANDIDATES" "$CONFIG_PATH")
             if [[ -n "$PROJECT_MATCHED_PROFILE" ]]; then
+                PREVIOUS_PROFILE="$SELECTED_PROFILE"
                 SELECTED_PROFILE="$PROJECT_MATCHED_PROFILE"
                 print_success "Profile matched by project: $(get_profile_display_name "$SELECTED_PROFILE")"
 
@@ -620,38 +653,13 @@ else
                 VCS_LABEL=$(yq -r ".profiles.$SELECTED_PROFILE.vcs.label // .profiles.$SELECTED_PROFILE.github.label // \"\"" "$CONFIG_PATH")
 
                 log "Profile updated: $SELECTED_PROFILE, vars:$PROFILE_VAR_KEYS"
+                [[ "$SELECTED_PROFILE" == "$PREVIOUS_PROFILE" ]] || resolve_claude_launch_config
             fi
         fi
     else
         print_success "No project assigned (will use defaults)"
     fi
 fi
-
-# Resolve launch settings only after tracker-project matching has selected the
-# final profile, and reuse the already-merged config.
-# claude.extra_args stays one array element per argument (STA-2663), read from
-# the same jq stream as the scalar fields. A while-read loop, because macOS
-# bash 3.2 has no mapfile.
-read_claude_launch_config() {
-    local arg
-    CLAUDE_EXTRA_ARGS=()
-    {
-        IFS= read -r -d '' INIT_CMD
-        IFS= read -r -d '' SKIP_PERMISSIONS
-        IFS= read -r -d '' CLAUDE_MODEL
-        IFS= read -r -d '' CLAUDE_EFFORT
-        IFS= read -r -d '' COMPANION_COMMAND
-        while IFS= read -r -d '' arg; do
-            CLAUDE_EXTRA_ARGS+=("$arg")
-        done
-    } < <(printf '%s\n' "$1" | jq -j '([.init_cmd, .skip_permissions, .model, .effort, .companion_command][] | sub("\n+$"; "") + "\u0000"), (.extra_args[]? | tostring + "\u0000")')
-}
-CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --profile "$SELECTED_PROFILE")
-read_claude_launch_config "$CLAUDE_CONFIG_JSON"
-[[ -z "$INIT_CMD" ]] || log "Claude init command: $INIT_CMD"
-[[ -z "$CLAUDE_MODEL" ]] || log "Claude model: $CLAUDE_MODEL"
-[[ -z "$CLAUDE_EFFORT" ]] || log "Claude effort: $CLAUDE_EFFORT"
-[[ ${#CLAUDE_EXTRA_ARGS[@]} -eq 0 ]] || log "Claude extra args: ${CLAUDE_EXTRA_ARGS[*]}"
 
 # Extract issue number for template variable expansion (e.g., STA-595 → 595,
 # pappardelle-wx0 → wx0).
@@ -835,13 +843,13 @@ if profile_uses_pr_url; then
         print_success "No PR/MR yet (the agent opens one at its first real commit)"
     fi
 else
-    print_step 7 "Skipping PR/MR lookup (no profile config uses PR_URL)"
+    print_step 7 "Skipping PR/MR lookup (no profile config uses PR_URL or MR_URL)"
 fi
 
 # Step 8: Run profile commands BEFORE opening apps (so xcodegen, etc. are ready)
 print_step 8 "Running profile commands..."
 
-run_configured_commands ".profiles.$SELECTED_PROFILE.commands" profile 'command %d' ||
+run_configured_commands ".profiles.$SELECTED_PROFILE.commands" profile 'command %d' --no-header ||
     print_success "No commands configured in profile"
 
 # Step 9: Open terminal

@@ -5,7 +5,8 @@ Usage: python3 integration-tests/benchmark-workspace-startup.py --baseline /path
 Requires bash, yq (Mike Farah), jq, and git. Tracker, VCS, worktree creation,
 terminal launchers and Claude are stubbed: timings exclude network, checkout,
 user commands and agent startup. Both revisions use the same three config
-layers, ten init commands and ten open commands, and run in alternating order.
+layers, ten init commands (run on create) and ten open commands (run on
+reopen), and run in alternating order.
 """
 
 import argparse
@@ -71,25 +72,36 @@ printf '{"worktree_path":"%s"}\\n' "$HOME/.worktrees/repo/bench-123"''')
         log.write_text("")
         args = ["--resume", "--open"] if mode == "reopen" else []
         start = time.perf_counter()
-        subprocess.run(
+        result = subprocess.run(
             ["bash", str(self.root / "scripts/idow"), *args, "--issue-key", "bench-123"],
             cwd=self.root / "repo", env=self.env, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, text=True,
         )
         elapsed = (time.perf_counter() - start) * 1000
+        if result.returncode != 0:
+            raise SystemExit(
+                f"idow {mode} failed in {self.root.name} (exit {result.returncode}):\n{result.stderr}"
+            )
         calls = log.read_text().splitlines()
         return elapsed, len(calls), calls.count("eval-all")
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--samples", type=int, default=7)
     args = parser.parse_args()
     yq = shutil.which("yq")
-    if not yq or args.samples < 1:
-        parser.error("yq must be on PATH and --samples must be positive")
+    if not yq:
+        parser.error("yq must be on PATH")
+    if args.samples < 1:
+        parser.error("--samples must be positive")
+    for name in ("baseline", "candidate"):
+        if not (getattr(args, name) / "scripts" / "idow").is_file():
+            parser.error(f"--{name} must be a Pappardelle checkout (no scripts/idow in {getattr(args, name)})")
     with tempfile.TemporaryDirectory(prefix="pappardelle-benchmark-") as tmp:
         fixtures = {
             name: Fixture(Path(tmp) / name, repo.resolve(), yq)

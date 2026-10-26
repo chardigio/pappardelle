@@ -304,6 +304,8 @@ read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"",
 assert_eq "a value with a newline stays one argument" "2" "${#CLAUDE_EXTRA_ARGS[@]}"
 assert_eq "the newline survives" "line one
 line two" "${CLAUDE_EXTRA_ARGS[1]}"
+read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"","effort":"","companion_command":"","extra_args":["blockarg\n"]}'
+assert_eq "a block-scalar arg loses its trailing newline" "blockarg" "${CLAUDE_EXTRA_ARGS[0]}"
 assert_eq "an empty model reads as empty" "" "$CLAUDE_MODEL"
 read_claude_launch_config '{"init_cmd":"","skip_permissions":"false","model":"","effort":"","companion_command":"","extra_args":[]}'
 assert_eq "an empty list clears the earlier args" "0" "${#CLAUDE_EXTRA_ARGS[@]}"
