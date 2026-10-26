@@ -26,7 +26,7 @@ const fixedShortcuts: HelpRow[] = [
 ];
 
 function describe(kb: KeybindingConfig): string {
-	return kb.name + (kb.send_to_claude ? ' → Claude' : '');
+	return kb.name + (kb.send_to_claude ? ' → agent' : '');
 }
 
 export function buildHelpRows(customKeybindings: KeybindingConfig[] = []): {

@@ -1003,14 +1003,14 @@ export default function App({
 			send: () => sendToPane(paneId, kb.send_to_claude),
 		}).then(result => {
 			if (result === 'sent') {
-				setHeaderWithTimeout(`Claude: ${kb.send_to_claude}`, 3000);
+				setHeaderWithTimeout(`Agent: ${kb.send_to_claude}`, 3000);
 			} else if (result === 'wrong-space') {
 				setHeaderWithTimeout(
 					`✗ Not sent: ${targetSpace} is not shown yet`,
 					3000,
 				);
 			} else {
-				setHeaderWithTimeout(`✗ Failed to send to Claude`, 3000);
+				setHeaderWithTimeout(`✗ Failed to send to the agent`, 3000);
 			}
 		});
 	};
