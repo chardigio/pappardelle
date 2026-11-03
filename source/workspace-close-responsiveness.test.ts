@@ -98,7 +98,8 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 		calls.filter(
 			call => call.command === 'tmux' && call.args.includes('kill-session'),
 		).length,
-		2,
+		// companion, agent, and the legacy agent name
+		3,
 	);
 	t.false(calls.some(call => call.args.includes('has-session')));
 	t.is(

@@ -9,6 +9,9 @@ import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
+	listAgentProfiles,
+	loadAgentProfileSources,
+	resolveAgentProfileName,
 	type PappardelleConfig,
 	type ProfileSelection,
 } from '../config.ts';
@@ -27,15 +30,19 @@ import {
 	type SkillEntry,
 } from '../skill-completion.ts';
 import {
-	buildProfileOptions,
+	pickerOptions,
 	computePickerWindow,
+	filterProfileOptions,
 	focusFrame,
-	handleProfilePickerKey,
+	handleFilterablePickerKey,
 	resolvePromptSubmit,
 	PICKER_MAX_VISIBLE,
+	type FilterablePickerState,
 	type ProfileOption,
 } from '../profile-picker.ts';
 import {useSkillSnapshot} from '../use-skill-snapshot.ts';
+import {pickAgentProfileInPopup} from '../popup/agent-profile.ts';
+import {cutAgentProfileName} from '../agent-profile-picker.ts';
 import {ReadyWorkList, useReadyWork} from './ReadyWork.tsx';
 import {INPUT_INDEX, resolveSubmission} from './ready-picker.ts';
 import {promptDialogLayout} from './prompt-dialog-layout.ts';
@@ -43,13 +50,23 @@ import {promptDialogLayout} from './prompt-dialog-layout.ts';
 /** React key for the profile-less row, which has no profile name to use. */
 const DEFERRED_ROW_KEY = '__deferred__';
 
+function rowKey(option: ProfileOption): string {
+	return option.name ?? DEFERRED_ROW_KEY;
+}
+
 interface Props {
 	onSubmit: (
 		prompt: string,
 		profileName: string | null,
 		inputIsIssueKey: boolean,
+		agentProfileName: string | null,
 	) => void;
 	onCancel: () => void;
+	/** The profile a space was saved with, for input that names one. */
+	savedProfileFor?: (
+		input: string,
+		config: PappardelleConfig | null,
+	) => string | undefined;
 	/**
 	 * Columns available to the dialog. Callers inside tmux should pass the pane
 	 * width; `stdout.columns` can be a full terminal-width stale value right
@@ -59,18 +76,37 @@ interface Props {
 	availableWidth?: number;
 	/** Rows available to the dialog, which drops to a compact layout to fit. */
 	availableHeight?: number;
+	/** The agent profile popup is a tmux popup, so the override needs tmux. */
+	isInTmux: boolean;
 }
 
 export default function PromptDialog({
 	onSubmit,
 	onCancel,
+	savedProfileFor,
 	availableWidth,
 	availableHeight,
+	isInTmux,
 }: Props) {
 	const [prompt, setPrompt] = useState('');
 	// Both boxes are always on screen; this is purely which one has focus.
 	const [isPicking, setIsPicking] = useState(false);
-	const [selectedIndex, setSelectedIndex] = useState(0);
+	const [pickerState, setPickerState] = useState<FilterablePickerState>({
+		query: null,
+		index: 0,
+	});
+	// Ink hands every key of a burst (a paste, or arrows sent in one write) to
+	// the handler before React re-renders, so keys read the latest state here.
+	const pickerStateRef = useRef(pickerState);
+	const updatePickerState = (state: FilterablePickerState) => {
+		pickerStateRef.current = state;
+		setPickerState(state);
+	};
+	// Keyed by row so an override stays with its profile while the list
+	// re-ranks under further typing.
+	const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>(
+		{},
+	);
 
 	// Escape closes the completion list without clearing what you typed, so the
 	// dismissal has to be remembered against the exact text it was made for:
@@ -105,6 +141,9 @@ export default function PromptDialog({
 	);
 	const seenSkills = useRef(skills);
 	const highlightedName = useRef<string | undefined>(undefined);
+	// Keys that arrive with `a` in one write (a paste, a slow SSH link) would
+	// otherwise move or start the picker behind the popup.
+	const agentPopupOpen = useRef(false);
 	if (seenSkills.current !== skills) {
 		seenSkills.current = skills;
 		const anchored = reanchorSelection(highlightedName.current, completions);
@@ -166,23 +205,41 @@ export default function PromptDialog({
 		if (!config) return null;
 		return determineProfileForInput(config, effectiveInput);
 	}, [config, effectiveInput]);
+	const canOverrideAgent = useMemo(
+		() =>
+			isInTmux && config !== null && listAgentProfiles(config, {}).length > 1,
+		[config, isInTmux],
+	);
 	const opensPicker =
 		preview?.kind === 'resolved' ||
-		(preview?.kind === 'deferred' && preview.canPick);
+		(preview?.kind === 'deferred' && (preview.canPick || canOverrideAgent));
 
 	// Derived from the current prompt rather than snapshotted on Enter, because
 	// the list is visible while you type and has to re-rank as you go. Once the
 	// picker takes focus the text input is frozen, so the list is stable for as
 	// long as a selection can move within it.
 	const options = useMemo(
-		() => (config ? buildProfileOptions(config, effectiveInput) : []),
-		[config, effectiveInput],
+		() =>
+			config
+				? pickerOptions(
+						config,
+						effectiveInput,
+						canOverrideAgent,
+						savedProfileFor?.(effectiveInput, config),
+					)
+				: [],
+		[config, effectiveInput, canOverrideAgent, savedProfileFor],
 	);
+
+	const shownOptions =
+		isPicking && pickerState.query
+			? filterProfileOptions(options, pickerState.query)
+			: options;
 
 	// While typing, the preselected row IS the answer the old "Profile:" line
 	// used to spell out, so it always tracks the top of the list; the stored
 	// index only matters once the picker has focus.
-	const activeIndex = isPicking ? selectedIndex : 0;
+	const activeIndex = isPicking ? pickerState.index : 0;
 
 	useInput(
 		(_input, key) => {
@@ -256,21 +313,49 @@ export default function PromptDialog({
 
 	useInput(
 		(input, key) => {
-			const result = handleProfilePickerKey(
+			if (agentPopupOpen.current) return;
+			const {current} = pickerStateRef;
+			const shown = current.query
+				? filterProfileOptions(options, current.query)
+				: options;
+			const result = handleFilterablePickerKey(
+				current,
 				input,
 				key,
-				selectedIndex,
-				options.length,
+				shown.length,
 			);
+			updatePickerState(result.state);
 			switch (result.action) {
-				case 'move': {
-					setSelectedIndex(result.index);
+				case 'submit': {
+					const chosen = shown[result.state.index];
+					if (chosen) {
+						onSubmit(
+							effectiveInput.trim(),
+							chosen.name,
+							ready.onRow,
+							agentOverrides[rowKey(chosen)] ?? null,
+						);
+					}
+
 					break;
 				}
 
-				case 'submit': {
-					const chosen = options[result.index];
-					if (chosen) onSubmit(effectiveInput.trim(), chosen.name, ready.onRow);
+				case 'select': {
+					// Back to the full list with the match highlighted, so starting the
+					// session (or `a`) is still its own keystroke.
+					const chosen = shown[result.state.index];
+					updatePickerState({
+						query: null,
+						index: chosen ? Math.max(0, options.indexOf(chosen)) : 0,
+					});
+					break;
+				}
+
+				case 'agent': {
+					const option = shown[result.state.index];
+					if (option && config && canOverrideAgent) {
+						void chooseAgentProfile(option, config);
+					}
 					break;
 				}
 
@@ -278,17 +363,57 @@ export default function PromptDialog({
 					// First Esc hands focus back to the prompt; a second one (handled by
 					// the other useInput, now re-armed) cancels the dialog.
 					setIsPicking(false);
-					setSelectedIndex(0);
+					updatePickerState({query: null, index: 0});
 					break;
 				}
 
-				case 'ignore': {
+				case undefined: {
 					break;
 				}
 			}
 		},
 		{isActive: isPicking && ready.closeTarget === null},
 	);
+
+	const chooseAgentProfile = async (
+		option: ProfileOption,
+		loadedConfig: PappardelleConfig,
+	) => {
+		const key = rowKey(option);
+		const agentProfiles = listAgentProfiles(
+			loadedConfig,
+			loadAgentProfileSources(),
+		);
+		// The deferred row's profile isn't known until idow fetches the issue, so
+		// it gets a row of its own, named '', that leaves the choice to idow.
+		const profileDefault =
+			option.kind === 'profile'
+				? resolveAgentProfileName(
+						loadedConfig,
+						undefined,
+						option.name ?? undefined,
+					)
+				: '';
+		agentPopupOpen.current = true;
+		const name = await pickAgentProfileInPopup({
+			options:
+				option.kind === 'profile'
+					? agentProfiles
+					: [
+							{name: '', source: "whichever the issue's profile uses"},
+							...agentProfiles,
+						],
+			selected: agentOverrides[key] ?? profileDefault,
+			profileDefault,
+		}).finally(() => {
+			agentPopupOpen.current = false;
+		});
+		if (name === null) return;
+		setAgentOverrides(current => {
+			const {[key]: _previous, ...rest} = current;
+			return name === profileDefault ? rest : {...rest, [key]: name};
+		});
+	};
 
 	// The list re-ranks on every keystroke, so an index parked deep in a long
 	// list would point past the end of a short one. Rendering and acceptance
@@ -308,20 +433,20 @@ export default function PromptDialog({
 		const resolved = resolveSubmission(value, ready.identifiers, ready.index);
 		if (resolved === null) return;
 
-		const decision = resolvePromptSubmit(config, resolved);
+		const decision = resolvePromptSubmit(config, resolved, canOverrideAgent);
 		switch (decision.kind) {
 			case 'none': {
 				break;
 			}
 
 			case 'spawn': {
-				onSubmit(resolved, decision.profileName, ready.onRow);
+				onSubmit(resolved, decision.profileName, ready.onRow, null);
 				break;
 			}
 
 			case 'pick': {
 				setIsPicking(true);
-				setSelectedIndex(0);
+				updatePickerState({query: null, index: 0});
 				break;
 			}
 		}
@@ -347,8 +472,10 @@ export default function PromptDialog({
 		!isPicking && !isSkillFocused && ready.index === INPUT_INDEX,
 	);
 	const pickerFrame = focusFrame(isPicking);
+	// With an agent to swap in, pickerOptions gives the deferred input a real
+	// row so `a` has something to act on.
 	const deferredLabel =
-		preview?.kind === 'deferred' && !preview.canPick
+		preview?.kind === 'deferred' && !preview.canPick && !canOverrideAgent
 			? preview.displayName
 			: undefined;
 	const layout = promptDialogLayout(
@@ -388,8 +515,7 @@ export default function PromptDialog({
 						= open workspace for existing issue
 					</Text>
 					<Text dimColor>
-						- <Text color="cyan">description</Text> = start new workspace with
-						Claude
+						- <Text color="cyan">description</Text> = start new workspace
 					</Text>
 				</Box>
 
@@ -424,8 +550,12 @@ export default function PromptDialog({
 							) : (
 								<>
 									Press <Text color="green">Enter</Text> to{' '}
-									{opensPicker ? 'choose a profile' : 'start'},{' '}
-									<Text color="yellow">Esc</Text> to cancel
+									{opensPicker
+										? preview?.kind === 'deferred' && !preview.canPick
+											? 'start or pick an agent'
+											: 'choose a profile'
+										: 'start'}
+									, <Text color="yellow">Esc</Text> to cancel
 								</>
 							)}
 						</Text>
@@ -451,12 +581,15 @@ export default function PromptDialog({
 				/>
 			) : (
 				<ProfilePicker
-					options={options}
+					options={shownOptions}
+					query={isPicking ? pickerState.query : null}
+					agentOverrides={agentOverrides}
 					selectedIndex={activeIndex}
 					width={width}
 					frame={pickerFrame}
 					isFocused={isPicking}
 					deferredLabel={deferredLabel}
+					hasAgentChoice={canOverrideAgent}
 					maxVisible={layout.pickerMaxVisible}
 				/>
 			)}
@@ -466,14 +599,20 @@ export default function PromptDialog({
 
 function ProfilePicker({
 	options,
+	query,
+	agentOverrides,
 	selectedIndex,
 	width,
 	frame,
 	isFocused,
 	deferredLabel,
+	hasAgentChoice,
 	maxVisible,
 }: {
 	options: ProfileOption[];
+	/** The `/` filter's text, null when not filtering. */
+	query: string | null;
+	agentOverrides: Record<string, string>;
 	selectedIndex: number;
 	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
@@ -486,6 +625,8 @@ function ProfilePicker({
 	 * inert row instead of a list, so it's visibly not somewhere Enter stops.
 	 */
 	deferredLabel?: string;
+	/** Whether `a` can swap in another agent profile. */
+	hasAgentChoice: boolean;
 	maxVisible: number;
 }) {
 	const {start, end, above, below} = computePickerWindow(
@@ -514,6 +655,9 @@ function ProfilePicker({
 					</Box>
 				) : null}
 				{!deferredLabel && above > 0 && <Text dimColor>↑ {above} more</Text>}
+				{!deferredLabel && options.length === 0 && (
+					<Text dimColor>{'  '}No match</Text>
+				)}
 				{!deferredLabel &&
 					options.slice(start, end).map((option, offset) => {
 						const index = start + offset;
@@ -522,36 +666,47 @@ function ProfilePicker({
 						// glyph wherever it appears. Sits right of the selection caret
 						// (which owns column 0 for every row) and left of the label.
 						const slot = resolveEmojiSlot(maybeStripSkinTones(option.emoji));
+						const agentOverride = agentOverrides[rowKey(option)];
 						return (
-							<Box key={option.name ?? DEFERRED_ROW_KEY}>
-								<Text
-									color={isSelected ? 'green' : undefined}
-									bold={isSelected}
-								>
-									{isSelected ? '❯ ' : '  '}
-								</Text>
+							<Box key={rowKey(option)}>
+								<Box flexShrink={0}>
+									<Text
+										color={isSelected ? 'green' : undefined}
+										bold={isSelected}
+									>
+										{isSelected ? '❯ ' : '  '}
+									</Text>
+								</Box>
 								{slot ? (
-									<>
+									<Box flexShrink={0}>
 										<Text>{slot.text}</Text>
 										{slot.needsSeparator ? <Text> </Text> : null}
-									</>
+									</Box>
 								) : null}
-								<Text
-									color={isSelected ? 'green' : undefined}
-									bold={isSelected}
-									italic={option.kind === 'deferred'}
-								>
-									{option.displayName}
+								<Text wrap="truncate-end">
+									<Text
+										color={isSelected ? 'green' : undefined}
+										bold={isSelected}
+										italic={option.kind === 'deferred'}
+									>
+										{option.displayName}
+									</Text>
+									{option.matchedKeywords.length > 0 && (
+										<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
+									)}
+									{option.matchedPrefix && (
+										<Text dimColor> ← {option.matchedPrefix}</Text>
+									)}
+									{option.enforced && <Text color="magenta"> (enforced)</Text>}
+									{option.isDefault && option.matchedKeywords.length === 0 && (
+										<Text dimColor> (default)</Text>
+									)}
 								</Text>
-								{option.matchedKeywords.length > 0 && (
-									<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
-								)}
-								{option.matchedPrefix && (
-									<Text dimColor> ← {option.matchedPrefix}</Text>
-								)}
-								{option.enforced && <Text color="magenta"> (enforced)</Text>}
-								{option.isDefault && option.matchedKeywords.length === 0 && (
-									<Text dimColor> (default)</Text>
+								{agentOverride && (
+									<Text color="cyan" wrap="truncate-end">
+										{' '}
+										→ {cutAgentProfileName(agentOverride)}
+									</Text>
 								)}
 							</Box>
 						);
@@ -559,10 +714,28 @@ function ProfilePicker({
 				{!deferredLabel && below > 0 && <Text dimColor>↓ {below} more</Text>}
 			</TitledBox>
 
-			{isFocused ? (
+			{isFocused && query !== null ? (
 				<Box paddingX={2}>
-					<Text dimColor>
-						<Text color="green">↑/↓</Text> select ·{' '}
+					<Text wrap="truncate-end">
+						<Text color="cyan">/{query}</Text>
+						<Text inverse> </Text>
+						<Text dimColor>
+							{' '}
+							· <Text color="green">Enter</Text> select ·{' '}
+							<Text color="yellow">Esc</Text> clear
+						</Text>
+					</Text>
+				</Box>
+			) : isFocused ? (
+				<Box paddingX={2}>
+					<Text dimColor wrap="truncate-end">
+						<Text color="green">↑/↓</Text> select · <Text color="cyan">/</Text>{' '}
+						filter ·{' '}
+						{hasAgentChoice ? (
+							<>
+								<Text color="cyan">a</Text> agent ·{' '}
+							</>
+						) : null}
 						<Text color="green">Enter</Text> start ·{' '}
 						<Text color="yellow">Esc</Text> back
 					</Text>

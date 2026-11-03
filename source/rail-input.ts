@@ -5,7 +5,7 @@
  * setup.
  */
 
-export type FocusClaudeKey = {
+export type FocusAgentKey = {
 	return?: boolean;
 	rightArrow?: boolean;
 	meta?: boolean;
@@ -17,7 +17,7 @@ export type FocusClaudeKey = {
  * Enter or a plain right arrow moves focus into the Claude viewer pane.
  * Modified right arrows are left unbound for future shortcuts.
  */
-export function isFocusClaudeKey(key: FocusClaudeKey): boolean {
+export function isFocusAgentKey(key: FocusAgentKey): boolean {
 	if (key.return) return true;
 	return Boolean(key.rightArrow && !key.meta && !key.shift && !key.ctrl);
 }
@@ -46,6 +46,7 @@ export type RailDialogState = {
 	showUpdateConfirm: boolean;
 	showHelp: boolean;
 	showErrorDialog: boolean;
+	showConfigMigration: boolean;
 };
 
 /**
@@ -59,6 +60,7 @@ export function isRailInputBlocked(state: RailDialogState): boolean {
 		state.killDoneTargets !== null ||
 		state.showUpdateConfirm ||
 		state.showHelp ||
-		state.showErrorDialog
+		state.showErrorDialog ||
+		state.showConfigMigration
 	);
 }

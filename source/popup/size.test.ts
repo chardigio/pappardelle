@@ -42,6 +42,18 @@ test('a confirm on a narrow client wraps into more rows', t => {
 	t.is(size.height, 4 + 2 + 2 + 3);
 });
 
+test('a confirm taller than the client stays two rows short of it', t => {
+	const size = popupSize(
+		{
+			kind: 'confirm',
+			props: {title: 'Rewrite config', message: 'word '.repeat(200)},
+		},
+		{cols: 80, rows: 20},
+	);
+
+	t.is(size.height, 18);
+});
+
 test('help height is capped two rows short of the client', t => {
 	const size = popupSize(
 		{
@@ -88,4 +100,27 @@ test('a close-space popup leaves room for the state row', t => {
 
 	// The confirm above, plus the state row and its margin.
 	t.deepEqual(size, {width: 72, height: 13});
+});
+
+const agentProfiles = (count: number) => ({
+	kind: 'agent-profile' as const,
+	props: {
+		options: Array.from({length: count}, (_, i) => ({
+			name: `agent-${i}`,
+			source: '.pappardelle.yml',
+		})),
+		selected: 'agent-0',
+		profileDefault: 'agent-0',
+	},
+});
+
+test('an agent profile popup stays two rows short of the client', t => {
+	// tmux rejects a popup as tall as an 80x20 client with a status line.
+	t.is(popupSize(agentProfiles(32), {cols: 80, rows: 20}).height, 18);
+});
+
+test('an agent profile popup is never narrower than its hint', t => {
+	// 60% of 80 columns would wrap the hint onto a row the height doesn't budget.
+	t.is(popupSize(agentProfiles(5), {cols: 80, rows: 40}).width, 53);
+	t.is(popupSize(agentProfiles(5), {cols: 200, rows: 40}).width, 120);
 });

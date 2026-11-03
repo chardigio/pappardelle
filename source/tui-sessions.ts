@@ -5,17 +5,18 @@ import {
 	defaultServerTmuxRunner,
 	outerSessionName,
 	type OuterTmuxRunner,
-	shellQuote,
+	tmuxSessionRepo,
 } from './tmux.ts';
+import {shellQuote} from './shell-quote.ts';
 import {readTuiMarker, tryRestartLock, type TuiMarker} from './tui-marker.ts';
 
-// Some tmux releases rewrite `.` and `:` in session names to `_`, so a repo's
-// TUI session can carry either spelling.
+// The TUI session is created with the repo's own spelling, which tmux 3.6 and
+// older store as tmuxSessionRepo's.
 export function tuiSessionNames(repoName: string): string[] {
 	return [
 		...new Set([
 			outerSessionName(repoName),
-			outerSessionName(repoName.replaceAll(/[.:]/g, '_')),
+			outerSessionName(tmuxSessionRepo(repoName)),
 		]),
 	];
 }

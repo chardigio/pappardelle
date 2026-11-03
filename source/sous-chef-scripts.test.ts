@@ -375,7 +375,7 @@ test.serial('gather: generates correct tmux session name', t => {
 
 	const result = runGather(home);
 	const spaces = result['spaces'] as Array<Record<string, unknown>>;
-	t.is(spaces[0]!['tmuxSession'], 'claude-test-repo-STA-600');
+	t.is(spaces[0]!['tmuxSession'], 'agent-test-repo-STA-600');
 });
 
 test.serial('gather: handles malformed status file gracefully', t => {

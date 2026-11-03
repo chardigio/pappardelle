@@ -135,10 +135,11 @@ for space in spaces:
             log_age_min = (time.time() - os.path.getmtime(newest)) / 60
             entry['logMinutesAgo'] = round(log_age_min, 1)
 
-    # Same encoding as toSessionKey in source/tmux.ts: tmux rejects '.' in
-    # session names, so '_' is doubled to keep the mapping reversible.
+    # Same spelling as toSessionKey and tmuxSessionRepo in source/tmux.ts:
+    # tmux 3.6 and older store '.' and ':' in session names as '_'.
     session_key = space.replace('_', '__').replace('.', '_')
-    entry['tmuxSession'] = f'claude-{repo_name}-{session_key}'
+    session_repo = repo_name.replace('.', '_').replace(':', '_')
+    entry['tmuxSession'] = f'agent-{session_repo}-{session_key}'
 
     results.append(entry)
 

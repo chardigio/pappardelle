@@ -204,6 +204,22 @@ test('buildNewSessionArgs puts --profile before the input so idow parses it', t 
 	t.is(args[2], 'STA-500');
 });
 
+test('buildNewSessionArgs orders --agent-profile the way idow parses it', t => {
+	const args = buildNewSessionArgs('STA-500', {
+		profileName: 'pappardelle',
+		agentProfileName: 'codex',
+		inputIsIssueKey: true,
+	});
+	t.deepEqual(args, [
+		'--profile',
+		'pappardelle',
+		'--agent-profile',
+		'codex',
+		'--issue-key',
+		'STA-500',
+	]);
+});
+
 // ============================================================================
 // buildOpenWorkspaceArgs (pressing 'o' should open with --resume --open)
 // ============================================================================

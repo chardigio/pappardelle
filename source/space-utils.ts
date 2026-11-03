@@ -5,7 +5,7 @@ const log = createLogger('space-utils');
 
 /**
  * Hardcoded key used for the always-pinned main-worktree row in app.tsx and
- * for its tmux sessions (`claude-{repo}-main`, `lazygit-{repo}-main`). Kept
+ * for its tmux sessions (`agent-{repo}-main`, `lazygit-{repo}-main`). Kept
  * as a shared constant so the inner-socket reaper's "never kill main" check
  * stays coupled to wherever the row's name is set — renaming the row without
  * updating the reaper would silently start reaping the main worktree's

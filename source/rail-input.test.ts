@@ -5,31 +5,31 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {
 	isCloseSpaceKey,
-	isFocusClaudeKey,
+	isFocusAgentKey,
 	isRailInputBlocked,
 	type RailDialogState,
 } from './rail-input.ts';
 
 // ============================================================================
-// isFocusClaudeKey
+// isFocusAgentKey
 // ============================================================================
 
 test('Enter focuses the Claude pane', t => {
-	t.true(isFocusClaudeKey({return: true}));
+	t.true(isFocusAgentKey({return: true}));
 });
 
 test('plain right arrow focuses the Claude pane', t => {
-	t.true(isFocusClaudeKey({rightArrow: true}));
+	t.true(isFocusAgentKey({rightArrow: true}));
 });
 
 test('other arrows do not focus the Claude pane', t => {
-	t.false(isFocusClaudeKey({}));
+	t.false(isFocusAgentKey({}));
 });
 
 test('modified right arrows do not focus the Claude pane', t => {
-	t.false(isFocusClaudeKey({rightArrow: true, meta: true}));
-	t.false(isFocusClaudeKey({rightArrow: true, shift: true}));
-	t.false(isFocusClaudeKey({rightArrow: true, ctrl: true}));
+	t.false(isFocusAgentKey({rightArrow: true, meta: true}));
+	t.false(isFocusAgentKey({rightArrow: true, shift: true}));
+	t.false(isFocusAgentKey({rightArrow: true, ctrl: true}));
 });
 
 // ============================================================================
@@ -101,6 +101,7 @@ const closed: RailDialogState = {
 	showUpdateConfirm: false,
 	showHelp: false,
 	showErrorDialog: false,
+	showConfigMigration: false,
 };
 
 test('rail input is live with every dialog closed', t => {
@@ -115,6 +116,7 @@ const openDialogs: Array<[string, Partial<RailDialogState>]> = [
 	['update confirm', {showUpdateConfirm: true}],
 	['help', {showHelp: true}],
 	['error', {showErrorDialog: true}],
+	['config migration', {showConfigMigration: true}],
 ];
 
 for (const [name, patch] of openDialogs) {

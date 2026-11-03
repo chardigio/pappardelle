@@ -2,39 +2,49 @@ import test from 'ava';
 import React from 'react';
 import {render} from 'ink-testing-library';
 import {setTimeout as delay} from 'node:timers/promises';
-import type {ChildMessage, HostMessage, PopupSpec} from '../popup/protocol.ts';
-import PopupRoot, {type PopupChannel} from './PopupRoot.tsx';
+import type {LogEntry} from '../logger.ts';
+import type {ConfirmPayload, PopupActions, PopupSpec} from '../popup/spec.ts';
+import PopupRoot from './PopupRoot.tsx';
 
 function setup(spec: PopupSpec) {
-	const sent: ChildMessage[] = [];
-	const listeners = new Set<(message: HostMessage) => void>();
-	let exits = 0;
-	const channel: PopupChannel = {
-		send(message) {
-			sent.push(message);
+	const confirms: Array<ConfirmPayload | undefined> = [];
+	let cancels = 0;
+	let clears = 0;
+	let finishConfirm!: () => void;
+	let pushErrors: (errors: LogEntry[]) => void = () => {};
+	const actions: PopupActions = {
+		async confirm(payload) {
+			confirms.push(payload);
+			return new Promise<void>(resolve => {
+				finishConfirm = resolve;
+			});
 		},
-		onMessage(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
+		cancel() {
+			cancels++;
+		},
+		async clearErrors() {
+			clears++;
+		},
+		subscribeErrors(push) {
+			pushErrors = push;
+			return () => {
+				pushErrors = () => {};
+			};
 		},
 	};
 	const view = render(
-		React.createElement(PopupRoot, {
-			spec,
-			channel,
-			width: 80,
-			height: 20,
-			onExit() {
-				exits++;
-			},
-		}),
+		React.createElement(PopupRoot, {spec, actions, width: 80, height: 20}),
 	);
 	return {
 		view,
-		sent,
-		exits: () => exits,
-		fromHost(message: HostMessage) {
-			for (const listener of listeners) listener(message);
+		confirms,
+		cancels: () => cancels,
+		clears: () => clears,
+		finishConfirm() {
+			finishConfirm();
+		},
+		pushErrors(errors: LogEntry[]) {
+			pushErrors(errors);
 		},
 	};
 }
@@ -73,23 +83,26 @@ test.serial(
 		t.is(frame.split('\n').length, rows);
 		t.true(frame.includes('Close space bd-1?'));
 		t.false(frame.includes('to cancel'));
-		await until(() => popup.sent.length > 0);
-		t.deepEqual(popup.sent, [{type: 'confirm'}]);
-		t.is(popup.exits(), 0);
+		await until(() => popup.confirms.length > 0);
+		t.deepEqual(popup.confirms, [undefined]);
 
-		popup.fromHost({type: 'done'});
-		t.is(popup.exits(), 1);
+		// The TUI closes the popup once the deletion finishes; until then the
+		// spinner stays.
+		popup.finishConfirm();
+		await delay(20);
+		t.true(popup.view.lastFrame()?.includes('Closing space bd-1…'));
+		t.is(popup.cancels(), 0);
 	},
 );
 
-test.serial('Esc cancels and exits without confirming', async t => {
+test.serial('Esc cancels without confirming', async t => {
 	const popup = setup(CLOSE_SPACE);
 	t.teardown(() => popup.view.unmount());
 	await delay(20);
 
 	popup.view.stdin.write('\u001B');
-	await until(() => popup.exits() === 1);
-	t.deepEqual(popup.sent, [{type: 'cancel'}]);
+	await until(() => popup.cancels() === 1);
+	t.deepEqual(popup.confirms, []);
 });
 
 test.serial(
@@ -100,23 +113,19 @@ test.serial(
 		await delay(20);
 		t.true(popup.view.lastFrame()?.includes('No errors.'));
 
-		popup.fromHost({
-			type: 'errors',
-			errors: [
-				{
-					timestamp: '2026-09-27T00:00:00Z',
-					level: 'error',
-					component: 'tracker',
-					message: 'fetch failed',
-				},
-			],
-		});
+		popup.pushErrors([
+			{
+				timestamp: '2026-09-27T00:00:00Z',
+				level: 'error',
+				component: 'tracker',
+				message: 'fetch failed',
+			},
+		]);
 		await until(
 			() => popup.view.lastFrame()?.includes('fetch failed') ?? false,
 		);
 
 		popup.view.stdin.write('c');
-		await until(() => popup.sent.length > 0);
-		t.deepEqual(popup.sent, [{type: 'clear-errors'}]);
+		await until(() => popup.clears() === 1);
 	},
 );

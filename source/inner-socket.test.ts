@@ -6,6 +6,7 @@
 // TypeScript layer builds. Specifically: every inner-session call site must
 // route through a single helper so a future caller that forgets the `-L` flag
 // fails CI rather than silently regressing nested-tmux behavior.
+import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -13,7 +14,10 @@ import test from 'ava';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
+	migrateLegacyAgentSessions,
 	cleanupOrphanedOuterSessions,
+	exactSessionTarget,
+	getSessionPrefix,
 	innerTmuxArgs,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -55,7 +59,7 @@ test('innerTmuxArgs does not mutate the input array', t => {
 // ============================================================================
 
 test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
-	// The two call sites that create claude/companion sessions (ensureClaudeSession
+	// The two call sites that create claude/companion sessions (ensureAgentSession
 	// and ensureCompanionSession) both call innerTmuxArgs with 'new-session'.
 	const matches =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"]/g) ?? [];
@@ -68,7 +72,7 @@ test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
 test('every per-issue new-session carries the space session environment', t => {
 	// A Claude started by hand in the pane reports its status under
 	// PAPPARDELLE_SPACE, so a session the TUI makes must carry it just like one
-	// start-claude-session.sh makes. Without it, the fix from
+	// start-agent-session.sh makes. Without it, the fix from
 	// chardigio/pappardelle#22 holds only until the next reboot.
 	const calls =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"][^\]]*\]/g) ?? [];
@@ -173,6 +177,47 @@ test('has-session via spawnSync routes through innerTmuxArgs', t => {
 		/innerTmuxArgs\(\[\s*['"]has-session['"]/,
 		'innerSessionExists must route has-session through innerTmuxArgs',
 	);
+});
+
+test('session lookups and kills by name use exact targets', t => {
+	// A bare name falls back to tmux prefix matching when no session has it
+	// exactly, so checking or killing STA-1 would hit STA-12.
+	t.regex(
+		TMUX_SOURCE,
+		/innerTmuxArgs\(\[\s*'has-session',\s*'-t',\s*exactSessionTarget\(/,
+	);
+	t.regex(
+		TMUX_SOURCE,
+		/innerTmuxArgs\(\[\s*'kill-session',\s*'-t',\s*exactSessionTarget\(/,
+	);
+	t.regex(TMUX_SOURCE, /tmux has-session -t "\$\{exactSessionTarget\(/);
+	t.regex(TMUX_SOURCE, /tmux kill-session -t "\$\{exactSessionTarget\(/);
+});
+
+test('exactSessionTarget stops tmux prefix-matching another session', t => {
+	const socket = `pappardelle_exact_test_${process.pid}`;
+	const tmux = (...args: string[]) =>
+		spawnSync('tmux', ['-L', socket, ...args], {encoding: 'utf-8'});
+	if (tmux('-V').error) {
+		t.pass('tmux not installed');
+		return;
+	}
+
+	try {
+		t.is(tmux('new-session', '-d', '-s', 'agent-repo-STA-12').status, 0);
+		t.is(tmux('has-session', '-t', 'agent-repo-STA-1').status, 0);
+		t.not(
+			tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1')).status,
+			0,
+		);
+		// tmux 3.6 and older store a '.' as '_', so a name built with a dotted
+		// repo must already be in that spelling to be found again.
+		const dotted = `${getSessionPrefix('agent', 'my.repo')}STA-1`;
+		t.is(tmux('new-session', '-d', '-s', dotted).status, 0);
+		t.is(tmux('has-session', '-t', exactSessionTarget(dotted)).status, 0);
+	} finally {
+		tmux('kill-server');
+	}
 });
 
 test('kill-session for per-issue sessions routes through innerTmuxArgs', t => {
@@ -299,9 +344,9 @@ test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / companion-{repo}
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	t.deepEqual(killed, [
-		'claude-repo-STA-1',
-		'claude-repo-foo',
-		'companion-repo-STA-1',
+		'=claude-repo-STA-1:',
+		'=claude-repo-foo:',
+		'=companion-repo-STA-1:',
 	]);
 });
 
@@ -321,7 +366,7 @@ test('cleanupOrphanedOuterSessions sweeps legacy lazygit-{repo}-* sessions (STA-
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['companion-repo-STA-1', 'lazygit-repo-STA-1']);
+	t.deepEqual(killed, ['=companion-repo-STA-1:', '=lazygit-repo-STA-1:']);
 });
 
 test('cleanupOrphanedOuterSessions counts only successful kills', t => {
@@ -331,7 +376,7 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 			'claude-repo-STA-2',
 			'companion-repo-STA-1',
 		].join('\n'),
-		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
+		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 matched orphans, 1 kill fails → return 2.
 	t.is(cleanupOrphanedOuterSessions('repo', runner), 2);
@@ -397,7 +442,42 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['claude-repo-STA-999', 'companion-repo-STA-999']);
+	t.deepEqual(killed, ['=claude-repo-STA-999:', '=companion-repo-STA-999:']);
+});
+
+test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as its prefix alone', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'agent-proj-x-STA-1', // proj-x's live space → keep
+			'companion-proj-x-STA-1',
+			'agent-proj-STA-9', // proj's orphan → kill
+		].join('\n'),
+	});
+	t.is(
+		cleanupOrphanedInnerSessions(new Set(), 'proj', runner, ['proj', 'proj-x']),
+		1,
+	);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=agent-proj-STA-9:'],
+	);
+});
+
+test('cleanupOrphanedInnerSessions knows a sibling repo by its tmux spelling', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'agent-a_b-c-STA-1', // a_b-c's live space → keep
+			'agent-a_b-STA-9', // a.b's orphan → kill
+		].join('\n'),
+	});
+	t.is(
+		cleanupOrphanedInnerSessions(new Set(), 'a.b', runner, ['a.b', 'a_b-c']),
+		1,
+	);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=agent-a_b-STA-9:'],
+	);
 });
 
 test('cleanupOrphanedInnerSessions decodes encoded keys before matching the registry', t => {
@@ -421,7 +501,7 @@ test('cleanupOrphanedInnerSessions decodes encoded keys before matching the regi
 	);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['claude-repo-bd-dead_9']);
+	t.deepEqual(killed, ['=claude-repo-bd-dead_9:']);
 });
 
 test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {
@@ -441,7 +521,7 @@ test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1
 	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 1);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['lazygit-repo-STA-999']);
+	t.deepEqual(killed, ['=lazygit-repo-STA-999:']);
 });
 
 test('cleanupOrphanedInnerSessions never touches main-worktree sessions', t => {
@@ -461,7 +541,7 @@ test('cleanupOrphanedInnerSessions counts only successful kills', t => {
 			'claude-repo-STA-2',
 			'companion-repo-STA-1',
 		].join('\n'),
-		killStatus: name => (name === 'claude-repo-STA-2' ? 1 : 0),
+		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 orphans (empty registry), 1 kill fails → return 2.
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
@@ -475,5 +555,82 @@ test('cleanupOrphanedInnerSessions handles a partial pair (only claude or compan
 	});
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 1);
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['claude-repo-STA-999']);
+	t.deepEqual(killed, ['=claude-repo-STA-999:']);
+});
+
+// ============================================================================
+// migrateLegacyAgentSessions
+//
+// The agent-pane sessions were renamed from `claude-{repo}-{key}` to
+// `agent-{repo}-{key}`. Live legacy sessions are renamed in place at
+// startup (a rename preserves panes and running processes) so an in-flight
+// conversation survives the upgrade instead of being orphaned or reaped.
+// ============================================================================
+
+test('migrateLegacyAgentSessions renames claude-{repo}-* to agent-{repo}-*', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-STA-1',
+			'claude-repo-main',
+			'companion-repo-STA-1', // companion prefix unchanged → untouched
+			'claude-otherrepo-STA-2', // different repo → untouched
+			'agent-repo-STA-3', // already migrated → untouched
+		].join('\n'),
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner), 2);
+
+	const renames = calls
+		.filter(c => c[0] === 'rename-session')
+		.map(c => [c[2], c[3]]);
+	// `=` forces an exact target; a bare name would let tmux prefix-match
+	// another space's session (STA-1 → STA-12).
+	t.deepEqual(renames, [
+		['=claude-repo-STA-1:', 'agent-repo-STA-1'],
+		['=claude-repo-main:', 'agent-repo-main'],
+	]);
+});
+
+test('migrateLegacyAgentSessions kills a legacy session whose agent name is taken', t => {
+	// The agent- session is the one pappardelle attaches; the legacy duplicate
+	// would otherwise survive every orphan reap because its key is registered.
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-STA-1',
+			'agent-repo-STA-1',
+			'claude-repo-STA-2',
+		].join('\n'),
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner), 1);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=claude-repo-STA-1:'],
+	);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'rename-session').map(c => [c[2], c[3]]),
+		[['=claude-repo-STA-2:', 'agent-repo-STA-2']],
+	);
+});
+
+test("migrateLegacyAgentSessions leaves a sibling repo's sessions alone", t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'claude-repo-x-STA-1',
+			'claude-repo-x-STA-2',
+			'agent-repo-x-STA-2',
+		].join('\n'),
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner, ['repo', 'repo-x']), 0);
+	t.deepEqual(
+		calls.filter(c => c[0] !== 'list-sessions'),
+		[],
+	);
+});
+
+test('migrateLegacyAgentSessions returns 0 when list-sessions errors', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStatus: 1,
+		listSessionsStdout: '',
+	});
+	t.is(migrateLegacyAgentSessions('repo', runner), 0);
+	t.is(calls.length, 1);
 });

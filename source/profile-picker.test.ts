@@ -2,8 +2,11 @@ import test from 'ava';
 import {
 	buildProfileOptions,
 	computePickerWindow,
+	filterProfileOptions,
+	handleFilterablePickerKey,
 	handleProfilePickerKey,
 	resolvePromptSubmit,
+	pickerOptions,
 	focusFrame,
 	PICKER_MAX_VISIBLE,
 } from './profile-picker.ts';
@@ -431,6 +434,41 @@ test('resolvePromptSubmit opens the picker for an issue key whose prefix is clai
 	}
 });
 
+test('resolvePromptSubmit gives unclaimed inputs a deferred-only picker when an agent can be swapped in', t => {
+	for (const input of ['123', 'ZZZ-123']) {
+		const result = resolvePromptSubmit(CONFIG, input, true);
+		t.is(result.kind, 'pick');
+		if (result.kind !== 'pick') continue;
+		t.deepEqual(
+			result.options.map(option => option.kind),
+			['deferred'],
+		);
+	}
+});
+
+test('pickerOptions only narrows inputs the picker would otherwise skip', t => {
+	t.deepEqual(
+		pickerOptions(CONFIG, '123', true).map(option => option.kind),
+		['deferred'],
+	);
+	t.deepEqual(
+		pickerOptions(CONFIG, 'STA-123', true),
+		buildProfileOptions(CONFIG, 'STA-123'),
+	);
+	t.deepEqual(
+		pickerOptions(CONFIG, '123', false),
+		buildProfileOptions(CONFIG, '123'),
+	);
+});
+
+test("pickerOptions leads with an existing space's saved profile", t => {
+	const guessed = buildProfileOptions(CONFIG, 'STA-123');
+	const options = pickerOptions(CONFIG, 'STA-123', false, 'hive');
+	t.is(options[0]?.name, 'hive');
+	t.is(options.length, guessed.length);
+	t.deepEqual(pickerOptions(CONFIG, 'STA-123', false, 'gone'), guessed);
+});
+
 test('resolvePromptSubmit ignores blank input', t => {
 	t.is(resolvePromptSubmit(CONFIG, '   ').kind, 'none');
 });
@@ -549,6 +587,21 @@ test('handleProfilePickerKey moves up and clamps at the start', t => {
 	t.deepEqual(handleProfilePickerKey('', KEY.up, 0, 3), {
 		action: 'move',
 		index: 0,
+	});
+});
+
+test('handleProfilePickerKey opens the agent override on a', t => {
+	t.deepEqual(handleProfilePickerKey('a', KEY.none, 1, 3), {
+		action: 'agent',
+		index: 1,
+	});
+	t.deepEqual(handleProfilePickerKey('a', KEY.none, 0, 0), {
+		action: 'ignore',
+		index: 0,
+	});
+	t.deepEqual(handleProfilePickerKey('a', {ctrl: true}, 1, 3), {
+		action: 'ignore',
+		index: 1,
 	});
 });
 
@@ -672,4 +725,86 @@ test('focusFrame gives the unfocused box a dim round outline', t => {
 
 test('focusFrame never marks two states the same', t => {
 	t.notDeepEqual(focusFrame(true), focusFrame(false));
+});
+
+// ============================================================================
+// handleFilterablePickerKey / filterProfileOptions — the `/` filter
+// ============================================================================
+
+test('/ starts a filter where j, k and a are text, not keys', t => {
+	let {state} = handleFilterablePickerKey({query: null, index: 3}, '/', {}, 7);
+	t.deepEqual(state, {query: '', index: 0, indexBeforeQuery: 3});
+	for (const char of 'jka') {
+		({state} = handleFilterablePickerKey(state, char, {}, 7));
+	}
+
+	t.deepEqual(state, {query: 'jka', index: 0, indexBeforeQuery: 3});
+	({state} = handleFilterablePickerKey(state, '', {backspace: true}, 0));
+	t.is(state.query, 'jk');
+});
+
+test('without a filter the picker keys pass through', t => {
+	t.deepEqual(handleFilterablePickerKey({query: null, index: 1}, 'a', {}, 3), {
+		state: {query: null, index: 1},
+		action: 'agent',
+	});
+	t.deepEqual(handleFilterablePickerKey({query: null, index: 1}, 'j', {}, 3), {
+		state: {query: null, index: 2},
+	});
+});
+
+test('Esc while filtering leaves the filter, not the picker', t => {
+	t.deepEqual(
+		handleFilterablePickerKey(
+			{query: 'so', index: 1, indexBeforeQuery: 4},
+			'',
+			{escape: true},
+			2,
+		),
+		{state: {query: null, index: 4}},
+	);
+	t.is(
+		handleFilterablePickerKey({query: null, index: 1}, '', {escape: true}, 7)
+			.action,
+		'back',
+	);
+});
+
+test('Enter while filtering selects the highlighted match, if any', t => {
+	t.is(
+		handleFilterablePickerKey({query: 'so', index: 1}, '', {return: true}, 2)
+			.action,
+		'select',
+	);
+	t.is(
+		handleFilterablePickerKey({query: 'zz', index: 0}, '', {return: true}, 0)
+			.action,
+		undefined,
+	);
+});
+
+test('arrows move within the filtered list', t => {
+	const move = (key: {upArrow?: boolean; downArrow?: boolean}) =>
+		handleFilterablePickerKey({query: 'h', index: 1}, '', key, 2).state.index;
+	t.is(move({downArrow: true}), 1);
+	t.is(move({upArrow: true}), 0);
+});
+
+test('filterProfileOptions matches a display name or a profile key', t => {
+	const options = buildProfileOptions(
+		makeConfig(
+			{
+				'rex-ai': {display_name: 'REx AI'},
+				ste: {display_name: 'Personal'},
+			},
+			'rex-ai',
+		),
+		'',
+	);
+	const names = (query: string) =>
+		filterProfileOptions(options, query).map(option => option.name);
+	t.deepEqual(names('pers'), ['ste']);
+	t.deepEqual(names('ste'), ['ste']);
+	t.deepEqual(names('rx'), ['rex-ai']);
+	t.deepEqual(names(''), ['rex-ai', 'ste']);
 });

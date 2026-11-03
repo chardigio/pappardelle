@@ -10,6 +10,8 @@ import App from './app.tsx';
 import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
+	migrateLegacyAgentSessions,
+	exactSessionTarget,
 	isInTmux,
 	outerSessionName,
 	sendToSpaceAgent,
@@ -56,6 +58,7 @@ import {
 import {parseCli, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
+import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
 	defaultRestartCommandDeps,
@@ -247,7 +250,7 @@ function resolveCliSpaceKey(rawKey: string): string {
 	);
 }
 
-// Handle `pappardelle send STA-XXX text` — submit a prompt to a space's Claude
+// Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
 	const rawKey = cli.input[1];
 	let text = cli.input.slice(2).join(' ');
@@ -263,9 +266,10 @@ if (cli.input[0] === 'send') {
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
+	migrateLegacyAgentSessions();
 	const result = sendToSpaceAgent(issueKey, text);
 	if (result === 'no-session') {
-		const session = getSessionNames(issueKey).claude;
+		const session = getSessionNames(issueKey).agent;
 		console.error(
 			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
 		);
@@ -343,10 +347,17 @@ if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
 	const sessionName = outerSessionName(repoName);
 
+	if (
+		sessionExists(sessionName) &&
+		isTuiDead(DEFAULT_REPO_STATE_ROOT, repoName)
+	) {
+		spawnSync('tmux', ['kill-session', '-t', exactSessionTarget(sessionName)]);
+	}
+
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
 		// Attach to the existing session
-		const tmuxArgs = ['attach-session', '-t', `=${sessionName}`];
+		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(sessionName)];
 		const result = spawnSync('tmux', tmuxArgs, {
 			stdio: 'inherit',
 			env: process.env,
@@ -386,11 +397,17 @@ if (isInTmux() && cli.flags.layout) {
 		);
 	}
 
+	// Migrate live legacy `claude-{repo}-*` sessions to their
+	// `agent-{repo}-*` names before the reap below decides what's an orphan —
+	// a rename preserves the running conversation, a reap would kill it.
+	// Each rename is logged at info; stderr would list them as TUI errors.
+	migrateLegacyAgentSessions();
+
 	// STA-1420: also reap inner-socket orphans whose key isn't in the registry
 	// and isn't the main worktree. These accumulate when Pappardelle is
 	// hard-quit between unregistering and the tmux kill (or when a slow
 	// pre_workspace_deinit is Ctrl-C'd mid-flow). Symmetric to the outer reap
-	// above; without it, dead `claude-pappa-STA-*` sessions linger forever now
+	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const innerReaped = cleanupOrphanedInnerSessions(
 		new Set(getRegisteredSpaces()),

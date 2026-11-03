@@ -140,13 +140,13 @@ test.serial(
 			'respawn-pane',
 			'-k',
 			'-t',
-			layout.claudeViewerPaneId,
+			layout.agentViewerPaneId,
 			`env -u TMUX tmux -S '${inner}' attach-session -t work`,
 		]);
 		await run(['resize-window', '-x', '80', '-y', '40']);
 		layout = await rebuildLayout(
 			pane,
-			layout.claudeViewerPaneId,
+			layout.agentViewerPaneId,
 			layout.companionViewerPaneId,
 			run,
 		);
@@ -160,7 +160,7 @@ test.serial(
 		const activePane = await run(['display-message', '-p', '#{pane_id}']);
 		t.is(activePane.trim(), pane);
 		await run(['resize-window', '-x', '220', '-y', '50']);
-		layout = await rebuildLayout(pane, layout.claudeViewerPaneId, '', run);
+		layout = await rebuildLayout(pane, layout.agentViewerPaneId, '', run);
 		t.truthy(layout?.companionViewerPaneId);
 		t.is(await paneWidth(pane, run), 44);
 		t.is(await paneWidth(layout!.companionViewerPaneId, run), 60);

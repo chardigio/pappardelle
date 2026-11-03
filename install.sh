@@ -383,7 +383,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
     mkdir -p "$HOOKS_DIR"
 
     # Copy hook scripts
-    for hook in update-status.py comment-question-answered.py zap-notification.py; do
+    for hook in update-status.py comment-question-answered.py zap-notification.py record-agent-session.py; do
         if [[ -f "$HOOKS_SRC/$hook" ]]; then
             cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
             chmod +x "$HOOKS_DIR/$hook"
@@ -391,7 +391,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
     done
 
     # Helper modules imported by the hooks above
-    for module in markdown_to_adf.py acli_helpers.py tracker_config.py; do
+    for module in markdown_to_adf.py acli_helpers.py tracker_config.py agent_session.py; do
         if [[ -f "$HOOKS_SRC/$module" ]]; then
             cp "$HOOKS_SRC/$module" "$HOOKS_DIR/"
         fi
@@ -409,6 +409,8 @@ if [[ -d "$HOOKS_SRC" ]]; then
             print_status "Created $CLAUDE_SETTINGS with Pappardelle hooks"
         fi
     fi
+
+    "$HOOKS_SRC/install-codex-hooks.sh"
 else
     print_warning "Hooks directory not found at $HOOKS_SRC"
 fi

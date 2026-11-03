@@ -39,10 +39,15 @@ class Fixture:
         write_script(bin_dir / "tmux", "exit 1")
         write_script(bin_dir / "gh", "echo https://example.test/pr/1")
         write_script(bin_dir / "open", ":")
-        write_script(scripts / "start-claude-session.sh", ":")
+        # Both names, so a baseline from before the agent-profile rename still runs.
+        for session_script in ("start-claude-session.sh", "start-agent-session.sh"):
+            write_script(scripts / session_script, ":")
         write_script(scripts / "create-worktree.sh", '''mkdir -p "$HOME/.worktrees/repo/bench-123"
 printf '{"worktree_path":"%s"}\\n' "$HOME/.worktrees/repo/bench-123"''')
-        for launcher in ("open-iterm-claude.sh", "open-default-terminal-claude.sh", "open-ghostty-claude.sh"):
+        for launcher in (
+            "open-iterm-claude.sh", "open-default-terminal-claude.sh", "open-ghostty-claude.sh",
+            "open-iterm-agent.sh", "open-default-terminal-agent.sh", "open-ghostty-agent.sh",
+        ):
             write_script(scripts / launcher, ":")
         write_script(bin_dir / "yq", 'echo "$1" >> "$BENCH_YQ_LOG"\nexec ' + shlex.quote(yq) + ' "$@"')
         config = {

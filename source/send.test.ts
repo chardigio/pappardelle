@@ -1,4 +1,4 @@
-// Tests for `pappardelle send` (pappardelle-tqq): resolving a space's Claude
+// Tests for `pappardelle send` (pappardelle-tqq): resolving a space's agent
 // session on the inner socket and submitting a prompt to it.
 import test from 'ava';
 import {resolveSpaceKey} from './issue-utils.ts';
@@ -31,37 +31,37 @@ function makeRunner(options: {
 }
 
 test('resolveInnerSessionTarget returns an exact-match session target', t => {
-	const {runner} = makeRunner({sessions: ['claude-r-main', 'claude-r-STA-1']});
-	t.is(resolveInnerSessionTarget('claude-r-STA-1', runner), '=claude-r-STA-1:');
+	const {runner} = makeRunner({sessions: ['agent-r-main', 'agent-r-STA-1']});
+	t.is(resolveInnerSessionTarget('agent-r-STA-1', runner), '=agent-r-STA-1:');
 });
 
 test('resolveInnerSessionTarget does not prefix-match a longer session name', t => {
-	const {runner} = makeRunner({sessions: ['claude-r-STA-12']});
-	t.is(resolveInnerSessionTarget('claude-r-STA-1', runner), null);
+	const {runner} = makeRunner({sessions: ['agent-r-STA-12']});
+	t.is(resolveInnerSessionTarget('agent-r-STA-1', runner), null);
 });
 
 test('resolveInnerSessionTarget returns null when no inner server is running', t => {
 	const {runner} = makeRunner({listFails: true});
-	t.is(resolveInnerSessionTarget('claude-r-STA-1', runner), null);
+	t.is(resolveInnerSessionTarget('agent-r-STA-1', runner), null);
 });
 
 test('sendToSpaceAgent targets the encoded session of a dotted key, clears the line, types the text literally, then sends Enter as its own call', t => {
 	const text = `it's "quoted" \`tick\` $HOME \\n; rm -rf nope`;
 	const {runner, sendKeysCalls} = makeRunner({
-		sessions: ['claude-r-agc_17'],
+		sessions: ['agent-r-agc_17'],
 	});
 
 	t.is(sendToSpaceAgent('agc.17', text, {repoName: 'r', runner}), 'sent');
 	t.deepEqual(sendKeysCalls, [
-		['send-keys', '-t', '=claude-r-agc_17:', 'C-u'],
-		['send-keys', '-t', '=claude-r-agc_17:', '-l', text],
-		['send-keys', '-t', '=claude-r-agc_17:', 'Enter'],
+		['send-keys', '-t', '=agent-r-agc_17:', 'C-u'],
+		['send-keys', '-t', '=agent-r-agc_17:', '-l', text],
+		['send-keys', '-t', '=agent-r-agc_17:', 'Enter'],
 	]);
 });
 
 test('sendToSpaceAgent never sends Enter when typing the text fails', t => {
 	const {runner, sendKeysCalls} = makeRunner({
-		sessions: ['claude-r-STA-1'],
+		sessions: ['agent-r-STA-1'],
 		failOn: args => args.includes('-l'),
 	});
 
@@ -69,9 +69,9 @@ test('sendToSpaceAgent never sends Enter when typing the text fails', t => {
 	t.false(sendKeysCalls.some(args => args.includes('Enter')));
 });
 
-test('sendToSpaceAgent reports no-session and sends nothing when the space has no Claude session', t => {
+test('sendToSpaceAgent reports no-session and sends nothing when the space has no agent session', t => {
 	const {runner, sendKeysCalls} = makeRunner({
-		sessions: ['companion-r-STA-1', 'claude-other-STA-1'],
+		sessions: ['companion-r-STA-1', 'agent-other-STA-1'],
 	});
 
 	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'no-session');

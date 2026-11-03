@@ -175,14 +175,13 @@ export function clearRecentErrors(): void {
 	}
 }
 
-// Prune errors older than ERROR_TTL_MS from the in-memory buffer.
-// Errors remain in log files — this only affects the TUI display.
-// Accepts an optional `now` timestamp (ms) for testing; defaults to Date.now().
-export function pruneExpiredErrors(now = Date.now()): void {
-	const cutoff = now - ERROR_TTL_MS;
+// Remove the errors a fix has made stale, leaving the rest on display
+export function dismissRecentErrors(
+	predicate: (entry: LogEntry) => boolean,
+): void {
 	const before = recentErrors.length;
 	for (let i = recentErrors.length - 1; i >= 0; i--) {
-		if (new Date(recentErrors[i]!.timestamp).getTime() <= cutoff) {
+		if (predicate(recentErrors[i]!)) {
 			recentErrors.splice(i, 1);
 		}
 	}
@@ -192,6 +191,14 @@ export function pruneExpiredErrors(now = Date.now()): void {
 			listener([...recentErrors]);
 		}
 	}
+}
+
+// Prune errors older than ERROR_TTL_MS from the in-memory buffer.
+// Errors remain in log files — this only affects the TUI display.
+// Accepts an optional `now` timestamp (ms) for testing; defaults to Date.now().
+export function pruneExpiredErrors(now = Date.now()): void {
+	const cutoff = now - ERROR_TTL_MS;
+	dismissRecentErrors(entry => new Date(entry.timestamp).getTime() <= cutoff);
 }
 
 // Start the auto-prune timer. Check every 30 seconds.

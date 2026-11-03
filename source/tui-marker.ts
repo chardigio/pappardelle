@@ -73,11 +73,22 @@ export function readTuiMarker(
 	}
 }
 
+// A TUI killed outright (kill -9, a crash) leaves its session behind holding
+// only the viewer panes, and its marker behind naming a dead pid.
+export function isTuiDead(
+	repoStateRoot: string,
+	repo: string,
+	isAlive: (pid: number) => boolean = processIsAlive,
+): boolean {
+	const marker = readTuiMarker(repoStateRoot, repo);
+	return marker !== null && !isAlive(marker.pid);
+}
+
 export function restartLockPath(repoStateRoot: string, repo: string): string {
 	return path.join(repoStateRoot, repo, 'restart.lock');
 }
 
-function processIsAlive(pid: number): boolean {
+export function processIsAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;

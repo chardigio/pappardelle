@@ -164,6 +164,40 @@ export function buildProfileOptions(
 	return ordered;
 }
 
+/**
+ * The picker's rows for an input. An input the picker would skip (a bare number,
+ * an unclaimed issue key) gets just the deferred row when there is another
+ * agent profile to launch with, so `a` has a row to act on and the profile is
+ * still left to idow.
+ *
+ * Input naming an existing space leads with the profile it was saved with:
+ * idow saves whichever profile is picked, so Enter-Enter on a preselected
+ * guess would otherwise replace it.
+ */
+export function pickerOptions(
+	config: PappardelleConfig,
+	input: string,
+	canOverrideAgent = false,
+	savedProfile?: string,
+): ProfileOption[] {
+	const selection = determineProfileForInput(config, input);
+	if (
+		canOverrideAgent &&
+		selection?.kind === 'deferred' &&
+		!selection.canPick
+	) {
+		return [deferredOption(config)];
+	}
+
+	const options = buildProfileOptions(config, input);
+	const saved = options.find(
+		option => option.kind === 'profile' && option.name === savedProfile,
+	);
+	return saved
+		? [saved, ...options.filter(option => option !== saved)]
+		: options;
+}
+
 export type PromptSubmit =
 	/** Blank input: stay where you are. */
 	| {kind: 'none'}
@@ -171,7 +205,7 @@ export type PromptSubmit =
 	 * Spawn without showing the picker. Used for bare numbers and for issue keys
 	 * whose prefix no profile claims, where the profile is resolved downstream by
 	 * idow from the fetched issue's tracker project — there is nothing meaningful
-	 * to preselect.
+	 * to preselect — unless there is an agent profile to swap in.
 	 */
 	| {kind: 'spawn'; profileName: string | null}
 	/** Advance to the picker with these options, index 0 preselected. */
@@ -182,10 +216,14 @@ export type PromptSubmit =
  * makes the backwards-compatibility guarantee (an unclaimed issue key still
  * spawns on a single Enter with no `--profile`, and a claimed one still spawns
  * that way on Enter-Enter) something a test can pin down.
+ *
+ * `canOverrideAgent` breaks that guarantee on purpose for unclaimed keys (see
+ * pickerOptions).
  */
 export function resolvePromptSubmit(
 	config: PappardelleConfig | null,
 	input: string,
+	canOverrideAgent = false,
 ): PromptSubmit {
 	const trimmed = input.trim();
 	if (!trimmed) return {kind: 'none'};
@@ -194,11 +232,15 @@ export function resolvePromptSubmit(
 	const selection = determineProfileForInput(config, trimmed);
 	if (!selection) return {kind: 'spawn', profileName: null};
 
-	if (selection.kind === 'deferred' && !selection.canPick) {
+	if (
+		selection.kind === 'deferred' &&
+		!selection.canPick &&
+		!canOverrideAgent
+	) {
 		return {kind: 'spawn', profileName: null};
 	}
 
-	const options = buildProfileOptions(config, trimmed);
+	const options = pickerOptions(config, trimmed, canOverrideAgent);
 	if (options.length === 0) {
 		return {
 			kind: 'spawn',
@@ -243,7 +285,7 @@ export function computePickerWindow(
 }
 
 export type PickerKeyResult = {
-	action: 'move' | 'submit' | 'back' | 'ignore';
+	action: 'move' | 'submit' | 'back' | 'agent' | 'ignore';
 	index: number;
 };
 
@@ -252,6 +294,8 @@ type PickerKey = {
 	downArrow?: boolean;
 	return?: boolean;
 	escape?: boolean;
+	ctrl?: boolean;
+	meta?: boolean;
 };
 
 /**
@@ -274,6 +318,11 @@ export function handleProfilePickerKey(
 		return {action: 'submit', index: selectedIndex};
 	}
 
+	if (input === 'a' && !key.ctrl && !key.meta) {
+		if (total <= 0) return {action: 'ignore', index: selectedIndex};
+		return {action: 'agent', index: selectedIndex};
+	}
+
 	if (key.upArrow || input === 'k') {
 		return {action: 'move', index: Math.max(0, selectedIndex - 1)};
 	}
@@ -283,6 +332,138 @@ export function handleProfilePickerKey(
 	}
 
 	return {action: 'ignore', index: selectedIndex};
+}
+
+/**
+ * Narrow a list to the items with a label containing the query's characters
+ * in order, tightest match first: `sh` finds `sol-high` ahead of
+ * `sonnet-high`. An item's best-scoring label counts, and ties keep the list's
+ * own order.
+ */
+export function rankByFuzzyMatch<T>(
+	items: readonly T[],
+	query: string,
+	labels: (item: T) => string[],
+): T[] {
+	const needle = query.toLowerCase().replaceAll(/\s+/g, '');
+	if (!needle) return [...items];
+
+	const score = (label: string): number => {
+		const haystack = label.toLowerCase();
+		let position = haystack.indexOf(needle[0]!);
+		if (position === -1) return Number.POSITIVE_INFINITY;
+		let total = position;
+		for (const char of needle.slice(1)) {
+			const next = haystack.indexOf(char, position + 1);
+			if (next === -1) return Number.POSITIVE_INFINITY;
+			total += next - position - 1;
+			position = next;
+		}
+
+		return total;
+	};
+
+	return items
+		.map((item, index) => ({
+			item,
+			index,
+			score: Math.min(...labels(item).map(label => score(label))),
+		}))
+		.filter(row => Number.isFinite(row.score))
+		.sort((a, b) => a.score - b.score || a.index - b.index)
+		.map(row => row.item);
+}
+
+/** Matches a profile row by its display name or its config key. */
+export function filterProfileOptions(
+	options: readonly ProfileOption[],
+	query: string,
+): ProfileOption[] {
+	return rankByFuzzyMatch(options, query, option => [
+		option.displayName,
+		option.name ?? '',
+	]);
+}
+
+/** `query` is null until `/` starts filtering. */
+export type FilterablePickerState = {
+	query: string | null;
+	index: number;
+	/** Where the highlight was when the filter opened, for Esc to go back to. */
+	indexBeforeQuery?: number;
+};
+
+type FilterablePickerKey = PickerKey & {
+	backspace?: boolean;
+	delete?: boolean;
+	tab?: boolean;
+};
+
+export type FilterablePickerKeyResult = {
+	state: FilterablePickerState;
+	/** `select` is Enter on a filtered list: the caller decides what picking means. */
+	action?: 'submit' | 'back' | 'agent' | 'select';
+};
+
+/**
+ * handleProfilePickerKey plus a `/` filter. While filtering, every printable
+ * key is part of the query, so `j`/`k`/`a` are text, and Esc leaves the filter
+ * rather than the picker. `total` is the length of the list as filtered.
+ */
+export function handleFilterablePickerKey(
+	state: FilterablePickerState,
+	input: string,
+	key: FilterablePickerKey,
+	total: number,
+): FilterablePickerKeyResult {
+	if (state.query === null) {
+		if (input === '/') {
+			return {state: {query: '', index: 0, indexBeforeQuery: state.index}};
+		}
+		const result = handleProfilePickerKey(input, key, state.index, total);
+		switch (result.action) {
+			case 'move': {
+				return {state: {...state, index: result.index}};
+			}
+
+			case 'submit':
+			case 'back':
+			case 'agent': {
+				return {state, action: result.action};
+			}
+
+			case 'ignore': {
+				return {state};
+			}
+		}
+	}
+
+	if (key.escape) {
+		return {state: {query: null, index: state.indexBeforeQuery ?? 0}};
+	}
+	if (key.return) return total > 0 ? {state, action: 'select'} : {state};
+	if (key.upArrow) {
+		return {state: {...state, index: Math.max(0, state.index - 1)}};
+	}
+
+	if (key.downArrow) {
+		return {
+			state: {
+				...state,
+				index: Math.max(0, Math.min(total - 1, state.index + 1)),
+			},
+		};
+	}
+
+	if (key.backspace || key.delete) {
+		return {state: {...state, query: state.query.slice(0, -1), index: 0}};
+	}
+
+	if (input && !key.ctrl && !key.meta && !key.tab) {
+		return {state: {...state, query: state.query + input, index: 0}};
+	}
+
+	return {state};
 }
 
 /**

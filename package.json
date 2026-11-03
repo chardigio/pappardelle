@@ -25,7 +25,8 @@
 		"react": "^19.3.0",
 		"string-width": "^8.3.0",
 		"widest-line": "^6.0.0",
-		"wrap-ansi": "^10.0.2"
+		"wrap-ansi": "^10.0.2",
+		"yaml": "^2.9.1"
 	},
 	"devDependencies": {
 		"@sindresorhus/tsconfig": "^3.0.1",
