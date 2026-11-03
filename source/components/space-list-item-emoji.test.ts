@@ -32,7 +32,7 @@ function renderRow(emoji: string, width: number, title: string): string {
 		name: 'TEST-1',
 		worktreePath: null,
 		profileEmoji: emoji,
-		claudeStatus: 'waiting_for_input',
+		programStatus: {status: 'idle'},
 		linearIssue: {
 			identifier: 'TEST-1',
 			title,

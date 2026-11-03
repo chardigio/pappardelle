@@ -27,6 +27,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install tmux for protocol verification
+        run: sudo apt-get update && sudo apt-get install -y tmux shellcheck
+
       # Formatting and lint are checked here, not just in the monorepo, because
       # sync-back pushes a merged PR's diff *directly to monorepo master* — no
       # PR, no gate. When this workflow only ran ava, a chardigio-side PR could
@@ -41,6 +44,13 @@ jobs:
 
       - name: Run tests
         run: npx ava 'source/**/*.test.ts'
+
+      - name: Verify program status transport, lifecycle, cleanup and app
+        run: |
+          npx tsx integration-tests/verify-program-status.ts
+          npx tsx integration-tests/verify-program-status-lifecycle.ts
+          npx tsx integration-tests/verify-program-status-cleanup.ts
+          npx tsx integration-tests/verify-program-status-app.ts
 
   shell-tests:
     name: Shell Tests

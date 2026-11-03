@@ -4,7 +4,9 @@ import path from 'node:path';
 import test from 'ava';
 import {
 	currentDefaultServerSession,
+	currentInnerServerSession,
 	defaultServerTmuxEnv,
+	isOnInnerServer,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 
@@ -34,6 +36,34 @@ test('outer tmux calls drop TMUX so an inner pane still reaches the default serv
 	t.false('TMUX_PANE' in env);
 	t.is(env['TMUX_TMPDIR'], '/scratch/tmux');
 	t.is(env['HOME'], '/home/me');
+});
+
+test('inner identity uses the selected named or absolute socket from its supplied environment', t => {
+	const root = temporaryDir();
+	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	const socketDir = path.join(root, `tmux-${process.getuid?.() ?? 0}`);
+	fs.mkdirSync(socketDir);
+	for (const selected of ['custom', path.join(root, "socket with ' quotes")]) {
+		const socket = selected.startsWith('/')
+			? selected
+			: path.join(socketDir, selected);
+		fs.writeFileSync(socket, '');
+		const env = {
+			TMUX: `${socket},1,0`,
+			TMUX_PANE: '%7',
+			TMUX_TMPDIR: root,
+			PAPPARDELLE_TMUX_SOCKET: selected,
+		};
+		t.true(isOnInnerServer(env));
+		t.is(
+			currentInnerServerSession(env, () => ({
+				status: 0,
+				stdout: 'agent-repo-TEST-1\n',
+			})),
+			'agent-repo-TEST-1',
+		);
+		t.false(isOnInnerServer({...env, PAPPARDELLE_TMUX_SOCKET: 'another'}));
+	}
 });
 
 test('the current outer session is unknown when TMUX names a non-default socket', t => {

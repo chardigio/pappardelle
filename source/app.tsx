@@ -70,11 +70,9 @@ import {
 	watchlistSourceId,
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
-import {
-	getClaudeStatusInfoAsync,
-	watchStatuses,
-	ensureStatusDir,
-} from './claude-status.ts';
+import {WorkspaceStatuses} from './workspace-status.ts';
+import {getSessionNames} from './tmux.ts';
+import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -257,6 +255,14 @@ export default function App({
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 	const statusKeysRef = useRef(new Set<string>());
+	const workspaceStatuses = useMemo(
+		() =>
+			new WorkspaceStatuses(
+				repoName,
+				key => getSessionNames(key, repoName).agent,
+			),
+		[repoName],
+	);
 	statusKeysRef.current = useMemo(
 		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
 		[spaces],
@@ -536,10 +542,10 @@ export default function App({
 	}, []);
 
 	useEffect(() => {
-		ensureStatusDir();
 		const refresh = new WorkspaceRefresh({
 			readRegistry: getRegisteredSpacesAsync,
-			readStatus: getClaudeStatusInfoAsync,
+			readStatus: async (key, sessionKey) =>
+				workspaceStatuses.read(key, sessionKey),
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
 			readMainWorktree: getMainWorktreeInfo,
 			readDirty: isWorktreeDirty,
@@ -572,7 +578,7 @@ export default function App({
 			refresh.stop();
 			workspaceRefresh.current = null;
 		};
-	}, [configMemo, repoName, setSpaces]);
+	}, [configMemo, repoName, setSpaces, workspaceStatuses]);
 
 	// Warm the skill list once the rail has painted, so the first new-session
 	// prompt can offer completions without waiting on a scan of its own.
@@ -584,11 +590,11 @@ export default function App({
 
 	useEffect(
 		() =>
-			watchStatuses(
-				updates => workspaceRefresh.current?.applyHookUpdates(updates),
+			workspaceStatuses.watch(
+				updates => workspaceRefresh.current?.applyStatusUpdates(updates),
 				workspaceName => statusKeysRef.current.has(workspaceName),
 			),
-		[],
+		[workspaceStatuses],
 	);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
@@ -1728,7 +1734,10 @@ export default function App({
 							await removeSpace(key);
 							void workspaceRefresh.current?.refreshListOnly();
 						},
-						cleanup: deleteQaSimulator,
+						async cleanup(key) {
+							removeProgramSnapshots(repoName, key);
+							return deleteQaSimulator(key);
+						},
 						onKillFailure: key =>
 							setHeaderWithTimeout(
 								`Failed to kill tmux sessions for ${key} — try again`,
@@ -1775,7 +1784,7 @@ export default function App({
 					return false;
 				});
 		},
-		[setHeaderWithTimeout, attachmentTask, setSpaces],
+		[setHeaderWithTimeout, attachmentTask, setSpaces, repoName],
 	);
 
 	const deleteSpace = useCallback(
@@ -2064,7 +2073,6 @@ export default function App({
 		try {
 			let closed = 0;
 			for (const space of targets) {
-				// eslint-disable-next-line no-await-in-loop
 				const ok = await deleteSpace(space);
 				if (ok) closed++;
 			}

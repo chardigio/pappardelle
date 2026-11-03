@@ -10,12 +10,12 @@ import {
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
-import type {ClaudeStatus, ClaudeSessionState} from './types.ts';
+import type {ClaudeStatus, ClaudeSessionState} from './claude-status.ts';
 import {
 	STABLE_STATUSES,
 	ACTIVE_STATUSES,
 	ACTIVE_STATUS_TIMEOUT,
-} from './types.ts';
+} from './claude-status.ts';
 import {
 	findSpaceByStatusKey,
 	getClaudeStatusInfo,
@@ -196,86 +196,6 @@ test('All ClaudeStatus types are categorized', t => {
 			`Status '${status}' should not be in both STABLE_STATUSES and ACTIVE_STATUSES`,
 		);
 	}
-});
-
-// ============================================================================
-// Status Display Tests
-// These verify the icon/color mapping is correct
-// ============================================================================
-
-test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_for_input', async t => {
-	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
-
-	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_for_input.icon,
-		'●',
-		'waiting_for_input should show ● icon',
-	);
-	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_for_input.color,
-		'green',
-		'waiting_for_input should be green',
-	);
-});
-
-test('CLAUDE_STATUS_DISPLAY has correct icon for waiting_for_approval', async t => {
-	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
-
-	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_for_approval.icon,
-		'!',
-		'waiting_for_approval should show ! icon',
-	);
-	t.is(
-		CLAUDE_STATUS_DISPLAY.waiting_for_approval.color,
-		'red',
-		'waiting_for_approval should be red',
-	);
-});
-
-test('CLAUDE_STATUS_DISPLAY has correct icon for ended', async t => {
-	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
-
-	t.is(CLAUDE_STATUS_DISPLAY.ended.icon, '●', 'ended should show ● icon');
-	t.is(CLAUDE_STATUS_DISPLAY.ended.color, 'green', 'ended should be green');
-});
-
-test('CLAUDE_STATUS_DISPLAY has correct icon for compacting', async t => {
-	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
-
-	t.is(
-		CLAUDE_STATUS_DISPLAY.compacting.icon,
-		'◇',
-		'compacting should show ◇ icon',
-	);
-	t.is(
-		CLAUDE_STATUS_DISPLAY.compacting.color,
-		'yellow',
-		'compacting should be yellow',
-	);
-});
-
-test('CLAUDE_STATUS_DISPLAY shows ? for unknown (fallback)', async t => {
-	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
-
-	t.is(
-		CLAUDE_STATUS_DISPLAY.unknown.icon,
-		'?',
-		'unknown should show ? icon as fallback',
-	);
-	t.is(
-		CLAUDE_STATUS_DISPLAY.unknown.color,
-		undefined,
-		'unknown carries no color — bright black is the background on Solarized',
-	);
-	t.true(CLAUDE_STATUS_DISPLAY.unknown.dim, 'unknown should be dimmed instead');
-});
-
-test('CLAUDE_STATUS_DISPLAY has correct icon for error', async t => {
-	const {CLAUDE_STATUS_DISPLAY} = await import('./types.ts');
-
-	t.is(CLAUDE_STATUS_DISPLAY.error.icon, '✗', 'error should show ✗ icon');
-	t.is(CLAUDE_STATUS_DISPLAY.error.color, 'red', 'error should be red');
 });
 
 // ============================================================================

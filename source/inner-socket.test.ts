@@ -140,24 +140,6 @@ test('switch-client and list-clients route through innerTmuxArgs', t => {
 	);
 });
 
-test('attach command drops TMUX= and uses -L INNER_SOCKET', t => {
-	// The viewer-pane attach is the critical fix: it must drop `TMUX=` (which
-	// was the old nesting workaround) and use `tmux -L pappardelle_inner attach`
-	// so the nested client's $TMUX points at the inner socket. The source uses
-	// `${INNER_SOCKET}` interpolation rather than a string literal, so look for
-	// either form.
-	t.notRegex(
-		TMUX_SOURCE,
-		/TMUX=\s*tmux attach -t/,
-		'attach command must not prefix TMUX=',
-	);
-	t.regex(
-		TMUX_SOURCE,
-		/tmux -L \$\{INNER_SOCKET\} attach -t/,
-		'attach command must use the inner-socket form: tmux -L INNER_SOCKET attach -t',
-	);
-});
-
 test('has-session via spawnSync routes through innerTmuxArgs', t => {
 	// `has-session` may be used either via execSync (string form, for the outer
 	// pappardelle-{repo} session in `sessionExists`) or via spawnSync+argv

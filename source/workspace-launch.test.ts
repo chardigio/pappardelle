@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 
+function writeScript(filename: string, script: string) {
+	execFileSync('shellcheck', ['-s', 'bash', '-'], {input: script});
+	fs.writeFileSync(filename, script, {mode: 0o755});
+}
+
 for (const scenario of [
 	{
 		title: 'fresh workspace launches the agent once',
@@ -25,21 +30,24 @@ for (const scenario of [
 		const log = path.join(root, 'claude-args');
 		// Execute the pane command synchronously, without a real tmux server or
 		// interactive shell. The companion is configured as an empty shell.
-		fs.writeFileSync(
+		writeScript(
 			path.join(bin, 'tmux'),
 			`#!/bin/bash
 case "$3" in
     has-session) exit 1 ;;
     new-session)
-        if [[ "$*" == *'/bin/sh -c'* ]]; then
-            /bin/bash -c "\${!#}"
-        fi
+        while (( $# > 0 )); do
+            if [[ "$1" == /bin/sh && "\${2:-}" == -c && "\${3:-}" == *'-ic'* ]]; then
+                /bin/bash -c "$6"
+                exit
+            fi
+            shift
+        done
         ;;
 esac
 `,
-			{mode: 0o755},
 		);
-		fs.writeFileSync(
+		writeScript(
 			path.join(bin, 'claude'),
 			`#!/bin/bash
 printf '%s\\n' "$*" >> "$CLAUDE_TEST_LOG"
@@ -47,7 +55,6 @@ if [[ "$*" == *--continue* ]]; then
     exit "$CLAUDE_TEST_RESUME_EXIT"
 fi
 `,
-			{mode: 0o755},
 		);
 		execFileSync(
 			'bash',

@@ -19,26 +19,7 @@ export type {
 	TrackerIssue,
 } from './providers/types.ts';
 
-export type ClaudeStatus =
-	| 'processing'
-	| 'running_tool'
-	| 'waiting_for_input'
-	| 'waiting_for_approval'
-	| 'compacting'
-	| 'ended'
-	| 'error'
-	| 'unknown';
-
-export interface ClaudeSessionState {
-	sessionId: string;
-	workspaceName: string;
-	status: ClaudeStatus;
-	lastUpdate: number;
-	currentTool?: string;
-	event?: string;
-	cwd?: string;
-}
-
+import type {ProgramStatusInfo} from './program-status.ts';
 /**
  * SpaceData represents a DOW workspace (Linear issue with worktree)
  */
@@ -49,8 +30,7 @@ export interface SpaceData {
 	linearIssue?: LinearIssue;
 	/** Provider-agnostic alias for linearIssue. Prefer this in new code. */
 	trackerIssue?: TrackerIssue;
-	claudeStatus?: ClaudeStatus;
-	claudeTool?: string; // Current tool name (for UI differentiation, e.g. AskUserQuestion)
+	programStatus?: ProgramStatusInfo;
 	worktreePath: string | null;
 	isMainWorktree?: boolean; // True for the main (master/main) worktree — cannot be deleted
 	isDirty?: boolean; // True if worktree has uncommitted changes (used for main worktree color)
@@ -68,39 +48,3 @@ export interface PaneLayout {
 	agentViewerPaneId: string; // Viewer pane that attaches to agent-STA-XXX session
 	companionViewerPaneId: string; // Viewer pane that attaches to companion-STA-XXX session
 }
-
-// Statuses that are stable and should never become stale
-export const STABLE_STATUSES = new Set<ClaudeStatus>([
-	'waiting_for_input', // Waiting for user input - user may take time to respond
-	'waiting_for_approval', // Waiting for permission - user may be reviewing
-	'ended', // Session terminated - stays ended
-	'error', // Error state should persist until resolved
-]);
-
-// Statuses that indicate active work and can become stale
-export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
-	'processing',
-	'running_tool',
-	'compacting',
-]);
-
-// How long before an active status becomes stale (10 minutes)
-export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
-
-// Claude status display
-// Note: "processing" and "running_tool" use ClaudeAnimation instead of a static icon
-// `unknown` carries no color at all: the muted ANSI name it used to use is
-// bright black.
-export const CLAUDE_STATUS_DISPLAY: Record<
-	ClaudeStatus,
-	{color?: string; icon?: string; dim?: boolean}
-> = {
-	processing: {color: COLORS.CLAUDE_ORANGE},
-	running_tool: {color: COLORS.CLAUDE_ORANGE},
-	waiting_for_input: {color: 'green', icon: '●'},
-	waiting_for_approval: {color: 'red', icon: '!'},
-	compacting: {color: 'yellow', icon: '◇'},
-	ended: {color: 'green', icon: '●'},
-	error: {color: 'red', icon: '✗'},
-	unknown: {icon: '?', dim: true},
-};

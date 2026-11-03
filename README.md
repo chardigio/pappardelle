@@ -86,6 +86,37 @@ This means:
 - **Attach from anywhere.** You can attach to any workspace's agent session from a separate terminal: `tmux -L pappardelle_inner attach -t agent-stardust-labs-STA-631`.
 - **Switching is instant.** After the first attachment, switching between workspaces uses tmux's fast `switch-client` path — no process restart, no visible flash.
 
+### Program status
+
+The ticket rail reads [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) reports (revision 0.4) from programs running in the center pane.
+
+| Agent       | Status source through tmux                                       |
+| ----------- | ---------------------------------------------------------------- |
+| Codex       | Native reports, no opt-in                                        |
+| OpenCode    | Native reports, no opt-in                                        |
+| Pi          | Native reports with `PI_PROGRAM_STATUS=1`                        |
+| agy         | Native reports with `AGY_CLI_OSC7501=on`                         |
+| Claude Code | Existing status hooks; native reports require a capability reply |
+
+| Status                                                   | Indicator                                    |
+| -------------------------------------------------------- | -------------------------------------------- |
+| Working                                                  | Orange animation                             |
+| Idle or done                                             | Green dot                                    |
+| Blocked on a question                                    | Blue question mark and attention highlight   |
+| Blocked on permission, authentication, or another reason | Red exclamation mark and attention highlight |
+| Error                                                    | Red cross                                    |
+| Unknown                                                  | Dim question mark                            |
+
+Child records contribute to the workspace indicator. Priority is blocked, error, working, done, then idle; ties prefer the root record, then the latest update. Messages, titles, and progress are saved in snapshots. Workspace auto-removal follows the issue tracker's completion state.
+
+Claude hooks supply fallback status until the pane emits its first valid native report. A capability query alone does not change the source. After native reporting starts, OSC remains authoritative, including after a clear or terminal reset. Matching Claude hook details can supply the working tool or compaction indicator.
+
+Native working and blocked records have no timeout. Returning from the agent command to the login shell emits OSC 133 A and removes active records; done and error survive. Monitoring stays pinned to the agent pane across window selection and splits. Replacing its process creates a new generation. Monitors remain alive when the TUI closes; closing a workspace revokes its snapshots and leases through both the TUI and CLI. Hook fallback retains its ten-minute timeout for active work.
+
+A read-only `pipe-pane` monitor parses status and writes atomic snapshots without wrapping the agent. Agent sessions set Pi and agy's reporting overrides so they report through tmux without capability negotiation. The monitor never injects replies or keyboard input. Existing unrelated pane pipes are left with their owner, with hooks providing fallback. See [installed-agent results and QA evidence](integration-tests/STE-37-verification.md) and [local protocol verification](integration-tests/README.md#program-status).
+
+Existing sessions gain a monitor when the TUI opens.
+
 ### tmux version
 
 Use a tmux build containing the [synchronized-output fix](https://github.com/tmux/tmux/commit/b2de803871e579565a6f79296f386115142593ed). Stable 3.7c and earlier can expose screen clears before an application finishes a synchronized frame, causing Codex and other TUIs to flash ([tmux/tmux#4983](https://github.com/tmux/tmux/issues/4983)). Pappardelle's incremental renderer reduces redraws, but the tmux fix is also needed to prevent these partial frames.
@@ -480,15 +511,16 @@ npm link                # makes `pappardelle` available globally
 
 **Directories created by the installer:**
 
-| Directory / File                                   | Purpose                                                   |
-| -------------------------------------------------- | --------------------------------------------------------- |
-| `~/.pappardelle/`                                  | Config, hooks, logs, and Claude status files              |
-| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                |
-| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots) |
-| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)               |
-| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks             |
-| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                         |
-| `~/.worktrees/`                                    | Git worktrees for all your workspaces                     |
+| Directory / File                                   | Purpose                                                              |
+| -------------------------------------------------- | -------------------------------------------------------------------- |
+| `~/.pappardelle/`                                  | Config, hooks, logs, and program status files                        |
+| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                           |
+| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)            |
+| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                          |
+| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks                        |
+| `~/.pappardelle/program-status/{repo}/`            | Native program snapshots, separated by workspace and pane generation |
+| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                                    |
+| `~/.worktrees/`                                    | Git worktrees for all your workspaces                                |
 
 > **Multi-repo support:** State is namespaced per repository under `~/.pappardelle/repos/{repoName}/`.
 > Running pappardelle in two different repos keeps their workspace registries completely separate.

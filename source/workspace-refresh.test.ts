@@ -5,7 +5,7 @@ import {
 	type WorkspaceRefreshDeps,
 } from './workspace-refresh.ts';
 import type {SpaceData, TrackerIssue} from './types.ts';
-import type {ClaudeStatusInfo} from './claude-status.ts';
+import type {ProgramStatusInfo} from './program-status.ts';
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -28,7 +28,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 	const publications: SpaceData[][] = [];
 	const deps: WorkspaceRefreshDeps = {
 		readRegistry: async () => ['STA-1', 'STA-2'],
-		readStatus: async () => ({status: 'waiting_for_input'}),
+		readStatus: async () => ({status: 'idle'}),
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
 		readDirty: async () => false,
@@ -129,27 +129,27 @@ test('no-op polling retains the array, rows, tracker aliases and pending rows', 
 test('newer workspace and main hooks survive an older disk read, then polling repairs missed events', async t => {
 	const h = setup();
 	await h.settle();
-	const stale = deferred<ClaudeStatusInfo>();
+	const stale = deferred<ProgramStatusInfo>();
 	h.deps.readStatus = async () => stale.promise;
 	const pending = h.refresh.refresh();
 	await nextTurn();
-	h.refresh.applyHookUpdates(
+	h.refresh.applyStatusUpdates(
 		new Map([
-			['STA-1', {status: 'running_tool', tool: 'AskUserQuestion'}],
-			['repo-master', {status: 'processing'}],
+			['STA-1', {status: 'working', tool: 'AskUserQuestion'}],
+			['repo-master', {status: 'working'}],
 		]),
 	);
-	stale.resolve({status: 'ended'});
+	stale.resolve({status: 'idle'});
 	await pending;
 	await h.refresh.idle();
-	t.is(h.spaces[2]!.claudeTool, 'AskUserQuestion');
-	t.is(h.spaces[2]!.claudeStatus, 'running_tool');
-	t.is(h.spaces[0]!.claudeStatus, 'processing');
-	t.is(h.spaces[1]!.claudeStatus, 'ended');
+	t.is(h.spaces[2]!.programStatus?.tool, 'AskUserQuestion');
+	t.is(h.spaces[2]!.programStatus?.status, 'working');
+	t.is(h.spaces[0]!.programStatus?.status, 'working');
+	t.is(h.spaces[1]!.programStatus?.status, 'idle');
 	h.deps.readStatus = async () => ({status: 'unknown'});
 	await h.settle();
-	t.is(h.spaces[2]!.claudeStatus, 'unknown');
-	t.is(h.spaces[2]!.claudeTool, undefined);
+	t.is(h.spaces[2]!.programStatus?.status, 'unknown');
+	t.is(h.spaces[2]!.programStatus?.tool, undefined);
 });
 
 test('coalesces overlapping requests and discards a registry snapshot predating a local close', async t => {
@@ -260,7 +260,7 @@ test('stop suppresses late disk, tracker and hook publications', async t => {
 	h.refresh.stop();
 	const before = h.spaces;
 	gate.resolve(['STA-99']);
-	h.refresh.applyHookUpdates(new Map([['STA-1', {status: 'error'}]]));
+	h.refresh.applyStatusUpdates(new Map([['STA-1', {status: 'error'}]]));
 	await pending;
 	await h.refresh.idle();
 	t.is(h.spaces, before);
