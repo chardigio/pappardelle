@@ -73,7 +73,7 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 		try {
 			tmux('kill-server');
 		} catch {}
-		rmSync(root, {recursive: true, force: true});
+		rmSync(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 50});
 	});
 	execFileSync('git', ['init', '--quiet', repo]);
 	const worker = path.join(root, 'launch.mjs');
