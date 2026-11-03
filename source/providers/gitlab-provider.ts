@@ -33,12 +33,13 @@ type PendingDiscussions = Map<
 const DISCUSSION_FIELDS =
 	'nodes { resolvable resolved } pageInfo { hasNextPage endCursor }';
 // GitLab rejects a whole request above 250 complexity for authenticated
-// users. Costs were measured with `queryComplexity { score }`.
+// users. Costs were measured with `queryComplexity { score }`; the budget
+// sits below the limit in case GitLab rescores these fields.
 const MAX_QUERY_COMPLEXITY = 200;
 const PROJECT_COST = 1;
 const MR_SELECTION_COST = 15;
 const DISCUSSION_SELECTION_COST = 8;
-type Selection = {project: string; selection: string; cost: number};
+type Selection = {project: string; body: string; cost: number};
 
 function object(value: unknown): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -241,26 +242,27 @@ export class GitLabProvider implements VcsHostProvider {
 	private async queryProjects(
 		selections: Selection[],
 	): Promise<Record<string, unknown>> {
-		const chunks: Selection[][] = [];
-		let chunk: Selection[] = [];
+		const chunks: Array<Map<string, string[]>> = [];
+		let chunk = new Map<string, string[]>();
 		let cost = 0;
-		for (const selection of selections.toSorted((a, b) =>
-			a.project.localeCompare(b.project),
-		)) {
-			const last = chunk.at(-1);
-			let added =
-				selection.cost +
-				(last?.project === selection.project ? 0 : PROJECT_COST);
-			if (last && cost + added > MAX_QUERY_COMPLEXITY) {
+		for (const {project, body, cost: bodyCost} of selections) {
+			const projectCost = chunk.has(project) ? 0 : PROJECT_COST;
+			if (
+				chunk.size > 0 &&
+				cost + projectCost + bodyCost > MAX_QUERY_COMPLEXITY
+			) {
 				chunks.push(chunk);
-				chunk = [];
+				chunk = new Map();
 				cost = 0;
-				added = selection.cost + PROJECT_COST;
 			}
-			chunk.push(selection);
-			cost += added;
+			if (!chunk.has(project)) {
+				chunk.set(project, []);
+				cost += PROJECT_COST;
+			}
+			chunk.get(project)!.push(body);
+			cost += bodyCost;
 		}
-		if (chunk.length > 0) chunks.push(chunk);
+		if (chunk.size > 0) chunks.push(chunk);
 
 		const result: Record<string, unknown> = {};
 		for (const chunk of chunks) {
@@ -277,12 +279,8 @@ export class GitLabProvider implements VcsHostProvider {
 	}
 
 	private async queryChunk(
-		selections: Selection[],
+		fields: Map<string, string[]>,
 	): Promise<Record<string, unknown>> {
-		const fields = new Map<string, string[]>();
-		for (const {project, selection} of selections) {
-			fields.set(project, [...(fields.get(project) ?? []), selection]);
-		}
 		const projects = [...fields.keys()];
 		const aliases = projects.map((_, i) =>
 			i === 0 ? 'project' : `project${i}`,
@@ -337,7 +335,7 @@ export class GitLabProvider implements VcsHostProvider {
 			const project = await this.queryProjects(
 				[...pending].map(([alias, entry]) => ({
 					project: entry.project,
-					selection: `${alias}: mergeRequest(iid: ${JSON.stringify(String(entry.status.prNumber))}) {
+					body: `${alias}: mergeRequest(iid: ${JSON.stringify(String(entry.status.prNumber))}) {
 						discussions(first: 100, after: ${JSON.stringify(entry.cursor)}) { ${DISCUSSION_FIELDS} }
 					}`,
 					cost: DISCUSSION_SELECTION_COST,
@@ -452,7 +450,7 @@ export class GitLabProvider implements VcsHostProvider {
 		const project = await this.queryProjects(
 			requests.map(request => ({
 				project: request.project,
-				selection: `${request.alias}: mergeRequests(sourceBranches: [${JSON.stringify(request.branch)}], state: opened, sort: UPDATED_DESC, first: 1) {
+				body: `${request.alias}: mergeRequests(sourceBranches: [${JSON.stringify(request.branch)}], state: opened, sort: UPDATED_DESC, first: 1) {
 					nodes { iid detailedMergeStatus headPipeline { status }
 						discussions(first: 100) { ${DISCUSSION_FIELDS} }
 					}
