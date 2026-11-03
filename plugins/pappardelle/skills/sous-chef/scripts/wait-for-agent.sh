@@ -18,7 +18,6 @@ export SC_REPO_NAME="$1"
 export SC_ISSUE_KEY="$2"
 export SC_SINCE_MS="$3"
 export SC_STATUS_DIR="$HOME/.pappardelle/claude-status"
-export SC_TIMEOUT_SECS="${SC_WAIT_TIMEOUT_SECS:-60}"
 
 python3 -c "
 import json, os, sys, time
@@ -29,7 +28,7 @@ status_file = os.path.join(os.environ['SC_STATUS_DIR'], f'{key}.json')
 # Status files are keyed by issue key alone, so the cwd tells this repo's space
 # apart from another repo's space with the same key.
 worktree = os.path.expanduser(f\"~/.worktrees/{os.environ['SC_REPO_NAME']}/{key}\")
-deadline = time.time() + float(os.environ['SC_TIMEOUT_SECS'])
+deadline = time.time() + float(os.environ.get('SC_WAIT_TIMEOUT_SECS', '60'))
 
 def started():
     try:

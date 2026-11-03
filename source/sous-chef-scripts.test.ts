@@ -655,7 +655,7 @@ async function runWaitForAgent(
 			env: {
 				...process.env,
 				HOME: home,
-				SC_WAIT_TIMEOUT_SECS: String(options.timeoutSecs ?? 1),
+				SC_WAIT_TIMEOUT_SECS: String(options.timeoutSecs ?? 0),
 			},
 			stdio: 'ignore',
 		},
@@ -666,6 +666,10 @@ async function runWaitForAgent(
 			resolve(code);
 		});
 	});
+}
+
+function agentWorktree(home: string): string {
+	return path.join(home, '.worktrees', 'test-repo', 'TEST-1');
 }
 
 function writeAgentStatus(
@@ -686,7 +690,7 @@ test.serial(
 		const since = Date.now();
 		writeAgentStatus(home, {
 			event: 'SessionStart',
-			cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+			cwd: agentWorktree(home),
 			lastUpdate: since,
 		});
 		t.is(await runWaitForAgent(home, {since}), 0);
@@ -701,7 +705,7 @@ test.serial(
 		const since = Date.now();
 		writeAgentStatus(home, {
 			event: 'SessionStart',
-			cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+			cwd: agentWorktree(home),
 			lastUpdate: since - 1,
 		});
 		t.is(await runWaitForAgent(home, {since}), 1);
@@ -729,7 +733,7 @@ test.serial('wait-for-agent: times out when the agent ended', async t => {
 	const since = Date.now();
 	writeAgentStatus(home, {
 		event: 'SessionEnd',
-		cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+		cwd: agentWorktree(home),
 		lastUpdate: since,
 	});
 	t.is(await runWaitForAgent(home, {since}), 1);
@@ -753,7 +757,7 @@ test.serial(
 			duringWait() {
 				writeAgentStatus(home, {
 					event: 'SessionStart',
-					cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+					cwd: agentWorktree(home),
 					lastUpdate: Date.now(),
 				});
 			},

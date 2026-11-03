@@ -154,16 +154,17 @@ Sent to 696: "refactor the auth middleware"
 Heard, chef.
 ```
 
-If `pappardelle send` exits non-zero with "No active session", reopen the space and send again without asking. Run this as one Bash call, with the same quoting rules as the first send:
+If `pappardelle send` exits non-zero with "No active session", reopen the space and send again without asking. Run this as one Bash call, with the same quoting rules as the first send. Use the full issue key, since status files are named by it:
 
 ```bash
+REPO_NAME=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
 SINCE=$(python3 -c 'import time; print(int(time.time()*1000))')
 pappardelle --resume STA-XXX || exit $?
 bash ~/.pappardelle/scripts/sous-chef/wait-for-agent.sh "$REPO_NAME" STA-XXX "$SINCE" || { echo "agent not confirmed"; exit 3; }
 pappardelle send STA-XXX 'the user instruction here'
 ```
 
-`wait-for-agent.sh` waits up to 60s for the reopened agent to start. Never skip it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
+`wait-for-agent.sh` waits for the reopened agent to start. Never skip it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
 
 - Sent: "696 back on the line. Sent: refactor the auth middleware"
 - "agent not confirmed": "696 back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Spaces whose profile runs Codex always land here, because Codex doesn't report its status
@@ -191,7 +192,7 @@ Use `pappardelle` rather than calling `idow` directly: a successful command save
 
 After exit status zero, refresh the board with `gather-spaces.sh` and call it with the full key: "STA-712 fired, on the board." "STA-696 back on the line." For a description, take the new key from the `Workspace STA-713 is ready!` line in the output, never from the board: "New issue filed, STA-713, fix the auth bug, space open."
 
-A nonzero status means setup or registration failed; report the diagnostic. If the command says setup completed but registration failed, the workspace may already exist even though it is missing from the board. Do not claim success or rerun it without telling the chef.
+A nonzero status means setup or registration failed; report the diagnostic. If the command says setup completed but registration failed, the workspace may already exist even though it is missing from the board. Do not claim success. Never rerun a description: the issue may already be filed, and a rerun files a duplicate.
 
 ## Closing a Space
 
@@ -218,7 +219,7 @@ Every `pappardelle` subcommand works from this session. Run them from the repo o
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `pappardelle highlight STA-XXX`        | Selects the space in the TUI                                                                                                                                                                                                                                                             | Safe                                                             |
 | `pappardelle send STA-XXX 'text'`      | Submits text as a prompt to the space's Claude session (quoting rules above)                                                                                                                                                                                                             | Safe                                                             |
-| `pappardelle STA-XXX`                  | Opens a new space for the issue and saves it in the board (a bare number like `696` resolves with the team prefix)                                                                                                                                                                       | Safe                                                             |
+| `pappardelle STA-XXX`                  | Opens a new space for the issue and saves it in the board; an existing worktree resumes (a bare number like `696` resolves with the team prefix)                                                                                                                                         | Safe                                                             |
 | `pappardelle --resume STA-XXX`         | Reopens a space on the board whose session is gone, without the initialization prompt                                                                                                                                                                                                    | Safe                                                             |
 | `pappardelle -- '<description>'`       | Files a new issue from the description and opens a space for it                                                                                                                                                                                                                          | Safe                                                             |
 | `pappardelle close STA-XXX --yes`      | Closes the space like `x` in the TUI: runs its deinit hooks, ends its sessions, removes it from the board                                                                                                                                                                                | Safe; ends this session if it's this space                       |
