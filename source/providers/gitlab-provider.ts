@@ -241,12 +241,14 @@ export class GitLabProvider implements VcsHostProvider {
 
 	private async queryProjects(
 		selections: Selection[],
+		failure: string,
 	): Promise<Record<string, unknown>> {
 		const chunks: Array<Map<string, string[]>> = [];
 		let chunk = new Map<string, string[]>();
 		let cost = 0;
 		for (const {project, body, cost: bodyCost} of selections) {
-			const projectCost = chunk.has(project) ? 0 : PROJECT_COST;
+			let fields = chunk.get(project);
+			const projectCost = fields ? 0 : PROJECT_COST;
 			if (
 				chunk.size > 0 &&
 				cost + projectCost + bodyCost > MAX_QUERY_COMPLEXITY
@@ -254,12 +256,14 @@ export class GitLabProvider implements VcsHostProvider {
 				chunks.push(chunk);
 				chunk = new Map();
 				cost = 0;
+				fields = undefined;
 			}
-			if (!chunk.has(project)) {
-				chunk.set(project, []);
+			if (!fields) {
+				fields = [];
+				chunk.set(project, fields);
 				cost += PROJECT_COST;
 			}
-			chunk.get(project)!.push(body);
+			fields.push(body);
 			cost += bodyCost;
 		}
 		if (chunk.size > 0) chunks.push(chunk);
@@ -269,10 +273,7 @@ export class GitLabProvider implements VcsHostProvider {
 			try {
 				Object.assign(result, await this.queryChunk(chunk));
 			} catch (err) {
-				log.warn(
-					'Failed to fetch GitLab rail status',
-					sanitizeSubprocessError(err),
-				);
+				log.warn(failure, sanitizeSubprocessError(err));
 			}
 		}
 		return result;
@@ -340,6 +341,7 @@ export class GitLabProvider implements VcsHostProvider {
 					}`,
 					cost: DISCUSSION_SELECTION_COST,
 				})),
+				'Failed to fetch GitLab discussion pages',
 			);
 			for (const [alias, entry] of pending) {
 				if (!(alias in project)) {
@@ -457,6 +459,7 @@ export class GitLabProvider implements VcsHostProvider {
 				}`,
 				cost: MR_SELECTION_COST,
 			})),
+			'Failed to fetch GitLab rail status',
 		);
 		const pending: PendingDiscussions = new Map();
 		for (const {key, alias, project: path} of requests) {
