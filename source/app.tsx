@@ -170,6 +170,7 @@ import {
 	getLayoutDirections,
 	rebuildLayout,
 	getPaneDimensions,
+	runningAgentProfile,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
@@ -1000,10 +1001,8 @@ export default function App({
 		child.unref();
 	};
 
-	// Send text to the Claude pane for the selected workspace
-	const handleSendToClaude = (
-		kb: KeybindingConfig & {send_to_claude: string},
-	) => {
+	// Send text to the agent pane for the selected workspace
+	const handleSendToAgent = (text: string) => {
 		if (!paneLayout) {
 			setHeaderWithTimeout('No pane layout available', 2000);
 			return;
@@ -1016,10 +1015,10 @@ export default function App({
 			queue: attachmentTask,
 			targetSpace,
 			viewingSpace: getCurrentlyViewingSpace,
-			send: () => sendToPane(paneId, kb.send_to_claude),
+			send: () => sendToPane(paneId, text),
 		}).then(result => {
 			if (result === 'sent') {
-				setHeaderWithTimeout(`Agent: ${kb.send_to_claude}`, 3000);
+				setHeaderWithTimeout(`Agent: ${text}`, 3000);
 			} else if (result === 'wrong-space') {
 				setHeaderWithTimeout(
 					`✗ Not sent: ${targetSpace} is not shown yet`,
@@ -1033,13 +1032,23 @@ export default function App({
 
 	// Execute a custom keybinding command for the selected workspace
 	const handleCustomKeybinding = (kb: KeybindingConfig) => {
-		// Handle send_to_claude keybindings
 		if (kb.send_to_claude) {
-			handleSendToClaude(kb as KeybindingConfig & {send_to_claude: string});
+			handleSendToAgent(kb.send_to_claude);
 			return;
 		}
 
 		const space = spaces[selectedIndex];
+		if (kb.send_skill) {
+			if (!space || !configMemo) return;
+			const agentProfile = runningAgentProfile(
+				configMemo,
+				space.name,
+				space.trackerIssue?.title ?? space.linearIssue?.title,
+			);
+			handleSendToAgent(`${agentProfile.skillPrefix}${kb.send_skill}`);
+			return;
+		}
+
 		if (!space || space.isPending) return;
 
 		const {worktreePath} = space;

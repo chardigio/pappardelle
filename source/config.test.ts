@@ -2242,7 +2242,7 @@ test('validateConfig rejects keybinding missing name', t => {
 	t.truthy(error?.message.includes('name: required string field'));
 });
 
-test('validateConfig rejects keybinding with neither run nor send_to_claude', t => {
+test('validateConfig rejects keybinding with no action', t => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -2258,8 +2258,25 @@ test('validateConfig rejects keybinding with neither run nor send_to_claude', t 
 		instanceOf: ConfigValidationError,
 	});
 	t.truthy(
-		error?.message.includes("must have either 'run' or 'send_to_claude'"),
+		error?.message.includes(
+			"must have exactly one of 'run', 'send_to_claude' or 'send_skill'",
+		),
 	);
+});
+
+test('validateConfig rejects a keybinding that both sends text and a skill', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		keybindings: [
+			{key: 'a', name: 'Both', send_to_claude: '/a', send_skill: 'a'},
+		],
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('must have exactly one of'));
 });
 
 test('validateConfig accepts send_to_claude keybinding without run', t => {
@@ -5676,6 +5693,7 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 		modelArgs: '--model {model}',
 		effortArgs: '--effort {effort}',
 		extraArgs: [],
+		skillPrefix: '/',
 	});
 });
 
@@ -5897,6 +5915,24 @@ test('getAgentProfile gives codex its built-in model and effort flags', t => {
 	);
 	t.is(agentProfile.modelArgs, '-m {model}');
 	t.is(agentProfile.effortArgs, '-c model_reasoning_effort={effort}');
+});
+
+test('codex runs skills with $ and other agents with /, unless the agent profile says otherwise', t => {
+	const skillPrefix = (agentProfile: string) =>
+		getAgentProfile(
+			agentProfileTestConfig({
+				agent_profile: agentProfile,
+				agent_profiles: {
+					codex: {command: '/opt/bin/codex --yolo'},
+					wrapped: {command: 'codex', skill_prefix: '!'},
+					aider: {command: 'aider'},
+				},
+			}),
+		).skillPrefix;
+	t.is(skillPrefix('codex'), '$');
+	t.is(skillPrefix('claude'), '/');
+	t.is(skillPrefix('aider'), '/');
+	t.is(skillPrefix('wrapped'), '!');
 });
 
 test('getAgentProfile prefers configured flag templates over the built-in ones', t => {

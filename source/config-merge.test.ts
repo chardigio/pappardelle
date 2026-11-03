@@ -1214,13 +1214,13 @@ profiles:
   shadowedhomewarn:
     display_name: T
     claude:
-      initialization_command: /old
+      initialization_command: old
 `,
 		'project/.pappardelle.yml': `version: 1
 profiles:
   shadowedhomewarn:
     display_name: T
-    initialization_command: /new
+    initialization_command: new
 `,
 	});
 	try {
@@ -1295,7 +1295,7 @@ profiles:
   warnonceprofile:
     display_name: T
     claude:
-      initialization_command: /old
+      initialization_command: old
 `,
 	});
 	try {

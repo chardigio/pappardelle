@@ -36,6 +36,8 @@ import {
 	bindResumeArgs,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	getAgentProfile,
+	getNamedAgentProfile,
+	resolveAgentProfileName,
 	renderAgentLaunchFlags,
 	getCompanionCommand,
 	quoteLaunchValue,
@@ -44,6 +46,7 @@ import {
 	getPaneWidths,
 	getRepoName,
 	loadConfig,
+	type PappardelleConfig,
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
@@ -58,6 +61,7 @@ import {QaSimulatorCleanup} from './qa-simulator.ts';
 import {
 	getAgentSessionsPath,
 	readAgentSession,
+	latestAgentProfile,
 	readSpaceState,
 } from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -1507,6 +1511,32 @@ function isMissingSessionError(err: unknown): boolean {
 	);
 }
 
+/** The profile a space was created with; the main space has none. */
+function savedSpaceProfile(issueKey: string): string | undefined {
+	return issueKey === MAIN_WORKTREE_KEY
+		? undefined
+		: readSpaceState(getRepoName(), issueKey)?.profile;
+}
+
+/**
+ * The agent profile running in a space: the one whose agent started last,
+ * which covers a one-launch picker override, else the one its profile
+ * selects. A recorded name the config no longer defines falls back too.
+ */
+export function runningAgentProfile(
+	config: PappardelleConfig,
+	issueKey: string,
+	issueTitle?: string,
+): ResolvedAgentProfile {
+	const profileName = savedSpaceProfile(issueKey);
+	const latest = latestAgentProfile(getRepoName(), issueKey);
+	const name =
+		latest && (latest === 'claude' || config.agent_profiles?.[latest])
+			? latest
+			: resolveAgentProfileName(config, issueTitle, profileName);
+	return getNamedAgentProfile(config, name, issueTitle, profileName);
+}
+
 /**
  * Attach viewer panes to a space's sessions
  *
@@ -1592,10 +1622,7 @@ export async function attachToSpace(
 	let sessionId: string | undefined;
 	try {
 		const config = loadConfig();
-		const profileName =
-			issueKey === MAIN_WORKTREE_KEY
-				? undefined
-				: readSpaceState(getRepoName(), issueKey)?.profile;
+		const profileName = savedSpaceProfile(issueKey);
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);

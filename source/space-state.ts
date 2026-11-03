@@ -123,12 +123,11 @@ export function getAgentSessionsPath(
 	);
 }
 
-export function readAgentSession(
+function readAgentSessions(
 	repoName: string,
 	issueKey: string,
-	agentProfile: string,
 	baseDir?: string,
-): string | undefined {
+): Record<string, unknown> {
 	try {
 		const sessions: unknown = JSON.parse(
 			fs.readFileSync(
@@ -136,18 +135,52 @@ export function readAgentSession(
 				'utf-8',
 			),
 		);
-		const entry: unknown =
-			sessions && typeof sessions === 'object'
-				? (sessions as Record<string, unknown>)[agentProfile]
-				: undefined;
-		const id =
-			entry && typeof entry === 'object'
-				? (entry as Record<string, unknown>)['session_id']
-				: undefined;
-		return typeof id === 'string' ? id : undefined;
+		return sessions && typeof sessions === 'object'
+			? (sessions as Record<string, unknown>)
+			: {};
 	} catch {
-		return undefined;
+		return {};
 	}
+}
+
+/**
+ * The agent profile whose agent started last in a space, which is the one
+ * running there: a picker override launches once without being saved
+ * anywhere else. `started` is the agent process's start time as the hook
+ * reads it from `ps -o lstart` (LC_ALL=C).
+ */
+export function latestAgentProfile(
+	repoName: string,
+	issueKey: string,
+	baseDir?: string,
+): string | undefined {
+	let latest: {name: string; started: number} | undefined;
+	for (const [name, entry] of Object.entries(
+		readAgentSessions(repoName, issueKey, baseDir),
+	)) {
+		const started =
+			entry && typeof entry === 'object'
+				? Date.parse(String((entry as Record<string, unknown>)['started']))
+				: Number.NaN;
+		if (!Number.isNaN(started) && (!latest || started > latest.started)) {
+			latest = {name, started};
+		}
+	}
+	return latest?.name;
+}
+
+export function readAgentSession(
+	repoName: string,
+	issueKey: string,
+	agentProfile: string,
+	baseDir?: string,
+): string | undefined {
+	const entry = readAgentSessions(repoName, issueKey, baseDir)[agentProfile];
+	const id =
+		entry && typeof entry === 'object'
+			? (entry as Record<string, unknown>)['session_id']
+			: undefined;
+	return typeof id === 'string' ? id : undefined;
 }
 
 export function readSpaceState(

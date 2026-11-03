@@ -108,8 +108,8 @@ Ask: "Would you like Claude to run a skill automatically when a new workspace is
 
 Options:
 
-- **Yes, use `/do`** (default) — set `initialization_command: '/do'`
-- **Custom** — let them type a skill name
+- **Yes, use `/do`** (default) — set `initialization_command: 'do'`
+- **Custom** — let them type a skill name, written without its leading `/`
 - **No** — omit `initialization_command`
 
 If they chose `/do`, also offer to install the starter `/do` skill. Both files are required: `SKILL.md`'s first step copies `TODO-TEMPLATE.md` into the worktree, so fetching the skill alone leaves it broken:
@@ -422,7 +422,7 @@ issue_tracker:
   provider: linear
 
 # Initial prompt for new agent sessions (agent-agnostic)
-initialization_command: '/do'
+initialization_command: 'do'
 
 # Claude configuration
 claude:
@@ -470,7 +470,7 @@ issue_tracker:
   base_url: https://mycompany.atlassian.net
 
 # Initial prompt for new agent sessions (agent-agnostic)
-initialization_command: '/do'
+initialization_command: 'do'
 
 # Claude configuration
 claude:

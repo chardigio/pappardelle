@@ -46,10 +46,11 @@ vcs_host:
 claude:
   dangerously_skip_permissions: true # Pass --dangerously-skip-permissions to Claude (default: false)
 
-# Command passed to the agent on new sessions (optional, agent-agnostic).
-# Replaces the deprecated claude.initialization_command, which is still
-# accepted with a warning.
-initialization_command: '/idow'
+# Skill the agent runs on new sessions (optional, agent-agnostic), named
+# without its prefix: the agent profile's skill_prefix goes in front, so claude
+# gets /idow and codex $idow. Replaces the deprecated
+# claude.initialization_command, which is still accepted with a warning.
+initialization_command: idow
 
 # Agent profiles for the agent pane (optional). A built-in `claude` agent
 # profile always exists; see the Agent profiles section below.
@@ -474,7 +475,7 @@ interface PappardelleConfig {
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
 	ide_command?: string; // Command the `d` key runs to open an editor (default: cursor). Per-profile overridable. "" = disable `d`.
-	initialization_command?: string; // Command passed to the agent on new sessions (e.g. "/idow"). Agent-agnostic; replaces claude.initialization_command.
+	initialization_command?: string; // Skill the agent runs on new sessions, without its prefix (e.g. "idow"). Agent-agnostic; replaces claude.initialization_command.
 	agent_profiles?: Record<string, AgentProfileConfig>; // Named agent profiles for the agent pane. Built-in "claude" always exists.
 	agent_profile?: string; // Default agent profile name for all profiles (default: "claude"). Per-profile overridable.
 	claude?: {
@@ -496,6 +497,7 @@ interface AgentProfileConfig {
 	effort?: string; // Reasoning effort, rendered through effort_args. "" = no flag.
 	model_args?: string; // Flag template containing {model}. Built in for claude ("--model {model}") and codex ("-m {model}").
 	effort_args?: string; // Flag template containing {effort}. Built in for claude ("--effort {effort}") and codex ("-c model_reasoning_effort={effort}").
+	skill_prefix?: string; // Goes before a skill name (initialization_command, send_skill). "$" for codex, "/" otherwise.
 }
 
 interface Profile {
@@ -828,16 +830,17 @@ profiles:
     agent_profile: opus
 ```
 
-| Field         | Type      | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `command`     | `string`  | —        | Base binary or command, e.g. `codex` or `/usr/local/bin/claude`. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `args`        | `string`  | `""`     | Free-form flag string appended to every invocation (launch and resume). Codex's `--yolo` goes here — the skip-permissions pattern for non-claude agents.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `resume_args` | `string`  | —        | Appended for the resume attempt of the resume-then-launch chain. `{session_id}` is replaced with the workspace's recorded session id (see [Session resume](#session-resume)); with none recorded, claude falls back to `--continue` and other agents launch fresh. Claude defaults to `--resume {session_id}`; other agents default to none (launch directly). An explicit `''` also means "launch directly". Skipped when `idow` starts a new issue, and when it recreates a missing worktree for args with no `{session_id}` (claude keeps them, since its `--continue` follows the directory). |
-| `is_claude`   | `boolean` | derived  | Force or suppress claude treatment (see below). Unset ⇒ basename of the command's first token == `claude`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `model`       | `string`  | —        | Model to launch with, substituted into `model_args`. Not validated against known names, so a typo surfaces when the CLI rejects it. `''` passes no flag.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `effort`      | `string`  | —        | Reasoning effort to launch with, substituted into `effort_args`. `''` passes no flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `model_args`  | `string`  | built in | Flag template containing `{model}`. Built in: `--model {model}` for claude agent profiles, `-m {model}` when the command's basename is `codex`. Any other CLI needs it before `model` can be set.                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `effort_args` | `string`  | built in | Flag template containing `{effort}`. Built in: `--effort {effort}` for claude, `-c model_reasoning_effort={effort}` for codex.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Field          | Type      | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`      | `string`  | —        | Base binary or command, e.g. `codex` or `/usr/local/bin/claude`. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `args`         | `string`  | `""`     | Free-form flag string appended to every invocation (launch and resume). Codex's `--yolo` goes here — the skip-permissions pattern for non-claude agents.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `resume_args`  | `string`  | —        | Appended for the resume attempt of the resume-then-launch chain. `{session_id}` is replaced with the workspace's recorded session id (see [Session resume](#session-resume)); with none recorded, claude falls back to `--continue` and other agents launch fresh. Claude defaults to `--resume {session_id}`; other agents default to none (launch directly). An explicit `''` also means "launch directly". Skipped when `idow` starts a new issue, and when it recreates a missing worktree for args with no `{session_id}` (claude keeps them, since its `--continue` follows the directory). |
+| `is_claude`    | `boolean` | derived  | Force or suppress claude treatment (see below). Unset ⇒ basename of the command's first token == `claude`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `model`        | `string`  | —        | Model to launch with, substituted into `model_args`. Not validated against known names, so a typo surfaces when the CLI rejects it. `''` passes no flag.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `effort`       | `string`  | —        | Reasoning effort to launch with, substituted into `effort_args`. `''` passes no flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `model_args`   | `string`  | built in | Flag template containing `{model}`. Built in: `--model {model}` for claude agent profiles, `-m {model}` when the command's basename is `codex`. Any other CLI needs it before `model` can be set.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `effort_args`  | `string`  | built in | Flag template containing `{effort}`. Built in: `--effort {effort}` for claude, `-c model_reasoning_effort={effort}` for codex.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `skill_prefix` | `string`  | built in | What goes before a skill name: the `initialization_command` at launch and `send_skill` keybindings. Built in: `$` when the command's basename is `codex` (codex runs skills as `$name` and keeps `/` for its own commands), `/` for anything else.                                                                                                                                                                                                                                                                                                                                                |
 
 **Semantics:**
 
@@ -860,7 +863,7 @@ profiles:
 Example codex launch, given the config above and issue STA-123:
 
 ```
-codex --yolo -m gpt-5.5 -c model_reasoning_effort=high resume <recorded id> || <clear-error> || codex --yolo -m gpt-5.5 -c model_reasoning_effort=high '/idow STA-123'
+codex --yolo -m gpt-5.5 -c model_reasoning_effort=high resume <recorded id> || <clear-error> || codex --yolo -m gpt-5.5 -c model_reasoning_effort=high '$idow STA-123'
 ```
 
 ### Session resume
@@ -885,24 +888,24 @@ claude:
   dangerously_skip_permissions: true # Optional, default: false
 
 # Agent-agnostic initial prompt (top-level and/or per-profile)
-initialization_command: '/idow'
+initialization_command: idow
 
 profiles:
   stardust-jams:
-    initialization_command: '/do-stardust'
+    initialization_command: do-stardust
 ```
 
-| Field                          | Type       | Default | Description                                                                                                                                                                                                                                        |
-| ------------------------------ | ---------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `initialization_command`       | `string`   | `""`    | Top-level / profile-level (not inside `claude:`). Command passed to the agent when opening a new session, typically a skill name like `/idow`. When empty, the agent opens with just the issue key; a profile's `''` clears the top-level command. |
-| `dangerously_skip_permissions` | `boolean`  | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                                                                  |
-| `model`                        | `string`   | `""`    | Deprecated: set `model` on an agent profile. Still the fallback for claude agent profiles that set no model of their own.                                                                                                                          |
-| `effort`                       | `string`   | `""`    | Deprecated: set `effort` on an agent profile. Same fallback as `model`.                                                                                                                                                                            |
-| `extra_args`                   | `string[]` | `[]`    | Deprecated: set `args` on an agent profile. Raw flags for claude agent profiles, each shell-quoted as one argument, placed after the model/effort flags. A profile list replaces the global list; `[]` on a profile clears it.                     |
+| Field                          | Type       | Default | Description                                                                                                                                                                                                                                   |
+| ------------------------------ | ---------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialization_command`       | `string`   | `""`    | Top-level / profile-level (not inside `claude:`). Skill the agent runs when opening a new session, named without its prefix, like `idow`. When empty, the agent opens with just the issue key; a profile's `''` clears the top-level command. |
+| `dangerously_skip_permissions` | `boolean`  | `false` | When `true`, Claude is launched with `--dangerously-skip-permissions`. This bypasses all permission prompts. Only enable in trusted repositories.                                                                                             |
+| `model`                        | `string`   | `""`    | Deprecated: set `model` on an agent profile. Still the fallback for claude agent profiles that set no model of their own.                                                                                                                     |
+| `effort`                       | `string`   | `""`    | Deprecated: set `effort` on an agent profile. Same fallback as `model`.                                                                                                                                                                       |
+| `extra_args`                   | `string[]` | `[]`    | Deprecated: set `args` on an agent profile. Raw flags for claude agent profiles, each shell-quoted as one argument, placed after the model/effort flags. A profile list replaces the global list; `[]` on a profile clears it.                |
 
-The initialization command is combined with the issue key: `<command> <issue-key>` (e.g., `/idow STA-481`). It applies to every agent, which is why it lives outside the `claude:` block. The old `claude.initialization_command` spelling is deprecated but still accepted (with a warning naming the file to edit); setting both spellings at the same level _in the same file_ is a validation error. Across config layers, each file's old spelling is read as the new key before the layers merge, so the more specific layer wins whichever spelling it uses: a project still on the old spelling overrides a home config that has migrated, and neither conflicts with the other.
+The initialization command is combined with the agent profile's `skill_prefix` and the issue key: `<prefix><command> <issue-key>` (e.g., `/idow STA-481` for claude, `$idow STA-481` for codex). A value that still starts with `/` is the old form: the TUI warns and offers to rewrite it, and `idow` refuses to launch until it is rewritten. It applies to every agent, which is why it lives outside the `claude:` block. The old `claude.initialization_command` spelling is deprecated but still accepted (with a warning naming the file to edit); setting both spellings at the same level _in the same file_ is a validation error. Across config layers, each file's old spelling is read as the new key before the layers merge, so the more specific layer wins whichever spelling it uses: a project still on the old spelling overrides a home config that has migrated, and neither conflicts with the other.
 
-**Per-profile overrides**: When a profile defines `initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `/do-stardust` for profiles that use a TODO.md checklist workflow).
+**Per-profile overrides**: When a profile defines `initialization_command`, it takes precedence over the global value. This allows different profiles to use different initialization skills (e.g., `do-stardust` for profiles that use a TODO.md checklist workflow).
 
 **Model and effort** moved to agent profiles (see [Agent profiles](#agent-profiles)), where they work for any CLI. `claude.model` and `claude.effort` still work, with a warning naming the file to edit, as the fallback for claude agent profiles that set no `model`/`effort` of their own. The fallback keeps its old layering: a profile's `claude.model` wins over the top-level one, and an explicit `''` at the profile level clears the inherited value.
 
@@ -930,7 +933,7 @@ profiles:
     agent_profile: claude-sonnet
 ```
 
-Pappardelle offers to do this for you when it starts on an old-format config. It rewrites every file that still has `claude.model`, `claude.effort`, `claude.extra_args` or `claude.initialization_command` (the home, repo and local files), keeping comments, and only when the rewritten config launches every profile exactly as before. Otherwise it says why and offers to open Claude with a prompt describing the change. Declining leaves the files and their warnings alone until the next start. Two things to know before accepting:
+Pappardelle offers to do this for you when it starts on an old-format config. It rewrites every file that still has `claude.model`, `claude.effort`, `claude.extra_args`, `claude.initialization_command` or an `initialization_command` starting with `/` (the home, repo and local files), keeping comments, and only when the rewritten config launches every profile exactly as before. Otherwise it says why and offers to open Claude with a prompt describing the change. Declining leaves the files and their warnings alone until the next start. Two things to know before accepting:
 
 - Each file's agent profiles take the values they launch with today, and some of those may come from your home config, so the repo `.pappardelle.yml` can pick up personal settings. Check the diff before committing it
 - The home config is shared by every repo. Once it is rewritten, a repo still on the old format stops using its own `claude.model` / `claude.effort` wherever the home config's agent profile sets them, and that repo's own rewrite can't bring them back. Rewrite those repos first, or move their values by hand
@@ -1391,17 +1394,23 @@ keybindings:
     run: 'cd ${WORKTREE_PATH} && uv run pytest'
   - key: 'a'
     name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
+    send_skill: address-pr-feedback
+  - key: 'c'
+    name: 'Compact'
+    send_to_claude: '/compact'
 ```
 
 ### Keybinding Fields
 
-| Field            | Type     | Description                                                                              |
-| ---------------- | -------- | ---------------------------------------------------------------------------------------- |
-| `key`            | `string` | Single character key to bind (must not conflict with built-in shortcuts)                 |
-| `name`           | `string` | Human-readable name shown in help overlay and status messages                            |
-| `run`            | `string` | Command to execute (supports template variables). Use either `run` or `send_to_claude`.  |
-| `send_to_claude` | `string` | Text to send to the Claude pane (sent with Enter). Use either `run` or `send_to_claude`. |
+| Field            | Type     | Description                                                                                                         |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `key`            | `string` | Single character key to bind (must not conflict with built-in shortcuts)                                            |
+| `name`           | `string` | Human-readable name shown in help overlay and status messages                                                       |
+| `run`            | `string` | Command to execute (supports template variables).                                                                   |
+| `send_to_claude` | `string` | Text to send to the agent pane as-is (sent with Enter).                                                             |
+| `send_skill`     | `string` | Skill to run in the agent pane, named without its prefix. The space's agent profile's `skill_prefix` goes in front. |
+
+Each keybinding sets exactly one of `run`, `send_to_claude` and `send_skill`.
 
 ### Reserved Keys
 
@@ -1418,8 +1427,9 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 ### Behavior
 
 - **`run` keybindings**: Commands run with `cwd` set to the selected workspace's worktree path. Status is shown in the header: "Running: {name}..." then "✓ {name} ({time})" or "✗ {name} failed". Only one custom command can run at a time. Template variables are expanded using the selected workspace's context.
-- **`send_to_claude` keybindings**: Text is sent directly to the Claude viewer pane (with Enter). Any partial input in the Claude prompt is cleared first. Useful for sending slash commands like `/address-pr-feedback`.
-- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section. `send_to_claude` keybindings show "→ agent" to indicate they target the agent pane.
+- **`send_to_claude` keybindings**: Text is sent directly to the Claude viewer pane (with Enter). Any partial input in the Claude prompt is cleared first. Useful for an agent's own commands like `/compact`.
+- **`send_skill` keybindings**: Like `send_to_claude`, with the skill prefix of the agent running in the space, so `address-pr-feedback` reaches claude as `/address-pr-feedback` and codex as `$address-pr-feedback`. The running agent is the one whose session the hook recorded last (see [Session resume](#session-resume)), which covers a one-launch override from the picker; with none recorded, the space's profile decides.
+- Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section. `send_to_claude` and `send_skill` keybindings show "→ agent" to indicate they target the agent pane.
 
 ### Template Variables in Keybindings
 

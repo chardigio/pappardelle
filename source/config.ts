@@ -48,7 +48,10 @@ export interface KeybindingConfig {
 	key: string;
 	name: string;
 	run?: string;
+	/** Text typed into the agent pane as-is. */
 	send_to_claude?: string;
+	/** A skill name, sent with the space's agent's skill prefix. */
+	send_skill?: string;
 	disabled?: boolean;
 }
 
@@ -135,6 +138,13 @@ export interface AgentProfileConfig {
 	 * `-c model_reasoning_effort={effort}` for codex.
 	 */
 	effort_args?: string;
+	/**
+	 * What goes before a skill name when pappardelle invokes one: the
+	 * `initialization_command` at launch and `send_skill` keybindings. Codex
+	 * runs skills as `$name` but keeps `/` for its own commands, so the prefix
+	 * belongs to the agent. Defaults to `$` for codex and `/` for anything else.
+	 */
+	skill_prefix?: string;
 }
 
 export interface HooksConfig {
@@ -968,8 +978,46 @@ export function deprecationWarnings(
 	layer: Record<string, unknown>,
 	file: string,
 ): string[] {
-	return findDeprecatedClaudeFields(layer).map(({label, field}) =>
-		deprecationMessage(file, label, field),
+	return [
+		...findDeprecatedClaudeFields(layer).map(({label, field}) =>
+			deprecationMessage(file, label, field),
+		),
+		...findPrefixedInitializationCommands(layer).map(
+			({key, value}) =>
+				`${file}: ${key} "${value}" includes the skill prefix — write "${value.slice(1)}"; the agent profile's skill_prefix is added at launch`,
+		),
+	];
+}
+
+/**
+ * Every initialization_command a raw layer writes in the old form, with the
+ * skill's `/` in front, in either spelling. That form predates skill_prefix:
+ * read as a skill name, `/idow` would launch claude with `//idow`.
+ */
+export function findPrefixedInitializationCommands(
+	layer: Record<string, unknown>,
+): Array<{key: string; value: string}> {
+	return configContainers(layer).flatMap(({container, label}) =>
+		[
+			{key: 'initialization_command', fields: container},
+			{key: 'claude.initialization_command', fields: container['claude']},
+		].flatMap(({key, fields}) => {
+			const value =
+				fields && typeof fields === 'object'
+					? (fields as Record<string, unknown>)['initialization_command']
+					: undefined;
+			return typeof value === 'string' && value.startsWith('/')
+				? [{key: `${label}${key}`, value}]
+				: [];
+		}),
+	);
+}
+
+/** Whether a raw layer still uses a format the config rewrite replaces. */
+export function needsConfigRewrite(layer: Record<string, unknown>): boolean {
+	return (
+		findDeprecatedClaudeFields(layer).length > 0 ||
+		findPrefixedInitializationCommands(layer).length > 0
 	);
 }
 
@@ -1446,11 +1494,12 @@ export function validateConfig(
 				if (typeof binding['name'] !== 'string') {
 					errors.push(`keybindings[${i}].name: required string field`);
 				}
-				const hasRun = typeof binding['run'] === 'string';
-				const hasSendToClaude = typeof binding['send_to_claude'] === 'string';
-				if (!hasRun && !hasSendToClaude) {
+				const actions = ['run', 'send_to_claude', 'send_skill'].filter(
+					action => typeof binding[action] === 'string',
+				);
+				if (actions.length !== 1) {
 					errors.push(
-						`keybindings[${i}]: must have either 'run' or 'send_to_claude'`,
+						`keybindings[${i}]: must have exactly one of 'run', 'send_to_claude' or 'send_skill'`,
 					);
 				}
 			}
@@ -1517,6 +1566,7 @@ const AGENT_PROFILE_STRING_FIELDS = [
 	'effort',
 	'model_args',
 	'effort_args',
+	'skill_prefix',
 ] as const;
 
 /**
@@ -2684,6 +2734,13 @@ function builtinLaunchTemplates(
 	return {};
 }
 
+/** Mirrored by resolve-agent-config.sh. */
+function builtinSkillPrefix(
+	definition: Pick<AgentProfileConfig, 'command'>,
+): string {
+	return commandBasename(definition.command) === 'codex' ? '$' : '/';
+}
+
 /**
  * Model ids like `claude-opus-5[1m]` carry glob characters, so anything that
  * isn't a bare token is single-quoted. resolve-agent-config.sh quotes the same
@@ -2843,6 +2900,7 @@ export interface ResolvedAgentProfile {
 	effortArgs?: string;
 	/** The deprecated `claude.extra_args`, rendered after model/effort. */
 	extraArgs: string[];
+	skillPrefix: string;
 }
 
 /**
@@ -2875,6 +2933,7 @@ function resolveAgentProfile(
 		modelArgs: definition.model_args ?? builtin.model,
 		effortArgs: definition.effort_args ?? builtin.effort,
 		extraArgs: [],
+		skillPrefix: definition.skill_prefix ?? builtinSkillPrefix(definition),
 	};
 }
 

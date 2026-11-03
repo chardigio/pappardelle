@@ -18,7 +18,7 @@ Just point your profile at the skill — that's it:
 
 ```yaml
 claude:
-  initialization_command: '/do'
+  initialization_command: 'do'
 ```
 
 **Per-profile** (overrides global for a specific profile):
@@ -27,7 +27,7 @@ claude:
 profiles:
   my-profile:
     claude:
-      initialization_command: '/do'
+      initialization_command: 'do'
 ```
 
 ## Files

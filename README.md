@@ -237,7 +237,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
-6. **Agent & companion sessions spawned** — A named tmux session is created and the configured agent (Claude Code by default) is launched inside it. If `initialization_command` is set in `.pappardelle.yml` (e.g., `/do`), that command is passed to the agent along with the issue key. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
+6. **Agent & companion sessions spawned** — A named tmux session is created and the configured agent (Claude Code by default) is launched inside it. If `initialization_command` is set in `.pappardelle.yml` (e.g., `do`), the agent runs that skill with the issue key: `/do STA-123` in claude, `$do STA-123` in codex. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
 
 ---
 
@@ -245,7 +245,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 ![Spec-driven development in Linear](assets/spec-driven-development-linear.png)
 
-Pappardelle's recommended `/do` skill (set via `initialization_command` in `.pappardelle.yml`) starts every Claude session with a **planning-first workflow**. Before writing any code, the agent researches and uses Claude Code's `AskUserQuestion` tool to clarify requirements — asking about ambiguous scope, confirming design decisions, and validating edge cases. The goal is to turn a rough prompt into a detailed, unambiguous spec — **written back to the issue description** — before the first line of code is written.
+Pappardelle's recommended `/do` skill (set via `initialization_command: do` in `.pappardelle.yml`) starts every Claude session with a **planning-first workflow**. Before writing any code, the agent researches and uses Claude Code's `AskUserQuestion` tool to clarify requirements — asking about ambiguous scope, confirming design decisions, and validating edge cases. The goal is to turn a rough prompt into a detailed, unambiguous spec — **written back to the issue description** — before the first line of code is written.
 
 ### Why this matters
 
@@ -274,7 +274,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys; beads ID prefixes) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
 - **Agent profiles** — `agent_profiles:` names the CLI a workspace runs (Claude Code by default, or Codex or any other CLI) with its `model`, `effort` and `args`. A profile picks one with `agent_profile:`. Omit `model` and `effort` and no flag is passed, so the CLI picks its own default. The older `claude.model` / `claude.effort` / `claude.extra_args` still work with a deprecation warning, and Pappardelle offers to rewrite them on startup.
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
-- **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
+- **Custom keybindings** — Bind single keys to bash commands (`run`), skills (`send_skill`) or text for the agent (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira, beads) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
 - **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). Initialization hooks with `background: true` continue without delaying workspace readiness; their output goes to `~/Library/Logs/stardust-workspace/idow.log`. `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).

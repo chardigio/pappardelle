@@ -205,6 +205,7 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' AGENT_ARGS
         IFS= read -r -d '' AGENT_RESUME_ARGS
         IFS= read -r -d '' AGENT_IS_CLAUDE
+        IFS= read -r -d '' AGENT_SKILL_PREFIX
         IFS= read -r -d '' AGENT_PROFILE
         IFS= read -r -d '' AGENT_LAUNCH_FLAGS
         IFS= read -r -d '' INIT_CMD
@@ -213,7 +214,7 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' deprecations
         IFS= read -r -d '' profile_deprecations
     } < <(jq -j '[.companion_command, .skip_permissions, .model, .effort, .agent_command, .agent_args,
-        .agent_resume_args, .agent_is_claude, .agent_profile, .agent_launch_flags, .init_cmd,
+        .agent_resume_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .init_cmd,
         .profile_init_cmd_set, .profile_init_cmd, .deprecation_warnings,
         .profile_deprecation_warnings][] | tostring | sub("\n+$"; "") + "\u0000"' <<< "$json")
     [[ -n "$AGENT_MODEL" ]] && log "Model: $AGENT_MODEL"
@@ -239,6 +240,12 @@ resolve_agent_launch_config() {
     if [[ "$profile_init_cmd_set" == true ]]; then
         INIT_CMD="$profile_init_cmd"
         log "Using per-profile initialization_command: $INIT_CMD"
+    fi
+    if [[ "$INIT_CMD" == /* ]]; then
+        error "initialization_command \"$INIT_CMD\" includes the skill prefix. Write \"${INIT_CMD#/}\": the agent profile's skill_prefix is added at launch. The Pappardelle TUI offers to rewrite it."
+    fi
+    if [[ -n "$INIT_CMD" ]]; then
+        INIT_CMD="${AGENT_SKILL_PREFIX}${INIT_CMD}"
     fi
     return 0
 }

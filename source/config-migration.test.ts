@@ -14,6 +14,7 @@ import {
 } from './config.ts';
 import {
 	applyConfigMigrations,
+	buildConfigMigrationConfirmContent,
 	confirmConfigMigrations,
 	dismissResolvedDeprecationWarnings,
 	planConfigMigrations,
@@ -122,8 +123,8 @@ test('every profile launches the same way after the rewrite', t => {
 	t.is(migrations.length, 2);
 	const after = loadConfigFromPaths(paths);
 	t.deepEqual(launches(after), launches(before));
-	t.is(getInitializationCommand(after), '/idow');
-	t.is(after.profiles['project']!.initialization_command, '/plan');
+	t.is(getInitializationCommand(after), 'idow');
+	t.is(after.profiles['project']!.initialization_command, 'plan');
 	t.true(after.claude?.dangerously_skip_permissions);
 	for (const {path: file} of migrations) {
 		const layer = YAML.load(fs.readFileSync(file, 'utf8')) as Record<
@@ -296,7 +297,7 @@ test('comments on moved keys follow them, and a header above claude: stays', t =
 			'version: 1',
 			'profiles: {}',
 			'# kick off',
-			'initialization_command: "/idow"',
+			'initialization_command: "idow"',
 			'agent_profiles:',
 			'  claude:',
 			'    command: claude',
@@ -307,10 +308,52 @@ test('comments on moved keys follow them, and a header above claude: stays', t =
 	);
 });
 
-test('a config on the current format needs no rewrite', t => {
+test('an initialization_command written with its skill prefix loses it', t => {
+	const paths = setup(
+		[
+			'version: 1',
+			"initialization_command: '/idow' # kick off",
+			'profiles:',
+			'  api:',
+			'    display_name: Api',
+			'    initialization_command: /plan',
+			'',
+		].join('\n'),
+	);
+
+	migrate(paths);
+
+	t.is(
+		fs.readFileSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 'utf8'),
+		[
+			'version: 1',
+			"initialization_command: 'idow' # kick off",
+			'profiles:',
+			'  api:',
+			'    display_name: Api',
+			'    initialization_command: plan',
+			'',
+		].join('\n'),
+	);
+	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+});
+
+test('dropping a skill prefix in the home config warns about nothing it doesn’t move', t => {
 	const paths = setup({
 		version: 1,
 		initialization_command: '/idow',
+		profiles: {plain: {display_name: 'Plain'}},
+	});
+
+	const {detail} = buildConfigMigrationConfirmContent(readyMigrations(paths));
+
+	t.false(detail.includes('shared by every repo'));
+});
+
+test('a config on the current format needs no rewrite', t => {
+	const paths = setup({
+		version: 1,
+		initialization_command: 'idow',
 		agent_profiles: {claude: {command: 'claude', model: 'opus'}},
 		profiles: {plain: {display_name: 'Plain'}},
 	});

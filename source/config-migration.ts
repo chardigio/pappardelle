@@ -23,6 +23,7 @@ import {
 	getNamedAgentProfile,
 	LAUNCH_FIELDS,
 	mergeConfigLayers,
+	needsConfigRewrite,
 	parseConfigLayer,
 	quoteLaunchValue,
 	renderAgentLaunchFlags,
@@ -40,6 +41,8 @@ export type ConfigMigration = {
 	displayPath: string;
 	path: string;
 	content: string;
+	/** Whether it moves claude: launch settings, not just init commands. */
+	movesLaunchSettings: boolean;
 };
 
 /** A profile whose spaces launch a differently named agent profile after the rewrite. */
@@ -216,6 +219,22 @@ function migrateLayer(
 		copy.comment = undefined;
 		copy.commentBefore = undefined;
 		document.setIn(initPath(profileName), copy);
+	}
+
+	// The command names a skill now, and the agent profile's skill_prefix goes
+	// in front of it at launch.
+	for (const profileName of [
+		undefined,
+		...Object.keys(asFields(file.layer['profiles']) ?? {}),
+	]) {
+		const node = document.getIn(initPath(profileName), true);
+		if (
+			isScalar(node) &&
+			typeof node.value === 'string' &&
+			node.value.startsWith('/')
+		) {
+			node.value = node.value.slice(1);
+		}
 	}
 
 	const ownsFallback = deprecated.some(
@@ -411,9 +430,13 @@ function launches(config: PappardelleConfig): Record<string, string> {
 					.filter(Boolean)
 					.sort()
 					.join(' ');
-			const init = profileName
-				? (config.profiles[profileName]?.initialization_command ?? topInit)
-				: topInit;
+			// `/idow` before and `idow` after are the same skill. Read with its
+			// agent's prefix, codex now gets the `$idow` it runs skills with.
+			const init = (
+				profileName
+					? (config.profiles[profileName]?.initialization_command ?? topInit)
+					: topInit
+			).replace(/^\//, '');
 			return [
 				profileName ?? '',
 				JSON.stringify({flags, resume: agent.resumeArgs, init}),
@@ -463,11 +486,7 @@ export function planConfigMigrations(
 		return {kind: 'none'};
 	}
 
-	if (
-		!files.some(
-			({layer}) => layer && findDeprecatedClaudeFields(layer).length > 0,
-		)
-	) {
+	if (!files.some(({layer}) => layer && needsConfigRewrite(layer))) {
 		return {kind: 'none'};
 	}
 
@@ -508,6 +527,9 @@ function planRewrite(
 			displayPath: displayPath(file.path),
 			path: file.path,
 			content,
+			movesLaunchSettings: findDeprecatedClaudeFields(file.layer).some(
+				({field}) => field !== 'initialization_command',
+			),
 		});
 		return {...file, content, layer: parseConfigLayer(file.label, content)};
 	});
@@ -525,12 +547,12 @@ function planRewrite(
 	}
 
 	const leftover = rewritten.find(
-		({layer}) => layer && findDeprecatedClaudeFields(layer).length > 0,
+		({layer}) => layer && needsConfigRewrite(layer),
 	);
 	if (leftover) {
 		return {
 			kind: 'unsupported',
-			reason: `${leftover.label} has a claude: setting that can't be moved`,
+			reason: `${leftover.label} has a setting that can't be rewritten`,
 		};
 	}
 
@@ -721,22 +743,24 @@ export function dismissResolvedDeprecationWarnings(
 export function buildConfigMigrationConfirmContent(
 	migrations: ConfigMigration[],
 ) {
-	const rewritesHome = migrations.some(m => m.label === HOME_LABEL);
+	const movesHome = migrations.some(
+		m => m.label === HOME_LABEL && m.movesLaunchSettings,
+	);
 	return {
 		title: 'Update Config Format',
 		message:
-			'Your config uses deprecated claude: settings that agent profiles replaced. Rewrite it to the new format?',
+			'Your config uses deprecated settings. Rewrite it to the new format?',
 		detail: [
 			`Rewrites ${migrations.map(m => m.displayPath).join(', ')}, keeping comments and formatting.`,
 			// Each file's agent profiles get the values they launched with, and
 			// some of those came from the home config.
-			rewritesHome && migrations.some(m => m.label === PROJECT_LABEL)
+			movesHome && migrations.some(m => m.label === PROJECT_LABEL)
 				? `Settings from ${HOME_LABEL} are copied into ${PROJECT_LABEL} so every profile launches as it does now. That file is usually committed, so check the diff before you share it.`
 				: '',
 			// An agent profile's own model or effort beats the claude.* fallback
 			// of a repo still on the old format, and that repo's rewrite then
 			// compares against the changed launch.
-			rewritesHome
+			movesHome
 				? `${HOME_LABEL} is shared by every repo. A repo still on the old format stops using its own claude.model and claude.effort wherever the rewritten home config sets them, and rewriting that repo later won't bring them back.`
 				: '',
 		]
@@ -749,7 +773,7 @@ export function buildConfigMigrationConfirmContent(
 export function buildConfigFixConfirmContent(reason: string) {
 	return {
 		title: 'Config Not Rewritten',
-		message: `Pappardelle couldn't rewrite your config to the agent-profile format: ${reason}. Ask Claude to fix it?`,
+		message: `Pappardelle couldn't rewrite your config to the new format: ${reason}. Ask Claude to fix it?`,
 		detail: 'Opens claude in a popup with a prompt describing the change.',
 	};
 }
@@ -771,7 +795,7 @@ export function buildConfigFixPrompt(
 		}
 	});
 	return [
-		`My pappardelle config still uses deprecated claude: settings, and pappardelle couldn't rewrite it automatically: ${reason}.`,
+		`My pappardelle config still uses deprecated settings, and pappardelle couldn't rewrite it automatically: ${reason}.`,
 		'',
 		[
 			'Config files, lowest priority first; they deep-merge in this order',
@@ -784,8 +808,9 @@ export function buildConfigFixPrompt(
 		'Deprecation warnings:',
 		...warnings.map(warning => `- ${warning}`),
 		'',
-		'Rewrite them so no claude.initialization_command, claude.model, claude.effort or claude.extra_args remain, and every profile launches with exactly the same command, args, model, effort and initial prompt as today:',
+		'Rewrite them so no claude.initialization_command, claude.model, claude.effort or claude.extra_args remain, no initialization_command starts with /, and every profile launches with exactly the same command, args, model, effort and initial prompt as today:',
 		'- claude.initialization_command becomes initialization_command at the same level',
+		"- initialization_command names a skill without its prefix (`/idow` becomes `idow`); pappardelle adds the agent profile's skill_prefix at launch",
 		'- a space launches the agent profile its profile selects (profiles.<name>.agent_profile, else the top-level agent_profile, else the built-in claude agent profile `command: claude`)',
 		"- an agent profile's own model/effort always win, an empty string included; claude.model/effort only fill in for claude agent profiles (command claude, or is_claude: true) that leave them unset, and other CLIs never read them",
 		"- profiles.<name>.claude.* beat the top-level claude.* for that profile; extra_args (profile list over top-level list) are appended after the agent profile's args and after the flags rendered from model/effort, so an extra arg repeating --model or --effort wins today; keep that value",

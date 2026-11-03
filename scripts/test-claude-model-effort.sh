@@ -324,6 +324,32 @@ assert_eq "hyphenated profile effort" "medium" "$(echo "$OUT" | field effort)"
 cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
+# A skill is invoked as $name in codex and /name elsewhere, unless the agent
+# profile sets its own skill_prefix.
+
+echo -e "\n${BOLD}Test: agent profile skill prefix${RESET}"
+setup_configs "version: 1
+agent_profiles:
+  codex:
+    command: codex
+  wrapped-codex:
+    command: codex
+    skill_prefix: '!'
+profiles:
+  codex:
+    display_name: Codex
+    agent_profile: codex
+  wrapped:
+    display_name: Wrapped
+    agent_profile: wrapped-codex
+  plain:
+    display_name: Plain"
+assert_eq "codex runs skills with \$" '$' "$(resolve --profile codex | field agent_skill_prefix)"
+assert_eq "claude runs skills with /" "/" "$(resolve --profile plain | field agent_skill_prefix)"
+assert_eq "an agent profile's skill_prefix wins" "!" "$(resolve --profile wrapped | field agent_skill_prefix)"
+cleanup
+
+# ==========================================================================
 # Agent profiles carry their own model/effort, rendered into agent_launch_flags
 # through built-in (claude, codex) or configured templates. The deprecated
 # claude block only fills in for claude agent profiles.

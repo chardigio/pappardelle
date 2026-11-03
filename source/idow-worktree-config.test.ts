@@ -1018,7 +1018,7 @@ test.serial('block-scalar launch settings strip trailing newlines', async t => {
 		path.join(fixture.main, '.pappardelle.local.yml'),
 		`claude:
   initialization_command: |+
-    /do
+    do
 
   model: |
     opus

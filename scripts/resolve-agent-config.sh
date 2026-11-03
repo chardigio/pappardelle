@@ -46,6 +46,9 @@
 # basename-of-first-token == "claude" — same predicate as getAgentProfile().
 # agent_resume_args comes back with {session_id} unfilled; idow fills it from
 # the space's agent-sessions file.
+# agent_skill_prefix is what goes before a skill name: the agent profile's
+# skill_prefix, else "$" for codex and "/" for anything else, same as
+# getAgentProfile().
 #
 # model and effort are the agent profile's own values, else (claude agent
 # profiles only) the deprecated claude.model / claude.effort. They are rendered
@@ -156,7 +159,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ((.agent_profiles // {}) | keys) as $agent_profile_names |
     (.profiles[strenv(PROFILE)] // {}) as $selected |
     ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
-    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args"] as $fields |
+    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "skill_prefix"] as $fields |
     {
         "initialization_command": .initialization_command,
         "claude": {
@@ -249,6 +252,8 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_resume_args: (if $def_resolved | has("resume_args") then ($def_resolved.resume_args // "")
                             elif $is_claude then "--resume {session_id}" else "" end),
         agent_is_claude: $is_claude,
+        agent_skill_prefix: (if $def_resolved | has("skill_prefix") then ($def_resolved.skill_prefix // "")
+                             elif ($def_resolved.command | basename) == "codex" then "$" else "/" end),
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),

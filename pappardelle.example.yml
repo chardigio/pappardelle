@@ -37,7 +37,7 @@ team_prefix: ENG
 
 # Command passed to the agent when a new session opens (optional, agent-agnostic).
 # Also settable per-profile. Replaces the deprecated claude.initialization_command.
-# initialization_command: "/idow"
+# initialization_command: "idow"
 
 # Claude configuration (optional; applies only when the agent is claude)
 # claude:
@@ -210,7 +210,7 @@ profiles:
     # instead of Claude Code.
     # agent_profile: codex
     # Per-profile initial prompt override (optional, agent-agnostic).
-    # initialization_command: '/do-ios'
+    # initialization_command: 'do-ios'
     vars:
       IOS_APP_DIR: 'ios/MyApp'
       BUNDLE_ID: 'com.example.myapp'

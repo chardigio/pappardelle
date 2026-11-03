@@ -15,7 +15,7 @@ default_profile: pappardelle
 team_prefix: STA
 
 # Slash command passed to the agent when a session opens (agent-agnostic).
-initialization_command: '/idow'
+initialization_command: 'idow'
 
 # Claude configuration — launch flags for workspaces whose agent is claude.
 claude:
@@ -136,10 +136,10 @@ keybindings:
   # send_to_claude — send a slash command to the active Claude session
   - key: 'a'
     name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
+    send_skill: address-pr-feedback
   - key: 'f'
     name: 'Fix PR pipeline'
-    send_to_claude: '/fix-pr-pipeline'
+    send_skill: fix-pr-pipeline
   - key: 'c'
     name: 'Clear context'
     send_to_claude: '/clear'
@@ -183,7 +183,7 @@ profiles:
       assignee: me
       statuses:
         - Ready for Pappardelle
-    initialization_command: '/do-stardust' # Profile-level init override
+    initialization_command: 'do-stardust' # Profile-level init override
     agent_profile: claude-sonnet # Its own model and effort
     vars:
       IOS_APP_DIR: '_ios/stardust-jams'
@@ -225,7 +225,7 @@ profiles:
       - guess
     display_name: 'King Bee'
     emoji: '🐝'
-    initialization_command: '/do-king-bee' # Each profile can have its own init command
+    initialization_command: 'do-king-bee' # Each profile can have its own init command
     vars:
       IOS_APP_DIR: '_ios/King Bee'
       BUNDLE_ID: 'com.cd17822.King-Bee'
@@ -262,7 +262,7 @@ profiles:
       - workspace
     display_name: 'Pappardelle'
     emoji: '🍝'
-    initialization_command: '/do-pappardelle'
+    initialization_command: 'do-pappardelle'
     agent_profile: claude-default-model
     github:
       label: 'pappardelle'

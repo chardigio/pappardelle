@@ -74,7 +74,7 @@ profiles:
     emoji: '🎸' # Optional — shown in the ticket rail (STA-924)
     team_prefix: PREFIX # Optional per-profile override
     agent_profile: codex # Optional — named agent profile from the top-level `agent_profiles:` map
-    initialization_command: '/do' # Optional per-profile override (agent-agnostic)
+    initialization_command: do # Optional per-profile override (agent-agnostic)
     vars: # Custom template variables
       KEY: 'value'
     vcs:
@@ -133,7 +133,7 @@ Remind the user to quit and relaunch the TUI to see the change.
 Keybindings are single-key shortcuts in the Pappardelle TUI. Ask with `AskUserQuestion`:
 
 1. **Which key?** — single character. Blocked: `j`, `k`, `n`, `q`, `?`. Allowed but shadows a built-in default: `g`, `i`, `d`, `o`, `e`, `p`, `K`
-2. **What should it do?** — run a bash command (`run`) or send text to Claude (`send_to_claude`)
+2. **What should it do?** — run a bash command (`run`), run a skill in the agent (`send_skill`, named without `/` or `$`: the agent's prefix is added), or send text to the agent as-is (`send_to_claude`, for the agent's own commands like `/compact`)
 3. **Display name** — shown in the help overlay
 4. **Shared or personal?** — shared goes in `.pappardelle.yml`, personal goes in `.pappardelle.local.yml`
 
@@ -144,7 +144,7 @@ keybindings:
     run: 'cd ${WORKTREE_PATH} && make build'
   - key: 'a'
     name: 'Address PR feedback'
-    send_to_claude: '/address-pr-feedback'
+    send_skill: address-pr-feedback
 ```
 
 ### PR-dependent keybindings
@@ -289,7 +289,7 @@ vcs_host:
 ## Configuring Claude Settings
 
 ```yaml
-initialization_command: '/do' # Skill to run on new sessions (agent-agnostic; top-level, NOT inside claude:)
+initialization_command: do # Skill to run on new sessions, without its / or $ (agent-agnostic; top-level, NOT inside claude:)
 
 claude: # Applies only when the agent is claude
   dangerously_skip_permissions: false # 'yolo mode'
@@ -302,7 +302,7 @@ Per-profile overrides take precedence:
 ```yaml
 profiles:
   my-profile:
-    initialization_command: '/do-custom'
+    initialization_command: do-custom
 ```
 
 `claude.model` / `claude.effort` / `claude.extra_args` are deprecated: model,
