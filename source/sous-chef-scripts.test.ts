@@ -727,6 +727,21 @@ test.serial(
 	},
 );
 
+test.serial(
+	'wait-for-agent: succeeds when a later event replaced SessionStart',
+	async t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		const since = Date.now();
+		writeAgentStatus(home, {
+			event: 'Stop',
+			cwd: agentWorktree(home),
+			lastUpdate: since,
+		});
+		t.is(await runWaitForAgent(home, {since}), 0);
+	},
+);
+
 test.serial('wait-for-agent: times out when the agent ended', async t => {
 	const home = createTempHome();
 	setupDirs(home, 'test-repo');

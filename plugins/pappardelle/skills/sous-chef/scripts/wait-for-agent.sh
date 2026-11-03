@@ -4,8 +4,10 @@
 # only checks that the tmux session exists, so sending without this check can
 # run the chef's instruction as a shell command.
 #
-# Exits 0 once the space's status file records a SessionStart from this repo's
-# worktree at or after <since-ms>; exits 1 on timeout.
+# Exits 0 once the space's status file records a hook event other than
+# SessionEnd from this repo's worktree at or after <since-ms>; exits 1 on
+# timeout. Only a running agent fires hooks, and the file keeps just the latest
+# event, so a later event can replace SessionStart before the next poll.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -38,7 +40,7 @@ def started():
         return False
     cwd = status.get('cwd') or ''
     return (
-        status.get('event') == 'SessionStart'
+        status.get('event') not in (None, 'SessionEnd')
         and (cwd == worktree or cwd.startswith(worktree + '/'))
         and (status.get('lastUpdate') or 0) >= since_ms
     )
