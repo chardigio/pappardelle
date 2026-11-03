@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {execSync} from 'node:child_process';
+import {execSync, spawn} from 'node:child_process';
 import test from 'ava';
 
 // ============================================================================
@@ -628,5 +628,136 @@ test.serial(
 		const result = runReadConversation(home, 'STA-700');
 		const msgs = result['recentMessages'] as Array<Record<string, unknown>>;
 		t.is((msgs[0]!['text'] as string).length, 500);
+	},
+);
+
+// ============================================================================
+// wait-for-agent.sh Tests
+// ============================================================================
+
+async function runWaitForAgent(
+	home: string,
+	options: {
+		since: number;
+		timeoutSecs?: number;
+		duringWait?: () => void;
+	},
+): Promise<number | null> {
+	const child = spawn(
+		'bash',
+		[
+			`${scriptsDir}/wait-for-agent.sh`,
+			'test-repo',
+			'TEST-1',
+			String(options.since),
+		],
+		{
+			env: {
+				...process.env,
+				HOME: home,
+				SC_WAIT_TIMEOUT_SECS: String(options.timeoutSecs ?? 1),
+			},
+			stdio: 'ignore',
+		},
+	);
+	if (options.duringWait) setTimeout(options.duringWait, 300);
+	return new Promise(resolve => {
+		child.on('exit', code => {
+			resolve(code);
+		});
+	});
+}
+
+function writeAgentStatus(
+	home: string,
+	status: {event: string; cwd: string; lastUpdate: number},
+): void {
+	writeJson(path.join(home, '.pappardelle', 'claude-status', 'TEST-1.json'), {
+		status: 'waiting_for_input',
+		...status,
+	});
+}
+
+test.serial(
+	'wait-for-agent: succeeds on a fresh SessionStart from the repo worktree',
+	async t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		const since = Date.now();
+		writeAgentStatus(home, {
+			event: 'SessionStart',
+			cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+			lastUpdate: since,
+		});
+		t.is(await runWaitForAgent(home, {since}), 0);
+	},
+);
+
+test.serial(
+	'wait-for-agent: times out on a status written before the reopen',
+	async t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		const since = Date.now();
+		writeAgentStatus(home, {
+			event: 'SessionStart',
+			cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+			lastUpdate: since - 1,
+		});
+		t.is(await runWaitForAgent(home, {since}), 1);
+	},
+);
+
+test.serial(
+	"wait-for-agent: times out on another repo's space with the same key",
+	async t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		const since = Date.now();
+		writeAgentStatus(home, {
+			event: 'SessionStart',
+			cwd: path.join(home, '.worktrees', 'test-repo-other', 'TEST-1'),
+			lastUpdate: since,
+		});
+		t.is(await runWaitForAgent(home, {since}), 1);
+	},
+);
+
+test.serial('wait-for-agent: times out when the agent ended', async t => {
+	const home = createTempHome();
+	setupDirs(home, 'test-repo');
+	const since = Date.now();
+	writeAgentStatus(home, {
+		event: 'SessionEnd',
+		cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+		lastUpdate: since,
+	});
+	t.is(await runWaitForAgent(home, {since}), 1);
+});
+
+test.serial('wait-for-agent: times out without a status file', async t => {
+	const home = createTempHome();
+	setupDirs(home, 'test-repo');
+	t.is(await runWaitForAgent(home, {since: Date.now()}), 1);
+});
+
+test.serial(
+	'wait-for-agent: succeeds when the agent starts during the wait',
+	async t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		const since = Date.now();
+		const exitCode = await runWaitForAgent(home, {
+			since,
+			timeoutSecs: 10,
+			duringWait() {
+				writeAgentStatus(home, {
+					event: 'SessionStart',
+					cwd: path.join(home, '.worktrees', 'test-repo', 'TEST-1'),
+					lastUpdate: Date.now(),
+				});
+			},
+		});
+		t.is(exitCode, 0);
 	},
 );
