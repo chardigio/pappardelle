@@ -75,7 +75,12 @@ import {
 	type PaneWidths,
 } from './layout-sizing.ts';
 import {nextWidthOverride, type WindowSize} from './pane-drag.ts';
-import {attachStatusMonitor, statusSocket} from './program-status-monitor.ts';
+import {
+	attachStatusMonitor,
+	removeProgramSnapshots,
+	statusSocket,
+	statusTmuxArgs,
+} from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -107,8 +112,7 @@ export const INNER_SOCKET = 'pappardelle_inner';
  * call site must route through this helper so the -L flag can't be forgotten.
  */
 export function innerTmuxArgs(args: readonly string[]): string[] {
-	const socket = statusSocket();
-	return [socket.startsWith('/') ? '-S' : '-L', socket, ...args];
+	return statusTmuxArgs([...args]);
 }
 
 // Session naming convention (matches idow)
@@ -311,12 +315,17 @@ export function getSessionNames(
  * (macOS /bin/sh and /bin/bash) starts the login shell outside the terminal's
  * foreground process group, where it spins at 100% CPU and never reads input.
  */
-export function buildShellLaunchArgs(command: string): string[] {
+export function buildShellLaunchArgs(
+	command: string,
+	reportExit = false,
+): string[] {
 	const shell = process.env['SHELL'] || '/bin/sh';
 	return [
 		'/bin/sh',
 		'-c',
-		'"$1" -ic "$2$(printf "\\n:")"; exec "$1" -l',
+		reportExit
+			? '"$1" -ic "$2$(printf "\\n:")"; printf "\\033]133;A\\007"; exec "$1" -l'
+			: '"$1" -ic "$2$(printf "\\n:")"; exec "$1" -l',
 		'sh',
 		shell,
 		command,
@@ -598,16 +607,16 @@ function envSocketIs(env: NodeJS.ProcessEnv, socketName: string): boolean {
 	const socket = env['TMUX']?.split(',')[0];
 	if (!socket) return false;
 	const uid = process.getuid?.() ?? 0;
-	return sameFile(
-		socket,
-		join(env['TMUX_TMPDIR'] || '/tmp', `tmux-${uid}`, socketName),
-	);
+	const selectedPath = socketName.startsWith('/')
+		? socketName
+		: join(env['TMUX_TMPDIR'] || '/tmp', `tmux-${uid}`, socketName);
+	return sameFile(socket, selectedPath);
 }
 
 // True inside a claude/companion pane. Killing the inner server from there
 // ends this process.
 export function isOnInnerServer(env: NodeJS.ProcessEnv): boolean {
-	return envSocketIs(env, INNER_SOCKET);
+	return envSocketIs(env, statusSocket(env));
 }
 
 // The default-server session this process runs in, or null when it runs
@@ -626,7 +635,7 @@ export function currentInnerServerSession(
 	env: NodeJS.ProcessEnv,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
 ): string | null {
-	return currentSession(env, INNER_SOCKET, runner);
+	return currentSession(env, statusSocket(env), runner);
 }
 
 function currentSession(
@@ -834,7 +843,7 @@ export function cleanupOrphanedInnerSessions(
 			return 0;
 		}
 
-		const orphans: string[] = [];
+		const orphans: Array<{name: string; key: string}> = [];
 		for (const name of result.stdout.trim().split('\n')) {
 			if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
 			let key: string | null = null;
@@ -851,17 +860,22 @@ export function cleanupOrphanedInnerSessions(
 			}
 			if (key === MAIN_WORKTREE_KEY) continue;
 			if (registeredKeys.has(key)) continue;
-			orphans.push(name);
+			orphans.push({name, key});
 		}
 
 		let killed = 0;
-		for (const name of orphans) {
+		const failedKeys = new Set<string>();
+		for (const {name, key} of orphans) {
 			const k = runner(['kill-session', '-t', exactSessionTarget(name)]);
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned inner-socket session: ${name}`);
+			} else {
+				failedKeys.add(key);
 			}
 		}
+		for (const key of new Set(orphans.map(orphan => orphan.key)))
+			if (!failedKeys.has(key)) removeProgramSnapshots(repo, key);
 		return killed;
 	} catch {
 		return 0;
@@ -1674,7 +1688,12 @@ export async function attachToSpace(
 				return {attached: true, tty: tty!};
 			}
 			const command = exists
-				? `tmux -L ${INNER_SOCKET} attach -t ${shellQuote(exactSessionTarget(session))}`
+				? [
+						'tmux',
+						...innerTmuxArgs(['attach', '-t', exactSessionTarget(session)]),
+					]
+						.map(value => shellQuote(value))
+						.join(' ')
 				: viewerMessageCommand(`No session for ${issueKey}`);
 			await run(viewerRespawnArgs(paneId, command));
 			// Respawning allocates a new pty, and the fast path finds the nested
@@ -2321,6 +2340,51 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 	return buildSessionEnvArgs(issueKey, mainRepoRoot);
 }
 
+const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
+
+async function releaseStartupGate(
+	session: string,
+	run: AsyncTmuxRunner,
+	gate?: string,
+): Promise<void> {
+	if (gate === undefined) {
+		const pending = await run(
+			innerTmuxArgs([
+				'show-option',
+				'-qv',
+				'-t',
+				exactSessionTarget(session),
+				STARTUP_GATE_OPTION,
+			]),
+		);
+		gate = pending.trim();
+	}
+	if (!gate) return;
+	const commands = [
+		['wait-for', '-S', gate],
+		[
+			'set-option',
+			'-u',
+			'-t',
+			exactSessionTarget(session),
+			STARTUP_GATE_OPTION,
+		],
+	]
+		.map(args => args.map(value => shellQuote(value)).join(' '))
+		.join(' ; ');
+	await run(
+		innerTmuxArgs([
+			'if-shell',
+			'-F',
+			'-t',
+			exactSessionTarget(session),
+			`#{==:#{${STARTUP_GATE_OPTION}},${gate}}`,
+			commands,
+			'',
+		]),
+	);
+}
+
 /**
  * Create an agent session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
@@ -2341,14 +2405,23 @@ export async function ensureAgentSession(
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
-		await attachStatusMonitor(
-			getRepoName(),
-			issueKey,
-			sessionName,
-			statusSocket(),
-			run,
-		);
-		return true;
+		try {
+			await attachStatusMonitor(
+				getRepoName(),
+				issueKey,
+				sessionName,
+				statusSocket(),
+				run,
+			);
+			await releaseStartupGate(sessionName, run);
+			return true;
+		} catch (err) {
+			log.error(
+				`Failed to resume agent startup for ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
+			return false;
+		}
 	}
 
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
@@ -2365,14 +2438,23 @@ export async function ensureAgentSession(
 
 	// Native agents report at startup, before an ungated monitor could attach.
 	const gate = `pappardelle-status-${randomUUID()}`;
-	const waitCommand = ['tmux', ...innerTmuxArgs(['wait-for', gate])]
-		.map(value => shellQuote(value))
-		.join(' ');
-	const launchCommand = `${waitCommand}; exec ${buildShellLaunchArgs(
-		buildAgentResumeCommand(issueKey, skipPermissions, agentProfile, sessionId),
-	)
-		.map(value => shellQuote(value))
-		.join(' ')}`;
+	const launchArgs = [
+		'/bin/sh',
+		'-c',
+		'tmux "$1" "$2" wait-for "$3"; shift 3; exec "$@"',
+		'sh',
+		...innerTmuxArgs([]),
+		gate,
+		...buildShellLaunchArgs(
+			buildAgentResumeCommand(
+				issueKey,
+				skipPermissions,
+				agentProfile,
+				sessionId,
+			),
+			true,
+		),
+	];
 
 	try {
 		await run(
@@ -2388,7 +2470,13 @@ export async function ensureAgentSession(
 					agentProfile,
 					getAgentSessionsPath(getRepoName(), issueKey),
 				),
-				launchCommand,
+				...launchArgs,
+				';',
+				'set-option',
+				'-t',
+				exactSessionTarget(sessionName),
+				STARTUP_GATE_OPTION,
+				gate,
 			]),
 		);
 		try {
@@ -2400,7 +2488,7 @@ export async function ensureAgentSession(
 				run,
 			);
 		} finally {
-			await run(innerTmuxArgs(['wait-for', '-S', gate]));
+			await releaseStartupGate(sessionName, run, gate);
 		}
 
 		log.info(

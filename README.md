@@ -88,7 +88,15 @@ This means:
 
 ### Program status
 
-The ticket rail reads [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) revision 0.2 from programs running in the center pane. Codex and Pi report native status; Claude Code uses its existing status hooks.
+The ticket rail reads [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) reports (revision 0.4) from programs running in the center pane.
+
+| Agent       | Status source through tmux                                       |
+| ----------- | ---------------------------------------------------------------- |
+| Codex       | Native reports, no opt-in                                        |
+| OpenCode    | Native reports, no opt-in                                        |
+| Pi          | Native reports with `PI_PROGRAM_STATUS=1`                        |
+| agy         | Native reports with `AGY_CLI_OSC7501=on`                         |
+| Claude Code | Existing status hooks; native reports require a capability reply |
 
 | Status                                                   | Indicator                                    |
 | -------------------------------------------------------- | -------------------------------------------- |
@@ -103,9 +111,9 @@ Child records contribute to the workspace indicator. Priority is blocked, error,
 
 Claude hooks supply fallback status until the pane emits its first valid native report. A capability query alone does not change the source. After native reporting starts, OSC remains authoritative, including after a clear or terminal reset. Matching Claude hook details can supply the working tool or compaction indicator.
 
-Native working and blocked records have no timeout. A shell prompt reported through OSC 133 A or pane exit removes them; done and error survive. Replacing a pane creates a new generation. Monitors remain alive when the TUI closes and are removed with the workspace. Hook fallback retains its ten-minute timeout for active work.
+Native working and blocked records have no timeout. Returning from the agent command to the login shell emits OSC 133 A and removes active records; done and error survive. Monitoring stays pinned to the agent pane across window selection and splits. Replacing its process creates a new generation. Monitors remain alive when the TUI closes; closing a workspace revokes its snapshots and leases through both the TUI and CLI. Hook fallback retains its ten-minute timeout for active work.
 
-A read-only `pipe-pane` monitor parses status and writes atomic snapshots without wrapping the agent. Agent sessions set `PI_PROGRAM_STATUS=1` so Pi reports through tmux without capability negotiation. Existing unrelated pane pipes are left with their owner, with hooks providing fallback. See [local protocol verification](integration-tests/README.md#program-status).
+A read-only `pipe-pane` monitor parses status and writes atomic snapshots without wrapping the agent. Agent sessions set Pi and agy's reporting overrides so they report through tmux without capability negotiation. The monitor never injects replies or keyboard input. Existing unrelated pane pipes are left with their owner, with hooks providing fallback. See [installed-agent results and QA evidence](integration-tests/STE-37-verification.md) and [local protocol verification](integration-tests/README.md#program-status).
 
 Existing sessions gain a monitor when the TUI opens.
 

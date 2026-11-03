@@ -5,11 +5,7 @@ import {readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {getRepoName} from '../source/config.ts';
-import {
-	buildShellLaunchArgs,
-	ensureAgentSession,
-	getSessionNames,
-} from '../source/tmux.ts';
+import {ensureAgentSession, getSessionNames} from '../source/tmux.ts';
 import {
 	attachStatusMonitor,
 	programStatusDir,
@@ -32,14 +28,8 @@ try {
 		async args => {
 			const fixtureArgs = args.slice(2);
 			if (fixtureArgs.includes('new-session')) {
-				const command = fixtureArgs.at(-1)!;
-				fixtureArgs[fixtureArgs.length - 1] =
-					command.slice(0, command.indexOf('; exec ')) +
-					`; exec ${buildShellLaunchArgs(
-						`printf '%s' launched > ${shellQuoteStatus(launchMarker)}`,
-					)
-						.map(value => shellQuoteStatus(value))
-						.join(' ')}`;
+				fixtureArgs[fixtureArgs.indexOf(';') - 1] =
+					`printf '%s' launched > ${shellQuoteStatus(launchMarker)}`;
 			}
 			return harness.tmux(fixtureArgs);
 		},

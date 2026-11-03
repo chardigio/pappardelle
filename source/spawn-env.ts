@@ -54,7 +54,7 @@ export function buildSessionEnvArgs(
  * a claude agent profile, so the hook of an agent of the other kind started in
  * the pane isn't recorded; and the file to write the id to. Kept off the
  * companion session, where an agent started by hand isn't the space's agent.
- * Pi's reporting override bypasses the terminal probe that tmux cannot answer;
+ * Reporting overrides bypass the terminal probe that tmux cannot answer;
  * the pane monitor captures its reports without changing the terminal transport.
  */
 export function buildAgentSessionEnvArgs(
@@ -64,6 +64,8 @@ export function buildAgentSessionEnvArgs(
 	return [
 		'-e',
 		'PI_PROGRAM_STATUS=1',
+		'-e',
+		'AGY_CLI_OSC7501=on',
 		'-e',
 		`PAPPARDELLE_AGENT_PROFILE=${agentProfile.name}`,
 		'-e',

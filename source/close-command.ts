@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import path from 'node:path';
-import {getMainRepoRoot} from './config.ts';
+import {getMainRepoRoot, getRepoName} from './config.ts';
+import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {confirm} from './confirm.ts';
 import {runCloseHooks, type ClosingSpace} from './close-space.ts';
 import {createLogger} from './logger.ts';
@@ -154,7 +155,10 @@ export function defaultCloseCommandDeps(): CloseCommandDeps {
 			return killSpaceSessions(key);
 		},
 		removeSpace,
-		cleanup: deleteQaSimulator,
+		async cleanup(key) {
+			removeProgramSnapshots(getRepoName(), key);
+			return deleteQaSimulator(key);
+		},
 		sessionNames: key => getSessionNames(key),
 		currentInnerSession: () => currentInnerServerSession(process.env),
 		mainRepoRoot: getMainRepoRoot(),

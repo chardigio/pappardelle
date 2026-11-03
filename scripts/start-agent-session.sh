@@ -168,6 +168,11 @@ COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"
 # Agent Teams feature). See STA-860 for the full rationale and the matching
 # INNER_SOCKET constant in pappardelle/source/tmux.ts.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
+TMUX_SOCKET_ARGS=(-L "$PAPPARDELLE_TMUX_SOCKET")
+if [[ "$PAPPARDELLE_TMUX_SOCKET" == /* ]]; then
+    TMUX_SOCKET_ARGS=(-S "$PAPPARDELLE_TMUX_SOCKET")
+fi
+STARTUP_GATE_OPTION="@pappardelle_startup_gate"
 
 # Set on the tmux session rather than exported here: these sessions are created
 # on a long-lived server that inherited its environment from whatever started
@@ -185,6 +190,7 @@ fi
 # space's agent, so its session id must not be recorded.
 AGENT_SESSION_ENV=(
     -e "PI_PROGRAM_STATUS=1"
+    -e "AGY_CLI_OSC7501=on"
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
     -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
     -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
@@ -225,17 +231,24 @@ fi
 new_launch_session() {
     local session="$1" command="$2"
     shift 2
+    # shellcheck disable=SC2016 # expanded by the inner sh, not here
+    local shell_handoff='"$1" -ic "$2$(printf "\n:")"; exec "$1" -l'
+    if [[ "$session" == "$AGENT_SESSION" ]]; then
+        # shellcheck disable=SC2016 # expanded by the inner sh, not here
+        shell_handoff='"$1" -ic "$2$(printf "\n:")"; printf "\033]133;A\007"; exec "$1" -l'
+    fi
     if [[ "$session" == "$AGENT_SESSION" && ${#STATUS_MONITOR[@]} -gt 0 ]]; then
         STATUS_GATE="pappardelle-status-$$"
         # shellcheck disable=SC2016 # expanded by the inner sh, not here
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \
-            /bin/sh -c 'tmux -L "$1" wait-for "$2"; shift 2; exec "$@"' sh "$PAPPARDELLE_TMUX_SOCKET" "$STATUS_GATE" \
-            /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+        new_inner_session "$session" "$@" \
+            /bin/sh -c 'tmux "$1" "$2" wait-for "$3"; shift 3; exec "$@"' sh "${TMUX_SOCKET_ARGS[@]}" "$STATUS_GATE" \
+            /bin/sh -c "$shell_handoff" sh "${SHELL:-/bin/sh}" "$command" \
+            ';' set-option -t "=$session:" "$STARTUP_GATE_OPTION" "$STATUS_GATE"
         return
     fi
     # shellcheck disable=SC2016 # expanded by the inner sh, not here
     new_inner_session "$session" "$@" \
-        /bin/sh -c '"$1" -ic "$2$(printf "\n:")"; exec "$1" -l' sh "${SHELL:-/bin/sh}" "$command"
+        /bin/sh -c "$shell_handoff" sh "${SHELL:-/bin/sh}" "$command"
 }
 
 # The command that starts the inner server sets the server's working
@@ -244,7 +257,7 @@ new_launch_session() {
 new_inner_session() {
     local session="$1"
     shift
-    (cd "$HOME" && tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@")
+    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@")
 }
 
 # A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:
@@ -253,15 +266,15 @@ new_inner_session() {
 # duplicate agent beside it. When both names exist, the legacy one is killed,
 # as migrateLegacyAgentSessions() in source/tmux.ts does: pappardelle only
 # attaches the agent- session.
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION:" 2>/dev/null; then
-    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$LEGACY_AGENT_SESSION:" 2>/dev/null || true
+if tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$LEGACY_AGENT_SESSION:" 2>/dev/null; then
+    if tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
+        tmux "${TMUX_SOCKET_ARGS[@]}" kill-session -t "=$LEGACY_AGENT_SESSION:" 2>/dev/null || true
     else
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" rename-session -t "=$LEGACY_AGENT_SESSION:" "$AGENT_SESSION" 2>/dev/null || true
+        tmux "${TMUX_SOCKET_ARGS[@]}" rename-session -t "=$LEGACY_AGENT_SESSION:" "$AGENT_SESSION" 2>/dev/null || true
     fi
 fi
 
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
+if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$AGENT_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" == true ]]; then
         new_inner_session "$AGENT_SESSION" "${AGENT_SESSION_ENV[@]}"
     else
@@ -309,13 +322,16 @@ fi
 if [[ ${#STATUS_MONITOR[@]} -gt 0 ]]; then
     "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
 fi
+STATUS_GATE="$(tmux "${TMUX_SOCKET_ARGS[@]}" show-option -qv -t "=$AGENT_SESSION:" "$STARTUP_GATE_OPTION")"
 if [[ -n "$STATUS_GATE" ]]; then
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" wait-for -S "$STATUS_GATE"
+    printf -v gate_release 'wait-for -S %q ; set-option -u -t %q %q' "$STATUS_GATE" "=$AGENT_SESSION:" "$STARTUP_GATE_OPTION"
+    tmux "${TMUX_SOCKET_ARGS[@]}" if-shell -F -t "=$AGENT_SESSION:" \
+        "#{==:#{${STARTUP_GATE_OPTION}},${STATUS_GATE}}" "$gate_release" ''
 fi
 
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).
 # An empty command leaves a plain shell.
-if ! tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$COMPANION_SESSION:" 2>/dev/null; then
+if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$COMPANION_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" != true && -n "$COMPANION_COMMAND" ]]; then
         new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
     else

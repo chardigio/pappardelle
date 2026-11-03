@@ -41,10 +41,14 @@ function setup(t: ExecutionContext) {
 		rmSync(dir, {recursive: true, force: true});
 	});
 	let paneOutput = '%1\t12\t0\t1\t12.owner';
+	let queries = 0;
 	const status = new WorkspaceStatuses(
 		'repo',
 		key => `claude-repo-${key}`,
-		async () => paneOutput,
+		async args => {
+			queries++;
+			return args.includes('show-option') ? '%1' : paneOutput;
+		},
 	);
 	const writeHook = (
 		status: string,
@@ -89,12 +93,14 @@ function setup(t: ExecutionContext) {
 		};
 		writeFileSync(`${file}.tmp`, JSON.stringify(snapshot));
 		renameSync(`${file}.tmp`, file);
+		writeFileSync(`${file}.lease`, '');
 		return file;
 	};
 	return {
 		status,
 		writeHook,
 		writeOsc,
+		queries: () => queries,
 		replacePane() {
 			paneOutput = '%1\t13\t0\t1\t13.new';
 		},
@@ -271,6 +277,116 @@ test.serial(
 		t.is(batches.length, before);
 	},
 );
+
+test.serial(
+	'known native updates avoid discovery while full reads reconcile generations',
+	async t => {
+		const h = setup(t);
+		h.writeOsc({status: 'working', app: 'fixture'});
+		await h.status.read('TASK-1');
+		const latest = new Map<string, ProgramStatusInfo>();
+		const stop = h.status.watch(
+			updates => {
+				for (const [key, info] of updates) latest.set(key, info);
+			},
+			key => key === 'TASK-1',
+		);
+		t.teardown(stop);
+		await delay(0);
+		const before = h.queries();
+		h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
+		await until(() => latest.get('TASK-1')?.status === 'blocked');
+		h.writeHook('processing');
+		await delay(100);
+		t.is(h.queries(), before);
+		t.is(latest.get('TASK-1')?.status, 'blocked');
+		const oldGeneration = latest.get('TASK-1')?.generation;
+		h.replacePane();
+		h.writeOsc({status: 'done', app: 'replacement'});
+		await h.status.read('TASK-1');
+		h.writeHook('error');
+		await until(() => latest.get('TASK-1')?.app === 'replacement');
+		t.not(latest.get('TASK-1')?.generation, oldGeneration);
+		t.true(h.queries() > before);
+	},
+);
+
+test.serial(
+	'hook bursts reach only relevant workspaces and preserve the final question tool',
+	async t => {
+		const h = setup(t);
+		const latest = new Map<string, ProgramStatusInfo>();
+		const stop = h.status.watch(
+			updates => {
+				for (const [key, info] of updates) latest.set(key, info);
+			},
+			key => key.startsWith('ours-'),
+		);
+		t.teardown(stop);
+		await delay(0);
+		for (let burst = 0; burst < 3; burst++) {
+			for (let i = 0; i < 8; i++) {
+				h.writeHook('running_tool', 'Bash', Date.now(), `ours-${i}`);
+				h.writeHook('processing', undefined, Date.now(), `other-${i}`);
+			}
+		}
+		for (let i = 0; i < 8; i++)
+			h.writeHook(
+				'waiting_for_approval',
+				'AskUserQuestion',
+				Date.now(),
+				`ours-${i}`,
+			);
+		await until(
+			() =>
+				latest.size === 8 &&
+				[...latest.values()].every(info => info.status === 'blocked'),
+		);
+		for (const [key, info] of latest) {
+			t.true(key.startsWith('ours-'));
+			t.like(info, {
+				source: 'hook',
+				status: 'blocked',
+				kind: 'question',
+				tool: 'AskUserQuestion',
+			});
+		}
+	},
+);
+
+test.serial(
+	'main snapshot events retain their UI alias and revoked leases trigger discovery',
+	async t => {
+		const h = setup(t);
+		const file = h.writeOsc({status: 'working'}, {key: 'main'});
+		await h.status.read('repo-main', 'main');
+		const latest = new Map<string, ProgramStatusInfo>();
+		const stop = h.status.watch(
+			updates => {
+				for (const [key, info] of updates) latest.set(key, info);
+			},
+			key => key === 'repo-main',
+		);
+		t.teardown(stop);
+		await delay(0);
+		const before = h.queries();
+		h.writeOsc({status: 'done'}, {key: 'main'});
+		await until(() => latest.get('repo-main')?.status === 'done');
+		t.is(h.queries(), before);
+		t.false(latest.has('main'));
+		rmSync(`${file}.lease`);
+		h.writeHook('processing', undefined, Date.now(), 'repo-main');
+		await until(() => h.queries() > before);
+	},
+);
+
+async function until(predicate: () => boolean) {
+	const deadline = Date.now() + 3000;
+	while (!predicate()) {
+		if (Date.now() > deadline) throw new Error('Status update did not arrive');
+		await delay(5);
+	}
+}
 
 async function readField(
 	status: WorkspaceStatuses,

@@ -7,17 +7,14 @@ import {
 	attachStatusMonitor,
 	shellQuoteStatus,
 } from '../source/program-status-monitor.ts';
+import {buildAgentSessionEnvArgs} from '../source/spawn-env.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
 assert.ok(
 	process.argv.includes('--live'),
 	'Pass --live to run the installed CLI',
 );
-const agent = process.argv[process.argv.indexOf('--agent') + 1];
-assert.ok(
-	agent === 'opencode' || agent === 'agy',
-	'Pass --agent opencode or --agent agy',
-);
+const agent = 'agy';
 const version = execFileSync(agent, ['--version'], {encoding: 'utf8'}).trim();
 const harness = new StatusHarness();
 const repo = `${agent}-prototype`;
@@ -25,8 +22,6 @@ const key = `STATUS-${agent.toUpperCase()}`;
 const session = `${agent}-status-live`;
 const reply = `${agent.toUpperCase()}_VERIFIED`;
 const task = `Return only the two parts ${agent.toUpperCase()}_ and VERIFIED joined together with no spaces. Do not use tools or inspect any files.`;
-let model: unknown;
-let apertureBaseUrl: string | undefined;
 const shellStartup = path.join(harness.root, 'shell-startup');
 writeFileSync(shellStartup, "PS1='PAPPARDELLE_FIXTURE_PROMPT> '\n");
 
@@ -40,7 +35,13 @@ function reports() {
 				.trim()
 				.split('\n')
 				.filter(Boolean)
-				.map(line => JSON.parse(line) as {type: string; report?: unknown}),
+				.map(
+					line =>
+						JSON.parse(line) as {
+							type: string;
+							report?: {state: string; id?: string; app?: string};
+						},
+				),
 		)
 		.filter(event => event.type === 'report');
 }
@@ -59,6 +60,10 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
+		...buildAgentSessionEnvArgs(
+			{name: 'agy', isClaude: false},
+			path.join(harness.root, 'agent-sessions.json'),
+		),
 		'/bin/bash',
 		'--noprofile',
 		'--rcfile',
@@ -67,22 +72,41 @@ try {
 	]);
 	await attachStatusMonitor(repo, key, session);
 	const statuses = await harness.mount(repo, key, session);
-	const args =
-		agent === 'opencode'
-			? [agent, '--standalone', '--prompt', task]
-			: [
-					agent,
-					'--effort',
-					'low',
-					'--mode',
-					'plan',
-					'--prompt-interactive',
-					task,
-				];
+	const args = [agent, '--effort', 'low', '--mode', 'plan'];
 	console.log(`Fixture ${harness.root}; ${agent} ${version}`);
 	await harness.type(
 		session,
 		args.map(value => shellQuoteStatus(value)).join(' '),
+	);
+	await until(
+		async () => {
+			const screen = await harness.screen(session);
+			if (
+				/trust this (?:folder|directory)|Do you trust|Trust this project/i.test(
+					screen,
+				)
+			)
+				await harness.tmux(['send-keys', '-t', `=${session}:`, 'Enter']);
+			return statuses.read(key);
+		},
+		info => info?.status === 'idle',
+		`${agent} native startup idle`,
+		60000,
+	);
+	await harness.expect(
+		'idle',
+		'native startup idle',
+		{source: 'osc', app: 'antigravity'},
+		'●',
+	);
+	await delay(250);
+	await harness.type(session, task);
+	await harness.expect(
+		'working',
+		'real turn reports native working',
+		{source: 'osc', app: 'antigravity'},
+		undefined,
+		60000,
 	);
 	await until(
 		async () => {
@@ -102,50 +126,24 @@ try {
 	harness.checks.push({
 		label: 'real model turn returned the expected non-echoed reply',
 	});
-	if (agent === 'opencode') {
-		const options = {cwd: harness.root, encoding: 'utf8' as const};
-		const ownSession = execFileSync(agent, ['session', 'list'], options)
-			.trim()
-			.split('\t')[0]!;
-		assert.match(ownSession, /^ses_[A-Za-z\d]+$/);
-		const exported = JSON.parse(
-			execFileSync(agent, ['session', 'export', ownSession], options),
-		) as {info: {model: {id: string; providerID: string}}};
-		model = exported.info.model;
-		const configs = JSON.parse(
-			execFileSync(agent, ['debug', 'config'], options),
-		) as Array<{
-			info?: {providers?: Record<string, {settings?: {baseURL?: string}}>};
-		}>;
-		apertureBaseUrl = configs
-			.map(
-				config =>
-					config.info?.providers?.[exported.info.model.providerID]?.settings
-						?.baseURL,
-			)
-			.find(Boolean);
-		assert.ok(apertureBaseUrl);
-		assert.equal(
-			new URL(apertureBaseUrl).hostname,
-			'ai',
-			'Model must use the configured Tailscale Aperture',
-		);
-		harness.checks.push({
-			label: 'selected model provider uses the configured Tailscale Aperture',
-		});
-	}
-	await delay(1000);
-	assert.equal(
-		reports().length,
-		0,
-		`${agent} now emits native reports; use a positive verification instead`,
+	await harness.expect(
+		'done',
+		'real turn reports completion',
+		{source: 'osc', app: 'antigravity'},
+		'●',
+		120000,
 	);
-	const info = await statuses.read(key);
-	assert.equal(info?.status ?? 'unknown', 'unknown');
-	assert.equal(info?.source, undefined);
-	await harness.expectUnknown(
-		'completed CLI remains honestly unknown without native reports or hooks',
+	harness.writeHook(key, 'error');
+	await delay(250);
+	await harness.expect(
+		'done',
+		'native completion overrides conflicting hook',
+		{source: 'osc', app: 'antigravity'},
+		'●',
 	);
+	const native = reports();
+	assert.ok(native.some(event => event.report?.state === 'working'));
+	assert.ok(native.some(event => event.report?.state === 'done'));
 	await harness.tmux(['send-keys', '-t', `=${session}:`, '-l', '/exit']);
 	await delay(250);
 	await harness.tmux(['send-keys', '-t', `=${session}:`, 'Enter']);
@@ -155,16 +153,18 @@ try {
 		`${agent} returned to its fixture shell`,
 		30000,
 	);
-	assert.equal(reports().length, 0);
-	await harness.expectUnknown('no status is invented on CLI exit');
+	await harness.expect(
+		'idle',
+		'CLI exit leaves idle status and responsive shell',
+		{source: 'osc', app: 'antigravity'},
+		'●',
+	);
 	writeFileSync(
 		path.join(harness.root, `${agent}-verification.json`),
 		JSON.stringify(
 			{
 				agent,
 				version,
-				model,
-				apertureBaseUrl,
 				checks: harness.checks,
 				nativeReports: reports(),
 			},
@@ -173,7 +173,7 @@ try {
 		),
 	);
 	console.log(
-		`Passed ${harness.checks.length} checks; no OSC 7501 reports; evidence ${harness.root}/${agent}-verification.json`,
+		`Passed ${harness.checks.length} checks; native OSC 7501; evidence ${harness.root}/${agent}-verification.json`,
 	);
 } catch (error) {
 	writeFileSync(
@@ -182,8 +182,6 @@ try {
 			{
 				agent,
 				version,
-				model,
-				apertureBaseUrl,
 				checks: harness.checks,
 				nativeReports: reports(),
 				error: String(error),

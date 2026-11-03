@@ -6,8 +6,6 @@ import {
 	writeFileSync,
 	renameSync,
 	rmSync,
-	readdirSync,
-	watch,
 } from 'node:fs';
 import {homedir} from 'node:os';
 import {readFile} from 'node:fs/promises';
@@ -155,29 +153,6 @@ export function setClaudeStatus(
 	}
 }
 
-export function getAllStatuses(): Map<string, ClaudeStatus> {
-	const statuses = new Map<string, ClaudeStatus>();
-
-	try {
-		ensureStatusDir();
-		const files = readdirSync(getHookStatusDir());
-
-		for (const file of files) {
-			if (file.endsWith('.json')) {
-				const workspaceName = file.replace('.json', '');
-				statuses.set(workspaceName, getClaudeStatusInfo(workspaceName).status);
-			}
-		}
-	} catch (err) {
-		log.warn(
-			'Failed to read all statuses',
-			err instanceof Error ? err : undefined,
-		);
-	}
-
-	return statuses;
-}
-
 /**
  * Find the index of a space matching a status file workspace name.
  * Uses statusKey (repo-qualified) when present, falls back to name.
@@ -187,70 +162,6 @@ export function findSpaceByStatusKey(
 	workspaceName: string,
 ): number {
 	return spaces.findIndex(s => (s.statusKey ?? s.name) === workspaceName);
-}
-
-export function watchStatuses(
-	callback: (updates: ReadonlyMap<string, ClaudeStatusInfo>) => void,
-	isRelevant: (workspaceName: string) => boolean = () => true,
-): () => void {
-	ensureStatusDir();
-	const dir = getHookStatusDir();
-	const pending = new Set<string>();
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	let reading = false;
-	let stopped = false;
-
-	const schedule = () => {
-		if (stopped || reading || timer || pending.size === 0) return;
-		// A fixed window bounds renders without starving updates during a busy session.
-		timer = setTimeout(async () => {
-			timer = undefined;
-			reading = true;
-			const names = [...pending];
-			pending.clear();
-			const updates = new Map<string, ClaudeStatusInfo>();
-			try {
-				for (let offset = 0; offset < names.length; offset += 4) {
-					if (stopped) break;
-					await Promise.all(
-						names.slice(offset, offset + 4).map(async name => {
-							if (!isRelevant(name)) return;
-							let info: ClaudeStatusInfo;
-							try {
-								info = parseStatus(
-									await readFile(path.join(dir, `${name}.json`), 'utf-8'),
-								);
-							} catch {
-								info = {status: 'unknown'};
-							}
-							updates.set(name, info);
-						}),
-					);
-				}
-				if (!stopped && updates.size > 0) callback(updates);
-			} finally {
-				reading = false;
-				schedule();
-			}
-		}, 50);
-	};
-
-	const watcher = watch(dir, (_eventType, filename) => {
-		if (filename && filename.endsWith('.json')) {
-			const workspaceName = filename.slice(0, -5);
-			if (isRelevant(workspaceName)) {
-				pending.add(workspaceName);
-				schedule();
-			}
-		}
-	});
-
-	return () => {
-		stopped = true;
-		clearTimeout(timer);
-		pending.clear();
-		watcher.close();
-	};
 }
 
 export function mapClaudeStatus(info: ClaudeStatusInfo): ProgramStatusInfo {

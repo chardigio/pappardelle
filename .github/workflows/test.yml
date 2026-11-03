@@ -28,7 +28,7 @@ jobs:
         run: npm run build
 
       - name: Install tmux for protocol verification
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux shellcheck
 
       # Formatting and lint are checked here, not just in the monorepo, because
       # sync-back pushes a merged PR's diff *directly to monorepo master* — no
@@ -45,9 +45,11 @@ jobs:
       - name: Run tests
         run: npx ava 'source/**/*.test.ts'
 
-      - name: Verify program status transport and app
+      - name: Verify program status transport, lifecycle, cleanup and app
         run: |
           npx tsx integration-tests/verify-program-status.ts
+          npx tsx integration-tests/verify-program-status-lifecycle.ts
+          npx tsx integration-tests/verify-program-status-cleanup.ts
           npx tsx integration-tests/verify-program-status-app.ts
 
   shell-tests:

@@ -11,6 +11,7 @@ import {
 	type AsyncTmuxRunner,
 } from './tmux.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
+import {shellQuote} from './shell-quote.ts';
 
 function fakeTmux() {
 	const calls: string[][] = [];
@@ -27,6 +28,53 @@ function fakeTmux() {
 test.beforeEach(() => {
 	clearCurrentlyViewingSpace();
 });
+
+for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
+	test.serial(
+		`cold viewers attach to the selected socket ${selected}`,
+		async t => {
+			const previous = process.env['PAPPARDELLE_TMUX_SOCKET'];
+			process.env['PAPPARDELLE_TMUX_SOCKET'] = selected;
+			t.teardown(() => {
+				if (previous === undefined)
+					delete process.env['PAPPARDELLE_TMUX_SOCKET'];
+				else process.env['PAPPARDELLE_TMUX_SOCKET'] = previous;
+			});
+			const fake = fakeTmux();
+			const run: AsyncTmuxRunner = async args => {
+				if (args.includes('list-clients')) {
+					fake.calls.push(args);
+					return '';
+				}
+				return fake.run(args);
+			};
+			t.true(
+				await attachToSpace(
+					'%1',
+					'%2',
+					'TEST-SOCKET',
+					'%0',
+					undefined,
+					undefined,
+					{run},
+				),
+			);
+			const commands = fake.calls
+				.filter(args => args.includes('respawn-pane'))
+				.map(args => args.at(-1)!);
+			t.is(commands.length, 2);
+			for (const command of commands) {
+				t.true(
+					command.includes(
+						`${shellQuote(selected.startsWith('/') ? '-S' : '-L')} ${shellQuote(selected)}`,
+					),
+				);
+				t.false(command.includes('TMUX='));
+				t.true(command.includes('TEST-SOCKET:'));
+			}
+		},
+	);
+}
 
 test.serial(
 	'switching yields to input and sends both clients to the selected inner sessions',

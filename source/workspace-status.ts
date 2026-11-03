@@ -1,4 +1,4 @@
-import {mkdirSync, watch} from 'node:fs';
+import {existsSync, mkdirSync, watch} from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
 import {
 	getClaudeStatusInfoAsync,
@@ -9,10 +9,12 @@ import {
 import {
 	attachStatusMonitor,
 	programStatusDir,
+	programStatusPath,
 	readProgramSnapshot,
 	statusKeyFromFilename,
 	statusSocket,
 	type StatusTmuxRunner,
+	type StatusPane,
 } from './program-status-monitor.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceData} from './types.ts';
@@ -33,6 +35,16 @@ export function applyStatusUpdates(
 
 export class WorkspaceStatuses {
 	private readonly sessionKeys = new Map<string, string>();
+	private readonly panes = new Map<
+		string,
+		{
+			socket: string;
+			sessionKey: string;
+			session: string;
+			pane: Promise<StatusPane | null>;
+		}
+	>();
+
 	constructor(
 		private readonly repo: string,
 		private readonly sessionName: (key: string) => string,
@@ -41,16 +53,58 @@ export class WorkspaceStatuses {
 
 	async read(key: string, sessionKey = key): Promise<ProgramStatusInfo | null> {
 		this.sessionKeys.set(key, sessionKey);
-		const [pane, hook] = await Promise.all([
-			attachStatusMonitor(
+		const socket = statusSocket();
+		const session = this.sessionName(sessionKey);
+		const entry = {
+			socket,
+			sessionKey,
+			session,
+			pane: attachStatusMonitor(
 				this.repo,
 				sessionKey,
-				this.sessionName(sessionKey),
-				statusSocket(),
+				session,
+				socket,
 				this.run,
 			),
-			getClaudeStatusInfoAsync(key),
-		]);
+		};
+		this.panes.set(key, entry);
+		return this.readPane(key, sessionKey, await entry.pane);
+	}
+
+	private async readKnown(key: string): Promise<ProgramStatusInfo | null> {
+		const sessionKey = this.sessionKeys.get(key) ?? key;
+		const entry = this.panes.get(key);
+		if (
+			!entry ||
+			entry.socket !== statusSocket() ||
+			entry.sessionKey !== sessionKey ||
+			entry.session !== this.sessionName(sessionKey)
+		)
+			return this.read(key, sessionKey);
+		const pane = await entry.pane;
+		if (this.panes.get(key) !== entry) return this.readKnown(key);
+		const snapshot = pane
+			? readProgramSnapshot(this.repo, sessionKey, pane)
+			: null;
+		if (
+			!pane ||
+			!snapshot ||
+			snapshot.exited ||
+			!existsSync(
+				`${programStatusPath(this.repo, sessionKey, pane.generation)}.lease`,
+			)
+		)
+			return this.read(key, sessionKey);
+		const info = await this.readPane(key, sessionKey, pane);
+		return this.panes.get(key) === entry ? info : this.readKnown(key);
+	}
+
+	private async readPane(
+		key: string,
+		sessionKey: string,
+		pane: StatusPane | null,
+	): Promise<ProgramStatusInfo | null> {
+		const hook = await getClaudeStatusInfoAsync(key);
 		const snapshot = pane
 			? readProgramSnapshot(this.repo, sessionKey, pane)
 			: null;
@@ -99,10 +153,7 @@ export class WorkspaceStatuses {
 						await Promise.all(
 							keys.slice(offset, offset + 4).map(async key => {
 								if (!relevant(key)) return;
-								const info = await this.read(
-									key,
-									this.sessionKeys.get(key) ?? key,
-								);
+								const info = await this.readKnown(key);
 								if (info) updates.set(key, info);
 							}),
 						);

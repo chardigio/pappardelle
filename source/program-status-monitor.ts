@@ -27,6 +27,7 @@ import {createLogger} from './logger.ts';
 const execute = promisify(execFile);
 const log = createLogger('program-status');
 export const STATUS_MONITOR_OPTION = '@pappardelle_status_generation';
+export const STATUS_PANE_OPTION = '@pappardelle_status_pane';
 export type StatusTmuxRunner = (args: string[]) => Promise<string>;
 export const runStatusTmux: StatusTmuxRunner = async args => {
 	const result = await execute('tmux', args, {
@@ -36,8 +37,8 @@ export const runStatusTmux: StatusTmuxRunner = async args => {
 	return result.stdout;
 };
 
-export function statusSocket(): string {
-	return process.env['PAPPARDELLE_TMUX_SOCKET'] ?? 'pappardelle_inner';
+export function statusSocket(env: NodeJS.ProcessEnv = process.env): string {
+	return env['PAPPARDELLE_TMUX_SOCKET'] ?? 'pappardelle_inner';
 }
 export function statusTmuxArgs(
 	args: string[],
@@ -200,16 +201,32 @@ export async function attachStatusMonitor(
 	run: StatusTmuxRunner = runStatusTmux,
 ): Promise<StatusPane | null> {
 	try {
+		const target = `=${session}:`;
+		const option = await run(
+			statusTmuxArgs(
+				['show-option', '-qv', '-t', target, STATUS_PANE_OPTION],
+				socket,
+			),
+		);
+		const pinned = option.trim();
 		let pane = parseStatusPane(
 			await run(
 				statusTmuxArgs(
-					['list-panes', '-t', `=${session}`, '-F', STATUS_PANE_FORMAT],
+					['display-message', '-p', '-t', pinned || target, STATUS_PANE_FORMAT],
 					socket,
 				),
 			),
 			socket,
 		);
-		if (!pane || pane.dead) return pane;
+		if (!pane) return null;
+		if (!pinned)
+			await run(
+				statusTmuxArgs(
+					['set-option', '-t', target, STATUS_PANE_OPTION, pane.id],
+					socket,
+				),
+			);
+		if (pane.dead) return pane;
 		if (pane.piped) {
 			if (!pane.marker.startsWith(`${pane.pid}.`))
 				log.debug(
@@ -257,7 +274,7 @@ export async function attachStatusMonitor(
 		const attached = parseStatusPane(
 			await run(
 				statusTmuxArgs(
-					['list-panes', '-t', `=${session}`, '-F', STATUS_PANE_FORMAT],
+					['display-message', '-p', '-t', pane.id, STATUS_PANE_FORMAT],
 					socket,
 				),
 			),
@@ -273,11 +290,15 @@ export async function attachStatusMonitor(
 
 export function removeProgramSnapshots(repo: string, key: string): void {
 	try {
-		for (const file of readdirSync(programStatusDir(repo)))
-			if (
-				statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) === key
-			)
-				rmSync(path.join(programStatusDir(repo), file), {force: true});
+		const files = readdirSync(programStatusDir(repo)).filter(
+			file =>
+				statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) ===
+				key,
+		);
+		for (const file of files.filter(file => file.endsWith('.lease')))
+			rmSync(path.join(programStatusDir(repo), file), {force: true});
+		for (const file of files.filter(file => !file.endsWith('.lease')))
+			rmSync(path.join(programStatusDir(repo), file), {force: true});
 	} catch {}
 }
 
@@ -313,6 +334,7 @@ export function monitorPane(
 		try {
 			writeFileSync(temp, JSON.stringify(snapshot));
 			renameSync(temp, target);
+			if (!existsSync(`${target}.lease`)) rmSync(target, {force: true});
 		} catch {
 			try {
 				rmSync(temp, {force: true});
@@ -362,7 +384,14 @@ export function monitorPane(
 			.then(value => {
 				if (value.trim() !== `${pane.pid} 0`) stop();
 			})
-			.catch(stop);
+			.catch((error: unknown) => {
+				log.debug(`Cannot check pane ${pane.id}: ${String(error)}`);
+				try {
+					process.kill(Number(pane.pid), 0);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code === 'ESRCH') stop();
+				}
+			});
 	}, 5000);
 	process.stdin.on('data', (bytes: Buffer) => parser.feed(bytes));
 	process.stdin.on('end', stop);

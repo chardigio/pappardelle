@@ -33,6 +33,7 @@ const repo = 'codex-prototype';
 const key = 'STATUS-CODEX';
 const session = 'codex-status-live';
 const testHome = path.join(harness.root, 'codex-home');
+let statuses: Awaited<ReturnType<StatusHarness['mount']>>;
 
 async function keys(...values: string[]) {
 	await harness.tmux(['send-keys', '-t', `=${session}:`, ...values]);
@@ -86,9 +87,19 @@ async function turn(text: string, label: string) {
 		undefined,
 		60000,
 	);
+	await expectCompletion(`${label}: native completion`);
+}
+
+async function expectCompletion(label: string) {
+	const info = await until(
+		async () => statuses.read(key),
+		value => value?.status === 'idle' || value?.status === 'done',
+		label,
+		120000,
+	);
 	await harness.expect(
-		'idle',
-		`${label}: completion returns to idle`,
+		info!.status,
+		label,
 		{source: 'osc', app: 'codex'},
 		'●',
 		120000,
@@ -123,7 +134,7 @@ try {
 		'-l',
 	]);
 	await attachStatusMonitor(repo, key, session);
-	await harness.mount(repo, key, session);
+	statuses = await harness.mount(repo, key, session);
 	console.log(`Fixture ${harness.root}; ${version}`);
 	await launch();
 	await turn(
@@ -132,11 +143,8 @@ try {
 	);
 	harness.writeHook(key, 'error');
 	await delay(250);
-	await harness.expect(
-		'idle',
+	await expectCompletion(
 		'native Codex status overrides conflicting Claude hook',
-		{source: 'osc', app: 'codex'},
-		'●',
 	);
 
 	const approved = path.join(harness.root, 'approved.txt');
@@ -158,13 +166,7 @@ try {
 		30000,
 	);
 	await keys('Enter');
-	await harness.expect(
-		'idle',
-		'approved action returns to idle',
-		{source: 'osc', app: 'codex'},
-		'●',
-		120000,
-	);
+	await expectCompletion('approved action reaches completion');
 	assert.equal(readFileSync(approved, 'utf8'), 'approved');
 	harness.checks.push({
 		label: 'approved command produced the expected fixture file',

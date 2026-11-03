@@ -35,7 +35,7 @@ const repo = path.join(root, 'workspace');
 const home = path.join(root, 'home');
 const codexHome = path.join(root, 'codex-home');
 const outer = 'codex-rail-outer';
-const inner = 'pappardelle_inner';
+const inner = 'pappardelle_codex_rail';
 const branch = 'sd-codex-rail';
 const frames: Array<{
 	scenario: string;
@@ -51,8 +51,8 @@ const env = {
 	PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(root, 'status'),
 	PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(root, 'trace'),
 	PAPPARDELLE_STATUS_DIR: path.join(root, 'hooks'),
+	PAPPARDELLE_TMUX_SOCKET: inner,
 };
-Reflect.deleteProperty(env, 'PAPPARDELLE_TMUX_SOCKET');
 Reflect.deleteProperty(env, 'TMUX');
 Reflect.deleteProperty(env, 'TMUX_PANE');
 
@@ -84,17 +84,19 @@ function rail() {
 }
 
 async function expect(
-	status: string,
+	status: string | readonly string[],
 	icon: RegExp,
 	scenario: string,
 	timeout = 120000,
 ) {
+	const accepted = typeof status === 'string' ? [status] : status;
 	const result = await until(
 		() => ({frame: rail(), snapshot: snapshot()}),
 		value =>
 			value.snapshot?.authoritative === true &&
-			value.snapshot.info.status === status &&
-			(status === 'unknown' || value.snapshot.info.app === 'codex') &&
+			accepted.includes(value.snapshot.info.status) &&
+			(value.snapshot.info.status === 'unknown' ||
+				value.snapshot.info.app === 'codex') &&
 			value.frame
 				.split('\n')
 				.some(line => line.includes(' main') && icon.test(line)),
@@ -108,6 +110,14 @@ async function expect(
 let agent: string | undefined;
 async function prompt(text: string) {
 	assert.ok(agent);
+	const clients = tmux(inner, 'list-clients', '-F', '#{session_name}')
+		.trim()
+		.split('\n');
+	assert.ok(clients.includes(agent), 'agent viewer uses the selected socket');
+	assert.ok(
+		clients.includes(agent.replace(/^agent-/, 'companion-')),
+		'companion viewer uses the selected socket',
+	);
 	tmux(inner, 'send-keys', '-t', `=${agent}:`, 'C-u');
 	tmux(inner, 'send-keys', '-t', `=${agent}:`, '-l', text);
 	await delay(250);
@@ -202,7 +212,7 @@ profiles:
 		'Reply with only the two parts CODEX_RAIL_ and VERIFIED joined together without spaces. Do not use tools.',
 	);
 	await expect('working', /[·✢✳∗✻✽]/, 'real turn shows working spinner');
-	await expect('idle', /●/, 'completed turn shows idle');
+	await expect(['idle', 'done'], /●/, 'completed turn shows completion');
 	assert.ok(
 		tmux(inner, 'capture-pane', '-p', '-t', `=${agent}:`).includes(
 			'CODEX_RAIL_VERIFIED',
@@ -222,7 +232,7 @@ profiles:
 		'Codex approval dialog',
 	);
 	tmux(inner, 'send-keys', '-t', `=${agent}:`, 'Enter');
-	await expect('idle', /●/, 'approval completion restores idle');
+	await expect(['idle', 'done'], /●/, 'approval shows completion');
 	assert.equal(readFileSync(approved, 'utf8'), 'approved');
 	await prompt('/exit');
 	await expect('unknown', /\?/, 'agent exit clears rail status');
