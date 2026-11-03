@@ -452,3 +452,42 @@ test('request budget counts each project alias', async t => {
 	t.true(queries.every(query => count(query, 'mergeRequests(') <= 12));
 	t.is(result.size, 13);
 });
+
+test('a failed continuation request drops only its MRs uncached', async t => {
+	const iids = new Map(
+		branches(30).map((branch, i) => [branch, String(i + 1)]),
+	);
+	const {poll, queries} = aliasFixture({
+		failOn: 4,
+		answer: branch =>
+			connection(
+				mr('SUCCESS', {
+					iid: iids.get(branch),
+					discussions: page([discussion()], true, `cursor-${branch}`),
+				}),
+			),
+	});
+	const all = branches(30);
+	const result = await poll(all);
+	const failed = new Set(
+		[...queries[3]!.matchAll(/mergeRequest\(iid: "(\d+)"\)/g)].map(
+			match => match[1]!,
+		),
+	);
+	t.is(failed.size, 24);
+	t.deepEqual(
+		[...result.keys()].sort(),
+		all.filter(branch => !failed.has(iids.get(branch)!)).sort(),
+	);
+	t.true(
+		[...result.values()].every(status => status.unresolvedCommentCount === 2),
+	);
+	await poll(all);
+	t.deepEqual(
+		queries
+			.slice(5)
+			.flatMap(query => queriedBranches(query))
+			.sort(),
+		all.filter(branch => failed.has(iids.get(branch)!)).sort(),
+	);
+});

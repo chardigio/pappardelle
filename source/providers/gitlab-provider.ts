@@ -344,6 +344,10 @@ export class GitLabProvider implements VcsHostProvider {
 				})),
 			);
 			for (const [alias, entry] of pending) {
+				if (!(alias in project)) {
+					pending.delete(alias);
+					continue;
+				}
 				try {
 					const {count, cursor} = readDiscussions(
 						object(project[alias])['discussions'],
