@@ -32,6 +32,14 @@ type PendingDiscussions = Map<
 >;
 const DISCUSSION_FIELDS =
 	'nodes { resolvable resolved } pageInfo { hasNextPage endCursor }';
+// GitLab rejects a whole request above 250 complexity for authenticated
+// users. Costs were measured with `queryComplexity { score }`; the budget
+// sits below the limit in case GitLab rescores these fields.
+const MAX_QUERY_COMPLEXITY = 200;
+const PROJECT_COST = 1;
+const MR_SELECTION_COST = 15;
+const DISCUSSION_SELECTION_COST = 8;
+type Selection = {project: string; body: string; cost: number};
 
 function object(value: unknown): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -232,6 +240,46 @@ export class GitLabProvider implements VcsHostProvider {
 	}
 
 	private async queryProjects(
+		selections: Selection[],
+		failure: string,
+	): Promise<Record<string, unknown>> {
+		const chunks: Array<Map<string, string[]>> = [];
+		let chunk = new Map<string, string[]>();
+		let cost = 0;
+		for (const {project, body, cost: bodyCost} of selections) {
+			let fields = chunk.get(project);
+			const projectCost = fields ? 0 : PROJECT_COST;
+			if (
+				chunk.size > 0 &&
+				cost + projectCost + bodyCost > MAX_QUERY_COMPLEXITY
+			) {
+				chunks.push(chunk);
+				chunk = new Map();
+				cost = 0;
+				fields = undefined;
+			}
+			if (!fields) {
+				fields = [];
+				chunk.set(project, fields);
+				cost += PROJECT_COST;
+			}
+			fields.push(body);
+			cost += bodyCost;
+		}
+		if (chunk.size > 0) chunks.push(chunk);
+
+		const result: Record<string, unknown> = {};
+		for (const chunk of chunks) {
+			try {
+				Object.assign(result, await this.queryChunk(chunk));
+			} catch (err) {
+				log.warn(failure, sanitizeSubprocessError(err));
+			}
+		}
+		return result;
+	}
+
+	private async queryChunk(
 		fields: Map<string, string[]>,
 	): Promise<Record<string, unknown>> {
 		const projects = [...fields.keys()];
@@ -285,18 +333,21 @@ export class GitLabProvider implements VcsHostProvider {
 		complete: (key: string, status: RailStatus) => void,
 	): Promise<void> {
 		while (pending.size > 0) {
-			const fields = new Map<string, string[]>();
+			const project = await this.queryProjects(
+				[...pending].map(([alias, entry]) => ({
+					project: entry.project,
+					body: `${alias}: mergeRequest(iid: ${JSON.stringify(String(entry.status.prNumber))}) {
+						discussions(first: 100, after: ${JSON.stringify(entry.cursor)}) { ${DISCUSSION_FIELDS} }
+					}`,
+					cost: DISCUSSION_SELECTION_COST,
+				})),
+				'Failed to fetch GitLab discussion pages',
+			);
 			for (const [alias, entry] of pending) {
-				const selection = `${alias}: mergeRequest(iid: ${JSON.stringify(String(entry.status.prNumber))}) {
-					discussions(first: 100, after: ${JSON.stringify(entry.cursor)}) { ${DISCUSSION_FIELDS} }
-				}`;
-				fields.set(entry.project, [
-					...(fields.get(entry.project) ?? []),
-					selection,
-				]);
-			}
-			const project = await this.queryProjects(fields);
-			for (const [alias, entry] of pending) {
+				if (!(alias in project)) {
+					pending.delete(alias);
+					continue;
+				}
 				try {
 					const {count, cursor} = readDiscussions(
 						object(project[alias])['discussions'],
@@ -393,56 +444,48 @@ export class GitLabProvider implements VcsHostProvider {
 			});
 			result.set(key, status);
 		};
-		try {
-			const fields = new Map<string, string[]>();
-			const requests = [...missing].map(([key, repository], i) => ({
-				key,
-				...repository,
-				alias: `mr${i}`,
-			}));
-			for (const request of requests) {
-				const selection = `${request.alias}: mergeRequests(sourceBranches: [${JSON.stringify(request.branch)}], state: opened, sort: UPDATED_DESC, first: 1) {
+		const requests = [...missing].map(([key, repository], i) => ({
+			key,
+			...repository,
+			alias: `mr${i}`,
+		}));
+		const project = await this.queryProjects(
+			requests.map(request => ({
+				project: request.project,
+				body: `${request.alias}: mergeRequests(sourceBranches: [${JSON.stringify(request.branch)}], state: opened, sort: UPDATED_DESC, first: 1) {
 					nodes { iid detailedMergeStatus headPipeline { status }
 						discussions(first: 100) { ${DISCUSSION_FIELDS} }
 					}
-				}`;
-				fields.set(request.project, [
-					...(fields.get(request.project) ?? []),
-					selection,
-				]);
-			}
-			const project = await this.queryProjects(fields);
-			const pending: PendingDiscussions = new Map();
-			for (const {key, alias, project: path} of requests) {
-				if (!(alias in project)) continue;
-				try {
-					const {nodes} = object(project[alias]);
-					if (!Array.isArray(nodes)) throw new Error('Missing GitLab MR nodes');
-					if (nodes.length === 0) {
-						complete(key, emptyStatus());
-						continue;
-					}
-					const {status, cursor} = parseMr(nodes[0]);
-					if (cursor === null) complete(key, status);
-					else
-						pending.set(alias, {
-							key,
-							project: path,
-							status,
-							cursor,
-							seen: new Set([cursor]),
-						});
-				} catch (err) {
-					log.warn('Invalid GitLab rail status', sanitizeSubprocessError(err));
+				}`,
+				cost: MR_SELECTION_COST,
+			})),
+			'Failed to fetch GitLab rail status',
+		);
+		const pending: PendingDiscussions = new Map();
+		for (const {key, alias, project: path} of requests) {
+			if (!(alias in project)) continue;
+			try {
+				const {nodes} = object(project[alias]);
+				if (!Array.isArray(nodes)) throw new Error('Missing GitLab MR nodes');
+				if (nodes.length === 0) {
+					complete(key, emptyStatus());
+					continue;
 				}
+				const {status, cursor} = parseMr(nodes[0]);
+				if (cursor === null) complete(key, status);
+				else
+					pending.set(alias, {
+						key,
+						project: path,
+						status,
+						cursor,
+						seen: new Set([cursor]),
+					});
+			} catch (err) {
+				log.warn('Invalid GitLab rail status', sanitizeSubprocessError(err));
 			}
-			await this.finishDiscussions(pending, complete);
-		} catch (err) {
-			log.warn(
-				'Failed to fetch GitLab rail status',
-				sanitizeSubprocessError(err),
-			);
 		}
+		await this.finishDiscussions(pending, complete);
 		return result;
 	}
 }

@@ -342,3 +342,152 @@ test('malformed MR does not clear the branch or prevent valid siblings', async t
 	const result = await provider.getBulkRailStatus(['a', 'b', 'c']);
 	t.deepEqual([...result.keys()], ['c']);
 });
+
+const SELECTION =
+	/(\w+): project\(fullPath: "[^"]*"\)|(mr\d+): mergeRequests\(sourceBranches: \[("(?:[^"\\]|\\.)*")\]|(mr\d+): mergeRequest\(iid: "(\d+)"\)/g;
+
+function aliasFixture({
+	failOn,
+	answer = () => connection(),
+	nextPage = () => page(),
+	projectOf = () => 'group/repo',
+}: {
+	failOn?: number;
+	answer?: (branch: string) => unknown;
+	nextPage?: (iid: string) => unknown;
+	projectOf?: (branch: string) => string;
+} = {}) {
+	const queries: string[] = [];
+	const executor: GlabExecutor = async args => {
+		const query = args.find(arg => arg.startsWith('query='))!;
+		queries.push(query);
+		if (queries.length === failOn) throw new Error('request timed out');
+		const data: Record<string, Record<string, unknown>> = {};
+		let current: Record<string, unknown> = {};
+		for (const match of query.matchAll(SELECTION)) {
+			if (match[1]) {
+				current = {};
+				data[match[1]] = current;
+			} else if (match[2])
+				current[match[2]] = answer(JSON.parse(match[3]!) as string);
+			else current[match[4]!] = {discussions: nextPage(match[5]!)};
+		}
+		return JSON.stringify({data});
+	};
+	const provider = new GitLabProvider(
+		undefined,
+		executor,
+		() => 0,
+		async branch => [{project: projectOf(branch), branch}],
+	);
+	const poll = async (branches: string[]) =>
+		provider.getBulkRailStatus(
+			branches,
+			new Map(branches.map(branch => [branch, branch])),
+		);
+	return {poll, queries};
+}
+
+const branches = (count: number) =>
+	Array.from({length: count}, (_, i) => `branch-${i}`);
+const count = (query: string, selection: string) =>
+	query.split(selection).length - 1;
+const queriedBranches = (query: string) =>
+	[...query.matchAll(SELECTION)]
+		.filter(match => match[3])
+		.map(match => JSON.parse(match[3]!) as string);
+
+test('many spaces split across requests under the complexity budget', async t => {
+	const {poll, queries} = aliasFixture();
+	const result = await poll(branches(30));
+	t.is(queries.length, 3);
+	t.true(queries.every(query => count(query, 'mergeRequests(') <= 13));
+	t.deepEqual([...result.keys()].sort(), branches(30).sort());
+});
+
+test('a failed request drops only its spaces and they retry next poll', async t => {
+	const {poll, queries} = aliasFixture({failOn: 2});
+	const all = branches(30);
+	const result = await poll(all);
+	t.deepEqual([...result.keys()], [...all.slice(0, 13), ...all.slice(26)]);
+	const retried = await poll(all);
+	t.is(retried.size, 30);
+	t.deepEqual(
+		queries.slice(3).flatMap(query => queriedBranches(query)),
+		all.slice(13, 26),
+	);
+});
+
+test('discussion continuations split across requests and count every page', async t => {
+	const iids = new Map(
+		branches(30).map((branch, i) => [branch, String(i + 1)]),
+	);
+	const {poll, queries} = aliasFixture({
+		answer: branch =>
+			connection(
+				mr('SUCCESS', {
+					iid: iids.get(branch),
+					discussions: page([discussion()], true, `cursor-${branch}`),
+				}),
+			),
+	});
+	const result = await poll(branches(30));
+	const continuations = queries.filter(query =>
+		query.includes('mergeRequest(iid:'),
+	);
+	t.is(continuations.length, 2);
+	t.true(continuations.every(query => count(query, 'mergeRequest(iid:') <= 24));
+	t.is(result.size, 30);
+	t.true(
+		[...result.values()].every(status => status.unresolvedCommentCount === 2),
+	);
+});
+
+test('request budget counts each project alias', async t => {
+	const {poll, queries} = aliasFixture({
+		projectOf: branch => `group/${branch}`,
+	});
+	const result = await poll(branches(13));
+	t.is(queries.length, 2);
+	t.true(queries.every(query => count(query, 'mergeRequests(') <= 12));
+	t.is(result.size, 13);
+});
+
+test('a failed continuation request drops only its MRs uncached', async t => {
+	const iids = new Map(
+		branches(30).map((branch, i) => [branch, String(i + 1)]),
+	);
+	const {poll, queries} = aliasFixture({
+		failOn: 4,
+		answer: branch =>
+			connection(
+				mr('SUCCESS', {
+					iid: iids.get(branch),
+					discussions: page([discussion()], true, `cursor-${branch}`),
+				}),
+			),
+	});
+	const all = branches(30);
+	const result = await poll(all);
+	const failed = new Set(
+		[...queries[3]!.matchAll(/mergeRequest\(iid: "(\d+)"\)/g)].map(
+			match => match[1]!,
+		),
+	);
+	t.is(failed.size, 24);
+	t.deepEqual(
+		[...result.keys()].sort(),
+		all.filter(branch => !failed.has(iids.get(branch)!)).sort(),
+	);
+	t.true(
+		[...result.values()].every(status => status.unresolvedCommentCount === 2),
+	);
+	await poll(all);
+	t.deepEqual(
+		queries
+			.slice(5)
+			.flatMap(query => queriedBranches(query))
+			.sort(),
+		all.filter(branch => failed.has(iids.get(branch)!)).sort(),
+	);
+});
