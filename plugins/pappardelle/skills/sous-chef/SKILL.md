@@ -180,6 +180,7 @@ The chef may give an issue key, a bare number, a Linear issue URL, or a descript
 - Key on the board: reopen it with `pappardelle --resume STA-696`. This brings back a space whose session is gone without sending the configured initialization prompt again
 - A description: `pappardelle -- 'fix the auth bug'`. This files a new issue and opens a space for it. Pass the chef's words as said, without rewording them, in single quotes after `--` so a description starting with `-` isn't read as a flag. For a single quote inside it, close and reopen the quotes: `'fix the user'\''s login'`
 - `--profile <name>` selects a profile configured in `.pappardelle.yml` and combines with `--resume`. Use the requested profile's config key, not its display name. Without this flag, idow selects the profile
+- `--no-resume` overrides automatic resume and sends the initialization prompt when the agent session starts. Use it only when the chef asks for a fresh start with the init prompt, e.g. `pappardelle --no-resume STA-696`
 - Bare issue numbers use the selected profile's team prefix when configured, otherwise the repo's team prefix. Prefer the full issue key when its prefix is already known
 
 ```bash
