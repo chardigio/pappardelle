@@ -4,26 +4,12 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'ava';
 
-// Regression tests for STA-1682: install.sh's preflight verified `node >= 18`
-// in the *interactive* shell (where nvm/volta select a modern node), but the
-// shim it wrote resolved `node` from PATH at *runtime* — a non-interactive
-// environment where nvm never loads, so a stale /usr/local/bin/node (v16 from
-// a 2021 .pkg install) silently won. The process started, looked healthy, and
-// degraded in undocumented ways (`fetch is not defined`, …).
-//
-// The fix pins the installer-verified node binary into the shim and keeps a
-// runtime major-version guard as belt-and-suspenders for when the pinned
-// binary later vanishes (nvm uninstall, brew cleanup). These tests render the
-// real template (`scripts/pappardelle-shim-template.sh`) exactly the way
-// install.sh does, then run it against fake node binaries — proving the shim
-// ignores a stale PATH node when the pin is healthy, and fails loud instead
-// of half-working when no acceptable node can be found.
-
+// The installer pins Bun across non-interactive tmux environments.
 const root = path.join(import.meta.dirname, '..');
 const templatePath = path.join(root, 'scripts', 'pappardelle-shim-template.sh');
 const installShPath = path.join(root, 'install.sh');
 
-const placeholders = ['__NODE_BIN__', '__CLI_JS__', '__MIN_NODE_MAJOR__'];
+const placeholders = ['__BUN_BIN__', '__CLI_JS__', '__MIN_BUN_VERSION__'];
 
 let temporaryCounter = 0;
 
@@ -39,22 +25,22 @@ function createTemporaryDir(suffix = ''): string {
 // Mirrors the `${SHIM_CONTENT//__PLACEHOLDER__/$value}` substitutions in
 // install.sh — both are global replaces.
 function renderShim(options: {
-	nodeBin: string;
+	bunBin: string;
 	cliJs: string;
-	minNodeMajor: number;
+	minBunVersion: string;
 }): string {
 	const template = fs.readFileSync(templatePath, 'utf8');
 	return template
-		.replaceAll('__NODE_BIN__', options.nodeBin)
+		.replaceAll('__BUN_BIN__', options.bunBin)
 		.replaceAll('__CLI_JS__', options.cliJs)
-		.replaceAll('__MIN_NODE_MAJOR__', String(options.minNodeMajor));
+		.replaceAll('__MIN_BUN_VERSION__', String(options.minBunVersion));
 }
 
-// A stand-in node binary. Emulates the three ways the shim invokes node:
-// `-p 'parseInt(process.versions.node, 10)'` (major only, parseInt
+// A stand-in bun binary. Emulates the three ways the shim invokes bun:
+// `-p 'parseInt(process.versions.bun, 10)'` (major only, parseInt
 // semantics), `--version` (v-prefixed), and running the CLI (prints a marker
 // plus each argument so tests can assert exactly what was exec'd).
-function writeFakeNode(dir: string, version: string, name = 'node'): string {
+function writeFakeBun(dir: string, version: string, name = 'bun'): string {
 	const fakePath = path.join(dir, name);
 	const script = `#!/bin/bash
 FAKE_VERSION="${version}"
@@ -63,10 +49,10 @@ case "$1" in
 		echo "\${FAKE_VERSION%%.*}"
 		;;
 	--version)
-		echo "v\${FAKE_VERSION}"
+		echo "\${FAKE_VERSION}"
 		;;
 	*)
-		echo "FAKE_NODE \${FAKE_VERSION}"
+		echo "FAKE_BUN \${FAKE_VERSION}"
 		for arg in "$@"; do
 			echo "ARG:\${arg}"
 		done
@@ -130,63 +116,63 @@ test('install.sh substitutes every placeholder the template declares', t => {
 	}
 });
 
-test('install.sh no longer writes an unpinned `exec node` shim', t => {
+test('install.sh no longer writes an unpinned `exec bun` shim', t => {
 	const installSh = fs.readFileSync(installShPath, 'utf8');
 	t.false(
-		installSh.includes('exec node '),
-		'a bare `exec node` resolves from runtime PATH — the exact STA-1682 bug',
+		installSh.includes('exec bun '),
+		'a bare `exec bun` resolves from runtime PATH — the exact STA-1682 bug',
 	);
 });
 
 // ============================================================================
-// Pinned-node behavior (fix 1: determinism)
+// Pinned-bun behavior (fix 1: determinism)
 // ============================================================================
 
-test('shim execs the pinned node even when PATH resolves to a stale node', t => {
+test('shim execs the pinned bun even when PATH resolves to a stale bun', t => {
 	const pinnedDir = createTemporaryDir();
 	const staleDir = createTemporaryDir();
-	const pinnedNode = writeFakeNode(pinnedDir, '22.20.0');
-	writeFakeNode(staleDir, '16.13.0'); // The trap that bit on master.
+	const pinnedBun = writeFakeBun(pinnedDir, '1.4.4');
+	writeFakeBun(staleDir, '1.3.0'); // The trap that bit on master.
 	const cliJs = path.join(pinnedDir, 'cli.js');
 	const shimPath = writeShim(
-		renderShim({nodeBin: pinnedNode, cliJs, minNodeMajor: 18}),
+		renderShim({bunBin: pinnedBun, cliJs, minBunVersion: '1.4.0'}),
 	);
 
 	const result = runShim(shimPath, {pathDirs: [staleDir]});
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
 	t.true(
-		result.stdout.includes('FAKE_NODE 22.20.0'),
+		result.stdout.includes('FAKE_BUN 1.4.4'),
 		`expected the pinned v22, got: ${result.stdout}`,
 	);
 	t.true(result.stdout.includes(`ARG:${cliJs}`));
 });
 
-test('shim accepts a pinned node exactly at the floor', t => {
+test('shim accepts a pinned bun exactly at the floor', t => {
 	const dir = createTemporaryDir();
-	const pinnedNode = writeFakeNode(dir, '18.0.0');
+	const pinnedBun = writeFakeBun(dir, '1.4.0');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: pinnedNode,
+			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
 	const result = runShim(shimPath);
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(result.stdout.includes('FAKE_NODE 18.0.0'));
+	t.true(result.stdout.includes('FAKE_BUN 1.4.0'));
 });
 
-test('shim rejects a pinned node below the floor with an actionable message', t => {
+test('shim rejects a pinned bun below the floor with an actionable message', t => {
 	const dir = createTemporaryDir();
-	const pinnedNode = writeFakeNode(dir, '16.13.0');
+	const pinnedBun = writeFakeBun(dir, '1.3.0');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: pinnedNode,
+			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
@@ -194,37 +180,37 @@ test('shim rejects a pinned node below the floor with an actionable message', t 
 
 	t.not(result.status, 0);
 	t.false(
-		result.stdout.includes('FAKE_NODE'),
-		'the CLI must not run under a too-old node',
+		result.stdout.includes('FAKE_BUN'),
+		'the CLI must not run under a too-old bun',
 	);
-	t.true(result.stderr.includes('v16.13.0'));
-	t.true(result.stderr.includes('18'));
+	t.true(result.stderr.includes('1.3.0'));
+	t.true(result.stderr.includes('1.4.0'));
 	t.true(result.stderr.includes('install.sh'));
 });
 
-test('shim rejects a node reporting a garbage version instead of half-running', t => {
+test('shim rejects a bun reporting a garbage version instead of half-running', t => {
 	const dir = createTemporaryDir();
-	const pinnedNode = writeFakeNode(dir, 'garbage');
+	const pinnedBun = writeFakeBun(dir, 'garbage');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: pinnedNode,
+			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
 	const result = runShim(shimPath);
 
 	t.not(result.status, 0);
-	t.false(result.stdout.includes('FAKE_NODE'));
+	t.false(result.stdout.includes('FAKE_BUN'));
 });
 
 test('shim handles install paths containing spaces', t => {
 	const dir = createTemporaryDir(' with spaces');
-	const pinnedNode = writeFakeNode(dir, '22.20.0');
+	const pinnedBun = writeFakeBun(dir, '1.4.4');
 	const cliJs = path.join(dir, 'cli.js');
 	const shimPath = writeShim(
-		renderShim({nodeBin: pinnedNode, cliJs, minNodeMajor: 18}),
+		renderShim({bunBin: pinnedBun, cliJs, minBunVersion: '1.4.0'}),
 	);
 
 	const result = runShim(shimPath);
@@ -235,12 +221,12 @@ test('shim handles install paths containing spaces', t => {
 
 test('shim passes arguments through untouched, including spaces', t => {
 	const dir = createTemporaryDir();
-	const pinnedNode = writeFakeNode(dir, '22.20.0');
+	const pinnedBun = writeFakeBun(dir, '1.4.4');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: pinnedNode,
+			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
@@ -258,33 +244,33 @@ test('shim passes arguments through untouched, including spaces', t => {
 // Fallback behavior (fix 2: loud runtime guard when the pin vanishes)
 // ============================================================================
 
-test('shim falls back to a good PATH node when the pinned binary is gone', t => {
+test('shim falls back to a good PATH bun when the pinned binary is gone', t => {
 	const dir = createTemporaryDir();
 	const pathDir = createTemporaryDir();
-	writeFakeNode(pathDir, '22.20.0');
+	writeFakeBun(pathDir, '1.4.4');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: path.join(dir, 'gone', 'node'),
+			bunBin: path.join(dir, 'gone', 'bun'),
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
 	const result = runShim(shimPath, {pathDirs: [pathDir]});
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(result.stdout.includes('FAKE_NODE 22.20.0'));
+	t.true(result.stdout.includes('FAKE_BUN 1.4.4'));
 });
 
-test('shim fails loud when the pin is gone and the PATH node is stale', t => {
+test('shim fails loud when the pin is gone and the PATH bun is stale', t => {
 	const dir = createTemporaryDir();
 	const staleDir = createTemporaryDir();
-	writeFakeNode(staleDir, '16.13.0');
+	writeFakeBun(staleDir, '1.3.0');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: path.join(dir, 'gone', 'node'),
+			bunBin: path.join(dir, 'gone', 'bun'),
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
@@ -292,22 +278,22 @@ test('shim fails loud when the pin is gone and the PATH node is stale', t => {
 
 	t.not(result.status, 0);
 	t.false(
-		result.stdout.includes('FAKE_NODE'),
-		'silent degradation under a stale node is the exact bug being fixed',
+		result.stdout.includes('FAKE_BUN'),
+		'silent degradation under a stale bun is the exact bug being fixed',
 	);
-	t.true(result.stderr.includes('v16.13.0'));
+	t.true(result.stderr.includes('1.3.0'));
 	t.true(result.stderr.includes('install.sh'));
 });
 
-test('shim fails loud when the pin is gone and no node is on PATH', t => {
+test('shim fails loud when the pin is gone and no bun is on PATH', t => {
 	const dir = createTemporaryDir();
 	const emptyDir = createTemporaryDir();
-	const goneNode = path.join(dir, 'gone', 'node');
+	const goneBun = path.join(dir, 'gone', 'bun');
 	const shimPath = writeShim(
 		renderShim({
-			nodeBin: goneNode,
+			bunBin: goneBun,
 			cliJs: path.join(dir, 'cli.js'),
-			minNodeMajor: 18,
+			minBunVersion: '1.4.0',
 		}),
 	);
 
@@ -315,7 +301,7 @@ test('shim fails loud when the pin is gone and no node is on PATH', t => {
 
 	t.not(result.status, 0);
 	t.true(
-		result.stderr.includes(goneNode),
+		result.stderr.includes(goneBun),
 		'the message must name the pinned path that vanished',
 	);
 	t.true(result.stderr.includes('install.sh'));

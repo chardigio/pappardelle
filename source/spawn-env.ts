@@ -14,7 +14,7 @@ export function buildSpawnEnv(
 ): NodeJS.ProcessEnv {
 	return {
 		...process.env,
-		PAPPARDELLE_NODE: process.execPath,
+		PAPPARDELLE_BUN: process.execPath,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
 		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),
 	};

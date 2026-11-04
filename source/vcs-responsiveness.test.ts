@@ -11,7 +11,7 @@ test('slow gh/glab lookups keep timers running and opening an MR never fetches a
 	for (const command of ['gh', 'glab']) {
 		fs.writeFileSync(
 			path.join(dir, command),
-			`#!/usr/bin/env node
+			`#!/usr/bin/env bun
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.VCS_CALLS, JSON.stringify({command: ${JSON.stringify(command)}, args, host: process.env.GITLAB_HOST}) + '\\n');
@@ -58,7 +58,7 @@ console.log(JSON.stringify({results, opened, messages, host: process.env.GITLAB_
 	const callsFile = path.join(dir, 'calls');
 	const {stdout} = await promisify(execFile)(
 		process.execPath,
-		['--import', 'tsx', '--input-type=module', '-e', script],
+		['--input-type=module', '-e', script],
 		{
 			env: {
 				...process.env,

@@ -93,10 +93,18 @@ export async function runOpenSpaceCommand(
 		await writeOutput(process.stdout, '');
 	} catch (error) {
 		stopChild();
-		await exited?.catch(() => {});
+		// Bun may close the stdout pipe before emitting a failed spawn's error.
+		// Prefer that actionable error over the secondary 'Premature close'.
+		let failure = error;
+		try {
+			await exited;
+		} catch (spawnError) {
+			failure = spawnError;
+		}
+
 		await writeOutput(
 			process.stderr,
-			`Failed to run idow: ${error instanceof Error ? error.message : String(error)}\n`,
+			`Failed to run idow: ${failure instanceof Error ? failure.message : String(failure)}\n`,
 		);
 		if (!process.stdout.errored)
 			await writeOutput(process.stdout, '').catch(() => {});

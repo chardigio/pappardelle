@@ -1,9 +1,9 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification of config loading against real .pappardelle.yml files.
  * Tests: config exists → loads → validates → local overrides merge → profile matching
  *
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-config.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-config.ts`
  *
  * Must be run from inside a repo that has a .pappardelle.yml.
  */

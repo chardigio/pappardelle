@@ -320,12 +320,12 @@ export function updateShellScript({
 }
 
 // Runs the update script in the foreground and returns its exit status.
-// PAPPARDELLE_NODE hands the installer the node this process runs on, which
+// PAPPARDELLE_BUN hands the installer the Bun this process runs on, which
 // PATH (the tmux server's, or a shell's behind the pinned shim) may not contain.
 export function runUpdateScript(options: {waitOnFailure: boolean}): number {
 	const result = spawnSync('bash', ['-c', updateShellScript(options)], {
 		stdio: 'inherit',
-		env: {...process.env, PAPPARDELLE_NODE: process.execPath},
+		env: {...process.env, PAPPARDELLE_BUN: process.execPath},
 	});
 	return result.status ?? 1;
 }

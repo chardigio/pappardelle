@@ -99,7 +99,7 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 			if (depth > 0) return;
 		}
 		if (depth >= 3) return;
-		for (const entry of entries) {
+		for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
 			if (
 				entry.isDirectory() &&
 				!entry.name.startsWith('.') &&

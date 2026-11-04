@@ -1,7 +1,7 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification script for BeadsProvider against a real beads database.
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-beads.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-beads.ts`
  *
  * Read-only by default: nothing is created, updated, or commented on unless
  * BEADS_WRITE=1 is set. Beads databases are real project data, and the global

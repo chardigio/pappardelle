@@ -1,7 +1,7 @@
 # 🦀🍝🦀 Pappardelle 🦀🍝🦀
 
 [![Test](https://github.com/chardigio/pappardelle/actions/workflows/test.yml/badge.svg)](https://github.com/chardigio/pappardelle/actions/workflows/test.yml)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
+[![Bun](https://img.shields.io/badge/bun-%3E%3D1.4.0-brightgreen)](https://bun.sh/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A TUI for multi-clauding without losing your marbles.
@@ -300,7 +300,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues. Filter by status, labels, or `key_prefixes` (e.g. watch `STA-*` but not `WAB-*` when one account spans multiple workspaces), and cap how many workspaces a watchlist keeps open with `max_workspaces`. A profile can also declare its own `issue_watchlist`, polled _in addition_ to the top-level one and auto-scoped to that profile's `team_prefix` — so you can watch one status everywhere and a bespoke status (e.g. "For Pappardelle") for a single project.
 - **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched. Leave the flag off and press `K` instead to clear the finished spaces on demand, behind a confirm dialog.
-- **Issue status colors** — Optional `state_colors:` map that overrides the ticket-rail color for named issue statuses (hex or an ink color name). Off by default, so the rail keeps the tracker's own colors. Most useful on Jira, where one color often covers both "In Progress" and "In Review".
+- **Issue status colors** — Optional `state_colors:` map that overrides the ticket-rail color for named issue statuses (hex or an ANSI color name). Off by default, so the rail keeps the tracker's own colors. Most useful on Jira, where one color often covers both "In Progress" and "In Review".
 - **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
 - **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys; beads ID prefixes) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
 - **Agent profiles** — `agent_profiles:` names the CLI a workspace runs (Claude Code by default, or Codex or any other CLI) with its `model`, `effort` and `args`. A profile picks one with `agent_profile:`. Omit `model` and `effort` and no flag is passed, so the CLI picks its own default. The older `claude.model` / `claude.effort` / `claude.extra_args` still work with a deprecation warning, and Pappardelle offers to rewrite them on startup.
@@ -456,8 +456,7 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 | Tool                                                                   | Required | Install                                                                              |
 | ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
-| Node.js >= 22                                                          | Yes      | `brew install node`                                                                  |
-| npm                                                                    | Yes      | Comes with Node.js                                                                   |
+| Bun >= 1.4.0                                                           | Yes      | [bun.sh](https://bun.sh/)                                                            |
 | git                                                                    | Yes      | `brew install git`                                                                   |
 | tmux                                                                   | Yes      | `brew install tmux`; [build with synchronized-output fix recommended](#tmux-version) |
 | jq                                                                     | Yes      | `brew install jq`                                                                    |
@@ -486,26 +485,20 @@ cd pappardelle
 ./install.sh
 ```
 
-> **Node pinning:** the installer pins the `pappardelle` command to the node binary it
-> verified at install time — PATH in non-interactive shells often differs (nvm/volta
-> don't load there), which used to silently bind the shim to a stale system node. If
-> you later remove that node version (e.g. `nvm uninstall`), the shim falls back to
-> PATH and refuses to run anything below Node 22 — just re-run the installer (or press
-> `U` in the TUI) to re-pin.
->
-> **No Node 22?** The installer looks for one on PATH and under nvm. If it finds none, it
-> downloads the official Node 22 build into `~/.pappardelle/node/`, checks it against the
-> published checksums, and uses it only for Pappardelle. Your own Node is not changed.
-> Updates build in a staging folder, so a failed update keeps your current install.
+> **Bun pinning:** the installer pins the verified Bun executable so tmux's
+> non-interactive PATH cannot select an older runtime. If none is available, it
+> downloads a private, checksum-verified Bun into `~/.pappardelle/bun/`.
+> Node and npm are not required. Updates build in a staging folder, so a failed
+> update keeps your current install. Re-run the installer (or press `U`) to re-pin.
 
 **Manual install:**
 
 ```bash
 git clone https://github.com/chardigio/pappardelle.git
 cd pappardelle
-npm install
-npm run build
-npm link                # makes `pappardelle` available globally
+bun install --frozen-lockfile
+bun run build
+bun link                # makes `pappardelle` available globally
 ./hooks/install.sh      # installs Claude Code hooks for status tracking
 ```
 
@@ -602,10 +595,10 @@ Warnings and errors also appear in a red box at the bottom of the TUI. Press `e`
 ### Development
 
 ```bash
-npm run dev      # Watch mode (auto-rebuild on changes)
-npm run build    # Build once
-npm start        # Run without building
-npm test         # Lint + format check + tests
+bun run dev      # Watch mode (auto-rebuild on changes)
+bun run build    # Build once
+bun start        # Run without building
+bun run test         # Lint + format check + tests
 ```
 
 ### Integration tests
@@ -613,14 +606,14 @@ npm test         # Lint + format check + tests
 Standalone scripts in `integration-tests/` verify providers against real instances. They are **not** ava tests and are never run in CI — use them for local verification after making provider changes.
 
 ```bash
-npx tsx integration-tests/verify-linear.ts     # Linear provider (linctl)
-npx tsx integration-tests/verify-jira.ts       # Jira provider (acli)
-npx tsx integration-tests/verify-beads.ts      # Beads provider (bd, read-only by default)
-npx tsx integration-tests/verify-github.ts     # GitHub PR detection (gh)
-npx tsx integration-tests/verify-gitlab.ts     # GitLab MR detection (glab)
-npx tsx integration-tests/verify-config.ts     # Config loading + validation
-npx tsx integration-tests/verify-watchlist.ts  # Full watchlist pipeline end-to-end
-npx tsx integration-tests/verify-comments.ts   # Comment posting (creates real comments)
+bun integration-tests/verify-linear.ts     # Linear provider (linctl)
+bun integration-tests/verify-jira.ts       # Jira provider (acli)
+bun integration-tests/verify-beads.ts      # Beads provider (bd, read-only by default)
+bun integration-tests/verify-github.ts     # GitHub PR detection (gh)
+bun integration-tests/verify-gitlab.ts     # GitLab MR detection (glab)
+bun integration-tests/verify-config.ts     # Config loading + validation
+bun integration-tests/verify-watchlist.ts  # Full watchlist pipeline end-to-end
+bun integration-tests/verify-comments.ts   # Comment posting (creates real comments)
 ```
 
 See [`integration-tests/README.md`](integration-tests/README.md) for env vars and prerequisites.
@@ -650,7 +643,7 @@ Because `/configure-pappardelle` is model-invocable, Claude will automatically o
 
 ### Dependencies
 
-- [Ink](https://github.com/vadimdemedes/ink) — React for CLIs
+- [OpenTUI](https://github.com/anomalyco/opentui) — native terminal rendering with React
 - [tmux](https://github.com/tmux/tmux) — Terminal multiplexer
 - [gitui](https://github.com/gitui-org/gitui) — Terminal git UI (default companion pane; swap via `companion_command`)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) — AI coding assistant

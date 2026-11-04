@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import TextInput from './TextInput.tsx';
@@ -14,13 +14,15 @@ test('a paste split across stdin reads keeps every chunk', async t => {
 		return React.createElement(TextInput, {value, onChange: setValue});
 	}
 
-	const view = render(React.createElement(Field));
-	t.teardown(() => view.unmount());
+	const view = await render(React.createElement(Field));
+	t.teardown(async () => {
+		await view.unmount();
+	});
 	await delay(10);
 
-	view.stdin.write('https://gitlab.seatgeekadmin.com/rex/');
-	view.stdin.write('catalyst/-/merge_requests/2');
-	view.stdin.write('411');
+	await view.stdin.write('https://gitlab.seatgeekadmin.com/rex/');
+	await view.stdin.write('catalyst/-/merge_requests/2');
+	await view.stdin.write('411');
 	await delay(50);
 
 	t.is(

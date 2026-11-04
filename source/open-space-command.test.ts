@@ -92,7 +92,6 @@ setTimeout(() => {
 		const child = spawn(
 			process.execPath,
 			[
-				...(useBuiltCli ? [] : ['--import', import.meta.resolve('tsx')]),
 				path.join(install, directory, useBuiltCli ? 'cli.js' : 'cli.tsx'),
 				...args,
 			],

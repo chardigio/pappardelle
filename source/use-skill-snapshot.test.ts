@@ -1,6 +1,5 @@
 import React from 'react';
-import {Text} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {
@@ -24,22 +23,22 @@ function deferred<T>() {
 	return {promise, resolve};
 }
 
-function mount(store: SkillSnapshot) {
+async function mount(store: SkillSnapshot) {
 	const renders: string[] = [];
 	function View() {
 		const skills = useSkillSnapshot(store, roots);
 		const text = skills.map(entry => entry.name).join(',') || '(none)';
 		renders.push(text);
-		return React.createElement(Text, {}, text);
+		return React.createElement('text', {}, text);
 	}
 
-	const view = render(React.createElement(View));
+	const view = await render(React.createElement(View));
 	return {view, renders};
 }
 
-async function waitFor(check: () => boolean) {
+async function waitFor(check: () => boolean | Promise<boolean>) {
 	const deadline = Date.now() + 3000;
-	while (!check()) {
+	while (!(await check())) {
 		if (Date.now() > deadline) throw new Error('Timed out');
 		await delay(5);
 	}
@@ -48,13 +47,18 @@ async function waitFor(check: () => boolean) {
 test('renders before the scan finishes, then shows what it found', async t => {
 	const scan = deferred<SkillEntry[]>();
 	const store = createSkillSnapshot(async () => scan.promise);
-	const {view} = mount(store);
-	t.teardown(() => view.unmount());
+	const {view} = await mount(store);
+	t.teardown(async () => {
+		await view.unmount();
+	});
 
 	t.is(view.lastFrame(), '(none)');
 
 	scan.resolve([skill('alpha'), skill('beta')]);
-	await waitFor(() => view.lastFrame() !== '(none)');
+	await waitFor(async () => {
+		await view.renderOnce();
+		return view.lastFrame() !== '(none)';
+	});
 	t.is(view.lastFrame(), 'alpha,beta');
 });
 
@@ -65,20 +69,25 @@ test('a reopened prompt shows the last scan on its first frame, then the rescan'
 	await store.refresh(roots);
 
 	next = deferred<SkillEntry[]>();
-	const {view, renders} = mount(store);
-	t.teardown(() => view.unmount());
+	const {view, renders} = await mount(store);
+	t.teardown(async () => {
+		await view.unmount();
+	});
 
 	t.is(renders[0], 'alpha');
 	next.resolve([skill('alpha'), skill('installed-since')]);
-	await waitFor(() => view.lastFrame() !== 'alpha');
+	await waitFor(async () => {
+		await view.renderOnce();
+		return view.lastFrame() !== 'alpha';
+	});
 	t.is(view.lastFrame(), 'alpha,installed-since');
 });
 
 test('a scan that lands after unmount updates the store but not the dead view', async t => {
 	const scan = deferred<SkillEntry[]>();
 	const store = createSkillSnapshot(async () => scan.promise);
-	const {view, renders} = mount(store);
-	view.unmount();
+	const {view, renders} = await mount(store);
+	await view.unmount();
 	const rendersAtUnmount = renders.length;
 
 	scan.resolve([skill('alpha')]);

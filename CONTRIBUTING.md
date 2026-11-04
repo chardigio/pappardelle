@@ -21,20 +21,20 @@ git clone https://github.com/chardigio/pappardelle.git
 cd pappardelle
 
 # Install dependencies
-npm install
+bun install --frozen-lockfile
 
 # Run tests
-npm test
+bun run test
 
 # Build
-npm run build
+bun run build
 ```
 
 ## Running tests
 
 ```bash
 # Unit tests (ava)
-npx ava 'source/**/*.test.ts'
+bun --bun ava 'source/**/*.test.ts'
 
 # Python hook tests
 pip install pytest

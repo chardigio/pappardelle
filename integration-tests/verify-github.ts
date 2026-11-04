@@ -1,7 +1,7 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification script for GitHubProvider against a real GitHub repo.
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-github.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-github.ts`
  *
  * Must be run from inside a git repo with a GitHub remote.
  *

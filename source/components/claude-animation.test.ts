@@ -1,26 +1,27 @@
 import React, {Profiler} from 'react';
-import {Box} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 test('twenty active rows animate in one React commit per frame', async t => {
 	let commits = 0;
-	const view = render(
+	const view = await render(
 		React.createElement(
 			Profiler,
 			{id: 'busy-workspaces', onRender: () => commits++},
 			React.createElement(
-				Box,
-				{},
+				'box',
+				{flexDirection: 'row'},
 				...Array.from({length: 20}, (_, key) =>
 					React.createElement(ClaudeAnimation, {key}),
 				),
 			),
 		),
 	);
-	t.teardown(() => view.unmount());
+	t.teardown(async () => {
+		await view.unmount();
+	});
 	await delay(50);
 	commits = 0;
 	await delay(500);
