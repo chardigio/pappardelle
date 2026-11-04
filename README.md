@@ -1,7 +1,7 @@
 # 🦀🍝🦀 Pappardelle 🦀🍝🦀
 
 [![Test](https://github.com/chardigio/pappardelle/actions/workflows/test.yml/badge.svg)](https://github.com/chardigio/pappardelle/actions/workflows/test.yml)
-[![Bun](https://img.shields.io/badge/bun-%3E%3D1.4.0-brightgreen)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/bun-%3E%3D1.4.4-brightgreen)](https://bun.sh/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A TUI for multi-clauding without losing your marbles.
@@ -454,18 +454,18 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 
 ### Prerequisites
 
-| Tool                                                                   | Required | Install                                                                              |
-| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
-| Bun >= 1.4.0                                                           | Yes      | [bun.sh](https://bun.sh/)                                                            |
-| git                                                                    | Yes      | `brew install git`                                                                   |
-| tmux                                                                   | Yes      | `brew install tmux`; [build with synchronized-output fix recommended](#tmux-version) |
-| jq                                                                     | Yes      | `brew install jq`                                                                    |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes      | `curl -fsSL https://claude.ai/install.sh \| bash`                                    |
-| [linctl](https://github.com/raegislabs/linctl)                         | Optional | `brew tap raegislabs/linctl && brew install linctl` (for Linear)                     |
-| [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                                       |
-| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                                     |
-| [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira)                   |
-| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                                               |
+| Tool                                                                   | Required   | Install                                                                              |
+| ---------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
+| Bun >= 1.4.4                                                           | Build only | [bun.sh](https://bun.sh/)                                                            |
+| git                                                                    | Yes        | `brew install git`                                                                   |
+| tmux                                                                   | Yes        | `brew install tmux`; [build with synchronized-output fix recommended](#tmux-version) |
+| jq                                                                     | Yes        | `brew install jq`                                                                    |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Yes        | `curl -fsSL https://claude.ai/install.sh \| bash`                                    |
+| [linctl](https://github.com/raegislabs/linctl)                         | Optional   | `brew tap raegislabs/linctl && brew install linctl` (for Linear)                     |
+| [gh](https://cli.github.com/)                                          | Optional   | `brew install gh` (for GitHub)                                                       |
+| [glab](https://gitlab.com/gitlab-org/cli)                              | Optional   | `brew install glab` (for GitLab)                                                     |
+| [acli](https://developer.atlassian.com/)                               | Optional   | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira)                   |
+| [bd](https://github.com/gastownhall/beads)                             | Optional   | See the beads install docs (for Beads)                                               |
 
 ### Manual installation
 
@@ -485,11 +485,13 @@ cd pappardelle
 ./install.sh
 ```
 
-> **Bun pinning:** the installer pins the verified Bun executable so tmux's
-> non-interactive PATH cannot select an older runtime. If none is available, it
-> downloads a private, checksum-verified Bun into `~/.pappardelle/bun/`.
-> Node and npm are not required. Updates build in a staging folder, so a failed
-> update keeps your current install. Re-run the installer (or press `U`) to re-pin.
+> **Compiled runtime:** release builds embed Bun, production React, and OpenTUI
+> in `dist/pappardelle`, with startup bytecode. Running the installed app requires
+> neither Node nor a separate Bun. Bun 1.4.4+ is needed to build or update; the
+> installer supplies a private, checksum-verified copy when needed. Scripts,
+> hooks, and package metadata stay beside the executable. A pinned Bun fallback
+> remains available for JavaScript development builds. Updates build in a staging
+> folder, so a failed update keeps your current install.
 
 **Manual install:**
 
@@ -497,7 +499,7 @@ cd pappardelle
 git clone https://github.com/chardigio/pappardelle.git
 cd pappardelle
 bun install --frozen-lockfile
-bun run build
+bun run build           # production bundle + native executable with bytecode
 bun link                # makes `pappardelle` available globally
 ./hooks/install.sh      # installs Claude Code hooks for status tracking
 ```
@@ -596,14 +598,15 @@ Warnings and errors also appear in a red box at the bottom of the TUI. Press `e`
 
 ```bash
 bun run dev      # Watch mode (auto-rebuild on changes)
-bun run build    # Build once
+bun run build    # Build native executable + JavaScript fallback
+bun run typecheck # Check TypeScript separately
 bun start        # Run without building
 bun run test         # Lint + format check + tests
 ```
 
 ### Integration tests
 
-Standalone scripts in `integration-tests/` verify providers against real instances. They are **not** ava tests and are never run in CI — use them for local verification after making provider changes.
+Provider scripts in `integration-tests/` verify real services and run locally after provider changes. The isolated tmux program-status suites also run in CI. These are separate from the AVA unit tests.
 
 ```bash
 bun integration-tests/verify-linear.ts     # Linear provider (linctl)

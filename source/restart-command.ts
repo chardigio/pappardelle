@@ -1,6 +1,6 @@
+import {cliFilePath} from './runtime.ts';
 import {spawn, spawnSync} from 'node:child_process';
 import {homedir} from 'node:os';
-import path from 'node:path';
 import {
 	currentDefaultServerSession,
 	defaultInnerTmuxRunner,
@@ -136,7 +136,7 @@ export async function hardRestart(
 }
 
 export function defaultRestartCommandDeps(): RestartCommandDeps {
-	const cliPath = path.resolve(process.argv[1] ?? '');
+	const cliPath = cliFilePath();
 	return {
 		tmux: defaultServerTmuxRunner,
 		innerTmux: defaultInnerTmuxRunner,

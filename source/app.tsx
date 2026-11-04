@@ -11,7 +11,7 @@ import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
-import {fileURLToPath} from 'node:url';
+import {scriptsDir, cliFilePath} from './runtime.ts';
 import fs from 'node:fs';
 import {homedir, tmpdir} from 'node:os';
 import path from 'node:path';
@@ -50,9 +50,7 @@ import {
 
 const log = createLogger('app');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+const SCRIPTS_DIR = scriptsDir;
 
 // Spawn errors carry a whole command line; the header only has room for the
 // part that names what went wrong.
@@ -456,7 +454,7 @@ export default function App({
 				paneId: process.env['TMUX_PANE'] ?? '',
 				command: installedLaunchCommand({
 					execPath: process.execPath,
-					cliPath: path.resolve(process.argv[1] ?? ''),
+					cliPath: cliFilePath(),
 					home: homedir(),
 				}),
 				hasPaneLayout: paneLayout !== null,
@@ -489,7 +487,7 @@ export default function App({
 			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
 			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
 				pid: process.pid,
-				cliPath: path.resolve(process.argv[1] ?? ''),
+				cliPath: cliFilePath(),
 				sha: commitSha,
 				paneId,
 				startedAt: Date.now(),

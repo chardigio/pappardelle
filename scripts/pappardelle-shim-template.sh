@@ -4,6 +4,13 @@ PINNED_BUN="__BUN_BIN__"
 MIN_BUN_VERSION="__MIN_BUN_VERSION__"
 CLI_JS="__CLI_JS__"
 
+# Release builds embed Bun and OpenTUI. JavaScript builds retain the pinned
+# runtime fallback for development and recovery.
+NATIVE_BINARY="${CLI_JS%/cli.js}/pappardelle"
+if [[ -x "$NATIVE_BINARY" ]]; then
+    exec "$NATIVE_BINARY" "$@"
+fi
+
 BUN_BIN="$PINNED_BUN"
 if [[ ! -x "$BUN_BIN" ]]; then
     BUN_BIN="$(command -v bun || true)"

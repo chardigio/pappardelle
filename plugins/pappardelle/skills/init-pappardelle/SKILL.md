@@ -16,7 +16,7 @@ This skill must satisfy **every** item below before printing the final summary. 
 2. **`.pappardelle.yml` reflects the user's needs.** Either created from scratch (new install) or reviewed/personalized (existing install).
 3. **`.pappardelle.local.yml` exists if local overrides were chosen.** Only when Step 1 collected per-machine overrides (default profile, yolo mode, etc.).
 4. **Pappardelle CLI is installed.** `command -v pappardelle` succeeds.
-5. **Required prerequisites are installed.** The installed shim runs with Bun 1.4.0 or newer (the installer can supply a private runtime); `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
+5. **Required prerequisites are installed.** Building needs Bun 1.4.4 or newer (the installer can supply it); the installed executable embeds its runtime. `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
 6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl`, `acli` or `bd` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
 7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
 8. **Terminal capabilities are configured** — offered and accepted, declined, or skipped because the terminal or tmux version does not support them. Never skip the detection itself.
@@ -244,7 +244,7 @@ command -v pappardelle &>/dev/null && echo "INSTALLED" || echo "NOT_INSTALLED"
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-The install script checks base prerequisites (Bun >= 1.4.0, git, tmux, jq), clones the repo, builds it, and makes the `pappardelle` command available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install tmux jq`; the installer supplies Bun when needed) and re-run.
+The install script checks base prerequisites (Bun >= 1.4.4, git, tmux, jq), clones the repo, builds it, and makes the `pappardelle` command available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install tmux jq`; the installer supplies Bun when needed) and re-run.
 
 - If **already installed**, print "Pappardelle is already installed" and move on.
 

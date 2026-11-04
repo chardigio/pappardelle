@@ -130,7 +130,7 @@ echo -e "${BOLD}Runtime: stale Bun 1.3 bun first on PATH (the issue's repro)${RE
 # this ran the CLI under Bun 1.3; with the pin it must use the verified bun.
 STALE_OUT="$(PATH="$STALE_BIN:$PATH" "$SHIM" --version 2>&1)" && STALE_STATUS=0 || STALE_STATUS=$?
 assert_eq "shim exits 0 despite stale bun on PATH" "0" "$STALE_STATUS"
-assert_eq "shim ran the real CLI under the pinned bun" "$EXPECTED_VERSION" "$STALE_OUT"
+assert_eq "shim ran the compiled CLI" "$EXPECTED_VERSION" "$STALE_OUT"
 
 echo ""
 echo -e "${BOLD}Runtime: pinned bun vanished, stale bun on PATH${RESET}"
@@ -138,6 +138,14 @@ echo -e "${BOLD}Runtime: pinned bun vanished, stale bun on PATH${RESET}"
 BROKEN_SHIM="$SANDBOX/pappardelle-broken-pin"
 sed "s|PINNED_BUN=\"$EXPECTED_BUN_BIN\"|PINNED_BUN=\"$SANDBOX/uninstalled/bun\"|" \
     "$SHIM" > "$BROKEN_SHIM"
+chmod +x "$BROKEN_SHIM"
+
+NATIVE_OUT="$(PATH="$SANDBOX/empty-bin" /bin/bash "$BROKEN_SHIM" --version 2>&1)" && NATIVE_STATUS=0 || NATIVE_STATUS=$?
+assert_eq "compiled release runs without the pinned Bun or any runtime on PATH" "0" "$NATIVE_STATUS"
+assert_eq "compiled release resolves its package version" "$EXPECTED_VERSION" "$NATIVE_OUT"
+# Exercise the JavaScript fallback independently, without moving the real build.
+sed "s|^NATIVE_BINARY=.*|NATIVE_BINARY=\"$SANDBOX/no-native\"|" "$BROKEN_SHIM" > "$SANDBOX/fallback-shim"
+BROKEN_SHIM="$SANDBOX/fallback-shim"
 chmod +x "$BROKEN_SHIM"
 
 GUARD_OUT="$(PATH="$STALE_BIN:$PATH" "$BROKEN_SHIM" --version 2>&1)" && GUARD_STATUS=0 || GUARD_STATUS=$?

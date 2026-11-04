@@ -1,4 +1,5 @@
 import meow from 'meow';
+import {packageModuleUrl} from './runtime.ts';
 
 const helpText = `
 	Usage
@@ -67,7 +68,7 @@ const helpText = `
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 	return meow(helpText, {
-		importMeta: import.meta,
+		importMeta: {...import.meta, url: packageModuleUrl},
 		argv: [...argv],
 		// `update` asks on a TTY only when neither --restart-tuis nor
 		// --no-restart-tuis was passed, which meow's default of false would make

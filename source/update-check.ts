@@ -1,3 +1,4 @@
+import {isStandalone} from './runtime.ts';
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {execFileSync, spawnSync} from 'node:child_process';
@@ -325,7 +326,10 @@ export function updateShellScript({
 export function runUpdateScript(options: {waitOnFailure: boolean}): number {
 	const result = spawnSync('bash', ['-c', updateShellScript(options)], {
 		stdio: 'inherit',
-		env: {...process.env, PAPPARDELLE_BUN: process.execPath},
+		env: {
+			...process.env,
+			PAPPARDELLE_BUN: isStandalone ? undefined : process.execPath,
+		},
 	});
 	return result.status ?? 1;
 }
