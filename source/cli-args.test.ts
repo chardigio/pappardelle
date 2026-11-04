@@ -210,4 +210,6 @@ test('mcp answers --help and rejects flags it does not know', t => {
 	t.is(subcommandGate(['mcp']).action, 'run');
 	t.is(subcommandGate(['mcp', '--help']).action, 'help');
 	t.is(subcommandGate(['mcp', '--nope']).action, 'reject');
+	t.is(subcommandGate(['mcp', 'install']).action, 'run');
+	t.is(subcommandGate(['mcp', 'nope']).action, 'reject');
 });
