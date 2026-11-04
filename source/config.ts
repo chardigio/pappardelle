@@ -3,7 +3,7 @@ import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {scriptsDir} from './runtime.ts';
 import YAML from 'js-yaml';
 import {
 	INK_COLOR_NAMES,
@@ -3400,7 +3400,7 @@ export function buildWorkspaceTemplateVars(
 		REPO_ROOT: getRepoRoot(),
 		MAIN_REPO_ROOT: getMainRepoRoot(),
 		REPO_NAME: getRepoName(),
-		SCRIPT_DIR: path.resolve(__dirname, '..', 'scripts'),
+		SCRIPT_DIR: scriptsDir,
 	};
 
 	// Try to match a profile for additional template vars
@@ -3440,6 +3440,3 @@ export function buildWorkspaceTemplateVars(
 
 	return vars;
 }
-
-// Directory of this file (used by buildWorkspaceTemplateVars for SCRIPT_DIR)
-const __dirname = path.dirname(fileURLToPath(import.meta.url));

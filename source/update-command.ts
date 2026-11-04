@@ -1,5 +1,5 @@
+import {cliFilePath} from './runtime.ts';
 import {homedir} from 'node:os';
-import path from 'node:path';
 import {
 	currentDefaultServerSession,
 	defaultServerTmuxRunner,
@@ -94,7 +94,7 @@ export function defaultUpdateCommandDeps(
 		launchCommand: () =>
 			installedLaunchCommand({
 				execPath: process.execPath,
-				cliPath: path.resolve(process.argv[1] ?? ''),
+				cliPath: cliFilePath(),
 				home: homedir(),
 			}),
 		currentSession: () => currentDefaultServerSession(process.env),

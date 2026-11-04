@@ -23,12 +23,18 @@ cd pappardelle
 # Install dependencies
 bun install --frozen-lockfile
 
-# Run tests
-bun run test
-
-# Build
+# Build the native executable and JavaScript fallback, then check types
 bun run build
+bun run typecheck
+
+# Run tests (includes compiled-runtime tests)
+bun run test
 ```
+
+`bun run build` embeds production React, OpenTUI, and Bun startup bytecode in
+`dist/pappardelle`. `bun run dev` keeps the source development workflow. Use
+`bun scripts/build.ts --bundle-only` for a JavaScript-only production build;
+compiled-runtime tests require the default build.
 
 ## Running tests
 

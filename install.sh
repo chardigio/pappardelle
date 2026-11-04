@@ -9,7 +9,7 @@
 #   ./install.sh
 #
 # This script:
-# 1. Checks prerequisites (Bun >= 1.4.0, tmux, jq)
+# 1. Checks prerequisites (Bun >= 1.4.4, tmux, jq)
 # 2. Clones or updates chardigio/pappardelle to ~/.pappardelle/repo/
 # 3. Builds and links the application (makes `pappardelle` available globally)
 # 4. Symlinks `idow` to ~/.local/bin/
@@ -38,7 +38,7 @@ LOCAL_BIN="$HOME/.local/bin"
 WORKTREES_DIR="$HOME/.worktrees"
 REPO_URL="https://github.com/chardigio/pappardelle.git"
 # Keep the runtime floor aligned with package.json and the launch shim.
-MIN_BUN_VERSION=1.4.0
+MIN_BUN_VERSION=1.4.4
 BUN_VERSION=1.4.4
 PRIVATE_BUN_DIR="$PAPPARDELLE_DIR/bun"
 BUN_DIST_URL="${PAPPARDELLE_BUN_DIST_URL:-https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}}"

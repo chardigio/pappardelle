@@ -3,7 +3,7 @@ import {renderTui} from './render-tui.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {fileURLToPath} from 'node:url';
+import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
 import App from './app.tsx';
 import {
@@ -64,9 +64,7 @@ import {
 	restartRepo,
 } from './restart-command.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+const SCRIPTS_DIR = scriptsDir;
 
 const gate = subcommandGate(process.argv.slice(2));
 if (gate.action === 'help') {
@@ -104,7 +102,7 @@ if (cli.flags.resume && cli.input.length === 0) {
 	process.exit(1);
 }
 
-const pappardelleDir = path.resolve(__dirname, '..');
+const pappardelleDir = installationRoot;
 
 const isRestart = cli.input.length === 1 && cli.input[0] === 'restart';
 
@@ -366,7 +364,7 @@ if (!isInTmux() && cli.flags.layout) {
 	// No existing session - create a new one.
 	const cmd = tuiLaunchCommand({
 		execPath: process.execPath,
-		cliPath: process.argv[1] ?? 'pappardelle',
+		cliPath: cliFilePath(),
 		args: process.argv.slice(2),
 		home: homedir(),
 	});

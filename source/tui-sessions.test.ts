@@ -491,3 +491,28 @@ test('the release falls back to node and cli.js when the shim is missing', t => 
 		"'/old/node' '/home/me/.pappardelle/repo/dist/cli.js'",
 	);
 });
+
+test('a standalone restart invokes the executable once and installed releases use the shim', t => {
+	const binary = '/work/pappardelle/dist/pappardelle';
+	t.is(
+		tuiLaunchCommand({
+			execPath: binary,
+			cliPath: binary,
+			args: ['--no-layout'],
+			home: '/home/me',
+			exists: () => false,
+		}),
+		"'/work/pappardelle/dist/pappardelle' --no-layout",
+	);
+	const installed = '/home/me/.pappardelle/repo/dist/pappardelle';
+	t.is(
+		tuiLaunchCommand({
+			execPath: installed,
+			cliPath: installed,
+			args: [],
+			home: '/home/me',
+			exists: () => true,
+		}),
+		"'/home/me/.local/bin/pappardelle'",
+	);
+});

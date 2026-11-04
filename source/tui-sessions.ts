@@ -335,9 +335,13 @@ export function tuiLaunchCommand(options: {
 	);
 	const shim = path.join(options.home, '.local', 'bin', 'pappardelle');
 	const command =
-		path.resolve(options.cliPath) === releaseCli && exists(shim)
+		[releaseCli, path.join(path.dirname(releaseCli), 'pappardelle')].includes(
+			path.resolve(options.cliPath),
+		) && exists(shim)
 			? shellQuote(shim)
-			: `${shellQuote(options.execPath)} ${shellQuote(options.cliPath)}`;
+			: options.execPath === options.cliPath
+				? shellQuote(options.execPath)
+				: `${shellQuote(options.execPath)} ${shellQuote(options.cliPath)}`;
 	return [command, ...options.args].join(' ');
 }
 

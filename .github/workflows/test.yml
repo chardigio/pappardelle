@@ -70,6 +70,11 @@ jobs:
       - name: Run tests
         run: bun --bun ava 'source/**/*.test.ts'
 
+      - name: Test the compiled CLI after relocation
+        env:
+          PAPPARDELLE_TEST_STANDALONE: '1'
+        run: bun --bun ava --serial source/open-space-command.test.ts
+
       - name: Verify program status transport, lifecycle, cleanup and app
         run: |
           bun integration-tests/verify-program-status.ts

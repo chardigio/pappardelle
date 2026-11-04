@@ -3,16 +3,16 @@
 	"version": "0.1.0",
 	"license": "MIT",
 	"bin": {
-		"pappardelle": "dist/cli.js"
+		"pappardelle": "dist/pappardelle"
 	},
 	"type": "module",
 	"engines": {
-		"bun": ">=1.4.0"
+		"bun": ">=1.4.4"
 	},
 	"scripts": {
 		"build": "bun scripts/build.ts",
 		"dev": "bun --watch source/cli.tsx",
-		"start": "bun dist/cli.js",
+		"start": "./dist/pappardelle",
 		"test": "bun --bun prettier --check . && bun --bun xo && bun run test:unit",
 		"typecheck": "bun --bun tsc --noEmit",
 		"test:unit": "bun --bun ava"

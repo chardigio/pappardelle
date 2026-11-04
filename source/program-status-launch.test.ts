@@ -103,7 +103,7 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 	execFileSync('git', ['init', '--quiet', repo]);
 	const worker = path.join(root, 'launch.mjs');
 	const launch = (
-		launcher: 'tui' | 'shell',
+		launcher: 'tui' | 'shell' | 'compiled-shell',
 		command: string,
 		args = '',
 		isClaude = false,
@@ -130,7 +130,7 @@ if (${JSON.stringify(launcher)} === 'tui') {
   execFileSync('/bin/bash', [${JSON.stringify(path.join(project, 'scripts/start-agent-session.sh'))},
     '--issue-key', 'TEST-1', '--repo-name', 'repo', '--worktree', process.cwd(), '--companion-command', '',
     '--agent-command', profile.command, '--agent-args', profile.args, '--agent-is-claude', String(profile.isClaude),
-    '--agent-profile', profile.name, '--agent-resume-args', ''], {env: buildSpawnEnv(process.cwd(), process.cwd())});
+    '--agent-profile', profile.name, '--agent-resume-args', ''], {env: {...buildSpawnEnv(process.cwd(), process.cwd()), ...(${JSON.stringify(launcher)} === 'compiled-shell' ? {PAPPARDELLE_BUN: '', PAPPARDELLE_EXECUTABLE: ${JSON.stringify(path.join(project, 'dist/pappardelle'))}} : {})}});
 }
 `,
 		);
@@ -415,3 +415,23 @@ for (const staleNode of [false, true]) {
 		},
 	);
 }
+
+runtimeTest(
+	'compiled monitor captures shell reports without Bun or Node on PATH',
+	async t => {
+		const h = fixture(t, true, true);
+		h.launch('compiled-shell', h.blockedAgent);
+		await until(
+			() => h.status()?.info.status === 'blocked',
+			'first report through the embedded monitor',
+		);
+		t.true(h.status()?.authoritative);
+		t.is(h.status()?.info.app, 'fixture');
+		h.tmux('kill-session', '-t', '=agent-repo-TEST-1');
+		await until(
+			() => h.status()?.exited === true,
+			'compiled monitor retires after pane exit',
+		);
+		t.true(h.status()?.exited);
+	},
+);
