@@ -15,6 +15,21 @@ export type InputHighlight = {
 	color: 'cyan' | 'green' | 'magenta';
 };
 
+const keyBindings: InputKeyBinding[] = [
+	{name: 'a', ctrl: true, action: 'line-home'},
+	{name: 'e', ctrl: true, action: 'line-end'},
+	{name: 'u', ctrl: true, action: 'delete-to-line-start'},
+	{name: 'left', meta: true, action: 'word-backward'},
+	{name: 'right', meta: true, action: 'word-forward'},
+	{name: 'b', meta: true, action: 'word-backward'},
+	{name: 'f', meta: true, action: 'word-forward'},
+	{name: 'backspace', meta: true, action: 'delete-word-backward'},
+];
+const multilineKeyBindings: InputKeyBinding[] = [
+	...keyBindings,
+	{name: 'return', action: 'submit'},
+];
+
 type Props = {
 	value: string;
 	onChange: (value: string) => void;
@@ -74,31 +89,24 @@ export default function TextInput({
 		if (isFocused && !isShowingCursor && key.name === 'return')
 			onSubmit?.(value);
 	});
-	const common = {
-		flexGrow: 1,
-		flexShrink: 1,
-		minWidth: 1,
-		focused: isFocused && isShowingCursor,
-		showCursor: isShowingCursor,
-		backgroundColor: 'transparent',
-		focusedBackgroundColor: 'transparent',
-		textColor: RGBA.defaultForeground(),
-		focusedTextColor: RGBA.defaultForeground(),
-		placeholderColor: terminalColor('gray'),
-		placeholder,
-		cursorStyle: {style: 'block' as const, blinking: false},
-		syntaxStyle,
-	};
-	const keyBindings: InputKeyBinding[] = [
-		{name: 'a', ctrl: true, action: 'line-home'},
-		{name: 'e', ctrl: true, action: 'line-end'},
-		{name: 'u', ctrl: true, action: 'delete-to-line-start'},
-		{name: 'left', meta: true, action: 'word-backward'},
-		{name: 'right', meta: true, action: 'word-forward'},
-		{name: 'b', meta: true, action: 'word-backward'},
-		{name: 'f', meta: true, action: 'word-forward'},
-		{name: 'backspace', meta: true, action: 'delete-word-backward'},
-	];
+	const common = useMemo(
+		() => ({
+			flexGrow: 1,
+			flexShrink: 1,
+			minWidth: 1,
+			focused: isFocused && isShowingCursor,
+			showCursor: isShowingCursor,
+			backgroundColor: 'transparent',
+			focusedBackgroundColor: 'transparent',
+			textColor: RGBA.defaultForeground(),
+			focusedTextColor: RGBA.defaultForeground(),
+			placeholderColor: terminalColor('gray'),
+			placeholder,
+			cursorStyle: {style: 'block' as const, blinking: false},
+			syntaxStyle,
+		}),
+		[isFocused, isShowingCursor, placeholder, syntaxStyle],
+	);
 	const onKeyDown = (key: KeyEvent) => {
 		// These belong to the parent suggestion picker; do not move the input caret.
 		if (['up', 'down', 'tab', 'escape'].includes(key.name))
@@ -115,7 +123,7 @@ export default function TextInput({
 				initialValue={value}
 				minHeight={1}
 				wrapMode="word"
-				keyBindings={[...keyBindings, {name: 'return', action: 'submit'}]}
+				keyBindings={multilineKeyBindings}
 				onKeyDown={onKeyDown}
 				onSubmit={submit}
 				onContentChange={() => onChange(ref.current?.plainText ?? value)}

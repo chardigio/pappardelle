@@ -38,7 +38,12 @@ tmux, configuration, and status protocols remain in place.
 - **Scheduling:** render on demand with a 60 FPS ceiling. Keep the shared,
   low-frequency application animation clock for spinner/blink states rather
   than scheduling every workspace at 60 Hz. A React error boundary keeps render
-  failures visible and dismissible; Esc restores the terminal.
+  failures visible and dismissible; Esc restores the terminal. Render failures
+  are logged explicitly with their stack because Bun console writes bypass the
+  stderr interceptor. OpenTUI captures reconciler console diagnostics with its
+  console overlay kept closed (`openConsoleOnError: false`), preventing raw
+  output from corrupting the application view. Input bindings are shared and
+  common input props are memoized to avoid rebuilding keymaps on each keystroke.
 - **Production packaging:** `bun run build` produces a native executable with
   Bun's ESM startup bytecode, production React, and embedded OpenTUI assets.
   It also produces a production JavaScript bundle with code splitting, linked
