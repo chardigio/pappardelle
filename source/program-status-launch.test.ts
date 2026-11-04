@@ -21,6 +21,15 @@ const project = path.resolve(import.meta.dirname, '..');
 const runtimeTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.skip;
 
+function isAlive(pid: number) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 	const root = realpathSync(mkdtempSync('/tmp/status-launch-'));
 	const bin = path.join(root, 'bin');
@@ -69,11 +78,27 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
-	t.teardown(() => {
+	t.teardown(async () => {
+		let panePids: number[] = [];
 		try {
+			panePids = tmux('list-panes', '-a', '-F', '#{pane_pid}')
+				.split('\n')
+				.filter(Boolean)
+				.map(Number);
 			tmux('kill-server');
 		} catch {}
-		rmSync(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 50});
+		// kill-server returns before pane processes exit, and an exiting pane can
+		// still write a status file while the directory is being removed.
+		const deadline = Date.now() + 5000;
+		while (panePids.some(pid => isAlive(pid)) && Date.now() < deadline) {
+			await delay(50);
+		}
+		rmSync(root, {
+			recursive: true,
+			force: true,
+			maxRetries: 20,
+			retryDelay: 100,
+		});
 	});
 	execFileSync('git', ['init', '--quiet', repo]);
 	const worker = path.join(root, 'launch.mjs');
