@@ -68,6 +68,16 @@ fs.writeFileSync(process.env.IDOW_TEST_RECORD, JSON.stringify({
   stdin: fs.readFileSync(0, 'utf8'),
   stdinIsTTY: process.stdin.isTTY ?? false,
 }));
+if (process.env.IDOW_TEST_STATUS_DIR) {
+  const key = process.argv.at(-1);
+  fs.mkdirSync(process.env.IDOW_TEST_STATUS_DIR, {recursive: true});
+  fs.writeFileSync(process.env.IDOW_TEST_STATUS_DIR + '/' + key + '.json', JSON.stringify({
+    status: 'waiting_for_input',
+    event: 'SessionStart',
+    cwd: process.env.HOME + '/.worktrees/project/' + key,
+    lastUpdate: Date.now(),
+  }));
+}
 if (process.env.IDOW_TEST_PID_FILE) fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 if (process.env.IDOW_TEST_KEEP_ALIVE) setTimeout(() => {}, 30000);
 process.stderr.write('idow diagnostic\\n');
@@ -190,6 +200,21 @@ test.serial(
 			'error' in spaces ? spaces.error : spaces.spaces.map(space => space.name),
 			['STE-20'],
 		);
+	},
+);
+
+test.serial(
+	'CLI --wait succeeds once the reopened space reports its agent started',
+	async t => {
+		const f = fixture(t);
+		const statusDir = path.join(f.root, 'status');
+		const result = await f.run(['--resume', '--wait', 'STE-20'], {
+			PAPPARDELLE_STATUS_DIR: statusDir,
+			IDOW_TEST_STATUS_DIR: statusDir,
+		});
+		t.is(result.code, 0, result.stderr);
+		t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
 	},
 );
 

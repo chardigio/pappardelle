@@ -124,17 +124,13 @@ Heard, chef.
 If `pappardelle send` exits non-zero with "No active session", reopen the space and send again without asking. Run this as one Bash call, with the same quoting rules as the first send. Use the full issue key, since status files are named by it:
 
 ```bash
-REPO_NAME=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
-SINCE=$(python3 -c 'import time; print(int(time.time()*1000))')
-pappardelle --resume STA-XXX || exit $?
-bash ~/.pappardelle/scripts/sous-chef/wait-for-agent.sh "$REPO_NAME" STA-XXX "$SINCE" || { echo "agent not confirmed"; exit 3; }
-pappardelle send STA-XXX 'the user instruction here'
+pappardelle --resume --wait STA-XXX && pappardelle send STA-XXX 'the user instruction here'
 ```
 
-`wait-for-agent.sh` waits for the reopened agent to start. Never skip it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
+`--wait` holds until the reopened agent starts, up to 60 seconds. Never drop it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
 
 - Sent: "696 back on the line. Sent: refactor the auth middleware"
-- "agent not confirmed": "696 back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Spaces whose profile runs Codex always land here, because Codex doesn't report its status
+- Exit 3, "agent was not confirmed to start": "696 back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Spaces whose profile runs Codex always land here, because Codex doesn't report its status
 - `pappardelle --resume` or the send fails: relay the error
 
 ## Opening or Reopening a Space
