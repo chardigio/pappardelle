@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
 import {parse, stringify} from 'yaml';
+import {agentRulesFlags} from './companion-rules.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
@@ -57,6 +58,8 @@ function setup(t: ExecutionContext, realWorktree = false) {
 		'builtin-agents.json',
 		'resolve-terminal-app.sh',
 		'derive-title.sh',
+		'companion-rules.txt',
+		'install-agent-rules.sh',
 	]) {
 		fs.copyFileSync(path.join(scriptsDir, file), path.join(scripts, file));
 	}
@@ -557,6 +560,43 @@ test('an explicit profile pick on an existing space is persisted and reused', as
 	t.is(persisted(), 'other');
 	t.is(agentCommand(), 'codex');
 	t.true(output.includes('Profile:   Other'), output);
+});
+
+test('idow launches Codex with the companion rules and writes agy its rule file', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({
+			agent_profiles: {
+				codex: {command: 'codex', model: 'gpt-5.5'},
+				agy: {command: 'agy'},
+			},
+			profiles: {
+				cx: {display_name: 'Codex', agent_profile: 'codex'},
+				ag: {display_name: 'Agy', agent_profile: 'agy'},
+			},
+		}),
+	);
+	const worktree = path.join(fixture.home, '.worktrees/main checkout/test-abc');
+	fs.mkdirSync(worktree, {recursive: true});
+	const launchFlags = () => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf('--agent-launch-flags') + 1];
+	};
+
+	await fixture.run({profile: 'cx'});
+	t.is(launchFlags(), `-m gpt-5.5${agentRulesFlags('codex')}`);
+	t.false(fs.existsSync(path.join(worktree, '.agents')));
+
+	await fixture.run({profile: 'ag'});
+	t.is(launchFlags(), '');
+	t.regex(
+		fs.readFileSync(
+			path.join(worktree, '.agents/rules/pappardelle.md'),
+			'utf8',
+		),
+		/first call companion_run/,
+	);
 });
 
 // codex's `resume --last` is not scoped to the cwd, so resuming in a brand new

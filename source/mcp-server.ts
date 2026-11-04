@@ -9,19 +9,12 @@ import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {configExists, getRepoName} from './config.ts';
-import {MCP_TOOLS, type CliCall, type McpTool} from './mcp-tools.ts';
+import {companionRules} from './companion-rules.ts';
+import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {spaceFromWorktreePath} from './space-target.ts';
 
 export type CliResult = {code: number | null; stdout: string; stderr: string};
 export type RunCli = (call: CliCall, signal: AbortSignal) => Promise<CliResult>;
-
-const COMPANION_RULES = `The companion is the user's view of what you are doing. Keep it showing that, all session:
-1. Whenever you are about to ask the user a question or for a decision, in chat or with a question tool, first call companion_run to show what the decision depends on: the diff, the file, the log, the doc. Do this even for small questions
-2. Run the app, a dev server or a test watcher in a companion split (companion_run with a pane name and split) instead of a background task, so the user can watch it start. Read its output with companion_read
-3. Before you ask the user to review something, call companion_run to set the companion up for that review: \`hunk diff\`, the running app, the rendered page
-4. As the work moves on, change what the companion shows to match, and close splits that no longer help
-5. Use named splits for short-lived views. Change main only when it is the right place; the user may be in the middle of something there
-6. When the user says what they want in the companion, do that instead`;
 
 export function workspaceInstructions(
 	space: string | undefined,
@@ -33,17 +26,7 @@ export function workspaceInstructions(
 
 	return `You are in Pappardelle space ${space}${repoName ? ` (repo ${repoName})` : ''}. Pappardelle gives each issue a git worktree, an agent session and a companion pane next to it, and the user watches both. Use this server's tools rather than tmux; they target your own space unless you pass \`space\`. The pappardelle-agent skill covers updating and restarting Pappardelle.
 
-${COMPANION_RULES}`;
-}
-
-/**
- * Codex and Pi don't show the model a server's instructions, but every client
- * shows it tool descriptions, so the rules go here too.
- */
-function toolDescription(tool: McpTool, space: string | undefined): string {
-	return tool.name === 'companion_run' && space
-		? `${tool.description}\n\nYou are in Pappardelle space ${space}. ${COMPANION_RULES}`
-		: tool.description;
+${companionRules()}`;
 }
 
 export function createMcpServer(options: {
@@ -63,7 +46,7 @@ export function createMcpServer(options: {
 		server.registerTool(
 			tool.name,
 			{
-				description: toolDescription(tool, space),
+				description: tool.description,
 				inputSchema: tool.inputSchema,
 				annotations: {
 					readOnlyHint: tool.readOnly,
