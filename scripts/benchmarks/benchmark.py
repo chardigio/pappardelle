@@ -43,13 +43,18 @@ def run_pty(argv, cwd, env, done=None, stop_at=None):
     captured = bytearray()
     next_key = 0
     first_ms = None
+    input_ready_at = None
     try:
         while time.perf_counter() - start < 20:
             if done and done.exists():
                 events = done.read_text().splitlines()
-                if events and any('"phase":"input"' in line for line in events) and time.perf_counter() >= next_key:
-                    os.write(master, b'j')
-                    next_key = time.perf_counter() + .1
+                if events and any('"phase":"input"' in line for line in events):
+                    if input_ready_at is None:
+                        # Drain the final saturation frame before measuring input.
+                        input_ready_at = time.perf_counter() + .15
+                    if time.perf_counter() >= max(next_key, input_ready_at):
+                        os.write(master, b'j')
+                        next_key = time.perf_counter() + .1
             if select.select([master], [], [], .005)[0]:
                 try:
                     data = os.read(master, 65536)

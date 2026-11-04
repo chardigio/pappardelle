@@ -1,6 +1,6 @@
 // Copied temporarily into each checkout by benchmark.py so dependencies resolve
 // against that checkout. Both variants render its actual built SpaceListItem.
-import React, {useEffect, useLayoutEffect, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {appendFileSync, writeFileSync} from 'node:fs';
 import SpaceListItem from './dist/components/SpaceListItem.js';
 
@@ -13,7 +13,7 @@ const Text = native ? 'text' : framework.Text;
 let phase = 'startup';
 let inputAt = null;
 let inputFrame = null;
-let committedFrame = 0;
+let renderedFrame = 0;
 let firstFrame = null;
 let activeFrames = 0;
 const latencies = [];
@@ -28,7 +28,7 @@ function recordFrame() {
 		appendFileSync(output, JSON.stringify({firstFrame}) + '\n');
 	}
 	if (phase === 'saturation') activeFrames++;
-	if (phase === 'input' && inputAt !== null && committedFrame >= inputFrame) {
+	if (phase === 'input' && inputAt !== null && renderedFrame >= inputFrame) {
 		latencies.push(performance.now() - inputAt);
 		inputAt = null;
 	}
@@ -70,9 +70,9 @@ function App() {
 	};
 	if (native) framework.useKeyboard(key => handle(key.name));
 	else framework.useInput(input => handle(input));
-	useLayoutEffect(() => {
-		committedFrame = frame;
-	}, [frame]);
+	// Ink calls onRender during commit, before layout effects. This render
+	// token identifies the state actually used to produce the frame.
+	renderedFrame = frame;
 	useEffect(() => {
 		let interval;
 		const timers = [
