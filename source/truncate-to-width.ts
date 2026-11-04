@@ -32,16 +32,47 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, {
 export function truncateToWidth(text: string, maxCells: number): string {
 	if (maxCells <= 0) return '';
 	if (widestLine(text) <= maxCells) return text;
+	return cutToWidth(text, maxCells - 1) + '…';
+}
 
-	const budget = maxCells - 1; // reserve one cell for the ellipsis
+function cutToWidth(text: string, maxCells: number): string {
 	let result = '';
 	let width = 0;
 	for (const {segment} of graphemeSegmenter.segment(text)) {
 		const segmentWidth = widestLine(segment);
-		if (width + segmentWidth > budget) break;
+		if (width + segmentWidth > maxCells) break;
 		result += segment;
 		width += segmentWidth;
 	}
 
-	return result + '…';
+	return result;
+}
+
+/**
+ * `truncateToWidth` across differently styled runs of one line: runs that fit
+ * are kept whole, and the run that crosses the budget is cut and carries the
+ * ellipsis in its own style.
+ */
+export function truncateRunsToWidth<Run extends {text: string}>(
+	runs: Run[],
+	maxCells: number,
+): Run[] {
+	if (maxCells <= 0) return [];
+	const total = runs.reduce((sum, run) => sum + widestLine(run.text), 0);
+	if (total <= maxCells) return runs;
+
+	const kept: Run[] = [];
+	let remaining = maxCells;
+	for (const run of runs) {
+		const width = widestLine(run.text);
+		if (width >= remaining) {
+			kept.push({...run, text: cutToWidth(run.text, remaining - 1) + '…'});
+			break;
+		}
+
+		kept.push(run);
+		remaining -= width;
+	}
+
+	return kept;
 }
