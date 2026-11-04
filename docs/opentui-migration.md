@@ -85,19 +85,19 @@ Seven alternating warm-cache runs on Linux x64 (AMD EPYC 9V74, 3 logical CPUs),
 Node 24.22.1 / Ink 7.1.1 versus Bun 1.4.4 / OpenTUI 0.8.2. Values are
 medians across runs; input percentiles pool all input samples.
 
-| Metric                                  | Upstream Ink / Node | OpenTUI native bytecode |           Change |
-| --------------------------------------- | ------------------: | ----------------------: | ---------------: |
-| Release build (ms)                      |            2,414.53 |                1,101.14 |      54.4% lower |
-| Typecheck + release build (ms)          |            2,414.53 |                4,314.42 |     78.7% higher |
-| Full CLI: first workspace (ms)          |              447.94 |                   66.58 |      85.1% lower |
-| CLI `--version` (ms)                    |              316.16 |                   27.30 |      91.4% lower |
-| Render callbacks / second               |               24.51 |                   61.51 | 2.51× throughput |
-| Key handler → frame, median (ms)        |               4.568 |                   1.137 |      75.1% lower |
-| Key handler → frame, p95 (ms)           |               5.854 |                   2.365 |      59.6% lower |
-| Active render CPU, 2 seconds (ms)       |              987.48 |                  333.50 |      66.2% lower |
-| Peak rendering-fixture RSS (MiB)        |              151.43 |                   87.09 |      42.5% lower |
-| Short idle-window CPU, 1 second (ms)    |                0.37 |                   17.82 |   4676.7% higher |
-| Terminal output, entire fixture (bytes) |              37,801 |                  54,794 |     45.0% higher |
+| Metric                                     | Upstream Ink / Node | OpenTUI native bytecode |           Change |
+| ------------------------------------------ | ------------------: | ----------------------: | ---------------: |
+| Release build (ms)                         |            2,414.53 |                1,101.14 |      54.4% lower |
+| Typecheck + release build (ms)             |            2,414.53 |                4,314.42 |     78.7% higher |
+| CLI: first placeholder row, no layout (ms) |              447.94 |                   66.58 |      85.1% lower |
+| CLI `--version` (ms)                       |              316.16 |                   27.30 |      91.4% lower |
+| Render callbacks / second                  |               24.51 |                   61.51 | 2.51× throughput |
+| Key handler → frame, median (ms)           |               4.568 |                   1.137 |      75.1% lower |
+| Key handler → frame, p95 (ms)              |               5.854 |                   2.365 |      59.6% lower |
+| Active render CPU, 2 seconds (ms)          |              987.48 |                  333.50 |      66.2% lower |
+| Peak rendering-fixture RSS (MiB)           |              151.43 |                   87.09 |      42.5% lower |
+| Short idle-window CPU, 1 second (ms)       |                0.37 |                   17.82 |   4676.7% higher |
+| Terminal output, entire fixture (bytes)    |              37,801 |                  54,794 |     45.0% higher |
 
 The release build includes both the executable and JavaScript fallback. Type
 checking is separate in Bun and remains required: **check + build is slower**,
@@ -181,9 +181,13 @@ python3 scripts/benchmarks/benchmark.py --baseline /path/to/ink-checkout --runs 
 
 The harness alternates variants on each repetition, uses warm filesystem caches,
 and creates isolated HOME/git repositories. Launch is process creation to the
-first workspace row received from the **full CLI** in an 80×30 PTY. `--version`
-is measured separately. No tmux layout setup, agent startup, remote tracker calls, or
-network-dependent update check is included in launch timing.
+first `main` placeholder row received from the CLI with `--no-layout` in an
+80×30 PTY, using a tiny temporary repository. The placeholder is published before
+main-worktree discovery completes; it does not mean that the workspace is ready.
+`--version` is measured separately. No tmux layout setup, workspace session
+creation/attachment, interactive shell initialization, agent startup/resume,
+remote tracker calls, or network-dependent update check is included in launch
+timing. These numbers are **not end-to-end cold-start workspace readiness**.
 
 The rendering fixture uses each checkout's actual built `SpaceListItem`, with
 20 equivalent rows and a changing selection. The native fixture compiles the
