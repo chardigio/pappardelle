@@ -1,4 +1,4 @@
-import {isStandalone} from './runtime.ts';
+import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {Buffer} from 'node:buffer';
 import {execFile} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
@@ -186,7 +186,7 @@ function monitorEntry(): string[] {
 	const entry = fileURLToPath(
 		new URL(`program-status-monitor-cli${extension}`, import.meta.url),
 	);
-	return [process.execPath, entry];
+	return [process.execPath, ...bunIsolationArgs, entry];
 }
 
 export async function attachStatusMonitor(

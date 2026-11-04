@@ -31,4 +31,9 @@ if [[ "$SUPPORTED" != true ]]; then
     echo "    curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash" >&2
     exit 1
 fi
-exec "$BUN_BIN" "$CLI_JS" "$@"
+if [[ ! -f "$CLI_JS" ]]; then
+    echo "pappardelle: $CLI_JS is missing; rebuild or reinstall Pappardelle." >&2
+    exit 1
+fi
+# Keep a workspace's .env and bunfig.toml preload out of Pappardelle.
+exec "$BUN_BIN" --no-env-file --config=/dev/null "$CLI_JS" "$@"

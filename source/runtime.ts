@@ -21,6 +21,10 @@ export const packageModuleUrl = pathToFileURL(
 export function cliFilePath(): string {
 	return isStandalone ? process.execPath : path.resolve(process.argv[1] ?? '');
 }
+// Bun otherwise loads .env and bunfig.toml (including preload scripts) from
+// the working directory, which is usually a user's workspace. The compiled
+// executable disables both at build time.
+export const bunIsolationArgs = ['--no-env-file', '--config=/dev/null'];
 export function selfLaunchArgs(): string[] {
-	return isStandalone ? [] : [cliFilePath()];
+	return isStandalone ? [] : [...bunIsolationArgs, cliFilePath()];
 }

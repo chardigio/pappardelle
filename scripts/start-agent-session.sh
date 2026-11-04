@@ -48,7 +48,7 @@ elif [[ -x "$SCRIPT_DIR/../dist/pappardelle" ]]; then
     # workspace's .env or bunfig.toml and needs no Bun on PATH.
     STATUS_MONITOR=("$SCRIPT_DIR/../dist/pappardelle" --internal-status-monitor)
 elif [[ -x "$STATUS_BUN" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
-    STATUS_MONITOR=("$STATUS_BUN" "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
+    STATUS_MONITOR=("$STATUS_BUN" --no-env-file --config=/dev/null "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
 fi
 
 ISSUE_KEY=""

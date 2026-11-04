@@ -30,6 +30,8 @@ function renderShim(options: {
 	minBunVersion: string;
 }): string {
 	const template = fs.readFileSync(templatePath, 'utf8');
+	fs.mkdirSync(path.dirname(options.cliJs), {recursive: true});
+	fs.writeFileSync(options.cliJs, '');
 	return template
 		.replaceAll('__BUN_BIN__', options.bunBin)
 		.replaceAll('__CLI_JS__', options.cliJs)
