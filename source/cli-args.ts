@@ -65,6 +65,8 @@ const helpText = `
 	  --profile <name>    Use a configured profile instead of automatic selection
 	  --resume            Skip the initialization prompt when opening a space
 	  --no-resume         Enable the initialization prompt for an existing space
+	  --wait              After opening a space, wait up to 60s for its agent to
+	                      start; exit 3 if it isn't confirmed
 	  --no-layout         Don't set up tmux pane layout (run standalone)
 	  --workspace         Outer workspace root when linking a nested repository
 	  --restart-tuis      After update, restart running TUIs without asking
@@ -77,6 +79,7 @@ const helpText = `
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
+	  $ pappardelle --resume --wait STA-313  # Reopen, then wait for its agent
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
 	  $ pappardelle send 313 --keys Escape  # Interrupt STA-313's agent
@@ -99,6 +102,7 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 		flags: {
 			profile: {type: 'string'},
 			resume: {type: 'boolean'},
+			wait: {type: 'boolean'},
 			workspace: {type: 'string'},
 			layout: {
 				type: 'boolean',

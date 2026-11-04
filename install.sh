@@ -388,7 +388,6 @@ install_skill_scripts() {
     print_status "Installed $skill scripts to $PAPPARDELLE_DIR/scripts/$skill/"
 }
 
-install_skill_scripts sous-chef
 install_skill_scripts init-pappardelle
 
 # ============================================================================
