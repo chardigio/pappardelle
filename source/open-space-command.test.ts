@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {Client} from '@modelcontextprotocol/sdk/client/index.js';
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import test, {type ExecutionContext} from 'ava';
 import {gatherSpaces} from './spaces-command.ts';
 
@@ -162,6 +164,8 @@ setTimeout(() => {
 		repo,
 		home,
 		install,
+		directory,
+		env,
 		idow,
 		record,
 		registry,
@@ -215,6 +219,51 @@ test.serial(
 		t.is(result.code, 0, result.stderr);
 		t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
 		t.deepEqual(f.readRegistry(), ['STE-20']);
+	},
+);
+
+test.serial(
+	"space_open over MCP keeps idow's output off the protocol channel",
+	async t => {
+		const f = fixture(t);
+		const client = new Client({name: 'test', version: '1'});
+		// This suite may itself run inside a space.
+		const env = Object.fromEntries(
+			Object.entries(f.env).filter(
+				(entry): entry is [string, string] =>
+					entry[1] !== undefined && entry[0] !== 'PAPPARDELLE_SPACE',
+			),
+		);
+		await client.connect(
+			new StdioClientTransport({
+				command: process.execPath,
+				args: [
+					...(useBuiltCli ? [] : ['--import', import.meta.resolve('tsx')]),
+					path.join(
+						f.install,
+						f.directory,
+						useBuiltCli ? 'mcp-cli.js' : 'mcp-cli.ts',
+					),
+				],
+				cwd: f.repo,
+				env: {...env, IDOW_TEST_BYTES: '200000'},
+				stderr: 'ignore',
+			}),
+		);
+		t.teardown(async () => client.close());
+
+		const result = await client.callTool({
+			name: 'space_open',
+			arguments: {input: 'STE-20'},
+		});
+
+		t.falsy(result.isError);
+		const [output] = result.content as Array<{text: string}>;
+		t.true(output!.text.endsWith('Workspace STE-20 is ready!'));
+		t.deepEqual(f.readRecord().args, ['STE-20']);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
+		const {tools} = await client.listTools();
+		t.true(tools.length > 0);
 	},
 );
 

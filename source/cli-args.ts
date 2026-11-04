@@ -43,11 +43,13 @@ const helpText = `
 	                   (--turns N, default 5; --json)
 	  companion        Run, type into, read, resize and close panes in a
 	                   space's companion. See pappardelle companion --help
+	  mcp              Serve these commands as MCP tools over stdio. The
+	                   Claude Code plugin starts this
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
-	  plugin install   Install the plugin (skills and hooks) from this checkout
-	                   into Claude Code, Codex and agy. install.sh runs this
+	  plugin install   Install the plugin (skills, hooks and MCP tools) from this
+	                   checkout into Claude Code, Codex and agy. install.sh runs this
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -186,6 +188,18 @@ const subcommands = {
 	  --no-restart-tuis   Leave running TUIs alone and print a hint
 `,
 	},
+	mcp: {
+		usage: 'pappardelle mcp',
+		flags: [],
+		help: `
+	Usage
+	  $ pappardelle mcp
+
+	Serves Pappardelle's commands as MCP tools over stdio, for the session that
+	started it. The Claude Code plugin starts this, so you shouldn't need to.
+	Outside a repo with a .pappardelle.yml it serves no tools.
+`,
+	},
 	'plugin install': {
 		usage: 'pappardelle plugin install',
 		flags: [],
@@ -193,8 +207,8 @@ const subcommands = {
 	Usage
 	  $ pappardelle plugin install
 
-	Installs the Pappardelle plugin (skills and hooks) from this checkout into
-	Claude Code, Codex and agy, skipping any that isn't installed.
+	Installs the Pappardelle plugin (skills, hooks and MCP tools) from this
+	checkout into Claude Code, Codex and agy, skipping any that isn't installed.
 	  Claude Code: points pappardelle-marketplace at the checkout; it loads the
 	    plugin in place, so edits take effect after /reload-plugins. Removes
 	    the hooks older installs merged into ~/.claude/settings.json.
