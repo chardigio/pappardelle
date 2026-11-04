@@ -15,7 +15,8 @@
 # 4. Symlinks `idow` to ~/.local/bin/
 # 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
-# 7. Installs the Claude Code plugin (skills and status hooks) from this
+# 7. Adds the Codex session hook to ~/.codex/hooks.json
+# 8. Installs the Claude Code plugin (skills and status hooks) from this
 #    checkout (`pappardelle plugin install`)
 
 set -e
