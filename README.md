@@ -635,12 +635,6 @@ They ship in the `pappardelle` plugin with the [hooks](#claude-code-hooks). `ins
 
 Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the checkout and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.bak` first), so the hooks don't run twice. `install.sh` also points Codex's `record-agent-session.py` entry in `~/.codex/hooks.json` at the checkout. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
 
-To use the skills with other agents, install them with the [skills CLI](https://github.com/vercel-labs/skills#supported-agents):
-
-```bash
-npx skills add chardigio/pappardelle -g -a codex --skill '*' -y
-```
-
 Because `/configure-pappardelle` is model-invocable, Claude will automatically offer to use it when you ask about configuring Pappardelle — no need to invoke it explicitly.
 
 ### Dependencies
