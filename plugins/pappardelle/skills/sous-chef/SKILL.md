@@ -2,10 +2,11 @@
 name: sous-chef
 description: >-
   Kitchen-style coordinator for managing Pappardelle worktree spaces. Use when you want a quick
-  overview of active Claude sessions, need to check on a specific space, want to create,
-  reopen or close a workspace, relay instructions to a running Claude session, or update or restart Pappardelle.
+  overview of active Claude sessions, need to check on a specific space, want to open or
+  reopen a space, close a space, relay instructions to a running Claude session, or update or restart Pappardelle.
 disable-model-invocation: true
-model: haiku
+model: opus
+effort: low
 ---
 
 # /sous-chef — Kitchen Coordinator
@@ -153,36 +154,46 @@ Sent to 696: "refactor the auth middleware"
 Heard, chef.
 ```
 
-If `pappardelle send` exits non-zero with "No active session", report it:
-
-```
-696 — no active session. Space may need to be reopened in Pappardelle.
-```
-
-## Creating or Reopening a Workspace
-
-When the chef asks to open, create, or reopen a workspace, run `pappardelle` with the issue key, Linear issue URL, or quoted description from the repo or one of its worktrees. These commands work from this session without a terminal:
+If `pappardelle send` exits non-zero with "No active session", reopen the space and send again without asking. Run this as one Bash call, with the same quoting rules as the first send. Use the full issue key, since status files are named by it:
 
 ```bash
-pappardelle STA-696
-pappardelle "fix auth bug"
-pappardelle --profile mobile "fix auth bug"
+REPO_NAME=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
+SINCE=$(python3 -c 'import time; print(int(time.time()*1000))')
+pappardelle --resume STA-XXX || exit $?
+bash ~/.pappardelle/scripts/sous-chef/wait-for-agent.sh "$REPO_NAME" STA-XXX "$SINCE" || { echo "agent not confirmed"; exit 3; }
+pappardelle send STA-XXX 'the user instruction here'
+```
+
+`wait-for-agent.sh` waits for the reopened agent to start. Never skip it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
+
+- Sent: "696 back on the line. Sent: refactor the auth middleware"
+- "agent not confirmed": "696 back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Spaces whose profile runs Codex always land here, because Codex doesn't report its status
+- `pappardelle --resume` or the send fails: relay the error
+
+## Opening or Reopening a Space
+
+When the chef asks to open, fire, create, or reopen a space, run `pappardelle` from the repo or one of its worktrees. Don't ask first: a wrong space is cheap, and the chef can close it. The callout names exactly what ran, so a mishearing shows up right away.
+
+The chef may give an issue key, a bare number, a Linear issue URL, or a description of the work. Pick the command from the board (the `gather-spaces.sh` output; rerun it if it is stale):
+
+- Key not on the board: fire a new space with `pappardelle STA-712`
+- Key on the board: reopen it with `pappardelle --resume STA-696`. This brings back a space whose session is gone without sending the configured initialization prompt again
+- A description: `pappardelle -- 'fix the auth bug'`. This files a new issue and opens a space for it. Pass the chef's words as said, without rewording them, in single quotes after `--` so a description starting with `-` isn't read as a flag. For a single quote inside it, close and reopen the quotes: `'fix the user'\''s login'`
+- `--profile <name>` selects a profile configured in `.pappardelle.yml` and combines with `--resume`. Use the requested profile's config key, not its display name. Without this flag, idow selects the profile
+- `--no-resume` overrides automatic resume and sends the initialization prompt when the agent session starts. Use it only when the chef asks for a fresh start with the init prompt, e.g. `pappardelle --no-resume STA-696`
+- Bare issue numbers use the selected profile's team prefix when configured, otherwise the repo's team prefix. Prefer the full issue key when its prefix is already known
+
+```bash
+pappardelle STA-712
+pappardelle --resume STA-696
+pappardelle --profile mobile -- 'fix the auth bug'
 ```
 
 Use `pappardelle` rather than calling `idow` directly: a successful command saves the space in the registry used by the TUI and `gather-spaces.sh`.
 
-- Opening an existing worktree by issue key automatically resumes it without sending the configured initialization prompt again
-- `--resume` skips that prompt for any input, including a Linear issue URL or description; it does not require an existing workspace
-- `--no-resume` overrides automatic resume and enables the initialization prompt when the agent session starts
-- `--profile <name>` selects a profile configured in `.pappardelle.yml` and can be combined with either resume flag. Use the requested profile's config key, not its display name. Without this flag, idow selects the profile
-- Bare issue numbers use the selected profile's team prefix when configured, otherwise the repo's team prefix. Prefer the full issue key when its prefix is already known
+After exit status zero, refresh the board with `gather-spaces.sh` and call it with the full key: "STA-712 fired, on the board." "STA-696 back on the line." For a description, take the new key from the `Workspace STA-713 is ready!` line in the output, never from the board: "New issue filed, STA-713, fix the auth bug, space open."
 
-```bash
-pappardelle --resume --profile mobile STA-696
-pappardelle --no-resume STA-696
-```
-
-After exit status zero, refresh the board with `gather-spaces.sh` and confirm the opened space. A nonzero status means setup or registration failed; report the diagnostic. If the command says setup completed but registration failed, the workspace may already exist even though it is missing from the board. Do not claim success or blindly repeat a description that could create another issue.
+A nonzero status means setup or registration failed; report the diagnostic. If the command says setup completed but registration failed, the workspace may already exist even though it is missing from the board. Do not claim success. Never rerun a description: the issue may already be filed, and a rerun files a duplicate.
 
 ## Closing a Space
 
@@ -209,7 +220,9 @@ Every `pappardelle` subcommand works from this session. Run them from the repo o
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `pappardelle highlight STA-XXX`        | Selects the space in the TUI                                                                                                                                                                                                                                                             | Safe                                                             |
 | `pappardelle send STA-XXX 'text'`      | Submits text as a prompt to the space's Claude session (quoting rules above)                                                                                                                                                                                                             | Safe                                                             |
-| `pappardelle "<prompt or issue key>"`  | Creates or reopens a space and saves it in the board; existing issue-key worktrees resume automatically (a bare number like `696` resolves with the team prefix)                                                                                                                         | Safe                                                             |
+| `pappardelle STA-XXX`                  | Opens a new space for the issue and saves it in the board; an existing worktree resumes (a bare number like `696` resolves with the team prefix)                                                                                                                                         | Safe                                                             |
+| `pappardelle --resume STA-XXX`         | Reopens a space on the board whose session is gone, without the initialization prompt                                                                                                                                                                                                    | Safe                                                             |
+| `pappardelle -- '<description>'`       | Files a new issue from the description and opens a space for it                                                                                                                                                                                                                          | Safe                                                             |
 | `pappardelle close STA-XXX --yes`      | Closes the space like `x` in the TUI: runs its deinit hooks, ends its sessions, removes it from the board                                                                                                                                                                                | Safe; ends this session if it's this space                       |
 | `pappardelle update --no-restart-tuis` | Installs the latest release and leaves running TUIs on the old build, naming them                                                                                                                                                                                                        | Safe                                                             |
 | `pappardelle update --restart-tuis`    | Installs the latest release, then restarts every running TUI in place and reports the build each one came up on. Exits 1 if a TUI fails to restart or report ready                                                                                                                       | Safe; Claude sessions, this one included, keep running           |
