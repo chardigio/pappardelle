@@ -9,6 +9,7 @@ const helpText = `
 	  $ pappardelle close <issue-key> [--yes]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
+	  $ pappardelle plugin install
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
@@ -30,6 +31,8 @@ const helpText = `
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
+	  plugin install   Install the Claude Code plugin (skills and hooks) from
+	                   this checkout. install.sh runs this
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -149,6 +152,19 @@ const subcommands = {
 	  --no-restart-tuis   Leave running TUIs alone and print a hint
 `,
 	},
+	'plugin install': {
+		usage: 'pappardelle plugin install',
+		flags: [],
+		help: `
+	Usage
+	  $ pappardelle plugin install
+
+	Points Claude Code's pappardelle-marketplace at this checkout and installs
+	the Pappardelle plugin (skills and hooks) from it. Claude Code loads it in
+	place, so edits take effect after /reload-plugins. Also removes the hooks
+	that older installs merged into ~/.claude/settings.json, keeping a backup.
+`,
+	},
 } as const;
 
 export type SubcommandGate =
@@ -156,19 +172,32 @@ export type SubcommandGate =
 	| {action: 'help'; text: string}
 	| {action: 'reject'; message: string};
 
-// `close`, `restart` and `update` act on live spaces or TUIs, so a flag they
-// don't know must stop them. meow only answers --help when it is the sole argument and
-// otherwise ignores unknown flags.
+// `close`, `restart` and `update` act on live spaces or TUIs and `plugin
+// install` rewrites Claude Code settings, so a flag they don't know must stop
+// them. meow only answers --help when it is the sole argument and otherwise
+// ignores unknown flags.
 export function subcommandGate(argv: readonly string[]): SubcommandGate {
-	const name = argv[0];
+	// Any other `plugin ...` is a typo, not a prompt, and as a prompt it would
+	// create a workspace.
+	const name = argv[0] === 'plugin' ? 'plugin install' : argv[0];
 	if (name === undefined || !Object.hasOwn(subcommands, name)) {
 		return {action: 'run'};
 	}
 
 	const {usage, flags, help} = subcommands[name as keyof typeof subcommands];
-	const given = argv.slice(1).filter(arg => arg.startsWith('-'));
+	const given = argv.filter(arg => arg.startsWith('-'));
 	if (given.some(arg => arg === '--help' || arg === '-h')) {
 		return {action: 'help', text: help};
+	}
+
+	if (
+		name === 'plugin install' &&
+		argv.filter(arg => !arg.startsWith('-')).join(' ') !== 'plugin install'
+	) {
+		return {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: ${usage}`,
+		};
 	}
 
 	const unknown = given.find(

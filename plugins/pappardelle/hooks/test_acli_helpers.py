@@ -2,7 +2,7 @@
 """
 Tests for acli_helpers.py shared module.
 
-Run with: uv run pytest hooks/test_acli_helpers.py -v
+Run with: uv run pytest plugins/pappardelle/hooks/test_acli_helpers.py -v
 """
 
 import importlib.util

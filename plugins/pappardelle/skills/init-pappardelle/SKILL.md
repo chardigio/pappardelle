@@ -244,7 +244,7 @@ command -v pappardelle &>/dev/null && echo "INSTALLED" || echo "NOT_INSTALLED"
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-The install script checks base prerequisites (Node.js >= 22, npm, git, tmux, jq), clones the repo, builds it, and makes the `pappardelle` command available globally. If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
+The install script checks base prerequisites (Node.js >= 22, npm, git, tmux, jq), clones the repo, builds it, makes the `pappardelle` command available globally, and installs the Pappardelle Claude Code plugin (these skills plus the status hooks). If it fails due to missing prerequisites, help the user install them (e.g., `brew install node tmux jq`) and re-run.
 
 - If **already installed**, print "Pappardelle is already installed" and move on.
 

@@ -31,19 +31,13 @@ https://github.com/user-attachments/assets/abeaf413-5a1e-448a-ac53-2956a8ada5bf
 
 The fastest way to get set up is with `/init-pappardelle`.
 
-Add the marketplace:
+Install Pappardelle. This builds the CLI and installs its Claude Code plugin: the hooks below plus five skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), `/configure-pappardelle` (interactive config editor), `/sous-chef` (optional workspace coordinator), and `/link-pr` (record a PR/MR for the workspace):
 
 ```bash
-claude plugin marketplace add chardigio/pappardelle
+curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
 ```
 
-Install the plugin. This installs four skills — `/init-pappardelle` (setup wizard), `/update-pappardelle` (update to latest), `/configure-pappardelle` (interactive config editor), and `/sous-chef` (optional workspace coordinator):
-
-```bash
-claude plugin install pappardelle@pappardelle-marketplace
-```
-
-Run the setup wizard from any repo where you want to use Pappardelle. This installs pappardelle configures your .pappardelle.yml:
+Run the setup wizard from any repo where you want to use Pappardelle. It writes your `.pappardelle.yml`:
 
 ```bash
 claude /init-pappardelle
@@ -284,7 +278,7 @@ A one-line prompt like "add dark mode to settings" leaves a lot of questions ope
 
 ### Automatic Q&A documentation
 
-Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear, Jira or beads issue by the [`comment-question-answered.py`](hooks/comment-question-answered.py) hook. This means:
+Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear, Jira or beads issue by the [`comment-question-answered.py`](plugins/pappardelle/hooks/comment-question-answered.py) hook. This means:
 
 - **The issue becomes the single source of truth.** The original prompt, every clarifying question, and every answer are all captured in one place — not scattered across chat windows or terminal scrollback.
 - **Anyone reviewing the PR can see the full context.** The issue thread shows exactly what the agent asked, what the developer decided, and why.
@@ -294,7 +288,7 @@ Every `AskUserQuestion` exchange is automatically posted as a comment on the Lin
 
 ## 5. Customizing Your Configuration
 
-Use `/configure-pappardelle` to interactively edit your config — it walks you through adding profiles, keybindings, hooks, and more using `AskUserQuestion`. Available via the [plugin marketplace](#plugin-marketplace) or by asking Claude directly (it's model-invocable).
+Use `/configure-pappardelle` to interactively edit your config — it walks you through adding profiles, keybindings, hooks, and more using `AskUserQuestion`. Available via the [skills](#skills) or by asking Claude directly (it's model-invocable).
 
 Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The key concepts:
 
@@ -332,7 +326,7 @@ Because Pappardelle runs entirely inside tmux, you can access your full workspac
 
 ### Nice-to-haves
 
-- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a [`zap-notification.py`](hooks/zap-notification.py) hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. To get it working, set the `PAPPARDELLE_NTFY_TOPIC` environment variable and subscribe to the same topic in the ntfy app on your phone. That variable is the only switch: leave it unset and the hook stays silent. This way you don't have to babysit the terminal, just wait for the buzz.
+- **[ntfy](https://ntfy.sh/)** — Push notifications to your phone when Claude needs input. Pappardelle ships with a [`zap-notification.py`](plugins/pappardelle/hooks/zap-notification.py) hook that sends a push via ntfy whenever Claude asks a question or hits a permission prompt. To get it working, set the `PAPPARDELLE_NTFY_TOPIC` environment variable and subscribe to the same topic in the ntfy app on your phone. That variable is the only switch: leave it unset and the hook stays silent. This way you don't have to babysit the terminal, just wait for the buzz.
 - **[Wispr Flow](https://apps.apple.com/us/app/wispr-flow-ai-voice-keyboard/id6497229487)** — Voice-to-text dictation that works system-wide, including inside Termius. Lets you talk to Claude instead of thumb-typing on a phone keyboard.
 
 ### Recommended Termius keyboard shortcuts
@@ -506,14 +500,14 @@ cd pappardelle
 npm install
 npm run build
 npm link                # makes `pappardelle` available globally
-./hooks/install.sh      # installs Claude Code hooks for status tracking
+pappardelle plugin install  # installs the Claude Code plugin (skills and hooks)
 ```
 
 **Directories created by the installer:**
 
 | Directory / File                                   | Purpose                                                              |
 | -------------------------------------------------- | -------------------------------------------------------------------- |
-| `~/.pappardelle/`                                  | Config, hooks, logs, and program status files                        |
+| `~/.pappardelle/`                                  | Config, logs, and program status files                               |
 | `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                           |
 | `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)            |
 | `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                          |
@@ -528,14 +522,14 @@ npm link                # makes `pappardelle` available globally
 
 ### Claude Code hooks
 
-Pappardelle installs these agent hooks for integration between agent sessions and the TUI:
+The Pappardelle plugin ships the Claude Code hooks ([`hooks.json`](plugins/pappardelle/hooks/hooks.json)) that connect agent sessions to the TUI, and `install.sh` adds Codex's session hook to `~/.codex/hooks.json`:
 
-| Hook                           | Trigger                                             | What it does                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update-status.py`             | Every Claude event in `hooks/settings.json.example` | Writes session status to `~/.pappardelle/claude-status/<space>.json` for live TUI updates. The space comes from `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>`. On `SessionStart` and `UserPromptSubmit` it also records Claude's session id for resume |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)                     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                                                                                                                   |
-| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`                   | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                                                                                                          |
-| `record-agent-session.py`      | Codex `SessionStart`, `UserPromptSubmit`            | Records the agent's session id for its space so a relaunch resumes the space's own conversation. See [Session resume](pappardelle-config.md#session-resume)                                                                                                                                                                                                                                                                             |
+| Hook                           | Trigger                                  | What it does                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update-status.py`             | Every Claude session and tool event      | Writes session status to `~/.pappardelle/claude-status/<space>.json` for live TUI updates. The space comes from `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>`. On `SessionStart` and `UserPromptSubmit` it also records Claude's session id for resume |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)          | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                                                                                                                   |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`        | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                                                                                                          |
+| `record-agent-session.py`      | Codex `SessionStart`, `UserPromptSubmit` | Records the agent's session id for its space so a relaunch resumes the space's own conversation. See [Session resume](pappardelle-config.md#session-resume)                                                                                                                                                                                                                                                                             |
 
 ### Versioning and updates
 
@@ -625,9 +619,9 @@ npx tsx integration-tests/verify-comments.ts   # Comment posting (creates real c
 
 See [`integration-tests/README.md`](integration-tests/README.md) for env vars and prerequisites.
 
-### Plugin Marketplace
+### Skills
 
-Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pappardelle` plugin containing four skills:
+Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappardelle/skills):
 
 | Skill                    | Description                                                                                                                                                                                                                                           | Model-invocable |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
@@ -635,16 +629,11 @@ Pappardelle ships a [Claude Code plugin marketplace](plugins/) with a single `pa
 | `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                                                                                                                | No              |
 | `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                                                                                                    | Yes             |
 | `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send`, open or reopen spaces with `pappardelle`, close spaces with `pappardelle close` | No              |
+| `/link-pr`               | Records a verified PR/MR for the current workspace with `pappardelle link-pr`                                                                                                                                                                         | Yes             |
 
-**Install the plugin:**
+They ship in the `pappardelle` plugin with the [hooks](#claude-code-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which adds the `pappardelle-marketplace` marketplace from the checkout it installed and installs the plugin at user scope. Claude Code loads a plugin from a local marketplace in place, so the skills and hooks always match that checkout. Run `/reload-plugins` in open sessions after an update, or after editing a local clone you installed from. If you install from a worktree, run `install.sh` from your main checkout before removing that worktree, since Claude Code loads the plugin from it.
 
-```bash
-claude /plugin marketplace add chardigio/pappardelle
-```
-
-```bash
-claude /plugin install pappardelle@pappardelle-marketplace
-```
+Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the checkout and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.pappardelle.bak` first), so the hooks don't run twice. `install.sh` also points Codex's `record-agent-session.py` entry in `~/.codex/hooks.json` at the checkout. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
 
 Because `/configure-pappardelle` is model-invocable, Claude will automatically offer to use it when you ask about configuring Pappardelle — no need to invoke it explicitly.
 

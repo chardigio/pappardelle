@@ -2,7 +2,7 @@
 """
 Tests for comment-question-answered.py hook script — Jira ADF integration paths.
 
-Run with: uv run pytest hooks/test_comment_question_answered.py -v
+Run with: uv run pytest plugins/pappardelle/hooks/test_comment_question_answered.py -v
 """
 
 import importlib.util

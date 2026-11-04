@@ -120,7 +120,7 @@ fi
 SPACE_ENV=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_SPACE 2>/dev/null)
 assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY" "$SPACE_ENV"
 
-# The agent's hook records its session id under these (hooks/agent_session.py)
+# The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py)
 assert_eq "agent session env names the agent" "PAPPARDELLE_AGENT_PROFILE=claude" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null)"
 assert_eq "agent session env says the agent is claude" "PAPPARDELLE_AGENT_IS_CLAUDE=true" \

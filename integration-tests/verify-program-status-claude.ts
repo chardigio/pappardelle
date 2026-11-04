@@ -22,10 +22,16 @@ const repo = 'claude-prototype';
 const key = 'STATUS-LIVE';
 const session = 'claude-status-live';
 const conversation = randomUUID();
-const hookScript = path.join(projectRoot, 'hooks/update-status.py');
+const hookScript = path.join(
+	projectRoot,
+	'plugins/pappardelle/hooks/update-status.py',
+);
 const settings = path.join(harness.root, 'claude-settings.json');
 const template = JSON.parse(
-	readFileSync(path.join(projectRoot, 'hooks/settings.json.example'), 'utf8'),
+	readFileSync(
+		path.join(projectRoot, 'plugins/pappardelle/hooks/hooks.json'),
+		'utf8',
+	),
 ) as {
 	hooks: Record<
 		string,
