@@ -1,4 +1,5 @@
-import type {ReactNode} from 'react';
+import {createElement, type ReactNode} from 'react';
+import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
 import {createCliRenderer, type CliRendererConfig} from '@opentui/core';
 import {createRoot} from '@opentui/react';
 
@@ -17,6 +18,6 @@ export async function renderTui(
 		...options,
 	});
 	const root = createRoot(renderer);
-	root.render(node);
+	root.render(createElement(TuiErrorBoundary, null, node));
 	return {renderer, root};
 }
