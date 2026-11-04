@@ -35,6 +35,7 @@ test.serial(
 		const git = execFileSync('which', ['git'], {encoding: 'utf8'}).trim();
 		const tmux = execFileSync('which', ['tmux'], {encoding: 'utf8'}).trim();
 		fs.symlinkSync(git, path.join(bin, 'git'));
+		fs.symlinkSync(tmux, path.join(bin, 'tmux'));
 		execFileSync(git, ['init', '-q', '-b', 'main', repo]);
 		fs.writeFileSync(
 			path.join(repo, '.pappardelle.yml'),
