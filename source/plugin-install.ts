@@ -16,8 +16,7 @@ const PLUGIN_ID = 'pappardelle@pappardelle-marketplace';
 // ~/.claude/settings.json. Left in place, every hook would fire twice. The
 // scripts themselves stay: sessions open during an update keep running the old
 // commands until they reload.
-const LEGACY_HOOK_DIR = '~/.pappardelle/hooks/';
-const LEGACY_HOOK_COMMAND = '.pappardelle/hooks/';
+const LEGACY_HOOK_DIR = '.pappardelle/hooks/';
 
 export type RunResult = {
 	status: number | null;
@@ -58,10 +57,10 @@ export function installPlugin(deps: PluginInstallDeps): number {
 		`Installed the Pappardelle plugin from ${deps.repoDir}. Run /reload-plugins in open Claude Code sessions to load it.`,
 	);
 	// Closing a workspace removes its worktree, and with it the plugin every
-	// Claude session loads.
+	// Claude session loads and the script Codex's session hook runs.
 	if (deps.isLinkedWorktree()) {
 		deps.print(
-			'This is a git worktree: run install.sh from your main checkout before removing it, or Claude Code loses the plugin.',
+			'This is a git worktree: run install.sh from your main checkout before removing it, or Claude Code loses the plugin and Codex its session hook.',
 		);
 	}
 
@@ -78,7 +77,7 @@ function removeLegacyHooks(deps: PluginInstallDeps, original: string): void {
 		settings = JSON.parse(current) as ClaudeSettings;
 	} catch {
 		deps.print(
-			`Could not parse ${deps.settingsPath}; remove any hooks that run ${LEGACY_HOOK_DIR} by hand.`,
+			`Could not parse ${deps.settingsPath}; remove any hooks that run ~/${LEGACY_HOOK_DIR} by hand.`,
 		);
 		return;
 	}
@@ -92,8 +91,7 @@ function removeLegacyHooks(deps: PluginInstallDeps, original: string): void {
 }
 
 const isLegacyHook = (hook: {command?: unknown}) =>
-	typeof hook.command === 'string' &&
-	hook.command.includes(LEGACY_HOOK_COMMAND);
+	typeof hook.command === 'string' && hook.command.includes(LEGACY_HOOK_DIR);
 
 function stripLegacyHooks(settings: ClaudeSettings): boolean {
 	let changed = false;
