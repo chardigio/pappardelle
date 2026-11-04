@@ -1,16 +1,25 @@
 /**
- * Pure color/attribute resolution for a space-list row's highlight state.
+ * Color/attribute resolution for a space-list row's highlight state.
  *
  * A row can be highlighted two ways, and they mean different things:
  *   - it needs attention (Claude is blocked on a permission or a question) —
  *     drawn as a blinking colored block, red for approvals, blue for questions
  *   - it is the selected row — drawn as a plain inverse block
  *
- * Both use the terminal's `inverse` attribute, which swaps foreground and
- * background. That swap is the whole reason this lives in its own module: under
- * `inverse` the color you set is the color the row is *painted* with, and the
- * text is drawn in the terminal's background color.
+ * The attention block is painted with an explicit background rather than the
+ * terminal's `inverse` attribute. OpenTUI resolves `inverse` with an explicit
+ * foreground by filling the background with that same color and then still
+ * emitting SGR 7, so the terminal swaps two identical colors and the text
+ * disappears into the block. Painting the block color as the background and
+ * leaving the text in a default color draws the colored bar with readable
+ * text on every theme.
+ *
+ * Selection keeps `inverse`, but only with default colors: under `inverse` the
+ * foreground becomes the highlight's background, so a tracker state color
+ * there would let a color pappardelle doesn't control decide the contrast.
  */
+import {RGBA, type ColorInput} from '@opentui/core';
+import {terminalColor, textAttributes} from '../tui-style.ts';
 
 export interface RowHighlightInput {
 	isSelected: boolean;
@@ -24,43 +33,65 @@ export interface RowHighlightInput {
 	stateColor: string;
 }
 
+/** How a span looks on an unhighlighted row. */
+export interface SpanStyle {
+	fg?: string;
+	bold?: boolean;
+	dim?: boolean;
+	/** The span belongs to the selection block (the issue key and title). */
+	selectable?: boolean;
+}
+
+export interface SpanPaint {
+	fg: ColorInput;
+	bg: ColorInput | undefined;
+	attributes: number;
+}
+
 export interface RowHighlight {
-	useBlinkInverse: boolean;
-	useSelectionInverse: boolean;
-	useInverse: boolean;
-	/** Color for the row's non-highlighted chrome (emoji, status icon, spaces). */
-	textColor: string | undefined;
-	/** Color for the issue key badge. */
+	/** Color for the issue key badge on an unhighlighted row. */
 	keyColor: string | undefined;
-	/** Color for the issue title. */
-	titleColor: string | undefined;
+	paint: (span: SpanStyle) => SpanPaint;
 }
 
 const BACKGROUND_RISK_COLORS = new Set(['gray', 'grey', 'blackBright']);
 
 export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
-	const useBlinkInverse = input.needsAttention && input.blinkOn;
-	const useSelectionInverse = input.isSelected && !useBlinkInverse;
-	const useInverse = useBlinkInverse || useSelectionInverse;
+	const blinkColor =
+		input.needsAttention && input.blinkOn
+			? input.isQuestion
+				? 'blue'
+				: 'red'
+			: undefined;
+	const isSelectionShown = input.isSelected && blinkColor === undefined;
 
-	const textColor = useBlinkInverse
-		? input.isQuestion
-			? 'blue'
-			: 'red'
-		: undefined;
+	const keyColor = BACKGROUND_RISK_COLORS.has(input.stateColor)
+		? undefined
+		: input.stateColor;
 
-	const keyColor =
-		useSelectionInverse || BACKGROUND_RISK_COLORS.has(input.stateColor)
-			? undefined
-			: input.stateColor;
-	const titleColor = useSelectionInverse ? undefined : textColor;
+	const paint = (span: SpanStyle): SpanPaint => {
+		if (blinkColor) {
+			return {
+				fg: RGBA.defaultBackground(),
+				bg: terminalColor(blinkColor),
+				attributes: textAttributes({bold: span.bold}),
+			};
+		}
 
-	return {
-		useBlinkInverse,
-		useSelectionInverse,
-		useInverse,
-		textColor,
-		keyColor,
-		titleColor,
+		if (isSelectionShown && span.selectable) {
+			return {
+				fg: terminalColor(),
+				bg: undefined,
+				attributes: textAttributes({bold: span.bold, inverse: true}),
+			};
+		}
+
+		return {
+			fg: terminalColor(span.fg),
+			bg: undefined,
+			attributes: textAttributes({bold: span.bold, dim: span.dim}),
+		};
 	};
+
+	return {keyColor, paint};
 }

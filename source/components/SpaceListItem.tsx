@@ -1,4 +1,3 @@
-import {textAttributes, terminalColor} from '../tui-style.ts';
 import {memo} from 'react';
 import type {MouseEvent} from '@opentui/core';
 
@@ -177,39 +176,27 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	};
 	const stateColor = getStateColor();
 
-	const {useBlinkInverse, useInverse, textColor, keyColor, titleColor} =
-		resolveRowHighlight({
-			isSelected,
-			needsAttention,
-			blinkOn,
-			isQuestion,
-			stateColor,
-		});
+	const {keyColor, paint} = resolveRowHighlight({
+		isSelected,
+		needsAttention,
+		blinkOn,
+		isQuestion,
+		stateColor,
+	});
+	const gap = paint({});
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
 		if (pipeline === 'progressing_dirty') {
 			return (
 				<>
-					<text
-						flexShrink={1}
-						attributes={textAttributes({inverse: useBlinkInverse})}
-						fg={terminalColor(textColor)}
-					>
+					<text flexShrink={1} {...gap}>
 						{' '}
 					</text>
-					<text
-						flexShrink={1}
-						attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
-						fg={terminalColor(useBlinkInverse ? textColor : 'yellow')}
-					>
+					<text flexShrink={1} {...paint({fg: 'yellow', bold: true})}>
 						◐
 					</text>
-					<text
-						flexShrink={1}
-						attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
-						fg={terminalColor(useBlinkInverse ? textColor : 'red')}
-					>
+					<text flexShrink={1} {...paint({fg: 'red', bold: true})}>
 						◑
 					</text>
 				</>
@@ -219,18 +206,10 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		const style = PIPELINE_SINGLE[pipeline];
 		return (
 			<>
-				<text
-					flexShrink={1}
-					attributes={textAttributes({inverse: useBlinkInverse})}
-					fg={terminalColor(textColor)}
-				>
+				<text flexShrink={1} {...gap}>
 					{' '}
 				</text>
-				<text
-					flexShrink={1}
-					attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
-					fg={terminalColor(useBlinkInverse ? textColor : style.color)}
-				>
+				<text flexShrink={1} {...paint({fg: style.color, bold: true})}>
 					{style.icon}
 				</text>
 			</>
@@ -241,21 +220,10 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		if (commentCount <= 0) return null;
 		return (
 			<>
-				<text
-					flexShrink={1}
-					attributes={textAttributes({inverse: useBlinkInverse})}
-					fg={terminalColor(textColor)}
-				>
+				<text flexShrink={1} {...gap}>
 					{' '}
 				</text>
-				<text
-					flexShrink={1}
-					attributes={textAttributes({
-						dim: !useBlinkInverse,
-						inverse: useBlinkInverse,
-					})}
-					fg={terminalColor(useBlinkInverse ? textColor : undefined)}
-				>
+				<text flexShrink={1} {...paint({dim: true})}>
 					{`(${commentCount})`}
 				</text>
 			</>
@@ -266,18 +234,10 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		if (!hasConflict) return null;
 		return (
 			<>
-				<text
-					flexShrink={1}
-					attributes={textAttributes({inverse: useBlinkInverse})}
-					fg={terminalColor(textColor)}
-				>
+				<text flexShrink={1} {...gap}>
 					{' '}
 				</text>
-				<text
-					flexShrink={1}
-					attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
-					fg={terminalColor(useBlinkInverse ? textColor : 'red')}
-				>
+				<text flexShrink={1} {...paint({fg: 'red', bold: true})}>
 					↯
 				</text>
 			</>
@@ -287,10 +247,9 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	const renderTitle = () => (
 		<text
 			flexShrink={1}
-			attributes={textAttributes({dim: !useInverse, inverse: useInverse})}
+			{...paint({dim: true, selectable: true})}
 			wrapMode="none"
 			height={1}
-			fg={terminalColor(titleColor)}
 		>
 			{truncatedTitle}
 		</text>
@@ -305,19 +264,11 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 			<box flexDirection="row" flexShrink={0}>
 				{emoji ? (
 					<>
-						<text
-							flexShrink={1}
-							attributes={textAttributes({inverse: useBlinkInverse})}
-							fg={terminalColor(textColor)}
-						>
+						<text flexShrink={1} {...gap}>
 							{emoji}
 						</text>
 						{emojiNeedsSeparator ? (
-							<text
-								flexShrink={1}
-								attributes={textAttributes({inverse: useBlinkInverse})}
-								fg={terminalColor(textColor)}
-							>
+							<text flexShrink={1} {...gap}>
 								{' '}
 							</text>
 						) : null}
@@ -326,34 +277,21 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 				{/* Status icon (NOT highlighted, always shows its own color) */}
 				{isWorking ? (
 					<ClaudeAnimation
-						color={
-							useBlinkInverse
-								? textColor
-								: space.isPending
-									? COLORS.CLAUDE_ORANGE
-									: statusInfo.color
-						}
-						inverse={useBlinkInverse}
+						paint={paint({
+							fg: space.isPending ? COLORS.CLAUDE_ORANGE : statusInfo.color,
+						})}
 					/>
 				) : (
 					<text
 						flexShrink={1}
-						attributes={textAttributes({
-							dim: !useBlinkInverse && (statusInfo.dim ?? false),
-							inverse: useBlinkInverse,
-						})}
-						fg={terminalColor(useBlinkInverse ? textColor : statusInfo.color)}
+						{...paint({fg: statusInfo.color, dim: statusInfo.dim})}
 					>
 						{statusInfo.icon ?? '?'}
 					</text>
 				)}
 
 				{/* Space after status icon (NOT highlighted) */}
-				<text
-					flexShrink={1}
-					attributes={textAttributes({inverse: useBlinkInverse})}
-					fg={terminalColor(textColor)}
-				>
+				<text flexShrink={1} {...gap}>
 					{' '}
 				</text>
 
@@ -361,8 +299,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 				{hasIssueKey && (
 					<text
 						flexShrink={1}
-						attributes={textAttributes({bold: true, inverse: useInverse})}
-						fg={terminalColor(useBlinkInverse ? textColor : keyColor)}
+						{...paint({fg: keyColor, bold: true, selectable: true})}
 						wrapMode="none"
 						height={1}
 					>
@@ -371,11 +308,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 				)}
 
 				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
-					<text
-						flexShrink={1}
-						attributes={textAttributes({dim: !useInverse, inverse: useInverse})}
-						fg={terminalColor(titleColor)}
-					>
+					<text flexShrink={1} {...paint({dim: true, selectable: true})}>
 						{' '}
 					</text>
 				)}
@@ -418,11 +351,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 			{keyLine}
 			<box flexDirection="row" overflow="hidden">
 				<box flexDirection="row" flexShrink={0}>
-					<text
-						flexShrink={1}
-						attributes={textAttributes({inverse: useBlinkInverse})}
-						fg={terminalColor(textColor)}
-					>
+					<text flexShrink={1} {...gap}>
 						{' '.repeat(twoLineIndent)}
 					</text>
 				</box>
