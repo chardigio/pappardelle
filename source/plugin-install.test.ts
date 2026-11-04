@@ -74,7 +74,7 @@ test('a failed marketplace add skips the install and the hook cleanup', t => {
 	});
 	t.is(installPlugin(deps), 1);
 	t.is(calls.length, 1);
-	t.false(files.has(`${SETTINGS}.bak`));
+	t.false(files.has(`${SETTINGS}.pappardelle.bak`));
 });
 
 test('removes only the old Pappardelle hooks from settings, keeping a backup', t => {
@@ -98,7 +98,7 @@ test('removes only the old Pappardelle hooks from settings, keeping a backup', t
 			SessionStart: [{hooks: [mine]}],
 		},
 	});
-	t.is(files.get(`${SETTINGS}.bak`), original);
+	t.is(files.get(`${SETTINGS}.pappardelle.bak`), original);
 });
 
 test('backs up settings as they were before claude rewrote them', t => {
@@ -118,7 +118,7 @@ test('backs up settings as they were before claude rewrote them', t => {
 	};
 
 	t.is(installPlugin(deps), 0);
-	t.is(files.get(`${SETTINGS}.bak`), original);
+	t.is(files.get(`${SETTINGS}.pappardelle.bak`), original);
 	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {extraKnownMarketplaces: {}});
 });
 
@@ -138,7 +138,7 @@ test('leaves settings without old hooks untouched', t => {
 	const {deps, files} = fakeDeps({settings});
 	t.is(installPlugin(deps), 0);
 	t.is(files.get(SETTINGS), settings);
-	t.false(files.has(`${SETTINGS}.bak`));
+	t.false(files.has(`${SETTINGS}.pappardelle.bak`));
 });
 
 test('keeps hook groups it does not recognise', t => {
