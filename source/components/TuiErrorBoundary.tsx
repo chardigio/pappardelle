@@ -1,6 +1,9 @@
 import {Component, type ReactNode} from 'react';
 import {useKeyboard, useRenderer} from '@opentui/react';
+import {createLogger} from '../logger.ts';
 import {terminalColor} from '../tui-style.ts';
+
+const log = createLogger('tui');
 
 function FailedView({message}: {message: string}) {
 	const renderer = useRenderer();
@@ -28,8 +31,9 @@ export default class TuiErrorBoundary extends Component<
 	}
 
 	override componentDidCatch(error: Error) {
-		// The CLI's stderr capture records the stack for the existing error log.
-		console.error(error);
+		// Bun's console bypasses process.stderr.write and would corrupt the TUI.
+		// The logger retains only error.message, so include the stack explicitly.
+		log.error(error.stack ?? error.message, error);
 	}
 
 	override render() {

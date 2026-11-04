@@ -1,17 +1,10 @@
 /**
  * STA-2040 regression: the list header must stay exactly one row.
  *
- * `LIST_CHROME_ROWS` is 2 (header + status line), and `calculateListClickRow`
- * turns a mouse y into a row index on that assumption. Once the ticket rail can
- * be dragged down to a handful of columns, the header no longer fits on one
- * row. A wrapped header pushes every list row down, so clicks land on the wrong
- * space and the visible-item count is wrong too.
- *
- * ava runs under Node's `--experimental-strip-types`, which cannot transform the
- * JSX in `app.tsx`, so (like `space-list-item-emoji.test.ts`) this mirrors the
- * header markup through real Ink instead of importing the component. The
- * `bug-reproduces-without-the-fix` test pins the Ink behavior the fix depends
- * on, so an Ink drift flips it.
+ * LIST_CHROME_ROWS assumes two rows (header + status). A wrapped header
+ * pushes list items down and invalidates the visible-item count in narrow panes.
+ * Render the header markup through OpenTUI to verify that clipping preserves
+ * that layout. Mouse targeting is handled by native per-row events.
  */
 import test from 'ava';
 import {textAttributes, terminalColor} from '../tui-style.ts';

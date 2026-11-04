@@ -10,7 +10,8 @@ export async function renderTui(
 ) {
 	const renderer = await createCliRenderer({
 		screenMode: 'alternate-screen',
-		consoleMode: 'disabled',
+		// Capture reconciler diagnostics: Bun console writes bypass stderr hooks.
+		consoleMode: 'console-overlay',
 		externalOutputMode: 'passthrough',
 		openConsoleOnError: false,
 		targetFps: 60,
