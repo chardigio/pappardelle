@@ -141,6 +141,7 @@ import {
 	type PappardelleConfig,
 	type ResolvedAgentProfile,
 } from './config.ts';
+import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
 import {createLogger} from './logger.ts';
 import {
 	ControlClientNeverStarted,
@@ -832,7 +833,7 @@ export function buildAgentResumeCommand(
 	sessionId?: string,
 ): string {
 	let base: string;
-	const launchFlags = renderAgentLaunchFlags(agentProfile);
+	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${agentRulesFlags(agentProfile.command)}`;
 	if (agentProfile.isClaude) {
 		const safeKey = quoteLaunchValue(issueKey);
 		const withDsp = skipPermissions
@@ -3251,6 +3252,14 @@ export async function ensureAgentSession(
 	// folder?" — a Claude Code behavior, skipped for other agents.
 	if (agentProfile.isClaude) {
 		pretrustDirectoryForClaude(worktreePath);
+	}
+
+	try {
+		await installAgentRules(agentProfile.command, worktreePath);
+	} catch (err) {
+		log.warn(
+			`Could not write the companion rules for ${issueKey}: ${err instanceof Error ? err.message : String(err)}`,
+		);
 	}
 
 	// Native agents report at startup, before an ungated monitor could attach.

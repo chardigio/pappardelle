@@ -79,7 +79,7 @@
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
 #    "agent_resume_args": "...", "agent_prompt_args": "...",
 #    "agent_is_claude": "true|false",
-#    "agent_launch_flags": "...", "deprecation_warnings": "...",
+#    "agent_launch_flags": "...", "agent_rules_flags": "...", "deprecation_warnings": "...",
 #    "profile_deprecation_warnings": "..."}
 
 set -eo pipefail
@@ -186,7 +186,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         },
         "agent_profile_names": $agent_profile_names
     }
-' | jq --slurpfile builtin_agents "$(dirname "${BASH_SOURCE[0]}")/builtin-agents.json" '
+' | jq --slurpfile builtin_agents "$(dirname "${BASH_SOURCE[0]}")/builtin-agents.json" --rawfile companion_rules "$(dirname "${BASH_SOURCE[0]}")/companion-rules.txt" '
     def quote_value: if test("^[A-Za-z0-9._-]+$") then . else @sh end;
     def render($template; $placeholder; $value):
         if $value == "" or $template == "" then empty
@@ -268,6 +268,12 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
+        # Mirrors agentRulesFlags() in source/companion-rules.ts.
+        agent_rules_flags: (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
+            | ($def_resolved.command | basename) as $agent
+            | if $agent == "codex" then "-c " + ("developer_instructions=\"\($rules)\"" | @sh)
+              elif $agent == "pi" then "--append-system-prompt " + ($rules | @sh)
+              else "" end),
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors
