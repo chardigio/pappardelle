@@ -10,6 +10,8 @@ import {
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {terminalColor} from '../tui-style.ts';
 
+const maxPromptRows = 10;
+
 export type InputHighlight = {
 	length: number;
 	color: 'cyan' | 'green' | 'magenta';
@@ -24,6 +26,8 @@ const keyBindings: InputKeyBinding[] = [
 	{name: 'b', meta: true, action: 'word-backward'},
 	{name: 'f', meta: true, action: 'word-forward'},
 	{name: 'backspace', meta: true, action: 'delete-word-backward'},
+	// Readline's undo; Ctrl+- reaches us as Ctrl+_ without the kitty protocol.
+	{name: '_', ctrl: true, action: 'undo'},
 ];
 const multilineKeyBindings: InputKeyBinding[] = [
 	...keyBindings,
@@ -103,6 +107,8 @@ export default function TextInput({
 			placeholderColor: terminalColor('gray'),
 			placeholder,
 			cursorStyle: {style: 'block' as const, blinking: false},
+			selectionBg: terminalColor('cyan'),
+			selectionFg: terminalColor('black'),
 			syntaxStyle,
 		}),
 		[isFocused, isShowingCursor, placeholder, syntaxStyle],
@@ -122,6 +128,7 @@ export default function TextInput({
 				}}
 				initialValue={value}
 				minHeight={1}
+				maxHeight={maxPromptRows}
 				wrapMode="word"
 				keyBindings={multilineKeyBindings}
 				onKeyDown={onKeyDown}

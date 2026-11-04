@@ -1,4 +1,5 @@
-import {existsSync, readdirSync, realpathSync} from 'node:fs';
+import {existsSync, readdirSync} from 'node:fs';
+import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
@@ -210,14 +211,6 @@ async function waitForTuiMarker(
 
 		if (Date.now() >= deadline) return {status: 'timeout'};
 		await delay(timing.pollMs);
-	}
-}
-
-function sameFile(a: string, b: string): boolean {
-	try {
-		return realpathSync(a) === realpathSync(b);
-	} catch {
-		return a === b;
 	}
 }
 

@@ -1,4 +1,4 @@
-import {useKeyboard, useTerminalDimensions} from '@opentui/react';
+import {useKeyboard, usePaste, useTerminalDimensions} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor} from '../tui-style.ts';
 import {useState, useMemo, useRef} from 'react';
@@ -38,6 +38,7 @@ import {
 	filterProfileOptions,
 	focusFrame,
 	handleFilterablePickerKey,
+	pasteIntoFilterablePicker,
 	resolvePromptSubmit,
 	PICKER_MAX_VISIBLE,
 	type FilterablePickerState,
@@ -309,6 +310,17 @@ export default function PromptDialog({
 				break;
 			}
 		}
+	});
+
+	usePaste(event => {
+		if (!(isPicking && ready.closeTarget === null)) return;
+		if (agentPopupOpen.current) return;
+		updatePickerState(
+			pasteIntoFilterablePicker(
+				pickerStateRef.current,
+				new TextDecoder().decode(event.bytes),
+			),
+		);
 	});
 
 	useKeyboard(event => {

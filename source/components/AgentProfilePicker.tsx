@@ -1,4 +1,4 @@
-import {useKeyboard} from '@opentui/react';
+import {useKeyboard, usePaste} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor} from '../tui-style.ts';
 import {useRef, useState} from 'react';
@@ -6,6 +6,7 @@ import {useRef, useState} from 'react';
 import {
 	computePickerWindow,
 	handleFilterablePickerKey,
+	pasteIntoFilterablePicker,
 	type FilterablePickerState,
 } from '../profile-picker.ts';
 import {
@@ -40,6 +41,15 @@ export default function AgentProfilePicker({
 	// Ink hands every key of a burst to the handler before React re-renders,
 	// so keys read the latest state here.
 	const stateRef = useRef(state);
+
+	usePaste(event => {
+		const next = pasteIntoFilterablePicker(
+			stateRef.current,
+			new TextDecoder().decode(event.bytes),
+		);
+		stateRef.current = next;
+		setState(next);
+	});
 
 	useKeyboard(event => {
 		const {input, key} = shortcutKey(event);

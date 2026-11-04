@@ -2,11 +2,13 @@ import {Buffer} from 'node:buffer';
 import type {ReactNode} from 'react';
 import {createRoot, flushSync} from '@opentui/react';
 import {createTestRenderer} from '@opentui/core/testing';
+import {preferGraphemeWidths} from '../../source/render-tui.ts';
 /** Component tests use OpenTUI's real offscreen renderer and input parser. */
 export async function render(
 	node: ReactNode,
 	options: {width?: number; height?: number} = {},
 ) {
+	preferGraphemeWidths();
 	const setup = await createTestRenderer({width: 100, height: 80, ...options});
 	let frame = '';
 	const captureFrame = () => {
