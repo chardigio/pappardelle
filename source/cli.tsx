@@ -71,6 +71,8 @@ import {
 import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
+import {waitForAgentStart} from './agent-start.ts';
+import {getHookStatusDir} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
@@ -445,6 +447,20 @@ if (cli.input.length > 0) {
 			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+		waitForAgent: cli.flags.wait
+			? async (issueKey, since) =>
+					waitForAgentStart({
+						statusFile: path.join(getHookStatusDir(), `${issueKey}.json`),
+						worktree: path.join(
+							homedir(),
+							'.worktrees',
+							getRepoName(),
+							issueKey,
+						),
+						since,
+						timeoutMs: 60_000,
+					})
+			: undefined,
 	});
 
 	process.exit(status);

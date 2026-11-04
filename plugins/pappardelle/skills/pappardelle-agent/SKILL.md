@@ -100,7 +100,7 @@ Useful keys in Claude Code's TUI:
 
 Slash commands are prompts: `pappardelle send STA-696 /compact`.
 
-`send` exits 1 with "No active session" when the space's agent session isn't running; the space needs reopening with `pappardelle --resume KEY`.
+`send` exits 1 with "No active session" when the space's agent session isn't running; the space needs reopening with `pappardelle --resume --wait KEY`.
 
 ## Opening, resuming and closing spaces
 
@@ -109,6 +109,7 @@ pappardelle STA-696
 pappardelle -- 'fix the auth bug'
 pappardelle --profile mobile -- 'fix the auth bug'
 pappardelle --resume --profile mobile STA-696
+pappardelle --resume --wait STA-696
 pappardelle --no-resume STA-696
 pappardelle close STA-696 --yes
 ```
@@ -118,6 +119,7 @@ Use `pappardelle` rather than `idow`: a successful run saves the space in the re
 - Opening an existing worktree by issue key resumes it without sending the configured initialization prompt again
 - `--resume` skips that prompt for any input, including a URL or description, and brings back a space whose session is gone
 - `--no-resume` sends the prompt even for an existing space
+- `--wait` holds, after the space opens, until its agent starts (up to 60s), and exits 3 if it isn't confirmed. Use it before `send` to a space you just reopened: a failed launch leaves a shell in the pane, which would run the text as a command. A Codex profile always exits 3, since Codex doesn't report its status
 - `--profile <name>` takes the profile's key in `.pappardelle.yml`, not its display name
 - A bare number such as `696` takes the profile's or the repo's team prefix. Prefer the full key when you know it
 
