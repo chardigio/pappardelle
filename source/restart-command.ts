@@ -66,7 +66,7 @@ export async function restartRepo(
 
 	if (!(await restartAndVerifyTui(tui, deps.launchCommand, deps.cliPath, deps)))
 		return 1;
-	return deps.inTmux ? 0 : deps.attach(tui.session);
+	return deps.inTmux || !deps.isTTY ? 0 : deps.attach(tui.session);
 }
 
 export async function hardRestart(
