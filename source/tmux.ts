@@ -1002,7 +1002,8 @@ export function migrateLegacyAgentSessions(
 }
 
 /**
- * Clear the input line, type `text` literally, then press Enter.
+ * Clear the input line, type `text` literally (pasted when it spans lines),
+ * then press Enter.
  *
  * Each step is its own `send-keys` call. Batched into one call, the text and
  * Enter arrive in a single pty read, Claude Code treats the burst as a paste,
@@ -1015,9 +1016,18 @@ export function sendKeysLiteralThenEnter(
 	target: string,
 	text: string,
 ): boolean {
+	const buffer = `pappardelle-send-${randomUUID()}`;
+	// Typed literally, each newline would press Enter and submit a line on its
+	// own; a bracketed paste keeps multi-line text as one prompt.
+	const type = text.includes('\n')
+		? [
+				['set-buffer', '-b', buffer, '--', text],
+				['paste-buffer', '-p', '-d', '-b', buffer, '-t', target],
+			]
+		: [['send-keys', '-t', target, '-l', '--', text]];
 	const steps: string[][] = [
 		['send-keys', '-t', target, 'C-u'],
-		['send-keys', '-t', target, '-l', '--', text],
+		...type,
 		['send-keys', '-t', target, 'Enter'],
 	];
 	for (const args of steps) {

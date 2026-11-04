@@ -276,7 +276,14 @@ export async function attachStatusMonitor(
 			),
 			socket,
 		);
-		if (attached?.generation !== pane.generation) rmSync(lease, {force: true});
+		if (attached?.generation === pane.generation) {
+			// A session has one status pane, so earlier generations' files belong
+			// to panes that no longer exist.
+			removeProgramSnapshots(repo, key, pane.generation);
+		} else {
+			rmSync(lease, {force: true});
+		}
+
 		return attached;
 	} catch (error) {
 		log.debug(`Cannot monitor ${session}: ${String(error)}`);
@@ -284,12 +291,21 @@ export async function attachStatusMonitor(
 	}
 }
 
-export function removeProgramSnapshots(repo: string, key: string): void {
+export function removeProgramSnapshots(
+	repo: string,
+	key: string,
+	keepGeneration?: string,
+): void {
 	try {
+		const kept =
+			keepGeneration === undefined
+				? undefined
+				: path.basename(programStatusPath(repo, key, keepGeneration));
 		const files = readdirSync(programStatusDir(repo)).filter(
 			file =>
 				statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) ===
-				key,
+					key &&
+				(kept === undefined || !file.startsWith(kept)),
 		);
 		for (const file of files.filter(file => file.endsWith('.lease')))
 			rmSync(path.join(programStatusDir(repo), file), {force: true});

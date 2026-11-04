@@ -182,5 +182,12 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 		};
 	}
 
+	if (given.includes('--restart-tuis') && given.includes('--no-restart-tuis')) {
+		return {
+			action: 'reject',
+			message: `--restart-tuis and --no-restart-tuis can't be combined\nUsage: ${usage}`,
+		};
+	}
+
 	return {action: 'run'};
 }

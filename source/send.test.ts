@@ -101,3 +101,27 @@ test('resolveSpaceKey keeps a key outside the tracker grammar as typed', t => {
 		'pappardelle-tqq',
 	);
 });
+
+test('sendToSpaceAgent pastes multi-line text so it submits as one prompt', t => {
+	const text = 'first line\nsecond line';
+	const {runner, sendKeysCalls} = makeRunner({sessions: ['agent-r-STA-1']});
+
+	t.is(sendToSpaceAgent('STA-1', text, {repoName: 'r', runner}), 'sent');
+	t.deepEqual(
+		sendKeysCalls.map(args => args[0]),
+		['send-keys', 'set-buffer', 'paste-buffer', 'send-keys'],
+	);
+	const [, setBuffer, pasteBuffer, enter] = sendKeysCalls;
+	t.is(setBuffer!.at(-1), text);
+	const buffer = setBuffer![2];
+	t.deepEqual(pasteBuffer, [
+		'paste-buffer',
+		'-p',
+		'-d',
+		'-b',
+		buffer,
+		'-t',
+		'=agent-r-STA-1:',
+	]);
+	t.deepEqual(enter, ['send-keys', '-t', '=agent-r-STA-1:', 'Enter']);
+});

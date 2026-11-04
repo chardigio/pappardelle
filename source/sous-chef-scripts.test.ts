@@ -638,7 +638,7 @@ test.serial(
 async function runWaitForAgent(
 	home: string,
 	options: {
-		since: number;
+		since: number | string;
 		timeoutSecs?: number;
 		duringWait?: () => void;
 	},
@@ -778,5 +778,14 @@ test.serial(
 			},
 		});
 		t.is(exitCode, 0);
+	},
+);
+
+test.serial(
+	'wait-for-agent: a malformed SINCE is a usage error, not a timeout',
+	async t => {
+		const home = createTempHome();
+		setupDirs(home, 'test-repo');
+		t.is(await runWaitForAgent(home, {since: '5m'}), 2);
 	},
 );
