@@ -1,4 +1,5 @@
 import test from 'ava';
+import {agentRulesFlags} from './companion-rules.ts';
 import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -74,6 +75,7 @@ function runResolver(
 	agent_skill_prefix: string;
 	agent_is_claude: string;
 	agent_launch_flags: string;
+	agent_rules_flags: string;
 	model: string;
 	effort: string;
 	deprecation_warnings: string;
@@ -590,6 +592,30 @@ profiles:
 		t.is(result.agent_is_claude, 'false');
 	} finally {
 		cleanup();
+	}
+});
+
+maybeMacro('renders the same rule flags as the TUI launcher', t => {
+	for (const command of ['codex', '/opt/bin/pi', 'claude', 'agy', 'opencode']) {
+		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
+			`version: 1
+agent_profiles:
+  a:
+    command: ${command}
+agent_profile: a
+profiles:
+  test:
+    display_name: Test
+`,
+		);
+		try {
+			t.is(
+				runResolver(configPath, localConfigPath).agent_rules_flags,
+				agentRulesFlags(command).trim(),
+			);
+		} finally {
+			cleanup();
+		}
 	}
 });
 

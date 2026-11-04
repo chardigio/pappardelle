@@ -678,13 +678,14 @@ Claude Code gets the server from the plugin. `install.sh` runs `pappardelle mcp 
 
 The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run` and `companion_type`, which can run commands. In Claude Code the approval is a plugin hook, and it also applies in plan mode. The other tools ask first wherever the agent normally asks.
 
-An agent in a space is told to keep the companion showing its work. How that reaches the model depends on the agent:
+An agent in a space is told to keep the companion showing its work, from `scripts/companion-rules.txt`. How that reaches the model depends on the agent:
 
-| Agent          | How the rules reach it                                                                                |
-| -------------- | ----------------------------------------------------------------------------------------------------- |
-| Claude Code    | The server's instructions                                                                             |
-| OpenCode       | The server's instructions                                                                             |
-| Codex, agy, Pi | They don't show the model a server's instructions, so `companion_run`'s description carries the rules |
+| Agent                 | How the rules reach it                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| Claude Code, OpenCode | The MCP server's instructions                                                                  |
+| Codex                 | `-c developer_instructions=...` at launch, which replaces any you set in your own Codex config |
+| Pi                    | `--append-system-prompt` at launch                                                             |
+| Antigravity           | `.agents/rules/pappardelle.md`, written into the worktree at launch and git-excluded           |
 
 They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the checkout it installed into each agent it finds:
 

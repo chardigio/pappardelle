@@ -195,7 +195,7 @@ resolve_agent_launch_config() {
     json=$("$SCRIPT_DIR/resolve-agent-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --merged "$CONFIG_PATH" --profile "$profile" --agent-profile "$FORCED_AGENT_PROFILE") ||
         error "Could not resolve the agent config for profile $profile"
     # One jq pass, NUL-separated so empty and multi-line values survive.
-    local profile_init_cmd_set profile_init_cmd deprecations profile_deprecations
+    local profile_init_cmd_set profile_init_cmd deprecations profile_deprecations agent_rules_flags
     {
         IFS= read -r -d '' COMPANION_COMMAND
         IFS= read -r -d '' SKIP_PERMISSIONS
@@ -209,15 +209,19 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' AGENT_SKILL_PREFIX
         IFS= read -r -d '' AGENT_PROFILE
         IFS= read -r -d '' AGENT_LAUNCH_FLAGS
+        IFS= read -r -d '' agent_rules_flags
         IFS= read -r -d '' INIT_CMD
         IFS= read -r -d '' profile_init_cmd_set
         IFS= read -r -d '' profile_init_cmd
         IFS= read -r -d '' deprecations
         IFS= read -r -d '' profile_deprecations
     } < <(jq -j '[.companion_command, .skip_permissions, .model, .effort, .agent_command, .agent_args,
-        .agent_resume_args, .agent_prompt_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .init_cmd,
+        .agent_resume_args, .agent_prompt_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .agent_rules_flags, .init_cmd,
         .profile_init_cmd_set, .profile_init_cmd, .deprecation_warnings,
         .profile_deprecation_warnings][] | tostring | sub("\n+$"; "") + "\u0000"' <<< "$json")
+    if [[ -n "$agent_rules_flags" ]]; then
+        AGENT_LAUNCH_FLAGS="${AGENT_LAUNCH_FLAGS:+$AGENT_LAUNCH_FLAGS }$agent_rules_flags"
+    fi
     [[ -n "$AGENT_MODEL" ]] && log "Model: $AGENT_MODEL"
     [[ -n "$AGENT_EFFORT" ]] && log "Effort: $AGENT_EFFORT"
     [[ "$AGENT_COMMAND" != "claude" ]] && log "Agent: $AGENT_COMMAND"
@@ -910,6 +914,9 @@ elif [[ "$WORKTREE_CREATED" == true && "$AGENT_IS_CLAUDE" != true ]]; then
     # --continue is scoped to the worktree's directory, which outlives it.
     AGENT_RESUME_ARGS=""
 fi
+"$SCRIPT_DIR/install-agent-rules.sh" "$AGENT_COMMAND" "$WORKTREE_PATH" ||
+    print_warning "Could not write the companion rules for $AGENT_COMMAND"
+
 # One array for the resolved agent profile, appended to both start-agent-session.sh
 # and the terminal launchers below so the two launch paths can't drift.
 AGENT_FLAG_ARGS=(--agent-command "$AGENT_COMMAND" --agent-args "$AGENT_ARGS" --agent-resume-args "$AGENT_RESUME_ARGS" --agent-prompt-args "$AGENT_PROMPT_ARGS" --agent-is-claude "$AGENT_IS_CLAUDE" --agent-launch-flags "$AGENT_LAUNCH_FLAGS" --agent-profile "$AGENT_PROFILE")

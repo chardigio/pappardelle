@@ -3044,7 +3044,7 @@ function isClaudeAgentProfile(
 	return definition.is_claude ?? isClaudeCommand(definition.command);
 }
 
-function commandBasename(command: string): string {
+export function commandBasename(command: string): string {
 	const firstToken = command.trim().split(/\s+/)[0] ?? '';
 	return path.basename(firstToken);
 }
