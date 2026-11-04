@@ -28,6 +28,15 @@
 						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/zap-notification.py\""
 					}
 				]
+			},
+			{
+				"matcher": "mcp__plugin_pappardelle_pappardelle__companion_.*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/approve-companion-tool.sh\""
+					}
+				]
 			}
 		],
 		"PostToolUse": [

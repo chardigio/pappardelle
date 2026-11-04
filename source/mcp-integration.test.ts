@@ -111,6 +111,97 @@ test.serial(
 	},
 );
 
+test.serial(
+	'with no PAPPARDELLE_SPACE, the worktree path names the space for the server and the CLI',
+	async t => {
+		const f = fixture(t);
+		const git = (...args: string[]) =>
+			spawnSync(
+				'git',
+				['-c', 'user.email=a@b', '-c', 'user.name=a', '-C', f.repo, ...args],
+				{encoding: 'utf8'},
+			);
+		git('commit', '--quiet', '--allow-empty', '-m', 'init');
+		const tree = path.join(f.home, '.worktrees', 'project', 'KEY-9');
+		git('worktree', 'add', '--quiet', tree, '-b', 'KEY-9');
+		const client = await connect(t, {...f, repo: tree});
+		t.regex(client.getInstructions() ?? '', /space KEY-9 \(repo project\)/);
+		const result = await client.callTool({
+			name: 'companion_list',
+			arguments: {},
+		});
+		t.true(result.isError);
+		t.regex(text(result), /No companion session for KEY-9/);
+	},
+);
+
+test.serial(
+	'link_pr verifies through gh from the source repository and saves the link',
+	async t => {
+		const f = fixture(t);
+		const bin = path.join(f.root, 'bin');
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, 'gh'),
+			`#!/bin/sh
+echo '{"state":"open","number":7,"head":{"repo":{"full_name":"o/child"},"ref":"sd-child"}}'
+`,
+			{mode: 0o755},
+		);
+		const child = path.join(f.repo, 'child');
+		fs.mkdirSync(child);
+		spawnSync('git', ['init', '--quiet', '-b', 'nested', child]);
+		spawnSync('git', [
+			'-C',
+			child,
+			'remote',
+			'add',
+			'origin',
+			'git@github.com:o/child.git',
+		]);
+		spawnSync('git', [
+			'-C',
+			f.repo,
+			'symbolic-ref',
+			'HEAD',
+			'refs/heads/KEY-5',
+		]);
+		const client = await connect(t, f, {
+			PATH: `${bin}:${f.env['PATH'] ?? ''}`,
+		});
+
+		const result = await client.callTool({
+			name: 'link_pr',
+			arguments: {
+				url: 'https://github.com/o/child/pull/7',
+				repository: child,
+				workspace: f.repo,
+			},
+		});
+
+		t.falsy(result.isError, text(result));
+		const state = JSON.parse(
+			fs.readFileSync(
+				path.join(
+					f.home,
+					'.pappardelle',
+					'repos',
+					'project',
+					'space-state',
+					'KEY-5.json',
+				),
+				'utf8',
+			),
+		) as {prLinks: Array<Record<string, unknown>>};
+		t.like(state.prLinks[0], {
+			project: 'o/child',
+			localBranch: 'nested',
+			remoteBranch: 'sd-child',
+			number: 7,
+		});
+	},
+);
+
 test.serial('the server stops when the client closes stdin', async t => {
 	const f = fixture(t);
 	const child = spawn(process.execPath, ['--import', tsx, entry], {

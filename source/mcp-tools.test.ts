@@ -1,9 +1,12 @@
 // Tool inputs against the real CLI parsers, so a flag renamed on one side
 // fails here instead of at an agent's first call.
+import {spawnSync} from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'ava';
 import {parseCli, subcommandGate} from './cli-args.ts';
 import {parseCompanionArgs} from './companion-args.ts';
-import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
+import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 
 function call(name: string, input: Record<string, unknown>): CliCall {
 	const tool = MCP_TOOLS.find(candidate => candidate.name === name);
@@ -167,4 +170,69 @@ test('tui_restart is the soft restart', t => {
 test('no tool can end every session or update Pappardelle', t => {
 	const names = MCP_TOOLS.map(tool => tool.name);
 	t.false(names.some(name => /update|hard/.test(name)));
+});
+
+test('link_pr runs from the source repository and passes the workspace on', t => {
+	const {args, cwd} = call('link_pr', {
+		url: 'https://github.com/o/r/pull/7',
+		repository: '/work/child',
+		workspace: '/work',
+	});
+	t.is(cwd, '/work/child');
+	const {input, flags} = parseCli(args);
+	t.deepEqual(input, ['link-pr', 'https://github.com/o/r/pull/7']);
+	t.is(flags.workspace, '/work');
+	t.is(call('link_pr', {url: 'https://x'}).cwd, undefined);
+});
+
+test('exactly the companion tools are auto-approved', t => {
+	t.deepEqual(
+		[...AUTO_APPROVED_TOOLS].sort(),
+		MCP_TOOLS.map(tool => tool.name)
+			.filter(name => name.startsWith('companion_'))
+			.sort(),
+	);
+});
+
+const pluginHooks = path.join(
+	import.meta.dirname,
+	'..',
+	'plugins',
+	'pappardelle',
+	'hooks',
+);
+
+test("Claude Code's approval hook matches the companion tools and no others", t => {
+	const {hooks} = JSON.parse(
+		fs.readFileSync(path.join(pluginHooks, 'hooks.json'), 'utf8'),
+	) as {
+		hooks: {
+			PreToolUse: Array<{matcher: string; hooks: Array<{command: string}>}>;
+		};
+	};
+	const entry = hooks.PreToolUse.find(({hooks}) =>
+		hooks.some(({command}) => command.includes('approve-companion-tool')),
+	);
+	const matcher = new RegExp(`^(${entry!.matcher})$`);
+	const names = MCP_TOOLS.map(tool => tool.name);
+	t.deepEqual(
+		names.filter(name =>
+			matcher.test(`mcp__plugin_pappardelle_pappardelle__${name}`),
+		),
+		names.filter(name => name.startsWith('companion_')),
+	);
+});
+
+test('the approval hook answers allow', t => {
+	const {stdout, status} = spawnSync(
+		path.join(pluginHooks, 'approve-companion-tool.sh'),
+		{encoding: 'utf8'},
+	);
+	t.is(status, 0);
+	t.like(JSON.parse(stdout), {
+		hookSpecificOutput: {
+			hookEventName: 'PreToolUse',
+			permissionDecision: 'allow',
+		},
+	});
 });

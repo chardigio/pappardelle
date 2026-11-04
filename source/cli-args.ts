@@ -43,8 +43,10 @@ const helpText = `
 	                   (--turns N, default 5; --json)
 	  companion        Run, type into, read, resize and close panes in a
 	                   space's companion. See pappardelle companion --help
-	  mcp              Serve these commands as MCP tools over stdio. The
-	                   Claude Code plugin starts this
+	  mcp              Serve these commands as MCP tools over stdio. Agents
+	                   start this
+	  mcp install      Add that server to Codex, OpenCode, Antigravity and Pi.
+	                   install.sh runs this
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
@@ -189,15 +191,20 @@ const subcommands = {
 `,
 	},
 	mcp: {
-		usage: 'pappardelle mcp',
+		usage: 'pappardelle mcp [install]',
 		flags: [],
 		help: `
 	Usage
 	  $ pappardelle mcp
+	  $ pappardelle mcp install
 
-	Serves Pappardelle's commands as MCP tools over stdio, for the session that
-	started it. The Claude Code plugin starts this, so you shouldn't need to.
-	Outside a repo with a .pappardelle.yml it serves no tools.
+	mcp serves Pappardelle's commands as MCP tools over stdio, for the session
+	that started it. Agents start this, so you shouldn't need to. Outside a repo
+	with a .pappardelle.yml it serves no tools.
+
+	mcp install adds that server to each of Codex, OpenCode, Antigravity and Pi
+	that is installed, and auto-approves its companion tools where the agent asks
+	first. install.sh runs this. Claude Code gets both from the plugin.
 `,
 	},
 	'plugin install': {
@@ -267,6 +274,18 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	if (
 		name === 'plugin install' &&
 		argv.filter(arg => !arg.startsWith('-')).join(' ') !== 'plugin install'
+	) {
+		return {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: ${usage}`,
+		};
+	}
+
+	if (
+		name === 'mcp' &&
+		!['mcp', 'mcp install'].includes(
+			argv.filter(arg => !arg.startsWith('-')).join(' '),
+		)
 	) {
 		return {
 			action: 'reject',
