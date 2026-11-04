@@ -9,7 +9,7 @@ description: >-
 
 # Pappardelle agent
 
-Pappardelle gives each issue a git worktree, an agent session (Claude, or the agent the space's profile runs), and a companion pane next to it. The user watches both. In Claude Code, the pappardelle MCP server has tools for all of this, and its instructions say how to keep the companion showing your work.
+Pappardelle gives each issue a git worktree, an agent session (Claude, or the agent the space's profile runs), and a companion pane next to it. The user watches both. The pappardelle MCP server has tools for all of this, and says how to keep the companion showing your work.
 
 ## Where you are
 
@@ -24,7 +24,7 @@ To talk to the agent in another space, use Claude Code's SendMessage and ListAge
 
 ## Without the MCP tools
 
-Every tool is a `pappardelle` command, for agents the plugin doesn't reach, such as Codex. Run them from the repo or any of its worktrees. `pappardelle --help` and `pappardelle companion --help` have the details.
+If you don't have the tools, `pappardelle mcp install` adds the server to Codex, OpenCode, Antigravity and Pi. Every tool is also a `pappardelle` command. Run them from the repo or any of its worktrees. `pappardelle --help` and `pappardelle companion --help` have the details.
 
 | Tools              | Command                                                                  |
 | ------------------ | ------------------------------------------------------------------------ |
@@ -37,6 +37,7 @@ Every tool is a `pappardelle` command, for agents the plugin doesn't reach, such
 | `space_open`       | `pappardelle [--resume\|--no-resume] [--wait] [--profile NAME] -- INPUT` |
 | `space_close`      | `pappardelle close KEY --yes`                                            |
 | `tui_restart`      | `pappardelle restart`                                                    |
+| `link_pr`          | `pappardelle link-pr URL [--workspace ROOT]`, from the source repository |
 
 Keep the companion showing your work there too: what a decision depends on before you ask, what to review before you ask for a review, and the app or a test watcher in a split instead of a background task.
 

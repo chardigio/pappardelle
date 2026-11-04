@@ -140,3 +140,27 @@ test('only a session in a space is told to keep a companion current', t => {
 	t.notRegex(workspaceInstructions(undefined, 'repo'), /companion_run/);
 	t.regex(workspaceInstructions(undefined, 'repo'), /isn't in a space/);
 });
+
+test('agents that drop instructions still get the rules from companion_run', async t => {
+	const {client} = await connect();
+	const {tools} = await client.listTools();
+	const describe = (name: string) =>
+		tools.find(tool => tool.name === name)?.description ?? '';
+	t.regex(describe('companion_run'), /space STA-1.*first call companion_run/s);
+	t.notRegex(describe('companion_read'), /first call companion_run/);
+});
+
+test('companion_run carries no rules outside a space', async t => {
+	const server = createMcpServer({
+		inRepo: true,
+		runCli: async () => ({code: 0, stdout: '', stderr: ''}),
+	});
+	const client = new Client({name: 'test', version: '1'});
+	const [a, b] = InMemoryTransport.createLinkedPair();
+	await Promise.all([server.connect(a), client.connect(b)]);
+	const {tools} = await client.listTools();
+	t.notRegex(
+		tools.find(tool => tool.name === 'companion_run')?.description ?? '',
+		/first call companion_run/,
+	);
+});

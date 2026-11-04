@@ -16,7 +16,9 @@
 # 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
 # 7. Installs the Pappardelle plugin (skills and hooks) from this checkout
-#    into Claude Code, Codex and agy (`pappardelle plugin install`)
+#    into Claude Code, Codex and agy (`pappardelle plugin install`), and adds
+#    the MCP server to the agents that don't get it from the plugin
+#    (`pappardelle mcp install`)
 
 set -e
 
@@ -401,6 +403,11 @@ install_skill_scripts
 if ! "$LOCAL_BIN/pappardelle" plugin install; then
     print_warning "Could not install the Pappardelle plugin (skills, hooks and MCP tools) for every agent"
     print_info "Retry with: pappardelle plugin install"
+fi
+
+if ! "$BUN_BIN" "$CLI_JS" mcp install; then
+    print_warning "Could not add the Pappardelle MCP server to every agent"
+    print_info "Retry with: pappardelle mcp install"
 fi
 
 # ============================================================================

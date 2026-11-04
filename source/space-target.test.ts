@@ -1,5 +1,9 @@
 import test from 'ava';
-import {NoTargetSpaceError, resolveTargetSpace} from './space-target.ts';
+import {
+	NoTargetSpaceError,
+	resolveTargetSpace,
+	spaceFromWorktreePath,
+} from './space-target.ts';
 
 const resolve = (raw: string) => `resolved:${raw}`;
 
@@ -26,5 +30,24 @@ test('with neither, the caller is told it is not in a workspace', t => {
 		t.throws(() => resolveTargetSpace({env, resolve}), {
 			instanceOf: NoTargetSpaceError,
 		});
+	}
+});
+
+test('a directory in a worktree belongs to that space', t => {
+	const worktrees = '/home/u/.worktrees/repo';
+	t.is(spaceFromWorktreePath(`${worktrees}/STA-1`, '/home/u', 'repo'), 'STA-1');
+	t.is(
+		spaceFromWorktreePath(`${worktrees}/STA-1/packages/app`, '/home/u', 'repo'),
+		'STA-1',
+	);
+});
+
+test('a directory outside the repo worktrees belongs to no space', t => {
+	for (const directory of [
+		'/home/u/.worktrees/repo',
+		'/home/u/.worktrees/repo-other/STA-1',
+		'/home/u/workspace/repo',
+	]) {
+		t.is(spaceFromWorktreePath(directory, '/home/u', 'repo'), undefined);
 	}
 });

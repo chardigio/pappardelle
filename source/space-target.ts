@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 export class NoTargetSpaceError extends Error {
 	constructor() {
 		super('Not in a Pappardelle workspace; pass --space KEY');
@@ -20,4 +22,24 @@ export function resolveTargetSpace(options: {
 	const own = options.env['PAPPARDELLE_SPACE']?.trim();
 	if (!own) throw new NoTargetSpaceError();
 	return own;
+}
+
+/**
+ * The space a directory belongs to, from where Pappardelle puts worktrees.
+ * Codex starts MCP servers with a filtered environment and OpenCode from a
+ * shared service, so PAPPARDELLE_SPACE doesn't reach them, but both start the
+ * server in the session's directory.
+ */
+export function spaceFromWorktreePath(
+	directory: string,
+	home: string,
+	repoName: string,
+): string | undefined {
+	const relative = path.relative(
+		path.join(home, '.worktrees', repoName),
+		directory,
+	);
+	if (!relative || relative.startsWith('..') || path.isAbsolute(relative))
+		return undefined;
+	return relative.split(path.sep)[0];
 }

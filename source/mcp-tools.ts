@@ -2,14 +2,12 @@
 // so the CLI keeps owning validation and behavior. Text goes on stdin rather
 // than in argv so that text starting with "-" isn't read as a flag.
 //
-// `update`, `restart --hard` and `link-pr` stay CLI-only. `update` replaces the
-// install and `restart --hard` ends every session, so both should take a
-// deliberate command. `link-pr` has to run from the PR's source repository, not
-// from wherever this server started.
+// `update` and `restart --hard` stay CLI-only: one replaces the install and the
+// other ends every session, so both should take a deliberate command.
 
 import {z} from 'zod';
 
-export type CliCall = {args: string[]; stdin?: string};
+export type CliCall = {args: string[]; stdin?: string; cwd?: string};
 
 export type McpTool = {
 	name: string;
@@ -59,6 +57,21 @@ const tmuxKeys = z
 	.array(z.string())
 	.min(1)
 	.describe('tmux key names, such as Escape, S-Tab or C-c, pressed in order');
+
+/**
+ * Approved without a prompt on every agent, because an agent has to change the
+ * companion constantly to keep showing its work.
+ */
+export const AUTO_APPROVED_TOOLS = [
+	'companion_run',
+	'companion_type',
+	'companion_press_keys',
+	'companion_read',
+	'companion_resize',
+	'companion_close',
+	'companion_list',
+	'companion_width',
+] as const;
 
 export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
@@ -288,6 +301,30 @@ export const MCP_TOOLS: readonly McpTool[] = [
 		destructive: true,
 		inputSchema: {key},
 		toCli: ({key}) => ({args: ['close', key, '--yes']}),
+	}),
+	defineTool({
+		name: 'link_pr',
+		description:
+			"Record an existing GitHub PR or GitLab MR for this workspace, so the rail's status follows its published branch. Call it after creating or reusing a PR/MR, once per repository. It verifies the URL with gh or glab. If it fails, report that and keep the PR/MR: don't create another one to repair an indicator",
+		inputSchema: {
+			url: z.string().describe('HTTPS URL of the PR or MR'),
+			repository: z
+				.string()
+				.optional()
+				.describe(
+					"Directory of the PR's source repository. Defaults to the directory this session started in. Pass it when you work in a nested repository",
+				),
+			workspace: z
+				.string()
+				.optional()
+				.describe(
+					'The outer workspace root, when the source repository is nested inside one',
+				),
+		},
+		toCli: ({url, repository, workspace}) => ({
+			args: ['link-pr', url, ...flags({workspace})],
+			cwd: repository,
+		}),
 	}),
 	defineTool({
 		name: 'tui_restart',

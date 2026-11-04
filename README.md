@@ -668,7 +668,9 @@ Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappard
 
 ### MCP tools
 
-The plugin starts `pappardelle mcp`, an MCP server that gives agents explicit tools instead of shell commands to quote. Each tool runs the matching `pappardelle` command. In a session inside a space, the server's instructions tell the agent which space it is in and to keep the companion pane showing its work. Outside a repo with a `.pappardelle.yml`, it serves nothing.
+`pappardelle mcp` is an MCP server that gives agents explicit tools instead of shell commands to quote. Each tool runs the matching `pappardelle` command. Outside a repo with a `.pappardelle.yml`, it serves nothing.
+
+Claude Code gets the server from the plugin. `install.sh` runs `pappardelle mcp install`, which adds it to each of Codex, OpenCode, Antigravity and Pi that is installed. Run that yourself if you install one of them later. It edits their global config through their own `mcp add`, so a symlinked or commented config keeps its link and comments.
 
 | Tools                                                                                                                                | Do                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
@@ -677,15 +679,17 @@ The plugin starts `pappardelle mcp`, an MCP server that gives agents explicit to
 | `spaces_list`, `space_read`, `space_highlight`                                                                                       | See open spaces and their conversations                 |
 | `space_send`, `space_press_keys`                                                                                                     | Prompt or press keys in a space's agent TUI             |
 | `space_open`, `space_close`, `tui_restart`                                                                                           | Open or close spaces, restart the TUI                   |
+| `link_pr`                                                                                                                            | Record a PR/MR for the workspace                        |
 
-Claude Code asks before each tool call unless you allow it. `companion_run`, `companion_type`, `space_send` and the key tools can run commands, so allowing them means the same as allowing a shell. To allow the ones you trust, add rules such as these to `permissions.allow` in `~/.claude/settings.json`:
+The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run` and `companion_type`, which can run commands. In Claude Code the approval is a plugin hook, and it also applies in plan mode. The other tools ask first wherever the agent normally asks.
 
-```json
-"mcp__plugin_pappardelle_pappardelle__companion_read",
-"mcp__plugin_pappardelle_pappardelle__companion_list",
-"mcp__plugin_pappardelle_pappardelle__spaces_list",
-"mcp__plugin_pappardelle_pappardelle__space_read"
-```
+An agent in a space is told to keep the companion showing its work. How that reaches the model depends on the agent:
+
+| Agent          | How the rules reach it                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------- |
+| Claude Code    | The server's instructions                                                                             |
+| OpenCode       | The server's instructions                                                                             |
+| Codex, agy, Pi | They don't show the model a server's instructions, so `companion_run`'s description carries the rules |
 
 They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the checkout it installed into each agent it finds:
 

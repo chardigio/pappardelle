@@ -71,6 +71,7 @@ import {
 import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
+import {defaultMcpInstallDeps, installMcpServer} from './mcp-install.ts';
 import {waitForAgentStart} from './agent-start.ts';
 import {getHookStatusDir} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
@@ -105,6 +106,10 @@ if (gate.action === 'help') {
 if (gate.action === 'reject') {
 	console.error(gate.message);
 	process.exit(2);
+}
+
+if (process.argv[2] === 'mcp' && process.argv[3] === 'install') {
+	process.exit(installMcpServer(defaultMcpInstallDeps()));
 }
 
 if (process.argv[2] === 'mcp') {
