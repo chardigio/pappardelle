@@ -1,13 +1,16 @@
 import {buildNative} from './build-native.ts';
 import {Glob} from 'bun';
-import {mkdir, rm, chmod} from 'node:fs/promises';
+import {mkdir, rm, chmod, rename} from 'node:fs/promises';
 
 // Keep entry points and shared chunks directly under dist where application
 // helpers resolve scripts/, package.json and the status-monitor entry point.
-const outdir =
+const finalOutdir =
 	process.argv
 		.find(arg => arg.startsWith('--outdir='))
 		?.slice('--outdir='.length) ?? 'dist';
+// Local installs run straight from dist, so a failed build must leave the
+// previous one in place.
+const outdir = `${finalOutdir}.next`;
 await rm(outdir, {recursive: true, force: true});
 await mkdir(outdir, {recursive: true});
 const files = [...new Glob('**/*.{ts,tsx}').scanSync('source')].filter(
@@ -66,3 +69,11 @@ if (
 ) {
 	await buildNative(`${outdir}/pappardelle`);
 }
+
+// Bun's compile leaves its intermediate executable in the working directory.
+for (const leftover of new Glob('.*.bun-build').scanSync({dot: true})) {
+	await rm(leftover, {force: true});
+}
+
+await rm(finalOutdir, {recursive: true, force: true});
+await rename(outdir, finalOutdir);

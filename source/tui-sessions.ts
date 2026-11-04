@@ -1,3 +1,4 @@
+import {bunIsolationArgs} from './runtime.ts';
 import {existsSync, readdirSync} from 'node:fs';
 import {sameFile} from './same-file.ts';
 import path from 'node:path';
@@ -334,7 +335,9 @@ export function tuiLaunchCommand(options: {
 			? shellQuote(shim)
 			: options.execPath === options.cliPath
 				? shellQuote(options.execPath)
-				: `${shellQuote(options.execPath)} ${shellQuote(options.cliPath)}`;
+				: [options.execPath, ...bunIsolationArgs, options.cliPath]
+						.map(arg => shellQuote(arg))
+						.join(' ');
 	return [command, ...options.args].join(' ');
 }
 

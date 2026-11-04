@@ -126,7 +126,7 @@ install_private_bun() {
 }
 
 # Clones and builds into a staging folder next to $REPO_DIR, and moves it into
-# place only after the build succeeds. The shim runs $REPO_DIR/dist/cli.js, so
+# place only after the build succeeds. The shim runs from $REPO_DIR/dist, so
 # deleting $REPO_DIR first (as the installer used to) left no working
 # Pappardelle when the clone or `bun install` failed. The replaced install is
 # kept at $REPO_DIR.previous as a rollback.
