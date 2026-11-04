@@ -1,7 +1,7 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification script for LinearProvider against a real Linear instance.
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-linear.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-linear.ts`
  *
  * Env vars:
  *   LINEAR_ISSUE   — issue key to fetch (default: STA-683)

@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-import React from 'react';
+#!/usr/bin/env bun
 import {renderTui} from './render-tui.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
@@ -38,7 +37,7 @@ import {
 } from './config.ts';
 import {captureStderr, setStderrTerminalPassthrough} from './logger.ts';
 
-// Capture stderr early so Ink/React rendering errors go to the log file
+// Capture stderr early so OpenTUI/React rendering errors go to the log file
 captureStderr();
 import {bootstrapRepo} from './repo-bootstrap.ts';
 import {createIssueTracker} from './providers/index.ts';
@@ -48,7 +47,6 @@ import {buildSpawnEnv} from './spawn-env.ts';
 import {getRegisteredSpaces} from './space-registry.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
-import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
 import {
 	defaultCloseCommandDeps,
@@ -426,41 +424,9 @@ if (isInTmux() && cli.flags.layout) {
 	}
 }
 
-// Helper to clear the screen completely
-const clearScreen = () => {
-	process.stdout.write('\x1b[2J'); // Clear screen
-	process.stdout.write('\x1b[H'); // Move cursor to home
-	process.stdout.write('\x1b[3J'); // Clear scrollback buffer
-};
-
-// Enter alternate screen buffer for full-screen mode
-process.stdout.write('\x1b[?1049h'); // Enter alt screen
-clearScreen();
-// Now that we own the alt screen, stop forwarding intercepted stderr to the
-// terminal — a stray subprocess stderr write here corrupts Ink's frame (STA-1496).
-// It's still logged + shown in the in-app error overlay. Re-enabled on teardown.
+// OpenTUI owns terminal modes and restores them during renderer teardown.
 setStderrTerminalPassthrough(false);
-
-// Cleanup on exit
-const cleanup = () => {
-	// Restore stderr→terminal forwarding before we leave the alt screen so any
-	// teardown/exit diagnostics are visible to the user again.
-	setStderrTerminalPassthrough(true);
-	// Disable mouse tracking before exiting
-	process.stdout.write('\x1b[?1006l');
-	process.stdout.write('\x1b[?1000l');
-	process.stdout.write('\x1b[?1049l'); // Exit alt screen
-};
-
-process.on('exit', cleanup);
-process.on('SIGINT', () => {
-	cleanup();
-	process.exit(0);
-});
-process.on('SIGTERM', () => {
-	cleanup();
-	process.exit(0);
-});
+process.on('exit', () => setStderrTerminalPassthrough(true));
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
@@ -488,16 +454,7 @@ const {version: installedVersion, isDev: isDevBuild} =
 // isn't blocked on the network.
 const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
 
-// Render the app. We feed Ink a CSI-u-normalizing wrapper around stdin so the
-// Kitty keyboard protocol (e.g. Esc arriving as `ESC [ 27 u` under tmux
-// extended-keys) is translated back to legacy bytes before either Ink's
-// `useInput` or our `useRawInput` ever sees it (STA-1545). On a non-TTY stdin
-// (no raw keyboard input to normalize) we pass it through untouched.
-const inkStdin = process.stdin.isTTY
-	? createNormalizingStdin(process.stdin)
-	: process.stdin;
-
-renderTui(
+const {renderer} = await renderTui(
 	<App
 		paneLayout={paneLayout}
 		commitSha={commitSha}
@@ -505,5 +462,7 @@ renderTui(
 		isDevBuild={isDevBuild}
 		updateCheckPromise={updateCheckPromise}
 	/>,
-	{stdin: inkStdin},
 );
+
+await renderer.closed;
+process.exit(0);

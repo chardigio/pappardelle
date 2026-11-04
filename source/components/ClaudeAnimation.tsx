@@ -1,5 +1,5 @@
-import React from 'react';
-import {Text} from 'ink';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+
 import {COLORS} from '../types.ts';
 import {useSpinnerFrame} from '../animation-clock.ts';
 
@@ -20,8 +20,12 @@ export default function ClaudeAnimation({
 	const frameIndex = useSpinnerFrame() % CLAUDE_FRAMES.length;
 
 	return (
-		<Text color={color} inverse={inverse}>
+		<text
+			flexShrink={1}
+			attributes={textAttributes({inverse})}
+			fg={terminalColor(color)}
+		>
 			{CLAUDE_FRAMES[frameIndex]}
-		</Text>
+		</text>
 	);
 }

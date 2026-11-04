@@ -13,8 +13,7 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import React from 'react';
-import {Box} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/opentui-render.ts';
 import SpaceListItem from '../source/components/SpaceListItem.tsx';
 import {
 	WorkspaceStatuses,
@@ -57,7 +56,7 @@ export class StatusHarness {
 
 	private readonly previous = new Map<string, string | undefined>();
 	private stopWatch?: () => void;
-	private view?: ReturnType<typeof render>;
+	private view?: Awaited<ReturnType<typeof render>>;
 	private spaces: SpaceData[] = [];
 	constructor() {
 		for (const [name, value] of Object.entries({
@@ -144,8 +143,8 @@ export class StatusHarness {
 		];
 		const tree = () =>
 			React.createElement(
-				Box,
-				{width: 30},
+				'box',
+				{width: 30, flexDirection: 'row'},
 				React.createElement(SpaceListItem, {
 					space: this.spaces[0]!,
 					isSelected: false,
@@ -153,7 +152,7 @@ export class StatusHarness {
 					layout: 'single_line',
 				}),
 			);
-		this.view = render(tree());
+		this.view = await render(tree());
 		this.stopWatch = statuses.watch(
 			updates => {
 				this.spaces = applyStatusUpdates(this.spaces, updates);

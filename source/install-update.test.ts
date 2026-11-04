@@ -6,10 +6,10 @@ import {spawnSync} from 'node:child_process';
 import test from 'ava';
 import {updateShellScript} from './update-check.ts';
 
-// A coworker who presses `U` on Node 18 or 20 used to see Pappardelle quit with
-// no message: the installer stopped at its Node check, and the TUI killed its
+// A coworker who presses `U` on an unsupported runtime used to see Pappardelle quit with
+// no message: the installer stopped at its Bun check, and the TUI killed its
 // tmux session (and the error text) right after. These tests pin the three
-// parts of the fix: the installer finds or installs a Node that meets the
+// parts of the fix: the installer finds or installs a Bun that meets the
 // floor, it never deletes a working install before the new one builds, and
 // the `U` wrapper keeps failures visible.
 
@@ -26,12 +26,15 @@ function temporaryDir(): string {
 	return dir;
 }
 
-// Only these tools are on PATH, so a real node on the test machine (or the CI
-// runner) can never satisfy find_node by accident.
+// Only these tools are on PATH, so a real bun on the test machine (or the CI
+// runner) can never satisfy find_bun by accident.
 const TOOLS = [
 	'bash',
 	'curl',
 	'tar',
+	'awk',
+	'unzip',
+	'zip',
 	'gzip',
 	'shasum',
 	'sha256sum',
@@ -65,24 +68,24 @@ function toolsDir(): string {
 	return dir;
 }
 
-// Answers the two questions install.sh asks a node (`-p` with execPath or the
+// Answers the two questions install.sh asks a bun (`-p` with execPath or the
 // major version, and `--version`) without running JavaScript.
-function fakeNodeScript(version: string): string {
+function fakeBunScript(version: string): string {
 	return `#!/bin/bash
 case "$1" in
 	-p)
 		if [[ "$2" == *execPath* ]]; then echo "$0"; else echo "${version.split('.')[0]!}"; fi
 		;;
-	--version) echo "v${version}" ;;
+	--version) echo "${version}" ;;
 esac
 `;
 }
 
-function writeFakeNode(dir: string, version: string): string {
+function writeFakeBun(dir: string, version: string): string {
 	fs.mkdirSync(dir, {recursive: true});
-	const nodePath = path.join(dir, 'node');
-	fs.writeFileSync(nodePath, fakeNodeScript(version), {mode: 0o755});
-	return nodePath;
+	const bunPath = path.join(dir, 'bun');
+	fs.writeFileSync(bunPath, fakeBunScript(version), {mode: 0o755});
+	return bunPath;
 }
 
 function runInstallFunction(
@@ -110,19 +113,19 @@ function runInstallFunction(
 
 function platformSuffix(): string {
 	const osName = process.platform === 'darwin' ? 'darwin' : 'linux';
-	const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+	const arch = process.arch === 'arm64' ? 'aarch64' : 'x64-baseline';
 	return `${osName}-${arch}`;
 }
 
-// A local stand-in for https://nodejs.org/dist/latest-v22.x, served over
+// A local stand-in for the pinned official Bun release, served over
 // file:// so the test never touches the network.
-function fakeNodeDist(options: {corruptChecksum?: boolean} = {}): string {
+function fakeBunDist(options: {corruptChecksum?: boolean} = {}): string {
 	const dist = temporaryDir();
-	const name = `node-v22.99.0-${platformSuffix()}`;
+	const name = `bun-${platformSuffix()}`;
 	const build = temporaryDir();
-	writeFakeNode(path.join(build, name, 'bin'), '22.99.0');
-	const tarball = `${name}.tar.gz`;
-	spawnSync('tar', ['-czf', path.join(dist, tarball), '-C', build, name]);
+	writeFakeBun(path.join(build, name), '1.4.4');
+	const tarball = `${name}.zip`;
+	spawnSync('zip', ['-qr', path.join(dist, tarball), name], {cwd: build});
 	const hash = options.corruptChecksum
 		? '0'.repeat(64)
 		: crypto
@@ -131,106 +134,94 @@ function fakeNodeDist(options: {corruptChecksum?: boolean} = {}): string {
 				.digest('hex');
 	fs.writeFileSync(
 		path.join(dist, 'SHASUMS256.txt'),
-		`${'1'.repeat(64)}  node-v22.99.0-aix-ppc64.tar.gz\n${hash}  ${tarball}\n`,
+		`${'1'.repeat(64)}  bun-v1.4.4-aix-ppc64.tar.gz\n${hash}  ${tarball}\n`,
 	);
 	return `file://${dist}`;
 }
 
 // ============================================================================
-// find_node
+// find_bun
 // ============================================================================
 
-test('find_node prefers the node the TUI passes over a stale PATH node', t => {
+test('find_bun prefers the bun the TUI passes over a stale PATH bun', t => {
 	const home = temporaryDir();
 	const tools = toolsDir();
-	writeFakeNode(tools, '18.20.0');
-	const tuiNode = writeFakeNode(path.join(temporaryDir(), 'bin'), '22.5.0');
+	writeFakeBun(tools, '1.3.0');
+	const tuiBun = writeFakeBun(path.join(temporaryDir(), 'bin'), '1.4.4');
 
-	const result = runInstallFunction('find_node', {
+	const result = runInstallFunction('find_bun', {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_NODE: tuiNode,
+		PAPPARDELLE_BUN: tuiBun,
 	});
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.is(result.stdout.trim(), tuiNode);
+	t.is(result.stdout.trim(), tuiBun);
 });
 
-test('find_node skips a stale PATH node and picks the newest nvm node that meets the floor', t => {
+test('find_bun finds the standard user install after a stale PATH runtime', t => {
 	const home = temporaryDir();
 	const tools = toolsDir();
-	writeFakeNode(tools, '20.11.0');
-	const nvm = path.join(home, '.nvm', 'versions', 'node');
-	writeFakeNode(path.join(nvm, 'v18.20.0', 'bin'), '18.20.0');
-	writeFakeNode(path.join(nvm, 'v22.3.0', 'bin'), '22.3.0');
-	const newest = writeFakeNode(path.join(nvm, 'v22.12.0', 'bin'), '22.12.0');
-
-	const result = runInstallFunction('find_node', {HOME: home, PATH: tools});
-
+	writeFakeBun(tools, '1.3.0');
+	const installed = writeFakeBun(path.join(home, '.bun', 'bin'), '1.4.4');
+	const result = runInstallFunction('find_bun', {HOME: home, PATH: tools});
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.is(result.stdout.trim(), newest);
+	t.is(result.stdout.trim(), installed);
 });
 
-test('find_node fails when no node meets the floor', t => {
+test('find_bun fails when no bun meets the floor', t => {
 	const home = temporaryDir();
 	const tools = toolsDir();
-	writeFakeNode(tools, '18.20.0');
+	writeFakeBun(tools, '1.3.0');
 
-	const result = runInstallFunction('find_node', {HOME: home, PATH: tools});
+	const result = runInstallFunction('find_bun', {HOME: home, PATH: tools});
 
 	t.not(result.status, 0);
 	t.is(result.stdout.trim(), '');
 });
 
 // ============================================================================
-// install_private_node
+// install_private_bun
 // ============================================================================
 
-test('install_private_node installs a verified node that find_node then uses', t => {
+test('install_private_bun installs a verified bun that find_bun then uses', t => {
 	const home = temporaryDir();
 	const tools = toolsDir();
-	writeFakeNode(tools, '18.20.0');
+	writeFakeBun(tools, '1.3.0');
 	const env = {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_NODE_DIST_URL: fakeNodeDist(),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(),
 	};
 
-	const installed = runInstallFunction('install_private_node', env);
+	const installed = runInstallFunction('install_private_bun', env);
 	t.is(installed.status, 0, `stderr: ${installed.stderr}`);
-	const privateNode = path.join(
-		home,
-		'.pappardelle',
-		'node',
-		'current',
-		'bin',
-		'node',
-	);
-	t.is(installed.stdout.trim(), privateNode);
-	t.true(installed.stderr.includes('your own Node is not changed'));
+	const privateBun = path.join(home, '.pappardelle', 'bun', 'current', 'bun');
+	t.is(installed.stdout.trim(), privateBun);
+	t.true(installed.stderr.includes('your own Bun is not changed'));
 
-	const found = runInstallFunction('find_node', env);
+	const found = runInstallFunction('find_bun', env);
 	t.is(found.status, 0, `stderr: ${found.stderr}`);
-	t.true(found.stdout.trim().endsWith('/bin/node'));
+	t.true(found.stdout.trim().endsWith('/bun'));
 	t.true(found.stdout.trim().startsWith(path.join(home, '.pappardelle')));
 });
 
-test('install_private_node refuses a checksum mismatch and keeps an earlier private node', t => {
+test('install_private_bun refuses a checksum mismatch and keeps an earlier private bun', t => {
 	const home = temporaryDir();
 	const tools = toolsDir();
-	const good = runInstallFunction('install_private_node', {
+	const good = runInstallFunction('install_private_bun', {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_NODE_DIST_URL: fakeNodeDist(),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(),
 	});
 	t.is(good.status, 0, `stderr: ${good.stderr}`);
-	const current = path.join(home, '.pappardelle', 'node', 'current');
+	const current = path.join(home, '.pappardelle', 'bun', 'current');
 	const before = fs.readlinkSync(current);
 
-	const bad = runInstallFunction('install_private_node', {
+	const bad = runInstallFunction('install_private_bun', {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_NODE_DIST_URL: fakeNodeDist({corruptChecksum: true}),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist({corruptChecksum: true}),
 	});
 
 	t.not(bad.status, 0);
@@ -242,7 +233,7 @@ test('install_private_node refuses a checksum mismatch and keeps an earlier priv
 // install_repo_atomically
 // ============================================================================
 
-// A git repo whose `npm run build` runs build.sh, with a fake npm on PATH so
+// A git repo whose `bun run build` runs build.sh, with a fake bun on PATH so
 // the test needs no registry.
 function sourceRepo(buildScript: string): string {
 	const repo = temporaryDir();
@@ -264,10 +255,10 @@ function sourceRepo(buildScript: string): string {
 	return repo;
 }
 
-function toolsWithFakeNpm(): string {
+function toolsWithFakeBun(): string {
 	const tools = toolsDir();
 	fs.writeFileSync(
-		path.join(tools, 'npm'),
+		path.join(tools, 'bun'),
 		'#!/bin/bash\nif [[ "$1" == run ]]; then bash build.sh; fi\n',
 		{mode: 0o755},
 	);
@@ -287,7 +278,7 @@ test('a failed build leaves the current install in place', t => {
 
 	const result = runInstallFunction('install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeNpm(),
+		PATH: toolsWithFakeBun(),
 		PAPPARDELLE_REPO_URL: sourceRepo('exit 1\n'),
 	});
 
@@ -308,7 +299,7 @@ test('a clone failure leaves the current install in place', t => {
 
 	const result = runInstallFunction('install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeNpm(),
+		PATH: toolsWithFakeBun(),
 		PAPPARDELLE_REPO_URL: path.join(temporaryDir(), 'missing'),
 	});
 
@@ -325,7 +316,7 @@ test('a successful build replaces the install and keeps the old one as a rollbac
 
 	const result = runInstallFunction('install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeNpm(),
+		PATH: toolsWithFakeBun(),
 		PAPPARDELLE_REPO_URL: sourceRepo(
 			'mkdir -p dist && echo new build > dist/cli.js\n',
 		),

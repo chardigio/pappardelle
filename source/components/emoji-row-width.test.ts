@@ -1,7 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {Box, Text} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
 
@@ -46,50 +45,61 @@ const RAIL_EMOJI = [
  * Returns the rendered content line, ANSI-free (no styling is applied, so
  * `lastFrame()` is already plain text).
  */
-function renderPickerRow(rawEmoji: string | undefined, label: string): string {
+async function renderPickerRow(
+	rawEmoji: string | undefined,
+	label: string,
+): Promise<string> {
 	const slot = resolveEmojiSlot(rawEmoji);
-	const frame =
-		render(
+	const view = await render(
+		React.createElement(
+			'box',
+			{
+				flexDirection: 'column',
+				border: true,
+				borderStyle: 'rounded',
+				width: BOX_WIDTH,
+			},
 			React.createElement(
-				Box,
-				{flexDirection: 'column', borderStyle: 'round', width: BOX_WIDTH},
-				React.createElement(
-					Box,
-					null,
-					React.createElement(Text, null, '❯ '),
-					slot ? React.createElement(Text, null, slot.text) : null,
-					slot?.needsSeparator ? React.createElement(Text, null, ' ') : null,
-					React.createElement(Text, null, label),
-				),
+				'box',
+				{flexDirection: 'row'},
+				React.createElement('text', null, '❯ '),
+				slot ? React.createElement('text', null, slot.text) : null,
+				slot?.needsSeparator ? React.createElement('text', null, ' ') : null,
+				React.createElement('text', null, label),
 			),
-		).lastFrame() ?? '';
+		),
+	);
+	const frame = view.lastFrame();
+	await view.unmount();
 	return frame.split('\n')[1] ?? '';
 }
 
-test('a picker row never renders wider than its frame', t => {
+test('a picker row never renders wider than its frame', async t => {
 	for (const emoji of RAIL_EMOJI) {
 		t.is(
-			stringWidth(renderPickerRow(emoji, 'Fanx AI')),
+			stringWidth(await renderPickerRow(emoji, 'Fanx AI')),
 			BOX_WIDTH,
 			`${emoji || '(blank slot)'} row overflowed its frame`,
 		);
 	}
 });
 
-test('the label lands in the same column for every emoji', t => {
+test('the label lands in the same column for every emoji', async t => {
 	const columns = new Set(
-		RAIL_EMOJI.map(emoji => {
-			const line = renderPickerRow(emoji, 'Fanx AI');
-			return stringWidth(line.slice(0, line.indexOf('Fanx AI')));
-		}),
+		await Promise.all(
+			RAIL_EMOJI.map(async emoji => {
+				const line = await renderPickerRow(emoji, 'Fanx AI');
+				return stringWidth(line.slice(0, line.indexOf('Fanx AI')));
+			}),
+		),
 	);
 	t.is(columns.size, 1, `labels drifted across columns: ${[...columns]}`);
 });
 
-test('a row with no emoji configured at all is untouched', t => {
+test('a row with no emoji configured at all is untouched', async t => {
 	// `undefined` means nobody in the config set an emoji — there is no slot, and
 	// the row must render exactly as it did before emoji existed.
-	const line = renderPickerRow(undefined, 'Fanx AI');
+	const line = await renderPickerRow(undefined, 'Fanx AI');
 	t.is(stringWidth(line), BOX_WIDTH);
 	t.true(line.startsWith('│❯ Fanx AI'));
 });

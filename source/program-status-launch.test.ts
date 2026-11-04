@@ -67,7 +67,7 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 		PAPPARDELLE_TMUX_SOCKET: socket,
 		PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(root, 'status'),
 		PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(root, 'claude-config.json'),
-		PAPPARDELLE_NODE: '/stale/inherited/node',
+		PAPPARDELLE_BUN: '/stale/inherited/bun',
 	};
 	delete env['TMUX'];
 	delete env['TMUX_PANE'];
@@ -402,13 +402,13 @@ runtimeTest(
 
 for (const staleNode of [false, true]) {
 	runtimeTest(
-		`shell launch captures its first report using the selected Node with ${staleNode ? 'a stale' : 'no'} PATH Node`,
+		`shell launch captures its first report using the selected Bun with ${staleNode ? 'a stale' : 'no'} PATH Node`,
 		async t => {
 			const h = fixture(t, true, staleNode);
 			h.launch('shell', h.blockedAgent);
 			await until(
 				() => h.status()?.info.status === 'blocked',
-				'first blocked report using selected Node',
+				'first blocked report using selected Bun',
 			);
 			t.true(h.status()?.authoritative);
 			t.is(h.status()?.info.app, 'fixture');

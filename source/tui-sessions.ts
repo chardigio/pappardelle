@@ -314,9 +314,9 @@ export async function restartTuis(
 
 // The command a new TUI session runs, which every later restart reruns. A TUI
 // started from the installed release runs through the ~/.local/bin shim, which
-// each install re-pins to a node meeting that release's floor; baking in the
-// launching node would outlive it. Other builds (e.g. a dev build at
-// ~/.local/bin/pappardelle-sta862) keep their own node and cli.js so they don't
+// each install re-pins to a runtime meeting that release's floor; baking in the
+// launching runtime would outlive it. Other builds (e.g. a dev build at
+// ~/.local/bin/pappardelle-sta862) keep their own Bun and cli.js so they don't
 // fall back to the release.
 export function tuiLaunchCommand(options: {
 	execPath: string;

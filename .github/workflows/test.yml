@@ -7,28 +7,53 @@ on:
   pull_request:
 
 jobs:
-  node-tests:
-    name: Node.js Tests
-    runs-on: ubuntu-latest
+  bun-tests:
+    name: Bun Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '22'
-          cache: 'npm'
+          bun-version: '1.4.4'
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
+
+      - name: Verify application tooling does not invoke Node
+        run: |
+          mkdir -p "$RUNNER_TEMP/no-node"
+          cat > "$RUNNER_TEMP/no-node/node" <<'SH'
+          #!/bin/sh
+          echo "Pappardelle must use Bun, not Node" >&2
+          exit 1
+          SH
+          chmod +x "$RUNNER_TEMP/no-node/node"
+          echo "$RUNNER_TEMP/no-node" >> "$GITHUB_PATH"
 
       - name: Build
-        run: npm run build
+        run: bun run build
 
-      - name: Install tmux for protocol verification
-        run: sudo apt-get update && sudo apt-get install -y tmux shellcheck
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Install terminal test tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y tmux shellcheck
+          sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Install terminal test tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux shellcheck yq
 
       # Formatting and lint are checked here, not just in the monorepo, because
       # sync-back pushes a merged PR's diff *directly to monorepo master* — no
@@ -37,20 +62,20 @@ jobs:
       # with every check green here. These steps have to mirror the monorepo's
       # .github/workflows/pappardelle.yml or that hole reopens.
       - name: Check formatting (prettier)
-        run: npx prettier --check .
+        run: bun --bun prettier --check .
 
       - name: Lint (xo)
-        run: npx xo
+        run: bun --bun xo
 
       - name: Run tests
-        run: npx ava 'source/**/*.test.ts'
+        run: bun --bun ava 'source/**/*.test.ts'
 
       - name: Verify program status transport, lifecycle, cleanup and app
         run: |
-          npx tsx integration-tests/verify-program-status.ts
-          npx tsx integration-tests/verify-program-status-lifecycle.ts
-          npx tsx integration-tests/verify-program-status-cleanup.ts
-          npx tsx integration-tests/verify-program-status-app.ts
+          bun integration-tests/verify-program-status.ts
+          bun integration-tests/verify-program-status-lifecycle.ts
+          bun integration-tests/verify-program-status-cleanup.ts
+          bun integration-tests/verify-program-status-app.ts
 
   shell-tests:
     name: Shell Tests

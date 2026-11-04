@@ -1,6 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import HelpOverlay from './HelpOverlay.tsx';
 
@@ -15,8 +15,10 @@ function open(availableHeight?: number) {
 }
 
 test.serial('a short pane keeps the title and footer and scrolls', async t => {
-	const view = open(13);
-	t.teardown(() => view.unmount());
+	const view = await open(13);
+	t.teardown(async () => {
+		await view.unmount();
+	});
 	await delay(20);
 
 	let lines = (view.lastFrame() ?? '').split('\n');
@@ -26,7 +28,7 @@ test.serial('a short pane keeps the title and footer and scrolls', async t => {
 	t.true(lines[10]!.includes('j/k scroll'));
 	t.false(view.lastFrame()!.includes('Show this help'));
 
-	view.stdin.write('G');
+	await view.stdin.write('G');
 	await delay(20);
 	lines = (view.lastFrame() ?? '').split('\n');
 	t.is(lines.length, 13);
@@ -37,8 +39,10 @@ test.serial('a short pane keeps the title and footer and scrolls', async t => {
 });
 
 test.serial('a tall pane shows every shortcut with no scroll hint', async t => {
-	const view = open(60);
-	t.teardown(() => view.unmount());
+	const view = await open(60);
+	t.teardown(async () => {
+		await view.unmount();
+	});
 	await delay(20);
 
 	const frame = view.lastFrame() ?? '';

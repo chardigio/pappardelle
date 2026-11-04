@@ -184,13 +184,7 @@ function monitorEntry(): string[] {
 	const entry = fileURLToPath(
 		new URL(`program-status-monitor-cli${extension}`, import.meta.url),
 	);
-	return [
-		process.execPath,
-		...(extension === '.ts'
-			? ['--import', fileURLToPath(import.meta.resolve('tsx'))]
-			: []),
-		entry,
-	];
+	return [process.execPath, entry];
 }
 
 export async function attachStatusMonitor(
