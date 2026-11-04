@@ -132,11 +132,7 @@ if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
 	);
 }
 
-if (
-	cli.input.length === 2 &&
-	cli.input[0] === 'plugin' &&
-	cli.input[1] === 'install'
-) {
+if (cli.input[0] === 'plugin') {
 	process.exit(installPlugin(defaultPluginInstallDeps(pappardelleDir)));
 }
 
