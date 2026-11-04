@@ -9,7 +9,7 @@
  */
 import test from 'ava';
 import widestLine from 'widest-line';
-import {truncateToWidth} from './truncate-to-width.ts';
+import {truncateRunsToWidth, truncateToWidth} from './truncate-to-width.ts';
 
 test('short text is returned unchanged', t => {
 	t.is(truncateToWidth('Migrate the VPC', 40), 'Migrate the VPC');
@@ -68,4 +68,35 @@ test('a non-positive budget yields an empty string', t => {
 
 test('exact-fit text is not truncated', t => {
 	t.is(truncateToWidth('123456', 6), '123456');
+});
+
+const runsText = (runs: Array<{text: string}>) =>
+	runs.map(run => run.text).join('');
+
+test('styled runs that fit are kept whole', t => {
+	const runs = [
+		{text: 'g   ', fg: 'yellow'},
+		{text: 'Open PR', fg: undefined},
+	];
+	t.deepEqual(truncateRunsToWidth(runs, 11), runs);
+});
+
+test('the run crossing the budget is cut, carries the ellipsis, and later runs are dropped', t => {
+	const runs = [
+		{text: 'g   ', fg: 'yellow'},
+		{text: 'Open PR / MR in browser', fg: 'white'},
+		{text: ' (custom)', fg: 'magenta'},
+	];
+	const out = truncateRunsToWidth(runs, 12);
+	t.is(runsText(out), 'g   Open PR…');
+	t.is(widestLine(runsText(out)), 12);
+	t.deepEqual(
+		out.map(run => run.fg),
+		['yellow', 'white'],
+	);
+});
+
+test('a run that ends exactly at the budget still shows that more was cut', t => {
+	const out = truncateRunsToWidth([{text: 'abcd'}, {text: 'efgh'}], 4);
+	t.is(runsText(out), 'abc…');
 });

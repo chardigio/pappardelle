@@ -23,6 +23,7 @@ import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
+import TruncatedLine from './components/TruncatedLine.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
 import {installedLaunchCommand, restartOwnTui} from './tui-sessions.ts';
 import {
@@ -2419,14 +2420,9 @@ export default function App({
 						)}
 					</box>
 				) : (
-					<text
-						flexShrink={1}
-						fg={terminalColor('yellow')}
-						wrapMode="none"
-						height={1}
-					>
-						{headerMessage || ' '}
-					</text>
+					<TruncatedLine
+						runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
+					/>
 				)}
 			</box>
 

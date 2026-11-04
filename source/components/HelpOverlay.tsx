@@ -12,6 +12,7 @@ import {
 	HELP_CHROME_ROWS,
 } from './help-rows.ts';
 import {handleTextViewerKey} from './text-viewer-keys.ts';
+import TruncatedLine from './TruncatedLine.tsx';
 
 interface Props {
 	onClose: () => void;
@@ -97,48 +98,43 @@ export default function HelpOverlay({
 						);
 					if (line.kind === 'heading') {
 						return (
-							<text
-								flexShrink={1}
-								attributes={textAttributes({bold: true})}
+							<TruncatedLine
 								key={top + index}
-								fg={terminalColor('cyan')}
-								wrapMode="none"
-								height={1}
-							>
-								{line.text}
-							</text>
+								runs={[
+									{
+										text: line.text,
+										fg: terminalColor('cyan'),
+										attributes: textAttributes({bold: true}),
+									},
+								]}
+							/>
 						);
 					}
 
 					return (
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
+						<TruncatedLine
 							key={top + index}
-							wrapMode="none"
-							height={1}
-						>
-							<span
-								fg={terminalColor(line.row.isCustom ? 'magenta' : 'yellow')}
-							>
-								{line.row.key.padEnd(rows.maxKeyLength)}
-							</span>{' '}
-							{line.row.description}
-						</text>
+							runs={[
+								{
+									text: line.row.key.padEnd(rows.maxKeyLength) + ' ',
+									fg: terminalColor(line.row.isCustom ? 'magenta' : 'yellow'),
+								},
+								{text: line.row.description},
+							]}
+						/>
 					);
 				})}
 			</box>
 
 			<box flexDirection="row" marginTop={1}>
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-					wrapMode="none"
-					height={1}
-				>
-					{helpFooter(isScrolling)}
-				</text>
+				<TruncatedLine
+					runs={[
+						{
+							text: helpFooter(isScrolling),
+							attributes: textAttributes({dim: true}),
+						},
+					]}
+				/>
 			</box>
 		</box>
 	);
