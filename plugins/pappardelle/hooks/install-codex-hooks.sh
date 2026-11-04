@@ -31,11 +31,11 @@ merged=$(jq -s --arg cmd "$HOOK_COMMAND" '.[0] as $mine | (.[1] // {}) as $their
         def current($entries): any($entries[]?.hooks[]?; .command == $cmd);
         $theirs | .hooks = (($theirs.hooks // {}) as $h
             | reduce ($mine.hooks | keys[]) as $event ($h;
-                if current(.[$event]) then .
-                else .[$event] = ([(.[$event] // [])[]
+                .[$event] = [(.[$event] // [])[]
                         | .hooks |= map(select(stale | not))
                         | select(.hooks | length > 0)]
-                    + [$mine.hooks[$event][] | .hooks[].command = $cmd]) end))' \
+                | if current(.[$event]) then .
+                else .[$event] += [$mine.hooks[$event][] | .hooks[].command = $cmd] end))' \
         "$SCRIPT_DIR/codex-hooks.json.example" <(printf '%s' "$current")) || {
     echo "! Could not update $CODEX_HOOKS; merge $SCRIPT_DIR/codex-hooks.json.example by hand"
     exit 0
