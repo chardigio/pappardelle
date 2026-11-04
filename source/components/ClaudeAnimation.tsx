@@ -1,4 +1,5 @@
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {terminalColor} from '../tui-style.ts';
+import type {SpanPaint} from './row-highlight.ts';
 
 import {COLORS} from '../types.ts';
 import {useSpinnerFrame} from '../animation-clock.ts';
@@ -7,24 +8,21 @@ import {useSpinnerFrame} from '../animation-clock.ts';
 // Source: https://github.com/farouqaldori/claude-island/blob/main/ClaudeIsland/UI/Components/ProcessingSpinner.swift
 const CLAUDE_FRAMES = ['·', '✢', '✳', '∗', '✻', '✽'];
 
-interface Props {
-	color?: string;
-	// eslint-disable-next-line react/boolean-prop-naming
-	inverse?: boolean;
-}
+const defaultPaint: SpanPaint = {
+	fg: terminalColor(COLORS.CLAUDE_ORANGE),
+	bg: undefined,
+	attributes: 0,
+};
 
 export default function ClaudeAnimation({
-	color = COLORS.CLAUDE_ORANGE,
-	inverse = false,
-}: Props) {
+	paint = defaultPaint,
+}: {
+	paint?: SpanPaint;
+}) {
 	const frameIndex = useSpinnerFrame() % CLAUDE_FRAMES.length;
 
 	return (
-		<text
-			flexShrink={1}
-			attributes={textAttributes({inverse})}
-			fg={terminalColor(color)}
-		>
+		<text flexShrink={1} {...paint}>
 			{CLAUDE_FRAMES[frameIndex]}
 		</text>
 	);
