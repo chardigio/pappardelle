@@ -604,6 +604,8 @@ bun start        # Run without building
 bun run test         # Lint + format check + tests
 ```
 
+See the [OpenTUI migration report](docs/opentui-migration.md) for packaging choices, performance measurements, and validation.
+
 ### Integration tests
 
 Provider scripts in `integration-tests/` verify real services and run locally after provider changes. The isolated tmux program-status suites also run in CI. These are separate from the AVA unit tests.
