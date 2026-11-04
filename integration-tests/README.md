@@ -26,7 +26,7 @@ To drive real interactive Claude sessions, authenticate Claude Code and opt in e
 bun integration-tests/verify-program-status-claude.ts --live --keep
 ```
 
-This uses the existing status-hook configuration from `hooks/settings.json.example`, restricted to status updates, with no PTY proxy or capability replies. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
+This uses the existing status hooks from the plugin's `plugins/pappardelle/hooks/hooks.json`, restricted to status updates, with no PTY proxy or capability replies. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
 
 To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with stable `0.166.0`):
 
