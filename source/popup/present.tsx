@@ -4,6 +4,16 @@ import PopupRoot from '../components/PopupRoot.tsx';
 import type {PopupActions, PopupSpec} from './spec.ts';
 import type {PopupTerminal} from './terminal.ts';
 
+// The popup's PTY counts as remote to OpenTUI, which then forwards no
+// environment; without TERM and COLORTERM it converts palette colors to RGB.
+const popupEnvKeys = [
+	'TERM',
+	'COLORTERM',
+	'TERM_PROGRAM',
+	'TERM_PROGRAM_VERSION',
+	'TMUX',
+];
+
 /** Render into the popup PTY, with an independent OpenTUI renderer. */
 export function presentPopup(
 	spec: PopupSpec,
@@ -35,6 +45,7 @@ export function presentPopup(
 		{
 			stdin: terminal.input,
 			stdout: terminal.output,
+			forwardEnvKeys: popupEnvKeys,
 			// Ctrl+C destroys only this renderer; it does not exit the rail process.
 			exitOnCtrlC: true,
 			exitSignals: [],
