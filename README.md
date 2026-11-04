@@ -200,7 +200,7 @@ use the selected profile's team prefix when one is configured.
 
 ### Agents in a workspace
 
-Agents can see and change their workspace from the command line:
+Agents can see and change their workspace. In Claude Code, the plugin gives them [MCP tools](#mcp-tools) for this. Everything else, you included, uses the same commands from the command line:
 
 ```bash
 pappardelle companion hunk diff --watch            # replace this space's companion command
@@ -516,7 +516,7 @@ cd pappardelle
 bun install --frozen-lockfile
 bun run build           # production bundle + native executable with bytecode
 bun link                # makes `pappardelle` available globally
-pappardelle plugin install  # installs the plugin (skills and hooks) into Claude Code, Codex and agy
+pappardelle plugin install  # installs the plugin (skills, hooks and MCP tools) into Claude Code, Codex and agy
 ```
 
 **Directories created by the installer:**
@@ -664,9 +664,28 @@ Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappard
 | `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                                                                                                    | Yes             |
 | `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send`, open or reopen spaces with `pappardelle`, close spaces with `pappardelle close` | No              |
 | `/link-pr`               | Records a verified PR/MR for the current workspace with `pappardelle link-pr`                                                                                                                                                                         | Yes             |
-| `pappardelle-agent`      | Workspace context and the `pappardelle` command reference for any agent in a space, including how to keep the companion pane showing its work                                                                                                         | Yes             |
+| `pappardelle-agent`      | Workspace layout, the CLI behind the MCP tools, and how to update or restart Pappardelle                                                                                                                                                              | Yes             |
 
-The plugin also has a SessionStart hook. In a session inside a space (`PAPPARDELLE_SPACE` is set), it tells the agent which space it is in and to load `pappardelle-agent`. Elsewhere it prints nothing.
+### MCP tools
+
+The plugin starts `pappardelle mcp`, an MCP server that gives agents explicit tools instead of shell commands to quote. Each tool runs the matching `pappardelle` command. In a session inside a space, the server's instructions tell the agent which space it is in and to keep the companion pane showing its work. Outside a repo with a `.pappardelle.yml`, it serves nothing.
+
+| Tools                                                                                                                                | Do                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `companion_run`, `companion_type`, `companion_press_keys`, `companion_read`, `companion_resize`, `companion_close`, `companion_list` | Run, drive, read and arrange named panes in a companion |
+| `companion_width`                                                                                                                    | Set a space's companion column width in the TUI         |
+| `spaces_list`, `space_read`, `space_highlight`                                                                                       | See open spaces and their conversations                 |
+| `space_send`, `space_press_keys`                                                                                                     | Prompt or press keys in a space's agent TUI             |
+| `space_open`, `space_close`, `tui_restart`                                                                                           | Open or close spaces, restart the TUI                   |
+
+Claude Code asks before each tool call unless you allow it. `companion_run`, `companion_type`, `space_send` and the key tools can run commands, so allowing them means the same as allowing a shell. To allow the ones you trust, add rules such as these to `permissions.allow` in `~/.claude/settings.json`:
+
+```json
+"mcp__plugin_pappardelle_pappardelle__companion_read",
+"mcp__plugin_pappardelle_pappardelle__companion_list",
+"mcp__plugin_pappardelle_pappardelle__spaces_list",
+"mcp__plugin_pappardelle_pappardelle__space_read"
+```
 
 They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the checkout it installed into each agent it finds:
 

@@ -107,6 +107,10 @@ if (gate.action === 'reject') {
 	process.exit(2);
 }
 
+if (process.argv[2] === 'mcp') {
+	await import('./mcp-cli.ts');
+}
+
 // Hooks and config resolve from the repo root the way they do in the TUI,
 // which runs from the main checkout, not from the worktree being closed.
 if (process.argv[2] === 'close') {
