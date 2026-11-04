@@ -19,6 +19,7 @@ import type {
 	TrackerState,
 } from '../providers/types.ts';
 import ConfirmDialog from './ConfirmDialog.tsx';
+import Gap from './Gap.tsx';
 
 export function canPickCloseState(
 	tracker: IssueTrackerProvider | null,
@@ -154,13 +155,14 @@ export default function CloseSpaceDialog({
 			}}
 			onCancel={onCancel}
 		>
-			<box flexDirection="row" marginBottom={1}>
+			<box flexDirection="row" flexShrink={0}>
 				{/* tmux can't resize an open popup, so a long status name must not wrap. */}
 				<text fg={terminalColor()} flexShrink={1} wrapMode="none" height={1}>
 					Issue state:{' '}
 					<span fg={terminalColor('cyan')}>‹ {choiceLabel(selected)} ›</span>
 				</text>
 			</box>
+			<Gap />
 		</ConfirmDialog>
 	);
 }

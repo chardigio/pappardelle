@@ -4,6 +4,7 @@ import {textAttributes, terminalColor} from '../tui-style.ts';
 import {useState, type ReactNode} from 'react';
 
 import ClaudeAnimation from './ClaudeAnimation.tsx';
+import Gap from './Gap.tsx';
 import {
 	isThenable,
 	parseConfirmDialogInput,
@@ -111,10 +112,11 @@ export default function ConfirmDialog({
 			borderStyle="double"
 			borderColor={terminalColor('red')}
 			flexGrow={isFullHeight ? 1 : 0}
+			overflow="hidden"
 			paddingX={2}
 			paddingY={1}
 		>
-			<box flexDirection="row" marginBottom={1}>
+			<box flexDirection="row" flexShrink={0}>
 				<text
 					flexShrink={1}
 					attributes={textAttributes({bold: true})}
@@ -123,29 +125,34 @@ export default function ConfirmDialog({
 					{shown.title}
 				</text>
 			</box>
+			<Gap />
 
-			<box flexDirection="row" marginBottom={1}>
+			<box flexDirection="row" flexShrink={0}>
 				<text fg={terminalColor()} flexShrink={1}>
 					{shown.message}
 				</text>
 			</box>
+			<Gap />
 
 			{children}
 
 			{shown.detail && (
-				<box flexDirection="row" marginBottom={1}>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						{shown.detail}
-					</text>
-				</box>
+				<>
+					<box flexDirection="row" flexShrink={0}>
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+						>
+							{shown.detail}
+						</text>
+					</box>
+					<Gap />
+				</>
 			)}
 
 			{processingFrame ? (
-				<box flexDirection="row">
+				<box flexDirection="row" flexShrink={0}>
 					<ClaudeAnimation />
 					<text fg={terminalColor()} flexShrink={1}>
 						{' '}
@@ -153,18 +160,20 @@ export default function ConfirmDialog({
 					</text>
 				</box>
 			) : (
-				(hint ?? (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						Press <span fg={terminalColor('green')}>y</span> or{' '}
-						<span fg={terminalColor('green')}>Enter</span> to confirm,{' '}
-						<span fg={terminalColor('yellow')}>n</span> or{' '}
-						<span fg={terminalColor('yellow')}>Esc</span> to cancel
-					</text>
-				))
+				<box flexDirection="row" flexShrink={0}>
+					{hint ?? (
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+						>
+							Press <span fg={terminalColor('green')}>y</span> or{' '}
+							<span fg={terminalColor('green')}>Enter</span> to confirm,{' '}
+							<span fg={terminalColor('yellow')}>n</span> or{' '}
+							<span fg={terminalColor('yellow')}>Esc</span> to cancel
+						</text>
+					)}
+				</box>
 			)}
 		</box>
 	);
