@@ -83,10 +83,10 @@ function removeLegacyHooks(deps: PluginInstallDeps, original: string): void {
 	}
 
 	if (!stripLegacyHooks(settings)) return;
-	deps.writeFile(`${deps.settingsPath}.bak`, original);
+	deps.writeFile(`${deps.settingsPath}.pappardelle.bak`, original);
 	deps.writeFile(deps.settingsPath, JSON.stringify(settings, null, 2) + '\n');
 	deps.print(
-		`Removed the old Pappardelle hooks from ${deps.settingsPath} (backup: ${deps.settingsPath}.bak).`,
+		`Removed the old Pappardelle hooks from ${deps.settingsPath} (backup: ${deps.settingsPath}.pappardelle.bak).`,
 	);
 }
 
