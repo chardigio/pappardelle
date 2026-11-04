@@ -57,6 +57,7 @@ async function terminalView(node: React.ReactNode) {
 	return {
 		...view,
 		terminal,
+		stdin,
 		flush,
 		async update(next: React.ReactNode) {
 			flushSync(() => view.root.render(next));
@@ -122,3 +123,20 @@ test('confirmed pane geometry is used before SIGWINCH arrives', async t => {
 	await view.update(dialog());
 	t.is(view.line(0), message);
 });
+
+test.serial(
+	'a render failure stays visible and Escape restores the terminal',
+	async t => {
+		function Broken(): React.ReactNode {
+			throw new Error('No profiles defined');
+		}
+		const view = await terminalView(React.createElement(Broken));
+		t.teardown(async () => view.dispose());
+		t.true(view.line(1)?.includes('Unable to render this view'));
+		t.true(view.line(2)?.includes('No profiles defined'));
+		view.stdin.write('\x1b');
+		await view.renderer.closed;
+		const bytes = await view.flush();
+		t.true(bytes.includes('\x1b[?1049l'));
+	},
+);
