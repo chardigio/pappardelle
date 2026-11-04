@@ -174,6 +174,26 @@ local_clone_dir() {
     printf '%s\n' "$dir"
 }
 
+# Copies each skill's scripts/ to $PAPPARDELLE_DIR/scripts/<skill>/, where the
+# skills run them from, replacing what an earlier install left there. Scripts
+# a skill stopped shipping, such as sous-chef's after it moved onto the
+# pappardelle CLI, would otherwise stay behind and keep getting run.
+install_skill_scripts() {
+    local dest="$PAPPARDELLE_DIR/scripts" src skill script
+    rm -rf "$dest"
+    for src in "$REPO_DIR"/plugins/pappardelle/skills/*/scripts; do
+        [[ -d "$src" ]] || continue
+        skill="$(basename "$(dirname "$src")")"
+        mkdir -p "$dest/$skill"
+        for script in "$src"/*.sh; do
+            [[ -f "$script" ]] || continue
+            cp "$script" "$dest/$skill/"
+            chmod +x "$dest/$skill/$(basename "$script")"
+        done
+        print_status "Installed $skill scripts to $dest/$skill/"
+    done
+}
+
 # Tests source this file to call the functions above without running the
 # installer.
 if [[ "${PAPPARDELLE_INSTALL_SOURCE_ONLY:-}" == 1 ]]; then
@@ -370,25 +390,7 @@ print_status "Created directories (~/.pappardelle/, ~/.worktrees/)"
 # Install Skill Scripts
 # ============================================================================
 
-install_skill_scripts() {
-    local skill="$1"
-    local src="$REPO_DIR/plugins/pappardelle/skills/$skill/scripts"
-
-    if [[ ! -d "$src" ]]; then
-        print_warning "$skill scripts not found at $src — /$skill skill will be non-functional"
-        return
-    fi
-
-    mkdir -p "$PAPPARDELLE_DIR/scripts/$skill"
-    for script in "$src"/*.sh; do
-        [[ -f "$script" ]] || continue
-        cp "$script" "$PAPPARDELLE_DIR/scripts/$skill/"
-        chmod +x "$PAPPARDELLE_DIR/scripts/$skill/$(basename "$script")"
-    done
-    print_status "Installed $skill scripts to $PAPPARDELLE_DIR/scripts/$skill/"
-}
-
-install_skill_scripts init-pappardelle
+install_skill_scripts
 
 # ============================================================================
 # Install the Plugin
