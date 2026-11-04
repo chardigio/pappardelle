@@ -5,6 +5,7 @@ import {
 	filterProfileOptions,
 	handleFilterablePickerKey,
 	handleProfilePickerKey,
+	pasteIntoFilterablePicker,
 	resolvePromptSubmit,
 	pickerOptions,
 	focusFrame,
@@ -807,4 +808,18 @@ test('filterProfileOptions matches a display name or a profile key', t => {
 	t.deepEqual(names('ste'), ['ste']);
 	t.deepEqual(names('rx'), ['rex-ai']);
 	t.deepEqual(names(''), ['rex-ai', 'ste']);
+});
+
+test('a paste extends an open filter on one line and restarts the match list', t => {
+	const state = {query: 'fr', index: 3, indexBeforeQuery: 1};
+	t.deepEqual(pasteIntoFilterablePicker(state, 'ont\nend\r\n'), {
+		query: 'front end',
+		index: 0,
+		indexBeforeQuery: 1,
+	});
+});
+
+test('a paste is ignored until the filter is opened with /', t => {
+	const state = {query: null, index: 2};
+	t.is(pasteIntoFilterablePicker(state, 'front'), state);
 });

@@ -2,13 +2,7 @@
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {
-	existsSync,
-	readFileSync,
-	realpathSync,
-	statSync,
-	writeFileSync,
-} from 'node:fs';
+import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -51,6 +45,7 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {sameFile} from './same-file.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
@@ -595,14 +590,6 @@ export const defaultServerTmuxRunner = spawnTmuxRunner(
 	() => defaultServerTmuxEnv(process.env),
 );
 
-function sameFile(a: string, b: string): boolean {
-	try {
-		return realpathSync(a) === realpathSync(b);
-	} catch {
-		return false;
-	}
-}
-
 function envSocketIs(env: NodeJS.ProcessEnv, socketName: string): boolean {
 	const socket = env['TMUX']?.split(',')[0];
 	if (!socket) return false;
@@ -1030,7 +1017,7 @@ export function sendKeysLiteralThenEnter(
 ): boolean {
 	const steps: string[][] = [
 		['send-keys', '-t', target, 'C-u'],
-		['send-keys', '-t', target, '-l', text],
+		['send-keys', '-t', target, '-l', '--', text],
 		['send-keys', '-t', target, 'Enter'],
 	];
 	for (const args of steps) {

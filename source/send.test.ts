@@ -54,7 +54,7 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, clears the l
 	t.is(sendToSpaceAgent('agc.17', text, {repoName: 'r', runner}), 'sent');
 	t.deepEqual(sendKeysCalls, [
 		['send-keys', '-t', '=agent-r-agc_17:', 'C-u'],
-		['send-keys', '-t', '=agent-r-agc_17:', '-l', text],
+		['send-keys', '-t', '=agent-r-agc_17:', '-l', '--', text],
 		['send-keys', '-t', '=agent-r-agc_17:', 'Enter'],
 	]);
 });

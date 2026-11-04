@@ -43,11 +43,12 @@ STATUS_GATE=""
 STATUS_BUN="${PAPPARDELLE_BUN:-$(command -v bun || true)}"
 if [[ -x "${PAPPARDELLE_EXECUTABLE:-}" ]]; then
     STATUS_MONITOR=("$PAPPARDELLE_EXECUTABLE" --internal-status-monitor)
+elif [[ -x "$SCRIPT_DIR/../dist/pappardelle" ]]; then
+    # Direct idow launches use the compiled monitor, which never loads the
+    # workspace's .env or bunfig.toml and needs no Bun on PATH.
+    STATUS_MONITOR=("$SCRIPT_DIR/../dist/pappardelle" --internal-status-monitor)
 elif [[ -x "$STATUS_BUN" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
     STATUS_MONITOR=("$STATUS_BUN" "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
-elif [[ -x "$SCRIPT_DIR/../dist/pappardelle" ]]; then
-    # Direct idow launches work even when no standalone Bun is installed.
-    STATUS_MONITOR=("$SCRIPT_DIR/../dist/pappardelle" --internal-status-monitor)
 fi
 
 ISSUE_KEY=""
