@@ -1,3 +1,4 @@
+import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {shortcutKey} from './tui-key.ts';
 import {textAttributes, terminalColor} from './tui-style.ts';
@@ -333,7 +334,9 @@ export default function App({
 
 	const showHeaderMessage = useCallback((msg: string) => {
 		if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
-		setHeaderMessage(msg);
+		// Messages often quote script output, whose color codes OpenTUI would
+		// print as literal text.
+		setHeaderMessage(stripVTControlCharacters(msg));
 		return ++headerGeneration.current;
 	}, []);
 
