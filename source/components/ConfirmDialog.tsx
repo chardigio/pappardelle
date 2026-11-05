@@ -36,6 +36,12 @@ interface Props {
 	children?: ReactNode;
 	/** Replaces the y/n hint, for a dialog that adds keys of its own. */
 	hint?: ReactNode;
+	/**
+	 * The confirmed action removes something: closing or deleting a space, or
+	 * discarding work. Only these get the red frame, so it keeps meaning
+	 * "careful" instead of marking every question.
+	 */
+	isDestructive?: boolean;
 }
 
 export default function ConfirmDialog({
@@ -48,6 +54,7 @@ export default function ConfirmDialog({
 	isFullHeight,
 	children,
 	hint,
+	isDestructive = false,
 }: Props) {
 	// Snapshot the dialog's text when entering processing state. The parent's
 	// props can shift mid-deletion — once `deleteSpace` finishes and the list
@@ -109,8 +116,8 @@ export default function ConfirmDialog({
 		<box
 			border
 			flexDirection="column"
-			borderStyle="double"
-			borderColor={terminalColor('red')}
+			borderStyle={isDestructive ? 'double' : 'rounded'}
+			borderColor={terminalColor(isDestructive ? 'red' : undefined)}
 			flexGrow={isFullHeight ? 1 : 0}
 			overflow="hidden"
 			paddingX={2}
@@ -120,7 +127,7 @@ export default function ConfirmDialog({
 				<text
 					flexShrink={1}
 					attributes={textAttributes({bold: true})}
-					fg={terminalColor('red')}
+					fg={terminalColor(isDestructive ? 'red' : undefined)}
 				>
 					{shown.title}
 				</text>
