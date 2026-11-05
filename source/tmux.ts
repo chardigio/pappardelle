@@ -419,9 +419,6 @@ function agentTitleAndFocusArgs(
 	return args;
 }
 
-// Each pane draws its own rounded frame, so tmux's dividers become a blank
-// gap between frames and its border titles stay off. Set on pappardelle's own
-// window only, so the user's other windows keep theirs.
 // The frame host titles a viewer pane's frame with the nested session's window
 // title, which tmux sends only while set-titles is on.
 function viewerSessionArgs(sessionName: string, title: string): string[] {
@@ -463,20 +460,28 @@ async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
 	);
 }
 
-function windowChromeArgs(listPaneId: string): string[] {
-	const options: Array<[string, string]> = [
-		['pane-border-lines', 'spaces'],
+// Each pane draws its own rounded frame, so tmux's border titles stay off and
+// its dividers become a blank gap between frames. Set on pappardelle's own
+// window only, so the user's other windows keep theirs. Each option is its own
+// command because tmux drops the rest of a command list at the first error,
+// and a tmux that rejects the blank divider style must still turn off the
+// titles a previous build drew.
+function applyWindowChrome(listPaneId: string): void {
+	const options: Array<[name: string, value: string | undefined]> = [
 		['pane-border-status', 'off'],
+		// Left behind by builds that drew the titles in the border.
+		['pane-border-format', undefined],
+		['pane-border-lines', 'spaces'],
 	];
-	return options.flatMap(([name, value]) => [
-		';',
-		'set-option',
-		'-w',
-		'-t',
-		listPaneId,
-		name,
-		value,
-	]);
+	for (const [name, value] of options) {
+		const args =
+			value === undefined
+				? ['set-option', '-w', '-u', '-t', listPaneId, name]
+				: ['set-option', '-w', '-t', listPaneId, name, value];
+		const result = spawnSync('tmux', args, {encoding: 'utf-8', timeout: 5000});
+		if (result.error || result.status !== 0)
+			log.warn(`Failed to set ${name} on the layout window: ${result.stderr}`);
+	}
 }
 
 /**
@@ -1648,12 +1653,12 @@ export function setupPappardellLayout(): {
 				...paneTitleArgs(listPaneId, 'rail'),
 				';',
 				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
-				...windowChromeArgs(listPaneId),
 			],
 			{encoding: 'utf-8', timeout: 5000},
 		);
 		if (chrome.error || chrome.status !== 0)
-			log.warn(`Failed to style pane borders: ${chrome.stderr}`);
+			log.warn(`Failed to title the viewer panes: ${chrome.stderr}`);
+		applyWindowChrome(listPaneId);
 
 		enableSynchronizedOutput();
 		enableFocusEvents();
