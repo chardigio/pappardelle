@@ -287,6 +287,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 					<ClaudeAnimation
 						paint={paint({
 							fg: space.isPending ? COLORS.CLAUDE_ORANGE : statusInfo.color,
+							keepsColor: true,
 						})}
 					/>
 				) : (
