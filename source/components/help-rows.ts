@@ -102,7 +102,7 @@ export function buildHelpLines(rows: {
 		{kind: 'blank'},
 		{
 			kind: 'heading',
-			text: 'Program status: working · ● idle/done · ? question · ! blocked · ✗ error',
+			text: 'Program status: ✢ working · ● idle/done · ? question · ! blocked · ✗ error',
 		},
 	);
 
