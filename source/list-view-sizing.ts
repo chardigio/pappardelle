@@ -43,6 +43,19 @@ export function calculateMaxVisibleItems(
 }
 
 /**
+ * Whether the status message line gets its row. In a pane too short for the
+ * header, the status line and one item, the line gives up its row so the
+ * selected item stays on screen.
+ */
+export function statusLineFits(
+	termHeight: number,
+	bannerHeight: number,
+	linesPerItem: LinesPerItem = 1,
+): boolean {
+	return termHeight - bannerHeight >= HEADER_ROWS + linesPerItem;
+}
+
+/**
  * Calculate the scroll offset so the selected item stays centred.
  *
  * @param selectedIndex - Currently selected item index (0-based)

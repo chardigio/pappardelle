@@ -16,6 +16,7 @@ import {
 	ROW_FIXED_OVERHEAD,
 	ROW_ICON_CELLS,
 	clipIssueKey,
+	statusLineFits,
 } from './list-view-sizing.ts';
 
 // ============================================================================
@@ -1343,4 +1344,38 @@ test('titleSharesKeyLine: two-line layout gives real spaces their own title row'
 
 test('titleSharesKeyLine: two-line pending rows keep the text on the key line', t => {
 	t.true(titleSharesKeyLine({isTwoLine: true, isPending: true}));
+});
+
+test('the header, status line and visible items never outgrow a short pane', t => {
+	for (const linesPerItem of [1, 2] as const) {
+		for (const bannerHeight of [0, 4]) {
+			for (
+				let termHeight = bannerHeight + 1 + linesPerItem;
+				termHeight <= bannerHeight + 8;
+				termHeight++
+			) {
+				const statusRows = statusLineFits(
+					termHeight,
+					bannerHeight,
+					linesPerItem,
+				)
+					? 1
+					: 0;
+				const items = Math.min(
+					calculateMaxVisibleItems(termHeight - bannerHeight, linesPerItem),
+					20,
+				);
+				t.true(
+					1 + statusRows + items * linesPerItem <= termHeight - bannerHeight,
+					`${termHeight} rows, banner ${bannerHeight}, ${linesPerItem} lines per item`,
+				);
+			}
+		}
+	}
+});
+
+test('a pane with room for the status line keeps it', t => {
+	t.true(statusLineFits(3, 0, 1));
+	t.true(statusLineFits(4, 0, 2));
+	t.true(statusLineFits(7, 4, 1));
 });
