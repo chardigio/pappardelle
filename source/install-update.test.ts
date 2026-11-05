@@ -381,3 +381,38 @@ test('the default update script runs the published installer', t => {
 		),
 	);
 });
+
+// ============================================================================
+// local_clone_dir
+// ============================================================================
+
+function pappardelleCheckout(): string {
+	const dir = temporaryDir();
+	fs.writeFileSync(
+		path.join(dir, 'package.json'),
+		JSON.stringify({name: 'pappardelle'}),
+	);
+	fs.writeFileSync(path.join(dir, 'install.sh'), '');
+	return dir;
+}
+
+test('a piped install run from inside a pappardelle checkout is not a local install', t => {
+	const checkout = pappardelleCheckout();
+	const result = runInstallFunction(
+		`cd "${checkout}" && local_clone_dir ""`,
+		{},
+	);
+	t.not(result.status, 0);
+	t.is(result.stdout, '');
+});
+
+test('an install script run from a pappardelle checkout installs from that checkout', t => {
+	const checkout = pappardelleCheckout();
+	const elsewhere = temporaryDir();
+	const result = runInstallFunction(
+		`cd "${elsewhere}" && local_clone_dir "${path.join(checkout, 'install.sh')}"`,
+		{},
+	);
+	t.is(result.status, 0);
+	t.is(result.stdout.trim(), checkout);
+});
