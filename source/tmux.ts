@@ -6,6 +6,7 @@ import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
@@ -45,6 +46,8 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {sameFile} from './same-file.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
@@ -327,14 +330,50 @@ export function buildShellLaunchArgs(
 	];
 }
 
+function paneFrameEntry(): string[] {
+	if (isStandalone) return [process.execPath, '--internal-pane-frame'];
+	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+	const entry = fileURLToPath(
+		new URL(`pane-frame-cli${extension}`, import.meta.url),
+	);
+	return [process.execPath, ...bunIsolationArgs, entry];
+}
+
 /**
- * The `respawn-pane` command for a viewer pane: `command`, then a login shell.
- * Starting it as the pane's process rather than typing it keeps it out of the
- * user's shell history. `-k` kills the previous process, including any nested
- * client attached there.
+ * The `respawn-pane` command for a viewer pane: the frame host running
+ * `command`, then a login shell, inside the pane's frame. Starting it as the
+ * pane's process rather than typing it keeps it out of the user's shell
+ * history. `-k` kills the previous process, including any nested client
+ * attached there. The client tty the previous host published is cleared first
+ * so the rail never switches a client that is gone.
  */
-function viewerRespawnArgs(paneId: string, command: string): string[] {
-	return ['respawn-pane', '-k', '-t', paneId, `${command}; exec "$SHELL" -l`];
+function viewerRespawnArgs(
+	paneId: string,
+	command: string,
+	title?: string,
+): string[] {
+	const host = [
+		...paneFrameEntry(),
+		...(title === undefined ? [] : ['--title', title]),
+		'--',
+		'/bin/sh',
+		'-c',
+		`${command}; exec "$SHELL" -l`,
+	];
+	return [
+		'set-option',
+		'-p',
+		'-u',
+		'-t',
+		paneId,
+		CLIENT_TTY_OPTION,
+		';',
+		'respawn-pane',
+		'-k',
+		'-t',
+		paneId,
+		host.map(value => shellQuote(value)).join(' '),
+	];
 }
 
 function viewerMessageCommand(message: string): string {
@@ -350,10 +389,6 @@ function viewerNoSessionCommand(issueKey: string): string {
 	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
 }
 
-// A user option rather than the pane title, which programs in the pane can
-// overwrite with an escape sequence.
-const PANE_TITLE_OPTION = '@pappardelle_title';
-
 function paneTitleArgs(paneId: string, title: string): string[] {
 	return ['set-option', '-p', '-t', paneId, PANE_TITLE_OPTION, title];
 }
@@ -368,25 +403,70 @@ function viewerTitleArgs(
 	return args;
 }
 
+const COMPANION_FRAME_TITLE = 'companion';
+
+function agentFrameTitle(issueKey: string): string {
+	return `agent · ${issueKey}`;
+}
+
 function agentTitleAndFocusArgs(
 	agentViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
 ): string[] {
-	const args = paneTitleArgs(agentViewerPaneId, `agent · ${issueKey}`);
+	const args = paneTitleArgs(agentViewerPaneId, agentFrameTitle(issueKey));
 	if (listPaneId) args.push(';', 'select-pane', '-t', listPaneId);
 	return args;
 }
 
-// Palette-free so the borders read on light and dark themes alike: the active
-// pane's border in the default foreground, the rest dimmed, each titled. Set
-// on pappardelle's own window only, so the user's other windows keep theirs.
+// Each pane draws its own rounded frame, so tmux's dividers become a blank
+// gap between frames and its border titles stay off. Set on pappardelle's own
+// window only, so the user's other windows keep theirs.
+// The frame host titles a viewer pane's frame with the nested session's window
+// title, which tmux sends only while set-titles is on.
+function viewerSessionArgs(sessionName: string, title: string): string[] {
+	const target = exactSessionTarget(sessionName);
+	return [
+		'set-option',
+		'-t',
+		target,
+		'set-titles',
+		'on',
+		';',
+		'set-option',
+		'-t',
+		target,
+		'set-titles-string',
+		title.replaceAll('#', '##'),
+	];
+}
+
+// The frame host's embedded terminal understands modified keys such as
+// Shift+Enter, but tmux enables them only for terminals it knows support
+// them, and the frame's client identifies as plain xterm-256color. The
+// feature is server-scope, and the inner server is Pappardelle's own.
+export const FRAME_TERMINAL_FEATURE = 'xterm-256color:extkeys';
+
+async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
+	const features = await run(
+		innerTmuxArgs(['show-options', '-sqv', 'terminal-features']),
+	);
+	if (features.split('\n').some(line => line.trim() === FRAME_TERMINAL_FEATURE))
+		return;
+	await run(
+		innerTmuxArgs([
+			'set-option',
+			'-sa',
+			'terminal-features',
+			`,${FRAME_TERMINAL_FEATURE}`,
+		]),
+	);
+}
+
 function windowChromeArgs(listPaneId: string): string[] {
 	const options: Array<[string, string]> = [
-		['pane-border-style', 'fg=default,dim'],
-		['pane-active-border-style', 'fg=default'],
-		['pane-border-status', 'top'],
-		['pane-border-format', `#{?pane_active,#[bold],} #{${PANE_TITLE_OPTION}} `],
+		['pane-border-lines', 'spaces'],
+		['pane-border-status', 'off'],
 	];
 	return options.flatMap(([name, value]) => [
 		';',
@@ -451,22 +531,35 @@ export function buildAgentResumeCommand(
 	return `${base} ${resumeArgs} || { printf '\\033[A\\033[2K'; false; } || ${base}`;
 }
 
+const CLIENT_TTY_WAIT_MS = 3000;
+
 /**
- * Get the TTY device for a pane
- * This is used to identify the nested tmux client running in a viewer pane
+ * The tty of the nested tmux client inside a viewer pane's frame, which the
+ * frame host publishes on the pane once its child starts. A freshly respawned
+ * pane gets a moment to publish it.
  */
-async function getPaneTty(
+async function getViewerClientTty(
 	paneId: string,
 	run: AsyncTmuxRunner,
+	{wait = false}: {wait?: boolean} = {},
 ): Promise<string> {
-	const output = await run([
-		'display-message',
-		'-p',
-		'-t',
-		paneId,
-		'#{pane_tty}',
-	]);
-	return output.trim();
+	const deadline = Date.now() + (wait ? CLIENT_TTY_WAIT_MS : 0);
+	for (;;) {
+		// eslint-disable-next-line no-await-in-loop
+		const output = await run([
+			'display-message',
+			'-p',
+			'-t',
+			paneId,
+			`#{${CLIENT_TTY_OPTION}}`,
+		]);
+		const tty = output.trim();
+		if (tty || Date.now() >= deadline) return tty;
+		// eslint-disable-next-line no-await-in-loop
+		await new Promise(resolve => {
+			setTimeout(resolve, 25);
+		});
+	}
 }
 
 /**
@@ -843,6 +936,25 @@ export function enableSynchronizedOutput(
 		} catch {
 			// Purely a rendering nicety — never let it break layout setup.
 		}
+	}
+}
+
+/**
+ * Pane frames dim when their pane loses focus, and they learn that from the
+ * focus reports tmux sends only while `focus-events` is on. The option is
+ * server-scope, like `terminal-features` above; it only adds reports for
+ * programs that ask for them.
+ */
+export function enableFocusEvents(
+	run: OuterTmuxRunner = defaultOuterTmuxRunner,
+): void {
+	try {
+		const current = run(['show-options', '-gqv', 'focus-events']);
+		if (current.stdout.trim() === 'on') return;
+		const {error, status} = run(['set-option', '-g', 'focus-events', 'on']);
+		if (error || status !== 0) log.debug('Could not enable focus events');
+	} catch {
+		// Frames still draw; they just stay lit.
 	}
 }
 
@@ -1527,6 +1639,7 @@ export function setupPappardellLayout(): {
 			log.warn(`Failed to style pane borders: ${chrome.stderr}`);
 
 		enableSynchronizedOutput();
+		enableFocusEvents();
 
 		// Return focus to list pane
 		execSync(`tmux select-pane -t "${listPaneId}"`, {
@@ -1649,6 +1762,17 @@ export async function attachToSpace(
 					exactSessionTarget(sessions.companion),
 				);
 			}
+			// After the switches, so a session not created yet still fails as a
+			// missing session.
+			commands.push(
+				';',
+				...viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey)),
+			);
+			if (companionViewerPaneId)
+				commands.push(
+					';',
+					...viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE),
+				);
 			// Existing clients can switch directly. tmux validates both targets;
 			// an exited client or missing session falls back to setup below.
 			await run(innerTmuxArgs(commands));
@@ -1711,9 +1835,9 @@ export async function attachToSpace(
 		signal?.throwIfAborted();
 
 		if (!agentViewerTty)
-			agentViewerTty = await getPaneTty(agentViewerPaneId, run);
+			agentViewerTty = await getViewerClientTty(agentViewerPaneId, run);
 		if (!companionViewerTty && companionViewerPaneId) {
-			companionViewerTty = await getPaneTty(companionViewerPaneId, run);
+			companionViewerTty = await getViewerClientTty(companionViewerPaneId, run);
 		}
 
 		const attach = async (
@@ -1721,8 +1845,14 @@ export async function attachToSpace(
 			tty: string | null,
 			session: string,
 			exists: boolean,
+			title: string,
 		): Promise<{attached: boolean; tty: string}> => {
 			const hasClient = tty ? await clientExistsOnTty(tty, run) : false;
+			if (exists) {
+				await run(innerTmuxArgs(viewerSessionArgs(session, title)));
+				// Features apply when a client attaches, so before the respawn.
+				if (!hasClient) await ensureFrameTerminalFeatures(run);
+			}
 			if (exists && hasClient) {
 				await switchClientToSession(tty!, session, run);
 				return {attached: true, tty: tty!};
@@ -1735,16 +1865,19 @@ export async function attachToSpace(
 						.map(value => shellQuote(value))
 						.join(' ')
 				: viewerNoSessionCommand(issueKey);
-			await run(viewerRespawnArgs(paneId, command));
-			// Respawning allocates a new pty, and the fast path finds the nested
-			// client by its tty.
-			return {attached: exists, tty: await getPaneTty(paneId, run)};
+			await run(viewerRespawnArgs(paneId, command, title));
+			// The fast path finds the respawned frame's nested client by its tty.
+			return {
+				attached: exists,
+				tty: exists ? await getViewerClientTty(paneId, run, {wait: true}) : '',
+			};
 		};
 		({attached: agentViewerHasClient, tty: agentViewerTty} = await attach(
 			agentViewerPaneId,
 			agentViewerTty,
 			sessions.agent,
 			hasAgentSession,
+			agentFrameTitle(issueKey),
 		));
 		if (companionViewerPaneId) {
 			({attached: companionViewerHasClient, tty: companionViewerTty} =
@@ -1753,6 +1886,7 @@ export async function attachToSpace(
 					companionViewerTty,
 					sessions.companion,
 					hasCompanionSession,
+					COMPANION_FRAME_TITLE,
 				));
 		}
 		await run(agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId));

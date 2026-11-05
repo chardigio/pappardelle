@@ -20,8 +20,12 @@ export const MIN_COMPANION_WIDTH = 20; // Companion can be squished but needs at
 export const MAX_COMPANION_WIDTH = 86; // 85 is the supposed breakpoint, but rounding errors sometimes cause vertical rendering at exactly 85, so we use 86 conservatively
 
 /** Height constraints for vertical layout (in rows) */
-export const MAX_LIST_HEIGHT = 12;
-export const DEFAULT_MIN_LIST_HEIGHT = 6;
+export const MAX_LIST_HEIGHT = 14;
+export const DEFAULT_MIN_LIST_HEIGHT = 8;
+// The rail's header and status rows.
+const LIST_CHROME_ROWS = 2;
+// The top and bottom of the rail's frame (PaneFrame).
+const PANE_FRAME_ROWS = 2;
 
 /** Max fraction of usable height the list pane can take in vertical layout */
 export const MAX_LIST_HEIGHT_RATIO = 0.25;
@@ -118,25 +122,17 @@ export interface LayoutConfig {
  * @param sessionCount - Number of active Claude sessions
  * @returns Ideal height in rows for the list pane
  *
- * Constraints:
- * - Minimum: min(ideal, 8) - give at least 8 rows, or ideal if smaller
- * - Maximum: 8 rows - don't let list take over the screen
+ * The pane holds one row per session plus the header and status rows, all
+ * inside the rail's frame, then is clamped between min(ideal,
+ * DEFAULT_MIN_LIST_HEIGHT) and MAX_LIST_HEIGHT.
  *
  * Note: calculateLayoutForSize applies an additional proportional cap
  * based on terminal height (MAX_LIST_HEIGHT_RATIO) so the list doesn't
  * dominate small screens.
- *
- * Examples:
- * - 0 sessions → height 3 (1+2 = 3, less than min 8, so use 3)
- * - 1 session  → height 3 (1+2 = 3, less than min 8, so use 3)
- * - 5 sessions → height 7 (5+2 = 7, less than min 8, so use 7)
- * - 6 sessions → height 8 (6+2 = 8, capped at max)
- * - 10 sessions → height 8 (10+2 = 12, capped at max 8)
- * - 15 sessions → height 8 (15+2 = 17, capped at max 8)
  */
 export function calculateIdealListHeightForCount(sessionCount: number): number {
-	// Ideal = sessions + header/padding (2 rows for chrome)
-	const idealHeight = Math.max(1, sessionCount) + 2;
+	const idealHeight =
+		Math.max(1, sessionCount) + LIST_CHROME_ROWS + PANE_FRAME_ROWS;
 
 	// Minimum is the smaller of ideal or default (don't force default num rows if we only need 4)
 	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);

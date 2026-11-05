@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
@@ -23,6 +24,27 @@ function fakeTmux() {
 		return '';
 	};
 	return {calls, run};
+}
+
+// The shell script a viewer's frame host runs, unwrapped from the
+// respawn-pane command line.
+function frameScript(command: string): string {
+	const words = spawnSync(
+		'/bin/sh',
+		['-c', `for word in ${command}; do printf '%s\\0' "$word"; done`],
+		{encoding: 'utf8'},
+	).stdout.split('\0');
+	return words[words.indexOf('-c') + 1]!;
+}
+
+// One tmux invocation's `;`-separated commands.
+function splitBatch(args: string[]): string[][] {
+	const commands: string[][] = [[]];
+	for (const arg of args) {
+		if (arg === ';') commands.push([]);
+		else commands.at(-1)!.push(arg);
+	}
+	return commands;
 }
 
 const isSwitchBatch = (args: string[]) =>
@@ -77,7 +99,7 @@ for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
 			);
 			const commands = fake.calls
 				.filter(args => args.includes('respawn-pane'))
-				.map(args => args.at(-1)!);
+				.map(args => frameScript(args.at(-1)!));
 			t.is(commands.length, 2);
 			for (const command of commands) {
 				t.true(
@@ -188,25 +210,32 @@ test.serial(
 		);
 		t.is(fake.calls.length, 2);
 		const batch = fake.calls[0]!;
-		t.deepEqual(batch.slice(0, 6), [
-			'-L',
-			'pappardelle_inner',
+		t.deepEqual(batch.slice(0, 2), ['-L', 'pappardelle_inner']);
+		const commands = splitBatch(batch.slice(2));
+		const target = (prefix: string) =>
+			commands.find(
+				command =>
+					command[0] === 'switch-client' &&
+					command[4]!.startsWith(`=${prefix}-`),
+			);
+		t.deepEqual(target('agent')?.slice(0, 4), [
 			'switch-client',
 			'-c',
 			'/dev/claude',
 			'-t',
 		]);
-		t.true(batch[6]!.startsWith('=agent-'));
-		t.true(batch[6]!.endsWith('-TEST-B:'));
-		t.deepEqual(batch.slice(7, 12), [
-			';',
+		t.true(target('agent')![4]!.endsWith('-TEST-B:'));
+		t.deepEqual(target('companion')?.slice(0, 4), [
 			'switch-client',
 			'-c',
 			'/dev/companion',
 			'-t',
 		]);
-		t.true(batch[12]!.startsWith('=companion-'));
-		t.true(batch[12]!.endsWith('-TEST-B:'));
+		t.true(target('companion')![4]!.endsWith('-TEST-B:'));
+		const titles = commands
+			.filter(command => command[3] === 'set-titles-string')
+			.map(command => command[4]);
+		t.deepEqual(titles, ['agent · TEST-B', 'companion']);
 		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
 	},
 );
