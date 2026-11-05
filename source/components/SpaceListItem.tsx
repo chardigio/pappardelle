@@ -183,6 +183,21 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		isQuestion,
 	});
 	const gap = paint({});
+	// Carries the highlight across the leftover width so a selected or blinking
+	// row reads as one bar from edge to edge.
+	const filler = (
+		<text
+			flexGrow={1}
+			flexShrink={1}
+			flexBasis={0}
+			minWidth={0}
+			wrapMode="none"
+			height={1}
+			{...gap}
+		>
+			{' '.repeat(width)}
+		</text>
+	);
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
@@ -244,12 +259,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	};
 
 	const renderTitle = () => (
-		<text
-			flexShrink={1}
-			{...paint({dim: true, selectable: true})}
-			wrapMode="none"
-			height={1}
-		>
+		<text flexShrink={1} {...paint({dim: true})} wrapMode="none" height={1}>
 			{truncatedTitle}
 		</text>
 	);
@@ -273,7 +283,6 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 						) : null}
 					</>
 				) : null}
-				{/* Status icon (NOT highlighted, always shows its own color) */}
 				{isWorking ? (
 					<ClaudeAnimation
 						paint={paint({
@@ -289,16 +298,14 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 					</text>
 				)}
 
-				{/* Space after status icon (NOT highlighted) */}
 				<text flexShrink={1} {...gap}>
 					{' '}
 				</text>
 
-				{/* Issue key badge (colored by Linear state, highlighted when selected) */}
 				{hasIssueKey && (
 					<text
 						flexShrink={1}
-						{...paint({fg: stateColor, bold: true, selectable: true})}
+						{...paint({fg: stateColor, bold: true})}
 						wrapMode="none"
 						height={1}
 					>
@@ -307,7 +314,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 				)}
 
 				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
-					<text flexShrink={1} {...paint({dim: true, selectable: true})}>
+					<text flexShrink={1} {...paint({dim: true})}>
 						{' '}
 					</text>
 				)}
@@ -321,17 +328,13 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 				</box>
 			)}
 
-			{/* Rail icons — right-aligned: unresolved comment count, then the
-			    merge-conflict indicator, then pipeline state flush at the far
-			    right. Pushed right by a flex spacer that consumes whatever
-			    leftover width remains. */}
+			{filler}
+
+			{/* Rail icons — right-aligned by the filler: unresolved comment
+			    count, then the merge-conflict indicator, then pipeline state
+			    flush at the far right. */}
 			{pipeline !== null || commentCount > 0 || hasConflict ? (
-				<box
-					flexDirection="row"
-					flexGrow={1}
-					flexShrink={0}
-					justifyContent="flex-end"
-				>
+				<box flexDirection="row" flexShrink={0}>
 					{renderCommentCount()}
 					{renderConflictIcon()}
 					{renderPipelineIcon()}
@@ -359,6 +362,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 						{renderTitle()}
 					</box>
 				)}
+				{filler}
 			</box>
 		</box>
 	);

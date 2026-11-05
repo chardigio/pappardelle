@@ -4,7 +4,7 @@
  * A row can be highlighted two ways, and they mean different things:
  *   - it needs attention (Claude is blocked on a permission or a question) —
  *     drawn as a blinking colored block, red for approvals, blue for questions
- *   - it is the selected row — drawn as a plain inverse block
+ *   - it is the selected row — drawn as a plain inverse bar
  *
  * The attention block is painted with an explicit background rather than the
  * terminal's `inverse` attribute. OpenTUI resolves `inverse` with an explicit
@@ -14,9 +14,10 @@
  * leaving the text in a default color draws the colored bar with readable
  * text on every theme.
  *
- * Selection keeps `inverse`, but only with default colors: under `inverse` the
- * foreground becomes the highlight's background, so a tracker state color
- * there would let a color pappardelle doesn't control decide the contrast.
+ * Selection keeps `inverse`, because only `inverse` can paint a bar in the
+ * terminal's own foreground color. Every span on the row, icons included,
+ * drops its color while selected: under `inverse` a span's color becomes the
+ * bar, so the bar would break into tracker and status colors.
  */
 import {RGBA, type ColorInput} from '@opentui/core';
 import {terminalColor, textAttributes} from '../tui-style.ts';
@@ -36,8 +37,6 @@ export interface SpanStyle {
 	fg?: string;
 	bold?: boolean;
 	dim?: boolean;
-	/** The span belongs to the selection block (the issue key and title). */
-	selectable?: boolean;
 }
 
 export interface SpanPaint {
@@ -73,7 +72,7 @@ export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 			};
 		}
 
-		if (isSelectionShown && span.selectable) {
+		if (isSelectionShown) {
 			return {
 				fg: terminalColor(),
 				bg: undefined,
