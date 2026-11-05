@@ -1,7 +1,7 @@
 import {useKeyboard, usePaste, useTerminalDimensions} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor} from '../tui-style.ts';
-import {useState, useMemo, useRef} from 'react';
+import {Fragment, useState, useMemo, useRef} from 'react';
 
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
@@ -12,7 +12,7 @@ import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
-	getTeamPrefix,
+	exampleIssueKeys,
 	listAgentProfiles,
 	loadAgentProfileSources,
 	resolveAgentProfileName,
@@ -191,7 +191,7 @@ export default function PromptDialog({
 			return null;
 		}
 	}, []);
-	const exampleKey = `${config ? getTeamPrefix(config) : 'STA'}-123`;
+	const exampleKeys = config ? exampleIssueKeys(config) : ['STA-123', '123'];
 
 	const ready = useReadyWork(
 		tracker,
@@ -529,9 +529,14 @@ export default function PromptDialog({
 						flexShrink={1}
 						attributes={textAttributes({dim: true})}
 					>
-						- <span fg={terminalColor('cyan')}>{exampleKey}</span> or{' '}
-						<span fg={terminalColor('cyan')}>123</span> = open workspace for
-						existing issue
+						-{' '}
+						{exampleKeys.map((key, index) => (
+							<Fragment key={key}>
+								{index > 0 && ' or '}
+								<span fg={terminalColor('cyan')}>{key}</span>
+							</Fragment>
+						))}{' '}
+						= open workspace for existing issue
 					</text>
 					<text
 						fg={terminalColor()}
@@ -552,7 +557,7 @@ export default function PromptDialog({
 						value={prompt}
 						onChange={setPrompt}
 						onSubmit={handlePromptSubmit}
-						placeholder={`${exampleKey}, 123, or describe the task...`}
+						placeholder={`${exampleKeys.join(', ')}, or describe the task...`}
 						isFocused={!isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
