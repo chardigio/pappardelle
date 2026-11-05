@@ -2372,6 +2372,20 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 
 const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
 
+// A space's sessions are only ever seen nested in a viewer pane, where the
+// user's own status bar would add a row naming the session under the rail's
+// own header.
+function hideStatusBarArgs(sessionName: string): string[] {
+	return [
+		';',
+		'set-option',
+		'-t',
+		exactSessionTarget(sessionName),
+		'status',
+		'off',
+	];
+}
+
 async function releaseStartupGate(
 	session: string,
 	run: AsyncTmuxRunner,
@@ -2507,6 +2521,7 @@ export async function ensureAgentSession(
 				exactSessionTarget(sessionName),
 				STARTUP_GATE_OPTION,
 				gate,
+				...hideStatusBarArgs(sessionName),
 			]),
 		);
 		try {
@@ -2585,6 +2600,7 @@ export async function ensureCompanionSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 				...launchArgs,
+				...hideStatusBarArgs(sessionName),
 			]),
 		);
 

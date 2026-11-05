@@ -263,7 +263,9 @@ new_launch_session() {
 new_inner_session() {
     local session="$1"
     shift
-    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@")
+    # Viewer panes nest the session under the rail, so its status bar is hidden.
+    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \; \
+        set-option -t "=$session:" status off)
 }
 
 # A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:

@@ -369,7 +369,20 @@ if (!isInTmux() && cli.flags.layout) {
 		home: homedir(),
 	});
 
-	const tmuxArgs = ['new-session', '-s', sessionName, cmd];
+	// The rail's header already names the repo, so the user's status bar would
+	// only repeat it.
+	const tmuxArgs = [
+		'new-session',
+		'-s',
+		sessionName,
+		cmd,
+		';',
+		'set-option',
+		'-t',
+		exactSessionTarget(sessionName),
+		'status',
+		'off',
+	];
 	const result = spawnSync('tmux', tmuxArgs, {
 		stdio: 'inherit',
 		env: process.env,
