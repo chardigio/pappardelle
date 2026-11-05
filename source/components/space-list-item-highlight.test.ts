@@ -63,9 +63,10 @@ test('a selected row is one inverse bar from edge to edge, icons included', asyn
 test('a blinking row fills the whole width with its block color', async t => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		for (const spans of await rowSpans(true, layout)) {
-			const block = spans[0]!.bg;
+			const block = spans[0]!.fg;
+			t.is(block.intent, 'indexed');
 			const covered = spans
-				.filter(span => span.bg.equals(block))
+				.filter(span => span.fg.equals(block))
 				.reduce((sum, span) => sum + span.width, 0);
 			t.is(covered, WIDTH, `layout ${layout}`);
 		}
