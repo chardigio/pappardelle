@@ -2279,6 +2279,22 @@ function resolveBeadsIssuePrefix(root: string): string | undefined {
 	}
 }
 
+/**
+ * Issue keys the new-session prompt offers as examples. Beads ids carry a hash
+ * rather than a number, so a `TEAM-123` example would mislead there.
+ */
+export function exampleIssueKeys(
+	config: PappardelleConfig,
+	readPrefix: () => string | undefined = readBeadsIssuePrefix,
+): string[] {
+	if (config.issue_tracker?.provider === 'beads') {
+		const [prefix = 'bd'] = getBeadsPrefixes(config, readPrefix());
+		return [`${prefix}-a1b2`];
+	}
+
+	return [`${getTeamPrefix(config)}-123`, '123'];
+}
+
 export function getBeadsPrefixes(
 	config: PappardelleConfig,
 	beadsConfigPrefix?: string,

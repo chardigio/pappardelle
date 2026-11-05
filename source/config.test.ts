@@ -39,6 +39,7 @@ import {
 	mergeKeybindings,
 	determineProfileForInput,
 	getBeadsPrefixes,
+	exampleIssueKeys,
 	readBeadsIssuePrefix,
 	clearBeadsIssuePrefixCache,
 	matchProfilesByKeyPrefix,
@@ -4684,6 +4685,32 @@ test('determineProfileForInput does not defer beads IDs under other trackers', t
 		team_prefix: 'pap',
 	};
 	t.is(determineProfileForInput(config, 'pap-a1b2')?.kind, 'resolved');
+});
+
+// ============================================================================
+// exampleIssueKeys
+// ============================================================================
+
+test('exampleIssueKeys uses the team prefix for numbered trackers', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'qa',
+		profiles: {},
+	};
+	t.deepEqual(exampleIssueKeys(config), ['QA-123', '123']);
+});
+
+test('exampleIssueKeys shows a beads id with the beads prefix', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'qa',
+		issue_tracker: {provider: 'beads'},
+		profiles: {},
+	};
+	t.deepEqual(
+		exampleIssueKeys(config, () => 'pap'),
+		['pap-a1b2'],
+	);
 });
 
 // ============================================================================
