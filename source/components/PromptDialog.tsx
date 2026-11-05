@@ -557,7 +557,7 @@ export default function PromptDialog({
 						value={prompt}
 						onChange={setPrompt}
 						onSubmit={handlePromptSubmit}
-						placeholder={`${exampleKeys.join(', ')}, or describe the task...`}
+						placeholder={`${new Intl.ListFormat('en', {type: 'disjunction'}).format([...exampleKeys, 'describe the task'])}...`}
 						isFocused={!isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
