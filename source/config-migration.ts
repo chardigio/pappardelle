@@ -767,6 +767,7 @@ export function buildConfigMigrationConfirmContent(
 			.filter(Boolean)
 			.join(' '),
 		processingMessage: 'Rewriting config…',
+		isDestructive: false,
 	};
 }
 
@@ -775,6 +776,7 @@ export function buildConfigFixConfirmContent(reason: string) {
 		title: 'Config Not Rewritten',
 		message: `Pappardelle couldn't rewrite your config to the new format: ${reason}. Ask Claude to fix it?`,
 		detail: 'Opens claude in a popup with a prompt describing the change.',
+		isDestructive: false,
 	};
 }
 

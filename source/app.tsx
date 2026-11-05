@@ -2439,6 +2439,7 @@ export default function App({
 						title={updateConfirmContent.title}
 						message={updateConfirmContent.message}
 						detail={updateConfirmContent.detail}
+						isDestructive={updateConfirmContent.isDestructive}
 						onConfirm={handleUpdateConfirmed}
 						onCancel={() => setShowUpdateConfirm(false)}
 					/>

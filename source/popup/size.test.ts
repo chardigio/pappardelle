@@ -18,6 +18,7 @@ test('a confirm is as tall as its wrapped content plus chrome', t => {
 				title: 'Close Space',
 				message: 'Close space bd-a1b2?',
 				detail: 'The worktree and git branch will remain on disk.',
+				isDestructive: true,
 			},
 		},
 		client,
@@ -32,7 +33,11 @@ test('a confirm on a narrow client wraps into more rows', t => {
 	const size = popupSize(
 		{
 			kind: 'confirm',
-			props: {title: 'Close Space', message: 'Close space bd-a1b2?'},
+			props: {
+				title: 'Close Space',
+				message: 'Close space bd-a1b2?',
+				isDestructive: true,
+			},
 		},
 		{cols: 34, rows: 50},
 	);
@@ -46,7 +51,11 @@ test('a confirm taller than the client stays two rows short of it', t => {
 	const size = popupSize(
 		{
 			kind: 'confirm',
-			props: {title: 'Rewrite config', message: 'word '.repeat(200)},
+			props: {
+				title: 'Rewrite config',
+				message: 'word '.repeat(200),
+				isDestructive: false,
+			},
 		},
 		{cols: 80, rows: 20},
 	);

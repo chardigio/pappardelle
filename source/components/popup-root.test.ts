@@ -64,6 +64,7 @@ const CLOSE_SPACE: PopupSpec = {
 		title: 'Close Space',
 		message: 'Close space bd-1?',
 		processingMessage: 'Closing space bd-1…',
+		isDestructive: true,
 	},
 };
 
