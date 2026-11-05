@@ -26,7 +26,6 @@ const base = {
 	needsAttention: false,
 	blinkOn: false,
 	isQuestion: false,
-	stateColor: TEAL,
 };
 
 const spans: SpanStyle[] = [
@@ -42,18 +41,20 @@ const isInverse = (attributes: number) =>
 	(attributes & TextAttributes.INVERSE) !== 0;
 
 test('an unselected row keeps the tracker state color on its issue key', t => {
-	const row = resolveRowHighlight(base);
-	t.is(row.keyColor, TEAL);
-	const key = row.paint({fg: row.keyColor, bold: true, selectable: true});
+	const key = resolveRowHighlight(base).paint({
+		fg: TEAL,
+		bold: true,
+		selectable: true,
+	});
 	t.deepEqual(key.fg, terminalColor(TEAL));
 	t.false(isInverse(key.attributes));
 });
 
 test('a selected row inverts its key and title against the default foreground, whatever the state color', t => {
+	const row = resolveRowHighlight({...base, isSelected: true});
 	for (const stateColor of [TEAL, NEAR_BACKGROUND, 'gray', 'white']) {
-		const row = resolveRowHighlight({...base, isSelected: true, stateColor});
 		for (const span of [
-			{fg: row.keyColor, bold: true, selectable: true},
+			{fg: stateColor, bold: true, selectable: true},
 			{dim: true, selectable: true},
 		]) {
 			const paint = row.paint(span);
@@ -75,17 +76,18 @@ test('selection leaves the row chrome (status icon, rail icons) in its own color
 	t.deepEqual(icon.fg, terminalColor('green'));
 });
 
-test('a bright-black state color never reaches the key', t => {
-	// Solarized and its descendants map ANSI 8 to the background itself, so an
-	// unselected key painted 'gray' rendered background-on-background and only
-	// appeared once selection inverted it. Falling back to no color puts it in
-	// the terminal's default foreground, which contrasts by construction.
-	for (const stateColor of ['gray', 'grey', 'blackBright']) {
-		t.is(
-			resolveRowHighlight({...base, stateColor}).keyColor,
-			undefined,
-			`state color ${stateColor}`,
-		);
+test('bright black never reaches any span on a row', t => {
+	// Solarized and its descendants map ANSI 8 to the background itself, so a
+	// key or icon painted 'gray' rendered background-on-background.
+	const row = resolveRowHighlight(base);
+	for (const fg of ['gray', 'grey', 'blackBright']) {
+		for (const span of [{fg, bold: true, selectable: true}, {fg}]) {
+			t.deepEqual(
+				row.paint(span).fg,
+				RGBA.defaultForeground(),
+				`color ${fg}, span ${JSON.stringify(span)}`,
+			);
+		}
 	}
 });
 

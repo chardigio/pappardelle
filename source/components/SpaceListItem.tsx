@@ -161,7 +161,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	// Uses the exact color from the tracker's API so pappardelle always matches,
 	// unless the user listed this state in `state_colors:` — see STA-2070. The
 	// main-worktree branch below is deliberately left on raw tracker colors.
-	const getStateColor = (): string => {
+	const getStateColor = (): string | undefined => {
 		if (space.isMainWorktree) {
 			return getMainWorktreeColor(
 				space.isDirty ?? false,
@@ -171,17 +171,16 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		}
 
 		const state = space.linearIssue?.state;
-		if (!state) return space.isPending ? 'white' : 'gray';
+		if (!state) return undefined;
 		return resolveStateColor(state.name, state.color);
 	};
 	const stateColor = getStateColor();
 
-	const {keyColor, paint} = resolveRowHighlight({
+	const {paint} = resolveRowHighlight({
 		isSelected,
 		needsAttention,
 		blinkOn,
 		isQuestion,
-		stateColor,
 	});
 	const gap = paint({});
 
@@ -299,7 +298,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 				{hasIssueKey && (
 					<text
 						flexShrink={1}
-						{...paint({fg: keyColor, bold: true, selectable: true})}
+						{...paint({fg: stateColor, bold: true, selectable: true})}
 						wrapMode="none"
 						height={1}
 					>
