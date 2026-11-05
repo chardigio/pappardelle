@@ -128,6 +128,7 @@ export default function CloseSpaceDialog({
 		return (
 			<ConfirmDialog
 				{...content}
+				isDestructive
 				isFullHeight={isFullHeight}
 				onConfirm={async () => onConfirm()}
 				onCancel={onCancel}
@@ -138,6 +139,7 @@ export default function CloseSpaceDialog({
 	return (
 		<ConfirmDialog
 			{...content}
+			isDestructive
 			isFullHeight={isFullHeight}
 			hint={
 				<text

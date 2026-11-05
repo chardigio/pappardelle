@@ -2466,6 +2466,7 @@ export default function App({
 						message={killDoneConfirmContent.message}
 						detail={killDoneConfirmContent.detail}
 						processingMessage={killDoneConfirmContent.processingMessage}
+						isDestructive={killDoneConfirmContent.isDestructive}
 						onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
 						onCancel={() => setKillDoneTargets(null)}
 					/>
