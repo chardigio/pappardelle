@@ -29,8 +29,6 @@ export interface RowHighlightInput {
 	blinkOn: boolean;
 	/** The attention is an AskUserQuestion rather than a permission request. */
 	isQuestion: boolean;
-	/** Tracker-supplied workflow-state color for the issue key. */
-	stateColor: string;
 }
 
 /** How a span looks on an unhighlighted row. */
@@ -49,11 +47,12 @@ export interface SpanPaint {
 }
 
 export interface RowHighlight {
-	/** Color for the issue key badge on an unhighlighted row. */
-	keyColor: string | undefined;
 	paint: (span: SpanStyle) => SpanPaint;
 }
 
+// Solarized and its descendants map ANSI 8 to the background itself, so text
+// painted bright black disappears. The default foreground contrasts with the
+// background by construction.
 const BACKGROUND_RISK_COLORS = new Set(['gray', 'grey', 'blackBright']);
 
 export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
@@ -64,10 +63,6 @@ export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 				: 'red'
 			: undefined;
 	const isSelectionShown = input.isSelected && blinkColor === undefined;
-
-	const keyColor = BACKGROUND_RISK_COLORS.has(input.stateColor)
-		? undefined
-		: input.stateColor;
 
 	const paint = (span: SpanStyle): SpanPaint => {
 		if (blinkColor) {
@@ -87,11 +82,13 @@ export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 		}
 
 		return {
-			fg: terminalColor(span.fg),
+			fg: terminalColor(
+				span.fg && BACKGROUND_RISK_COLORS.has(span.fg) ? undefined : span.fg,
+			),
 			bg: undefined,
 			attributes: textAttributes({bold: span.bold, dim: span.dim}),
 		};
 	};
 
-	return {keyColor, paint};
+	return {paint};
 }
