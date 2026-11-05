@@ -1,0 +1,1722 @@
+{
+	"environment": {
+		"platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+		"python": "3.12.14",
+		"tmux": "tmux 3.5a",
+		"sourceCommit": "839f764a6fb980dc4d58619e91b80f02aeca45a5",
+		"binary": "dist/pappardelle",
+		"binarySha256": "35df8abbf1269007af57111ef97cca0d77b7aa885f0dbd84bdeb72d216f4831f",
+		"bun": "1.4.4",
+		"terminal": "detached real tmux, 100x52",
+		"scope": "fresh isolated HOME/repo/servers/sessions; OS caches NOT flushed; dummy Python agents; no network or real agent startup",
+		"observation": "20 ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately"
+	},
+	"samples": {
+		"cleanShell": [
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"milestones": {
+					"agentReadyMs": 272.853788,
+					"agentVisibleMs": 315.273496,
+					"companionVisibleMs": 319.501513,
+					"companionReadyMs": 301.049741,
+					"bothClientsAttachedMs": 345.03986,
+					"bothVisibleMs": 319.501513
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 34.633728,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 69.633792,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 77.633792,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 109.633792,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 112.633856,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 127.633664,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 137.633792,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 140.6336,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 153.633792,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.633792,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 187.63392,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 236.633856,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 247.63392,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 328.633856,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 344.6336,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"milestones": {
+					"agentVisibleMs": 244.995685,
+					"agentReadyMs": 233.70893,
+					"companionReadyMs": 237.881949,
+					"bothClientsAttachedMs": 274.05835,
+					"companionVisibleMs": 294.99631,
+					"bothVisibleMs": 294.99631
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 30.541056,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 54.5408,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 61.540864,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 91.540736,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 95.540736,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 112.540928,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 122.541056,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 124.540928,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 138.5408,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 153.540864,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 165.540864,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 201.540864,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 209.540864,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 266.5408,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 288.540928,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"milestones": {
+					"agentReadyMs": 224.29719,
+					"companionReadyMs": 233.702616,
+					"bothClientsAttachedMs": 260.038066,
+					"agentVisibleMs": 272.329116,
+					"companionVisibleMs": 281.20478,
+					"bothVisibleMs": 281.20478
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 33.950976,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 57.95072,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 63.950848,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 94.950912,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 98.950912,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 115.950848,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 123.950848,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 124.95104,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 137.950976,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 150.950912,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 161.950976,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 198.950912,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 204.950784,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 262.950912,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 282.950912,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"milestones": {
+					"agentReadyMs": 214.959582,
+					"companionReadyMs": 221.151997,
+					"bothClientsAttachedMs": 247.81156,
+					"agentVisibleMs": 255.451485,
+					"companionVisibleMs": 259.117046,
+					"bothVisibleMs": 259.117046
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 30.36544,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 53.365504,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 61.36576,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 89.365504,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 92.365568,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 107.365632,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 117.36576,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 120.365568,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 135.365632,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 149.36576,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 160.365568,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 192.365824,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 199.365632,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 253.365504,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 267.365632,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"milestones": {
+					"agentVisibleMs": 225.49991,
+					"agentReadyMs": 220.702449,
+					"companionReadyMs": 219.815721,
+					"bothClientsAttachedMs": 253.166894,
+					"companionVisibleMs": 264.611058,
+					"bothVisibleMs": 264.611058
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 29.381376,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 53.38112,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 59.381248,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 86.381056,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 89.38112,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 104.381184,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 113.381376,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 116.381184,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 129.38112,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 140.38144,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 151.381248,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 185.38112,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 192.38144,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 255.381248,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 269.381376,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			}
+		],
+		"delayedShell": [
+			{
+				"shellDelayMs": 1000,
+				"traced": false,
+				"milestones": {
+					"bothClientsAttachedMs": 255.837596,
+					"agentReadyMs": 1220.049979,
+					"companionReadyMs": 1226.840909,
+					"agentVisibleMs": 1241.662268,
+					"companionVisibleMs": 1244.062247,
+					"bothVisibleMs": 1244.062247
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 32.529152,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 59.52896,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 65.529088,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 94.529024,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 97.529088,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 112.528896,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 123.52896,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 125.529088,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 140.529152,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 152.528896,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 163.529216,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 197.529088,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 205.528832,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 260.528896,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 276.529152,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 1000,
+				"traced": false,
+				"milestones": {
+					"bothClientsAttachedMs": 260.030479,
+					"agentReadyMs": 1237.62333,
+					"companionReadyMs": 1241.127714,
+					"agentVisibleMs": 1258.964227,
+					"companionVisibleMs": 1261.436393,
+					"bothVisibleMs": 1261.436393
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 33.856256,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 58.855936,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 67.856128,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 98.855936,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 101.856,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 121.856,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 131.855872,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 133.856,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 150.855936,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 163.856128,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 174.856192,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 213.856,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 220.856064,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 262.855936,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 273.856256,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 1000,
+				"traced": false,
+				"milestones": {
+					"bothClientsAttachedMs": 241.523079,
+					"agentReadyMs": 1216.970587,
+					"companionReadyMs": 1223.679452,
+					"agentVisibleMs": 1245.542901,
+					"companionVisibleMs": 1247.903961,
+					"bothVisibleMs": 1247.903961
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 29.999104,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 55.998976,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 64.999168,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 91.999232,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 94.99904,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 109.99936,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 119.999232,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 122.999296,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 139.999232,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 152.999168,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 163.999232,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 195.999232,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 202.999296,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 243.998976,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 254.999296,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 1000,
+				"traced": false,
+				"milestones": {
+					"bothClientsAttachedMs": 258.370945,
+					"agentReadyMs": 1214.481482,
+					"companionReadyMs": 1215.490089,
+					"agentVisibleMs": 1228.108784,
+					"companionVisibleMs": 1230.425778,
+					"bothVisibleMs": 1230.425778
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 31.341824,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 52.341504,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 59.341568,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 88.34176,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 92.341504,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 107.341568,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 117.341696,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 120.34176,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 135.341824,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 147.341568,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 158.341888,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 191.341824,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 197.341696,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 240.341504,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 258.341632,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			},
+			{
+				"shellDelayMs": 1000,
+				"traced": false,
+				"milestones": {
+					"bothClientsAttachedMs": 253.632994,
+					"agentVisibleMs": 1231.479148,
+					"companionVisibleMs": 1233.938966,
+					"agentReadyMs": 1221.672896,
+					"companionReadyMs": 1230.693602,
+					"bothVisibleMs": 1233.938966
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 31.563776,
+						"message": "[INFO ] [app] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 57.563904,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 66.56384,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 95.564032,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 98.564096,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 114.564096,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 123.563776,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 124.563968,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 139.563776,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 153.563904,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 164.563968,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 199.563776,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 209.563904,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 261.563904,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 277.563904,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": []
+			}
+		]
+	},
+	"mediansMs": {
+		"cleanShell": {
+			"agentReadyMs": 224.29719,
+			"agentVisibleMs": 255.451485,
+			"companionVisibleMs": 281.20478,
+			"companionReadyMs": 233.702616,
+			"bothClientsAttachedMs": 260.038066,
+			"bothVisibleMs": 281.20478
+		},
+		"delayedShell": {
+			"bothClientsAttachedMs": 255.837596,
+			"agentReadyMs": 1220.049979,
+			"companionReadyMs": 1226.840909,
+			"agentVisibleMs": 1241.662268,
+			"companionVisibleMs": 1244.062247,
+			"bothVisibleMs": 1244.062247
+		}
+	},
+	"instrumentedSample": {
+		"shellDelayMs": 0,
+		"traced": true,
+		"milestones": {
+			"agentReadyMs": 1157.260016,
+			"companionReadyMs": 1215.494342,
+			"agentVisibleMs": 1320.012065,
+			"companionVisibleMs": 1396.929,
+			"bothClientsAttachedMs": 1419.811824,
+			"bothVisibleMs": 1396.929
+		},
+		"logEvents": [
+			{
+				"elapsedMs": 31.785984,
+				"message": "[INFO ] [app] Pappardelle starting"
+			},
+			{
+				"elapsedMs": 230.786304,
+				"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+			},
+			{
+				"elapsedMs": 283.78624,
+				"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+			},
+			{
+				"elapsedMs": 522.786048,
+				"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+			},
+			{
+				"elapsedMs": 549.786112,
+				"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+			},
+			{
+				"elapsedMs": 677.786112,
+				"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+			},
+			{
+				"elapsedMs": 687.78624,
+				"message": "[INFO ] [app] Loaded 0 custom keybindings"
+			},
+			{
+				"elapsedMs": 688.786176,
+				"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+			},
+			{
+				"elapsedMs": 742.786048,
+				"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+			},
+			{
+				"elapsedMs": 827.785984,
+				"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+			},
+			{
+				"elapsedMs": 918.786048,
+				"message": "[INFO ] [tmux] Relayout completed successfully"
+			},
+			{
+				"elapsedMs": 1137.786112,
+				"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+			},
+			{
+				"elapsedMs": 1197.786112,
+				"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+			},
+			{
+				"elapsedMs": 1535.785984,
+				"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+			},
+			{
+				"elapsedMs": 1622.786048,
+				"message": "[INFO ] [tmux] Relayout completed successfully"
+			}
+		],
+		"commands": [
+			{
+				"tool": "git",
+				"args": ["rev-parse", "--show-toplevel"],
+				"pid": 209743,
+				"exitCode": 0,
+				"elapsedMs": 55.468829,
+				"durationMs": 1.551763
+			},
+			{
+				"tool": "git",
+				"args": ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+				"pid": 209751,
+				"exitCode": 0,
+				"elapsedMs": 79.865786,
+				"durationMs": 1.192663
+			},
+			{
+				"tool": "git",
+				"args": ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+				"pid": 209757,
+				"exitCode": 0,
+				"elapsedMs": 103.104301,
+				"durationMs": 1.106874
+			},
+			{
+				"tool": "tmux",
+				"args": ["list-sessions", "-F", "#{session_name}"],
+				"pid": 209762,
+				"exitCode": 0,
+				"elapsedMs": 126.469082,
+				"durationMs": 3.173256
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-sessions", "-F", "#{session_name}"],
+				"pid": 209767,
+				"exitCode": 1,
+				"elapsedMs": 150.243309,
+				"durationMs": 4.555057
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-sessions", "-F", "#{session_name}"],
+				"pid": 209772,
+				"exitCode": 1,
+				"elapsedMs": 176.887699,
+				"durationMs": 2.735883
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{pane_width}"],
+				"pid": 209774,
+				"exitCode": 0,
+				"elapsedMs": 200.767469,
+				"durationMs": 2.67429
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{pane_height}"],
+				"pid": 209779,
+				"exitCode": 0,
+				"elapsedMs": 224.107106,
+				"durationMs": 2.801913
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"split-window",
+					"-h",
+					"-t",
+					"%0",
+					"-c",
+					"<fixture>/repo",
+					"-l",
+					"76",
+					"-P",
+					"-F",
+					"#{pane_id}"
+				],
+				"pid": 209784,
+				"exitCode": 0,
+				"elapsedMs": 248.736463,
+				"durationMs": 5.207719
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"split-window",
+					"-h",
+					"-t",
+					"%1",
+					"-c",
+					"<fixture>/repo",
+					"-l",
+					"35",
+					"-P",
+					"-F",
+					"#{pane_id}"
+				],
+				"pid": 209792,
+				"exitCode": 0,
+				"elapsedMs": 276.955366,
+				"durationMs": 3.630287
+			},
+			{
+				"tool": "tmux",
+				"args": ["select-pane", "-t", "%0", "-T", "pappardelle"],
+				"pid": 209800,
+				"exitCode": 0,
+				"elapsedMs": 302.843695,
+				"durationMs": 3.018798
+			},
+			{
+				"tool": "tmux",
+				"args": ["select-pane", "-t", "%1", "-T", "agent-viewer"],
+				"pid": 209807,
+				"exitCode": 0,
+				"elapsedMs": 333.921556,
+				"durationMs": 3.006309
+			},
+			{
+				"tool": "tmux",
+				"args": ["select-pane", "-t", "%2", "-T", "companion-viewer"],
+				"pid": 209815,
+				"exitCode": 0,
+				"elapsedMs": 362.489788,
+				"durationMs": 4.659015
+			},
+			{
+				"tool": "tmux",
+				"args": ["set-option", "-w", "pane-border-style", "fg=colour238"],
+				"pid": 209823,
+				"exitCode": 0,
+				"elapsedMs": 390.158464,
+				"durationMs": 4.171411
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"set-option",
+					"-w",
+					"pane-active-border-style",
+					"fg=cyan,bold"
+				],
+				"pid": 209829,
+				"exitCode": 0,
+				"elapsedMs": 416.906836,
+				"durationMs": 2.855964
+			},
+			{
+				"tool": "tmux",
+				"args": ["show-options", "-gqv", "terminal-features"],
+				"pid": 209833,
+				"exitCode": 0,
+				"elapsedMs": 442.490648,
+				"durationMs": 2.629303
+			},
+			{
+				"tool": "tmux",
+				"args": ["set-option", "-ga", "terminal-features", ",*:Sync"],
+				"pid": 209840,
+				"exitCode": 0,
+				"elapsedMs": 467.247536,
+				"durationMs": 3.486417
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-options",
+					"-gqv",
+					"terminal-features"
+				],
+				"pid": 209847,
+				"exitCode": 1,
+				"elapsedMs": 492.601016,
+				"durationMs": 3.794059
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"set-option",
+					"-ga",
+					"terminal-features",
+					",*:Sync"
+				],
+				"pid": 209850,
+				"exitCode": 1,
+				"elapsedMs": 517.226782,
+				"durationMs": 2.790345
+			},
+			{
+				"tool": "tmux",
+				"args": ["select-pane", "-t", "%0"],
+				"pid": 209857,
+				"exitCode": 0,
+				"elapsedMs": 543.154095,
+				"durationMs": 3.243416
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "#{window_width} #{window_height}"],
+				"pid": 209864,
+				"exitCode": 0,
+				"elapsedMs": 568.812294,
+				"durationMs": 5.344069
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{pane_width}"],
+				"pid": 209868,
+				"exitCode": 0,
+				"elapsedMs": 598.124245,
+				"durationMs": 2.998778
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%2", "#{pane_width}"],
+				"pid": 209873,
+				"exitCode": 0,
+				"elapsedMs": 625.690181,
+				"durationMs": 2.859198
+			},
+			{
+				"tool": "git",
+				"args": ["log", "-1", "--format=%h", "--", "."],
+				"pid": 209881,
+				"exitCode": 0,
+				"elapsedMs": 648.804515,
+				"durationMs": 2.031003
+			},
+			{
+				"tool": "git",
+				"args": [
+					"-C",
+					"/workspace/pappardelle",
+					"describe",
+					"--tags",
+					"--abbrev=0",
+					"--match",
+					"v*.*.*"
+				],
+				"pid": 209885,
+				"exitCode": 0,
+				"elapsedMs": 670.790427,
+				"durationMs": 4.427206
+			},
+			{
+				"tool": "git",
+				"args": ["worktree", "list", "--porcelain"],
+				"pid": 209899,
+				"exitCode": 0,
+				"elapsedMs": 714.82717,
+				"durationMs": 1.26393
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{window_zoomed_flag}"],
+				"pid": 209900,
+				"exitCode": 0,
+				"elapsedMs": 714.64099,
+				"durationMs": 3.786222
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 209905,
+				"exitCode": 1,
+				"elapsedMs": 738.053257,
+				"durationMs": 2.312016
+			},
+			{
+				"tool": "git",
+				"args": ["status", "--porcelain"],
+				"pid": 209907,
+				"exitCode": 0,
+				"elapsedMs": 745.428645,
+				"durationMs": 1.767747
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{window_width} #{pane_width}"
+				],
+				"pid": 209910,
+				"exitCode": 0,
+				"elapsedMs": 746.310801,
+				"durationMs": 4.481502
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{window_width} #{window_height}"
+				],
+				"pid": 209915,
+				"exitCode": 0,
+				"elapsedMs": 774.214034,
+				"durationMs": 2.554711
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 209922,
+				"exitCode": 0,
+				"elapsedMs": 799.515875,
+				"durationMs": 3.088353
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%2",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 209928,
+				"exitCode": 0,
+				"elapsedMs": 822.275154,
+				"durationMs": 2.838147
+			},
+			{
+				"tool": "tmux",
+				"args": ["resize-pane", "-t", "%0", "-x", "23"],
+				"pid": 209931,
+				"exitCode": 0,
+				"elapsedMs": 844.663725,
+				"durationMs": 2.595493
+			},
+			{
+				"tool": "tmux",
+				"args": ["resize-pane", "-t", "%2", "-x", "35"],
+				"pid": 209938,
+				"exitCode": 0,
+				"elapsedMs": 867.835875,
+				"durationMs": 2.385056
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 209943,
+				"exitCode": 0,
+				"elapsedMs": 890.919441,
+				"durationMs": 2.960541
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%2",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 209947,
+				"exitCode": 0,
+				"elapsedMs": 913.198498,
+				"durationMs": 2.660179
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 209954,
+				"exitCode": 0,
+				"elapsedMs": 935.1488,
+				"durationMs": 3.201704
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "has-session", "-t", "=agent-repo-main:"],
+				"pid": 209960,
+				"exitCode": 1,
+				"elapsedMs": 958.038655,
+				"durationMs": 2.429874
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"new-session",
+					"-d",
+					"-s",
+					"agent-repo-main",
+					"-c",
+					"<fixture>/repo",
+					"-e",
+					"PAPPARDELLE_MAIN_REPO_ROOT=<fixture>/repo",
+					"-e",
+					"PI_PROGRAM_STATUS=1",
+					"-e",
+					"AGY_CLI_OSC7501=on",
+					"-e",
+					"PAPPARDELLE_AGENT_PROFILE=fixture",
+					"-e",
+					"PAPPARDELLE_AGENT_IS_CLAUDE=false",
+					"-e",
+					"PAPPARDELLE_AGENT_SESSIONS=<fixture>/home/.pappardelle/repos/repo/space-state/main.agent-sessions.json",
+					"/bin/sh",
+					"-c",
+					"tmux \"$1\" \"$2\" wait-for \"$3\"; shift 3; exec \"$@\"",
+					"sh",
+					"-L",
+					"bench-inner",
+					"pappardelle-status-efdc4045-c8f7-48c8-b85d-55bc4ada65c9",
+					"/bin/sh",
+					"-c",
+					"\"$1\" -ic \"$2$(printf \"\\n:\")\"; printf \"\\033]133;A\\007\"; exec \"$1\" -l",
+					"sh",
+					"/bin/bash",
+					"/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3 <fixture>/ready.py agent <fixture>/agent.json",
+					";",
+					"set-option",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_startup_gate",
+					"pappardelle-status-efdc4045-c8f7-48c8-b85d-55bc4ada65c9"
+				],
+				"pid": 209963,
+				"exitCode": 0,
+				"elapsedMs": 979.966344,
+				"durationMs": 10.828265
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 209974,
+				"exitCode": 0,
+				"elapsedMs": 1010.351373,
+				"durationMs": 4.187411
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"display-message",
+					"-p",
+					"-t",
+					"=agent-repo-main:",
+					"#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}"
+				],
+				"pid": 209982,
+				"exitCode": 0,
+				"elapsedMs": 1037.262664,
+				"durationMs": 2.815503
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"set-option",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane",
+					"%0"
+				],
+				"pid": 209988,
+				"exitCode": 0,
+				"elapsedMs": 1060.480668,
+				"durationMs": 2.738897
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"if-shell",
+					"-F",
+					"-t",
+					"%0",
+					"#{pane_pipe}",
+					"",
+					"'set-option' '-p' '-t' '%0' '@pappardelle_status_generation' '209972.0662445a-4f07-4d70-bc64-6b35ef988cb3' ; 'pipe-pane' '-Oo' '-t' '%0' ''\\''/workspace/pappardelle/dist/pappardelle'\\'' '\\''--internal-status-monitor'\\'' '\\''watch'\\'' '\\''repo'\\'' '\\''main'\\'' '\\''bench-inner'\\'' '\\''eyJpZCI6IiUwIiwicGlkIjoiMjA5OTcyIiwiZGVhZCI6ZmFsc2UsInBpcGVkIjpmYWxzZSwibWFya2VyIjoiMjA5OTcyLjA2NjI0NDVhLTRmMDctNGQ3MC1iYzY0LTZiMzVlZjk4OGNiMyIsImdlbmVyYXRpb24iOiI1YzQzNmVjZDBkNzFjZTg3ZGE4Y2NhNGYwZmY2YTkxYyJ9'\\'' '\\''<fixture>/home/.pappardelle/program-status/repo'\\'' '\\'''\\'''"
+				],
+				"pid": 209991,
+				"exitCode": 0,
+				"elapsedMs": 1083.922517,
+				"durationMs": 2.729905
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}"
+				],
+				"pid": 210000,
+				"exitCode": 0,
+				"elapsedMs": 1107.80801,
+				"durationMs": 2.624516
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"if-shell",
+					"-F",
+					"-t",
+					"=agent-repo-main:",
+					"#{==:#{@pappardelle_startup_gate},pappardelle-status-efdc4045-c8f7-48c8-b85d-55bc4ada65c9}",
+					"'wait-for' '-S' 'pappardelle-status-efdc4045-c8f7-48c8-b85d-55bc4ada65c9' ; 'set-option' '-u' '-t' '=agent-repo-main:' '@pappardelle_startup_gate'",
+					""
+				],
+				"pid": 210008,
+				"exitCode": 0,
+				"elapsedMs": 1132.077048,
+				"durationMs": 2.725699
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"wait-for",
+					"pappardelle-status-efdc4045-c8f7-48c8-b85d-55bc4ada65c9"
+				],
+				"pid": 209973,
+				"exitCode": 0,
+				"elapsedMs": 1004.464257,
+				"durationMs": 130.6013
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"has-session",
+					"-t",
+					"=companion-repo-main:"
+				],
+				"pid": 210012,
+				"exitCode": 1,
+				"elapsedMs": 1164.253816,
+				"durationMs": 2.541672
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 210018,
+				"exitCode": 0,
+				"elapsedMs": 1174.10376,
+				"durationMs": 3.143617
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"new-session",
+					"-d",
+					"-s",
+					"companion-repo-main",
+					"-c",
+					"<fixture>/repo",
+					"-e",
+					"PAPPARDELLE_MAIN_REPO_ROOT=<fixture>/repo",
+					"/bin/sh",
+					"-c",
+					"\"$1\" -ic \"$2$(printf \"\\n:\")\"; exec \"$1\" -l",
+					"sh",
+					"/bin/bash",
+					"/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3 <fixture>/ready.py companion <fixture>/companion.json"
+				],
+				"pid": 210024,
+				"exitCode": 0,
+				"elapsedMs": 1191.108387,
+				"durationMs": 3.688646
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}"
+				],
+				"pid": 210025,
+				"exitCode": 0,
+				"elapsedMs": 1200.571375,
+				"durationMs": 6.425431
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%1", "#{pane_tty}"],
+				"pid": 210033,
+				"exitCode": 0,
+				"elapsedMs": 1219.146032,
+				"durationMs": 3.03258
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%2", "#{pane_tty}"],
+				"pid": 210039,
+				"exitCode": 0,
+				"elapsedMs": 1242.903542,
+				"durationMs": 2.503794
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-clients", "-F", "#{client_tty}"],
+				"pid": 210045,
+				"exitCode": 0,
+				"elapsedMs": 1268.162108,
+				"durationMs": 3.038689
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"respawn-pane",
+					"-k",
+					"-t",
+					"%1",
+					"'tmux' '-L' 'bench-inner' 'attach' '-t' '=agent-repo-main:'; exec \"$SHELL\" -l"
+				],
+				"pid": 210049,
+				"exitCode": 0,
+				"elapsedMs": 1292.6997,
+				"durationMs": 2.903055
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%1", "#{pane_tty}"],
+				"pid": 210057,
+				"exitCode": 0,
+				"elapsedMs": 1319.046734,
+				"durationMs": 3.412981
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-clients", "-F", "#{client_tty}"],
+				"pid": 210065,
+				"exitCode": 0,
+				"elapsedMs": 1342.282699,
+				"durationMs": 3.169175
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"respawn-pane",
+					"-k",
+					"-t",
+					"%2",
+					"'tmux' '-L' 'bench-inner' 'attach' '-t' '=companion-repo-main:'; exec \"$SHELL\" -l"
+				],
+				"pid": 210070,
+				"exitCode": 0,
+				"elapsedMs": 1365.354738,
+				"durationMs": 2.916455
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%2", "#{pane_tty}"],
+				"pid": 210076,
+				"exitCode": 0,
+				"elapsedMs": 1391.786979,
+				"durationMs": 3.087432
+			},
+			{
+				"tool": "tmux",
+				"args": ["select-pane", "-t", "%0"],
+				"pid": 210084,
+				"exitCode": 0,
+				"elapsedMs": 1414.789824,
+				"durationMs": 4.352694
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{window_zoomed_flag}"],
+				"pid": 210089,
+				"exitCode": 0,
+				"elapsedMs": 1440.600721,
+				"durationMs": 2.575752
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{window_width} #{pane_width}"
+				],
+				"pid": 210093,
+				"exitCode": 0,
+				"elapsedMs": 1462.153556,
+				"durationMs": 2.874041
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{window_width} #{window_height}"
+				],
+				"pid": 210095,
+				"exitCode": 0,
+				"elapsedMs": 1484.566373,
+				"durationMs": 3.340428
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 210097,
+				"exitCode": 0,
+				"elapsedMs": 1507.327505,
+				"durationMs": 2.931948
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%2",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 210099,
+				"exitCode": 0,
+				"elapsedMs": 1529.824795,
+				"durationMs": 2.956895
+			},
+			{
+				"tool": "tmux",
+				"args": ["resize-pane", "-t", "%0", "-x", "23"],
+				"pid": 210101,
+				"exitCode": 0,
+				"elapsedMs": 1552.11641,
+				"durationMs": 2.725588
+			},
+			{
+				"tool": "tmux",
+				"args": ["resize-pane", "-t", "%2", "-x", "35"],
+				"pid": 210103,
+				"exitCode": 0,
+				"elapsedMs": 1573.751173,
+				"durationMs": 2.858428
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 210105,
+				"exitCode": 0,
+				"elapsedMs": 1595.888222,
+				"durationMs": 2.839549
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%2",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 210107,
+				"exitCode": 0,
+				"elapsedMs": 1617.769796,
+				"durationMs": 2.93989
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 210109,
+				"exitCode": 0,
+				"elapsedMs": 1640.167065,
+				"durationMs": 3.122054
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "#{version}"],
+				"pid": 210111,
+				"exitCode": 0,
+				"elapsedMs": 1663.91149,
+				"durationMs": 3.032139
+			}
+		]
+	}
+}
