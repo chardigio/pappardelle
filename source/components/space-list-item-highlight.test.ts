@@ -60,6 +60,32 @@ test('a selected row is one inverse bar from edge to edge, icons included', asyn
 	}
 });
 
+test('a selected main worktree row with no title is still one bar', async t => {
+	const view = await render(
+		React.createElement(
+			'box',
+			{flexDirection: 'column', width: WIDTH},
+			React.createElement(SpaceListItem, {
+				space: {name: 'main', worktreePath: null, isMainWorktree: true},
+				isSelected: true,
+				width: WIDTH,
+				layout: 'two_line',
+			}),
+		),
+		{width: WIDTH, height: 2},
+	);
+	const lines = view.captureSpans().lines.slice(0, 2);
+	await view.unmount();
+
+	for (const {spans} of lines) {
+		const covered = spans
+			// eslint-disable-next-line no-bitwise
+			.filter(span => (span.attributes & TextAttributes.INVERSE) !== 0)
+			.reduce((sum, span) => sum + span.width, 0);
+		t.is(covered, WIDTH);
+	}
+});
+
 test('a blinking row fills the whole width with its block color', async t => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		for (const spans of await rowSpans(true, layout)) {

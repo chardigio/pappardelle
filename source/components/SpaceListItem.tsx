@@ -357,7 +357,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 						{' '.repeat(twoLineIndent)}
 					</text>
 				</box>
-				{!inlineTitle && (
+				{!inlineTitle && truncatedTitle !== '' && (
 					<box flexDirection="row" flexShrink={1} minWidth={0}>
 						{renderTitle()}
 					</box>
