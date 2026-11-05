@@ -156,6 +156,18 @@ install_repo_atomically() {
     print_status "Built successfully and installed to $REPO_DIR"
 }
 
+# Prints the pappardelle clone that holds the install script at $1. Under
+# `curl | bash` there is no script file, and dirname "" is ".", which used to
+# make any pappardelle checkout in the current directory (such as the repo a
+# TUI's `U` update runs from) count as the install and get rebuilt in place.
+local_clone_dir() {
+    local script="$1" dir
+    [[ -n "$script" && -f "$script" ]] || return 1
+    dir="$(cd "$(dirname "$script")" && pwd)" || return 1
+    grep -q '"name".*"pappardelle"' "$dir/package.json" 2>/dev/null || return 1
+    printf '%s\n' "$dir"
+}
+
 # Tests source this file to call the functions above without running the
 # installer.
 if [[ "${PAPPARDELLE_INSTALL_SOURCE_ONLY:-}" == 1 ]]; then
@@ -163,15 +175,10 @@ if [[ "${PAPPARDELLE_INSTALL_SOURCE_ONLY:-}" == 1 ]]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# Determine if running from a local clone (the repo already)
-# When run via `curl | bash`, BASH_SOURCE[0] is empty so SCRIPT_DIR becomes ""
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
 LOCAL_MODE=false
-if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/package.json" ]] && \
-   grep -q '"name".*"pappardelle"' "$SCRIPT_DIR/package.json" 2>/dev/null; then
-    # We're running from within the pappardelle repo
+if LOCAL_CLONE="$(local_clone_dir "${BASH_SOURCE[0]:-}")"; then
     LOCAL_MODE=true
-    REPO_DIR="$SCRIPT_DIR"
+    REPO_DIR="$LOCAL_CLONE"
 fi
 
 echo ""
