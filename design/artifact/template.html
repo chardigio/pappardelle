@@ -1,0 +1,1920 @@
+<title>Pappardelle TUI Directions</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+	rel="stylesheet"
+	href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;700&display=swap"
+/>
+<style>
+	/* Layout: a single reading column with full-bleed "terminal wells"; a sticky
+   toolbar sets the terminal theme every frame on the page is drawn in. */
+	:root {
+		--bg: #f3f4f1;
+		--surface: #ffffff;
+		--fg: #1c2125;
+		--muted: #5a646b;
+		--line: #d6dad5;
+		--accent: #0b6e69;
+		--accent-soft: #d9ece8;
+		--well: #e4e7e2;
+		--warn: #9a5b00;
+		--display: 'Bricolage Grotesque', 'Avenir Next', 'Segoe UI', sans-serif;
+		--body: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+		--mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme='light']) {
+			--bg: #101315;
+			--surface: #171b1e;
+			--fg: #e5e8e6;
+			--muted: #98a2a7;
+			--line: #283035;
+			--accent: #5fd7c8;
+			--accent-soft: #123130;
+			--well: #0b0d0f;
+			--warn: #e5b45c;
+			color-scheme: dark;
+		}
+	}
+	:root[data-theme='dark'] {
+		--bg: #101315;
+		--surface: #171b1e;
+		--fg: #e5e8e6;
+		--muted: #98a2a7;
+		--line: #283035;
+		--accent: #5fd7c8;
+		--accent-soft: #123130;
+		--well: #0b0d0f;
+		--warn: #e5b45c;
+		color-scheme: dark;
+	}
+	html {
+		scroll-padding-top: calc(var(--toolbar-height, 56px) + 12px);
+	}
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--fg);
+		font: 15px/1.6 var(--body);
+	}
+	main {
+		container-type: inline-size;
+		padding-left: max(16px, env(safe-area-inset-left, 0px));
+		padding-right: max(16px, env(safe-area-inset-right, 0px));
+		padding-block: 0 96px;
+	}
+	.column {
+		max-width: 1120px;
+		margin: 0 auto;
+		display: grid;
+		gap: 28px;
+	}
+	.prose {
+		max-width: 68ch;
+	}
+	h1,
+	h2,
+	h3 {
+		font-family: var(--display);
+		font-weight: 700;
+		text-wrap: balance;
+		line-height: 1.15;
+		margin: 0;
+	}
+	h1 {
+		font-size: clamp(2rem, 5vw, 3.2rem);
+		letter-spacing: -0.02em;
+	}
+	h2 {
+		font-size: clamp(1.5rem, 3vw, 2.1rem);
+		letter-spacing: -0.01em;
+	}
+	h3 {
+		font-size: 1.15rem;
+	}
+	p {
+		margin: 0;
+	}
+	.eyebrow {
+		font: 600 0.75rem/1 var(--mono);
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--accent);
+	}
+	.lede {
+		font-size: 1.1rem;
+		color: var(--muted);
+	}
+	code,
+	kbd {
+		font-family: var(--mono);
+		font-size: 0.88em;
+		font-variant-ligatures: none;
+	}
+	code {
+		background: var(--accent-soft);
+		padding: 0.05em 0.35em;
+		border-radius: 4px;
+	}
+	a {
+		color: var(--accent);
+	}
+	header.intro {
+		padding-block: 56px 8px;
+		display: grid;
+		gap: 16px;
+	}
+
+	/* The toolbar bleeds to both edges of main: 100cqi is main's content width,
+	   100% the column's. */
+	.toolbar {
+		--bleed-left: calc(
+			(100cqi - 100%) / 2 + max(16px, env(safe-area-inset-left, 0px))
+		);
+		--bleed-right: calc(
+			(100cqi - 100%) / 2 + max(16px, env(safe-area-inset-right, 0px))
+		);
+		position: sticky;
+		top: env(safe-area-inset-top, 0px);
+		z-index: 20;
+		background: color-mix(in srgb, var(--bg) 92%, transparent);
+		backdrop-filter: blur(8px);
+		border-bottom: 1px solid var(--line);
+		margin-inline: calc(-1 * var(--bleed-left)) calc(-1 * var(--bleed-right));
+		padding: 10px var(--bleed-right) 10px var(--bleed-left);
+	}
+	.toolbar + .part {
+		border-top: 0;
+		padding-top: 12px;
+	}
+	body::before {
+		content: '';
+		position: fixed;
+		inset: 0 0 auto;
+		height: env(safe-area-inset-top, 0px);
+		z-index: 10;
+		background: var(--bg);
+	}
+	.toolbar .inner {
+		max-width: 1120px;
+		margin: 0 auto;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px 22px;
+		align-items: center;
+	}
+	.control {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+	.control > span {
+		font: 600 0.72rem/1 var(--mono);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--muted);
+	}
+	.control button {
+		font: 500 0.82rem/1 var(--body);
+		color: var(--fg);
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: 999px;
+		padding: 6px 11px;
+		cursor: pointer;
+	}
+	.control button[aria-pressed='true'] {
+		background: var(--fg);
+		color: var(--bg);
+		border-color: var(--fg);
+	}
+	/* data-more is set by the player while buttons sit past that edge. */
+	.toolbar .inner[data-more='end'] {
+		mask-image: linear-gradient(to left, transparent, #000 48px);
+	}
+	.toolbar .inner[data-more='start'] {
+		mask-image: linear-gradient(to right, transparent, #000 48px);
+	}
+	.toolbar .inner[data-more='start end'] {
+		mask-image: linear-gradient(
+			to right,
+			transparent,
+			#000 48px,
+			#000 calc(100% - 48px),
+			transparent
+		);
+	}
+	@media (max-width: 640px) {
+		.toolbar {
+			min-width: 0;
+		}
+		/* The padding keeps focus rings inside the scroll box, which clips. */
+		.toolbar .inner {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			scrollbar-width: none;
+			padding: 5px;
+			margin: -5px;
+		}
+		.control {
+			flex-wrap: nowrap;
+			flex: none;
+		}
+		.control button {
+			white-space: nowrap;
+		}
+	}
+	:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	section.part {
+		display: grid;
+		gap: 20px;
+		padding-top: 40px;
+		border-top: 1px solid var(--line);
+	}
+	.well {
+		background: var(--well);
+		border-radius: 10px;
+		padding: 18px;
+		overflow-x: auto;
+		display: flex;
+		gap: 18px;
+		align-items: flex-start;
+		flex-wrap: wrap;
+		container-type: inline-size;
+	}
+	.well.nowrap {
+		flex-wrap: nowrap;
+	}
+	figure {
+		margin: 0;
+		display: grid;
+		gap: 8px;
+		min-width: 0;
+		width: max-content;
+		max-width: 100%;
+	}
+	/* As wide as the frame, but no wider than the well's visible width when
+	   the frame scrolls. */
+	figcaption {
+		font-size: 0.82rem;
+		color: var(--muted);
+		width: 0;
+		min-width: min(100%, 100cqi);
+	}
+	figcaption b {
+		color: var(--fg);
+		font-weight: 600;
+	}
+	.frame {
+		border-radius: 6px;
+		box-shadow: 0 1px 0 rgb(0 0 0 / 0.15);
+	}
+
+	.findings {
+		counter-reset: finding;
+		display: grid;
+		gap: 10px;
+		padding: 0;
+		margin: 0;
+		list-style: none;
+	}
+	.findings li {
+		counter-increment: finding;
+		display: grid;
+		grid-template-columns: 2.2em 1fr;
+		gap: 4px 10px;
+		max-width: 76ch;
+	}
+	.findings li::before {
+		content: counter(finding);
+		font: 700 0.85rem/1.8 var(--mono);
+		color: var(--muted);
+		text-align: right;
+	}
+	.tag {
+		display: inline-block;
+		font: 700 0.68rem/1 var(--mono);
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		padding: 3px 6px;
+		border-radius: 4px;
+		vertical-align: 1px;
+		margin-right: 6px;
+		white-space: nowrap;
+	}
+	.tag.bug {
+		background: color-mix(in srgb, #c62828 18%, transparent);
+		color: #a51d1d;
+	}
+	:root[data-theme='dark'] .tag.bug {
+		color: #ff8a8a;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme='light']) .tag.bug {
+			color: #ff8a8a;
+		}
+	}
+	.tag.data {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.player {
+		display: grid;
+		gap: 8px;
+		min-width: 0;
+	}
+	.player .controls {
+		display: flex;
+		gap: 10px;
+		align-items: center;
+	}
+	.player button.play {
+		font: 600 0.78rem/1 var(--body);
+		background: var(--fg);
+		color: var(--bg);
+		border: 0;
+		border-radius: 6px;
+		padding: 6px 10px;
+		min-width: 4.5em;
+		cursor: pointer;
+	}
+	.player input[type='range'] {
+		flex: 1;
+		min-width: 80px;
+		accent-color: var(--accent);
+	}
+	.player .clock {
+		font: 0.75rem/1 var(--mono);
+		color: var(--muted);
+		white-space: pre;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.primer {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
+		gap: 18px;
+	}
+	.demo {
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: 10px;
+		padding: 16px;
+		display: grid;
+		gap: 10px;
+		align-content: start;
+		min-width: 0;
+	}
+	.demo .screen {
+		overflow-x: auto;
+	}
+	.demo p {
+		font-size: 0.88rem;
+		color: var(--muted);
+	}
+
+	table {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: 0.88rem;
+	}
+	.table-wrap {
+		overflow-x: auto;
+	}
+	th,
+	td {
+		text-align: left;
+		padding: 8px 10px;
+		border-bottom: 1px solid var(--line);
+		vertical-align: top;
+	}
+	th {
+		font: 600 0.72rem/1.3 var(--mono);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--muted);
+	}
+	td.num {
+		font-variant-numeric: tabular-nums;
+		font-family: var(--mono);
+		white-space: nowrap;
+	}
+	.yes {
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.no {
+		color: var(--muted);
+	}
+
+	.direction-head {
+		display: grid;
+		gap: 10px;
+	}
+	.principles {
+		margin: 0;
+		padding-left: 1.2em;
+		display: grid;
+		gap: 6px;
+		max-width: 72ch;
+	}
+	.scenes {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+		gap: 18px;
+	}
+	.scenes .player {
+		width: auto;
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: 10px;
+		padding: 14px;
+	}
+	.scenes .screen {
+		overflow-x: auto;
+	}
+	pre.conf {
+		font: 0.8rem/1.55 var(--mono);
+		font-variant-ligatures: none;
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: 8px;
+		padding: 14px;
+		overflow-x: auto;
+		margin: 0;
+	}
+	.copyrow {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	.copyrow button {
+		font: 600 0.78rem/1 var(--body);
+		background: transparent;
+		color: var(--accent);
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		padding: 6px 10px;
+		cursor: pointer;
+	}
+	.callout {
+		background: var(--accent-soft);
+		border-radius: 10px;
+		padding: 16px 18px;
+		display: grid;
+		gap: 8px;
+		max-width: 80ch;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		* {
+			scroll-behavior: auto !important;
+		}
+	}
+</style>
+
+<main>
+	<div class="column">
+		<header class="intro">
+			<span class="eyebrow"
+				>STE-59 · design exploration on PR !58 (OpenTUI)</span
+			>
+			<h1>Pappardelle TUI directions</h1>
+			<p class="lede prose">
+				Four ways the rail, its dialogs and the tmux window around them could
+				look on OpenTUI, plus what the terminal allows for motion. Every
+				terminal picture on this page is a real OpenTUI frame, rendered from the
+				same fixture fleet. The preview tool in
+				<code>design/</code> runs each one live in your terminal.
+			</p>
+		</header>
+
+		<nav class="toolbar" aria-label="Frame settings">
+			<div class="inner">
+				<div
+					class="control"
+					data-control="theme"
+					role="group"
+					aria-label="Terminal theme"
+				>
+					<span>Terminal</span>
+					<button type="button" value="dark">Dark</button>
+					<button type="button" value="light">Light</button>
+					<button type="button" value="solarized">Solarized</button>
+					<button type="button" value="ghostty">Ghostty</button>
+				</div>
+				<div
+					class="control"
+					data-control="tier"
+					role="group"
+					aria-label="Color tier"
+				>
+					<span>Colors</span>
+					<button type="button" value="ansi">16 colors</button>
+					<button type="button" value="truecolor">Truecolor</button>
+				</div>
+				<div
+					class="control"
+					data-control="width"
+					role="group"
+					aria-label="Rail width"
+				>
+					<span>Rail</span>
+					<button type="button" value="15">15</button>
+					<button type="button" value="28">28</button>
+					<button type="button" value="40">40</button>
+				</div>
+				<div
+					class="control"
+					data-control="layout"
+					role="group"
+					aria-label="Row layout"
+				>
+					<span>Rows</span>
+					<button type="button" value="single_line">One line</button>
+					<button type="button" value="two_line">Two lines</button>
+				</div>
+			</div>
+		</nav>
+
+		<section class="part" id="today">
+			<div class="prose" style="display: grid; gap: 12px">
+				<span class="eyebrow">Where it stands</span>
+				<h2>The rail today</h2>
+				<p>
+					These are <code>tmux capture-pane</code> captures of PR !58 running
+					against a fixture repo in an isolated tmux server, re-themed by the
+					toolbar. The app only emits the 16-color tier today, so the Colors
+					toggle doesn't change them.
+				</p>
+			</div>
+			<div class="well">
+				<figure class="player" data-sequence="capture/blink" data-autoplay>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub 160 columns, two-line rows"
+						/><span class="clock"></span>
+					</div>
+					<figcaption>
+						<b>160 columns, two-line rows.</b> Blocked rows blink every 500 ms,
+						and the text vanishes in the "on" phase.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="capture/rail-120-single"></div>
+					<figcaption>
+						<b>120 columns, one-line rows.</b> The rail is 28 cells; titles get
+						about 14.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="capture/rail-100"></div>
+					<figcaption>
+						<b>100 columns.</b> 23 cells, selection on the second row.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="capture/prompt-profile"></div>
+					<figcaption>
+						<b>New space, profile step.</b> Three stacked frames: the prompt,
+						ready work and the profile picker.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="current/rail/34/{layout}"></div>
+					<figcaption>
+						<b>Same components, design fixtures.</b> The real
+						<code>SpaceListItem</code> fed the fleet every direction below uses.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="current/confirm-neutral"></div>
+					<figcaption>
+						<b>Update confirm.</b> Same red frame as closing a space.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="current/help"></div>
+					<figcaption><b>Help popup.</b></figcaption>
+				</figure>
+			</div>
+
+			<h3>Run-through findings</h3>
+			<ol class="findings">
+				<li>
+					<span
+						><span class="tag bug">PR !58 bug</span>In the blink's "on" phase
+						OpenTUI emits the row as <code>inverse</code> with the same palette
+						slot for foreground and background (<code>7;38;5;4;48;5;4</code>),
+						so blocked rows become a solid bar with no text half the time. This
+						affects any colored inverse span, not just the rail.</span
+					>
+				</li>
+				<li>
+					<span
+						><span class="tag bug">PR !58 bug</span>Emoji with a variation
+						selector (🛠️, ❤️) measure two cells in <code>string-width</code> and
+						one in OpenTUI's layout, so a row with one as its profile emoji
+						overflows by a cell. This is the
+						<code>emoji-row-width ❤️</code> test that fails on macOS.</span
+					>
+				</li>
+				<li>
+					<span
+						>The agent's state is what you act on, and it is a single glyph. The
+						issue key next to it is colored by the tracker's workflow state, so
+						each row carries two unrelated color systems and the louder one is
+						the less urgent.</span
+					>
+				</li>
+				<li>
+					<span
+						>Selection inverts only the key and title, so its block is as wide
+						as the text. Selected rows get a ragged edge and leave the emoji,
+						status and PR icons outside the highlight.</span
+					>
+				</li>
+				<li>
+					<span
+						>Agents already report progress, a message and a title over OSC
+						7501, and Claude's hooks report the running tool. The rail shows
+						none of it.</span
+					>
+				</li>
+				<li>
+					<span
+						>At 23 to 28 columns a one-line title gets 8 to 14 cells, and the
+						team prefix repeats on every row.</span
+					>
+				</li>
+				<li>
+					<span
+						>The second header row is reserved for short yellow status messages
+						and is empty most of the time.</span
+					>
+				</li>
+				<li>
+					<span
+						>Every confirmation uses the red double border, including updating
+						Pappardelle and rewriting config.</span
+					>
+				</li>
+				<li>
+					<span
+						>Pending rows color the key with ANSI white, which most light themes
+						render as light grey. On Solarized Dark, ANSI gray (slot 8) is the
+						background color itself, so anything styled gray disappears.</span
+					>
+				</li>
+				<li>
+					<span
+						>The new-space instructions say <code>STA-123</code> whatever the
+						repo's prefix is.</span
+					>
+				</li>
+				<li><span>The help legend lists "working" without its glyph.</span></li>
+				<li>
+					<span
+						>The tmux chrome is generic: <code>colour238</code> borders, a cyan
+						active border, pane titles set but never shown, and a bare
+						<code>No session for tra-l38</code> in the agent pane.</span
+					>
+				</li>
+			</ol>
+		</section>
+
+		<section class="part" id="motion">
+			<div class="prose" style="display: grid; gap: 12px">
+				<span class="eyebrow">Are animations a thing in TUIs?</span>
+				<h2>Yes, within a cell grid</h2>
+				<p>
+					A terminal draws whole character cells, so motion comes from swapping
+					glyphs, stepping through block characters and, with truecolor, easing
+					colors. OpenTUI 0.8.2 provides a shared animation clock
+					(<code>useAnimationTick</code>), a timeline with 16 easings, and
+					<code>opacity</code> and translate on any box. Since 0.8.0 it repaints
+					only rows that changed, and when nothing animates it renders nothing,
+					so an idle rail costs no frames.
+				</p>
+				<p>
+					Two limits shape every direction below. In 16 colors there is no fade,
+					only normal, bold and dim, so motion has to come from glyphs. And
+					inside tmux, OpenTUI only uses truecolor when
+					<code>COLORTERM=truecolor</code> reaches it; otherwise colors are
+					rounded to the 256-color palette.
+				</p>
+			</div>
+			<div class="primer">
+				<!-- primer:start -->
+				<div
+					class="demo player"
+					data-sequence="primer/glyphs/{variant}"
+					data-autoplay
+				>
+					<h3>Glyph cycling</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Glyph cycling"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						Swap one character on a timer. This is the cheapest motion, since
+						one cell repaints per tick and every spinner on screen can share one
+						clock.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/subcell/{variant}"
+					data-autoplay
+				>
+					<h3>Sub-cell progress</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Sub-cell progress"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						Eighth blocks give a bar eight steps per cell, so a 24-cell bar
+						moves in 192 steps instead of 24. It's plain text and works in 16
+						colors.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/glide/{variant}"
+					data-autoplay
+				>
+					<h3>Half-row glide</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Half-row glide"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						A cell holds two half-blocks (▀ ▄). A marker drawn from them can sit
+						between rows mid-move, which halves each jump. Left: whole-row
+						jumps.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/fade/{variant}"
+					data-autoplay
+				>
+					<h3>Color fade</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Color fade"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						Truecolor can ease a color every frame. 16 colors can only step
+						between normal and dim, so a design has to read without the fade.
+						Switch Colors to compare.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/shimmer/{variant}"
+					data-autoplay
+				>
+					<h3>Shimmer</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Shimmer"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						A band of brighter cells sweeps across text when something new
+						arrives. Truecolor brightens the band; 16 colors bolds it.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/slide/{variant}"
+					data-autoplay
+				>
+					<h3>Slide in</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Slide in"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						Text can't move less than a cell, but easing out over 300 ms makes
+						the cell steps read as one movement. Linear motion looks mechanical
+						next to it.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/scrim/{variant}"
+					data-autoplay
+				>
+					<h3>Scrim</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Scrim"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						A scrim dims what sits behind a dialog. OpenTUI blends cells by
+						opacity in truecolor; in 16 colors it uses the dim attribute.
+					</p>
+				</div>
+				<div
+					class="demo player"
+					data-sequence="primer/typewriter/{variant}"
+					data-autoplay
+				>
+					<h3>Typewriter</h3>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Typewriter"
+						/><span class="clock"></span>
+					</div>
+					<p>
+						Reveals text a few characters per frame. It suits something
+						arriving, like a ticket printing, and gets tiring on anything you
+						read often.
+					</p>
+				</div>
+				<!-- primer:end -->
+			</div>
+		</section>
+
+		<section class="part" id="osc">
+			<div class="prose" style="display: grid; gap: 12px">
+				<span class="eyebrow">What agents already report</span>
+				<h2>OSC 7501 and the hooks carry more than the rail shows</h2>
+				<p>
+					Programs in an agent pane can report their state with an OSC 7501
+					sequence; Claude Code reports through hooks. Each direction puts the
+					extra fields somewhere different.
+				</p>
+			</div>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Field</th>
+							<th>Source</th>
+							<th>Rail today</th>
+							<th>Quiet craft</th>
+							<th>Kitchen pass</th>
+							<th>Living rail</th>
+							<th>Mission control</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td><code>state</code>, <code>kind</code></td>
+							<td>OSC, hooks</td>
+							<td class="yes">glyph, blink</td>
+							<td>glyph family; needs-you count in header</td>
+							<td>groups tickets by station</td>
+							<td>glyph, ring pulse, row wash</td>
+							<td>lamp color, state code, master caution</td>
+						</tr>
+						<tr>
+							<td><code>msg</code></td>
+							<td>OSC</td>
+							<td class="no">not shown</td>
+							<td>detail line under the row</td>
+							<td>ticket note, in quotes</td>
+							<td>
+								detail line; header ticker for the newest message; shimmer when
+								it changes
+							</td>
+							<td>MSG gauge under the row</td>
+						</tr>
+						<tr>
+							<td><code>progress</code> 0–100</td>
+							<td>OSC</td>
+							<td class="no">not shown</td>
+							<td>5-cell meter on the detail line</td>
+							<td>courses served ●●○○○</td>
+							<td>fills the row: tint in truecolor, underline in 16 colors</td>
+							<td>percentage readout; PROG gauge bar</td>
+						</tr>
+						<tr>
+							<td><code>tool</code></td>
+							<td>hooks</td>
+							<td class="no">not shown</td>
+							<td>"Running Bash" when there is no message</td>
+							<td>ticket note</td>
+							<td>detail line</td>
+							<td>readout (BASH); MSG gauge</td>
+						</tr>
+						<tr>
+							<td><code>title</code>, <code>app</code></td>
+							<td>OSC</td>
+							<td class="no">not shown</td>
+							<td colspan="4">
+								Not used yet; <code>app</code> could label which agent (claude,
+								codex) is on a row
+							</td>
+						</tr>
+						<tr>
+							<td>time in state</td>
+							<td><span class="tag data">new data</span></td>
+							<td class="no">—</td>
+							<td>age on the detail line</td>
+							<td>shown on every ticket</td>
+							<td>—</td>
+							<td>T+ on the MSG gauge</td>
+						</tr>
+						<tr>
+							<td>fleet activity</td>
+							<td><span class="tag data">new data</span></td>
+							<td class="no">—</td>
+							<td>—</td>
+							<td>—</td>
+							<td>sparkline in the header</td>
+							<td>per-row activity trace</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<p class="prose" style="color: var(--muted)">
+				Hooks write <code>lastUpdate</code>, which is the last event, not when
+				the current state began, so "time in state" needs a
+				<code>stateSince</code> field. The sparkline needs the rail to keep a
+				few minutes of samples.
+			</p>
+		</section>
+
+		<!-- direction:quiet-craft -->
+		<section class="part" id="quiet-craft">
+			<div class="direction-head">
+				<span class="eyebrow">Direction 1</span>
+				<h2>Quiet craft</h2>
+				<p class="lede prose">
+					Hierarchy comes from weight and spacing, and color is reserved for
+					agent state. The rail is calm at rest and moves only when something
+					changes.
+				</p>
+				<ul class="principles">
+					<li>
+						Status glyphs are one geometric family: ◴ working, ○ idle, ● done, ◆
+						needs you, ✕ error, ◌ compacting.
+					</li>
+					<li>
+						Keys are plain text. The selected row's tracker state moves into the
+						rule under the header, so a row never carries two palettes.
+					</li>
+					<li>
+						Selection is a full-height bar <code>▌</code>; in truecolor the
+						whole row gets a faint tint.
+					</li>
+					<li>
+						When an agent starts needing you, its row pulses three times and
+						then holds a steady accent. The header keeps the count.
+					</li>
+					<li>
+						Borders are drawn with the dim attribute, which recedes on every
+						theme. ANSI gray would vanish on Solarized Dark.
+					</li>
+				</ul>
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="quiet-craft/rail/{width}/{layout}/{variant}"></div>
+					<figcaption>
+						<b>Rail.</b> Every row an agent is reporting on has a detail line
+						with its message or tool, then a progress meter or how long it has
+						been in that state. The rule under the header names the selected
+						row's tracker state.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="quiet-craft/confirm/{variant}"></div>
+					<figcaption><b>Close space.</b> Red only on the action.</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="quiet-craft/confirm-neutral/{variant}"></div>
+					<figcaption><b>Update.</b> Not destructive, so not red.</figcaption>
+				</figure>
+			</div>
+			<div class="scenes">
+				<!-- scenes:quiet-craft -->
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="quiet-craft/prompt/{variant}"></div>
+					<figcaption>
+						<b>New space.</b> One framed input; ready work and profiles as plain
+						sections; profiles as chips.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="quiet-craft/help/{variant}"></div>
+					<figcaption>
+						<b>Help.</b> Keys right-aligned, legend with the real glyphs.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="quiet-craft/errors/{variant}"></div>
+					<figcaption><b>Errors.</b></figcaption>
+				</figure>
+			</div>
+			<div class="well nowrap">
+				<figure>
+					<div data-frame="quiet-craft/chrome/{variant}"></div>
+					<figcaption>
+						<b>The tmux window.</b> Dim borders, pane titles on, a status line
+						with the fleet summary, and an agent pane that says what to do.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="copyrow">
+				<h3>tmux options</h3>
+				<button type="button" data-copy="conf-quiet">Copy</button>
+			</div>
+			<pre class="conf" id="conf-quiet">{{tmux:quiet-craft}}</pre>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Trigger</th>
+							<th>Motion</th>
+							<th>Timing</th>
+							<th>Frame rate</th>
+							<th>CPU, 16 colors</th>
+							<th>CPU, truecolor</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>Fleet at rest with agents working</td>
+							<td>◴◷◶◵ spinner on working rows</td>
+							<td>125 ms per glyph</td>
+							<td class="num">8 fps</td>
+							<td class="num">{{cpu:quiet-craft/ansi:still}}</td>
+							<td class="num">{{cpu:quiet-craft/truecolor:still}}</td>
+						</tr>
+						<tr>
+							<td>Agent starts needing you</td>
+							<td>
+								Three pulses: glyph and key as an accent chip (16 colors) or an
+								eased accent wash (truecolor), then a steady tint
+							</td>
+							<td>3 × 600 ms</td>
+							<td class="num">30 fps while pulsing</td>
+							<td class="num">{{cpu:quiet-craft/ansi:attention}}</td>
+							<td class="num">{{cpu:quiet-craft/truecolor:attention}}</td>
+						</tr>
+						<tr>
+							<td>Progress and messages</td>
+							<td>Detail line and meter update in place</td>
+							<td>on change</td>
+							<td class="num">—</td>
+							<td class="num">{{cpu:quiet-craft/ansi:progress}}</td>
+							<td class="num">{{cpu:quiet-craft/truecolor:progress}}</td>
+						</tr>
+						<tr>
+							<td>Row opened or closed</td>
+							<td>Closed rows fade, then leave; new rows appear in place</td>
+							<td>500 ms</td>
+							<td class="num">30 fps</td>
+							<td class="num">{{cpu:quiet-craft/ansi:lifecycle}}</td>
+							<td class="num">{{cpu:quiet-craft/truecolor:lifecycle}}</td>
+						</tr>
+						<tr>
+							<td>Selection moves</td>
+							<td>None, the bar jumps</td>
+							<td>—</td>
+							<td class="num">—</td>
+							<td class="num">{{cpu:quiet-craft/ansi:selection}}</td>
+							<td class="num">{{cpu:quiet-craft/truecolor:selection}}</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<!-- direction:kitchen-pass -->
+		<section class="part" id="kitchen-pass">
+			<div class="direction-head">
+				<span class="eyebrow">Direction 2</span>
+				<h2>Kitchen pass</h2>
+				<p class="lede prose">
+					The rail is the pass in a restaurant kitchen. Workspaces are tickets,
+					grouped by station, and the agents are line cooks. It builds on the
+					name and on <code>sous-chef</code>, which already exists.
+				</p>
+				<ul class="principles">
+					<li>
+						Tickets group by what they need from you: calling, firing, on the
+						pass, 86, cold. This reorders the rail, so it is a behavior change
+						to try before adopting.
+					</li>
+					<li>
+						Ticket numbers drop the repeated team prefix:
+						<code>PAP-412</code> reads <code>#412</code>, which gives the title
+						four more cells.
+					</li>
+					<li>
+						Kitchen words are short and always paired with their plain meaning
+						in help: FIRE working, HOLD idle, CHEF? question, SIGN permission,
+						PLATED done, BURNT error, REDUCE compacting.
+					</li>
+					<li>
+						Every ticket shows how long it has been in its state. That needs the
+						new <code>stateSince</code> field.
+					</li>
+					<li>
+						Dialogs are tickets with a perforated bottom edge. Closing a space
+						voids a ticket.
+					</li>
+				</ul>
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="kitchen-pass/rail/{width}/{layout}/{variant}"></div>
+					<figcaption>
+						<b>Rail.</b> Every ticket an agent is reporting on carries its
+						message as a note.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="kitchen-pass/confirm/{variant}"></div>
+					<figcaption><b>Void ticket.</b></figcaption>
+				</figure>
+				<figure>
+					<div data-frame="kitchen-pass/confirm-neutral/{variant}"></div>
+					<figcaption><b>Update.</b></figcaption>
+				</figure>
+			</div>
+			<div class="scenes">
+				<!-- scenes:kitchen-pass -->
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="kitchen-pass/prompt/{variant}"></div>
+					<figcaption>
+						<b>New ticket.</b> Order, station (profile) and the prep list (ready
+						work).
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="kitchen-pass/help/{variant}"></div>
+					<figcaption>
+						<b>The menu.</b> Shortcuts set like a menu, then what each ticket
+						word means.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="kitchen-pass/errors/{variant}"></div>
+					<figcaption><b>The 86 list.</b></figcaption>
+				</figure>
+			</div>
+			<div class="well nowrap">
+				<figure>
+					<div data-frame="kitchen-pass/chrome/{variant}"></div>
+					<figcaption>
+						<b>The tmux window.</b> Double borders, stations as pane titles, and
+						a status line that calls out tickets waiting on you.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="copyrow">
+				<h3>tmux options</h3>
+				<button type="button" data-copy="conf-kitchen">Copy</button>
+			</div>
+			<pre class="conf" id="conf-kitchen">{{tmux:kitchen-pass}}</pre>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Trigger</th>
+							<th>Motion</th>
+							<th>Timing</th>
+							<th>Frame rate</th>
+							<th>CPU, 16 colors</th>
+							<th>CPU, truecolor</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>Agents firing</td>
+							<td>
+								Heat glyph ≋≈∼≈; in truecolor it also flickers between two
+								ambers
+							</td>
+							<td>140 ms per glyph</td>
+							<td class="num">
+								7 fps (11 while a ticket prints), 15 in truecolor
+							</td>
+							<td class="num">{{cpu:kitchen-pass/ansi:still}}</td>
+							<td class="num">{{cpu:kitchen-pass/truecolor:still}}</td>
+						</tr>
+						<tr>
+							<td>Agent starts calling</td>
+							<td>
+								The ticket slides up to the calling station a block at a time,
+								then nudges one cell three times, like a bell, and holds
+							</td>
+							<td>250 ms slide; 360 ms bell</td>
+							<td class="num">30 fps</td>
+							<td class="num">{{cpu:kitchen-pass/ansi:attention}}</td>
+							<td class="num">{{cpu:kitchen-pass/truecolor:attention}}</td>
+						</tr>
+						<tr>
+							<td>Agent finishes</td>
+							<td>Slides down to the pass; PLATED stamp over the title</td>
+							<td>250 ms; 1.3 s</td>
+							<td class="num">30 fps</td>
+							<td class="num">{{cpu:kitchen-pass/ansi:progress}}</td>
+							<td class="num">{{cpu:kitchen-pass/truecolor:progress}}</td>
+						</tr>
+						<tr>
+							<td>Ticket opened or closed</td>
+							<td>
+								Title types in; closing tears the ticket off (✂ ┄┄┄ shrinking)
+							</td>
+							<td>22 ms per char; 450 ms</td>
+							<td class="num">30 fps</td>
+							<td class="num">{{cpu:kitchen-pass/ansi:lifecycle}}</td>
+							<td class="num">{{cpu:kitchen-pass/truecolor:lifecycle}}</td>
+						</tr>
+						<tr>
+							<td>Selection moves</td>
+							<td>None</td>
+							<td>—</td>
+							<td class="num">—</td>
+							<td class="num">{{cpu:kitchen-pass/ansi:selection}}</td>
+							<td class="num">{{cpu:kitchen-pass/truecolor:selection}}</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<!-- direction:living-rail -->
+		<section class="part" id="living-rail">
+			<div class="direction-head">
+				<span class="eyebrow">Direction 3</span>
+				<h2>Living rail</h2>
+				<p class="lede prose">
+					Motion shows what agents are doing. Rows with a live agent move, new
+					output shimmers, progress fills its row and the selection glides.
+					Every animation is tied to an event or a live agent.
+				</p>
+				<ul class="principles">
+					<li>
+						The second header row becomes a ticker showing the newest thing any
+						agent said, so a message from a row scrolled out of view still
+						reaches you.
+					</li>
+					<li>
+						OSC progress fills the row from the left: a tint in truecolor, an
+						underline in 16 colors.
+					</li>
+					<li>
+						Needs-you rows pulse continuously, eased in truecolor and as a ring
+						◎◉ in 16 colors. Nothing blinks on and off.
+					</li>
+					<li>
+						The selection pill moves at half-row resolution, so a move reads as
+						one motion.
+					</li>
+					<li>
+						Dialogs grow open in 150 ms. Confirming shows a progress sweep while
+						close hooks run, instead of a frozen dialog.
+					</li>
+				</ul>
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="living-rail/rail/{width}/{layout}/{variant}"></div>
+					<figcaption>
+						<b>Rail at rest.</b> Working rows still spin, and truecolor keys
+						breathe.
+					</figcaption>
+				</figure>
+				<figure
+					class="player"
+					data-sequence="living-rail/confirm-motion/{variant}"
+					data-autoplay
+				>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Close space"
+						/><span class="clock"></span>
+					</div>
+					<figcaption>
+						<b>Close space.</b> Opens, then y is pressed at 1.2 s.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="living-rail/confirm-neutral/{variant}"></div>
+					<figcaption>
+						<b>Update.</b> The live accent instead of red.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="scenes">
+				<!-- scenes:living-rail -->
+			</div>
+			<div class="well">
+				<figure
+					class="player"
+					data-sequence="living-rail/prompt-motion/{variant}"
+				>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub New space"
+						/><span class="clock"></span>
+					</div>
+					<figcaption>
+						<b>New space.</b> Grows open; the cursor blinks.
+					</figcaption>
+				</figure>
+				<figure
+					class="player"
+					data-sequence="living-rail/help-motion/{variant}"
+				>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Help"
+						/><span class="clock"></span>
+					</div>
+					<figcaption>
+						<b>Help.</b> Rows cascade in; the legend glyphs move the way they do
+						in the rail.
+					</figcaption>
+				</figure>
+				<figure
+					class="player"
+					data-sequence="living-rail/errors-motion/{variant}"
+				>
+					<div class="screen"></div>
+					<div class="controls">
+						<button type="button" class="play">Play</button
+						><input
+							type="range"
+							min="0"
+							value="0"
+							aria-label="Scrub Errors"
+						/><span class="clock"></span>
+					</div>
+					<figcaption><b>Errors.</b> The newest entry glows once.</figcaption>
+				</figure>
+			</div>
+			<div class="well nowrap">
+				<figure>
+					<div data-frame="living-rail/chrome/{variant}"></div>
+					<figcaption>
+						<b>The tmux window.</b> Focus is on an agent asking a question; its
+						pane border and title take the needs-you color.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="copyrow">
+				<h3>tmux options</h3>
+				<button type="button" data-copy="conf-living">Copy</button>
+			</div>
+			<pre class="conf" id="conf-living">{{tmux:living-rail}}</pre>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Trigger</th>
+							<th>Motion</th>
+							<th>Timing</th>
+							<th>Frame rate</th>
+							<th>CPU, 16 colors</th>
+							<th>CPU, truecolor</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>Agents working</td>
+							<td>
+								Braille spinner; truecolor keys breathe between the tracker
+								color and grey
+							</td>
+							<td>80 ms per glyph; 2.4 s breath</td>
+							<td class="num">12 fps, 30 in truecolor</td>
+							<td class="num">{{cpu:living-rail/ansi:still}}</td>
+							<td class="num">{{cpu:living-rail/truecolor:still}}</td>
+						</tr>
+						<tr>
+							<td>Agent needs you</td>
+							<td>
+								Ring fills and empties (16 colors) or the row wash eases in and
+								out (truecolor), for as long as it waits
+							</td>
+							<td>260 ms per glyph; 1.6 s wash</td>
+							<td class="num">12 / 30 fps</td>
+							<td class="num">{{cpu:living-rail/ansi:attention}}</td>
+							<td class="num">{{cpu:living-rail/truecolor:attention}}</td>
+						</tr>
+						<tr>
+							<td>New message or progress</td>
+							<td>Shimmer across the title, ticker update, row fill</td>
+							<td>700 ms sweep</td>
+							<td class="num">60 fps during the sweep</td>
+							<td class="num">{{cpu:living-rail/ansi:progress}}</td>
+							<td class="num">{{cpu:living-rail/truecolor:progress}}</td>
+						</tr>
+						<tr>
+							<td>Row opened or closed</td>
+							<td>Slides in from the right; closing fades and collapses</td>
+							<td>320 ms; 360 ms, ease-out</td>
+							<td class="num">60 fps</td>
+							<td class="num">{{cpu:living-rail/ansi:lifecycle}}</td>
+							<td class="num">{{cpu:living-rail/truecolor:lifecycle}}</td>
+						</tr>
+						<tr>
+							<td>Selection moves</td>
+							<td>Pill glides at half-row resolution</td>
+							<td>140 ms, ease-out</td>
+							<td class="num">60 fps</td>
+							<td class="num">{{cpu:living-rail/ansi:selection}}</td>
+							<td class="num">{{cpu:living-rail/truecolor:selection}}</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<!-- direction:mission-control -->
+		<section class="part" id="mission-control">
+			<div class="direction-head">
+				<span class="eyebrow">Direction 4</span>
+				<h2>Mission control</h2>
+				<p class="lede prose">
+					The rail as an instrument panel. Every row carries a readout, the
+					header reads the whole fleet at once, and an agent that needs you
+					raises a master caution. It shows the most data per cell of the four
+					directions and moves the least.
+				</p>
+				<ul class="principles">
+					<li>
+						Four signal colors, used the same way everywhere: cyan for live
+						agents, amber for caution (an agent needs you), red for a failure,
+						green for done.
+					</li>
+					<li>
+						The header is a fleet readout: counts by state and a bar split by
+						how many agents are in each.
+					</li>
+					<li>
+						Every row ends in a telemetry column: OSC progress, the running
+						tool, or a short state code (RUN, ASK, PERM, ERR).
+					</li>
+					<li>
+						Rows with telemetry carry gauges under them: a progress bar, the
+						agent's message and time in state.
+					</li>
+					<li>
+						When an agent starts needing you, the header becomes MASTER CAUTION
+						and flashes for 2.4 s, then the amber count stays.
+					</li>
+					<li>
+						On narrow rails the title goes before the pipeline glyph and the
+						readout, the one exception to the shared drop order. Conflicts (↯)
+						and unresolved comments (✎) sit next to the pipeline glyph.
+					</li>
+				</ul>
+			</div>
+			<div class="well">
+				<figure>
+					<div
+						data-frame="mission-control/rail/{width}/{layout}/{variant}"
+					></div>
+					<figcaption>
+						<b>Rail.</b> Rows have no two-line layout; the gauges take the
+						second line instead.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="mission-control/confirm/{variant}"></div>
+					<figcaption>
+						<b>Close space.</b> Red frame: closing destroys work. Red otherwise
+						means a failure, as in the fault log.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="mission-control/confirm-neutral/{variant}"></div>
+					<figcaption><b>Update.</b> Live cyan, not red.</figcaption>
+				</figure>
+			</div>
+			<div class="scenes">
+				<!-- scenes:mission-control -->
+			</div>
+			<div class="well">
+				<figure>
+					<div data-frame="mission-control/prompt/{variant}"></div>
+					<figcaption>
+						<b>New space.</b> A launch console: task, profile, queue.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="mission-control/help/{variant}"></div>
+					<figcaption>
+						<b>Help.</b> A keymap table and every readout code.
+					</figcaption>
+				</figure>
+				<figure>
+					<div data-frame="mission-control/errors/{variant}"></div>
+					<figcaption><b>Errors.</b> A fault log.</figcaption>
+				</figure>
+			</div>
+			<div class="well nowrap">
+				<figure>
+					<div data-frame="mission-control/chrome/{variant}"></div>
+					<figcaption>
+						<b>The tmux window.</b> Heavy pane frames with bracketed labels; the
+						focused agent's pane is amber while it waits on you.
+					</figcaption>
+				</figure>
+			</div>
+			<div class="copyrow">
+				<h3>tmux options</h3>
+				<button type="button" data-copy="conf-mission">Copy</button>
+			</div>
+			<pre class="conf" id="conf-mission">{{tmux:mission-control}}</pre>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Trigger</th>
+							<th>Motion</th>
+							<th>Timing</th>
+							<th>Frame rate</th>
+							<th>CPU, 16 colors</th>
+							<th>CPU, truecolor</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>Agents working</td>
+							<td>Each live row's activity trace scrolls</td>
+							<td>one sample per second</td>
+							<td class="num">1 fps</td>
+							<td class="num">{{cpu:mission-control/ansi:still}}</td>
+							<td class="num">{{cpu:mission-control/truecolor:still}}</td>
+						</tr>
+						<tr>
+							<td>Agent starts needing you</td>
+							<td>
+								MASTER CAUTION flashes in the header; the row takes an amber
+								wash in truecolor
+							</td>
+							<td>2.4 s, 300 ms flash</td>
+							<td class="num">10 fps</td>
+							<td class="num">{{cpu:mission-control/ansi:attention}}</td>
+							<td class="num">{{cpu:mission-control/truecolor:attention}}</td>
+						</tr>
+						<tr>
+							<td>Progress and messages</td>
+							<td>Readout and gauges update in place</td>
+							<td>on change</td>
+							<td class="num">1 fps</td>
+							<td class="num">{{cpu:mission-control/ansi:progress}}</td>
+							<td class="num">{{cpu:mission-control/truecolor:progress}}</td>
+						</tr>
+						<tr>
+							<td>Row opened or closed</td>
+							<td>
+								The lamp blinks while a space boots; a closed row reads CLOSED,
+								then leaves
+							</td>
+							<td>250 ms blink; 450 ms</td>
+							<td class="num">4 fps; 10 fps</td>
+							<td class="num">{{cpu:mission-control/ansi:lifecycle}}</td>
+							<td class="num">{{cpu:mission-control/truecolor:lifecycle}}</td>
+						</tr>
+						<tr>
+							<td>Selection moves</td>
+							<td>None, the cursor jumps</td>
+							<td>—</td>
+							<td class="num">—</td>
+							<td class="num">{{cpu:mission-control/ansi:selection}}</td>
+							<td class="num">{{cpu:mission-control/truecolor:selection}}</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section class="part" id="compare">
+			<div class="prose" style="display: grid; gap: 12px">
+				<span class="eyebrow">Side by side</span>
+				<h2>Choosing</h2>
+				<p>
+					CPU is one core's share over 10 seconds, measured by
+					<code>bun design/bench.ts</code> running each preview in a real tmux
+					pane on an M-series Mac. The preview components weren't written for
+					speed, so read the numbers relative to each other. Today's rail
+					measures {{cpu:current/ansi:still}} with the same fleet.
+				</p>
+			</div>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th></th>
+							<th>Today</th>
+							<th>Quiet craft</th>
+							<th>Kitchen pass</th>
+							<th>Living rail</th>
+							<th>Mission control</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>Idle CPU, working agents on screen</td>
+							<td class="num">{{cpu:current/ansi:still}}</td>
+							<td class="num">
+								{{cpu:quiet-craft/ansi:still}} /
+								{{cpu:quiet-craft/truecolor:still}}
+							</td>
+							<td class="num">
+								{{cpu:kitchen-pass/ansi:still}} /
+								{{cpu:kitchen-pass/truecolor:still}}
+							</td>
+							<td class="num">
+								{{cpu:living-rail/ansi:still}} /
+								{{cpu:living-rail/truecolor:still}}
+							</td>
+							<td class="num">
+								{{cpu:mission-control/ansi:still}} /
+								{{cpu:mission-control/truecolor:still}}
+							</td>
+						</tr>
+						<tr>
+							<td>How it gets your attention</td>
+							<td>Whole row blinks</td>
+							<td>Three pulses, then a steady accent and a header count</td>
+							<td>"Calling" group at the top, bell nudge, header chip</td>
+							<td>Continuous eased pulse, header count</td>
+							<td>MASTER CAUTION banner for 2.4 s, then an amber count</td>
+						</tr>
+						<tr>
+							<td>Uses OSC progress and messages</td>
+							<td class="no">No</td>
+							<td>Every row that reports</td>
+							<td>Every ticket that reports</td>
+							<td>Every row and the header</td>
+							<td>A readout on every row, gauges under the ones that report</td>
+						</tr>
+						<tr>
+							<td>Changes rail order</td>
+							<td class="no">—</td>
+							<td class="no">No</td>
+							<td class="yes">Yes, groups by station</td>
+							<td class="no">No</td>
+							<td class="no">No</td>
+						</tr>
+						<tr>
+							<td>Holds up in 16 colors</td>
+							<td>Mostly</td>
+							<td class="yes">Yes, designed there first</td>
+							<td class="yes">Yes</td>
+							<td>Yes, with less motion</td>
+							<td class="yes">Yes, four signal colors</td>
+						</tr>
+						<tr>
+							<td>Needs new data</td>
+							<td class="no">—</td>
+							<td>Optional (age)</td>
+							<td><code>stateSince</code></td>
+							<td>Activity samples</td>
+							<td><code>stateSince</code>, activity samples per row</td>
+						</tr>
+						<tr>
+							<td>Size of the change</td>
+							<td class="no">—</td>
+							<td>Rows, header, dialogs</td>
+							<td>Plus grouping and copy</td>
+							<td>Plus an animation layer</td>
+							<td>Rows, header and dialogs, plus per-row samples</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="callout">
+				<h3>Recommendation</h3>
+				<p>
+					Build Quiet craft as the base. It fixes the most findings, reads well
+					on every theme including 16-color Solarized, and costs nothing at
+					rest. Then add three pieces of Living rail where motion carries
+					information: the progress fill, the shimmer and header ticker for new
+					messages, and the eased needs-you pulse in place of the blink. Keep
+					Kitchen pass's ticket numbers (<code>#412</code>) as an option for
+					narrow rails, and try its grouping by station separately, since it
+					changes where rows sit. If detail lines make the rail too tall,
+					Mission control's readout column (<code>40%</code>, <code>BASH</code>,
+					<code>ASK</code>) puts the same information on the row itself.
+				</p>
+			</div>
+		</section>
+
+		<section class="part" id="next">
+			<div class="prose" style="display: grid; gap: 12px">
+				<span class="eyebrow">Implementation notes</span>
+				<h2>What the follow-up touches</h2>
+			</div>
+			<ol class="findings">
+				<li>
+					<span
+						>Fix the two PR !58 bugs first: colored <code>inverse</code> spans
+						(blink rows) and VS16 emoji widths. Both affect today's rail
+						whatever direction is chosen.</span
+					>
+				</li>
+				<li>
+					<span
+						><code>source/tui-style.ts</code> gains design tokens with a
+						16-color value and per-theme truecolor values, picked from
+						<code>renderer.capabilities.rgb</code> and
+						<code>renderer.themeMode</code> (OSC 11). Nothing styles with ANSI
+						gray.</span
+					>
+				</li>
+				<li>
+					<span
+						><code>SpaceListItem.tsx</code> and
+						<code>row-highlight.ts</code> are rewritten around a row model like
+						<code>design/kit/row.ts</code>, keeping
+						<code>list-view-sizing.ts</code>,
+						<code>truncate-to-width.ts</code> and the emoji helpers, which the
+						prototypes already reuse.</span
+					>
+				</li>
+				<li>
+					<span
+						><code>animation-clock.ts</code> moves to
+						<code>useAnimationTick</code>, with the rail asking for a frame rate
+						only while something moves, the way each direction's
+						<code>fps()</code> does.</span
+					>
+				</li>
+				<li>
+					<span
+						>OSC <code>progress</code> and <code>msg</code> are already parsed
+						into <code>ProgramStatusInfo</code>; they only need rendering. "Time
+						in state" needs a <code>stateSince</code> set when the status
+						changes.</span
+					>
+				</li>
+				<li>
+					<span
+						>The tmux status line and border colors read user options (<code
+							>@pappardelle_summary</code
+						>
+						and similar) that the rail sets when the fleet changes, so tmux
+						never shells out to draw them.</span
+					>
+				</li>
+				<li>
+					<span
+						>The new-space instructions read the configured team prefix.</span
+					>
+				</li>
+				<li>
+					<span
+						>Rails can be dragged down to 15 columns, so every direction follows
+						one rule: time in state, then the comment count, give way until the
+						title has 6 cells. Pipeline and PR glyphs carry failures, so they go
+						only when not even a <code>…</code> title would fit, so widening the
+						rail never hides one. Mission control is the exception: its title
+						goes before the pipeline glyph and readout. Set Rail to 15 in the
+						toolbar to see it.</span
+					>
+				</li>
+				<li>
+					<span
+						>Every row an agent is reporting on shows its detail line, selected
+						or not, so moving the selection never reflows the list. The cost is
+						a taller rail when many agents are talking.</span
+					>
+				</li>
+				<li>
+					<span
+						>The dialog mockups are drawn at one size each. The real dialogs
+						need a minimum size, or a compact layout below it, that truncates
+						with <code>…</code> and keeps the input line and cursor.</span
+					>
+				</li>
+			</ol>
+			<div class="callout">
+				<h3>Run it yourself</h3>
+				<p>
+					<code>bun design/preview.tsx quiet-craft</code> opens a direction in
+					your terminal: ←/→ switch direction, Tab cycles surfaces from the rail
+					to the tmux chrome, t toggles truecolor, l cycles the four terminal
+					themes, o toggles two-line rows, j/k move the selection, Space plays
+					the next scene.
+					<code
+						>bun design/export.ts &amp;&amp; bun design/build-artifact.ts</code
+					>
+					rebuilds this page.
+				</p>
+			</div>
+		</section>
+	</div>
+</main>
+
+<!-- frames -->
+<!-- player -->
+<script>
+	const copyKeys = /Mac|iPhone|iPad/.test(navigator.userAgent)
+		? '⌘C'
+		: 'Ctrl+C';
+	for (const button of document.querySelectorAll('[data-copy]')) {
+		button.addEventListener('click', async () => {
+			const text = document.getElementById(button.dataset.copy).textContent;
+			try {
+				await navigator.clipboard.writeText(text);
+				button.textContent = 'Copied';
+			} catch {
+				const range = document.createRange();
+				range.selectNodeContents(document.getElementById(button.dataset.copy));
+				getSelection().removeAllRanges();
+				getSelection().addRange(range);
+				button.textContent = `Selected, press ${copyKeys}`;
+			}
+			setTimeout(() => {
+				button.textContent = 'Copy';
+			}, 1800);
+		});
+	}
+</script>

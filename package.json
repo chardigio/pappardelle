@@ -122,7 +122,8 @@
 		{
 			"files": [
 				"source/**/*.tsx",
-				"source/**/*.test.ts"
+				"source/**/*.test.ts",
+				"design/**/*.tsx"
 			],
 			"rules": {
 				"@typescript-eslint/promise-function-async": "off"
