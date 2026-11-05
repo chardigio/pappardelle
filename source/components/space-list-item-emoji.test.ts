@@ -67,13 +67,13 @@ async function renderRow(
 test('every rail emoji has exactly one separator before the status icon', async t => {
 	for (const emoji of emojis) {
 		const row = await renderRow(emoji, 60, 'Title');
-		t.true(row.startsWith(emoji + ' ● TEST-1 '), `Emoji: ${emoji}`);
+		t.true(row.startsWith(' ' + emoji + ' ● TEST-1 '), `Emoji: ${emoji}`);
 	}
 });
 
 test('an empty emoji retains its two-cell slot and separator', async t => {
 	const row = await renderRow('', 60, 'Title');
-	t.true(row.startsWith('   ● TEST-1 '));
+	t.true(row.startsWith('    ● TEST-1 '));
 });
 
 test('emoji in the prefix and title keep the status rail on the same row', async t => {
