@@ -1,7 +1,7 @@
 import {Component, type ReactNode} from 'react';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {createLogger} from '../logger.ts';
-import {terminalColor} from '../tui-style.ts';
+import {terminalColor, textAttributes} from '../tui-style.ts';
 
 const log = createLogger('tui');
 
@@ -14,7 +14,9 @@ function FailedView({message}: {message: string}) {
 		<box flexDirection="column" padding={1}>
 			<text fg={terminalColor('red')}>Unable to render this view</text>
 			<text fg={terminalColor()}>{message}</text>
-			<text fg={terminalColor('gray')}>Press q or Esc to close.</text>
+			<text fg={terminalColor()} attributes={textAttributes({dim: true})}>
+				Press q or Esc to close.
+			</text>
 		</box>
 	);
 }

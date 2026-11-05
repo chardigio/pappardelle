@@ -104,7 +104,9 @@ export default function TextInput({
 			focusedBackgroundColor: 'transparent',
 			textColor: RGBA.defaultForeground(),
 			focusedTextColor: RGBA.defaultForeground(),
-			placeholderColor: terminalColor('gray'),
+			// The input takes one color and no dim, and bright black is the
+			// background itself on Solarized Dark.
+			placeholderColor: terminalColor('cyan'),
 			placeholder,
 			cursorStyle: {style: 'block' as const, blinking: false},
 			selectionBg: terminalColor('cyan'),
