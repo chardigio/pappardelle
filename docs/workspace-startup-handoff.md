@@ -1,5 +1,9 @@
 # Main-workspace startup: successor handoff
 
+Follow-up bead: **`pappardelle-3wf`** (P2, open, unassigned), in the fork's
+existing Dolt-backed issue store. Retrieve with `bd show pappardelle-3wf` after
+`bd dolt pull`.
+
 The OpenTUI migration improves renderer/process startup, but main-workspace
 readiness still takes seconds on the user's Mac. This handoff measures the
 remaining path; it does not implement startup optimizations.
