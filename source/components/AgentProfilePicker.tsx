@@ -1,5 +1,8 @@
-import React, {useRef, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+import {useRef, useState} from 'react';
+
 import {
 	computePickerWindow,
 	handleFilterablePickerKey,
@@ -38,7 +41,8 @@ export default function AgentProfilePicker({
 	// so keys read the latest state here.
 	const stateRef = useRef(state);
 
-	useInput((input, key) => {
+	useKeyboard(event => {
+		const {input, key} = shortcutKey(event);
 		const shown = filterAgentProfiles(
 			request.options,
 			stateRef.current.query ?? '',
@@ -76,56 +80,102 @@ export default function AgentProfilePicker({
 	);
 
 	return (
-		<Box
+		<box
+			border
 			flexDirection="column"
-			borderStyle="round"
-			borderColor="cyan"
+			borderStyle="rounded"
+			borderColor={terminalColor('cyan')}
 			flexGrow={1}
 			paddingX={1}
 		>
-			<Box marginBottom={1}>
-				<Text bold color="cyan">
+			<box flexDirection="row" marginBottom={1}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true})}
+					fg={terminalColor('cyan')}
+				>
 					Agent profile
-				</Text>
-			</Box>
-			{list.scrollMarkers && above > 0 && <Text dimColor>↑ {above} more</Text>}
-			{options.length === 0 && <Text dimColor>No match</Text>}
+				</text>
+			</box>
+			{list.scrollMarkers && above > 0 && (
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					↑ {above} more
+				</text>
+			)}
+			{options.length === 0 && (
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					No match
+				</text>
+			)}
 			{options.slice(start, end).map((option, offset) => {
 				const isSelected = start + offset === state.index;
 				return (
-					<Box key={option.name}>
-						<Box flexShrink={0}>
-							<Text color={isSelected ? 'green' : undefined} bold={isSelected}>
+					<box flexDirection="row" key={option.name}>
+						<box flexDirection="row" flexShrink={0}>
+							<text
+								flexShrink={1}
+								attributes={textAttributes({bold: isSelected})}
+								fg={terminalColor(isSelected ? 'green' : undefined)}
+							>
 								{isSelected ? '❯ ' : '  '}
 								{label(option.name).padEnd(nameWidth)}{' '}
-							</Text>
-						</Box>
-						<Text dimColor wrap="truncate-end">
+							</text>
+						</box>
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+							wrapMode="none"
+							height={1}
+						>
 							{option.source}
-						</Text>
-					</Box>
+						</text>
+					</box>
 				);
 			})}
-			{list.scrollMarkers && below > 0 && <Text dimColor>↓ {below} more</Text>}
-			<Box marginTop={1}>
+			{list.scrollMarkers && below > 0 && (
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					↓ {below} more
+				</text>
+			)}
+			<box flexDirection="row" marginTop={1}>
 				{state.query === null ? (
-					<Text dimColor wrap="truncate-end">
-						<Text color="green">↑/↓</Text> select · <Text color="cyan">/</Text>{' '}
-						filter · <Text color="green">Enter</Text> choose ·{' '}
-						<Text color="yellow">Esc</Text> cancel
-					</Text>
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+						wrapMode="none"
+						height={1}
+					>
+						<span fg={terminalColor('green')}>↑/↓</span> select ·{' '}
+						<span fg={terminalColor('cyan')}>/</span> filter ·{' '}
+						<span fg={terminalColor('green')}>Enter</span> choose ·{' '}
+						<span fg={terminalColor('yellow')}>Esc</span> cancel
+					</text>
 				) : (
-					<Text wrap="truncate-end">
-						<Text color="cyan">/{state.query}</Text>
-						<Text inverse> </Text>
-						<Text dimColor>
+					<text fg={terminalColor()} flexShrink={1} wrapMode="none" height={1}>
+						<span fg={terminalColor('cyan')}>/{state.query}</span>
+						<span attributes={textAttributes({inverse: true})}> </span>
+						<span attributes={textAttributes({dim: true})}>
 							{' '}
-							· <Text color="green">Enter</Text> choose ·{' '}
-							<Text color="yellow">Esc</Text> clear
-						</Text>
-					</Text>
+							· <span fg={terminalColor('green')}>Enter</span> choose ·{' '}
+							<span fg={terminalColor('yellow')}>Esc</span> clear
+						</span>
+					</text>
 				)}
-			</Box>
-		</Box>
+			</box>
+		</box>
 	);
 }

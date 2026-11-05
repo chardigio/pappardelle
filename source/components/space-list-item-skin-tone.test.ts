@@ -1,7 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {Box} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
 import SpaceListItem from './SpaceListItem.tsx';
 import {setTmuxVersionProbeForTests} from '../tmux-skin-tone.ts';
@@ -22,12 +21,12 @@ process.on('exit', () => {
 	}
 });
 
-function renderRow(
+async function renderRow(
 	tmuxVersion: string | null,
 	width: number,
 	title: string,
 	insideTmux = true,
-): string {
+): Promise<string> {
 	if (insideTmux) {
 		process.env['TMUX'] = '/tmp/fake-socket,1,0';
 	} else {
@@ -50,10 +49,10 @@ function renderRow(
 			hasConflict: false,
 		},
 	};
-	const view = render(
+	const view = await render(
 		React.createElement(
-			Box,
-			{width},
+			'box',
+			{flexDirection: 'row', width},
 			React.createElement(SpaceListItem, {
 				space,
 				width,
@@ -63,15 +62,15 @@ function renderRow(
 		),
 	);
 	const frame = view.lastFrame() ?? '';
-	view.unmount();
+	await view.unmount();
 	return frame;
 }
 
 test.serial(
 	'tmux 3.6 strips the modifier and keeps the rail on one line',
-	t => {
+	async t => {
 		for (const width of [30, 40, 60, 80]) {
-			const frame = renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes');
+			const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes');
 			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 			t.true(tmux36Width(frame) <= width, `Rendered row: ${frame}`);
 			t.true(frame.startsWith('💪 ● TEST-1'), `Rendered row: ${frame}`);
@@ -80,10 +79,10 @@ test.serial(
 	},
 );
 
-test.serial('tmux 3.6a keeps the full grapheme at Ink width', t => {
+test.serial('tmux 3.6a keeps the full grapheme at Ink width', async t => {
 	for (const version of ['3.6a', '3.7c', 'next-3.9']) {
 		for (const width of [30, 40, 60, 80]) {
-			const frame = renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
+			const frame = await renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
 			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 			t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
 			t.true(frame.startsWith('💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
@@ -92,9 +91,9 @@ test.serial('tmux 3.6a keeps the full grapheme at Ink width', t => {
 	}
 });
 
-test.serial('outside tmux the full grapheme is kept', t => {
+test.serial('outside tmux the full grapheme is kept', async t => {
 	for (const width of [30, 40, 60, 80]) {
-		const frame = renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes', false);
+		const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes', false);
 		t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 		t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
 		t.true(frame.startsWith('💪🏼 ● TEST-1'), `Rendered row: ${frame}`);

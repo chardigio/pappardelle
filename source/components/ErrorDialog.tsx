@@ -1,5 +1,7 @@
-import React from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+
 import type {LogEntry} from '../logger.ts';
 
 interface Props {
@@ -16,7 +18,8 @@ export default function ErrorDialog({
 	onClear,
 	isFullHeight,
 }: Props) {
-	useInput((input, key) => {
+	useKeyboard(event => {
+		const {input, key} = shortcutKey(event);
 		if (key.escape) {
 			onClose();
 		} else if (input === 'c') {
@@ -25,49 +28,85 @@ export default function ErrorDialog({
 	});
 
 	return (
-		<Box
+		<box
+			border
 			flexDirection="column"
 			borderStyle="double"
-			borderColor="red"
+			borderColor={terminalColor('red')}
 			flexGrow={isFullHeight ? 1 : 0}
 			paddingX={2}
 			paddingY={1}
 		>
-			<Box justifyContent="space-between" marginBottom={1}>
-				<Text bold color="red">
+			<box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true})}
+					fg={terminalColor('red')}
+				>
 					Errors ({errors.length})
-				</Text>
-				<Text dimColor>
-					<Text color="yellow">c</Text> clear <Text color="yellow">Esc</Text>{' '}
-					close
-				</Text>
-			</Box>
+				</text>
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					<span fg={terminalColor('yellow')}>c</span> clear{' '}
+					<span fg={terminalColor('yellow')}>Esc</span> close
+				</text>
+			</box>
 
 			{errors.length === 0 ? (
-				<Text dimColor>No errors.</Text>
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					No errors.
+				</text>
 			) : (
 				errors.map((entry, i) => (
-					<Box
+					<box
 						key={`${entry.timestamp}-${i}`}
 						flexDirection="column"
 						marginBottom={i < errors.length - 1 ? 1 : 0}
 					>
-						<Box>
-							<Text color={entry.level === 'error' ? 'red' : 'yellow'}>
+						<box flexDirection="row">
+							<text
+								flexShrink={1}
+								fg={terminalColor(entry.level === 'error' ? 'red' : 'yellow')}
+							>
 								[{entry.component}]
-							</Text>
-							<Text> {entry.message}</Text>
-						</Box>
-						{entry.error && <Text dimColor> {entry.error}</Text>}
-					</Box>
+							</text>
+							<text fg={terminalColor()} flexShrink={1}>
+								{' '}
+								{entry.message}
+							</text>
+						</box>
+						{entry.error && (
+							<text
+								fg={terminalColor()}
+								flexShrink={1}
+								attributes={textAttributes({dim: true})}
+							>
+								{' '}
+								{entry.error}
+							</text>
+						)}
+					</box>
 				))
 			)}
 
 			{errors.length > 0 && (
-				<Box marginTop={1}>
-					<Text dimColor>Logs: ~/.pappardelle/logs/</Text>
-				</Box>
+				<box flexDirection="row" marginTop={1}>
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+					>
+						Logs: ~/.pappardelle/logs/
+					</text>
+				</box>
 			)}
-		</Box>
+		</box>
 	);
 }

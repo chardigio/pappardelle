@@ -14,7 +14,7 @@ test('slow session kills and simulator cleanup leave the event loop responsive',
 	for (const command of ['tmux', 'xcrun']) {
 		fs.writeFileSync(
 			path.join(dir, command),
-			`#!/usr/bin/env node
+			`#!/usr/bin/env bun
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.CLOSE_CALLS, JSON.stringify({command: ${JSON.stringify(command)}, args}) + '\\n');
@@ -63,7 +63,7 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 	const callsFile = path.join(dir, 'calls');
 	const {stdout} = await execFileAsync(
 		process.execPath,
-		['--import', 'tsx', '--input-type=module', '-e', script],
+		['--input-type=module', '-e', script],
 		{
 			env: {
 				...process.env,

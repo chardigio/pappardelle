@@ -8,7 +8,7 @@ import {initForRepo} from './space-registry.ts';
 
 /**
  * Per-repo process setup shared by the TUI and its popup child. The popup is
- * a fresh node process, so anything the TUI set up at startup is missing
+ * a fresh Bun process, so anything the TUI set up at startup is missing
  * there until this runs again.
  */
 export function bootstrapRepo(): {repoName: string} {

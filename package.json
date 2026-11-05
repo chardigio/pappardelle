@@ -3,23 +3,26 @@
 	"version": "0.1.0",
 	"license": "MIT",
 	"bin": {
-		"pappardelle": "dist/cli.js"
+		"pappardelle": "dist/pappardelle"
 	},
 	"type": "module",
 	"engines": {
-		"node": ">=22"
+		"bun": ">=1.4.4"
 	},
 	"scripts": {
-		"build": "tsc",
-		"dev": "tsc --watch",
-		"start": "node dist/cli.js",
-		"test": "prettier --check . && xo && ava"
+		"build": "bun scripts/build.ts",
+		"dev": "bun --watch source/cli.tsx",
+		"start": "./dist/pappardelle",
+		"test": "bun --bun prettier --check . && bun --bun xo && bun run test:unit",
+		"typecheck": "bun --bun tsc --noEmit",
+		"test:unit": "bun --bun ava"
 	},
 	"files": [
 		"dist"
 	],
 	"dependencies": {
-		"ink": "^7.1.1",
+		"@opentui/core": "0.8.2",
+		"@opentui/react": "0.8.2",
 		"js-yaml": "^4.1.0",
 		"meow": "^11.0.0",
 		"react": "^19.3.0",
@@ -36,86 +39,100 @@
 		"@types/semver": "^7.5.0",
 		"@xterm/headless": "^6.0.0",
 		"ava": "^5.2.0",
-		"chalk": "^5.2.0",
-		"ink-testing-library": "^4.0.0",
 		"prettier": "^3.0.0",
 		"semver": "^7.5.0",
-		"ts-node": "^10.9.1",
-		"tsx": "^4.21.0",
 		"typescript": "^5.0.3",
-		"xo": "^1.0.0"
+		"xo": "^1.0.0",
+		"@types/bun": "^1.4.0"
 	},
 	"ava": {
 		"extensions": {
 			"ts": "module",
 			"tsx": "module"
 		},
-		"require": [
-			"./test/helpers/register-tsx.cjs"
-		]
+		"workerThreads": false
 	},
-	"xo": {
-		"react": true,
-		"prettier": true,
-		"semicolon": true,
-		"rules": {
-			"react/prop-types": "off",
-			"react/prefer-read-only-props": "off",
-			"react/jsx-no-leaked-render": "off",
-			"react/no-array-index-key": "off",
-			"react/no-unescaped-entities": "off",
-			"@typescript-eslint/naming-convention": "off",
-			"@typescript-eslint/consistent-type-definitions": "off",
-			"@typescript-eslint/no-unsafe-call": "off",
-			"@typescript-eslint/no-unsafe-assignment": "off",
-			"@typescript-eslint/no-unsafe-argument": "off",
-			"@typescript-eslint/no-unsafe-member-access": "off",
-			"@typescript-eslint/no-unsafe-return": "off",
-			"@typescript-eslint/no-confusing-void-expression": "off",
-			"@typescript-eslint/prefer-nullish-coalescing": "off",
-			"@typescript-eslint/padding-line-between-statements": "off",
-			"@typescript-eslint/no-restricted-types": "off",
-			"@typescript-eslint/prefer-optional-chain": "off",
-			"unicorn/filename-case": "off",
-			"unicorn/catch-error-name": "off",
-			"unicorn/prevent-abbreviations": "off",
-			"unicorn/text-encoding-identifier-case": "off",
-			"unicorn/numeric-separators-style": "off",
-			"unicorn/explicit-length-check": "off",
-			"unicorn/prefer-export-from": "off",
-			"unicorn/prefer-ternary": "off",
-			"unicorn/no-negated-condition": "off",
-			"n/prefer-global/process": "off",
-			"n/file-extension-in-import": "off",
-			"capitalized-comments": "off",
-			"complexity": "off",
-			"no-await-in-loop": "off",
-			"unicorn/escape-case": "off",
-			"unicorn/no-hex-escape": "off",
-			"unicorn/better-regex": "off",
-			"unicorn/prefer-number-properties": "off",
-			"unicorn/prefer-string-raw": "off",
-			"@stylistic/padding-line-between-statements": "off",
-			"import-x/order": "off",
-			"import-x/no-duplicates": "off",
-			"react/jsx-sort-props": "off",
-			"no-implicit-coercion": "off",
-			"logical-assignment-operators": "off",
-			"@typescript-eslint/prefer-regexp-exec": "off",
-			"import-x/first": "off",
-			"promise/prefer-await-to-then": "off",
-			"@typescript-eslint/no-empty-function": "off",
-			"@typescript-eslint/no-floating-promises": "off",
-			"@typescript-eslint/restrict-plus-operands": "off",
-			"@typescript-eslint/no-unnecessary-type-assertion": "off",
-			"@typescript-eslint/no-base-to-string": "off",
-			"@typescript-eslint/restrict-template-expressions": "off",
-			"@typescript-eslint/member-ordering": "off",
-			"unicorn/no-for-loop": "off",
-			"@typescript-eslint/parameter-properties": "off",
-			"unicorn/prefer-string-replace-all": "off",
-			"unicorn/prefer-includes": "off",
-			"no-negated-condition": "off"
+	"xo": [
+		{
+			"react": true,
+			"prettier": true,
+			"semicolon": true,
+			"rules": {
+				"react/prop-types": "off",
+				"react/prefer-read-only-props": "off",
+				"react/jsx-no-leaked-render": "off",
+				"react/no-array-index-key": "off",
+				"react/no-unescaped-entities": "off",
+				"@typescript-eslint/naming-convention": "off",
+				"@typescript-eslint/consistent-type-definitions": "off",
+				"@typescript-eslint/no-unsafe-call": "off",
+				"@typescript-eslint/no-unsafe-assignment": "off",
+				"@typescript-eslint/no-unsafe-argument": "off",
+				"@typescript-eslint/no-unsafe-member-access": "off",
+				"@typescript-eslint/no-unsafe-return": "off",
+				"@typescript-eslint/no-confusing-void-expression": "off",
+				"@typescript-eslint/prefer-nullish-coalescing": "off",
+				"@typescript-eslint/padding-line-between-statements": "off",
+				"@typescript-eslint/no-restricted-types": "off",
+				"@typescript-eslint/prefer-optional-chain": "off",
+				"unicorn/filename-case": "off",
+				"unicorn/catch-error-name": "off",
+				"unicorn/prevent-abbreviations": "off",
+				"unicorn/text-encoding-identifier-case": "off",
+				"unicorn/numeric-separators-style": "off",
+				"unicorn/explicit-length-check": "off",
+				"unicorn/prefer-export-from": "off",
+				"unicorn/prefer-ternary": "off",
+				"unicorn/no-negated-condition": "off",
+				"n/prefer-global/process": "off",
+				"n/file-extension-in-import": "off",
+				"capitalized-comments": "off",
+				"complexity": "off",
+				"no-await-in-loop": "off",
+				"unicorn/escape-case": "off",
+				"unicorn/no-hex-escape": "off",
+				"unicorn/better-regex": "off",
+				"unicorn/prefer-number-properties": "off",
+				"unicorn/prefer-string-raw": "off",
+				"@stylistic/padding-line-between-statements": "off",
+				"import-x/order": "off",
+				"import-x/no-duplicates": "off",
+				"react/jsx-sort-props": "off",
+				"no-implicit-coercion": "off",
+				"logical-assignment-operators": "off",
+				"@typescript-eslint/prefer-regexp-exec": "off",
+				"import-x/first": "off",
+				"promise/prefer-await-to-then": "off",
+				"@typescript-eslint/no-empty-function": "off",
+				"@typescript-eslint/no-floating-promises": "off",
+				"@typescript-eslint/restrict-plus-operands": "off",
+				"@typescript-eslint/no-unnecessary-type-assertion": "off",
+				"@typescript-eslint/no-base-to-string": "off",
+				"@typescript-eslint/restrict-template-expressions": "off",
+				"@typescript-eslint/member-ordering": "off",
+				"unicorn/no-for-loop": "off",
+				"@typescript-eslint/parameter-properties": "off",
+				"unicorn/prefer-string-replace-all": "off",
+				"unicorn/prefer-includes": "off",
+				"no-negated-condition": "off",
+				"react/react-in-jsx-scope": "off",
+				"react/no-unknown-property": "off"
+			}
+		},
+		{
+			"files": [
+				"source/**/*.tsx",
+				"source/**/*.test.ts",
+				"design/**/*.tsx"
+			],
+			"rules": {
+				"@typescript-eslint/promise-function-async": "off"
+			}
+		},
+		{
+			"ignores": [
+				"scripts/benchmarks/tui-fixture.mjs"
+			]
 		}
-	}
+	]
 }

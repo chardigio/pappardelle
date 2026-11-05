@@ -10,7 +10,7 @@ test('the subprocess runner keeps UI timers running while tmux is slow', async t
 	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	fs.writeFileSync(
 		path.join(dir, 'tmux'),
-		`#!/usr/bin/env node
+		`#!/usr/bin/env bun
 const args = process.argv.slice(2);
 setTimeout(() => {
   if (args.includes('display-message')) process.stdout.write(args.includes('%1') ? '/dev/claude' : '/dev/companion');
@@ -30,7 +30,7 @@ console.log(JSON.stringify({success, ticks}));
 `;
 	const {stdout} = await promisify(execFile)(
 		process.execPath,
-		['--import', 'tsx', '--input-type=module', '-e', script],
+		['--input-type=module', '-e', script],
 		{
 			env: {
 				...process.env,

@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * End-to-end verification of claude.model / claude.effort (STA-1829).
  *
@@ -19,7 +19,7 @@
  *      call, proving the flags Pappardelle emits are ones Claude accepts
  *
  * NOT an ava test — run manually with:
- *   npx tsx integration-tests/verify-claude-model-effort.ts
+ *   bun integration-tests/verify-claude-model-effort.ts
  *
  * Step 6 makes a real (tiny) API call and is skipped with --no-live; step 5 is
  * macOS-only (osascript). Everything else is hermetic: temp dirs, a temp HOME,

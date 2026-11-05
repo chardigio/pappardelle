@@ -1,5 +1,7 @@
-import React, {memo} from 'react';
-import {Box, Text} from 'ink';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+import {memo} from 'react';
+import type {MouseEvent} from '@opentui/core';
+
 import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
 import {COLORS} from '../types.ts';
@@ -29,6 +31,7 @@ interface Props {
 	isSelected: boolean;
 	width: number;
 	layout: ListLayout;
+	onSelect?: (name: string) => void;
 }
 
 interface PipelineIconStyle {
@@ -47,7 +50,13 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-function SpaceListItem({space, isSelected, width, layout}: Props) {
+function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
+	const handleClick = (event: MouseEvent) => {
+		if (event.button === 0 && !space.isPending) {
+			event.stopPropagation();
+			onSelect?.(space.name);
+		}
+	};
 	const isTwoLine = layout === 'two_line';
 	const inlineTitle = titleSharesKeyLine({
 		isTwoLine,
@@ -182,23 +191,27 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (pipeline === 'progressing_dirty') {
 			return (
 				<>
-					<Text inverse={useBlinkInverse} color={textColor}>
+					<text
+						flexShrink={1}
+						attributes={textAttributes({inverse: useBlinkInverse})}
+						fg={terminalColor(textColor)}
+					>
 						{' '}
-					</Text>
-					<Text
-						bold
-						color={useBlinkInverse ? textColor : 'yellow'}
-						inverse={useBlinkInverse}
+					</text>
+					<text
+						flexShrink={1}
+						attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
+						fg={terminalColor(useBlinkInverse ? textColor : 'yellow')}
 					>
 						◐
-					</Text>
-					<Text
-						bold
-						color={useBlinkInverse ? textColor : 'red'}
-						inverse={useBlinkInverse}
+					</text>
+					<text
+						flexShrink={1}
+						attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
+						fg={terminalColor(useBlinkInverse ? textColor : 'red')}
 					>
 						◑
-					</Text>
+					</text>
 				</>
 			);
 		}
@@ -206,16 +219,20 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		const style = PIPELINE_SINGLE[pipeline];
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({inverse: useBlinkInverse})}
+					fg={terminalColor(textColor)}
+				>
 					{' '}
-				</Text>
-				<Text
-					bold
-					color={useBlinkInverse ? textColor : style.color}
-					inverse={useBlinkInverse}
+				</text>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
+					fg={terminalColor(useBlinkInverse ? textColor : style.color)}
 				>
 					{style.icon}
-				</Text>
+				</text>
 			</>
 		);
 	};
@@ -224,16 +241,23 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (commentCount <= 0) return null;
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({inverse: useBlinkInverse})}
+					fg={terminalColor(textColor)}
+				>
 					{' '}
-				</Text>
-				<Text
-					color={useBlinkInverse ? textColor : undefined}
-					dimColor={!useBlinkInverse}
-					inverse={useBlinkInverse}
+				</text>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({
+						dim: !useBlinkInverse,
+						inverse: useBlinkInverse,
+					})}
+					fg={terminalColor(useBlinkInverse ? textColor : undefined)}
 				>
 					{`(${commentCount})`}
-				</Text>
+				</text>
 			</>
 		);
 	};
@@ -242,43 +266,60 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (!hasConflict) return null;
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({inverse: useBlinkInverse})}
+					fg={terminalColor(textColor)}
+				>
 					{' '}
-				</Text>
-				<Text
-					bold
-					color={useBlinkInverse ? textColor : 'red'}
-					inverse={useBlinkInverse}
+				</text>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true, inverse: useBlinkInverse})}
+					fg={terminalColor(useBlinkInverse ? textColor : 'red')}
 				>
 					↯
-				</Text>
+				</text>
 			</>
 		);
 	};
 
 	const renderTitle = () => (
-		<Text
-			dimColor={!useInverse}
-			wrap="truncate"
-			inverse={useInverse}
-			color={titleColor}
+		<text
+			flexShrink={1}
+			attributes={textAttributes({dim: !useInverse, inverse: useInverse})}
+			wrapMode="none"
+			height={1}
+			fg={terminalColor(titleColor)}
 		>
 			{truncatedTitle}
-		</Text>
+		</text>
 	);
 
 	const keyLine = (
-		<Box overflowX="hidden">
-			<Box flexShrink={0}>
+		<box
+			flexDirection="row"
+			overflow="hidden"
+			onMouseDown={isTwoLine ? undefined : handleClick}
+		>
+			<box flexDirection="row" flexShrink={0}>
 				{emoji ? (
 					<>
-						<Text inverse={useBlinkInverse} color={textColor}>
+						<text
+							flexShrink={1}
+							attributes={textAttributes({inverse: useBlinkInverse})}
+							fg={terminalColor(textColor)}
+						>
 							{emoji}
-						</Text>
+						</text>
 						{emojiNeedsSeparator ? (
-							<Text inverse={useBlinkInverse} color={textColor}>
+							<text
+								flexShrink={1}
+								attributes={textAttributes({inverse: useBlinkInverse})}
+								fg={terminalColor(textColor)}
+							>
 								{' '}
-							</Text>
+							</text>
 						) : null}
 					</>
 				) : null}
@@ -295,45 +336,57 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 						inverse={useBlinkInverse}
 					/>
 				) : (
-					<Text
-						color={useBlinkInverse ? textColor : statusInfo.color}
-						dimColor={!useBlinkInverse && (statusInfo.dim ?? false)}
-						inverse={useBlinkInverse}
+					<text
+						flexShrink={1}
+						attributes={textAttributes({
+							dim: !useBlinkInverse && (statusInfo.dim ?? false),
+							inverse: useBlinkInverse,
+						})}
+						fg={terminalColor(useBlinkInverse ? textColor : statusInfo.color)}
 					>
 						{statusInfo.icon ?? '?'}
-					</Text>
+					</text>
 				)}
 
 				{/* Space after status icon (NOT highlighted) */}
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({inverse: useBlinkInverse})}
+					fg={terminalColor(textColor)}
+				>
 					{' '}
-				</Text>
+				</text>
 
 				{/* Issue key badge (colored by Linear state, highlighted when selected) */}
 				{hasIssueKey && (
-					<Text
-						color={useBlinkInverse ? textColor : keyColor}
-						bold
-						wrap="truncate"
-						inverse={useInverse}
+					<text
+						flexShrink={1}
+						attributes={textAttributes({bold: true, inverse: useInverse})}
+						fg={terminalColor(useBlinkInverse ? textColor : keyColor)}
+						wrapMode="none"
+						height={1}
 					>
 						{issueKey}
-					</Text>
+					</text>
 				)}
 
 				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
-					<Text dimColor={!useInverse} inverse={useInverse} color={titleColor}>
+					<text
+						flexShrink={1}
+						attributes={textAttributes({dim: !useInverse, inverse: useInverse})}
+						fg={terminalColor(titleColor)}
+					>
 						{' '}
-					</Text>
+					</text>
 				)}
-			</Box>
+			</box>
 
 			{/* Title (only if there's a title to show, and only when the title
 			    shares this row — two-line layout renders it below) */}
 			{inlineTitle && truncatedTitle.length > 0 && (
-				<Box flexShrink={1} minWidth={0}>
+				<box flexDirection="row" flexShrink={1} minWidth={0}>
 					{renderTitle()}
-				</Box>
+				</box>
 			)}
 
 			{/* Rail icons — right-aligned: unresolved comment count, then the
@@ -341,13 +394,18 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 			    right. Pushed right by a flex spacer that consumes whatever
 			    leftover width remains. */}
 			{pipeline !== null || commentCount > 0 || hasConflict ? (
-				<Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
+				<box
+					flexDirection="row"
+					flexGrow={1}
+					flexShrink={0}
+					justifyContent="flex-end"
+				>
 					{renderCommentCount()}
 					{renderConflictIcon()}
 					{renderPipelineIcon()}
-				</Box>
+				</box>
 			) : null}
-		</Box>
+		</box>
 	);
 
 	if (!isTwoLine) return keyLine;
@@ -356,21 +414,25 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	// its title on the key line already, so its second line is blank padding —
 	// still emitted, because every row has to be the same height.
 	return (
-		<Box flexDirection="column">
+		<box flexDirection="column" onMouseDown={handleClick}>
 			{keyLine}
-			<Box overflowX="hidden">
-				<Box flexShrink={0}>
-					<Text inverse={useBlinkInverse} color={textColor}>
+			<box flexDirection="row" overflow="hidden">
+				<box flexDirection="row" flexShrink={0}>
+					<text
+						flexShrink={1}
+						attributes={textAttributes({inverse: useBlinkInverse})}
+						fg={terminalColor(textColor)}
+					>
 						{' '.repeat(twoLineIndent)}
-					</Text>
-				</Box>
+					</text>
+				</box>
 				{!inlineTitle && (
-					<Box flexShrink={1} minWidth={0}>
+					<box flexDirection="row" flexShrink={1} minWidth={0}>
 						{renderTitle()}
-					</Box>
+					</box>
 				)}
-			</Box>
-		</Box>
+			</box>
+		</box>
 	);
 }
 

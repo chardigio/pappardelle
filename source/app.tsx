@@ -1,5 +1,8 @@
+import {useKeyboard, useRenderer} from '@opentui/react';
+import {shortcutKey} from './tui-key.ts';
+import {textAttributes, terminalColor} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
-import {Box, Text, useInput, useStdout} from 'ink';
+
 import TextInput from './components/TextInput.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
@@ -8,7 +11,7 @@ import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
-import {fileURLToPath} from 'node:url';
+import {scriptsDir, cliFilePath} from './runtime.ts';
 import fs from 'node:fs';
 import {homedir, tmpdir} from 'node:os';
 import path from 'node:path';
@@ -47,9 +50,7 @@ import {
 
 const log = createLogger('app');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+const SCRIPTS_DIR = scriptsDir;
 
 // Spawn errors carry a whole command line; the header only has room for the
 // part that names what went wrong.
@@ -171,12 +172,7 @@ import {
 	runningAgentProfile,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
-import {
-	calculateVisibleWindow,
-	calculateListClickRow,
-	HEADER_ROWS,
-} from './list-view-sizing.ts';
-import {useMouse} from './use-mouse.ts';
+import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
 import {filterSpaces, tearDownSpace} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
@@ -228,7 +224,8 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
-	const {stdout} = useStdout();
+	const renderer = useRenderer();
+	const {stdout} = process;
 
 	const repoName = React.useMemo(() => {
 		try {
@@ -441,15 +438,13 @@ export default function App({
 	// Instead: release the alt screen + mouse tracking so the installer's stdout
 	// is visible in the list pane, run it to completion with inherited stdio, and
 	// only then tear down the outer session.
-	const handleUpdateConfirmed = useCallback(() => {
+	const handleUpdateConfirmed = useCallback(async () => {
 		log.info('Update keybinding triggered — running install.sh');
 		// Leaving the alt screen: restore stderr→terminal forwarding (suppressed
 		// while the TUI owned the screen, STA-1496) so the installer's diagnostics
 		// are visible.
 		setStderrTerminalPassthrough(true);
-		process.stdout.write('\x1b[?1006l'); // disable SGR mouse
-		process.stdout.write('\x1b[?1000l'); // disable basic mouse
-		process.stdout.write('\x1b[?1049l'); // exit alt screen
+		await renderer.suspend();
 		runUpdateScript({waitOnFailure: true});
 		// Reruns the TUI through the shim the installer just re-pinned (which
 		// still points at the old build after a failed install).
@@ -459,7 +454,7 @@ export default function App({
 				paneId: process.env['TMUX_PANE'] ?? '',
 				command: installedLaunchCommand({
 					execPath: process.execPath,
-					cliPath: path.resolve(process.argv[1] ?? ''),
+					cliPath: cliFilePath(),
 					home: homedir(),
 				}),
 				hasPaneLayout: paneLayout !== null,
@@ -481,7 +476,7 @@ export default function App({
 		);
 		// eslint-disable-next-line unicorn/no-process-exit
 		process.exit(0);
-	}, [paneLayout, repoName]);
+	}, [paneLayout, repoName, renderer]);
 
 	// Tells `pappardelle restart` which build came up in this pane. Written on
 	// mount, so it also says the TUI got as far as rendering.
@@ -492,7 +487,7 @@ export default function App({
 			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
 			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
 				pid: process.pid,
-				cliPath: path.resolve(process.argv[1] ?? ''),
+				cliPath: cliFilePath(),
 				sha: commitSha,
 				paneId,
 				startedAt: Date.now(),
@@ -686,6 +681,7 @@ export default function App({
 					syncingTerminalSize.current = true;
 					try {
 						if (stdout) syncTerminalDimensions(stdout, dimensions);
+						renderer.resize(dimensions.cols, dimensions.rows);
 					} finally {
 						syncingTerminalSize.current = false;
 					}
@@ -702,7 +698,7 @@ export default function App({
 					setSettledRevision(revision);
 				},
 			}),
-		[attachmentTask, stdout],
+		[attachmentTask, stdout, renderer],
 	);
 	const dialogOpenRef = useRef(anyDialogOpen);
 	dialogOpenRef.current = anyDialogOpen;
@@ -1235,227 +1231,222 @@ export default function App({
 	}, []);
 
 	// Handle keyboard input
-	useInput(
-		(input, key) => {
-			if (railInputBlocked) return;
+	useKeyboard(event => {
+		if (anyDialogOpen) return;
+		const {input, key} = shortcutKey(event);
+		if (railInputBlocked) return;
 
-			const totalItems = spaces.length;
+		const totalItems = spaces.length;
 
-			// Check custom keybindings first — they can override default keys
-			const kb = keybindingMap.get(input);
-			if (kb) {
-				if (!kb.disabled) {
-					handleCustomKeybinding(kb);
-				}
-				return;
+		// Check custom keybindings first — they can override default keys
+		const kb = keybindingMap.get(input);
+		if (kb) {
+			if (!kb.disabled) {
+				handleCustomKeybinding(kb);
 			}
+			return;
+		}
 
-			// Non-overridable built-in shortcuts
-			if (key.upArrow || input === 'k') {
-				if (selectedIndex > 0) {
-					setSelectedIndex(selectedIndex - 1);
-				}
-			} else if (key.downArrow || input === 'j') {
-				if (selectedIndex < totalItems - 1) {
-					setSelectedIndex(selectedIndex + 1);
-				}
-			} else if (isFocusAgentKey(key)) {
-				handleFocusAgent();
-			} else if (input === 'n') {
-				// 'n' for new session
-				setShowPromptDialog(true);
-			} else if (isCloseSpaceKey(input, key)) {
-				// Backspace, Delete, or 'x' closes the selected space
-				const space = spaces[selectedIndex];
-				if (space?.isMainWorktree) {
-					setHeaderWithTimeout('Cannot close main worktree', 2000);
-				} else if (space) {
-					showDialog(
-						{
-							kind: 'close-space',
-							props: {
-								spaceName: space.name,
-								currentIssue: space.trackerIssue ?? space.linearIssue ?? null,
-							},
+		// Non-overridable built-in shortcuts
+		if (key.upArrow || input === 'k') {
+			if (selectedIndex > 0) {
+				setSelectedIndex(selectedIndex - 1);
+			}
+		} else if (key.downArrow || input === 'j') {
+			if (selectedIndex < totalItems - 1) {
+				setSelectedIndex(selectedIndex + 1);
+			}
+		} else if (isFocusAgentKey(key)) {
+			handleFocusAgent();
+		} else if (input === 'n') {
+			// 'n' for new session
+			setShowPromptDialog(true);
+		} else if (isCloseSpaceKey(input, key)) {
+			// Backspace, Delete, or 'x' closes the selected space
+			const space = spaces[selectedIndex];
+			if (space?.isMainWorktree) {
+				setHeaderWithTimeout('Cannot close main worktree', 2000);
+			} else if (space) {
+				showDialog(
+					{
+						kind: 'close-space',
+						props: {
+							spaceName: space.name,
+							currentIssue: space.trackerIssue ?? space.linearIssue ?? null,
 						},
-						{
-							onConfirm: async payload =>
-								handleDeleteSpace(space, payload?.choice),
-						},
-						() => {
-							setDeleteTarget(space);
-						},
-					);
-				}
-			} else if (input === 'K') {
-				// Shift+K closes every done/canceled space at once (STA-2111).
-				// Checked before the switch below so it can't be shadowed by the
-				// lowercase `k` navigation branch above.
-				const targets = findDoneSpaces(spaces);
-				if (targets.length === 0) {
-					setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
-				} else {
-					showDialog(
-						{
-							kind: 'confirm',
-							props: buildKillDoneConfirmContent(targets.length),
-						},
-						{onConfirm: async () => handleKillDoneSpaces(targets)},
-						() => {
-							setKillDoneTargets(targets);
-						},
-					);
-				}
-			} else
-				switch (input) {
-					case '/': {
-						// Start searching spaces
-						setIsSearching(true);
-						setSearchQuery('');
-						setSearchSelectedIndex(0);
-
-						break;
-					}
-					case 'q': {
-						// Quit Pappardelle — kill the tmux session so viewer panes
-						// are cleaned up too (workspace sessions stay alive).
-						if (paneLayout) {
-							killSession(outerSessionName(repoName));
-						}
-						// eslint-disable-next-line unicorn/no-process-exit
-						process.exit(0);
-
-						break;
-					}
-					case '?': {
-						// Show help overlay
-						showDialog(
-							{
-								kind: 'help',
-								props: {
-									customKeybindings: keybindings,
-									commitSha,
-									installedVersion,
-									isDevBuild,
-								},
-							},
-							{},
-							() => {
-								setShowHelp(true);
-							},
-						);
-
-						// Default behaviors for overridable keys (only reached if not custom-bound)
-
-						break;
-					}
-					case 'g': {
-						handleOpenPR();
-
-						break;
-					}
-					case 'i': {
-						handleOpenIssue();
-
-						break;
-					}
-					case 'd': {
-						handleOpenIDE();
-
-						break;
-					}
-					case 'o': {
-						handleOpenWorkspace();
-
-						break;
-					}
-					case 'e': {
-						if (errorCount > 0) {
-							showDialog(
-								{kind: 'errors', props: {errors: getRecentErrors()}},
-								{
-									onClearErrors: clearRecentErrors,
-									subscribeErrors: subscribeToErrors,
-								},
-								() => {
-									setShowErrorDialog(true);
-								},
-							);
-						}
-
-						break;
-					}
-					case 'p': {
-						handleGitPull();
-
-						break;
-					}
-					default: {
-						const updateAction = resolveUpdateKeyAction(
-							input,
-							updateInfo !== null,
-						);
-						if (updateAction === 'open-confirm') {
-							// U is always live (STA-1548): open the "are you sure?"
-							// confirm dialog. The installer only runs once the user
-							// confirms (handleUpdateConfirmed).
-							showDialog(
-								{kind: 'confirm', props: updateConfirmContent},
-								{
-									closeBeforeConfirm: true,
-									onConfirm: handleUpdateConfirmed,
-								},
-								() => {
-									setShowUpdateConfirm(true);
-								},
-							);
-						} else if (updateAction === 'dismiss-banner') {
-							// Dismiss the banner for this session. Next launch re-checks
-							// against the cache on disk. Reset the measured height so
-							// the mouse hit-test stops compensating for a banner that
-							// is no longer rendered.
-							setUpdateInfo(null);
-							setBannerHeight(0);
-						}
-					}
-				}
-		},
-		{
-			isActive: !anyDialogOpen,
-		},
-	);
-
-	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
-	useInput(
-		(_input, key) => {
-			if (key.escape) {
-				setIsSearching(false);
-				setSearchQuery('');
-			} else if (key.return) {
-				// Confirm: resolve filtered selection back to real spaces index
-				const displayIdx = filteredToDisplayMap[searchSelectedIndex];
-				if (displayIdx !== undefined) {
-					// Map display index back to spaces index (reverse the pending offset)
-					const spacesIdx =
-						pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
-							? displayIdx - 1
-							: displayIdx;
-					if (spacesIdx >= 0 && spacesIdx < spaces.length) {
-						setSelectedIndex(spacesIdx);
-					}
-				}
-				setIsSearching(false);
-				setSearchQuery('');
-			} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
-				setSearchSelectedIndex(prev => Math.max(0, prev - 1));
-			} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
-				setSearchSelectedIndex(prev =>
-					Math.min(filteredDisplaySpaces.length - 1, prev + 1),
+					},
+					{
+						onConfirm: async payload =>
+							handleDeleteSpace(space, payload?.choice),
+					},
+					() => {
+						setDeleteTarget(space);
+					},
 				);
 			}
-		},
-		{isActive: isSearching},
-	);
+		} else if (input === 'K') {
+			// Shift+K closes every done/canceled space at once (STA-2111).
+			// Checked before the switch below so it can't be shadowed by the
+			// lowercase `k` navigation branch above.
+			const targets = findDoneSpaces(spaces);
+			if (targets.length === 0) {
+				setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
+			} else {
+				showDialog(
+					{
+						kind: 'confirm',
+						props: buildKillDoneConfirmContent(targets.length),
+					},
+					{onConfirm: async () => handleKillDoneSpaces(targets)},
+					() => {
+						setKillDoneTargets(targets);
+					},
+				);
+			}
+		} else
+			switch (input) {
+				case '/': {
+					// Start searching spaces
+					setIsSearching(true);
+					setSearchQuery('');
+					setSearchSelectedIndex(0);
+
+					break;
+				}
+				case 'q': {
+					// Quit Pappardelle — kill the tmux session so viewer panes
+					// are cleaned up too (workspace sessions stay alive).
+					if (paneLayout) {
+						killSession(outerSessionName(repoName));
+					}
+					renderer.destroy();
+
+					break;
+				}
+				case '?': {
+					// Show help overlay
+					showDialog(
+						{
+							kind: 'help',
+							props: {
+								customKeybindings: keybindings,
+								commitSha,
+								installedVersion,
+								isDevBuild,
+							},
+						},
+						{},
+						() => {
+							setShowHelp(true);
+						},
+					);
+
+					// Default behaviors for overridable keys (only reached if not custom-bound)
+
+					break;
+				}
+				case 'g': {
+					handleOpenPR();
+
+					break;
+				}
+				case 'i': {
+					handleOpenIssue();
+
+					break;
+				}
+				case 'd': {
+					handleOpenIDE();
+
+					break;
+				}
+				case 'o': {
+					handleOpenWorkspace();
+
+					break;
+				}
+				case 'e': {
+					if (errorCount > 0) {
+						showDialog(
+							{kind: 'errors', props: {errors: getRecentErrors()}},
+							{
+								onClearErrors: clearRecentErrors,
+								subscribeErrors: subscribeToErrors,
+							},
+							() => {
+								setShowErrorDialog(true);
+							},
+						);
+					}
+
+					break;
+				}
+				case 'p': {
+					handleGitPull();
+
+					break;
+				}
+				default: {
+					const updateAction = resolveUpdateKeyAction(
+						input,
+						updateInfo !== null,
+					);
+					if (updateAction === 'open-confirm') {
+						// U is always live (STA-1548): open the "are you sure?"
+						// confirm dialog. The installer only runs once the user
+						// confirms (handleUpdateConfirmed).
+						showDialog(
+							{kind: 'confirm', props: updateConfirmContent},
+							{
+								closeBeforeConfirm: true,
+								onConfirm: handleUpdateConfirmed,
+							},
+							() => {
+								setShowUpdateConfirm(true);
+							},
+						);
+					} else if (updateAction === 'dismiss-banner') {
+						// Dismiss the banner for this session. Next launch re-checks
+						// against the cache on disk. Reset the measured height so
+						// the mouse hit-test stops compensating for a banner that
+						// is no longer rendered.
+						setUpdateInfo(null);
+						setBannerHeight(0);
+					}
+				}
+			}
+	});
+
+	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
+	useKeyboard(event => {
+		if (!isSearching) return;
+		const {input: _input, key} = shortcutKey(event);
+		if (key.escape) {
+			setIsSearching(false);
+			setSearchQuery('');
+		} else if (key.return) {
+			// Confirm: resolve filtered selection back to real spaces index
+			const displayIdx = filteredToDisplayMap[searchSelectedIndex];
+			if (displayIdx !== undefined) {
+				// Map display index back to spaces index (reverse the pending offset)
+				const spacesIdx =
+					pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
+						? displayIdx - 1
+						: displayIdx;
+				if (spacesIdx >= 0 && spacesIdx < spaces.length) {
+					setSelectedIndex(spacesIdx);
+				}
+			}
+			setIsSearching(false);
+			setSearchQuery('');
+		} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
+			setSearchSelectedIndex(prev => Math.max(0, prev - 1));
+		} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
+			setSearchSelectedIndex(prev =>
+				Math.min(filteredDisplaySpaces.length - 1, prev + 1),
+			);
+		}
+	});
 
 	const spawnSession = useCallback(
 		(pending: PendingSession, options?: {queued: boolean}) => {
@@ -2201,57 +2192,29 @@ export default function App({
 		scrollOffset + visibleCount,
 	);
 
-	// Handle mouse clicks on the list
-	const handleMouse = useCallback(
-		(event: {x: number; y: number; button: string}) => {
-			if (event.button !== 'left') return;
+	// OpenTUI hit-tests the actual row, including wrapping banners and two-line
+	// layouts. Select by identity so filtering and pending rows cannot shift clicks.
+	const selectRow = useCallback(
+		(name: string) => {
 			if (railInputBlocked) return;
-			if (displaySpaces.length === 0) return;
-
-			// Map the raw mouse y into a visible-list row index. `bannerHeight`
-			// is measured by UpdateBanner — it's 0 when the banner is hidden
-			// and grows when content wraps at narrow pane widths. Without
-			// this offset, clicks land on the row `bannerHeight` above the
-			// intended target (STA-873).
-			const clickedRow = calculateListClickRow({
-				y: event.y,
-				bannerHeight,
-				visibleRows: visibleDisplaySpaces.length,
-				linesPerItem,
-			});
-			if (clickedRow === null) return;
-
-			// Convert visible row to absolute display index
-			const displayIndex = scrollOffset + clickedRow;
-			if (displayIndex < 0 || displayIndex >= displaySpaces.length) return;
-
-			// Ignore clicks on the pending row
-			if (displaySpaces[displayIndex]?.isPending) return;
-
-			// Map display index back to spaces index (reverse the +1 offset)
-			const spacesIndex =
-				pendingInsertIndex >= 0 && displayIndex > pendingInsertIndex
-					? displayIndex - 1
-					: displayIndex;
-
-			if (spacesIndex >= 0 && spacesIndex < spaces.length) {
-				setSelectedIndex(spacesIndex);
+			if (isSearching) {
+				const index = filteredDisplaySpaces.findIndex(
+					space => space.name === name && !space.isPending,
+				);
+				if (index !== -1) setSearchSelectedIndex(index);
+			} else {
+				const index = spaces.findIndex(space => space.name === name);
+				if (index !== -1) setSelectedIndex(index);
 			}
 		},
 		[
-			setSelectedIndex,
-			displaySpaces,
-			spaces.length,
 			railInputBlocked,
-			scrollOffset,
-			visibleDisplaySpaces.length,
-			pendingInsertIndex,
-			bannerHeight,
-			linesPerItem,
+			isSearching,
+			filteredDisplaySpaces,
+			spaces,
+			setSelectedIndex,
 		],
 	);
-
-	useMouse(handleMouse, !anyDialogOpen);
 
 	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
 	const spaceCount = getSpaceCount(spaces);
@@ -2260,27 +2223,40 @@ export default function App({
 	const renderList = () => {
 		if (activeSpaces.length === 0) {
 			return (
-				<Box flexDirection="column" paddingY={1}>
-					<Text dimColor>
+				<box flexDirection="column" paddingY={1}>
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+					>
 						{isSearching ? 'No matches.' : 'No spaces found.'}
-					</Text>
-					{!isSearching && <Text dimColor>Press n to create a new space.</Text>}
-				</Box>
+					</text>
+					{!isSearching && (
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+						>
+							Press n to create a new space.
+						</text>
+					)}
+				</box>
 			);
 		}
 
 		return (
-			<Box flexDirection="column">
+			<box flexDirection="column">
 				{visibleDisplaySpaces.map((space, index) => (
 					<SpaceListItem
 						key={space.isPending ? `pending-${space.name}` : space.name}
 						space={space}
+						onSelect={selectRow}
 						isSelected={index === adjustedDisplayIndex}
 						width={termDimensions.cols}
 						layout={listLayout}
 					/>
 				))}
-			</Box>
+			</box>
 		);
 	};
 
@@ -2290,115 +2266,169 @@ export default function App({
 
 	if (loading && spaces.length === 0) {
 		return (
-			<Box flexDirection="column" padding={1}>
-				<Text>Loading spaces...</Text>
-			</Box>
+			<box flexDirection="column" padding={1}>
+				<text fg={terminalColor()} flexShrink={1}>
+					Loading spaces...
+				</text>
+			</box>
 		);
 	}
 
 	return (
 		// Keep blank rows in the frame so filtering clears old results after a
-		// search zoom. Ink's incremental renderer only writes rows that change.
-		<Box flexDirection="column" height={termHeight}>
+		// search zoom. OpenTUI retains and updates only the cells that change.
+		<box flexDirection="column" height={termHeight}>
 			{/* Update banner (only shown if an update is available and not dismissed) */}
 			{updateInfo && (
 				<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
 			)}
 
-			{/* Header, pinned to exactly one row.
-			    `LIST_CHROME_ROWS` (and with it `calculateListClickRow`) assumes
-			    the header is one row and the status line is one row. Once the
-			    rail can be dragged narrow (STA-2040), the header no longer fits,
-			    and a wrapped header would push every list row down and send
-			    mouse clicks to the wrong space. So: `flexShrink={0}` on an inner
-			    box keeps the segments at their natural widths, `truncate-end` on
-			    each segment stops Ink wrapping them, and `overflowX="hidden"`
-			    clips the line at the pane edge. At any ordinary width nothing is
-			    clipped and the output is identical to master. */}
-			<Box height={1} overflowX="hidden">
-				<Box flexShrink={0}>
-					<Text bold color="cyan" wrap="truncate-end">
+			{/* Keep the header at one row so list height calculations stay valid
+			    when a pane narrows. Native clipping preserves the segment widths;
+			    mouse selection uses each row's rendered bounds. */}
+			<box flexDirection="row" height={1} overflow="hidden">
+				<box flexDirection="row" flexShrink={0}>
+					<text
+						flexShrink={1}
+						attributes={textAttributes({bold: true})}
+						fg={terminalColor('cyan')}
+						wrapMode="none"
+						height={1}
+					>
 						🍝 {repoName}
-					</Text>
+					</text>
 					{!inTmux && (
 						<>
-							<Text dimColor wrap="truncate-end">
+							<text
+								fg={terminalColor()}
+								flexShrink={1}
+								attributes={textAttributes({dim: true})}
+								wrapMode="none"
+								height={1}
+							>
 								{' '}
 								|{' '}
-							</Text>
-							<Text color="yellow" wrap="truncate-end">
+							</text>
+							<text
+								flexShrink={1}
+								fg={terminalColor('yellow')}
+								wrapMode="none"
+								height={1}
+							>
 								Not in tmux
-							</Text>
+							</text>
 						</>
 					)}
-					<Text dimColor wrap="truncate-end">
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+						wrapMode="none"
+						height={1}
+					>
 						{' '}
 						|{' '}
-					</Text>
-					<Text dimColor wrap="truncate-end">
+					</text>
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+						wrapMode="none"
+						height={1}
+					>
 						{spaceCount} space{spaceCount !== 1 ? 's' : ''}
 						{visibleDisplaySpaces.length < activeSpaces.length &&
 							` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
-					</Text>
+					</text>
 					{errorCount > 0 && (
 						<>
-							<Text dimColor wrap="truncate-end">
+							<text
+								fg={terminalColor()}
+								flexShrink={1}
+								attributes={textAttributes({dim: true})}
+								wrapMode="none"
+								height={1}
+							>
 								{' '}
 								|{' '}
-							</Text>
-							<Text color="red" wrap="truncate-end">
+							</text>
+							<text
+								flexShrink={1}
+								fg={terminalColor('red')}
+								wrapMode="none"
+								height={1}
+							>
 								✗ {errorCount}
-							</Text>
-							<Text dimColor wrap="truncate-end">
+							</text>
+							<text
+								fg={terminalColor()}
+								flexShrink={1}
+								attributes={textAttributes({dim: true})}
+								wrapMode="none"
+								height={1}
+							>
 								{' '}
 								(e)
-							</Text>
+							</text>
 						</>
 					)}
-				</Box>
-			</Box>
+				</box>
+			</box>
 
 			{/* Status message line (occupies the row between header and list).
 			    Clipped for the same reason as the header above. */}
-			<Box height={1} overflowX="hidden">
+			<box flexDirection="row" height={1} overflow="hidden">
 				{isSearching && !isZooming ? (
-					/* Each segment gets its own `flexShrink={0}` box. Ink drops a
-					   one-cell Text outright when a sibling Text is truncated, so
-					   the `/` prefix vanished when the segments were bare Texts.
-					   Boxed, every segment keeps its natural width and the line
-					   clips left to right at the pane edge. */
-					<Box flexShrink={0}>
-						<Box flexShrink={0}>
-							<Text color="cyan" wrap="truncate-end">
+					/* Keep the slash and match count at their natural widths;
+					   the native input scrolls its text within the remaining space. */
+					<box flexDirection="row" width="100%">
+						<box flexDirection="row" flexShrink={0}>
+							<text
+								flexShrink={1}
+								fg={terminalColor('cyan')}
+								wrapMode="none"
+								height={1}
+							>
 								/
-							</Text>
-						</Box>
-						<Box flexShrink={0}>
+							</text>
+						</box>
+						<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
 							<TextInput
 								value={searchQuery}
 								onChange={setSearchQuery}
 								placeholder="filter by key or title..."
 							/>
-						</Box>
+						</box>
 						{filteredDisplaySpaces.length !== displaySpaces.length && (
-							<Box flexShrink={0}>
-								<Text dimColor wrap="truncate-end">
+							<box flexDirection="row" flexShrink={0}>
+								<text
+									fg={terminalColor()}
+									flexShrink={1}
+									attributes={textAttributes({dim: true})}
+									wrapMode="none"
+									height={1}
+								>
 									{' '}
 									({filteredDisplaySpaces.length} match
 									{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
-								</Text>
-							</Box>
+								</text>
+							</box>
 						)}
-					</Box>
+					</box>
 				) : (
-					<Text color="yellow" wrap="truncate-end">
+					<text
+						flexShrink={1}
+						fg={terminalColor('yellow')}
+						wrapMode="none"
+						height={1}
+					>
 						{headerMessage || ' '}
-					</Text>
+					</text>
 				)}
-			</Box>
+			</box>
 
 			{/* Main content */}
-			<Box flexDirection="column">
+			<box flexDirection="column">
 				{isZooming ? null : showUpdateConfirm ? (
 					<ConfirmDialog
 						title={updateConfirmContent.title}
@@ -2464,7 +2494,7 @@ export default function App({
 				) : (
 					renderList()
 				)}
-			</Box>
-		</Box>
+			</box>
+		</box>
 	);
 }

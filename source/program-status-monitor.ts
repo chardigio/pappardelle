@@ -1,3 +1,4 @@
+import {isStandalone} from './runtime.ts';
 import {Buffer} from 'node:buffer';
 import {execFile} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
@@ -180,17 +181,12 @@ export function readProgramSnapshot(
 }
 
 function monitorEntry(): string[] {
+	if (isStandalone) return [process.execPath, '--internal-status-monitor'];
 	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
 	const entry = fileURLToPath(
 		new URL(`program-status-monitor-cli${extension}`, import.meta.url),
 	);
-	return [
-		process.execPath,
-		...(extension === '.ts'
-			? ['--import', fileURLToPath(import.meta.resolve('tsx'))]
-			: []),
-		entry,
-	];
+	return [process.execPath, entry];
 }
 
 export async function attachStatusMonitor(
