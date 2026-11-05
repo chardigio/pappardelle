@@ -7,6 +7,7 @@ import {
 	type OptimizedBuffer,
 } from '@opentui/core';
 import {paintFrame} from './components/frame-paint.ts';
+import {routeDrops} from './drop-routing.ts';
 import {OscScanner} from './pane-frame-osc.ts';
 import {paletteSequences} from './pane-frame-palette.ts';
 import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
@@ -88,6 +89,8 @@ renderer.on('blur', () => {
 	isActive = false;
 	renderer.requestRender();
 });
+if (outerSocket && paneId)
+	routeDrops(renderer, {socket: outerSocket, paneId, isFocused: isActive});
 
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import {renderTui} from './render-tui.ts';
+import {routeDrops} from './drop-routing.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -474,6 +475,15 @@ const {renderer} = await renderTui(
 		updateCheckPromise={updateCheckPromise}
 	/>,
 );
+
+const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');
+const railPaneId = process.env['TMUX_PANE'];
+if (tmuxSocket && railPaneId)
+	routeDrops(renderer, {
+		socket: tmuxSocket,
+		paneId: railPaneId,
+		isFocused: true,
+	});
 
 await renderer.closed;
 process.exit(0);
