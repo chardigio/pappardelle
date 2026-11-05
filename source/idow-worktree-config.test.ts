@@ -349,7 +349,10 @@ test('background initialization releases setup pipes before the hook finishes', 
 		hook,
 		`
 touch "$IDOW_TEST_WORKSPACE/background-started"
-while [[ ! -f "$IDOW_TEST_WORKSPACE/release" ]]; do sleep 0.05; done
+while [[ ! -f "$IDOW_TEST_WORKSPACE/release" ]]; do
+	kill -0 "$IDOW_TEST_RUNNER_PID" 2>/dev/null || exit 1
+	sleep 0.05
+done
 printf 'background stdout\\n'
 printf 'background stderr\\n' >&2
 touch "$IDOW_TEST_WORKSPACE/background-finished"`,
@@ -370,7 +373,12 @@ touch "$IDOW_TEST_WORKSPACE/background-finished"`,
 	const exit = new Promise<void>(resolve => {
 		exited = resolve;
 	});
-	const result = fixture.run({onExit: exited});
+	// A killed runner never reaches the finally that writes the release file,
+	// so the hook watches the runner instead of polling forever.
+	const result = fixture.run({
+		onExit: exited,
+		extraEnv: {IDOW_TEST_RUNNER_PID: String(process.pid)},
+	});
 	try {
 		await Promise.race([exit, result]);
 		for (
