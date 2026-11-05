@@ -5,6 +5,7 @@ import {textAttributes, terminalColor} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 
 import TextInput from './components/TextInput.tsx';
+import PaneFrame, {PANE_FRAME_SIZE} from './components/PaneFrame.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
@@ -518,10 +519,32 @@ export default function App({
 	const closeTasks = useRef(new WorkspaceCloseTasks());
 	const workspaceRefresh = useRef<WorkspaceRefresh | null>(null);
 
-	const [termDimensions, setTermDimensions] = useState({
+	const [paneDimensions, setPaneDimensions] = useState({
 		rows: stdout?.rows ?? 40,
 		cols: stdout?.columns ?? 80,
 	});
+	// Everything inside the rail's frame lays out in the space it leaves.
+	const termDimensions = {
+		rows: Math.max(1, paneDimensions.rows - PANE_FRAME_SIZE),
+		cols: Math.max(1, paneDimensions.cols - PANE_FRAME_SIZE),
+	};
+	const [isRailFocused, setIsRailFocused] = useState(true);
+	useEffect(() => {
+		const focus = () => {
+			setIsRailFocused(true);
+		};
+
+		const blur = () => {
+			setIsRailFocused(false);
+		};
+
+		renderer.on('focus', focus);
+		renderer.on('blur', blur);
+		return () => {
+			renderer.off('focus', focus);
+			renderer.off('blur', blur);
+		};
+	}, [renderer]);
 
 	const railDialogState = {
 		showPromptDialog,
@@ -693,7 +716,7 @@ export default function App({
 					} finally {
 						syncingTerminalSize.current = false;
 					}
-					setTermDimensions(dimensions);
+					setPaneDimensions(dimensions);
 					setSettledRevision(revision);
 				},
 				onError(error, revision) {
@@ -719,7 +742,7 @@ export default function App({
 		if (!stdout) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const handleResize = () => {
-			setTermDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
+			setPaneDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
 			if (syncingTerminalSize.current) return;
 			clearTimeout(timer);
 			timer = setTimeout(() => {
@@ -2274,234 +2297,245 @@ export default function App({
 
 	if (loading && spaces.length === 0) {
 		return (
-			<box flexDirection="column" padding={1}>
-				<text fg={terminalColor()} flexShrink={1}>
-					Loading spaces...
-				</text>
-			</box>
+			<PaneFrame title="rail" isActive={isRailFocused}>
+				<box flexDirection="column" padding={1}>
+					<text fg={terminalColor()} flexShrink={1}>
+						Loading spaces...
+					</text>
+				</box>
+			</PaneFrame>
 		);
 	}
 
 	return (
-		// Keep blank rows in the frame so filtering clears old results after a
-		// search zoom. OpenTUI retains and updates only the cells that change.
-		<box flexDirection="column" height={termHeight}>
-			{/* Update banner (only shown if an update is available and not dismissed) */}
-			{updateInfo && (
-				<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
-			)}
+		<PaneFrame title="rail" isActive={isRailFocused}>
+			{/* Keep blank rows in the frame so filtering clears old results after a
+		    search zoom. OpenTUI retains and updates only the cells that change. */}
+			<box flexDirection="column" height={termHeight}>
+				{/* Update banner (only shown if an update is available and not dismissed) */}
+				{updateInfo && (
+					<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
+				)}
 
-			{/* Keep the header at one row so list height calculations stay valid
+				{/* Keep the header at one row so list height calculations stay valid
 			    when a pane narrows. Native clipping preserves the segment widths;
 			    mouse selection uses each row's rendered bounds. */}
-			<box flexDirection="row" height={1} overflow="hidden">
-				<box flexDirection="row" flexShrink={0}>
-					<text
-						flexShrink={1}
-						attributes={textAttributes({bold: true})}
-						fg={terminalColor('cyan')}
-						wrapMode="none"
-						height={1}
-					>
-						🍝 {repoName}
-					</text>
-					{!inTmux && (
-						<>
-							<text
-								fg={terminalColor()}
-								flexShrink={1}
-								attributes={textAttributes({dim: true})}
-								wrapMode="none"
-								height={1}
-							>
-								{' '}
-								|{' '}
-							</text>
-							<text
-								flexShrink={1}
-								fg={terminalColor('yellow')}
-								wrapMode="none"
-								height={1}
-							>
-								Not in tmux
-							</text>
-						</>
-					)}
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-						wrapMode="none"
-						height={1}
-					>
-						{' '}
-						|{' '}
-					</text>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-						wrapMode="none"
-						height={1}
-					>
-						{spaceCount} space{spaceCount !== 1 ? 's' : ''}
-						{visibleDisplaySpaces.length < activeSpaces.length &&
-							` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
-					</text>
-					{errorCount > 0 && (
-						<>
-							<text
-								fg={terminalColor()}
-								flexShrink={1}
-								attributes={textAttributes({dim: true})}
-								wrapMode="none"
-								height={1}
-							>
-								{' '}
-								|{' '}
-							</text>
-							<text
-								flexShrink={1}
-								fg={terminalColor('red')}
-								wrapMode="none"
-								height={1}
-							>
-								✗ {errorCount}
-							</text>
-							<text
-								fg={terminalColor()}
-								flexShrink={1}
-								attributes={textAttributes({dim: true})}
-								wrapMode="none"
-								height={1}
-							>
-								{' '}
-								(e)
-							</text>
-						</>
-					)}
-				</box>
-			</box>
-
-			{/* Status message line (occupies the row between header and list).
-			    Clipped for the same reason as the header above. */}
-			{statusLineFits(termHeight, bannerHeight, linesPerItem) && (
 				<box flexDirection="row" height={1} overflow="hidden">
-					{isSearching && !isZooming ? (
-						/* Keep the slash and match count at their natural widths;
-					   the native input scrolls its text within the remaining space. */
-						<box flexDirection="row" width="100%">
-							<box flexDirection="row" flexShrink={0}>
+					<box flexDirection="row" flexShrink={0}>
+						<text
+							flexShrink={1}
+							attributes={textAttributes({bold: true})}
+							fg={terminalColor('cyan')}
+							wrapMode="none"
+							height={1}
+						>
+							🍝 {repoName}
+						</text>
+						{!inTmux && (
+							<>
 								<text
+									fg={terminalColor()}
 									flexShrink={1}
-									fg={terminalColor('cyan')}
+									attributes={textAttributes({dim: true})}
 									wrapMode="none"
 									height={1}
 								>
-									/
+									{' '}
+									|{' '}
 								</text>
-							</box>
-							<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
-								<TextInput
-									value={searchQuery}
-									onChange={setSearchQuery}
-									placeholder="filter by key or title..."
-								/>
-							</box>
-							{filteredDisplaySpaces.length !== displaySpaces.length && (
+								<text
+									flexShrink={1}
+									fg={terminalColor('yellow')}
+									wrapMode="none"
+									height={1}
+								>
+									Not in tmux
+								</text>
+							</>
+						)}
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+							wrapMode="none"
+							height={1}
+						>
+							{' '}
+							|{' '}
+						</text>
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+							wrapMode="none"
+							height={1}
+						>
+							{spaceCount} space{spaceCount !== 1 ? 's' : ''}
+							{visibleDisplaySpaces.length < activeSpaces.length &&
+								` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
+						</text>
+						{errorCount > 0 && (
+							<>
+								<text
+									fg={terminalColor()}
+									flexShrink={1}
+									attributes={textAttributes({dim: true})}
+									wrapMode="none"
+									height={1}
+								>
+									{' '}
+									|{' '}
+								</text>
+								<text
+									flexShrink={1}
+									fg={terminalColor('red')}
+									wrapMode="none"
+									height={1}
+								>
+									✗ {errorCount}
+								</text>
+								<text
+									fg={terminalColor()}
+									flexShrink={1}
+									attributes={textAttributes({dim: true})}
+									wrapMode="none"
+									height={1}
+								>
+									{' '}
+									(e)
+								</text>
+							</>
+						)}
+					</box>
+				</box>
+
+				{/* Status message line (occupies the row between header and list).
+			    Clipped for the same reason as the header above. */}
+				{statusLineFits(termHeight, bannerHeight, linesPerItem) && (
+					<box flexDirection="row" height={1} overflow="hidden">
+						{isSearching && !isZooming ? (
+							/* Keep the slash and match count at their natural widths;
+					   the native input scrolls its text within the remaining space. */
+							<box flexDirection="row" width="100%">
 								<box flexDirection="row" flexShrink={0}>
 									<text
-										fg={terminalColor()}
 										flexShrink={1}
-										attributes={textAttributes({dim: true})}
+										fg={terminalColor('cyan')}
 										wrapMode="none"
 										height={1}
 									>
-										{' '}
-										({filteredDisplaySpaces.length} match
-										{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+										/
 									</text>
 								</box>
-							)}
-						</box>
-					) : (
-						<TruncatedLine
-							runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
+								<box
+									flexDirection="row"
+									flexGrow={1}
+									flexShrink={1}
+									minWidth={1}
+								>
+									<TextInput
+										value={searchQuery}
+										onChange={setSearchQuery}
+										placeholder="filter by key or title..."
+									/>
+								</box>
+								{filteredDisplaySpaces.length !== displaySpaces.length && (
+									<box flexDirection="row" flexShrink={0}>
+										<text
+											fg={terminalColor()}
+											flexShrink={1}
+											attributes={textAttributes({dim: true})}
+											wrapMode="none"
+											height={1}
+										>
+											{' '}
+											({filteredDisplaySpaces.length} match
+											{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+										</text>
+									</box>
+								)}
+							</box>
+						) : (
+							<TruncatedLine
+								runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
+							/>
+						)}
+					</box>
+				)}
+
+				{/* Main content */}
+				<box flexDirection="column">
+					{isZooming ? null : showUpdateConfirm ? (
+						<ConfirmDialog
+							title={updateConfirmContent.title}
+							message={updateConfirmContent.message}
+							detail={updateConfirmContent.detail}
+							isDestructive={updateConfirmContent.isDestructive}
+							onConfirm={handleUpdateConfirmed}
+							onCancel={() => setShowUpdateConfirm(false)}
 						/>
+					) : configMigrations ? (
+						<ConfirmDialog
+							{...buildConfigMigrationConfirmContent(configMigrations)}
+							onConfirm={() => {
+								handleConfigMigration(configMigrations);
+								setConfigMigrations(null);
+							}}
+							onCancel={() => setConfigMigrations(null)}
+						/>
+					) : showPromptDialog ? (
+						<PromptDialog
+							onSubmit={handleNewSession}
+							onCancel={() => setShowPromptDialog(false)}
+							savedProfileFor={savedProfileFor}
+							availableWidth={termDimensions.cols}
+							availableHeight={dialogHeight}
+							isInTmux={inTmux}
+						/>
+					) : killDoneTargets !== null ? (
+						<ConfirmDialog
+							title={killDoneConfirmContent.title}
+							message={killDoneConfirmContent.message}
+							detail={killDoneConfirmContent.detail}
+							processingMessage={killDoneConfirmContent.processingMessage}
+							isDestructive={killDoneConfirmContent.isDestructive}
+							onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
+							onCancel={() => setKillDoneTargets(null)}
+						/>
+					) : deleteTarget ? (
+						<CloseSpaceDialog
+							spaceName={deleteTarget.name}
+							currentIssue={
+								deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
+							}
+							onConfirm={async choice =>
+								handleDeleteSpace(deleteTarget, choice)
+							}
+							onCancel={() => setDeleteTarget(null)}
+						/>
+					) : showHelp ? (
+						<HelpOverlay
+							onClose={() => setShowHelp(false)}
+							customKeybindings={keybindings}
+							commitSha={commitSha}
+							installedVersion={installedVersion}
+							isDevBuild={isDevBuild}
+							availableHeight={dialogHeight}
+						/>
+					) : showErrorDialog ? (
+						<ErrorDialog
+							errors={recentErrors}
+							onClose={() => setShowErrorDialog(false)}
+							onClear={() => {
+								clearRecentErrors();
+								setShowErrorDialog(false);
+							}}
+						/>
+					) : (
+						renderList()
 					)}
 				</box>
-			)}
-
-			{/* Main content */}
-			<box flexDirection="column">
-				{isZooming ? null : showUpdateConfirm ? (
-					<ConfirmDialog
-						title={updateConfirmContent.title}
-						message={updateConfirmContent.message}
-						detail={updateConfirmContent.detail}
-						isDestructive={updateConfirmContent.isDestructive}
-						onConfirm={handleUpdateConfirmed}
-						onCancel={() => setShowUpdateConfirm(false)}
-					/>
-				) : configMigrations ? (
-					<ConfirmDialog
-						{...buildConfigMigrationConfirmContent(configMigrations)}
-						onConfirm={() => {
-							handleConfigMigration(configMigrations);
-							setConfigMigrations(null);
-						}}
-						onCancel={() => setConfigMigrations(null)}
-					/>
-				) : showPromptDialog ? (
-					<PromptDialog
-						onSubmit={handleNewSession}
-						onCancel={() => setShowPromptDialog(false)}
-						savedProfileFor={savedProfileFor}
-						availableWidth={termDimensions.cols}
-						availableHeight={dialogHeight}
-						isInTmux={inTmux}
-					/>
-				) : killDoneTargets !== null ? (
-					<ConfirmDialog
-						title={killDoneConfirmContent.title}
-						message={killDoneConfirmContent.message}
-						detail={killDoneConfirmContent.detail}
-						processingMessage={killDoneConfirmContent.processingMessage}
-						isDestructive={killDoneConfirmContent.isDestructive}
-						onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
-						onCancel={() => setKillDoneTargets(null)}
-					/>
-				) : deleteTarget ? (
-					<CloseSpaceDialog
-						spaceName={deleteTarget.name}
-						currentIssue={
-							deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
-						}
-						onConfirm={async choice => handleDeleteSpace(deleteTarget, choice)}
-						onCancel={() => setDeleteTarget(null)}
-					/>
-				) : showHelp ? (
-					<HelpOverlay
-						onClose={() => setShowHelp(false)}
-						customKeybindings={keybindings}
-						commitSha={commitSha}
-						installedVersion={installedVersion}
-						isDevBuild={isDevBuild}
-						availableHeight={dialogHeight}
-					/>
-				) : showErrorDialog ? (
-					<ErrorDialog
-						errors={recentErrors}
-						onClose={() => setShowErrorDialog(false)}
-						onClear={() => {
-							clearRecentErrors();
-							setShowErrorDialog(false);
-						}}
-					/>
-				) : (
-					renderList()
-				)}
 			</box>
-		</box>
+		</PaneFrame>
 	);
 }
