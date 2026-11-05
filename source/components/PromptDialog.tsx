@@ -12,6 +12,7 @@ import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
+	getTeamPrefix,
 	listAgentProfiles,
 	loadAgentProfileSources,
 	resolveAgentProfileName,
@@ -190,6 +191,7 @@ export default function PromptDialog({
 			return null;
 		}
 	}, []);
+	const exampleKey = `${config ? getTeamPrefix(config) : 'STA'}-123`;
 
 	const ready = useReadyWork(
 		tracker,
@@ -527,7 +529,7 @@ export default function PromptDialog({
 						flexShrink={1}
 						attributes={textAttributes({dim: true})}
 					>
-						- <span fg={terminalColor('cyan')}>STA-123</span> or{' '}
+						- <span fg={terminalColor('cyan')}>{exampleKey}</span> or{' '}
 						<span fg={terminalColor('cyan')}>123</span> = open workspace for
 						existing issue
 					</text>
@@ -550,7 +552,7 @@ export default function PromptDialog({
 						value={prompt}
 						onChange={setPrompt}
 						onSubmit={handlePromptSubmit}
-						placeholder="STA-123, 123, or describe the task..."
+						placeholder={`${exampleKey}, 123, or describe the task...`}
 						isFocused={!isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
