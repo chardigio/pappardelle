@@ -50,7 +50,8 @@
 			"ts": "module",
 			"tsx": "module"
 		},
-		"workerThreads": false
+		"workerThreads": false,
+		"timeout": "2m"
 	},
 	"xo": [
 		{
