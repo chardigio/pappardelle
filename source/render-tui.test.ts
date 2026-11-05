@@ -1,13 +1,10 @@
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {clearRecentErrors, getRecentErrors, getLogDir} from './logger.ts';
-import {PassThrough} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import React from 'react';
-import {flushSync} from '@opentui/react';
-import xterm from '@xterm/headless';
-import {renderTui} from './render-tui.ts';
+import {terminalView} from '../test/helpers/terminal-view.ts';
 
 const list = (query: string, rows: string[]) =>
 	React.createElement(
@@ -17,64 +14,6 @@ const list = (query: string, rows: string[]) =>
 		React.createElement('text', null, '/' + query),
 		...rows.map(row => React.createElement('text', {key: row}, row)),
 	);
-
-async function terminalView(node: React.ReactNode) {
-	const stdout = Object.assign(new PassThrough(), {
-		isTTY: true,
-		rows: 12,
-		columns: 60,
-	});
-	const stdin = Object.assign(new PassThrough(), {
-		isTTY: true,
-		setRawMode() {},
-		ref() {},
-		unref() {},
-	});
-	let output = '';
-	stdout.on('data', data => {
-		output += data.toString();
-	});
-	const terminal = new xterm.Terminal({
-		cols: 60,
-		rows: 12,
-		allowProposedApi: true,
-	});
-	const view = await renderTui(node, {
-		stdout: stdout as unknown as NodeJS.WriteStream,
-		stdin: stdin as unknown as NodeJS.ReadStream,
-		exitOnCtrlC: false,
-		exitSignals: [],
-		useMouse: false,
-	});
-	const flush = async () => {
-		await delay(30);
-		await view.renderer.idle();
-		const bytes = output;
-		output = '';
-		await new Promise<void>(resolve => {
-			terminal.write(bytes, resolve);
-		});
-		return bytes;
-	};
-	await flush();
-	return {
-		...view,
-		terminal,
-		stdin,
-		flush,
-		async update(next: React.ReactNode) {
-			flushSync(() => view.root.render(next));
-			return flush();
-		},
-		line: (row: number) =>
-			terminal.buffer.active.getLine(row)?.translateToString(true).trimEnd(),
-		async dispose() {
-			view.renderer.destroy();
-			await view.renderer.closed;
-			terminal.dispose();
-		},
-	};
-}
 
 test.serial(
 	'filtering and resizing remove stale rows and keep the list at the top',

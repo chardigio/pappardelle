@@ -19,7 +19,10 @@
  * Selection keeps `inverse`, because only `inverse` can paint a bar in the
  * terminal's own foreground color. Every span on the row, icons included,
  * drops its color while selected: under `inverse` a span's color becomes the
- * bar, so the bar would break into tracker and status colors.
+ * bar, so the bar would break into tracker and status colors. The one
+ * exception is a span marked `keepsColor` (the working spinner): it is given
+ * the default foreground as its bg, so the bar stays whole and the glyph
+ * keeps its color on it.
  */
 import {RGBA, type ColorInput} from '@opentui/core';
 import {terminalColor, textAttributes} from '../tui-style.ts';
@@ -39,6 +42,8 @@ export interface SpanStyle {
 	fg?: string;
 	bold?: boolean;
 	dim?: boolean;
+	/** Keep `fg` on the selection bar instead of taking the bar's colors. */
+	keepsColor?: boolean;
 }
 
 export interface SpanPaint {
@@ -70,6 +75,14 @@ export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 			return {
 				fg: RGBA.defaultBackground(),
 				bg: terminalColor(blinkColor),
+				attributes: textAttributes({bold: span.bold, inverse: true}),
+			};
+		}
+
+		if (isSelectionShown && span.keepsColor && span.fg) {
+			return {
+				fg: terminalColor(span.fg),
+				bg: RGBA.defaultForeground(),
 				attributes: textAttributes({bold: span.bold, inverse: true}),
 			};
 		}
