@@ -5,7 +5,11 @@ import type {PopupSize} from './size.ts';
 
 const CONFIRM: PopupSpec = {
 	kind: 'confirm',
-	props: {title: 'Close Space', message: 'Close space bd-1?'},
+	props: {
+		title: 'Close Space',
+		message: 'Close space bd-1?',
+		isDestructive: true,
+	},
 };
 
 type FakeDialog = {

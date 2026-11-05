@@ -468,6 +468,7 @@ export default function PromptDialog({
 				message={`Close ${identifier}?`}
 				detail={title}
 				processingMessage={`Closing ${identifier}…`}
+				isDestructive={false}
 				onConfirm={ready.confirmClose}
 				onCancel={ready.cancelClose}
 			/>

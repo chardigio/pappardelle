@@ -41,7 +41,7 @@ interface Props {
 	 * discarding work. Only these get the red frame, so it keeps meaning
 	 * "careful" instead of marking every question.
 	 */
-	isDestructive?: boolean;
+	isDestructive: boolean;
 }
 
 export default function ConfirmDialog({
@@ -54,7 +54,7 @@ export default function ConfirmDialog({
 	isFullHeight,
 	children,
 	hint,
-	isDestructive = false,
+	isDestructive,
 }: Props) {
 	// Snapshot the dialog's text when entering processing state. The parent's
 	// props can shift mid-deletion — once `deleteSpace` finishes and the list
