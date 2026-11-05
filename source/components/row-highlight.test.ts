@@ -109,8 +109,8 @@ test('the attention blink paints every span as a colored block with readable tex
 				const paint = row.paint(span);
 				const label = `${color}, selected=${isSelected}, ${JSON.stringify(span)}`;
 				t.deepEqual(paint.bg, terminalColor(color), label);
-				t.notDeepEqual(paint.fg, paint.bg, label);
-				t.false(isInverse(paint.attributes), label);
+				t.deepEqual(paint.fg, RGBA.defaultBackground(), label);
+				t.true(isInverse(paint.attributes), label);
 			}
 		}
 	}

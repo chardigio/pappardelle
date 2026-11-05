@@ -6,13 +6,15 @@
  *     drawn as a blinking colored block, red for approvals, blue for questions
  *   - it is the selected row — drawn as a plain inverse bar
  *
- * The attention block is painted with an explicit background rather than the
- * terminal's `inverse` attribute. OpenTUI resolves `inverse` with an explicit
- * foreground by filling the background with that same color and then still
- * emitting SGR 7, so the terminal swaps two identical colors and the text
- * disappears into the block. Painting the block color as the background and
- * leaving the text in a default color draws the colored bar with readable
- * text on every theme.
+ * Both are drawn with the terminal's `inverse` attribute, which is the only
+ * way to put the terminal's default background color on text. OpenTUI swaps
+ * fg and bg itself for an inverse cell and then still emits SGR 7, so the
+ * terminal swaps them back: the colors handed to it are the ones displayed.
+ * The attention block is therefore given its palette color as bg and the
+ * default background as fg, which reaches the terminal as `38;5;N 49 7`: the
+ * theme's own red or blue with the text in the theme's background color. An
+ * explicit fg alone would be copied into the empty bg, and the text would
+ * vanish into the block.
  *
  * Selection keeps `inverse`, because only `inverse` can paint a bar in the
  * terminal's own foreground color. Every span on the row, icons included,
@@ -68,7 +70,7 @@ export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 			return {
 				fg: RGBA.defaultBackground(),
 				bg: terminalColor(blinkColor),
-				attributes: textAttributes({bold: span.bold}),
+				attributes: textAttributes({bold: span.bold, inverse: true}),
 			};
 		}
 
