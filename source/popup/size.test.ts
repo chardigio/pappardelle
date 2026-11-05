@@ -1,4 +1,6 @@
 import test from 'ava';
+import stringWidth from 'string-width';
+import {buildHelpLines, buildHelpRows} from '../components/help-rows.ts';
 import {popupSize, wrappedLineCount} from './size.ts';
 
 const client = {cols: 200, rows: 50};
@@ -92,6 +94,24 @@ test('help grows a section for custom commands', t => {
 	);
 
 	t.is(withCustom.height, base.height + 4);
+});
+
+test('help is wide enough for every heading, the status legend included', t => {
+	const size = popupSize(
+		{kind: 'help', props: {customKeybindings: [], commitSha: 'abc1234'}},
+		client,
+	);
+	const headings = buildHelpLines(buildHelpRows([])).flatMap(line =>
+		line.kind === 'heading' ? [line.text] : [],
+	);
+
+	const borderAndPadding = 6;
+	for (const heading of headings) {
+		t.true(
+			stringWidth(heading) <= size.width - borderAndPadding,
+			`fits: ${heading}`,
+		);
+	}
 });
 
 test('scrolling views take 80% of the client', t => {

@@ -118,10 +118,14 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 					row => rows.maxKeyLength + 1 + widestLine(row.description),
 				),
 			);
-			const height = HELP_CHROME_ROWS + buildHelpLines(rows).length;
+			const lines = buildHelpLines(rows);
+			const height = HELP_CHROME_ROWS + lines.length;
 			const maxHeight = client.rows - STATUS_LINE_ROWS;
 			const contentWidth = Math.max(
 				rowWidth,
+				...lines.map(line =>
+					line.kind === 'heading' ? widestLine(line.text) : 0,
+				),
 				widestLine(formatVersionLine(installedVersion, commitSha, isDevBuild)),
 				widestLine(helpFooter(height > maxHeight)),
 			);
