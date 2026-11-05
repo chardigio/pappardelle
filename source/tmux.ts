@@ -379,29 +379,25 @@ function agentTitleAndFocusArgs(
 }
 
 // Palette-free so the borders read on light and dark themes alike: the active
-// pane's border in the default foreground, the rest dimmed, each titled.
-const WINDOW_CHROME_ARGS = [
-	';',
-	'set-option',
-	'-w',
-	'pane-border-style',
-	'fg=default,dim',
-	';',
-	'set-option',
-	'-w',
-	'pane-active-border-style',
-	'fg=default',
-	';',
-	'set-option',
-	'-w',
-	'pane-border-status',
-	'top',
-	';',
-	'set-option',
-	'-w',
-	'pane-border-format',
-	`#{?pane_active,#[bold],} #{${PANE_TITLE_OPTION}} `,
-];
+// pane's border in the default foreground, the rest dimmed, each titled. Set
+// on pappardelle's own window only, so the user's other windows keep theirs.
+function windowChromeArgs(listPaneId: string): string[] {
+	const options: Array<[string, string]> = [
+		['pane-border-style', 'fg=default,dim'],
+		['pane-active-border-style', 'fg=default'],
+		['pane-border-status', 'top'],
+		['pane-border-format', `#{?pane_active,#[bold],} #{${PANE_TITLE_OPTION}} `],
+	];
+	return options.flatMap(([name, value]) => [
+		';',
+		'set-option',
+		'-w',
+		'-t',
+		listPaneId,
+		name,
+		value,
+	]);
+}
 
 /**
  * Build the shell command for starting the agent pane's agent with a
@@ -1540,7 +1536,7 @@ export function setupPappardellLayout(): {
 				...paneTitleArgs(listPaneId, 'rail'),
 				';',
 				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
-				...WINDOW_CHROME_ARGS,
+				...windowChromeArgs(listPaneId),
 			],
 			{encoding: 'utf-8', timeout: 5000},
 		);
