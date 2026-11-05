@@ -29,7 +29,7 @@ test('a line that does not fit ends in an ellipsis, and widening restores it', a
 });
 
 test('the help legend is cut with an ellipsis inside a narrow overlay', async t => {
-	const width = 50;
+	const width = 40;
 	const view = await render(
 		React.createElement(
 			'box',
