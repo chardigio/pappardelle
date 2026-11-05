@@ -32,8 +32,7 @@ const spans: SpanStyle[] = [
 	{},
 	{fg: 'red', bold: true},
 	{dim: true},
-	{fg: TEAL, bold: true, selectable: true},
-	{dim: true, selectable: true},
+	{fg: TEAL, bold: true},
 ];
 
 const isInverse = (attributes: number) =>
@@ -44,7 +43,6 @@ test('an unselected row keeps the tracker state color on its issue key', t => {
 	const key = resolveRowHighlight(base).paint({
 		fg: TEAL,
 		bold: true,
-		selectable: true,
 	});
 	t.deepEqual(key.fg, terminalColor(TEAL));
 	t.false(isInverse(key.attributes));
@@ -53,10 +51,7 @@ test('an unselected row keeps the tracker state color on its issue key', t => {
 test('a selected row inverts its key and title against the default foreground, whatever the state color', t => {
 	const row = resolveRowHighlight({...base, isSelected: true});
 	for (const stateColor of [TEAL, NEAR_BACKGROUND, 'gray', 'white']) {
-		for (const span of [
-			{fg: stateColor, bold: true, selectable: true},
-			{dim: true, selectable: true},
-		]) {
+		for (const span of [{fg: stateColor, bold: true}, {dim: true}]) {
 			const paint = row.paint(span);
 			t.true(isInverse(paint.attributes), `state color ${stateColor}`);
 			t.deepEqual(
@@ -69,11 +64,17 @@ test('a selected row inverts its key and title against the default foreground, w
 	}
 });
 
-test('selection leaves the row chrome (status icon, rail icons) in its own colors', t => {
+test('selection inverts every span with default colors, icons included', t => {
 	const row = resolveRowHighlight({...base, isSelected: true});
-	const icon = row.paint({fg: 'green', bold: true});
-	t.false(isInverse(icon.attributes));
-	t.deepEqual(icon.fg, terminalColor('green'));
+	for (const span of [{fg: 'green', bold: true}, {fg: 'red'}, {}]) {
+		const paint = row.paint(span);
+		t.true(isInverse(paint.attributes), `span ${JSON.stringify(span)}`);
+		t.deepEqual(
+			paint.fg,
+			RGBA.defaultForeground(),
+			`span ${JSON.stringify(span)}`,
+		);
+	}
 });
 
 test('bright black never reaches any span on a row', t => {
@@ -81,7 +82,7 @@ test('bright black never reaches any span on a row', t => {
 	// key or icon painted 'gray' rendered background-on-background.
 	const row = resolveRowHighlight(base);
 	for (const fg of ['gray', 'grey', 'blackBright']) {
-		for (const span of [{fg, bold: true, selectable: true}, {fg}]) {
+		for (const span of [{fg, bold: true}, {fg}]) {
 			t.deepEqual(
 				row.paint(span).fg,
 				RGBA.defaultForeground(),
@@ -122,7 +123,7 @@ test('the blink off-phase falls back to the selection highlight', t => {
 		needsAttention: true,
 		blinkOn: false,
 	});
-	const title = row.paint({dim: true, selectable: true});
+	const title = row.paint({dim: true});
 	t.true(isInverse(title.attributes));
 	t.is(title.bg, undefined);
 });
