@@ -25,6 +25,22 @@ function fakeTmux() {
 	return {calls, run};
 }
 
+const isSwitchBatch = (args: string[]) =>
+	args.includes('switch-client') && args.includes(';');
+
+const titleAndFocus = (issueKey: string) => [
+	'set-option',
+	'-p',
+	'-t',
+	'%1',
+	'@pappardelle_title',
+	`agent · ${issueKey}`,
+	';',
+	'select-pane',
+	'-t',
+	'%0',
+];
+
 test.beforeEach(() => {
 	clearCurrentlyViewingSpace();
 });
@@ -114,7 +130,7 @@ test.serial(
 		);
 		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1:'));
 		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1:'));
-		t.deepEqual(fake.calls.at(-1), ['select-pane', '-t', '%0']);
+		t.deepEqual(fake.calls.at(-1), titleAndFocus('TEST-1'));
 	},
 );
 
@@ -191,7 +207,7 @@ test.serial(
 		]);
 		t.true(batch[12]!.startsWith('=companion-'));
 		t.true(batch[12]!.endsWith('-TEST-B:'));
-		t.deepEqual(fake.calls[1], ['select-pane', '-t', '%0']);
+		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
 	},
 );
 
@@ -205,7 +221,7 @@ test.serial(
 		fake.calls.length = 0;
 		const run: AsyncTmuxRunner = async args => {
 			const output = await fake.run(args);
-			if (args.includes(';')) throw new Error('second client disappeared');
+			if (isSwitchBatch(args)) throw new Error('second client disappeared');
 			if (args[0] === 'display-message') {
 				return args[3] === '%1' ? '/dev/new-claude' : '/dev/new-companion';
 			}
@@ -247,7 +263,7 @@ test.serial(
 		});
 		const run: AsyncTmuxRunner = async args => {
 			const output = await fake.run(args);
-			if (args.includes(';')) {
+			if (isSwitchBatch(args)) {
 				throw Object.assign(new Error('Command failed'), {
 					code: 1,
 					stderr: "can't find session: agent-TEST-B\n",
@@ -292,7 +308,11 @@ test.serial(
 		);
 		t.true(
 			fake.calls.some(args =>
-				args.some(arg => arg.includes('No session for ABSENT-FIXTURE-999999')),
+				args.some(
+					arg =>
+						arg.includes('has no agent running') &&
+						arg.includes('ABSENT-FIXTURE-999999'),
+				),
 			),
 		);
 		t.false(
@@ -378,7 +398,7 @@ test.serial(
 				args => args[0] === 'display-message' && args[3] === '%3',
 			),
 		);
-		t.false(fake.calls.some(args => args.includes(';')));
+		t.false(fake.calls.some(args => isSwitchBatch(args)));
 	},
 );
 
