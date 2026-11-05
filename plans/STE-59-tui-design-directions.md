@@ -128,6 +128,7 @@ Frames are stored as interned rows, so a frame lists row ids and unchanged rows 
 - [x] Copy this plan to `plans/STE-59-tui-design-directions.md`
 
 ### Progress notes
+
 - Published: https://claude.ai/artifact/CZAQ7bC1PZbAAE49BW1x7u
 - Fidelity: 0 differing cells for every direction, tier and surface (rail, prompt, confirm, help, errors, the 150×34 tmux window). Capture uses `-N` so trailing tinted cells survive
 - Final suite: 2496 passed (2492 + 4 new frame tests), same 2 pre-existing failures; xo 0 errors, 22 warnings (19 on the base + 3 `max-params`); prettier and both typechecks clean
@@ -234,6 +235,7 @@ Frames are stored as interned rows, so a frame lists row ids and unchanged rows 
   - Final bench, export, build and republish done (artifact v4)
 
 ### 11. Mission control (added after QA at the user's request)
+
 - [x] Fourth direction, `design/directions/mission-control/`: dense instrument panel. Fleet composition bar and counts in the header; per-row telemetry readout (OSC progress %, tool, or a 4-letter state code) and an activity sparkline; rows with telemetry carry gauges (progress bar, message, time in state); master-caution alert when an agent needs you
 - [x] Same surfaces as the others: rail, prompt (launch console), confirms, help (keymap), errors (fault log), tmux chrome + snippet
 - [x] Register it and re-run fidelity for its surfaces (0 differing cells on all 7, both tiers)
