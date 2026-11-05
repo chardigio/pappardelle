@@ -33,10 +33,10 @@ startup. Medians of five runs; no warmup sample was discarded.
 
 | Milestone                                  | Clean shell | 1-second shell-init delay |
 | ------------------------------------------ | ----------: | ------------------------: |
-| Dummy agent reaches its ready marker       |       224.3 |                   1,220.0 |
-| Dummy companion reaches its ready marker   |       233.7 |                   1,226.8 |
-| Both inner clients observed attached       |       260.0 |                     255.8 |
-| Both ready markers visible in viewer panes |       281.2 |                   1,244.1 |
+| Dummy agent reaches its ready marker       |       239.6 |                   1,227.3 |
+| Dummy companion reaches its ready marker   |       243.9 |                   1,233.0 |
+| Both inner clients observed attached       |       278.4 |                     266.9 |
+| Both ready markers visible in viewer panes |       289.8 |                   1,239.8 |
 
 Readiness-file timestamps use a monotonic clock inside each dummy process.
 Attachment and visible-marker observations are sampled independently, every
@@ -54,7 +54,7 @@ shell is responsible for their observed latency. No user shell files were read.
 
 Tracing is a **separate run**, excluded from every median. Python wrappers around
 Git/tmux add substantial process overhead: both markers became visible at
-1,396.9 ms in the traced run versus the untraced 281.2 ms median. Use it for call
+1,499.7 ms in the traced run versus the untraced 289.8 ms median. Use it for call
 structure and ordering, not as an unbiased wall-time profile or a direct
 comparison with macOS. Spans cover the underlying subprocess, excluding wrapper
 initialization; gaps also contain wrapper overhead. Overlapping spans must not
@@ -62,8 +62,8 @@ be summed into a total startup duration.
 
 The captured window includes readiness plus 300 ms of follow-up activity:
 
-- 64 completed tmux invocations and 7 completed Git invocations.
-- 29 `tmux display-message` calls, 5 `select-pane`, 5 `set-option`, 4
+- 60 completed tmux invocations and 7 completed Git invocations.
+- 29 `tmux display-message` calls, 1 `select-pane`, 5 `set-option`, 4
   `resize-pane`, and 2 each of `new-session`, `respawn-pane`, and `split-window`.
 - Two relayout passes following initial layout creation, matching the pattern
   in the user's log. Equal window dimensions do not establish identical desired
@@ -71,6 +71,10 @@ The captured window includes readiness plus 300 ms of follow-up activity:
 - Observation commands use the real tmux binary and are excluded from the trace.
   Wrappers record on subprocess completion, so long-lived attach processes killed
   during teardown are not represented. Counts are completed calls, not all spawns.
+
+The branch advanced during this investigation. These final samples were rebuilt
+and rerun after rebasing onto `0b516ec` (source recorded as `4cd82f7`, whose added
+files are benchmark artifacts only). Earlier exploratory samples are not pooled.
 
 ## Where to investigate
 
@@ -115,6 +119,10 @@ python3 scripts/benchmarks/workspace-ready.py --runs 5 --trace \
 Each sample destroys only its own uniquely isolated servers. A timeout fails the
 benchmark instead of becoming a successful timing sample. The trace JSON is
 written beside the metrics JSON using the suffix `.trace.json`.
+
+Related existing bead: `pappardelle-p9s` covers other synchronous input paths and
+the initial tmux-version probe. Coordinate overlapping changes without expanding
+this startup investigation into unrelated PR-lookup or keyboard fixes.
 
 Successor acceptance criteria:
 
