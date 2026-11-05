@@ -341,6 +341,68 @@ function viewerMessageCommand(message: string): string {
 	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
 }
 
+// Selecting a space already tries to start its agent, so reaching this means
+// the start failed, and the reason was logged to the rail's error list.
+function viewerNoSessionCommand(issueKey: string): string {
+	const format =
+		'\\n  \\033[1m%s\\033[0;2m has no agent running\\033[0m\\n\\n' +
+		'  \\033[1;7m e \\033[0;2m in the rail shows why\\033[0m\\n\\n';
+	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
+}
+
+// A user option rather than the pane title, which programs in the pane can
+// overwrite with an escape sequence.
+const PANE_TITLE_OPTION = '@pappardelle_title';
+
+function paneTitleArgs(paneId: string, title: string): string[] {
+	return ['set-option', '-p', '-t', paneId, PANE_TITLE_OPTION, title];
+}
+
+function viewerTitleArgs(
+	agentViewerPaneId: string,
+	companionViewerPaneId: string,
+): string[] {
+	const args = paneTitleArgs(agentViewerPaneId, 'agent');
+	if (companionViewerPaneId)
+		args.push(';', ...paneTitleArgs(companionViewerPaneId, 'companion'));
+	return args;
+}
+
+function agentTitleAndFocusArgs(
+	agentViewerPaneId: string,
+	issueKey: string,
+	listPaneId?: string,
+): string[] {
+	const args = paneTitleArgs(agentViewerPaneId, `agent · ${issueKey}`);
+	if (listPaneId) args.push(';', 'select-pane', '-t', listPaneId);
+	return args;
+}
+
+// Palette-free so the borders read on light and dark themes alike: the active
+// pane's border in the default foreground, the rest dimmed, each titled.
+const WINDOW_CHROME_ARGS = [
+	';',
+	'set-option',
+	'-w',
+	'pane-border-style',
+	'fg=default,dim',
+	';',
+	'set-option',
+	'-w',
+	'pane-active-border-style',
+	'fg=default',
+	';',
+	'set-option',
+	'-w',
+	'pane-border-status',
+	'top',
+	';',
+	'set-option',
+	'-w',
+	'pane-border-format',
+	`#{?pane_active,#[bold],} #{${PANE_TITLE_OPTION}} `,
+];
+
 /**
  * Build the shell command for starting the agent pane's agent with a
  * resume-then-launch fallback. Tries to resume the space's own conversation
@@ -1472,35 +1534,18 @@ export function setupPappardellLayout(): {
 			);
 		}
 
-		// Set pane titles
-		execSync(`tmux select-pane -t "${listPaneId}" -T "pappardelle"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		execSync(`tmux select-pane -t "${agentViewerPaneId}" -T "agent-viewer"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		if (companionViewerPaneId) {
-			execSync(
-				`tmux select-pane -t "${companionViewerPaneId}" -T "companion-viewer"`,
-				{
-					encoding: 'utf-8',
-					timeout: 5000,
-				},
-			);
-		}
-
-		// Set window-level options for better focus highlighting
-		// These only affect the current window, not other tmux sessions
-		execSync('tmux set-option -w pane-border-style "fg=colour238"', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		execSync('tmux set-option -w pane-active-border-style "fg=cyan,bold"', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const chrome = spawnSync(
+			'tmux',
+			[
+				...paneTitleArgs(listPaneId, 'rail'),
+				';',
+				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
+				...WINDOW_CHROME_ARGS,
+			],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (chrome.error || chrome.status !== 0)
+			log.warn(`Failed to style pane borders: ${chrome.stderr}`);
 
 		enableSynchronizedOutput();
 
@@ -1628,7 +1673,9 @@ export async function attachToSpace(
 			// Existing clients can switch directly. tmux validates both targets;
 			// an exited client or missing session falls back to setup below.
 			await run(innerTmuxArgs(commands));
-			if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+			await run(
+				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
+			);
 			currentlyViewingSpace = issueKey;
 			return true;
 		} catch (err) {
@@ -1708,7 +1755,7 @@ export async function attachToSpace(
 					]
 						.map(value => shellQuote(value))
 						.join(' ')
-				: viewerMessageCommand(`No session for ${issueKey}`);
+				: viewerNoSessionCommand(issueKey);
 			await run(viewerRespawnArgs(paneId, command));
 			// Respawning allocates a new pty, and the fast path finds the nested
 			// client by its tty.
@@ -1729,7 +1776,7 @@ export async function attachToSpace(
 					hasCompanionSession,
 				));
 		}
-		if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+		await run(agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId));
 		currentlyViewingSpace = issueKey;
 		return true;
 	} catch (err) {
@@ -2013,18 +2060,8 @@ export async function rebuildLayout(
 			);
 		}
 
-		// Set pane titles
 		try {
-			await run(['select-pane', '-t', agentViewerPaneId, '-T', 'agent-viewer']);
-			if (companionViewerPaneId) {
-				await run([
-					'select-pane',
-					'-t',
-					companionViewerPaneId,
-					'-T',
-					'companion-viewer',
-				]);
-			}
+			await run(viewerTitleArgs(agentViewerPaneId, companionViewerPaneId));
 		} catch {
 			// Non-fatal
 		}
