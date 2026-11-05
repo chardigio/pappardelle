@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import {homedir, tmpdir} from 'node:os';
 import path from 'node:path';
 
-import SpaceListItem from './components/SpaceListItem.tsx';
+import SpaceListItem, {ROW_PADDING_CELLS} from './components/SpaceListItem.tsx';
 import PromptDialog from './components/PromptDialog.tsx';
 import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
@@ -2254,7 +2254,11 @@ export default function App({
 	const renderList = () => {
 		if (activeSpaces.length === 0) {
 			return (
-				<box flexDirection="column" paddingY={1}>
+				<box
+					flexDirection="column"
+					paddingY={1}
+					paddingLeft={ROW_PADDING_CELLS}
+				>
 					<text
 						fg={terminalColor()}
 						flexShrink={1}
@@ -2320,7 +2324,12 @@ export default function App({
 				{/* Keep the header at one row so list height calculations stay valid
 			    when a pane narrows. Native clipping preserves the segment widths;
 			    mouse selection uses each row's rendered bounds. */}
-				<box flexDirection="row" height={1} overflow="hidden">
+				<box
+					flexDirection="row"
+					height={1}
+					overflow="hidden"
+					paddingLeft={ROW_PADDING_CELLS}
+				>
 					<box flexDirection="row" flexShrink={0}>
 						<text
 							flexShrink={1}
@@ -2412,7 +2421,12 @@ export default function App({
 				{/* Status message line (occupies the row between header and list).
 			    Clipped for the same reason as the header above. */}
 				{statusLineFits(termHeight, bannerHeight, linesPerItem) && (
-					<box flexDirection="row" height={1} overflow="hidden">
+					<box
+						flexDirection="row"
+						height={1}
+						overflow="hidden"
+						paddingLeft={ROW_PADDING_CELLS}
+					>
 						{isSearching && !isZooming ? (
 							/* Keep the slash and match count at their natural widths;
 					   the native input scrolls its text within the remaining space. */

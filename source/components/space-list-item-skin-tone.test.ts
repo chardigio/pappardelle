@@ -73,7 +73,7 @@ test.serial(
 			const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes');
 			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 			t.true(tmux36Width(frame) <= width, `Rendered row: ${frame}`);
-			t.true(frame.startsWith('💪 ● TEST-1'), `Rendered row: ${frame}`);
+			t.true(frame.startsWith(' 💪 ● TEST-1'), `Rendered row: ${frame}`);
 			t.true(frame.includes('✓'), `Rendered row: ${frame}`);
 		}
 	},
@@ -85,7 +85,7 @@ test.serial('tmux 3.6a keeps the full grapheme at Ink width', async t => {
 			const frame = await renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
 			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 			t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
-			t.true(frame.startsWith('💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
+			t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
 			t.true(frame.includes('✓'), `Rendered row: ${frame}`);
 		}
 	}
@@ -96,6 +96,6 @@ test.serial('outside tmux the full grapheme is kept', async t => {
 		const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes', false);
 		t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 		t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
-		t.true(frame.startsWith('💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
+		t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
 	}
 });

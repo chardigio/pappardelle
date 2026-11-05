@@ -25,6 +25,9 @@ import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 import {useAttentionFrame} from '../animation-clock.ts';
 
+/** Cells of highlight kept at each end of a row. */
+export const ROW_PADDING_CELLS = 1;
+
 interface Props {
 	space: SpaceData;
 	isSelected: boolean;
@@ -116,6 +119,10 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	);
 	const emojiNeedsSeparator = emojiSlot?.needsSeparator ?? false;
 
+	// A highlighted cell at each end keeps the emoji and the rail icons off the
+	// edges of the selection bar.
+	const contentWidth = Math.max(0, width - 2 * ROW_PADDING_CELLS);
+
 	// Calculate available width for title
 	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]", with emoji on the
 	// far left, rail icons right-aligned. They reserve space by shrinking
@@ -131,7 +138,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	// the very thing the clip exists to prevent.
 	const issueKey = clipIssueKey(
 		space.name,
-		width - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
+		contentWidth - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
 	);
 	const hasIssueKey = issueKey.length > 0;
 	// emoji prefix + icon (1) + space (1) [+ issueKey (variable) + space (1)] + rail suffix
@@ -143,8 +150,8 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
 	const availableTitleWidth = inlineTitle
-		? Math.max(0, width - fixedWidth)
-		: Math.max(0, width - twoLineIndent);
+		? Math.max(0, contentWidth - fixedWidth)
+		: Math.max(0, contentWidth - twoLineIndent);
 
 	// Truncate title (pending rows use their own title text)
 	// Show "Loading…" while the Linear issue title is being fetched
@@ -196,6 +203,12 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 			{...gap}
 		>
 			{' '.repeat(width)}
+		</text>
+	);
+
+	const edgePad = (
+		<text flexShrink={0} {...gap}>
+			{' '.repeat(ROW_PADDING_CELLS)}
 		</text>
 	);
 
@@ -271,6 +284,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 			onMouseDown={isTwoLine ? undefined : handleClick}
 		>
 			<box flexDirection="row" flexShrink={0}>
+				{edgePad}
 				{emoji ? (
 					<>
 						<text flexShrink={1} {...gap}>
@@ -341,6 +355,9 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 					{renderPipelineIcon()}
 				</box>
 			) : null}
+			<box flexDirection="row" flexShrink={0}>
+				{edgePad}
+			</box>
 		</box>
 	);
 
@@ -355,7 +372,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 			<box flexDirection="row" overflow="hidden">
 				<box flexDirection="row" flexShrink={0}>
 					<text flexShrink={1} {...gap}>
-						{' '.repeat(twoLineIndent)}
+						{' '.repeat(ROW_PADDING_CELLS + twoLineIndent)}
 					</text>
 				</box>
 				{!inlineTitle && truncatedTitle !== '' && (
