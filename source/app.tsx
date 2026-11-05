@@ -174,7 +174,11 @@ import {
 	runningAgentProfile,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
-import {calculateVisibleWindow, HEADER_ROWS} from './list-view-sizing.ts';
+import {
+	calculateVisibleWindow,
+	HEADER_ROWS,
+	statusLineFits,
+} from './list-view-sizing.ts';
 import {filterSpaces, tearDownSpace} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
@@ -2381,50 +2385,52 @@ export default function App({
 
 			{/* Status message line (occupies the row between header and list).
 			    Clipped for the same reason as the header above. */}
-			<box flexDirection="row" height={1} overflow="hidden">
-				{isSearching && !isZooming ? (
-					/* Keep the slash and match count at their natural widths;
+			{statusLineFits(termHeight, bannerHeight, linesPerItem) && (
+				<box flexDirection="row" height={1} overflow="hidden">
+					{isSearching && !isZooming ? (
+						/* Keep the slash and match count at their natural widths;
 					   the native input scrolls its text within the remaining space. */
-					<box flexDirection="row" width="100%">
-						<box flexDirection="row" flexShrink={0}>
-							<text
-								flexShrink={1}
-								fg={terminalColor('cyan')}
-								wrapMode="none"
-								height={1}
-							>
-								/
-							</text>
-						</box>
-						<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
-							<TextInput
-								value={searchQuery}
-								onChange={setSearchQuery}
-								placeholder="filter by key or title..."
-							/>
-						</box>
-						{filteredDisplaySpaces.length !== displaySpaces.length && (
+						<box flexDirection="row" width="100%">
 							<box flexDirection="row" flexShrink={0}>
 								<text
-									fg={terminalColor()}
 									flexShrink={1}
-									attributes={textAttributes({dim: true})}
+									fg={terminalColor('cyan')}
 									wrapMode="none"
 									height={1}
 								>
-									{' '}
-									({filteredDisplaySpaces.length} match
-									{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+									/
 								</text>
 							</box>
-						)}
-					</box>
-				) : (
-					<TruncatedLine
-						runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
-					/>
-				)}
-			</box>
+							<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
+								<TextInput
+									value={searchQuery}
+									onChange={setSearchQuery}
+									placeholder="filter by key or title..."
+								/>
+							</box>
+							{filteredDisplaySpaces.length !== displaySpaces.length && (
+								<box flexDirection="row" flexShrink={0}>
+									<text
+										fg={terminalColor()}
+										flexShrink={1}
+										attributes={textAttributes({dim: true})}
+										wrapMode="none"
+										height={1}
+									>
+										{' '}
+										({filteredDisplaySpaces.length} match
+										{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+									</text>
+								</box>
+							)}
+						</box>
+					) : (
+						<TruncatedLine
+							runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
+						/>
+					)}
+				</box>
+			)}
 
 			{/* Main content */}
 			<box flexDirection="column">
