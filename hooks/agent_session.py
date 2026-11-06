@@ -243,6 +243,10 @@ def in_split_pane(environ: Mapping[str, str]) -> bool:
     return result.returncode == 0 and bool(panes) and panes[0] != pane
 
 
+def is_agy_payload(payload: Any) -> bool:
+    return isinstance(payload, dict) and "conversationId" in payload
+
+
 def record_agent_session(
     payload: dict[str, Any],
     is_claude_hook: bool,
@@ -262,7 +266,7 @@ def record_agent_session(
     started = started or process_start
     # agy's hooks send camelCase fields and no event name; it registers only
     # the events worth recording (agy-hooks.json.example).
-    is_agy = "conversationId" in payload
+    is_agy = is_agy_payload(payload)
     if is_agy:
         session_id = payload.get("conversationId")
     else:
@@ -280,11 +284,12 @@ def record_agent_session(
         env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
         recorded = read_sessions(Path(env_sessions_path))
         entry = recorded.get(env_profile) if recorded is not None else None
-        if entry_session_id(entry) == session_id and owner_alive(entry, started):
+        # A live agy keeps its first id, so its subagents' ids end here too.
+        if owner_alive(entry, started) and (is_agy or entry_session_id(entry) == session_id):
             return False
-    elif is_claude_hook:
-        # Only codex's daemon runs hooks away from the agent's own env, so a
-        # Claude without the variables isn't a pappardelle agent.
+    elif is_claude_hook or is_agy:
+        # Only codex's daemon runs hooks away from the agent's own env, so
+        # another agent without the variables isn't a pappardelle agent.
         return False
 
     table = process_table()

@@ -21,7 +21,7 @@ if __name__ == "__main__":
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             payload = json.load(sys.stdin)
-            if isinstance(payload, dict) and "conversationId" in payload:
+            if module.is_agy_payload(payload):
                 # agy reads a hook's stdout as its JSON result.
                 print("{}")
             module.record_agent_session(payload, is_claude_hook=False)

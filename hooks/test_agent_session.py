@@ -608,9 +608,14 @@ def test_an_agy_subagent_does_not_replace_the_conversation(sessions_file: Path):
     # agy's subagents fire hooks from the agy process with their own id.
     record_agent_session(agy_payload("first"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: TOP_LEVEL_AGY)
     assert not record_agent_session(
-        agy_payload("subagent"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: TOP_LEVEL_AGY
+        agy_payload("subagent"), False, env_for(sessions_file, "argon"), HOOK_PID, no_process_walk
     )
     assert recorded(sessions_file) == {"argon": "first"}
+
+
+def test_agy_outside_pappardelle_skips_the_process_walk():
+    # agy's hooks are global, so they also fire for agy run outside a space.
+    assert not record_agent_session(agy_payload("first"), False, {}, HOOK_PID, no_process_walk)
 
 
 def test_a_relaunched_agy_records_again(sessions_file: Path):
