@@ -2776,7 +2776,6 @@ const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
 	effort: '{effort}',
 };
 
-/** Where the prompt goes in `prompt_args`. */
 const PROMPT_PLACEHOLDER = '{prompt}';
 
 /**
@@ -2789,11 +2788,11 @@ const PROMPT_PLACEHOLDER = '{prompt}';
 function builtinAgentDefaults(
 	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
 ): BuiltinAgentDefaults {
-	const name = isClaudeAgentProfile(definition)
-		? 'claude'
-		: commandBasename(definition.command);
-	if (name === 'claude' && !isClaudeAgentProfile(definition)) return {};
-	return Object.hasOwn(BUILTIN_AGENTS, name) ? BUILTIN_AGENTS[name]! : {};
+	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
+	const name = commandBasename(definition.command);
+	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
+		? BUILTIN_AGENTS[name]!
+		: {};
 }
 
 /**

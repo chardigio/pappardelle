@@ -216,9 +216,10 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     (if ($def_resolved.is_claude | type) == "boolean" then $def_resolved.is_claude
      else ($def_resolved.command | basename) == "claude"
      end) as $is_claude |
-    (if $is_claude then "claude" else ($def_resolved.command | basename) end) as $builtin_name |
-    (if $builtin_name == "claude" and ($is_claude | not) then {}
-     else ($builtin_agents[0][$builtin_name] // {}) end) as $builtin_agent |
+    (if $is_claude then $builtin_agents[0].claude
+     else ($def_resolved.command | basename) as $name
+          | if $name == "claude" then {} else ($builtin_agents[0][$name] // {}) end
+     end) as $builtin_agent |
     ({model: $builtin_agent.model_args, effort: $builtin_agent.effort_args}
      | with_entries(select(.value != null))) as $builtin |
     ([("model", "effort") as $f | {
@@ -260,8 +261,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_args: ($def_resolved.args // ""),
         agent_resume_args: (if $def_resolved | has("resume_args") then ($def_resolved.resume_args // "")
                             else ($builtin_agent.resume_args // "") end),
-        agent_prompt_args: (if $def_resolved | has("prompt_args") then ($def_resolved.prompt_args // "")
-                            else ($builtin_agent.prompt_args // "") end),
+        agent_prompt_args: ($def_resolved.prompt_args // $builtin_agent.prompt_args // ""),
         agent_is_claude: $is_claude,
         agent_skill_prefix: (if $def_resolved | has("skill_prefix") then ($def_resolved.skill_prefix // "")
                              else ($builtin_agent.skill_prefix // "/") end),
