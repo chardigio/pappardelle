@@ -5549,6 +5549,45 @@ test('validateConfig accepts model and effort on claude, codex, or with a templa
 	);
 });
 
+for (const promptArgs of ['-i', '', '-i {prompt} {prompt}']) {
+	test(`validateConfig rejects prompt_args ${JSON.stringify(promptArgs)}`, t => {
+		const error = t.throws(
+			() =>
+				validateConfig(
+					agentProfilesConfig({
+						agent_profiles: {agy: {command: 'agy', prompt_args: promptArgs}},
+					}),
+				),
+			{instanceOf: ConfigValidationError},
+		);
+		t.truthy(
+			error?.message.includes(
+				'agent_profiles.agy.prompt_args: must contain {prompt} exactly once',
+			),
+		);
+	});
+}
+
+test('validateConfig accepts prompt_args with one {prompt}', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {agy: {command: 'agy', prompt_args: '-i {prompt}'}},
+			}),
+		),
+	);
+});
+
+test('validateConfig accepts a minimal agy profile with a model', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {agy: {command: 'agy', model: 'gemini-4-argon-medium'}},
+			}),
+		),
+	);
+});
+
 test('validateConfig rejects a flag template without its placeholder', t => {
 	const error = t.throws(
 		() =>
@@ -5860,11 +5899,11 @@ test('getAgentProfile: shadowed agent_profiles.claude keeps claude gating', t =>
 	t.is(agentProfile.resumeArgs, '--resume {session_id}');
 });
 
-test('getAgentProfile: non-claude agent profile without resume_args gets none', t => {
+test('getAgentProfile: an agent without built-in defaults or resume_args gets no resume', t => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
-			agent_profiles: {codex: {command: 'codex'}},
-			agent_profile: 'codex',
+			agent_profiles: {aider: {command: 'aider'}},
+			agent_profile: 'aider',
 		}),
 	);
 	t.is(agentProfile.resumeArgs, undefined);

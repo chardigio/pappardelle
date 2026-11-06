@@ -31,6 +31,7 @@ AGENT_COMMAND=""
 AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
+AGENT_PROMPT_ARGS=""
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE="claude"
@@ -51,6 +52,7 @@ while [[ $# -gt 0 ]]; do
         --agent-is-claude) AGENT_IS_CLAUDE="$2"; shift 2 ;;
         --agent-launch-flags) PROFILE_LAUNCH_FLAGS="$2"; shift 2 ;;
         --agent-profile) AGENT_PROFILE="$2"; shift 2 ;;
+        --agent-prompt-args) AGENT_PROMPT_ARGS="$2"; shift 2 ;;
         --print-launch-flags) PRINT_LAUNCH_FLAGS=true; shift ;;
         --print-command) PRINT_COMMAND=true; shift ;;
         *) echo "Error: Unknown option: $1" >&2; exit 1 ;;
@@ -123,6 +125,16 @@ AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
+# Only with prompt_args: the template's text around {prompt} and the prompt,
+# single-quoted for the inner shell, go into one string that crosses the outer
+# shell as $AGENT_PROMPT_WORDS, so a quote or $() in either stays literal.
+# Without prompt_args the line keeps its bare '<prompt>' word.
+PROMPT_WORDS=""
+if [[ -n "$AGENT_PROMPT_ARGS" && -n "$AGENT_PROMPT" ]]; then
+    escaped_quote="'\\''"
+    PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
+fi
+
 if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
     printf '%s\n' "$LAUNCH_FLAGS"
     exit 0
@@ -136,6 +148,12 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
 FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
+PROMPT_SEG=" '${AGENT_PROMPT}'"
+if [[ -n "$PROMPT_WORDS" ]]; then
+    FLAGS_ASSIGN="${FLAGS_ASSIGN}AGENT_PROMPT_WORDS=$(quoted_form "$PROMPT_WORDS"); "
+    # shellcheck disable=SC2016  # expanded by the pane shell, not here
+    PROMPT_SEG=' $AGENT_PROMPT_WORDS'
+fi
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_IS_CLAUDE='"$AGENT_IS_CLAUDE"'" -e "PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS"'
 RESUME_CHAIN=""
@@ -143,7 +161,7 @@ if [[ -n "$AGENT_RESUME_STR" ]]; then
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
     RESUME_ATTEMPT='$AGENT_RESUME'
     if [[ -n "$AGENT_PROMPT" ]]; then
-        RESUME_ATTEMPT="${RESUME_ATTEMPT} '${AGENT_PROMPT}'"
+        RESUME_ATTEMPT="${RESUME_ATTEMPT}${PROMPT_SEG}"
     fi
     RESUME_CHAIN="${RESUME_ATTEMPT} || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
 fi
@@ -152,7 +170,7 @@ AGENT_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\0
 if [[ -z "$AGENT_PROMPT" ]]; then
     AGENT_LINE="${AGENT_PREFIX}\""
 else
-    AGENT_LINE="${AGENT_PREFIX} '${AGENT_PROMPT}'\""
+    AGENT_LINE="${AGENT_PREFIX}${PROMPT_SEG}\""
 fi
 
 COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"

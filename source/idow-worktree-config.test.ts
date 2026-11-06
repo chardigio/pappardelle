@@ -58,6 +58,7 @@ function setup(t: ExecutionContext, realWorktree = false) {
 		'idow',
 		'provider-helpers.sh',
 		'resolve-agent-config.sh',
+		'builtin-agents.json',
 		'resolve-terminal-app.sh',
 		'derive-title.sh',
 	]) {
@@ -582,7 +583,7 @@ test('a recreated worktree launches the agent without resume args not tied to it
 	t.is(resumeArgs(), 'resume --last');
 	t.regex(
 		fs.readFileSync(fixture.launchers, 'utf8'),
-		/--agent-resume-args resume --last --agent-is-claude false/,
+		/--agent-resume-args resume --last --agent-prompt-args +--agent-is-claude false/,
 	);
 });
 
@@ -832,6 +833,38 @@ test('newly created issues launch fresh; existing keys keep conversation resume'
 	t.is(resumeArgs(), '');
 	await fixture.run();
 	t.is(resumeArgs(), '--continue');
+});
+
+// Resume mode reopens a space: if the agent has nothing to resume it starts
+// idle instead of being handed the issue key.
+test('resume mode launches without a prompt; agy gets its built-in prompt flag', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		YAML.dump({
+			agent_profiles: {argon: {command: 'agy', model: 'gemini-4-argon-medium'}},
+			profiles: {other: {display_name: 'Other', agent_profile: 'argon'}},
+		}),
+	);
+	const launchArgs = () =>
+		fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+
+	await fixture.run({profile: 'other'});
+	let args = launchArgs();
+	t.false(args.includes('--no-prompt'));
+	t.is(args[args.indexOf('--agent-prompt-args') + 1], '-i {prompt}');
+	t.is(
+		args[args.indexOf('--agent-launch-flags') + 1],
+		'--model gemini-4-argon-medium',
+	);
+
+	fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+		recursive: true,
+	});
+	await fixture.run({open: true});
+	args = launchArgs();
+	t.true(args.includes('--no-prompt'));
+	t.false(args.includes('--init-cmd'));
 });
 
 test('a bad claude config fails before the issue is created', async t => {

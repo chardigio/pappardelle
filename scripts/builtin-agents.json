@@ -1,0 +1,21 @@
+{
+	"claude": {
+		"model_args": "--model {model}",
+		"effort_args": "--effort {effort}",
+		"resume_args": "--resume {session_id}",
+		"skill_prefix": "/"
+	},
+	"codex": {
+		"model_args": "-m {model}",
+		"effort_args": "-c model_reasoning_effort={effort}",
+		"resume_args": "resume {session_id}",
+		"skill_prefix": "$"
+	},
+	"agy": {
+		"model_args": "--model {model}",
+		"effort_args": "--effort {effort}",
+		"prompt_args": "-i {prompt}",
+		"resume_args": "--conversation {session_id}",
+		"skill_prefix": "/"
+	}
+}
