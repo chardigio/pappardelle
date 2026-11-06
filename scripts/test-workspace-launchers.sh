@@ -42,6 +42,34 @@ assert_eq() {
     fi
 }
 
+# Runs anywhere: the default-terminal agent line, executed with tmux swapped
+# for sh, hands agy the prompt behind -i as one literal word through both
+# shell parses.
+echo -e "${BOLD}Test: prompt_args survive both shell parses${RESET}"
+PROMPT_TMP=$(mktemp -d)
+mkdir -p "$PROMPT_TMP/bin"
+cat > "$PROMPT_TMP/bin/agy" <<SHIM
+#!/bin/bash
+printf '<%s>' "\$@" >> "$PROMPT_TMP/argv"
+printf '\n' >> "$PROMPT_TMP/argv"
+[[ "\$*" == *RESUME_FAIL* ]] && exit 1
+exit 0
+SHIM
+chmod +x "$PROMPT_TMP/bin/agy"
+# shellcheck disable=SC2016 # the $ signs are the prompt's own text
+PROMPT_TEXT='/idow it'"'"'s "q" $HOME $(touch '"$PROMPT_TMP"'/pwned) & x'
+PROMPT_LINE=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree "$PROMPT_TMP" --issue-key QA-1 \
+    --repo-name testrepo --companion-command "" --prompt "$PROMPT_TEXT" --agent-command agy \
+    --agent-is-claude false --agent-launch-flags "--model m1" --agent-resume-args "--conversation RESUME_FAIL" \
+    --agent-prompt-args "-i {prompt}" --print-command | head -1)
+# shellcheck disable=SC2001 # a regex replace over one line
+RUNNABLE=$(sed -E "s#tmux -L [^ ]+ new-session -A -s '[^']*'( -e \"[^\"]*\")* #sh -c #" <<< "$PROMPT_LINE")
+PATH="$PROMPT_TMP/bin:$PATH" sh -c "$RUNNABLE" >/dev/null 2>&1 || true
+assert_eq "resume attempt" "<--model><m1><--conversation><RESUME_FAIL><-i><$PROMPT_TEXT>" "$(sed -n 1p "$PROMPT_TMP/argv")"
+assert_eq "fresh launch" "<--model><m1><-i><$PROMPT_TEXT>" "$(sed -n 2p "$PROMPT_TMP/argv")"
+assert_eq "nothing in the prompt ran" "no" "$([[ -e "$PROMPT_TMP/pwned" ]] && echo yes || echo no)"
+rm -rf "$PROMPT_TMP"
+
 if ! command -v osascript >/dev/null 2>&1; then
     echo "SKIP (no osascript — macOS only)"
     exit 0
@@ -63,6 +91,7 @@ FLAG_CASES=(
     "--agent-profile reviewer"
     "--agent-command codex --agent-is-claude false --agent-args --yolo --agent-profile codex"
     "--agent-command codex --agent-is-claude false --agent-resume-args resume"
+    "--agent-command agy --agent-is-claude false --agent-resume-args --conversation --agent-prompt-args --prompt-interactive={prompt}"
     "--agent-command claude-local --agent-is-claude true --skip-permissions"
 )
 

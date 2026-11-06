@@ -2,7 +2,7 @@
 
 # open-iterm-agent.sh - Open iTerm with tmux, the configured agent, and the companion pane
 #
-# Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # Opens a new iTerm window with:
 #   1. A tmux session running the configured agent (default: Claude Code, with
@@ -28,6 +28,7 @@ AGENT_COMMAND=""
 AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
+AGENT_PROMPT_ARGS=""
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE="claude"
@@ -99,12 +100,16 @@ while [[ $# -gt 0 ]]; do
             PROFILE_LAUNCH_FLAGS="$2"
             shift 2
             ;;
+        --agent-prompt-args)
+            AGENT_PROMPT_ARGS="$2"
+            shift 2
+            ;;
         --agent-profile)
             AGENT_PROFILE="$2"
             shift 2
             ;;
         --help|-h)
-            echo "Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
+            echo "Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens iTerm."
@@ -198,6 +203,16 @@ AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
+# Only with prompt_args: the template's text around {prompt} and the prompt,
+# single-quoted for the inner shell, go into one string that crosses the outer
+# shell as $AGENT_PROMPT_WORDS, so a quote or $() in either stays literal.
+# Without prompt_args the line keeps its bare '<prompt>' word.
+PROMPT_WORDS=""
+if [[ -n "$AGENT_PROMPT_ARGS" && -n "$AGENT_PROMPT" ]]; then
+    escaped_quote="'\\''"
+    PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
+fi
+
 if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
     printf '%s\n' "$LAUNCH_FLAGS"
     exit 0
@@ -233,6 +248,9 @@ on run argv
     set agentProfile to item 14 of argv
     set agentSessions to item 15 of argv
     set agentIsClaude to item 16 of argv
+    -- Empty => the prompt goes in as one bare word. Otherwise the prompt_args
+    -- rendering, already quoted for the inner shell (see PROMPT_WORDS).
+    set promptWords to item 17 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -263,13 +281,18 @@ on run argv
     -- exactly that parse. Empty flags leave the command word
     -- unchanged.
     set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
+    set promptSeg to " '" & agentPrompt & "'"
+    if promptWords is not equal to "" then
+        set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
+        set promptSeg to " $AGENT_PROMPT_WORDS"
+    end if
     set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
     set resumeChain to ""
     if resumeArgs is not equal to "" then
         set resumeAttempt to "$AGENT_RESUME"
         if agentPrompt is not equal to "" then
-            set resumeAttempt to resumeAttempt & " '" & agentPrompt & "'"
+            set resumeAttempt to resumeAttempt & promptSeg
         end if
         set resumeChain to resumeAttempt & " || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
@@ -277,7 +300,7 @@ on run argv
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
-        set agentLine to agentPrefix & " '" & agentPrompt & "'\""
+        set agentLine to agentPrefix & promptSeg & "\""
     end if
 
     -- Companion pane: create-or-attach a session on the inner socket (so the
@@ -344,7 +367,7 @@ APPLESCRIPT_END
 # switch: when true the script returns the assembled command lines and never
 # touches iTerm.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE" "$PROMPT_WORDS"
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     exit 0

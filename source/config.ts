@@ -17,6 +17,7 @@ import {
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
+import {BUILTIN_AGENTS, type BuiltinAgentDefaults} from './builtin-agents.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
 
@@ -90,10 +91,11 @@ export interface ClaudeConfig {
  * `agent_profiles:` map is where these live; workspace profiles (and the top
  * level) select one by name via `agent_profile:`.
  *
- * `args` and `resume_args` are free-form strings appended verbatim, so no
- * per-CLI knowledge is baked in here — codex's `--yolo` goes in `args`, its
- * `resume {session_id}` in `resume_args`. When the agent is claude, pappardelle
- * additionally injects its claude-specific flags (see `getAgentProfile`).
+ * `args` and `resume_args` are free-form strings appended verbatim — codex's
+ * `--yolo` goes in `args`. The agents in scripts/builtin-agents.json get their
+ * flag templates, resume args and skill prefix from there unless the profile
+ * sets them. When the agent is claude, pappardelle additionally injects its
+ * claude-specific flags (see `getAgentProfile`).
  */
 export interface AgentProfileConfig {
 	/** Base binary or command (required), e.g. `codex` or `/usr/local/bin/claude`. */
@@ -104,10 +106,10 @@ export interface AgentProfileConfig {
 	 * Appended for the resume attempt of the resume-then-launch chain.
 	 * `{session_id}` is replaced with the session id the agent's hook recorded
 	 * for the space (see hooks/agent_session.py); with none recorded, the
-	 * resume attempt is skipped (claude falls back to `--continue`). Claude
-	 * defaults to `--resume {session_id}`; other agents default to none, which
-	 * skips the resume attempt entirely (a made-up resume flag would error
-	 * confusingly on unknown CLIs).
+	 * resume attempt is skipped (claude falls back to `--continue`). Built in
+	 * for the agents in scripts/builtin-agents.json; any other agent defaults
+	 * to none, which skips the resume attempt entirely (a made-up resume flag
+	 * would error confusingly on unknown CLIs). `''` opts out.
 	 */
 	resume_args?: string;
 	/**
@@ -128,21 +130,27 @@ export interface AgentProfileConfig {
 	effort?: string;
 	/**
 	 * How `model` reaches the CLI, with `{model}` standing in for the value.
-	 * Defaults to `--model {model}` for claude and `-m {model}` for codex;
-	 * any other CLI needs it set before `model` can be used.
+	 * Built in for the agents in scripts/builtin-agents.json; any other CLI
+	 * needs it set before `model` can be used.
 	 */
 	model_args?: string;
 	/**
 	 * How `effort` reaches the CLI, with `{effort}` standing in for the value.
-	 * Defaults to `--effort {effort}` for claude and
-	 * `-c model_reasoning_effort={effort}` for codex.
+	 * Built in for the agents in scripts/builtin-agents.json.
 	 */
 	effort_args?: string;
+	/**
+	 * How the launch prompt reaches the CLI, with `{prompt}` standing in for
+	 * it exactly once, e.g. `-i {prompt}` for a CLI that won't take a bare
+	 * prompt. Built in for agy. Unset otherwise ⇒ the prompt is the last bare
+	 * argument.
+	 */
+	prompt_args?: string;
 	/**
 	 * What goes before a skill name when pappardelle invokes one: the
 	 * `initialization_command` at launch and `send_skill` keybindings. Codex
 	 * runs skills as `$name` but keeps `/` for its own commands, so the prefix
-	 * belongs to the agent. Defaults to `$` for codex and `/` for anything else.
+	 * belongs to the agent. Built in per agent (`$` for codex), else `/`.
 	 */
 	skill_prefix?: string;
 }
@@ -1566,6 +1574,7 @@ const AGENT_PROFILE_STRING_FIELDS = [
 	'effort',
 	'model_args',
 	'effort_args',
+	'prompt_args',
 	'skill_prefix',
 ] as const;
 
@@ -1581,7 +1590,7 @@ function validateAgentLaunchTemplates(
 ): string[] {
 	if (typeof agentProfile.command !== 'string') return [];
 	const errors: string[] = [];
-	const templates = builtinLaunchTemplates({
+	const builtin = builtinAgentDefaults({
 		command: agentProfile.command,
 		is_claude: agentProfile.is_claude,
 	});
@@ -1599,12 +1608,21 @@ function validateAgentLaunchTemplates(
 			typeof value === 'string' &&
 			value !== '' &&
 			template === undefined &&
-			templates[field] === undefined
+			builtin[templateField] === undefined
 		) {
 			errors.push(
 				`agent_profiles.${name}.${field}: "${agentProfile.command}" has no built-in ${field} flag; set ${templateField}`,
 			);
 		}
+	}
+	const promptArgs = agentProfile.prompt_args;
+	if (
+		typeof promptArgs === 'string' &&
+		promptArgs.split(PROMPT_PLACEHOLDER).length !== 2
+	) {
+		errors.push(
+			`agent_profiles.${name}.prompt_args: must contain ${PROMPT_PLACEHOLDER} exactly once`,
+		);
 	}
 	return errors;
 }
@@ -2718,27 +2736,23 @@ const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
 	effort: '{effort}',
 };
 
-/**
- * Flag templates for the CLIs pappardelle knows. Codex is detected the same
- * string-only way as claude, so the bash resolver can apply the same rule.
- */
-function builtinLaunchTemplates(
-	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
-): Partial<Record<LaunchField, string>> {
-	if (isClaudeAgentProfile(definition)) {
-		return {model: '--model {model}', effort: '--effort {effort}'};
-	}
-	if (commandBasename(definition.command) === 'codex') {
-		return {model: '-m {model}', effort: '-c model_reasoning_effort={effort}'};
-	}
-	return {};
-}
+const PROMPT_PLACEHOLDER = '{prompt}';
 
-/** Mirrored by resolve-agent-config.sh. */
-function builtinSkillPrefix(
-	definition: Pick<AgentProfileConfig, 'command'>,
-): string {
-	return commandBasename(definition.command) === 'codex' ? '$' : '/';
+/**
+ * The built-in defaults an agent profile gets (scripts/builtin-agents.json).
+ * The claude entry follows the claude gate rather than the basename, so a
+ * wrapper with `is_claude: true` gets it and a `claude` with
+ * `is_claude: false` doesn't. String inspection only, so
+ * resolve-agent-config.sh applies the same rule.
+ */
+function builtinAgentDefaults(
+	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
+): BuiltinAgentDefaults {
+	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
+	const name = commandBasename(definition.command);
+	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
+		? BUILTIN_AGENTS[name]!
+		: {};
 }
 
 /**
@@ -2815,9 +2829,6 @@ function lookupAgentProfile(
  * resume whichever space ran that agent last.
  */
 export const SESSION_ID_PLACEHOLDER = '{session_id}';
-
-/** Resume args a claude agent profile gets when it doesn't set any. */
-const CLAUDE_RESUME_ARGS = `--resume ${SESSION_ID_PLACEHOLDER}`;
 
 /**
  * Claude's `--continue` is scoped to the directory, so it is a safe stand-in
@@ -2904,24 +2915,20 @@ export interface ResolvedAgentProfile {
 }
 
 /**
- * Apply the claude-gating predicate and resume default to one agent profile.
- * `resume_args: ''` is an explicit "no resume attempt", matching the bash
- * resolvers, where an empty value means launch directly; only an absent field
- * gets claude's default.
+ * Apply the claude-gating predicate and built-in defaults to one agent
+ * profile. `resume_args: ''` is an explicit "no resume attempt", matching the
+ * bash resolvers, where an empty value means launch directly; only an absent
+ * field gets the built-in default.
  */
 function resolveAgentProfile(
 	name: string,
 	definition: AgentProfileConfig,
 ): ResolvedAgentProfile {
 	const isClaude = isClaudeAgentProfile(definition);
-	let resumeArgs: string | undefined;
-	if (definition.resume_args !== undefined) {
-		resumeArgs = definition.resume_args || undefined;
-	} else if (isClaude) {
-		resumeArgs = CLAUDE_RESUME_ARGS;
-	}
+	const builtin = builtinAgentDefaults(definition);
+	const resumeArgs =
+		(definition.resume_args ?? builtin.resume_args) || undefined;
 
-	const builtin = builtinLaunchTemplates(definition);
 	return {
 		name,
 		command: definition.command,
@@ -2930,10 +2937,10 @@ function resolveAgentProfile(
 		isClaude,
 		model: definition.model ?? '',
 		effort: definition.effort ?? '',
-		modelArgs: definition.model_args ?? builtin.model,
-		effortArgs: definition.effort_args ?? builtin.effort,
+		modelArgs: definition.model_args ?? builtin.model_args,
+		effortArgs: definition.effort_args ?? builtin.effort_args,
 		extraArgs: [],
-		skillPrefix: definition.skill_prefix ?? builtinSkillPrefix(definition),
+		skillPrefix: definition.skill_prefix ?? builtin.skill_prefix ?? '/',
 	};
 }
 
@@ -2955,9 +2962,9 @@ export const DEFAULT_RESOLVED_AGENT_PROFILE: ResolvedAgentProfile =
  * shadowed and for dangling references (validation rejects those, but config
  * can arrive unvalidated via older layers).
  *
- * Claude's `--resume {session_id}` default only applies when the resolved agent
- * profile gates as claude; other agents launch directly unless they declare
- * `resume_args`. Mirrored by resolve-agent-config.sh — keep in sync.
+ * Built-in defaults come from scripts/builtin-agents.json (see
+ * builtinAgentDefaults); agents without an entry launch directly unless they
+ * declare `resume_args`. Mirrored by resolve-agent-config.sh — keep in sync.
  */
 export function getAgentProfile(
 	config: PappardelleConfig,

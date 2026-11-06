@@ -815,7 +815,7 @@ export function buildConfigFixPrompt(
 		"- an agent profile's own model/effort always win, an empty string included; claude.model/effort only fill in for claude agent profiles (command claude, or is_claude: true) that leave them unset, and other CLIs never read them",
 		"- profiles.<name>.claude.* beat the top-level claude.* for that profile; extra_args (profile list over top-level list) are appended after the agent profile's args and after the flags rendered from model/effort, so an extra arg repeating --model or --effort wins today; keep that value",
 		"- if part of it can't be kept exactly (for example an extra arg spanning several lines, since args are one line), stop and ask me how to handle that part rather than change the launch",
-		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, is_claude) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
+		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, prompt_args, skill_prefix, is_claude) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
 		'- keep comments and formatting',
 	].join('\n');
 }

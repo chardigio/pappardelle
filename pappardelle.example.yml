@@ -53,7 +53,9 @@ team_prefix: ENG
 # --yolo goes there. Non-claude agents skip the claude-only flags
 # (--name/dsp) and the ~/.claude.json pre-trust; a wrapper around claude that
 # isn't named `claude` can opt back in with is_claude. model/effort are
-# rendered through model_args/effort_args, built in for claude and codex.
+# rendered through model_args/effort_args. claude, codex and agy need only
+# command/model/effort: their flags, prompt and resume args are built in
+# (scripts/builtin-agents.json), and any field set here overrides them.
 # agent_profiles:
 #   claude:
 #     command: claude
@@ -62,9 +64,11 @@ team_prefix: ENG
 #   codex:
 #     command: codex                        # Base binary (required)
 #     args: --yolo                          # Appended to every invocation (optional)
-#     resume_args: resume {session_id}      # Appended for the resume attempt (optional; no resume without it)
 #     model: gpt-5.5                        # Rendered as -m gpt-5.5
 #     effort: high                          # Rendered as -c model_reasoning_effort=high
+#   argon:
+#     command: agy                          # Prompt goes in with -i; resumes with --conversation
+#     model: gemini-4-argon-medium          # Id carries the effort; for effort:, use gemini-4-argon
 #   claude-local:
 #     command: claude-local
 #     is_claude: true                       # Force claude treatment despite the name
