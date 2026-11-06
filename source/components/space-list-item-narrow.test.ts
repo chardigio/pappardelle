@@ -1,7 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {Box} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
 import SpaceListItem from './SpaceListItem.tsx';
 import type {SpaceData} from '../types.ts';
@@ -26,7 +25,7 @@ const space: SpaceData = {
 	},
 };
 
-function renderRow({
+async function renderRow({
 	laidOutWidth,
 	renderWidth,
 	layout = 'single_line',
@@ -36,11 +35,11 @@ function renderRow({
 	renderWidth: number;
 	layout?: ListLayout;
 	isSelected?: boolean;
-}): string {
-	const view = render(
+}): Promise<string> {
+	const view = await render(
 		React.createElement(
-			Box,
-			{width: renderWidth},
+			'box',
+			{flexDirection: 'row', width: renderWidth},
 			React.createElement(SpaceListItem, {
 				space,
 				isSelected,
@@ -50,14 +49,14 @@ function renderRow({
 		),
 	);
 	const frame = view.lastFrame() ?? '';
-	view.unmount();
+	await view.unmount();
 	return frame;
 }
 
-test('the identity and title survive stale pane widths, including selection', t => {
+test('the identity and title survive stale pane widths, including selection', async t => {
 	for (const isSelected of [false, true]) {
 		for (let laidOutWidth = 40; laidOutWidth <= 120; laidOutWidth += 10) {
-			const row = renderRow({laidOutWidth, renderWidth: 40, isSelected});
+			const row = await renderRow({laidOutWidth, renderWidth: 40, isSelected});
 			t.true(row.includes(`🍝 ● ${ISSUE_KEY} `), `Rendered row: ${row}`);
 			t.true(row.includes('Workspace'), `Rendered row: ${row}`);
 			t.is(row.split('\n').length, 1, `Rendered row: ${row}`);
@@ -65,11 +64,11 @@ test('the identity and title survive stale pane widths, including selection', t 
 	}
 });
 
-test('rows stay within the pane and retain their layout height', t => {
+test('rows stay within the pane and retain their layout height', async t => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		for (const renderWidth of [16, 20, 24, 30, 40]) {
 			for (const laidOutWidth of [renderWidth, 60, 90, 120]) {
-				const row = renderRow({laidOutWidth, renderWidth, layout});
+				const row = await renderRow({laidOutWidth, renderWidth, layout});
 				const lines = row.split('\n');
 				t.is(
 					lines.length,

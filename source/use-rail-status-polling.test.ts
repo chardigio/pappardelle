@@ -1,7 +1,7 @@
 import test from 'ava';
 import {mock} from 'node:test';
 import React from 'react';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/render.ts';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 
@@ -25,13 +25,17 @@ test.serial(
 		const poll = async () => {
 			calls++;
 		};
-		const view = render(React.createElement(Harness, {isEnabled: false, poll}));
-		t.teardown(() => view.unmount());
+		const view = await render(
+			React.createElement(Harness, {isEnabled: false, poll}),
+		);
+		t.teardown(async () => {
+			await view.unmount();
+		});
 		await nextTurn();
 		t.is(calls, 0);
 		t.is(intervals.length, 0);
 
-		view.rerender(React.createElement(Harness, {isEnabled: true, poll}));
+		await view.rerender(React.createElement(Harness, {isEnabled: true, poll}));
 		await nextTurn();
 		t.is(calls, 1, 'workspaces becoming ready triggers an immediate request');
 		t.is(intervals.length, 1);
@@ -45,7 +49,7 @@ test.serial(
 				finish = resolve;
 			});
 		};
-		view.rerender(
+		await view.rerender(
 			React.createElement(Harness, {isEnabled: true, poll: latestPoll}),
 		);
 		await nextTurn();
@@ -58,13 +62,13 @@ test.serial(
 		finish!();
 		await pending;
 
-		view.rerender(React.createElement(Harness, {isEnabled: false, poll}));
+		await view.rerender(React.createElement(Harness, {isEnabled: false, poll}));
 		await nextTurn();
 		t.is(clear.mock.callCount(), 1);
-		view.rerender(React.createElement(Harness, {isEnabled: true, poll}));
+		await view.rerender(React.createElement(Harness, {isEnabled: true, poll}));
 		await nextTurn();
 		t.is(calls, 2, 'polling resumes immediately when targets return');
-		view.unmount();
+		await view.unmount();
 		await nextTurn();
 		t.is(clear.mock.callCount(), 2);
 	},

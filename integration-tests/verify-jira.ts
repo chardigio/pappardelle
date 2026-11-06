@@ -1,7 +1,7 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification script for JiraProvider against a real Jira instance.
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-jira.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-jira.ts`
  *
  * Env vars:
  *   JIRA_BASE_URL  — (required) e.g. https://mycompany.atlassian.net
@@ -15,7 +15,7 @@ import {loadConfig, matchProfileByProject} from '../source/config.ts';
 const BASE_URL = process.env['JIRA_BASE_URL'];
 if (!BASE_URL) {
 	console.error(
-		'❌ JIRA_BASE_URL is required. Example:\n  JIRA_BASE_URL=https://mycompany.atlassian.net npx tsx integration-tests/verify-jira.ts',
+		'❌ JIRA_BASE_URL is required. Example:\n  JIRA_BASE_URL=https://mycompany.atlassian.net bun integration-tests/verify-jira.ts',
 	);
 	process.exit(1);
 }

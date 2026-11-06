@@ -16,6 +16,7 @@ export interface KillDoneConfirmContent {
 	message: string;
 	detail: string;
 	processingMessage: string;
+	isDestructive: true;
 }
 
 /**
@@ -34,6 +35,7 @@ export function buildKillDoneConfirmContent(
 		message: `Close ${count} done/canceled ${noun}?`,
 		detail: 'The worktrees and git branches will remain on disk.',
 		processingMessage: `Closing ${count} ${noun}…`,
+		isDestructive: true,
 	};
 }
 

@@ -54,6 +54,15 @@ test('close, restart and update reject flags that are not theirs', t => {
 	}
 });
 
+test('update rejects asking to both restart and leave TUIs', t => {
+	const gate = subcommandGate([
+		'update',
+		'--restart-tuis',
+		'--no-restart-tuis',
+	]);
+	t.is(gate.action, 'reject');
+});
+
 test('known flags and every other command pass through', t => {
 	for (const argv of [
 		['close', 'STA-1'],

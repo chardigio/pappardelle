@@ -1,6 +1,5 @@
 import React, {memo, useEffect} from 'react';
-import {Box, Text} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
@@ -17,7 +16,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 		useEffect(() => {
 			rowCommits++;
 		});
-		return React.createElement(Text, {}, space.name);
+		return React.createElement('text', {}, space.name);
 	});
 	function View() {
 		selection = useSpaceSelection();
@@ -28,16 +27,18 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 			if (name && worktreePath) attachments.push(name);
 		}, [name, worktreePath]);
 		return React.createElement(
-			Box,
+			'box',
 			{flexDirection: 'column'},
 			...selection.spaces.map(space =>
 				React.createElement(Row, {key: space.name, space}),
 			),
-			React.createElement(Text, {}, `Selected: ${name ?? 'empty'}`),
+			React.createElement('text', {}, `Selected: ${name ?? 'empty'}`),
 		);
 	}
-	const view = render(React.createElement(View));
-	t.teardown(() => view.unmount());
+	const view = await render(React.createElement(View));
+	t.teardown(async () => {
+		await view.unmount();
+	});
 	const refresh = new WorkspaceRefresh({
 		readRegistry: async () => keys,
 		readStatus: async () => ({status: 'idle'}),

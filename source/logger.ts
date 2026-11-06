@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {format, stripVTControlCharacters} from 'node:util';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -121,12 +122,13 @@ function log(
 	message: string,
 	error?: Error,
 ): void {
+	// Script output carries color codes; OpenTUI prints them as literal text.
 	const entry: LogEntry = {
 		timestamp: new Date().toISOString(),
 		level,
 		component,
-		message,
-		error: error?.message,
+		message: stripVTControlCharacters(message),
+		error: error && stripVTControlCharacters(error.message),
 	};
 
 	writeToFile(entry);
@@ -301,6 +303,13 @@ export function captureStderr(): void {
 		},
 		() => stderrTerminalPassthrough,
 	) as typeof process.stderr.write;
+	// Bun's console writes straight to fd 2 rather than through
+	// process.stderr.write, so OpenTUI and React errors would draw over the
+	// TUI and never reach the log.
+	console.error = (...args: unknown[]) => {
+		process.stderr.write(format(...args) + '\n');
+	};
+	console.warn = console.error;
 }
 
 // Export a default logger for general use

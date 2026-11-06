@@ -34,7 +34,8 @@ function repoStateRoot(repos: string[]): string {
 	return dir;
 }
 
-const COMMAND = "'/node' '/build/dist/cli.js'";
+const COMMAND =
+	"'/node' '--no-env-file' '--config=/dev/null' '/build/dist/cli.js'";
 
 function setup(
 	sessions: string[],
@@ -449,7 +450,7 @@ test('after an install, restarts go through the shim when there is one', t => {
 	);
 	t.is(
 		installedLaunchCommand({...options, exists: () => false}),
-		"'/node' '/work/pappardelle/dist/cli.js'",
+		"'/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js'",
 	);
 });
 
@@ -475,7 +476,7 @@ test('a dev build keeps its own node and cli.js', t => {
 			home: '/home/me',
 			exists: () => true,
 		}),
-		"'/old/node' '/work/pappardelle/dist/cli.js' --foo",
+		"'/old/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js' --foo",
 	);
 });
 
@@ -488,6 +489,31 @@ test('the release falls back to node and cli.js when the shim is missing', t => 
 			home: '/home/me',
 			exists: () => false,
 		}),
-		"'/old/node' '/home/me/.pappardelle/repo/dist/cli.js'",
+		"'/old/node' '--no-env-file' '--config=/dev/null' '/home/me/.pappardelle/repo/dist/cli.js'",
+	);
+});
+
+test('a standalone restart invokes the executable once and installed releases use the shim', t => {
+	const binary = '/work/pappardelle/dist/pappardelle';
+	t.is(
+		tuiLaunchCommand({
+			execPath: binary,
+			cliPath: binary,
+			args: ['--no-layout'],
+			home: '/home/me',
+			exists: () => false,
+		}),
+		"'/work/pappardelle/dist/pappardelle' --no-layout",
+	);
+	const installed = '/home/me/.pappardelle/repo/dist/pappardelle';
+	t.is(
+		tuiLaunchCommand({
+			execPath: installed,
+			cliPath: installed,
+			args: [],
+			home: '/home/me',
+			exists: () => true,
+		}),
+		"'/home/me/.local/bin/pappardelle'",
 	);
 });

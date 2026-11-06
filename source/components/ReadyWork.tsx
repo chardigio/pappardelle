@@ -1,5 +1,8 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+import {useEffect, useMemo, useState} from 'react';
+
 import widestLine from 'widest-line';
 import TitledBox from './TitledBox.tsx';
 import {truncateToWidth} from '../truncate-to-width.ts';
@@ -94,40 +97,39 @@ export function useReadyWork(
 	);
 	const openKeyActive = hasHighlightedRow(index);
 
-	useInput(
-		(input, key) => {
-			if (key.downArrow || key.upArrow) {
-				setIndex(current =>
-					moveSelection(
-						current,
-						identifiers.length,
-						key.downArrow ? 'down' : 'up',
-					),
-				);
-				return;
-			}
+	useKeyboard(event => {
+		if (!(isActive && closeTarget === null)) return;
+		const {input, key} = shortcutKey(event);
+		if (key.downArrow || key.upArrow) {
+			setIndex(current =>
+				moveSelection(
+					current,
+					identifiers.length,
+					key.downArrow ? 'down' : 'up',
+				),
+			);
+			return;
+		}
 
-			if (key.ctrl || key.meta) return;
+		if (key.ctrl || key.meta) return;
 
-			const issue = issues[index];
-			if (!issue) return;
+		const issue = issues[index];
+		if (!issue) return;
 
-			if (closeKeyActive && input === CLOSE_KEY) {
-				setErrorMessage(null);
-				setCloseTarget({issue, index});
-				return;
-			}
+		if (closeKeyActive && input === CLOSE_KEY) {
+			setErrorMessage(null);
+			setCloseTarget({issue, index});
+			return;
+		}
 
-			if (openKeyActive && input === OPEN_KEY) {
-				// Read-only, so the cursor stays where it is: the popup is a detour
-				// on the way to picking this row up, not a replacement for it.
-				void openIssueForKey(issue.identifier).then(result => {
-					setErrorMessage(result.ok ? null : result.message);
-				});
-			}
-		},
-		{isActive: isActive && closeTarget === null},
-	);
+		if (openKeyActive && input === OPEN_KEY) {
+			// Read-only, so the cursor stays where it is: the popup is a detour
+			// on the way to picking this row up, not a replacement for it.
+			void openIssueForKey(issue.identifier).then(result => {
+				setErrorMessage(result.ok ? null : result.message);
+			});
+		}
+	});
 
 	const confirmClose = async () => {
 		if (!closeTarget) return;
@@ -186,9 +188,15 @@ export function ReadyWorkList({
 
 	if (ready.loading) {
 		return (
-			<Box paddingX={2}>
-				<Text dimColor>Loading ready work…</Text>
-			</Box>
+			<box flexDirection="row" paddingX={2}>
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					Loading ready work…
+				</text>
+			</box>
 		);
 	}
 
@@ -208,7 +216,15 @@ export function ReadyWorkList({
 				width={width}
 				paddingY={0}
 			>
-				{window.start > 0 && <Text dimColor>↑ {window.start} more</Text>}
+				{window.start > 0 && (
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+					>
+						↑ {window.start} more
+					</text>
+				)}
 				{issues.slice(window.start, window.end).map((issue, offset) => {
 					const isSelected = window.start + offset === index;
 					const identifier = truncateToWidth(
@@ -224,40 +240,70 @@ export function ReadyWorkList({
 						titleWidth,
 					);
 					return (
-						<Box key={issue.identifier} height={1} overflow="hidden">
-							<Text wrap="truncate">
-								<Text color="green">{isSelected ? '❯ ' : '  '}</Text>
-								<Text color={isSelected ? 'green' : 'cyan'} bold={isSelected}>
+						<box
+							flexDirection="row"
+							key={issue.identifier}
+							height={1}
+							overflow="hidden"
+						>
+							<text
+								fg={terminalColor()}
+								flexShrink={1}
+								wrapMode="none"
+								height={1}
+							>
+								<span fg={terminalColor('green')}>
+									{isSelected ? '❯ ' : '  '}
+								</span>
+								<span
+									attributes={textAttributes({bold: isSelected})}
+									fg={terminalColor(isSelected ? 'green' : 'cyan')}
+								>
 									{identifier}
-								</Text>
-								{title && <Text dimColor={!isSelected}> {title}</Text>}
-							</Text>
-						</Box>
+								</span>
+								{title && (
+									<span attributes={textAttributes({dim: !isSelected})}>
+										{' '}
+										{title}
+									</span>
+								)}
+							</text>
+						</box>
 					);
 				})}
 				{window.end < issues.length && (
-					<Text dimColor>↓ {issues.length - window.end} more</Text>
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+					>
+						↓ {issues.length - window.end} more
+					</text>
 				)}
 			</TitledBox>
 
 			{hasHints && (
-				<Box paddingX={2}>
-					<Text dimColor>
-						<Text color="green">↑/↓</Text> pick up ready work
+				<box flexDirection="row" paddingX={2}>
+					<text
+						fg={terminalColor()}
+						flexShrink={1}
+						attributes={textAttributes({dim: true})}
+					>
+						<span fg={terminalColor('green')}>↑/↓</span> pick up ready work
 						{ready.openKeyActive && (
 							<>
 								{' · '}
-								<Text color="green">{OPEN_KEY}</Text> issue
+								<span fg={terminalColor('green')}>{OPEN_KEY}</span> issue
 							</>
 						)}
 						{ready.closeKeyActive && (
 							<>
 								{' · '}
-								<Text color="green">{CLOSE_KEY}</Text> close
+								<span fg={terminalColor('green')}>{CLOSE_KEY}</span> close
 							</>
 						)}
-					</Text>
-				</Box>
+					</text>
+				</box>
 			)}
 		</>
 	);

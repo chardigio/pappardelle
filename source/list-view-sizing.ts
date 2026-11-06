@@ -43,6 +43,19 @@ export function calculateMaxVisibleItems(
 }
 
 /**
+ * Whether the status message line gets its row. In a pane too short for the
+ * header, the status line and one item, the line gives up its row so the
+ * selected item stays on screen.
+ */
+export function statusLineFits(
+	termHeight: number,
+	bannerHeight: number,
+	linesPerItem: LinesPerItem = 1,
+): boolean {
+	return termHeight - bannerHeight >= HEADER_ROWS + linesPerItem;
+}
+
+/**
  * Calculate the scroll offset so the selected item stays centred.
  *
  * @param selectedIndex - Currently selected item index (0-based)
@@ -89,32 +102,6 @@ export function calculateVisibleWindow(
 	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
 	return {scrollOffset, visibleCount, adjustedSelectedIndex};
-}
-
-/**
- * Translate a mouse y coordinate into a visible-list row index, accounting
- * for the optional update banner that sits above the header. The banner's
- * content wraps at narrow pane widths so its footprint isn't a fixed
- * constant — the caller passes the current measured height (0 when the
- * banner is hidden). Returns null when the click is on chrome (banner /
- * header) or below the visible rows.
- *
- * `visibleRows` counts items, not terminal lines: with a `linesPerItem` of 2,
- * a click on either of an item's two lines selects that one item.
- */
-export function calculateListClickRow(options: {
-	y: number;
-	bannerHeight: number;
-	visibleRows: number;
-	linesPerItem?: LinesPerItem;
-}): number | null {
-	const perItem = options.linesPerItem ?? 1;
-	const headerOffset = options.bannerHeight + HEADER_ROWS;
-	const line = options.y - headerOffset;
-	if (line < 0) return null;
-	const row = Math.floor(line / perItem);
-	if (row >= options.visibleRows) return null;
-	return row;
 }
 
 // ============================================================================
@@ -216,8 +203,8 @@ export const ROW_ICON_CELLS = 2;
  *
  * The key normally fits with room to spare, so this is a no-op at every ordinary
  * width. It matters once someone drags the rail down to the key alone (STA-2040):
- * without a clip the key overflows its row and Ink wraps it onto a second line,
- * which breaks the one-row-per-space alignment the click hit-test depends on.
+ * without a clip the key overflows its row and can wrap onto a second line,
+ * which breaks the intended one-row-per-space layout.
  *
  * No ellipsis. A key is an identifier, so at these widths every column is better
  * spent on characters of the key than on a marker.

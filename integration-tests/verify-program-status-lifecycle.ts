@@ -174,11 +174,10 @@ try {
 		script,
 		`
 import fs from 'node:fs';
-import {syncBuiltinESMExports} from 'node:module';
-import {monitorPane} from ${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))};
+import {mock} from 'bun:test';
 const original = fs.writeFileSync;
 let intercepted = false;
-fs.writeFileSync = function(file, ...args) {
+const interceptedWrite = function(file, ...args) {
   if (!intercepted && String(file).startsWith(${JSON.stringify(`${target}.tmp.`)})) {
     intercepted = true;
     original(${JSON.stringify(paused)}, '');
@@ -191,16 +190,15 @@ fs.writeFileSync = function(file, ...args) {
   }
   return original(file, ...args);
 };
-syncBuiltinESMExports();
+mock.module('node:fs', () => ({...fs, writeFileSync: interceptedWrite}));
+const {monitorPane} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))});
 monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(harness.socket)}, ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))});
 original(${JSON.stringify(ready)}, '');
 `,
 	);
-	publisher = spawn(
-		process.execPath,
-		['--import', fileURLToPath(import.meta.resolve('tsx')), script],
-		{stdio: ['pipe', 'ignore', 'inherit']},
-	);
+	publisher = spawn(process.execPath, [script], {
+		stdio: ['pipe', 'ignore', 'inherit'],
+	});
 	await until(() => existsSync(ready), Boolean, 'publisher starts');
 	publisher.stdin?.write(
 		'\x1b]7501;state=idle:app=fixture:msg=cmVjb3JkZWQgbWVzc2FnZQ==\x07',

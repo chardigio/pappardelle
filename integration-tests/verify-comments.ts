@@ -1,9 +1,9 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification of createComment on Linear and Jira providers.
  * Posts a test comment, verifies success, then notes it for manual cleanup.
  *
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-comments.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-comments.ts`
  *
  * Env vars:
  *   LINEAR_ISSUE    — Linear issue to comment on (default: STA-683)
@@ -101,7 +101,7 @@ async function main() {
 		header('Jira: createComment (skipped)');
 		pass('JIRA_ISSUE not set — skipping Jira comment test');
 		console.log(
-			'  To test: JIRA_ISSUE=KAN-8 JIRA_BASE_URL=https://... npx tsx integration-tests/verify-comments.ts',
+			'  To test: JIRA_ISSUE=KAN-8 JIRA_BASE_URL=https://... bun integration-tests/verify-comments.ts',
 		);
 	}
 

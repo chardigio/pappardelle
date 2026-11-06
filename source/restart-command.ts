@@ -1,6 +1,6 @@
+import {cliFilePath} from './runtime.ts';
 import {spawn, spawnSync} from 'node:child_process';
 import {homedir} from 'node:os';
-import path from 'node:path';
 import {
 	currentDefaultServerSession,
 	defaultInnerTmuxRunner,
@@ -66,7 +66,7 @@ export async function restartRepo(
 
 	if (!(await restartAndVerifyTui(tui, deps.launchCommand, deps.cliPath, deps)))
 		return 1;
-	return deps.inTmux ? 0 : deps.attach(tui.session);
+	return deps.inTmux || !deps.isTTY ? 0 : deps.attach(tui.session);
 }
 
 export async function hardRestart(
@@ -136,7 +136,7 @@ export async function hardRestart(
 }
 
 export function defaultRestartCommandDeps(): RestartCommandDeps {
-	const cliPath = path.resolve(process.argv[1] ?? '');
+	const cliPath = cliFilePath();
 	return {
 		tmux: defaultServerTmuxRunner,
 		innerTmux: defaultInnerTmuxRunner,

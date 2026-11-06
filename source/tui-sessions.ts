@@ -1,4 +1,6 @@
-import {existsSync, readdirSync, realpathSync} from 'node:fs';
+import {bunIsolationArgs} from './runtime.ts';
+import {existsSync, readdirSync} from 'node:fs';
+import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
@@ -213,14 +215,6 @@ async function waitForTuiMarker(
 	}
 }
 
-function sameFile(a: string, b: string): boolean {
-	try {
-		return realpathSync(a) === realpathSync(b);
-	} catch {
-		return a === b;
-	}
-}
-
 // With an `expectedCliPath`, a TUI that comes up on any other cli.js is a
 // failure. Returns whether the TUI is confirmed running.
 export async function restartAndVerifyTui(
@@ -314,9 +308,9 @@ export async function restartTuis(
 
 // The command a new TUI session runs, which every later restart reruns. A TUI
 // started from the installed release runs through the ~/.local/bin shim, which
-// each install re-pins to a node meeting that release's floor; baking in the
-// launching node would outlive it. Other builds (e.g. a dev build at
-// ~/.local/bin/pappardelle-sta862) keep their own node and cli.js so they don't
+// each install re-pins to a runtime meeting that release's floor; baking in the
+// launching runtime would outlive it. Other builds (e.g. a dev build at
+// ~/.local/bin/pappardelle-sta862) keep their own Bun and cli.js so they don't
 // fall back to the release.
 export function tuiLaunchCommand(options: {
 	execPath: string;
@@ -335,9 +329,15 @@ export function tuiLaunchCommand(options: {
 	);
 	const shim = path.join(options.home, '.local', 'bin', 'pappardelle');
 	const command =
-		path.resolve(options.cliPath) === releaseCli && exists(shim)
+		[releaseCli, path.join(path.dirname(releaseCli), 'pappardelle')].includes(
+			path.resolve(options.cliPath),
+		) && exists(shim)
 			? shellQuote(shim)
-			: `${shellQuote(options.execPath)} ${shellQuote(options.cliPath)}`;
+			: options.execPath === options.cliPath
+				? shellQuote(options.execPath)
+				: [options.execPath, ...bunIsolationArgs, options.cliPath]
+						.map(arg => shellQuote(arg))
+						.join(' ');
 	return [command, ...options.args].join(' ');
 }
 

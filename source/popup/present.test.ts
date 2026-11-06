@@ -12,9 +12,12 @@ const HELP: PopupSpec = {
 
 function fakeTerminal() {
 	let isListening = false;
+	let isTtyDead = false;
 	const input = Object.assign(new PassThrough(), {
 		isTTY: true,
 		setRawMode(mode: boolean) {
+			// What Bun throws once tmux has closed the popup's tty.
+			if (isTtyDead) throw new TypeError('fd must be a number');
 			isListening = mode;
 			return input;
 		},
@@ -48,6 +51,9 @@ function fakeTerminal() {
 		terminal,
 		closes: () => closes,
 		closeFromTmux,
+		killTty() {
+			isTtyDead = true;
+		},
 		/** Ink takes raw mode once the dialog is listening for keys. */
 		isListening: () => isListening,
 	};
@@ -106,3 +112,29 @@ test('closing waits for the current key handler before unmounting', async t => {
 	await until(() => fake.closes() === 1);
 	t.pass();
 });
+
+test.serial(
+	'tmux closing the popup does not log the dead tty as an error',
+	async t => {
+		const fake = fakeTerminal();
+		const {actions, cancels} = fakeActions();
+		presentPopup(HELP, actions, fake.terminal);
+		await until(fake.isListening);
+
+		fake.killTty();
+
+		const logged: unknown[][] = [];
+		const consoleError = console.error;
+		console.error = (...args: unknown[]) => {
+			logged.push(args);
+		};
+		try {
+			fake.closeFromTmux();
+			await until(() => cancels() === 1);
+		} finally {
+			console.error = consoleError;
+		}
+
+		t.deepEqual(logged, []);
+	},
+);

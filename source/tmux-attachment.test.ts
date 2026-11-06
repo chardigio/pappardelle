@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
@@ -24,6 +25,43 @@ function fakeTmux() {
 	};
 	return {calls, run};
 }
+
+// The shell script a viewer's frame host runs, unwrapped from the
+// respawn-pane command line.
+function frameScript(command: string): string {
+	const words = spawnSync(
+		'/bin/sh',
+		['-c', `for word in ${command}; do printf '%s\\0' "$word"; done`],
+		{encoding: 'utf8'},
+	).stdout.split('\0');
+	return words[words.indexOf('-c') + 1]!;
+}
+
+// One tmux invocation's `;`-separated commands.
+function splitBatch(args: string[]): string[][] {
+	const commands: string[][] = [[]];
+	for (const arg of args) {
+		if (arg === ';') commands.push([]);
+		else commands.at(-1)!.push(arg);
+	}
+	return commands;
+}
+
+const isSwitchBatch = (args: string[]) =>
+	args.includes('switch-client') && args.includes(';');
+
+const titleAndFocus = (issueKey: string) => [
+	'set-option',
+	'-p',
+	'-t',
+	'%1',
+	'@pappardelle_title',
+	`agent · ${issueKey}`,
+	';',
+	'select-pane',
+	'-t',
+	'%0',
+];
 
 test.beforeEach(() => {
 	clearCurrentlyViewingSpace();
@@ -61,7 +99,7 @@ for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
 			);
 			const commands = fake.calls
 				.filter(args => args.includes('respawn-pane'))
-				.map(args => args.at(-1)!);
+				.map(args => frameScript(args.at(-1)!));
 			t.is(commands.length, 2);
 			for (const command of commands) {
 				t.true(
@@ -114,7 +152,7 @@ test.serial(
 		);
 		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1:'));
 		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1:'));
-		t.deepEqual(fake.calls.at(-1), ['select-pane', '-t', '%0']);
+		t.deepEqual(fake.calls.at(-1), titleAndFocus('TEST-1'));
 	},
 );
 
@@ -172,26 +210,33 @@ test.serial(
 		);
 		t.is(fake.calls.length, 2);
 		const batch = fake.calls[0]!;
-		t.deepEqual(batch.slice(0, 6), [
-			'-L',
-			'pappardelle_inner',
+		t.deepEqual(batch.slice(0, 2), ['-L', 'pappardelle_inner']);
+		const commands = splitBatch(batch.slice(2));
+		const target = (prefix: string) =>
+			commands.find(
+				command =>
+					command[0] === 'switch-client' &&
+					command[4]!.startsWith(`=${prefix}-`),
+			);
+		t.deepEqual(target('agent')?.slice(0, 4), [
 			'switch-client',
 			'-c',
 			'/dev/claude',
 			'-t',
 		]);
-		t.true(batch[6]!.startsWith('=agent-'));
-		t.true(batch[6]!.endsWith('-TEST-B:'));
-		t.deepEqual(batch.slice(7, 12), [
-			';',
+		t.true(target('agent')![4]!.endsWith('-TEST-B:'));
+		t.deepEqual(target('companion')?.slice(0, 4), [
 			'switch-client',
 			'-c',
 			'/dev/companion',
 			'-t',
 		]);
-		t.true(batch[12]!.startsWith('=companion-'));
-		t.true(batch[12]!.endsWith('-TEST-B:'));
-		t.deepEqual(fake.calls[1], ['select-pane', '-t', '%0']);
+		t.true(target('companion')![4]!.endsWith('-TEST-B:'));
+		const titles = commands
+			.filter(command => command[3] === 'set-titles-string')
+			.map(command => command[4]);
+		t.deepEqual(titles, ['agent · TEST-B', 'companion']);
+		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
 	},
 );
 
@@ -205,7 +250,7 @@ test.serial(
 		fake.calls.length = 0;
 		const run: AsyncTmuxRunner = async args => {
 			const output = await fake.run(args);
-			if (args.includes(';')) throw new Error('second client disappeared');
+			if (isSwitchBatch(args)) throw new Error('second client disappeared');
 			if (args[0] === 'display-message') {
 				return args[3] === '%1' ? '/dev/new-claude' : '/dev/new-companion';
 			}
@@ -247,7 +292,7 @@ test.serial(
 		});
 		const run: AsyncTmuxRunner = async args => {
 			const output = await fake.run(args);
-			if (args.includes(';')) {
+			if (isSwitchBatch(args)) {
 				throw Object.assign(new Error('Command failed'), {
 					code: 1,
 					stderr: "can't find session: agent-TEST-B\n",
@@ -292,7 +337,11 @@ test.serial(
 		);
 		t.true(
 			fake.calls.some(args =>
-				args.some(arg => arg.includes('No session for ABSENT-FIXTURE-999999')),
+				args.some(
+					arg =>
+						arg.includes('has no agent running') &&
+						arg.includes('ABSENT-FIXTURE-999999'),
+				),
 			),
 		);
 		t.false(
@@ -378,7 +427,7 @@ test.serial(
 				args => args[0] === 'display-message' && args[3] === '%3',
 			),
 		);
-		t.false(fake.calls.some(args => args.includes(';')));
+		t.false(fake.calls.some(args => isSwitchBatch(args)));
 	},
 );
 

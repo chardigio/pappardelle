@@ -2,16 +2,11 @@
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {
-	existsSync,
-	readFileSync,
-	realpathSync,
-	statSync,
-	writeFileSync,
-} from 'node:fs';
+import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
@@ -51,6 +46,9 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {sameFile} from './same-file.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
@@ -332,18 +330,158 @@ export function buildShellLaunchArgs(
 	];
 }
 
+function paneFrameEntry(): string[] {
+	if (isStandalone) return [process.execPath, '--internal-pane-frame'];
+	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+	const entry = fileURLToPath(
+		new URL(`pane-frame-cli${extension}`, import.meta.url),
+	);
+	return [process.execPath, ...bunIsolationArgs, entry];
+}
+
 /**
- * The `respawn-pane` command for a viewer pane: `command`, then a login shell.
- * Starting it as the pane's process rather than typing it keeps it out of the
- * user's shell history. `-k` kills the previous process, including any nested
- * client attached there.
+ * The `respawn-pane` command for a viewer pane: the frame host running
+ * `command`, then a login shell, inside the pane's frame. Starting it as the
+ * pane's process rather than typing it keeps it out of the user's shell
+ * history. `-k` kills the previous process, including any nested client
+ * attached there. The client tty the previous host published is cleared first
+ * so the rail never switches a client that is gone.
  */
-function viewerRespawnArgs(paneId: string, command: string): string[] {
-	return ['respawn-pane', '-k', '-t', paneId, `${command}; exec "$SHELL" -l`];
+function viewerRespawnArgs(
+	paneId: string,
+	command: string,
+	title?: string,
+): string[] {
+	const host = [
+		...paneFrameEntry(),
+		...(title === undefined ? [] : ['--title', title]),
+		'--',
+		'/bin/sh',
+		'-c',
+		`${command}; exec "$SHELL" -l`,
+	];
+	return [
+		'set-option',
+		'-p',
+		'-u',
+		'-t',
+		paneId,
+		CLIENT_TTY_OPTION,
+		';',
+		'respawn-pane',
+		'-k',
+		'-t',
+		paneId,
+		host.map(value => shellQuote(value)).join(' '),
+	];
 }
 
 function viewerMessageCommand(message: string): string {
 	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
+}
+
+// Selecting a space already tries to start its agent, so reaching this means
+// the start failed, and the reason was logged to the rail's error list.
+function viewerNoSessionCommand(issueKey: string): string {
+	const format =
+		'\\n  \\033[1m%s\\033[0;2m has no agent running\\033[0m\\n\\n' +
+		'  \\033[1;7m e \\033[0;2m in the rail shows why\\033[0m\\n\\n';
+	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
+}
+
+function paneTitleArgs(paneId: string, title: string): string[] {
+	return ['set-option', '-p', '-t', paneId, PANE_TITLE_OPTION, title];
+}
+
+function viewerTitleArgs(
+	agentViewerPaneId: string,
+	companionViewerPaneId: string,
+): string[] {
+	const args = paneTitleArgs(agentViewerPaneId, 'agent');
+	if (companionViewerPaneId)
+		args.push(';', ...paneTitleArgs(companionViewerPaneId, 'companion'));
+	return args;
+}
+
+const COMPANION_FRAME_TITLE = 'companion';
+
+function agentFrameTitle(issueKey: string): string {
+	return `agent · ${issueKey}`;
+}
+
+function agentTitleAndFocusArgs(
+	agentViewerPaneId: string,
+	issueKey: string,
+	listPaneId?: string,
+): string[] {
+	const args = paneTitleArgs(agentViewerPaneId, agentFrameTitle(issueKey));
+	if (listPaneId) args.push(';', 'select-pane', '-t', listPaneId);
+	return args;
+}
+
+// The frame host titles a viewer pane's frame with the nested session's window
+// title, which tmux sends only while set-titles is on.
+function viewerSessionArgs(sessionName: string, title: string): string[] {
+	const target = exactSessionTarget(sessionName);
+	return [
+		'set-option',
+		'-t',
+		target,
+		'set-titles',
+		'on',
+		';',
+		'set-option',
+		'-t',
+		target,
+		'set-titles-string',
+		title.replaceAll('#', '##'),
+	];
+}
+
+// The frame host's embedded terminal understands modified keys such as
+// Shift+Enter, but tmux enables them only for terminals it knows support
+// them, and the frame's client identifies as plain xterm-256color. The
+// feature is server-scope, and the inner server is Pappardelle's own.
+export const FRAME_TERMINAL_FEATURE = 'xterm-256color:extkeys';
+
+async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
+	const features = await run(
+		innerTmuxArgs(['show-options', '-sqv', 'terminal-features']),
+	);
+	if (features.split('\n').some(line => line.trim() === FRAME_TERMINAL_FEATURE))
+		return;
+	await run(
+		innerTmuxArgs([
+			'set-option',
+			'-sa',
+			'terminal-features',
+			`,${FRAME_TERMINAL_FEATURE}`,
+		]),
+	);
+}
+
+// Each pane draws its own rounded frame, so tmux's border titles stay off and
+// its dividers become a blank gap between frames. Set on pappardelle's own
+// window only, so the user's other windows keep theirs. Each option is its own
+// command because tmux drops the rest of a command list at the first error,
+// and a tmux that rejects the blank divider style must still turn off the
+// titles a previous build drew.
+function applyWindowChrome(listPaneId: string): void {
+	const options: Array<[name: string, value: string | undefined]> = [
+		['pane-border-status', 'off'],
+		// Left behind by builds that drew the titles in the border.
+		['pane-border-format', undefined],
+		['pane-border-lines', 'spaces'],
+	];
+	for (const [name, value] of options) {
+		const args =
+			value === undefined
+				? ['set-option', '-w', '-u', '-t', listPaneId, name]
+				: ['set-option', '-w', '-t', listPaneId, name, value];
+		const result = spawnSync('tmux', args, {encoding: 'utf-8', timeout: 5000});
+		if (result.error || result.status !== 0)
+			log.warn(`Failed to set ${name} on the layout window: ${result.stderr}`);
+	}
 }
 
 /**
@@ -398,22 +536,35 @@ export function buildAgentResumeCommand(
 	return `${base} ${resumeArgs} || { printf '\\033[A\\033[2K'; false; } || ${base}`;
 }
 
+const CLIENT_TTY_WAIT_MS = 3000;
+
 /**
- * Get the TTY device for a pane
- * This is used to identify the nested tmux client running in a viewer pane
+ * The tty of the nested tmux client inside a viewer pane's frame, which the
+ * frame host publishes on the pane once its child starts. A freshly respawned
+ * pane gets a moment to publish it.
  */
-async function getPaneTty(
+async function getViewerClientTty(
 	paneId: string,
 	run: AsyncTmuxRunner,
+	{wait = false}: {wait?: boolean} = {},
 ): Promise<string> {
-	const output = await run([
-		'display-message',
-		'-p',
-		'-t',
-		paneId,
-		'#{pane_tty}',
-	]);
-	return output.trim();
+	const deadline = Date.now() + (wait ? CLIENT_TTY_WAIT_MS : 0);
+	for (;;) {
+		// eslint-disable-next-line no-await-in-loop
+		const output = await run([
+			'display-message',
+			'-p',
+			'-t',
+			paneId,
+			`#{${CLIENT_TTY_OPTION}}`,
+		]);
+		const tty = output.trim();
+		if (tty || Date.now() >= deadline) return tty;
+		// eslint-disable-next-line no-await-in-loop
+		await new Promise(resolve => {
+			setTimeout(resolve, 25);
+		});
+	}
 }
 
 /**
@@ -594,14 +745,6 @@ export const defaultServerTmuxRunner = spawnTmuxRunner(
 	args => [...args],
 	() => defaultServerTmuxEnv(process.env),
 );
-
-function sameFile(a: string, b: string): boolean {
-	try {
-		return realpathSync(a) === realpathSync(b);
-	} catch {
-		return false;
-	}
-}
 
 function envSocketIs(env: NodeJS.ProcessEnv, socketName: string): boolean {
 	const socket = env['TMUX']?.split(',')[0];
@@ -798,6 +941,25 @@ export function enableSynchronizedOutput(
 		} catch {
 			// Purely a rendering nicety — never let it break layout setup.
 		}
+	}
+}
+
+/**
+ * Pane frames dim when their pane loses focus, and they learn that from the
+ * focus reports tmux sends only while `focus-events` is on. The option is
+ * server-scope, like `terminal-features` above; it only adds reports for
+ * programs that ask for them.
+ */
+export function enableFocusEvents(
+	run: OuterTmuxRunner = defaultOuterTmuxRunner,
+): void {
+	try {
+		const current = run(['show-options', '-gqv', 'focus-events']);
+		if (current.stdout.trim() === 'on') return;
+		const {error, status} = run(['set-option', '-g', 'focus-events', 'on']);
+		if (error || status !== 0) log.debug('Could not enable focus events');
+	} catch {
+		// Frames still draw; they just stay lit.
 	}
 }
 
@@ -1015,7 +1177,8 @@ export function migrateLegacyAgentSessions(
 }
 
 /**
- * Clear the input line, type `text` literally, then press Enter.
+ * Clear the input line, type `text` literally (pasted when it spans lines),
+ * then press Enter.
  *
  * Each step is its own `send-keys` call. Batched into one call, the text and
  * Enter arrive in a single pty read, Claude Code treats the burst as a paste,
@@ -1028,9 +1191,18 @@ export function sendKeysLiteralThenEnter(
 	target: string,
 	text: string,
 ): boolean {
+	const buffer = `pappardelle-send-${randomUUID()}`;
+	// Typed literally, each newline would press Enter and submit a line on its
+	// own; a bracketed paste keeps multi-line text as one prompt.
+	const type = text.includes('\n')
+		? [
+				['set-buffer', '-b', buffer, '--', text],
+				['paste-buffer', '-p', '-d', '-b', buffer, '-t', target],
+			]
+		: [['send-keys', '-t', target, '-l', '--', text]];
 	const steps: string[][] = [
 		['send-keys', '-t', target, 'C-u'],
-		['send-keys', '-t', target, '-l', text],
+		...type,
 		['send-keys', '-t', target, 'Enter'],
 	];
 	for (const args of steps) {
@@ -1458,37 +1630,21 @@ export function setupPappardellLayout(): {
 			);
 		}
 
-		// Set pane titles
-		execSync(`tmux select-pane -t "${listPaneId}" -T "pappardelle"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		execSync(`tmux select-pane -t "${agentViewerPaneId}" -T "agent-viewer"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		if (companionViewerPaneId) {
-			execSync(
-				`tmux select-pane -t "${companionViewerPaneId}" -T "companion-viewer"`,
-				{
-					encoding: 'utf-8',
-					timeout: 5000,
-				},
-			);
-		}
-
-		// Set window-level options for better focus highlighting
-		// These only affect the current window, not other tmux sessions
-		execSync('tmux set-option -w pane-border-style "fg=colour238"', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		execSync('tmux set-option -w pane-active-border-style "fg=cyan,bold"', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const chrome = spawnSync(
+			'tmux',
+			[
+				...paneTitleArgs(listPaneId, 'rail'),
+				';',
+				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
+			],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		if (chrome.error || chrome.status !== 0)
+			log.warn(`Failed to title the viewer panes: ${chrome.stderr}`);
+		applyWindowChrome(listPaneId);
 
 		enableSynchronizedOutput();
+		enableFocusEvents();
 
 		// Return focus to list pane
 		execSync(`tmux select-pane -t "${listPaneId}"`, {
@@ -1611,10 +1767,23 @@ export async function attachToSpace(
 					exactSessionTarget(sessions.companion),
 				);
 			}
+			// After the switches, so a session not created yet still fails as a
+			// missing session.
+			commands.push(
+				';',
+				...viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey)),
+			);
+			if (companionViewerPaneId)
+				commands.push(
+					';',
+					...viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE),
+				);
 			// Existing clients can switch directly. tmux validates both targets;
 			// an exited client or missing session falls back to setup below.
 			await run(innerTmuxArgs(commands));
-			if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+			await run(
+				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
+			);
 			currentlyViewingSpace = issueKey;
 			return true;
 		} catch (err) {
@@ -1671,9 +1840,9 @@ export async function attachToSpace(
 		signal?.throwIfAborted();
 
 		if (!agentViewerTty)
-			agentViewerTty = await getPaneTty(agentViewerPaneId, run);
+			agentViewerTty = await getViewerClientTty(agentViewerPaneId, run);
 		if (!companionViewerTty && companionViewerPaneId) {
-			companionViewerTty = await getPaneTty(companionViewerPaneId, run);
+			companionViewerTty = await getViewerClientTty(companionViewerPaneId, run);
 		}
 
 		const attach = async (
@@ -1681,8 +1850,14 @@ export async function attachToSpace(
 			tty: string | null,
 			session: string,
 			exists: boolean,
+			title: string,
 		): Promise<{attached: boolean; tty: string}> => {
 			const hasClient = tty ? await clientExistsOnTty(tty, run) : false;
+			if (exists) {
+				await run(innerTmuxArgs(viewerSessionArgs(session, title)));
+				// Features apply when a client attaches, so before the respawn.
+				if (!hasClient) await ensureFrameTerminalFeatures(run);
+			}
 			if (exists && hasClient) {
 				await switchClientToSession(tty!, session, run);
 				return {attached: true, tty: tty!};
@@ -1694,17 +1869,20 @@ export async function attachToSpace(
 					]
 						.map(value => shellQuote(value))
 						.join(' ')
-				: viewerMessageCommand(`No session for ${issueKey}`);
-			await run(viewerRespawnArgs(paneId, command));
-			// Respawning allocates a new pty, and the fast path finds the nested
-			// client by its tty.
-			return {attached: exists, tty: await getPaneTty(paneId, run)};
+				: viewerNoSessionCommand(issueKey);
+			await run(viewerRespawnArgs(paneId, command, title));
+			// The fast path finds the respawned frame's nested client by its tty.
+			return {
+				attached: exists,
+				tty: exists ? await getViewerClientTty(paneId, run, {wait: true}) : '',
+			};
 		};
 		({attached: agentViewerHasClient, tty: agentViewerTty} = await attach(
 			agentViewerPaneId,
 			agentViewerTty,
 			sessions.agent,
 			hasAgentSession,
+			agentFrameTitle(issueKey),
 		));
 		if (companionViewerPaneId) {
 			({attached: companionViewerHasClient, tty: companionViewerTty} =
@@ -1713,9 +1891,10 @@ export async function attachToSpace(
 					companionViewerTty,
 					sessions.companion,
 					hasCompanionSession,
+					COMPANION_FRAME_TITLE,
 				));
 		}
-		if (listPaneId) await run(['select-pane', '-t', listPaneId]);
+		await run(agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId));
 		currentlyViewingSpace = issueKey;
 		return true;
 	} catch (err) {
@@ -1999,18 +2178,8 @@ export async function rebuildLayout(
 			);
 		}
 
-		// Set pane titles
 		try {
-			await run(['select-pane', '-t', agentViewerPaneId, '-T', 'agent-viewer']);
-			if (companionViewerPaneId) {
-				await run([
-					'select-pane',
-					'-t',
-					companionViewerPaneId,
-					'-T',
-					'companion-viewer',
-				]);
-			}
+			await run(viewerTitleArgs(agentViewerPaneId, companionViewerPaneId));
 		} catch {
 			// Non-fatal
 		}
@@ -2342,6 +2511,20 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 
 const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
 
+// A space's sessions are only ever seen nested in a viewer pane, where the
+// user's own status bar would add a row naming the session under the rail's
+// own header.
+function hideStatusBarArgs(sessionName: string): string[] {
+	return [
+		';',
+		'set-option',
+		'-t',
+		exactSessionTarget(sessionName),
+		'status',
+		'off',
+	];
+}
+
 async function releaseStartupGate(
 	session: string,
 	run: AsyncTmuxRunner,
@@ -2477,6 +2660,7 @@ export async function ensureAgentSession(
 				exactSessionTarget(sessionName),
 				STARTUP_GATE_OPTION,
 				gate,
+				...hideStatusBarArgs(sessionName),
 			]),
 		);
 		try {
@@ -2555,6 +2739,7 @@ export async function ensureCompanionSession(
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
 				...launchArgs,
+				...hideStatusBarArgs(sessionName),
 			]),
 		);
 

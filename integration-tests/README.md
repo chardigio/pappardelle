@@ -7,11 +7,11 @@ Standalone scripts that exercise pappardelle's providers and config against **re
 Build first, then run the deterministic checks with Node 22+, Python 3, and tmux installed:
 
 ```bash
-npm run build
-npx tsx integration-tests/verify-program-status.ts
-npx tsx integration-tests/verify-program-status-app.ts
-npx tsx integration-tests/verify-program-status-lifecycle.ts
-npx tsx integration-tests/verify-program-status-cleanup.ts
+bun run build
+bun integration-tests/verify-program-status.ts
+bun integration-tests/verify-program-status-app.ts
+bun integration-tests/verify-program-status-lifecycle.ts
+bun integration-tests/verify-program-status-cleanup.ts
 ```
 
 The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. The app check requires no automatic watchlists in the merged local configuration.
@@ -23,7 +23,7 @@ The lifecycle check covers pinned agent panes across window/split selection, eve
 To drive real interactive Claude sessions, authenticate Claude Code and opt in explicitly:
 
 ```bash
-npx tsx integration-tests/verify-program-status-claude.ts --live --keep
+bun integration-tests/verify-program-status-claude.ts --live --keep
 ```
 
 This uses the existing status-hook configuration from `hooks/settings.json.example`, restricted to status updates, with no PTY proxy or capability replies. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
@@ -31,8 +31,8 @@ This uses the existing status-hook configuration from `hooks/settings.json.examp
 To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with stable `0.166.0`):
 
 ```bash
-npx tsx integration-tests/verify-program-status-codex.ts --live --keep
-npx tsx integration-tests/verify-program-status-codex-workspace.ts --live --keep
+bun integration-tests/verify-program-status-codex.ts --live --keep
+bun integration-tests/verify-program-status-codex-workspace.ts --live --keep
 ```
 
 `PAPPARDELLE_CODEX_BIN` selects a binary outside your normal installation. Standalone release downloads also require their matching `codex-code-mode-host` executable alongside the Codex binary for tool calls. The fixture uses a temporary Codex configuration, an authentication-file symlink, a read-only sandbox with approval requests, and a harmless approved file write. It verifies idle/working/blocked, completion as idle or done, native precedence, exit, and resume through the monitor and Ink row. It deletes its temporary Codex home and authentication link even with `--keep`; only fixture files, parsed protocol evidence, and indicator frames remain. It never runs in CI.
@@ -42,9 +42,9 @@ The workspace verifier runs the built TUI in real tmux panes with an isolated ho
 Other installed CLI checks are also opt-in:
 
 ```bash
-npx tsx integration-tests/verify-program-status-pi.ts --live --keep
-npx tsx integration-tests/verify-program-status-opencode.ts --live --keep
-npx tsx integration-tests/verify-program-status-agy.ts --live --keep
+bun integration-tests/verify-program-status-pi.ts --live --keep
+bun integration-tests/verify-program-status-opencode.ts --live --keep
+bun integration-tests/verify-program-status-agy.ts --live --keep
 ```
 
 Pi uses its normal provider configuration (`PAPPARDELLE_PI_MODEL` defaults to `openai/gpt-6.1-sol`, and `PAPPARDELLE_PI_BIN` can select another binary). The fixture uses the production agent-session environment to set `PI_PROGRAM_STATUS=1` and registers two temporary extension commands that open Pi's own question and confirmation dialogs; the extension emits no protocol reports. It verifies decoded messages and blocking kinds, real model turns, interruption, hook precedence, exit, and resume. Other extensions, MCP, tools, skills, and context-file discovery are disabled for this fixture.
@@ -70,38 +70,38 @@ Run from the `pappardelle/` directory:
 
 ```bash
 # Issue tracker providers
-npx tsx integration-tests/verify-linear.ts
-npx tsx integration-tests/verify-jira.ts
-npx tsx integration-tests/verify-beads.ts
+bun integration-tests/verify-linear.ts
+bun integration-tests/verify-jira.ts
+bun integration-tests/verify-beads.ts
 
 # VCS host providers
-npx tsx integration-tests/verify-github.ts
-npx tsx integration-tests/verify-gitlab.ts
+bun integration-tests/verify-github.ts
+bun integration-tests/verify-gitlab.ts
 
 # Config system
-npx tsx integration-tests/verify-config.ts
+bun integration-tests/verify-config.ts
 
 # Watchlist end-to-end pipeline
-npx tsx integration-tests/verify-watchlist.ts
+bun integration-tests/verify-watchlist.ts
 
 # Comment posting (creates real comments — clean up after)
-npx tsx integration-tests/verify-comments.ts
+bun integration-tests/verify-comments.ts
 
 # Workspace deinit (runs real shell commands in a temp dir)
-npx tsx integration-tests/verify-workspace-deinit.ts
+bun integration-tests/verify-workspace-deinit.ts
 
 # Bash keyword matching (idow match_profiles function)
 bash integration-tests/verify-bash-keyword-matching.sh
 
 # claude.model / claude.effort, config → both resolvers → real launch → live claude
 # (--no-live skips the one real `claude --print` call)
-npx tsx integration-tests/verify-claude-model-effort.ts
+bun integration-tests/verify-claude-model-effort.ts
 
 # Run all (that apply to your setup)
-npx tsx integration-tests/verify-linear.ts && \
-npx tsx integration-tests/verify-github.ts && \
-npx tsx integration-tests/verify-config.ts && \
-npx tsx integration-tests/verify-watchlist.ts
+bun integration-tests/verify-linear.ts && \
+bun integration-tests/verify-github.ts && \
+bun integration-tests/verify-config.ts && \
+bun integration-tests/verify-watchlist.ts
 ```
 
 ## Scripts

@@ -1,6 +1,10 @@
-import React, {useState, type ReactNode} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+import {useState, type ReactNode} from 'react';
+
 import ClaudeAnimation from './ClaudeAnimation.tsx';
+import Gap from './Gap.tsx';
 import {
 	isThenable,
 	parseConfirmDialogInput,
@@ -32,6 +36,12 @@ interface Props {
 	children?: ReactNode;
 	/** Replaces the y/n hint, for a dialog that adds keys of its own. */
 	hint?: ReactNode;
+	/**
+	 * The confirmed action removes something: closing or deleting a space, or
+	 * discarding work. Only these get the red frame, so it keeps meaning
+	 * "careful" instead of marking every question.
+	 */
+	isDestructive: boolean;
 }
 
 export default function ConfirmDialog({
@@ -44,6 +54,7 @@ export default function ConfirmDialog({
 	isFullHeight,
 	children,
 	hint,
+	isDestructive,
 }: Props) {
 	// Snapshot the dialog's text when entering processing state. The parent's
 	// props can shift mid-deletion — once `deleteSpace` finishes and the list
@@ -58,7 +69,8 @@ export default function ConfirmDialog({
 		status: string;
 	} | null>(null);
 
-	useInput((input, key) => {
+	useKeyboard(event => {
+		const {input, key} = shortcutKey(event);
 		const action = parseConfirmDialogInput(
 			input,
 			key,
@@ -101,47 +113,75 @@ export default function ConfirmDialog({
 	const shown = processingFrame ?? {title, message, detail};
 
 	return (
-		<Box
+		<box
+			border
 			flexDirection="column"
-			borderStyle="double"
-			borderColor="red"
+			borderStyle={isDestructive ? 'double' : 'rounded'}
+			borderColor={terminalColor(isDestructive ? 'red' : undefined)}
 			flexGrow={isFullHeight ? 1 : 0}
+			overflow="hidden"
 			paddingX={2}
 			paddingY={1}
 		>
-			<Box marginBottom={1}>
-				<Text bold color="red">
+			<box flexDirection="row" flexShrink={0}>
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true})}
+					fg={terminalColor(isDestructive ? 'red' : undefined)}
+				>
 					{shown.title}
-				</Text>
-			</Box>
+				</text>
+			</box>
+			<Gap />
 
-			<Box marginBottom={1}>
-				<Text>{shown.message}</Text>
-			</Box>
+			<box flexDirection="row" flexShrink={0}>
+				<text fg={terminalColor()} flexShrink={1}>
+					{shown.message}
+				</text>
+			</box>
+			<Gap />
 
 			{children}
 
 			{shown.detail && (
-				<Box marginBottom={1}>
-					<Text dimColor>{shown.detail}</Text>
-				</Box>
+				<>
+					<box flexDirection="row" flexShrink={0}>
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+						>
+							{shown.detail}
+						</text>
+					</box>
+					<Gap />
+				</>
 			)}
 
 			{processingFrame ? (
-				<Box>
+				<box flexDirection="row" flexShrink={0}>
 					<ClaudeAnimation />
-					<Text> {processingFrame.status}</Text>
-				</Box>
+					<text fg={terminalColor()} flexShrink={1}>
+						{' '}
+						{processingFrame.status}
+					</text>
+				</box>
 			) : (
-				(hint ?? (
-					<Text dimColor>
-						Press <Text color="green">y</Text> or{' '}
-						<Text color="green">Enter</Text> to confirm,{' '}
-						<Text color="yellow">n</Text> or <Text color="yellow">Esc</Text> to
-						cancel
-					</Text>
-				))
+				<box flexDirection="row" flexShrink={0}>
+					{hint ?? (
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true})}
+						>
+							Press <span fg={terminalColor('green')}>y</span> or{' '}
+							<span fg={terminalColor('green')}>Enter</span> to confirm,{' '}
+							<span fg={terminalColor('yellow')}>n</span> or{' '}
+							<span fg={terminalColor('yellow')}>Esc</span> to cancel
+						</text>
+					)}
+				</box>
 			)}
-		</Box>
+		</box>
 	);
 }

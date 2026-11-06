@@ -1,5 +1,8 @@
-import React, {useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+import {useState} from 'react';
+
 import type {KeybindingConfig} from '../config.ts';
 import {formatVersionLine} from '../help-version-line.ts';
 import {
@@ -9,6 +12,7 @@ import {
 	HELP_CHROME_ROWS,
 } from './help-rows.ts';
 import {handleTextViewerKey} from './text-viewer-keys.ts';
+import TruncatedLine from './TruncatedLine.tsx';
 
 interface Props {
 	onClose: () => void;
@@ -42,7 +46,8 @@ export default function HelpOverlay({
 			: Math.max(1, Math.min(lines.length, availableHeight - HELP_CHROME_ROWS));
 	const isScrolling = viewHeight < lines.length;
 
-	useInput((input, key) => {
+	useKeyboard(event => {
+		const {input, key} = shortcutKey(event);
 		if (key.escape || input === '?' || key.return) {
 			onClose();
 			return;
@@ -57,50 +62,80 @@ export default function HelpOverlay({
 	});
 
 	return (
-		<Box
+		<box
+			border
 			flexDirection="column"
-			borderStyle="round"
-			borderColor="cyan"
+			borderStyle="rounded"
+			borderColor={terminalColor('cyan')}
 			flexGrow={isFullHeight ? 1 : 0}
 			paddingX={2}
 			paddingY={1}
 		>
-			<Box marginBottom={1} flexDirection="column">
-				<Text bold color="cyan">
+			<box marginBottom={1} flexDirection="column">
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true})}
+					fg={terminalColor('cyan')}
+				>
 					Keyboard Shortcuts
-				</Text>
-				<Text dimColor>
+				</text>
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
 					{formatVersionLine(installedVersion, commitSha, isDevBuild)}
-				</Text>
-			</Box>
+				</text>
+			</box>
 
-			<Box flexDirection="column" height={viewHeight} overflow="hidden">
+			<box flexDirection="column" height={viewHeight} overflow="hidden">
 				{lines.slice(top, top + viewHeight).map((line, index) => {
-					if (line.kind === 'blank') return <Text key={top + index}> </Text>;
+					if (line.kind === 'blank')
+						return (
+							<text fg={terminalColor()} flexShrink={1} key={top + index}>
+								{' '}
+							</text>
+						);
 					if (line.kind === 'heading') {
 						return (
-							<Text key={top + index} bold color="cyan" wrap="truncate-end">
-								{line.text}
-							</Text>
+							<TruncatedLine
+								key={top + index}
+								runs={[
+									{
+										text: line.text,
+										fg: terminalColor('cyan'),
+										attributes: textAttributes({bold: true}),
+									},
+								]}
+							/>
 						);
 					}
 
 					return (
-						<Text key={top + index} wrap="truncate-end">
-							<Text color={line.row.isCustom ? 'magenta' : 'yellow'}>
-								{line.row.key.padEnd(rows.maxKeyLength)}
-							</Text>{' '}
-							{line.row.description}
-						</Text>
+						<TruncatedLine
+							key={top + index}
+							runs={[
+								{
+									text: line.row.key.padEnd(rows.maxKeyLength) + ' ',
+									fg: terminalColor(line.row.isCustom ? 'magenta' : 'yellow'),
+								},
+								{text: line.row.description},
+							]}
+						/>
 					);
 				})}
-			</Box>
+			</box>
 
-			<Box marginTop={1}>
-				<Text dimColor wrap="truncate-end">
-					{helpFooter(isScrolling)}
-				</Text>
-			</Box>
-		</Box>
+			<box flexDirection="row" marginTop={1}>
+				<TruncatedLine
+					runs={[
+						{
+							text: helpFooter(isScrolling),
+							attributes: textAttributes({dim: true}),
+						},
+					]}
+				/>
+			</box>
+		</box>
 	);
 }

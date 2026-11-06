@@ -1,5 +1,8 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor} from '../tui-style.ts';
+import {useEffect, useMemo, useState} from 'react';
+
 import {
 	buildStateChoices,
 	choiceKey,
@@ -16,6 +19,7 @@ import type {
 	TrackerState,
 } from '../providers/types.ts';
 import ConfirmDialog from './ConfirmDialog.tsx';
+import Gap from './Gap.tsx';
 
 export function canPickCloseState(
 	tracker: IssueTrackerProvider | null,
@@ -106,18 +110,17 @@ export default function CloseSpaceDialog({
 	const index = Math.max(0, keys.indexOf(effectiveKey));
 	const selected = choices[index]!;
 
-	useInput(
-		(_input, key) => {
-			if (!key.leftArrow && !key.rightArrow) return;
-			const next = cycleChoice(
-				index,
-				choices.length,
-				key.leftArrow ? 'left' : 'right',
-			);
-			setSelectedKey(keys[next]!);
-		},
-		{isActive: pickable},
-	);
+	useKeyboard(event => {
+		if (!pickable) return;
+		const {input: _input, key} = shortcutKey(event);
+		if (!key.leftArrow && !key.rightArrow) return;
+		const next = cycleChoice(
+			index,
+			choices.length,
+			key.leftArrow ? 'left' : 'right',
+		);
+		setSelectedKey(keys[next]!);
+	});
 
 	const content = closeSpaceContent(spaceName);
 
@@ -137,23 +140,29 @@ export default function CloseSpaceDialog({
 			{...content}
 			isFullHeight={isFullHeight}
 			hint={
-				<Text dimColor>
-					<Text color="cyan">←/→</Text> change state ·{' '}
-					<Text color="green">y/Enter</Text> confirm ·{' '}
-					<Text color="yellow">n/Esc</Text> cancel
-				</Text>
+				<text
+					fg={terminalColor()}
+					flexShrink={1}
+					attributes={textAttributes({dim: true})}
+				>
+					<span fg={terminalColor('cyan')}>←/→</span> change state ·{' '}
+					<span fg={terminalColor('green')}>y/Enter</span> confirm ·{' '}
+					<span fg={terminalColor('yellow')}>n/Esc</span> cancel
+				</text>
 			}
 			onConfirm={async () => {
 				await onConfirm(selected);
 			}}
 			onCancel={onCancel}
 		>
-			<Box marginBottom={1}>
+			<box flexDirection="row" flexShrink={0}>
 				{/* tmux can't resize an open popup, so a long status name must not wrap. */}
-				<Text wrap="truncate-end">
-					Issue state: <Text color="cyan">‹ {choiceLabel(selected)} ›</Text>
-				</Text>
-			</Box>
+				<text fg={terminalColor()} flexShrink={1} wrapMode="none" height={1}>
+					Issue state:{' '}
+					<span fg={terminalColor('cyan')}>‹ {choiceLabel(selected)} ›</span>
+				</text>
+			</box>
+			<Gap />
 		</ConfirmDialog>
 	);
 }

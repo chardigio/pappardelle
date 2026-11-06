@@ -1,135 +1,115 @@
-import {PassThrough} from 'node:stream';
-import type {Buffer} from 'node:buffer';
+import {readFileSync} from 'node:fs';
+import path from 'node:path';
+import {clearRecentErrors, getRecentErrors, getLogDir} from './logger.ts';
+import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import React from 'react';
-import {Box, Text} from 'ink';
-import xterm from '@xterm/headless';
-import {renderTui} from './render-tui.ts';
-import {syncTerminalDimensions} from './pane-layout-task.ts';
+import {terminalView} from '../test/helpers/terminal-view.ts';
 
-function terminalOutput() {
-	const stdout = Object.assign(new PassThrough(), {
-		isTTY: true,
-		rows: 12,
-		columns: 60,
-	});
-	let output = '';
-	stdout.on('data', (data: Buffer) => {
-		output += data.toString();
-	});
-	return {
-		stdout,
-		takeOutput() {
-			const frame = output;
-			output = '';
-			return frame;
-		},
-	};
-}
-
-test('dialog first frame uses confirmed zoom geometry even before SIGWINCH', async t => {
-	const output = terminalOutput();
-	const message = 'Dialog ' + '-'.repeat(90) + ' READY';
-	const dialog = () =>
-		React.createElement(Text, {wrap: 'truncate-end'}, message);
-	const view = renderTui(dialog(), {
-		stdout: output.stdout as unknown as NodeJS.WriteStream,
-		patchConsole: false,
-		interactive: true,
-	});
-	t.teardown(() => view.unmount());
-	await view.waitUntilRenderFlush();
-	// Mounting while Node still reports the narrow rail reproduces the clipped frame.
-	t.false(output.takeOutput().includes('READY'));
-	syncTerminalDimensions(output.stdout, {cols: 140, rows: 30});
-	view.rerender(dialog());
-	await view.waitUntilRenderFlush();
-	const frame = output.takeOutput();
-	t.true(frame.includes(message));
-});
-
-const list = (height: number, query: string, rows: string[]) =>
+const list = (query: string, rows: string[]) =>
 	React.createElement(
-		Box,
-		{height, flexDirection: 'column'},
-		React.createElement(Text, null, 'Workspace list'),
-		React.createElement(Text, null, '/' + query),
-		...rows.map(row => React.createElement(Text, {key: row}, row)),
+		'box',
+		{height: '100%', flexDirection: 'column'},
+		React.createElement('text', null, 'Workspace list'),
+		React.createElement('text', null, '/' + query),
+		...rows.map(row => React.createElement('text', {key: row}, row)),
 	);
 
-test('typing updates only the query line and skips identical full-height frames', async t => {
-	const output = terminalOutput();
-	const view = renderTui(list(12, 'a', ['main', 'TEST-1 Fix flickering']), {
-		stdout: output.stdout as unknown as NodeJS.WriteStream,
-		patchConsole: false,
-		interactive: true,
-	});
-	t.teardown(() => view.unmount());
-	await view.waitUntilRenderFlush();
-	output.takeOutput();
-
-	view.rerender(list(12, 'ab', ['main', 'TEST-1 Fix flickering']));
-	await view.waitUntilRenderFlush();
-	const update = output.takeOutput();
-	t.true(update.includes('/ab'));
-	t.false(update.includes('Workspace list'));
-	t.false(update.includes('TEST-1'));
-	t.false(update.includes('\x1b[2J'));
-	t.true(update.startsWith('\x1b[?2026h'));
-	t.true(update.endsWith('\x1b[?2026l'));
-
-	view.rerender(list(12, 'ab', ['main', 'TEST-1 Fix flickering']));
-	await view.waitUntilRenderFlush();
-	t.is(output.takeOutput(), '');
-});
-
-test('filtering and resizing remove stale rows and keep the list at the top', async t => {
-	const output = terminalOutput();
-	const terminal = new xterm.Terminal({
-		cols: 60,
-		rows: 12,
-		allowProposedApi: true,
-	});
-	terminal.write('\x1b[?1049h');
-	t.teardown(() => terminal.dispose());
-	const view = renderTui(
-		list(12, '', ['main', 'TEST-1 Fix flickering', 'OLD-ROW']),
-		{
-			stdout: output.stdout as unknown as NodeJS.WriteStream,
-			patchConsole: false,
-			interactive: true,
-		},
-	);
-	t.teardown(() => view.unmount());
-	const flush = async () => {
-		await view.waitUntilRenderFlush();
-		await new Promise<void>(resolve => {
-			// A real PTY's ONLCR mode supplies the carriage returns.
-			terminal.write(output.takeOutput().replaceAll('\n', '\r\n'), resolve);
-		});
-	};
-	await flush();
-	t.is(terminal.buffer.active.getLine(4)?.translateToString(true), 'OLD-ROW');
-
-	for (const [columns, height] of [
-		[100, 24],
-		[30, 8],
-		[60, 12],
-	]) {
-		terminal.resize(columns!, height!);
-		output.stdout.columns = columns!;
-		output.stdout.rows = height!;
-		output.stdout.emit('resize');
-		view.rerender(list(height!, 'main', ['main']));
-		await flush();
-		t.is(
-			terminal.buffer.active.getLine(0)?.translateToString(true),
-			'Workspace list',
+test.serial(
+	'filtering and resizing remove stale rows and keep the list at the top',
+	async t => {
+		const view = await terminalView(
+			list('', ['main', 'TEST-1 Fix flickering', 'OLD-ROW']),
 		);
-		t.is(terminal.buffer.active.getLine(1)?.translateToString(true), '/main');
-		t.is(terminal.buffer.active.getLine(2)?.translateToString(true), 'main');
-		for (let row = 3; row < height!; row++) {
-			t.is(terminal.buffer.active.getLine(row)?.translateToString(true), '');
+		t.teardown(async () => view.dispose());
+		t.is(view.line(4), 'OLD-ROW');
+		for (const [width, height] of [
+			[100, 24],
+			[30, 8],
+			[60, 12],
+		]) {
+			view.terminal.resize(width!, height!);
+			view.renderer.resize(width!, height!);
+			await view.update(list('main', ['main']));
+			t.is(view.line(0), 'Workspace list');
+			t.is(view.line(1), '/main');
+			t.is(view.line(2), 'main');
+			for (let row = 3; row < height!; row++) t.is(view.line(row), '');
 		}
-	}
-});
+	},
+);
+
+test.serial(
+	'typing changes only affected cells and identical frames emit no text',
+	async t => {
+		const view = await terminalView(
+			list('a', ['main', 'TEST-1 Fix flickering']),
+		);
+		t.teardown(async () => view.dispose());
+		const update = await view.update(
+			list('ab', ['main', 'TEST-1 Fix flickering']),
+		);
+		t.is(view.line(1), '/ab');
+		t.false(update.includes('Workspace list'));
+		t.false(update.includes('TEST-1'));
+		t.false(update.includes('\x1b[2J'));
+		const unchanged = await view.update(
+			list('ab', ['main', 'TEST-1 Fix flickering']),
+		);
+		t.false(unchanged.includes('ab'));
+		t.is(view.line(2), 'main');
+	},
+);
+
+test.serial(
+	'confirmed pane geometry is used before SIGWINCH arrives',
+	async t => {
+		const message = 'Dialog ' + '-'.repeat(90) + ' READY';
+		const dialog = () =>
+			React.createElement('text', {wrapMode: 'none', height: 1}, message);
+		const view = await terminalView(dialog());
+		t.teardown(async () => view.dispose());
+		t.false(view.line(0)?.includes('READY'));
+		view.terminal.resize(140, 30);
+		view.renderer.resize(140, 30);
+		await view.update(dialog());
+		t.is(view.line(0), message);
+	},
+);
+
+test.serial(
+	'a render failure stays visible and Escape restores the terminal',
+	async t => {
+		clearRecentErrors();
+		const failure = new Error('No profiles defined');
+		const originalConsoleError = console.error;
+		const consoleErrors: unknown[][] = [];
+		console.error = (...args: unknown[]) => {
+			consoleErrors.push(args);
+		};
+		t.teardown(() => {
+			console.error = originalConsoleError;
+			clearRecentErrors();
+		});
+		function Broken(): React.ReactNode {
+			throw failure;
+		}
+		const view = await terminalView(React.createElement(Broken));
+		t.teardown(async () => view.dispose());
+		t.true(view.line(1)?.includes('Unable to render this view'));
+		t.true(view.line(2)?.includes('No profiles defined'));
+		const entry = getRecentErrors().find(error => error.component === 'tui');
+		t.is(entry?.message, failure.stack);
+		t.is(entry?.error, failure.message);
+		const logfile = path.join(
+			getLogDir(),
+			`pappardelle-${entry!.timestamp.split('T')[0]}.log`,
+		);
+		t.true(readFileSync(logfile, 'utf8').includes(failure.stack!));
+		t.deepEqual(consoleErrors, []);
+		view.stdin.write('\x1b');
+		await view.renderer.closed;
+		const bytes = await view.flush();
+		t.true(bytes.includes('\x1b[?1049l'));
+	},
+);
