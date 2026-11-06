@@ -313,7 +313,7 @@ extra arg repeating `--model` or `--effort` wins today; keep its value when movi
 Pappardelle also offers this rewrite on startup. It can copy home-config values
 into the repo file, so check that diff before the user commits it.
 
-## Configuring Agent Profiles (running codex instead of Claude)
+## Configuring Agent Profiles (running codex or agy instead of Claude)
 
 The agent pane runs Claude Code by default. A named agent profile plus an
 `agent_profile:` reference switches a profile (or the whole repo) to another
@@ -325,10 +325,12 @@ agent_profiles:
   codex:
     command: codex # Required — base binary
     args: --yolo # Optional — free-form, appended to every invocation
-    resume_args: resume {session_id} # Optional — resume attempt; omit to always launch fresh
     model: gpt-5.5 # Optional — rendered as -m gpt-5.5
     effort: high # Optional — rendered as -c model_reasoning_effort=high
     # is_claude: true          # Optional — force claude treatment for a wrapper (e.g. claude-local)
+  argon:
+    command: agy # Antigravity CLI
+    model: gemini-4-argon-medium # Id carries the effort; for effort:, use gemini-4-argon
   claude-sonnet:
     command: claude
     model: sonnet # Rendered as --model sonnet
@@ -348,10 +350,16 @@ profiles:
 Set on an agent profile; unset means no flag (the CLI picks its own default).
 Values aren't validated against a list, so pass whatever the installed CLI
 accepts: an alias (`opus`, `sonnet`), a full id (`claude-opus-5[1m]`), and
-`low|medium|high|xhigh|max` for claude's effort. Claude and codex have built-in
-flag templates; any other CLI needs `model_args` / `effort_args` containing
-`{model}` / `{effort}` (e.g. `model_args: --model {model}`) before it can take
-a value — validation rejects a value with no template.
+`low|medium|high|xhigh|max` for claude's effort. Claude, codex and agy are
+built in (scripts/builtin-agents.json): their model/effort flags, how they take
+the launch prompt (agy's `-i {prompt}`), their resume args and skill prefix
+come from there, so their profiles need only `command`, `model` and `effort`.
+Don't add `resume_args`, `model_args`, `effort_args` or `prompt_args` for them
+unless the user wants to override one. Any other CLI needs `model_args` /
+`effort_args` containing `{model}` / `{effort}` (e.g.
+`model_args: --model {model}`) before it can take a value — validation rejects
+a value with no template — and `prompt_args` with `{prompt}` once if it won't
+take a bare prompt.
 
 To give one workspace profile a different model, define another agent profile
 and point that workspace profile at it. Only prompt for these when the user

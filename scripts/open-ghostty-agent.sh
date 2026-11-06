@@ -38,6 +38,7 @@ AGENT_COMMAND=""
 AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
+AGENT_PROMPT_ARGS=""
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE="claude"
@@ -114,6 +115,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --agent-launch-flags)
             PROFILE_LAUNCH_FLAGS="$2"
+            shift 2
+            ;;
+        --agent-prompt-args)
+            AGENT_PROMPT_ARGS="$2"
             shift 2
             ;;
         --agent-profile)
@@ -215,6 +220,16 @@ AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
+# Only with prompt_args: the template's text around {prompt} and the prompt,
+# single-quoted for the inner shell, go into one string that crosses the outer
+# shell as $AGENT_PROMPT_WORDS, so a quote or $() in either stays literal.
+# Without prompt_args the line keeps its bare '<prompt>' word.
+PROMPT_WORDS=""
+if [[ -n "$AGENT_PROMPT_ARGS" && -n "$AGENT_PROMPT" ]]; then
+    escaped_quote="'\\''"
+    PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
+fi
+
 if [[ "$PRINT_LAUNCH_FLAGS" == true ]]; then
     printf '%s\n' "$LAUNCH_FLAGS"
     exit 0
@@ -252,6 +267,9 @@ on run argv
     set agentProfile to item 15 of argv
     set agentSessions to item 16 of argv
     set agentIsClaude to item 17 of argv
+    -- Empty => the prompt goes in as one bare word. Otherwise the prompt_args
+    -- rendering, already quoted for the inner shell (see PROMPT_WORDS).
+    set promptWords to item 18 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -282,13 +300,18 @@ on run argv
     -- exactly that parse. Empty flags leave the command word
     -- unchanged.
     set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
+    set promptSeg to " '" & agentPrompt & "'"
+    if promptWords is not equal to "" then
+        set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
+        set promptSeg to " $AGENT_PROMPT_WORDS"
+    end if
     set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
     set resumeChain to ""
     if resumeArgs is not equal to "" then
         set resumeAttempt to "$AGENT_RESUME"
         if agentPrompt is not equal to "" then
-            set resumeAttempt to resumeAttempt & " '" & agentPrompt & "'"
+            set resumeAttempt to resumeAttempt & promptSeg
         end if
         set resumeChain to resumeAttempt & " || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
@@ -296,7 +319,7 @@ on run argv
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
-        set agentLine to agentPrefix & " '" & agentPrompt & "'\""
+        set agentLine to agentPrefix & promptSeg & "\""
     end if
 
     -- Companion pane: create-or-attach a session on the inner socket (so the
@@ -376,7 +399,7 @@ APPLESCRIPT_END
 # Run the AppleScript with arguments. Argument 9 is the print-only switch: when
 # true the script returns the assembled command lines and never touches Ghostty.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE")
+OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE" "$PROMPT_WORDS")
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     printf '%s\n' "$OSA_OUTPUT"

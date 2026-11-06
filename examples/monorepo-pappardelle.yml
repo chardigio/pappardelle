@@ -39,7 +39,6 @@ agent_profiles:
   codex:
     command: codex
     args: --yolo # codex's skip-permissions equivalent, as free-form args
-    resume_args: resume {session_id}
     model: gpt-5.5 # Rendered as -m gpt-5.5
 
 # Commands to run after a git worktree is created.

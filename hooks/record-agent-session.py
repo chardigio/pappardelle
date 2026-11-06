@@ -2,8 +2,9 @@
 """
 Agent hook that records the agent's session id for its space (see
 agent_session.py). For agents with Claude Code-style hooks other than Claude,
-which records through update-status.py. Register it for SessionStart and
-UserPromptSubmit; the hook payload on stdin must carry session_id.
+which records through update-status.py: register it for SessionStart and
+UserPromptSubmit, with session_id in the payload. agy registers it for
+SessionStart and PreInvocation and sends conversationId instead.
 """
 
 import importlib.util
@@ -19,7 +20,11 @@ if __name__ == "__main__":
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            module.record_agent_session(json.load(sys.stdin), is_claude_hook=False)
+            payload = json.load(sys.stdin)
+            if isinstance(payload, dict) and "conversationId" in payload:
+                # agy reads a hook's stdout as its JSON result.
+                print("{}")
+            module.record_agent_session(payload, is_claude_hook=False)
     except Exception:
         # Never let hook failures reach the agent.
         pass

@@ -41,6 +41,10 @@ hooks through the same daemon, so one run by hand in the companion pane looks
 just like the pane's own. The id is recorded under the pid of the agent
 running in the agent session's first pane instead, and is never replaced
 while that agent lives: its first conversation keeps it until the agent exits.
+
+agy's subagents fire hooks from the agy process itself, each with its own
+conversation id, so an agy id is never replaced while its process lives either:
+the pane's first conversation keeps it until a relaunch.
 """
 
 import json
@@ -256,12 +260,16 @@ def record_agent_session(
     """
     env = os.environ if environ is None else environ
     started = started or process_start
-    session_id = payload.get("session_id")
-    if (
-        payload.get("hook_event_name") not in RECORDED_EVENTS
-        or not isinstance(session_id, str)
-        or not session_id
-    ):
+    # agy's hooks send camelCase fields and no event name; it registers only
+    # the events worth recording (agy-hooks.json.example).
+    is_agy = "conversationId" in payload
+    if is_agy:
+        session_id = payload.get("conversationId")
+    else:
+        session_id = payload.get("session_id")
+        if payload.get("hook_event_name") not in RECORDED_EVENTS:
+            return False
+    if not isinstance(session_id, str) or not session_id:
         return False
 
     # UserPromptSubmit fires on every prompt; the process walk only runs when
@@ -310,7 +318,7 @@ def record_agent_session(
         return False
     entry = sessions.get(agent_profile)
     owner = entry.get("pid") if isinstance(entry, dict) else None
-    if (owner != agent_pid or not in_tmux) and owner_alive(entry, started):
+    if (owner != agent_pid or not in_tmux or is_agy) and owner_alive(entry, started):
         return False
     recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
     if entry == recording:

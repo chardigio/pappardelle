@@ -162,6 +162,35 @@ CLAUDE_WRAPPER = {
 }
 
 
+# agy runs its hook commands without a shell in between (seen on agy 1.5.0).
+TOP_LEVEL_AGY = {
+    100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
+    99: (98, "agy --model gemini-4-argon-medium -i /idow STA-1"),
+    98: (97, "zsh -ic agy --model gemini-4-argon-medium -i '/idow STA-1'"),
+    97: (96, "/bin/sh -c \"$1\" -ic \"$2\""),
+    96: (1, "/opt/homebrew/bin/tmux -L pappardelle_inner new-session"),
+}
+
+# The space's agy after a relaunch.
+RELAUNCHED_AGY = {
+    100: (89, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
+    89: (88, "agy --model gemini-4-argon-medium --conversation first"),
+    88: (87, "zsh -ic agy --model gemini-4-argon-medium --conversation first"),
+    87: (86, "/bin/sh -c \"$1\" -ic \"$2\""),
+    86: (1, "/opt/homebrew/bin/tmux -L pappardelle_inner new-session"),
+}
+
+# codex running agy through its shell tool, in an agy profile's pane.
+AGY_INSIDE_CODEX = {
+    100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
+    99: (98, "agy -p review"),
+    98: (97, "/bin/bash -c agy -p review"),
+    97: (96, "/opt/homebrew/lib/node_modules/@openai/codex/vendor/codex"),
+    96: (95, "zsh -ic codex"),
+    95: (1, "/usr/local/bin/tmux"),
+}
+
+
 STARTED = "Mon Oct 26 09:00:00 2026"
 
 
@@ -561,3 +590,50 @@ def test_the_session_env_comes_from_the_agent_session_holding_the_cwd(tmp_path: 
     shell = subprocess.run(["ps", "-o", "args=", "-p", str(pane.pid)], capture_output=True, text=True).stdout
     assert shell.strip()
     assert agent_session.tmux_agent_pane(str(tmp_path)) is None
+
+
+def agy_payload(conversation_id: str):
+    return {"conversationId": conversation_id, "workspacePaths": ["/w"], "lastUserInput": "hi"}
+
+
+def test_agy_records_its_conversation(sessions_file: Path):
+    assert record_agent_session(
+        agy_payload("first"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: TOP_LEVEL_AGY
+    )
+    assert entries(sessions_file)["argon"]["session_id"] == "first"
+    assert entries(sessions_file)["argon"]["pid"] == 99
+
+
+def test_an_agy_subagent_does_not_replace_the_conversation(sessions_file: Path):
+    # agy's subagents fire hooks from the agy process with their own id.
+    record_agent_session(agy_payload("first"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: TOP_LEVEL_AGY)
+    assert not record_agent_session(
+        agy_payload("subagent"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: TOP_LEVEL_AGY
+    )
+    assert recorded(sessions_file) == {"argon": "first"}
+
+
+def test_a_relaunched_agy_records_again(sessions_file: Path):
+    record_agent_session(agy_payload("first"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: TOP_LEVEL_AGY)
+    assert record_agent_session(
+        agy_payload("second"),
+        False,
+        env_for(sessions_file, "argon"),
+        HOOK_PID,
+        lambda: RELAUNCHED_AGY,
+        started=lambda pid: STARTED if pid == 89 else None,
+    )
+    assert entries(sessions_file)["argon"] == {"session_id": "second", "pid": 89, "started": STARTED}
+
+
+def test_an_agy_run_by_another_agent_is_not_recorded(sessions_file: Path):
+    assert not record_agent_session(
+        agy_payload("nested"), False, env_for(sessions_file, "argon"), HOOK_PID, lambda: AGY_INSIDE_CODEX
+    )
+    assert not sessions_file.exists()
+
+
+def test_an_agy_payload_without_a_conversation_id_is_ignored(sessions_file: Path):
+    assert not record_agent_session(
+        agy_payload(""), False, env_for(sessions_file, "argon"), HOOK_PID, no_process_walk
+    )
