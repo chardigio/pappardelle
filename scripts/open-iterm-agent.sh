@@ -2,7 +2,7 @@
 
 # open-iterm-agent.sh - Open iTerm with tmux, the configured agent, and the companion pane
 #
-# Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # Opens a new iTerm window with:
 #   1. A tmux session running the configured agent (default: Claude Code, with
@@ -109,7 +109,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
+            echo "Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens iTerm."

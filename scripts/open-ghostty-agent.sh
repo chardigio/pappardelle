@@ -2,7 +2,7 @@
 
 # open-ghostty-agent.sh - Open a Ghostty tab with tmux, the configured agent, and the companion pane
 #
-# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # The Ghostty counterpart to open-iterm-agent.sh. Instead of a new window it
 # opens a new tab in the window the Pappardelle TUI is running in, split into:
@@ -126,7 +126,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
+            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens Ghostty."
