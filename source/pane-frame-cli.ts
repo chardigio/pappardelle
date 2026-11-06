@@ -8,7 +8,7 @@ import {
 } from '@opentui/core';
 import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
-import {OscScanner} from './pane-frame-osc.ts';
+import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences} from './pane-frame-palette.ts';
 import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 
@@ -64,6 +64,10 @@ renderer.root.add(frame);
 
 // Filled once the child starts; the terminal's callbacks need it first.
 const childPty: {current?: Bun.Terminal} = {};
+const childSize = {
+	cols: Math.max(1, renderer.width - 2),
+	rows: Math.max(1, renderer.height - 2),
+};
 const terminal = new EmbeddedTerminalRenderable(renderer, {
 	id: 'terminal',
 	width: '100%',
@@ -75,6 +79,8 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 		childPty.current?.write(data);
 	},
 	onTerminalResize(cols, rows) {
+		childSize.cols = cols;
+		childSize.rows = rows;
 		childPty.current?.resize(cols, rows);
 	},
 });
@@ -102,6 +108,18 @@ renderer.on('palette', (colors: Parameters<typeof paletteSequences>[0]) => {
 	renderer.requestRender();
 });
 
+// Bun's pty carries no pixel size, so the nested tmux client asks for it, and
+// while that query is unanswered tmux holds every lone Escape for 500ms
+// waiting to see whether it starts the reply.
+function sizeReply(query: SizeQuery): string {
+	const {cols, rows} = childSize;
+	if (query === 'cells') return `\u001B[8;${rows};${cols}t`;
+	const {resolution} = renderer;
+	const cellWidth = resolution ? resolution.width / renderer.width : 0;
+	const cellHeight = resolution ? resolution.height / renderer.height : 0;
+	return `\u001B[4;${Math.round(cellHeight * rows)};${Math.round(cellWidth * cols)}t`;
+}
+
 const scanner = new OscScanner();
 const childEnv: Record<string, string | undefined> = {
 	...process.env,
@@ -127,9 +145,8 @@ const child = Bun.spawn(
 	{
 		env: childEnv,
 		terminal: {
-			cols: Math.max(1, renderer.width - 2),
-			rows: Math.max(1, renderer.height - 2),
-			data(_terminal, data) {
+			...childSize,
+			data(childTerminal, data) {
 				const events = scanner.feed(data);
 				if (events.title !== undefined && events.title !== title) {
 					title = events.title;
@@ -138,6 +155,8 @@ const child = Bun.spawn(
 
 				for (const sequence of events.passthrough)
 					process.stdout.write(sequence);
+				for (const query of events.sizeQueries)
+					childTerminal.write(sizeReply(query));
 				terminal.write(data);
 			},
 		},
