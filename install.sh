@@ -398,7 +398,7 @@ install_skill_scripts init-pappardelle
 # Install the Claude Code Plugin
 # ============================================================================
 
-if ! "$NODE_BIN" "$CLI_JS" plugin install; then
+if ! "$BUN_BIN" "$CLI_JS" plugin install; then
     print_warning "Could not install the Pappardelle Claude Code plugin (skills and hooks)"
     print_info "Retry with: pappardelle plugin install"
 fi
