@@ -70,15 +70,17 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 	t.deepEqual(inputs, [undefined, undefined, text, undefined, undefined]);
 });
 
-test('sendToSpaceAgent never sends Enter when pasting the text fails', t => {
-	const {runner, calls} = makeRunner({
-		sessions: ['agent-r-STA-1'],
-		failOn: args => args[0] === 'paste-buffer',
-	});
+for (const failing of ['load-buffer', 'paste-buffer']) {
+	test(`sendToSpaceAgent stops before pasting or pressing Enter when ${failing} fails`, t => {
+		const {runner, calls} = makeRunner({
+			sessions: ['agent-r-STA-1'],
+			failOn: args => args[0] === failing,
+		});
 
-	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'failed');
-	t.false(calls.some(args => args.includes('Enter')));
-});
+		t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'failed');
+		t.is(calls.at(-1)?.[0], failing);
+	});
+}
 
 test('sendToSpaceAgent reports no-session and sends nothing when the space has no agent session', t => {
 	const {runner, calls} = makeRunner({

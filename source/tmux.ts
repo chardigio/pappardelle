@@ -1056,8 +1056,7 @@ export function pasteThenEnter(
 }
 
 /**
- * Send keys to a pane (for attaching to sessions or sending commands)
- * Clears any partial input first to avoid leftover characters
+ * Submit `command` to the agent viewer pane through the outer server.
  */
 export function sendToPane(paneId: string, command: string): boolean {
 	const sent = pasteThenEnter(defaultOuterTmuxRunner, paneId, command);
