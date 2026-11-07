@@ -1,0 +1,1126 @@
+{
+	"traceEvents": [
+		{
+			"name": "git rev-parse --show-toplevel",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 124353.09,
+			"dur": 1509.781,
+			"pid": 2567563,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "git rev-parse --path-format=absolute --git-common-dir",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 146803.484,
+			"dur": 1217.7279999999998,
+			"pid": 2567592,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "git rev-parse --path-format=absolute --git-common-dir",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 168159.94,
+			"dur": 1164.008,
+			"pid": 2567598,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux list-sessions -F '#{session_name}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 190070.419,
+			"dur": 1000.387,
+			"pid": 2567614,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner list-sessions -F '#{session_name}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 210130.856,
+			"dur": 685.2850000000001,
+			"pid": 2567628,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux -L bench-inner list-sessions -F '#{session_name}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 232043.496,
+			"dur": 693.295,
+			"pid": 2567636,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 252765.30800000002,
+			"dur": 1089.197,
+			"pid": 2567644,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 272777.064,
+			"dur": 1119.8680000000002,
+			"pid": 2567649,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux split-window -h -t %0 -c '<fixture>/repo' -l 76 -P -F '#{pane_id}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 295435.179,
+			"dur": 1673.552,
+			"pid": 2567654,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux split-window -h -t %1 -c '<fixture>/repo' -l 35 -P -F '#{pane_id}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 315725.038,
+			"dur": 1656.951,
+			"pid": 2567665,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux set-option -p -t %0 @pappardelle_title rail ';' set-option -p -t %1 @pappardelle_title agent ';' set-option -p -t %2 @pappardelle_title companion ';' set-option -w -t %0 pane-border-style fg=default,dim ';' set-option -w -t %0 pane-active-border-style fg=default ';' set-option -w -t %0 pane-border-status top ';' set-option -w -t %0 pane-border-format '#{?pane_active,#[bold],} #{@pappardelle_title} '",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 336999.63300000003,
+			"dur": 1477.86,
+			"pid": 2567685,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux show-options -gqv terminal-features",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 357690.95499999996,
+			"dur": 1142.788,
+			"pid": 2567695,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux set-option -ga terminal-features ',*:Sync'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 378606.128,
+			"dur": 1151.057,
+			"pid": 2567703,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-options -gqv terminal-features",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 398101.741,
+			"dur": 641.094,
+			"pid": 2567710,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux -L bench-inner set-option -ga terminal-features ',*:Sync'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 417208.63100000005,
+			"dur": 831.496,
+			"pid": 2567717,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux select-pane -t %0",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 436700.824,
+			"dur": 1103.168,
+			"pid": 2567723,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p '#{window_width} #{window_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 456682.35099999997,
+			"dur": 1370.45,
+			"pid": 2567728,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 479596.298,
+			"dur": 1030.317,
+			"pid": 2567795,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_width}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 499222.832,
+			"dur": 933.086,
+			"pid": 2567805,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "git log -1 --format=%h -- .",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 519605.631,
+			"dur": 1814.553,
+			"pid": 2567812,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "git -C /tmp/pappardelle-3wf-baseline-bipgmn76 describe --tags --abbrev=0 --match 'v*.*.*'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 540768.626,
+			"dur": 1143.417,
+			"pid": 2567819,
+			"tid": 1,
+			"args": {
+				"exitCode": 128
+			}
+		},
+		{
+			"name": "git -C '<fixture>/home/.pappardelle/repo' describe --tags --abbrev=0 --match 'v*.*.*'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 560660.462,
+			"dur": 966.356,
+			"pid": 2567827,
+			"tid": 1,
+			"args": {
+				"exitCode": 128
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{window_zoomed_flag}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 611497.3690000001,
+			"dur": 1755.972,
+			"pid": 2567889,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 613950.716,
+			"dur": 839.536,
+			"pid": 2567893,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 614981.953,
+			"dur": 807.816,
+			"pid": 2567894,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "git worktree list --porcelain",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 615943.08,
+			"dur": 1504.31,
+			"pid": 2567883,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 617456.32,
+			"dur": 1000.227,
+			"pid": 2567891,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{window_width} #{pane_width}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 637794.129,
+			"dur": 1091.0169999999998,
+			"pid": 2567906,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 640058.914,
+			"dur": 831.0659999999999,
+			"pid": 2567909,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "git status --porcelain",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 641001.5009999999,
+			"dur": 1600.861,
+			"pid": 2567910,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{window_width} #{window_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 659853.8600000001,
+			"dur": 1153.717,
+			"pid": 2567934,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 679944.227,
+			"dur": 1131.0880000000002,
+			"pid": 2567942,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 700649.2980000001,
+			"dur": 959.9870000000001,
+			"pid": 2567951,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux resize-pane -t %0 -x 23",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 721453.38,
+			"dur": 1294.2689999999998,
+			"pid": 2567960,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux resize-pane -t %2 -x 35",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 741898.59,
+			"dur": 1065.028,
+			"pid": 2567988,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 763023.275,
+			"dur": 1031.4470000000001,
+			"pid": 2567994,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 782512.998,
+			"dur": 1099.0279999999998,
+			"pid": 2567999,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 802729.716,
+			"dur": 1173.3880000000001,
+			"pid": 2568006,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner has-session -t =agent-repo-main:",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 823878.801,
+			"dur": 710.335,
+			"pid": 2568015,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux -L bench-inner new-session -d -s agent-repo-main -c '<fixture>/repo' -e 'PAPPARDELLE_MAIN_REPO_ROOT=<fixture>/repo' -e PI_PROGRAM_STATUS=1 -e AGY_CLI_OSC7501=on -e PAPPARDELLE_AGENT_PROFILE=fixture -e PAPPARDELLE_AGENT_IS_CLAUDE=false -e 'PAPPARDELLE_AGENT_SESSIONS=<fixture>/home/.pappardelle/repos/repo/space-state/main.agent-sessions.json' /bin/sh -c 'tmux \"$1\" \"$2\" wait-for \"$3\"; shift 3; exec \"$@\"' sh -L bench-inner pappardelle-status-666bd0cb-8ea3-4fe3-b086-4382862c633c /bin/sh -c '\"$1\" -ic \"$2$(printf \"\\n:\")\"; printf \"\\033]133;A\\007\"; exec \"$1\" -l' sh /bin/bash '/home/sddamico/.local/share/mise/installs/python/latest/bin/python3 <fixture>/ready.py agent <fixture>/agent.json' ';' set-option -t =agent-repo-main: @pappardelle_startup_gate pappardelle-status-666bd0cb-8ea3-4fe3-b086-4382862c633c",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 843392.3740000001,
+			"dur": 15752.046999999999,
+			"pid": 2568024,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 878620.495,
+			"dur": 1192.918,
+			"pid": 2568036,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner display-message -p -t =agent-repo-main: '#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 898111.968,
+			"dur": 1006.467,
+			"pid": 2568044,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner set-option -t =agent-repo-main: @pappardelle_status_pane %0",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 917226.809,
+			"dur": 1116.227,
+			"pid": 2568051,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner if-shell -F -t %0 '#{pane_pipe}' '' ''\"'\"'set-option'\"'\"' '\"'\"'-p'\"'\"' '\"'\"'-t'\"'\"' '\"'\"'%0'\"'\"' '\"'\"'@pappardelle_status_generation'\"'\"' '\"'\"'2568034.cbd4f031-7378-4754-9a1b-9cc293c62017'\"'\"' ; '\"'\"'pipe-pane'\"'\"' '\"'\"'-Oo'\"'\"' '\"'\"'-t'\"'\"' '\"'\"'%0'\"'\"' '\"'\"''\"'\"'\\'\"'\"''\"'\"'/tmp/pappardelle-3wf-baseline-bipgmn76/dist/pappardelle'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'--internal-status-monitor'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'watch'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'repo'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'main'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'bench-inner'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'eyJpZCI6IiUwIiwicGlkIjoiMjU2ODAzNCIsImRlYWQiOmZhbHNlLCJwaXBlZCI6ZmFsc2UsIm1hcmtlciI6IjI1NjgwMzQuY2JkNGYwMzEtNzM3OC00NzU0LTlhMWItOWNjMjkzYzYyMDE3IiwiZ2VuZXJhdGlvbiI6IjUyNjFmZjg3NWZmZDM0OGRlYTNlOTYyMjQwNWMxN2RhIn0='\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"'<fixture>/home/.pappardelle/program-status/repo'\"'\"'\\'\"'\"''\"'\"' '\"'\"'\\'\"'\"''\"'\"''\"'\"'\\'\"'\"''\"'\"''\"'\"''",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 936083.497,
+			"dur": 1392.8100000000002,
+			"pid": 2568054,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner display-message -p -t %0 '#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 955856.553,
+			"dur": 1161.547,
+			"pid": 2568061,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner if-shell -F -t =agent-repo-main: '#{==:#{@pappardelle_startup_gate},pappardelle-status-666bd0cb-8ea3-4fe3-b086-4382862c633c}' ''\"'\"'wait-for'\"'\"' '\"'\"'-S'\"'\"' '\"'\"'pappardelle-status-666bd0cb-8ea3-4fe3-b086-4382862c633c'\"'\"' ; '\"'\"'set-option'\"'\"' '\"'\"'-u'\"'\"' '\"'\"'-t'\"'\"' '\"'\"'=agent-repo-main:'\"'\"' '\"'\"'@pappardelle_startup_gate'\"'\"'' ''",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 976535.344,
+			"dur": 1347.829,
+			"pid": 2568071,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner wait-for pappardelle-status-666bd0cb-8ea3-4fe3-b086-4382862c633c",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 875323.862,
+			"dur": 102612.552,
+			"pid": 2568035,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner has-session -t =companion-repo-main:",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 997480.8870000001,
+			"dur": 945.787,
+			"pid": 2568078,
+			"tid": 1,
+			"args": {
+				"exitCode": 1
+			}
+		},
+		{
+			"name": "tmux -L bench-inner new-session -d -s companion-repo-main -c '<fixture>/repo' -e 'PAPPARDELLE_MAIN_REPO_ROOT=<fixture>/repo' /bin/sh -c '\"$1\" -ic \"$2$(printf \"\\n:\")\"; exec \"$1\" -l' sh /bin/bash '/home/sddamico/.local/share/mise/installs/python/latest/bin/python3 <fixture>/ready.py companion <fixture>/companion.json'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1017329.543,
+			"dur": 1836.442,
+			"pid": 2568088,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %1 '#{pane_tty}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1040731.743,
+			"dur": 1325.8890000000001,
+			"pid": 2568097,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1055254.2920000001,
+			"dur": 1096.1879999999999,
+			"pid": 2568100,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_tty}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1061547.8250000002,
+			"dur": 1088.8770000000002,
+			"pid": 2568102,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner display-message -p -t %0 '#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1074834.3059999999,
+			"dur": 1148.018,
+			"pid": 2568109,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner list-clients -F '#{client_tty}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1081528.362,
+			"dur": 1113.6170000000002,
+			"pid": 2568111,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux respawn-pane -k -t %1 ''\"'\"'tmux'\"'\"' '\"'\"'-L'\"'\"' '\"'\"'bench-inner'\"'\"' '\"'\"'attach'\"'\"' '\"'\"'-t'\"'\"' '\"'\"'=agent-repo-main:'\"'\"'; exec \"$SHELL\" -l'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1100996.5340000002,
+			"dur": 1261.039,
+			"pid": 2568119,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %1 '#{pane_tty}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1119666.172,
+			"dur": 1010.6869999999999,
+			"pid": 2568128,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux -L bench-inner list-clients -F '#{client_tty}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1139115.685,
+			"dur": 1198.479,
+			"pid": 2568133,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux respawn-pane -k -t %2 ''\"'\"'tmux'\"'\"' '\"'\"'-L'\"'\"' '\"'\"'bench-inner'\"'\"' '\"'\"'attach'\"'\"' '\"'\"'-t'\"'\"' '\"'\"'=companion-repo-main:'\"'\"'; exec \"$SHELL\" -l'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1158348.896,
+			"dur": 1358.13,
+			"pid": 2568138,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_tty}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1177938.6400000001,
+			"dur": 877.1060000000001,
+			"pid": 2568147,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux set-option -p -t %1 @pappardelle_title 'agent \u00b7 main' ';' select-pane -t %0",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1196773.529,
+			"dur": 1171.0179999999998,
+			"pid": 2568155,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{window_zoomed_flag}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1215902.04,
+			"dur": 1103.818,
+			"pid": 2568160,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{window_width} #{pane_width}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1234079.414,
+			"dur": 1077.877,
+			"pid": 2568164,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{window_width} #{window_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1252089.557,
+			"dur": 926.787,
+			"pid": 2568166,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1269649.907,
+			"dur": 1066.598,
+			"pid": 2568168,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1287520.199,
+			"dur": 974.077,
+			"pid": 2568170,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux resize-pane -t %0 -x 23",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1306009.246,
+			"dur": 1219.448,
+			"pid": 2568189,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux resize-pane -t %2 -x 35",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1325679.7899999998,
+			"dur": 1189.3180000000002,
+			"pid": 2568192,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1345107.513,
+			"dur": 1170.798,
+			"pid": 2568194,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %2 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1364303.054,
+			"dur": 1132.1380000000001,
+			"pid": 2568196,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p -t %0 '#{pane_width} #{pane_height}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1383524.315,
+			"dur": 1084.868,
+			"pid": 2568198,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "tmux display-message -p '#{version}'",
+			"cat": "subprocess",
+			"ph": "X",
+			"ts": 1404485.859,
+			"dur": 1166.1680000000001,
+			"pid": 2568200,
+			"tid": 1,
+			"args": {
+				"exitCode": 0
+			}
+		},
+		{
+			"name": "[INFO ] [app] Pappardelle starting",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 101708.54400000001,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 277708.8,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 320708.864,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [tmux] Could not enable synchronized output on inner socket",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 420708.608,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 440708.608,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [update-check] Update check skipped: LOCAL_MODE",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 564708.608,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [app] Loaded 0 custom keybindings",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 582708.736,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 582708.736,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 609708.8,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 619708.672,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 620708.608,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 624708.608,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 643708.672,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 643708.672,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 643708.672,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 644708.608,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 704708.864,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Relayout completed successfully",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 786708.736,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 980708.864,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Created companion session: companion-repo-main",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 1024708.864,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 1290708.736,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "[INFO ] [tmux] Relayout completed successfully",
+			"cat": "application-log",
+			"ph": "i",
+			"s": "g",
+			"ts": 1367708.672,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "agentReadyMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1005828.3239999999,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "companionReadyMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1042893.667,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "agentAttachedMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1123709.08,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "agentVisibleMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1126539.6290000002,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "companionAttachedMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1199023.714,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "companionVisibleMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1202957.751,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "requiredClientsAttachedMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1199023.714,
+			"pid": 0,
+			"tid": 0
+		},
+		{
+			"name": "requiredVisibleMs",
+			"cat": "readiness",
+			"ph": "i",
+			"s": "g",
+			"ts": 1202957.751,
+			"pid": 0,
+			"tid": 0
+		}
+	]
+}

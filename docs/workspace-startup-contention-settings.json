@@ -1,0 +1,28 @@
+{
+	"cpus": [0, 1],
+	"workers": 2,
+	"samples": 40,
+	"command": [
+		"/home/sddamico/.local/share/mise/installs/python/latest/bin/python3",
+		"scripts/benchmarks/workspace-ready.py",
+		"--binary",
+		"/tmp/pappardelle-3wf-baseline-bipgmn76/dist/pappardelle",
+		"--candidate",
+		"/tmp/pappardelle-3wf-concurrency-5yad0v16/dist/pappardelle",
+		"--runs",
+		"5",
+		"--widths",
+		"100",
+		"160",
+		"--workspaces",
+		"3",
+		"--modes",
+		"fresh",
+		"existing",
+		"--shell-delay-ms",
+		"0",
+		"--output",
+		"docs/workspace-startup-contention.json"
+	],
+	"scope": "synthetic Linux CPU contention; benchmark and two busy workers share two CPUs; interactive QA may run elsewhere"
+}

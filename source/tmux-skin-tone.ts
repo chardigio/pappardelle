@@ -67,7 +67,9 @@ export function maybeStripSkinTones(
 	text: string | undefined,
 ): string | undefined {
 	if (text === undefined) return undefined;
-	return tmuxDrawsSkinToneWide() ? stripSkinTones(text) : text;
+	const stripped = stripSkinTones(text);
+	if (stripped === text) return text;
+	return tmuxDrawsSkinToneWide() ? stripped : text;
 }
 
 /** Override the version probe and clear the cache (for tests). */

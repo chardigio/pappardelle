@@ -1,0 +1,1777 @@
+{
+	"environment": {
+		"platform": "Linux-7.2.15-1-omarchy-x86_64-with-glibc2.44",
+		"python": "3.15.2",
+		"tmux": "tmux next-3.9",
+		"sourceCommit": "66d8e7d2a1b687ef937e19b958a3dbc1e4624fbb",
+		"harnessSha256": "b2abf53b08ac8880287003c7b0a68b75f92671804126768333b1fc60283f55b6",
+		"git": "git version 2.56.0",
+		"shell": "GNU bash, version 5.3.20(1)-release (x86_64-pc-linux-gnu)",
+		"executables": {
+			"baseline": {
+				"binary": "/home/sddamico/.worktrees/pappardelle/pappardelle-3wf/dist/pappardelle",
+				"binarySha256": "9139f392fef9cdd45385f00015991b5e59e490c220953c7db15052450ca4be4f",
+				"installationRoot": "/home/sddamico/.worktrees/pappardelle/pappardelle-3wf"
+			}
+		},
+		"bun": "1.4.4",
+		"terminal": "detached real tmux, variable width x 52",
+		"scope": "isolated HOME/repo/servers; OS caches NOT flushed; dummy Python agents; bd/gh stubbed; update cache primed; no real agent startup",
+		"observation": "20 ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately"
+	},
+	"settings": {
+		"binary": "dist/pappardelle",
+		"candidate": null,
+		"widths": [100],
+		"workspaces": [3],
+		"modes": ["fresh"],
+		"runs": 1,
+		"shell_delay_ms": 0,
+		"trace": true,
+		"startup_trace": true,
+		"compare_tracing": false,
+		"timeout": 30,
+		"output": "docs/workspace-startup-geometry-trace.json"
+	},
+	"samples": {
+		"baseline/100x52/3spaces/fresh/0ms-shell": [
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": true,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 83540776909344,
+						"pid": 3725236
+					},
+					"companion": {
+						"readyNs": 83540778042803,
+						"pid": 3725239
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentAttachedMs": 231.343247,
+					"companionAttachedMs": 231.345497,
+					"agentVisibleMs": 234.24601,
+					"companionVisibleMs": 235.306968,
+					"agentReadyMs": 230.404959,
+					"companionReadyMs": 231.538418,
+					"requiredClientsAttachedMs": 231.345497,
+					"requiredVisibleMs": 235.306968
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:40 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:40 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 101.177344,
+						"message": "[DEBUG] [startup] {\"id\":0,\"stage\":\"unattributed-bootstrap\",\"phase\":\"end\",\"durationMs\":84.123411,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":84.138531}"
+					},
+					{
+						"elapsedMs": 101.177344,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 101.177344,
+						"message": "[DEBUG] [startup] {\"id\":1,\"stage\":\"configuration\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":84.417383}"
+					},
+					{
+						"elapsedMs": 104.177408,
+						"message": "[DEBUG] [startup] {\"id\":1,\"stage\":\"configuration\",\"phase\":\"end\",\"durationMs\":2.9628140000000087,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":87.378927}"
+					},
+					{
+						"elapsedMs": 104.177408,
+						"message": "[DEBUG] [startup] {\"id\":2,\"stage\":\"repo-bootstrap\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":87.431777}"
+					},
+					{
+						"elapsedMs": 110.177536,
+						"message": "[DEBUG] [startup] {\"id\":2,\"stage\":\"repo-bootstrap\",\"phase\":\"end\",\"durationMs\":6.063988999999992,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":93.493546}"
+					},
+					{
+						"elapsedMs": 110.177536,
+						"message": "[DEBUG] [startup] {\"id\":3,\"stage\":\"outer-cleanup\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":93.529016}"
+					},
+					{
+						"elapsedMs": 111.177472,
+						"message": "[DEBUG] [startup] {\"id\":3,\"stage\":\"outer-cleanup\",\"phase\":\"end\",\"durationMs\":1.2272700000000043,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":94.756236}"
+					},
+					{
+						"elapsedMs": 111.177472,
+						"message": "[DEBUG] [startup] {\"id\":4,\"stage\":\"legacy-migration\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":94.778186}"
+					},
+					{
+						"elapsedMs": 112.177664,
+						"message": "[DEBUG] [startup] {\"id\":4,\"stage\":\"legacy-migration\",\"phase\":\"end\",\"durationMs\":0.9270080000000007,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":95.705414}"
+					},
+					{
+						"elapsedMs": 112.177664,
+						"message": "[DEBUG] [startup] {\"id\":5,\"stage\":\"inner-reaping\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":95.726444}"
+					},
+					{
+						"elapsedMs": 113.1776,
+						"message": "[DEBUG] [startup] {\"id\":5,\"stage\":\"inner-reaping\",\"phase\":\"end\",\"durationMs\":0.9709279999999865,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":96.697592}"
+					},
+					{
+						"elapsedMs": 114.177536,
+						"message": "[DEBUG] [startup] {\"id\":6,\"stage\":\"layout-setup\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":96.850583}"
+					},
+					{
+						"elapsedMs": 114.177536,
+						"message": "[DEBUG] [startup] {\"id\":7,\"stage\":\"setup-geometry\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":96.870663}"
+					},
+					{
+						"elapsedMs": 116.177408,
+						"message": "[DEBUG] [startup] {\"id\":7,\"stage\":\"setup-geometry\",\"phase\":\"end\",\"durationMs\":2.3166790000000077,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":99.188062}"
+					},
+					{
+						"elapsedMs": 116.177408,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 116.177408,
+						"message": "[DEBUG] [startup] {\"id\":8,\"stage\":\"setup-panes\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":99.221622}"
+					},
+					{
+						"elapsedMs": 119.177472,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 119.177472,
+						"message": "[DEBUG] [startup] {\"id\":8,\"stage\":\"setup-panes\",\"phase\":\"end\",\"durationMs\":3.3180459999999954,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":102.539908}"
+					},
+					{
+						"elapsedMs": 119.177472,
+						"message": "[DEBUG] [startup] {\"id\":9,\"stage\":\"setup-chrome\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":102.560358}"
+					},
+					{
+						"elapsedMs": 121.177344,
+						"message": "[DEBUG] [startup] {\"id\":9,\"stage\":\"setup-chrome\",\"phase\":\"end\",\"durationMs\":1.706224000000006,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":104.263612}"
+					},
+					{
+						"elapsedMs": 121.177344,
+						"message": "[DEBUG] [startup] {\"id\":10,\"stage\":\"setup-sync-output\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":104.299912}"
+					},
+					{
+						"elapsedMs": 125.1776,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 125.1776,
+						"message": "[DEBUG] [startup] {\"id\":10,\"stage\":\"setup-sync-output\",\"phase\":\"end\",\"durationMs\":3.768829999999994,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":108.068572}"
+					},
+					{
+						"elapsedMs": 125.1776,
+						"message": "[DEBUG] [startup] {\"id\":11,\"stage\":\"setup-focus\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":108.083312}"
+					},
+					{
+						"elapsedMs": 127.177472,
+						"message": "[DEBUG] [startup] {\"id\":11,\"stage\":\"setup-focus\",\"phase\":\"end\",\"durationMs\":2.133397000000002,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":110.217329}"
+					},
+					{
+						"elapsedMs": 127.177472,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 127.177472,
+						"message": "[DEBUG] [startup] {\"id\":12,\"stage\":\"setup-measurements\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":110.25533}"
+					},
+					{
+						"elapsedMs": 128.177408,
+						"message": "[DEBUG] [startup] {\"id\":12,\"stage\":\"setup-measurements\",\"phase\":\"end\",\"durationMs\":1.1817689999999885,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":111.437159}"
+					},
+					{
+						"elapsedMs": 128.177408,
+						"message": "[DEBUG] [startup] {\"id\":6,\"stage\":\"layout-setup\",\"phase\":\"end\",\"durationMs\":14.609176000000005,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":111.458809}"
+					},
+					{
+						"elapsedMs": 128.177408,
+						"message": "[DEBUG] [startup] {\"id\":13,\"stage\":\"commit-metadata\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":111.488149}"
+					},
+					{
+						"elapsedMs": 131.177472,
+						"message": "[DEBUG] [startup] {\"id\":13,\"stage\":\"commit-metadata\",\"phase\":\"end\",\"durationMs\":2.8308430000000016,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":114.319632}"
+					},
+					{
+						"elapsedMs": 131.177472,
+						"message": "[DEBUG] [startup] {\"id\":14,\"stage\":\"version-metadata\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":114.350502}"
+					},
+					{
+						"elapsedMs": 133.177344,
+						"message": "[DEBUG] [startup] {\"id\":14,\"stage\":\"version-metadata\",\"phase\":\"end\",\"durationMs\":1.8223349999999954,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":116.172787}"
+					},
+					{
+						"elapsedMs": 133.177344,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 133.177344,
+						"message": "[DEBUG] [startup] {\"id\":15,\"stage\":\"renderer\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":116.426239}"
+					},
+					{
+						"elapsedMs": 145.1776,
+						"message": "[DEBUG] [startup] {\"id\":15,\"stage\":\"renderer\",\"phase\":\"end\",\"durationMs\":12.065716000000009,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":128.492895}"
+					},
+					{
+						"elapsedMs": 150.177536,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 150.177536,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 156.177408,
+						"message": "[DEBUG] [startup] {\"id\":16,\"stage\":\"layout-request\",\"phase\":\"begin\",\"inputs\":{\"cause\":\"state\",\"loading\":true,\"spaces\":0,\"zoomed\":false,\"revision\":0},\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":139.498563}"
+					},
+					{
+						"elapsedMs": 157.177344,
+						"message": "[DEBUG] [startup] {\"id\":17,\"stage\":\"main-discovery\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":140.459721}"
+					},
+					{
+						"elapsedMs": 159.177472,
+						"message": "[DEBUG] [startup] {\"id\":18,\"stage\":\"layout-queue\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":142.381966}"
+					},
+					{
+						"elapsedMs": 159.177472,
+						"message": "[DEBUG] [startup] {\"id\":18,\"stage\":\"layout-queue\",\"phase\":\"end\",\"durationMs\":0.12280099999998129,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":142.504507}"
+					},
+					{
+						"elapsedMs": 159.177472,
+						"message": "[DEBUG] [startup] {\"id\":19,\"stage\":\"layout-pass\",\"phase\":\"begin\",\"inputs\":{\"zoomed\":false,\"revision\":0},\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":142.535507}"
+					},
+					{
+						"elapsedMs": 161.1776,
+						"message": "[DEBUG] [startup] {\"id\":20,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":144.452162}"
+					},
+					{
+						"elapsedMs": 162.177536,
+						"message": "[DEBUG] [startup] {\"id\":21,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":145.031537}"
+					},
+					{
+						"elapsedMs": 162.177536,
+						"message": "[DEBUG] [startup] {\"id\":22,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":145.36452}"
+					},
+					{
+						"elapsedMs": 168.177664,
+						"message": "[DEBUG] [startup] {\"id\":17,\"stage\":\"main-discovery\",\"phase\":\"end\",\"durationMs\":10.628395000000012,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":151.090766}"
+					},
+					{
+						"elapsedMs": 168.177664,
+						"message": "[DEBUG] [startup] {\"id\":23,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":151.153506}"
+					},
+					{
+						"elapsedMs": 169.1776,
+						"message": "[DEBUG] [startup] {\"id\":20,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":7.9918150000000026,\"outcome\":\"failed\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":152.443337}"
+					},
+					{
+						"elapsedMs": 169.1776,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.1776,
+						"message": "[DEBUG] [startup] {\"id\":21,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":7.641520999999983,\"outcome\":\"failed\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":152.671168}"
+					},
+					{
+						"elapsedMs": 169.1776,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.1776,
+						"message": "[DEBUG] [startup] {\"id\":22,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":7.3848389999999995,\"outcome\":\"failed\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":152.748729}"
+					},
+					{
+						"elapsedMs": 169.1776,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 172.177408,
+						"message": "[DEBUG] [startup] {\"id\":24,\"stage\":\"layout-request\",\"phase\":\"begin\",\"inputs\":{\"cause\":\"state\",\"loading\":false,\"spaces\":4,\"zoomed\":false,\"revision\":0},\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":155.113408}"
+					},
+					{
+						"elapsedMs": 172.177408,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 174.17728,
+						"message": "[DEBUG] [startup] {\"id\":23,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":6.608253000000019,\"outcome\":\"failed\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":157.761539}"
+					},
+					{
+						"elapsedMs": 174.17728,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 176.177408,
+						"message": "[DEBUG] [startup] {\"id\":25,\"stage\":\"attachment-queue\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":158.842397}"
+					},
+					{
+						"elapsedMs": 176.177408,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 178.177536,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 179.177472,
+						"message": "[DEBUG] [startup] {\"id\":19,\"stage\":\"layout-pass\",\"phase\":\"end\",\"durationMs\":19.530575999999996,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":162.055733}"
+					},
+					{
+						"elapsedMs": 179.177472,
+						"message": "[DEBUG] [startup] {\"id\":26,\"stage\":\"layout-queue\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":162.087563}"
+					},
+					{
+						"elapsedMs": 179.177472,
+						"message": "[DEBUG] [startup] {\"id\":25,\"stage\":\"attachment-queue\",\"phase\":\"end\",\"durationMs\":3.402727999999996,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":162.244895}"
+					},
+					{
+						"elapsedMs": 179.177472,
+						"message": "[DEBUG] [startup] {\"id\":27,\"stage\":\"attachment\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":162.707358}"
+					},
+					{
+						"elapsedMs": 180.177408,
+						"message": "[DEBUG] [startup] {\"id\":28,\"stage\":\"agent-session\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":163.292373}"
+					},
+					{
+						"elapsedMs": 197.177344,
+						"message": "[DEBUG] [startup] {\"id\":29,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":180.212038}"
+					},
+					{
+						"elapsedMs": 201.1776,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 201.1776,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 201.1776,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 204.177664,
+						"message": "[DEBUG] [startup] {\"id\":29,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":6.703452999999996,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":186.912111}"
+					},
+					{
+						"elapsedMs": 205.1776,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 205.1776,
+						"message": "[DEBUG] [startup] {\"id\":28,\"stage\":\"agent-session\",\"phase\":\"end\",\"durationMs\":24.815147999999994,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":188.107511}"
+					},
+					{
+						"elapsedMs": 205.1776,
+						"message": "[DEBUG] [startup] {\"id\":30,\"stage\":\"companion-session\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":188.281232}"
+					},
+					{
+						"elapsedMs": 208.177408,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 208.177408,
+						"message": "[DEBUG] [startup] {\"id\":30,\"stage\":\"companion-session\",\"phase\":\"end\",\"durationMs\":2.6078210000000013,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":190.888343}"
+					},
+					{
+						"elapsedMs": 208.177408,
+						"message": "[DEBUG] [startup] {\"id\":31,\"stage\":\"viewer-attachment\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":190.906343}"
+					},
+					{
+						"elapsedMs": 219.177472,
+						"message": "[DEBUG] [startup] {\"id\":31,\"stage\":\"viewer-attachment\",\"phase\":\"end\",\"durationMs\":10.992717999999996,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":201.899661}"
+					},
+					{
+						"elapsedMs": 219.177472,
+						"message": "[DEBUG] [startup] {\"id\":27,\"stage\":\"attachment\",\"phase\":\"end\",\"durationMs\":39.23512400000001,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":201.941252}"
+					},
+					{
+						"elapsedMs": 219.177472,
+						"message": "[DEBUG] [startup] {\"id\":32,\"stage\":\"attachment-ready\",\"phase\":\"end\",\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":201.990852}"
+					},
+					{
+						"elapsedMs": 219.177472,
+						"message": "[DEBUG] [startup] {\"id\":26,\"stage\":\"layout-queue\",\"phase\":\"end\",\"durationMs\":39.925929,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":202.013052}"
+					},
+					{
+						"elapsedMs": 219.177472,
+						"message": "[DEBUG] [startup] {\"id\":33,\"stage\":\"layout-pass\",\"phase\":\"begin\",\"inputs\":{\"zoomed\":false,\"revision\":0},\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":202.027972}"
+					},
+					{
+						"elapsedMs": 224.177664,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 225.1776,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 227.177472,
+						"message": "[DEBUG] [startup] {\"id\":33,\"stage\":\"layout-pass\",\"phase\":\"end\",\"durationMs\":8.230816000000004,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":210.260918}"
+					},
+					{
+						"elapsedMs": 227.177472,
+						"message": "[DEBUG] [startup] {\"id\":16,\"stage\":\"layout-request\",\"phase\":\"end\",\"durationMs\":70.831455,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":210.327888}"
+					},
+					{
+						"elapsedMs": 227.177472,
+						"message": "[DEBUG] [startup] {\"id\":24,\"stage\":\"layout-request\",\"phase\":\"end\",\"durationMs\":55.23069000000001,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":210.342988}"
+					},
+					{
+						"elapsedMs": 306.177536,
+						"message": "[DEBUG] [startup] {\"id\":34,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":289.290729}"
+					},
+					{
+						"elapsedMs": 309.1776,
+						"message": "[DEBUG] [startup] {\"id\":34,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":2.6055709999999976,\"outcome\":\"ok\",\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":291.889829}"
+					},
+					{
+						"elapsedMs": 609.1776,
+						"message": "[DEBUG] [startup] {\"id\":35,\"stage\":\"finished\",\"phase\":\"end\",\"outcome\":\"ok\",\"pending\":0,\"launchId\":\"5537af3f-3037-47b7-9d5c-705e8349edee\",\"pid\":3725090,\"elapsedMs\":592.276536}"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			}
+		]
+	},
+	"summary": {
+		"baseline/100x52/3spaces/fresh/0ms-shell": {
+			"successes": 1,
+			"failures": 0,
+			"milestonesMs": {
+				"agentAttachedMs": {
+					"median": 231.343247,
+					"min": 231.343247,
+					"max": 231.343247
+				},
+				"companionAttachedMs": {
+					"median": 231.345497,
+					"min": 231.345497,
+					"max": 231.345497
+				},
+				"agentVisibleMs": {
+					"median": 234.24601,
+					"min": 234.24601,
+					"max": 234.24601
+				},
+				"companionVisibleMs": {
+					"median": 235.306968,
+					"min": 235.306968,
+					"max": 235.306968
+				},
+				"agentReadyMs": {
+					"median": 230.404959,
+					"min": 230.404959,
+					"max": 230.404959
+				},
+				"companionReadyMs": {
+					"median": 231.538418,
+					"min": 231.538418,
+					"max": 231.538418
+				},
+				"requiredClientsAttachedMs": {
+					"median": 231.345497,
+					"min": 231.345497,
+					"max": 231.345497
+				},
+				"requiredVisibleMs": {
+					"median": 235.306968,
+					"min": 235.306968,
+					"max": 235.306968
+				}
+			}
+		}
+	},
+	"instrumentedSample": {
+		"shellDelayMs": 0,
+		"traced": true,
+		"startupTrace": true,
+		"width": 100,
+		"existing": false,
+		"workspaces": 3,
+		"success": true,
+		"error": null,
+		"readiness": "new",
+		"identities": {
+			"agent": {
+				"readyNs": 83542048706703,
+				"pid": 3725974
+			},
+			"companion": {
+				"readyNs": 83542085873600,
+				"pid": 3725994
+			}
+		},
+		"retainedIdentities": null,
+		"milestones": {
+			"agentReadyMs": 844.476169,
+			"companionReadyMs": 881.643066,
+			"agentAttachedMs": 961.350992,
+			"agentVisibleMs": 964.158595,
+			"companionAttachedMs": 1037.851072,
+			"companionVisibleMs": 1041.937605,
+			"requiredClientsAttachedMs": 1037.851072,
+			"requiredVisibleMs": 1041.937605
+		},
+		"screens": {
+			"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+			"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:40 05-Nov-26\n",
+			"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:40 05-Nov-26\n"
+		},
+		"logEvents": [
+			{
+				"elapsedMs": 99.451392,
+				"message": "[DEBUG] [startup] {\"id\":0,\"stage\":\"unattributed-bootstrap\",\"phase\":\"end\",\"durationMs\":81.546241,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":81.561891}"
+			},
+			{
+				"elapsedMs": 99.451392,
+				"message": "[INFO ] [cli] Pappardelle starting"
+			},
+			{
+				"elapsedMs": 100.451328,
+				"message": "[DEBUG] [startup] {\"id\":1,\"stage\":\"configuration\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":81.827423}"
+			},
+			{
+				"elapsedMs": 120.451328,
+				"message": "[DEBUG] [startup] {\"id\":1,\"stage\":\"configuration\",\"phase\":\"end\",\"durationMs\":20.0274,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":101.854143}"
+			},
+			{
+				"elapsedMs": 120.451328,
+				"message": "[DEBUG] [startup] {\"id\":2,\"stage\":\"repo-bootstrap\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":101.912174}"
+			},
+			{
+				"elapsedMs": 160.451328,
+				"message": "[DEBUG] [startup] {\"id\":2,\"stage\":\"repo-bootstrap\",\"phase\":\"end\",\"durationMs\":40.22467,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":142.136384}"
+			},
+			{
+				"elapsedMs": 160.451328,
+				"message": "[DEBUG] [startup] {\"id\":3,\"stage\":\"outer-cleanup\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":142.195755}"
+			},
+			{
+				"elapsedMs": 185.451264,
+				"message": "[DEBUG] [startup] {\"id\":3,\"stage\":\"outer-cleanup\",\"phase\":\"end\",\"durationMs\":24.953288999999984,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":167.151414}"
+			},
+			{
+				"elapsedMs": 185.451264,
+				"message": "[DEBUG] [startup] {\"id\":4,\"stage\":\"legacy-migration\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":167.215835}"
+			},
+			{
+				"elapsedMs": 207.451392,
+				"message": "[DEBUG] [startup] {\"id\":4,\"stage\":\"legacy-migration\",\"phase\":\"end\",\"durationMs\":21.875354000000016,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":189.094639}"
+			},
+			{
+				"elapsedMs": 207.451392,
+				"message": "[DEBUG] [startup] {\"id\":5,\"stage\":\"inner-reaping\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":189.2098}"
+			},
+			{
+				"elapsedMs": 229.451264,
+				"message": "[DEBUG] [startup] {\"id\":5,\"stage\":\"inner-reaping\",\"phase\":\"end\",\"durationMs\":22.237448,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":211.448808}"
+			},
+			{
+				"elapsedMs": 230.451456,
+				"message": "[DEBUG] [startup] {\"id\":6,\"stage\":\"layout-setup\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":211.77961}"
+			},
+			{
+				"elapsedMs": 230.451456,
+				"message": "[DEBUG] [startup] {\"id\":7,\"stage\":\"setup-geometry\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":211.816291}"
+			},
+			{
+				"elapsedMs": 253.451264,
+				"message": "[DEBUG] [startup] {\"id\":7,\"stage\":\"setup-geometry\",\"phase\":\"end\",\"durationMs\":22.96713299999999,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":234.784844}"
+			},
+			{
+				"elapsedMs": 253.451264,
+				"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+			},
+			{
+				"elapsedMs": 253.451264,
+				"message": "[DEBUG] [startup] {\"id\":8,\"stage\":\"setup-panes\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":234.836094}"
+			},
+			{
+				"elapsedMs": 296.451328,
+				"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+			},
+			{
+				"elapsedMs": 296.451328,
+				"message": "[DEBUG] [startup] {\"id\":8,\"stage\":\"setup-panes\",\"phase\":\"end\",\"durationMs\":43.78856000000002,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":278.628924}"
+			},
+			{
+				"elapsedMs": 296.451328,
+				"message": "[DEBUG] [startup] {\"id\":9,\"stage\":\"setup-chrome\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":278.708274}"
+			},
+			{
+				"elapsedMs": 320.451328,
+				"message": "[DEBUG] [startup] {\"id\":9,\"stage\":\"setup-chrome\",\"phase\":\"end\",\"durationMs\":23.24022500000001,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":301.918049}"
+			},
+			{
+				"elapsedMs": 320.451328,
+				"message": "[DEBUG] [startup] {\"id\":10,\"stage\":\"setup-sync-output\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":302.0041}"
+			},
+			{
+				"elapsedMs": 409.451264,
+				"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+			},
+			{
+				"elapsedMs": 409.451264,
+				"message": "[DEBUG] [startup] {\"id\":10,\"stage\":\"setup-sync-output\",\"phase\":\"end\",\"durationMs\":89.36621400000001,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":391.373024}"
+			},
+			{
+				"elapsedMs": 409.451264,
+				"message": "[DEBUG] [startup] {\"id\":11,\"stage\":\"setup-focus\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":391.404594}"
+			},
+			{
+				"elapsedMs": 431.451392,
+				"message": "[DEBUG] [startup] {\"id\":11,\"stage\":\"setup-focus\",\"phase\":\"end\",\"durationMs\":22.086126000000036,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":413.49269}"
+			},
+			{
+				"elapsedMs": 431.451392,
+				"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+			},
+			{
+				"elapsedMs": 431.451392,
+				"message": "[DEBUG] [startup] {\"id\":12,\"stage\":\"setup-measurements\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":413.585951}"
+			},
+			{
+				"elapsedMs": 452.451328,
+				"message": "[DEBUG] [startup] {\"id\":12,\"stage\":\"setup-measurements\",\"phase\":\"end\",\"durationMs\":20.665384000000017,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":434.252636}"
+			},
+			{
+				"elapsedMs": 452.451328,
+				"message": "[DEBUG] [startup] {\"id\":6,\"stage\":\"layout-setup\",\"phase\":\"end\",\"durationMs\":222.524136,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":434.300476}"
+			},
+			{
+				"elapsedMs": 452.451328,
+				"message": "[DEBUG] [startup] {\"id\":13,\"stage\":\"commit-metadata\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":434.344476}"
+			},
+			{
+				"elapsedMs": 474.451456,
+				"message": "[DEBUG] [startup] {\"id\":13,\"stage\":\"commit-metadata\",\"phase\":\"end\",\"durationMs\":22.020805999999993,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":456.368022}"
+			},
+			{
+				"elapsedMs": 474.451456,
+				"message": "[DEBUG] [startup] {\"id\":14,\"stage\":\"version-metadata\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":456.430033}"
+			},
+			{
+				"elapsedMs": 495.451136,
+				"message": "[DEBUG] [startup] {\"id\":14,\"stage\":\"version-metadata\",\"phase\":\"end\",\"durationMs\":21.255088999999998,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":477.686322}"
+			},
+			{
+				"elapsedMs": 496.451072,
+				"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+			},
+			{
+				"elapsedMs": 496.451072,
+				"message": "[DEBUG] [startup] {\"id\":15,\"stage\":\"renderer\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":478.033115}"
+			},
+			{
+				"elapsedMs": 514.4512,
+				"message": "[DEBUG] [startup] {\"id\":15,\"stage\":\"renderer\",\"phase\":\"end\",\"durationMs\":18.221756000000028,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":496.255331}"
+			},
+			{
+				"elapsedMs": 517.451264,
+				"message": "[INFO ] [app] Loaded 0 custom keybindings"
+			},
+			{
+				"elapsedMs": 517.451264,
+				"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+			},
+			{
+				"elapsedMs": 523.451392,
+				"message": "[DEBUG] [startup] {\"id\":16,\"stage\":\"layout-request\",\"phase\":\"begin\",\"inputs\":{\"cause\":\"state\",\"loading\":true,\"spaces\":0,\"zoomed\":false,\"revision\":0},\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":505.116761}"
+			},
+			{
+				"elapsedMs": 524.451328,
+				"message": "[DEBUG] [startup] {\"id\":17,\"stage\":\"main-discovery\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":506.136099}"
+			},
+			{
+				"elapsedMs": 526.451456,
+				"message": "[DEBUG] [startup] {\"id\":18,\"stage\":\"layout-queue\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":508.70815000000005}"
+			},
+			{
+				"elapsedMs": 527.451392,
+				"message": "[DEBUG] [startup] {\"id\":18,\"stage\":\"layout-queue\",\"phase\":\"end\",\"durationMs\":0.20840100000009443,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":508.91627100000005}"
+			},
+			{
+				"elapsedMs": 527.451392,
+				"message": "[DEBUG] [startup] {\"id\":19,\"stage\":\"layout-pass\",\"phase\":\"begin\",\"inputs\":{\"zoomed\":false,\"revision\":0},\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":508.951092}"
+			},
+			{
+				"elapsedMs": 528.451328,
+				"message": "[DEBUG] [startup] {\"id\":20,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":510.64839500000005}"
+			},
+			{
+				"elapsedMs": 529.451264,
+				"message": "[DEBUG] [startup] {\"id\":21,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":511.25584999999995}"
+			},
+			{
+				"elapsedMs": 529.451264,
+				"message": "[DEBUG] [startup] {\"id\":22,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":511.657453}"
+			},
+			{
+				"elapsedMs": 540.451328,
+				"message": "[DEBUG] [startup] {\"id\":23,\"stage\":\"layout-request\",\"phase\":\"begin\",\"inputs\":{\"cause\":\"state\",\"loading\":false,\"spaces\":4,\"zoomed\":false,\"revision\":0},\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":521.821985}"
+			},
+			{
+				"elapsedMs": 540.451328,
+				"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+			},
+			{
+				"elapsedMs": 551.451136,
+				"message": "[DEBUG] [startup] {\"id\":17,\"stage\":\"main-discovery\",\"phase\":\"end\",\"durationMs\":26.683353000000068,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":532.826462}"
+			},
+			{
+				"elapsedMs": 551.451136,
+				"message": "[DEBUG] [startup] {\"id\":24,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":533.075164}"
+			},
+			{
+				"elapsedMs": 554.4512,
+				"message": "[DEBUG] [startup] {\"id\":21,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":25.440363000000048,\"outcome\":\"failed\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":536.695403}"
+			},
+			{
+				"elapsedMs": 554.4512,
+				"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+			},
+			{
+				"elapsedMs": 555.451136,
+				"message": "[DEBUG] [startup] {\"id\":25,\"stage\":\"attachment-queue\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":537.035916}"
+			},
+			{
+				"elapsedMs": 556.451328,
+				"message": "[DEBUG] [startup] {\"id\":22,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":26.213008999999943,\"outcome\":\"failed\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":537.870392}"
+			},
+			{
+				"elapsedMs": 556.451328,
+				"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+			},
+			{
+				"elapsedMs": 557.451264,
+				"message": "[DEBUG] [startup] {\"id\":20,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":28.350975999999946,\"outcome\":\"failed\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":538.999081}"
+			},
+			{
+				"elapsedMs": 557.451264,
+				"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+			},
+			{
+				"elapsedMs": 574.4512,
+				"message": "[DEBUG] [startup] {\"id\":24,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":23.06372399999998,\"outcome\":\"failed\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":556.139248}"
+			},
+			{
+				"elapsedMs": 574.4512,
+				"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+			},
+			{
+				"elapsedMs": 574.4512,
+				"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+			},
+			{
+				"elapsedMs": 575.451136,
+				"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+			},
+			{
+				"elapsedMs": 575.451136,
+				"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+			},
+			{
+				"elapsedMs": 596.451328,
+				"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+			},
+			{
+				"elapsedMs": 616.451328,
+				"message": "[INFO ] [tmux] Relayout completed successfully"
+			},
+			{
+				"elapsedMs": 637.451264,
+				"message": "[DEBUG] [startup] {\"id\":19,\"stage\":\"layout-pass\",\"phase\":\"end\",\"durationMs\":110.27815000000004,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":619.222782}"
+			},
+			{
+				"elapsedMs": 637.451264,
+				"message": "[DEBUG] [startup] {\"id\":26,\"stage\":\"layout-queue\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":619.305712}"
+			},
+			{
+				"elapsedMs": 637.451264,
+				"message": "[DEBUG] [startup] {\"id\":25,\"stage\":\"attachment-queue\",\"phase\":\"end\",\"durationMs\":82.50822799999992,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":619.542924}"
+			},
+			{
+				"elapsedMs": 638.451456,
+				"message": "[DEBUG] [startup] {\"id\":27,\"stage\":\"attachment\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":620.197369}"
+			},
+			{
+				"elapsedMs": 639.451392,
+				"message": "[DEBUG] [startup] {\"id\":28,\"stage\":\"agent-session\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":620.877315}"
+			},
+			{
+				"elapsedMs": 694.451456,
+				"message": "[DEBUG] [startup] {\"id\":29,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":676.444188}"
+			},
+			{
+				"elapsedMs": 798.4512,
+				"message": "[DEBUG] [startup] {\"id\":29,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":103.99261999999999,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":780.435938}"
+			},
+			{
+				"elapsedMs": 818.4512,
+				"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+			},
+			{
+				"elapsedMs": 818.4512,
+				"message": "[DEBUG] [startup] {\"id\":28,\"stage\":\"agent-session\",\"phase\":\"end\",\"durationMs\":179.86514499999998,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":800.74341}"
+			},
+			{
+				"elapsedMs": 819.451392,
+				"message": "[DEBUG] [startup] {\"id\":30,\"stage\":\"companion-session\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":800.963102}"
+			},
+			{
+				"elapsedMs": 860.451328,
+				"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+			},
+			{
+				"elapsedMs": 860.451328,
+				"message": "[DEBUG] [startup] {\"id\":30,\"stage\":\"companion-session\",\"phase\":\"end\",\"durationMs\":41.44571099999996,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":842.408543}"
+			},
+			{
+				"elapsedMs": 860.451328,
+				"message": "[DEBUG] [startup] {\"id\":31,\"stage\":\"viewer-attachment\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":842.433523}"
+			},
+			{
+				"elapsedMs": 878.451456,
+				"message": "[DEBUG] [startup] {\"id\":32,\"stage\":\"monitor-ready\",\"phase\":\"begin\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":860.598718}"
+			},
+			{
+				"elapsedMs": 923.451136,
+				"message": "[DEBUG] [startup] {\"id\":32,\"stage\":\"monitor-ready\",\"phase\":\"end\",\"durationMs\":44.76918699999999,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":905.365915}"
+			},
+			{
+				"elapsedMs": 1048.451328,
+				"message": "[DEBUG] [startup] {\"id\":31,\"stage\":\"viewer-attachment\",\"phase\":\"end\",\"durationMs\":187.496266,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1029.929999}"
+			},
+			{
+				"elapsedMs": 1048.451328,
+				"message": "[DEBUG] [startup] {\"id\":27,\"stage\":\"attachment\",\"phase\":\"end\",\"durationMs\":409.7916010000001,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1029.98704}"
+			},
+			{
+				"elapsedMs": 1048.451328,
+				"message": "[DEBUG] [startup] {\"id\":33,\"stage\":\"attachment-ready\",\"phase\":\"end\",\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1030.082111}"
+			},
+			{
+				"elapsedMs": 1048.451328,
+				"message": "[DEBUG] [startup] {\"id\":26,\"stage\":\"layout-queue\",\"phase\":\"end\",\"durationMs\":410.8177589999999,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1030.122091}"
+			},
+			{
+				"elapsedMs": 1048.451328,
+				"message": "[DEBUG] [startup] {\"id\":34,\"stage\":\"layout-pass\",\"phase\":\"begin\",\"inputs\":{\"zoomed\":false,\"revision\":0},\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1030.146341}"
+			},
+			{
+				"elapsedMs": 1110.4512,
+				"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+			},
+			{
+				"elapsedMs": 1131.451136,
+				"message": "[INFO ] [tmux] Relayout completed successfully"
+			},
+			{
+				"elapsedMs": 1153.451264,
+				"message": "[DEBUG] [startup] {\"id\":34,\"stage\":\"layout-pass\",\"phase\":\"end\",\"durationMs\":105.23964000000001,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1135.387361}"
+			},
+			{
+				"elapsedMs": 1153.451264,
+				"message": "[DEBUG] [startup] {\"id\":16,\"stage\":\"layout-request\",\"phase\":\"end\",\"durationMs\":630.3894310000001,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1135.504382}"
+			},
+			{
+				"elapsedMs": 1153.451264,
+				"message": "[DEBUG] [startup] {\"id\":23,\"stage\":\"layout-request\",\"phase\":\"end\",\"durationMs\":613.7184869999999,\"outcome\":\"ok\",\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1135.538202}"
+			},
+			{
+				"elapsedMs": 1454.451456,
+				"message": "[DEBUG] [startup] {\"id\":35,\"stage\":\"finished\",\"phase\":\"end\",\"outcome\":\"ok\",\"pending\":0,\"launchId\":\"0a659340-c161-43dd-96e6-2aa78b72f27b\",\"pid\":3725293,\"elapsedMs\":1435.96898}"
+			}
+		],
+		"commands": [
+			{
+				"tool": "git",
+				"args": ["rev-parse", "--show-toplevel"],
+				"pid": 3725311,
+				"exitCode": 0,
+				"elapsedMs": 116.46306,
+				"durationMs": 1.118529
+			},
+			{
+				"tool": "git",
+				"args": ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+				"pid": 3725318,
+				"exitCode": 0,
+				"elapsedMs": 135.480231,
+				"durationMs": 1.025448
+			},
+			{
+				"tool": "git",
+				"args": ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+				"pid": 3725324,
+				"exitCode": 0,
+				"elapsedMs": 155.038867,
+				"durationMs": 1.045869
+			},
+			{
+				"tool": "tmux",
+				"args": ["list-sessions", "-F", "#{session_name}"],
+				"pid": 3725367,
+				"exitCode": 0,
+				"elapsedMs": 179.475112,
+				"durationMs": 1.14497
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-sessions", "-F", "#{session_name}"],
+				"pid": 3725405,
+				"exitCode": 1,
+				"elapsedMs": 203.754876,
+				"durationMs": 0.718076
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-sessions", "-F", "#{session_name}"],
+				"pid": 3725435,
+				"exitCode": 1,
+				"elapsedMs": 225.729182,
+				"durationMs": 0.862277
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"list-panes",
+					"-t",
+					"%0",
+					"-F",
+					"#{pane_id} #{pane_width} #{pane_height} #{window_width} #{window_height}"
+				],
+				"pid": 3725441,
+				"exitCode": 0,
+				"elapsedMs": 247.067512,
+				"durationMs": 1.345371
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"split-window",
+					"-h",
+					"-t",
+					"%0",
+					"-c",
+					"<fixture>/repo",
+					"-l",
+					"76",
+					"-P",
+					"-F",
+					"#{pane_id}"
+				],
+				"pid": 3725449,
+				"exitCode": 0,
+				"elapsedMs": 269.582951,
+				"durationMs": 1.773224
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"split-window",
+					"-h",
+					"-t",
+					"%1",
+					"-c",
+					"<fixture>/repo",
+					"-l",
+					"35",
+					"-P",
+					"-F",
+					"#{pane_id}"
+				],
+				"pid": 3725463,
+				"exitCode": 0,
+				"elapsedMs": 290.64102,
+				"durationMs": 1.635523
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"set-option",
+					"-p",
+					"-t",
+					"%0",
+					"@pappardelle_title",
+					"rail",
+					";",
+					"set-option",
+					"-p",
+					"-t",
+					"%1",
+					"@pappardelle_title",
+					"agent",
+					";",
+					"set-option",
+					"-p",
+					"-t",
+					"%2",
+					"@pappardelle_title",
+					"companion",
+					";",
+					"set-option",
+					"-w",
+					"-t",
+					"%0",
+					"pane-border-style",
+					"fg=default,dim",
+					";",
+					"set-option",
+					"-w",
+					"-t",
+					"%0",
+					"pane-active-border-style",
+					"fg=default",
+					";",
+					"set-option",
+					"-w",
+					"-t",
+					"%0",
+					"pane-border-status",
+					"top",
+					";",
+					"set-option",
+					"-w",
+					"-t",
+					"%0",
+					"pane-border-format",
+					"#{?pane_active,#[bold],} #{@pappardelle_title} "
+				],
+				"pid": 3725518,
+				"exitCode": 0,
+				"elapsedMs": 315.168905,
+				"durationMs": 1.648903
+			},
+			{
+				"tool": "tmux",
+				"args": ["show-options", "-gqv", "terminal-features"],
+				"pid": 3725552,
+				"exitCode": 0,
+				"elapsedMs": 338.785384,
+				"durationMs": 1.169499
+			},
+			{
+				"tool": "tmux",
+				"args": ["set-option", "-ga", "terminal-features", ",*:Sync"],
+				"pid": 3725561,
+				"exitCode": 0,
+				"elapsedMs": 360.693269,
+				"durationMs": 1.094898
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-options",
+					"-gqv",
+					"terminal-features"
+				],
+				"pid": 3725628,
+				"exitCode": 1,
+				"elapsedMs": 384.356198,
+				"durationMs": 0.874627
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"set-option",
+					"-ga",
+					"terminal-features",
+					",*:Sync"
+				],
+				"pid": 3725642,
+				"exitCode": 1,
+				"elapsedMs": 405.852409,
+				"durationMs": 0.711716
+			},
+			{
+				"tool": "tmux",
+				"args": ["select-pane", "-t", "%0"],
+				"pid": 3725651,
+				"exitCode": 0,
+				"elapsedMs": 427.668493,
+				"durationMs": 0.993118
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"list-panes",
+					"-t",
+					"%0",
+					"-F",
+					"#{pane_id} #{pane_width} #{pane_height} #{window_width} #{window_height}"
+				],
+				"pid": 3725658,
+				"exitCode": 0,
+				"elapsedMs": 448.334598,
+				"durationMs": 1.22227
+			},
+			{
+				"tool": "git",
+				"args": ["log", "-1", "--format=%h", "--", "."],
+				"pid": 3725663,
+				"exitCode": 0,
+				"elapsedMs": 469.92312,
+				"durationMs": 1.764914
+			},
+			{
+				"tool": "git",
+				"args": [
+					"-C",
+					"/home/sddamico/.worktrees/pappardelle/pappardelle-3wf",
+					"describe",
+					"--tags",
+					"--abbrev=0",
+					"--match",
+					"v*.*.*"
+				],
+				"pid": 3725681,
+				"exitCode": 0,
+				"elapsedMs": 491.395562,
+				"durationMs": 1.803764
+			},
+			{
+				"tool": "git",
+				"args": ["worktree", "list", "--porcelain"],
+				"pid": 3725761,
+				"exitCode": 0,
+				"elapsedMs": 545.12037,
+				"durationMs": 1.388592
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{window_zoomed_flag}"],
+				"pid": 3725763,
+				"exitCode": 0,
+				"elapsedMs": 545.419403,
+				"durationMs": 1.204479
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-bench-2:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 3725768,
+				"exitCode": 1,
+				"elapsedMs": 548.505357,
+				"durationMs": 1.041369
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-bench-1:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 3725769,
+				"exitCode": 1,
+				"elapsedMs": 550.860056,
+				"durationMs": 0.756926
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-bench-3:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 3725766,
+				"exitCode": 1,
+				"elapsedMs": 551.938305,
+				"durationMs": 0.867377
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 3725779,
+				"exitCode": 1,
+				"elapsedMs": 570.242671,
+				"durationMs": 0.851997
+			},
+			{
+				"tool": "git",
+				"args": ["status", "--porcelain"],
+				"pid": 3725781,
+				"exitCode": 0,
+				"elapsedMs": 570.507993,
+				"durationMs": 1.544002
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{window_width} #{pane_width}"
+				],
+				"pid": 3725783,
+				"exitCode": 0,
+				"elapsedMs": 572.005075,
+				"durationMs": 1.137849
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"list-panes",
+					"-t",
+					"%0",
+					"-F",
+					"#{pane_id} #{pane_width} #{pane_height} #{window_width} #{window_height}"
+				],
+				"pid": 3725793,
+				"exitCode": 0,
+				"elapsedMs": 592.925012,
+				"durationMs": 1.133459
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"list-panes",
+					"-t",
+					"%0",
+					"-F",
+					"#{pane_id} #{pane_width} #{pane_height} #{window_width} #{window_height}"
+				],
+				"pid": 3725802,
+				"exitCode": 0,
+				"elapsedMs": 612.563438,
+				"durationMs": 1.050809
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 3725811,
+				"exitCode": 0,
+				"elapsedMs": 632.632689,
+				"durationMs": 1.179009
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "has-session", "-t", "=agent-repo-main:"],
+				"pid": 3725842,
+				"exitCode": 1,
+				"elapsedMs": 655.181119,
+				"durationMs": 0.707615
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"new-session",
+					"-d",
+					"-s",
+					"agent-repo-main",
+					"-c",
+					"<fixture>/repo",
+					"-e",
+					"PAPPARDELLE_MAIN_REPO_ROOT=<fixture>/repo",
+					"-e",
+					"PI_PROGRAM_STATUS=1",
+					"-e",
+					"AGY_CLI_OSC7501=on",
+					"-e",
+					"PAPPARDELLE_AGENT_PROFILE=fixture",
+					"-e",
+					"PAPPARDELLE_AGENT_IS_CLAUDE=false",
+					"-e",
+					"PAPPARDELLE_AGENT_SESSIONS=<fixture>/home/.pappardelle/repos/repo/space-state/main.agent-sessions.json",
+					"/bin/sh",
+					"-c",
+					"tmux \"$1\" \"$2\" wait-for \"$3\"; shift 3; exec \"$@\"",
+					"sh",
+					"-L",
+					"bench-inner",
+					"pappardelle-status-c939ac24-66ca-4c0f-a624-3f49e4cbf844",
+					"/bin/sh",
+					"-c",
+					"\"$1\" -ic \"$2$(printf \"\\n:\")\"; printf \"\\033]133;A\\007\"; exec \"$1\" -l",
+					"sh",
+					"/bin/bash",
+					"/home/sddamico/.local/share/mise/installs/python/latest/bin/python3 <fixture>/ready.py agent <fixture>/agent.json",
+					";",
+					"set-option",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_startup_gate",
+					"pappardelle-status-c939ac24-66ca-4c0f-a624-3f49e4cbf844"
+				],
+				"pid": 3725851,
+				"exitCode": 0,
+				"elapsedMs": 674.880576,
+				"durationMs": 16.058288
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 3725863,
+				"exitCode": 0,
+				"elapsedMs": 711.640989,
+				"durationMs": 1.113359
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"display-message",
+					"-p",
+					"-t",
+					"=agent-repo-main:",
+					"#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}"
+				],
+				"pid": 3725872,
+				"exitCode": 0,
+				"elapsedMs": 731.530318,
+				"durationMs": 1.18697
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"set-option",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane",
+					"%0"
+				],
+				"pid": 3725881,
+				"exitCode": 0,
+				"elapsedMs": 750.839422,
+				"durationMs": 1.135999
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"if-shell",
+					"-F",
+					"-t",
+					"%0",
+					"#{pane_pipe}",
+					"",
+					"'set-option' '-p' '-t' '%0' '@pappardelle_status_generation' '3725861.4075a5bc-e601-43ea-8915-76c9a334452a' ; 'pipe-pane' '-Oo' '-t' '%0' ''\\''/home/sddamico/.worktrees/pappardelle/pappardelle-3wf/dist/pappardelle'\\'' '\\''--internal-status-monitor'\\'' '\\''watch'\\'' '\\''repo'\\'' '\\''main'\\'' '\\''bench-inner'\\'' '\\''eyJpZCI6IiUwIiwicGlkIjoiMzcyNTg2MSIsImRlYWQiOmZhbHNlLCJwaXBlZCI6ZmFsc2UsIm1hcmtlciI6IjM3MjU4NjEuNDA3NWE1YmMtZTYwMS00M2VhLTg5MTUtNzZjOWEzMzQ0NTJhIiwiZ2VuZXJhdGlvbiI6ImNlZGI4OTJiZjdlMTRjYjQ3OWEyNmVkMGNjMDU5NjBhIn0='\\'' '\\''<fixture>/home/.pappardelle/program-status/repo'\\'' '\\'''\\'''"
+				],
+				"pid": 3725883,
+				"exitCode": 0,
+				"elapsedMs": 770.739611,
+				"durationMs": 1.892775
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}"
+				],
+				"pid": 3725952,
+				"exitCode": 0,
+				"elapsedMs": 794.652212,
+				"durationMs": 1.112198
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"if-shell",
+					"-F",
+					"-t",
+					"=agent-repo-main:",
+					"#{==:#{@pappardelle_startup_gate},pappardelle-status-c939ac24-66ca-4c0f-a624-3f49e4cbf844}",
+					"'wait-for' '-S' 'pappardelle-status-c939ac24-66ca-4c0f-a624-3f49e4cbf844' ; 'set-option' '-u' '-t' '=agent-repo-main:' '@pappardelle_startup_gate'",
+					""
+				],
+				"pid": 3725964,
+				"exitCode": 0,
+				"elapsedMs": 815.090925,
+				"durationMs": 1.068288
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"wait-for",
+					"pappardelle-status-c939ac24-66ca-4c0f-a624-3f49e4cbf844"
+				],
+				"pid": 3725862,
+				"exitCode": 0,
+				"elapsedMs": 707.588587,
+				"durationMs": 108.649617
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"has-session",
+					"-t",
+					"=companion-repo-main:"
+				],
+				"pid": 3725971,
+				"exitCode": 1,
+				"elapsedMs": 836.201213,
+				"durationMs": 0.986538
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"new-session",
+					"-d",
+					"-s",
+					"companion-repo-main",
+					"-c",
+					"<fixture>/repo",
+					"-e",
+					"PAPPARDELLE_MAIN_REPO_ROOT=<fixture>/repo",
+					"/bin/sh",
+					"-c",
+					"\"$1\" -ic \"$2$(printf \"\\n:\")\"; exec \"$1\" -l",
+					"sh",
+					"/bin/bash",
+					"/home/sddamico/.local/share/mise/installs/python/latest/bin/python3 <fixture>/ready.py companion <fixture>/companion.json"
+				],
+				"pid": 3725981,
+				"exitCode": 0,
+				"elapsedMs": 855.681059,
+				"durationMs": 1.922185
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%1", "#{pane_tty}"],
+				"pid": 3725992,
+				"exitCode": 0,
+				"elapsedMs": 876.456554,
+				"durationMs": 1.26494
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"show-option",
+					"-qv",
+					"-t",
+					"=agent-repo-main:",
+					"@pappardelle_status_pane"
+				],
+				"pid": 3725998,
+				"exitCode": 0,
+				"elapsedMs": 895.315785,
+				"durationMs": 1.070109
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%2", "#{pane_tty}"],
+				"pid": 3725999,
+				"exitCode": 0,
+				"elapsedMs": 896.858137,
+				"durationMs": 0.996778
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"-L",
+					"bench-inner",
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{@pappardelle_status_generation}"
+				],
+				"pid": 3726025,
+				"exitCode": 0,
+				"elapsedMs": 916.943738,
+				"durationMs": 1.745454
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-clients", "-F", "#{client_tty}"],
+				"pid": 3726026,
+				"exitCode": 0,
+				"elapsedMs": 918.208978,
+				"durationMs": 1.32753
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"respawn-pane",
+					"-k",
+					"-t",
+					"%1",
+					"'tmux' '-L' 'bench-inner' 'attach' '-t' '=agent-repo-main:'; exec \"$SHELL\" -l"
+				],
+				"pid": 3726056,
+				"exitCode": 0,
+				"elapsedMs": 939.674129,
+				"durationMs": 1.434182
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%1", "#{pane_tty}"],
+				"pid": 3726083,
+				"exitCode": 0,
+				"elapsedMs": 960.316684,
+				"durationMs": 1.161729
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "list-clients", "-F", "#{client_tty}"],
+				"pid": 3726092,
+				"exitCode": 0,
+				"elapsedMs": 980.699626,
+				"durationMs": 1.24536
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"respawn-pane",
+					"-k",
+					"-t",
+					"%2",
+					"'tmux' '-L' 'bench-inner' 'attach' '-t' '=companion-repo-main:'; exec \"$SHELL\" -l"
+				],
+				"pid": 3726095,
+				"exitCode": 0,
+				"elapsedMs": 1000.900798,
+				"durationMs": 1.440231
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%2", "#{pane_tty}"],
+				"pid": 3726107,
+				"exitCode": 0,
+				"elapsedMs": 1021.541322,
+				"durationMs": 1.112099
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"set-option",
+					"-p",
+					"-t",
+					"%1",
+					"@pappardelle_title",
+					"agent \u00b7 main",
+					";",
+					"select-pane",
+					"-t",
+					"%0"
+				],
+				"pid": 3726115,
+				"exitCode": 0,
+				"elapsedMs": 1043.916011,
+				"durationMs": 1.035738
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "-t", "%0", "#{window_zoomed_flag}"],
+				"pid": 3726142,
+				"exitCode": 0,
+				"elapsedMs": 1065.441592,
+				"durationMs": 1.333002
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{window_width} #{pane_width}"
+				],
+				"pid": 3726147,
+				"exitCode": 0,
+				"elapsedMs": 1085.810855,
+				"durationMs": 1.2107
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"list-panes",
+					"-t",
+					"%0",
+					"-F",
+					"#{pane_id} #{pane_width} #{pane_height} #{window_width} #{window_height}"
+				],
+				"pid": 3726149,
+				"exitCode": 0,
+				"elapsedMs": 1105.814995,
+				"durationMs": 1.118809
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"list-panes",
+					"-t",
+					"%0",
+					"-F",
+					"#{pane_id} #{pane_width} #{pane_height} #{window_width} #{window_height}"
+				],
+				"pid": 3726152,
+				"exitCode": 0,
+				"elapsedMs": 1126.740392,
+				"durationMs": 1.31692
+			},
+			{
+				"tool": "tmux",
+				"args": [
+					"display-message",
+					"-p",
+					"-t",
+					"%0",
+					"#{pane_width} #{pane_height}"
+				],
+				"pid": 3726158,
+				"exitCode": 0,
+				"elapsedMs": 1148.519236,
+				"durationMs": 1.28503
+			},
+			{
+				"tool": "tmux",
+				"args": ["display-message", "-p", "#{version}"],
+				"pid": 3726168,
+				"exitCode": 0,
+				"elapsedMs": 1171.169066,
+				"durationMs": 1.320991
+			}
+		],
+		"incompleteCommands": [
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "attach", "-t", "=agent-repo-main:"],
+				"pid": 3726065,
+				"elapsedMs": 957.984665
+			},
+			{
+				"tool": "tmux",
+				"args": ["-L", "bench-inner", "attach", "-t", "=companion-repo-main:"],
+				"pid": 3726104,
+				"elapsedMs": 1022.074627
+			}
+		],
+		"providerCalls": [
+			{
+				"tool": "bd",
+				"args": ["list", "--id=bench-3,bench-2,bench-1", "--json", "-n", "0"],
+				"supported": true
+			},
+			{
+				"tool": "gh",
+				"args": [
+					"repo",
+					"view",
+					"--json",
+					"nameWithOwner",
+					"-q",
+					".nameWithOwner"
+				],
+				"supported": true
+			},
+			{
+				"tool": "gh",
+				"args": [
+					"api",
+					"graphql",
+					"-f",
+					"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+				],
+				"supported": true
+			}
+		]
+	}
+}

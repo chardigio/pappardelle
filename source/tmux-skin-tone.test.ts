@@ -93,3 +93,15 @@ test('the version query runs once per process', t => {
 		t.is(calls, 1);
 	});
 });
+
+test('ordinary rail text never needs a tmux version query', t => {
+	withTmux(() => {
+		setTmuxVersionProbeForTests(() => {
+			t.fail('rendering text without skin-tone modifiers queried tmux');
+			return '3.6';
+		});
+		for (const text of ['main', '👨‍🍳', 'Ship ✨ fixes', '']) {
+			t.is(maybeStripSkinTones(text), text);
+		}
+	});
+});

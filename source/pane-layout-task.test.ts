@@ -6,6 +6,98 @@ import test from 'ava';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {LatestTask} from './latest-task.ts';
 
+test('resize requests during unzoom do not keep confirmed rail geometry hidden', async t => {
+	const releases: Array<() => void> = [];
+	const ready: number[] = [];
+	const task = new PaneLayoutTask({
+		queue: new LatestTask(),
+		async apply() {
+			await new Promise<void>(resolve => {
+				releases.push(resolve);
+			});
+			return {cols: 30, rows: 50};
+		},
+		onReady(_zoomed, _dimensions, revision) {
+			ready.push(revision);
+		},
+		onError(error) {
+			throw error;
+		},
+	});
+	const closing = task.request(false, 2);
+	await nextTurn();
+	const resize = task.request(false, 2, () => ({cols: 30, rows: 50}));
+	releases[0]!();
+	await nextTurn();
+	t.deepEqual(ready, [2]);
+	t.is(releases.length, 2);
+	releases[1]!();
+	await Promise.all([closing, resize]);
+	t.deepEqual(ready, [2, 2]);
+});
+
+test('a real size change during layout keeps stale geometry from settling the dialog', async t => {
+	const releases: Array<() => void> = [];
+	const ready: number[] = [];
+	let columns = 200;
+	const task = new PaneLayoutTask({
+		queue: new LatestTask(),
+		async apply() {
+			const cols = columns;
+			await new Promise<void>(resolve => {
+				releases.push(resolve);
+			});
+			return {cols, rows: 50};
+		},
+		onReady(_zoomed, dimensions) {
+			ready.push(dimensions.cols);
+		},
+		onError(error) {
+			throw error;
+		},
+	});
+	const first = task.request(true, 1);
+	await nextTurn();
+	columns = 160;
+	const resize = task.request(true, 1, () => ({cols: columns, rows: 50}));
+	releases[0]!();
+	await nextTurn();
+	t.deepEqual(ready, []);
+	releases[1]!();
+	await Promise.all([first, resize]);
+	t.deepEqual(ready, [160]);
+});
+
+test('a matching resize does not hide a pending workspace-state change', async t => {
+	const releases: Array<() => void> = [];
+	const ready: number[] = [];
+	const task = new PaneLayoutTask({
+		queue: new LatestTask(),
+		async apply() {
+			await new Promise<void>(resolve => {
+				releases.push(resolve);
+			});
+			return {cols: 80, rows: 8};
+		},
+		onReady(_zoomed, dimensions) {
+			ready.push(dimensions.rows);
+		},
+		onError(error) {
+			throw error;
+		},
+	});
+	const first = task.request(false, 0);
+	await nextTurn();
+	const changed = task.request(false, 0);
+	const resize = task.request(false, 0, () => ({cols: 80, rows: 8}));
+	releases[0]!();
+	await nextTurn();
+	t.deepEqual(ready, []);
+	releases[1]!();
+	await Promise.all([first, changed, resize]);
+	t.deepEqual(ready, [8]);
+});
+
 test('rapid dialog changes coalesce and only the final geometry becomes ready', async t => {
 	const queue = new LatestTask();
 	const calls: boolean[] = [];
