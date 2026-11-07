@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
 import {renderTui, rendererExitSignals} from './render-tui.ts';
 import {routeDrops} from './drop-routing.ts';
+import {
+	startStartupTrace,
+	startupTrace,
+	startupSessionEnvArgs,
+} from './startup-trace.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -36,7 +41,11 @@ import {
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
-import {captureStderr, setStderrTerminalPassthrough} from './logger.ts';
+import {
+	captureStderr,
+	setStderrTerminalPassthrough,
+	createLogger,
+} from './logger.ts';
 
 // Capture stderr early so OpenTUI/React rendering errors go to the log file
 captureStderr();
@@ -217,9 +226,17 @@ if (cli.input[0] === 'link-pr') {
 	process.exit(0);
 }
 
+if (cli.input.length === 0) {
+	startStartupTrace();
+	createLogger('cli').info('Pappardelle starting');
+}
+const configurationDone = startupTrace.current?.begin('configuration');
 checkConfig();
+configurationDone?.();
 
+const bootstrapDone = startupTrace.current?.begin('repo-bootstrap');
 const {repoName} = bootstrapRepo();
+bootstrapDone?.();
 
 if (isRestart) {
 	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
@@ -363,6 +380,7 @@ function exitWithTmux(result: ReturnType<typeof spawnSync>): never {
 
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
+	const outerDone = startupTrace.current?.begin('outer-bootstrap');
 	const repoName = getRepoName();
 	const sessionName = outerSessionName(repoName);
 
@@ -376,6 +394,8 @@ if (!isInTmux() && cli.flags.layout) {
 	// Check if a pappardelle session already exists
 	if (sessionExists(sessionName)) {
 		// Attach to the existing session
+		outerDone?.();
+		startupTrace.current?.finish('delegated');
 		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(sessionName)];
 		const result = spawnSync('tmux', tmuxArgs, {
 			stdio: 'inherit',
@@ -398,6 +418,7 @@ if (!isInTmux() && cli.flags.layout) {
 		'new-session',
 		'-s',
 		sessionName,
+		...startupSessionEnvArgs(),
 		cmd,
 		';',
 		'set-option',
@@ -406,6 +427,8 @@ if (!isInTmux() && cli.flags.layout) {
 		'status',
 		'off',
 	];
+	outerDone?.();
+	startupTrace.current?.finish('delegated');
 	exitWithTmux(
 		spawnSync('tmux', tmuxArgs, {
 			stdio: 'inherit',
@@ -423,7 +446,9 @@ if (isInTmux() && cli.flags.layout) {
 	// between servers, so we drop them; idow / Pappardelle recreates them on
 	// the inner socket on demand. Runs every startup (fast no-op once drained);
 	// the phrasing used to say "one-time migration" but the call is unconditional.
+	const cleanupDone = startupTrace.current?.begin('outer-cleanup');
 	const killed = cleanupOrphanedOuterSessions();
+	cleanupDone?.();
 	if (killed > 0) {
 		console.error(
 			`\x1b[33mPappardelle: cleared ${killed} stale outer-socket session(s) — they'll be recreated on the inner socket.\x1b[0m`,
@@ -434,7 +459,9 @@ if (isInTmux() && cli.flags.layout) {
 	// `agent-{repo}-*` names before the reap below decides what's an orphan —
 	// a rename preserves the running conversation, a reap would kill it.
 	// Each rename is logged at info; stderr would list them as TUI errors.
+	const migrationDone = startupTrace.current?.begin('legacy-migration');
 	migrateLegacyAgentSessions();
+	migrationDone?.();
 
 	// STA-1420: also reap inner-socket orphans whose key isn't in the registry
 	// and isn't the main worktree. These accumulate when Pappardelle is
@@ -442,9 +469,11 @@ if (isInTmux() && cli.flags.layout) {
 	// pre_workspace_deinit is Ctrl-C'd mid-flow). Symmetric to the outer reap
 	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
+	const reapingDone = startupTrace.current?.begin('inner-reaping');
 	const innerReaped = cleanupOrphanedInnerSessions(
 		new Set(getRegisteredSpaces()),
 	);
+	reapingDone?.();
 	if (innerReaped > 0) {
 		console.error(
 			`\x1b[33mPappardelle: reaped ${innerReaped} orphaned inner-socket session(s).\x1b[0m`,
@@ -470,6 +499,7 @@ process.on('exit', () => {
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
 let commitSha = 'unknown';
+const commitDone = startupTrace.current?.begin('commit-metadata');
 try {
 	commitSha = execSync('git log -1 --format=%h -- .', {
 		cwd: pappardelleDir,
@@ -478,14 +508,18 @@ try {
 	}).trim();
 } catch {
 	// Not in a git repo or git not available - leave as 'unknown'
+} finally {
+	commitDone?.(commitSha === 'unknown' ? 'unavailable' : 'ok');
 }
 
 // Resolve the version for display in the help overlay. A real release checkout
 // reports its own vX.Y.Z tag; a dev/worktree build (run from the monorepo, where
 // no release tag exists) reports the latest installed release flagged `-dev`;
 // neither resolvable → null, and the help line degrades to sha-only (STA-1494).
+const versionDone = startupTrace.current?.begin('version-metadata');
 const {version: installedVersion, isDev: isDevBuild} =
 	resolveDisplayVersion(pappardelleDir);
+versionDone?.();
 
 // Kick off the update check asynchronously — never blocks startup, fails silent.
 // safeCheckForUpdate swallows all errors, so the promise will only ever
@@ -493,6 +527,7 @@ const {version: installedVersion, isDev: isDevBuild} =
 // isn't blocked on the network.
 const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
 
+const rendererDone = startupTrace.current?.begin('renderer');
 const {renderer} = await renderTui(
 	<App
 		paneLayout={paneLayout}
@@ -506,6 +541,7 @@ const {renderer} = await renderTui(
 		quitTui(renderer, repoName, paneLayout);
 	},
 );
+rendererDone?.();
 
 const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');
 const railPaneId = process.env['TMUX_PANE'];

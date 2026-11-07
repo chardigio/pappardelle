@@ -178,11 +178,7 @@ import {
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
-	setPaneZoom,
-	relayoutPanes,
-	getLayoutDirections,
-	rebuildLayout,
-	getPaneDimensions,
+	reconcilePaneLayout,
 	runningAgentProfile,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
@@ -214,6 +210,7 @@ import {
 } from './space-emoji.ts';
 import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
+import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
 function claimIssueInBackground(issueKey: string): void {
@@ -252,8 +249,6 @@ interface AppProps {
 	isDevBuild?: boolean;
 	updateCheckPromise?: Promise<UpdateInfo | null>;
 }
-
-log.info('Pappardelle starting');
 
 export default function App({
 	paneLayout: initialPaneLayout,
@@ -733,35 +728,16 @@ export default function App({
 			new PaneLayoutTask({
 				queue: attachmentTask,
 				async apply(zoomed) {
-					let layout = paneLayoutRef.current;
+					const layout = paneLayoutRef.current;
 					if (!layout)
 						return {rows: stdout?.rows ?? 40, cols: stdout?.columns ?? 80};
-					await setPaneZoom(layout.listPaneId, zoomed);
-					if (!zoomed) {
-						const {current, desired} = await getLayoutDirections(
-							layout.listPaneId,
-						);
-						if (current !== desired) {
-							const next = await rebuildLayout(
-								layout.listPaneId,
-								layout.agentViewerPaneId,
-								layout.companionViewerPaneId,
-							);
-							if (!next) throw new Error('Failed to rebuild pane layout');
-							layout = next;
-							paneLayoutRef.current = next;
-							setPaneLayout(next);
-							panesInitialized.current = false;
-						} else if (
-							!(await relayoutPanes(
-								layout.listPaneId,
-								layout.companionViewerPaneId,
-							))
-						) {
-							throw new Error('Failed to resize pane layout');
-						}
+					const reconciled = await reconcilePaneLayout(layout, zoomed);
+					if (reconciled.layout !== layout) {
+						paneLayoutRef.current = reconciled.layout;
+						setPaneLayout(reconciled.layout);
+						panesInitialized.current = false;
 					}
-					return getPaneDimensions(layout.listPaneId);
+					return reconciled.dimensions;
 				},
 				onReady(_zoomed, dimensions, revision) {
 					syncingTerminalSize.current = true;
@@ -789,8 +765,18 @@ export default function App({
 	const dialogOpenRef = useRef(anyDialogOpen);
 	dialogOpenRef.current = anyDialogOpen;
 	useEffect(() => {
-		if (paneLayoutRef.current)
-			void layoutTasks.request(anyDialogOpen, dialogRequest.current.revision);
+		if (paneLayoutRef.current) {
+			const done = startupTrace.current?.begin('layout-request', {
+				cause: 'state',
+				loading,
+				spaces: spaces.length,
+				zoomed: anyDialogOpen,
+				revision: dialogRequest.current.revision,
+			});
+			void layoutTasks
+				.request(anyDialogOpen, dialogRequest.current.revision)
+				.finally(() => done?.());
+		}
 	}, [layoutTasks, anyDialogOpen, loading, spaces.length]);
 	useEffect(() => () => layoutTasks.stop(), [layoutTasks]);
 	useEffect(() => {
@@ -801,11 +787,25 @@ export default function App({
 			if (syncingTerminalSize.current) return;
 			clearTimeout(timer);
 			timer = setTimeout(() => {
-				if (paneLayoutRef.current)
-					void layoutTasks.request(
-						dialogOpenRef.current,
-						dialogRequest.current.revision,
-					);
+				if (paneLayoutRef.current) {
+					const done = startupTrace.current?.begin('layout-request', {
+						cause: 'resize',
+						zoomed: dialogOpenRef.current,
+						revision: dialogRequest.current.revision,
+						cols: stdout.columns,
+						rows: stdout.rows,
+					});
+					void layoutTasks
+						.request(
+							dialogOpenRef.current,
+							dialogRequest.current.revision,
+							() => ({
+								cols: stdout.columns ?? 80,
+								rows: stdout.rows ?? 40,
+							}),
+						)
+						.finally(() => done?.());
+				}
 			}, 150);
 		};
 		stdout.on('resize', handleResize);
@@ -831,9 +831,10 @@ export default function App({
 			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
 		)
 			return;
-
+		const queued = startupTrace.current?.begin('attachment-queue');
 		void attachmentTask
 			.run(async signal => {
+				queued?.();
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
 				const registered = await getRegisteredSpacesAsync().catch(() => null);
 				if (signal.aborted) return;
@@ -864,6 +865,7 @@ export default function App({
 				);
 				if (success && !signal.aborted) {
 					panesInitialized.current = true;
+					startupTrace.current?.attachmentReady();
 				}
 			})
 			.catch((err: unknown) =>
@@ -872,7 +874,10 @@ export default function App({
 					err instanceof Error ? err : undefined,
 				),
 			);
-		return () => attachmentTask.cancel();
+		return () => {
+			queued?.('cancelled');
+			attachmentTask.cancel();
+		};
 	}, [
 		selectedSpaceName,
 		selectedWorktreePath,
