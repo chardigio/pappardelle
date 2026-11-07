@@ -1,12 +1,12 @@
 import test from 'ava';
 import React from 'react';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import type {LogEntry} from '../logger.ts';
 import type {ConfirmPayload, PopupActions, PopupSpec} from '../popup/spec.ts';
 import PopupRoot from './PopupRoot.tsx';
 
-function setup(spec: PopupSpec) {
+async function setup(spec: PopupSpec) {
 	const confirms: Array<ConfirmPayload | undefined> = [];
 	let cancels = 0;
 	let clears = 0;
@@ -32,7 +32,7 @@ function setup(spec: PopupSpec) {
 			};
 		},
 	};
-	const view = render(
+	const view = await render(
 		React.createElement(PopupRoot, {spec, actions, width: 80, height: 20}),
 	);
 	return {
@@ -64,18 +64,21 @@ const CLOSE_SPACE: PopupSpec = {
 		title: 'Close Space',
 		message: 'Close space bd-1?',
 		processingMessage: 'Closing space bd-1…',
+		isDestructive: true,
 	},
 };
 
 test.serial(
 	'confirming shows the spinner and waits for the TUI to finish',
 	async t => {
-		const popup = setup(CLOSE_SPACE);
-		t.teardown(() => popup.view.unmount());
+		const popup = await setup(CLOSE_SPACE);
+		t.teardown(async () => {
+			await popup.view.unmount();
+		});
 		await delay(20);
 
 		const rows = popup.view.lastFrame()?.split('\n').length;
-		popup.view.stdin.write('y');
+		await popup.view.stdin.write('y');
 		await until(
 			() => popup.view.lastFrame()?.includes('Closing space bd-1…') ?? false,
 		);
@@ -96,11 +99,13 @@ test.serial(
 );
 
 test.serial('Esc cancels without confirming', async t => {
-	const popup = setup(CLOSE_SPACE);
-	t.teardown(() => popup.view.unmount());
+	const popup = await setup(CLOSE_SPACE);
+	t.teardown(async () => {
+		await popup.view.unmount();
+	});
 	await delay(20);
 
-	popup.view.stdin.write('\u001B');
+	await popup.view.stdin.write('\u001B');
 	await until(() => popup.cancels() === 1);
 	t.deepEqual(popup.confirms, []);
 });
@@ -108,8 +113,10 @@ test.serial('Esc cancels without confirming', async t => {
 test.serial(
 	'the errors popup follows live updates and asks the TUI to clear',
 	async t => {
-		const popup = setup({kind: 'errors', props: {errors: []}});
-		t.teardown(() => popup.view.unmount());
+		const popup = await setup({kind: 'errors', props: {errors: []}});
+		t.teardown(async () => {
+			await popup.view.unmount();
+		});
 		await delay(20);
 		t.true(popup.view.lastFrame()?.includes('No errors.'));
 
@@ -125,7 +132,7 @@ test.serial(
 			() => popup.view.lastFrame()?.includes('fetch failed') ?? false,
 		);
 
-		popup.view.stdin.write('c');
+		await popup.view.stdin.write('c');
 		await until(() => popup.clears() === 1);
 	},
 );

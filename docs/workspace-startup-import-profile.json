@@ -1,0 +1,333 @@
+{
+	"scope": "sequential dynamic imports in separately compiled bytecode probe; not exact CLI import order",
+	"runs": [
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 41.216604,
+				"durationMs": 41.216604
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 61.517734,
+				"durationMs": 20.30113
+			},
+			{
+				"stage": "react",
+				"endMs": 61.583275,
+				"durationMs": 0.06554100000000318
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 62.86209399999999,
+				"durationMs": 1.2788189999999915
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 68.861858,
+				"durationMs": 5.999764000000006
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 73.487173,
+				"durationMs": 4.6253150000000005
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.441299,
+				"durationMs": 40.441299
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 60.109844,
+				"durationMs": 19.668545
+			},
+			{
+				"stage": "react",
+				"endMs": 60.188885,
+				"durationMs": 0.07904099999999659
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 61.443184,
+				"durationMs": 1.2542990000000032
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 67.211337,
+				"durationMs": 5.768152999999998
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 71.375087,
+				"durationMs": 4.163749999999993
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.015815,
+				"durationMs": 40.015815
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 59.509729,
+				"durationMs": 19.493913999999997
+			},
+			{
+				"stage": "react",
+				"endMs": 59.57567,
+				"durationMs": 0.06594100000000225
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 60.828089,
+				"durationMs": 1.2524189999999962
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 66.567322,
+				"durationMs": 5.739233000000006
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 70.703802,
+				"durationMs": 4.136479999999992
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 39.578612,
+				"durationMs": 39.578612
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 59.437489,
+				"durationMs": 19.858877
+			},
+			{
+				"stage": "react",
+				"endMs": 59.501699,
+				"durationMs": 0.06421000000000276
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 60.736708,
+				"durationMs": 1.235008999999998
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 66.43183,
+				"durationMs": 5.695122000000005
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 70.623112,
+				"durationMs": 4.191282000000001
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 39.631473,
+				"durationMs": 39.631473
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 59.396208,
+				"durationMs": 19.764735
+			},
+			{
+				"stage": "react",
+				"endMs": 59.463249,
+				"durationMs": 0.06704099999999613
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 60.724498,
+				"durationMs": 1.2612489999999994
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 66.538811,
+				"durationMs": 5.8143129999999985
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 70.821653,
+				"durationMs": 4.282842000000002
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.343338,
+				"durationMs": 40.343338
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 60.188314,
+				"durationMs": 19.844975999999996
+			},
+			{
+				"stage": "react",
+				"endMs": 60.253945,
+				"durationMs": 0.06563100000000333
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 61.497724,
+				"durationMs": 1.2437789999999964
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 67.317677,
+				"durationMs": 5.819953000000005
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 71.620349,
+				"durationMs": 4.302672000000001
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.742221,
+				"durationMs": 40.742221
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 61.421054,
+				"durationMs": 20.678832999999997
+			},
+			{
+				"stage": "react",
+				"endMs": 61.488964,
+				"durationMs": 0.0679100000000048
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 62.753244,
+				"durationMs": 1.2642799999999994
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 68.874419,
+				"durationMs": 6.121175000000001
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 73.360052,
+				"durationMs": 4.485632999999993
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.150666,
+				"durationMs": 40.150666
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 60.043463,
+				"durationMs": 19.892797
+			},
+			{
+				"stage": "react",
+				"endMs": 60.110033,
+				"durationMs": 0.06656999999999869
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 61.375902,
+				"durationMs": 1.2658690000000021
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 67.232686,
+				"durationMs": 5.8567839999999975
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 71.650959,
+				"durationMs": 4.418272999999999
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.413319,
+				"durationMs": 40.413319
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 60.581137,
+				"durationMs": 20.167817999999997
+			},
+			{
+				"stage": "react",
+				"endMs": 60.650318,
+				"durationMs": 0.06918100000000038
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 61.914677,
+				"durationMs": 1.264358999999999
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 67.857471,
+				"durationMs": 5.942794000000006
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 72.433995,
+				"durationMs": 4.576523999999992
+			}
+		],
+		[
+			{
+				"stage": "runtime-before-entry",
+				"endMs": 40.57148,
+				"durationMs": 40.57148
+			},
+			{
+				"stage": "opentui-core",
+				"endMs": 60.189534,
+				"durationMs": 19.618054
+			},
+			{
+				"stage": "react",
+				"endMs": 60.254265,
+				"durationMs": 0.06473099999999476
+			},
+			{
+				"stage": "opentui-react",
+				"endMs": 61.508604,
+				"durationMs": 1.2543390000000016
+			},
+			{
+				"stage": "app-dependencies",
+				"endMs": 67.245996,
+				"durationMs": 5.737392000000007
+			},
+			{
+				"stage": "cli-arguments",
+				"endMs": 71.483288,
+				"durationMs": 4.2372919999999965
+			}
+		]
+	],
+	"medianMs": {
+		"runtime-before-entry": 40.3783285,
+		"opentui-core": 19.851926499999998,
+		"react": 0.06625550000000047,
+		"opentui-react": 1.2577940000000005,
+		"app-dependencies": 5.817133000000002,
+		"cli-arguments": 4.292757000000002
+	}
+}

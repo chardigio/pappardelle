@@ -1,5 +1,5 @@
-import React, {useEffect, useState} from 'react';
-import {Box} from 'ink';
+import {useEffect, useState} from 'react';
+
 import type {LogEntry} from '../logger.ts';
 import type {PopupActions, PopupSpec} from '../popup/spec.ts';
 import AgentProfilePicker from './AgentProfilePicker.tsx';
@@ -104,8 +104,8 @@ export default function PopupRoot({spec, actions, width, height}: Props) {
 	};
 
 	return (
-		<Box flexDirection="column" width={width} height={height}>
+		<box flexDirection="column" width={width} height={height}>
 			{renderDialog()}
-		</Box>
+		</box>
 	);
 }

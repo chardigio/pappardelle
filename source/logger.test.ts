@@ -17,6 +17,16 @@ test.beforeEach(() => {
 	clearRecentErrors();
 });
 
+test.serial('recent errors drop the color codes of script output', t => {
+	log.error(
+		'Failed: \u001B[0;36mSelect a project profile:\u001B[0m',
+		new Error('\u001B[31mexit 1\u001B[0m'),
+	);
+	const [entry] = getRecentErrors();
+	t.is(entry?.message, 'Failed: Select a project profile:');
+	t.is(entry?.error, 'exit 1');
+});
+
 // ============================================================================
 // Pruning Tests
 // ============================================================================

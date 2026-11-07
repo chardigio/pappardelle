@@ -1,7 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {Box} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
 import SpaceListItem from './SpaceListItem.tsx';
 import {setTmuxVersionProbeForTests} from '../tmux-skin-tone.ts';
@@ -27,7 +26,11 @@ const emojis = [
 	'👍🏽',
 ];
 
-function renderRow(emoji: string, width: number, title: string): string {
+async function renderRow(
+	emoji: string,
+	width: number,
+	title: string,
+): Promise<string> {
 	const space: SpaceData = {
 		name: 'TEST-1',
 		worktreePath: null,
@@ -44,10 +47,10 @@ function renderRow(emoji: string, width: number, title: string): string {
 			hasConflict: false,
 		},
 	};
-	const view = render(
+	const view = await render(
 		React.createElement(
-			Box,
-			{width},
+			'box',
+			{flexDirection: 'row', width},
 			React.createElement(SpaceListItem, {
 				space,
 				width,
@@ -57,27 +60,30 @@ function renderRow(emoji: string, width: number, title: string): string {
 		),
 	);
 	const frame = view.lastFrame() ?? '';
-	view.unmount();
+	await view.unmount();
 	return frame;
 }
 
-test('every rail emoji has exactly one separator before the status icon', t => {
+test('every rail emoji has exactly one separator before the status icon', async t => {
 	for (const emoji of emojis) {
-		t.true(
-			renderRow(emoji, 60, 'Title').startsWith(emoji + ' ● TEST-1 '),
-			`Emoji: ${emoji}`,
-		);
+		const row = await renderRow(emoji, 60, 'Title');
+		t.true(row.startsWith(emoji + ' ● TEST-1 '), `Emoji: ${emoji}`);
 	}
 });
 
-test('an empty emoji retains its two-cell slot and separator', t => {
-	t.true(renderRow('', 60, 'Title').startsWith('   ● TEST-1 '));
+test('an empty emoji retains its two-cell slot and separator', async t => {
+	const row = await renderRow('', 60, 'Title');
+	t.true(row.startsWith('   ● TEST-1 '));
 });
 
-test('emoji in the prefix and title keep the status rail on the same row', t => {
+test('emoji in the prefix and title keep the status rail on the same row', async t => {
 	for (const emoji of emojis) {
 		for (const width of [30, 40, 60, 80]) {
-			const frame = renderRow(emoji, width, 'Fix ✨ ⭐ ✅ and 👨‍🍳 rendering');
+			const frame = await renderRow(
+				emoji,
+				width,
+				'Fix ✨ ⭐ ✅ and 👨‍🍳 rendering',
+			);
 			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
 			t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
 			t.true(frame.includes('✓'), `Rendered row: ${frame}`);

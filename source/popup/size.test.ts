@@ -1,4 +1,6 @@
 import test from 'ava';
+import stringWidth from 'string-width';
+import {buildHelpLines, buildHelpRows} from '../components/help-rows.ts';
 import {popupSize, wrappedLineCount} from './size.ts';
 
 const client = {cols: 200, rows: 50};
@@ -18,6 +20,7 @@ test('a confirm is as tall as its wrapped content plus chrome', t => {
 				title: 'Close Space',
 				message: 'Close space bd-a1b2?',
 				detail: 'The worktree and git branch will remain on disk.',
+				isDestructive: true,
 			},
 		},
 		client,
@@ -32,7 +35,11 @@ test('a confirm on a narrow client wraps into more rows', t => {
 	const size = popupSize(
 		{
 			kind: 'confirm',
-			props: {title: 'Close Space', message: 'Close space bd-a1b2?'},
+			props: {
+				title: 'Close Space',
+				message: 'Close space bd-a1b2?',
+				isDestructive: true,
+			},
 		},
 		{cols: 34, rows: 50},
 	);
@@ -46,7 +53,11 @@ test('a confirm taller than the client stays two rows short of it', t => {
 	const size = popupSize(
 		{
 			kind: 'confirm',
-			props: {title: 'Rewrite config', message: 'word '.repeat(200)},
+			props: {
+				title: 'Rewrite config',
+				message: 'word '.repeat(200),
+				isDestructive: false,
+			},
 		},
 		{cols: 80, rows: 20},
 	);
@@ -83,6 +94,24 @@ test('help grows a section for custom commands', t => {
 	);
 
 	t.is(withCustom.height, base.height + 4);
+});
+
+test('help is wide enough for every heading, the status legend included', t => {
+	const size = popupSize(
+		{kind: 'help', props: {customKeybindings: [], commitSha: 'abc1234'}},
+		client,
+	);
+	const headings = buildHelpLines(buildHelpRows([])).flatMap(line =>
+		line.kind === 'heading' ? [line.text] : [],
+	);
+
+	const borderAndPadding = 6;
+	for (const heading of headings) {
+		t.true(
+			stringWidth(heading) <= size.width - borderAndPadding,
+			`fits: ${heading}`,
+		);
+	}
 });
 
 test('scrolling views take 80% of the client', t => {

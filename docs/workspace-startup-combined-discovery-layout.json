@@ -1,0 +1,3537 @@
+{
+	"environment": {
+		"platform": "Linux-7.2.15-1-omarchy-x86_64-with-glibc2.44",
+		"python": "3.15.2",
+		"tmux": "tmux next-3.9",
+		"sourceCommit": "66d8e7d2a1b687ef937e19b958a3dbc1e4624fbb",
+		"harnessSha256": "b2abf53b08ac8880287003c7b0a68b75f92671804126768333b1fc60283f55b6",
+		"git": "git version 2.56.0",
+		"shell": "GNU bash, version 5.3.20(1)-release (x86_64-pc-linux-gnu)",
+		"executables": {
+			"baseline": {
+				"binary": "/tmp/pappardelle-3wf-concurrency-5yad0v16/dist/pappardelle",
+				"binarySha256": "acbc90e28fbb4094ad3ba096ad8e20a44207def1eff6cc1c810e1c19af71d697",
+				"installationRoot": "/tmp/pappardelle-3wf-concurrency-5yad0v16"
+			},
+			"candidate": {
+				"binary": "/home/sddamico/.worktrees/pappardelle/pappardelle-3wf/dist/pappardelle",
+				"binarySha256": "7693e7cee80b6e7661d51a12c78aec45be96cf1f51c7d4b350b14e46e074892b",
+				"installationRoot": "/home/sddamico/.worktrees/pappardelle/pappardelle-3wf"
+			}
+		},
+		"bun": "1.4.4",
+		"terminal": "detached real tmux, variable width x 52",
+		"scope": "isolated HOME/repo/servers; OS caches NOT flushed; dummy Python agents; bd/gh stubbed; update cache primed; no real agent startup",
+		"observation": "20 ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately"
+	},
+	"settings": {
+		"binary": "/tmp/pappardelle-3wf-concurrency-5yad0v16/dist/pappardelle",
+		"candidate": "dist/pappardelle",
+		"widths": [100],
+		"workspaces": [3],
+		"modes": ["fresh", "existing"],
+		"runs": 5,
+		"shell_delay_ms": 0,
+		"trace": false,
+		"startup_trace": false,
+		"compare_tracing": false,
+		"timeout": 30,
+		"output": "docs/workspace-startup-combined-discovery-layout.json"
+	},
+	"samples": {
+		"baseline/100x52/3spaces/fresh/0ms-shell": [
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84375964261841,
+						"pid": 3896354
+					},
+					"companion": {
+						"readyNs": 84375955458969,
+						"pid": 3896330
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentReadyMs": 226.263574,
+					"companionReadyMs": 217.460702,
+					"agentAttachedMs": 232.289369,
+					"companionAttachedMs": 232.290809,
+					"agentVisibleMs": 235.232316,
+					"companionVisibleMs": 236.087181,
+					"requiredClientsAttachedMs": 232.290809,
+					"requiredVisibleMs": 236.087181
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 98.683648,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 113.683456,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 116.68352,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 121.683712,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 123.683584,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 128.68352,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 145.683456,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 145.683456,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 163.683584,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 164.68352,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 164.68352,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 166.683392,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 168.68352,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 170.683648,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 171.683584,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 192.68352,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 200.68352,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 214.683648,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 215.683584,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"companion": {
+						"readyNs": 84379896687263,
+						"pid": 3897616
+					},
+					"agent": {
+						"readyNs": 84379906537891,
+						"pid": 3897634
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"companionReadyMs": 224.696297,
+					"agentAttachedMs": 232.112711,
+					"companionAttachedMs": 232.113841,
+					"agentVisibleMs": 235.057978,
+					"companionVisibleMs": 235.950033,
+					"agentReadyMs": 234.546925,
+					"requiredClientsAttachedMs": 232.113841,
+					"requiredVisibleMs": 235.950033
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 101.69088,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 116.690944,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 119.690752,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 124.690944,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 126.690816,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 132.690944,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 149.69088,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 150.690816,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 169.69088,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.69088,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.69088,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 172.690944,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 174.690816,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 176.690688,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 177.69088,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 198.690816,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 203.691008,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 203.691008,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 203.691008,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.690816,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 221.69088,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 223.691008,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84382750636310,
+						"pid": 3898719
+					},
+					"companion": {
+						"readyNs": 84382743433028,
+						"pid": 3898698
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentReadyMs": 225.877587,
+					"companionReadyMs": 218.674305,
+					"agentAttachedMs": 231.322309,
+					"companionAttachedMs": 231.323199,
+					"agentVisibleMs": 234.368317,
+					"companionVisibleMs": 235.210471,
+					"requiredClientsAttachedMs": 231.323199,
+					"requiredVisibleMs": 235.210471
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 97.923328,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 111.9232,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 114.923264,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 119.922944,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 121.923072,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 127.9232,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 144.923136,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 145.923072,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 163.9232,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 163.9232,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 164.923136,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 166.923264,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 168.923136,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 170.923264,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 171.9232,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 192.923136,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 196.923136,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 196.923136,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 196.923136,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 199.9232,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 214.923008,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 215.9232,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84386690282778,
+						"pid": 3900019
+					},
+					"companion": {
+						"readyNs": 84386682127419,
+						"pid": 3899998
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentReadyMs": 227.284678,
+					"companionReadyMs": 219.129319,
+					"agentAttachedMs": 231.794544,
+					"companionAttachedMs": 231.795404,
+					"agentVisibleMs": 234.850212,
+					"companionVisibleMs": 235.823708,
+					"requiredClientsAttachedMs": 231.795404,
+					"requiredVisibleMs": 235.823708
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 99.683584,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 113.683712,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 116.683776,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 121.683712,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 123.68384,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 129.683712,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 146.683648,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 146.683648,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 164.68352,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.683456,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.683456,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 167.683584,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 170.683648,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 172.683776,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 173.683712,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 194.683648,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 199.683584,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 199.683584,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 199.683584,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 201.683456,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 215.68384,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 217.683456,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"companion": {
+						"readyNs": 84389485161025,
+						"pid": 3900960
+					},
+					"agent": {
+						"readyNs": 84389493751245,
+						"pid": 3900976
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"companionReadyMs": 228.188115,
+					"agentAttachedMs": 230.890891,
+					"companionAttachedMs": 230.891941,
+					"companionVisibleMs": 235.124366,
+					"agentReadyMs": 236.778335,
+					"agentVisibleMs": 259.828531,
+					"requiredClientsAttachedMs": 230.891941,
+					"requiredVisibleMs": 259.828531
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 104.708864,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 119.708928,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 122.708992,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 127.708672,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 129.7088,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 135.708928,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 153.7088,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 153.7088,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 173.7088,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 173.7088,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 173.7088,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 176.708864,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 178.708992,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 180.708864,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 182.708736,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 201.7088,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 206.708736,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.708736,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.708736,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 210.708992,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 225.7088,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 227.708928,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			}
+		],
+		"candidate/100x52/3spaces/fresh/0ms-shell": [
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84376532206574,
+						"pid": 3896538
+					},
+					"companion": {
+						"readyNs": 84376524682800,
+						"pid": 3896517
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentReadyMs": 222.816764,
+					"companionReadyMs": 215.29299,
+					"agentAttachedMs": 231.766336,
+					"companionAttachedMs": 231.767206,
+					"agentVisibleMs": 234.490872,
+					"companionVisibleMs": 235.488908,
+					"requiredClientsAttachedMs": 231.767206,
+					"requiredVisibleMs": 235.488908
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 96.29184,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 113.291776,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 116.29184,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 121.291776,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 123.291904,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 129.291776,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 148.29184,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 149.291776,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 157.291776,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.292032,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.292032,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.292032,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 166.291968,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 190.291712,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 198.291968,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.291968,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.291968,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.291968,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 210.291712,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 212.29184,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84379329177216,
+						"pid": 3897445
+					},
+					"companion": {
+						"readyNs": 84379320909778,
+						"pid": 3897426
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentReadyMs": 227.895535,
+					"companionReadyMs": 219.628097,
+					"agentAttachedMs": 231.918089,
+					"companionAttachedMs": 231.918929,
+					"agentVisibleMs": 234.705135,
+					"companionVisibleMs": 235.54295,
+					"requiredClientsAttachedMs": 231.918929,
+					"requiredVisibleMs": 235.54295
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 99.399936,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 117.400064,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 120.400128,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 125.400064,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 128.400128,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 134.4,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 153.400064,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 154.4,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 162.400256,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.40032,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.40032,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 169.40032,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 170.400256,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 194.4,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 201.400064,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 201.400064,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 201.400064,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 202.400256,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 214.4,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 216.400128,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84383320092684,
+						"pid": 3898935
+					},
+					"companion": {
+						"readyNs": 84383310780489,
+						"pid": 3898914
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentReadyMs": 225.094472,
+					"companionReadyMs": 215.782277,
+					"agentAttachedMs": 232.252064,
+					"companionAttachedMs": 232.252904,
+					"agentVisibleMs": 235.626224,
+					"companionVisibleMs": 236.604529,
+					"requiredClientsAttachedMs": 232.252904,
+					"requiredVisibleMs": 236.604529
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 99.68384,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 116.683776,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 120.683776,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 125.683456,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 127.683584,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 132.683776,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 151.683584,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 152.683776,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 159.683584,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 166.683648,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 167.683584,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 167.683584,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 168.683776,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 191.68384,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 198.683648,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 210.683648,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 212.683776,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84386112769810,
+						"pid": 3899827
+					},
+					"companion": {
+						"readyNs": 84386104721233,
+						"pid": 3899810
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentAttachedMs": 208.899119,
+					"companionAttachedMs": 208.900779,
+					"agentReadyMs": 222.383388,
+					"companionReadyMs": 214.334811,
+					"agentVisibleMs": 237.629678,
+					"companionVisibleMs": 238.479362,
+					"requiredClientsAttachedMs": 208.900779,
+					"requiredVisibleMs": 238.479362
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 98.295552,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 115.295488,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 118.295552,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 123.295488,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 125.29536,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 130.295552,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 149.29536,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 149.29536,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 157.295616,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 164.295424,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 164.295424,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 164.295424,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 166.295552,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 189.295616,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 196.29568,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 196.29568,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 196.29568,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 197.29536,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 209.295616,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 210.295552,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": false,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "new",
+				"identities": {
+					"agent": {
+						"readyNs": 84390126346994,
+						"pid": 3901162
+					},
+					"companion": {
+						"readyNs": 84390117429772,
+						"pid": 3901145
+					}
+				},
+				"retainedIdentities": null,
+				"milestones": {
+					"agentAttachedMs": 208.416388,
+					"companionAttachedMs": 208.417548,
+					"agentReadyMs": 222.942304,
+					"companionReadyMs": 214.025082,
+					"agentVisibleMs": 237.217448,
+					"companionVisibleMs": 238.206114,
+					"requiredClientsAttachedMs": 208.417548,
+					"requiredVisibleMs": 238.206114
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 99.277056,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 116.276992,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 119.277056,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 124.277248,
+						"message": "[DEBUG] [tmux] Could not enable synchronized output on inner socket"
+					},
+					{
+						"elapsedMs": 126.27712,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 132.276992,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 150.27712,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 151.277056,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 158.27712,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-main: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-main: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.277184,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-3: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-3: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.277184,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-2: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-2: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 165.277184,
+						"message": "[DEBUG] [program-status] Cannot monitor agent-repo-bench-1: Error: Command failed: tmux -L bench-inner show-option -qv -t =agent-repo-bench-1: @pappardelle_status_pane"
+					},
+					{
+						"elapsedMs": 166.27712,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 189.277184,
+						"message": "[INFO ] [tmux] Created companion session: companion-repo-main"
+					},
+					{
+						"elapsedMs": 196.277248,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 196.277248,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 196.277248,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 197.277184,
+						"message": "[INFO ] [tmux] Created agent session: agent-repo-main (agent profile: fixture)"
+					},
+					{
+						"elapsedMs": 209.277184,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 210.27712,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			}
+		],
+		"baseline/100x52/3spaces/existing/0ms-shell": [
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84377107009179,
+						"pid": 3896728
+					},
+					"companion": {
+						"readyNs": 84377099567535,
+						"pid": 3896708
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84377107009179,
+						"pid": 3896728
+					},
+					"companion": {
+						"readyNs": 84377099567535,
+						"pid": 3896708
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.110129,
+					"companionAttachedMs": 208.111349,
+					"agentVisibleMs": 210.987056,
+					"companionVisibleMs": 211.854111,
+					"requiredClientsAttachedMs": 208.111349,
+					"requiredVisibleMs": 211.854111
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 97.491456,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 112.49152,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 115.491584,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 123.491584,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 129.491456,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 145.491712,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 146.491392,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 168.49152,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 173.491456,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 175.491584,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 194.491648,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 197.491712,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 208.49152,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 208.49152,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 208.49152,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84381635218572,
+						"pid": 3898355
+					},
+					"companion": {
+						"readyNs": 84381626988973,
+						"pid": 3898337
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84381635218572,
+						"pid": 3898355
+					},
+					"companion": {
+						"readyNs": 84381626988973,
+						"pid": 3898337
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.726645,
+					"companionAttachedMs": 208.728235,
+					"agentVisibleMs": 211.753523,
+					"companionVisibleMs": 212.680019,
+					"requiredClientsAttachedMs": 208.728235,
+					"requiredVisibleMs": 212.680019
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 98.61504,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 113.614848,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 117.614848,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 124.615168,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 130.614784,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 146.614784,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 147.614976,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 169.614848,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 174.61504,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 176.614912,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 196.614912,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 198.61504,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 209.614848,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 209.614848,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 209.614848,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84383898574523,
+						"pid": 3899126
+					},
+					"companion": {
+						"readyNs": 84383893705504,
+						"pid": 3899112
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84383898574523,
+						"pid": 3899126
+					},
+					"companion": {
+						"readyNs": 84383893705504,
+						"pid": 3899112
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 209.387461,
+					"companionAttachedMs": 209.388621,
+					"agentVisibleMs": 212.402178,
+					"companionVisibleMs": 213.336524,
+					"requiredClientsAttachedMs": 209.388621,
+					"requiredVisibleMs": 213.336524
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 99.277312,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 113.27744,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 116.277248,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 124.277248,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 130.277376,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 147.277312,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 147.277312,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 171.277312,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 176.277248,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 177.277184,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 196.277248,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 199.277312,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 212.277248,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 212.277248,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 212.277248,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84388374362701,
+						"pid": 3900565
+					},
+					"companion": {
+						"readyNs": 84388365664440,
+						"pid": 3900543
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84388374362701,
+						"pid": 3900565
+					},
+					"companion": {
+						"readyNs": 84388365664440,
+						"pid": 3900543
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.639919,
+					"companionAttachedMs": 208.641749,
+					"agentVisibleMs": 211.581187,
+					"companionVisibleMs": 212.555553,
+					"requiredClientsAttachedMs": 208.641749,
+					"requiredVisibleMs": 212.555553
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 100.360448,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 115.360512,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 119.360512,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 126.36032,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 132.360448,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 148.360448,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 149.360384,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 170.36032,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 175.360256,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 177.360384,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 198.36032,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 199.360256,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 211.360512,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 211.360512,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 211.360512,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84390703785029,
+						"pid": 3901355
+					},
+					"companion": {
+						"readyNs": 84390696113203,
+						"pid": 3901334
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84390703785029,
+						"pid": 3901355
+					},
+					"companion": {
+						"readyNs": 84390696113203,
+						"pid": 3901334
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.303349,
+					"companionAttachedMs": 208.304609,
+					"agentVisibleMs": 211.180786,
+					"companionVisibleMs": 212.073551,
+					"requiredClientsAttachedMs": 208.304609,
+					"requiredVisibleMs": 212.073551
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 99.302656,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 114.302464,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 118.302464,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 125.302272,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 131.3024,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 148.302336,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 148.302336,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 170.302464,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 176.302592,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 177.302528,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 196.302336,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 199.3024,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 211.302656,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 211.302656,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 211.302656,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			}
+		],
+		"candidate/100x52/3spaces/existing/0ms-shell": [
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84378218319077,
+						"pid": 3897087
+					},
+					"companion": {
+						"readyNs": 84378211063754,
+						"pid": 3897069
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84378218319077,
+						"pid": 3897087
+					},
+					"companion": {
+						"readyNs": 84378211063754,
+						"pid": 3897069
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.925084,
+					"companionAttachedMs": 208.926414,
+					"agentVisibleMs": 212.533395,
+					"companionVisibleMs": 213.624652,
+					"requiredClientsAttachedMs": 208.926414,
+					"requiredVisibleMs": 213.624652
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 100.349952,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 117.349888,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 120.349952,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 128.349952,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 134.349824,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 153.349888,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 153.349888,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 172.349952,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 194.35008,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 195.350016,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 209.349888,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 210.35008,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 210.35008,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84380495909247,
+						"pid": 3897838
+					},
+					"companion": {
+						"readyNs": 84380487466178,
+						"pid": 3897818
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84380495909247,
+						"pid": 3897838
+					},
+					"companion": {
+						"readyNs": 84380487466178,
+						"pid": 3897818
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 209.168488,
+					"companionAttachedMs": 209.169838,
+					"agentVisibleMs": 212.114375,
+					"companionVisibleMs": 212.94532,
+					"requiredClientsAttachedMs": 209.169838,
+					"requiredVisibleMs": 212.94532
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 98.595584,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 116.595456,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 119.59552,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 127.595264,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 132.595456,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 151.59552,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 152.595456,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 169.595392,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 190.595584,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 191.59552,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 205.595392,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.595328,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.595328,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84384999079131,
+						"pid": 3899463
+					},
+					"companion": {
+						"readyNs": 84384991902029,
+						"pid": 3899447
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84384999079131,
+						"pid": 3899463
+					},
+					"companion": {
+						"readyNs": 84384991902029,
+						"pid": 3899447
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.623027,
+					"companionAttachedMs": 208.624997,
+					"agentVisibleMs": 211.598784,
+					"companionVisibleMs": 212.49266,
+					"requiredClientsAttachedMs": 208.624997,
+					"requiredVisibleMs": 212.49266
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 97.243392,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 115.24352,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 118.243328,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 125.243648,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 132.243712,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 150.243584,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 150.243584,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 167.24352,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 190.243328,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 191.24352,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 206.243584,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.243584,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 206.243584,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84387252702407,
+						"pid": 3900224
+					},
+					"companion": {
+						"readyNs": 84387246462381,
+						"pid": 3900203
+					}
+				},
+				"retainedIdentities": {
+					"agent": {
+						"readyNs": 84387252702407,
+						"pid": 3900224
+					},
+					"companion": {
+						"readyNs": 84387246462381,
+						"pid": 3900203
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 209.131531,
+					"companionAttachedMs": 209.133001,
+					"agentVisibleMs": 211.985578,
+					"companionVisibleMs": 212.839913,
+					"requiredClientsAttachedMs": 209.133001,
+					"requiredVisibleMs": 212.839913
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 97.401856,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 114.401792,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 117.401856,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 125.4016,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 130.401792,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 149.4016,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 149.4016,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 167.401728,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 189.401856,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 190.401792,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 205.4016,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 205.4016,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 205.4016,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			},
+			{
+				"shellDelayMs": 0,
+				"traced": false,
+				"startupTrace": false,
+				"width": 100,
+				"existing": true,
+				"workspaces": 3,
+				"success": true,
+				"error": null,
+				"readiness": "pre-existing",
+				"identities": {
+					"agent": {
+						"readyNs": 84391823989556,
+						"pid": 3901868
+					},
+					"companion": {
+						"readyNs": 84391817914730,
+						"pid": 3901853
+					}
+				},
+				"retainedIdentities": {
+					"companion": {
+						"readyNs": 84391817914730,
+						"pid": 3901853
+					},
+					"agent": {
+						"readyNs": 84391823989556,
+						"pid": 3901868
+					}
+				},
+				"milestones": {
+					"agentAttachedMs": 208.458499,
+					"companionAttachedMs": 208.460389,
+					"agentVisibleMs": 211.623568,
+					"companionVisibleMs": 212.667784,
+					"requiredClientsAttachedMs": 208.460389,
+					"requiredVisibleMs": 212.667784
+				},
+				"screens": {
+					"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? bench-3\n  Fixture bench-3\n? bench-2\n  Fixture bench-2\n? bench-1\n  Fixture bench-1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+					"%1": "AGENT_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep<tho>\"omarchy\" 19:54 05-Nov-26\n",
+					"%2": "COMPANION_READY\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion\"omarchy\" 19:54 05-Nov-26\n"
+				},
+				"logEvents": [
+					{
+						"elapsedMs": 101.293312,
+						"message": "[INFO ] [cli] Pappardelle starting"
+					},
+					{
+						"elapsedMs": 117.293312,
+						"message": "[INFO ] [tmux] Terminal size: 100x52, layout: horizontal"
+					},
+					{
+						"elapsedMs": 120.293376,
+						"message": "[INFO ] [tmux] Horizontal layout: list=23, agent=40, companion=35"
+					},
+					{
+						"elapsedMs": 128.293632,
+						"message": "[INFO ] [tmux] Set up pappardelle layout: list=%0, agent=%1, companion=%2"
+					},
+					{
+						"elapsedMs": 133.293312,
+						"message": "[INFO ] [update-check] Update check skipped: LOCAL_MODE"
+					},
+					{
+						"elapsedMs": 152.293376,
+						"message": "[INFO ] [app] Loaded 0 custom keybindings"
+					},
+					{
+						"elapsedMs": 152.293376,
+						"message": "[DEBUG] [app] No issue_watchlist configured \u2014 watchlist polling disabled"
+					},
+					{
+						"elapsedMs": 170.293248,
+						"message": "[DEBUG] [app] Rail status poll: 3 target(s) (bench-3, bench-2, bench-1)"
+					},
+					{
+						"elapsedMs": 194.293504,
+						"message": "[INFO ] [tmux] Relayout: 100x52, mode=horizontal"
+					},
+					{
+						"elapsedMs": 195.29344,
+						"message": "[INFO ] [tmux] Relayout completed successfully"
+					},
+					{
+						"elapsedMs": 209.293312,
+						"message": "[DEBUG] [app] Rail status bench-3: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 209.293312,
+						"message": "[DEBUG] [app] Rail status bench-2: pipeline=null unresolved=0 conflict=false pr=none"
+					},
+					{
+						"elapsedMs": 209.293312,
+						"message": "[DEBUG] [app] Rail status bench-1: pipeline=null unresolved=0 conflict=false pr=none"
+					}
+				],
+				"commands": [],
+				"incompleteCommands": [],
+				"providerCalls": [
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					},
+					{
+						"tool": "bd",
+						"args": [
+							"list",
+							"--id=bench-3,bench-2,bench-1",
+							"--json",
+							"-n",
+							"0"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"repo",
+							"view",
+							"--json",
+							"nameWithOwner",
+							"-q",
+							".nameWithOwner"
+						],
+						"supported": true
+					},
+					{
+						"tool": "gh",
+						"args": [
+							"api",
+							"graphql",
+							"-f",
+							"query=\n\t\t\tquery {\n\t\t\t\tpr0: search(query: \"repo:fixture/repo head:bench-3 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr1: search(query: \"repo:fixture/repo head:bench-2 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\npr2: search(query: \"repo:fixture/repo head:bench-1 is:pr is:open sort:updated-desc\", type: ISSUE, first: 1) {\n\tnodes {\n\t\t... on PullRequest {\n\n\tnumber\n\tmergeable\n\tcommits(last: 1) {\n\t\tnodes {\n\t\t\tcommit {\n\t\t\t\tstatusCheckRollup {\n\t\t\t\t\tcontexts(first: 100) {\n\t\t\t\t\t\tnodes {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on CheckRun {\n\t\t\t\t\t\t\t\tstatus\n\t\t\t\t\t\t\t\tconclusion\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t... on StatusContext {\n\t\t\t\t\t\t\t\tstate\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treviewThreads(first: 100) {\n\t\tnodes {\n\t\t\tisResolved\n\t\t}\n\t}\n\n\t\t}\n\t}\n}\n\t\t\t}\n\t\t"
+						],
+						"supported": true
+					}
+				]
+			}
+		]
+	},
+	"summary": {
+		"baseline/100x52/3spaces/fresh/0ms-shell": {
+			"successes": 5,
+			"failures": 0,
+			"milestonesMs": {
+				"agentReadyMs": {
+					"median": 227.284678,
+					"min": 225.877587,
+					"max": 236.778335
+				},
+				"companionReadyMs": {
+					"median": 219.129319,
+					"min": 217.460702,
+					"max": 228.188115
+				},
+				"agentAttachedMs": {
+					"median": 231.794544,
+					"min": 230.890891,
+					"max": 232.289369
+				},
+				"companionAttachedMs": {
+					"median": 231.795404,
+					"min": 230.891941,
+					"max": 232.290809
+				},
+				"agentVisibleMs": {
+					"median": 235.057978,
+					"min": 234.368317,
+					"max": 259.828531
+				},
+				"companionVisibleMs": {
+					"median": 235.823708,
+					"min": 235.124366,
+					"max": 236.087181
+				},
+				"requiredClientsAttachedMs": {
+					"median": 231.795404,
+					"min": 230.891941,
+					"max": 232.290809
+				},
+				"requiredVisibleMs": {
+					"median": 235.950033,
+					"min": 235.210471,
+					"max": 259.828531
+				}
+			}
+		},
+		"candidate/100x52/3spaces/fresh/0ms-shell": {
+			"successes": 5,
+			"failures": 0,
+			"milestonesMs": {
+				"agentReadyMs": {
+					"median": 222.942304,
+					"min": 222.383388,
+					"max": 227.895535
+				},
+				"companionReadyMs": {
+					"median": 215.29299,
+					"min": 214.025082,
+					"max": 219.628097
+				},
+				"agentAttachedMs": {
+					"median": 231.766336,
+					"min": 208.416388,
+					"max": 232.252064
+				},
+				"companionAttachedMs": {
+					"median": 231.767206,
+					"min": 208.417548,
+					"max": 232.252904
+				},
+				"agentVisibleMs": {
+					"median": 235.626224,
+					"min": 234.490872,
+					"max": 237.629678
+				},
+				"companionVisibleMs": {
+					"median": 236.604529,
+					"min": 235.488908,
+					"max": 238.479362
+				},
+				"requiredClientsAttachedMs": {
+					"median": 231.767206,
+					"min": 208.417548,
+					"max": 232.252904
+				},
+				"requiredVisibleMs": {
+					"median": 236.604529,
+					"min": 235.488908,
+					"max": 238.479362
+				}
+			}
+		},
+		"baseline/100x52/3spaces/existing/0ms-shell": {
+			"successes": 5,
+			"failures": 0,
+			"milestonesMs": {
+				"agentAttachedMs": {
+					"median": 208.639919,
+					"min": 208.110129,
+					"max": 209.387461
+				},
+				"companionAttachedMs": {
+					"median": 208.641749,
+					"min": 208.111349,
+					"max": 209.388621
+				},
+				"agentVisibleMs": {
+					"median": 211.581187,
+					"min": 210.987056,
+					"max": 212.402178
+				},
+				"companionVisibleMs": {
+					"median": 212.555553,
+					"min": 211.854111,
+					"max": 213.336524
+				},
+				"requiredClientsAttachedMs": {
+					"median": 208.641749,
+					"min": 208.111349,
+					"max": 209.388621
+				},
+				"requiredVisibleMs": {
+					"median": 212.555553,
+					"min": 211.854111,
+					"max": 213.336524
+				}
+			}
+		},
+		"candidate/100x52/3spaces/existing/0ms-shell": {
+			"successes": 5,
+			"failures": 0,
+			"milestonesMs": {
+				"agentAttachedMs": {
+					"median": 208.925084,
+					"min": 208.458499,
+					"max": 209.168488
+				},
+				"companionAttachedMs": {
+					"median": 208.926414,
+					"min": 208.460389,
+					"max": 209.169838
+				},
+				"agentVisibleMs": {
+					"median": 211.985578,
+					"min": 211.598784,
+					"max": 212.533395
+				},
+				"companionVisibleMs": {
+					"median": 212.839913,
+					"min": 212.49266,
+					"max": 213.624652
+				},
+				"requiredClientsAttachedMs": {
+					"median": 208.926414,
+					"min": 208.460389,
+					"max": 209.169838
+				},
+				"requiredVisibleMs": {
+					"median": 212.839913,
+					"min": 212.49266,
+					"max": 213.624652
+				}
+			}
+		}
+	}
+}

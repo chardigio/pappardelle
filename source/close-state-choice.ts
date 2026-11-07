@@ -18,6 +18,7 @@ export function closeSpaceContent(spaceName: string) {
 		message: `Close space ${spaceName}?`,
 		detail: 'The worktree and git branch will remain on disk.',
 		processingMessage: `Closing space ${spaceName}…`,
+		isDestructive: true,
 	};
 }
 

@@ -1,5 +1,6 @@
-import React, {memo} from 'react';
-import {Box, Text} from 'ink';
+import {memo} from 'react';
+import type {MouseEvent} from '@opentui/core';
+
 import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
 import {COLORS} from '../types.ts';
@@ -29,6 +30,7 @@ interface Props {
 	isSelected: boolean;
 	width: number;
 	layout: ListLayout;
+	onSelect?: (name: string) => void;
 }
 
 interface PipelineIconStyle {
@@ -47,7 +49,13 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-function SpaceListItem({space, isSelected, width, layout}: Props) {
+function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
+	const handleClick = (event: MouseEvent) => {
+		if (event.button === 0 && !space.isPending) {
+			event.stopPropagation();
+			onSelect?.(space.name);
+		}
+	};
 	const isTwoLine = layout === 'two_line';
 	const inlineTitle = titleSharesKeyLine({
 		isTwoLine,
@@ -153,7 +161,7 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	// Uses the exact color from the tracker's API so pappardelle always matches,
 	// unless the user listed this state in `state_colors:` — see STA-2070. The
 	// main-worktree branch below is deliberately left on raw tracker colors.
-	const getStateColor = (): string => {
+	const getStateColor = (): string | undefined => {
 		if (space.isMainWorktree) {
 			return getMainWorktreeColor(
 				space.isDirty ?? false,
@@ -163,42 +171,48 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		}
 
 		const state = space.linearIssue?.state;
-		if (!state) return space.isPending ? 'white' : 'gray';
+		if (!state) return undefined;
 		return resolveStateColor(state.name, state.color);
 	};
 	const stateColor = getStateColor();
 
-	const {useBlinkInverse, useInverse, textColor, keyColor, titleColor} =
-		resolveRowHighlight({
-			isSelected,
-			needsAttention,
-			blinkOn,
-			isQuestion,
-			stateColor,
-		});
+	const {paint} = resolveRowHighlight({
+		isSelected,
+		needsAttention,
+		blinkOn,
+		isQuestion,
+	});
+	const gap = paint({});
+	// Carries the highlight across the leftover width so a selected or blinking
+	// row reads as one bar from edge to edge.
+	const filler = (
+		<text
+			flexGrow={1}
+			flexShrink={1}
+			flexBasis={0}
+			minWidth={0}
+			wrapMode="none"
+			height={1}
+			{...gap}
+		>
+			{' '.repeat(width)}
+		</text>
+	);
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
 		if (pipeline === 'progressing_dirty') {
 			return (
 				<>
-					<Text inverse={useBlinkInverse} color={textColor}>
+					<text flexShrink={1} {...gap}>
 						{' '}
-					</Text>
-					<Text
-						bold
-						color={useBlinkInverse ? textColor : 'yellow'}
-						inverse={useBlinkInverse}
-					>
+					</text>
+					<text flexShrink={1} {...paint({fg: 'yellow', bold: true})}>
 						◐
-					</Text>
-					<Text
-						bold
-						color={useBlinkInverse ? textColor : 'red'}
-						inverse={useBlinkInverse}
-					>
+					</text>
+					<text flexShrink={1} {...paint({fg: 'red', bold: true})}>
 						◑
-					</Text>
+					</text>
 				</>
 			);
 		}
@@ -206,16 +220,12 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		const style = PIPELINE_SINGLE[pipeline];
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
-				<Text
-					bold
-					color={useBlinkInverse ? textColor : style.color}
-					inverse={useBlinkInverse}
-				>
+				</text>
+				<text flexShrink={1} {...paint({fg: style.color, bold: true})}>
 					{style.icon}
-				</Text>
+				</text>
 			</>
 		);
 	};
@@ -224,16 +234,12 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (commentCount <= 0) return null;
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
-				<Text
-					color={useBlinkInverse ? textColor : undefined}
-					dimColor={!useBlinkInverse}
-					inverse={useBlinkInverse}
-				>
+				</text>
+				<text flexShrink={1} {...paint({dim: true})}>
 					{`(${commentCount})`}
-				</Text>
+				</text>
 			</>
 		);
 	};
@@ -242,112 +248,99 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (!hasConflict) return null;
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
-				<Text
-					bold
-					color={useBlinkInverse ? textColor : 'red'}
-					inverse={useBlinkInverse}
-				>
+				</text>
+				<text flexShrink={1} {...paint({fg: 'red', bold: true})}>
 					↯
-				</Text>
+				</text>
 			</>
 		);
 	};
 
 	const renderTitle = () => (
-		<Text
-			dimColor={!useInverse}
-			wrap="truncate"
-			inverse={useInverse}
-			color={titleColor}
-		>
+		<text flexShrink={1} {...paint({dim: true})} wrapMode="none" height={1}>
 			{truncatedTitle}
-		</Text>
+		</text>
 	);
 
 	const keyLine = (
-		<Box overflowX="hidden">
-			<Box flexShrink={0}>
+		<box
+			flexDirection="row"
+			overflow="hidden"
+			onMouseDown={isTwoLine ? undefined : handleClick}
+		>
+			<box flexDirection="row" flexShrink={0}>
 				{emoji ? (
 					<>
-						<Text inverse={useBlinkInverse} color={textColor}>
+						<text flexShrink={1} {...gap}>
 							{emoji}
-						</Text>
+						</text>
 						{emojiNeedsSeparator ? (
-							<Text inverse={useBlinkInverse} color={textColor}>
+							<text flexShrink={1} {...gap}>
 								{' '}
-							</Text>
+							</text>
 						) : null}
 					</>
 				) : null}
-				{/* Status icon (NOT highlighted, always shows its own color) */}
 				{isWorking ? (
 					<ClaudeAnimation
-						color={
-							useBlinkInverse
-								? textColor
-								: space.isPending
-									? COLORS.CLAUDE_ORANGE
-									: statusInfo.color
-						}
-						inverse={useBlinkInverse}
+						paint={paint({
+							fg: space.isPending ? COLORS.CLAUDE_ORANGE : statusInfo.color,
+						})}
 					/>
 				) : (
-					<Text
-						color={useBlinkInverse ? textColor : statusInfo.color}
-						dimColor={!useBlinkInverse && (statusInfo.dim ?? false)}
-						inverse={useBlinkInverse}
+					<text
+						flexShrink={1}
+						{...paint({fg: statusInfo.color, dim: statusInfo.dim})}
 					>
 						{statusInfo.icon ?? '?'}
-					</Text>
+					</text>
 				)}
 
-				{/* Space after status icon (NOT highlighted) */}
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
+				</text>
 
-				{/* Issue key badge (colored by Linear state, highlighted when selected) */}
 				{hasIssueKey && (
-					<Text
-						color={useBlinkInverse ? textColor : keyColor}
-						bold
-						wrap="truncate"
-						inverse={useInverse}
+					<text
+						flexShrink={1}
+						{...paint({fg: stateColor, bold: true})}
+						wrapMode="none"
+						height={1}
 					>
 						{issueKey}
-					</Text>
+					</text>
 				)}
 
 				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
-					<Text dimColor={!useInverse} inverse={useInverse} color={titleColor}>
+					<text flexShrink={1} {...paint({dim: true})}>
 						{' '}
-					</Text>
+					</text>
 				)}
-			</Box>
+			</box>
 
 			{/* Title (only if there's a title to show, and only when the title
 			    shares this row — two-line layout renders it below) */}
 			{inlineTitle && truncatedTitle.length > 0 && (
-				<Box flexShrink={1} minWidth={0}>
+				<box flexDirection="row" flexShrink={1} minWidth={0}>
 					{renderTitle()}
-				</Box>
+				</box>
 			)}
 
-			{/* Rail icons — right-aligned: unresolved comment count, then the
-			    merge-conflict indicator, then pipeline state flush at the far
-			    right. Pushed right by a flex spacer that consumes whatever
-			    leftover width remains. */}
+			{filler}
+
+			{/* Rail icons — right-aligned by the filler: unresolved comment
+			    count, then the merge-conflict indicator, then pipeline state
+			    flush at the far right. */}
 			{pipeline !== null || commentCount > 0 || hasConflict ? (
-				<Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
+				<box flexDirection="row" flexShrink={0}>
 					{renderCommentCount()}
 					{renderConflictIcon()}
 					{renderPipelineIcon()}
-				</Box>
+				</box>
 			) : null}
-		</Box>
+		</box>
 	);
 
 	if (!isTwoLine) return keyLine;
@@ -356,21 +349,22 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	// its title on the key line already, so its second line is blank padding —
 	// still emitted, because every row has to be the same height.
 	return (
-		<Box flexDirection="column">
+		<box flexDirection="column" onMouseDown={handleClick}>
 			{keyLine}
-			<Box overflowX="hidden">
-				<Box flexShrink={0}>
-					<Text inverse={useBlinkInverse} color={textColor}>
+			<box flexDirection="row" overflow="hidden">
+				<box flexDirection="row" flexShrink={0}>
+					<text flexShrink={1} {...gap}>
 						{' '.repeat(twoLineIndent)}
-					</Text>
-				</Box>
-				{!inlineTitle && (
-					<Box flexShrink={1} minWidth={0}>
+					</text>
+				</box>
+				{!inlineTitle && truncatedTitle !== '' && (
+					<box flexDirection="row" flexShrink={1} minWidth={0}>
 						{renderTitle()}
-					</Box>
+					</box>
 				)}
-			</Box>
-		</Box>
+				{filler}
+			</box>
+		</box>
 	);
 }
 

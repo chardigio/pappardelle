@@ -1,4 +1,5 @@
 import type {LatestTask} from './latest-task.ts';
+import {startupTrace} from './startup-trace.ts';
 
 export type PaneDimensions = {rows: number; cols: number};
 
@@ -17,7 +18,8 @@ export function syncTerminalDimensions(
 
 /** Layout mutations finish before another attachment can use the pane IDs. */
 export class PaneLayoutTask {
-	private generation = 0;
+	private stateGeneration = 0;
+	private readResizeDimensions?: () => PaneDimensions;
 	private zoomed = false;
 	private revision = 0;
 	private pending = false;
@@ -37,26 +39,50 @@ export class PaneLayoutTask {
 		},
 	) {}
 
-	async request(zoomed: boolean, revision = 0): Promise<void> {
+	async request(
+		zoomed: boolean,
+		revision = 0,
+		readResizeDimensions?: () => PaneDimensions,
+	): Promise<void> {
 		if (this.stopped) return;
+		if (!readResizeDimensions) this.stateGeneration++;
+		this.readResizeDimensions = readResizeDimensions;
 		this.zoomed = zoomed;
 		this.revision = revision;
-		this.generation++;
 		this.pending = true;
 		this.running ??= Promise.resolve().then(async () => {
 			try {
 				while (this.pending && !this.stopped) {
+					const queued = startupTrace.current?.begin('layout-queue');
 					await this.deps.queue.exclusive(async () => {
+						queued?.();
 						// Requests that arrive while this callback waits behind an
 						// attachment are covered by the state read here.
 						this.pending = false;
 						if (this.stopped) return;
-						const {generation, zoomed, revision} = this;
+						const {zoomed, revision, stateGeneration} = this;
+						const done = startupTrace.current?.begin('layout-pass', {
+							zoomed,
+							revision,
+						});
 						try {
 							const dimensions = await this.deps.apply(zoomed);
-							if (!this.stopped && generation === this.generation)
+							const observed = this.pending
+								? this.readResizeDimensions?.()
+								: undefined;
+							if (
+								!this.stopped &&
+								stateGeneration === this.stateGeneration &&
+								zoomed === this.zoomed &&
+								revision === this.revision &&
+								(!this.pending ||
+									(observed?.cols === dimensions.cols &&
+										observed.rows === dimensions.rows))
+							)
 								this.deps.onReady(zoomed, dimensions, revision);
+							done?.(this.stopped ? 'cancelled' : 'ok');
 						} catch (error) {
+							done?.('failed');
 							if (!this.stopped) this.deps.onError(error, revision);
 						}
 					});

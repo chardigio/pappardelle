@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-import path from 'node:path';
+import {selfLaunchArgs} from './runtime.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
 import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {confirm} from './confirm.ts';
@@ -165,13 +165,7 @@ export function defaultCloseCommandDeps(): CloseCommandDeps {
 		spawnTeardown(key, cwd) {
 			spawn(
 				process.execPath,
-				[
-					path.resolve(process.argv[1] ?? ''),
-					'close',
-					key,
-					'--yes',
-					'--teardown-only',
-				],
+				[...selfLaunchArgs(), 'close', key, '--yes', '--teardown-only'],
 				{cwd, detached: true, stdio: 'ignore'},
 			).unref();
 		},

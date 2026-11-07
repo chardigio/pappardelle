@@ -1,4 +1,5 @@
 import meow from 'meow';
+import {packageModuleUrl} from './runtime.ts';
 
 const helpText = `
 	Usage
@@ -67,7 +68,7 @@ const helpText = `
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 	return meow(helpText, {
-		importMeta: import.meta,
+		importMeta: {...import.meta, url: packageModuleUrl},
 		argv: [...argv],
 		// `update` asks on a TTY only when neither --restart-tuis nor
 		// --no-restart-tuis was passed, which meow's default of false would make
@@ -178,6 +179,13 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 		return {
 			action: 'reject',
 			message: `Unknown flag ${unknown} for pappardelle ${name}\nUsage: ${usage}\nRun pappardelle ${name} --help for details`,
+		};
+	}
+
+	if (given.includes('--restart-tuis') && given.includes('--no-restart-tuis')) {
+		return {
+			action: 'reject',
+			message: `--restart-tuis and --no-restart-tuis can't be combined\nUsage: ${usage}`,
 		};
 	}
 

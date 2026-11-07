@@ -1,0 +1,27 @@
+{
+	"panes": [
+		{
+			"id": "%0",
+			"width": "37",
+			"height": "51",
+			"zoom": "0"
+		},
+		{
+			"id": "%1",
+			"width": "60",
+			"height": "51",
+			"zoom": "0"
+		},
+		{
+			"id": "%2",
+			"width": "61",
+			"height": "51",
+			"zoom": "0"
+		}
+	],
+	"screens": {
+		"%0": "\ud83c\udf5d repo | 4 spaces\n\n? main\n\n? qa-3\n  Loading\u2026\n? qa-2\n  Loading\u2026\n? qa-1\n  Loading\u2026",
+		"%1": "QA_READY 2391105\nreview-fixes-qa-input\nQA_INPUT review-fixes-qa-input\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[agent-rep0:sh*                    \"omarchy\" 23:28 06-Nov-26",
+		"%2": "QA_READY 2391091\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[companion0:sh*                     \"omarchy\" 23:28 06-Nov-26"
+	}
+}

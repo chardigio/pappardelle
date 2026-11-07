@@ -1,7 +1,7 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Local verification script for GitLabProvider against a real GitLab instance.
- * NOT an ava test — run manually with `npx tsx integration-tests/verify-gitlab.ts`
+ * NOT an ava test — run manually with `bun integration-tests/verify-gitlab.ts`
  *
  * Must be run from inside a git repo with a GitLab remote.
  * Rail status is compared with REST data for an existing open MR.
@@ -25,7 +25,7 @@ const EXPLICIT_MR = process.env['GITLAB_MR']
 
 if (!ISSUE_KEY) {
 	console.error(
-		'\u274c GITLAB_ISSUE is required. Example:\n  GITLAB_ISSUE=PROJ-123 npx tsx integration-tests/verify-gitlab.ts',
+		'\u274c GITLAB_ISSUE is required. Example:\n  GITLAB_ISSUE=PROJ-123 bun integration-tests/verify-gitlab.ts',
 	);
 	process.exit(1);
 }

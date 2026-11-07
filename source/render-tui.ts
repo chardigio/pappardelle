@@ -1,6 +1,37 @@
-import type {ReactNode} from 'react';
-import {render, type RenderOptions} from 'ink';
+import {createElement, type ReactNode} from 'react';
+import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
+import {createCliRenderer, type CliRendererConfig} from '@opentui/core';
+import {createRoot} from '@opentui/react';
 
-export function renderTui(node: ReactNode, options: RenderOptions = {}) {
-	return render(node, {...options, incrementalRendering: true});
+/**
+ * tmux doesn't answer the ?2027 grapheme-width query, so OpenTUI would fall
+ * back to wcwidth and split emoji clusters that tmux draws as one 2-cell glyph.
+ * The rail never shows images, and tmux puts the graphics probe's payload in
+ * the pane title. Passed to the renderer rather than set on process.env so
+ * agent sessions spawned from the rail don't inherit them.
+ */
+export const tmuxRendererEnvironment: Readonly<Record<string, string>> = {
+	OPENTUI_FORCE_UNICODE: '1',
+	OPENTUI_GRAPHICS: '0',
+};
+
+/** Each terminal (rail or tmux popup) has its own renderer and input stream. */
+export async function renderTui(
+	node: ReactNode,
+	options: CliRendererConfig = {},
+) {
+	const renderer = await createCliRenderer({
+		screenMode: 'alternate-screen',
+		// Capture reconciler diagnostics: Bun console writes bypass stderr hooks.
+		consoleMode: 'console-overlay',
+		externalOutputMode: 'passthrough',
+		openConsoleOnError: false,
+		environment: process.env['TMUX'] ? tmuxRendererEnvironment : {},
+		targetFps: 60,
+		maxFps: 60,
+		...options,
+	});
+	const root = createRoot(renderer);
+	root.render(createElement(TuiErrorBoundary, null, node));
+	return {renderer, root};
 }

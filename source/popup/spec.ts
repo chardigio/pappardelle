@@ -9,6 +9,7 @@ export type ConfirmPopupProps = {
 	message: string;
 	detail?: string;
 	processingMessage?: string;
+	isDestructive: boolean;
 };
 
 export type CloseSpacePopupProps = {

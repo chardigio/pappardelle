@@ -1,0 +1,1339 @@
+{
+	"first": {
+		"id": 30,
+		"stage": "finished",
+		"phase": "end",
+		"outcome": "ok",
+		"pending": 0,
+		"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+		"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+		"pid": 2387665,
+		"elapsedMs": 490.126909
+	},
+	"restarted": {
+		"id": 30,
+		"stage": "finished",
+		"phase": "end",
+		"outcome": "ok",
+		"pending": 0,
+		"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+		"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+		"pid": 2387839,
+		"elapsedMs": 472.567953
+	},
+	"parent": {
+		"id": 0,
+		"stage": "unattributed-bootstrap",
+		"phase": "end",
+		"durationMs": 82.306895,
+		"outcome": "ok",
+		"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+		"pid": 2387635,
+		"elapsedMs": 82.321895
+	},
+	"restartOutput": "Restarting pappardelle-repo\npappardelle-repo is running /home/sddamico/.worktrees/pappardelle/pappardelle-3wf/dist/pappardelle (66d8e7d)\n",
+	"records": [
+		{
+			"id": 0,
+			"stage": "unattributed-bootstrap",
+			"phase": "end",
+			"durationMs": 82.306895,
+			"outcome": "ok",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 82.321895
+		},
+		{
+			"id": 1,
+			"stage": "configuration",
+			"phase": "begin",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 82.615457
+		},
+		{
+			"id": 1,
+			"stage": "configuration",
+			"phase": "end",
+			"durationMs": 2.820520000000002,
+			"outcome": "ok",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 85.434437
+		},
+		{
+			"id": 2,
+			"stage": "repo-bootstrap",
+			"phase": "begin",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 85.483077
+		},
+		{
+			"id": 2,
+			"stage": "repo-bootstrap",
+			"phase": "end",
+			"durationMs": 5.796550999999994,
+			"outcome": "ok",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 91.277578
+		},
+		{
+			"id": 3,
+			"stage": "outer-bootstrap",
+			"phase": "begin",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 91.311468
+		},
+		{
+			"id": 3,
+			"stage": "outer-bootstrap",
+			"phase": "end",
+			"durationMs": 3.657185999999996,
+			"outcome": "ok",
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 94.969214
+		},
+		{
+			"id": 4,
+			"stage": "finished",
+			"phase": "end",
+			"outcome": "delegated",
+			"pending": 0,
+			"launchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387635,
+			"elapsedMs": 95.036515
+		},
+		{
+			"id": 0,
+			"stage": "unattributed-bootstrap",
+			"phase": "end",
+			"durationMs": 80.825204,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 80.842574
+		},
+		{
+			"id": 1,
+			"stage": "configuration",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 81.097276
+		},
+		{
+			"id": 1,
+			"stage": "configuration",
+			"phase": "end",
+			"durationMs": 2.8058699999999988,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 83.902166
+		},
+		{
+			"id": 2,
+			"stage": "repo-bootstrap",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 83.950766
+		},
+		{
+			"id": 2,
+			"stage": "repo-bootstrap",
+			"phase": "end",
+			"durationMs": 5.875912,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 89.825158
+		},
+		{
+			"id": 3,
+			"stage": "outer-cleanup",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 89.861188
+		},
+		{
+			"id": 3,
+			"stage": "outer-cleanup",
+			"phase": "end",
+			"durationMs": 1.4006700000000052,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 91.261998
+		},
+		{
+			"id": 4,
+			"stage": "legacy-migration",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 91.284578
+		},
+		{
+			"id": 4,
+			"stage": "legacy-migration",
+			"phase": "end",
+			"durationMs": 0.9679370000000063,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 92.252725
+		},
+		{
+			"id": 5,
+			"stage": "inner-reaping",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 92.274055
+		},
+		{
+			"id": 5,
+			"stage": "inner-reaping",
+			"phase": "end",
+			"durationMs": 0.903537,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 93.177712
+		},
+		{
+			"id": 6,
+			"stage": "layout-setup",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 93.332593
+		},
+		{
+			"id": 7,
+			"stage": "setup-geometry",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 93.352633
+		},
+		{
+			"id": 7,
+			"stage": "setup-geometry",
+			"phase": "end",
+			"durationMs": 2.3532969999999978,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 95.70686
+		},
+		{
+			"id": 8,
+			"stage": "setup-panes",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 95.74904
+		},
+		{
+			"id": 8,
+			"stage": "setup-panes",
+			"phase": "end",
+			"durationMs": 4.110238999999993,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 99.859279
+		},
+		{
+			"id": 9,
+			"stage": "setup-chrome",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 99.876559
+		},
+		{
+			"id": 9,
+			"stage": "setup-chrome",
+			"phase": "end",
+			"durationMs": 1.8499530000000135,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 101.726482
+		},
+		{
+			"id": 10,
+			"stage": "setup-sync-output",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 101.761453
+		},
+		{
+			"id": 10,
+			"stage": "setup-sync-output",
+			"phase": "end",
+			"durationMs": 3.9266470000000027,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 105.68814
+		},
+		{
+			"id": 11,
+			"stage": "setup-focus",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 105.70747
+		},
+		{
+			"id": 11,
+			"stage": "setup-focus",
+			"phase": "end",
+			"durationMs": 2.059395000000009,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 107.767705
+		},
+		{
+			"id": 12,
+			"stage": "setup-measurements",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 107.812956
+		},
+		{
+			"id": 12,
+			"stage": "setup-measurements",
+			"phase": "end",
+			"durationMs": 1.2883790000000062,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 109.099795
+		},
+		{
+			"id": 6,
+			"stage": "layout-setup",
+			"phase": "end",
+			"durationMs": 15.792141999999998,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 109.124015
+		},
+		{
+			"id": 13,
+			"stage": "commit-metadata",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 109.152355
+		},
+		{
+			"id": 13,
+			"stage": "commit-metadata",
+			"phase": "end",
+			"durationMs": 2.5207580000000007,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 111.673333
+		},
+		{
+			"id": 14,
+			"stage": "version-metadata",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 111.704283
+		},
+		{
+			"id": 14,
+			"stage": "version-metadata",
+			"phase": "end",
+			"durationMs": 2.1166350000000023,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 113.820798
+		},
+		{
+			"id": 15,
+			"stage": "renderer",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 114.05264
+		},
+		{
+			"id": 15,
+			"stage": "renderer",
+			"phase": "end",
+			"durationMs": 11.831804000000005,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 125.885004
+		},
+		{
+			"id": 16,
+			"stage": "layout-request",
+			"phase": "begin",
+			"inputs": {
+				"cause": "state",
+				"loading": true,
+				"spaces": 0,
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 136.852402
+		},
+		{
+			"id": 17,
+			"stage": "main-discovery",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 137.686157
+		},
+		{
+			"id": 18,
+			"stage": "layout-queue",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 139.40568
+		},
+		{
+			"id": 18,
+			"stage": "layout-queue",
+			"phase": "end",
+			"durationMs": 0.13939099999998916,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 139.545081
+		},
+		{
+			"id": 19,
+			"stage": "layout-pass",
+			"phase": "begin",
+			"inputs": {
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 139.577131
+		},
+		{
+			"id": 17,
+			"stage": "main-discovery",
+			"phase": "end",
+			"durationMs": 3.6876270000000204,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 141.377954
+		},
+		{
+			"id": 19,
+			"stage": "layout-pass",
+			"phase": "end",
+			"durationMs": 7.905025999999992,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 147.471227
+		},
+		{
+			"id": 16,
+			"stage": "layout-request",
+			"phase": "end",
+			"durationMs": 10.659764999999993,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 147.510347
+		},
+		{
+			"id": 20,
+			"stage": "layout-request",
+			"phase": "begin",
+			"inputs": {
+				"cause": "state",
+				"loading": false,
+				"spaces": 1,
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 150.333247
+		},
+		{
+			"id": 21,
+			"stage": "attachment-queue",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 150.364827
+		},
+		{
+			"id": 22,
+			"stage": "layout-queue",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 154.699238
+		},
+		{
+			"id": 21,
+			"stage": "attachment-queue",
+			"phase": "end",
+			"durationMs": 4.468131999999997,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 154.831669
+		},
+		{
+			"id": 23,
+			"stage": "attachment",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 155.465624
+		},
+		{
+			"id": 24,
+			"stage": "agent-session",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 156.017788
+		},
+		{
+			"id": 25,
+			"stage": "companion-session",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 156.715913
+		},
+		{
+			"id": 26,
+			"stage": "monitor-ready",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 173.427681
+		},
+		{
+			"id": 25,
+			"stage": "companion-session",
+			"phase": "end",
+			"durationMs": 17.284062000000006,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 173.999765
+		},
+		{
+			"id": 26,
+			"stage": "monitor-ready",
+			"phase": "end",
+			"durationMs": 6.532736999999997,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 179.959488
+		},
+		{
+			"id": 24,
+			"stage": "agent-session",
+			"phase": "end",
+			"durationMs": 25.36427999999998,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 181.381678
+		},
+		{
+			"id": 27,
+			"stage": "viewer-attachment",
+			"phase": "begin",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 181.405708
+		},
+		{
+			"id": 27,
+			"stage": "viewer-attachment",
+			"phase": "end",
+			"durationMs": 7.002010000000013,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 188.407998
+		},
+		{
+			"id": 23,
+			"stage": "attachment",
+			"phase": "end",
+			"durationMs": 32.979174,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 188.443858
+		},
+		{
+			"id": 28,
+			"stage": "attachment-ready",
+			"phase": "end",
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 188.490488
+		},
+		{
+			"id": 22,
+			"stage": "layout-queue",
+			"phase": "end",
+			"durationMs": 33.81324999999998,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 188.511088
+		},
+		{
+			"id": 29,
+			"stage": "layout-pass",
+			"phase": "begin",
+			"inputs": {
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 188.523998
+		},
+		{
+			"id": 29,
+			"stage": "layout-pass",
+			"phase": "end",
+			"durationMs": 1.2060590000000104,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 189.730027
+		},
+		{
+			"id": 20,
+			"stage": "layout-request",
+			"phase": "end",
+			"durationMs": 39.42690999999999,
+			"outcome": "ok",
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 189.759407
+		},
+		{
+			"id": 30,
+			"stage": "finished",
+			"phase": "end",
+			"outcome": "ok",
+			"pending": 0,
+			"launchId": "a0dcfe55-2952-497e-af4f-a4c460913495",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387665,
+			"elapsedMs": 490.126909
+		},
+		{
+			"id": 0,
+			"stage": "unattributed-bootstrap",
+			"phase": "end",
+			"durationMs": 83.435302,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 83.452842
+		},
+		{
+			"id": 1,
+			"stage": "configuration",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 83.717074
+		},
+		{
+			"id": 1,
+			"stage": "configuration",
+			"phase": "end",
+			"durationMs": 2.8306200000000104,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 86.546854
+		},
+		{
+			"id": 2,
+			"stage": "repo-bootstrap",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 86.593814
+		},
+		{
+			"id": 2,
+			"stage": "repo-bootstrap",
+			"phase": "end",
+			"durationMs": 5.688180999999986,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 92.280535
+		},
+		{
+			"id": 3,
+			"stage": "outer-cleanup",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 92.321975
+		},
+		{
+			"id": 3,
+			"stage": "outer-cleanup",
+			"phase": "end",
+			"durationMs": 1.459069999999997,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 93.781175
+		},
+		{
+			"id": 4,
+			"stage": "legacy-migration",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 93.803125
+		},
+		{
+			"id": 4,
+			"stage": "legacy-migration",
+			"phase": "end",
+			"durationMs": 1.3638800000000089,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 95.167145
+		},
+		{
+			"id": 5,
+			"stage": "inner-reaping",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 95.188625
+		},
+		{
+			"id": 5,
+			"stage": "inner-reaping",
+			"phase": "end",
+			"durationMs": 1.256719000000004,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 96.445614
+		},
+		{
+			"id": 6,
+			"stage": "layout-setup",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 96.596785
+		},
+		{
+			"id": 7,
+			"stage": "setup-geometry",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 96.617085
+		},
+		{
+			"id": 7,
+			"stage": "setup-geometry",
+			"phase": "end",
+			"durationMs": 2.262906000000001,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 98.880641
+		},
+		{
+			"id": 8,
+			"stage": "setup-panes",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 98.915401
+		},
+		{
+			"id": 8,
+			"stage": "setup-panes",
+			"phase": "end",
+			"durationMs": 3.9468490000000003,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 102.86246
+		},
+		{
+			"id": 9,
+			"stage": "setup-chrome",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 102.88077
+		},
+		{
+			"id": 9,
+			"stage": "setup-chrome",
+			"phase": "end",
+			"durationMs": 1.80284300000001,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 104.682503
+		},
+		{
+			"id": 10,
+			"stage": "setup-sync-output",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 104.715373
+		},
+		{
+			"id": 10,
+			"stage": "setup-sync-output",
+			"phase": "end",
+			"durationMs": 3.2774129999999957,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 107.993006
+		},
+		{
+			"id": 11,
+			"stage": "setup-focus",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 108.021546
+		},
+		{
+			"id": 11,
+			"stage": "setup-focus",
+			"phase": "end",
+			"durationMs": 1.9551339999999868,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 109.97682
+		},
+		{
+			"id": 12,
+			"stage": "setup-measurements",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 110.00963
+		},
+		{
+			"id": 12,
+			"stage": "setup-measurements",
+			"phase": "end",
+			"durationMs": 1.0554680000000047,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 111.065368
+		},
+		{
+			"id": 6,
+			"stage": "layout-setup",
+			"phase": "end",
+			"durationMs": 14.491362999999993,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 111.087328
+		},
+		{
+			"id": 13,
+			"stage": "commit-metadata",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 111.123018
+		},
+		{
+			"id": 13,
+			"stage": "commit-metadata",
+			"phase": "end",
+			"durationMs": 2.3742270000000048,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 113.497755
+		},
+		{
+			"id": 14,
+			"stage": "version-metadata",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 113.531085
+		},
+		{
+			"id": 14,
+			"stage": "version-metadata",
+			"phase": "end",
+			"durationMs": 2.1461460000000017,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 115.677331
+		},
+		{
+			"id": 15,
+			"stage": "renderer",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 115.890742
+		},
+		{
+			"id": 15,
+			"stage": "renderer",
+			"phase": "end",
+			"durationMs": 12.055666000000016,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 127.946798
+		},
+		{
+			"id": 16,
+			"stage": "layout-request",
+			"phase": "begin",
+			"inputs": {
+				"cause": "state",
+				"loading": true,
+				"spaces": 0,
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 138.708754
+		},
+		{
+			"id": 17,
+			"stage": "main-discovery",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 139.52118
+		},
+		{
+			"id": 18,
+			"stage": "layout-queue",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 141.258652
+		},
+		{
+			"id": 18,
+			"stage": "layout-queue",
+			"phase": "end",
+			"durationMs": 0.15527099999999905,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 141.411323
+		},
+		{
+			"id": 19,
+			"stage": "layout-pass",
+			"phase": "begin",
+			"inputs": {
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 141.444773
+		},
+		{
+			"id": 17,
+			"stage": "main-discovery",
+			"phase": "end",
+			"durationMs": 3.569535000000002,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 143.099925
+		},
+		{
+			"id": 19,
+			"stage": "layout-pass",
+			"phase": "end",
+			"durationMs": 8.175737999999996,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 149.610301
+		},
+		{
+			"id": 16,
+			"stage": "layout-request",
+			"phase": "end",
+			"durationMs": 10.947197999999986,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 149.654122
+		},
+		{
+			"id": 20,
+			"stage": "layout-request",
+			"phase": "begin",
+			"inputs": {
+				"cause": "state",
+				"loading": false,
+				"spaces": 1,
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 152.532852
+		},
+		{
+			"id": 21,
+			"stage": "attachment-queue",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 152.563612
+		},
+		{
+			"id": 22,
+			"stage": "layout-queue",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 157.409507
+		},
+		{
+			"id": 21,
+			"stage": "attachment-queue",
+			"phase": "end",
+			"durationMs": 5.013955999999979,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 157.577568
+		},
+		{
+			"id": 23,
+			"stage": "attachment",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 158.645966
+		},
+		{
+			"id": 24,
+			"stage": "agent-session",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 159.21325
+		},
+		{
+			"id": 25,
+			"stage": "companion-session",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 159.774964
+		},
+		{
+			"id": 26,
+			"stage": "monitor-ready",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 161.032513
+		},
+		{
+			"id": 25,
+			"stage": "companion-session",
+			"phase": "end",
+			"durationMs": 1.7611220000000003,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 161.535696
+		},
+		{
+			"id": 26,
+			"stage": "monitor-ready",
+			"phase": "end",
+			"durationMs": 2.2763060000000053,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 163.308249
+		},
+		{
+			"id": 24,
+			"stage": "agent-session",
+			"phase": "end",
+			"durationMs": 5.3402969999999925,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 164.552937
+		},
+		{
+			"id": 27,
+			"stage": "viewer-attachment",
+			"phase": "begin",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 164.580118
+		},
+		{
+			"id": 27,
+			"stage": "viewer-attachment",
+			"phase": "end",
+			"durationMs": 6.250653999999997,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 170.830362
+		},
+		{
+			"id": 23,
+			"stage": "attachment",
+			"phase": "end",
+			"durationMs": 12.210246000000012,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 170.855242
+		},
+		{
+			"id": 28,
+			"stage": "attachment-ready",
+			"phase": "end",
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 170.900923
+		},
+		{
+			"id": 22,
+			"stage": "layout-queue",
+			"phase": "end",
+			"durationMs": 13.518736000000018,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 170.926823
+		},
+		{
+			"id": 29,
+			"stage": "layout-pass",
+			"phase": "begin",
+			"inputs": {
+				"zoomed": false,
+				"revision": 0
+			},
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 170.940013
+		},
+		{
+			"id": 29,
+			"stage": "layout-pass",
+			"phase": "end",
+			"durationMs": 1.1305480000000045,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 172.070801
+		},
+		{
+			"id": 20,
+			"stage": "layout-request",
+			"phase": "end",
+			"durationMs": 19.575188999999995,
+			"outcome": "ok",
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 172.107101
+		},
+		{
+			"id": 30,
+			"stage": "finished",
+			"phase": "end",
+			"outcome": "ok",
+			"pending": 0,
+			"launchId": "db910499-a3fe-40ba-b195-826a8bcaa067",
+			"parentLaunchId": "160c1b1e-dd8f-47f8-a66e-137f9c282477",
+			"pid": 2387839,
+			"elapsedMs": 472.567953
+		}
+	]
+}

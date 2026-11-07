@@ -161,11 +161,24 @@ test('restart from a plain terminal attaches to the restarted TUI', async t => {
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
 		inTmux: false,
+		isTTY: true,
 	});
 
 	await restartRepo('app', h.deps);
 
 	t.deepEqual(h.attached, ['pappardelle-app']);
+});
+
+test('restart without a terminal confirms the TUI and skips attaching', async t => {
+	const h = harness({
+		sessions: ['pappardelle-app'],
+		repos: ['app'],
+		inTmux: false,
+		isTTY: false,
+	});
+
+	t.is(await restartRepo('app', h.deps), 0);
+	t.deepEqual(h.attached, []);
 });
 
 test('restart with no TUI running launches nothing', async t => {

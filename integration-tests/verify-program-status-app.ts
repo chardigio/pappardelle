@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 import {rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import React from 'react';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/opentui-render.ts';
 import App from '../source/app.tsx';
 import {
 	getRepoName,
@@ -25,7 +25,7 @@ import type {TrackerIssue} from '../source/providers/types.ts';
 const harness = new StatusHarness();
 const originalDirectory = process.cwd();
 const key = 'fixture-1';
-let view: ReturnType<typeof render> | undefined;
+let view: Awaited<ReturnType<typeof render>> | undefined;
 let repo: string | undefined;
 try {
 	execFileSync('git', ['init', '--quiet', harness.root]);
@@ -73,7 +73,7 @@ try {
 	]);
 	await attachStatusMonitor(repo, key, session);
 	await harness.fixture(session);
-	view = render(
+	view = await render(
 		React.createElement(App, {
 			paneLayout: null,
 			commitSha: 'fixture',
@@ -107,6 +107,9 @@ try {
 	console.log(
 		`App evidence ${harness.root}/app-verification.json (--keep preserves it)`,
 	);
+} catch (error) {
+	console.error(view?.lastFrame());
+	throw error;
 } finally {
 	view?.unmount();
 	resetRegistryPath();

@@ -40,8 +40,6 @@ test.serial(
 			exec(
 				process.execPath,
 				[
-					'--import',
-					'tsx',
 					'--input-type=module',
 					'-e',
 					`

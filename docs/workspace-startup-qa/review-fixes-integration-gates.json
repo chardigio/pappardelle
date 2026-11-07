@@ -1,0 +1,28 @@
+[
+	{
+		"command": ["bun", "integration-tests/verify-program-status.ts"],
+		"exitCode": 0
+	},
+	{
+		"command": ["bun", "integration-tests/verify-program-status-app.ts"],
+		"exitCode": 0
+	},
+	{
+		"command": ["bun", "integration-tests/verify-program-status-lifecycle.ts"],
+		"exitCode": 0
+	},
+	{
+		"command": ["bun", "integration-tests/verify-program-status-cleanup.ts"],
+		"exitCode": 0
+	},
+	{
+		"command": [
+			"bun",
+			"--bun",
+			"ava",
+			"--serial",
+			"source/open-space-command.test.ts"
+		],
+		"exitCode": 0
+	}
+]
