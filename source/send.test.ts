@@ -12,9 +12,14 @@ function makeRunner(options: {
 	sessions?: string[];
 	listFails?: boolean;
 	failOn?: (args: readonly string[]) => boolean;
-}): {runner: OuterTmuxRunner; sendKeysCalls: string[][]} {
-	const sendKeysCalls: string[][] = [];
-	const runner: OuterTmuxRunner = args => {
+}): {
+	runner: OuterTmuxRunner;
+	calls: string[][];
+	inputs: Array<string | undefined>;
+} {
+	const calls: string[][] = [];
+	const inputs: Array<string | undefined> = [];
+	const runner: OuterTmuxRunner = (args, input) => {
 		if (args[0] === 'list-sessions') {
 			if (options.listFails) {
 				return {status: 1, stdout: ''};
@@ -23,11 +28,12 @@ function makeRunner(options: {
 			return {status: 0, stdout: (options.sessions ?? []).join('\n') + '\n'};
 		}
 
-		sendKeysCalls.push([...args]);
+		calls.push([...args]);
+		inputs.push(input);
 		return {status: options.failOn?.(args) ? 1 : 0, stdout: ''};
 	};
 
-	return {runner, sendKeysCalls};
+	return {runner, calls, inputs};
 }
 
 test('resolveInnerSessionTarget returns an exact-match session target', t => {
@@ -45,37 +51,42 @@ test('resolveInnerSessionTarget returns null when no inner server is running', t
 	t.is(resolveInnerSessionTarget('agent-r-STA-1', runner), null);
 });
 
-test('sendToSpaceAgent targets the encoded session of a dotted key, clears the line, types the text literally, then sends Enter as its own call', t => {
-	const text = `it's "quoted" \`tick\` $HOME \\n; rm -rf nope`;
-	const {runner, sendKeysCalls} = makeRunner({
+test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-mode, clears the line, pastes the text from stdin as a bracketed paste, then sends Enter as its own call', t => {
+	const text = `-it's "quoted" \`tick\` $HOME\nline two; rm -rf nope`;
+	const {runner, calls, inputs} = makeRunner({
 		sessions: ['agent-r-agc_17'],
 	});
 
+	const buffer = `pappardelle-send-${process.pid}`;
+
 	t.is(sendToSpaceAgent('agc.17', text, {repoName: 'r', runner}), 'sent');
-	t.deepEqual(sendKeysCalls, [
+	t.deepEqual(calls, [
+		['copy-mode', '-q', '-t', '=agent-r-agc_17:'],
 		['send-keys', '-t', '=agent-r-agc_17:', 'C-u'],
-		['send-keys', '-t', '=agent-r-agc_17:', '-l', text],
+		['load-buffer', '-b', buffer, '-'],
+		['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', '=agent-r-agc_17:'],
 		['send-keys', '-t', '=agent-r-agc_17:', 'Enter'],
 	]);
+	t.deepEqual(inputs, [undefined, undefined, text, undefined, undefined]);
 });
 
-test('sendToSpaceAgent never sends Enter when typing the text fails', t => {
-	const {runner, sendKeysCalls} = makeRunner({
+test('sendToSpaceAgent never sends Enter when pasting the text fails', t => {
+	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
-		failOn: args => args.includes('-l'),
+		failOn: args => args[0] === 'paste-buffer',
 	});
 
 	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'failed');
-	t.false(sendKeysCalls.some(args => args.includes('Enter')));
+	t.false(calls.some(args => args.includes('Enter')));
 });
 
 test('sendToSpaceAgent reports no-session and sends nothing when the space has no agent session', t => {
-	const {runner, sendKeysCalls} = makeRunner({
+	const {runner, calls} = makeRunner({
 		sessions: ['companion-r-STA-1', 'agent-other-STA-1'],
 	});
 
 	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'no-session');
-	t.deepEqual(sendKeysCalls, []);
+	t.deepEqual(calls, []);
 });
 
 test('resolveSpaceKey expands a bare number with the team prefix', t => {

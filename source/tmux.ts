@@ -543,7 +543,10 @@ export async function innerKillSession(
  * can inject a fake tmux without spawning real processes. The default runner
  * shells out via `spawnSync`.
  */
-export type OuterTmuxRunner = (args: readonly string[]) => {
+export type OuterTmuxRunner = (
+	args: readonly string[],
+	input?: string,
+) => {
 	error?: Error;
 	status: number | null;
 	stdout: string;
@@ -554,10 +557,11 @@ function spawnTmuxRunner(
 	toArgv: (args: readonly string[]) => string[],
 	env?: () => NodeJS.ProcessEnv,
 ): OuterTmuxRunner {
-	return args => {
+	return (args, input) => {
 		const r = spawnSync('tmux', toArgv(args), {
 			cwd: TMUX_SERVER_CWD,
 			encoding: 'utf-8',
+			input,
 			timeout: 5000,
 			stdio: ['pipe', 'pipe', 'pipe'],
 			env: env?.(),
@@ -1015,26 +1019,36 @@ export function migrateLegacyAgentSessions(
 }
 
 /**
- * Clear the input line, type `text` literally, then press Enter.
+ * Leave any pane mode, clear the input line, paste `text`, then press Enter.
  *
- * Each step is its own `send-keys` call. Batched into one call, the text and
- * Enter arrive in a single pty read, Claude Code treats the burst as a paste,
- * and the Enter becomes a literal newline instead of submitting.
+ * Agents detect a fast burst of keystrokes as a paste and turn an Enter that
+ * arrives inside it into a newline: Codex does this even when Enter is its own
+ * `send-keys` call, and drops the newlines of text typed key by key. A
+ * bracketed paste marks where the text ends, so the Enter after it submits.
+ * `-r` keeps newlines as LF, so an app without bracketed paste mode does not
+ * receive each line as a separate submit.
+ *
+ * A viewer pane scrolled back in copy-mode would swallow the Enter while the
+ * paste still reaches the agent. The text goes through stdin because tmux
+ * rejects a command line over ~16KB.
  *
  * Stops at the first failing call so Enter is never sent without the text.
  */
-export function sendKeysLiteralThenEnter(
+export function pasteThenEnter(
 	runner: OuterTmuxRunner,
 	target: string,
 	text: string,
 ): boolean {
-	const steps: string[][] = [
-		['send-keys', '-t', target, 'C-u'],
-		['send-keys', '-t', target, '-l', text],
-		['send-keys', '-t', target, 'Enter'],
+	const buffer = `pappardelle-send-${process.pid}`;
+	const steps: Array<{args: string[]; input?: string}> = [
+		{args: ['copy-mode', '-q', '-t', target]},
+		{args: ['send-keys', '-t', target, 'C-u']},
+		{args: ['load-buffer', '-b', buffer, '-'], input: text},
+		{args: ['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', target]},
+		{args: ['send-keys', '-t', target, 'Enter']},
 	];
-	for (const args of steps) {
-		const r = runner(args);
+	for (const {args, input} of steps) {
+		const r = runner(args, input);
 		if (r.error || r.status !== 0) return false;
 	}
 
@@ -1046,11 +1060,7 @@ export function sendKeysLiteralThenEnter(
  * Clears any partial input first to avoid leftover characters
  */
 export function sendToPane(paneId: string, command: string): boolean {
-	const sent = sendKeysLiteralThenEnter(
-		defaultOuterTmuxRunner,
-		paneId,
-		command,
-	);
+	const sent = pasteThenEnter(defaultOuterTmuxRunner, paneId, command);
 	if (!sent) log.error(`Failed to send command to pane ${paneId}`);
 	return sent;
 }
@@ -1086,7 +1096,7 @@ export function sendToSpaceAgent(
 		runner,
 	);
 	if (!target) return 'no-session';
-	return sendKeysLiteralThenEnter(runner, target, text) ? 'sent' : 'failed';
+	return pasteThenEnter(runner, target, text) ? 'sent' : 'failed';
 }
 
 /**

@@ -1051,9 +1051,9 @@ export default function App({
 				space.name,
 				space.trackerIssue?.title ?? space.linearIssue?.title,
 			);
-			// Typed through the viewer's nested client, the name arrives a key at a
-			// time and opens codex's skill picker, where Enter only inserts the
-			// skill. A space ends the name and closes the picker.
+			// The name opens codex's skill picker, even when pasted, and Enter in
+			// the picker only inserts the skill. A space ends the name and closes
+			// the picker.
 			handleSendToAgent(`${agentProfile.skillPrefix}${kb.send_skill} `);
 			return;
 		}
