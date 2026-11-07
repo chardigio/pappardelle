@@ -73,6 +73,7 @@ test('points the Claude Code and Codex marketplaces at the checkout, then instal
 	t.deepEqual(calls, [
 		`claude plugin marketplace add ${REPO}`,
 		'claude plugin install pappardelle@pappardelle-marketplace --scope user',
+		'codex plugin marketplace remove pappardelle-marketplace',
 		`codex plugin marketplace add ${REPO}`,
 		'codex plugin add pappardelle@pappardelle-marketplace',
 	]);
@@ -103,6 +104,17 @@ test("a failed marketplace add skips that agent's install and hook cleanup but n
 	t.is(installPlugin(deps), 1);
 	t.false(calls.some(call => call.startsWith('claude plugin install')));
 	t.false(files.has(`${SETTINGS}.pappardelle.bak`));
+	t.true(
+		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
+	);
+});
+
+test('a Codex marketplace that is not there to remove does not stop the install', t => {
+	const {deps, calls} = fakeDeps({
+		respond: (command, args) =>
+			command === 'codex' && args[2] === 'remove' ? {status: 1} : undefined,
+	});
+	t.is(installPlugin(deps), 0);
 	t.true(
 		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
 	);
