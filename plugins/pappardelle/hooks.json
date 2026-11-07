@@ -3,13 +3,13 @@
 		"SessionStart": [
 			{
 				"type": "command",
-				"command": "python3 ~/.pappardelle/hooks/record-agent-session.py"
+				"command": "python3 hooks/record-agent-session.py"
 			}
 		],
 		"PreInvocation": [
 			{
 				"type": "command",
-				"command": "python3 ~/.pappardelle/hooks/record-agent-session.py"
+				"command": "python3 hooks/record-agent-session.py"
 			}
 		]
 	}

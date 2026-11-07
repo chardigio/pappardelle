@@ -7,6 +7,14 @@ import {
 
 const REPO = '/home/me/.pappardelle/repo';
 const SETTINGS = '/home/me/.claude/settings.json';
+const CODEX_HOOKS = '/home/me/.codex/hooks.json';
+const AGY = '/home/me/.gemini/config';
+const AGY_LINK = `${AGY}/plugins/pappardelle`;
+const PLUGIN_DIR = `${REPO}/plugins/pappardelle`;
+const enoent = (command: string): RunResult => ({
+	status: null,
+	error: Object.assign(new Error(`spawn ${command} ENOENT`), {code: 'ENOENT'}),
+});
 
 const legacy = (script: string) => ({
 	type: 'command',
@@ -17,64 +25,140 @@ const mine = {type: 'command', command: 'bd prime'};
 function fakeDeps(
 	options: {
 		settings?: string;
-		respond?: (args: string[]) => RunResult;
+		codexHooks?: string;
+		agy?: boolean;
+		respond?: (command: string, args: string[]) => RunResult | undefined;
 		worktree?: boolean;
 	} = {},
 ) {
 	const calls: string[] = [];
 	const files = new Map<string, string>();
+	const links = new Map<string, string>();
+	const dirs = new Set<string>(options.agy ? [AGY] : []);
 	if (options.settings !== undefined) files.set(SETTINGS, options.settings);
+	if (options.codexHooks !== undefined) {
+		files.set(CODEX_HOOKS, options.codexHooks);
+	}
+
 	const printed: string[] = [];
 	const deps: PluginInstallDeps = {
 		repoDir: REPO,
 		settingsPath: SETTINGS,
+		codexHooksPath: CODEX_HOOKS,
+		agyConfigDir: AGY,
 		run(command, args) {
 			calls.push([command, ...args].join(' '));
-			return options.respond?.(args) ?? {status: 0};
+			return options.respond?.(command, args) ?? {status: 0};
 		},
 		readFile: file => files.get(file),
 		writeFile(file, content) {
 			files.set(file, content);
+		},
+		exists: file => files.has(file) || links.has(file) || dirs.has(file),
+		readLink: file => links.get(file),
+		link(target, file) {
+			links.set(file, target);
 		},
 		print(line) {
 			printed.push(line);
 		},
 		isLinkedWorktree: () => options.worktree ?? false,
 	};
-	return {deps, calls, files, printed};
+	return {deps, calls, files, links, dirs, printed};
 }
 
-test('points the marketplace at the checkout, then installs the plugin for the user', t => {
+test('points the Claude Code and Codex marketplaces at the checkout, then installs the plugin', t => {
 	const {deps, calls} = fakeDeps();
 	t.is(installPlugin(deps), 0);
 	t.deepEqual(calls, [
 		`claude plugin marketplace add ${REPO}`,
 		'claude plugin install pappardelle@pappardelle-marketplace --scope user',
+		`codex plugin marketplace add ${REPO}`,
+		'codex plugin add pappardelle@pappardelle-marketplace',
 	]);
 });
 
-test('without the claude CLI it fails with a hint and leaves the old hooks running', t => {
+test('skips an agent whose CLI is missing, leaving its old hooks running', t => {
 	const settings = JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}});
-	const {deps, files, printed} = fakeDeps({
+	const {deps, calls, files, printed} = fakeDeps({
 		settings,
-		respond: () => ({
-			status: null,
-			error: Object.assign(new Error('spawn claude ENOENT'), {code: 'ENOENT'}),
-		}),
+		respond: command => (command === 'claude' ? enoent(command) : undefined),
 	});
-	t.is(installPlugin(deps), 1);
+	t.is(installPlugin(deps), 0);
 	t.true(printed[0]!.includes('not on PATH'));
 	t.is(files.get(SETTINGS), settings);
+	t.true(
+		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
+	);
 });
 
-test('a failed marketplace add skips the install and the hook cleanup', t => {
+test("a failed marketplace add skips that agent's install and hook cleanup but not the others", t => {
 	const {deps, calls, files} = fakeDeps({
 		settings: JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}}),
-		respond: args => (args[1] === 'marketplace' ? {status: 1} : undefined),
+		respond: (command, args) =>
+			command === 'claude' && args[1] === 'marketplace'
+				? {status: 1}
+				: undefined,
 	});
 	t.is(installPlugin(deps), 1);
-	t.is(calls.length, 1);
+	t.false(calls.some(call => call.startsWith('claude plugin install')));
 	t.false(files.has(`${SETTINGS}.pappardelle.bak`));
+	t.true(
+		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
+	);
+});
+
+test('removes the session hook install.sh merged into Codex hooks.json, keeping a backup', t => {
+	const session = (dir: string) => ({
+		type: 'command',
+		command: `python3 ${dir}/record-agent-session.py`,
+	});
+	const original = JSON.stringify({
+		hooks: {
+			SessionStart: [
+				{
+					matcher: 'startup|resume|clear',
+					hooks: [session('~/.pappardelle/hooks')],
+				},
+				{hooks: [mine]},
+			],
+			UserPromptSubmit: [{hooks: [session(`${PLUGIN_DIR}/hooks`)]}],
+		},
+	});
+	const {deps, files} = fakeDeps({codexHooks: original});
+	t.is(installPlugin(deps), 0);
+	t.deepEqual(JSON.parse(files.get(CODEX_HOOKS)!), {
+		hooks: {SessionStart: [{hooks: [mine]}]},
+	});
+	t.is(files.get(`${CODEX_HOOKS}.pappardelle.bak`), original);
+});
+
+test('links the plugin into agy in place', t => {
+	const {deps, links} = fakeDeps({agy: true});
+	t.is(installPlugin(deps), 0);
+	t.is(links.get(AGY_LINK), PLUGIN_DIR);
+});
+
+test('repoints an agy link left by another checkout', t => {
+	const {deps, links} = fakeDeps({agy: true});
+	links.set(AGY_LINK, '/old/checkout/plugins/pappardelle');
+	t.is(installPlugin(deps), 0);
+	t.is(links.get(AGY_LINK), PLUGIN_DIR);
+});
+
+test('skips agy until it has been set up', t => {
+	const {deps, links, printed} = fakeDeps();
+	t.is(installPlugin(deps), 0);
+	t.is(links.size, 0);
+	t.true(printed.some(line => line.includes('agy is not set up')));
+});
+
+test('leaves a copy agy installed itself and fails with how to replace it', t => {
+	const {deps, links, dirs, printed} = fakeDeps({agy: true});
+	dirs.add(AGY_LINK);
+	t.is(installPlugin(deps), 1);
+	t.false(links.has(AGY_LINK));
+	t.true(printed.some(line => line.includes('agy plugin uninstall')));
 });
 
 test('removes only the old Pappardelle hooks from settings, keeping a backup', t => {

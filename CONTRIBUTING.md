@@ -56,7 +56,7 @@ pytest plugins/pappardelle/hooks/ -v
 
 ## Adding a built-in agent
 
-`scripts/builtin-agents.json` holds the defaults each known agent CLI gets (model, effort and prompt flag templates, resume args, skill prefix), keyed by the command's basename, except that the claude entry follows Claude gating (`is_claude`). Both the TUI (`source/builtin-agents.ts`) and `idow` (`scripts/resolve-agent-config.sh`) read it, so supporting a new CLI is one entry there. If the CLI has hooks, `hooks/record-agent-session.py` can record its session id for `{session_id}`; see the agy and codex installers in `hooks/`.
+`scripts/builtin-agents.json` holds the defaults each known agent CLI gets (model, effort and prompt flag templates, resume args, skill prefix), keyed by the command's basename, except that the claude entry follows Claude gating (`is_claude`). Both the TUI (`source/builtin-agents.ts`) and `idow` (`scripts/resolve-agent-config.sh`) read it, so supporting a new CLI is one entry there. If the CLI has hooks, `plugins/pappardelle/hooks/record-agent-session.py` can record its session id for `{session_id}`; register it in the plugin the way `.codex-plugin/` and `.antigravity-plugin/` do for Codex and agy, and install it from `source/plugin-install.ts`.
 
 ## Questions?
 

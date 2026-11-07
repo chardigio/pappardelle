@@ -32,8 +32,8 @@ const helpText = `
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
-	  plugin install   Install the Claude Code plugin (skills and hooks) from
-	                   this checkout. install.sh runs this
+	  plugin install   Install the plugin (skills and hooks) from this checkout
+	                   into Claude Code, Codex and agy. install.sh runs this
 
 	Controls
 	  j/k or arrows  Navigate between spaces
