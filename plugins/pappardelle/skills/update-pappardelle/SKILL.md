@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /update-pappardelle — Update to Latest Version
 
-Re-runs the Pappardelle install script to pull the latest version, rebuild, and update the Claude Code plugin (skills and hooks).
+Re-runs the Pappardelle install script to pull the latest version, rebuild, and update the Pappardelle plugin (skills and hooks) for Claude Code, Codex and agy.
 
 Pappardelle now checks GitHub Releases on startup (cached once per 24h) and shows a banner in the TUI when a newer version is available — pressing `U` in the workspace list runs the same install script this skill runs. Use this skill when the user explicitly asks (e.g. they want to force a check after dismissing the banner, or they're not running the TUI right now).
 
@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.
 
 4. After success, tell the user:
    - Pappardelle has been updated, including its plugin. Open Claude Code sessions (this one included) load the new skills and hooks after `/reload-plugins`
-   - If the output says "Could not install the Pappardelle Claude Code plugin", the CLI updated but the skills and hooks did not. Pass on the error printed above it and have the user run `pappardelle plugin install` once it's fixed
+   - If the output says "Could not install the Pappardelle plugin", the CLI updated but the skills and hooks did not. Pass on the error printed above it and have the user run `pappardelle plugin install` once it's fixed
    - If the command named running TUIs, they're still on the old build. `pappardelle restart`, run in each repo, restarts that repo's TUI on the new build. It is safe to run from this session: it only touches the TUI's pane, and Claude sessions keep running
    - `pappardelle restart` ends with `pappardelle-<repo> is running <build path> (<commit>)`. If it exits non-zero instead, the TUI is not confirmed on the new build; pass on the reason it printed
 

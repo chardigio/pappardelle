@@ -15,9 +15,8 @@
 # 4. Symlinks `idow` to ~/.local/bin/
 # 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
-# 7. Adds the Codex session hook to ~/.codex/hooks.json
-# 8. Installs the Claude Code plugin (skills and status hooks) from this
-#    checkout (`pappardelle plugin install`)
+# 7. Installs the Pappardelle plugin (skills and hooks) from this checkout
+#    into Claude Code, Codex and agy (`pappardelle plugin install`)
 
 set -e
 
@@ -356,13 +355,6 @@ else
 fi
 
 # ============================================================================
-# Install the Codex Session Hook
-# ============================================================================
-
-"$REPO_DIR/plugins/pappardelle/hooks/install-codex-hooks.sh"
-"$REPO_DIR/plugins/pappardelle/hooks/install-agy-hooks.sh"
-
-# ============================================================================
 # Create Required Directories
 # ============================================================================
 
@@ -398,11 +390,11 @@ install_skill_scripts sous-chef
 install_skill_scripts init-pappardelle
 
 # ============================================================================
-# Install the Claude Code Plugin
+# Install the Plugin
 # ============================================================================
 
 if ! "$BUN_BIN" "$CLI_JS" plugin install; then
-    print_warning "Could not install the Pappardelle Claude Code plugin (skills and hooks)"
+    print_warning "Could not install the Pappardelle plugin (skills and hooks) for every agent"
     print_info "Retry with: pappardelle plugin install"
 fi
 
