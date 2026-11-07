@@ -10,7 +10,8 @@ import path from 'node:path';
 // it. Codex copies even a local plugin into its cache, and `plugin add`
 // refreshes that copy.
 
-const PLUGIN_ID = 'pappardelle@pappardelle-marketplace';
+const MARKETPLACE = 'pappardelle-marketplace';
+const PLUGIN_ID = `pappardelle@${MARKETPLACE}`;
 
 // Before the hooks shipped in the plugin, install.sh copied them to
 // ~/.pappardelle/hooks and users merged commands running them into
@@ -66,6 +67,18 @@ export function installPlugin(deps: PluginInstallDeps): number {
 	return outcomes.has('failed') ? 1 : 0;
 }
 
+const isMissingCli = (result: RunResult) =>
+	(result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+
+function skipMissing(
+	deps: PluginInstallDeps,
+	agent: string,
+	command: string,
+): Outcome {
+	deps.print(`${agent} (${command}) is not on PATH; skipped its plugin.`);
+	return 'skipped';
+}
+
 function runSteps(
 	deps: PluginInstallDeps,
 	command: string,
@@ -75,12 +88,7 @@ function runSteps(
 	for (const args of steps) {
 		const result = deps.run(command, args);
 		if (result.status === 0) continue;
-		if (
-			(result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
-		) {
-			deps.print(`${agent} (${command}) is not on PATH; skipped its plugin.`);
-			return 'skipped';
-		}
+		if (isMissingCli(result)) return skipMissing(deps, agent, command);
 
 		deps.print(
 			`${command} ${args.join(' ')} failed${result.error ? `: ${result.error.message}` : ''}`,
@@ -113,6 +121,17 @@ function installForClaude(deps: PluginInstallDeps): Outcome {
 }
 
 function installForCodex(deps: PluginInstallDeps): Outcome {
+	// Codex refuses to add a marketplace under a name it already has from
+	// another source, such as the GitHub one or another checkout. Removing it
+	// keeps the plugin enabled and its hooks trusted. It fails when there is
+	// nothing to remove, which is fine.
+	const removed = deps.run('codex', [
+		'plugin',
+		'marketplace',
+		'remove',
+		MARKETPLACE,
+	]);
+	if (isMissingCli(removed)) return skipMissing(deps, 'Codex', 'codex');
 	const outcome = runSteps(deps, 'codex', 'Codex', [
 		['plugin', 'marketplace', 'add', deps.repoDir],
 		['plugin', 'add', PLUGIN_ID],
