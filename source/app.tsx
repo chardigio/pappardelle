@@ -1021,7 +1021,7 @@ export default function App({
 			queue: attachmentTask,
 			targetSpace,
 			viewingSpace: getCurrentlyViewingSpace,
-			send: () => sendToPane(paneId, text),
+			send: () => sendToPane(paneId, targetSpace, text),
 		}).then(result => {
 			if (result === 'sent') {
 				setHeaderWithTimeout(`Agent: ${text}`, 3000);
