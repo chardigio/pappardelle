@@ -7,7 +7,8 @@
 		"rewriteRelativeImportExtensions": true,
 		"jsx": "react-jsx",
 		"jsxImportSource": "@opentui/react",
-		"types": ["bun"]
+		"types": ["bun"],
+		"resolveJsonModule": true
 	},
 	"include": ["source"],
 	"exclude": ["source/**/*.test.ts"]
