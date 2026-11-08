@@ -158,7 +158,7 @@ import {
 	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
-	sendToPane,
+	sendToSpaceAgent,
 	getCurrentlyViewingSpace,
 	killSession,
 	outerSessionName,
@@ -1043,12 +1043,20 @@ export default function App({
 
 		const targetSpace = selectedSpaceNameRef.current;
 		if (!targetSpace) return;
-		const paneId = paneLayout.agentViewerPaneId;
 		void sendToSelectedAgent({
 			queue: attachmentTask,
 			targetSpace,
 			viewingSpace: getCurrentlyViewingSpace,
-			send: () => sendToPane(paneId, targetSpace, text),
+			// Not through the viewer pane: its frame process holds a bracketed
+			// paste briefly while plain keys pass, so Enter would arrive first.
+			send() {
+				const result = sendToSpaceAgent(targetSpace, text);
+				if (result !== 'sent') {
+					log.error(`Send to ${targetSpace}'s agent session: ${result}`);
+				}
+
+				return result === 'sent';
+			},
 		}).then(result => {
 			if (result === 'sent') {
 				setHeaderWithTimeout(`Agent: ${text}`, 3000);

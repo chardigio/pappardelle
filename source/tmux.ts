@@ -1223,28 +1223,6 @@ export function pasteThenEnter(
 }
 
 /**
- * Submit `command` to the agent viewer pane through the outer server.
- *
- * Scrolling the viewer with the mouse puts the space's inner agent session in
- * copy-mode, which would take the pasted text and Enter as copy-mode commands.
- */
-export function sendToPane(
-	paneId: string,
-	issueKey: string,
-	command: string,
-): boolean {
-	defaultInnerTmuxRunner([
-		'copy-mode',
-		'-q',
-		'-t',
-		exactSessionTarget(getSessionNames(issueKey).agent),
-	]);
-	const sent = pasteThenEnter(defaultOuterTmuxRunner, paneId, command);
-	if (!sent) log.error(`Failed to send command to pane ${paneId}`);
-	return sent;
-}
-
-/**
  * Resolve a per-issue session name to a `send-keys` target on the inner socket.
  * `=` forces an exact match, so `STA-1` never falls through to `STA-12` by prefix.
  */
