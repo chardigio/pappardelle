@@ -3,9 +3,10 @@ import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useMemo, useState} from 'react';
 
-import widestLine from 'widest-line';
 import TitledBox from './TitledBox.tsx';
+import {displayWidth} from '../text-measure.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
+import {useWidthMethod} from './use-width-method.ts';
 import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {focusFrame} from '../profile-picker.ts';
 import {openIssueForKey} from '../open-issue.ts';
@@ -187,6 +188,7 @@ export function ReadyWorkList({
 		[index, issues.length, maxVisible],
 	);
 	const skinToneWide = useTmuxSkinToneWide();
+	const widthMethod = useWidthMethod();
 
 	if (ready.loading) {
 		return (
@@ -217,14 +219,16 @@ export function ReadyWorkList({
 					const identifier = truncateToWidth(
 						issue.identifier,
 						contentWidth - 2,
+						widthMethod,
 					);
 					const titleWidth = Math.max(
 						0,
-						contentWidth - 3 - widestLine(identifier),
+						contentWidth - 3 - displayWidth(identifier, widthMethod),
 					);
 					const title = truncateToWidth(
 						maybeStripSkinTones(issue.title.replace(/\s+/g, ' '), skinToneWide),
 						titleWidth,
+						widthMethod,
 					);
 					return (
 						<box

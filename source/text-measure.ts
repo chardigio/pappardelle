@@ -41,3 +41,8 @@ export function wrappedLineCount(
 ): number {
 	return measure(text, widthMethod, Math.max(1, width)).getVirtualLineCount();
 }
+
+/** Cells OpenTUI lays `text` out in, the widest line's when it has several. */
+export function displayWidth(text: string, widthMethod: WidthMethod): number {
+	return measure(text, widthMethod, null).lineInfo.lineWidthColsMax;
+}

@@ -2,6 +2,7 @@ import type {BoxRenderable, ColorInput} from '@opentui/core';
 import {useRef, useState} from 'react';
 import {terminalColor} from '../tui-style.ts';
 import {truncateRunsToWidth} from '../truncate-to-width.ts';
+import {useWidthMethod} from './use-width-method.ts';
 
 export type Run = {text: string; fg?: ColorInput; attributes?: number};
 
@@ -13,7 +14,9 @@ export type Run = {text: string; fg?: ColorInput; attributes?: number};
 export default function TruncatedLine({runs}: {runs: Run[]}) {
 	const box = useRef<BoxRenderable>(null);
 	const [width, setWidth] = useState<number>();
-	const shown = width === undefined ? runs : truncateRunsToWidth(runs, width);
+	const widthMethod = useWidthMethod();
+	const shown =
+		width === undefined ? runs : truncateRunsToWidth(runs, width, widthMethod);
 	return (
 		<box
 			ref={box}

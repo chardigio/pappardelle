@@ -6,8 +6,8 @@ import {
 	type BoxRenderable,
 	type OptimizedBuffer,
 } from '@opentui/core';
-import stringWidth from 'string-width';
 import {terminalColor, textAttributes} from '../tui-style.ts';
+import {displayWidth} from '../text-measure.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 
 export type FrameSpec = {
@@ -39,9 +39,9 @@ export function paintFrame(
 	// A trailing cell of rule keeps a full-width title reading as a frame.
 	const label =
 		inner - lead >= 4 && title.length > 0
-			? ` ${truncateToWidth(title, inner - lead - 3)} `
+			? ` ${truncateToWidth(title, inner - lead - 3, buffer.widthMethod)} `
 			: '';
-	const labelWidth = stringWidth(label);
+	const labelWidth = displayWidth(label, buffer.widthMethod);
 
 	rule(chars.topLeft + chars.horizontal.repeat(lead), box.x, box.y);
 	buffer.drawText(

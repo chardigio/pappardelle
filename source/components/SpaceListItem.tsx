@@ -23,6 +23,7 @@ import {truncateToWidth} from '../truncate-to-width.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
+import {useWidthMethod} from './use-width-method.ts';
 import {useAttentionFrame} from '../animation-clock.ts';
 
 /** Cells of highlight kept at each end of a row. */
@@ -81,6 +82,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 
 	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
 	const skinToneWide = useTmuxSkinToneWide();
+	const widthMethod = useWidthMethod();
 
 	// Rail icons: only meaningful when the branch has an open PR. When
 	// `pipeline` is null (no PR, or fetch failed), both the pipeline icon and
@@ -165,6 +167,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	const truncatedTitle = truncateToWidth(
 		maybeStripSkinTones(title, skinToneWide),
 		availableTitleWidth,
+		widthMethod,
 	);
 
 	// Issue state color (applied to issue key).
