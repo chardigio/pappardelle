@@ -678,7 +678,8 @@ agent_profiles:
   'argon:medium': {command: agy, model: gemini-4-argon-medium, model_args: '--model {model} -i'}
   'codex:medium': {command: codex, model: gpt-6, effort: medium, model_args: '-m {model}', resume_args: 'resume {session_id}'}
   aider: {command: aider, model: sonnet, model_args: '--model {model}'}
-profiles: {}
+profiles:
+  argon: {display_name: Argon, agent_profile: 'argon:medium'}
 `;
 
 test('agy profiles lose the -i workaround and built-in agents their default fields', t => {
@@ -695,7 +696,8 @@ agent_profiles:
   'argon:medium': {command: agy, model: gemini-4-argon-medium}
   'codex:medium': {command: codex, model: gpt-6, effort: medium}
   aider: {command: aider, model: sonnet, model_args: '--model {model}'}
-profiles: {}
+profiles:
+  argon: {display_name: Argon, agent_profile: 'argon:medium'}
 `,
 	);
 	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
