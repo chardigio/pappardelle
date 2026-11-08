@@ -111,6 +111,19 @@ export function createLogSink({
 	let prune: Promise<void> | undefined;
 	let flushed = false;
 
+	function takeDroppedMarker(): string {
+		const message = `dropped ${dropped} messages`;
+		dropped = 0;
+		return (
+			formatLogEntry({
+				timestamp: new Date().toISOString(),
+				level: 'warn',
+				component: 'logger',
+				message,
+			}) + '\n'
+		);
+	}
+
 	function markIdle(stream: LogStream): void {
 		stream.idle = true;
 		for (const resolve of stream.idleWaiters.splice(0)) resolve();
@@ -144,17 +157,7 @@ export function createLogSink({
 		});
 		writer.on('drain', () => {
 			if (dropped > 0 && stream === current) {
-				const message = `dropped ${dropped} messages`;
-				dropped = 0;
-				writeLine(
-					writer,
-					formatLogEntry({
-						timestamp: new Date().toISOString(),
-						level: 'warn',
-						component: 'logger',
-						message,
-					}) + '\n',
-				);
+				writeLine(writer, takeDroppedMarker());
 				return;
 			}
 
@@ -176,6 +179,16 @@ export function createLogSink({
 		for (const stream of openStreams) {
 			try {
 				stream.writer.flushSync();
+			} catch {
+				// Nothing more can be done at exit
+			}
+		}
+
+		// The marker is otherwise written on the next drain, which never comes
+		// once the process is exiting.
+		if (dropped > 0 && current) {
+			try {
+				writeSync(current.fd, takeDroppedMarker());
 			} catch {
 				// Nothing more can be done at exit
 			}

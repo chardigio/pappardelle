@@ -633,3 +633,27 @@ process.kill(process.pid, 'SIGTERM');`,
 	t.is(signal, 'SIGTERM');
 	t.is(new Set(lines).size, 5000);
 });
+
+test('a process that exits past the queue cap still records how many lines it dropped', t => {
+	const home = mkdtempSync(path.join(tmpdir(), 'pappardelle-home-'));
+	const loggerUrl = pathToFileURL(path.resolve('source/logger.ts')).href;
+	spawnSync(
+		process.execPath,
+		[
+			'-e',
+			`const {createLogger} = await import(${JSON.stringify(loggerUrl)});
+const log = createLogger('child');
+for (let i = 0; i < 100000; i++) log.info('line-' + i + ' ' + 'x'.repeat(60));
+process.exit(0);`,
+		],
+		{env: {...process.env, HOME: home}},
+	);
+	const logDir = path.join(home, '.pappardelle', 'logs');
+	const text = readdirSync(logDir)
+		.map(file => readFileSync(path.join(logDir, file), 'utf8'))
+		.join('');
+	const kept = text.match(/\[child\] line-/g)?.length ?? 0;
+	const dropped = Number(/dropped (\d+) messages/.exec(text)?.[1]);
+	t.true(kept > 0);
+	t.is(kept + dropped, 100000);
+});
