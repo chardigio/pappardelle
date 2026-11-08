@@ -722,7 +722,7 @@ test('the -i workaround is offered with a warning naming the field', t => {
 		detail:
 			'Rewrites ' +
 			readyMigrations(paths)[0]!.displayPath +
-			', keeping comments and formatting. Agent profile fields that codex, agy and claude now get built in are removed, along with the -i at the end of an agy model_args.',
+			', keeping comments and formatting. Agent profile fields that codex, agy and claude now get built in are removed, along with the -i at the end of an agy model_args or effort_args.',
 	});
 });
 
@@ -780,5 +780,54 @@ test('a default-valued field stays when a higher file changes the command', t =>
 	t.is(
 		loadConfigFromPaths(paths).agent_profiles?.['x']?.model_args,
 		'-m {model}',
+	);
+});
+
+for (const [name, override] of [
+	['changes the command', {command: 'gemini'}],
+	['sets prompt_args', {prompt_args: '--prompt {prompt}'}],
+] as const) {
+	test(`a trailing -i stays when a higher file ${name}`, t => {
+		const paths = setup(
+			{
+				version: 1,
+				agent_profiles: {
+					argon: {command: 'agy', model: 'g', model_args: '--model {model} -i'},
+				},
+				profiles: {},
+			},
+			undefined,
+			{version: 1, agent_profiles: {argon: override}, profiles: {}},
+		);
+
+		loadConfigFromPaths(paths);
+
+		t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+		t.false(
+			getRecentErrors().some(({message}) => message.includes('ends with -i')),
+		);
+	});
+}
+
+test('a trailing -i is found in a file that sets only model_args', t => {
+	const paths = setup(
+		{
+			version: 1,
+			agent_profiles: {argon: {command: 'agy', model: 'g'}},
+			profiles: {},
+		},
+		undefined,
+		{
+			version: 1,
+			agent_profiles: {argon: {model_args: '--model {model} -i'}},
+			profiles: {},
+		},
+	);
+
+	migrate(paths);
+
+	t.is(
+		loadConfigFromPaths(paths).agent_profiles?.['argon']?.model_args,
+		undefined,
 	);
 });

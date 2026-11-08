@@ -25,6 +25,7 @@ import {
 	getNamedAgentProfile,
 	LAUNCH_FIELDS,
 	mergeConfigLayers,
+	mergedAgentProfiles,
 	needsConfigRewrite,
 	parseConfigLayer,
 	quoteLaunchValue,
@@ -497,8 +498,8 @@ function launches(config: PappardelleConfig): Record<string, string> {
 			// Flag order isn't kept: extra_args move into args, ahead of the
 			// model/effort flags, which no CLI cares about. The prompt template's
 			// flag counts with them, so agy's `-i` moving from model_args into
-			// prompt_args launches the same way. Until then agy gets that `-i`
-			// twice, and the rewrite only drops the duplicate.
+			// prompt_args launches the same way. Until then agy can get that `-i`
+			// more than once, and the rewrite only drops the duplicates.
 			const promptFlag = definition && builtinPromptFlag(definition);
 			const flags =
 				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${promptArgs?.replace('{prompt}', '') ?? ''}`
@@ -566,7 +567,10 @@ export function planConfigMigrations(
 		return {kind: 'none'};
 	}
 
-	if (!files.some(({layer}) => layer && needsConfigRewrite(layer))) {
+	const agentProfiles = mergedAgentProfiles(files.map(({layer}) => layer));
+	if (
+		!files.some(({layer}) => layer && needsConfigRewrite(layer, agentProfiles))
+	) {
 		return {kind: 'none'};
 	}
 
@@ -628,8 +632,11 @@ function planRewrite(
 		};
 	}
 
+	const rewrittenProfiles = mergedAgentProfiles(
+		rewritten.map(({layer}) => layer),
+	);
 	const leftover = rewritten.find(
-		({layer}) => layer && needsConfigRewrite(layer),
+		({layer}) => layer && needsConfigRewrite(layer, rewrittenProfiles),
 	);
 	if (leftover) {
 		return {
@@ -808,11 +815,20 @@ export function dismissResolvedDeprecationWarnings(
 ): boolean {
 	let remaining: string[];
 	try {
-		remaining = configLayerFiles(paths).flatMap(({label, path: filePath}) => {
-			if (!filePath) return [];
-			const layer = parseConfigLayer(label, fs.readFileSync(filePath, 'utf8'));
-			return layer ? deprecationWarnings(layer, label) : [];
-		});
+		const layers = configLayerFiles(paths).flatMap(({label, path: filePath}) =>
+			filePath
+				? [
+						{
+							label,
+							layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
+						},
+					]
+				: [],
+		);
+		const agentProfiles = mergedAgentProfiles(layers.map(({layer}) => layer));
+		remaining = layers.flatMap(({label, layer}) =>
+			layer ? deprecationWarnings(layer, label, agentProfiles) : [],
+		);
 	} catch {
 		// A file that no longer parses: nothing is known to be resolved.
 		return false;
@@ -835,7 +851,7 @@ export function buildConfigMigrationConfirmContent(
 		detail: [
 			`Rewrites ${migrations.map(m => m.displayPath).join(', ')}, keeping comments and formatting.`,
 			migrations.some(m => m.removesBuiltinDefaults)
-				? 'Agent profile fields that codex, agy and claude now get built in are removed, along with the -i at the end of an agy model_args.'
+				? 'Agent profile fields that codex, agy and claude now get built in are removed, along with the -i at the end of an agy model_args or effort_args.'
 				: '',
 			// Each file's agent profiles get the values they launched with, and
 			// some of those came from the home config.
@@ -871,14 +887,20 @@ export function buildConfigFixPrompt(
 	const files = configLayerFiles(paths).filter(
 		(file): file is {label: string; path: string} => Boolean(file.path),
 	);
-	const warnings = files.flatMap(({label, path: filePath}) => {
+	const layers = files.map(({label, path: filePath}) => {
 		try {
-			const layer = parseConfigLayer(label, fs.readFileSync(filePath, 'utf8'));
-			return layer ? deprecationWarnings(layer, label) : [];
+			return {
+				label,
+				layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
+			};
 		} catch {
-			return [];
+			return {label, layer: null};
 		}
 	});
+	const agentProfiles = mergedAgentProfiles(layers.map(({layer}) => layer));
+	const warnings = layers.flatMap(({label, layer}) =>
+		layer ? deprecationWarnings(layer, label, agentProfiles) : [],
+	);
 	return [
 		`My pappardelle config still uses deprecated settings, and pappardelle couldn't rewrite it automatically: ${reason}.`,
 		'',

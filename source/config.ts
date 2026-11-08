@@ -795,9 +795,10 @@ export function buildConfigFromLayers(
 		throw new ConfigValidationError(conflictErrors);
 	}
 
+	const agentProfiles = mergedAgentProfiles(layers.map(({layer}) => layer));
 	for (const {layer, label} of layers) {
 		if (layer) {
-			warnDeprecatedClaudeFields(layer, label);
+			warnDeprecatedClaudeFields(layer, label, agentProfiles);
 			renameDeprecatedInitializationCommand(layer);
 		}
 	}
@@ -977,8 +978,9 @@ function deprecationMessage(
 function warnDeprecatedClaudeFields(
 	layer: Record<string, unknown>,
 	file: string,
+	agentProfiles: Record<string, unknown>,
 ): void {
-	for (const message of deprecationWarnings(layer, file)) {
+	for (const message of deprecationWarnings(layer, file, agentProfiles)) {
 		warnDeprecatedOnce(message);
 	}
 }
@@ -986,6 +988,7 @@ function warnDeprecatedClaudeFields(
 export function deprecationWarnings(
 	layer: Record<string, unknown>,
 	file: string,
+	agentProfiles: Record<string, unknown>,
 ): string[] {
 	return [
 		...findDeprecatedClaudeFields(layer).map(({label, field}) =>
@@ -995,7 +998,7 @@ export function deprecationWarnings(
 			({key, value}) =>
 				`${file}: ${key} "${value}" includes the skill prefix — write "${value.slice(1)}"; the agent profile's skill_prefix is added at launch`,
 		),
-		...findTrailingPromptFlags(layer).map(
+		...findTrailingPromptFlags(layer, agentProfiles).map(
 			({name, field, flag}) =>
 				`${file}: agent_profiles.${name}.${field} ends with ${flag}, which the built-in prompt_args now adds — remove it`,
 		),
@@ -1026,35 +1029,63 @@ export function findPrefixedInitializationCommands(
 	);
 }
 
+/** The agent_profiles of raw layers, merged as the config merges them. */
+export function mergedAgentProfiles(
+	layers: Array<Record<string, unknown> | null | undefined>,
+): Record<string, unknown> {
+	let merged: Record<string, unknown> = {};
+	for (const layer of layers) {
+		const profiles = layer?.['agent_profiles'];
+		if (profiles && typeof profiles === 'object') {
+			merged = deepMerge(merged, profiles as Record<string, unknown>);
+		}
+	}
+
+	return merged;
+}
+
 /**
- * Every agent profile a raw layer defines whose model_args or effort_args
- * still ends with the prompt flag its built-in prompt_args adds (see
- * builtinPromptFlag).
+ * Every model_args or effort_args a raw layer sets that still ends with the
+ * prompt flag its agent's built-in prompt_args adds (see builtinPromptFlag).
+ * The agent is read from the merged agent profiles, since another file can
+ * set its command or prompt_args.
  */
 export function findTrailingPromptFlags(
 	layer: Record<string, unknown>,
+	agentProfiles: Record<string, unknown>,
 ): Array<{name: string; field: 'model_args' | 'effort_args'; flag: string}> {
 	const profiles = layer['agent_profiles'];
 	if (!profiles || typeof profiles !== 'object') return [];
 	return Object.entries(profiles as Record<string, unknown>).flatMap(
 		([name, value]) => {
-			const definition = value as Partial<AgentProfileConfig> | null;
+			const definition = agentProfiles[name] as
+				| Partial<AgentProfileConfig>
+				| undefined;
 			if (typeof definition?.command !== 'string') return [];
 			const flag = builtinPromptFlag(definition as AgentProfileConfig);
 			if (!flag) return [];
+			const fields = value as Partial<AgentProfileConfig> | null;
 			return (['model_args', 'effort_args'] as const)
-				.filter(field => definition[field]?.trimEnd().endsWith(` ${flag}`))
+				.filter(field => {
+					const args = fields?.[field];
+					return (
+						typeof args === 'string' && args.trimEnd().endsWith(` ${flag}`)
+					);
+				})
 				.map(field => ({name, field, flag}));
 		},
 	);
 }
 
 /** Whether a raw layer still uses a format the config rewrite replaces. */
-export function needsConfigRewrite(layer: Record<string, unknown>): boolean {
+export function needsConfigRewrite(
+	layer: Record<string, unknown>,
+	agentProfiles: Record<string, unknown>,
+): boolean {
 	return (
 		findDeprecatedClaudeFields(layer).length > 0 ||
 		findPrefixedInitializationCommands(layer).length > 0 ||
-		findTrailingPromptFlags(layer).length > 0
+		findTrailingPromptFlags(layer, agentProfiles).length > 0
 	);
 }
 
