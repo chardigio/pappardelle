@@ -1,5 +1,6 @@
 import {execFile, spawn} from 'node:child_process';
 import {
+	closeSync,
 	existsSync,
 	mkdtempSync,
 	openSync,
@@ -145,9 +146,11 @@ export async function openPopupTerminal(
 		const shellPid = Number(pid);
 		let input: tty.ReadStream;
 		let output: tty.WriteStream;
+		let outputFd: number;
 		try {
 			input = new tty.ReadStream(openSync(ttyPath, 'r+'));
-			output = new tty.WriteStream(openSync(ttyPath, 'r+'));
+			outputFd = openSync(ttyPath, 'r+');
+			output = new tty.WriteStream(outputFd);
 		} catch (error) {
 			log.warn(
 				'Could not open the popup terminal',
@@ -170,6 +173,10 @@ export async function openPopupTerminal(
 				isClosing = true;
 				input.destroy();
 				output.destroy();
+				// Bun's tty.WriteStream writes through a dup of the fd and destroy()
+				// closes only the dup. Left open, the popup's pty never sees EOF,
+				// so tmux keeps the blank popup up and it swallows the client's keys.
+				closeSync(outputFd);
 				killPopupShell(shellPid);
 			},
 		};
