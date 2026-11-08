@@ -8,7 +8,7 @@ import TitledBox from './TitledBox.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
 import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
-import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
+import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
@@ -674,6 +674,7 @@ function ProfilePicker({
 		selectedIndex,
 		maxVisible,
 	);
+	const skinToneWide = useTmuxSkinToneWide();
 
 	return (
 		<box flexDirection="column">
@@ -729,7 +730,9 @@ function ProfilePicker({
 						// Same slot the ticket rail uses, so a profile wears the same
 						// glyph wherever it appears. Sits right of the selection caret
 						// (which owns column 0 for every row) and left of the label.
-						const slot = resolveEmojiSlot(maybeStripSkinTones(option.emoji));
+						const slot = resolveEmojiSlot(
+							maybeStripSkinTones(option.emoji, skinToneWide),
+						);
 						const agentOverride = agentOverrides[rowKey(option)];
 						return (
 							<box flexDirection="row" key={rowKey(option)}>

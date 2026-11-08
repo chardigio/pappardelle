@@ -1,4 +1,6 @@
-import {spawnSync} from 'node:child_process';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {useSyncExternalStore} from 'react';
 import {stripSkinTones} from './emoji-rail-width.ts';
 import {isInTmux} from './tmux.ts';
 
@@ -11,19 +13,21 @@ import {isInTmux} from './tmux.ts';
 // 3.5 and earlier predate the regression, so only a bare 3.6 needs the
 // modifiers stripped.
 
-let skinToneWide: boolean | null = null;
-let probe = queryTmuxVersion;
+const execFileAsync = promisify(execFile);
 
-export function queryTmuxVersion(): string | null {
+let skinToneWide = false;
+let resolution: Promise<void> | undefined;
+let probe = queryTmuxVersion;
+const listeners = new Set<() => void>();
+
+export async function queryTmuxVersion(): Promise<string | null> {
 	try {
-		const result = spawnSync('tmux', ['display-message', '-p', '#{version}'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		if (result.error || result.status !== 0) {
-			return null;
-		}
-		const version = result.stdout.trim();
+		const {stdout} = await execFileAsync(
+			'tmux',
+			['display-message', '-p', '#{version}'],
+			{encoding: 'utf-8', timeout: 5000},
+		);
+		const version = stdout.trim();
 		return version === '' ? null : version;
 	} catch {
 		return null;
@@ -41,39 +45,63 @@ function isBare36(version: string): boolean {
 }
 
 /**
- * True only when the TUI runs inside tmux 3.6, the release that draws
- * skin-tone modifiers as extra wide glyphs.
+ * Probe the running tmux once per process. Until it answers, rows keep the
+ * modifiers, since only one release mis-draws them.
+ */
+export async function resolveTmuxSkinTone(): Promise<void> {
+	resolution ??= (async () => {
+		if (!isInTmux()) return;
+		const version = await probe();
+		// An unreadable version cannot be confirmed as the broken release, and
+		// every other known release draws the grapheme correctly.
+		if (version === null || !isBare36(version)) return;
+		skinToneWide = true;
+		for (const listener of listeners) listener();
+	})();
+	return resolution;
+}
+
+/**
+ * True only once the TUI is known to run inside tmux 3.6, the release that
+ * draws skin-tone modifiers as extra wide glyphs.
  */
 export function tmuxDrawsSkinToneWide(): boolean {
-	if (skinToneWide !== null) return skinToneWide;
-	if (!isInTmux()) {
-		skinToneWide = false;
-		return false;
-	}
-	const version = probe();
-	// An unreadable version cannot be confirmed as the broken release, and
-	// every other known release draws the grapheme correctly.
-	skinToneWide = version !== null && isBare36(version);
 	return skinToneWide;
 }
 
+function subscribe(listener: () => void): () => void {
+	listeners.add(listener);
+	void resolveTmuxSkinTone();
+	return () => {
+		listeners.delete(listener);
+	};
+}
+
+/** Re-renders the caller once the tmux version is known. */
+export function useTmuxSkinToneWide(): boolean {
+	return useSyncExternalStore(subscribe, tmuxDrawsSkinToneWide);
+}
+
 /** Strip skin-tone modifiers only when the running tmux mis-draws them. */
-export function maybeStripSkinTones(text: string): string;
-export function maybeStripSkinTones(text: undefined): undefined;
+export function maybeStripSkinTones(text: string, wide: boolean): string;
+export function maybeStripSkinTones(text: undefined, wide: boolean): undefined;
 export function maybeStripSkinTones(
 	text: string | undefined,
+	wide: boolean,
 ): string | undefined;
 export function maybeStripSkinTones(
 	text: string | undefined,
+	wide: boolean,
 ): string | undefined {
 	if (text === undefined) return undefined;
-	return tmuxDrawsSkinToneWide() ? stripSkinTones(text) : text;
+	return wide ? stripSkinTones(text) : text;
 }
 
 /** Override the version probe and clear the cache (for tests). */
 export function setTmuxVersionProbeForTests(
-	next: (() => string | null) | null,
+	next: (() => Promise<string | null>) | null,
 ): void {
 	probe = next ?? queryTmuxVersion;
-	skinToneWide = null;
+	skinToneWide = false;
+	resolution = undefined;
 }

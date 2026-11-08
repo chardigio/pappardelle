@@ -18,7 +18,7 @@ import {
 	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
-import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
+import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
@@ -80,6 +80,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	const needsAttention = space.programStatus?.status === 'blocked';
 
 	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
+	const skinToneWide = useTmuxSkinToneWide();
 
 	// Rail icons: only meaningful when the branch has an open PR. When
 	// `pipeline` is null (no PR, or fetch failed), both the pipeline icon and
@@ -111,7 +112,9 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	//     two spaces so rows still line up with their emoji-bearing siblings.
 	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
 	//     so multi-cell emoji reserve the right number of cells.
-	const emojiSlot = resolveEmojiSlot(maybeStripSkinTones(space.profileEmoji));
+	const emojiSlot = resolveEmojiSlot(
+		maybeStripSkinTones(space.profileEmoji, skinToneWide),
+	);
 	const emoji = emojiSlot?.text;
 	const emojiCells = emoji ? stringWidth(emoji) : 0;
 	const emojiPrefixCells = rowPrefixWidth(
@@ -160,7 +163,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		space.linearIssue?.title ??
 		(shouldShowLoadingTitle(space) ? 'Loading…' : '');
 	const truncatedTitle = truncateToWidth(
-		maybeStripSkinTones(title),
+		maybeStripSkinTones(title, skinToneWide),
 		availableTitleWidth,
 	);
 

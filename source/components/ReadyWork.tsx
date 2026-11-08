@@ -6,7 +6,7 @@ import {useEffect, useMemo, useState} from 'react';
 import widestLine from 'widest-line';
 import TitledBox from './TitledBox.tsx';
 import {truncateToWidth} from '../truncate-to-width.ts';
-import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
+import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {focusFrame} from '../profile-picker.ts';
 import {openIssueForKey} from '../open-issue.ts';
 import type {IssueTrackerProvider, TrackerIssue} from '../providers/types.ts';
@@ -185,6 +185,7 @@ export function ReadyWorkList({
 		() => visibleWindow(index, issues.length, maxVisible),
 		[index, issues.length, maxVisible],
 	);
+	const skinToneWide = useTmuxSkinToneWide();
 
 	if (ready.loading) {
 		return (
@@ -236,7 +237,7 @@ export function ReadyWorkList({
 						contentWidth - 3 - widestLine(identifier),
 					);
 					const title = truncateToWidth(
-						maybeStripSkinTones(issue.title.replace(/\s+/g, ' ')),
+						maybeStripSkinTones(issue.title.replace(/\s+/g, ' '), skinToneWide),
 						titleWidth,
 					);
 					return (

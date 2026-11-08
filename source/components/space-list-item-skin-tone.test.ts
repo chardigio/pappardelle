@@ -3,7 +3,10 @@ import React from 'react';
 import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
 import SpaceListItem from './SpaceListItem.tsx';
-import {setTmuxVersionProbeForTests} from '../tmux-skin-tone.ts';
+import {
+	resolveTmuxSkinTone,
+	setTmuxVersionProbeForTests,
+} from '../tmux-skin-tone.ts';
 import type {SpaceData} from '../types.ts';
 
 // tmux 3.6 draws a skin-tone emoji as 4 cells while Ink lays it out as 2.
@@ -21,19 +24,8 @@ process.on('exit', () => {
 	}
 });
 
-async function renderRow(
-	tmuxVersion: string | null,
-	width: number,
-	title: string,
-	insideTmux = true,
-): Promise<string> {
-	if (insideTmux) {
-		process.env['TMUX'] = '/tmp/fake-socket,1,0';
-	} else {
-		delete process.env['TMUX'];
-	}
-	setTmuxVersionProbeForTests(() => tmuxVersion);
-	const space: SpaceData = {
+function makeSpace(title: string): SpaceData {
+	return {
 		name: 'TEST-1',
 		worktreePath: null,
 		profileEmoji: '💪🏼',
@@ -49,18 +41,41 @@ async function renderRow(
 			hasConflict: false,
 		},
 	};
-	const view = await render(
+}
+
+async function mountRow(width: number, title: string) {
+	return render(
 		React.createElement(
 			'box',
 			{flexDirection: 'row', width},
 			React.createElement(SpaceListItem, {
-				space,
+				space: makeSpace(title),
 				width,
 				isSelected: false,
 				layout: 'single_line',
 			}),
 		),
 	);
+}
+
+function setInsideTmux(insideTmux: boolean): void {
+	if (insideTmux) {
+		process.env['TMUX'] = '/tmp/fake-socket,1,0';
+	} else {
+		delete process.env['TMUX'];
+	}
+}
+
+async function renderRow(
+	tmuxVersion: string | null,
+	width: number,
+	title: string,
+	insideTmux = true,
+): Promise<string> {
+	setInsideTmux(insideTmux);
+	setTmuxVersionProbeForTests(async () => tmuxVersion);
+	await resolveTmuxSkinTone();
+	const view = await mountRow(width, title);
 	const frame = view.lastFrame() ?? '';
 	await view.unmount();
 	return frame;
@@ -99,3 +114,28 @@ test.serial('outside tmux the full grapheme is kept', async t => {
 		t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
 	}
 });
+
+test.serial(
+	'a row renders before the tmux version is known and refreshes once it is',
+	async t => {
+		setInsideTmux(true);
+		let finish!: (version: string) => void;
+		setTmuxVersionProbeForTests(
+			async () =>
+				new Promise(resolve => {
+					finish = resolve;
+				}),
+		);
+		const view = await mountRow(60, 'Ship 👍🏽 fixes');
+		const before = view.lastFrame();
+		t.true(before.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${before}`);
+		t.truthy(finish, 'mounting the row starts the probe');
+		finish('3.6');
+		await resolveTmuxSkinTone();
+		await view.renderOnce();
+		const after = view.lastFrame();
+		t.true(after.startsWith(' 💪 ● TEST-1'), `Rendered row: ${after}`);
+		t.true(after.includes('Ship 👍 fixes'), `Rendered row: ${after}`);
+		await view.unmount();
+	},
+);
