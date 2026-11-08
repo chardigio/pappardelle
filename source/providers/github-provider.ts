@@ -143,6 +143,7 @@ export class GitHubProvider implements VcsHostProvider {
 		retryAt: number;
 	};
 
+	private loggedRepoSlugError: unknown;
 	private readonly executor: GhExecutor;
 	private readonly discover: RepositoryDiscovery;
 	private readonly now: () => number;
@@ -384,10 +385,15 @@ export class GitHubProvider implements VcsHostProvider {
 		try {
 			slug = await this.getRepoSlug();
 		} catch (err) {
-			log.warn(
-				'Failed to discover GitHub repository',
-				sanitizeSubprocessError(err),
-			);
+			// The backoff rethrows the same failure; warn once per failed lookup.
+			if (err !== this.loggedRepoSlugError) {
+				this.loggedRepoSlugError = err;
+				log.warn(
+					'Failed to discover GitHub repository',
+					sanitizeSubprocessError(err),
+				);
+			}
+
 			return result;
 		}
 		if (!slug) return result;

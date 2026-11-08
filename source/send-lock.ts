@@ -1,4 +1,4 @@
-import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, stat, unlink, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -32,7 +32,7 @@ export async function withSendLock<T>(
 		}
 
 		const holder = await readHolder(file);
-		if (holder !== null && !isAlive(holder)) {
+		if (holder === null ? await isOld(file) : !isAlive(holder)) {
 			await unlink(file).catch(() => {});
 			continue;
 		}
@@ -48,6 +48,17 @@ export async function withSendLock<T>(
 		return await task();
 	} finally {
 		await unlink(file).catch(() => {});
+	}
+}
+
+// A lock file is empty for a moment between its creation and the pid write.
+// One still empty long after that was left by a process that died in between.
+async function isOld(file: string): Promise<boolean> {
+	try {
+		const {mtimeMs} = await stat(file);
+		return Date.now() - mtimeMs > 5000;
+	} catch {
+		return false;
 	}
 }
 

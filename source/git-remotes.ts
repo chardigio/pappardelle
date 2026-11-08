@@ -2,7 +2,13 @@ export function remoteProject(remote: string, host: string): string | null {
 	let remoteHost: string;
 	let project: string;
 	if (remote.includes('://')) {
-		const url = new URL(remote);
+		let url: URL;
+		try {
+			url = new URL(remote);
+		} catch {
+			return null;
+		}
+
 		if (!['ssh:', 'http:', 'https:', 'git:'].includes(url.protocol))
 			return null;
 		remoteHost = url.hostname;

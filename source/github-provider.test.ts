@@ -72,7 +72,7 @@ for (const failure of ['error', 'invalid slug'] as const) {
 			},
 			undefined,
 			undefined,
-			{now: () => now},
+			{now: () => now, linkedAt: () => 0},
 		);
 		const [link, rail] = await Promise.allSettled([
 			provider.getPRLink('STA-1'),
@@ -105,7 +105,7 @@ test('repo discovery backoff grows with consecutive failures and stays bounded',
 		},
 		undefined,
 		undefined,
-		{now: () => now},
+		{now: () => now, linkedAt: () => 0},
 	);
 	for (; now <= 60 * 60_000; now += 10_000) {
 		await provider.getBulkRailStatus(['STA-1']);
@@ -128,7 +128,7 @@ test('opening a PR looks the repo up again even while polling backs off', async 
 		},
 		undefined,
 		undefined,
-		{now: () => now},
+		{now: () => now, linkedAt: () => 0},
 	);
 	await provider.getBulkRailStatus(['STA-1']);
 	now += 1000;
@@ -752,3 +752,27 @@ test('getBulkRailStatus: every aliased search sorts by updated-desc and uses hea
 	t.true(queryArg.includes('head:STA-1'));
 	t.true(queryArg.includes('head:STA-2'));
 });
+
+test.serial(
+	'a failed repo lookup warns once, not on every poll during its backoff',
+	async t => {
+		clearRecentErrors();
+		let now = 0;
+		const provider = new GitHubProvider(
+			async () => {
+				throw new Error('offline');
+			},
+			undefined,
+			undefined,
+			{now: () => now, linkedAt: () => 0},
+		);
+		for (; now < 20_000; now += 5000) {
+			await provider.getBulkRailStatus(['STA-1']);
+		}
+
+		const warnings = getRecentErrors().filter(
+			e => e.message === 'Failed to discover GitHub repository',
+		);
+		t.is(warnings.length, 1);
+	},
+);

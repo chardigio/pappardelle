@@ -1,4 +1,4 @@
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, rmSync, utimesSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -81,4 +81,17 @@ test('a lock held by a live process times out instead of waiting forever', async
 		}),
 		{instanceOf: SendLockTimeout},
 	);
+});
+
+test('an empty lock file left by a crash is taken over once it is old', async t => {
+	const dir = lockDir(t);
+	const file = path.join(dir, 'agent-r-STA-1.lock');
+	writeFileSync(file, '');
+	const old = new Date(Date.now() - 60_000);
+	utimesSync(file, old, old);
+	const result = await withSendLock('agent-r-STA-1', async () => 'sent', {
+		dir,
+		timeoutMs: 500,
+	});
+	t.is(result, 'sent');
 });

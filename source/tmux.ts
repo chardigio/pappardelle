@@ -1228,6 +1228,8 @@ function spawnTmuxRunnerAsync(
 			child.on('close', status => {
 				resolve({status, stdout, stderr});
 			});
+			// tmux exiting early (a bad target) closes stdin under a large paste.
+			child.stdin.on('error', () => {});
 			child.stdin.end(input);
 		});
 }
