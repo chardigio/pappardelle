@@ -21,8 +21,8 @@
 		"dist"
 	],
 	"dependencies": {
-		"@opentui/core": "0.8.2",
-		"@opentui/react": "0.8.2",
+		"@opentui/core": "0.8.3",
+		"@opentui/react": "0.8.3",
 		"js-yaml": "^4.1.0",
 		"meow": "^11.0.0",
 		"react": "^19.3.0",
