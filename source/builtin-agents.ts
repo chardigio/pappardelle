@@ -12,7 +12,8 @@ export type BuiltinAgentDefaults = Pick<
 
 /**
  * Defaults per agent, keyed by the command's basename. Lives in scripts/ so
- * resolve-agent-config.sh, which idow runs, reads the same file.
+ * resolve-agent-config.sh, which idow runs, reads the same file. The binary
+ * embeds it at build time, so an edit reaches the TUI only after a rebuild.
  */
 export const BUILTIN_AGENTS: Readonly<Record<string, BuiltinAgentDefaults>> =
 	builtinAgents;
