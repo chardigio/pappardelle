@@ -45,7 +45,7 @@ const gh = new GitHubProvider();
 const glab = new GitLabProvider('gitlab.fixture.test');
 const opened = [];
 const messages = [];
-const options = {isCurrent: () => true, openUrl: async url => { opened.push(url); }, showMessage: msg => messages.push(msg)};
+const options = {isLatest: () => true, ownsHeader: () => true, openUrl: async url => { opened.push(url); }, showMessage: msg => messages.push(msg)};
 const start = ticks;
 const results = await Promise.all([
   openPR('STA-1', {...options, provider: gh}).then(() => ticks - start),

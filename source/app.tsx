@@ -378,6 +378,7 @@ export default function App({
 	// Identifies the most recent `d` launch so a slow editor's failure can't
 	// overwrite the header of whatever the user did after it.
 	const ideLaunchCounter = useRef(0);
+	const openPRRequest = useRef(0);
 
 	// Load config once at startup. Used for keybindings, emoji lookup, etc.
 	// May be null if .pappardelle.yml is missing or invalid; downstream lookups
@@ -894,10 +895,12 @@ export default function App({
 			return;
 		}
 
+		const request = ++openPRRequest.current;
 		const generation = showHeaderMessage(`Opening PR for ${space.name}...`);
 		void openPR(space.name, {
 			provider: createVcsHost(),
-			isCurrent: () => headerGeneration.current === generation,
+			isLatest: () => openPRRequest.current === request,
+			ownsHeader: () => headerGeneration.current === generation,
 			async openUrl(url) {
 				const child = spawn('open', [url], {
 					detached: true,
