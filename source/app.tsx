@@ -797,10 +797,8 @@ export default function App({
 			!selectedSpaceName ||
 			closingSpacesRef.current.has(selectedSpaceName) ||
 			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
-		) {
-			attachmentGate.queued(selectedSpaceName);
+		)
 			return;
-		}
 
 		void attachmentTask
 			.run(async signal => {
@@ -842,7 +840,6 @@ export default function App({
 					err instanceof Error ? err : undefined,
 				),
 			);
-		attachmentGate.queued(selectedSpaceName);
 		return () => attachmentTask.cancel();
 	}, [
 		selectedSpaceName,
@@ -852,9 +849,14 @@ export default function App({
 		selectedIssueTitle,
 		paneLayout,
 		attachmentTask,
-		attachmentGate,
 		attachmentRevision,
 	]);
+	// Declared after the attachment effect so it runs after any attachment
+	// this render queued. Every render releases waiting keys: one whose space
+	// was left again in the same input write is then refused, not kept.
+	useEffect(() => {
+		attachmentGate.rendered(selectedSpaceName);
+	});
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -1011,7 +1013,7 @@ export default function App({
 		if (!paneLayout || !targetSpace) return;
 
 		// Attaching ends by selecting the rail pane, so focus goes after it.
-		void attachmentGate.whenQueued(targetSpace).then(async () =>
+		void attachmentGate.whenRendered(targetSpace).then(async () =>
 			attachmentTask.exclusive(async () => {
 				const layout = paneLayoutRef.current;
 				if (layout) await focusPane(layout.agentViewerPaneId);
@@ -1076,7 +1078,7 @@ export default function App({
 		const targetSpace = selectedSpaceNow()?.name;
 		if (!targetSpace) return;
 		void attachmentGate
-			.whenQueued(targetSpace)
+			.whenRendered(targetSpace)
 			.then(async () =>
 				sendToSelectedAgent({
 					queue: attachmentTask,
