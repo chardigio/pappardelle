@@ -74,6 +74,14 @@ async function pruneOldLogs(dir: string, openFile: string): Promise<void> {
 	}
 }
 
+// In its default utf8 mode sonic-boom re-measures the whole pending buffer
+// with Buffer.byteLength on every write, which made each log call cost up to
+// 16 KB of scanning during a burst. Buffer mode tracks lengths instead. Its
+// typings only declare string writes.
+function writeLine(writer: InstanceType<typeof SonicBoom>, line: string): void {
+	writer.write(Buffer.from(line) as unknown as string);
+}
+
 type LogStream = {
 	fd: number;
 	writer: InstanceType<typeof SonicBoom>;
@@ -122,6 +130,7 @@ export function createLogSink({
 			fd,
 			minLength: 0,
 			maxLength: maxQueuedBytes,
+			contentMode: 'buffer',
 		});
 		const stream: LogStream = {fd, writer, idle: true, idleWaiters: []};
 		// Unhandled, an error event would crash the app. sonic-boom keeps the
@@ -137,7 +146,8 @@ export function createLogSink({
 			if (dropped > 0 && stream === current) {
 				const message = `dropped ${dropped} messages`;
 				dropped = 0;
-				writer.write(
+				writeLine(
+					writer,
 					formatLogEntry({
 						timestamp: new Date().toISOString(),
 						level: 'warn',
@@ -199,7 +209,7 @@ export function createLogSink({
 			}
 
 			current.idle = false;
-			current.writer.write(line);
+			writeLine(current.writer, line);
 		},
 
 		flushSync,
