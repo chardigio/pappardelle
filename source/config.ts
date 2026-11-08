@@ -18,6 +18,7 @@ import {
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
+import {unwrapBeadsJson} from './providers/beads-json.ts';
 import {shellQuote} from './shell-quote.ts';
 
 // ============================================================================
@@ -2286,6 +2287,12 @@ function resolveBeadsIssuePrefix(root: string): string | undefined {
 	}
 }
 
+export function parseBdIssuePrefix(output: string): string | undefined {
+	const [payload] = unwrapBeadsJson(output);
+	const value = payload?.['value'];
+	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 /**
  * `bd init --prefix` (bd 1.3+) keeps the prefix in its database and leaves
  * `issue-prefix` commented out in config.yaml.
@@ -2298,12 +2305,12 @@ function readBdIssuePrefix(root: string): string | undefined {
 			{
 				cwd: root,
 				encoding: 'utf-8',
+				env: {...process.env, BD_JSON_ENVELOPE: '1'},
 				stdio: ['ignore', 'pipe', 'ignore'],
 				timeout: 5000,
 			},
 		);
-		const {value} = JSON.parse(output) as {value?: unknown};
-		return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+		return parseBdIssuePrefix(output);
 	} catch {
 		return undefined;
 	}

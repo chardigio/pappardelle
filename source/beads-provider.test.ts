@@ -12,10 +12,10 @@ import {
 	mapBeadsIssue,
 	normalizeBeadsStatus,
 	unreachableReadyStatuses,
-	unwrapBeadsJson,
 	type CliExecutor,
 	type SleepFn,
 } from './providers/beads-provider.ts';
+import {unwrapBeadsJson} from './providers/beads-json.ts';
 import {StateColorCache} from './providers/state-color-cache.ts';
 
 function makeEnoentError(): Error & {code: string} {

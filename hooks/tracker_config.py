@@ -119,10 +119,11 @@ def _bd_issue_prefix(beads_config: Optional[str]) -> Optional[str]:
     `issue-prefix` commented out in config.yaml."""
     if not beads_config:
         return None
+    config_root = os.path.dirname(os.path.dirname(beads_config))
     try:
         result = subprocess.run(
             ["bd", "config", "get", "issue_prefix", "--json"],
-            cwd=os.path.dirname(os.path.dirname(beads_config)),
+            cwd=get_main_repo_root(config_root) or config_root,
             capture_output=True,
             text=True,
             timeout=5,

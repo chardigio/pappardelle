@@ -93,8 +93,26 @@ def test_beads_prefix_falls_back_to_the_bd_database(tmp_path, monkeypatch):
         assert cwd == str(repo)
         return subprocess.CompletedProcess(args, 0, stdout='{"key": "issue_prefix", "value": "QA"}\n')
 
+    monkeypatch.setattr(tracker_config, "get_main_repo_root", lambda _start=None: None)
     monkeypatch.setattr(tracker_config.subprocess, "run", fake_run)
     assert tracker_config.get_beads_prefix(str(repo)) == "qa"
+
+
+def test_beads_prefix_asks_bd_in_the_main_checkout(tmp_path, monkeypatch):
+    # A linked worktree carries its own .beads/ copy without the database, so
+    # bd has to run where the main checkout keeps it.
+    worktree = write_repo(tmp_path / "worktree", "version: 1\n", beads='# issue-prefix: ""\n')
+    main = tmp_path / "main"
+    ran_in = []
+
+    def fake_run(args, cwd, **_kwargs):
+        ran_in.append(cwd)
+        return subprocess.CompletedProcess(args, 0, stdout='{"key": "issue_prefix", "value": "qa"}\n')
+
+    monkeypatch.setattr(tracker_config, "get_main_repo_root", lambda _start=None: str(main))
+    monkeypatch.setattr(tracker_config.subprocess, "run", fake_run)
+    assert tracker_config.get_beads_prefix(str(worktree)) == "qa"
+    assert ran_in == [str(main)]
 
 
 def test_beads_prefix_is_none_when_unset(tmp_path):

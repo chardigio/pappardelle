@@ -39,6 +39,7 @@ import {
 	mergeKeybindings,
 	determineProfileForInput,
 	getBeadsPrefixes,
+	parseBdIssuePrefix,
 	readBeadsIssuePrefix,
 	clearBeadsIssuePrefixCache,
 	matchProfilesByKeyPrefix,
@@ -4773,6 +4774,17 @@ test('readBeadsIssuePrefix falls back to the bd database without a config.yaml p
 		readBeadsIssuePrefix(dir, root => (root === dir ? 'qa' : undefined)),
 		'qa',
 	);
+});
+
+test('parseBdIssuePrefix reads plain and enveloped bd config output', t => {
+	t.is(parseBdIssuePrefix('{"key":"issue_prefix","value":"QA"}\n'), 'QA');
+	t.is(
+		parseBdIssuePrefix(
+			'{"schema_version":1,"data":{"key":"issue_prefix","value":"QA"}}\n',
+		),
+		'QA',
+	);
+	t.is(parseBdIssuePrefix('{"key":"issue_prefix","value":"  "}'), undefined);
 });
 
 test('readBeadsIssuePrefix asks bd only in a beads repo', t => {
