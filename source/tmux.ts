@@ -555,7 +555,6 @@ async function getViewerClientTty(
 ): Promise<string> {
 	const deadline = Date.now() + (wait ? CLIENT_TTY_WAIT_MS : 0);
 	for (;;) {
-		// eslint-disable-next-line no-await-in-loop
 		const output = await run([
 			'display-message',
 			'-p',
@@ -565,7 +564,6 @@ async function getViewerClientTty(
 		]);
 		const tty = output.trim();
 		if (tty || Date.now() >= deadline) return tty;
-		// eslint-disable-next-line no-await-in-loop
 		await new Promise(resolve => {
 			setTimeout(resolve, 25);
 		});
