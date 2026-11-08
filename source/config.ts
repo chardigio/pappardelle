@@ -994,6 +994,10 @@ export function deprecationWarnings(
 			({key, value}) =>
 				`${file}: ${key} "${value}" includes the skill prefix — write "${value.slice(1)}"; the agent profile's skill_prefix is added at launch`,
 		),
+		...findTrailingPromptFlags(layer).map(
+			({name, field, flag}) =>
+				`${file}: agent_profiles.${name}.${field} ends with ${flag}, which the built-in prompt_args now adds — remove it`,
+		),
 	];
 }
 
@@ -1021,11 +1025,35 @@ export function findPrefixedInitializationCommands(
 	);
 }
 
+/**
+ * Every agent profile a raw layer defines whose model_args or effort_args
+ * still ends with the prompt flag its built-in prompt_args adds (see
+ * builtinPromptFlag).
+ */
+export function findTrailingPromptFlags(
+	layer: Record<string, unknown>,
+): Array<{name: string; field: 'model_args' | 'effort_args'; flag: string}> {
+	const profiles = layer['agent_profiles'];
+	if (!profiles || typeof profiles !== 'object') return [];
+	return Object.entries(profiles as Record<string, unknown>).flatMap(
+		([name, value]) => {
+			const definition = value as Partial<AgentProfileConfig> | null;
+			if (typeof definition?.command !== 'string') return [];
+			const flag = builtinPromptFlag(definition as AgentProfileConfig);
+			if (!flag) return [];
+			return (['model_args', 'effort_args'] as const)
+				.filter(field => definition[field]?.trimEnd().endsWith(` ${flag}`))
+				.map(field => ({name, field, flag}));
+		},
+	);
+}
+
 /** Whether a raw layer still uses a format the config rewrite replaces. */
 export function needsConfigRewrite(layer: Record<string, unknown>): boolean {
 	return (
 		findDeprecatedClaudeFields(layer).length > 0 ||
-		findPrefixedInitializationCommands(layer).length > 0
+		findPrefixedInitializationCommands(layer).length > 0 ||
+		findTrailingPromptFlags(layer).length > 0
 	);
 }
 
@@ -2745,7 +2773,7 @@ const PROMPT_PLACEHOLDER = '{prompt}';
  * `is_claude: false` doesn't. String inspection only, so
  * resolve-agent-config.sh applies the same rule.
  */
-function builtinAgentDefaults(
+export function builtinAgentDefaults(
 	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
 ): BuiltinAgentDefaults {
 	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
@@ -2753,6 +2781,23 @@ function builtinAgentDefaults(
 	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
 		? BUILTIN_AGENTS[name]!
 		: {};
+}
+
+/**
+ * Before prompt_args, agy profiles ended model_args with `-i` so the bare
+ * prompt after it went to that flag. With the built-in `-i {prompt}` that
+ * flag now comes twice, and on resume it takes `--conversation` as the
+ * prompt. The flag, for a profile that gets a built-in `<flag> {prompt}`.
+ */
+export function builtinPromptFlag(
+	definition: Pick<AgentProfileConfig, 'command' | 'is_claude' | 'prompt_args'>,
+): string | undefined {
+	if (definition.prompt_args !== undefined) return undefined;
+	const [before, after] = (
+		builtinAgentDefaults(definition).prompt_args ?? ''
+	).split(PROMPT_PLACEHOLDER);
+	const flag = before?.trim();
+	return after === '' && flag ? flag : undefined;
 }
 
 /**
