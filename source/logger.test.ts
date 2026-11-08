@@ -18,7 +18,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
 import {
 	createLogSink,
 	type LogEntry,
@@ -580,8 +580,11 @@ test('log sink never prunes the file it has open', async t => {
 // Exit paths
 // ============================================================================
 
-function runChild(script: string) {
+function runChild(t: ExecutionContext, script: string) {
 	const home = mkdtempSync(path.join(tmpdir(), 'pappardelle-home-'));
+	t.teardown(() => {
+		rmSync(home, {recursive: true, force: true});
+	});
 	const loggerUrl = pathToFileURL(path.resolve('source/logger.ts')).href;
 	const child = spawnSync(
 		process.execPath,
@@ -602,12 +605,14 @@ ${script}`,
 	return {
 		status: child.status,
 		signal: child.signal,
+		text,
 		lines: text.match(/\[child\] \S+/g) ?? [],
 	};
 }
 
 test('lines logged right before process.exit land in the file', t => {
 	const {status, lines} = runChild(
+		t,
 		`for (let i = 0; i < 50; i++) log.info('line-' + i);
 process.exit(3);`,
 	);
@@ -620,6 +625,7 @@ process.exit(3);`,
 
 test('a line logged right before an uncaught crash lands in the file', t => {
 	const {status, lines} = runChild(
+		t,
 		`log.error('before-crash');
 setTimeout(() => { throw new Error('boom'); }, 0);`,
 	);
@@ -629,6 +635,7 @@ setTimeout(() => { throw new Error('boom'); }, 0);`,
 
 test('a line logged by a later exit handler still lands in the file', t => {
 	const {lines} = runChild(
+		t,
 		`log.info('before-exit');
 process.on('exit', () => {
 	for (let i = 0; i < 500; i++) log.error('during-exit-' + i);
@@ -642,6 +649,7 @@ process.on('exit', () => {
 
 test('lines buffered when a signal kills the process land in the file', t => {
 	const {signal, lines} = runChild(
+		t,
 		`setInterval(() => {}, 1000);
 for (let i = 0; i < 5000; i++) log.info('line-' + i + ' ' + 'x'.repeat(40));
 process.kill(process.pid, 'SIGTERM');`,
@@ -651,23 +659,11 @@ process.kill(process.pid, 'SIGTERM');`,
 });
 
 test('a process that exits past the queue cap still records how many lines it dropped', t => {
-	const home = mkdtempSync(path.join(tmpdir(), 'pappardelle-home-'));
-	const loggerUrl = pathToFileURL(path.resolve('source/logger.ts')).href;
-	spawnSync(
-		process.execPath,
-		[
-			'-e',
-			`const {createLogger} = await import(${JSON.stringify(loggerUrl)});
-const log = createLogger('child');
-for (let i = 0; i < 100000; i++) log.info('line-' + i + ' ' + 'x'.repeat(60));
+	const {text} = runChild(
+		t,
+		`for (let i = 0; i < 100000; i++) log.info('line-' + i + ' ' + 'x'.repeat(60));
 process.exit(0);`,
-		],
-		{env: {...process.env, HOME: home}},
 	);
-	const logDir = path.join(home, '.pappardelle', 'logs');
-	const text = readdirSync(logDir)
-		.map(file => readFileSync(path.join(logDir, file), 'utf8'))
-		.join('');
 	const kept = text.match(/\[child\] line-/g)?.length ?? 0;
 	const dropped = Number(/dropped (\d+) messages/.exec(text)?.[1]);
 	t.true(kept > 0);
