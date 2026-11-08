@@ -1,4 +1,4 @@
-import {useKeyboard, usePaste, useTerminalDimensions} from '@opentui/react';
+import {useKeyboard, usePaste} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {Fragment, useState, useMemo, useRef} from 'react';
@@ -6,7 +6,6 @@ import {Fragment, useState, useMemo, useRef} from 'react';
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
-import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {
@@ -73,12 +72,10 @@ interface Props {
 		config: PappardelleConfig | null,
 	) => string | undefined;
 	/**
-	 * Columns available to the dialog. Callers inside tmux should pass the pane
-	 * width; `stdout.columns` can be a full terminal-width stale value right
-	 * after a split, which would run the hand-drawn top border past the pane
-	 * edge and wrap it onto its own line.
+	 * Columns available to the dialog, which ready-work rows truncate their
+	 * titles to. The frames themselves stretch to the pane.
 	 */
-	availableWidth?: number;
+	availableWidth: number;
 	/** Rows available to the dialog, which drops to a compact layout to fit. */
 	availableHeight?: number;
 	/** The agent profile popup is a tmux popup, so the override needs tmux. */
@@ -133,9 +130,6 @@ export default function PromptDialog({
 			return null;
 		}
 	}, []);
-
-	const {width: terminalWidth} = useTerminalDimensions();
-	const width = dialogWidth(availableWidth, terminalWidth);
 
 	const skills = useSkillSnapshot();
 
@@ -518,7 +512,6 @@ export default function PromptDialog({
 				titleColor="greenBright"
 				borderStyle={promptFrame.borderStyle}
 				isDim={promptFrame.isDim}
-				width={width}
 				paddingY={layout.paddingY}
 			>
 				<box
@@ -595,7 +588,7 @@ export default function PromptDialog({
 
 			<ReadyWorkList
 				ready={ready}
-				width={width}
+				width={availableWidth}
 				isFocused={!isPicking && ready.index >= 0}
 				hasHints={!isPicking}
 				maxVisible={layout.readyMaxVisible}
@@ -604,7 +597,6 @@ export default function PromptDialog({
 				<SkillPicker
 					entries={completions}
 					selectedIndex={activeCompletion}
-					width={width}
 					frame={focusFrame(isSkillFocused)}
 					isFocused={isSkillFocused}
 					maxVisible={layout.pickerMaxVisible}
@@ -615,7 +607,6 @@ export default function PromptDialog({
 					query={isPicking ? pickerState.query : null}
 					agentOverrides={agentOverrides}
 					selectedIndex={activeIndex}
-					width={width}
 					frame={pickerFrame}
 					isFocused={isPicking}
 					deferredLabel={deferredLabel}
@@ -632,7 +623,6 @@ function ProfilePicker({
 	query,
 	agentOverrides,
 	selectedIndex,
-	width,
 	frame,
 	isFocused,
 	deferredLabel,
@@ -644,7 +634,6 @@ function ProfilePicker({
 	query: string | null;
 	agentOverrides: Record<string, string>;
 	selectedIndex: number;
-	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
 	/**
@@ -674,7 +663,6 @@ function ProfilePicker({
 				titleColor="greenBright"
 				borderStyle={frame.borderStyle}
 				isDim={frame.isDim}
-				width={width}
 				paddingY={0}
 			>
 				{deferredLabel ? (
@@ -828,14 +816,12 @@ function ProfilePicker({
 function SkillPicker({
 	entries,
 	selectedIndex,
-	width,
 	frame,
 	isFocused,
 	maxVisible,
 }: {
 	entries: SkillEntry[];
 	selectedIndex: number;
-	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
 	maxVisible: number;
@@ -854,7 +840,6 @@ function SkillPicker({
 				titleColor="cyanBright"
 				borderStyle={frame.borderStyle}
 				isDim={frame.isDim}
-				width={width}
 				paddingY={0}
 			>
 				{above > 0 && <text {...dimText()}>↑ {above} more</text>}

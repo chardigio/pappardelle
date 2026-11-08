@@ -174,6 +174,7 @@ export function ReadyWorkList({
 	maxVisible = READY_MAX_VISIBLE,
 }: {
 	ready: ReadyWork;
+	/** Columns the list spans, which rows truncate their titles to. */
 	width: number;
 	/** Whether the cursor is in this list, which owns the heavy outline. */
 	isFocused: boolean;
@@ -208,7 +209,6 @@ export function ReadyWorkList({
 				titleColor="greenBright"
 				borderStyle={frame.borderStyle}
 				isDim={frame.isDim}
-				width={width}
 				paddingY={0}
 			>
 				{window.start > 0 && <text {...dimText()}>↑ {window.start} more</text>}

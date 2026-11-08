@@ -8,7 +8,6 @@ const box = (borderStyle: 'double' | 'round') =>
 		TitledBox,
 		{
 			title: 'Profile',
-			width: 40,
 			borderColor: 'cyan',
 			titleColor: 'yellow',
 			borderStyle,

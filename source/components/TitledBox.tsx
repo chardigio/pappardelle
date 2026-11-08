@@ -15,7 +15,6 @@ export default function TitledBox({
 	borderColor,
 	titleColor,
 	borderStyle = 'double',
-	width,
 	paddingY = 1,
 	isDim = false,
 	children,
@@ -24,7 +23,6 @@ export default function TitledBox({
 	borderColor: string;
 	titleColor: string;
 	borderStyle?: 'double' | 'round';
-	width: number;
 	paddingY?: number;
 	isDim?: boolean;
 	children: ReactNode;
@@ -40,7 +38,7 @@ export default function TitledBox({
 	return (
 		<box
 			flexDirection="column"
-			width={width}
+			width="100%"
 			border
 			borderStyle={style}
 			borderColor={terminalColor(borderColor)}

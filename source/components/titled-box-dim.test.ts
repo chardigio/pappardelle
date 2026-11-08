@@ -11,7 +11,6 @@ async function topEdge(isDim: boolean) {
 			TitledBox,
 			{
 				title: 'Profile',
-				width: 24,
 				borderColor: 'green',
 				titleColor: 'greenBright',
 				borderStyle: isDim ? 'round' : 'double',
