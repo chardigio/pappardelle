@@ -3,10 +3,8 @@ import {execFileSync} from 'node:child_process';
 import {mkdtemp, mkdir, rm, symlink} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-	discoverWorkspaceRepositories,
-	remoteProject,
-} from './providers/workspace-repositories.ts';
+import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
+import {remoteProject} from './git-remotes.ts';
 
 test('parses GitLab remotes including subgroups and rejects other hosts', t => {
 	for (const remote of [

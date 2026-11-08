@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {getSpaceStatePath, readSpaceState} from './space-state.ts';
+import {remoteProjects, remoteUrlsArgs} from './git-remotes.ts';
 
 const exec = promisify(execFile);
 export type LinkExecutor = (
@@ -118,15 +119,13 @@ export async function linkPr(
 		!remoteBranch
 	)
 		throw new Error('Missing source repository or branch in PR/MR response');
-	const origin = await run('git', ['remote', 'get-url', 'origin'], directory);
-	const originHost = origin.includes('://')
-		? new URL(origin).hostname
-		: /^(?:[^@/:]+@)?([^/:]+):/.exec(origin)?.[1];
-	const originPath = origin
-		.replace(/^.*?:\/\/(?:[^@/]+@)?[^/]+\//, '')
-		.replace(/^[^/]+:/, '')
-		.replace(/\.git$/, '');
-	if (originHost !== host || originPath !== project)
+	// The branch may be published to a fork that is a second remote beside an
+	// upstream origin, so any remote can be the PR's head repository.
+	const remotes = remoteProjects(
+		await run('git', remoteUrlsArgs, directory),
+		host,
+	);
+	if (![...remotes.values()].includes(project))
 		throw new Error(
 			`Run link-pr from the source repository (${url.host}/${project})`,
 		);
