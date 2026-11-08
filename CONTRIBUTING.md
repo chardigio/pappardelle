@@ -54,6 +54,10 @@ pytest hooks/ -v
 - Prettier handles formatting (see `.prettierignore`)
 - Keep changes focused — one logical change per PR
 
+## Adding a built-in agent
+
+`scripts/builtin-agents.json` holds the defaults each known agent CLI gets (model, effort and prompt flag templates, resume args, skill prefix), keyed by the command's basename, except that the claude entry follows Claude gating (`is_claude`). Both the TUI (`source/builtin-agents.ts`) and `idow` (`scripts/resolve-agent-config.sh`) read it, so supporting a new CLI is one entry there. If the CLI has hooks, `hooks/record-agent-session.py` can record its session id for `{session_id}`; see the agy and codex installers in `hooks/`.
+
 ## Questions?
 
 Open an issue if you have questions or want to discuss a change before implementing it.

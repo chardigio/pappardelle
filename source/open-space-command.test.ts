@@ -22,6 +22,10 @@ function fixture(t: ExecutionContext, provider = 'jira') {
 	fs.mkdirSync(repo);
 	fs.mkdirSync(home);
 	fs.mkdirSync(path.join(install, 'scripts'), {recursive: true});
+	fs.copyFileSync(
+		path.join(projectRoot, 'scripts', 'builtin-agents.json'),
+		path.join(install, 'scripts', 'builtin-agents.json'),
+	);
 	const directory = useBuiltCli ? 'dist' : 'source';
 	fs.cpSync(path.join(projectRoot, directory), path.join(install, directory), {
 		recursive: true,

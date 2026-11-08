@@ -390,6 +390,7 @@ if [[ -d "$HOOKS_SRC" ]]; then
     fi
 
     "$HOOKS_SRC/install-codex-hooks.sh"
+    "$HOOKS_SRC/install-agy-hooks.sh"
 else
     print_warning "Hooks directory not found at $HOOKS_SRC"
 fi

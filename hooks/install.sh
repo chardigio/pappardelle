@@ -51,6 +51,7 @@ fi
 
 echo ""
 "$SCRIPT_DIR/install-codex-hooks.sh"
+"$SCRIPT_DIR/install-agy-hooks.sh"
 
 # Create status and metadata directories
 mkdir -p "$HOME/.pappardelle/claude-status"

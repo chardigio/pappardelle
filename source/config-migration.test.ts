@@ -670,3 +670,109 @@ test('a partial fix clears the warnings for the keys that are gone', t => {
 	t.true(isWarning('model'));
 	t.false(isWarning('effort'));
 });
+
+// The agy workaround from before prompt_args, in a dotfiles-style file.
+const AGY_WORKAROUND = `version: 1
+agent_profiles:
+  # Prompt goes in through -i
+  'argon:medium': {command: agy, model: gemini-4-argon-medium, model_args: '--model {model} -i'}
+  'codex:medium': {command: codex, model: gpt-6, effort: medium, model_args: '-m {model}', resume_args: 'resume {session_id}'}
+  aider: {command: aider, model: sonnet, model_args: '--model {model}'}
+profiles: {}
+`;
+
+test('agy profiles lose the -i workaround and built-in agents their default fields', t => {
+	const paths = setup(AGY_WORKAROUND);
+
+	const migrations = migrate(paths);
+
+	t.true(migrations[0]!.removesBuiltinDefaults);
+	t.is(
+		fs.readFileSync(migrations[0]!.path, 'utf8'),
+		`version: 1
+agent_profiles:
+  # Prompt goes in through -i
+  'argon:medium': {command: agy, model: gemini-4-argon-medium}
+  'codex:medium': {command: codex, model: gpt-6, effort: medium}
+  aider: {command: aider, model: sonnet, model_args: '--model {model}'}
+profiles: {}
+`,
+	);
+	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+});
+
+test('the -i workaround is offered with a warning naming the field', t => {
+	const paths = setup(AGY_WORKAROUND);
+	loadConfigFromPaths(paths);
+
+	t.true(
+		getRecentErrors().some(({message}) =>
+			message.includes(
+				'agent_profiles.argon:medium.model_args ends with -i, which the built-in prompt_args now adds',
+			),
+		),
+	);
+	t.like(buildConfigMigrationConfirmContent(readyMigrations(paths)), {
+		detail:
+			'Rewrites ' +
+			readyMigrations(paths)[0]!.displayPath +
+			', keeping comments and formatting. Agent profile fields that codex, agy and claude now get built in are removed, along with the -i at the end of an agy model_args.',
+	});
+});
+
+test('fields that only repeat a built-in default never prompt a rewrite on their own', t => {
+	const paths = setup({
+		version: 1,
+		agent_profiles: {
+			codex: {command: 'codex', resume_args: 'resume {session_id}'},
+		},
+		profiles: {},
+	});
+
+	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+});
+
+test('a default-valued field stays when a lower file sets it differently', t => {
+	const paths = setup(
+		{
+			version: 1,
+			agent_profiles: {codex: {command: 'codex', resume_args: ''}},
+			profiles: {},
+		},
+		{
+			version: 1,
+			agent_profiles: {
+				codex: {resume_args: 'resume {session_id}'},
+				argon: {command: 'agy', model_args: '--model {model} -i'},
+			},
+			profiles: {},
+		},
+	);
+
+	migrate(paths);
+
+	const after = loadConfigFromPaths(paths);
+	t.is(after.agent_profiles?.['codex']?.resume_args, 'resume {session_id}');
+	t.is(after.agent_profiles?.['argon']?.model_args, undefined);
+});
+
+test('a default-valued field stays when a higher file changes the command', t => {
+	const paths = setup(
+		{
+			version: 1,
+			agent_profiles: {
+				x: {command: 'codex', model: 'm', model_args: '-m {model}'},
+				argon: {command: 'agy', model_args: '--model {model} -i'},
+			},
+			profiles: {},
+		},
+		{version: 1, agent_profiles: {x: {command: 'aider'}}, profiles: {}},
+	);
+
+	migrate(paths);
+
+	t.is(
+		loadConfigFromPaths(paths).agent_profiles?.['x']?.model_args,
+		'-m {model}',
+	);
+});

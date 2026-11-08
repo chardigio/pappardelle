@@ -479,3 +479,22 @@ test('buildAgentResumeCommand: shell-quotes each extra arg', t => {
 	});
 	t.true(cmd.includes(`--mcp-config '{"mcpServers": {}}' --name QA-1`));
 });
+
+// agy refuses a bare prompt, so its relaunch must not end in a prompt flag that
+// would swallow the next argument or exit with "flag needs an argument".
+test('buildAgentResumeCommand: a minimal agy profile relaunches without a prompt flag', t => {
+	const agentProfile = getAgentProfile(
+		makeConfig({
+			agent_profiles: {argon: {command: 'agy', model: 'gemini-4-argon-medium'}},
+			agent_profile: 'argon',
+		}),
+	);
+	t.is(
+		buildAgentResumeCommand('STA-1', false, agentProfile),
+		'agy --model gemini-4-argon-medium',
+	);
+	t.is(
+		buildAgentResumeCommand('STA-1', false, agentProfile, 'conv-1'),
+		"agy --model gemini-4-argon-medium --conversation conv-1 || { printf '\\033[A\\033[2K'; false; } || agy --model gemini-4-argon-medium",
+	);
+});

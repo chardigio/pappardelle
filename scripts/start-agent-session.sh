@@ -2,7 +2,7 @@
 
 # start-agent-session.sh - Ensure agent and companion tmux sessions exist for an issue
 #
-# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # Creates detached tmux sessions (repo-qualified):
 #   agent-<REPO>-<KEY>      — runs the configured agent (default: Claude Code)
@@ -14,6 +14,12 @@
 # --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
 # --no-agent: create sessions but don't launch the agent/companion command (for testing)
+# --no-prompt: launch the agent without a prompt (idow's resume mode), so a
+#              fresh launch after a failed or skipped resume starts idle.
+#              Without it the prompt is "<init-cmd> <KEY>", or the key alone.
+# --agent-prompt-args: how the prompt reaches the agent, with {prompt} standing
+#                     in for it once (agy's "-i {prompt}"). Empty means the
+#                     prompt is the last bare argument.
 # --skip-permissions: pass --dangerously-skip-permissions to claude (claude agents only)
 # --agent-launch-flags: the agent profile's model/effort flags, then (claude
 #                     only) the deprecated claude.extra_args, already
@@ -61,6 +67,8 @@ AGENT_COMMAND=""
 AGENT_ARGS=""
 AGENT_RESUME_ARGS=""
 AGENT_RESUME_ARGS_SET=false
+AGENT_PROMPT_ARGS=""
+NO_PROMPT=false
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE="claude"
@@ -115,6 +123,14 @@ while [[ $# -gt 0 ]]; do
         --agent-profile)
             AGENT_PROFILE="$2"
             shift 2
+            ;;
+        --agent-prompt-args)
+            AGENT_PROMPT_ARGS="$2"
+            shift 2
+            ;;
+        --no-prompt)
+            NO_PROMPT=true
+            shift
             ;;
         --agent-launch-flags)
             PROFILE_LAUNCH_FLAGS="$2"
@@ -309,20 +325,30 @@ if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$AGENT_SESSION:" 2>/dev/null
             AGENT_CMD="${AGENT_CMD} --name $(printf '%q' "$ISSUE_KEY")"
         fi
 
-        if [[ -n "$INIT_CMD" ]]; then
-            AGENT_ARG="${INIT_CMD} ${ISSUE_KEY}"
-        else
-            AGENT_ARG="${ISSUE_KEY}"
+        # The prompt template is split around {prompt} rather than
+        # substituted with ${//}: bash 5.2 expands & in a replacement, and
+        # quoting the replacement behaves differently in bash 3.2.
+        PROMPT_WORDS=""
+        if [[ "$NO_PROMPT" != true ]]; then
+            if [[ -n "$INIT_CMD" ]]; then
+                AGENT_ARG="${INIT_CMD} ${ISSUE_KEY}"
+            else
+                AGENT_ARG="${ISSUE_KEY}"
+            fi
+            PROMPT_WORDS=$(printf '%q' "$AGENT_ARG")
+            if [[ -n "$AGENT_PROMPT_ARGS" ]]; then
+                PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}${PROMPT_WORDS}${AGENT_PROMPT_ARGS#*\{prompt\}}"
+            fi
         fi
-        SAFE_ARG=$(printf '%q' "$AGENT_ARG")
+        LAUNCH_CMD="${AGENT_CMD}${PROMPT_WORDS:+ $PROMPT_WORDS}"
         if [[ -n "$AGENT_RESUME_ARGS" ]]; then
             RESUME_CMD="${AGENT_CMD} ${AGENT_RESUME_ARGS}"
             if [[ -n "$INIT_CMD" ]]; then
-                RESUME_CMD="${RESUME_CMD} ${SAFE_ARG}"
+                RESUME_CMD="${RESUME_CMD}${PROMPT_WORDS:+ $PROMPT_WORDS}"
             fi
-            new_launch_session "$AGENT_SESSION" "${RESUME_CMD} || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD} ${SAFE_ARG}" "${AGENT_SESSION_ENV[@]}"
+            new_launch_session "$AGENT_SESSION" "${RESUME_CMD} || { printf '\\033[A\\033[2K'; false; } || ${LAUNCH_CMD}" "${AGENT_SESSION_ENV[@]}"
         else
-            new_launch_session "$AGENT_SESSION" "${AGENT_CMD} ${SAFE_ARG}" "${AGENT_SESSION_ENV[@]}"
+            new_launch_session "$AGENT_SESSION" "${LAUNCH_CMD}" "${AGENT_SESSION_ENV[@]}"
         fi
     fi
 fi

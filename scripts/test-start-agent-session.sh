@@ -924,6 +924,100 @@ tmux -L "$SHIM_SOCKET16" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
+# Each run of a shim agent logs its argv as one line; a run whose args hold
+# RESUME_FAIL exits 1, so the chain falls through to the fresh launch.
+make_argv_shim() {
+    local name="$1" log="$2"
+    cat > "$SHIM_DIR/$name" <<SHIM
+#!/bin/bash
+[[ \$# -gt 0 ]] && printf '<%s>' "\$@" >> "$log"
+printf '\n' >> "$log"
+[[ "\$*" == *RESUME_FAIL* ]] && exit 1
+exit 0
+SHIM
+    chmod +x "$SHIM_DIR/$name"
+}
+
+wait_for_lines() {
+    local file="$1" count="$2"
+    for _ in $(seq 1 150); do
+        [[ -f "$file" && $(wc -l < "$file") -ge "$count" ]] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# agy refuses a bare prompt; --agent-prompt-args puts it behind -i on both
+# sides of the chain, after the resume args, as one word whatever it holds.
+echo -e "\n${BOLD}Test: --agent-prompt-args wraps the prompt on both sides of the chain${RESET}"
+ISSUE_KEY_PA="${TEST_PREFIX}-1800"
+WORKTREE_PATH_PA="$TMPDIR_ROOT/worktree-prompt-args"
+ARGV_LOG_PA="$TMPDIR_ROOT/agy-argv-prompt-args.log"
+mkdir -p "$WORKTREE_PATH_PA"
+make_argv_shim agy "$ARGV_LOG_PA"
+SHIM_SOCKET_PA="pappardelle_inner_shim_pa_$$"
+PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_PA" \
+    "$SCRIPT_DIR/start-agent-session.sh" \
+    --issue-key "$ISSUE_KEY_PA" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH_PA" \
+    --init-cmd "/it's & \$HOME" \
+    --agent-command agy --agent-is-claude false --agent-launch-flags "--model m1" \
+    --agent-resume-args "--conversation RESUME_FAIL" --agent-prompt-args "-i {prompt}" \
+    2>/dev/null
+wait_for_lines "$ARGV_LOG_PA" 2 || true
+assert_eq "resume attempt: resume args, then -i and the prompt" \
+    "<--model><m1><--conversation><RESUME_FAIL><-i></it's & \$HOME $ISSUE_KEY_PA>" \
+    "$(sed -n 1p "$ARGV_LOG_PA" 2>/dev/null)"
+assert_eq "fresh launch: -i and the prompt" \
+    "<--model><m1><-i></it's & \$HOME $ISSUE_KEY_PA>" \
+    "$(sed -n 2p "$ARGV_LOG_PA" 2>/dev/null)"
+tmux -L "$SHIM_SOCKET_PA" kill-server 2>/dev/null || true
+
+echo -e "\n${BOLD}Test: --agent-prompt-args with no init command wraps the issue key${RESET}"
+ISSUE_KEY_PK="${TEST_PREFIX}-1810"
+WORKTREE_PATH_PK="$TMPDIR_ROOT/worktree-prompt-key"
+ARGV_LOG_PK="$TMPDIR_ROOT/agy-argv-prompt-key.log"
+mkdir -p "$WORKTREE_PATH_PK"
+make_argv_shim agy "$ARGV_LOG_PK"
+SHIM_SOCKET_PK="pappardelle_inner_shim_pk_$$"
+PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_PK" \
+    "$SCRIPT_DIR/start-agent-session.sh" \
+    --issue-key "$ISSUE_KEY_PK" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH_PK" \
+    --agent-command agy --agent-is-claude false --agent-prompt-args "-i {prompt}" \
+    2>/dev/null
+wait_for_lines "$ARGV_LOG_PK" 1 || true
+assert_eq "the key goes behind -i" "<-i><$ISSUE_KEY_PK>" "$(sed -n 1p "$ARGV_LOG_PK" 2>/dev/null)"
+tmux -L "$SHIM_SOCKET_PK" kill-server 2>/dev/null || true
+
+# idow's resume mode: when the resume fails, the agent starts idle rather than
+# being handed the issue key, for every kind of agent.
+NP_INDEX=0
+for np_case in "claude|true|--resume RESUME_FAIL|" "codex|false|resume RESUME_FAIL|" "agy|false|--conversation RESUME_FAIL|-i {prompt}"; do
+    IFS='|' read -r np_agent np_is_claude np_resume np_prompt_args <<< "$np_case"
+    NP_INDEX=$((NP_INDEX + 1))
+    echo -e "\n${BOLD}Test: --no-prompt launches $np_agent without a prompt after a failed resume${RESET}"
+    np_key="${TEST_PREFIX}-19${NP_INDEX}0"
+    np_worktree="$TMPDIR_ROOT/worktree-no-prompt-$np_agent"
+    np_log="$TMPDIR_ROOT/$np_agent-argv-no-prompt.log"
+    np_socket="pappardelle_inner_shim_np${NP_INDEX}_$$"
+    mkdir -p "$np_worktree"
+    make_argv_shim "$np_agent" "$np_log"
+    np_args=(--issue-key "$np_key" --repo-name "$TEST_REPO" --worktree "$np_worktree" --no-prompt
+        --agent-command "$np_agent" --agent-is-claude "$np_is_claude" --agent-resume-args "$np_resume")
+    [[ -n "$np_prompt_args" ]] && np_args+=(--agent-prompt-args "$np_prompt_args")
+    PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_CLAUDE_CONFIG_PATH="$TMPDIR_ROOT/claude-np.json" \
+        PAPPARDELLE_TMUX_SOCKET="$np_socket" "$SCRIPT_DIR/start-agent-session.sh" "${np_args[@]}" 2>/dev/null
+    wait_for_lines "$np_log" 2 || true
+    np_name=""
+    [[ "$np_is_claude" == true ]] && np_name="<--name><$np_key>"
+    np_resume_words=""
+    for word in $np_resume; do np_resume_words+="<$word>"; done
+    assert_eq "$np_agent resume attempt has no prompt" "$np_name$np_resume_words" "$(sed -n 1p "$np_log" 2>/dev/null)"
+    assert_eq "$np_agent fresh launch has no prompt" "$np_name" "$(sed -n 2p "$np_log" 2>/dev/null)"
+    tmux -L "$np_socket" kill-server 2>/dev/null || true
+done
+
+# ==========================================================================
+
 rm -rf "$TMPDIR_ROOT"
 
 echo ""

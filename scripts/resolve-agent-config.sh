@@ -40,22 +40,26 @@
 #
 # The agent_profile reference (profiles.<name>.agent_profile // .agent_profile
 # // "claude") is flattened to its name and resolved definition: agent_profile,
-# agent_command, agent_args, agent_resume_args, agent_is_claude. The built-in
-# claude agent profile (command "claude", resume "--resume {session_id}") backs
-# the name "claude" unless agent_profiles.claude shadows it. agent_is_claude honors an explicit is_claude field, else
-# basename-of-first-token == "claude" — same predicate as getAgentProfile().
-# agent_resume_args comes back with {session_id} unfilled; idow fills it from
-# the space's agent-sessions file.
-# agent_skill_prefix is what goes before a skill name: the agent profile's
-# skill_prefix, else "$" for codex and "/" for anything else, same as
-# getAgentProfile().
+# agent_command, agent_args, agent_resume_args, agent_prompt_args,
+# agent_is_claude. The built-in claude agent profile (command "claude") backs
+# the name "claude" unless agent_profiles.claude shadows it. agent_is_claude
+# honors an explicit is_claude field, else basename-of-first-token == "claude"
+# — same predicate as getAgentProfile().
+#
+# Fields a profile leaves unset come from builtin-agents.json, beside this
+# script: the claude entry when the profile gates as claude, else the entry
+# named by the command's basename (never claude), same as
+# builtinAgentDefaults() in source/config.ts. agent_resume_args comes back with
+# {session_id} unfilled; idow fills it from the space's agent-sessions file.
+# agent_prompt_args is the template the launch prompt goes through, or empty
+# for a bare prompt. agent_skill_prefix is what goes before a skill name, "/"
+# when nothing sets it.
 #
 # model and effort are the agent profile's own values, else (claude agent
 # profiles only) the deprecated claude.model / claude.effort. They are rendered
-# into agent_launch_flags through the agent profile's model_args / effort_args,
-# or the built-in templates for claude (--model {model}, --effort {effort}) and
-# codex (-m {model}, -c model_reasoning_effort={effort}), quoting values the way
-# renderAgentLaunchFlags() does so TUI and idow launch lines match. Claude agent
+# into agent_launch_flags through the agent profile's model_args / effort_args
+# or the built-in ones, quoting values the way renderAgentLaunchFlags() does so
+# TUI and idow launch lines match. Claude agent
 # profiles then get the deprecated claude.extra_args, profile list over
 # top-level list, one quoted word each.
 #
@@ -73,7 +77,8 @@
 #    "skip_permissions": "true|false", "model": "...", "effort": "...",
 #    "companion_command": "...",
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
-#    "agent_resume_args": "...", "agent_is_claude": "true|false",
+#    "agent_resume_args": "...", "agent_prompt_args": "...",
+#    "agent_is_claude": "true|false",
 #    "agent_launch_flags": "...", "deprecation_warnings": "...",
 #    "profile_deprecation_warnings": "..."}
 
@@ -159,7 +164,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ((.agent_profiles // {}) | keys) as $agent_profile_names |
     (.profiles[strenv(PROFILE)] // {}) as $selected |
     ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
-    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "skill_prefix"] as $fields |
+    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "prompt_args", "skill_prefix"] as $fields |
     {
         "initialization_command": .initialization_command,
         "claude": {
@@ -181,7 +186,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         },
         "agent_profile_names": $agent_profile_names
     }
-' | jq '
+' | jq --slurpfile builtin_agents "$(dirname "${BASH_SOURCE[0]}")/builtin-agents.json" '
     def quote_value: if test("^[A-Za-z0-9._-]+$") then . else @sh end;
     def render($template; $placeholder; $value):
         if $value == "" or $template == "" then empty
@@ -211,9 +216,12 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     (if ($def_resolved.is_claude | type) == "boolean" then $def_resolved.is_claude
      else ($def_resolved.command | basename) == "claude"
      end) as $is_claude |
-    (if $is_claude then {model: "--model {model}", effort: "--effort {effort}"}
-     elif ($def_resolved.command | basename) == "codex" then {model: "-m {model}", effort: "-c model_reasoning_effort={effort}"}
-     else {} end) as $builtin |
+    (if $is_claude then $builtin_agents[0].claude
+     else ($def_resolved.command | basename) as $name
+          | if $name == "claude" then {} else ($builtin_agents[0][$name] // {}) end
+     end) as $builtin_agent |
+    ({model: $builtin_agent.model_args, effort: $builtin_agent.effort_args}
+     | with_entries(select(.value != null))) as $builtin |
     ([("model", "effort") as $f | {
         key: $f,
         value: {
@@ -234,6 +242,8 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         elif $l.value != "" and ($l.template_set | not) then
             "agent_profiles.\($agent_profile).\($f): \"\($def_resolved.command)\" has no built-in \($f) flag; set \($f)_args"
         else empty end
+    ] + [$def_resolved | select(has("prompt_args") and (.prompt_args | split("{prompt}") | length) != 2)
+        | "agent_profiles.\($agent_profile).prompt_args: must contain {prompt} exactly once"
     ] + [$def_resolved | to_entries[]
         | select((.value | type) == "string" and (.value | test("[\r\n]")))
         | "agent_profiles.\($agent_profile).\(.key): must be a single line"
@@ -250,10 +260,11 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_command: $def_resolved.command,
         agent_args: ($def_resolved.args // ""),
         agent_resume_args: (if $def_resolved | has("resume_args") then ($def_resolved.resume_args // "")
-                            elif $is_claude then "--resume {session_id}" else "" end),
+                            else ($builtin_agent.resume_args // "") end),
+        agent_prompt_args: ($def_resolved.prompt_args // $builtin_agent.prompt_args // ""),
         agent_is_claude: $is_claude,
         agent_skill_prefix: (if $def_resolved | has("skill_prefix") then ($def_resolved.skill_prefix // "")
-                             elif ($def_resolved.command | basename) == "codex" then "$" else "/" end),
+                             else ($builtin_agent.skill_prefix // "/") end),
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
