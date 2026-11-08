@@ -339,6 +339,7 @@ function ownHarness(
 	options: {
 		current?: string | null;
 		behavior?: Parameters<typeof fakeTuiTmux>[0]['behavior'];
+		gonePane?: string;
 	} = {},
 ) {
 	const h = setup(['pappardelle-app'], options.behavior, {
@@ -355,7 +356,10 @@ function ownHarness(
 			...h.deps,
 			layoutTmux(args: readonly string[]) {
 				layoutCalls.push([...args]);
-				return {status: 0, stdout: ''};
+				return {
+					status: args.includes(options.gonePane ?? '') ? 1 : 0,
+					stdout: '',
+				};
 			},
 			currentSession: () =>
 				options.current === undefined ? 'pappardelle-app' : options.current,
@@ -436,7 +440,8 @@ test("U inside the user's own tmux session closes only the viewer panes and rest
 	t.deepEqual(h.events, []);
 	t.deepEqual(h.calls, []);
 	t.deepEqual(h.layoutCalls, [
-		['kill-pane', '-t', '%4', ';', 'kill-pane', '-t', '%5'],
+		['kill-pane', '-t', '%4'],
+		['kill-pane', '-t', '%5'],
 	]);
 });
 
@@ -472,8 +477,17 @@ test("q inside the user's own tmux session closes only the viewer panes", t => {
 
 	t.deepEqual(h.events, []);
 	t.deepEqual(h.layoutCalls, [
-		['kill-pane', '-t', '%4', ';', 'kill-pane', '-t', '%5'],
+		['kill-pane', '-t', '%4'],
+		['kill-pane', '-t', '%5'],
 	]);
+});
+
+test('q still closes the companion viewer when the agent viewer was closed by hand', t => {
+	const h = ownHarness({current: 'work', gonePane: '%4'});
+
+	closeTuiLayout('app', layout, h.deps);
+
+	t.deepEqual(h.layoutCalls.at(-1), ['kill-pane', '-t', '%5']);
 });
 
 test('q in a vertical layout closes its one viewer pane', t => {

@@ -381,17 +381,11 @@ function isOwnTuiSession(
 	return session !== null && tuiSessionNames(repoName).includes(session);
 }
 
+// One call per pane: tmux skips the rest of a command list after a failure,
+// so a viewer the user already closed would keep the other one open.
 function closeViewerPanes(layout: PaneLayout, tmux: OuterTmuxRunner): void {
-	tmux(
-		[layout.agentViewerPaneId, layout.companionViewerPaneId]
-			.filter(Boolean)
-			.flatMap((paneId, index) => [
-				...(index === 0 ? [] : [';']),
-				'kill-pane',
-				'-t',
-				paneId,
-			]),
-	);
+	for (const paneId of [layout.agentViewerPaneId, layout.companionViewerPaneId])
+		if (paneId) tmux(['kill-pane', '-t', paneId]);
 }
 
 // Quitting takes the TUI's own session down with it. A TUI started inside the
