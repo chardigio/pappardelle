@@ -56,11 +56,7 @@ export default function ErrorDialog({
 			<Gap />
 
 			{errors.length === 0 ? (
-				<text
-					fg={terminalColor()}
-					flexShrink={0}
-					attributes={textAttributes({dim: true})}
-				>
+				<text {...dimText()} flexShrink={0}>
 					No errors.
 				</text>
 			) : (
@@ -86,11 +82,13 @@ export default function ErrorDialog({
 				))
 			)}
 
-			{errors.length > 0 && <Gap />}
 			{errors.length > 0 && (
-				<box flexDirection="row" flexShrink={0}>
-					<text {...dimText()}>Logs: ~/.pappardelle/logs/</text>
-				</box>
+				<>
+					<Gap />
+					<box flexDirection="row" flexShrink={0}>
+						<text {...dimText()}>Logs: ~/.pappardelle/logs/</text>
+					</box>
+				</>
 			)}
 		</box>
 	);
