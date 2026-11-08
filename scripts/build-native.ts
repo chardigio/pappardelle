@@ -26,14 +26,12 @@ export function nativeCompileOptions(outfile: string): Bun.CompileBuildOptions {
 	const {platform} = process;
 	if (platform !== 'linux' && platform !== 'darwin')
 		throw new Error(`Unsupported platform: ${platform}`);
-	const target: Bun.Build.CompileTarget =
-		process.arch === 'x64'
-			? `bun-${platform}-x64-baseline`
-			: `bun-${platform}-arm64`;
-
+	// No explicit target: the executable embeds the runtime that is building
+	// it. Bytecode only loads in the exact Bun build that produced it, so a
+	// baseline runtime under bytecode from a non-baseline Bun silently falls
+	// back to parsing every module, about 60 ms per launch.
 	return {
 		outfile,
-		target,
 		autoloadDotenv: false,
 		autoloadBunfig: false,
 		autoloadTsconfig: false,
