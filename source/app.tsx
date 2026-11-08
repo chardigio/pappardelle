@@ -1390,11 +1390,13 @@ export default function App({
 					break;
 				}
 				case 'q': {
-					// Workspace sessions stay alive; only the layout closes.
+					// Workspace sessions stay alive; only the layout closes. The
+					// renderer resets the terminal first: closing the layout can kill
+					// the session that owns this pty.
+					renderer.destroy();
 					if (paneLayout) {
 						closeTuiLayout(repoName, paneLayout, closeLayoutDeps);
 					}
-					renderer.destroy();
 
 					break;
 				}
