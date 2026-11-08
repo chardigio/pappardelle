@@ -1,7 +1,8 @@
-import {useKeyboard} from '@opentui/react';
+import {CliRenderEvents} from '@opentui/core';
+import {useKeyboard, useRenderer} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
-import {useState, type ReactNode} from 'react';
+import {useEffect, useState, type ReactNode} from 'react';
 
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 import Gap from './Gap.tsx';
@@ -67,7 +68,26 @@ export default function ConfirmDialog({
 		message: string;
 		detail?: string;
 		status: string;
+		confirm?: Props['onConfirm'];
 	} | null>(null);
+	const renderer = useRenderer();
+
+	// A frame already in flight when the spinner committed was laid out without
+	// it, so wait for one that started afterwards.
+	const confirm = processingFrame?.confirm;
+	useEffect(() => {
+		if (!confirm) return;
+		const committedAt = renderer.frameId;
+		const onFrame = ({frameId}: {frameId: number}) => {
+			if (frameId <= committedAt) return;
+			renderer.off(CliRenderEvents.FRAME, onFrame);
+			runConfirmSafely(confirm);
+		};
+		renderer.on(CliRenderEvents.FRAME, onFrame);
+		return () => {
+			renderer.off(CliRenderEvents.FRAME, onFrame);
+		};
+	}, [confirm, renderer]);
 
 	useKeyboard(event => {
 		const {input, key} = shortcutKey(event);
@@ -80,18 +100,19 @@ export default function ConfirmDialog({
 			onCancel();
 		} else if (action === 'confirm') {
 			if (processingMessage !== undefined) {
-				// Caller has opted into the loading state: enter it BEFORE
-				// running onConfirm, then defer onConfirm to the next event-
-				// loop tick so the spinner can paint first. This matters
-				// because async onConfirms (like workspace deletion) typically
-				// run a chunk of synchronous setup — execSync `git rev-parse`,
-				// reading `.pappardelle.yml`, walking profiles — *before*
-				// hitting their first await. Without the deferral, that sync
-				// prefix runs in the same JS turn as the keystroke and the
-				// spinner doesn't appear until it's already done (STA-1373).
-				setProcessingFrame({title, message, detail, status: processingMessage});
-				setImmediate(() => {
-					runConfirmSafely(onConfirm);
+				// Caller has opted into the loading state: show the spinner and
+				// run onConfirm only once a frame with it has been presented.
+				// Async onConfirms (like workspace deletion) typically run a
+				// chunk of synchronous setup — execSync `git rev-parse`, reading
+				// `.pappardelle.yml`, walking profiles — *before* their first
+				// await, and the dialog looks frozen if that runs before the
+				// spinner is on screen (STA-1373).
+				setProcessingFrame({
+					title,
+					message,
+					detail,
+					status: processingMessage,
+					confirm: onConfirm,
 				});
 				// We intentionally don't reset processingFrame — the parent
 				// owns the dialog's lifetime and unmounts us once its async
