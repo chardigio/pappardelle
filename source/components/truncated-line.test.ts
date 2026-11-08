@@ -1,8 +1,7 @@
 import test from 'ava';
 import React from 'react';
-import {setTimeout as delay} from 'node:timers/promises';
 import stringWidth from 'string-width';
-import {render} from '../../test/helpers/render.ts';
+import {render, until} from '../../test/helpers/render.ts';
 import HelpOverlay from './HelpOverlay.tsx';
 import TruncatedLine from './TruncatedLine.tsx';
 
@@ -20,12 +19,14 @@ test('a line that does not fit ends in an ellipsis, and widening restores it', a
 	t.teardown(async () => {
 		await view.unmount();
 	});
-	await delay(20);
-	t.is(view.lastFrame(), 'Deinit failed: Failing hook e…');
+	await until(
+		() => view.lastFrame() === 'Deinit failed: Failing hook e…',
+		view.lastFrame,
+	);
 
 	await view.rerender(header(60));
-	await delay(20);
-	t.is(view.lastFrame(), MESSAGE);
+	await until(() => view.lastFrame() === MESSAGE, view.lastFrame);
+	t.pass();
 });
 
 test('the help legend is cut with an ellipsis inside a narrow overlay', async t => {
@@ -45,12 +46,11 @@ test('the help legend is cut with an ellipsis inside a narrow overlay', async t 
 	t.teardown(async () => {
 		await view.unmount();
 	});
-	await delay(20);
-	const legend = view
-		.lastFrame()
-		.split('\n')
-		.find(line => line.includes('Program status:'));
-	t.truthy(legend);
-	t.regex(legend!, /… +│$/);
-	t.is(stringWidth(legend!), width);
+	const legend = () =>
+		view
+			.lastFrame()
+			.split('\n')
+			.find(line => line.includes('Program status:'));
+	await until(() => /… +│$/.test(legend() ?? ''), view.lastFrame);
+	t.is(stringWidth(legend()!), width);
 });

@@ -1,6 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {render} from '../../test/helpers/render.ts';
+import {render, until} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import type {LogEntry} from '../logger.ts';
 import type {ConfirmPayload, PopupActions, PopupSpec} from '../popup/spec.ts';
@@ -47,15 +47,6 @@ async function setup(spec: PopupSpec) {
 			pushErrors(errors);
 		},
 	};
-}
-
-async function until(check: () => boolean, frame?: () => string | undefined) {
-	const deadline = Date.now() + 2000;
-	while (!check()) {
-		if (Date.now() > deadline)
-			throw new Error(`condition never held\n${String(frame?.())}`);
-		await delay(10);
-	}
 }
 
 const CLOSE_SPACE: PopupSpec = {
