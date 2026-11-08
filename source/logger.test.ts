@@ -424,6 +424,22 @@ test('log sink writes each entry to the file for its own date', async t => {
 	]);
 });
 
+test('log sink keeps writing asynchronously after a flush that is not the exit flush', async t => {
+	const dir = makeLogDir();
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
+	const sink = createLogSink({dir});
+
+	sink.write(entry('before flush'));
+	sink.flushSync();
+	sink.write(entry('after flush'));
+	t.false(messages(readLogLines(dir)).includes('after flush'));
+
+	await sink.settle();
+	t.true(messages(readLogLines(dir)).includes('after flush'));
+});
+
 test('log sink flushSync writes queued lines before returning', async t => {
 	const dir = makeLogDir();
 	t.teardown(() => {

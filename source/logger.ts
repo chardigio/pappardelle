@@ -172,10 +172,9 @@ export function createLogSink({
 		return stream;
 	}
 
-	// Writes queued lines synchronously. A batch sonic-boom already handed to
-	// fs.write is not included: it may land after these lines or be lost.
+	// A batch sonic-boom already handed to fs.write is not included: it may land
+	// after these lines or be lost.
 	function flushSync(): void {
-		flushed = true;
 		for (const stream of openStreams) {
 			try {
 				stream.writer.flushSync();
@@ -185,7 +184,7 @@ export function createLogSink({
 		}
 
 		// The marker is otherwise written on the next drain, which never comes
-		// once the process is exiting.
+		// if the process is exiting.
 		if (dropped > 0 && current) {
 			try {
 				writeSync(current.fd, takeDroppedMarker());
@@ -208,9 +207,6 @@ export function createLogSink({
 
 			if (!current) return;
 			const line = formatLogEntry(entry) + '\n';
-			// Exit listeners registered after ours, such as OpenTUI's terminal
-			// restore, can still log once the exit flush has run, and nothing
-			// would flush sonic-boom again.
 			if (flushed) {
 				try {
 					writeSync(current.fd, line);
@@ -226,6 +222,14 @@ export function createLogSink({
 		},
 
 		flushSync,
+
+		// Exit listeners registered after ours, such as OpenTUI's terminal
+		// restore, can still log once this has run, and nothing would flush
+		// sonic-boom again, so later lines are written synchronously.
+		flushForExit(): void {
+			flushSync();
+			flushed = true;
+		},
 
 		// Lets tests wait for disk state; production code never needs to.
 		async settle(): Promise<void> {
@@ -244,16 +248,20 @@ export function createLogSink({
 
 const sink = createLogSink({dir: LOG_DIR});
 process.on('exit', () => {
-	sink.flushSync();
+	sink.flushForExit();
 });
 // A signal with no handler kills the process without firing 'exit', which would
 // drop everything a short-lived command logged. Re-raising keeps the default
 // death (and its exit status) when nothing else handles the signal.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-	process.once(signal, () => {
+	const onSignal = () => {
 		sink.flushSync();
-		if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
-	});
+		if (process.listenerCount(signal) > 1) return;
+		process.off(signal, onSignal);
+		process.kill(process.pid, signal);
+	};
+
+	process.on(signal, onSignal);
 }
 
 function addToRecentErrors(entry: LogEntry): void {
