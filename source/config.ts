@@ -2311,7 +2311,10 @@ function readBdIssuePrefix(root: string): string | undefined {
 			},
 		);
 		return parseBdIssuePrefix(output);
-	} catch {
+	} catch (error) {
+		logger.debug(
+			`bd config get issue_prefix failed in ${root}: ${error instanceof Error ? error.message : String(error)}`,
+		);
 		return undefined;
 	}
 }
