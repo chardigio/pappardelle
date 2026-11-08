@@ -140,10 +140,11 @@ def _bd_issue_prefix(beads_config: Optional[str]) -> Optional[str]:
 def get_beads_prefix(start: Optional[str] = None) -> Optional[str]:
     """The beads ID prefix for this repo.
 
-    Prefers an explicit `issue-prefix` in .beads/config.yaml; falls back to
-    pappardelle's own `team_prefix`, which serves the same role for the other
-    trackers. Returns None when neither is set, in which case callers should
-    keep the strict Linear/Jira key matching rather than guess.
+    Prefers an explicit `issue-prefix` in .beads/config.yaml, then the prefix
+    bd keeps in its database, then pappardelle's own `team_prefix`, which
+    serves the same role for the other trackers. Returns None when none is
+    set, in which case callers should keep the strict Linear/Jira key matching
+    rather than guess.
     """
     beads_config = find_repo_config(os.path.join(".beads", "config.yaml"), start)
     match = _BEADS_PREFIX_RE.search(_read(beads_config))
