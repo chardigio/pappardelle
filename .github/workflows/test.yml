@@ -82,6 +82,9 @@ jobs:
           bun integration-tests/verify-program-status-cleanup.ts
           bun integration-tests/verify-program-status-app.ts
 
+      - name: Verify tmux popups close and release their pty
+        run: bun integration-tests/verify-popup-close.ts
+
   shell-tests:
     name: Shell Tests
     runs-on: ubuntu-latest

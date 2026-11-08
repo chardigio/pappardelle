@@ -20,6 +20,16 @@ The lifecycle check covers pinned agent panes across window/split selection, eve
 
 `source/program-status-launch.test.ts` adds ten account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. With Python installed, both launchers also verify Pi's forced reporting environment and normal SIGPIPE behavior in shell pipelines. Build first; these checks run with the normal AVA suite when tmux is installed.
 
+## Popups
+
+```bash
+bun integration-tests/verify-popup-close.ts
+```
+
+Attaches a real tmux client in a pty to a throwaway server, opens popups through `openPopupTerminal`, and checks that `close()` makes each one go away even after a renderer-style read on its input, that the process keeps no fd on the closed popup's pty (Linux only), and that a popup opened right after a close stays open. Runs in CI.
+
+## Interactive agents
+
 To drive real interactive Claude sessions, authenticate Claude Code and opt in explicitly:
 
 ```bash
