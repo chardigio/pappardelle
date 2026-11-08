@@ -884,6 +884,7 @@ export default function App({
 		if (!space || space.isPending) return;
 
 		if (space.isMainWorktree) {
+			++openPRRequest.current;
 			const generation = showHeaderMessage('Opening repo...');
 			const child = spawn('gh', ['repo', 'view', '--web'], {
 				detached: true,
