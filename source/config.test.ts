@@ -39,6 +39,7 @@ import {
 	mergeKeybindings,
 	determineProfileForInput,
 	getBeadsPrefixes,
+	parseBdIssuePrefix,
 	readBeadsIssuePrefix,
 	clearBeadsIssuePrefixCache,
 	matchProfilesByKeyPrefix,
@@ -4752,13 +4753,46 @@ test('readBeadsIssuePrefix reads issue-prefix from .beads/config.yaml', t => {
 });
 
 test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
+	const noDatabasePrefix = () => undefined;
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
-	t.is(readBeadsIssuePrefix(dir), undefined);
+	t.is(readBeadsIssuePrefix(dir, noDatabasePrefix), undefined);
 
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(path.join(dir, '.beads', 'config.yaml'), 'other: value\n');
 	clearBeadsIssuePrefixCache();
-	t.is(readBeadsIssuePrefix(dir), undefined);
+	t.is(readBeadsIssuePrefix(dir, noDatabasePrefix), undefined);
+});
+
+test('readBeadsIssuePrefix falls back to the bd database without a config.yaml prefix', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	fs.mkdirSync(path.join(dir, '.beads'));
+	fs.writeFileSync(
+		path.join(dir, '.beads', 'config.yaml'),
+		'# issue-prefix: ""\n',
+	);
+	t.is(
+		readBeadsIssuePrefix(dir, root => (root === dir ? 'qa' : undefined)),
+		'qa',
+	);
+});
+
+test('parseBdIssuePrefix reads plain and enveloped bd config output', t => {
+	t.is(parseBdIssuePrefix('{"key":"issue_prefix","value":"QA"}\n'), 'QA');
+	t.is(
+		parseBdIssuePrefix(
+			'{"schema_version":1,"data":{"key":"issue_prefix","value":"QA"}}\n',
+		),
+		'QA',
+	);
+	t.is(parseBdIssuePrefix('{"key":"issue_prefix","value":"  "}'), undefined);
+});
+
+test('readBeadsIssuePrefix asks bd only in a beads repo', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	t.is(
+		readBeadsIssuePrefix(dir, () => 'qa'),
+		undefined,
+	);
 });
 
 // determineProfileForInput runs on every keystroke in the new-session prompt,

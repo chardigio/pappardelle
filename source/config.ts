@@ -1,5 +1,5 @@
 // Config loading and parsing for .pappardelle.yml
-import {execSync} from 'node:child_process';
+import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +18,7 @@ import {
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
+import {unwrapBeadsJson} from './providers/beads-json.ts';
 import {shellQuote} from './shell-quote.ts';
 
 // ============================================================================
@@ -2241,7 +2242,10 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 
 const beadsIssuePrefixCache = new Map<string, string | undefined>();
 
-export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
+export function readBeadsIssuePrefix(
+	repoRoot?: string,
+	readDatabasePrefix: (root: string) => string | undefined = readBdIssuePrefix,
+): string | undefined {
 	// getMainRepoRoot throws outside a git repo; this function's contract is to
 	// return undefined rather than propagate, so it has to resolve inside the try.
 	let root: string;
@@ -2254,7 +2258,11 @@ export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
 	if (beadsIssuePrefixCache.has(root)) {
 		return beadsIssuePrefixCache.get(root);
 	}
-	const result = resolveBeadsIssuePrefix(root);
+	const result =
+		resolveBeadsIssuePrefix(root) ??
+		(fs.existsSync(path.join(root, '.beads'))
+			? readDatabasePrefix(root)
+			: undefined);
 	beadsIssuePrefixCache.set(root, result);
 	return result;
 }
@@ -2275,6 +2283,38 @@ function resolveBeadsIssuePrefix(root: string): string | undefined {
 			? prefix.trim()
 			: undefined;
 	} catch {
+		return undefined;
+	}
+}
+
+export function parseBdIssuePrefix(output: string): string | undefined {
+	const [payload] = unwrapBeadsJson(output);
+	const value = payload?.['value'];
+	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * `bd init --prefix` (bd 1.3+) keeps the prefix in its database and leaves
+ * `issue-prefix` commented out in config.yaml.
+ */
+function readBdIssuePrefix(root: string): string | undefined {
+	try {
+		const output = execFileSync(
+			'bd',
+			['config', 'get', 'issue_prefix', '--json'],
+			{
+				cwd: root,
+				encoding: 'utf-8',
+				env: {...process.env, BD_JSON_ENVELOPE: '1'},
+				stdio: ['ignore', 'pipe', 'ignore'],
+				timeout: 5000,
+			},
+		);
+		return parseBdIssuePrefix(output);
+	} catch (error) {
+		logger.debug(
+			`bd config get issue_prefix failed in ${root}: ${error instanceof Error ? error.message : String(error)}`,
+		);
 		return undefined;
 	}
 }
