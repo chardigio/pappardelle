@@ -13,6 +13,8 @@ import {
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildConfigFromLayers,
+	builtinAgentDefaults,
+	builtinPromptFlag,
 	configLayerFiles,
 	defaultConfigPaths,
 	deprecationWarnings,
@@ -43,6 +45,8 @@ export type ConfigMigration = {
 	content: string;
 	/** Whether it moves claude: launch settings, not just init commands. */
 	movesLaunchSettings: boolean;
+	/** Whether it removes agent profile fields the built-in defaults now supply. */
+	removesBuiltinDefaults: boolean;
 };
 
 /** A profile whose spaces launch a differently named agent profile after the rewrite. */
@@ -191,6 +195,63 @@ function removeKeepingComments(
 	found.parent.comment = joinComments(found.parent.comment, comment);
 }
 
+const BUILTIN_FIELDS = [
+	'model_args',
+	'effort_args',
+	'prompt_args',
+	'resume_args',
+	'skill_prefix',
+] as const;
+
+/**
+ * Drop each agent profile field that repeats its built-in default, after
+ * stripping the trailing prompt flag agy profiles used before prompt_args
+ * (builtinPromptFlag). Defaults are read from the whole config, so a higher
+ * file that changes the command keeps the field. A field a lower file also
+ * sets stays, since removing it would let that value win. Returns whether
+ * anything changed.
+ */
+function dropBuiltinDefaults(
+	document: Document,
+	lower: PappardelleConfig,
+	whole: PappardelleConfig,
+): boolean {
+	const profiles = document.getIn(['agent_profiles'], true);
+	if (!isMap(profiles)) return false;
+	let changed = false;
+	for (const {key} of profiles.items as Pair[]) {
+		const name = String(isScalar(key) ? key.value : key);
+		const definition = whole.agent_profiles?.[name];
+		if (!definition) continue;
+		const builtin = builtinAgentDefaults(definition);
+		const flag = builtinPromptFlag(definition);
+		for (const field of BUILTIN_FIELDS) {
+			const at = ['agent_profiles', name, field];
+			const node = document.getIn(at, true);
+			if (!isScalar(node) || typeof node.value !== 'string') continue;
+			const value = node.value.trimEnd();
+			if (
+				flag &&
+				(field === 'model_args' || field === 'effort_args') &&
+				value.endsWith(` ${flag}`)
+			) {
+				node.value = value.slice(0, -flag.length).trimEnd();
+				changed = true;
+			}
+
+			if (
+				node.value === builtin[field] &&
+				lower.agent_profiles?.[name]?.[field] === undefined
+			) {
+				removeKeepingComments(document, at);
+				changed = true;
+			}
+		}
+	}
+
+	return changed;
+}
+
 /**
  * Rewrite one file onto the agent-profile format. Values are resolved from
  * this file and the files beneath it only: the home config is shared by every
@@ -199,9 +260,10 @@ function removeKeepingComments(
 function migrateLayer(
 	file: LayerFile & {layer: Fields},
 	below: PappardelleConfig,
+	lower: PappardelleConfig,
 	whole: PappardelleConfig,
 	profilesMigratedBelow: Set<string>,
-): string {
+): {content: string; removesBuiltinDefaults: boolean} {
 	const document = parseDocument(file.content);
 	const deprecated = findDeprecatedClaudeFields(file.layer);
 	const claudePath = (profileName?: string) =>
@@ -347,9 +409,14 @@ function migrateLayer(
 		}
 	}
 
+	const removesBuiltinDefaults = dropBuiltinDefaults(document, lower, whole);
+
 	// yaml pads flow collections and folds long lines by default, which would
 	// rewrite lines the migration never touched.
-	return document.toString({lineWidth: 0, flowCollectionPadding: false});
+	return {
+		content: document.toString({lineWidth: 0, flowCollectionPadding: false}),
+		removesBuiltinDefaults,
+	};
 }
 
 /**
@@ -422,10 +489,17 @@ function launches(config: PappardelleConfig): Record<string, string> {
 	return Object.fromEntries(
 		[undefined, ...Object.keys(config.profiles)].map(profileName => {
 			const agent = getAgentProfile(config, undefined, profileName);
+			const definition = config.agent_profiles?.[agent.name];
+			const promptArgs = definition
+				? (definition.prompt_args ??
+					builtinAgentDefaults(definition).prompt_args)
+				: undefined;
 			// Flag order isn't kept: extra_args move into args, ahead of the
-			// model/effort flags, which no CLI cares about.
+			// model/effort flags, which no CLI cares about. The prompt template's
+			// flag counts with them, so agy's `-i` moving from model_args into
+			// prompt_args launches the same way.
 			const flags =
-				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)}`
+				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${promptArgs?.replace('{prompt}', '') ?? ''}`
 					.split(/\s+/)
 					.filter(Boolean)
 					.sort()
@@ -511,9 +585,10 @@ function planRewrite(
 	const migrations: ConfigMigration[] = [];
 	const rewritten = files.map((file, index) => {
 		if (!file.layer) return file;
-		const content = migrateLayer(
+		const {content, removesBuiltinDefaults} = migrateLayer(
 			file as LayerFile & {layer: Fields},
 			layersUpTo(files, index),
+			layersUpTo(files, index - 1),
 			whole,
 			new Set(
 				files
@@ -530,6 +605,7 @@ function planRewrite(
 			movesLaunchSettings: findDeprecatedClaudeFields(file.layer).some(
 				({field}) => field !== 'initialization_command',
 			),
+			removesBuiltinDefaults,
 		});
 		return {...file, content, layer: parseConfigLayer(file.label, content)};
 	});
@@ -752,6 +828,9 @@ export function buildConfigMigrationConfirmContent(
 			'Your config uses deprecated settings. Rewrite it to the new format?',
 		detail: [
 			`Rewrites ${migrations.map(m => m.displayPath).join(', ')}, keeping comments and formatting.`,
+			migrations.some(m => m.removesBuiltinDefaults)
+				? 'Agent profile fields that codex, agy and claude now get built in are removed, along with the -i at the end of an agy model_args.'
+				: '',
 			// Each file's agent profiles get the values they launched with, and
 			// some of those came from the home config.
 			movesHome && migrations.some(m => m.label === PROJECT_LABEL)
@@ -815,6 +894,7 @@ export function buildConfigFixPrompt(
 		"- an agent profile's own model/effort always win, an empty string included; claude.model/effort only fill in for claude agent profiles (command claude, or is_claude: true) that leave them unset, and other CLIs never read them",
 		"- profiles.<name>.claude.* beat the top-level claude.* for that profile; extra_args (profile list over top-level list) are appended after the agent profile's args and after the flags rendered from model/effort, so an extra arg repeating --model or --effort wins today; keep that value",
 		"- if part of it can't be kept exactly (for example an extra arg spanning several lines, since args are one line), stop and ask me how to handle that part rather than change the launch",
+		"- an agy agent profile's model_args or effort_args that ends with -i drops the -i: the built-in prompt_args (-i {prompt}) passes the prompt now",
 		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, prompt_args, skill_prefix, is_claude) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
 		'- keep comments and formatting',
 	].join('\n');
