@@ -70,17 +70,37 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 	t.deepEqual(inputs, [undefined, undefined, text, undefined, undefined]);
 });
 
-for (const failing of ['load-buffer', 'paste-buffer']) {
-	test(`sendToSpaceAgent stops before pasting or pressing Enter when ${failing} fails`, t => {
-		const {runner, calls} = makeRunner({
-			sessions: ['agent-r-STA-1'],
-			failOn: args => args[0] === failing,
-		});
-
-		t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'failed');
-		t.is(calls.at(-1)?.[0], failing);
+test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer fails', t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		failOn: args => args[0] === 'load-buffer',
 	});
-}
+
+	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'failed');
+	t.is(calls.at(-1)?.[0], 'load-buffer');
+});
+
+test('sendToSpaceAgent deletes the loaded buffer and never presses Enter when paste-buffer fails', t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		failOn: args => args[0] === 'paste-buffer',
+	});
+
+	t.is(sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner}), 'failed');
+	t.deepEqual(calls.slice(-2), [
+		[
+			'paste-buffer',
+			'-p',
+			'-d',
+			'-r',
+			'-b',
+			`pappardelle-send-${process.pid}`,
+			'-t',
+			'=agent-r-STA-1:',
+		],
+		['delete-buffer', '-b', `pappardelle-send-${process.pid}`],
+	]);
+});
 
 test('sendToSpaceAgent reports no-session and sends nothing when the space has no agent session', t => {
 	const {runner, calls} = makeRunner({

@@ -1033,6 +1033,8 @@ export function migrateLegacyAgentSessions(
  * rejects a command line over ~16KB.
  *
  * Stops at the first failing call so Enter is never sent without the text.
+ * `-d` only deletes the buffer when the paste succeeds, so a failed paste
+ * deletes it explicitly rather than leave the prompt on the server.
  */
 export function pasteThenEnter(
 	runner: OuterTmuxRunner,
@@ -1049,7 +1051,10 @@ export function pasteThenEnter(
 	];
 	for (const {args, input} of steps) {
 		const r = runner(args, input);
-		if (r.error || r.status !== 0) return false;
+		if (r.error || r.status !== 0) {
+			if (args[0] === 'paste-buffer') runner(['delete-buffer', '-b', buffer]);
+			return false;
+		}
 	}
 
 	return true;
