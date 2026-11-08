@@ -251,15 +251,13 @@ process.on('exit', () => {
 // A signal with no handler kills the process without firing 'exit', which would
 // drop everything a short-lived command logged. Re-raising keeps the default
 // death (and its exit status) when nothing else handles the signal.
+// The listener is removed after one signal: while any listener exists, a
+// handler that re-raises its own signal no longer dies by it.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-	const onSignal = () => {
+	process.once(signal, () => {
 		sink.flushSync();
-		if (process.listenerCount(signal) > 1) return;
-		process.off(signal, onSignal);
-		process.kill(process.pid, signal);
-	};
-
-	process.on(signal, onSignal);
+		if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+	});
 }
 
 function addToRecentErrors(entry: LogEntry): void {
