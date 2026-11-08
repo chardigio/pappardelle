@@ -1,4 +1,4 @@
-import {execFile, spawn} from 'node:child_process';
+import {execFile, execFileSync, spawn} from 'node:child_process';
 import {
 	closeSync,
 	existsSync,
@@ -105,6 +105,20 @@ async function waitForReady(
 	}
 }
 
+function closePopupOnClient() {
+	try {
+		execFileSync('tmux', ['display-popup', '-C'], {
+			stdio: 'ignore',
+			timeout: 2000,
+		});
+	} catch (error) {
+		log.warn(
+			'display-popup -C failed',
+			error instanceof Error ? error : undefined,
+		);
+	}
+}
+
 function killPopupShell(shellPid: number) {
 	try {
 		// The popup shell leads its own process group, which takes a pending
@@ -124,6 +138,7 @@ export async function openPopupTerminal(
 ): Promise<PopupTerminal | undefined> {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
 	const readyPath = path.join(dir, 'ready');
+	let isPopupOpen = true;
 	const closed = new Promise<void>(resolve => {
 		const popup = spawn(
 			'tmux',
@@ -132,9 +147,11 @@ export async function openPopupTerminal(
 		);
 		popup.on('error', error => {
 			log.warn('display-popup failed', error);
+			isPopupOpen = false;
 			resolve();
 		});
 		popup.on('exit', () => {
+			isPopupOpen = false;
 			resolve();
 		});
 	});
@@ -178,6 +195,9 @@ export async function openPopupTerminal(
 				// so tmux keeps the blank popup up and it swallows the client's keys.
 				closeSync(outputFd);
 				killPopupShell(shellPid);
+				// The input fd stays open too while Bun has a read pending on it,
+				// and only a hangup ends that read, so tmux has to close the popup.
+				if (isPopupOpen) closePopupOnClient();
 			},
 		};
 	} finally {
