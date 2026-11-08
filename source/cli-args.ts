@@ -25,8 +25,8 @@ const helpText = `
 	  link-pr <url>    Record a verified PR/MR for the current workspace
 	  send <key> [text]
 	                   Submit text as a prompt to the space's agent session.
-	                   Reads stdin when no text is given; use stdin for text
-	                   that starts with "-", which would parse as a flag
+	                   Everything after the key is sent as is, flags
+	                   included. Reads stdin when no text is given
 	  close <key>      Close a space, same as x in the TUI
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
@@ -151,6 +151,17 @@ const subcommands = {
 `,
 	},
 } as const;
+
+// The prompt is read from raw argv because meow would pull anything
+// flag-shaped out of it.
+export function parseSendArgs(argv: readonly string[]): {
+	key?: string;
+	text: string;
+} {
+	const [key, ...text] = argv.slice(argv.indexOf('send') + 1);
+	if (key === undefined || key.startsWith('-')) return {text: ''};
+	return {key, text: text.join(' ')};
+}
 
 export type SubcommandGate =
 	| {action: 'run'}

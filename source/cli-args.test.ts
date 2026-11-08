@@ -1,5 +1,5 @@
 import test from 'ava';
-import {parseCli, subcommandGate} from './cli-args.ts';
+import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 
 test('--restart-tuis is unset unless passed, so update can ask on a TTY', t => {
 	t.is(parseCli(['update']).flags.restartTuis, undefined);
@@ -79,6 +79,34 @@ test('known flags and every other command pass through', t => {
 	]) {
 		t.deepEqual(subcommandGate(argv), {action: 'run'});
 	}
+});
+
+test('send takes everything after the key as the text, flags included', t => {
+	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hi', '-x', 'there']), {
+		key: 'STE-1',
+		text: 'hi -x there',
+	});
+	t.deepEqual(parseSendArgs(['send', 'STE-1', '--help']), {
+		key: 'STE-1',
+		text: '--help',
+	});
+	t.deepEqual(parseSendArgs(['send', 'STE-1', '-x']), {
+		key: 'STE-1',
+		text: '-x',
+	});
+	t.deepEqual(parseSendArgs(['--no-layout', 'send', 'STE-1', '--yes']), {
+		key: 'STE-1',
+		text: '--yes',
+	});
+});
+
+test('send without text leaves it empty so stdin is read', t => {
+	t.deepEqual(parseSendArgs(['send', 'STE-1']), {key: 'STE-1', text: ''});
+});
+
+test('send with a flag where the key goes has no key, so usage is printed', t => {
+	t.is(parseSendArgs(['send', '--help']).key, undefined);
+	t.is(parseSendArgs(['send']).key, undefined);
 });
 
 test('--resume accepts either position without consuming the input', t => {

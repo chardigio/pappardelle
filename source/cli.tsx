@@ -54,7 +54,7 @@ import {
 	runCloseCommand,
 	runCloseTeardown,
 } from './close-command.ts';
-import {parseCli, subcommandGate} from './cli-args.ts';
+import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
@@ -249,8 +249,8 @@ function resolveCliSpaceKey(rawKey: string): string {
 
 // Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
-	const rawKey = cli.input[1];
-	let text = cli.input.slice(2).join(' ');
+	const {key: rawKey, text: argText} = parseSendArgs(process.argv.slice(2));
+	let text = argText;
 	if (!text && !process.stdin.isTTY) {
 		text = readFileSync(0, 'utf8').replace(/\n$/, '');
 	}
