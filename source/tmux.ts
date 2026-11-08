@@ -731,7 +731,7 @@ function spawnTmuxRunner(
 	};
 }
 
-const defaultOuterTmuxRunner = spawnTmuxRunner(args => [...args]);
+export const defaultOuterTmuxRunner = spawnTmuxRunner(args => [...args]);
 
 // Outer TUI sessions are named `pappardelle-<repo>`.
 export const OUTER_SESSION_PREFIX = 'pappardelle-';

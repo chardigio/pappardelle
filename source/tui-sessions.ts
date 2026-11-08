@@ -10,6 +10,7 @@ import {
 	tmuxSessionRepo,
 } from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
+import type {PaneLayout} from './types.ts';
 import {readTuiMarker, tryRestartLock, type TuiMarker} from './tui-marker.ts';
 
 // The TUI session is created with the repo's own spelling, which tmux 3.6 and
@@ -360,12 +361,52 @@ function sleepSync(ms: number): void {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export type RestartOwnTuiDeps = RestartTuiDeps & {
+export type CloseLayoutDeps = {
 	currentSession: () => string | null;
 	killSession: (sessionName: string) => void;
-	waitForKey: () => void;
-	sleep?: (ms: number) => void;
+	// Reaches the server the layout was split on, which is the one $TMUX names.
+	layoutTmux: OuterTmuxRunner;
 };
+
+export type RestartOwnTuiDeps = RestartTuiDeps &
+	CloseLayoutDeps & {
+		waitForKey: () => void;
+		sleep?: (ms: number) => void;
+	};
+
+function isOwnTuiSession(
+	repoName: string,
+	session: string | null,
+): session is string {
+	return session !== null && tuiSessionNames(repoName).includes(session);
+}
+
+function closeViewerPanes(layout: PaneLayout, tmux: OuterTmuxRunner): void {
+	tmux(
+		[layout.agentViewerPaneId, layout.companionViewerPaneId]
+			.filter(Boolean)
+			.flatMap((paneId, index) => [
+				...(index === 0 ? [] : [';']),
+				'kill-pane',
+				'-t',
+				paneId,
+			]),
+	);
+}
+
+// Quitting takes the TUI's own session down with it. A TUI started inside the
+// user's own tmux session closes just the viewers it split off: left open,
+// they keep the rail pane narrow, and the next run there splits the rail into
+// a second layout.
+export function closeTuiLayout(
+	repoName: string,
+	layout: PaneLayout,
+	deps: CloseLayoutDeps,
+): void {
+	const current = deps.currentSession();
+	if (isOwnTuiSession(repoName, current)) deps.killSession(current);
+	else closeViewerPanes(layout, deps.layoutTmux);
+}
 
 // The TUI restarting itself after U's install. A successful restart ends this
 // process, so nothing after it runs and the lock it leaves is stale at once.
@@ -381,19 +422,14 @@ export function restartOwnTui(
 		repoName: string;
 		paneId: string;
 		command: string;
-		hasPaneLayout: boolean;
+		paneLayout: PaneLayout | null;
 	},
 	deps: RestartOwnTuiDeps,
 ): void {
 	const current = deps.currentSession();
-	if (
-		current === null ||
-		!tuiSessionNames(options.repoName).includes(current)
-	) {
-		if (options.hasPaneLayout) {
-			deps.killSession(outerSessionName(options.repoName));
-		}
-
+	if (!isOwnTuiSession(options.repoName, current)) {
+		if (options.paneLayout)
+			closeViewerPanes(options.paneLayout, deps.layoutTmux);
 		return;
 	}
 

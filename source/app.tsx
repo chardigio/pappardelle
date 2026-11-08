@@ -26,7 +26,11 @@ import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
 import TruncatedLine from './components/TruncatedLine.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
-import {installedLaunchCommand, restartOwnTui} from './tui-sessions.ts';
+import {
+	closeTuiLayout,
+	installedLaunchCommand,
+	restartOwnTui,
+} from './tui-sessions.ts';
 import {
 	DEFAULT_REPO_STATE_ROOT,
 	clearDeadRestartLock,
@@ -162,8 +166,8 @@ import {
 	focusPane,
 	getCurrentlyViewingSpace,
 	killSession,
-	outerSessionName,
 	currentDefaultServerSession,
+	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
 	killSpaceSessions,
 	deleteQaSimulator,
@@ -211,6 +215,12 @@ function claimIssueInBackground(issueKey: string): void {
 		if (claimed) log.info(`Claimed ${issueKey} — removed from ready work`);
 	});
 }
+
+const closeLayoutDeps = {
+	currentSession: () => currentDefaultServerSession(process.env),
+	killSession,
+	layoutTmux: defaultOuterTmuxRunner,
+};
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
@@ -477,13 +487,12 @@ export default function App({
 					cliPath: cliFilePath(),
 					home: homedir(),
 				}),
-				hasPaneLayout: paneLayout !== null,
+				paneLayout,
 			},
 			{
+				...closeLayoutDeps,
 				tmux: defaultServerTmuxRunner,
 				repoStateRoot: DEFAULT_REPO_STATE_ROOT,
-				currentSession: () => currentDefaultServerSession(process.env),
-				killSession,
 				print(line) {
 					process.stdout.write(`\n${line}\n`);
 				},
@@ -1359,10 +1368,9 @@ export default function App({
 					break;
 				}
 				case 'q': {
-					// Quit Pappardelle — kill the tmux session so viewer panes
-					// are cleaned up too (workspace sessions stay alive).
+					// Workspace sessions stay alive; only the layout closes.
 					if (paneLayout) {
-						killSession(outerSessionName(repoName));
+						closeTuiLayout(repoName, paneLayout, closeLayoutDeps);
 					}
 					renderer.destroy();
 
