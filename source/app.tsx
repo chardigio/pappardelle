@@ -153,6 +153,7 @@ import {
 import {runCloseHooks, shouldAttach} from './close-space.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
+import {AttachmentGate} from './attachment-gate.ts';
 import {LatestTask} from './latest-task.ts';
 import {sendToSelectedAgent} from './send-to-claude.ts';
 import {
@@ -671,6 +672,7 @@ export default function App({
 
 	const startupQueue = useMemo(() => new StartupQueue(2), []);
 	const attachmentTask = useMemo(() => new LatestTask(), []);
+	const attachmentGate = useMemo(() => new AttachmentGate(), []);
 	const [attachmentRevision, setAttachmentRevision] = useState(0);
 	useEffect(
 		() => () => {
@@ -795,8 +797,11 @@ export default function App({
 			!selectedSpaceName ||
 			closingSpacesRef.current.has(selectedSpaceName) ||
 			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
-		)
+		) {
+			attachmentGate.queued(selectedSpaceName);
 			return;
+		}
+
 		void attachmentTask
 			.run(async signal => {
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
@@ -837,6 +842,7 @@ export default function App({
 					err instanceof Error ? err : undefined,
 				),
 			);
+		attachmentGate.queued(selectedSpaceName);
 		return () => attachmentTask.cancel();
 	}, [
 		selectedSpaceName,
@@ -846,6 +852,7 @@ export default function App({
 		selectedIssueTitle,
 		paneLayout,
 		attachmentTask,
+		attachmentGate,
 		attachmentRevision,
 	]);
 
@@ -1000,9 +1007,16 @@ export default function App({
 
 	// Focus the Claude viewer pane (Enter or right arrow)
 	const handleFocusAgent = () => {
-		if (!paneLayout) return;
+		const targetSpace = selectedSpaceNow()?.name;
+		if (!paneLayout || !targetSpace) return;
 
-		void focusPane(paneLayout.agentViewerPaneId);
+		// Attaching ends by selecting the rail pane, so focus goes after it.
+		void attachmentGate.whenQueued(targetSpace).then(async () =>
+			attachmentTask.exclusive(async () => {
+				const layout = paneLayoutRef.current;
+				if (layout) await focusPane(layout.agentViewerPaneId);
+			}),
+		);
 	};
 
 	// Git pull in the selected space's worktree
@@ -1061,32 +1075,37 @@ export default function App({
 
 		const targetSpace = selectedSpaceNow()?.name;
 		if (!targetSpace) return;
-		void sendToSelectedAgent({
-			queue: attachmentTask,
-			targetSpace,
-			viewingSpace: getCurrentlyViewingSpace,
-			// Not through the viewer pane: its frame process holds a bracketed
-			// paste briefly while plain keys pass, so Enter would arrive first.
-			async send() {
-				const result = await sendToSpaceAgent(targetSpace, text);
-				if (result !== 'sent') {
-					log.error(`Send to ${targetSpace}'s agent session: ${result}`);
-				}
+		void attachmentGate
+			.whenQueued(targetSpace)
+			.then(async () =>
+				sendToSelectedAgent({
+					queue: attachmentTask,
+					targetSpace,
+					viewingSpace: getCurrentlyViewingSpace,
+					// Not through the viewer pane: its frame process holds a bracketed
+					// paste briefly while plain keys pass, so Enter would arrive first.
+					async send() {
+						const result = await sendToSpaceAgent(targetSpace, text);
+						if (result !== 'sent') {
+							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
+						}
 
-				return result === 'sent';
-			},
-		}).then(result => {
-			if (result === 'sent') {
-				setHeaderWithTimeout(`Agent: ${text}`, 3000);
-			} else if (result === 'wrong-space') {
-				setHeaderWithTimeout(
-					`✗ Not sent: ${targetSpace} is not shown yet`,
-					3000,
-				);
-			} else {
-				setHeaderWithTimeout(`✗ Failed to send to the agent`, 3000);
-			}
-		});
+						return result === 'sent';
+					},
+				}),
+			)
+			.then(result => {
+				if (result === 'sent') {
+					setHeaderWithTimeout(`Agent: ${text}`, 3000);
+				} else if (result === 'wrong-space') {
+					setHeaderWithTimeout(
+						`✗ Not sent: ${targetSpace} is not shown yet`,
+						3000,
+					);
+				} else {
+					setHeaderWithTimeout(`✗ Failed to send to the agent`, 3000);
+				}
+			});
 	};
 
 	// Execute a custom keybinding command for the selected workspace
