@@ -1,6 +1,6 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useMemo, useState} from 'react';
 
 import widestLine from 'widest-line';
@@ -190,13 +190,7 @@ export function ReadyWorkList({
 	if (ready.loading) {
 		return (
 			<box flexDirection="row" paddingX={2}>
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
-					Loading ready work…
-				</text>
+				<text {...dimText()}>Loading ready work…</text>
 			</box>
 		);
 	}
@@ -217,15 +211,7 @@ export function ReadyWorkList({
 				width={width}
 				paddingY={0}
 			>
-				{window.start > 0 && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						↑ {window.start} more
-					</text>
-				)}
+				{window.start > 0 && <text {...dimText()}>↑ {window.start} more</text>}
 				{issues.slice(window.start, window.end).map((issue, offset) => {
 					const isSelected = window.start + offset === index;
 					const identifier = truncateToWidth(
@@ -273,23 +259,13 @@ export function ReadyWorkList({
 					);
 				})}
 				{window.end < issues.length && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						↓ {issues.length - window.end} more
-					</text>
+					<text {...dimText()}>↓ {issues.length - window.end} more</text>
 				)}
 			</TitledBox>
 
 			{hasHints && (
 				<box flexDirection="row" paddingX={2}>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
+					<text {...dimText()}>
 						<span fg={terminalColor('green')}>↑/↓</span> pick up ready work
 						{ready.openKeyActive && (
 							<>

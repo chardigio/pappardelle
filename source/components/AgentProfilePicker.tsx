@@ -1,6 +1,6 @@
 import {useKeyboard, usePaste} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useRef, useState} from 'react';
 
 import {
@@ -108,23 +108,9 @@ export default function AgentProfilePicker({
 				</text>
 			</box>
 			{list.scrollMarkers && above > 0 && (
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
-					↑ {above} more
-				</text>
+				<text {...dimText()}>↑ {above} more</text>
 			)}
-			{options.length === 0 && (
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
-					No match
-				</text>
-			)}
+			{options.length === 0 && <text {...dimText()}>No match</text>}
 			{options.slice(start, end).map((option, offset) => {
 				const isSelected = start + offset === state.index;
 				return (
@@ -139,36 +125,18 @@ export default function AgentProfilePicker({
 								{label(option.name).padEnd(nameWidth)}{' '}
 							</text>
 						</box>
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-							wrapMode="none"
-							height={1}
-						>
+						<text {...dimText()} wrapMode="none" height={1}>
 							{option.source}
 						</text>
 					</box>
 				);
 			})}
 			{list.scrollMarkers && below > 0 && (
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
-					↓ {below} more
-				</text>
+				<text {...dimText()}>↓ {below} more</text>
 			)}
 			<box flexDirection="row" marginTop={1}>
 				{state.query === null ? (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-						wrapMode="none"
-						height={1}
-					>
+					<text {...dimText()} wrapMode="none" height={1}>
 						<span fg={terminalColor('green')}>↑/↓</span> select ·{' '}
 						<span fg={terminalColor('cyan')}>/</span> filter ·{' '}
 						<span fg={terminalColor('green')}>Enter</span> choose ·{' '}

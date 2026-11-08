@@ -1,6 +1,6 @@
 import {useKeyboard, usePaste, useTerminalDimensions} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {Fragment, useState, useMemo, useRef} from 'react';
 
 import TextInput from './TextInput.tsx';
@@ -518,18 +518,8 @@ export default function PromptDialog({
 					flexDirection="column"
 					visible={layout.showInstructions}
 				>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						Enter a prompt or issue key:
-					</text>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
+					<text {...dimText()}>Enter a prompt or issue key:</text>
+					<text {...dimText()}>
 						-{' '}
 						{exampleKeys.map((key, index) => (
 							<Fragment key={key}>
@@ -539,11 +529,7 @@ export default function PromptDialog({
 						))}{' '}
 						= open workspace for existing issue
 					</text>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
+					<text {...dimText()}>
 						- <span fg={terminalColor('cyan')}>description</span> = start new
 						workspace
 					</text>
@@ -576,11 +562,7 @@ export default function PromptDialog({
 
 				{!isPicking && !isSkillFocused && (
 					<box flexDirection="row" marginTop={1}>
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-						>
+						<text {...dimText()}>
 							{isCompleting ? (
 								<>
 									Press <span fg={terminalColor('cyan')}>Tab</span> to complete,{' '}
@@ -689,13 +671,7 @@ function ProfilePicker({
 			>
 				{deferredLabel ? (
 					<box flexDirection="row">
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-						>
-							{'  '}
-						</text>
+						<text {...dimText()}>{'  '}</text>
 						<text
 							fg={terminalColor()}
 							flexShrink={1}
@@ -706,22 +682,10 @@ function ProfilePicker({
 					</box>
 				) : null}
 				{!deferredLabel && above > 0 && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						↑ {above} more
-					</text>
+					<text {...dimText()}>↑ {above} more</text>
 				)}
 				{!deferredLabel && options.length === 0 && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						{'  '}No match
-					</text>
+					<text {...dimText()}>{'  '}No match</text>
 				)}
 				{!deferredLabel &&
 					options.slice(start, end).map((option, offset) => {
@@ -809,13 +773,7 @@ function ProfilePicker({
 						);
 					})}
 				{!deferredLabel && below > 0 && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						↓ {below} more
-					</text>
+					<text {...dimText()}>↓ {below} more</text>
 				)}
 			</TitledBox>
 
@@ -833,13 +791,7 @@ function ProfilePicker({
 				</box>
 			) : isFocused ? (
 				<box flexDirection="row" paddingX={2}>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-						wrapMode="none"
-						height={1}
-					>
+					<text {...dimText()} wrapMode="none" height={1}>
 						<span fg={terminalColor('green')}>↑/↓</span> select ·{' '}
 						<span fg={terminalColor('cyan')}>/</span> filter ·{' '}
 						{hasAgentChoice ? (
@@ -897,15 +849,7 @@ function SkillPicker({
 				width={width}
 				paddingY={0}
 			>
-				{above > 0 && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						↑ {above} more
-					</text>
-				)}
+				{above > 0 && <text {...dimText()}>↑ {above} more</text>}
 				{entries.slice(start, end).map((entry, offset) => {
 					const index = start + offset;
 					const isSelected = index === selectedIndex;
@@ -918,36 +862,15 @@ function SkillPicker({
 							>
 								{isSelected ? '❯ ' : '  '}/{entry.name}
 							</text>
-							{entry.source === 'user' && (
-								<text
-									fg={terminalColor()}
-									flexShrink={1}
-									attributes={textAttributes({dim: true})}
-								>
-									{' '}
-									(user)
-								</text>
-							)}
+							{entry.source === 'user' && <text {...dimText()}> (user)</text>}
 						</box>
 					);
 				})}
-				{below > 0 && (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						↓ {below} more
-					</text>
-				)}
+				{below > 0 && <text {...dimText()}>↓ {below} more</text>}
 			</TitledBox>
 
 			<box flexDirection="row" paddingX={2}>
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
+				<text {...dimText()}>
 					{isFocused ? (
 						<>
 							<span fg={terminalColor('cyan')}>↑/↓</span> select ·{' '}

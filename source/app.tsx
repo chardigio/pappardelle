@@ -1,7 +1,7 @@
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {shortcutKey} from './tui-key.ts';
-import {textAttributes, terminalColor} from './tui-style.ts';
+import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 
 import TextInput from './components/TextInput.tsx';
@@ -2308,21 +2308,11 @@ export default function App({
 					paddingY={1}
 					paddingLeft={ROW_PADDING_CELLS}
 				>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
+					<text {...dimText()}>
 						{isSearching ? 'No matches.' : 'No spaces found.'}
 					</text>
 					{!isSearching && (
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-						>
-							Press n to create a new space.
-						</text>
+						<text {...dimText()}>Press n to create a new space.</text>
 					)}
 				</box>
 			);
@@ -2391,13 +2381,7 @@ export default function App({
 						</text>
 						{!inTmux && (
 							<>
-								<text
-									fg={terminalColor()}
-									flexShrink={1}
-									attributes={textAttributes({dim: true})}
-									wrapMode="none"
-									height={1}
-								>
+								<text {...dimText()} wrapMode="none" height={1}>
 									{' '}
 									|{' '}
 								</text>
@@ -2411,36 +2395,18 @@ export default function App({
 								</text>
 							</>
 						)}
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-							wrapMode="none"
-							height={1}
-						>
+						<text {...dimText()} wrapMode="none" height={1}>
 							{' '}
 							|{' '}
 						</text>
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-							wrapMode="none"
-							height={1}
-						>
+						<text {...dimText()} wrapMode="none" height={1}>
 							{spaceCount} space{spaceCount !== 1 ? 's' : ''}
 							{visibleDisplaySpaces.length < activeSpaces.length &&
 								` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
 						</text>
 						{errorCount > 0 && (
 							<>
-								<text
-									fg={terminalColor()}
-									flexShrink={1}
-									attributes={textAttributes({dim: true})}
-									wrapMode="none"
-									height={1}
-								>
+								<text {...dimText()} wrapMode="none" height={1}>
 									{' '}
 									|{' '}
 								</text>
@@ -2452,13 +2418,7 @@ export default function App({
 								>
 									✗ {errorCount}
 								</text>
-								<text
-									fg={terminalColor()}
-									flexShrink={1}
-									attributes={textAttributes({dim: true})}
-									wrapMode="none"
-									height={1}
-								>
+								<text {...dimText()} wrapMode="none" height={1}>
 									{' '}
 									(e)
 								</text>
@@ -2504,13 +2464,7 @@ export default function App({
 								</box>
 								{filteredDisplaySpaces.length !== displaySpaces.length && (
 									<box flexDirection="row" flexShrink={0}>
-										<text
-											fg={terminalColor()}
-											flexShrink={1}
-											attributes={textAttributes({dim: true})}
-											wrapMode="none"
-											height={1}
-										>
+										<text {...dimText()} wrapMode="none" height={1}>
 											{' '}
 											({filteredDisplaySpaces.length} match
 											{filteredDisplaySpaces.length !== 1 ? 'es' : ''})

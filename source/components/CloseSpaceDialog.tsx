@@ -1,6 +1,6 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useMemo, useState} from 'react';
 
 import {
@@ -140,11 +140,7 @@ export default function CloseSpaceDialog({
 			{...content}
 			isFullHeight={isFullHeight}
 			hint={
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
+				<text {...dimText()}>
 					<span fg={terminalColor('cyan')}>←/→</span> change state ·{' '}
 					<span fg={terminalColor('green')}>y/Enter</span> confirm ·{' '}
 					<span fg={terminalColor('yellow')}>n/Esc</span> cancel

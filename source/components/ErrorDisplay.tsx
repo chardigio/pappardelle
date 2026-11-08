@@ -1,4 +1,4 @@
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useState} from 'react';
 
 import {clipLogEntryForDisplay} from '../clip-error-text.ts';
@@ -62,13 +62,7 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 				>
 					Errors ({errors.length})
 				</text>
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
-					Press 'c' to clear
-				</text>
+				<text {...dimText()}>Press 'c' to clear</text>
 			</box>
 
 			{clipped.map(({entry, display}, i) => (
@@ -91,13 +85,7 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 						</text>
 					</box>
 					{display.body && (
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-							wrapMode="none"
-							height={1}
-						>
+						<text {...dimText()} wrapMode="none" height={1}>
 							{' '}
 							{display.body.text}
 						</text>
@@ -106,13 +94,7 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 			))}
 
 			{showLogsHint && (
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
-					{buildLogsHint(hiddenCount, anyTruncated)}
-				</text>
+				<text {...dimText()}>{buildLogsHint(hiddenCount, anyTruncated)}</text>
 			)}
 		</box>
 	);

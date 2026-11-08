@@ -1,6 +1,6 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {execFile} from 'node:child_process';
 import {useEffect, useMemo, useState} from 'react';
 
@@ -85,13 +85,7 @@ export default function TextViewer({
 			</text>
 			<box flexDirection="column" height={viewHeight} overflow="hidden">
 				{lines === null ? (
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						Loading…
-					</text>
+					<text {...dimText()}>Loading…</text>
 				) : (
 					lines.slice(top, top + viewHeight).map((line, index) => (
 						<text
@@ -106,13 +100,7 @@ export default function TextViewer({
 					))
 				)}
 			</box>
-			<text
-				fg={terminalColor()}
-				flexShrink={1}
-				attributes={textAttributes({dim: true})}
-				wrapMode="none"
-				height={1}
-			>
+			<text {...dimText()} wrapMode="none" height={1}>
 				<span fg={terminalColor('cyan')}>j/k</span> scroll ·{' '}
 				<span fg={terminalColor('cyan')}>space/b</span> page ·{' '}
 				<span fg={terminalColor('cyan')}>g/G</span> top/bottom ·{' '}

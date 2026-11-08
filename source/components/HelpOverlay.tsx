@@ -1,6 +1,6 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useState} from 'react';
 
 import type {KeybindingConfig} from '../config.ts';
@@ -79,11 +79,7 @@ export default function HelpOverlay({
 				>
 					Keyboard Shortcuts
 				</text>
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
+				<text {...dimText()}>
 					{formatVersionLine(installedVersion, commitSha, isDevBuild)}
 				</text>
 			</box>

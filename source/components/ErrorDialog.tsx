@@ -1,7 +1,7 @@
 import {useKeyboard} from '@opentui/react';
 import {Fragment} from 'react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 
 import type {LogEntry} from '../logger.ts';
 import Gap from './Gap.tsx';
@@ -48,11 +48,7 @@ export default function ErrorDialog({
 				>
 					Errors ({errors.length})
 				</text>
-				<text
-					fg={terminalColor()}
-					flexShrink={1}
-					attributes={textAttributes({dim: true})}
-				>
+				<text {...dimText()}>
 					<span fg={terminalColor('yellow')}>c</span> clear{' '}
 					<span fg={terminalColor('yellow')}>Esc</span> close
 				</text>
@@ -84,16 +80,7 @@ export default function ErrorDialog({
 									{entry.message}
 								</text>
 							</box>
-							{entry.error && (
-								<text
-									fg={terminalColor()}
-									flexShrink={1}
-									attributes={textAttributes({dim: true})}
-								>
-									{' '}
-									{entry.error}
-								</text>
-							)}
+							{entry.error && <text {...dimText()}> {entry.error}</text>}
 						</box>
 					</Fragment>
 				))
@@ -102,13 +89,7 @@ export default function ErrorDialog({
 			{errors.length > 0 && <Gap />}
 			{errors.length > 0 && (
 				<box flexDirection="row" flexShrink={0}>
-					<text
-						fg={terminalColor()}
-						flexShrink={1}
-						attributes={textAttributes({dim: true})}
-					>
-						Logs: ~/.pappardelle/logs/
-					</text>
+					<text {...dimText()}>Logs: ~/.pappardelle/logs/</text>
 				</box>
 			)}
 		</box>

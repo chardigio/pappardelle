@@ -45,3 +45,12 @@ ansiColors.set('grey', RGBA.fromIndex(8));
 export function terminalColor(color?: string) {
 	return color ? (ansiColors.get(color) ?? color) : RGBA.defaultForeground();
 }
+
+/** Secondary text: hints, counts and empty states. */
+export function dimText() {
+	return {
+		fg: terminalColor(),
+		flexShrink: 1,
+		attributes: textAttributes({dim: true}),
+	};
+}

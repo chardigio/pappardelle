@@ -1,6 +1,6 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
-import {textAttributes, terminalColor} from '../tui-style.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useState, type ReactNode} from 'react';
 
 import ClaudeAnimation from './ClaudeAnimation.tsx';
@@ -146,13 +146,7 @@ export default function ConfirmDialog({
 			{shown.detail && (
 				<>
 					<box flexDirection="row" flexShrink={0}>
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-						>
-							{shown.detail}
-						</text>
+						<text {...dimText()}>{shown.detail}</text>
 					</box>
 					<Gap />
 				</>
@@ -169,11 +163,7 @@ export default function ConfirmDialog({
 			) : (
 				<box flexDirection="row" flexShrink={0}>
 					{hint ?? (
-						<text
-							fg={terminalColor()}
-							flexShrink={1}
-							attributes={textAttributes({dim: true})}
-						>
+						<text {...dimText()}>
 							Press <span fg={terminalColor('green')}>y</span> or{' '}
 							<span fg={terminalColor('green')}>Enter</span> to confirm,{' '}
 							<span fg={terminalColor('yellow')}>n</span> or{' '}
