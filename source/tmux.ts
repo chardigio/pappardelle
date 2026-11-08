@@ -380,11 +380,15 @@ function viewerMessageCommand(message: string): string {
 	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
 }
 
-// Selecting a space already tries to start its agent, so reaching this means
-// the start failed, and the reason was logged to the rail's error list.
-function viewerNoSessionCommand(issueKey: string): string {
+// Selecting a space already tries to start its agent and companion, so
+// reaching this means the start failed, and the reason was logged to the
+// rail's error list.
+function viewerNoSessionCommand(
+	issueKey: string,
+	program: 'agent' | 'companion',
+): string {
 	const format =
-		'\\n  \\033[1m%s\\033[0;2m has no agent running\\033[0m\\n\\n' +
+		`\\n  \\033[1m%s\\033[0;2m has no ${program} running\\033[0m\\n\\n` +
 		'  \\033[1;7m e \\033[0;2m in the rail shows why\\033[0m\\n\\n';
 	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
 }
@@ -1846,6 +1850,7 @@ export async function attachToSpace(
 			session: string,
 			exists: boolean,
 			title: string,
+			program: 'agent' | 'companion',
 		): Promise<{attached: boolean; tty: string}> => {
 			const hasClient = tty ? await clientExistsOnTty(tty, run) : false;
 			if (exists) {
@@ -1864,7 +1869,7 @@ export async function attachToSpace(
 					]
 						.map(value => shellQuote(value))
 						.join(' ')
-				: viewerNoSessionCommand(issueKey);
+				: viewerNoSessionCommand(issueKey, program);
 			await run(viewerRespawnArgs(paneId, command, title));
 			// The fast path finds the respawned frame's nested client by its tty.
 			return {
@@ -1878,6 +1883,7 @@ export async function attachToSpace(
 			sessions.agent,
 			hasAgentSession,
 			agentFrameTitle(issueKey),
+			'agent',
 		));
 		if (companionViewerPaneId) {
 			({attached: companionViewerHasClient, tty: companionViewerTty} =
@@ -1887,6 +1893,7 @@ export async function attachToSpace(
 					sessions.companion,
 					hasCompanionSession,
 					COMPANION_FRAME_TITLE,
+					'companion',
 				));
 		}
 		await run(agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId));

@@ -8,6 +8,7 @@ import {
 	getCurrentlyViewingSpace,
 	ensureAgentSession,
 	ensureCompanionSession,
+	getSessionNames,
 	killSpaceSessions,
 	type AsyncTmuxRunner,
 } from './tmux.ts';
@@ -309,6 +310,36 @@ test.serial(
 		);
 		t.is(getCurrentlyViewingSpace(), 'TEST-B');
 		t.deepEqual(getRecentErrors(), []);
+	},
+);
+
+test.serial(
+	'a missing companion session says the companion, not the agent, is not running',
+	async t => {
+		const fake = fakeTmux();
+		const {companion} = getSessionNames('TEST-C');
+		const run: AsyncTmuxRunner = async args => {
+			if (
+				(args.includes('has-session') || args.includes('new-session')) &&
+				args.some(arg => arg.includes(companion))
+			)
+				throw Object.assign(new Error('companion failed'), {code: 1});
+			return fake.run(args);
+		};
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-C', '%0', '/tmp', undefined, {
+			run,
+		});
+		const respawned = (paneId: string) =>
+			fake.calls
+				.filter(args => args.includes('respawn-pane') && args.includes(paneId))
+				.flat()
+				.join(' ');
+		t.true(respawned('%2').includes('has no companion running'));
+		t.false(
+			fake.calls.flat().some(arg => arg.includes('has no agent running')),
+		);
+		clearCurrentlyViewingSpace();
 	},
 );
 
