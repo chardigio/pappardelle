@@ -3,6 +3,8 @@ import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import YAML from 'js-yaml';
+import {BUILTIN_AGENTS} from './builtin-agents.ts';
 import {
 	getAgentProfile,
 	loadConfigFromPaths,
@@ -68,6 +70,8 @@ function runResolver(
 	agent_command: string;
 	agent_args: string;
 	agent_resume_args: string;
+	agent_prompt_args: string;
+	agent_skill_prefix: string;
 	agent_is_claude: string;
 	agent_launch_flags: string;
 	model: string;
@@ -611,8 +615,8 @@ profiles:
 			'chaz',
 		);
 		t.is(withProfile.agent_command, 'codex');
-		// Non-claude agent without resume_args: no resume attempt at all.
-		t.is(withProfile.agent_resume_args, '');
+		// codex's resume comes from the built-in agent mapping.
+		t.is(withProfile.agent_resume_args, 'resume {session_id}');
 		t.is(withProfile.agent_is_claude, 'false');
 
 		const otherProfile = runResolver(
@@ -1088,3 +1092,116 @@ profiles:
 		'',
 	);
 });
+
+// ============================================================================
+// Built-in agent defaults (scripts/builtin-agents.json) — both readers
+// ============================================================================
+
+type AgentDefaultsCase = {
+	definition: Record<string, unknown>;
+	launchFlags: string;
+	resumeArgs: string;
+	promptArgs: string;
+	skillPrefix: string;
+};
+
+const AGENT_DEFAULTS_CASES: Record<string, AgentDefaultsCase> = {
+	...Object.fromEntries(
+		Object.entries(BUILTIN_AGENTS).map(([name, builtin]) => [
+			`${name}-minimal`,
+			{
+				definition: {command: name, model: 'm1', effort: 'e1'},
+				launchFlags: [
+					builtin.model_args?.replace('{model}', 'm1'),
+					builtin.effort_args?.replace('{effort}', 'e1'),
+				]
+					.filter(Boolean)
+					.join(' '),
+				resumeArgs: builtin.resume_args ?? '',
+				promptArgs: builtin.prompt_args ?? '',
+				skillPrefix: builtin.skill_prefix ?? '/',
+			},
+		]),
+	),
+	overridden: {
+		definition: {
+			command: '/usr/local/bin/agy',
+			model: 'm1',
+			model_args: '-M {model}',
+			prompt_args: '--prompt {prompt}',
+			resume_args: '',
+			skill_prefix: '!',
+		},
+		launchFlags: '-M m1',
+		resumeArgs: '',
+		promptArgs: '--prompt {prompt}',
+		skillPrefix: '!',
+	},
+	'claude-opted-out': {
+		definition: {command: 'claude', is_claude: false},
+		launchFlags: '',
+		resumeArgs: '',
+		promptArgs: '',
+		skillPrefix: '/',
+	},
+	'claude-wrapper': {
+		definition: {command: 'claude-local', is_claude: true, model: 'm1'},
+		launchFlags: '--model m1',
+		resumeArgs: '--resume {session_id}',
+		promptArgs: '',
+		skillPrefix: '/',
+	},
+	unknown: {
+		definition: {command: 'aider'},
+		launchFlags: '',
+		resumeArgs: '',
+		promptArgs: '',
+		skillPrefix: '/',
+	},
+};
+
+for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
+	maybeMacro(
+		`built-in agent defaults: ${name} resolves the same in TS and bash`,
+		t => {
+			const fixture = setupConfigFiles(
+				YAML.dump({
+					version: 1,
+					agent_profiles: {[name]: expected.definition},
+					agent_profile: name,
+					profiles: {},
+				}),
+			);
+			t.teardown(fixture.cleanup);
+			const agentProfile = getAgentProfile(
+				loadConfigFromPaths({projectDir: path.dirname(fixture.configPath)}),
+			);
+			const result = runResolver(fixture.configPath, fixture.localConfigPath);
+
+			t.is(renderAgentLaunchFlags(agentProfile).trim(), expected.launchFlags);
+			t.is(result.agent_launch_flags, expected.launchFlags);
+			t.is(agentProfile.resumeArgs ?? '', expected.resumeArgs);
+			t.is(result.agent_resume_args, expected.resumeArgs);
+			t.is(agentProfile.skillPrefix, expected.skillPrefix);
+			t.is(result.agent_skill_prefix, expected.skillPrefix);
+			t.is(result.agent_prompt_args, expected.promptArgs);
+		},
+	);
+}
+
+for (const promptArgs of ['-i', '', '-i {prompt} {prompt}']) {
+	maybeMacro(`prompt_args ${JSON.stringify(promptArgs)} is an error`, t => {
+		const fixture = setupConfigFiles(
+			YAML.dump({
+				version: 1,
+				agent_profiles: {agy: {command: 'agy', prompt_args: promptArgs}},
+				agent_profile: 'agy',
+			}),
+		);
+		t.teardown(fixture.cleanup);
+		t.regex(
+			runResolverExpectingError(fixture.configPath),
+			/agent_profiles\.agy\.prompt_args: must contain \{prompt\} exactly once/,
+		);
+	});
+}

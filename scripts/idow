@@ -204,6 +204,7 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' AGENT_COMMAND
         IFS= read -r -d '' AGENT_ARGS
         IFS= read -r -d '' AGENT_RESUME_ARGS
+        IFS= read -r -d '' AGENT_PROMPT_ARGS
         IFS= read -r -d '' AGENT_IS_CLAUDE
         IFS= read -r -d '' AGENT_SKILL_PREFIX
         IFS= read -r -d '' AGENT_PROFILE
@@ -214,7 +215,7 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' deprecations
         IFS= read -r -d '' profile_deprecations
     } < <(jq -j '[.companion_command, .skip_permissions, .model, .effort, .agent_command, .agent_args,
-        .agent_resume_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .init_cmd,
+        .agent_resume_args, .agent_prompt_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .init_cmd,
         .profile_init_cmd_set, .profile_init_cmd, .deprecation_warnings,
         .profile_deprecation_warnings][] | tostring | sub("\n+$"; "") + "\u0000"' <<< "$json")
     [[ -n "$AGENT_MODEL" ]] && log "Model: $AGENT_MODEL"
@@ -911,9 +912,13 @@ elif [[ "$WORKTREE_CREATED" == true && "$AGENT_IS_CLAUDE" != true ]]; then
 fi
 # One array for the resolved agent profile, appended to both start-agent-session.sh
 # and the terminal launchers below so the two launch paths can't drift.
-AGENT_FLAG_ARGS=(--agent-command "$AGENT_COMMAND" --agent-args "$AGENT_ARGS" --agent-resume-args "$AGENT_RESUME_ARGS" --agent-is-claude "$AGENT_IS_CLAUDE" --agent-launch-flags "$AGENT_LAUNCH_FLAGS" --agent-profile "$AGENT_PROFILE")
+AGENT_FLAG_ARGS=(--agent-command "$AGENT_COMMAND" --agent-args "$AGENT_ARGS" --agent-resume-args "$AGENT_RESUME_ARGS" --agent-prompt-args "$AGENT_PROMPT_ARGS" --agent-is-claude "$AGENT_IS_CLAUDE" --agent-launch-flags "$AGENT_LAUNCH_FLAGS" --agent-profile "$AGENT_PROFILE")
 AGENT_SESSION_ARGS=(--issue-key "$ISSUE_KEY" --repo-name "$REPO_NAME" --worktree "$WORKTREE_PATH" --companion-command "$COMPANION_COMMAND")
-if [[ -n "$INIT_CMD" && "$RESUME_MODE" != true ]]; then
+# Resume mode reopens a space, so the agent starts idle when there is nothing
+# to resume rather than being handed the issue key as a prompt.
+if [[ "$RESUME_MODE" == true ]]; then
+    AGENT_SESSION_ARGS+=(--no-prompt)
+elif [[ -n "$INIT_CMD" ]]; then
     AGENT_SESSION_ARGS+=(--init-cmd "$INIT_CMD")
 fi
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
