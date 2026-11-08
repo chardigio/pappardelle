@@ -104,7 +104,8 @@ test.serial(
 		t.true(view.line(1)?.includes('Unable to render this view'));
 		t.true(view.line(2)?.includes('No profiles defined'));
 		const entry = getRecentErrors().find(error => error.component === 'tui');
-		t.is(entry?.message, failure.stack);
+		t.true(entry?.message.startsWith(failure.stack!));
+		t.true(entry?.message.includes('at Broken'));
 		t.is(entry?.error, failure.message);
 		const logfile = path.join(
 			getLogDir(),
