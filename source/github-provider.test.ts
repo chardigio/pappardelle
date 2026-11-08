@@ -56,29 +56,65 @@ test('concurrent first lookups share repo discovery and cache the resolved fork'
 });
 
 for (const failure of ['error', 'invalid slug'] as const) {
-	test(`repo discovery retries after ${failure} without poisoning concurrent callers`, async t => {
+	test(`repo discovery ${failure} rejects the link lookup and backs off before retrying`, async t => {
+		let now = 0;
 		let discoveries = 0;
-		const provider = new GitHubProvider(async args => {
-			if (args[0] !== 'repo') return makePrListResponse([]);
-			discoveries++;
-			await delay(10);
-			if (discoveries === 1) {
-				if (failure === 'error') throw new Error('offline');
-				return '';
-			}
-			return 'owner/repo';
-		});
-		const [link, rail] = await Promise.all([
+		const provider = new GitHubProvider(
+			async args => {
+				if (args[0] !== 'repo') return makePrListResponse([]);
+				discoveries++;
+				await delay(10);
+				if (discoveries === 1) {
+					if (failure === 'error') throw new Error('offline');
+					return '';
+				}
+				return 'owner/repo';
+			},
+			undefined,
+			undefined,
+			() => now,
+		);
+		const [link, rail] = await Promise.allSettled([
 			provider.getPRLink('STA-1'),
 			provider.getBulkRailStatus(['STA-1']),
 		]);
-		t.is(link, null);
-		t.is(rail.size, 0);
+		t.is(link.status, 'rejected');
+		t.deepEqual(rail, {status: 'fulfilled', value: new Map()});
 		t.is(discoveries, 1);
+
+		now += 1000;
+		await t.throwsAsync(provider.getPRLink('STA-1'));
+		const retried = await provider.getBulkRailStatus(['STA-1']);
+		t.is(retried.size, 0);
+		t.is(discoveries, 1);
+
+		now += 60_000;
+		t.is(await provider.getPRLink('STA-1'), null);
 		t.is(await provider.buildPRUrl(1), 'https://github.com/owner/repo/pull/1');
 		t.is(discoveries, 2);
 	});
 }
+
+test('repo discovery backoff grows with consecutive failures and stays bounded', async t => {
+	let now = 0;
+	const attempts: number[] = [];
+	const provider = new GitHubProvider(
+		async () => {
+			attempts.push(now);
+			throw new Error('offline');
+		},
+		undefined,
+		undefined,
+		() => now,
+	);
+	for (; now <= 60 * 60_000; now += 10_000) {
+		await provider.getPRLink('STA-1').catch(() => undefined);
+	}
+	const gaps = attempts.slice(1).map((at, i) => at - attempts[i]!);
+	t.true(gaps[1]! > gaps[0]!);
+	t.true(gaps.every(gap => gap <= 5 * 60_000));
+	t.true(gaps.at(-1)! >= 4 * 60_000);
+});
 
 test('link lookup retains merged and follow-up PR search semantics', async t => {
 	let query = '';
