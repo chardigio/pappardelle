@@ -40,9 +40,10 @@ tmux, configuration, and status protocols remain in place.
   than scheduling every workspace at 60 Hz. A React error boundary keeps render
   failures visible and dismissible; Esc restores the terminal. Render failures
   are logged explicitly with their stack because Bun console writes bypass the
-  stderr interceptor. OpenTUI captures reconciler console diagnostics with its
-  console overlay kept closed (`openConsoleOnError: false`), preventing raw
-  output from corrupting the application view. Input bindings are shared and
+  stderr interceptor. OpenTUI's console overlay is disabled, so React and
+  OpenTUI diagnostics go through the `console.error` redirect into the log
+  instead of drawing over the view; React's report of an error the boundary
+  already caught is dropped there so it counts once. Input bindings are shared and
   common input props are memoized to avoid rebuilding keymaps on each keystroke.
 - **Production packaging:** `bun run build` produces a native executable with
   Bun's ESM startup bytecode, production React, and embedded OpenTUI assets.

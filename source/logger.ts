@@ -287,6 +287,25 @@ export function makeStderrInterceptor(
 	};
 }
 
+/**
+ * React reports an error an error boundary caught as console.error(error,
+ * {componentStack, errorBoundary}). TuiErrorBoundary already logs those with
+ * their stack, so they would count twice in the rail's errors.
+ */
+export function isCaughtBoundaryReport(args: readonly unknown[]): boolean {
+	const info = args[1];
+	return typeof info === 'object' && info !== null && 'errorBoundary' in info;
+}
+
+export function makeConsoleError(
+	write: (text: string) => void,
+): (...args: unknown[]) => void {
+	return (...args) => {
+		if (isCaughtBoundaryReport(args)) return;
+		write(format(...args) + '\n');
+	};
+}
+
 export function captureStderr(): void {
 	if (stderrCaptured) return;
 	stderrCaptured = true;
@@ -306,9 +325,7 @@ export function captureStderr(): void {
 	// Bun's console writes straight to fd 2 rather than through
 	// process.stderr.write, so OpenTUI and React errors would draw over the
 	// TUI and never reach the log.
-	console.error = (...args: unknown[]) => {
-		process.stderr.write(format(...args) + '\n');
-	};
+	console.error = makeConsoleError(text => process.stderr.write(text));
 	console.warn = console.error;
 }
 

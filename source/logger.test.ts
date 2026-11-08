@@ -7,6 +7,7 @@ import {
 	clearRecentErrors,
 	subscribeToErrors,
 	makeStderrInterceptor,
+	makeConsoleError,
 	setStderrTerminalPassthrough,
 	getStderrTerminalPassthrough,
 } from './logger.ts';
@@ -240,4 +241,21 @@ test.serial('stderr terminal passthrough defaults to enabled', t => {
 	// mounts and after it tears down; cli.tsx only disables it while the alt
 	// screen is owned.
 	t.true(getStderrTerminalPassthrough());
+});
+
+test('console.error reaches the log, except React reports of an error a boundary already caught', t => {
+	const written: string[] = [];
+	const consoleError = makeConsoleError(text => written.push(text));
+	const failure = new Error('render failed');
+
+	consoleError(failure, {componentStack: '\n    at Broken', errorBoundary: {}});
+	t.deepEqual(written, []);
+
+	consoleError(
+		'Warning: Each child in a list should have a unique "key" prop.',
+	);
+	consoleError(failure, {componentStack: '\n    at Broken'});
+	t.is(written.length, 2);
+	t.true(written[0]!.includes('unique "key" prop'));
+	t.true(written[1]!.includes('render failed'));
 });

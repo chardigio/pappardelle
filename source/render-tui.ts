@@ -22,8 +22,9 @@ export async function renderTui(
 ) {
 	const renderer = await createCliRenderer({
 		screenMode: 'alternate-screen',
-		// Capture reconciler diagnostics: Bun console writes bypass stderr hooks.
-		consoleMode: 'console-overlay',
+		// OpenTUI's overlay would replace console.error with an in-memory cache
+		// the rail never shows, hiding React and OpenTUI diagnostics from the log.
+		consoleMode: 'disabled',
 		externalOutputMode: 'passthrough',
 		openConsoleOnError: false,
 		environment: process.env['TMUX'] ? tmuxRendererEnvironment : {},

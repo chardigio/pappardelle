@@ -1,6 +1,11 @@
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
-import {clearRecentErrors, getRecentErrors, getLogDir} from './logger.ts';
+import {
+	clearRecentErrors,
+	getRecentErrors,
+	getLogDir,
+	isCaughtBoundaryReport,
+} from './logger.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import React from 'react';
@@ -106,7 +111,9 @@ test.serial(
 			`pappardelle-${entry!.timestamp.split('T')[0]}.log`,
 		);
 		t.true(readFileSync(logfile, 'utf8').includes(failure.stack!));
-		t.deepEqual(consoleErrors, []);
+		// Reaching console.error at all means OpenTUI left the log redirect in place.
+		t.true(consoleErrors.length > 0);
+		t.true(consoleErrors.every(args => isCaughtBoundaryReport(args)));
 		view.stdin.write('\x1b');
 		await view.renderer.closed;
 		const bytes = await view.flush();
