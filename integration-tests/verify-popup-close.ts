@@ -70,13 +70,24 @@ try {
 		],
 		{env: cleanEnv},
 	);
+	let clientOutput = '';
+	// CI runners have no TERM, and tmux refuses to attach without one.
 	client = Bun.spawn(['tmux', '-S', socket, 'attach', '-t', 'host'], {
-		env: cleanEnv,
-		terminal: {cols: 120, rows: 40, data() {}},
+		env: {...cleanEnv, TERM: 'xterm-256color'},
+		terminal: {
+			cols: 120,
+			rows: 40,
+			data(_terminal, chunk) {
+				clientOutput += new TextDecoder().decode(chunk);
+			},
+		},
 	});
 	const end = Date.now() + 5000;
 	while (!tmux(['list-clients', '-F', '#{client_name}']).trim()) {
-		assert.ok(Date.now() < end, 'tmux client never attached');
+		assert.ok(
+			Date.now() < end,
+			`tmux client never attached: ${JSON.stringify(clientOutput.slice(-300))}`,
+		);
 		await delay(50);
 	}
 
