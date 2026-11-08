@@ -6,7 +6,10 @@ import {
 	HELP_CHROME_ROWS,
 } from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
-import {closeSpaceContent} from '../close-state-choice.ts';
+import {
+	closeSpaceContent,
+	STATE_ROW_ONE_LINE_COLS,
+} from '../close-state-choice.ts';
 import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
 import {wrappedLineCount} from '../text-measure.ts';
 import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
@@ -77,10 +80,9 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			const content = closeSpaceContent(spec.props.spaceName);
 			// The tracker's ability to pick a state is only known inside the
 			// popup, so it is sized for the state row and its margin either way.
+			const stateRows = inner < STATE_ROW_ONE_LINE_COLS ? 2 : 1;
 			const height =
-				confirmHeight(content, inner, CLOSE_SPACE_HINT) +
-				// The state row is truncated to one line, plus its margin.
-				2;
+				confirmHeight(content, inner, CLOSE_SPACE_HINT) + stateRows + 1;
 			return clamp({width, height}, client);
 		}
 

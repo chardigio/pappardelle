@@ -1,6 +1,8 @@
 import test from 'ava';
 import React from 'react';
-import {render} from '../../test/helpers/render.ts';
+import {render, until} from '../../test/helpers/render.ts';
+import CloseSpaceDialog from '../components/CloseSpaceDialog.tsx';
+import type {IssueTrackerProvider} from '../providers/types.ts';
 import ConfirmDialog from '../components/ConfirmDialog.tsx';
 import type {ConfirmPopupProps} from './spec.ts';
 import {popupSize} from './size.ts';
@@ -56,6 +58,46 @@ for (const {cols, props} of cases) {
 			});
 
 			t.is(size.height, view.lastFrame().split('\n').length);
+		},
+	);
+}
+
+const pickingTracker = {
+	listStates: async () => [],
+	setIssueState: async () => true,
+	closeIssue: async () => true,
+} as unknown as IssueTrackerProvider;
+
+for (const cols of [30, 80]) {
+	test.serial(
+		`a ${cols}-column Close Space popup fits its rows and shows the whole state choice`,
+		async t => {
+			const spec = {
+				kind: 'close-space',
+				props: {spaceName: 'bd-1', currentIssue: null},
+			} as const;
+			const size = popupSize(spec, {cols, rows: 80});
+			const view = await render(
+				React.createElement(CloseSpaceDialog, {
+					...spec.props,
+					tracker: pickingTracker,
+					isFullHeight: true,
+					onConfirm: noop,
+					onCancel: noop,
+				}),
+				{width: size.width, height: size.height},
+			);
+			t.teardown(async () => {
+				await view.unmount();
+			});
+
+			await until(
+				() => view.lastFrame().includes('‹ Closed ›'),
+				() => view.lastFrame(),
+			);
+			const rows = view.lastFrame().split('\n');
+			t.is(rows.length, size.height);
+			t.true(rows.at(-3)!.includes('cancel'), 'the hint is the last row');
 		},
 	);
 }

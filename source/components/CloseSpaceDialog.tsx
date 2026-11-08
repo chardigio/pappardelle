@@ -1,7 +1,8 @@
+import type {BoxRenderable} from '@opentui/core';
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {terminalColor, dimText} from '../tui-style.ts';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 
 import {
 	buildStateChoices,
@@ -10,6 +11,7 @@ import {
 	closeSpaceContent,
 	cycleChoice,
 	defaultChoiceKey,
+	STATE_ROW_ONE_LINE_COLS,
 	type StateChoice,
 } from '../close-state-choice.ts';
 import {createIssueTracker} from '../providers/index.ts';
@@ -123,6 +125,9 @@ export default function CloseSpaceDialog({
 	});
 
 	const content = closeSpaceContent(spaceName);
+	const stateRow = useRef<BoxRenderable>(null);
+	const [rowWidth, setRowWidth] = useState<number | undefined>(undefined);
+	const isNarrow = rowWidth !== undefined && rowWidth < STATE_ROW_ONE_LINE_COLS;
 
 	if (!pickable) {
 		return (
@@ -151,11 +156,24 @@ export default function CloseSpaceDialog({
 			}}
 			onCancel={onCancel}
 		>
-			<box flexDirection="row" flexShrink={0}>
-				{/* tmux can't resize an open popup, so a long status name must not wrap. */}
-				<text fg={terminalColor()} flexShrink={1} wrapMode="none" height={1}>
-					Issue state:{' '}
-					<span fg={terminalColor('cyan')}>‹ {choiceLabel(selected)} ›</span>
+			<box
+				ref={stateRow}
+				flexDirection={isNarrow ? 'column' : 'row'}
+				flexShrink={0}
+				onSizeChange={() => {
+					if (stateRow.current) setRowWidth(stateRow.current.width);
+				}}
+			>
+				<text fg={terminalColor()} flexShrink={0} wrapMode="none" height={1}>
+					Issue state:{isNarrow ? '' : ' '}
+				</text>
+				<text
+					fg={terminalColor('cyan')}
+					flexShrink={1}
+					wrapMode="none"
+					height={1}
+				>
+					‹ {choiceLabel(selected)} ›
 				</text>
 			</box>
 			<Gap />
