@@ -562,6 +562,7 @@ export default function PromptDialog({
 						isFocused={!isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
+						isKeepingVerticalArrows={!isCompleting && ready.issues.length === 0}
 					/>
 				</box>
 

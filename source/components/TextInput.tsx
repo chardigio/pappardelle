@@ -43,6 +43,8 @@ type Props = {
 	isShowingCursor?: boolean;
 	highlight?: InputHighlight;
 	isMultiline?: boolean;
+	/** Up/Down move the caret instead of going to a list the parent shows. */
+	isKeepingVerticalArrows?: boolean;
 };
 
 /** Native editing supplies paste buffering, Unicode cursor movement and scrolling.
@@ -57,6 +59,7 @@ export default function TextInput({
 	isShowingCursor = true,
 	highlight,
 	isMultiline = false,
+	isKeepingVerticalArrows = false,
 }: Props) {
 	const renderer = useRenderer();
 	const ref = useRef<InputRenderable | TextareaRenderable>(null);
@@ -115,10 +118,12 @@ export default function TextInput({
 		}),
 		[isFocused, isShowingCursor, placeholder, syntaxStyle],
 	);
+	const parentKeys = isKeepingVerticalArrows
+		? ['tab', 'escape']
+		: ['up', 'down', 'tab', 'escape'];
 	const onKeyDown = (key: KeyEvent) => {
-		// These belong to the parent suggestion picker; do not move the input caret.
-		if (['up', 'down', 'tab', 'escape'].includes(key.name))
-			key.preventDefault();
+		// These belong to the parent's pickers; do not move the input caret.
+		if (parentKeys.includes(key.name)) key.preventDefault();
 	};
 	const submit = () => onSubmit?.(ref.current?.plainText ?? value);
 	if (isMultiline)
