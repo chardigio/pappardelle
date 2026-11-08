@@ -150,3 +150,17 @@ test.serial(
 		t.deepEqual(harness.attachments, ['STA-2']);
 	},
 );
+
+test.serial(
+	'keys in one input write see the selection the previous key made',
+	async t => {
+		const harness = await setup(t);
+		harness.selection.setSelectedIndex(3);
+		t.is(harness.selection.current().selectedIndex, 3);
+		harness.selection.setSpaces(current =>
+			current.filter(space => space.name !== 'STA-2'),
+		);
+		const {spaces, selectedIndex} = harness.selection.current();
+		t.is(spaces[selectedIndex]?.name, 'STA-1');
+	},
+);

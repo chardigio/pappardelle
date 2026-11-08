@@ -254,8 +254,18 @@ export default function App({
 		[repoName],
 	);
 
-	const {spaces, setSpaces, selectedIndex, setSelectedIndex, selectSpace} =
-		useSpaceSelection();
+	const {
+		spaces,
+		setSpaces,
+		selectedIndex,
+		setSelectedIndex,
+		selectSpace,
+		current: currentSelection,
+	} = useSpaceSelection();
+	const selectedSpaceNow = useCallback(() => {
+		const {spaces, selectedIndex} = currentSelection();
+		return spaces[selectedIndex];
+	}, [currentSelection]);
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 	const statusKeysRef = useRef(new Set<string>());
@@ -762,8 +772,6 @@ export default function App({
 
 	const selectedSpace = spaces[selectedIndex];
 	const selectedSpaceName = selectedSpace?.name;
-	const selectedSpaceNameRef = useRef(selectedSpaceName);
-	selectedSpaceNameRef.current = selectedSpaceName;
 	const selectedWorktreePath = selectedSpace?.isMainWorktree
 		? (selectedSpace.worktreePath ?? undefined)
 		: undefined;
@@ -852,7 +860,7 @@ export default function App({
 	// Open the GitHub PR / GitLab MR in browser for the selected space
 	// For main worktree, opens the repo page instead
 	const handleOpenPR = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending) return;
 
 		if (space.isMainWorktree) {
@@ -898,7 +906,7 @@ export default function App({
 	// Open the issue for the selected space — in a browser for trackers with a
 	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending || space.isMainWorktree) {
 			if (space?.isMainWorktree)
 				setHeaderWithTimeout('No issue for main worktree', 2000);
@@ -912,7 +920,7 @@ export default function App({
 
 	// Open the configured editor at the worktree path for the selected space
 	const handleOpenIDE = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending) return;
 
 		const {worktreePath} = space;
@@ -989,7 +997,7 @@ export default function App({
 
 	// Git pull in the selected space's worktree
 	const handleGitPull = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending) return;
 
 		const {worktreePath} = space;
@@ -1041,7 +1049,7 @@ export default function App({
 			return;
 		}
 
-		const targetSpace = selectedSpaceNameRef.current;
+		const targetSpace = selectedSpaceNow()?.name;
 		if (!targetSpace) return;
 		void sendToSelectedAgent({
 			queue: attachmentTask,
@@ -1078,7 +1086,7 @@ export default function App({
 			return;
 		}
 
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (kb.send_skill) {
 			if (!space || !configMemo) return;
 			const agentProfile = runningAgentProfile(
@@ -1275,8 +1283,6 @@ export default function App({
 		const {input, key} = shortcutKey(event);
 		if (railInputBlocked) return;
 
-		const totalItems = spaces.length;
-
 		// Check custom keybindings first — they can override default keys
 		const kb = keybindingMap.get(input);
 		if (kb) {
@@ -1288,11 +1294,13 @@ export default function App({
 
 		// Non-overridable built-in shortcuts
 		if (key.upArrow || input === 'k') {
+			const {selectedIndex} = currentSelection();
 			if (selectedIndex > 0) {
 				setSelectedIndex(selectedIndex - 1);
 			}
 		} else if (key.downArrow || input === 'j') {
-			if (selectedIndex < totalItems - 1) {
+			const {spaces, selectedIndex} = currentSelection();
+			if (selectedIndex < spaces.length - 1) {
 				setSelectedIndex(selectedIndex + 1);
 			}
 		} else if (isFocusAgentKey(key)) {
@@ -1302,7 +1310,7 @@ export default function App({
 			setShowPromptDialog(true);
 		} else if (isCloseSpaceKey(input, key)) {
 			// Backspace, Delete, or 'x' closes the selected space
-			const space = spaces[selectedIndex];
+			const space = selectedSpaceNow();
 			if (space?.isMainWorktree) {
 				setHeaderWithTimeout('Cannot close main worktree', 2000);
 			} else if (space) {
@@ -1327,7 +1335,7 @@ export default function App({
 			// Shift+K closes every done/canceled space at once (STA-2111).
 			// Checked before the switch below so it can't be shadowed by the
 			// lowercase `k` navigation branch above.
-			const targets = findDoneSpaces(spaces);
+			const targets = findDoneSpaces(currentSelection().spaces);
 			if (targets.length === 0) {
 				setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
 			} else {
@@ -1750,7 +1758,7 @@ export default function App({
 
 			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
-			if (selectedSpaceNameRef.current === space.name) attachmentTask.cancel();
+			if (selectedSpaceNow()?.name === space.name) attachmentTask.cancel();
 			return attachmentTask
 				.exclusive(async () => {
 					// STA-1420: kill tmux first, then update the registry. If the kill
@@ -1783,7 +1791,7 @@ export default function App({
 					}
 
 					const layout = paneLayoutRef.current;
-					if (layout && selectedSpaceNameRef.current === space.name) {
+					if (layout && selectedSpaceNow()?.name === space.name) {
 						await Promise.all([
 							displayMessageInPaneAsync(
 								layout.agentViewerPaneId,
@@ -1966,7 +1974,7 @@ export default function App({
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space) return;
 		if (space.isPending) return;
 		if (space.isMainWorktree) {
