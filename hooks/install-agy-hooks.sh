@@ -33,5 +33,8 @@ fi
 
 # Written in place rather than moved over, so a symlinked hooks.json (a
 # dotfiles checkout) keeps its link and the file keeps its mode.
-printf '%s\n' "$merged" > "$AGY_HOOKS"
+if ! printf '%s\n' "$merged" > "$AGY_HOOKS"; then
+    echo "! Could not write $AGY_HOOKS; merge $SCRIPT_DIR/agy-hooks.json.example by hand"
+    exit 0
+fi
 echo "✓ Added the agy session hook to $AGY_HOOKS"

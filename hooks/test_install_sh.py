@@ -64,3 +64,14 @@ def test_agy_installer_keeps_other_named_hooks_and_is_idempotent(tmp_path: Path)
 def test_agy_installer_skips_without_agy_config(tmp_path: Path):
     assert "not set up" in run_agy_installer(tmp_path)
     assert not (tmp_path / ".gemini").exists()
+
+
+def test_agy_installer_reports_a_failed_write(tmp_path: Path):
+    hooks_json = tmp_path / ".gemini" / "config" / "hooks.json"
+    hooks_json.parent.mkdir(parents=True)
+    hooks_json.symlink_to(tmp_path / "missing" / "hooks.json")
+
+    output = run_agy_installer(tmp_path)
+
+    assert "Could not write" in output
+    assert "Added" not in output
