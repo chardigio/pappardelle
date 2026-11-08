@@ -5,10 +5,11 @@ import {stripSkinTones} from './emoji-rail-width.ts';
 import {isInTmux} from './tmux.ts';
 
 // tmux 3.6 draws an emoji plus a Fitzpatrick skin-tone modifier (💪🏼) as
-// two wide glyphs, 4 cells, while Ink and outer terminals draw the grapheme
-// as 2 cells. A row laid out for 2 cells then runs 2 cells past the pane and
-// the rail icons wrap. The combining-order fix (tmux/tmux#4726) landed in
-// 3.6a; every release from 3.6a on agrees with Ink.
+// two wide glyphs, 4 cells, while OpenTUI lays the grapheme out as 2 cells and
+// outer terminals draw it as 2. A row laid out for 2 cells then runs 2 cells
+// past the pane and the rail icons wrap. The combining-order fix
+// (tmux/tmux#4726) landed in 3.6a; every release from 3.6a on agrees with
+// OpenTUI.
 //
 // 3.5 and earlier predate the regression, so only a bare 3.6 needs the
 // modifiers stripped.

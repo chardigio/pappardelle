@@ -20,7 +20,7 @@ export type {PipelineStatus, RailStatus} from './providers/types.ts';
  * headroom for the synchronous PR-lookup the watchlist also makes.
  *
  * Lives next to `classifyPipeline` so the regression test can import it
- * without pulling in app.tsx's Ink/React surface.
+ * without pulling in app.tsx and its renderer.
  */
 export const RAIL_STATUS_POLL_INTERVAL_MS = 60_000;
 

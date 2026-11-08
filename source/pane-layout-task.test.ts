@@ -111,7 +111,7 @@ test('reconstruction is serialized with attachment and cannot publish readiness 
 	t.is(events.filter(event => event === 'ready').length, 1);
 });
 
-test('confirmed geometry reaches Ink resize listeners before dialog readiness', t => {
+test('confirmed geometry reaches stdout resize listeners before dialog readiness', t => {
 	const seen: number[] = [];
 	const stream = {
 		rows: 30,

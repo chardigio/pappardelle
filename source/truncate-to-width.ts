@@ -1,18 +1,15 @@
 // Width-aware truncation for the ticket-rail title.
 //
-// The title is laid out by Ink, which sizes a <Text> box with its bundled
-// `string-width` (via `widest-line`). A ✨ U+2728 is a single UTF-16 code unit
-// but Ink lays it out as a 2-cell box, so the previous code-unit truncation
-// (`title.slice(0, n)`) under-counted it: a kept ✨ pushed the title one cell
-// past its width budget, shoving the right-aligned rail icons out of alignment
-// (STA-1565 follow-up — the profile-emoji slot was fixed first; the title text
-// has the same writer/layout mismatch).
+// A ✨ U+2728 is a single UTF-16 code unit but takes 2 terminal cells, so the
+// previous code-unit truncation (`title.slice(0, n)`) under-counted it: a kept ✨
+// pushed the title one cell past its width budget, shoving the right-aligned
+// rail icons out of alignment (STA-1565 follow-up).
 //
-// Measuring with `widest-line` (Ink's layout measure, the same library the
-// profile-emoji fix adopted) and stepping by grapheme keeps the truncation in
-// lockstep with how Ink sizes the row. `widest-line` is deliberately chosen over
-// pappardelle's newer `string-width`, whose tables disagree with Ink's bundled
-// copy for a few symbols (❤ ✂), so only `widest-line` predicts Ink's box.
+// OpenTUI measures text natively. Under tmux the renderer is forced to its
+// `unicode` width method, which agrees with `widest-line` on emoji, CJK and
+// symbols, so measuring with `widest-line` and stepping by grapheme keeps the
+// cut within the cells OpenTUI lays out. The two still differ on Indic spacing
+// marks (OpenTUI counts "किताब" as 3, `widest-line` as 5) and the soft hyphen.
 
 import widestLine from 'widest-line';
 
@@ -23,11 +20,10 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, {
 });
 
 /**
- * Truncate `text` to at most `maxCells` terminal columns *as Ink lays them out*,
- * appending a one-cell '…' when it doesn't fit. Returns '' for a non-positive
- * budget. Width is measured with `widest-line` so multi-cell emoji (✨ counts as
- * 2) reserve the columns Ink will actually size their box at — the previous
- * `String.slice` counted UTF-16 code units and overflowed on those emoji.
+ * Truncate `text` to at most `maxCells` terminal columns, appending a one-cell
+ * '…' when it doesn't fit. Returns '' for a non-positive budget. Width is
+ * measured with `widest-line`, so multi-cell emoji (✨ counts as 2) reserve the
+ * columns OpenTUI lays them out at.
  */
 export function truncateToWidth(text: string, maxCells: number): string {
 	if (maxCells <= 0) return '';

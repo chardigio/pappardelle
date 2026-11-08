@@ -20,7 +20,7 @@ import {getRepoRoot} from './config.ts';
  * number, and a plain description all behave exactly as they did before.
  *
  * Every function here is pure or takes its roots as arguments, so the ranking,
- * the trigger rule, and the on-disk scan are all testable without Ink.
+ * the trigger rule, and the on-disk scan are all testable without a renderer.
  */
 
 /** Rows of the skill picker visible at once. Matches the profile picker's feel. */

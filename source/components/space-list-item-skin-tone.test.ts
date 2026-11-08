@@ -9,9 +9,9 @@ import {
 } from '../tmux-skin-tone.ts';
 import type {SpaceData} from '../types.ts';
 
-// tmux 3.6 draws a skin-tone emoji as 4 cells while Ink lays it out as 2.
-// This measures the frame the way tmux 3.6 does, so a row that fits Ink but
-// wraps in tmux fails here.
+// tmux 3.6 draws a skin-tone emoji as 4 cells while OpenTUI lays it out as 2.
+// This measures the frame the way tmux 3.6 does, so a row that fits OpenTUI's
+// layout but wraps in tmux fails here.
 const tmux36Width = (text: string): number =>
 	stringWidth(text) + 2 * (text.match(/[\u{1F3FB}-\u{1F3FF}]/gu)?.length ?? 0);
 
@@ -94,17 +94,20 @@ test.serial(
 	},
 );
 
-test.serial('tmux 3.6a keeps the full grapheme at Ink width', async t => {
-	for (const version of ['3.6a', '3.7c', 'next-3.9']) {
-		for (const width of [30, 40, 60, 80]) {
-			const frame = await renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
-			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
-			t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
-			t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
-			t.true(frame.includes('✓'), `Rendered row: ${frame}`);
+test.serial(
+	'tmux 3.6a keeps the full grapheme at its 2-cell width',
+	async t => {
+		for (const version of ['3.6a', '3.7c', 'next-3.9']) {
+			for (const width of [30, 40, 60, 80]) {
+				const frame = await renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
+				t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
+				t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
+				t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
+				t.true(frame.includes('✓'), `Rendered row: ${frame}`);
+			}
 		}
-	}
-});
+	},
+);
 
 test.serial('outside tmux the full grapheme is kept', async t => {
 	for (const width of [30, 40, 60, 80]) {

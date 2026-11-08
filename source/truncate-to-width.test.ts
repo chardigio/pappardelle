@@ -1,11 +1,11 @@
 /**
- * STA-1565 follow-up: the ticket-rail title must be truncated by *display width*
- * (the way Ink lays it out), not by UTF-16 code units. The old
- * `title.slice(0, n)` counted a ✨ (U+2728) as one code unit while Ink sizes its
- * box at two cells, so a kept ✨ pushed the title one column past its budget and
- * shoved the right-aligned rail icons out of alignment. These tests pin that the
- * truncated title never exceeds its cell budget — for plain text and for the
- * emoji classes that tripped the old slice.
+ * STA-1565 follow-up: the ticket-rail title must be truncated by *display width*,
+ * not by UTF-16 code units. The old `title.slice(0, n)` counted a ✨ (U+2728) as
+ * one code unit while the renderer lays it out at two cells, so a kept ✨
+ * pushed the title one column past its budget and shoved the right-aligned rail
+ * icons out of alignment. These tests pin that the truncated title never
+ * exceeds its cell budget, for plain text and for the emoji classes that
+ * tripped the old slice.
  */
 import test from 'ava';
 import widestLine from 'widest-line';

@@ -38,7 +38,7 @@ export default function AgentProfilePicker({
 		),
 	}));
 	const options = filterAgentProfiles(request.options, state.query ?? '');
-	// Ink hands every key of a burst to the handler before React re-renders,
+	// OpenTUI emits every key of a burst to the handler before React re-renders,
 	// so keys read the latest state here.
 	const stateRef = useRef(state);
 

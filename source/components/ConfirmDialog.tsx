@@ -82,7 +82,7 @@ export default function ConfirmDialog({
 			if (processingMessage !== undefined) {
 				// Caller has opted into the loading state: enter it BEFORE
 				// running onConfirm, then defer onConfirm to the next event-
-				// loop tick so Ink can paint the spinner first. This matters
+				// loop tick so the spinner can paint first. This matters
 				// because async onConfirms (like workspace deletion) typically
 				// run a chunk of synchronous setup — execSync `git rev-parse`,
 				// reading `.pappardelle.yml`, walking profiles — *before*

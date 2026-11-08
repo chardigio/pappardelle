@@ -15,12 +15,13 @@
  */
 
 /**
- * Color names that Ink accepts. Kept here (rather than imported from Ink) so
- * config validation can reject a typo at load time instead of letting Ink
- * silently fall back to the default color at render time.
+ * Color names that `terminalColor` in tui-style.ts maps to the terminal's ANSI
+ * palette. Config validation rejects anything else at load time, because
+ * OpenTUI parses an unmapped string as a CSS name or hex and paints magenta
+ * when that fails.
  *
- * Case-sensitive on purpose: Ink's palette is camelCase, and accepting
- * "BlueBright" here would only pass an unknown key through to Ink.
+ * Case-sensitive on purpose: the map's keys are camelCase, and "BlueBright"
+ * would miss it and reach OpenTUI's parser.
  */
 export const INK_COLOR_NAMES: ReadonlySet<string> = new Set([
 	'black',
@@ -46,8 +47,8 @@ export const INK_COLOR_NAMES: ReadonlySet<string> = new Set([
 const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
 
 /**
- * Whether a value is something the rail can hand to Ink as a color.
- * Accepts `#rgb` / `#rrggbb` hex and the Ink color names.
+ * Whether a value is something the rail can paint as a color.
+ * Accepts `#rgb` / `#rrggbb` hex and the ANSI color names above.
  */
 export function isValidStateColor(value: unknown): value is string {
 	if (typeof value !== 'string') return false;
@@ -65,8 +66,8 @@ export function normalizeStateName(name: string): string {
  *
  * Returns null for an unlisted name and — defensively — for a value that is not
  * a valid color. Config validation already rejects bad values, so that second
- * guard only matters for a caller that skipped validation; it keeps junk out of
- * Ink rather than letting a bad string reach the renderer.
+ * guard only matters for a caller that skipped validation; it keeps a bad
+ * string from reaching the renderer.
  */
 export function lookupStateColorOverride(
 	overrides: Readonly<Record<string, string>> | undefined,

@@ -121,14 +121,13 @@ test('the header is unchanged at ordinary widths', async t => {
 // ============================================================================
 
 /**
- * The search branch of the status line, mirrored from app.tsx. `TextInput`
- * cannot render under ink-testing-library (it calls `stdin.ref`), so a plain
- * Text of the same content stands in for it: what is under test is the box and
- * wrap props around it, not the input widget.
+ * The search branch of the status line, mirrored from app.tsx with a plain
+ * text of the same content in place of `TextInput`: what is under test is the
+ * box and wrap props around it, not the input widget.
  *
- * Each segment sits in its own `flexShrink={0}` box because Ink drops a
- * one-cell Text outright when a sibling Text is truncated, which swallowed the
- * `/` prefix when the segments were bare Texts.
+ * Each segment sits in its own `flexShrink={0}` box, as in app.tsx. Ink dropped
+ * a one-cell text outright when a sibling was truncated, which swallowed the
+ * `/` prefix when the segments were bare texts.
  */
 async function searchLines(width: number, fixed: boolean): Promise<string[]> {
 	const wrap = fixed ? ({wrapMode: 'none', truncate: true} as const) : {};

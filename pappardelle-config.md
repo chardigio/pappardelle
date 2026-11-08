@@ -164,10 +164,7 @@ profiles:
 
     # Optional emoji shown in the TUI ticket rail (left of the Claude status
     # icon) and in the new-session profile picker. Falls back to the top-level
-    # `default_emoji` when omitted. Symbols that are emoji by default but only
-    # one code point (✨ ⭐ ✅ ⚡ …) are rendered with a variation selector
-    # appended, which is how the terminal draws them anyway — without it Ink
-    # emits a row one column too wide and the frame border wraps (STA-1861).
+    # `default_emoji` when omitted.
     emoji: '🎵'
 
     # Per-profile team prefix override (optional)
@@ -1090,7 +1087,7 @@ state_colors?: Record<string, string>;
 - **Off by default.** With no `state_colors` key, every row keeps its tracker color. Pinned by the `resolveStateColor returns the tracker color when nothing is configured` test in `source/state-color-override.test.ts`.
 - **Names match case-insensitively**, and surrounding space is ignored, because a status name is prose a human copies out of a tracker UI. `in progress` matches `In Progress`.
 - **Two names that differ only in letter case are a validation error**, since the match could not choose between them.
-- **Accepted values**: hex (`#rgb` or `#rrggbb`) and the Ink color names (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`/`grey`, and their `*Bright` forms). Any other value fails validation at load time instead of falling back silently at render time.
+- **Accepted values**: hex (`#rgb` or `#rrggbb`) and the ANSI color names (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`/`grey`, and their `*Bright` forms). Any other value fails validation at load time instead of falling back silently at render time.
 - **A status the map does not list keeps its tracker color.** The map is a set of overrides, not a full palette.
 - **The main-worktree row is not affected.** That row derives its color from the tracker's "In Progress" (dirty) and "Done" (clean) colors, and it keeps doing so.
 - **Config layers merge key by key**, so `.pappardelle.local.yml` can override one status without restating the whole map.

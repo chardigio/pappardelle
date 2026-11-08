@@ -126,7 +126,7 @@ async function turn(text: string, label: string) {
 	);
 	await harness.expect(
 		'idle',
-		`${label}: Stop hook reaches Ink`,
+		`${label}: Stop hook reaches the rail row`,
 		{source: 'hook'},
 		'●',
 		60000,

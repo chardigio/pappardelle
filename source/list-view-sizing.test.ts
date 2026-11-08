@@ -928,7 +928,7 @@ test('STA-460: stale height affects visible item count', t => {
 	t.is(calculateMaxVisibleItems(correctHeight), 6);
 
 	// The stale height would try to render way more items than fit in the pane,
-	// causing Ink to overflow and produce rendering artifacts
+	// overflowing it and leaving rendering artifacts
 	const items = makeItems(10);
 	const staleWindow = calculateVisibleWindow(0, 10, staleHeight);
 	const correctWindow = calculateVisibleWindow(0, 10, correctHeight);

@@ -42,8 +42,8 @@ export function buildDisplayPopupArgs({
 	const script = [
 		// The popup's tty starts cooked, so a key typed right behind the one that
 		// opened the popup would be echoed over the first frame and Enter would
-		// arrive as a line feed, which Ink doesn't read as Return. Raw from the
-		// start, the keys wait unchanged for Ink.
+		// arrive as a line feed, which OpenTUI reports as `linefeed`, not Return.
+		// Raw from the start, the keys wait unchanged for the renderer.
 		'stty -icanon -echo -icrnl min 1 time 0 2>/dev/null',
 		// Written whole and then renamed, so the TUI never reads half a line.
 		`echo "$$ $(tty)" > ${pending} && mv ${pending} ${shellQuote(readyPath)}`,

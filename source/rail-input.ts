@@ -1,8 +1,6 @@
 /**
- * Pure helpers for the issue rail's input handler in app.tsx. Extracted so the
- * key handling can be unit-tested without rendering React/Ink — the .tsx file
- * itself can't be loaded by the bare-node + `--experimental-strip-types` test
- * setup.
+ * Pure helpers for the issue rail's input handler in app.tsx, so the key rules
+ * can be tested without mounting the app.
  */
 
 export type FocusAgentKey = {
@@ -30,10 +28,10 @@ export type CloseSpaceKey = {
 /**
  * Backspace, forward delete, or `x` asks to close the selected space.
  *
- * Both Backspace and Delete are checked because Ink has moved the Mac
- * Backspace byte (`\x7f`) between them: Ink 4 named it `delete`, Ink 7 names
- * it `backspace`. Checking only one of them silently unbound the key after the
- * Ink 7 upgrade (STA-2573).
+ * OpenTUI names the Mac Backspace byte (`\x7f`) and ctrl+h `backspace`, and
+ * fn+Delete (`\x1b[3~`) `delete`, so both names are checked. Ink once moved
+ * `\x7f` from `delete` to `backspace`, which silently unbound the key while
+ * only one name was checked (STA-2573).
  */
 export function isCloseSpaceKey(input: string, key: CloseSpaceKey): boolean {
 	return Boolean(key.backspace || key.delete || input === 'x');

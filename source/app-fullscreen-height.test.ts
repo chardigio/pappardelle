@@ -1,7 +1,7 @@
 /**
- * STA-1539 regression: the list view's root container must be given a concrete
- * terminal height, not `height="100%"`. Blank filler rows let the incremental
- * renderer erase stale results when a search shrinks the list after zooming.
+ * STA-1539 regression: the list view's root container must fill the terminal.
+ * Blank filler rows let the renderer erase stale results when a search shrinks
+ * the list after zooming.
  */
 import test from 'ava';
 import React from 'react';
@@ -47,9 +47,9 @@ test('STA-1539: numeric terminal height includes blank rows below the filtered l
 	t.is(await frameLineCount(TERM_HEIGHT), TERM_HEIGHT);
 });
 
-test('OpenTUI percentage height fills the terminal without the Ink collapse workaround', async t => {
-	// This is the pre-fix root. The frame is only as tall as its content, which is
-	// what dropped Ink onto the fragile log-update path after the zoom resize.
+test('OpenTUI percentage height also fills the terminal', async t => {
+	// Ink collapsed a 100% root to its content, which is why app.tsx passes a
+	// numeric height. OpenTUI resolves it against the renderer's 80 rows.
 	t.is(await frameLineCount('100%'), 80);
 });
 

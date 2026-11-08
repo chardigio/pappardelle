@@ -1,10 +1,8 @@
 /**
  * Outer width for the new-session dialog's frames.
  *
- * A plain `<Box borderStyle>` needs no width — Ink stretches it to the parent,
- * which is how the dialog filled the pane before it grew a hand-drawn top rule.
- * `TitledBox` has to lay that rule out itself, so it needs a concrete number,
- * and this is where "the number that reproduces stretching" lives.
+ * `TitledBox` takes a concrete width. The dialog spans the pane edge to edge, so
+ * this is the measured pane width, falling back to stdout columns.
  *
  * Deliberately uncapped and unfloored: master spans the pane edge to edge at any
  * size, and any clamp here shows up as either a narrow box floating in a wide

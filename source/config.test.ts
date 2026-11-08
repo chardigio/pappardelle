@@ -5116,7 +5116,7 @@ test('validateConfig accepts an empty state_colors map', t => {
 	t.notThrows(() => validateConfig(raw));
 });
 
-test('validateConfig accepts hex and ink color names in state_colors', t => {
+test('validateConfig accepts hex and ANSI color names in state_colors', t => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},

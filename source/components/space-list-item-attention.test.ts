@@ -39,7 +39,7 @@ test('a blocked row keeps its text distinguishable from the blink block', async 
 			t.true(text.includes('PAP-1'), `Rendered row: ${text}`);
 			// Cells are encoded as stored: SGR 7 plus this fg and bg. The terminal
 			// swaps them into a palette-colored block with text in its own
-			// background color, as Ink's inverse did.
+			// background color.
 			const slot = kind === 'question' ? 4 : 1;
 			for (const span of row) {
 				const label = `${kind}, selected=${isSelected}: "${span.text}"`;

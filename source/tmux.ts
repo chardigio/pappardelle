@@ -2101,7 +2101,7 @@ async function killPane(
  * Rebuild the tmux pane layout when the layout direction changes.
  * Kills old viewer panes and creates new ones with the correct orientation.
  *
- * The list pane (where the Ink app runs) is preserved — only viewer panes
+ * The list pane (where the TUI runs) is preserved — only viewer panes
  * are destroyed and recreated.
  *
  * Returns the new PaneLayout, or null on failure.

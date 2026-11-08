@@ -4,7 +4,7 @@
  * The rail (left) and companion (right) panes in 3-column mode normally get
  * widths derived from the terminal size by `calculateLayoutForSize`. Every
  * relayout re-applies those widths, which is why a hand-drag of a tmux pane
- * border used to snap back: a rail drag resizes the Ink pane and triggers a
+ * border used to snap back: a rail drag resizes the TUI's pane and triggers a
  * relayout straight away, and a companion drag is undone by the next relayout
  * from any other cause (a dialog opening, a workspace being added).
  *

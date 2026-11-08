@@ -333,7 +333,7 @@ export class GitHubProvider implements VcsHostProvider {
 				}
 			`;
 
-			// Async exec — execFileSync would block the Ink event loop for the
+			// Async exec — execFileSync would block the event loop for the
 			// entire duration of the gh call (~500ms-1s), and Promise.all over N
 			// spaces would make initial pappardelle startup feel frozen.
 			const stdout = await this.executor([

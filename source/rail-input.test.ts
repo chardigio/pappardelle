@@ -55,10 +55,10 @@ test('other keys do not close the selected space', t => {
 	t.false(isCloseSpaceKey('', {}));
 });
 
-// STA-2573: Ink 4 named the Mac Backspace byte (\x7f) `delete`, and Ink 7 names
-// it `backspace`. The rail only checked `key.delete`, so the upgrade silently
-// unbound Backspace. Drive the real bytes through OpenTUI's parser so framework upgrades
-// cannot move them again unnoticed.
+// STA-2573: a framework upgrade once renamed the Mac Backspace byte (\x7f) from
+// `delete` to `backspace` while the rail only checked `key.delete`, silently
+// unbinding Backspace. Drive the real bytes through OpenTUI's parser so a
+// renamed key fails here.
 async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
 	let closed = false;
 	function Rail() {

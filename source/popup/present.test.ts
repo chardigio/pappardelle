@@ -54,7 +54,7 @@ function fakeTerminal() {
 		killTty() {
 			isTtyDead = true;
 		},
-		/** Ink takes raw mode once the dialog is listening for keys. */
+		/** The renderer takes raw mode once the dialog is listening for keys. */
 		isListening: () => isListening,
 	};
 }

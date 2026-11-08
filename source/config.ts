@@ -348,7 +348,7 @@ export interface PappardelleConfig {
 	 * lets a Jira workflow tell "In Progress" and "In Review" apart even though
 	 * Jira gives them the same color.
 	 *
-	 * Values are hex (`#rgb` or `#rrggbb`) or an Ink color name (`cyan`,
+	 * Values are hex (`#rgb` or `#rrggbb`) or an ANSI color name (`cyan`,
 	 * `redBright`, ...). Absent or empty ⇒ the rail uses tracker colors only,
 	 * identical to master. The main-worktree row is not affected; it keeps
 	 * deriving its color from the tracker's "In Progress" and "Done" colors.

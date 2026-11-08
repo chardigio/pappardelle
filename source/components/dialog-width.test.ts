@@ -2,9 +2,8 @@ import test from 'ava';
 import {dialogWidth} from './dialog-width.ts';
 
 test('fills the full pane width, edge to edge', t => {
-	// Master's dialog is a plain bordered <Box> with no width, which Ink stretches
-	// to the parent — 76 cols of terminal renders a 76-cell box. TitledBox needs an
-	// explicit number, so this has to reproduce that exactly rather than approximate.
+	// The dialog spans the pane edge to edge: a 76-column pane renders a 76-cell
+	// box, so the width is the pane width exactly rather than an approximation.
 	t.is(dialogWidth(76, 80), 76);
 	t.is(dialogWidth(120, 80), 120);
 });

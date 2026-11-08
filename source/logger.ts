@@ -213,7 +213,7 @@ export function getLogDir(): string {
 	return LOG_DIR;
 }
 
-// Intercept stderr writes so Ink/React rendering errors land in the log file.
+// Intercept stderr writes so React and OpenTUI rendering errors land in the log file.
 // Call once at startup (idempotent).
 let stderrCaptured = false;
 
@@ -221,7 +221,7 @@ let stderrCaptured = false;
 //
 // While the TUI owns the alternate screen, it must NOT be: a stray stderr write
 // — e.g. a `gh`/`git` subprocess whose stderr we inherit printing "no git
-// remotes found" — lands mid-frame inside Ink's managed alt-screen output and
+// remotes found" — lands mid-frame inside the renderer's alt-screen output and
 // shifts every subsequent line down a row, leaving a ghost (the reported
 // symptom was a duplicated top status-header line in QA screenshots, STA-1496).
 // The bytes are still logged to the file and surfaced in the in-app error

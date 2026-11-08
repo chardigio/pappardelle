@@ -18,7 +18,7 @@ import {
  * a reworded prompt. Enter-Enter therefore reproduces the old behavior exactly.
  *
  * All of it is pure so the ordering, scrolling, and key handling can be tested
- * without rendering Ink.
+ * without a renderer.
  */
 
 /** Rows of the picker visible at once. Longer lists scroll. */

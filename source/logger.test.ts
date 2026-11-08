@@ -109,7 +109,7 @@ test.serial('pruneExpiredErrors prunes at exactly 5 minutes', t => {
 //
 // While the TUI owns the alternate screen, stray stderr bytes (e.g. a failing
 // `gh`/`git` subprocess whose stderr we inherit) must NOT reach the terminal —
-// they land mid-frame inside Ink's managed output and shift it down a row,
+// they land mid-frame inside the renderer's output and shift it down a row,
 // leaving a ghost (a duplicated top status-header line was the reported symptom).
 // They must still be logged. These tests pin both halves of that contract.
 // ============================================================================
@@ -153,7 +153,7 @@ test.serial(
 		const {interceptor, captured} = buildInterceptor(() => false);
 		const result = interceptor('no git remotes found\n');
 		t.true(result); // honors the stream contract
-		t.deepEqual(captured.written, []); // NOT forwarded → Ink frame untouched
+		t.deepEqual(captured.written, []); // NOT forwarded → frame untouched
 		t.deepEqual(captured.logged, ['no git remotes found']); // still logged
 	},
 );

@@ -22,8 +22,10 @@ const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
 const CLOSE_SPACE_HINT = '←/→ change state · y/Enter confirm · n/Esc cancel';
 
 /**
- * Rows a string takes once Ink word-wraps it at `width` columns. Words longer
- * than the line are split, which is what Ink's hard wrap does too.
+ * Rows a string takes once word-wrapped at `width` columns, breaking only at
+ * spaces and splitting words longer than the line. OpenTUI's word wrap also
+ * breaks after `/` and `-`, so a path or hyphenated word can take more rows
+ * than this counts.
  */
 export function wrappedLineCount(text: string, width: number): number {
 	if (width <= 0) return 1;
