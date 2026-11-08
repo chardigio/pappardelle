@@ -264,7 +264,7 @@ if (cli.input[0] === 'send') {
 
 	const issueKey = resolveCliSpaceKey(rawKey);
 	migrateLegacyAgentSessions();
-	const result = sendToSpaceAgent(issueKey, text);
+	const result = await sendToSpaceAgent(issueKey, text);
 	if (result === 'no-session') {
 		const session = getSessionNames(issueKey).agent;
 		console.error(

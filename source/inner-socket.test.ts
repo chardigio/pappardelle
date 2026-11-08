@@ -236,11 +236,15 @@ test('pappardelle send resolves and pastes on the inner socket by default', t =>
 	// default socket, where no per-issue session exists.
 	t.regex(
 		TMUX_SOURCE,
-		/export function resolveInnerSessionTarget\([^)]*runner: OuterTmuxRunner = defaultInnerTmuxRunner/,
+		/const defaultInnerSendRunner = spawnTmuxRunnerAsync\(innerTmuxArgs\)/,
 	);
 	t.regex(
 		TMUX_SOURCE,
-		/export function sendToSpaceAgent[\s\S]*?options\.runner \?\? defaultInnerTmuxRunner/,
+		/export async function resolveInnerSessionTarget\([^)]*runner: SendTmuxRunner = defaultInnerSendRunner/,
+	);
+	t.regex(
+		TMUX_SOURCE,
+		/export async function sendToSpaceAgent[\s\S]*?options\.runner \?\? defaultInnerSendRunner/,
 	);
 });
 

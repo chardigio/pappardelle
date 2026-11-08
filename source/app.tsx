@@ -159,6 +159,7 @@ import {
 	attachToSpace,
 	displayMessageInPane,
 	sendToSpaceAgent,
+	focusPane,
 	getCurrentlyViewingSpace,
 	killSession,
 	outerSessionName,
@@ -989,10 +990,7 @@ export default function App({
 	const handleFocusAgent = () => {
 		if (!paneLayout) return;
 
-		spawnSync('tmux', ['select-pane', '-t', paneLayout.agentViewerPaneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		void focusPane(paneLayout.agentViewerPaneId);
 	};
 
 	// Git pull in the selected space's worktree
@@ -1057,8 +1055,8 @@ export default function App({
 			viewingSpace: getCurrentlyViewingSpace,
 			// Not through the viewer pane: its frame process holds a bracketed
 			// paste briefly while plain keys pass, so Enter would arrive first.
-			send() {
-				const result = sendToSpaceAgent(targetSpace, text);
+			async send() {
+				const result = await sendToSpaceAgent(targetSpace, text);
 				if (result !== 'sent') {
 					log.error(`Send to ${targetSpace}'s agent session: ${result}`);
 				}

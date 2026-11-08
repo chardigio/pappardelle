@@ -1,6 +1,6 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execFile, execSync, spawnSync} from 'node:child_process';
+import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
@@ -49,6 +49,7 @@ import {createLogger} from './logger.ts';
 import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {sameFile} from './same-file.ts';
+import {withSendLock} from './send-lock.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
@@ -1127,6 +1128,17 @@ function siblingRepoPrefixes(repo: string, knownRepos: string[]): string[] {
 		);
 }
 
+export async function focusPane(
+	paneId: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	try {
+		await run(['select-pane', '-t', paneId]);
+	} catch (error) {
+		log.warn(`Failed to focus pane ${paneId}`, error as Error);
+	}
+}
+
 /**
  * Rename live legacy `claude-{repo}-{key}` sessions on the inner socket to
  * their `agent-{repo}-{key}` names. cli.tsx runs it when the TUI starts,
@@ -1184,6 +1196,44 @@ export function migrateLegacyAgentSessions(
 	}
 }
 
+type TmuxResult = ReturnType<OuterTmuxRunner>;
+
+/** Same shape as `OuterTmuxRunner`, without blocking the TUI's input and rendering. */
+export type SendTmuxRunner = (
+	args: readonly string[],
+	input?: string,
+) => TmuxResult | Promise<TmuxResult>;
+
+function spawnTmuxRunnerAsync(
+	toArgv: (args: readonly string[]) => string[],
+): SendTmuxRunner {
+	return async (args, input) =>
+		new Promise(resolve => {
+			let stdout = '';
+			let stderr = '';
+			const child = spawn('tmux', toArgv(args), {
+				cwd: TMUX_SERVER_CWD,
+				stdio: ['pipe', 'pipe', 'pipe'],
+				timeout: 5000,
+			});
+			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+				stdout += chunk;
+			});
+			child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+				stderr += chunk;
+			});
+			child.on('error', error => {
+				resolve({error, status: null, stdout, stderr});
+			});
+			child.on('close', status => {
+				resolve({status, stdout, stderr});
+			});
+			child.stdin.end(input);
+		});
+}
+
+const defaultInnerSendRunner = spawnTmuxRunnerAsync(innerTmuxArgs);
+
 /**
  * Leave any pane mode, clear the input line, paste `text`, then press Enter.
  *
@@ -1202,11 +1252,11 @@ export function migrateLegacyAgentSessions(
  * `-d` only deletes the buffer when the paste succeeds, so a failed paste
  * deletes it explicitly rather than leave the prompt on the server.
  */
-export function pasteThenEnter(
-	runner: OuterTmuxRunner,
+export async function pasteThenEnter(
+	runner: SendTmuxRunner,
 	target: string,
 	text: string,
-): boolean {
+): Promise<boolean> {
 	const buffer = `pappardelle-send-${process.pid}`;
 	const steps: Array<{args: string[]; input?: string}> = [
 		{args: ['copy-mode', '-q', '-t', target]},
@@ -1216,9 +1266,10 @@ export function pasteThenEnter(
 		{args: ['send-keys', '-t', target, 'Enter']},
 	];
 	for (const {args, input} of steps) {
-		const r = runner(args, input);
+		const r = await runner(args, input);
 		if (r.error || r.status !== 0) {
-			if (args[0] === 'paste-buffer') runner(['delete-buffer', '-b', buffer]);
+			if (args[0] === 'paste-buffer')
+				await runner(['delete-buffer', '-b', buffer]);
 			return false;
 		}
 	}
@@ -1230,11 +1281,11 @@ export function pasteThenEnter(
  * Resolve a per-issue session name to a `send-keys` target on the inner socket.
  * `=` forces an exact match, so `STA-1` never falls through to `STA-12` by prefix.
  */
-export function resolveInnerSessionTarget(
+export async function resolveInnerSessionTarget(
 	sessionName: string,
-	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
-): string | null {
-	const result = runner(['list-sessions', '-F', '#{session_name}']);
+	runner: SendTmuxRunner = defaultInnerSendRunner,
+): Promise<string | null> {
+	const result = await runner(['list-sessions', '-F', '#{session_name}']);
 	if (result.error || result.status !== 0) return null;
 	const live = result.stdout.trim().split('\n');
 	return live.includes(sessionName) ? exactSessionTarget(sessionName) : null;
@@ -1246,18 +1297,30 @@ export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'failed';
  * Submit `text` as a prompt to the agent session of a space.
  * Backs `pappardelle send`, which the sous-chef skill relays through.
  */
-export function sendToSpaceAgent(
+export async function sendToSpaceAgent(
 	issueKey: string,
 	text: string,
-	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
-): SendToSpaceAgentResult {
-	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const target = resolveInnerSessionTarget(
-		getSessionNames(issueKey, options.repoName).agent,
-		runner,
-	);
+	options: {
+		repoName?: string;
+		runner?: SendTmuxRunner;
+		lockDir?: string;
+	} = {},
+): Promise<SendToSpaceAgentResult> {
+	const runner = options.runner ?? defaultInnerSendRunner;
+	const session = getSessionNames(issueKey, options.repoName).agent;
+	const target = await resolveInnerSessionTarget(session, runner);
 	if (!target) return 'no-session';
-	return pasteThenEnter(runner, target, text) ? 'sent' : 'failed';
+	try {
+		return await withSendLock(
+			session,
+			async () =>
+				(await pasteThenEnter(runner, target, text)) ? 'sent' : 'failed',
+			{dir: options.lockDir},
+		);
+	} catch (error) {
+		log.error(`Send to ${session} failed`, error as Error);
+		return 'failed';
+	}
 }
 
 /**

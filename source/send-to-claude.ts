@@ -12,10 +12,10 @@ export async function sendToSelectedAgent(options: {
 	queue: Pick<LatestTask, 'exclusive'>;
 	targetSpace: string;
 	viewingSpace: () => string | null;
-	send: () => boolean;
+	send: () => Promise<boolean>;
 }): Promise<SendToClaudeResult> {
 	return options.queue.exclusive(async () => {
 		if (options.viewingSpace() !== options.targetSpace) return 'wrong-space';
-		return options.send() ? 'sent' : 'failed';
+		return (await options.send()) ? 'sent' : 'failed';
 	});
 }

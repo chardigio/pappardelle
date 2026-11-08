@@ -15,7 +15,7 @@ test('a send waits for the running attachment and reaches the new workspace', as
 		queue,
 		targetSpace: 'STA-2',
 		viewingSpace: () => viewing,
-		send() {
+		async send() {
 			sentWhileViewing.push(viewing);
 			return true;
 		},
@@ -32,7 +32,7 @@ test('a send is dropped when the viewer shows a different workspace', async t =>
 		queue,
 		targetSpace: 'STA-2',
 		viewingSpace: () => 'STA-1',
-		send() {
+		async send() {
 			sent = true;
 			return true;
 		},
