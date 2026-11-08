@@ -41,7 +41,6 @@ test.serial('only a bare 3.6 draws skin-tone modifiers wide', async t => {
 		t.true(await drawsWide('3.6'));
 	});
 	for (const version of ['3.5', '3.6a', '3.6b', '3.7c', '3.8', 'next-3.9']) {
-		// eslint-disable-next-line no-await-in-loop
 		await withTmux(async () => {
 			t.false(await drawsWide(version), `version ${version}`);
 		});

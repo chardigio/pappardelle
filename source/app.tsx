@@ -1855,7 +1855,13 @@ export default function App({
 					return false;
 				});
 		},
-		[setHeaderWithTimeout, attachmentTask, setSpaces, repoName],
+		[
+			setHeaderWithTimeout,
+			attachmentTask,
+			setSpaces,
+			repoName,
+			selectedSpaceNow,
+		],
 	);
 
 	const deleteSpace = useCallback(
