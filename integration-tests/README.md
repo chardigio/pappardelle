@@ -14,7 +14,7 @@ bun integration-tests/verify-program-status-lifecycle.ts
 bun integration-tests/verify-program-status-cleanup.ts
 ```
 
-The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. The app check requires no automatic watchlists in the merged local configuration.
+The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real Ink `App`, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. It runs under a throwaway HOME, so your global `~/.pappardelle` config does not apply, and requires no automatic watchlists in the project and local configuration.
 
 The lifecycle check covers pinned agent panes across window/split selection, event updates without tmux discovery, transient liveness failures, and lease revocation during an in-flight publication. The cleanup check drives actual CLI close, detached teardown, and orphan reaping, verifying that snapshots and leases are removed only for successfully closed workspaces. Both use isolated tmux servers and temporary status directories.
 
