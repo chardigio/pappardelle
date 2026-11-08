@@ -5165,7 +5165,7 @@ test('validateConfig rejects an unknown color name', t => {
 	});
 	t.truthy(
 		error?.message.includes(
-			'state_colors."Done": must be a hex color (#rgb or #rrggbb) or an ink color name',
+			'state_colors."Done": must be a hex color (#rgb or #rrggbb) or an ANSI color name',
 		),
 	);
 });

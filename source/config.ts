@@ -6,7 +6,7 @@ import path from 'node:path';
 import {scriptsDir} from './runtime.ts';
 import YAML from 'js-yaml';
 import {
-	INK_COLOR_NAMES,
+	ANSI_COLOR_NAMES,
 	isValidStateColor,
 	normalizeStateName,
 } from './state-color-override.ts';
@@ -3282,8 +3282,8 @@ function validateStateColors(value: unknown): string[] {
 
 		if (!isValidStateColor(color)) {
 			errors.push(
-				`state_colors."${name}": must be a hex color (#rgb or #rrggbb) or an ink color name (${[
-					...INK_COLOR_NAMES,
+				`state_colors."${name}": must be a hex color (#rgb or #rrggbb) or an ANSI color name (${[
+					...ANSI_COLOR_NAMES,
 				].join(', ')})`,
 			);
 		}

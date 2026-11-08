@@ -23,7 +23,7 @@
  * Case-sensitive on purpose: the map's keys are camelCase, and "BlueBright"
  * would miss it and reach OpenTUI's parser.
  */
-export const INK_COLOR_NAMES: ReadonlySet<string> = new Set([
+export const ANSI_COLOR_NAMES: ReadonlySet<string> = new Set([
 	'black',
 	'red',
 	'green',
@@ -53,7 +53,7 @@ const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
 export function isValidStateColor(value: unknown): value is string {
 	if (typeof value !== 'string') return false;
 	if (HEX_COLOR.test(value)) return true;
-	return INK_COLOR_NAMES.has(value);
+	return ANSI_COLOR_NAMES.has(value);
 }
 
 /** Canonical form of a status name for matching purposes. */

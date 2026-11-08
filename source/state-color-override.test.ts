@@ -1,6 +1,6 @@
 import test from 'ava';
 import {
-	INK_COLOR_NAMES,
+	ANSI_COLOR_NAMES,
 	getStateColorOverride,
 	initStateColorOverrides,
 	isValidStateColor,
@@ -45,7 +45,7 @@ test('isValidStateColor rejects unknown names and malformed hex', t => {
 test('ANSI color names are matched case-sensitively', t => {
 	// terminalColor's palette keys are camelCase; "BlueBright" is not one.
 	t.false(isValidStateColor('BlueBright'));
-	t.true(INK_COLOR_NAMES.has('blueBright'));
+	t.true(ANSI_COLOR_NAMES.has('blueBright'));
 });
 
 // ============================================================================
