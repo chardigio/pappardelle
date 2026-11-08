@@ -148,3 +148,9 @@ test('close --help documents --yes but not the internal --teardown-only', t => {
 	t.false(parseCli([]).help.includes('--teardown-only'));
 	t.true(parseCli(['close', 'STA-1', '--teardown-only']).flags.teardownOnly);
 });
+
+test("send's text never reaches the top-level flag checks", t => {
+	const cli = parseCli(['send', 'STA-1', 'run with', '--profile']);
+	t.is(cli.flags.profile, undefined);
+	t.deepEqual(cli.input, ['send']);
+});
