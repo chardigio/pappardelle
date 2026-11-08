@@ -499,20 +499,17 @@ function launches(config: PappardelleConfig): Record<string, string> {
 			// flag counts with them, so agy's `-i` moving from model_args into
 			// prompt_args launches the same way. Until then agy gets that `-i`
 			// twice, and the rewrite only drops the duplicate.
-			const tokens =
+			const promptFlag = definition && builtinPromptFlag(definition);
+			const flags =
 				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${promptArgs?.replace('{prompt}', '') ?? ''}`
 					.split(/\s+/)
-					.filter(Boolean)
-					.sort();
-			const promptFlag = definition && builtinPromptFlag(definition);
-			if (
-				promptFlag &&
-				tokens.indexOf(promptFlag) !== tokens.lastIndexOf(promptFlag)
-			) {
-				tokens.splice(tokens.indexOf(promptFlag), 1);
-			}
-
-			const flags = tokens.join(' ');
+					.filter(
+						(token, index, tokens) =>
+							token &&
+							(token !== promptFlag || tokens.indexOf(token) === index),
+					)
+					.sort()
+					.join(' ');
 			// `/idow` before and `idow` after are the same skill. Read with its
 			// agent's prefix, codex now gets the `$idow` it runs skills with.
 			const init = (

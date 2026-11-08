@@ -676,10 +676,12 @@ const AGY_WORKAROUND = `version: 1
 agent_profiles:
   # Prompt goes in through -i
   'argon:medium': {command: agy, model: gemini-4-argon-medium, model_args: '--model {model} -i'}
+  'argon:high': {command: agy, model: gemini-4-argon, effort: high, model_args: '--model {model} -i', effort_args: '--effort {effort} -i'}
   'codex:medium': {command: codex, model: gpt-6, effort: medium, model_args: '-m {model}', resume_args: 'resume {session_id}'}
   aider: {command: aider, model: sonnet, model_args: '--model {model}'}
 profiles:
   argon: {display_name: Argon, agent_profile: 'argon:medium'}
+  argon-high: {display_name: Argon high, agent_profile: 'argon:high'}
 `;
 
 test('agy profiles lose the -i workaround and built-in agents their default fields', t => {
@@ -694,10 +696,12 @@ test('agy profiles lose the -i workaround and built-in agents their default fiel
 agent_profiles:
   # Prompt goes in through -i
   'argon:medium': {command: agy, model: gemini-4-argon-medium}
+  'argon:high': {command: agy, model: gemini-4-argon, effort: high}
   'codex:medium': {command: codex, model: gpt-6, effort: medium}
   aider: {command: aider, model: sonnet, model_args: '--model {model}'}
 profiles:
   argon: {display_name: Argon, agent_profile: 'argon:medium'}
+  argon-high: {display_name: Argon high, agent_profile: 'argon:high'}
 `,
 	);
 	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
