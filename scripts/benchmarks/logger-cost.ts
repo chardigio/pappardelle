@@ -4,7 +4,13 @@
 // base branch's copy: git show <base>:source/logger.ts > /some/dir/logger.ts
 // Usage: bun scripts/benchmarks/logger-cost.ts <path/to/logger.ts>
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync, readdirSync, readFileSync, rmSync} from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {monitorEventLoopDelay} from 'node:perf_hooks';
@@ -65,9 +71,9 @@ async function measure(loggerPath: string) {
 // when the measurement runs in a child spawned with it. /tmp is often tmpfs,
 // which would hide the cost of synchronous disk writes, so stay on ~.
 function measureInScratchHome(loggerPath: string) {
-	const home = mkdtempSync(
-		path.join(homedir(), '.cache', 'pappardelle-logger-bench-'),
-	);
+	const cacheDir = path.join(homedir(), '.cache');
+	mkdirSync(cacheDir, {recursive: true});
+	const home = mkdtempSync(path.join(cacheDir, 'pappardelle-logger-bench-'));
 	try {
 		const child = spawnSync(
 			process.execPath,
