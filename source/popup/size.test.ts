@@ -1,16 +1,9 @@
 import test from 'ava';
 import stringWidth from 'string-width';
 import {buildHelpLines, buildHelpRows} from '../components/help-rows.ts';
-import {popupSize, wrappedLineCount} from './size.ts';
+import {popupSize} from './size.ts';
 
 const client = {cols: 200, rows: 50};
-
-test('wrapping breaks on spaces and splits words longer than the line', t => {
-	t.is(wrappedLineCount('short', 10), 1);
-	t.is(wrappedLineCount('aaaa bbbb cccc', 9), 2);
-	t.is(wrappedLineCount('a'.repeat(25), 10), 3);
-	t.is(wrappedLineCount('one\ntwo', 10), 2);
-});
 
 test('a confirm is as tall as its wrapped content plus chrome', t => {
 	const size = popupSize(

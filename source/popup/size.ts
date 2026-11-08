@@ -8,6 +8,7 @@ import {
 import {formatVersionLine} from '../help-version-line.ts';
 import {closeSpaceContent} from '../close-state-choice.ts';
 import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
+import {wrappedLineCount} from '../text-measure.ts';
 import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
 
 export type ClientSize = {cols: number; rows: number};
@@ -20,39 +21,6 @@ const HORIZONTAL_CHROME = 6;
 const VERTICAL_CHROME = 4;
 const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
 const CLOSE_SPACE_HINT = '←/→ change state · y/Enter confirm · n/Esc cancel';
-
-/**
- * Rows a string takes once word-wrapped at `width` columns, breaking only at
- * spaces and splitting words longer than the line. OpenTUI's word wrap also
- * breaks after `/` and `-`, so a path or hyphenated word can take more rows
- * than this counts.
- */
-export function wrappedLineCount(text: string, width: number): number {
-	if (width <= 0) return 1;
-	let lines = 0;
-	for (const paragraph of text.split('\n')) {
-		let current = 0;
-		lines++;
-		for (const word of paragraph.split(' ')) {
-			let wordWidth = widestLine(word);
-			const needed = current === 0 ? wordWidth : current + 1 + wordWidth;
-			if (needed <= width) {
-				current = needed;
-				continue;
-			}
-
-			if (current > 0) lines++;
-			while (wordWidth > width) {
-				wordWidth -= width;
-				lines++;
-			}
-
-			current = wordWidth;
-		}
-	}
-
-	return lines;
-}
 
 // tmux refuses a popup as tall as the client when a status line is on.
 const STATUS_LINE_ROWS = 2;
@@ -71,6 +39,13 @@ function fraction(client: ClientSize): PopupSize {
 	};
 }
 
+// Popups only open inside tmux, where the renderer is forced to this method.
+const POPUP_WIDTH_METHOD = 'unicode';
+
+function lines(text: string, inner: number): number {
+	return wrappedLineCount(text, inner, POPUP_WIDTH_METHOD);
+}
+
 function confirmHeight(
 	{title, message, detail}: ConfirmPopupProps,
 	inner: number,
@@ -78,12 +53,12 @@ function confirmHeight(
 ): number {
 	return (
 		VERTICAL_CHROME +
-		wrappedLineCount(title, inner) +
+		lines(title, inner) +
 		1 +
-		wrappedLineCount(message, inner) +
+		lines(message, inner) +
 		1 +
-		(detail ? wrappedLineCount(detail, inner) + 1 : 0) +
-		wrappedLineCount(hint, inner)
+		(detail ? lines(detail, inner) + 1 : 0) +
+		lines(hint, inner)
 	);
 }
 
