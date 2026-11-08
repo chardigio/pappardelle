@@ -191,7 +191,15 @@ export default function PromptDialog({
 			return null;
 		}
 	}, []);
-	const exampleKeys = config ? exampleIssueKeys(config) : ['STA-123', '123'];
+	const exampleKeys = useMemo(
+		() => (config ? exampleIssueKeys(config) : ['STA-123', '123']),
+		[config],
+	);
+	const placeholder = useMemo(
+		() =>
+			`${new Intl.ListFormat('en', {type: 'disjunction'}).format([...exampleKeys, 'describe the task'])}...`,
+		[exampleKeys],
+	);
 
 	const ready = useReadyWork(
 		tracker,
@@ -544,7 +552,7 @@ export default function PromptDialog({
 						value={prompt}
 						onChange={setPrompt}
 						onSubmit={handlePromptSubmit}
-						placeholder={`${new Intl.ListFormat('en', {type: 'disjunction'}).format([...exampleKeys, 'describe the task'])}...`}
+						placeholder={placeholder}
 						isFocused={!isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
