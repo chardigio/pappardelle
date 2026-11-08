@@ -72,7 +72,7 @@ for (const failure of ['error', 'invalid slug'] as const) {
 			},
 			undefined,
 			undefined,
-			() => now,
+			{now: () => now},
 		);
 		const [link, rail] = await Promise.allSettled([
 			provider.getPRLink('STA-1'),
@@ -83,13 +83,13 @@ for (const failure of ['error', 'invalid slug'] as const) {
 		t.is(discoveries, 1);
 
 		now += 1000;
-		await t.throwsAsync(provider.getPRLink('STA-1'));
 		const retried = await provider.getBulkRailStatus(['STA-1']);
 		t.is(retried.size, 0);
 		t.is(discoveries, 1);
 
 		now += 60_000;
-		t.is(await provider.getPRLink('STA-1'), null);
+		const recovered = await provider.getBulkRailStatus(['STA-1']);
+		t.is(recovered.size, 1);
 		t.is(await provider.buildPRUrl(1), 'https://github.com/owner/repo/pull/1');
 		t.is(discoveries, 2);
 	});
@@ -105,15 +105,60 @@ test('repo discovery backoff grows with consecutive failures and stays bounded',
 		},
 		undefined,
 		undefined,
-		() => now,
+		{now: () => now},
 	);
 	for (; now <= 60 * 60_000; now += 10_000) {
-		await provider.getPRLink('STA-1').catch(() => undefined);
+		await provider.getBulkRailStatus(['STA-1']);
 	}
 	const gaps = attempts.slice(1).map((at, i) => at - attempts[i]!);
 	t.true(gaps[1]! > gaps[0]!);
 	t.true(gaps.every(gap => gap <= 5 * 60_000));
 	t.true(gaps.at(-1)! >= 4 * 60_000);
+});
+
+test('opening a PR looks the repo up again even while polling backs off', async t => {
+	let now = 0;
+	let discoveries = 0;
+	const provider = new GitHubProvider(
+		async args => {
+			if (args[0] !== 'repo') return makePrListResponse([]);
+			discoveries++;
+			if (discoveries === 1) throw new Error('gh auth expired');
+			return 'owner/repo';
+		},
+		undefined,
+		undefined,
+		{now: () => now},
+	);
+	await provider.getBulkRailStatus(['STA-1']);
+	now += 1000;
+	t.is(await provider.getPRLink('STA-1'), null);
+	t.is(discoveries, 2);
+});
+
+test('a PR linked after a failed lookup ends the polling backoff', async t => {
+	let now = 0;
+	let linkedAt = 0;
+	let discoveries = 0;
+	const provider = new GitHubProvider(
+		async args => {
+			if (args[0] !== 'repo') return makePrListResponse([]);
+			discoveries++;
+			if (discoveries === 1) throw new Error('gh auth expired');
+			return 'owner/repo';
+		},
+		undefined,
+		undefined,
+		{now: () => now, linkedAt: () => linkedAt},
+	);
+	await provider.getBulkRailStatus(['STA-1']);
+	now += 1000;
+	await provider.getBulkRailStatus(['STA-1']);
+	t.is(discoveries, 1);
+	linkedAt = now;
+	now += 1000;
+	await provider.getBulkRailStatus(['STA-1']);
+	t.is(discoveries, 2);
 });
 
 test('link lookup retains merged and follow-up PR search semantics', async t => {

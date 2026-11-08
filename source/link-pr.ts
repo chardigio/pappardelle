@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {getSpaceStatePath, readSpaceState} from './space-state.ts';
 import {remoteProjects, remoteUrlsArgs} from './git-remotes.ts';
+import {touchPrLinkStamp} from './pr-link-stamp.ts';
 
 const exec = promisify(execFile);
 export type LinkExecutor = (
@@ -164,5 +165,6 @@ export async function linkPr(
 	} finally {
 		fs.rmSync(temporary, {force: true});
 	}
+	touchPrLinkStamp(baseDir);
 	return {file, link};
 }

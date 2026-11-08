@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {linkPr, type LinkExecutor} from './link-pr.ts';
+import {readPrLinkStamp} from './pr-link-stamp.ts';
 import {readSpaceState, writeSpaceState} from './space-state.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 
@@ -40,7 +41,9 @@ test('links a fork PR, preserves state, replaces repeated links and follows the 
 		state,
 	);
 	const url = 'https://github.com/upstream/repo/pull/28';
+	t.is(readPrLinkStamp(state), 0);
 	await linkPr(url, workspace, workspace, {run, baseDir: state});
+	t.true(readPrLinkStamp(state) > 0);
 	remoteBranch = 'published-again';
 	await linkPr(url, workspace, workspace, {run, baseDir: state});
 	const saved = readSpaceState('workspace', 'STE-24', state)!;
