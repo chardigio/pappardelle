@@ -155,7 +155,8 @@ cat > "$TMPDIR_ROOT/fakebin/bd" <<'SH'
 SH
 chmod +x "$TMPDIR_ROOT/fakebin/bd"
 assert_eq "the bd database prefix when config.yaml has none" \
-    "qa" "$(PATH="$TMPDIR_ROOT/fakebin:$PATH" beads_id_prefixes "$BARE" "$DB_ONLY_CONFIG")"
+    "qa" "$(PATH="$TMPDIR_ROOT/fakebin:$PATH" PAPPARDELLE_MAIN_REPO_ROOT="$TMPDIR_ROOT/db-only" \
+        beads_id_prefixes "$BARE" "$DB_ONLY_CONFIG")"
 
 echo ""
 echo -e "${BOLD}is_beads_issue_key${RESET}"

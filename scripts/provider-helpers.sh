@@ -103,8 +103,7 @@ beads_id_prefixes() {
         # bd init --prefix (bd 1.3+) keeps the prefix in its database and leaves
         # issue-prefix commented out in config.yaml.
         if [[ -z "$config_prefix" && -d "$(dirname "$beads_config")" ]]; then
-            config_prefix=$(cd "$(dirname "$(dirname "$beads_config")")" &&
-                bd config get issue_prefix --json 2>/dev/null |
+            config_prefix=$(run_bd config get issue_prefix --json 2>/dev/null |
                 jq -r '(.data // .).value | select(. != null and . != "")' 2>/dev/null)
         fi
         [[ -n "$config_prefix" ]] && echo "$config_prefix"
