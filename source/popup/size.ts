@@ -1,4 +1,3 @@
-import widestLine from 'widest-line';
 import {
 	buildHelpLines,
 	buildHelpRows,
@@ -11,7 +10,7 @@ import {
 	STATE_ROW_ONE_LINE_COLS,
 } from '../close-state-choice.ts';
 import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
-import {wrappedLineCount} from '../text-measure.ts';
+import {displayWidth, wrappedLineCount} from '../text-measure.ts';
 import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
 
 export type ClientSize = {cols: number; rows: number};
@@ -94,7 +93,10 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			const customRows = rows.extraCustom;
 			const rowWidth = Math.max(
 				...[...shortcutRows, ...customRows].map(
-					row => rows.maxKeyLength + 1 + widestLine(row.description),
+					row =>
+						rows.maxKeyLength +
+						1 +
+						displayWidth(row.description, POPUP_WIDTH_METHOD),
 				),
 			);
 			const lines = buildHelpLines(rows);
@@ -103,10 +105,15 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			const contentWidth = Math.max(
 				rowWidth,
 				...lines.map(line =>
-					line.kind === 'heading' ? widestLine(line.text) : 0,
+					line.kind === 'heading'
+						? displayWidth(line.text, POPUP_WIDTH_METHOD)
+						: 0,
 				),
-				widestLine(formatVersionLine(installedVersion, commitSha, isDevBuild)),
-				widestLine(helpFooter(height > maxHeight)),
+				displayWidth(
+					formatVersionLine(installedVersion, commitSha, isDevBuild),
+					POPUP_WIDTH_METHOD,
+				),
+				displayWidth(helpFooter(height > maxHeight), POPUP_WIDTH_METHOD),
 			);
 			return clamp({width: contentWidth + HORIZONTAL_CHROME, height}, client);
 		}

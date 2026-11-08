@@ -2,6 +2,7 @@ import test from 'ava';
 import React from 'react';
 import {render, until} from '../../test/helpers/render.ts';
 import CloseSpaceDialog from '../components/CloseSpaceDialog.tsx';
+import HelpOverlay from '../components/HelpOverlay.tsx';
 import type {IssueTrackerProvider} from '../providers/types.ts';
 import ConfirmDialog from '../components/ConfirmDialog.tsx';
 import type {ConfirmPopupProps} from './spec.ts';
@@ -101,3 +102,34 @@ for (const cols of [30, 80]) {
 		},
 	);
 }
+
+test.serial(
+	'the help popup is wide enough for a custom command OpenTUI measures wider than widest-line',
+	async t => {
+		const customKeybindings = [
+			{key: 'z', name: `Deploy­${'x'.repeat(60)}­­­end`, run: 'true'},
+		];
+		const size = popupSize(
+			{kind: 'help', props: {customKeybindings, commitSha: 'abc1234'}},
+			{cols: 200, rows: 80},
+		);
+		const view = await render(
+			React.createElement(HelpOverlay, {
+				commitSha: 'abc1234',
+				customKeybindings,
+				onClose: noop,
+			}),
+			{width: size.width, height: 80},
+		);
+		t.teardown(async () => {
+			await view.unmount();
+		});
+
+		await until(() => view.lastFrame().includes('Deploy'));
+		const row = view
+			.lastFrame()
+			.split('\n')
+			.find(line => line.includes('Deploy'))!;
+		t.true(row.includes('end'), 'the custom command row is not clipped');
+	},
+);
