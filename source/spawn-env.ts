@@ -1,4 +1,4 @@
-import {isStandalone} from './runtime.ts';
+import {bunForChildren, isStandalone} from './runtime.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 /**
@@ -15,7 +15,7 @@ export function buildSpawnEnv(
 ): NodeJS.ProcessEnv {
 	return {
 		...process.env,
-		PAPPARDELLE_BUN: isStandalone ? undefined : process.execPath,
+		PAPPARDELLE_BUN: bunForChildren(),
 		PAPPARDELLE_EXECUTABLE: isStandalone ? process.execPath : undefined,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
 		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),

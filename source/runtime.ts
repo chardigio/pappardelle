@@ -28,3 +28,9 @@ export const bunIsolationArgs = ['--no-env-file', '--config=/dev/null'];
 export function selfLaunchArgs(): string[] {
 	return isStandalone ? [] : [...bunIsolationArgs, cliFilePath()];
 }
+// The Bun running a source install, handed to child scripts whose PATH (the
+// tmux server's, or a shell's behind the pinned shim) may not contain it. The
+// compiled executable needs no Bun.
+export function bunForChildren(): string | undefined {
+	return isStandalone ? undefined : process.execPath;
+}

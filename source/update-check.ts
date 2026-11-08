@@ -1,4 +1,4 @@
-import {isStandalone} from './runtime.ts';
+import {bunForChildren} from './runtime.ts';
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {execFileSync, spawnSync} from 'node:child_process';
@@ -321,14 +321,12 @@ export function updateShellScript({
 }
 
 // Runs the update script in the foreground and returns its exit status.
-// PAPPARDELLE_BUN hands the installer the Bun this process runs on, which
-// PATH (the tmux server's, or a shell's behind the pinned shim) may not contain.
 export function runUpdateScript(options: {waitOnFailure: boolean}): number {
 	const result = spawnSync('bash', ['-c', updateShellScript(options)], {
 		stdio: 'inherit',
 		env: {
 			...process.env,
-			PAPPARDELLE_BUN: isStandalone ? undefined : process.execPath,
+			PAPPARDELLE_BUN: bunForChildren(),
 		},
 	});
 	return result.status ?? 1;
