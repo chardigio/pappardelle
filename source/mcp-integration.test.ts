@@ -305,3 +305,126 @@ tmuxTest(
 		t.true(refused.isError);
 	},
 );
+
+tmuxTest(
+	'space_state reads a real prompt, space_answer approves cleanup and refuses a push, space_wait sees it finish',
+	async t => {
+		const f = fixture(t);
+		const tmuxEnv = f.env;
+		const tmux = (...args: string[]) => {
+			const r = spawnSync('tmux', ['-L', 'pappardelle_inner', ...args], {
+				encoding: 'utf8',
+				env: tmuxEnv,
+				timeout: 5000,
+			});
+			if (r.status !== 0) throw new Error(`tmux ${args[0]}: ${r.stderr}`);
+			return r.stdout.trim();
+		};
+
+		tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'seed', 'sleep 600'); // prettier-ignore
+		const socket = tmux('display-message', '-p', '#{socket_path}');
+		t.teardown(() => {
+			if (socket.startsWith(f.tmuxDir))
+				spawnSync('tmux', ['-S', socket, 'kill-server'], {env: tmuxEnv});
+		});
+		if (!socket.startsWith(f.tmuxDir)) {
+			t.fail(`tmux is not isolated: ${socket}`);
+			return;
+		}
+
+		// A stand-in agent: shows a Claude permission prompt for `command`,
+		// records the one key it gets, then drops to an idle prompt.
+		const agent = (key: string, command: string) => {
+			const prompt = path.join(f.root, `${key}.prompt`);
+			fs.writeFileSync(
+				prompt,
+				[
+					'─'.repeat(40),
+					' Bash command',
+					' Tidy up',
+					'╌'.repeat(40),
+					` ${command}`,
+					'╌'.repeat(40),
+					' Do you want to proceed?',
+					' ❯ 1. Yes',
+					'   2. No',
+					' Esc to cancel',
+					'',
+				].join('\n'),
+			);
+			const answered = path.join(f.root, `${key}.answer`);
+			tmux('new-session', '-d', '-s', `agent-project-${key}`, '-x', '120', `bash -c 'cat ${prompt}; read -rn1 k; echo "$k" > ${answered}; clear; echo "❯ "; sleep 600'`); // prettier-ignore
+			return answered;
+		};
+
+		const cleanup = agent('STE-2', 'rm -rf /tmp/q-abc');
+		const push = agent('STE-3', 'git push origin main');
+		await delay(500);
+		const client = await connect(t, f, {PAPPARDELLE_SPACE: 'STE-9'});
+		const call = async (name: string, args: Record<string, unknown>) =>
+			client.callTool({name, arguments: args});
+
+		const state = JSON.parse(
+			text(await call('space_state', {key: 'STE-2'})),
+		) as {
+			state: string;
+			permission: {command: string};
+		};
+		t.is(state.state, 'permission');
+		t.is(state.permission.command, 'rm -rf /tmp/q-abc');
+
+		const refused = await call('space_answer', {key: 'STE-3', option: 1});
+		t.true(refused.isError);
+		t.regex(text(refused), /git push origin main/);
+
+		const approved = await call('space_answer', {key: 'STE-2', option: 1});
+		t.falsy(approved.isError, text(approved));
+		const waited = JSON.parse(
+			text(
+				await call('space_wait', {
+					key: 'STE-2',
+					until: 'idle',
+					timeout_seconds: 20,
+				}),
+			),
+		) as {state: string; timedOut: boolean};
+		t.like(waited, {state: 'idle', timedOut: false});
+		t.is(fs.readFileSync(cleanup, 'utf8').trim(), '1');
+		t.false(fs.existsSync(push));
+
+		const sentIntoPrompt = await call('space_send', {
+			key: 'STE-3',
+			text: '1',
+			force: true,
+		});
+		t.true(sentIntoPrompt.isError);
+		t.false(fs.existsSync(push));
+
+		const log = fs
+			.readFileSync(
+				path.join(
+					f.home,
+					'.pappardelle',
+					'repos',
+					'project',
+					'supervise.jsonl',
+				),
+				'utf8',
+			)
+			.trim()
+			.split('\n')
+			.map(line => JSON.parse(line) as Record<string, string>);
+		t.like(log[0], {
+			caller: 'STE-9',
+			key: 'STE-3',
+			verdict: 'refused: git push',
+		});
+		t.like(log[1], {caller: 'STE-9', key: 'STE-2', verdict: 'allowed'});
+		t.like(log[2], {
+			caller: 'STE-9',
+			action: 'send',
+			key: 'STE-3',
+			detail: 'prompt',
+		});
+	},
+);

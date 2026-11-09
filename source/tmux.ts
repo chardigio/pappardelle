@@ -156,6 +156,7 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
+import {parseAgentScreen} from './agent-screen.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
@@ -1237,6 +1238,30 @@ export function cleanupOrphanedOuterSessions(
  */
 export const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
 
+const ENDING_VERBS = new Set(['kill-server', 'kill-session', 'kill-pane']);
+
+/**
+ * Supervision reads and types into other spaces' sessions but never ends one.
+ * A stray `kill-server` from inside the user's tmux has taken down every
+ * session on the machine before, so these runners refuse it outright.
+ */
+function supervisionRunner(base: OuterTmuxRunner): OuterTmuxRunner {
+	return (args, input) => {
+		if (ENDING_VERBS.has(args[0] ?? '')) {
+			throw new Error(`Supervision never runs tmux ${args[0]}`);
+		}
+
+		return base(args, input);
+	};
+}
+
+export const supervisedInnerTmuxRunner = supervisionRunner(
+	spawnTmuxRunner(innerTmuxArgs, () => defaultServerTmuxEnv(process.env)),
+);
+export const supervisedServerTmuxRunner = supervisionRunner(
+	defaultServerTmuxRunner,
+);
+
 /**
  * DEC 2026 "synchronized output": the terminal buffers everything between
  * `ESC [ ? 2026 h` and `ESC [ ? 2026 l` and presents it as one frame.
@@ -1667,7 +1692,30 @@ export function resolveInnerSessionTargetSync(
 	return live.includes(sessionName) ? exactSessionTarget(sessionName) : null;
 }
 
-export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'busy' | 'failed';
+export type SendToSpaceAgentResult =
+	| 'sent'
+	| 'draft'
+	| 'prompt'
+	| 'no-session'
+	| 'busy'
+	| 'failed';
+
+/**
+ * Why the agent's screen stops a send. A permission prompt or question takes
+ * the keys as an answer, which must go through `pappardelle answer` and its
+ * policy. Text typed into Codex's composer would be cleared by the send.
+ */
+async function sendBlocker(
+	runner: SendTmuxRunner,
+	target: string,
+	force: boolean,
+): Promise<'draft' | 'prompt' | null> {
+	const r = await runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
+	if (r.error || r.status !== 0) return null;
+	const screen = parseAgentScreen(r.stdout, new Date());
+	if (screen.permission || screen.question) return 'prompt';
+	return screen.composer && !force ? 'draft' : null;
+}
 
 /**
  * Submit `text` as a prompt to the agent session of a space.
@@ -1681,6 +1729,8 @@ export async function sendToSpaceAgent(
 		runner?: SendTmuxRunner;
 		lockDir?: string;
 		lockTimeoutMs?: number;
+		/** Send over a draft in the Codex composer. Never over a prompt. */
+		force?: boolean;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
@@ -1690,8 +1740,17 @@ export async function sendToSpaceAgent(
 	try {
 		return await withSendLock(
 			session,
-			async () =>
-				(await pasteThenEnter(runner, target, text)) ? 'sent' : 'failed',
+			async () => {
+				// Checked under the lock, so no other send changes the screen
+				// between the check and the paste.
+				const blocker = await sendBlocker(
+					runner,
+					target,
+					options.force ?? false,
+				);
+				if (blocker) return blocker;
+				return (await pasteThenEnter(runner, target, text)) ? 'sent' : 'failed';
+			},
 			{dir: options.lockDir, timeoutMs: options.lockTimeoutMs},
 		);
 	} catch (error) {

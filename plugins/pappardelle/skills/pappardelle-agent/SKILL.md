@@ -26,20 +26,39 @@ To talk to the agent in another space, use Claude Code's SendMessage and ListAge
 
 If you don't have the tools, `pappardelle mcp install` adds the server to Codex, OpenCode, Antigravity and Pi. Every tool is also a `pappardelle` command. Run them from the repo or any of its worktrees. `pappardelle --help` and `pappardelle companion --help` have the details.
 
-| Tools              | Command                                                                  |
-| ------------------ | ------------------------------------------------------------------------ |
-| `companion_*`      | `pappardelle companion run\|keys\|read\|resize\|close\|list\|width`      |
-| `spaces_list`      | `pappardelle spaces [--json]`                                            |
-| `space_read`       | `pappardelle read KEY [--turns N] [--json]`                              |
-| `space_highlight`  | `pappardelle highlight KEY`                                              |
-| `space_send`       | `pappardelle send KEY`, with the text on stdin                           |
-| `space_press_keys` | `pappardelle send KEY --keys Escape`                                     |
-| `space_open`       | `pappardelle [--resume\|--no-resume] [--wait] [--profile NAME] -- INPUT` |
-| `space_close`      | `pappardelle close KEY --yes`                                            |
-| `tui_restart`      | `pappardelle restart`                                                    |
-| `link_pr`          | `pappardelle link-pr URL [--workspace ROOT]`, from the source repository |
+| Tools                        | Command                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `companion_*`                | `pappardelle companion run\|keys\|read\|resize\|close\|list\|width`      |
+| `spaces_list`                | `pappardelle spaces [--json]`                                            |
+| `space_read`                 | `pappardelle read KEY [--turns N] [--json]`                              |
+| `space_highlight`            | `pappardelle highlight KEY`                                              |
+| `space_send`                 | `pappardelle send KEY`, with the text on stdin                           |
+| `space_press_keys`           | `pappardelle send KEY --keys Escape`                                     |
+| `space_open`                 | `pappardelle [--resume\|--no-resume] [--wait] [--profile NAME] -- INPUT` |
+| `space_screen`               | `pappardelle screen KEY [--companion [--pane NAME]] [--lines N]`         |
+| `space_state`                | `pappardelle state KEY --json`, `--tabs` for `space_question_tabs`       |
+| `space_wait`                 | `pappardelle wait KEY --until STATE [--timeout S] --json`                |
+| `space_answer`               | `pappardelle answer KEY --option N` or `--keys K`                        |
+| `space_queue`                | `pappardelle queue KEY`, with the text on stdin                          |
+| `space_schedule*`            | `pappardelle schedule\|schedules\|unschedule`                            |
+| `tui_panes`, `tui_focus_log` | `pappardelle tui panes\|focus-log`                                       |
+| `space_close`                | `pappardelle close KEY --yes`                                            |
+| `tui_restart`                | `pappardelle restart`                                                    |
+| `link_pr`                    | `pappardelle link-pr URL [--workspace ROOT]`, from the source repository |
 
 Keep the companion showing your work there too: what a decision depends on before you ask, what to review before you ask for a review, and the app or a test watcher in a split instead of a background task.
+
+## Supervising another space
+
+To keep an agent in another space moving, wait on it instead of checking it over and over:
+
+1. `space_wait` with `until: ready` returns when the agent stops working: idle, at a prompt or question, at a Codex usage limit, or with a draft in its composer. It returns after 50 seconds either way; call it again
+2. At `permission`, the state has the command. `space_answer` with the option approves it once only when the command just cleans up QA scratch and publishes nothing. Anything else comes back refused with the command: ask the user, and don't retry it another way
+3. At `question`, `space_question_tabs` reads every question of a multi-question dialog. Answer it with the user's choice
+4. At `usage_limit`, `space_schedule` with `after_limit` sends `continue` once it resets. `keep_going` checks every interval, continues after limits, and nudges an agent that sits idle twice in a row
+5. `space_send` refuses while a prompt is up, and over a draft unless `force`
+
+Every send, answer and schedule is logged in `~/.pappardelle/repos/{repo}/supervise.jsonl`.
 
 ## Updating and restarting Pappardelle
 

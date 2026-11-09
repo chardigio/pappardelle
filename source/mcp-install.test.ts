@@ -78,7 +78,7 @@ test('a failed mcp add is reported, nothing is approved, and the rest still run'
 	t.is(f.calls.length, 4);
 });
 
-test('Codex approves each companion tool and keeps the rest of its config', t => {
+test('Codex approves each auto-approved tool and keeps the rest of its config', t => {
 	const f = fixture({files: {[CODEX]: '# mine\nmodel = "x"\n'}});
 	installMcpServer(f.deps);
 	const config = f.files.get(CODEX)!;
@@ -91,7 +91,7 @@ test('Codex approves each companion tool and keeps the rest of its config', t =>
 		);
 	}
 
-	t.false(config.includes('tools.space_send'));
+	t.false(config.includes('tools.space_close'));
 });
 
 test('running it again adds no duplicate Codex tables or agy rules', t => {
@@ -104,7 +104,7 @@ test('running it again adds no duplicate Codex tables or agy rules', t => {
 	t.is(f.files.get(AGY), agy);
 });
 
-test('agy allows each companion tool and keeps existing settings and rules', t => {
+test('agy allows each auto-approved tool and keeps existing settings and rules', t => {
 	const f = fixture({
 		files: {
 			[AGY]: JSON.stringify({

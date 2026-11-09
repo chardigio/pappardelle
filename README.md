@@ -210,6 +210,11 @@ pappardelle companion width 40%                    # this space's companion widt
 pappardelle spaces --json                          # every space: status, title, PR, branch summary
 pappardelle read STE-20 --turns 3                  # recent turns of another space's conversation
 pappardelle send STE-20 --keys Escape              # press a key in another space's Claude
+pappardelle state STE-20                           # working, at a prompt (and its command), limited, idle...
+pappardelle wait STE-20 --until ready              # return once it stops working
+pappardelle answer STE-20 --option 1               # approve a QA-cleanup command; anything else needs a person
+pappardelle schedule STE-20 --after-limit          # send continue when its Codex usage limit resets
+pappardelle schedule STE-20 --keep-going --every 10m --nudge 'keep going'
 ```
 
 Run `pappardelle companion --help` for every companion verb.
@@ -680,8 +685,19 @@ Claude Code gets the server from the plugin. `install.sh` runs `pappardelle mcp 
 | `space_send`, `space_press_keys`                                                                                                     | Prompt or press keys in a space's agent TUI             |
 | `space_open`, `space_close`, `tui_restart`                                                                                           | Open or close spaces, restart the TUI                   |
 | `link_pr`                                                                                                                            | Record a PR/MR for the workspace                        |
+| `space_screen`, `space_state`, `space_question_tabs`, `space_wait`                                                                   | Watch another space's agent                             |
+| `space_answer`                                                                                                                       | Answer its permission prompt or question                |
+| `space_queue`, `space_schedule`, `space_schedules`, `space_unschedule`                                                               | Wake it later with an OS timer                          |
+| `tui_panes`, `tui_focus_log`                                                                                                         | Diagnostics for the TUIs' panes                         |
 
-The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run` and `companion_type`, which can run commands. In Claude Code the approval is a plugin hook, and it also applies in plan mode. The other tools ask first wherever the agent normally asks.
+The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run` and `companion_type`, which can run commands. So are `space_send` and the supervision tools, since watching other spaces means calling them in a loop. Two checks hold without a prompt, and no tool can override them:
+
+- `space_answer` approves a command once only when it just cleans up QA scratch (`rm` under `/tmp/q-*` or a Claude scratchpad) and publishes nothing: no `git push`, PR changes, `--force`, `reset --hard`, or `kill-server` outside an isolated socket. Anything else, and every "Yes, and don't ask again", comes back with the command for a person. `pappardelle answer --force` on the command line is the override
+- Sends refuse while a permission prompt or question is on screen, so they can't answer one around that check. They also refuse over text sitting in a Codex composer unless forced, since a send clears the line first
+
+In Claude Code the approval is a plugin hook, and it also applies in plan mode. The other tools ask first wherever the agent normally asks. Every send, answer and schedule is logged to `~/.pappardelle/repos/<repo>/supervise.jsonl`.
+
+`space_schedule` uses an OS user timer that runs `pappardelle schedule fire` even when no agent or TUI is running: a transient `systemd-run --user` timer on Linux, a launchd agent in `~/Library/LaunchAgents` on macOS.
 
 An agent in a space is told to keep the companion showing its work, from `scripts/companion-rules.txt`. How that reaches the model depends on the agent:
 

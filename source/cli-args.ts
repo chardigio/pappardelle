@@ -42,6 +42,13 @@ const helpText = `
 	                   summary (--json for the full record)
 	  read <key>       Print the last turns of a space's conversation
 	                   (--turns N, default 5; --json)
+	  screen|state|wait|answer <key>
+	                   Watch another space's agent and answer its prompts.
+	                   See pappardelle state --help
+	  queue|schedule|schedules|unschedule
+	                   Wake another space's agent later with an OS timer
+	  tui panes|focus-log
+	                   Diagnostics for the running TUIs' panes
 	  companion        Run, type into, read, resize and close panes in a
 	                   space's companion. See pappardelle companion --help
 	  mcp              Serve these commands as MCP tools over stdio. Agents
@@ -235,23 +242,33 @@ const subcommands = {
 
 // The prompt is read from raw argv because meow would pull anything
 // flag-shaped out of it.
-// Only --keys right after the key is a flag, so a prompt that mentions
-// `--keys` later on is still sent as text.
+// Only --keys and --force right after the key are flags, so a prompt that
+// mentions them later on is still sent as text.
 export function parseSendArgs(argv: readonly string[]): {
 	key?: string;
 	text: string;
 	keys: string[];
+	force: boolean;
 } {
 	const [key, ...rest] = argv.slice(argv.indexOf('send') + 1);
-	if (key === undefined || key.startsWith('-')) return {text: '', keys: []};
+	if (key === undefined || key.startsWith('-'))
+		return {text: '', keys: [], force: false};
 	const keys: string[] = [];
-	while (rest[0] === '--keys' || rest[0]?.startsWith('--keys=')) {
-		const flag = rest.shift()!;
-		const value = flag === '--keys' ? rest.shift() : flag.slice(7);
-		if (value) keys.push(value);
+	let force = false;
+	for (;;) {
+		if (rest[0] === '--force') {
+			rest.shift();
+			force = true;
+		} else if (rest[0] === '--keys' || rest[0]?.startsWith('--keys=')) {
+			const flag = rest.shift()!;
+			const value = flag === '--keys' ? rest.shift() : flag.slice(7);
+			if (value) keys.push(value);
+		} else {
+			break;
+		}
 	}
 
-	return {key, text: rest.join(' '), keys};
+	return {key, text: rest.join(' '), keys, force};
 }
 
 export type SubcommandGate =

@@ -70,6 +70,10 @@ import {
 } from './close-command.ts';
 import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
+import {recordSupervision} from './supervise-log.ts';
+import {isSuperviseVerb} from './supervise-args.ts';
+import {runSuperviseCommand} from './supervise-command.ts';
+import {defaultSuperviseDeps} from './supervise-runtime.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {defaultMcpInstallDeps, installMcpServer} from './mcp-install.ts';
 import {waitForAgentStart} from './agent-start.ts';
@@ -159,6 +163,19 @@ if (process.argv[2] === 'companion') {
 			},
 			repoName: getRepoName,
 		}),
+	);
+}
+
+// Dispatched before meow for the same reason as `companion`: their flags
+// (--keys, --message) would otherwise be read as Pappardelle's own.
+if (isSuperviseVerb(process.argv[2])) {
+	checkConfig();
+	bootstrapRepo();
+	await exitAfterFlush(
+		await runSuperviseCommand(
+			process.argv.slice(2),
+			defaultSuperviseDeps(resolveCliSpaceKey),
+		),
 	);
 }
 
@@ -326,6 +343,7 @@ if (cli.input[0] === 'send') {
 		key: rawKey,
 		text: argText,
 		keys,
+		force,
 	} = parseSendArgs(process.argv.slice(2));
 	let text = argText;
 	if (keys.length > 0 && text) {
@@ -339,7 +357,7 @@ if (cli.input[0] === 'send') {
 
 	if (!rawKey || (!text && keys.length === 0)) {
 		console.error(
-			'Usage: pappardelle send <issue-key> [text]  (or text on stdin)\n       pappardelle send <issue-key> --keys <key> [--keys <key>]...',
+			'Usage: pappardelle send <issue-key> [--force] [text]  (or text on stdin)\n       pappardelle send <issue-key> --keys <key> [--keys <key>]...',
 		);
 		process.exit(1);
 	}
@@ -349,7 +367,32 @@ if (cli.input[0] === 'send') {
 	const result =
 		keys.length > 0
 			? sendKeysToSpaceAgent(issueKey, keys)
-			: await sendToSpaceAgent(issueKey, text);
+			: await sendToSpaceAgent(issueKey, text, {force});
+	recordSupervision(
+		getRepoName(),
+		process.env['PAPPARDELLE_SPACE'] || 'user',
+		{
+			action: 'send',
+			key: issueKey,
+			sent: keys.join(' ') || text,
+			detail: result,
+		},
+		new Date(),
+	);
+	if (result === 'prompt') {
+		console.error(
+			`Not sent: ${issueKey} is showing a permission prompt or question. Answer it with \`pappardelle answer ${issueKey}\``,
+		);
+		process.exit(1);
+	}
+
+	if (result === 'draft') {
+		console.error(
+			`Not sent: ${issueKey}'s Codex composer has text that sending would clear. Check it with \`pappardelle screen ${issueKey}\`, or pass --force`,
+		);
+		process.exit(1);
+	}
+
 	if (result === 'no-session') {
 		const session = getSessionNames(issueKey).agent;
 		console.error(
