@@ -426,9 +426,19 @@ function agentTitleAndFocusArgs(
 
 // The frame host titles a viewer pane's frame with the nested session's window
 // title, which tmux sends only while set-titles is on.
+// The inner server loads the user's tmux config, and `detach-on-destroy off`
+// there would move a viewer's nested client into another space's session when
+// the viewed one ends, leaving the pane showing the wrong agent under the
+// selected space's title. Detaching instead leaves the pane on `[exited]`.
 function viewerSessionArgs(sessionName: string, title: string): string[] {
 	const target = exactSessionTarget(sessionName);
 	return [
+		'set-option',
+		'-t',
+		target,
+		'detach-on-destroy',
+		'on',
+		';',
 		'set-option',
 		'-t',
 		target,
@@ -1792,7 +1802,7 @@ function isMissingSessionError(err: unknown): boolean {
 		typeof error.code === 'number' &&
 		!error.signal &&
 		!error.killed &&
-		/^can't find session:/m.test(error.stderr ?? '')
+		/^can't find (?:session|client):/m.test(error.stderr ?? '')
 	);
 }
 
@@ -1901,7 +1911,8 @@ export async function attachToSpace(
 		} catch (err) {
 			if (signal?.aborted) return false;
 			// Sessions are created on first visit, so a workspace that hasn't been
-			// opened yet always misses here.
+			// opened yet always misses here, as does a viewer whose client left
+			// when the session it showed ended.
 			const message = `Fast workspace switch to ${issueKey} failed; retrying with session discovery`;
 			if (isMissingSessionError(err)) log.debug(message);
 			else log.warn(message, err instanceof Error ? err : undefined);

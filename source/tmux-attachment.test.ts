@@ -314,6 +314,34 @@ test.serial(
 );
 
 test.serial(
+	'a switch whose viewer client left with its ended session falls back without reporting an error',
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		const run: AsyncTmuxRunner = async args => {
+			const output = await fake.run(args);
+			if (isSwitchBatch(args)) {
+				throw Object.assign(new Error('Command failed'), {
+					code: 1,
+					stderr: "can't find client: /dev/pts/9\n",
+				});
+			}
+
+			return output;
+		};
+		clearRecentErrors();
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+				run,
+			}),
+		);
+		t.deepEqual(getRecentErrors(), []);
+	},
+);
+
+test.serial(
 	'a missing companion session says the companion, not the agent, is not running',
 	async t => {
 		const fake = fakeTmux();
