@@ -1,4 +1,5 @@
 import {createElement, type ReactNode} from 'react';
+import {isInTmux} from './tmux.ts';
 import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
 import {
 	createCliRenderer,
@@ -32,7 +33,7 @@ export async function renderTui(
 		consoleMode: 'disabled',
 		externalOutputMode: 'passthrough',
 		openConsoleOnError: false,
-		environment: process.env['TMUX'] ? tmuxRendererEnvironment : {},
+		environment: isInTmux() ? tmuxRendererEnvironment : {},
 		targetFps: 60,
 		maxFps: 60,
 		...options,
