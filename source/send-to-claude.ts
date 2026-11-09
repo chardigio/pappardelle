@@ -1,6 +1,6 @@
 import type {LatestTask} from './latest-task.ts';
 
-export type SendToClaudeResult = 'sent' | 'wrong-space' | 'failed';
+export type SendToClaudeResult = 'sent' | 'wrong-space' | 'busy' | 'failed';
 
 /**
  * Attachment is async, so the Claude viewer can still show the previous
@@ -15,7 +15,7 @@ export async function sendToSelectedAgent(options: {
 	sends: Pick<LatestTask, 'exclusive'>;
 	targetSpace: string;
 	viewingSpace: () => string | null;
-	send: () => Promise<boolean>;
+	send: () => Promise<'sent' | 'busy' | 'failed'>;
 }): Promise<SendToClaudeResult> {
 	const queued = await options.queue.exclusive(async () =>
 		options.viewingSpace() === options.targetSpace
@@ -23,5 +23,5 @@ export async function sendToSelectedAgent(options: {
 			: undefined,
 	);
 	if (!queued) return 'wrong-space';
-	return (await queued.sending) ? 'sent' : 'failed';
+	return queued.sending;
 }

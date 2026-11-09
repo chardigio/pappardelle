@@ -18,7 +18,7 @@ test('a send waits for the running attachment and reaches the new workspace', as
 		viewingSpace: () => viewing,
 		async send() {
 			sentWhileViewing.push(viewing);
-			return true;
+			return 'sent' as const;
 		},
 	});
 	await attach;
@@ -36,7 +36,7 @@ test('a send is dropped when the viewer shows a different workspace', async t =>
 		viewingSpace: () => 'STA-1',
 		async send() {
 			sent = true;
-			return true;
+			return 'sent' as const;
 		},
 	});
 	t.is(result, 'wrong-space');
@@ -49,7 +49,7 @@ test('a failed send is reported as failed', async t => {
 		sends: new LatestTask(),
 		targetSpace: 'STA-2',
 		viewingSpace: () => 'STA-2',
-		send: () => false,
+		send: async () => 'failed' as const,
 	});
 	t.is(result, 'failed');
 });
@@ -63,9 +63,9 @@ test('a send waiting on another sender does not hold up attachment', async t => 
 		targetSpace: 'STA-1',
 		viewingSpace: () => 'STA-1',
 		send: async () =>
-			new Promise<boolean>(resolve => {
+			new Promise<'sent'>(resolve => {
 				releaseSend = () => {
-					resolve(true);
+					resolve('sent');
 				};
 			}),
 	});
@@ -91,7 +91,7 @@ test('sends reach the agent in the order the keys were pressed', async t => {
 			async send() {
 				await delay(ms);
 				received.push(text);
-				return true;
+				return 'sent' as const;
 			},
 		});
 	await Promise.all([sendAfter('first', 30), sendAfter('second', 0)]);

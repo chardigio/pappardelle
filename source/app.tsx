@@ -156,7 +156,10 @@ import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {AttachmentGate} from './attachment-gate.ts';
 import {LatestTask} from './latest-task.ts';
-import {sendToSelectedAgent} from './send-to-claude.ts';
+import {
+	sendToSelectedAgent,
+	type SendToClaudeResult,
+} from './send-to-claude.ts';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -1111,21 +1114,15 @@ export default function App({
 							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
 						}
 
-						return result === 'sent';
+						return result === 'no-session' ? 'failed' : result;
 					},
 				}),
 			)
 			.then(result => {
-				if (result === 'sent') {
-					setHeaderWithTimeout(`Agent: ${text}`, 3000);
-				} else if (result === 'wrong-space') {
-					setHeaderWithTimeout(
-						`✗ Not sent: ${targetSpace} is not shown yet`,
-						3000,
-					);
-				} else {
-					setHeaderWithTimeout(`✗ Failed to send to the agent`, 3000);
-				}
+				setHeaderWithTimeout(
+					sendResultMessage(result, targetSpace, text),
+					3000,
+				);
 			});
 	};
 
@@ -2579,5 +2576,29 @@ function hasNoProfiles(): boolean {
 		return Object.keys(loadConfig().profiles).length === 0;
 	} catch {
 		return false;
+	}
+}
+
+function sendResultMessage(
+	result: SendToClaudeResult,
+	targetSpace: string,
+	text: string,
+): string {
+	switch (result) {
+		case 'sent': {
+			return `Agent: ${text}`;
+		}
+
+		case 'busy': {
+			return `✗ Not sent: another send to ${targetSpace} is still running`;
+		}
+
+		case 'wrong-space': {
+			return `✗ Not sent: ${targetSpace} is not shown yet`;
+		}
+
+		case 'failed': {
+			return '✗ Failed to send to the agent';
+		}
 	}
 }
