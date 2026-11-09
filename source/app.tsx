@@ -1356,8 +1356,14 @@ export default function App({
 		} else if (isFocusAgentKey(key)) {
 			handleFocusAgent();
 		} else if (input === 'n') {
-			// 'n' for new session
-			setShowPromptDialog(true);
+			if (hasNoProfiles()) {
+				setHeaderWithTimeout(
+					'Add a profile to .pappardelle.yml to create spaces',
+					4000,
+				);
+			} else {
+				setShowPromptDialog(true);
+			}
 		} else if (isCloseSpaceKey(input, key)) {
 			// Backspace, Delete, or 'x' closes the selected space
 			const space = selectedSpaceNow();
@@ -2554,4 +2560,14 @@ function railHeaderRuns(header: {
 				]
 			: []),
 	];
+}
+
+// The new-space dialog picks a profile for every space, so it can't open
+// without one. A config that fails to load is left to the dialog to report.
+function hasNoProfiles(): boolean {
+	try {
+		return Object.keys(loadConfig().profiles).length === 0;
+	} catch {
+		return false;
+	}
 }
