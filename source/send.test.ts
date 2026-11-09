@@ -1,6 +1,6 @@
 // Tests for `pappardelle send` (pappardelle-tqq): resolving a space's agent
 // session on the inner socket and submitting a prompt to it.
-import {mkdtempSync, rmSync} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -154,6 +154,35 @@ test('two sends to one session at once submit one whole prompt after the other',
 	const prompts = calls.filter(call => call === 'first' || call === 'second');
 	t.deepEqual([...prompts].sort(), ['first', 'second']);
 	t.true(calls.indexOf('Enter') < calls.indexOf(prompts[1]!));
+});
+
+test('sendToSpaceAgent reports busy and sends nothing while another live sender holds the lock', async t => {
+	const heldDir = mkdtempSync(path.join(tmpdir(), 'pappa-send-held-'));
+	t.teardown(() => {
+		rmSync(heldDir, {recursive: true, force: true});
+	});
+	writeFileSync(path.join(heldDir, 'agent-r-STA-1.lock'), `${process.pid}\n`);
+	const calls: string[][] = [];
+	const runner: SendTmuxRunner = async args => {
+		calls.push(args);
+		return {
+			status: 0,
+			stdout: args[0] === 'list-sessions' ? 'agent-r-STA-1\n' : '',
+		};
+	};
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			repoName: 'r',
+			runner,
+			lockDir: heldDir,
+			lockTimeoutMs: 100,
+		}),
+		'busy',
+	);
+	t.deepEqual(
+		calls.map(call => call[0]),
+		['list-sessions'],
+	);
 });
 
 test('resolveSpaceKey expands a bare number with the team prefix', t => {

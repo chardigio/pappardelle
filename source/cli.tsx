@@ -273,6 +273,13 @@ if (cli.input[0] === 'send') {
 		process.exit(1);
 	}
 
+	if (result === 'busy') {
+		console.error(
+			`Not sent: another send to ${issueKey} is still running after 30s`,
+		);
+		process.exit(1);
+	}
+
 	if (result === 'failed') {
 		console.error(`Failed to send to ${issueKey}`);
 		process.exit(1);

@@ -49,7 +49,7 @@ import {createLogger} from './logger.ts';
 import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {sameFile} from './same-file.ts';
-import {withSendLock} from './send-lock.ts';
+import {SendLockTimeout, withSendLock} from './send-lock.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
@@ -1291,7 +1291,7 @@ export async function resolveInnerSessionTarget(
 	return live.includes(sessionName) ? exactSessionTarget(sessionName) : null;
 }
 
-export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'failed';
+export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'busy' | 'failed';
 
 /**
  * Submit `text` as a prompt to the agent session of a space.
@@ -1304,6 +1304,7 @@ export async function sendToSpaceAgent(
 		repoName?: string;
 		runner?: SendTmuxRunner;
 		lockDir?: string;
+		lockTimeoutMs?: number;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
@@ -1315,9 +1316,10 @@ export async function sendToSpaceAgent(
 			session,
 			async () =>
 				(await pasteThenEnter(runner, target, text)) ? 'sent' : 'failed',
-			{dir: options.lockDir},
+			{dir: options.lockDir, timeoutMs: options.lockTimeoutMs},
 		);
 	} catch (error) {
+		if (error instanceof SendLockTimeout) return 'busy';
 		log.error(`Send to ${session} failed`, error as Error);
 		return 'failed';
 	}
