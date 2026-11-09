@@ -455,7 +455,11 @@ if (isInTmux() && cli.flags.layout) {
 
 // OpenTUI owns terminal modes and restores them during renderer teardown.
 setStderrTerminalPassthrough(false);
-process.on('exit', () => setStderrTerminalPassthrough(true));
+process.on('exit', () => {
+	setStderrTerminalPassthrough(true);
+	// OpenTUI turns on grapheme clustering (mode 2027) and leaves it on at exit.
+	if (process.stdout.isTTY) process.stdout.write('\u001B[?2027l');
+});
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
 // Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
