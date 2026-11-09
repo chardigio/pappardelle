@@ -1403,24 +1403,57 @@ async function getTmuxWindowSizeAsync(
 	return {width, height};
 }
 
+type PaneSample = {
+	window: WindowSize;
+	railWidth: number | null;
+	companionWidth: number | null;
+};
+
+// Read in one tmux call: a window resize landing between separate reads of
+// the window and of the panes would look like a hand-drag and pin the width.
+async function samplePanes(
+	listPaneId: string,
+	companionViewerPaneId: string,
+	run: AsyncTmuxRunner,
+): Promise<PaneSample> {
+	const output = await run([
+		'list-panes',
+		'-t',
+		listPaneId,
+		'-F',
+		'#{pane_id} #{pane_width} #{window_width} #{window_height}',
+	]);
+	const widths = new Map<string, number>();
+	let window: WindowSize | undefined;
+	for (const line of output.trim().split('\n')) {
+		const [id, width, windowWidth, windowHeight] = line.split(' ');
+		if (!id) continue;
+		widths.set(id, Number(width));
+		window = {width: Number(windowWidth), height: Number(windowHeight)};
+	}
+
+	if (!window?.width || !window.height) {
+		throw new Error('Invalid tmux window dimensions');
+	}
+
+	return {
+		window,
+		railWidth: widths.get(listPaneId) ?? null,
+		companionWidth: companionViewerPaneId
+			? (widths.get(companionViewerPaneId) ?? null)
+			: null,
+	};
+}
+
 async function recordPaneSampleAsync(
 	listPaneId: string,
 	companionViewerPaneId: string,
-	windowDims: WindowSize,
 	run: AsyncTmuxRunner,
 ): Promise<void> {
-	lastWindowSize = windowDims;
-	lastRailWidth = await measurePaneWidth(listPaneId, run);
-	lastCompanionWidth = await measurePaneWidth(companionViewerPaneId, run);
-}
-
-async function measurePaneWidth(
-	paneId: string,
-	run: AsyncTmuxRunner,
-): Promise<number | null> {
-	if (!paneId) return null;
-	const {cols} = await getPaneDimensions(paneId, run);
-	return cols;
+	const sample = await samplePanes(listPaneId, companionViewerPaneId, run);
+	lastWindowSize = sample.window;
+	lastRailWidth = sample.railWidth;
+	lastCompanionWidth = sample.companionWidth;
 }
 
 function queryPaneDimension(format: string, fallback: number): number {
@@ -2258,12 +2291,7 @@ export async function rebuildLayout(
 			`Layout rebuilt: agent=${agentViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		await recordPaneSampleAsync(
-			listPaneId,
-			companionViewerPaneId,
-			windowDims,
-			run,
-		);
+		await recordPaneSampleAsync(listPaneId, companionViewerPaneId, run);
 
 		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -2291,23 +2319,16 @@ export async function relayoutPanes(
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<boolean> {
 	try {
-		// Get current terminal dimensions from the window (not individual panes)
-		const windowDims = await getTmuxWindowSizeAsync(listPaneId, run);
-		if (!windowDims) {
-			log.error('Failed to get tmux window dimensions for relayout');
-			return false;
-		}
-
+		const {
+			window: windowDims,
+			railWidth: measuredRailWidth,
+			companionWidth: measuredCompanionWidth,
+		} = await samplePanes(listPaneId, companionViewerPaneId, run);
 		const {width: totalWidth, height: totalHeight} = windowDims;
 
 		// Separate a window resize from a hand-drag of a side-pane border
 		// *before* computing the layout, so a drag feeds its own width back in
 		// instead of being recomputed away. See pane-drag.ts and STA-2040.
-		const measuredRailWidth = await measurePaneWidth(listPaneId, run);
-		const measuredCompanionWidth = await measurePaneWidth(
-			companionViewerPaneId,
-			run,
-		);
 		const previousRail = railWidthOverride;
 		const previousCompanion = companionWidthOverride;
 		railWidthOverride = nextWidthOverride({
@@ -2399,12 +2420,7 @@ export async function relayoutPanes(
 			}
 		}
 
-		await recordPaneSampleAsync(
-			listPaneId,
-			companionViewerPaneId,
-			windowDims,
-			run,
-		);
+		await recordPaneSampleAsync(listPaneId, companionViewerPaneId, run);
 
 		log.info('Relayout completed successfully');
 		return true;
