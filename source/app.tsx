@@ -12,7 +12,7 @@ import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
-import {WorkspaceRefresh} from './workspace-refresh.ts';
+import {WorkspaceRefresh, compareSpaceNames} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {scriptsDir, cliFilePath} from './runtime.ts';
 import fs from 'node:fs';
@@ -2243,17 +2243,13 @@ export default function App({
 		};
 
 		if (pendingSession.type === 'issue') {
-			// Insert at the correct sorted position by issue number (descending)
-			const pendingNum = parseInt(pendingSession.name.split('-')[1] ?? '0', 10);
 			const result = [...spaces];
-			// Find the first non-main issue space with a lower number
 			let insertIdx = result.findIndex(
 				s =>
 					!s.isMainWorktree &&
-					parseInt(s.name.split('-')[1] ?? '0', 10) < pendingNum,
+					compareSpaceNames(pendingSession.name, s.name) < 0,
 			);
 			if (insertIdx === -1) {
-				// No lower-numbered space found — append at the end
 				insertIdx = result.length;
 			}
 			result.splice(insertIdx, 0, pendingRow);

@@ -273,8 +273,9 @@ test('spaces list newest number first, and beads hash keys keep one order whatev
 		return h.spaces.filter(space => !space.isMainWorktree).map(s => s.name);
 	};
 
-	t.deepEqual(await order(['STA-9', 'STA-12', 'STA-100']), [
+	t.deepEqual(await order(['STA-9', 'ABC-50', 'STA-12', 'STA-100']), [
 		'STA-100',
+		'ABC-50',
 		'STA-12',
 		'STA-9',
 	]);
