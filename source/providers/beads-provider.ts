@@ -215,6 +215,9 @@ export class BeadsProvider implements IssueTrackerProvider {
 	private readonly sleepFn: SleepFn;
 	private readonly resolveCwd: () => string;
 	private bdMissing = false;
+	// A registry entry whose bead was deleted fails on every refresh, so only
+	// its first failure in a run reaches the rail's error list.
+	private readonly failingIssues = new Set<string>();
 	private currentUserCache?: Promise<string | undefined>;
 
 	constructor(
@@ -305,6 +308,7 @@ export class BeadsProvider implements IssueTrackerProvider {
 				}
 
 				const issue = mapBeadsIssue(row);
+				this.failingIssues.delete(issueKey);
 				this.cache(issue, issueKey);
 				log.debug(`Fetched beads issue ${issueKey}: ${issue.title}`);
 				return issue;
@@ -325,10 +329,14 @@ export class BeadsProvider implements IssueTrackerProvider {
 			}
 		}
 
-		log.warn(
-			`Failed to fetch beads issue ${issueKey} after ${MAX_RETRIES} attempts`,
-			sanitizeSubprocessError(lastError),
-		);
+		const message = `Failed to fetch beads issue ${issueKey} after ${MAX_RETRIES} attempts`;
+		const error = sanitizeSubprocessError(lastError);
+		if (this.failingIssues.has(issueKey)) {
+			log.info(`${message}: ${error.message}`);
+		} else {
+			this.failingIssues.add(issueKey);
+			log.warn(message, error);
+		}
 		this.issueCache.set(issueKey, {issue: null, timestamp: Date.now()});
 		return null;
 	}
