@@ -4,6 +4,11 @@ export async function openPR(
 	issueKey: string,
 	options: {
 		provider: Pick<VcsHostProvider, 'getPRLink'>;
+		/**
+		 * A PR recorded by `pappardelle link-pr`, which can live on another
+		 * branch or in a nested repo the issue-key lookup never searches.
+		 */
+		linked?: {url: string; number: number};
 		/** False once a newer open-PR request has started. */
 		isLatest: () => boolean;
 		/** False once any newer header message has been shown. */
@@ -17,12 +22,14 @@ export async function openPR(
 			options.showMessage(message);
 	};
 
-	let pr;
-	try {
-		pr = await options.provider.getPRLink(issueKey);
-	} catch {
-		report('Failed to look up PR');
-		return;
+	let pr = options.linked;
+	if (!pr) {
+		try {
+			pr = (await options.provider.getPRLink(issueKey)) ?? undefined;
+		} catch {
+			report('Failed to look up PR');
+			return;
+		}
 	}
 
 	if (!options.isLatest()) return;

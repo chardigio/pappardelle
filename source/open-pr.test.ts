@@ -192,3 +192,25 @@ for (const outcome of [
 		]);
 	});
 }
+
+test('a PR recorded by link-pr opens without the issue-key lookup', async t => {
+	const urls: string[] = [];
+	let lookedUp = false;
+	await openPR('STA-1', {
+		provider: {
+			async getPRLink() {
+				lookedUp = true;
+				return null;
+			},
+		},
+		linked: {url: 'https://github.com/o/nested/pull/7', number: 7},
+		isLatest: () => true,
+		ownsHeader: () => true,
+		async openUrl(url) {
+			urls.push(url);
+		},
+		showMessage() {},
+	});
+	t.deepEqual(urls, ['https://github.com/o/nested/pull/7']);
+	t.false(lookedUp);
+});
