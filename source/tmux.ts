@@ -472,21 +472,36 @@ async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
 // and a tmux that rejects the blank divider style must still turn off the
 // titles a previous build drew.
 function applyWindowChrome(listPaneId: string): void {
-	const options: Array<[name: string, value: string | undefined]> = [
-		['pane-border-status', 'off'],
-		// Left behind by builds that drew the titles in the border.
-		['pane-border-format', undefined],
-		['pane-border-lines', 'spaces'],
-	];
-	for (const [name, value] of options) {
-		const args =
-			value === undefined
-				? ['set-option', '-w', '-u', '-t', listPaneId, name]
-				: ['set-option', '-w', '-t', listPaneId, name, value];
-		const result = spawnSync('tmux', args, {encoding: 'utf-8', timeout: 5000});
-		if (result.error || result.status !== 0)
-			log.warn(`Failed to set ${name} on the layout window: ${result.stderr}`);
+	setWindowOption(listPaneId, 'pane-border-status', 'off');
+	// Left behind by builds that drew the titles in the border.
+	setWindowOption(listPaneId, 'pane-border-format', undefined);
+	// `spaces` arrived in tmux 3.6. Older releases draw their dividers beside
+	// the frames unless the lines are concealed.
+	if (!setWindowOption(listPaneId, 'pane-border-lines', 'spaces', 'quiet')) {
+		setWindowOption(listPaneId, 'pane-border-style', 'hidden');
+		setWindowOption(listPaneId, 'pane-active-border-style', 'hidden');
 	}
+}
+
+function setWindowOption(
+	paneId: string,
+	name: string,
+	value: string | undefined,
+	onFailure: 'warn' | 'quiet' = 'warn',
+): boolean {
+	const args =
+		value === undefined
+			? ['set-option', '-w', '-u', '-t', paneId, name]
+			: ['set-option', '-w', '-t', paneId, name, value];
+	const result = spawnSync('tmux', args, {encoding: 'utf-8', timeout: 5000});
+	const ok = !result.error && result.status === 0;
+	if (!ok) {
+		const message = `Failed to set ${name} on the layout window: ${result.stderr}`;
+		if (onFailure === 'warn') log.warn(message);
+		else log.info(message);
+	}
+
+	return ok;
 }
 
 /**
