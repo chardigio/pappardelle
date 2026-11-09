@@ -1,4 +1,11 @@
-import {mkdtempSync, rmSync, utimesSync, writeFileSync} from 'node:fs';
+import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	unlinkSync,
+	utimesSync,
+	writeFileSync,
+} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -94,4 +101,24 @@ test('an empty lock file left by a crash is taken over once it is old', async t 
 		timeoutMs: 500,
 	});
 	t.is(result, 'sent');
+});
+
+test('a sender that judged a lock stale leaves alone the fresh lock another sender took meanwhile', async t => {
+	const dir = lockDir(t);
+	const file = path.join(dir, 'agent-r-STA-1.lock');
+	writeFileSync(file, '999999\n');
+	await t.throwsAsync(
+		withSendLock('agent-r-STA-1', async () => 'sent', {
+			dir,
+			timeoutMs: 100,
+			isAlive(pid) {
+				if (pid !== 999_999) return true;
+				unlinkSync(file);
+				writeFileSync(file, '4242\n');
+				return false;
+			},
+		}),
+		{instanceOf: SendLockTimeout},
+	);
+	t.is(readFileSync(file, 'utf8'), '4242\n');
 });

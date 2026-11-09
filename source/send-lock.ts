@@ -1,4 +1,4 @@
-import {mkdir, readFile, stat, unlink, writeFile} from 'node:fs/promises';
+import {mkdir, open, stat, unlink, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -32,8 +32,11 @@ export async function withSendLock<T>(
 		}
 
 		const holder = await readHolder(file);
-		if (holder === null ? await isOld(file) : !isAlive(holder)) {
-			await unlink(file).catch(() => {});
+		if (
+			holder &&
+			(holder.pid === null ? isOld(holder) : !isAlive(holder.pid))
+		) {
+			await removeStale(file, holder.ino);
 			continue;
 		}
 
@@ -51,22 +54,52 @@ export async function withSendLock<T>(
 	}
 }
 
+type Holder = {pid: number | null; ino: number; mtimeMs: number};
+
 // A lock file is empty for a moment between its creation and the pid write.
 // One still empty long after that was left by a process that died in between.
-async function isOld(file: string): Promise<boolean> {
+function isOld(holder: Holder): boolean {
+	return Date.now() - holder.mtimeMs > 5000;
+}
+
+// Two senders can both find the same stale lock, and the slower one would
+// delete the fresh lock the faster one created after removing it. Removals
+// take turns behind a guard file, and each removes only the file it judged.
+async function removeStale(file: string, staleIno: number): Promise<void> {
+	const guard = `${file}.takeover`;
 	try {
-		const {mtimeMs} = await stat(file);
-		return Date.now() - mtimeMs > 5000;
-	} catch {
-		return false;
+		await writeFile(guard, '', {flag: 'wx'});
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+		const guardStat = await stat(guard).catch(() => undefined);
+		if (guardStat && Date.now() - guardStat.mtimeMs > 5000) {
+			await unlink(guard).catch(() => {});
+		}
+
+		return;
+	}
+
+	try {
+		const current = await stat(file).catch(() => undefined);
+		if (current?.ino === staleIno) await unlink(file).catch(() => {});
+	} finally {
+		await unlink(guard).catch(() => {});
 	}
 }
 
-async function readHolder(file: string): Promise<number | null> {
+async function readHolder(file: string): Promise<Holder | undefined> {
+	let handle;
 	try {
-		const holder = Number.parseInt(await readFile(file, 'utf8'), 10);
-		return Number.isInteger(holder) ? holder : null;
+		handle = await open(file, 'r');
 	} catch {
-		return null;
+		return undefined;
+	}
+
+	try {
+		const {ino, mtimeMs} = await handle.stat();
+		const pid = Number.parseInt(await handle.readFile('utf8'), 10);
+		return {pid: Number.isInteger(pid) ? pid : null, ino, mtimeMs};
+	} finally {
+		await handle.close();
 	}
 }
