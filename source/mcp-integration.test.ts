@@ -17,7 +17,7 @@ const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
 const tsx = import.meta.resolve('tsx');
 
 function fixture(t: ExecutionContext, options: {config?: boolean} = {}) {
-	const root = fs.realpathSync(fs.mkdtempSync('/private/tmp/pm-'));
+	const root = fs.realpathSync(fs.mkdtempSync('/tmp/pm-'));
 	t.teardown(() => {
 		fs.rmSync(root, {recursive: true, force: true});
 	});

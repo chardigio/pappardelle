@@ -5,7 +5,7 @@ import {
 	defaultInnerTmuxRunner,
 	getSessionNames,
 	INNER_SOCKET,
-	resolveInnerSessionTarget,
+	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 
@@ -87,7 +87,7 @@ export function companionSessionTarget(
 ): string {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
 	const session = getSessionNames(spaceKey, deps.repoName).companion;
-	const target = resolveInnerSessionTarget(session, runner);
+	const target = resolveInnerSessionTargetSync(session, runner);
 	if (!target) {
 		throw new CompanionError(
 			`No companion session for ${spaceKey} (${session} on ${INNER_SOCKET}). Select the space in Pappardelle to start it.`,

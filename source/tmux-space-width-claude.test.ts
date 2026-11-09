@@ -27,7 +27,7 @@ test.serial(
 			return;
 		}
 
-		const dir = fs.mkdtempSync('/private/tmp/psc-');
+		const dir = fs.mkdtempSync('/tmp/psc-');
 		setConfiguredPaneWidthsForTests({claude: 90, companion: 50});
 		const socket = path.join(dir, 's');
 		const run = async (args: string[]) => {

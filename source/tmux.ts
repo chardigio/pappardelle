@@ -1656,6 +1656,17 @@ export async function resolveInnerSessionTarget(
 	return live.includes(sessionName) ? exactSessionTarget(sessionName) : null;
 }
 
+/** `resolveInnerSessionTarget` for the CLI verbs, which run tmux synchronously. */
+export function resolveInnerSessionTargetSync(
+	sessionName: string,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): string | null {
+	const result = runner(['list-sessions', '-F', '#{session_name}']);
+	if (result.error || result.status !== 0) return null;
+	const live = result.stdout.trim().split('\n');
+	return live.includes(sessionName) ? exactSessionTarget(sessionName) : null;
+}
+
 export type SendToSpaceAgentResult = 'sent' | 'no-session' | 'busy' | 'failed';
 
 /**
@@ -1701,7 +1712,7 @@ export function sendKeysToSpaceAgent(
 	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const target = resolveInnerSessionTarget(
+	const target = resolveInnerSessionTargetSync(
 		getSessionNames(issueKey, options.repoName).agent,
 		runner,
 	);
