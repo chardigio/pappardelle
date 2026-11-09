@@ -154,11 +154,9 @@ export class WorkspaceRefresh {
 		if (this.stopped || generation !== this.listGeneration || !names) return;
 		this.names = [...new Set(names)]
 			.filter(name => name !== MAIN_WORKTREE_KEY)
-			.sort(
-				(a, b) =>
-					parseInt(b.split('-')[1] ?? '0', 10) -
-					parseInt(a.split('-')[1] ?? '0', 10),
-			);
+			// Newest first for numbered keys (STA-12 above STA-9). Beads hash keys
+			// have no order of their own, but must keep one place across refreshes.
+			.sort((a, b) => b.localeCompare(a, 'en', {numeric: true}));
 		const orderedNames = this.names;
 		this.publish(previous => {
 			if (generation !== this.listGeneration) return previous;
