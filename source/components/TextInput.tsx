@@ -150,6 +150,8 @@ export default function TextInput({
 				ref.current = node;
 			}}
 			value={value}
+			// The end of a long query sits at the right edge, as in readline.
+			scrollMargin={0}
 			keyBindings={keyBindings}
 			onKeyDown={onKeyDown}
 			onInput={onChange}
