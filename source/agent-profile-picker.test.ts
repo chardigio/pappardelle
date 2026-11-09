@@ -1,9 +1,12 @@
 import test from 'ava';
 import {
+	AGENT_PICKER_NAME_MAX_WIDTH,
 	agentPickerHeight,
 	agentPopupList,
+	cutAgentProfileName,
 	filterAgentProfiles,
 } from './agent-profile-picker.ts';
+import {displayWidth} from './text-measure.ts';
 
 test('the picker is as tall as its list until the list scrolls', t => {
 	t.is(agentPickerHeight(2), 8);
@@ -59,4 +62,10 @@ test('filterAgentProfiles keeps the full list in order for an empty query', t =>
 		names(' '),
 		choices.map(choice => choice.name),
 	);
+});
+
+test('cutAgentProfileName cuts wide names by display width, not characters', t => {
+	const cut = cutAgentProfileName('漢'.repeat(20));
+	t.true(displayWidth(cut, 'unicode') <= AGENT_PICKER_NAME_MAX_WIDTH);
+	t.true(cut.endsWith('…'));
 });
