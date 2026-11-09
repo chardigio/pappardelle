@@ -935,7 +935,8 @@ export default function App({
 		const generation = showHeaderMessage(`Opening PR for ${space.name}...`);
 		void openPR(space.name, {
 			provider: createVcsHost(),
-			linked: readSpaceState(repoName, space.name)?.prLinks?.[0],
+			// link-pr appends, so the last link is the one recorded most recently.
+			linked: readSpaceState(repoName, space.name)?.prLinks?.at(-1),
 			isLatest: () => openPRRequest.current === request,
 			ownsHeader: () => headerGeneration.current === generation,
 			async openUrl(url) {
