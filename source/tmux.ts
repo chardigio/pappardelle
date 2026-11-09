@@ -1259,8 +1259,24 @@ function spawnTmuxRunnerAsync(
 
 const defaultInnerSendRunner = spawnTmuxRunnerAsync(innerTmuxArgs);
 
+// Claude Code, Codex and agy have no key that empties the whole composer, and
+// C-u alone clears only from the cursor to the start of its line, so a draft
+// left behind (say after an agent rejected a command) was submitted with the
+// prompt. Each round empties one line wherever the cursor is: C-e and C-k pull
+// the next line up, C-u clears it, and BSpace joins it to the line above. A
+// round on an empty composer does nothing. Rounds bound the draft that can be
+// cleared; 200 lines send in a few milliseconds, and Claude Code collapses a
+// longer paste into one placeholder that a single round removes.
+export const CLEAR_COMPOSER_ROUNDS = 200;
+const CLEAR_COMPOSER_KEYS = Array.from({length: CLEAR_COMPOSER_ROUNDS}, () => [
+	'C-e',
+	'C-k',
+	'C-u',
+	'BSpace',
+]).flat();
+
 /**
- * Leave any pane mode, clear the input line, paste `text`, then press Enter.
+ * Leave any pane mode, empty the composer, paste `text`, then press Enter.
  *
  * Agents detect a fast burst of keystrokes as a paste and turn an Enter that
  * arrives inside it into a newline: Codex does this even when Enter is its own
@@ -1285,7 +1301,7 @@ export async function pasteThenEnter(
 	const buffer = `pappardelle-send-${process.pid}`;
 	const steps: Array<{args: string[]; input?: string}> = [
 		{args: ['copy-mode', '-q', '-t', target]},
-		{args: ['send-keys', '-t', target, 'C-u']},
+		{args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_KEYS]},
 		{args: ['load-buffer', '-b', buffer, '-'], input: text},
 		{args: ['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', target]},
 		{args: ['send-keys', '-t', target, 'Enter']},

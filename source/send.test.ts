@@ -7,6 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {
+	CLEAR_COMPOSER_ROUNDS,
 	resolveInnerSessionTarget,
 	sendToSpaceAgent,
 	type SendTmuxRunner,
@@ -63,7 +64,7 @@ test('resolveInnerSessionTarget returns null when no inner server is running', a
 	t.is(await resolveInnerSessionTarget('agent-r-STA-1', runner), null);
 });
 
-test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-mode, clears the line, pastes the text from stdin as a bracketed paste, then sends Enter as its own call', async t => {
+test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-mode, empties the composer, pastes the text from stdin as a bracketed paste, then sends Enter as its own call', async t => {
 	const text = `-it's "quoted" \`tick\` $HOME\nline two; rm -rf nope`;
 	const {runner, calls, inputs} = makeRunner({
 		sessions: ['agent-r-agc_17'],
@@ -77,7 +78,17 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 	);
 	t.deepEqual(calls, [
 		['copy-mode', '-q', '-t', '=agent-r-agc_17:'],
-		['send-keys', '-t', '=agent-r-agc_17:', 'C-u'],
+		[
+			'send-keys',
+			'-t',
+			'=agent-r-agc_17:',
+			...Array.from({length: CLEAR_COMPOSER_ROUNDS}, () => [
+				'C-e',
+				'C-k',
+				'C-u',
+				'BSpace',
+			]).flat(),
+		],
 		['load-buffer', '-b', buffer, '-'],
 		['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', '=agent-r-agc_17:'],
 		['send-keys', '-t', '=agent-r-agc_17:', 'Enter'],
@@ -207,4 +218,79 @@ test('resolveSpaceKey keeps a key outside the tracker grammar as typed', t => {
 		resolveSpaceKey(' pappardelle-tqq ', 'STA', 'linear', []),
 		'pappardelle-tqq',
 	);
+});
+
+/**
+ * A composer with the readline keys Claude Code, Codex and agy share: C-e to
+ * the line end, C-k to delete to the line end (joining the next line at its
+ * end), C-u to delete to the line start, BSpace to delete back (joining the
+ * line above at its start).
+ */
+function composer(lines: string[], row: number, col: number) {
+	const text = lines.join('\n');
+	let offset =
+		lines.slice(0, row).reduce((sum, line) => sum + line.length + 1, 0) + col;
+	let value = text;
+	const lineStart = () => value.lastIndexOf('\n', offset - 1) + 1;
+	const lineEnd = () => {
+		const end = value.indexOf('\n', offset);
+		return end === -1 ? value.length : end;
+	};
+
+	return {
+		press(key: string) {
+			switch (key) {
+				case 'C-e': {
+					offset = lineEnd();
+					break;
+				}
+
+				case 'C-k': {
+					const end = lineEnd() === offset ? offset + 1 : lineEnd();
+					value = value.slice(0, offset) + value.slice(end);
+					break;
+				}
+
+				case 'C-u': {
+					const start = lineStart();
+					value = value.slice(0, start) + value.slice(offset);
+					offset = start;
+					break;
+				}
+
+				case 'BSpace': {
+					if (offset > 0) {
+						value = value.slice(0, offset - 1) + value.slice(offset);
+						offset--;
+					}
+
+					break;
+				}
+
+				default: {
+					throw new Error(`The composer has no ${key} key`);
+				}
+			}
+		},
+		get value() {
+			return value;
+		},
+	};
+}
+
+test('the keys sent before a prompt empty a multi-line draft wherever the cursor is', async t => {
+	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
+	await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir});
+	const clearKeys = calls[1]!.slice(3);
+	const draft = Array.from({length: 150}, (_, index) => `draft line ${index}`);
+	for (const [row, col] of [
+		[0, 0],
+		[0, 4],
+		[75, 3],
+		[149, 13],
+	] as const) {
+		const box = composer(draft, row, col);
+		for (const key of clearKeys) box.press(key);
+		t.is(box.value, '', `cursor at line ${row}, column ${col}`);
+	}
 });
