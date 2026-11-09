@@ -876,6 +876,13 @@ export default function App({
 	useEffect(() => {
 		attachmentGate.rendered(selectedSpaceName);
 	});
+	// Every key in one input write runs before React renders, so keys after one
+	// that opened an inline dialog or search would still act on the rail.
+	// They are dropped until that dialog is on screen to take them.
+	const inlineDialogOpening = useRef(false);
+	useEffect(() => {
+		inlineDialogOpening.current = false;
+	});
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -1213,8 +1220,13 @@ export default function App({
 		handlers: PopupHandlers,
 		showInline: () => void,
 	) => {
-		if (!isPopupAvailable()) {
+		const openInline = () => {
+			inlineDialogOpening.current = true;
 			showInline();
+		};
+
+		if (!isPopupAvailable()) {
+			openInline();
 			return;
 		}
 
@@ -1232,7 +1244,7 @@ export default function App({
 			},
 		})
 			.then(outcome => {
-				if (outcome === 'unavailable') showInline();
+				if (outcome === 'unavailable') openInline();
 			})
 			.finally(() => {
 				popupBusy.current = false;
@@ -1336,7 +1348,8 @@ export default function App({
 
 	// Handle keyboard input
 	useKeyboard(event => {
-		if (anyDialogOpen || popupOpening.current) return;
+		if (anyDialogOpen || popupOpening.current || inlineDialogOpening.current)
+			return;
 		const {input, key} = shortcutKey(event);
 		if (railInputBlocked) return;
 
@@ -1369,6 +1382,7 @@ export default function App({
 					4000,
 				);
 			} else {
+				inlineDialogOpening.current = true;
 				setShowPromptDialog(true);
 			}
 		} else if (isCloseSpaceKey(input, key)) {
@@ -1416,7 +1430,7 @@ export default function App({
 		} else
 			switch (input) {
 				case '/': {
-					// Start searching spaces
+					inlineDialogOpening.current = true;
 					setIsSearching(true);
 					setSearchQuery('');
 					setSearchSelectedIndex(0);
