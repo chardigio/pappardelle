@@ -672,6 +672,7 @@ export default function App({
 
 	const startupQueue = useMemo(() => new StartupQueue(2), []);
 	const attachmentTask = useMemo(() => new LatestTask(), []);
+	const sendTask = useMemo(() => new LatestTask(), []);
 	const attachmentGate = useMemo(() => new AttachmentGate(), []);
 	const [attachmentRevision, setAttachmentRevision] = useState(0);
 	useEffect(
@@ -1083,6 +1084,7 @@ export default function App({
 			.then(async () =>
 				sendToSelectedAgent({
 					queue: attachmentTask,
+					sends: sendTask,
 					targetSpace,
 					viewingSpace: getCurrentlyViewingSpace,
 					// Not through the viewer pane: its frame process holds a bracketed
