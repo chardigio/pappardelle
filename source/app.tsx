@@ -2554,7 +2554,8 @@ function railHeaderRuns(header: {
 	range: string;
 	errorCount: number;
 }): Run[] {
-	const dim = {fg: terminalColor(), attributes: textAttributes({dim: true})};
+	const {fg, attributes} = dimText();
+	const dim = {fg, attributes};
 	const separator = {text: ' | ', ...dim};
 	return [
 		{

@@ -1,7 +1,6 @@
 import {memo} from 'react';
 import type {MouseEvent} from '@opentui/core';
 
-import stringWidth from 'string-width';
 import type {PipelineStatus, SpaceData} from '../types.ts';
 import {COLORS} from '../types.ts';
 import {programStatusDisplay} from '../program-status-display.ts';
@@ -20,6 +19,7 @@ import {
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
+import {displayWidth} from '../text-measure.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
@@ -112,13 +112,13 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	//     keeping the row visually identical to master.
 	//   - "" (empty string): emoji slot is configured but blank → render
 	//     two spaces so rows still line up with their emoji-bearing siblings.
-	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
-	//     so multi-cell emoji reserve the right number of cells.
+	//   - "🎸" / "🐝" / etc.: render the glyph, measured the way the title
+	//     beside it is, so multi-cell emoji reserve the right number of cells.
 	const emojiSlot = resolveEmojiSlot(
 		maybeStripSkinTones(space.profileEmoji, skinToneWide),
 	);
 	const emoji = emojiSlot?.text;
-	const emojiCells = emoji ? stringWidth(emoji) : 0;
+	const emojiCells = emoji ? displayWidth(emoji, widthMethod) : 0;
 	const emojiPrefixCells = rowPrefixWidth(
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
