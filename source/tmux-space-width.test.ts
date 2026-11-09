@@ -27,7 +27,7 @@ test.serial(
 			return;
 		}
 
-		const dir = fs.mkdtempSync('/private/tmp/psw-');
+		const dir = fs.mkdtempSync('/tmp/psw-');
 		const socket = path.join(dir, 's');
 		const run = async (args: string[]) => {
 			const {stdout} = await exec('tmux', ['-S', socket, ...args], {

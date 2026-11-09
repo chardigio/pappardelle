@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
-import {parseCli, subcommandGate} from './cli-args.ts';
+import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {parseCompanionArgs} from './companion-args.ts';
 import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 
@@ -118,19 +118,21 @@ test('spaces_list and space_read ask for JSON', t => {
 });
 
 test('space_send sends its text on stdin', t => {
-	t.like(cli('space_send', {key: 'STA-1', text: "don't -x"}), {
-		positional: ['send', 'STA-1'],
-		stdin: "don't -x",
-	});
+	const {args, stdin} = call('space_send', {key: 'STA-1', text: "don't -x"});
+	t.deepEqual(parseSendArgs(args), {key: 'STA-1', text: '', keys: []});
+	t.is(stdin, "don't -x");
 });
 
 test('space_press_keys sends repeated --keys', t => {
-	const {positional, flags} = cli('space_press_keys', {
+	const {args} = call('space_press_keys', {
 		key: 'STA-1',
 		keys: ['Escape', 'S-Tab'],
 	});
-	t.deepEqual(positional, ['send', 'STA-1']);
-	t.deepEqual(flags.keys, ['Escape', 'S-Tab']);
+	t.deepEqual(parseSendArgs(args), {
+		key: 'STA-1',
+		text: '',
+		keys: ['Escape', 'S-Tab'],
+	});
 });
 
 test('space_open keeps a description that starts with a dash as the input', t => {

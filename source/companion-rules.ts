@@ -8,10 +8,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {commandBasename} from './config.ts';
+import {scriptsDir} from './runtime.ts';
 import {shellQuote} from './shell-quote.ts';
 
 const execFileAsync = promisify(execFile);
-const SCRIPTS_DIR = path.join(import.meta.dirname, '..', 'scripts');
+const SCRIPTS_DIR = scriptsDir;
 
 export function companionRules(): string {
 	return fs
