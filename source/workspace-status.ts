@@ -5,6 +5,7 @@ import {
 	ensureStatusDir,
 	getHookStatusDir,
 	mapClaudeStatus,
+	type ClaudeStatusInfo,
 } from './claude-status.ts';
 import {
 	attachStatusMonitor,
@@ -15,6 +16,7 @@ import {
 	statusSocket,
 	type StatusTmuxRunner,
 	type StatusPane,
+	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceData} from './types.ts';
@@ -31,6 +33,38 @@ export function applyStatusUpdates(
 		return {...space, programStatus: info};
 	});
 	return changed ? result : spaces;
+}
+
+/**
+ * An agent's status from its hook file and its pane's status snapshot. Once
+ * the agent has reported natively, the snapshot is the authority.
+ */
+export function mergeProgramStatus(
+	hook: ClaudeStatusInfo | null,
+	snapshot: ProgramStatusSnapshot | null,
+	pane: StatusPane | null,
+): ProgramStatusInfo | null {
+	if (snapshot?.authoritative && pane) {
+		const info: ProgramStatusInfo = {
+			...snapshot.info,
+			source: 'osc',
+			generation: pane.generation,
+		};
+		const fallback = hook ? mapClaudeStatus(hook) : null;
+		if (
+			info.app === 'claude-code' &&
+			!info.id &&
+			info.status === 'working' &&
+			fallback?.status === info.status
+		) {
+			if (fallback.tool) info.tool = fallback.tool;
+			if (fallback.activity) info.activity = fallback.activity;
+		}
+
+		return info;
+	}
+
+	return hook ? mapClaudeStatus(hook) : null;
 }
 
 export class WorkspaceStatuses {
@@ -104,29 +138,11 @@ export class WorkspaceStatuses {
 		sessionKey: string,
 		pane: StatusPane | null,
 	): Promise<ProgramStatusInfo | null> {
-		const hook = await getClaudeStatusInfoAsync(key);
-		const snapshot = pane
-			? readProgramSnapshot(this.repo, sessionKey, pane)
-			: null;
-		if (snapshot?.authoritative) {
-			const info: ProgramStatusInfo = {
-				...snapshot.info,
-				source: 'osc',
-				generation: pane!.generation,
-			};
-			const fallback = hook ? mapClaudeStatus(hook) : null;
-			if (
-				info.app === 'claude-code' &&
-				!info.id &&
-				info.status === 'working' &&
-				fallback?.status === info.status
-			) {
-				if (fallback.tool) info.tool = fallback.tool;
-				if (fallback.activity) info.activity = fallback.activity;
-			}
-			return info;
-		}
-		return hook ? mapClaudeStatus(hook) : null;
+		return mergeProgramStatus(
+			await getClaudeStatusInfoAsync(key),
+			pane ? readProgramSnapshot(this.repo, sessionKey, pane) : null,
+			pane,
+		);
 	}
 
 	watch(

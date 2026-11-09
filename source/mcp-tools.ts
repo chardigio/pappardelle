@@ -6,6 +6,7 @@
 // other ends every session, so both should take a deliberate command.
 
 import {z} from 'zod';
+import {MAX_WAIT_SECONDS} from './supervise-args.ts';
 
 export type CliCall = {args: string[]; stdin?: string; cwd?: string};
 
@@ -59,8 +60,11 @@ const tmuxKeys = z
 	.describe('tmux key names, such as Escape, S-Tab or C-c, pressed in order');
 
 /**
- * Approved without a prompt on every agent, because an agent has to change the
- * companion constantly to keep showing its work.
+ * Approved without a prompt on every agent: the companion tools because an
+ * agent changes its companion constantly to show its work, and the
+ * supervision tools because watching other spaces means calling them in a
+ * loop. space_answer stays safe unprompted because it refuses any approval
+ * the policy in approve-policy.ts doesn't allow, and has no override.
  */
 export const AUTO_APPROVED_TOOLS = [
 	'companion_run',
@@ -71,6 +75,18 @@ export const AUTO_APPROVED_TOOLS = [
 	'companion_close',
 	'companion_list',
 	'companion_width',
+	'space_send',
+	'space_screen',
+	'space_state',
+	'space_question_tabs',
+	'space_wait',
+	'space_answer',
+	'space_queue',
+	'space_schedule',
+	'space_schedules',
+	'space_unschedule',
+	'tui_panes',
+	'tui_focus_log',
 ] as const;
 
 export const MCP_TOOLS: readonly McpTool[] = [
@@ -243,8 +259,20 @@ export const MCP_TOOLS: readonly McpTool[] = [
 		name: 'space_send',
 		description:
 			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. Use it when the user asks for it; to talk to another agent, use SendMessage. Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first",
-		inputSchema: {key, text: z.string().min(1)},
-		toCli: ({key, text}) => ({args: ['send', key], stdin: text}),
+		inputSchema: {
+			key,
+			text: z.string().min(1),
+			force: z
+				.boolean()
+				.optional()
+				.describe(
+					"Send even though the Codex composer has text in it, which sending clears. Without it, a draft fails the send so a person's typing isn't thrown away",
+				),
+		},
+		toCli: ({key, text, force}) => ({
+			args: ['send', key, ...(force ? ['--force'] : [])],
+			stdin: text,
+		}),
 	}),
 	defineTool({
 		name: 'space_press_keys',
@@ -254,6 +282,161 @@ export const MCP_TOOLS: readonly McpTool[] = [
 		toCli: ({key, keys}) => ({
 			args: ['send', key, ...keys.flatMap(name => ['--keys', name])],
 		}),
+	}),
+	defineTool({
+		name: 'space_screen',
+		description:
+			"Read a space's agent screen as the user sees it, with scrollback, or its companion pane's",
+		readOnly: true,
+		inputSchema: {
+			key,
+			companion: z
+				.boolean()
+				.optional()
+				.describe('Read the companion instead of the agent'),
+			pane: z
+				.string()
+				.optional()
+				.describe('Companion pane name, with companion. Defaults to main'),
+			lines: z
+				.number()
+				.int()
+				.positive()
+				.optional()
+				.describe('Lines of scrollback. Defaults to 60'),
+		},
+		toCli: ({key, companion, pane, lines}) => ({
+			args: [
+				'screen',
+				key,
+				...(companion ? ['--companion'] : []),
+				...flags({pane, lines}),
+			],
+		}),
+	}),
+	defineTool({
+		name: 'space_state',
+		description:
+			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, usage_limit (Codex, with the reset time), draft (text sitting in the Codex composer), idle or no_session",
+		readOnly: true,
+		inputSchema: {key},
+		toCli: ({key}) => ({args: ['state', key, '--json']}),
+	}),
+	defineTool({
+		name: 'space_question_tabs',
+		description:
+			'Read every question of a multi-question AskUserQuestion dialog in a space. It presses Right through the tabs and Left back to the first, so the dialog ends where it started',
+		inputSchema: {key},
+		toCli: ({key}) => ({args: ['state', key, '--tabs', '--json']}),
+	}),
+	defineTool({
+		name: 'space_wait',
+		description:
+			"Wait until a space's agent reaches a state, instead of checking it over and over. Returns its state and screen tail, or timedOut with the state as it is then: call it again to keep waiting",
+		readOnly: true,
+		inputSchema: {
+			key,
+			until: z
+				.enum(['working', 'idle', 'blocked', 'ready', 'changed'])
+				.describe(
+					'blocked: a prompt, question, login or usage limit. ready: anything but working. changed: any state other than the current one',
+				),
+			timeout_seconds: z
+				.number()
+				.int()
+				.positive()
+				.max(MAX_WAIT_SECONDS)
+				.optional()
+				.describe(
+					'Defaults to 50, under the 60 seconds Codex gives a tool call. Raise it only if your client allows longer',
+				),
+		},
+		toCli: ({key, until, timeout_seconds: timeout}) => ({
+			args: ['wait', key, '--until', until, '--json', ...flags({timeout})],
+		}),
+	}),
+	defineTool({
+		name: 'space_answer',
+		description:
+			"Answer a permission prompt or question in a space's agent by option number, or press keys in it. Approving a command once goes through only when the command just cleans up QA scratch and publishes nothing (no push, merge, --force, or kill-server outside an isolated socket); anything else, and every \"Yes, and don't ask again\", fails with the command for the user to decide. Ask the user then; don't work around it",
+		inputSchema: {
+			key,
+			option: z
+				.number()
+				.int()
+				.positive()
+				.optional()
+				.describe('The number of the option to choose'),
+			keys: z
+				.array(z.string())
+				.min(1)
+				.optional()
+				.describe(
+					'tmux key names instead of an option. On a permission prompt only Escape, which declines',
+				),
+		},
+		toCli: ({key, option, keys}) => ({
+			args: [
+				'answer',
+				key,
+				...flags({option}),
+				...(keys ?? []).flatMap(name => ['--keys', name]),
+			],
+		}),
+	}),
+	defineTool({
+		name: 'space_queue',
+		description:
+			"Hold a message for a space's next scheduled send, in place of what the schedule would send. Used once",
+		inputSchema: {key, text: z.string().min(1)},
+		toCli: ({key, text}) => ({args: ['queue', key], stdin: text}),
+	}),
+	defineTool({
+		name: 'space_schedule',
+		description:
+			"Wake a space's agent later with an OS timer, which runs even when this session and the TUI don't: at (send message at a time), after_limit (send message, default continue, once its Codex usage limit resets), or keep_going (every interval: continue after a limit, and the nudge when the agent sits idle two checks in a row; never over a draft)",
+		inputSchema: {
+			key,
+			kind: z.enum(['at', 'after_limit', 'keep_going']),
+			at: z
+				.string()
+				.optional()
+				.describe('For at: an ISO time, or HH:MM for its next occurrence'),
+			message: z.string().optional().describe('For at and after_limit'),
+			every: z
+				.string()
+				.optional()
+				.describe('For keep_going: how often to check, such as 10m'),
+			nudge: z.string().optional().describe('For keep_going'),
+			until: z
+				.string()
+				.optional()
+				.describe('For keep_going: when to stop, as an ISO time or HH:MM'),
+		},
+		toCli: ({key, kind, at, message, every, nudge, until}) => ({
+			args: [
+				'schedule',
+				key,
+				...(kind === 'at'
+					? flags({at, message})
+					: kind === 'after_limit'
+						? ['--after-limit', ...flags({message})]
+						: ['--keep-going', ...flags({every, nudge, until})]),
+			],
+		}),
+	}),
+	defineTool({
+		name: 'space_schedules',
+		description: 'List scheduled wake-ups, for one space or all',
+		readOnly: true,
+		inputSchema: {key: key.optional()},
+		toCli: ({key}) => ({args: ['schedules', ...(key ? [key] : [])]}),
+	}),
+	defineTool({
+		name: 'space_unschedule',
+		description: 'Cancel a scheduled wake-up by the id space_schedules shows',
+		inputSchema: {id: z.string()},
+		toCli: ({id}) => ({args: ['unschedule', id]}),
 	}),
 	defineTool({
 		name: 'space_open',
@@ -325,6 +508,30 @@ export const MCP_TOOLS: readonly McpTool[] = [
 			args: ['link-pr', url, ...flags({workspace})],
 			cwd: repository,
 		}),
+	}),
+	defineTool({
+		name: 'tui_panes',
+		description:
+			"Diagnostics: what each running TUI's rail and viewer panes are running (pane_start_command), to check which build they're on",
+		readOnly: true,
+		inputSchema: {},
+		toCli: () => ({args: ['tui', 'panes']}),
+	}),
+	defineTool({
+		name: 'tui_focus_log',
+		description:
+			'Diagnostics: log every change of the active pane in the TUIs and of client focus flags for a number of seconds, while the user reproduces a focus problem',
+		readOnly: true,
+		inputSchema: {
+			seconds: z
+				.number()
+				.int()
+				.positive()
+				.max(MAX_WAIT_SECONDS)
+				.optional()
+				.describe('Defaults to 30'),
+		},
+		toCli: ({seconds}) => ({args: ['tui', 'focus-log', ...flags({seconds})]}),
 	}),
 	defineTool({
 		name: 'tui_restart',

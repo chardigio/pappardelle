@@ -1,0 +1,45 @@
+
+ ▐▛███▛█   Claude Code v2.1.319
+▝▜██████▀  Sonnet 5.5 · Claude Max
+ ▝▝   ▝▝   /tmp/repo · /rc
+
+
+❯ Use the AskUserQuestion tool once, with two questions in the same call: my favorite color (red, blue, green) and my
+  favorite fruit (apple, pear, plum).
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Planning: ~/.claude/plans/use-the-askuserquestion-tool-majestic-abelson.md
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Color  ☐ Fruit  ✔ Submit  →
+
+What is your favorite fruit?
+
+❯ 1. Apple
+     Apple
+  2. Pear
+     Pear
+  3. Plum
+     Plum
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

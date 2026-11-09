@@ -119,7 +119,12 @@ test('spaces_list and space_read ask for JSON', t => {
 
 test('space_send sends its text on stdin', t => {
 	const {args, stdin} = call('space_send', {key: 'STA-1', text: "don't -x"});
-	t.deepEqual(parseSendArgs(args), {key: 'STA-1', text: '', keys: []});
+	t.deepEqual(parseSendArgs(args), {
+		key: 'STA-1',
+		text: '',
+		keys: [],
+		force: false,
+	});
 	t.is(stdin, "don't -x");
 });
 
@@ -132,6 +137,7 @@ test('space_press_keys sends repeated --keys', t => {
 		key: 'STA-1',
 		text: '',
 		keys: ['Escape', 'S-Tab'],
+		force: false,
 	});
 });
 
@@ -187,12 +193,34 @@ test('link_pr runs from the source repository and passes the workspace on', t =>
 	t.is(call('link_pr', {url: 'https://x'}).cwd, undefined);
 });
 
-test('exactly the companion tools are auto-approved', t => {
+// Everything an agent changes in another space through these goes through
+// a check it can't override: space_answer's approval policy, and send's
+// refusal to type into a prompt.
+const ASKS_FIRST = new Set([
+	'spaces_list',
+	'space_read',
+	'space_highlight',
+	'space_press_keys',
+	'space_open',
+	'space_close',
+	'link_pr',
+	'tui_restart',
+]);
+
+test('every tool but the ones that ask first is auto-approved', t => {
 	t.deepEqual(
 		[...AUTO_APPROVED_TOOLS].sort(),
 		MCP_TOOLS.map(tool => tool.name)
-			.filter(name => name.startsWith('companion_'))
+			.filter(name => !ASKS_FIRST.has(name))
 			.sort(),
+	);
+});
+
+test('space_answer has no way past the approval policy', t => {
+	const answer = MCP_TOOLS.find(tool => tool.name === 'space_answer')!;
+	t.false('force' in answer.inputSchema);
+	t.false(
+		call('space_answer', {key: 'STA-1', option: 1}).args.includes('--force'),
 	);
 });
 
@@ -204,7 +232,7 @@ const pluginHooks = path.join(
 	'hooks',
 );
 
-test("Claude Code's approval hook matches the companion tools and no others", t => {
+test("Claude Code's approval hook matches the auto-approved tools and no others", t => {
 	const {hooks} = JSON.parse(
 		fs.readFileSync(path.join(pluginHooks, 'hooks.json'), 'utf8'),
 	) as {
@@ -213,7 +241,7 @@ test("Claude Code's approval hook matches the companion tools and no others", t 
 		};
 	};
 	const entry = hooks.PreToolUse.find(({hooks}) =>
-		hooks.some(({command}) => command.includes('approve-companion-tool')),
+		hooks.some(({command}) => command.includes('approve-pappardelle-tool')),
 	);
 	const matcher = new RegExp(`^(${entry!.matcher})$`);
 	const names = MCP_TOOLS.map(tool => tool.name);
@@ -221,13 +249,13 @@ test("Claude Code's approval hook matches the companion tools and no others", t 
 		names.filter(name =>
 			matcher.test(`mcp__plugin_pappardelle_pappardelle__${name}`),
 		),
-		names.filter(name => name.startsWith('companion_')),
+		[...AUTO_APPROVED_TOOLS],
 	);
 });
 
 test('the approval hook answers allow', t => {
 	const {stdout, status} = spawnSync(
-		path.join(pluginHooks, 'approve-companion-tool.sh'),
+		path.join(pluginHooks, 'approve-pappardelle-tool.sh'),
 		{encoding: 'utf8'},
 	);
 	t.is(status, 0);

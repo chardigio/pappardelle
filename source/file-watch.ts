@@ -29,3 +29,25 @@ export function watchFileContent(
 
 	return () => watcher.close();
 }
+
+/**
+ * Resolve when anything in `dirs` changes, or after `ms`, whichever is first.
+ * Missing directories are created so there is something to watch.
+ */
+export async function waitForDirChange(
+	dirs: readonly string[],
+	ms: number,
+): Promise<void> {
+	return new Promise(resolve => {
+		const watchers = dirs.map(dir => {
+			mkdirSync(dir, {recursive: true});
+			return watch(dir, done);
+		});
+		const timer = setTimeout(done, ms);
+		function done() {
+			clearTimeout(timer);
+			for (const watcher of watchers) watcher.close();
+			resolve();
+		}
+	});
+}
