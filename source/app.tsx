@@ -1,5 +1,6 @@
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
+import type {CliRenderer} from '@opentui/core';
 import {shortcutKey} from './tui-key.ts';
 import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
@@ -222,6 +223,20 @@ const closeLayoutDeps = {
 	killSession,
 	layoutTmux: defaultOuterTmuxRunner,
 };
+
+/**
+ * Workspace sessions stay alive; only the layout closes. The renderer resets
+ * the terminal first: closing the layout can kill the session that owns this
+ * pty.
+ */
+export function quitTui(
+	renderer: CliRenderer,
+	repoName: string,
+	paneLayout: PaneLayout | null,
+): void {
+	renderer.destroy();
+	if (paneLayout) closeTuiLayout(repoName, paneLayout, closeLayoutDeps);
+}
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
@@ -1395,14 +1410,7 @@ export default function App({
 					break;
 				}
 				case 'q': {
-					// Workspace sessions stay alive; only the layout closes. The
-					// renderer resets the terminal first: closing the layout can kill
-					// the session that owns this pty.
-					renderer.destroy();
-					if (paneLayout) {
-						closeTuiLayout(repoName, paneLayout, closeLayoutDeps);
-					}
-
+					quitTui(renderer, repoName, paneLayout);
 					break;
 				}
 				case '?': {

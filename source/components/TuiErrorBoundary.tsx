@@ -5,10 +5,18 @@ import {terminalColor, textAttributes} from '../tui-style.ts';
 
 const log = createLogger('tui');
 
-function FailedView({message}: {message: string}) {
+function FailedView({
+	message,
+	onClose,
+}: {
+	message: string;
+	onClose?: () => void;
+}) {
 	const renderer = useRenderer();
 	useKeyboard(key => {
-		if (key.name === 'q' || key.name === 'escape') renderer.destroy();
+		if (key.name !== 'q' && key.name !== 'escape') return;
+		if (onClose) onClose();
+		else renderer.destroy();
 	});
 	return (
 		<box flexDirection="column" padding={1}>
@@ -21,9 +29,13 @@ function FailedView({message}: {message: string}) {
 	);
 }
 
-/** Keep render failures visible and dismissible, including in popup terminals. */
+/**
+ * Keep render failures visible and dismissible, including in popup terminals.
+ * `onClose` replaces the plain renderer teardown, so the rail can also close
+ * its layout as q does.
+ */
 export default class TuiErrorBoundary extends Component<
-	{children?: ReactNode},
+	{children?: ReactNode; onClose?: () => void},
 	{message?: string}
 > {
 	override state: {message?: string} = {};
@@ -46,7 +58,7 @@ export default class TuiErrorBoundary extends Component<
 		return this.state.message === undefined ? (
 			this.props.children
 		) : (
-			<FailedView message={this.state.message} />
+			<FailedView message={this.state.message} onClose={this.props.onClose} />
 		);
 	}
 }

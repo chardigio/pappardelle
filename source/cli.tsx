@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
-import App from './app.tsx';
+import App, {quitTui} from './app.tsx';
 import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
@@ -481,6 +481,10 @@ const {renderer} = await renderTui(
 		isDevBuild={isDevBuild}
 		updateCheckPromise={updateCheckPromise}
 	/>,
+	{},
+	renderer => {
+		quitTui(renderer, repoName, paneLayout);
+	},
 );
 
 const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');

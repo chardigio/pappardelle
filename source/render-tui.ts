@@ -1,6 +1,10 @@
 import {createElement, type ReactNode} from 'react';
 import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
-import {createCliRenderer, type CliRendererConfig} from '@opentui/core';
+import {
+	createCliRenderer,
+	type CliRenderer,
+	type CliRendererConfig,
+} from '@opentui/core';
 import {createRoot} from '@opentui/react';
 
 /**
@@ -19,6 +23,7 @@ export const tmuxRendererEnvironment: Readonly<Record<string, string>> = {
 export async function renderTui(
 	node: ReactNode,
 	options: CliRendererConfig = {},
+	onFailedViewClose?: (renderer: CliRenderer) => void,
 ) {
 	const renderer = await createCliRenderer({
 		screenMode: 'alternate-screen',
@@ -33,6 +38,7 @@ export async function renderTui(
 		...options,
 	});
 	const root = createRoot(renderer);
-	root.render(createElement(TuiErrorBoundary, null, node));
+	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
+	root.render(createElement(TuiErrorBoundary, {onClose}, node));
 	return {renderer, root};
 }
