@@ -36,7 +36,7 @@ export async function withSendLock<T>(
 			holder &&
 			(holder.pid === null ? isOld(holder) : !isAlive(holder.pid))
 		) {
-			await removeStale(file, holder.ino);
+			await removeStale(file, holder.id);
 			continue;
 		}
 
@@ -54,7 +54,10 @@ export async function withSendLock<T>(
 	}
 }
 
-type Holder = {pid: number | null; ino: number; mtimeMs: number};
+// A file's inode number alone can be handed straight to the next file on
+// ext4 and xfs, so a lock is identified by inode and change time together.
+type FileId = {ino: bigint; ctimeNs: bigint};
+type Holder = {pid: number | null; id: FileId; mtimeMs: number};
 
 // A lock file is empty for a moment between its creation and the pid write.
 // One still empty long after that was left by a process that died in between.
@@ -65,7 +68,7 @@ function isOld(holder: Holder): boolean {
 // Two senders can both find the same stale lock, and the slower one would
 // delete the fresh lock the faster one created after removing it. Removals
 // take turns behind a guard file, and each removes only the file it judged.
-async function removeStale(file: string, staleIno: number): Promise<void> {
+async function removeStale(file: string, stale: FileId): Promise<void> {
 	const guard = `${file}.takeover`;
 	try {
 		await writeFile(guard, '', {flag: 'wx'});
@@ -80,8 +83,10 @@ async function removeStale(file: string, staleIno: number): Promise<void> {
 	}
 
 	try {
-		const current = await stat(file).catch(() => undefined);
-		if (current?.ino === staleIno) await unlink(file).catch(() => {});
+		const current = await stat(file, {bigint: true}).catch(() => undefined);
+		if (current?.ino === stale.ino && current.ctimeNs === stale.ctimeNs) {
+			await unlink(file).catch(() => {});
+		}
 	} finally {
 		await unlink(guard).catch(() => {});
 	}
@@ -96,9 +101,13 @@ async function readHolder(file: string): Promise<Holder | undefined> {
 	}
 
 	try {
-		const {ino, mtimeMs} = await handle.stat();
+		const {ino, ctimeNs, mtimeMs} = await handle.stat({bigint: true});
 		const pid = Number.parseInt(await handle.readFile('utf8'), 10);
-		return {pid: Number.isInteger(pid) ? pid : null, ino, mtimeMs};
+		return {
+			pid: Number.isInteger(pid) ? pid : null,
+			id: {ino, ctimeNs},
+			mtimeMs: Number(mtimeMs),
+		};
 	} finally {
 		await handle.close();
 	}
