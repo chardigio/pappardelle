@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {getSpaceStatePath, readSpaceState} from './space-state.ts';
-import {remoteProjects, remoteUrlsArgs} from './git-remotes.ts';
+import {readRemoteUrls, remoteProjects} from './git-remotes.ts';
 import {touchPrLinkStamp} from './pr-link-stamp.ts';
 
 const exec = promisify(execFile);
@@ -123,7 +123,7 @@ export async function linkPr(
 	// The branch may be published to a fork that is a second remote beside an
 	// upstream origin, so any remote can be the PR's head repository.
 	const remotes = remoteProjects(
-		await run('git', remoteUrlsArgs, directory),
+		await readRemoteUrls(async args => run('git', args, directory)),
 		host,
 	);
 	if (![...remotes.values()].includes(project))

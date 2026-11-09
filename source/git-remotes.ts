@@ -20,7 +20,7 @@ export function remoteProject(remote: string, host: string): string | null {
 		project = match[2]!;
 	}
 	if (remoteHost.toLowerCase() !== host.toLowerCase()) return null;
-	project = project.replace(/\.git$/, '');
+	project = project.replace(/\/+$/, '').replace(/\.git$/, '');
 	if (
 		project.split('/').length < 2 ||
 		project.split('/').some(part => !part || part === '..')
@@ -29,11 +29,24 @@ export function remoteProject(remote: string, host: string): string | null {
 	return project;
 }
 
-export const remoteUrlsArgs = [
+const remoteUrlsArgs = [
 	'config',
 	'--get-regexp',
 	String.raw`^remote\..+\.url$`,
 ];
+
+/** `git config --get-regexp` output for every remote URL; '' with no remotes. */
+export async function readRemoteUrls(
+	git: (args: string[]) => Promise<string>,
+): Promise<string> {
+	try {
+		return await git(remoteUrlsArgs);
+	} catch (error) {
+		// git config exits 1 when no key matches, which here means no remotes.
+		if ((error as {code?: number}).code === 1) return '';
+		throw error;
+	}
+}
 
 export function remoteProjects(remoteUrlsOutput: string, host: string) {
 	const projects = new Map<string, string>();

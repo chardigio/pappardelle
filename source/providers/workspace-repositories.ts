@@ -2,7 +2,7 @@ import {execFile} from 'node:child_process';
 import {readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {remoteProjects, remoteUrlsArgs} from '../git-remotes.ts';
+import {readRemoteUrls, remoteProjects} from '../git-remotes.ts';
 import {workspaceIdentity} from '../link-pr.ts';
 import {readSpaceState} from '../space-state.ts';
 
@@ -51,10 +51,7 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 			entries.some(entry => entry.name === '.git' && !entry.isSymbolicLink())
 		) {
 			const remotes = remoteProjects(
-				await git(current, remoteUrlsArgs).catch((error: unknown) => {
-					if ((error as {code?: number}).code === 1) return '';
-					throw error;
-				}),
+				await readRemoteUrls(async args => git(current, args)),
 				host,
 			);
 			const project = remotes.get('origin');
