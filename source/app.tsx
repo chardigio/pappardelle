@@ -1043,6 +1043,10 @@ export default function App({
 
 	const selectedSpace = spaces[selectedIndex];
 	const selectedSpaceName = selectedSpace?.name;
+	// Read by the companion-width callbacks, which outlive the render they were
+	// registered in.
+	const selectedSpaceNameRef = useRef(selectedSpaceName);
+	selectedSpaceNameRef.current = selectedSpaceName;
 	const selectedWorktreePath = selectedSpace?.isMainWorktree
 		? (selectedSpace.worktreePath ?? undefined)
 		: undefined;

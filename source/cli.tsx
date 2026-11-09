@@ -322,7 +322,11 @@ if (cli.input[0] === 'highlight') {
 
 // Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
-	const {key: rawKey, text: argText, keys} = parseSendArgs(process.argv.slice(2));
+	const {
+		key: rawKey,
+		text: argText,
+		keys,
+	} = parseSendArgs(process.argv.slice(2));
 	let text = argText;
 	if (keys.length > 0 && text) {
 		console.error('Pass text or --keys, not both');

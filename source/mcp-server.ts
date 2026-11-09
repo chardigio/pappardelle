@@ -11,6 +11,7 @@ import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {configExists, getRepoName} from './config.ts';
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
+import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {spaceFromWorktreePath} from './space-target.ts';
 
 export type CliResult = {code: number | null; stdout: string; stderr: string};
@@ -83,7 +84,8 @@ export function createMcpServer(options: {
 
 /**
  * Runs the same build as this server, with the space this server worked out.
- * execArgv carries tsx's loader when running from source.
+ * The compiled executable runs its CLI itself; a source or JavaScript build
+ * names its entry file, which sits beside this module.
  */
 const spawnCli =
 	(space: string | undefined): RunCli =>
@@ -92,7 +94,13 @@ const spawnCli =
 			const entry = import.meta.filename.endsWith('.ts') ? 'cli.tsx' : 'cli.js';
 			const child = spawn(
 				process.execPath,
-				[...process.execArgv, path.join(import.meta.dirname, entry), ...args],
+				isStandalone
+					? args
+					: [
+							...bunIsolationArgs,
+							path.join(import.meta.dirname, entry),
+							...args,
+						],
 				{
 					signal,
 					stdio: 'pipe',

@@ -19,7 +19,7 @@ import type {OuterTmuxRunner} from './tmux.ts';
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
 
-const dir = realpathSync(mkdtempSync('/private/tmp/pc-'));
+const dir = realpathSync(mkdtempSync('/tmp/pc-'));
 const socket = `${dir}/s`;
 const {TMUX: _tmux, TMUX_PANE: _pane, ...inherited} = process.env;
 const env = {...inherited, SHELL: '/bin/sh'};
