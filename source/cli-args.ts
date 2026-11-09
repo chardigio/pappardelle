@@ -34,12 +34,14 @@ const helpText = `
 
 	Controls
 	  j/k or arrows  Navigate between spaces
-	  Enter          Select space
+	  Enter          Focus the agent pane
 	  n              New space (create worktree + issue)
-	  o              Open workspace (apps, links, iTerm, etc.)
-	  d              Delete selected space
-	  r              Refresh list
+	  x / Del        Close space
+	  o              Open workspace (apps, links, etc.)
+	  d              Open IDE
+	  /              Search spaces
 	  U              Update Pappardelle to the latest release
+	  ?              All keys
 	  q/Ctrl+C       Quit
 
 	Options

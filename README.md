@@ -600,7 +600,7 @@ Warnings and errors also appear in a red box at the bottom of the TUI. Press `e`
 bun run dev      # Watch mode (auto-rebuild on changes)
 bun run build    # Build native executable + JavaScript fallback
 bun run typecheck # Check TypeScript separately
-bun start        # Run without building
+bun start        # Run the built binary
 bun run test         # Lint + format check + tests
 ```
 
