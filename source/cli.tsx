@@ -346,6 +346,15 @@ if (cli.input.length > 0) {
 	process.exit(status);
 }
 
+function exitWithTmux(result: ReturnType<typeof spawnSync>): never {
+	if (result.error) {
+		console.error(`Could not run tmux: ${result.error.message}`);
+		process.exit(1);
+	}
+
+	process.exit(result.status ?? 0);
+}
+
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
@@ -366,7 +375,7 @@ if (!isInTmux() && cli.flags.layout) {
 			stdio: 'inherit',
 			env: process.env,
 		});
-		process.exit(result.status ?? 0);
+		exitWithTmux(result);
 	}
 
 	// No existing session - create a new one.
@@ -391,11 +400,12 @@ if (!isInTmux() && cli.flags.layout) {
 		'status',
 		'off',
 	];
-	const result = spawnSync('tmux', tmuxArgs, {
-		stdio: 'inherit',
-		env: process.env,
-	});
-	process.exit(result.status ?? 0);
+	exitWithTmux(
+		spawnSync('tmux', tmuxArgs, {
+			stdio: 'inherit',
+			env: process.env,
+		}),
+	);
 }
 
 // Set up tmux layout if in tmux and not disabled
