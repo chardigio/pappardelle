@@ -385,13 +385,15 @@ export class GitHubProvider implements VcsHostProvider {
 		try {
 			slug = await this.getRepoSlug();
 		} catch (err) {
-			// The backoff rethrows the same failure; warn once per failed lookup.
+			// The backoff rethrows the same failure, and a repo without gh or a
+			// GitHub remote keeps failing for good, so only the first failure in a
+			// run of them reaches the rail's error list.
 			if (err !== this.loggedRepoSlugError) {
 				this.loggedRepoSlugError = err;
-				log.warn(
-					'Failed to discover GitHub repository',
-					sanitizeSubprocessError(err),
-				);
+				const error = sanitizeSubprocessError(err);
+				if (this.repoSlugFailure?.count === 1)
+					log.warn('Failed to discover GitHub repository', error);
+				else log.info(`Failed to discover GitHub repository: ${error.message}`);
 			}
 
 			return result;

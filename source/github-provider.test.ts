@@ -776,3 +776,27 @@ test.serial(
 		t.is(warnings.length, 1);
 	},
 );
+
+test.serial(
+	'a repo lookup that keeps failing warns once for the whole run of failures',
+	async t => {
+		clearRecentErrors();
+		let now = 0;
+		const provider = new GitHubProvider(
+			async () => {
+				throw new Error('gh: command not found');
+			},
+			undefined,
+			undefined,
+			{now: () => now, linkedAt: () => 0},
+		);
+		for (; now < 30 * 60_000; now += 60_000) {
+			await provider.getBulkRailStatus(['STA-1']);
+		}
+
+		const warnings = getRecentErrors().filter(
+			e => e.message === 'Failed to discover GitHub repository',
+		);
+		t.is(warnings.length, 1);
+	},
+);
