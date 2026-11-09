@@ -6,7 +6,10 @@ import {
 } from '@opentui/core';
 
 // Measured with OpenTUI's own text buffer so wrap points and cell widths match
-// what a <text> draws, rather than a reimplementation of its rules.
+// what a <text> draws.
+
+/** Popups only open inside tmux, where the renderer is forced to this method. */
+export const POPUP_WIDTH_METHOD: WidthMethod = 'unicode';
 
 let context: ResourceContext | undefined;
 const views = new Map<

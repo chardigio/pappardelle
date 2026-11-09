@@ -10,7 +10,11 @@ import {
 	STATE_ROW_ONE_LINE_COLS,
 } from '../close-state-choice.ts';
 import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
-import {displayWidth, wrappedLineCount} from '../text-measure.ts';
+import {
+	displayWidth,
+	POPUP_WIDTH_METHOD,
+	wrappedLineCount,
+} from '../text-measure.ts';
 import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
 
 export type ClientSize = {cols: number; rows: number};
@@ -40,9 +44,6 @@ function fraction(client: ClientSize): PopupSize {
 		height: Math.floor(client.rows * 0.8),
 	};
 }
-
-// Popups only open inside tmux, where the renderer is forced to this method.
-const POPUP_WIDTH_METHOD = 'unicode';
 
 function lines(text: string, inner: number): number {
 	return wrappedLineCount(text, inner, POPUP_WIDTH_METHOD);

@@ -2,7 +2,7 @@ import {useKeyboard, usePaste} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useRef, useState} from 'react';
-import {displayWidth} from '../text-measure.ts';
+import {displayWidth, POPUP_WIDTH_METHOD} from '../text-measure.ts';
 
 import {
 	computePickerWindow,
@@ -88,7 +88,7 @@ export default function AgentProfilePicker({
 	// Sized from the whole list so the columns don't shift as the filter narrows.
 	const nameWidth = Math.max(
 		...request.options.map(option =>
-			displayWidth(label(option.name), 'unicode'),
+			displayWidth(label(option.name), POPUP_WIDTH_METHOD),
 		),
 	);
 
@@ -162,5 +162,8 @@ export default function AgentProfilePicker({
 }
 
 function padToWidth(text: string, width: number): string {
-	return text + ' '.repeat(Math.max(0, width - displayWidth(text, 'unicode')));
+	return (
+		text +
+		' '.repeat(Math.max(0, width - displayWidth(text, POPUP_WIDTH_METHOD)))
+	);
 }
