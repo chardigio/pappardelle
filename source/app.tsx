@@ -2391,6 +2391,41 @@ export default function App({
 		);
 	}
 
+	const statusFits = statusLineFits(termHeight, bannerHeight, linesPerItem);
+	const searchInHeader = !statusFits && isSearching && !isZooming;
+	const searchRow = (
+		/* Keep the slash and match count at their natural widths;
+	   the native input scrolls its text within the remaining space. */
+		<box flexDirection="row" width="100%">
+			<box flexDirection="row" flexShrink={0}>
+				<text
+					flexShrink={1}
+					fg={terminalColor('cyan')}
+					wrapMode="none"
+					height={1}
+				>
+					/
+				</text>
+			</box>
+			<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
+				<TextInput
+					value={searchQuery}
+					onChange={setSearchQuery}
+					placeholder="filter by key or title..."
+				/>
+			</box>
+			{filteredDisplaySpaces.length !== displaySpaces.length && (
+				<box flexDirection="row" flexShrink={0}>
+					<text {...dimText()} wrapMode="none" height={1}>
+						{' '}
+						({filteredDisplaySpaces.length} match
+						{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+					</text>
+				</box>
+			)}
+		</box>
+	);
+
 	return (
 		<PaneFrame title="rail" isActive={isRailFocused}>
 			{/* Keep blank rows in the frame so filtering clears old results after a
@@ -2401,25 +2436,30 @@ export default function App({
 					<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
 				)}
 
-				{/* One row, so list height calculations stay valid when a pane narrows. */}
+				{/* One row, so list height calculations stay valid when a pane narrows.
+				    A pane too short for the status row searches in this one instead. */}
 				<box flexDirection="row" height={1} paddingLeft={ROW_PADDING_CELLS}>
-					<TruncatedLine
-						runs={railHeaderRuns({
-							repoName,
-							inTmux,
-							spaceCount,
-							range:
-								visibleDisplaySpaces.length < activeSpaces.length
-									? ` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`
-									: '',
-							errorCount,
-						})}
-					/>
+					{searchInHeader ? (
+						searchRow
+					) : (
+						<TruncatedLine
+							runs={railHeaderRuns({
+								repoName,
+								inTmux,
+								spaceCount,
+								range:
+									visibleDisplaySpaces.length < activeSpaces.length
+										? ` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`
+										: '',
+								errorCount,
+							})}
+						/>
+					)}
 				</box>
 
 				{/* Status message line (occupies the row between header and list).
 			    Clipped for the same reason as the header above. */}
-				{statusLineFits(termHeight, bannerHeight, linesPerItem) && (
+				{statusFits && (
 					<box
 						flexDirection="row"
 						height={1}
@@ -2427,41 +2467,7 @@ export default function App({
 						paddingLeft={ROW_PADDING_CELLS}
 					>
 						{isSearching && !isZooming ? (
-							/* Keep the slash and match count at their natural widths;
-					   the native input scrolls its text within the remaining space. */
-							<box flexDirection="row" width="100%">
-								<box flexDirection="row" flexShrink={0}>
-									<text
-										flexShrink={1}
-										fg={terminalColor('cyan')}
-										wrapMode="none"
-										height={1}
-									>
-										/
-									</text>
-								</box>
-								<box
-									flexDirection="row"
-									flexGrow={1}
-									flexShrink={1}
-									minWidth={1}
-								>
-									<TextInput
-										value={searchQuery}
-										onChange={setSearchQuery}
-										placeholder="filter by key or title..."
-									/>
-								</box>
-								{filteredDisplaySpaces.length !== displaySpaces.length && (
-									<box flexDirection="row" flexShrink={0}>
-										<text {...dimText()} wrapMode="none" height={1}>
-											{' '}
-											({filteredDisplaySpaces.length} match
-											{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
-										</text>
-									</box>
-								)}
-							</box>
+							searchRow
 						) : (
 							<TruncatedLine
 								runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
