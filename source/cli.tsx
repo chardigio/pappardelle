@@ -58,6 +58,7 @@ import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
+import {SEND_LOCK_TIMEOUT_MS} from './send-lock.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
 	defaultRestartCommandDeps,
@@ -275,7 +276,7 @@ if (cli.input[0] === 'send') {
 
 	if (result === 'busy') {
 		console.error(
-			`Not sent: another send to ${issueKey} is still running after 30s`,
+			`Not sent: another send to ${issueKey} is still running after ${SEND_LOCK_TIMEOUT_MS / 1000}s`,
 		);
 		process.exit(1);
 	}

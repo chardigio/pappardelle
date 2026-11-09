@@ -122,3 +122,31 @@ test('a sender that judged a lock stale leaves alone the fresh lock another send
 	);
 	t.is(readFileSync(file, 'utf8'), '4242\n');
 });
+
+test('a sender whose lock was taken over leaves the new holder lock in place', async t => {
+	const dir = lockDir(t);
+	const file = path.join(dir, 'agent-r-STA-1.lock');
+	await withSendLock(
+		'agent-r-STA-1',
+		async () => {
+			unlinkSync(file);
+			writeFileSync(file, '4242\n');
+		},
+		{dir},
+	);
+	t.is(readFileSync(file, 'utf8'), '4242\n');
+});
+
+test('a lock held far past the send timeout is taken over even when its pid looks alive', async t => {
+	const dir = lockDir(t);
+	const file = path.join(dir, 'agent-r-STA-1.lock');
+	writeFileSync(file, '4242\n');
+	const old = new Date(Date.now() - 10 * 60_000);
+	utimesSync(file, old, old);
+	const result = await withSendLock('agent-r-STA-1', async () => 'sent', {
+		dir,
+		isAlive: () => true,
+		timeoutMs: 500,
+	});
+	t.is(result, 'sent');
+});
