@@ -18,6 +18,8 @@ export type PopupHandlers = {
 	 */
 	closeBeforeConfirm?: boolean;
 	onClearErrors?: () => void;
+	/** The popup is on screen, so the client's keys now go to it. */
+	onShown?: () => void;
 	subscribeErrors?: (push: (errors: LogEntry[]) => void) => () => void;
 };
 
@@ -220,6 +222,7 @@ export async function openPopup(
 				}
 
 				popup = shown;
+				handlers.onShown?.();
 				if (closeRequested) shown.close();
 				void shown.closed.then(() => {
 					markPopupClosed();

@@ -1208,6 +1208,9 @@ export default function App({
 	// finished: a close confirmed in a popup keeps running its deinit hooks
 	// after the popup is gone, and a second x must not start another.
 	const popupBusy = useRef(false);
+	// Keys typed right after a popup opener (`x Enter`, `x n`) still reach the
+	// rail until the popup is on screen, and would act behind the dialog.
+	const popupOpening = useRef(false);
 	const showDialog = (
 		spec: PopupSpec,
 		handlers: PopupHandlers,
@@ -1224,12 +1227,19 @@ export default function App({
 		}
 
 		popupBusy.current = true;
-		void openPopup(spec, handlers)
+		popupOpening.current = true;
+		void openPopup(spec, {
+			...handlers,
+			onShown() {
+				popupOpening.current = false;
+			},
+		})
 			.then(outcome => {
 				if (outcome === 'unavailable') showInline();
 			})
 			.finally(() => {
 				popupBusy.current = false;
+				popupOpening.current = false;
 			});
 	};
 
@@ -1329,7 +1339,7 @@ export default function App({
 
 	// Handle keyboard input
 	useKeyboard(event => {
-		if (anyDialogOpen) return;
+		if (anyDialogOpen || popupOpening.current) return;
 		const {input, key} = shortcutKey(event);
 		if (railInputBlocked) return;
 
