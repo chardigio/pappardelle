@@ -30,11 +30,11 @@
 				]
 			},
 			{
-				"matcher": "mcp__plugin_pappardelle_pappardelle__companion_.*",
+				"matcher": "mcp__plugin_pappardelle_pappardelle__(companion_.*|space_(send|screen|state|question_tabs|wait|answer|queue|schedule|schedules|unschedule)|tui_(panes|focus_log))",
 				"hooks": [
 					{
 						"type": "command",
-						"command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/approve-companion-tool.sh\""
+						"command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/approve-pappardelle-tool.sh\""
 					}
 				]
 			}

@@ -1,3 +1,4 @@
+import {recordSupervision} from './supervise-log.ts';
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
@@ -1487,6 +1488,12 @@ export default function App({
 					// paste briefly while plain keys pass, so Enter would arrive first.
 					async send() {
 						const result = await sendToSpaceAgent(targetSpace, text);
+						recordSupervision(
+							repoName,
+							'tui',
+							{action: 'send', key: targetSpace, sent: text, detail: result},
+							new Date(),
+						);
 						if (result !== 'sent') {
 							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
 						}
@@ -3075,6 +3082,14 @@ function sendResultMessage(
 
 		case 'no-session': {
 			return `✗ Not sent: ${targetSpace} has no agent session`;
+		}
+
+		case 'prompt': {
+			return `✗ Not sent: ${targetSpace} is waiting on a prompt; answer it there`;
+		}
+
+		case 'draft': {
+			return `✗ Not sent: ${targetSpace}'s composer has text that would be cleared`;
 		}
 
 		case 'failed': {

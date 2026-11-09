@@ -117,33 +117,38 @@ test('send takes everything after the key as the text, flags included', t => {
 		key: 'STE-1',
 		text: 'hi -x there',
 		keys: [],
+		force: false,
 	});
 	t.deepEqual(parseSendArgs(['send', 'STE-1', '--help']), {
 		key: 'STE-1',
 		text: '--help',
 		keys: [],
+		force: false,
 	});
 	t.deepEqual(parseSendArgs(['send', 'STE-1', '-x']), {
 		key: 'STE-1',
 		text: '-x',
 		keys: [],
+		force: false,
 	});
 	t.deepEqual(parseSendArgs(['--no-layout', 'send', 'STE-1', '--yes']), {
 		key: 'STE-1',
 		text: '--yes',
 		keys: [],
+		force: false,
 	});
 });
 
-test('send takes --keys only right after the key', t => {
+test('send takes --keys and --force only right after the key', t => {
 	t.deepEqual(
 		parseSendArgs(['send', 'STE-1', '--keys', 'Escape', '--keys=S-Tab']),
-		{key: 'STE-1', text: '', keys: ['Escape', 'S-Tab']},
+		{key: 'STE-1', text: '', keys: ['Escape', 'S-Tab'], force: false},
 	);
 	t.deepEqual(parseSendArgs(['send', 'STE-1', 'use', '--keys', 'Escape']), {
 		key: 'STE-1',
 		text: 'use --keys Escape',
 		keys: [],
+		force: false,
 	});
 });
 
@@ -152,6 +157,7 @@ test('send without text leaves it empty so stdin is read', t => {
 		key: 'STE-1',
 		text: '',
 		keys: [],
+		force: false,
 	});
 });
 

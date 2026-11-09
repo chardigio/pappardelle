@@ -1,0 +1,45 @@
+╭───────────────────────────────────────────────────────────────╮
+│ ✨ Update available! 0.166.0 -> 0.167.0                       │
+│ See https://github.com/openai/codex for installation options. │
+│                                                               │
+│ See full release notes:                                       │
+│ https://github.com/openai/codex/releases/latest               │
+╰───────────────────────────────────────────────────────────────╯
+
+
+  >_ OpenAI Codex (v0.166.0)
+     /tmp/repo
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› a draft I have not sent yet
+
+  GPT-6.1-Sol default · /tmp/repo
+                                                                                              ⚠ 2 warnings · f2 to view
