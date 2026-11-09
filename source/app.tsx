@@ -25,7 +25,7 @@ import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
-import TruncatedLine from './components/TruncatedLine.tsx';
+import TruncatedLine, {type Run} from './components/TruncatedLine.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
 import {
 	closeTuiLayout,
@@ -2376,71 +2376,20 @@ export default function App({
 					<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
 				)}
 
-				{/* Keep the header at one row so list height calculations stay valid
-			    when a pane narrows. Native clipping preserves the segment widths;
-			    mouse selection uses each row's rendered bounds. */}
-				<box
-					flexDirection="row"
-					height={1}
-					overflow="hidden"
-					paddingLeft={ROW_PADDING_CELLS}
-				>
-					<box flexDirection="row" flexShrink={0}>
-						<text
-							flexShrink={1}
-							attributes={textAttributes({bold: true})}
-							fg={terminalColor('cyan')}
-							wrapMode="none"
-							height={1}
-						>
-							🍝 {repoName}
-						</text>
-						{!inTmux && (
-							<>
-								<text {...dimText()} wrapMode="none" height={1}>
-									{' '}
-									|{' '}
-								</text>
-								<text
-									flexShrink={1}
-									fg={terminalColor('yellow')}
-									wrapMode="none"
-									height={1}
-								>
-									Not in tmux
-								</text>
-							</>
-						)}
-						<text {...dimText()} wrapMode="none" height={1}>
-							{' '}
-							|{' '}
-						</text>
-						<text {...dimText()} wrapMode="none" height={1}>
-							{spaceCount} space{spaceCount !== 1 ? 's' : ''}
-							{visibleDisplaySpaces.length < activeSpaces.length &&
-								` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
-						</text>
-						{errorCount > 0 && (
-							<>
-								<text {...dimText()} wrapMode="none" height={1}>
-									{' '}
-									|{' '}
-								</text>
-								<text
-									flexShrink={1}
-									fg={terminalColor('red')}
-									wrapMode="none"
-									height={1}
-								>
-									✗ {errorCount}
-								</text>
-								<text {...dimText()} wrapMode="none" height={1}>
-									{' '}
-									(e)
-								</text>
-							</>
-						)}
-					</box>
+				{/* One row, so list height calculations stay valid when a pane narrows. */}
+				<box flexDirection="row" height={1} paddingLeft={ROW_PADDING_CELLS}>
+					<TruncatedLine
+						runs={railHeaderRuns({
+							repoName,
+							inTmux,
+							spaceCount,
+							range:
+								visibleDisplaySpaces.length < activeSpaces.length
+									? ` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`
+									: '',
+							errorCount,
+						})}
+					/>
 				</box>
 
 				{/* Status message line (occupies the row between header and list).
@@ -2571,4 +2520,37 @@ export default function App({
 			</box>
 		</PaneFrame>
 	);
+}
+
+function railHeaderRuns(header: {
+	repoName: string;
+	inTmux: boolean;
+	spaceCount: number;
+	range: string;
+	errorCount: number;
+}): Run[] {
+	const dim = {fg: terminalColor(), attributes: textAttributes({dim: true})};
+	const separator = {text: ' | ', ...dim};
+	return [
+		{
+			text: `🍝 ${header.repoName}`,
+			fg: terminalColor('cyan'),
+			attributes: textAttributes({bold: true}),
+		},
+		...(header.inTmux
+			? []
+			: [separator, {text: 'Not in tmux', fg: terminalColor('yellow')}]),
+		separator,
+		{
+			text: `${header.spaceCount} space${header.spaceCount === 1 ? '' : 's'}${header.range}`,
+			...dim,
+		},
+		...(header.errorCount > 0
+			? [
+					separator,
+					{text: `✗ ${header.errorCount}`, fg: terminalColor('red')},
+					{text: ' (e)', ...dim},
+				]
+			: []),
+	];
 }
