@@ -66,3 +66,24 @@ test('other window operations and CSI sequences are not size queries', t => {
 	);
 	t.deepEqual(events.sizeQueries, []);
 });
+
+test('bells and desktop notifications pass through to the real terminal', t => {
+	const scanner = new OscScanner();
+	t.deepEqual(
+		scanner.feed(
+			bytes(
+				'done\u0007\u001B]9;Claude needs you\u0007\u001B]777;notify;a;b\u001B\\',
+			),
+		).passthrough,
+		[
+			'\u0007',
+			'\u001B]9;Claude needs you\u0007',
+			'\u001B]777;notify;a;b\u0007',
+		],
+	);
+});
+
+test('a BEL that ends a title is not a bell', t => {
+	const scanner = new OscScanner();
+	t.deepEqual(scanner.feed(bytes('\u001B]2;agent\u0007')).passthrough, []);
+});

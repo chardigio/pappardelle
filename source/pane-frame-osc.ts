@@ -5,6 +5,9 @@ const CSI_INTRODUCER = 0x5b; // '['
 const STRING_TERMINATOR = 0x5c; // '\'
 // tmux caps a clipboard copy well below this, so anything longer is not one.
 const MAX_PAYLOAD = 1024 * 1024;
+// Clipboard writes (52) and desktop notifications (9, 99, 777), which agents
+// use to get the user's attention, must reach the user's real terminal.
+const PASSTHROUGH_OSC = new Set(['52', '9', '99', '777']);
 
 export type OscEvents = {
 	/** The last window title set in the chunk, if any. */
@@ -22,8 +25,9 @@ type State = 'text' | 'escape' | 'osc' | 'osc-escape' | 'csi';
 /**
  * Picks the sequences out of a nested tmux client's output that the embedded
  * terminal would otherwise consume: the window title, which names the frame,
- * clipboard writes (OSC 52), which must reach the user's real terminal, and
- * window size queries, which the embedded terminal leaves unanswered.
+ * clipboard writes, notifications and bells, which must reach the user's real
+ * terminal, and window size queries, which the embedded terminal leaves
+ * unanswered.
  * Sequences can be split across reads, so state carries over between chunks.
  */
 export class OscScanner {
@@ -39,6 +43,7 @@ export class OscScanner {
 			switch (this.state) {
 				case 'text': {
 					if (byte === ESC) this.state = 'escape';
+					else if (byte === BEL) events.passthrough.push('\u0007');
 					break;
 				}
 
@@ -112,7 +117,7 @@ export class OscScanner {
 		const value = payload.slice(separator + 1);
 		if (separator < 0) return;
 		if (command === '0' || command === '2') events.title = value;
-		else if (command === '52')
-			events.passthrough.push(`\u001B]52;${value}\u0007`);
+		else if (PASSTHROUGH_OSC.has(command))
+			events.passthrough.push(`\u001B]${command};${value}\u0007`);
 	}
 }
