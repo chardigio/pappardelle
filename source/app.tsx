@@ -1122,7 +1122,7 @@ export default function App({
 							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
 						}
 
-						return result === 'no-session' ? 'failed' : result;
+						return result;
 					},
 				}),
 			)
@@ -2606,6 +2606,10 @@ function sendResultMessage(
 
 		case 'wrong-space': {
 			return `✗ Not sent: ${targetSpace} is not shown yet`;
+		}
+
+		case 'no-session': {
+			return `✗ Not sent: ${targetSpace} has no agent session`;
 		}
 
 		case 'failed': {

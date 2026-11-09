@@ -1,6 +1,7 @@
 import type {LatestTask} from './latest-task.ts';
+import type {SendToSpaceAgentResult} from './tmux.ts';
 
-export type SendToClaudeResult = 'sent' | 'wrong-space' | 'busy' | 'failed';
+export type SendToClaudeResult = SendToSpaceAgentResult | 'wrong-space';
 
 /**
  * Attachment is async, so the Claude viewer can still show the previous
@@ -15,7 +16,7 @@ export async function sendToSelectedAgent(options: {
 	sends: Pick<LatestTask, 'exclusive'>;
 	targetSpace: string;
 	viewingSpace: () => string | null;
-	send: () => Promise<'sent' | 'busy' | 'failed'>;
+	send: () => Promise<SendToSpaceAgentResult>;
 }): Promise<SendToClaudeResult> {
 	const queued = await options.queue.exclusive(async () =>
 		options.viewingSpace() === options.targetSpace
