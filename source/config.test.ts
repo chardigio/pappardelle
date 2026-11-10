@@ -40,6 +40,7 @@ import {
 	determineProfileForInput,
 	getBeadsPrefixes,
 	parseBdIssuePrefix,
+	exampleIssueKeys,
 	readBeadsIssuePrefix,
 	clearBeadsIssuePrefixCache,
 	matchProfilesByKeyPrefix,
@@ -4688,6 +4689,32 @@ test('determineProfileForInput does not defer beads IDs under other trackers', t
 });
 
 // ============================================================================
+// exampleIssueKeys
+// ============================================================================
+
+test('exampleIssueKeys uses the team prefix for numbered trackers', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'qa',
+		profiles: {},
+	};
+	t.deepEqual(exampleIssueKeys(config), ['QA-123', '123']);
+});
+
+test('exampleIssueKeys shows a beads id with the beads prefix', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'qa',
+		issue_tracker: {provider: 'beads'},
+		profiles: {},
+	};
+	t.deepEqual(
+		exampleIssueKeys(config, () => 'pap'),
+		['pap-a1b2'],
+	);
+});
+
+// ============================================================================
 // getBeadsPrefixes
 // ============================================================================
 
@@ -5089,7 +5116,7 @@ test('validateConfig accepts an empty state_colors map', t => {
 	t.notThrows(() => validateConfig(raw));
 });
 
-test('validateConfig accepts hex and ink color names in state_colors', t => {
+test('validateConfig accepts hex and ANSI color names in state_colors', t => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -5138,7 +5165,7 @@ test('validateConfig rejects an unknown color name', t => {
 	});
 	t.truthy(
 		error?.message.includes(
-			'state_colors."Done": must be a hex color (#rgb or #rrggbb) or an ink color name',
+			'state_colors."Done": must be a hex color (#rgb or #rrggbb) or an ANSI color name',
 		),
 	);
 });

@@ -12,12 +12,18 @@ export type StateChoice =
 	| {kind: 'set'; state: TrackerState}
 	| {kind: 'leave'; currentName: string | undefined; currentDone: boolean};
 
+// tmux can't resize an open popup, so the Close Space state row never wraps.
+// A popup narrower than this puts the choice on its own row under the label,
+// and is sized one row taller for it.
+export const STATE_ROW_ONE_LINE_COLS = 40;
+
 export function closeSpaceContent(spaceName: string) {
 	return {
 		title: 'Close Space',
 		message: `Close space ${spaceName}?`,
 		detail: 'The worktree and git branch will remain on disk.',
 		processingMessage: `Closing space ${spaceName}…`,
+		isDestructive: true,
 	};
 }
 

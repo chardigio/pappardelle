@@ -7,6 +7,7 @@ import {
 	clearRecentErrors,
 	subscribeToErrors,
 	makeStderrInterceptor,
+	makeConsoleError,
 	setStderrTerminalPassthrough,
 	getStderrTerminalPassthrough,
 } from './logger.ts';
@@ -15,6 +16,16 @@ const log = createLogger('test');
 
 test.beforeEach(() => {
 	clearRecentErrors();
+});
+
+test.serial('recent errors drop the color codes of script output', t => {
+	log.error(
+		'Failed: \u001B[0;36mSelect a project profile:\u001B[0m',
+		new Error('\u001B[31mexit 1\u001B[0m'),
+	);
+	const [entry] = getRecentErrors();
+	t.is(entry?.message, 'Failed: Select a project profile:');
+	t.is(entry?.error, 'exit 1');
 });
 
 // ============================================================================
@@ -98,7 +109,7 @@ test.serial('pruneExpiredErrors prunes at exactly 5 minutes', t => {
 //
 // While the TUI owns the alternate screen, stray stderr bytes (e.g. a failing
 // `gh`/`git` subprocess whose stderr we inherit) must NOT reach the terminal —
-// they land mid-frame inside Ink's managed output and shift it down a row,
+// they land mid-frame inside the renderer's output and shift it down a row,
 // leaving a ghost (a duplicated top status-header line was the reported symptom).
 // They must still be logged. These tests pin both halves of that contract.
 // ============================================================================
@@ -142,7 +153,7 @@ test.serial(
 		const {interceptor, captured} = buildInterceptor(() => false);
 		const result = interceptor('no git remotes found\n');
 		t.true(result); // honors the stream contract
-		t.deepEqual(captured.written, []); // NOT forwarded → Ink frame untouched
+		t.deepEqual(captured.written, []); // NOT forwarded → frame untouched
 		t.deepEqual(captured.logged, ['no git remotes found']); // still logged
 	},
 );
@@ -230,4 +241,21 @@ test.serial('stderr terminal passthrough defaults to enabled', t => {
 	// mounts and after it tears down; cli.tsx only disables it while the alt
 	// screen is owned.
 	t.true(getStderrTerminalPassthrough());
+});
+
+test('console.error reaches the log, except React reports of an error a boundary already caught', t => {
+	const written: string[] = [];
+	const consoleError = makeConsoleError(text => written.push(text));
+	const failure = new Error('render failed');
+
+	consoleError(failure, {componentStack: '\n    at Broken', errorBoundary: {}});
+	t.deepEqual(written, []);
+
+	consoleError(
+		'Warning: Each child in a list should have a unique "key" prop.',
+	);
+	consoleError(failure, {componentStack: '\n    at Broken'});
+	t.is(written.length, 2);
+	t.true(written[0]!.includes('unique "key" prop'));
+	t.true(written[1]!.includes('render failed'));
 });

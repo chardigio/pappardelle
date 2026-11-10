@@ -1,3 +1,4 @@
+import {bunForChildren} from './runtime.ts';
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {execFileSync, spawnSync} from 'node:child_process';
@@ -295,8 +296,8 @@ export function pappardelleInstallCommand(): string {
  * error text with it, so a failed update used to look like Pappardelle quitting
  * for no reason. On failure this points at a log that outlives the pane and,
  * with `waitOnFailure`, keeps the pane open until a key press. `pipefail` keeps
- * the installer's exit status through `tee`. `read` takes one key because Ink
- * leaves the tty in raw mode, where Enter never ends a line.
+ * the installer's exit status through `tee`. `read` takes one key because the
+ * renderer leaves the tty in raw mode, where Enter never ends a line.
  */
 export function updateShellScript({
 	installCommand = pappardelleInstallCommand(),
@@ -320,12 +321,13 @@ export function updateShellScript({
 }
 
 // Runs the update script in the foreground and returns its exit status.
-// PAPPARDELLE_NODE hands the installer the node this process runs on, which
-// PATH (the tmux server's, or a shell's behind the pinned shim) may not contain.
 export function runUpdateScript(options: {waitOnFailure: boolean}): number {
 	const result = spawnSync('bash', ['-c', updateShellScript(options)], {
 		stdio: 'inherit',
-		env: {...process.env, PAPPARDELLE_NODE: process.execPath},
+		env: {
+			...process.env,
+			PAPPARDELLE_BUN: bunForChildren(),
+		},
 	});
 	return result.status ?? 1;
 }

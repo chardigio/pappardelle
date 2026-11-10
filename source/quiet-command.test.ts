@@ -31,7 +31,7 @@ setTimeout(() => process.exit(0), 150);
 	t.is(code, 0);
 	t.is(signal, null);
 	t.true(ticks >= 5);
-	// With no parent-side streams, output cannot accumulate in memory or reach Ink.
+	// With no parent-side streams, output cannot accumulate in memory or reach the TUI.
 	t.is(child.stdout, null);
 	t.is(child.stderr, null);
 });

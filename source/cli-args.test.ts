@@ -1,5 +1,5 @@
 import test from 'ava';
-import {parseCli, subcommandGate} from './cli-args.ts';
+import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 
 test('--restart-tuis is unset unless passed, so update can ask on a TTY', t => {
 	t.is(parseCli(['update']).flags.restartTuis, undefined);
@@ -54,6 +54,15 @@ test('close, restart and update reject flags that are not theirs', t => {
 	}
 });
 
+test('update rejects asking to both restart and leave TUIs', t => {
+	const gate = subcommandGate([
+		'update',
+		'--restart-tuis',
+		'--no-restart-tuis',
+	]);
+	t.is(gate.action, 'reject');
+});
+
 test('known flags and every other command pass through', t => {
 	for (const argv of [
 		['close', 'STA-1'],
@@ -70,6 +79,34 @@ test('known flags and every other command pass through', t => {
 	]) {
 		t.deepEqual(subcommandGate(argv), {action: 'run'});
 	}
+});
+
+test('send takes everything after the key as the text, flags included', t => {
+	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hi', '-x', 'there']), {
+		key: 'STE-1',
+		text: 'hi -x there',
+	});
+	t.deepEqual(parseSendArgs(['send', 'STE-1', '--help']), {
+		key: 'STE-1',
+		text: '--help',
+	});
+	t.deepEqual(parseSendArgs(['send', 'STE-1', '-x']), {
+		key: 'STE-1',
+		text: '-x',
+	});
+	t.deepEqual(parseSendArgs(['--no-layout', 'send', 'STE-1', '--yes']), {
+		key: 'STE-1',
+		text: '--yes',
+	});
+});
+
+test('send without text leaves it empty so stdin is read', t => {
+	t.deepEqual(parseSendArgs(['send', 'STE-1']), {key: 'STE-1', text: ''});
+});
+
+test('send with a flag where the key goes has no key, so usage is printed', t => {
+	t.is(parseSendArgs(['send', '--help']).key, undefined);
+	t.is(parseSendArgs(['send']).key, undefined);
 });
 
 test('--resume accepts either position without consuming the input', t => {
@@ -110,4 +147,10 @@ test('close --help documents --yes but not the internal --teardown-only', t => {
 
 	t.false(parseCli([]).help.includes('--teardown-only'));
 	t.true(parseCli(['close', 'STA-1', '--teardown-only']).flags.teardownOnly);
+});
+
+test("send's text never reaches the top-level flag checks", t => {
+	const cli = parseCli(['send', 'STA-1', 'run with', '--profile']);
+	t.is(cli.flags.profile, undefined);
+	t.deepEqual(cli.input, ['send']);
 });

@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {format, stripVTControlCharacters} from 'node:util';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -121,12 +122,13 @@ function log(
 	message: string,
 	error?: Error,
 ): void {
+	// Script output carries color codes; OpenTUI prints them as literal text.
 	const entry: LogEntry = {
 		timestamp: new Date().toISOString(),
 		level,
 		component,
-		message,
-		error: error?.message,
+		message: stripVTControlCharacters(message),
+		error: error && stripVTControlCharacters(error.message),
 	};
 
 	writeToFile(entry);
@@ -211,7 +213,7 @@ export function getLogDir(): string {
 	return LOG_DIR;
 }
 
-// Intercept stderr writes so Ink/React rendering errors land in the log file.
+// Intercept stderr writes so React and OpenTUI rendering errors land in the log file.
 // Call once at startup (idempotent).
 let stderrCaptured = false;
 
@@ -219,7 +221,7 @@ let stderrCaptured = false;
 //
 // While the TUI owns the alternate screen, it must NOT be: a stray stderr write
 // — e.g. a `gh`/`git` subprocess whose stderr we inherit printing "no git
-// remotes found" — lands mid-frame inside Ink's managed alt-screen output and
+// remotes found" — lands mid-frame inside the renderer's alt-screen output and
 // shifts every subsequent line down a row, leaving a ghost (the reported
 // symptom was a duplicated top status-header line in QA screenshots, STA-1496).
 // The bytes are still logged to the file and surfaced in the in-app error
@@ -285,6 +287,25 @@ export function makeStderrInterceptor(
 	};
 }
 
+/**
+ * React reports an error an error boundary caught as console.error(error,
+ * {componentStack, errorBoundary}). TuiErrorBoundary already logs those with
+ * their stack, so they would count twice in the rail's errors.
+ */
+export function isCaughtBoundaryReport(args: readonly unknown[]): boolean {
+	const info = args[1];
+	return typeof info === 'object' && info !== null && 'errorBoundary' in info;
+}
+
+export function makeConsoleError(
+	write: (text: string) => void,
+): (...args: unknown[]) => void {
+	return (...args) => {
+		if (isCaughtBoundaryReport(args)) return;
+		write(format(...args) + '\n');
+	};
+}
+
 export function captureStderr(): void {
 	if (stderrCaptured) return;
 	stderrCaptured = true;
@@ -301,6 +322,11 @@ export function captureStderr(): void {
 		},
 		() => stderrTerminalPassthrough,
 	) as typeof process.stderr.write;
+	// Bun's console writes straight to fd 2 rather than through
+	// process.stderr.write, so OpenTUI and React errors would draw over the
+	// TUI and never reach the log.
+	console.error = makeConsoleError(text => process.stderr.write(text));
+	console.warn = console.error;
 }
 
 // Export a default logger for general use

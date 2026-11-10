@@ -35,6 +35,7 @@ export type UpdateConfirmContent = {
 	title: string;
 	message: string;
 	detail: string;
+	isDestructive: false;
 };
 
 const UPDATE_DETAIL =
@@ -62,6 +63,7 @@ export function buildUpdateConfirmContent(
 				updateInfo.latestVersion,
 			)}?`,
 			detail: UPDATE_DETAIL,
+			isDestructive: false,
 		};
 	}
 
@@ -72,6 +74,7 @@ export function buildUpdateConfirmContent(
 				installedVersion,
 			)})`,
 			detail: UPDATE_DETAIL,
+			isDestructive: false,
 		};
 	}
 
@@ -79,5 +82,6 @@ export function buildUpdateConfirmContent(
 		title,
 		message: 'Update to the latest release?',
 		detail: UPDATE_DETAIL,
+		isDestructive: false,
 	};
 }

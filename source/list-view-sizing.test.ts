@@ -11,12 +11,12 @@ import {
 	renderListView,
 	railPrefixWidth,
 	rowPrefixWidth,
-	calculateListClickRow,
 	HEADER_ROWS,
 	LIST_CHROME_ROWS,
 	ROW_FIXED_OVERHEAD,
 	ROW_ICON_CELLS,
 	clipIssueKey,
+	statusLineFits,
 } from './list-view-sizing.ts';
 
 // ============================================================================
@@ -928,7 +928,7 @@ test('STA-460: stale height affects visible item count', t => {
 	t.is(calculateMaxVisibleItems(correctHeight), 6);
 
 	// The stale height would try to render way more items than fit in the pane,
-	// causing Ink to overflow and produce rendering artifacts
+	// overflowing it and leaving rendering artifacts
 	const items = makeItems(10);
 	const staleWindow = calculateVisibleWindow(0, 10, staleHeight);
 	const correctWindow = calculateVisibleWindow(0, 10, correctHeight);
@@ -1213,107 +1213,6 @@ test('list view: every pipeline state + a comment count row', t => {
 });
 
 // ============================================================================
-// calculateListClickRow — maps a mouse y to a visible list row index, taking
-// the optional update banner into account. Regression coverage for STA-873
-// where clicking a workspace while the update banner was shown selected the
-// wrong row because the banner's extra rows of chrome weren't subtracted.
-// The banner content wraps at narrow pane widths, so the caller passes the
-// actual measured height (0 when the banner is hidden).
-// ============================================================================
-
-test('calculateListClickRow: no banner — first list row is at HEADER_ROWS', t => {
-	t.is(HEADER_ROWS, 2, 'sanity: header chrome is 2 rows');
-	t.is(
-		calculateListClickRow({y: 2, bannerHeight: 0, visibleRows: 5}),
-		0,
-		'click on first list row',
-	);
-	t.is(
-		calculateListClickRow({y: 6, bannerHeight: 0, visibleRows: 5}),
-		4,
-		'click on last visible row',
-	);
-});
-
-test('calculateListClickRow: no banner — clicks above header are rejected', t => {
-	t.is(
-		calculateListClickRow({y: 0, bannerHeight: 0, visibleRows: 5}),
-		null,
-		'click on header row 0',
-	);
-	t.is(
-		calculateListClickRow({y: 1, bannerHeight: 0, visibleRows: 5}),
-		null,
-		'click on header row 1',
-	);
-});
-
-test('calculateListClickRow: no banner — clicks below visible rows are rejected', t => {
-	t.is(
-		calculateListClickRow({y: 7, bannerHeight: 0, visibleRows: 5}),
-		null,
-		'click one row past the last visible',
-	);
-	t.is(
-		calculateListClickRow({y: 100, bannerHeight: 0, visibleRows: 5}),
-		null,
-		'click far below the list',
-	);
-});
-
-test('calculateListClickRow: wide pane — banner is 4 rows (single-line content + margin)', t => {
-	// borderTop(1) + content(1) + borderBottom(1) + marginBottom(1)
-	t.is(
-		calculateListClickRow({y: 6, bannerHeight: 4, visibleRows: 5}),
-		0,
-		'first list row shifts down by 4 when banner fits on one line',
-	);
-	t.is(
-		calculateListClickRow({y: 10, bannerHeight: 4, visibleRows: 5}),
-		4,
-		'click on last visible row',
-	);
-});
-
-test('calculateListClickRow: narrow pane — banner content wraps to 2 rows, total height 5', t => {
-	// borderTop(1) + content(2) + borderBottom(1) + marginBottom(1) = 5
-	t.is(
-		calculateListClickRow({y: 7, bannerHeight: 5, visibleRows: 5}),
-		0,
-		'first list row shifts down by 5 when banner wraps once',
-	);
-});
-
-test('calculateListClickRow: very narrow pane — banner content wraps to 3 rows, total height 6', t => {
-	t.is(
-		calculateListClickRow({y: 8, bannerHeight: 6, visibleRows: 5}),
-		0,
-		'first list row shifts down by 6 when banner wraps twice',
-	);
-});
-
-test('calculateListClickRow: banner shown — clicks on banner/header chrome are rejected', t => {
-	const bannerHeight = 4;
-	for (let y = 0; y < HEADER_ROWS + bannerHeight; y++) {
-		t.is(
-			calculateListClickRow({y, bannerHeight, visibleRows: 5}),
-			null,
-			`click on chrome row y=${y}`,
-		);
-	}
-});
-
-test('calculateListClickRow: banner shown — regression for pre-STA-873 miscalculation', t => {
-	// Before the fix, handleMouse treated y=2 as "first list row" even when
-	// the banner was present, which actually maps to a banner row.
-	t.is(
-		calculateListClickRow({y: 2, bannerHeight: 4, visibleRows: 5}),
-		null,
-		'y=2 with banner must not select any list row',
-	);
-});
-
-// ============================================================================
 // Issue key clipping (STA-2040, hand-narrowed rail)
 // ============================================================================
 
@@ -1401,33 +1300,6 @@ test('calculateVisibleWindow: two-line layout still centers the selection', t =>
 	t.is(adjustedSelectedIndex, 2);
 });
 
-test('calculateListClickRow: both lines of a two-line item select that item', t => {
-	const opts = {bannerHeight: 0, visibleRows: 5, linesPerItem: 2};
-	t.is(calculateListClickRow({...opts, y: 2}), 0, 'key line of item 0');
-	t.is(calculateListClickRow({...opts, y: 3}), 0, 'title line of item 0');
-	t.is(calculateListClickRow({...opts, y: 4}), 1, 'key line of item 1');
-	t.is(calculateListClickRow({...opts, y: 5}), 1, 'title line of item 1');
-});
-
-test('calculateListClickRow: two-line clicks past the last item are rejected', t => {
-	const opts = {bannerHeight: 0, visibleRows: 3, linesPerItem: 2};
-	t.is(calculateListClickRow({...opts, y: 7}), 2, 'title line of last item');
-	t.is(calculateListClickRow({...opts, y: 8}), null, 'one line past the list');
-});
-
-test('calculateListClickRow: two-line layout still rejects header clicks', t => {
-	const opts = {bannerHeight: 0, visibleRows: 5, linesPerItem: 2};
-	t.is(calculateListClickRow({...opts, y: 0}), null);
-	t.is(calculateListClickRow({...opts, y: 1}), null);
-});
-
-test('calculateListClickRow: two-line layout accounts for the banner', t => {
-	const opts = {bannerHeight: 4, visibleRows: 5, linesPerItem: 2};
-	t.is(calculateListClickRow({...opts, y: 6}), 0);
-	t.is(calculateListClickRow({...opts, y: 7}), 0);
-	t.is(calculateListClickRow({...opts, y: 8}), 1);
-});
-
 // ============================================================================
 // twoLineTitleIndent — the title row must start in the same column as the
 // issue key above it, or the two lines read as unrelated rows.
@@ -1472,4 +1344,38 @@ test('titleSharesKeyLine: two-line layout gives real spaces their own title row'
 
 test('titleSharesKeyLine: two-line pending rows keep the text on the key line', t => {
 	t.true(titleSharesKeyLine({isTwoLine: true, isPending: true}));
+});
+
+test('the header, status line and visible items never outgrow a short pane', t => {
+	for (const linesPerItem of [1, 2] as const) {
+		for (const bannerHeight of [0, 4]) {
+			for (
+				let termHeight = bannerHeight + 1 + linesPerItem;
+				termHeight <= bannerHeight + 8;
+				termHeight++
+			) {
+				const statusRows = statusLineFits(
+					termHeight,
+					bannerHeight,
+					linesPerItem,
+				)
+					? 1
+					: 0;
+				const items = Math.min(
+					calculateMaxVisibleItems(termHeight - bannerHeight, linesPerItem),
+					20,
+				);
+				t.true(
+					1 + statusRows + items * linesPerItem <= termHeight - bannerHeight,
+					`${termHeight} rows, banner ${bannerHeight}, ${linesPerItem} lines per item`,
+				);
+			}
+		}
+	}
+});
+
+test('a pane with room for the status line keeps it', t => {
+	t.true(statusLineFits(3, 0, 1));
+	t.true(statusLineFits(4, 0, 2));
+	t.true(statusLineFits(7, 4, 1));
 });

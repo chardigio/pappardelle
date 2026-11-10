@@ -1,6 +1,9 @@
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {execFile} from 'node:child_process';
-import React, {useEffect, useMemo, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {useEffect, useMemo, useState} from 'react';
+
 import {handleTextViewerKey} from './text-viewer-keys.ts';
 import {toViewerLines} from './text-viewer-lines.ts';
 
@@ -51,7 +54,8 @@ export default function TextViewer({
 		);
 	}, [argv]);
 
-	useInput((input, key) => {
+	useKeyboard(event => {
+		const {input, key} = shortcutKey(event);
 		const result = handleTextViewerKey(input, key, {
 			top,
 			lineCount: lines?.length ?? 0,
@@ -62,32 +66,46 @@ export default function TextViewer({
 	});
 
 	return (
-		<Box
+		<box
+			border
 			flexDirection="column"
-			borderStyle="round"
-			borderColor="cyan"
+			borderStyle="rounded"
+			borderColor={terminalColor('cyan')}
 			flexGrow={1}
 			paddingX={1}
 		>
-			<Text bold color="cyan" wrap="truncate-end">
+			<text
+				flexShrink={1}
+				attributes={textAttributes({bold: true})}
+				fg={terminalColor('cyan')}
+				wrapMode="none"
+				height={1}
+			>
 				{title}
-			</Text>
-			<Box flexDirection="column" height={viewHeight} overflow="hidden">
+			</text>
+			<box flexDirection="column" height={viewHeight} overflow="hidden">
 				{lines === null ? (
-					<Text dimColor>Loading…</Text>
+					<text {...dimText()}>Loading…</text>
 				) : (
 					lines.slice(top, top + viewHeight).map((line, index) => (
-						<Text key={top + index} wrap="truncate-end">
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							key={top + index}
+							wrapMode="none"
+							height={1}
+						>
 							{line || ' '}
-						</Text>
+						</text>
 					))
 				)}
-			</Box>
-			<Text dimColor wrap="truncate-end">
-				<Text color="cyan">j/k</Text> scroll · <Text color="cyan">space/b</Text>{' '}
-				page · <Text color="cyan">g/G</Text> top/bottom ·{' '}
-				<Text color="yellow">q/Esc</Text> close
-			</Text>
-		</Box>
+			</box>
+			<text {...dimText()} wrapMode="none" height={1}>
+				<span fg={terminalColor('cyan')}>j/k</span> scroll ·{' '}
+				<span fg={terminalColor('cyan')}>space/b</span> page ·{' '}
+				<span fg={terminalColor('cyan')}>g/G</span> top/bottom ·{' '}
+				<span fg={terminalColor('yellow')}>q/Esc</span> close
+			</text>
+		</box>
 	);
 }

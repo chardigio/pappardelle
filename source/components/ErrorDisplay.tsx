@@ -1,5 +1,6 @@
-import React, {useEffect, useState} from 'react';
-import {Box, Text} from 'ink';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
+import {useEffect, useState} from 'react';
+
 import {clipLogEntryForDisplay} from '../clip-error-text.ts';
 import {buildLogsHint} from '../error-display-hint.ts';
 import {
@@ -41,44 +42,61 @@ export default function ErrorDisplay({maxVisible = 3}: Props) {
 	const showLogsHint = hiddenCount > 0 || anyTruncated;
 
 	return (
-		<Box
+		<box
+			border
 			flexDirection="column"
 			borderStyle="single"
-			borderColor="red"
+			borderColor={terminalColor('red')}
 			paddingX={1}
 			marginTop={1}
 		>
-			<Box
+			<box
+				flexDirection="row"
 				justifyContent="space-between"
 				marginBottom={errors.length > 1 ? 1 : 0}
 			>
-				<Text bold color="red">
+				<text
+					flexShrink={1}
+					attributes={textAttributes({bold: true})}
+					fg={terminalColor('red')}
+				>
 					Errors ({errors.length})
-				</Text>
-				<Text dimColor>Press 'c' to clear</Text>
-			</Box>
+				</text>
+				<text {...dimText()}>Press 'c' to clear</text>
+			</box>
 
 			{clipped.map(({entry, display}, i) => (
-				<Box key={`${entry.timestamp}-${i}`} flexDirection="column">
-					<Box>
-						<Text color={entry.level === 'error' ? 'red' : 'yellow'}>
+				<box key={`${entry.timestamp}-${i}`} flexDirection="column">
+					<box flexDirection="row">
+						<text
+							flexShrink={1}
+							fg={terminalColor(entry.level === 'error' ? 'red' : 'yellow')}
+						>
 							[{entry.component}]
-						</Text>
-						<Text wrap="truncate"> {display.headline.text}</Text>
-					</Box>
+						</text>
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							wrapMode="none"
+							height={1}
+						>
+							{' '}
+							{display.headline.text}
+						</text>
+					</box>
 					{display.body && (
-						<Text dimColor wrap="truncate">
+						<text {...dimText()} wrapMode="none" height={1}>
 							{' '}
 							{display.body.text}
-						</Text>
+						</text>
 					)}
-				</Box>
+				</box>
 			))}
 
 			{showLogsHint && (
-				<Text dimColor>{buildLogsHint(hiddenCount, anyTruncated)}</Text>
+				<text {...dimText()}>{buildLogsHint(hiddenCount, anyTruncated)}</text>
 			)}
-		</Box>
+		</box>
 	);
 }
 

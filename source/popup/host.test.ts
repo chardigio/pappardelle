@@ -5,7 +5,11 @@ import type {PopupSize} from './size.ts';
 
 const CONFIRM: PopupSpec = {
 	kind: 'confirm',
-	props: {title: 'Close Space', message: 'Close space bd-1?'},
+	props: {
+		title: 'Close Space',
+		message: 'Close space bd-1?',
+		isDestructive: true,
+	},
 };
 
 type FakeDialog = {
@@ -243,4 +247,33 @@ test('the payload the dialog confirms with reaches the handler', async t => {
 	await dialog.actions.confirm({choice} as never);
 	t.is(await result, 'confirmed');
 	t.deepEqual(received, {choice});
+});
+
+test('onShown fires once the popup is on screen, not before', async t => {
+	let shown = false;
+	let releaseShow!: () => void;
+	const showing = new Promise<void>(resolve => {
+		releaseShow = resolve;
+	});
+	const tmux = fakeTmux();
+	const result = openPopup(
+		CONFIRM,
+		{
+			onShown() {
+				shown = true;
+			},
+		},
+		deps(async (...args) => {
+			await showing;
+			return tmux.show(...args);
+		}),
+	);
+	await tick();
+	t.false(shown);
+	releaseShow();
+	const dialog = await tmux.dialog;
+	await tick();
+	t.true(shown);
+	dialog.actions.cancel();
+	t.is(await result, 'cancelled');
 });

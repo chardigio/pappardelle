@@ -8,8 +8,9 @@ export function syncTerminalDimensions(
 ): void {
 	if (stdout.columns === dimensions.cols && stdout.rows === dimensions.rows)
 		return;
-	// tmux can reply before Node handles SIGWINCH. Ink must see the confirmed
-	// root width before a dialog mounts, or it wraps that frame at the old width.
+	// tmux can reply before the process handles SIGWINCH. The app's stdout
+	// resize listeners must see the confirmed width before a dialog mounts, or
+	// that frame is laid out at the old width.
 	stdout.columns = dimensions.cols;
 	stdout.rows = dimensions.rows;
 	stdout.emit('resize');

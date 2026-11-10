@@ -56,29 +56,110 @@ test('concurrent first lookups share repo discovery and cache the resolved fork'
 });
 
 for (const failure of ['error', 'invalid slug'] as const) {
-	test(`repo discovery retries after ${failure} without poisoning concurrent callers`, async t => {
+	test(`repo discovery ${failure} rejects the link lookup and backs off before retrying`, async t => {
+		let now = 0;
 		let discoveries = 0;
-		const provider = new GitHubProvider(async args => {
-			if (args[0] !== 'repo') return makePrListResponse([]);
-			discoveries++;
-			await delay(10);
-			if (discoveries === 1) {
-				if (failure === 'error') throw new Error('offline');
-				return '';
-			}
-			return 'owner/repo';
-		});
-		const [link, rail] = await Promise.all([
+		const provider = new GitHubProvider(
+			async args => {
+				if (args[0] !== 'repo') return makePrListResponse([]);
+				discoveries++;
+				await delay(10);
+				if (discoveries === 1) {
+					if (failure === 'error') throw new Error('offline');
+					return '';
+				}
+				return 'owner/repo';
+			},
+			undefined,
+			undefined,
+			{now: () => now, linkedAt: () => 0},
+		);
+		const [link, rail] = await Promise.allSettled([
 			provider.getPRLink('STA-1'),
 			provider.getBulkRailStatus(['STA-1']),
 		]);
-		t.is(link, null);
-		t.is(rail.size, 0);
+		t.is(link.status, 'rejected');
+		t.deepEqual(rail, {status: 'fulfilled', value: new Map()});
 		t.is(discoveries, 1);
+
+		now += 1000;
+		const retried = await provider.getBulkRailStatus(['STA-1']);
+		t.is(retried.size, 0);
+		t.is(discoveries, 1);
+
+		now += 60_000;
+		const recovered = await provider.getBulkRailStatus(['STA-1']);
+		t.is(recovered.size, 1);
 		t.is(await provider.buildPRUrl(1), 'https://github.com/owner/repo/pull/1');
 		t.is(discoveries, 2);
 	});
 }
+
+test('repo discovery backoff grows with consecutive failures and stays bounded', async t => {
+	let now = 0;
+	const attempts: number[] = [];
+	const provider = new GitHubProvider(
+		async () => {
+			attempts.push(now);
+			throw new Error('offline');
+		},
+		undefined,
+		undefined,
+		{now: () => now, linkedAt: () => 0},
+	);
+	for (; now <= 60 * 60_000; now += 10_000) {
+		await provider.getBulkRailStatus(['STA-1']);
+	}
+	const gaps = attempts.slice(1).map((at, i) => at - attempts[i]!);
+	t.true(gaps[1]! > gaps[0]!);
+	t.true(gaps.every(gap => gap <= 5 * 60_000));
+	t.true(gaps.at(-1)! >= 4 * 60_000);
+});
+
+test('opening a PR looks the repo up again even while polling backs off', async t => {
+	let now = 0;
+	let discoveries = 0;
+	const provider = new GitHubProvider(
+		async args => {
+			if (args[0] !== 'repo') return makePrListResponse([]);
+			discoveries++;
+			if (discoveries === 1) throw new Error('gh auth expired');
+			return 'owner/repo';
+		},
+		undefined,
+		undefined,
+		{now: () => now, linkedAt: () => 0},
+	);
+	await provider.getBulkRailStatus(['STA-1']);
+	now += 1000;
+	t.is(await provider.getPRLink('STA-1'), null);
+	t.is(discoveries, 2);
+});
+
+test('a PR linked after a failed lookup ends the polling backoff', async t => {
+	let now = 0;
+	let linkedAt = 0;
+	let discoveries = 0;
+	const provider = new GitHubProvider(
+		async args => {
+			if (args[0] !== 'repo') return makePrListResponse([]);
+			discoveries++;
+			if (discoveries === 1) throw new Error('gh auth expired');
+			return 'owner/repo';
+		},
+		undefined,
+		undefined,
+		{now: () => now, linkedAt: () => linkedAt},
+	);
+	await provider.getBulkRailStatus(['STA-1']);
+	now += 1000;
+	await provider.getBulkRailStatus(['STA-1']);
+	t.is(discoveries, 1);
+	linkedAt = now;
+	now += 1000;
+	await provider.getBulkRailStatus(['STA-1']);
+	t.is(discoveries, 2);
+});
 
 test('link lookup retains merged and follow-up PR search semantics', async t => {
 	let query = '';
@@ -671,3 +752,51 @@ test('getBulkRailStatus: every aliased search sorts by updated-desc and uses hea
 	t.true(queryArg.includes('head:STA-1'));
 	t.true(queryArg.includes('head:STA-2'));
 });
+
+test.serial(
+	'a failed repo lookup warns once, not on every poll during its backoff',
+	async t => {
+		clearRecentErrors();
+		let now = 0;
+		const provider = new GitHubProvider(
+			async () => {
+				throw new Error('offline');
+			},
+			undefined,
+			undefined,
+			{now: () => now, linkedAt: () => 0},
+		);
+		for (; now < 20_000; now += 5000) {
+			await provider.getBulkRailStatus(['STA-1']);
+		}
+
+		const warnings = getRecentErrors().filter(
+			e => e.message === 'Failed to discover GitHub repository',
+		);
+		t.is(warnings.length, 1);
+	},
+);
+
+test.serial(
+	'a repo lookup that keeps failing warns once for the whole run of failures',
+	async t => {
+		clearRecentErrors();
+		let now = 0;
+		const provider = new GitHubProvider(
+			async () => {
+				throw new Error('gh: command not found');
+			},
+			undefined,
+			undefined,
+			{now: () => now, linkedAt: () => 0},
+		);
+		for (; now < 30 * 60_000; now += 60_000) {
+			await provider.getBulkRailStatus(['STA-1']);
+		}
+
+		const warnings = getRecentErrors().filter(
+			e => e.message === 'Failed to discover GitHub repository',
+		);
+		t.is(warnings.length, 1);
+	},
+);

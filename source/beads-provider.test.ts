@@ -17,6 +17,7 @@ import {
 } from './providers/beads-provider.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
 import {StateColorCache} from './providers/state-color-cache.ts';
+import {clearRecentErrors, getRecentErrors} from './logger.ts';
 
 function makeEnoentError(): Error & {code: string} {
 	const err = new Error('spawn bd ENOENT') as Error & {code: string};
@@ -864,3 +865,20 @@ test('setIssueState reports a failed write', async t => {
 		),
 	);
 });
+
+test.serial(
+	'a bead that keeps failing to load warns once, not on every refresh',
+	async t => {
+		clearRecentErrors();
+		const {provider} = providerReturning(new Error('no issue found'));
+		for (let refresh = 0; refresh < 5; refresh++) {
+			provider.clearCache();
+			await provider.getIssue('qa-gone');
+		}
+
+		const warnings = getRecentErrors().filter(e =>
+			e.message.startsWith('Failed to fetch beads issue qa-gone'),
+		);
+		t.is(warnings.length, 1);
+	},
+);

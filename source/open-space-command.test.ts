@@ -7,7 +7,9 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
-const useBuiltCli = process.env['PAPPARDELLE_TEST_BUILT_CLI'] === '1';
+const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
+const useBuiltCli =
+	useStandalone || process.env['PAPPARDELLE_TEST_BUILT_CLI'] === '1';
 
 function fixture(t: ExecutionContext, provider = 'jira') {
 	const root = fs.realpathSync(
@@ -27,7 +29,10 @@ function fixture(t: ExecutionContext, provider = 'jira') {
 	const directory = useBuiltCli ? 'dist' : 'source';
 	fs.cpSync(path.join(projectRoot, directory), path.join(install, directory), {
 		recursive: true,
-		filter: file => !file.endsWith('.test.ts') && !file.endsWith('.test.tsx'),
+		filter: file =>
+			!file.endsWith('.test.ts') &&
+			!file.endsWith('.test.tsx') &&
+			(useStandalone || path.basename(file) !== 'pappardelle'),
 	});
 	fs.symlinkSync(
 		path.join(projectRoot, 'node_modules'),
@@ -94,10 +99,13 @@ setTimeout(() => {
 	};
 	const start = (args: string[], overrides: NodeJS.ProcessEnv = {}) => {
 		const child = spawn(
-			process.execPath,
+			useStandalone ? path.join(install, 'dist/pappardelle') : process.execPath,
 			[
-				...(useBuiltCli ? [] : ['--import', import.meta.resolve('tsx')]),
-				path.join(install, directory, useBuiltCli ? 'cli.js' : 'cli.tsx'),
+				...(useStandalone
+					? []
+					: [
+							path.join(install, directory, useBuiltCli ? 'cli.js' : 'cli.tsx'),
+						]),
 				...args,
 			],
 			{
@@ -419,9 +427,9 @@ test.serial(
 				`import fs from 'node:fs';
 fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 process.stdout.write('worker started\\n');
-setTimeout(() => process.stdout.write('worker progress\\n'), 50);
+// The CLI only learns its stdout broke on its next write, so keep writing.
+setInterval(() => process.stdout.write('worker progress\\n'), 50);
 setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished'), 500);
-setTimeout(() => {}, 30000);
 `,
 			);
 			fs.writeFileSync(

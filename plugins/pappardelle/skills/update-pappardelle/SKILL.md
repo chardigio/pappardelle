@@ -20,7 +20,7 @@ Pappardelle now checks GitHub Releases on startup (cached once per 24h) and show
 pappardelle update --no-restart-tuis
 ```
 
-If `pappardelle` is not on PATH, or its shim errors before the update starts (e.g. a missing or too-old node), run the install script directly instead:
+If `pappardelle` is not on PATH, or its shim errors before the update starts (e.g. a missing or too-old Bun), run the install script directly instead:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.sh | bash
@@ -34,6 +34,6 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/install.
 4. After success, tell the user:
    - Pappardelle has been updated
    - If the command named running TUIs, they're still on the old build. `pappardelle restart`, run in each repo, restarts that repo's TUI on the new build. It is safe to run from this session: it only touches the TUI's pane, and Claude sessions keep running
-   - `pappardelle restart` ends with `pappardelle-<repo> is running <cli.js> (<commit>)`. If it exits non-zero instead, the TUI is not confirmed on the new build; pass on the reason it printed
+   - `pappardelle restart` ends with `pappardelle-<repo> is running <build path> (<commit>)`. If it exits non-zero instead, the TUI is not confirmed on the new build; pass on the reason it printed
 
-Note: the installer also re-pins the `pappardelle` shim to the node binary currently on PATH, so re-running it is the fix when the shim complains about a missing or too-old node (e.g. after `nvm uninstall`).
+Note: the installer also re-pins the `pappardelle` shim to the verified Bun binary (or a private Bun downloaded by the installer), so re-running it is the fix when the shim complains about a missing or too-old Bun (e.g. after removing a Bun installation).

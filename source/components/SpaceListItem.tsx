@@ -1,6 +1,6 @@
-import React, {memo} from 'react';
-import {Box, Text} from 'ink';
-import stringWidth from 'string-width';
+import {memo} from 'react';
+import type {MouseEvent} from '@opentui/core';
+
 import type {PipelineStatus, SpaceData} from '../types.ts';
 import {COLORS} from '../types.ts';
 import {programStatusDisplay} from '../program-status-display.ts';
@@ -17,18 +17,24 @@ import {
 	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
-import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
+import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
+import {displayWidth} from '../text-measure.ts';
 import type {ListLayout} from '../config.ts';
 import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
+import {useWidthMethod} from './use-width-method.ts';
 import {useAttentionFrame} from '../animation-clock.ts';
+
+/** Cells of highlight kept at each end of a row. */
+export const ROW_PADDING_CELLS = 1;
 
 interface Props {
 	space: SpaceData;
 	isSelected: boolean;
 	width: number;
 	layout: ListLayout;
+	onSelect?: (name: string) => void;
 }
 
 interface PipelineIconStyle {
@@ -47,7 +53,13 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-function SpaceListItem({space, isSelected, width, layout}: Props) {
+function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
+	const handleClick = (event: MouseEvent) => {
+		if (event.button === 0 && !space.isPending) {
+			event.stopPropagation();
+			onSelect?.(space.name);
+		}
+	};
 	const isTwoLine = layout === 'two_line';
 	const inlineTitle = titleSharesKeyLine({
 		isTwoLine,
@@ -69,6 +81,8 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	const needsAttention = space.programStatus?.status === 'blocked';
 
 	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
+	const skinToneWide = useTmuxSkinToneWide();
+	const widthMethod = useWidthMethod();
 
 	// Rail icons: only meaningful when the branch has an open PR. When
 	// `pipeline` is null (no PR, or fetch failed), both the pipeline icon and
@@ -98,15 +112,21 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	//     keeping the row visually identical to master.
 	//   - "" (empty string): emoji slot is configured but blank → render
 	//     two spaces so rows still line up with their emoji-bearing siblings.
-	//   - "🎸" / "🐝" / etc.: render the glyph, measuring with string-width
-	//     so multi-cell emoji reserve the right number of cells.
-	const emojiSlot = resolveEmojiSlot(maybeStripSkinTones(space.profileEmoji));
+	//   - "🎸" / "🐝" / etc.: render the glyph, measured the way the title
+	//     beside it is, so multi-cell emoji reserve the right number of cells.
+	const emojiSlot = resolveEmojiSlot(
+		maybeStripSkinTones(space.profileEmoji, skinToneWide),
+	);
 	const emoji = emojiSlot?.text;
-	const emojiCells = emoji ? stringWidth(emoji) : 0;
+	const emojiCells = emoji ? displayWidth(emoji, widthMethod) : 0;
 	const emojiPrefixCells = rowPrefixWidth(
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
 	const emojiNeedsSeparator = emojiSlot?.needsSeparator ?? false;
+
+	// A highlighted cell at each end keeps the emoji and the rail icons off the
+	// edges of the selection bar.
+	const contentWidth = Math.max(0, width - 2 * ROW_PADDING_CELLS);
 
 	// Calculate available width for title
 	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]", with emoji on the
@@ -123,7 +143,7 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	// the very thing the clip exists to prevent.
 	const issueKey = clipIssueKey(
 		space.name,
-		width - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
+		contentWidth - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
 	);
 	const hasIssueKey = issueKey.length > 0;
 	// emoji prefix + icon (1) + space (1) [+ issueKey (variable) + space (1)] + rail suffix
@@ -135,8 +155,8 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
 	const availableTitleWidth = inlineTitle
-		? Math.max(0, width - fixedWidth)
-		: Math.max(0, width - twoLineIndent);
+		? Math.max(0, contentWidth - fixedWidth)
+		: Math.max(0, contentWidth - twoLineIndent);
 
 	// Truncate title (pending rows use their own title text)
 	// Show "Loading…" while the Linear issue title is being fetched
@@ -145,15 +165,16 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		space.linearIssue?.title ??
 		(shouldShowLoadingTitle(space) ? 'Loading…' : '');
 	const truncatedTitle = truncateToWidth(
-		maybeStripSkinTones(title),
+		maybeStripSkinTones(title, skinToneWide),
 		availableTitleWidth,
+		widthMethod,
 	);
 
 	// Issue state color (applied to issue key).
 	// Uses the exact color from the tracker's API so pappardelle always matches,
 	// unless the user listed this state in `state_colors:` — see STA-2070. The
 	// main-worktree branch below is deliberately left on raw tracker colors.
-	const getStateColor = (): string => {
+	const getStateColor = (): string | undefined => {
 		if (space.isMainWorktree) {
 			return getMainWorktreeColor(
 				space.isDirty ?? false,
@@ -163,42 +184,54 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		}
 
 		const state = space.linearIssue?.state;
-		if (!state) return space.isPending ? 'white' : 'gray';
+		if (!state) return undefined;
 		return resolveStateColor(state.name, state.color);
 	};
 	const stateColor = getStateColor();
 
-	const {useBlinkInverse, useInverse, textColor, keyColor, titleColor} =
-		resolveRowHighlight({
-			isSelected,
-			needsAttention,
-			blinkOn,
-			isQuestion,
-			stateColor,
-		});
+	const {paint} = resolveRowHighlight({
+		isSelected,
+		needsAttention,
+		blinkOn,
+		isQuestion,
+	});
+	const gap = paint({});
+	// Carries the highlight across the leftover width so a selected or blinking
+	// row reads as one bar from edge to edge.
+	const filler = (
+		<text
+			flexGrow={1}
+			flexShrink={1}
+			flexBasis={0}
+			minWidth={0}
+			wrapMode="none"
+			height={1}
+			{...gap}
+		>
+			{' '.repeat(width)}
+		</text>
+	);
+
+	const edgePad = (
+		<text flexShrink={0} {...gap}>
+			{' '.repeat(ROW_PADDING_CELLS)}
+		</text>
+	);
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
 		if (pipeline === 'progressing_dirty') {
 			return (
 				<>
-					<Text inverse={useBlinkInverse} color={textColor}>
+					<text flexShrink={1} {...gap}>
 						{' '}
-					</Text>
-					<Text
-						bold
-						color={useBlinkInverse ? textColor : 'yellow'}
-						inverse={useBlinkInverse}
-					>
+					</text>
+					<text flexShrink={1} {...paint({fg: 'yellow', bold: true})}>
 						◐
-					</Text>
-					<Text
-						bold
-						color={useBlinkInverse ? textColor : 'red'}
-						inverse={useBlinkInverse}
-					>
+					</text>
+					<text flexShrink={1} {...paint({fg: 'red', bold: true})}>
 						◑
-					</Text>
+					</text>
 				</>
 			);
 		}
@@ -206,16 +239,12 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		const style = PIPELINE_SINGLE[pipeline];
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
-				<Text
-					bold
-					color={useBlinkInverse ? textColor : style.color}
-					inverse={useBlinkInverse}
-				>
+				</text>
+				<text flexShrink={1} {...paint({fg: style.color, bold: true})}>
 					{style.icon}
-				</Text>
+				</text>
 			</>
 		);
 	};
@@ -224,16 +253,12 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (commentCount <= 0) return null;
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
-				<Text
-					color={useBlinkInverse ? textColor : undefined}
-					dimColor={!useBlinkInverse}
-					inverse={useBlinkInverse}
-				>
+				</text>
+				<text flexShrink={1} {...paint({dim: true})}>
 					{`(${commentCount})`}
-				</Text>
+				</text>
 			</>
 		);
 	};
@@ -242,112 +267,104 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 		if (!hasConflict) return null;
 		return (
 			<>
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
-				<Text
-					bold
-					color={useBlinkInverse ? textColor : 'red'}
-					inverse={useBlinkInverse}
-				>
+				</text>
+				<text flexShrink={1} {...paint({fg: 'red', bold: true})}>
 					↯
-				</Text>
+				</text>
 			</>
 		);
 	};
 
 	const renderTitle = () => (
-		<Text
-			dimColor={!useInverse}
-			wrap="truncate"
-			inverse={useInverse}
-			color={titleColor}
-		>
+		<text flexShrink={1} {...paint({dim: true})} wrapMode="none" height={1}>
 			{truncatedTitle}
-		</Text>
+		</text>
 	);
 
 	const keyLine = (
-		<Box overflowX="hidden">
-			<Box flexShrink={0}>
+		<box
+			flexDirection="row"
+			overflow="hidden"
+			onMouseDown={isTwoLine ? undefined : handleClick}
+		>
+			<box flexDirection="row" flexShrink={0}>
+				{edgePad}
 				{emoji ? (
 					<>
-						<Text inverse={useBlinkInverse} color={textColor}>
+						<text flexShrink={1} {...gap}>
 							{emoji}
-						</Text>
+						</text>
 						{emojiNeedsSeparator ? (
-							<Text inverse={useBlinkInverse} color={textColor}>
+							<text flexShrink={1} {...gap}>
 								{' '}
-							</Text>
+							</text>
 						) : null}
 					</>
 				) : null}
-				{/* Status icon (NOT highlighted, always shows its own color) */}
 				{isWorking ? (
 					<ClaudeAnimation
-						color={
-							useBlinkInverse
-								? textColor
-								: space.isPending
-									? COLORS.CLAUDE_ORANGE
-									: statusInfo.color
-						}
-						inverse={useBlinkInverse}
+						paint={paint({
+							fg: space.isPending ? COLORS.CLAUDE_ORANGE : statusInfo.color,
+							keepsColor: true,
+						})}
 					/>
 				) : (
-					<Text
-						color={useBlinkInverse ? textColor : statusInfo.color}
-						dimColor={!useBlinkInverse && (statusInfo.dim ?? false)}
-						inverse={useBlinkInverse}
+					<text
+						flexShrink={1}
+						{...paint({fg: statusInfo.color, dim: statusInfo.dim})}
 					>
 						{statusInfo.icon ?? '?'}
-					</Text>
+					</text>
 				)}
 
-				{/* Space after status icon (NOT highlighted) */}
-				<Text inverse={useBlinkInverse} color={textColor}>
+				<text flexShrink={1} {...gap}>
 					{' '}
-				</Text>
+				</text>
 
-				{/* Issue key badge (colored by Linear state, highlighted when selected) */}
 				{hasIssueKey && (
-					<Text
-						color={useBlinkInverse ? textColor : keyColor}
-						bold
-						wrap="truncate"
-						inverse={useInverse}
+					<text
+						flexShrink={1}
+						{...paint({fg: stateColor, bold: true})}
+						wrapMode="none"
+						height={1}
 					>
 						{issueKey}
-					</Text>
+					</text>
 				)}
 
 				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
-					<Text dimColor={!useInverse} inverse={useInverse} color={titleColor}>
+					<text flexShrink={1} {...paint({dim: true})}>
 						{' '}
-					</Text>
+					</text>
 				)}
-			</Box>
+			</box>
 
 			{/* Title (only if there's a title to show, and only when the title
 			    shares this row — two-line layout renders it below) */}
 			{inlineTitle && truncatedTitle.length > 0 && (
-				<Box flexShrink={1} minWidth={0}>
+				<box flexDirection="row" flexShrink={1} minWidth={0}>
 					{renderTitle()}
-				</Box>
+				</box>
 			)}
 
-			{/* Rail icons — right-aligned: unresolved comment count, then the
-			    merge-conflict indicator, then pipeline state flush at the far
-			    right. Pushed right by a flex spacer that consumes whatever
-			    leftover width remains. */}
+			{filler}
+
+			{/* Rail icons — right-aligned by the filler: unresolved comment
+			    count, then the merge-conflict indicator, then pipeline state
+			    flush at the far right. */}
 			{pipeline !== null || commentCount > 0 || hasConflict ? (
-				<Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
+				<box flexDirection="row" flexShrink={0}>
 					{renderCommentCount()}
 					{renderConflictIcon()}
 					{renderPipelineIcon()}
-				</Box>
+				</box>
 			) : null}
-		</Box>
+			<box flexDirection="row" flexShrink={0}>
+				{edgePad}
+			</box>
+		</box>
 	);
 
 	if (!isTwoLine) return keyLine;
@@ -356,21 +373,22 @@ function SpaceListItem({space, isSelected, width, layout}: Props) {
 	// its title on the key line already, so its second line is blank padding —
 	// still emitted, because every row has to be the same height.
 	return (
-		<Box flexDirection="column">
+		<box flexDirection="column" onMouseDown={handleClick}>
 			{keyLine}
-			<Box overflowX="hidden">
-				<Box flexShrink={0}>
-					<Text inverse={useBlinkInverse} color={textColor}>
-						{' '.repeat(twoLineIndent)}
-					</Text>
-				</Box>
-				{!inlineTitle && (
-					<Box flexShrink={1} minWidth={0}>
+			<box flexDirection="row" overflow="hidden">
+				<box flexDirection="row" flexShrink={0}>
+					<text flexShrink={1} {...gap}>
+						{' '.repeat(ROW_PADDING_CELLS + twoLineIndent)}
+					</text>
+				</box>
+				{!inlineTitle && truncatedTitle !== '' && (
+					<box flexDirection="row" flexShrink={1} minWidth={0}>
 						{renderTitle()}
-					</Box>
+					</box>
 				)}
-			</Box>
-		</Box>
+				{filler}
+			</box>
+		</box>
 	);
 }
 

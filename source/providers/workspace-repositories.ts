@@ -2,6 +2,7 @@ import {execFile} from 'node:child_process';
 import {readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {promisify} from 'node:util';
+import {readRemoteUrls, remoteProjects} from '../git-remotes.ts';
 import {workspaceIdentity} from '../link-pr.ts';
 import {readSpaceState} from '../space-state.ts';
 
@@ -26,37 +27,12 @@ const EXCLUDED = new Set([
 	'__pycache__',
 ]);
 
-export function remoteProject(remote: string, host: string): string | null {
-	let remoteHost: string;
-	let project: string;
-	if (remote.includes('://')) {
-		const url = new URL(remote);
-		if (!['ssh:', 'http:', 'https:', 'git:'].includes(url.protocol))
-			return null;
-		remoteHost = url.hostname;
-		project = url.pathname.slice(1);
-	} else {
-		const match = /^(?:[^@/:]+@)?([^/:]+):(.+)$/.exec(remote);
-		if (!match) return null;
-		remoteHost = match[1]!;
-		project = match[2]!;
-	}
-	if (remoteHost.toLowerCase() !== host.toLowerCase()) return null;
-	project = project.replace(/\.git$/, '');
-	if (
-		project.split('/').length < 2 ||
-		project.split('/').some(part => !part || part === '..')
-	)
-		return null;
-	return project;
-}
-
 export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 	directory,
 	host,
 	stateBaseDir,
 ) => {
-	const repositories: WorkspaceRepository[] = [];
+	const repositories: Array<WorkspaceRepository & {remotes: Set<string>}> = [];
 	let visited = 0;
 	const git = async (cwd: string, args: string[]) => {
 		const {stdout} = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -74,15 +50,11 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 		if (
 			entries.some(entry => entry.name === '.git' && !entry.isSymbolicLink())
 		) {
-			const remote = await git(current, [
-				'config',
-				'--get',
-				'remote.origin.url',
-			]).catch((error: unknown) => {
-				if ((error as {code?: number}).code === 1) return '';
-				throw error;
-			});
-			const project = remoteProject(remote, host);
+			const remotes = remoteProjects(
+				await readRemoteUrls(async args => git(current, args)),
+				host,
+			);
+			const project = remotes.get('origin');
 			if (project) {
 				const branch = await git(current, [
 					'symbolic-ref',
@@ -93,13 +65,18 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 					if ((error as {code?: number}).code === 1) return '';
 					throw error;
 				});
-				if (branch) repositories.push({project, branch});
+				if (branch)
+					repositories.push({
+						project,
+						branch,
+						remotes: new Set(remotes.values()),
+					});
 			}
 			// Nested repos are independent checkouts; their source trees need no scan.
 			if (depth > 0) return;
 		}
 		if (depth >= 3) return;
-		for (const entry of entries) {
+		for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
 			if (
 				entry.isDirectory() &&
 				!entry.name.startsWith('.') &&
@@ -115,13 +92,15 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 		? (readSpaceState(identity.repoName, identity.issueKey, stateBaseDir)
 				?.prLinks ?? [])
 		: [];
-	return repositories.map(repository => {
+	return repositories.map(({remotes, ...repository}) => {
 		const link = links.find(
 			item =>
 				item.host === host &&
-				item.project === repository.project &&
+				remotes.has(item.project) &&
 				item.localBranch === repository.branch,
 		);
-		return link ? {...repository, branch: link.remoteBranch} : repository;
+		return link
+			? {project: link.project, branch: link.remoteBranch}
+			: repository;
 	});
 };

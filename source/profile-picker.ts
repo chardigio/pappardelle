@@ -18,7 +18,7 @@ import {
  * a reworded prompt. Enter-Enter therefore reproduces the old behavior exactly.
  *
  * All of it is pure so the ordering, scrolling, and key handling can be tested
- * without rendering Ink.
+ * without a renderer.
  */
 
 /** Rows of the picker visible at once. Longer lists scroll. */
@@ -464,6 +464,16 @@ export function handleFilterablePickerKey(
 	}
 
 	return {state};
+}
+
+/** Bracketed paste arrives as one event rather than keys; only an open filter takes it. */
+export function pasteIntoFilterablePicker(
+	state: FilterablePickerState,
+	text: string,
+): FilterablePickerState {
+	if (state.query === null) return state;
+	const line = text.replaceAll(/[\r\n\t]+/g, ' ').trim();
+	return line ? {...state, query: state.query + line, index: 0} : state;
 }
 
 /**

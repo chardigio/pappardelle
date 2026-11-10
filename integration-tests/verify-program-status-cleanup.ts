@@ -94,6 +94,14 @@ try {
 			);
 			assert.ok(!getRegisteredSpaces().includes(key));
 		}
+		// Revocation is synchronous. An already-running publisher can rename its
+		// snapshot afterwards, then remove it when its final lease check fails.
+		assert.ok(!existsSync(`${target}.lease`), `${mode} revokes the lease`);
+		await until(
+			() => existsSync(target),
+			retained => !retained,
+			`${mode} in-flight publisher removes its snapshot`,
+		);
 		const retained = existsSync(target) || existsSync(`${target}.lease`);
 		if (retained) findings.push(mode);
 		console.log(
@@ -148,8 +156,12 @@ try {
 	assert.ok(existsSync(target));
 	assert.ok(existsSync(`${target}.lease`));
 	assert.equal(cleanupOrphanedInnerSessions(new Set(), repo, undefined, []), 1);
-	assert.ok(!existsSync(target));
 	assert.ok(!existsSync(`${target}.lease`));
+	await until(
+		() => existsSync(target),
+		retained => !retained,
+		'retried orphan cleanup removes its snapshot',
+	);
 	console.log(
 		'PASS partial orphan teardown preserves snapshots until retry succeeds',
 	);

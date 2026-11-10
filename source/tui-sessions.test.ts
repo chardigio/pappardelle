@@ -12,6 +12,7 @@ import {
 } from '../test/helpers/fake-tui-tmux.ts';
 import {restartLockPath} from './tui-marker.ts';
 import {
+	closeTuiLayout,
 	installedLaunchCommand,
 	listRunningTuis,
 	restartAndVerifyTui,
@@ -34,7 +35,8 @@ function repoStateRoot(repos: string[]): string {
 	return dir;
 }
 
-const COMMAND = "'/node' '/build/dist/cli.js'";
+const COMMAND =
+	"'/node' '--no-env-file' '--config=/dev/null' '/build/dist/cli.js'";
 
 function setup(
 	sessions: string[],
@@ -337,6 +339,7 @@ function ownHarness(
 	options: {
 		current?: string | null;
 		behavior?: Parameters<typeof fakeTuiTmux>[0]['behavior'];
+		gonePane?: string;
 	} = {},
 ) {
 	const h = setup(['pappardelle-app'], options.behavior, {
@@ -344,11 +347,20 @@ function ownHarness(
 	});
 	// Key waits and session kills, in the order they happened.
 	const events: string[] = [];
+	const layoutCalls: string[][] = [];
 	return {
 		...h,
 		events,
+		layoutCalls,
 		deps: {
 			...h.deps,
+			layoutTmux(args: readonly string[]) {
+				layoutCalls.push([...args]);
+				return {
+					status: args.includes(options.gonePane ?? '') ? 1 : 0,
+					stdout: '',
+				};
+			},
 			currentSession: () =>
 				options.current === undefined ? 'pappardelle-app' : options.current,
 			killSession(name: string) {
@@ -362,11 +374,17 @@ function ownHarness(
 	};
 }
 
+const layout = {
+	listPaneId: '%3',
+	agentViewerPaneId: '%4',
+	companionViewerPaneId: '%5',
+};
+
 const own = {
 	repoName: 'app',
 	paneId: '%3',
 	command: COMMAND,
-	hasPaneLayout: true,
+	paneLayout: layout,
 };
 
 test('U reruns its own pane and leaves the lock for the next restart to clear', t => {
@@ -414,22 +432,70 @@ test('U that cannot create its lock reports that and restarts nothing', t => {
 	t.deepEqual(h.events, ['wait for key', 'kill pappardelle-app']);
 });
 
-test("U inside the user's own tmux session closes the layout and restarts nothing", t => {
+test("U inside the user's own tmux session closes only the viewer panes and restarts nothing", t => {
 	const h = ownHarness({current: 'work'});
 
 	restartOwnTui(own, h.deps);
 
-	t.deepEqual(h.events, ['kill pappardelle-app']);
+	t.deepEqual(h.events, []);
 	t.deepEqual(h.calls, []);
+	t.deepEqual(h.layoutCalls, [
+		['kill-pane', '-t', '%4'],
+		['kill-pane', '-t', '%5'],
+	]);
 });
 
 test('U without a pane layout leaves tmux alone', t => {
 	const h = ownHarness({current: null});
 
-	restartOwnTui({...own, hasPaneLayout: false}, h.deps);
+	restartOwnTui({...own, paneLayout: null}, h.deps);
 
 	t.deepEqual(h.events, []);
 	t.deepEqual(h.calls, []);
+	t.deepEqual(h.layoutCalls, []);
+});
+
+// ============================================================================
+// Quitting (q)
+// ============================================================================
+
+test('q in its own session closes the whole session', t => {
+	const h = ownHarness();
+
+	closeTuiLayout('app', layout, h.deps);
+
+	t.deepEqual(h.events, ['kill pappardelle-app']);
+	t.deepEqual(h.layoutCalls, []);
+});
+
+// Left behind, the viewers make the rail pane narrow enough that the next
+// pappardelle run in it splits the rail into a second layout.
+test("q inside the user's own tmux session closes only the viewer panes", t => {
+	const h = ownHarness({current: 'work'});
+
+	closeTuiLayout('app', layout, h.deps);
+
+	t.deepEqual(h.events, []);
+	t.deepEqual(h.layoutCalls, [
+		['kill-pane', '-t', '%4'],
+		['kill-pane', '-t', '%5'],
+	]);
+});
+
+test('q still closes the companion viewer when the agent viewer was closed by hand', t => {
+	const h = ownHarness({current: 'work', gonePane: '%4'});
+
+	closeTuiLayout('app', layout, h.deps);
+
+	t.deepEqual(h.layoutCalls.at(-1), ['kill-pane', '-t', '%5']);
+});
+
+test('q in a vertical layout closes its one viewer pane', t => {
+	const h = ownHarness({current: 'work'});
+
+	closeTuiLayout('app', {...layout, companionViewerPaneId: ''}, h.deps);
+
+	t.deepEqual(h.layoutCalls, [['kill-pane', '-t', '%4']]);
 });
 
 // ============================================================================
@@ -449,7 +515,7 @@ test('after an install, restarts go through the shim when there is one', t => {
 	);
 	t.is(
 		installedLaunchCommand({...options, exists: () => false}),
-		"'/node' '/work/pappardelle/dist/cli.js'",
+		"'/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js'",
 	);
 });
 
@@ -475,7 +541,7 @@ test('a dev build keeps its own node and cli.js', t => {
 			home: '/home/me',
 			exists: () => true,
 		}),
-		"'/old/node' '/work/pappardelle/dist/cli.js' --foo",
+		"'/old/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js' --foo",
 	);
 });
 
@@ -488,6 +554,31 @@ test('the release falls back to node and cli.js when the shim is missing', t => 
 			home: '/home/me',
 			exists: () => false,
 		}),
-		"'/old/node' '/home/me/.pappardelle/repo/dist/cli.js'",
+		"'/old/node' '--no-env-file' '--config=/dev/null' '/home/me/.pappardelle/repo/dist/cli.js'",
+	);
+});
+
+test('a standalone restart invokes the executable once and installed releases use the shim', t => {
+	const binary = '/work/pappardelle/dist/pappardelle';
+	t.is(
+		tuiLaunchCommand({
+			execPath: binary,
+			cliPath: binary,
+			args: ['--no-layout'],
+			home: '/home/me',
+			exists: () => false,
+		}),
+		"'/work/pappardelle/dist/pappardelle' --no-layout",
+	);
+	const installed = '/home/me/.pappardelle/repo/dist/pappardelle';
+	t.is(
+		tuiLaunchCommand({
+			execPath: installed,
+			cliPath: installed,
+			args: [],
+			home: '/home/me',
+			exists: () => true,
+		}),
+		"'/home/me/.local/bin/pappardelle'",
 	);
 });

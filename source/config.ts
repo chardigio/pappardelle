@@ -3,10 +3,10 @@ import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {scriptsDir} from './runtime.ts';
 import YAML from 'js-yaml';
 import {
-	INK_COLOR_NAMES,
+	ANSI_COLOR_NAMES,
 	isValidStateColor,
 	normalizeStateName,
 } from './state-color-override.ts';
@@ -348,7 +348,7 @@ export interface PappardelleConfig {
 	 * lets a Jira workflow tell "In Progress" and "In Review" apart even though
 	 * Jira gives them the same color.
 	 *
-	 * Values are hex (`#rgb` or `#rrggbb`) or an Ink color name (`cyan`,
+	 * Values are hex (`#rgb` or `#rrggbb`) or an ANSI color name (`cyan`,
 	 * `redBright`, ...). Absent or empty ⇒ the rail uses tracker colors only,
 	 * identical to master. The main-worktree row is not affected; it keeps
 	 * deriving its color from the tracker's "In Progress" and "Done" colors.
@@ -2396,6 +2396,22 @@ function readBdIssuePrefix(root: string): string | undefined {
 	}
 }
 
+/**
+ * Issue keys the new-session prompt offers as examples. Beads ids carry a hash
+ * rather than a number, so a `TEAM-123` example would mislead there.
+ */
+export function exampleIssueKeys(
+	config: PappardelleConfig,
+	readPrefix: () => string | undefined = readBeadsIssuePrefix,
+): string[] {
+	if (config.issue_tracker?.provider === 'beads') {
+		const [prefix = 'bd'] = getBeadsPrefixes(config, readPrefix());
+		return [`${prefix}-a1b2`];
+	}
+
+	return [`${getTeamPrefix(config)}-123`, '123'];
+}
+
 export function getBeadsPrefixes(
 	config: PappardelleConfig,
 	beadsConfigPrefix?: string,
@@ -3266,8 +3282,8 @@ function validateStateColors(value: unknown): string[] {
 
 		if (!isValidStateColor(color)) {
 			errors.push(
-				`state_colors."${name}": must be a hex color (#rgb or #rrggbb) or an ink color name (${[
-					...INK_COLOR_NAMES,
+				`state_colors."${name}": must be a hex color (#rgb or #rrggbb) or an ANSI color name (${[
+					...ANSI_COLOR_NAMES,
 				].join(', ')})`,
 			);
 		}
@@ -3400,7 +3416,7 @@ export function buildWorkspaceTemplateVars(
 		REPO_ROOT: getRepoRoot(),
 		MAIN_REPO_ROOT: getMainRepoRoot(),
 		REPO_NAME: getRepoName(),
-		SCRIPT_DIR: path.resolve(__dirname, '..', 'scripts'),
+		SCRIPT_DIR: scriptsDir,
 	};
 
 	// Try to match a profile for additional template vars
@@ -3440,6 +3456,3 @@ export function buildWorkspaceTemplateVars(
 
 	return vars;
 }
-
-// Directory of this file (used by buildWorkspaceTemplateVars for SCRIPT_DIR)
-const __dirname = path.dirname(fileURLToPath(import.meta.url));

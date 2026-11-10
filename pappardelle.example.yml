@@ -85,7 +85,7 @@ team_prefix: ENG
 # auto_remove_when_done: true
 
 # Override the ticket-rail color for named issue statuses. Names match
-# case-insensitively; values are hex (#rgb / #rrggbb) or an ink color name
+# case-insensitively; values are hex (#rgb / #rrggbb) or an ANSI color name
 # (red, cyan, blueBright, ...). Any status you leave out keeps the color the
 # tracker reports. Most useful on Jira, where "In Progress" and "In Review"
 # usually share one color.

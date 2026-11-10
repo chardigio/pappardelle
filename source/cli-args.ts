@@ -1,4 +1,5 @@
 import meow from 'meow';
+import {packageModuleUrl} from './runtime.ts';
 
 const helpText = `
 	Usage
@@ -24,8 +25,8 @@ const helpText = `
 	  link-pr <url>    Record a verified PR/MR for the current workspace
 	  send <key> [text]
 	                   Submit text as a prompt to the space's agent session.
-	                   Reads stdin when no text is given; use stdin for text
-	                   that starts with "-", which would parse as a flag
+	                   Everything after the key is sent as is, flags
+	                   included. Reads stdin when no text is given
 	  close <key>      Close a space, same as x in the TUI
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
@@ -33,12 +34,14 @@ const helpText = `
 
 	Controls
 	  j/k or arrows  Navigate between spaces
-	  Enter          Select space
+	  Enter          Focus the agent pane
 	  n              New space (create worktree + issue)
-	  o              Open workspace (apps, links, iTerm, etc.)
-	  d              Delete selected space
-	  r              Refresh list
+	  x / Del        Close space
+	  o              Open workspace (apps, links, etc.)
+	  d              Open IDE
+	  /              Search spaces
 	  U              Update Pappardelle to the latest release
+	  ?              All keys
 	  q/Ctrl+C       Quit
 
 	Options
@@ -67,8 +70,9 @@ const helpText = `
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 	return meow(helpText, {
-		importMeta: import.meta,
-		argv: [...argv],
+		importMeta: {...import.meta, url: packageModuleUrl},
+		// `send` reads its key and text from raw argv (parseSendArgs).
+		argv: argv[0] === 'send' ? ['send'] : [...argv],
 		// `update` asks on a TTY only when neither --restart-tuis nor
 		// --no-restart-tuis was passed, which meow's default of false would make
 		// indistinguishable.
@@ -151,6 +155,17 @@ const subcommands = {
 	},
 } as const;
 
+// The prompt is read from raw argv because meow would pull anything
+// flag-shaped out of it.
+export function parseSendArgs(argv: readonly string[]): {
+	key?: string;
+	text: string;
+} {
+	const [key, ...text] = argv.slice(argv.indexOf('send') + 1);
+	if (key === undefined || key.startsWith('-')) return {text: ''};
+	return {key, text: text.join(' ')};
+}
+
 export type SubcommandGate =
 	| {action: 'run'}
 	| {action: 'help'; text: string}
@@ -178,6 +193,13 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 		return {
 			action: 'reject',
 			message: `Unknown flag ${unknown} for pappardelle ${name}\nUsage: ${usage}\nRun pappardelle ${name} --help for details`,
+		};
+	}
+
+	if (given.includes('--restart-tuis') && given.includes('--no-restart-tuis')) {
+		return {
+			action: 'reject',
+			message: `--restart-tuis and --no-restart-tuis can't be combined\nUsage: ${usage}`,
 		};
 	}
 

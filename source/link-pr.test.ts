@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {linkPr, type LinkExecutor} from './link-pr.ts';
+import {readPrLinkStamp} from './pr-link-stamp.ts';
 import {readSpaceState, writeSpaceState} from './space-state.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 
@@ -40,7 +41,9 @@ test('links a fork PR, preserves state, replaces repeated links and follows the 
 		state,
 	);
 	const url = 'https://github.com/upstream/repo/pull/28';
+	t.is(readPrLinkStamp(state), 0);
 	await linkPr(url, workspace, workspace, {run, baseDir: state});
+	t.true(readPrLinkStamp(state) > 0);
 	remoteBranch = 'published-again';
 	await linkPr(url, workspace, workspace, {run, baseDir: state});
 	const saved = readSpaceState('workspace', 'STE-24', state)!;
@@ -55,6 +58,42 @@ test('links a fork PR, preserves state, replaces repeated links and follows the 
 	t.deepEqual(
 		await discoverWorkspaceRepositories(workspace, 'github.com', state),
 		[{project: 'user/fork', branch: 'other'}],
+	);
+});
+
+test('links an upstream PR whose head is a fork added beside origin, and rejects a third repo', async t => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-upstream-'));
+	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	const workspace = path.join(root, 'workspace');
+	const state = path.join(root, 'state');
+	fs.mkdirSync(workspace);
+	const git = (args: string[]) =>
+		execFileSync('git', args, {cwd: workspace, encoding: 'utf-8'}).trim();
+	git(['init', '-b', 'STE-24']);
+	git(['remote', 'add', 'origin', 'git@github.com:upstream/repo.git']);
+	git(['remote', 'add', 'fork', 'git@github.com:user/fork']);
+	let head = 'user/fork';
+	const run: LinkExecutor = async (command, args) => {
+		if (command === 'git') return git(args);
+		// Trimmed from `gh api repos/chardigio/pappardelle/pulls/58`.
+		return JSON.stringify({
+			base: {ref: 'main', repo: {full_name: 'upstream/repo'}},
+			head: {ref: 'published', repo: {full_name: head}},
+			number: 28,
+			state: 'open',
+		});
+	};
+	const url = 'https://github.com/upstream/repo/pull/28';
+	await linkPr(url, workspace, workspace, {run, baseDir: state});
+	t.deepEqual(
+		await discoverWorkspaceRepositories(workspace, 'github.com', state),
+		[{project: 'user/fork', branch: 'published'}],
+	);
+
+	head = 'other/repo';
+	await t.throwsAsync(
+		linkPr(url, workspace, workspace, {run, baseDir: state}),
+		{message: 'Run link-pr from the source repository (github.com/other/repo)'},
 	);
 });
 
@@ -79,8 +118,8 @@ test('GitLab nested repositories retain independent branch mappings', async t =>
 					: {path_with_namespace: 'group/sub/repo'},
 			);
 		}
-		if (args[0] === 'remote')
-			return 'git@gitlab.example.com:group/sub/repo.git';
+		if (args[0] === 'config')
+			return 'remote.origin.url git@gitlab.example.com:group/sub/repo.git';
 		if (args[0] === 'rev-parse') return '/repos/workspace/.git';
 		return cwd === '/workspace' ? 'ISSUE-1' : 'local';
 	};

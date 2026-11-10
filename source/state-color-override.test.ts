@@ -1,6 +1,6 @@
 import test from 'ava';
 import {
-	INK_COLOR_NAMES,
+	ANSI_COLOR_NAMES,
 	getStateColorOverride,
 	initStateColorOverrides,
 	isValidStateColor,
@@ -22,7 +22,7 @@ test('isValidStateColor accepts 3-digit hex', t => {
 	t.true(isValidStateColor('#abc'));
 });
 
-test('isValidStateColor accepts ink color names', t => {
+test('isValidStateColor accepts ANSI color names', t => {
 	t.true(isValidStateColor('cyan'));
 	t.true(isValidStateColor('magenta'));
 	t.true(isValidStateColor('blueBright'));
@@ -42,10 +42,10 @@ test('isValidStateColor rejects unknown names and malformed hex', t => {
 	t.false(isValidStateColor(null));
 });
 
-test('ink color names are matched case-sensitively', t => {
-	// Ink's own palette is camelCase; "BlueBright" is not a real key.
+test('ANSI color names are matched case-sensitively', t => {
+	// terminalColor's palette keys are camelCase; "BlueBright" is not one.
 	t.false(isValidStateColor('BlueBright'));
-	t.true(INK_COLOR_NAMES.has('blueBright'));
+	t.true(ANSI_COLOR_NAMES.has('blueBright'));
 });
 
 // ============================================================================
@@ -89,7 +89,7 @@ test('lookupStateColorOverride returns null for a missing state name', t => {
 
 test('lookupStateColorOverride ignores invalid color values', t => {
 	// Validation rejects these at load time, but the lookup is defensive so a
-	// hand-edited cache or an unvalidated caller can never inject junk into Ink.
+	// hand-edited cache or an unvalidated caller can never reach the renderer.
 	t.is(lookupStateColorOverride({Done: 'chartreuse'}, 'Done'), null);
 	t.is(lookupStateColorOverride({Done: ''}, 'Done'), null);
 });

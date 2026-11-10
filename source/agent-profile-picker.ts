@@ -1,4 +1,6 @@
 import {rankByFuzzyMatch} from './profile-picker.ts';
+import {POPUP_WIDTH_METHOD} from './text-measure.ts';
+import {truncateToWidth} from './truncate-to-width.ts';
 
 export type AgentProfileChoice = {name: string; source: string};
 
@@ -33,9 +35,7 @@ export const AGENT_PICKER_HINT =
 export const AGENT_PICKER_NAME_MAX_WIDTH = 32;
 
 export function cutAgentProfileName(name: string): string {
-	return name.length > AGENT_PICKER_NAME_MAX_WIDTH
-		? name.slice(0, AGENT_PICKER_NAME_MAX_WIDTH - 1) + '…'
-		: name;
+	return truncateToWidth(name, AGENT_PICKER_NAME_MAX_WIDTH, POPUP_WIDTH_METHOD);
 }
 
 /** Room for the "↑/↓ N more" rows once the list scrolls. */

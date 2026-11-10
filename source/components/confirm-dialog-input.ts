@@ -1,8 +1,4 @@
-/**
- * Pure helpers for ConfirmDialog. Extracted so the dialog's behavior can be
- * unit-tested without rendering React/Ink — the .tsx file itself can't be
- * loaded by the bare-node + `--experimental-strip-types` test setup.
- */
+/** Pure helpers for ConfirmDialog, so its key rules can be tested without rendering it. */
 
 export type ConfirmAction = 'confirm' | 'cancel' | 'ignore';
 

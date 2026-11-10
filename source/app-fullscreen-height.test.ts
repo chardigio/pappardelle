@@ -1,12 +1,11 @@
 /**
- * STA-1539 regression: the list view's root container must be given a concrete
- * terminal height, not `height="100%"`. Blank filler rows let the incremental
- * renderer erase stale results when a search shrinks the list after zooming.
+ * STA-1539 regression: the list view's root container must fill the terminal.
+ * Blank filler rows let the renderer erase stale results when a search shrinks
+ * the list after zooming.
  */
 import test from 'ava';
 import React from 'react';
-import {render} from 'ink-testing-library';
-import {Box, Text} from 'ink';
+import {render} from '../test/helpers/render.ts';
 
 /**
  * Mirror of app.tsx's root: a flex-column box (header + search line + a *short*
@@ -15,43 +14,45 @@ import {Box, Text} from 'ink';
  */
 const listViewRoot = (height: number | string | undefined) =>
 	React.createElement(
-		Box,
+		'box',
 		{flexDirection: 'column', height: height as number},
 		React.createElement(
-			Box,
-			null,
-			React.createElement(Text, null, '🍝 repo | 54 spaces'),
+			'box',
+			{flexDirection: 'row'},
+			React.createElement('text', null, '🍝 repo | 54 spaces'),
 		),
 		React.createElement(
-			Box,
-			null,
-			React.createElement(Text, null, '/ma  (2 matches)'),
+			'box',
+			{flexDirection: 'row'},
+			React.createElement('text', null, '/ma  (2 matches)'),
 		),
 		React.createElement(
-			Box,
+			'box',
 			{flexDirection: 'column'},
-			React.createElement(Text, null, '● main'),
-			React.createElement(Text, null, '? STA-150 Add waiting animation'),
+			React.createElement('text', null, '● main'),
+			React.createElement('text', null, '? STA-150 Add waiting animation'),
 		),
 	);
 
-const frameLineCount = (height: number | string | undefined): number => {
-	const {lastFrame} = render(listViewRoot(height));
+const frameLineCount = async (
+	height: number | string | undefined,
+): Promise<number> => {
+	const {lastFrame} = await render(listViewRoot(height));
 	return lastFrame()!.split('\n').length;
 };
 
 const TERM_HEIGHT = 30;
 
-test('STA-1539: numeric terminal height includes blank rows below the filtered list', t => {
-	t.is(frameLineCount(TERM_HEIGHT), TERM_HEIGHT);
+test('STA-1539: numeric terminal height includes blank rows below the filtered list', async t => {
+	t.is(await frameLineCount(TERM_HEIGHT), TERM_HEIGHT);
 });
 
-test('STA-1539 regression: height="100%" collapses to content height (the condition that stranded stale rows)', t => {
-	// This is the pre-fix root. The frame is only as tall as its content, which is
-	// what dropped Ink onto the fragile log-update path after the zoom resize.
-	t.true(frameLineCount('100%') < TERM_HEIGHT);
+test('OpenTUI percentage height also fills the terminal', async t => {
+	// Ink collapsed a 100% root to its content, which is why app.tsx passes a
+	// numeric height. OpenTUI resolves it against the renderer's 80 rows.
+	t.is(await frameLineCount('100%'), 80);
 });
 
-test('STA-1539 regression: a content-sized root (no height) also collapses', t => {
-	t.true(frameLineCount(undefined) < TERM_HEIGHT);
+test('STA-1539 regression: a content-sized root (no height) also collapses', async t => {
+	t.true((await frameLineCount(undefined)) < TERM_HEIGHT);
 });

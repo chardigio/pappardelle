@@ -1,14 +1,17 @@
-import React, {useState, useMemo, useRef} from 'react';
-import {Box, Text, useInput, useStdout} from 'ink';
+import {useKeyboard, usePaste} from '@opentui/react';
+import {shortcutKey} from '../tui-key.ts';
+import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
+import {Fragment, useState, useMemo, useRef} from 'react';
+
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
 import ConfirmDialog from './ConfirmDialog.tsx';
-import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
-import {maybeStripSkinTones} from '../tmux-skin-tone.ts';
+import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
+	exampleIssueKeys,
 	listAgentProfiles,
 	loadAgentProfileSources,
 	resolveAgentProfileName,
@@ -35,6 +38,7 @@ import {
 	filterProfileOptions,
 	focusFrame,
 	handleFilterablePickerKey,
+	pasteIntoFilterablePicker,
 	resolvePromptSubmit,
 	PICKER_MAX_VISIBLE,
 	type FilterablePickerState,
@@ -68,12 +72,10 @@ interface Props {
 		config: PappardelleConfig | null,
 	) => string | undefined;
 	/**
-	 * Columns available to the dialog. Callers inside tmux should pass the pane
-	 * width; `stdout.columns` can be a full terminal-width stale value right
-	 * after a split, which would run the hand-drawn top border past the pane
-	 * edge and wrap it onto its own line.
+	 * Columns available to the dialog, which ready-work rows truncate their
+	 * titles to. The frames themselves stretch to the pane.
 	 */
-	availableWidth?: number;
+	availableWidth: number;
 	/** Rows available to the dialog, which drops to a compact layout to fit. */
 	availableHeight?: number;
 	/** The agent profile popup is a tmux popup, so the override needs tmux. */
@@ -95,7 +97,7 @@ export default function PromptDialog({
 		query: null,
 		index: 0,
 	});
-	// Ink hands every key of a burst (a paste, or arrows sent in one write) to
+	// The keyboard hook hands every key of a burst (a paste, or arrows sent in one write) to
 	// the handler before React re-renders, so keys read the latest state here.
 	const pickerStateRef = useRef(pickerState);
 	const updatePickerState = (state: FilterablePickerState) => {
@@ -128,9 +130,6 @@ export default function PromptDialog({
 			return null;
 		}
 	}, []);
-
-	const {stdout} = useStdout();
-	const width = dialogWidth(availableWidth, stdout?.columns);
 
 	const skills = useSkillSnapshot();
 
@@ -186,6 +185,15 @@ export default function PromptDialog({
 			return null;
 		}
 	}, []);
+	const exampleKeys = useMemo(
+		() => (config ? exampleIssueKeys(config) : ['STA-123', '123']),
+		[config],
+	);
+	const placeholder = useMemo(
+		() =>
+			`${new Intl.ListFormat('en', {type: 'disjunction'}).format([...exampleKeys, 'describe the task'])}...`,
+		[exampleKeys],
+	);
 
 	const ready = useReadyWork(
 		tracker,
@@ -241,139 +249,141 @@ export default function PromptDialog({
 	// index only matters once the picker has focus.
 	const activeIndex = isPicking ? pickerState.index : 0;
 
-	useInput(
-		(_input, key) => {
-			if (!key.escape) return;
-			// First Esc dismisses the completion list; a second one (now that the
-			// list is gone) cancels the dialog. Mirrors the profile picker's
-			// two-stage Esc so the key never means two things at once.
-			if (isCompleting) {
-				setDismissedFor(prompt);
-				setCompletionIndex(0);
-				return;
-			}
-			onCancel();
-		},
-		{isActive: isPromptStage && !isSkillFocused},
-	);
+	useKeyboard(event => {
+		if (!(isPromptStage && !isSkillFocused)) return;
+		const {input: _input, key} = shortcutKey(event);
+		if (!key.escape) return;
+		// First Esc dismisses the completion list; a second one (now that the
+		// list is gone) cancels the dialog. Mirrors the profile picker's
+		// two-stage Esc so the key never means two things at once.
+		if (isCompleting) {
+			setDismissedFor(prompt);
+			setCompletionIndex(0);
+			return;
+		}
+		onCancel();
+	});
 
 	// Arrows and Tab. The text input keeps focus while the list is open, so
 	// every printable key still has to reach it.
-	useInput(
-		(_input, key) => {
-			const result = handleSkillPickerKey(
-				key,
-				completionIndex,
-				completions.length,
-			);
-			if (result.action === 'move') {
-				setCompletionIndex(result.index);
-			} else if (result.action === 'accept') {
-				acceptCompletion(result.index);
-			}
-		},
-		{isActive: isCompleting && !isSkillFocused},
-	);
+	useKeyboard(event => {
+		if (!(isCompleting && !isSkillFocused)) return;
+		const {input: _input, key} = shortcutKey(event);
+		const result = handleSkillPickerKey(
+			key,
+			completionIndex,
+			completions.length,
+		);
+		if (result.action === 'move') {
+			setCompletionIndex(result.index);
+		} else if (result.action === 'accept') {
+			acceptCompletion(result.index);
+		}
+	});
 
 	// The same list once it has the focus. The text input is frozen here, so
 	// this map can afford `j`/`k` and Enter.
-	useInput(
-		(input, key) => {
-			const result = handleSkillListKey(
-				input,
-				key,
-				completionIndex,
-				completions.length,
-			);
-			switch (result.action) {
-				case 'move': {
-					setCompletionIndex(result.index);
-					break;
-				}
-
-				case 'accept': {
-					acceptCompletion(result.index);
-					break;
-				}
-
-				case 'back': {
-					// The list stays open; only the focus goes back. The Esc after this
-					// one dismisses the list, and the one after that cancels the dialog.
-					setIsPickingSkill(false);
-					break;
-				}
-
-				case 'ignore': {
-					break;
-				}
+	useKeyboard(event => {
+		if (!isSkillFocused) return;
+		const {input, key} = shortcutKey(event);
+		const result = handleSkillListKey(
+			input,
+			key,
+			completionIndex,
+			completions.length,
+		);
+		switch (result.action) {
+			case 'move': {
+				setCompletionIndex(result.index);
+				break;
 			}
-		},
-		{isActive: isSkillFocused},
-	);
 
-	useInput(
-		(input, key) => {
-			if (agentPopupOpen.current) return;
-			const {current} = pickerStateRef;
-			const shown = current.query
-				? filterProfileOptions(options, current.query)
-				: options;
-			const result = handleFilterablePickerKey(
-				current,
-				input,
-				key,
-				shown.length,
-			);
-			updatePickerState(result.state);
-			switch (result.action) {
-				case 'submit': {
-					const chosen = shown[result.state.index];
-					if (chosen) {
-						onSubmit(
-							effectiveInput.trim(),
-							chosen.name,
-							ready.onRow,
-							agentOverrides[rowKey(chosen)] ?? null,
-						);
-					}
-
-					break;
-				}
-
-				case 'select': {
-					// Back to the full list with the match highlighted, so starting the
-					// session (or `a`) is still its own keystroke.
-					const chosen = shown[result.state.index];
-					updatePickerState({
-						query: null,
-						index: chosen ? Math.max(0, options.indexOf(chosen)) : 0,
-					});
-					break;
-				}
-
-				case 'agent': {
-					const option = shown[result.state.index];
-					if (option && config && canOverrideAgent) {
-						void chooseAgentProfile(option, config);
-					}
-					break;
-				}
-
-				case 'back': {
-					// First Esc hands focus back to the prompt; a second one (handled by
-					// the other useInput, now re-armed) cancels the dialog.
-					setIsPicking(false);
-					updatePickerState({query: null, index: 0});
-					break;
-				}
-
-				case undefined: {
-					break;
-				}
+			case 'accept': {
+				acceptCompletion(result.index);
+				break;
 			}
-		},
-		{isActive: isPicking && ready.closeTarget === null},
-	);
+
+			case 'back': {
+				// The list stays open; only the focus goes back. The Esc after this
+				// one dismisses the list, and the one after that cancels the dialog.
+				setIsPickingSkill(false);
+				break;
+			}
+
+			case 'ignore': {
+				break;
+			}
+		}
+	});
+
+	usePaste(event => {
+		if (!(isPicking && ready.closeTarget === null)) return;
+		if (agentPopupOpen.current) return;
+		updatePickerState(
+			pasteIntoFilterablePicker(
+				pickerStateRef.current,
+				new TextDecoder().decode(event.bytes),
+			),
+		);
+	});
+
+	useKeyboard(event => {
+		if (!(isPicking && ready.closeTarget === null)) return;
+		const {input, key} = shortcutKey(event);
+		if (agentPopupOpen.current) return;
+		const {current} = pickerStateRef;
+		const shown = current.query
+			? filterProfileOptions(options, current.query)
+			: options;
+		const result = handleFilterablePickerKey(current, input, key, shown.length);
+		updatePickerState(result.state);
+		switch (result.action) {
+			case 'submit': {
+				const chosen = shown[result.state.index];
+				if (chosen) {
+					onSubmit(
+						effectiveInput.trim(),
+						chosen.name,
+						ready.onRow,
+						agentOverrides[rowKey(chosen)] ?? null,
+					);
+				}
+
+				break;
+			}
+
+			case 'select': {
+				// Back to the full list with the match highlighted, so starting the
+				// session (or `a`) is still its own keystroke.
+				const chosen = shown[result.state.index];
+				updatePickerState({
+					query: null,
+					index: chosen ? Math.max(0, options.indexOf(chosen)) : 0,
+				});
+				break;
+			}
+
+			case 'agent': {
+				const option = shown[result.state.index];
+				if (option && config && canOverrideAgent) {
+					void chooseAgentProfile(option, config);
+				}
+				break;
+			}
+
+			case 'back': {
+				// First Esc hands focus back to the prompt; a second one (handled by
+				// the other useInput, now re-armed) cancels the dialog.
+				setIsPicking(false);
+				updatePickerState({query: null, index: 0});
+				break;
+			}
+
+			case undefined: {
+				break;
+			}
+		}
+	});
 
 	const chooseAgentProfile = async (
 		option: ProfileOption,
@@ -460,6 +470,7 @@ export default function PromptDialog({
 				message={`Close ${identifier}?`}
 				detail={title}
 				processingMessage={`Closing ${identifier}…`}
+				isDestructive={false}
 				onConfirm={ready.confirmClose}
 				onCancel={ready.cancelClose}
 			/>
@@ -494,78 +505,90 @@ export default function PromptDialog({
 	);
 
 	return (
-		<Box flexDirection="column">
+		<box flexDirection="column">
 			<TitledBox
 				title="+ New Session"
 				borderColor="green"
 				titleColor="greenBright"
 				borderStyle={promptFrame.borderStyle}
 				isDim={promptFrame.isDim}
-				width={width}
 				paddingY={layout.paddingY}
 			>
-				<Box
+				<box
 					marginBottom={1}
 					flexDirection="column"
-					display={layout.showInstructions ? 'flex' : 'none'}
+					visible={layout.showInstructions}
 				>
-					<Text dimColor>Enter a prompt or issue key:</Text>
-					<Text dimColor>
-						- <Text color="cyan">STA-123</Text> or <Text color="cyan">123</Text>{' '}
+					<text {...dimText()}>Enter a prompt or issue key:</text>
+					<text {...dimText()}>
+						-{' '}
+						{exampleKeys.map((key, index) => (
+							<Fragment key={key}>
+								{index > 0 && ' or '}
+								<span fg={terminalColor('cyan')}>{key}</span>
+							</Fragment>
+						))}{' '}
 						= open workspace for existing issue
-					</Text>
-					<Text dimColor>
-						- <Text color="cyan">description</Text> = start new workspace
-					</Text>
-				</Box>
+					</text>
+					<text {...dimText()}>
+						- <span fg={terminalColor('cyan')}>description</span> = start new
+						workspace
+					</text>
+				</box>
 
-				<Box>
-					<Text color="cyan">&gt; </Text>
+				<box flexDirection="row">
+					<text flexShrink={1} fg={terminalColor('cyan')}>
+						&gt;{' '}
+					</text>
 					<TextInput
+						isMultiline
 						value={prompt}
 						onChange={setPrompt}
 						onSubmit={handlePromptSubmit}
-						placeholder="STA-123, 123, or describe the task..."
+						placeholder={placeholder}
 						isFocused={!isPicking && !isSkillFocused}
 						isShowingCursor={ready.index === INPUT_INDEX}
 						highlight={highlight}
+						isKeepingVerticalArrows={!isCompleting && ready.issues.length === 0}
 					/>
-				</Box>
+				</box>
 
 				{ready.errorMessage && (
-					<Box marginTop={1}>
-						<Text color="red">{ready.errorMessage}</Text>
-					</Box>
+					<box flexDirection="row" marginTop={1}>
+						<text flexShrink={1} fg={terminalColor('red')}>
+							{ready.errorMessage}
+						</text>
+					</box>
 				)}
 
 				{!isPicking && !isSkillFocused && (
-					<Box marginTop={1}>
-						<Text dimColor>
+					<box flexDirection="row" marginTop={1}>
+						<text {...dimText()}>
 							{isCompleting ? (
 								<>
-									Press <Text color="cyan">Tab</Text> to complete,{' '}
-									<Text color="green">Enter</Text> for the list,{' '}
-									<Text color="yellow">Esc</Text> to dismiss
+									Press <span fg={terminalColor('cyan')}>Tab</span> to complete,{' '}
+									<span fg={terminalColor('green')}>Enter</span> for the list,{' '}
+									<span fg={terminalColor('yellow')}>Esc</span> to dismiss
 								</>
 							) : (
 								<>
-									Press <Text color="green">Enter</Text> to{' '}
+									Press <span fg={terminalColor('green')}>Enter</span> to{' '}
 									{opensPicker
 										? preview?.kind === 'deferred' && !preview.canPick
 											? 'start or pick an agent'
 											: 'choose a profile'
 										: 'start'}
-									, <Text color="yellow">Esc</Text> to cancel
+									, <span fg={terminalColor('yellow')}>Esc</span> to cancel
 								</>
 							)}
-						</Text>
-					</Box>
+						</text>
+					</box>
 				)}
 			</TitledBox>
 
 			<ReadyWorkList
 				ready={ready}
-				width={width}
+				width={availableWidth}
 				isFocused={!isPicking && ready.index >= 0}
 				hasHints={!isPicking}
 				maxVisible={layout.readyMaxVisible}
@@ -574,7 +597,6 @@ export default function PromptDialog({
 				<SkillPicker
 					entries={completions}
 					selectedIndex={activeCompletion}
-					width={width}
 					frame={focusFrame(isSkillFocused)}
 					isFocused={isSkillFocused}
 					maxVisible={layout.pickerMaxVisible}
@@ -585,7 +607,6 @@ export default function PromptDialog({
 					query={isPicking ? pickerState.query : null}
 					agentOverrides={agentOverrides}
 					selectedIndex={activeIndex}
-					width={width}
 					frame={pickerFrame}
 					isFocused={isPicking}
 					deferredLabel={deferredLabel}
@@ -593,7 +614,7 @@ export default function PromptDialog({
 					maxVisible={layout.pickerMaxVisible}
 				/>
 			)}
-		</Box>
+		</box>
 	);
 }
 
@@ -602,7 +623,6 @@ function ProfilePicker({
 	query,
 	agentOverrides,
 	selectedIndex,
-	width,
 	frame,
 	isFocused,
 	deferredLabel,
@@ -614,7 +634,6 @@ function ProfilePicker({
 	query: string | null;
 	agentOverrides: Record<string, string>;
 	selectedIndex: number;
-	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
 	/**
@@ -634,29 +653,35 @@ function ProfilePicker({
 		selectedIndex,
 		maxVisible,
 	);
+	const skinToneWide = useTmuxSkinToneWide();
 
 	return (
-		<Box flexDirection="column">
+		<box flexDirection="column">
 			<TitledBox
 				title="Profile"
 				borderColor="green"
 				titleColor="greenBright"
 				borderStyle={frame.borderStyle}
 				isDim={frame.isDim}
-				width={width}
 				paddingY={0}
 			>
 				{deferredLabel ? (
-					<Box>
-						<Text dimColor>{'  '}</Text>
-						<Text dimColor italic>
+					<box flexDirection="row">
+						<text {...dimText()}>{'  '}</text>
+						<text
+							fg={terminalColor()}
+							flexShrink={1}
+							attributes={textAttributes({dim: true, italic: true})}
+						>
 							{deferredLabel}
-						</Text>
-					</Box>
+						</text>
+					</box>
 				) : null}
-				{!deferredLabel && above > 0 && <Text dimColor>↑ {above} more</Text>}
+				{!deferredLabel && above > 0 && (
+					<text {...dimText()}>↑ {above} more</text>
+				)}
 				{!deferredLabel && options.length === 0 && (
-					<Text dimColor>{'  '}No match</Text>
+					<text {...dimText()}>{'  '}No match</text>
 				)}
 				{!deferredLabel &&
 					options.slice(start, end).map((option, offset) => {
@@ -665,83 +690,117 @@ function ProfilePicker({
 						// Same slot the ticket rail uses, so a profile wears the same
 						// glyph wherever it appears. Sits right of the selection caret
 						// (which owns column 0 for every row) and left of the label.
-						const slot = resolveEmojiSlot(maybeStripSkinTones(option.emoji));
+						const slot = resolveEmojiSlot(
+							maybeStripSkinTones(option.emoji, skinToneWide),
+						);
 						const agentOverride = agentOverrides[rowKey(option)];
 						return (
-							<Box key={rowKey(option)}>
-								<Box flexShrink={0}>
-									<Text
-										color={isSelected ? 'green' : undefined}
-										bold={isSelected}
+							<box flexDirection="row" key={rowKey(option)}>
+								<box flexDirection="row" flexShrink={0}>
+									<text
+										flexShrink={1}
+										attributes={textAttributes({bold: isSelected})}
+										fg={terminalColor(isSelected ? 'green' : undefined)}
 									>
 										{isSelected ? '❯ ' : '  '}
-									</Text>
-								</Box>
+									</text>
+								</box>
 								{slot ? (
-									<Box flexShrink={0}>
-										<Text>{slot.text}</Text>
-										{slot.needsSeparator ? <Text> </Text> : null}
-									</Box>
+									<box flexDirection="row" flexShrink={0}>
+										<text fg={terminalColor()} flexShrink={1}>
+											{slot.text}
+										</text>
+										{slot.needsSeparator ? (
+											<text fg={terminalColor()} flexShrink={1}>
+												{' '}
+											</text>
+										) : null}
+									</box>
 								) : null}
-								<Text wrap="truncate-end">
-									<Text
-										color={isSelected ? 'green' : undefined}
-										bold={isSelected}
-										italic={option.kind === 'deferred'}
+								<text
+									fg={terminalColor()}
+									flexShrink={1}
+									wrapMode="none"
+									height={1}
+								>
+									<span
+										attributes={textAttributes({
+											bold: isSelected,
+											italic: option.kind === 'deferred',
+										})}
+										fg={terminalColor(isSelected ? 'green' : undefined)}
 									>
 										{option.displayName}
-									</Text>
+									</span>
 									{option.matchedKeywords.length > 0 && (
-										<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
+										<span attributes={textAttributes({dim: true})}>
+											{' '}
+											← {option.matchedKeywords.join(', ')}
+										</span>
 									)}
 									{option.matchedPrefix && (
-										<Text dimColor> ← {option.matchedPrefix}</Text>
+										<span attributes={textAttributes({dim: true})}>
+											{' '}
+											← {option.matchedPrefix}
+										</span>
 									)}
-									{option.enforced && <Text color="magenta"> (enforced)</Text>}
+									{option.enforced && (
+										<span fg={terminalColor('magenta')}> (enforced)</span>
+									)}
 									{option.isDefault && option.matchedKeywords.length === 0 && (
-										<Text dimColor> (default)</Text>
+										<span attributes={textAttributes({dim: true})}>
+											{' '}
+											(default)
+										</span>
 									)}
-								</Text>
+								</text>
 								{agentOverride && (
-									<Text color="cyan" wrap="truncate-end">
+									<text
+										flexShrink={1}
+										fg={terminalColor('cyan')}
+										wrapMode="none"
+										height={1}
+									>
 										{' '}
 										→ {cutAgentProfileName(agentOverride)}
-									</Text>
+									</text>
 								)}
-							</Box>
+							</box>
 						);
 					})}
-				{!deferredLabel && below > 0 && <Text dimColor>↓ {below} more</Text>}
+				{!deferredLabel && below > 0 && (
+					<text {...dimText()}>↓ {below} more</text>
+				)}
 			</TitledBox>
 
 			{isFocused && query !== null ? (
-				<Box paddingX={2}>
-					<Text wrap="truncate-end">
-						<Text color="cyan">/{query}</Text>
-						<Text inverse> </Text>
-						<Text dimColor>
+				<box flexDirection="row" paddingX={2}>
+					<text fg={terminalColor()} flexShrink={1} wrapMode="none" height={1}>
+						<span fg={terminalColor('cyan')}>/{query}</span>
+						<span attributes={textAttributes({inverse: true})}> </span>
+						<span attributes={textAttributes({dim: true})}>
 							{' '}
-							· <Text color="green">Enter</Text> select ·{' '}
-							<Text color="yellow">Esc</Text> clear
-						</Text>
-					</Text>
-				</Box>
+							· <span fg={terminalColor('green')}>Enter</span> select ·{' '}
+							<span fg={terminalColor('yellow')}>Esc</span> clear
+						</span>
+					</text>
+				</box>
 			) : isFocused ? (
-				<Box paddingX={2}>
-					<Text dimColor wrap="truncate-end">
-						<Text color="green">↑/↓</Text> select · <Text color="cyan">/</Text>{' '}
-						filter ·{' '}
+				<box flexDirection="row" paddingX={2}>
+					<text {...dimText()} wrapMode="none" height={1}>
+						<span fg={terminalColor('green')}>↑/↓</span> select ·{' '}
+						<span fg={terminalColor('cyan')}>/</span> filter ·{' '}
 						{hasAgentChoice ? (
 							<>
-								<Text color="cyan">a</Text> agent ·{' '}
+								<span fg={terminalColor('cyan')}>a</span> agent ·{' '}
 							</>
 						) : null}
-						<Text color="green">Enter</Text> start ·{' '}
-						<Text color="yellow">Esc</Text> back
-					</Text>
-				</Box>
+						<span fg={terminalColor('green')}>Enter</span> start ·{' '}
+						<span fg={terminalColor('yellow')}>Esc</span> back
+					</text>
+				</box>
 			) : null}
-		</Box>
+		</box>
 	);
 }
 
@@ -757,14 +816,12 @@ function ProfilePicker({
 function SkillPicker({
 	entries,
 	selectedIndex,
-	width,
 	frame,
 	isFocused,
 	maxVisible,
 }: {
 	entries: SkillEntry[];
 	selectedIndex: number;
-	width: number;
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
 	maxVisible: number;
@@ -776,49 +833,52 @@ function SkillPicker({
 	);
 
 	return (
-		<Box flexDirection="column">
+		<box flexDirection="column">
 			<TitledBox
 				title="Skills"
 				borderColor="cyan"
 				titleColor="cyanBright"
 				borderStyle={frame.borderStyle}
 				isDim={frame.isDim}
-				width={width}
 				paddingY={0}
 			>
-				{above > 0 && <Text dimColor>↑ {above} more</Text>}
+				{above > 0 && <text {...dimText()}>↑ {above} more</text>}
 				{entries.slice(start, end).map((entry, offset) => {
 					const index = start + offset;
 					const isSelected = index === selectedIndex;
 					return (
-						<Box key={`${entry.source}:${entry.name}`}>
-							<Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+						<box flexDirection="row" key={`${entry.source}:${entry.name}`}>
+							<text
+								flexShrink={1}
+								attributes={textAttributes({bold: isSelected})}
+								fg={terminalColor(isSelected ? 'cyan' : undefined)}
+							>
 								{isSelected ? '❯ ' : '  '}/{entry.name}
-							</Text>
-							{entry.source === 'user' && <Text dimColor> (user)</Text>}
-						</Box>
+							</text>
+							{entry.source === 'user' && <text {...dimText()}> (user)</text>}
+						</box>
 					);
 				})}
-				{below > 0 && <Text dimColor>↓ {below} more</Text>}
+				{below > 0 && <text {...dimText()}>↓ {below} more</text>}
 			</TitledBox>
 
-			<Box paddingX={2}>
-				<Text dimColor>
+			<box flexDirection="row" paddingX={2}>
+				<text {...dimText()}>
 					{isFocused ? (
 						<>
-							<Text color="cyan">↑/↓</Text> select ·{' '}
-							<Text color="cyan">Enter</Text> complete ·{' '}
-							<Text color="yellow">Esc</Text> back
+							<span fg={terminalColor('cyan')}>↑/↓</span> select ·{' '}
+							<span fg={terminalColor('cyan')}>Enter</span> complete ·{' '}
+							<span fg={terminalColor('yellow')}>Esc</span> back
 						</>
 					) : (
 						<>
-							<Text color="cyan">↑/↓</Text> select ·{' '}
-							<Text color="cyan">Tab</Text> complete ·{' '}
-							<Text color="yellow">Esc</Text> dismiss
+							<span fg={terminalColor('cyan')}>↑/↓</span> select ·{' '}
+							<span fg={terminalColor('cyan')}>Tab</span> complete ·{' '}
+							<span fg={terminalColor('yellow')}>Esc</span> dismiss
 						</>
 					)}
-				</Text>
-			</Box>
-		</Box>
+				</text>
+			</box>
+		</box>
 	);
 }

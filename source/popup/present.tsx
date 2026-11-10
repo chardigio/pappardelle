@@ -1,20 +1,53 @@
-import React from 'react';
-import {render} from 'ink';
+import type {CliRenderer} from '@opentui/core';
+import {renderTui} from '../render-tui.ts';
 import PopupRoot from '../components/PopupRoot.tsx';
-import {createNormalizingStdin} from '../components/kitty-keyboard.ts';
 import type {PopupActions, PopupSpec} from './spec.ts';
 import type {PopupTerminal} from './terminal.ts';
 
-/**
- * Render the dialog into a popup's terminal from the TUI process, as a second
- * Ink instance alongside the TUI's own. Returns the function that closes it.
- */
+// The popup's PTY counts as remote to OpenTUI, which then forwards no
+// environment; without TERM and COLORTERM it converts palette colors to RGB.
+const popupEnvKeys = [
+	'TERM',
+	'COLORTERM',
+	'TERM_PROGRAM',
+	'TERM_PROGRAM_VERSION',
+	'TMUX',
+];
+
+/** Render into the popup PTY, with an independent OpenTUI renderer. */
 export function presentPopup(
 	spec: PopupSpec,
 	actions: PopupActions,
 	terminal: PopupTerminal,
 ): () => void {
-	const app = render(
+	let renderer: CliRenderer | undefined;
+	let closing = false;
+	let finished = false;
+	const finish = () => {
+		if (finished) return;
+		finished = true;
+		actions.cancel();
+		terminal.close();
+	};
+	const close = () => {
+		closing = true;
+		// Answers originate in key handlers. Defer teardown until dispatch ends.
+		queueMicrotask(() => renderer?.destroy());
+	};
+	// Once tmux has torn the popup's tty down, OpenTUI's raw-mode reset on it
+	// throws, and the logged throw would show in the rail's error count.
+	let ttyGone = false;
+	const {input} = terminal;
+	const setRawMode = input.setRawMode.bind(input);
+	input.setRawMode = mode => (ttyGone ? input : setRawMode(mode));
+	input.once('close', () => {
+		ttyGone = true;
+	});
+	void terminal.closed.then(() => {
+		ttyGone = true;
+		close();
+	});
+	void renderTui(
 		<PopupRoot
 			spec={spec}
 			actions={actions}
@@ -22,26 +55,20 @@ export function presentPopup(
 			height={terminal.output.rows}
 		/>,
 		{
-			stdin: createNormalizingStdin(terminal.input),
+			stdin: terminal.input,
 			stdout: terminal.output,
-			// The TUI's own Ink instance already owns the process console.
-			patchConsole: false,
+			forwardEnvKeys: popupEnvKeys,
+			// Ctrl+C destroys only this renderer; it does not exit the rail process.
+			exitOnCtrlC: true,
+			exitSignals: [],
+			useMouse: false,
 		},
-	);
-	// Ink unmounts itself on Ctrl+C, and tmux can close the popup under it.
-	// Either way the dialog went away unanswered.
-	void app.waitUntilExit().then(() => {
-		actions.cancel();
-		terminal.close();
-	});
-	void terminal.closed.then(() => {
-		app.unmount();
-	});
-	// A dialog answers from inside its own key handler, so it is unmounted only
-	// once that handler has returned.
-	return () => {
-		queueMicrotask(() => {
-			app.unmount();
-		});
-	};
+	)
+		.then(view => {
+			renderer = view.renderer;
+			void renderer.closed.catch(finish).then(finish);
+			if (closing) renderer.destroy();
+		})
+		.catch(finish);
+	return close;
 }

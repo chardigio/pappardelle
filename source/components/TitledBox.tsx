@@ -1,84 +1,52 @@
-import React, {type ReactNode} from 'react';
-import {Box, Text} from 'ink';
-import {buildTitledBorderTop} from './titled-border.ts';
-
-type Props = {
-	title: string;
-	borderColor: string;
-	/**
-	 * Heading color. Required, and it should differ from `borderColor` — see the
-	 * comment on the top row below for why inheriting the frame's color breaks.
-	 */
-	titleColor: string;
-	borderStyle?: 'double' | 'round';
-	/** Fixed outer width, in cells. Required — the hand-drawn top edge can't flex. */
-	width: number;
-	/** Blank rows inside the top and bottom edges. */
-	paddingY?: number;
-	/** Render the frame and heading dimmed — used to mark an unfocused box. */
-	isDim?: boolean;
-	children: ReactNode;
-};
+import type {BoxRenderable, OptimizedBuffer} from '@opentui/core';
+import {useMemo, type ReactNode} from 'react';
+import {terminalColor} from '../tui-style.ts';
+import {paintFrame, type FrameSpec} from './frame-paint.ts';
 
 /**
- * A bordered box whose heading sits inside the top edge.
- *
- * The top rule is drawn by hand (see `titled-border.ts`) and the box below it
- * omits its own top border, so the two halves read as one frame. That means the
- * width can't be intrinsic the way a plain `<Box borderStyle>` is — callers must
- * pass an explicit `width`, and every child has to fit it.
+ * OpenTUI's box draws its border and title without text attributes, so it can
+ * neither dim an unfocused frame nor bold the heading. The box keeps its border
+ * for layout, and the frame is repainted over it with the attributes. Dimming
+ * goes through SGR 2 on the palette color rather than opacity: opacity blends
+ * toward black, which vanishes on dark themes and darkens on light ones.
  */
 export default function TitledBox({
 	title,
 	borderColor,
 	titleColor,
 	borderStyle = 'double',
-	width,
 	paddingY = 1,
 	isDim = false,
 	children,
-}: Props) {
-	const {prefix, label, suffix} = buildTitledBorderTop(
-		title,
-		width,
-		borderStyle,
-	);
+}: {
+	title: string;
+	borderColor: string;
+	titleColor: string;
+	borderStyle?: 'double' | 'round';
+	paddingY?: number;
+	isDim?: boolean;
+	children: ReactNode;
+}) {
+	const style = borderStyle === 'round' ? 'rounded' : borderStyle;
+	const renderAfter = useMemo(() => {
+		const spec: FrameSpec = {title, borderColor, titleColor, style, isDim};
+		return function (this: BoxRenderable, buffer: OptimizedBuffer) {
+			paintFrame(this, buffer, spec);
+		};
+	}, [title, borderColor, titleColor, style, isDim]);
 
 	return (
-		<Box flexDirection="column" width={width}>
-			{/*
-			 * Give the heading a color of its own rather than letting it inherit
-			 * the frame's. Ink elides an SGR it believes is already open, so a
-			 * heading painted the same color as the corner beside it ships as a
-			 * bare `ESC[1m` run — correct, but renderers that reset the
-			 * foreground on a bold-only run (`freeze`, some terminals) then draw
-			 * it uncolored. An explicit color is always emitted.
-			 */}
-			<Box flexDirection="row" width={width}>
-				<Text color={borderColor} dimColor={isDim}>
-					{prefix}
-				</Text>
-				{label ? (
-					<Text bold color={titleColor} dimColor={isDim}>
-						{label}
-					</Text>
-				) : null}
-				<Text color={borderColor} dimColor={isDim}>
-					{suffix}
-				</Text>
-			</Box>
-			<Box
-				flexDirection="column"
-				width={width}
-				borderStyle={borderStyle}
-				borderColor={borderColor}
-				borderDimColor={isDim}
-				borderTop={false}
-				paddingX={2}
-				paddingY={paddingY}
-			>
-				{children}
-			</Box>
-		</Box>
+		<box
+			flexDirection="column"
+			width="100%"
+			border
+			borderStyle={style}
+			borderColor={terminalColor(borderColor)}
+			renderAfter={renderAfter}
+			paddingX={2}
+			paddingY={paddingY}
+		>
+			{children}
+		</box>
 	);
 }

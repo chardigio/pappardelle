@@ -1,20 +1,16 @@
 // Width-aware truncation for the ticket-rail title.
 //
-// The title is laid out by Ink, which sizes a <Text> box with its bundled
-// `string-width` (via `widest-line`). A ✨ U+2728 is a single UTF-16 code unit
-// but Ink lays it out as a 2-cell box, so the previous code-unit truncation
-// (`title.slice(0, n)`) under-counted it: a kept ✨ pushed the title one cell
-// past its width budget, shoving the right-aligned rail icons out of alignment
-// (STA-1565 follow-up — the profile-emoji slot was fixed first; the title text
-// has the same writer/layout mismatch).
+// A ✨ U+2728 is a single UTF-16 code unit but takes 2 terminal cells, so the
+// previous code-unit truncation (`title.slice(0, n)`) under-counted it: a kept ✨
+// pushed the title one cell past its width budget, shoving the right-aligned
+// rail icons out of alignment (STA-1565 follow-up).
 //
-// Measuring with `widest-line` (Ink's layout measure, the same library the
-// profile-emoji fix adopted) and stepping by grapheme keeps the truncation in
-// lockstep with how Ink sizes the row. `widest-line` is deliberately chosen over
-// pappardelle's newer `string-width`, whose tables disagree with Ink's bundled
-// copy for a few symbols (❤ ✂), so only `widest-line` predicts Ink's box.
+// Widths come from OpenTUI with the renderer's width method: tmux forces the
+// unicode method, while outside tmux a terminal without mode 2027 gets wcwidth,
+// which counts each emoji code point. No JS width table matches both.
 
-import widestLine from 'widest-line';
+import type {WidthMethod} from '@opentui/core';
+import {displayWidth} from './text-measure.ts';
 
 // Grapheme stepping so a VS16 / ZWJ emoji (⚙️ = U+2699 U+FE0F, 👨‍👩‍👧) is measured
 // and cut as one unit rather than split mid-cluster.
@@ -23,25 +19,67 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, {
 });
 
 /**
- * Truncate `text` to at most `maxCells` terminal columns *as Ink lays them out*,
- * appending a one-cell '…' when it doesn't fit. Returns '' for a non-positive
- * budget. Width is measured with `widest-line` so multi-cell emoji (✨ counts as
- * 2) reserve the columns Ink will actually size their box at — the previous
- * `String.slice` counted UTF-16 code units and overflowed on those emoji.
+ * Truncate `text` to at most `maxCells` terminal columns as OpenTUI lays it
+ * out, appending a one-cell '…' when it doesn't fit. Returns '' for a
+ * non-positive budget.
  */
-export function truncateToWidth(text: string, maxCells: number): string {
+export function truncateToWidth(
+	text: string,
+	maxCells: number,
+	widthMethod: WidthMethod,
+): string {
 	if (maxCells <= 0) return '';
-	if (widestLine(text) <= maxCells) return text;
+	if (displayWidth(text, widthMethod) <= maxCells) return text;
+	return cutToWidth(text, maxCells - 1, widthMethod) + '…';
+}
 
-	const budget = maxCells - 1; // reserve one cell for the ellipsis
+function cutToWidth(
+	text: string,
+	maxCells: number,
+	widthMethod: WidthMethod,
+): string {
 	let result = '';
 	let width = 0;
 	for (const {segment} of graphemeSegmenter.segment(text)) {
-		const segmentWidth = widestLine(segment);
-		if (width + segmentWidth > budget) break;
+		const segmentWidth = displayWidth(segment, widthMethod);
+		if (width + segmentWidth > maxCells) break;
 		result += segment;
 		width += segmentWidth;
 	}
 
-	return result + '…';
+	return result;
+}
+
+/**
+ * `truncateToWidth` across differently styled runs of one line: runs that fit
+ * are kept whole, and the run that crosses the budget is cut and carries the
+ * ellipsis in its own style.
+ */
+export function truncateRunsToWidth<Run extends {text: string}>(
+	runs: Run[],
+	maxCells: number,
+	widthMethod: WidthMethod,
+): Run[] {
+	if (maxCells <= 0) return [];
+	const widths = runs.map(run => displayWidth(run.text, widthMethod));
+	const total = widths.reduce((sum, width) => sum + width, 0);
+	if (total <= maxCells) return runs;
+
+	const kept: Run[] = [];
+	let remaining = maxCells;
+	for (const [index, run] of runs.entries()) {
+		const width = widths[index]!;
+		if (width >= remaining) {
+			kept.push({
+				...run,
+				text: cutToWidth(run.text, remaining - 1, widthMethod) + '…',
+			});
+			break;
+		}
+
+		kept.push(run);
+		remaining -= width;
+	}
+
+	return kept;
 }

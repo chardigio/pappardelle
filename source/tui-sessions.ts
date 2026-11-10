@@ -1,4 +1,6 @@
-import {existsSync, readdirSync, realpathSync} from 'node:fs';
+import {bunIsolationArgs} from './runtime.ts';
+import {existsSync, readdirSync} from 'node:fs';
+import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
@@ -8,6 +10,7 @@ import {
 	tmuxSessionRepo,
 } from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
+import type {PaneLayout} from './types.ts';
 import {readTuiMarker, tryRestartLock, type TuiMarker} from './tui-marker.ts';
 
 // The TUI session is created with the repo's own spelling, which tmux 3.6 and
@@ -213,14 +216,6 @@ async function waitForTuiMarker(
 	}
 }
 
-function sameFile(a: string, b: string): boolean {
-	try {
-		return realpathSync(a) === realpathSync(b);
-	} catch {
-		return a === b;
-	}
-}
-
 // With an `expectedCliPath`, a TUI that comes up on any other cli.js is a
 // failure. Returns whether the TUI is confirmed running.
 export async function restartAndVerifyTui(
@@ -314,9 +309,9 @@ export async function restartTuis(
 
 // The command a new TUI session runs, which every later restart reruns. A TUI
 // started from the installed release runs through the ~/.local/bin shim, which
-// each install re-pins to a node meeting that release's floor; baking in the
-// launching node would outlive it. Other builds (e.g. a dev build at
-// ~/.local/bin/pappardelle-sta862) keep their own node and cli.js so they don't
+// each install re-pins to a runtime meeting that release's floor; baking in the
+// launching runtime would outlive it. Other builds (e.g. a dev build at
+// ~/.local/bin/pappardelle-sta862) keep their own Bun and cli.js so they don't
 // fall back to the release.
 export function tuiLaunchCommand(options: {
 	execPath: string;
@@ -335,9 +330,15 @@ export function tuiLaunchCommand(options: {
 	);
 	const shim = path.join(options.home, '.local', 'bin', 'pappardelle');
 	const command =
-		path.resolve(options.cliPath) === releaseCli && exists(shim)
+		[releaseCli, path.join(path.dirname(releaseCli), 'pappardelle')].includes(
+			path.resolve(options.cliPath),
+		) && exists(shim)
 			? shellQuote(shim)
-			: `${shellQuote(options.execPath)} ${shellQuote(options.cliPath)}`;
+			: options.execPath === options.cliPath
+				? shellQuote(options.execPath)
+				: [options.execPath, ...bunIsolationArgs, options.cliPath]
+						.map(arg => shellQuote(arg))
+						.join(' ');
 	return [command, ...options.args].join(' ');
 }
 
@@ -360,12 +361,46 @@ function sleepSync(ms: number): void {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export type RestartOwnTuiDeps = RestartTuiDeps & {
+export type CloseLayoutDeps = {
 	currentSession: () => string | null;
 	killSession: (sessionName: string) => void;
-	waitForKey: () => void;
-	sleep?: (ms: number) => void;
+	// Reaches the server the layout was split on, which is the one $TMUX names.
+	layoutTmux: OuterTmuxRunner;
 };
+
+export type RestartOwnTuiDeps = RestartTuiDeps &
+	CloseLayoutDeps & {
+		waitForKey: () => void;
+		sleep?: (ms: number) => void;
+	};
+
+function isOwnTuiSession(
+	repoName: string,
+	session: string | null,
+): session is string {
+	return session !== null && tuiSessionNames(repoName).includes(session);
+}
+
+// One call per pane: tmux skips the rest of a command list after a failure,
+// so a viewer the user already closed would keep the other one open.
+function closeViewerPanes(layout: PaneLayout, tmux: OuterTmuxRunner): void {
+	for (const paneId of [layout.agentViewerPaneId, layout.companionViewerPaneId])
+		if (paneId) tmux(['kill-pane', '-t', paneId]);
+}
+
+// Quitting takes the TUI's own session down with it. A TUI started inside the
+// user's own tmux session closes just the viewers it split off: left open,
+// they keep the rail pane narrow, and the next run there splits the rail into
+// a second layout.
+export function closeTuiLayout(
+	repoName: string,
+	layout: PaneLayout,
+	deps: CloseLayoutDeps,
+): void {
+	const current = deps.currentSession();
+	if (isOwnTuiSession(repoName, current)) deps.killSession(current);
+	else closeViewerPanes(layout, deps.layoutTmux);
+}
 
 // The TUI restarting itself after U's install. A successful restart ends this
 // process, so nothing after it runs and the lock it leaves is stale at once.
@@ -381,19 +416,14 @@ export function restartOwnTui(
 		repoName: string;
 		paneId: string;
 		command: string;
-		hasPaneLayout: boolean;
+		paneLayout: PaneLayout | null;
 	},
 	deps: RestartOwnTuiDeps,
 ): void {
 	const current = deps.currentSession();
-	if (
-		current === null ||
-		!tuiSessionNames(options.repoName).includes(current)
-	) {
-		if (options.hasPaneLayout) {
-			deps.killSession(outerSessionName(options.repoName));
-		}
-
+	if (!isOwnTuiSession(options.repoName, current)) {
+		if (options.paneLayout)
+			closeViewerPanes(options.paneLayout, deps.layoutTmux);
 		return;
 	}
 

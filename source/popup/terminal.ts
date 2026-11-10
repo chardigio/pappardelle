@@ -1,5 +1,6 @@
-import {execFile, spawn} from 'node:child_process';
+import {execFile, execFileSync, spawn} from 'node:child_process';
 import {
+	closeSync,
 	existsSync,
 	mkdtempSync,
 	openSync,
@@ -41,8 +42,8 @@ export function buildDisplayPopupArgs({
 	const script = [
 		// The popup's tty starts cooked, so a key typed right behind the one that
 		// opened the popup would be echoed over the first frame and Enter would
-		// arrive as a line feed, which Ink doesn't read as Return. Raw from the
-		// start, the keys wait unchanged for Ink.
+		// arrive as a line feed, which OpenTUI reports as `linefeed`, not Return.
+		// Raw from the start, the keys wait unchanged for the renderer.
 		'stty -icanon -echo -icrnl min 1 time 0 2>/dev/null',
 		// Written whole and then renamed, so the TUI never reads half a line.
 		`echo "$$ $(tty)" > ${pending} && mv ${pending} ${shellQuote(readyPath)}`,
@@ -104,6 +105,20 @@ async function waitForReady(
 	}
 }
 
+function closePopupOnClient() {
+	try {
+		execFileSync('tmux', ['display-popup', '-C'], {
+			stdio: 'ignore',
+			timeout: 2000,
+		});
+	} catch (error) {
+		log.warn(
+			'display-popup -C failed',
+			error instanceof Error ? error : undefined,
+		);
+	}
+}
+
 function killPopupShell(shellPid: number) {
 	try {
 		// The popup shell leads its own process group, which takes a pending
@@ -123,6 +138,7 @@ export async function openPopupTerminal(
 ): Promise<PopupTerminal | undefined> {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
 	const readyPath = path.join(dir, 'ready');
+	let isPopupOpen = true;
 	const closed = new Promise<void>(resolve => {
 		const popup = spawn(
 			'tmux',
@@ -131,9 +147,11 @@ export async function openPopupTerminal(
 		);
 		popup.on('error', error => {
 			log.warn('display-popup failed', error);
+			isPopupOpen = false;
 			resolve();
 		});
 		popup.on('exit', () => {
+			isPopupOpen = false;
 			resolve();
 		});
 	});
@@ -145,9 +163,11 @@ export async function openPopupTerminal(
 		const shellPid = Number(pid);
 		let input: tty.ReadStream;
 		let output: tty.WriteStream;
+		let outputFd: number;
 		try {
 			input = new tty.ReadStream(openSync(ttyPath, 'r+'));
-			output = new tty.WriteStream(openSync(ttyPath, 'r+'));
+			outputFd = openSync(ttyPath, 'r+');
+			output = new tty.WriteStream(outputFd);
 		} catch (error) {
 			log.warn(
 				'Could not open the popup terminal',
@@ -170,7 +190,14 @@ export async function openPopupTerminal(
 				isClosing = true;
 				input.destroy();
 				output.destroy();
+				// Bun's tty.WriteStream writes through a dup of the fd and destroy()
+				// closes only the dup. Left open, the popup's pty never sees EOF,
+				// so tmux keeps the blank popup up and it swallows the client's keys.
+				closeSync(outputFd);
 				killPopupShell(shellPid);
+				// The input fd stays open too while Bun has a read pending on it,
+				// and only a hangup ends that read, so tmux has to close the popup.
+				if (isPopupOpen) closePopupOnClient();
 			},
 		};
 	} finally {

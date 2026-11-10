@@ -5,6 +5,7 @@ import {createLogger} from '../logger.ts';
 import {classifyPipeline, type CheckContext} from '../rail-status.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import type {PRInfo, PRLink, RailStatus, VcsHostProvider} from './types.ts';
+import {readPrLinkStamp} from '../pr-link-stamp.ts';
 import {aggregateRailStatus} from './aggregate-rail-status.ts';
 import {
 	discoverWorkspaceRepositories,
@@ -120,6 +121,9 @@ function buildPRSearchQuery(
 	return openOnly ? `${base} is:open ${PR_SORT}` : `${base} ${PR_SORT}`;
 }
 
+const REPO_SLUG_RETRY_MS = 30_000;
+const REPO_SLUG_MAX_RETRY_MS = 5 * 60_000;
+
 function isValidSlug(slug: string): boolean {
 	const parts = slug.split('/');
 	return parts.length === 2 && Boolean(parts[0]) && Boolean(parts[1]);
@@ -130,11 +134,20 @@ export class GitHubProvider implements VcsHostProvider {
 		return 'github';
 	}
 
-	// Only successful discovery is cached; a failed lookup can retry next time.
 	private repoSlug: string | null | undefined = undefined;
 	private repoSlugLookup?: Promise<string | null>;
+	private repoSlugFailure?: {
+		error: unknown;
+		count: number;
+		at: number;
+		retryAt: number;
+	};
+
+	private loggedRepoSlugError: unknown;
 	private readonly executor: GhExecutor;
 	private readonly discover: RepositoryDiscovery;
+	private readonly now: () => number;
+	private readonly linkedAt: () => number;
 
 	/**
 	 * @param executor - Optional async gh CLI wrapper; defaults to real execFile calls.
@@ -147,18 +160,31 @@ export class GitHubProvider implements VcsHostProvider {
 		executor?: GhExecutor,
 		initialRepoSlug?: string | null,
 		discover: RepositoryDiscovery = discoverWorkspaceRepositories,
+		clock: {now?: () => number; linkedAt?: () => number} = {},
 	) {
 		this.discover = discover;
 		this.executor = executor ?? defaultGhExecutor;
+		this.now = clock.now ?? Date.now;
+		this.linkedAt = clock.linkedAt ?? readPrLinkStamp;
 		if (initialRepoSlug !== undefined) this.repoSlug = initialRepoSlug;
 	}
 
 	/**
-	 * Get the owner/repo slug from the current git remote.
-	 * Cached after first call. Returns null if not in a GitHub repo.
+	 * Get the owner/repo slug of the current repository. Cached once found.
+	 * Rejects when discovery fails; failures are retried with a bounded
+	 * backoff so rail polling does not rerun `gh repo view` every time. A
+	 * user's own request (`fresh`) and a newly linked PR skip the backoff.
 	 */
-	private async getRepoSlug(): Promise<string | null> {
+	private async getRepoSlug(fresh = false): Promise<string | null> {
 		if (this.repoSlug !== undefined) return this.repoSlug;
+		const failure = this.repoSlugFailure;
+		if (
+			failure &&
+			!fresh &&
+			this.now() < failure.retryAt &&
+			this.linkedAt() <= failure.at
+		)
+			throw failure.error;
 		this.repoSlugLookup ??= this.executor([
 			'repo',
 			'view',
@@ -169,11 +195,27 @@ export class GitHubProvider implements VcsHostProvider {
 		])
 			.then(output => {
 				const slug = output.trim();
-				if (!isValidSlug(slug)) return null;
+				if (!isValidSlug(slug))
+					throw new Error('gh repo view returned no owner/repo');
 				this.repoSlug = slug;
+				this.repoSlugFailure = undefined;
 				return slug;
 			})
-			.catch(() => null)
+			.catch((error: unknown) => {
+				const count = (this.repoSlugFailure?.count ?? 0) + 1;
+				this.repoSlugFailure = {
+					error,
+					count,
+					at: this.now(),
+					retryAt:
+						this.now() +
+						Math.min(
+							REPO_SLUG_RETRY_MS * 2 ** (count - 1),
+							REPO_SLUG_MAX_RETRY_MS,
+						),
+				};
+				throw error;
+			})
 			.finally(() => {
 				this.repoSlugLookup = undefined;
 			});
@@ -182,6 +224,7 @@ export class GitHubProvider implements VcsHostProvider {
 
 	private async findPR(
 		issueKey: string,
+		fresh = false,
 	): Promise<(PRLink & {changedFiles: number}) | null> {
 		// Discover PR by branch name (branch name matches issue key, or a
 		// prefix of it for follow-up branches). This approach is
@@ -193,10 +236,8 @@ export class GitHubProvider implements VcsHostProvider {
 		// `X-FOLLOW-1` resolve from the parent issue key X. No state filter
 		// — merged PRs stay resolvable when no open PR exists. See PR_SORT
 		// for ordering rationale.
-		const slug = await this.getRepoSlug();
-		if (!slug || !isValidSlug(slug)) {
-			return null;
-		}
+		const slug = await this.getRepoSlug(fresh);
+		if (!slug) return null;
 
 		const searchQuery = buildPRSearchQuery(slug, issueKey, false);
 		const query = `
@@ -237,7 +278,7 @@ export class GitHubProvider implements VcsHostProvider {
 	}
 
 	async getPRLink(issueKey: string): Promise<PRLink | null> {
-		const pr = await this.findPR(issueKey);
+		const pr = await this.findPR(issueKey, true);
 		return pr ? {number: pr.number, url: pr.url} : null;
 	}
 
@@ -265,7 +306,7 @@ export class GitHubProvider implements VcsHostProvider {
 	}
 
 	async buildPRUrl(prNumber: number): Promise<string> {
-		const slug = await this.getRepoSlug();
+		const slug = await this.getRepoSlug().catch(() => null);
 		if (slug) {
 			return `https://github.com/${slug}/pull/${prNumber}`;
 		}
@@ -276,10 +317,9 @@ export class GitHubProvider implements VcsHostProvider {
 
 	async getRailStatus(issueKey: string): Promise<RailStatus> {
 		const empty: RailStatus = {pipeline: null, unresolvedCommentCount: 0};
-		const slug = await this.getRepoSlug();
-		if (!slug || !isValidSlug(slug)) return empty;
-
 		try {
+			const slug = await this.getRepoSlug();
+			if (!slug) return empty;
 			const searchQuery = buildPRSearchQuery(slug, issueKey, true);
 			const query = `
 				query {
@@ -293,7 +333,7 @@ export class GitHubProvider implements VcsHostProvider {
 				}
 			`;
 
-			// Async exec — execFileSync would block the Ink event loop for the
+			// Async exec — execFileSync would block the event loop for the
 			// entire duration of the gh call (~500ms-1s), and Promise.all over N
 			// spaces would make initial pappardelle startup feel frozen.
 			const stdout = await this.executor([
@@ -341,8 +381,24 @@ export class GitHubProvider implements VcsHostProvider {
 		const result = new Map<string, RailStatus>();
 		if (issueKeys.length === 0) return result;
 
-		const slug = await this.getRepoSlug();
-		if (!slug || !isValidSlug(slug)) return result;
+		let slug: string | null;
+		try {
+			slug = await this.getRepoSlug();
+		} catch (err) {
+			// The backoff rethrows the same failure, and a repo without gh or a
+			// GitHub remote keeps failing for good, so only the first failure in a
+			// run of them reaches the rail's error list.
+			if (err !== this.loggedRepoSlugError) {
+				this.loggedRepoSlugError = err;
+				const error = sanitizeSubprocessError(err);
+				if (this.repoSlugFailure?.count === 1)
+					log.warn('Failed to discover GitHub repository', error);
+				else log.info(`Failed to discover GitHub repository: ${error.message}`);
+			}
+
+			return result;
+		}
+		if (!slug) return result;
 
 		// Build one aliased search() field per branch so a single GraphQL
 		// request fetches all PR states. Alias names are pr0, pr1, … and we

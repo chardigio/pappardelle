@@ -1,26 +1,37 @@
+import {stripVTControlCharacters} from 'node:util';
+import {useKeyboard, useRenderer} from '@opentui/react';
+import type {CliRenderer} from '@opentui/core';
+import {shortcutKey} from './tui-key.ts';
+import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
-import {Box, Text, useInput, useStdout} from 'ink';
+
 import TextInput from './components/TextInput.tsx';
+import PaneFrame, {PANE_FRAME_SIZE} from './components/PaneFrame.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
-import {WorkspaceRefresh} from './workspace-refresh.ts';
+import {WorkspaceRefresh, compareSpaceNames} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
-import {fileURLToPath} from 'node:url';
+import {scriptsDir, cliFilePath} from './runtime.ts';
 import fs from 'node:fs';
 import {homedir, tmpdir} from 'node:os';
 import path from 'node:path';
 
-import SpaceListItem from './components/SpaceListItem.tsx';
+import SpaceListItem, {ROW_PADDING_CELLS} from './components/SpaceListItem.tsx';
 import PromptDialog from './components/PromptDialog.tsx';
 import ConfirmDialog from './components/ConfirmDialog.tsx';
 import HelpOverlay from './components/HelpOverlay.tsx';
 import ErrorDialog from './components/ErrorDialog.tsx';
 import UpdateBanner from './components/UpdateBanner.tsx';
+import TruncatedLine, {type Run} from './components/TruncatedLine.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
-import {installedLaunchCommand, restartOwnTui} from './tui-sessions.ts';
+import {
+	closeTuiLayout,
+	installedLaunchCommand,
+	restartOwnTui,
+} from './tui-sessions.ts';
 import {
 	DEFAULT_REPO_STATE_ROOT,
 	clearDeadRestartLock,
@@ -47,9 +58,7 @@ import {
 
 const log = createLogger('app');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+const SCRIPTS_DIR = scriptsDir;
 
 // Spawn errors carry a whole command line; the header only has room for the
 // part that names what went wrong.
@@ -145,8 +154,12 @@ import {
 import {runCloseHooks, shouldAttach} from './close-space.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
+import {AttachmentGate} from './attachment-gate.ts';
 import {LatestTask} from './latest-task.ts';
-import {sendToSelectedAgent} from './send-to-claude.ts';
+import {
+	sendToSelectedAgent,
+	type SendToClaudeResult,
+} from './send-to-claude.ts';
 import {
 	isInTmux,
 	getWorktreePath,
@@ -154,11 +167,12 @@ import {
 	getMainWorktreeInfo,
 	attachToSpace,
 	displayMessageInPane,
-	sendToPane,
+	sendToSpaceAgent,
+	focusPane,
 	getCurrentlyViewingSpace,
 	killSession,
-	outerSessionName,
 	currentDefaultServerSession,
+	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
 	killSpaceSessions,
 	deleteQaSimulator,
@@ -173,10 +187,9 @@ import {
 import {isWorktreeDirty} from './git-status.ts';
 import {
 	calculateVisibleWindow,
-	calculateListClickRow,
 	HEADER_ROWS,
+	statusLineFits,
 } from './list-view-sizing.ts';
-import {useMouse} from './use-mouse.ts';
 import {filterSpaces, tearDownSpace} from './space-utils.ts';
 import {
 	getRegisteredSpaces,
@@ -208,6 +221,26 @@ function claimIssueInBackground(issueKey: string): void {
 	});
 }
 
+const closeLayoutDeps = {
+	currentSession: () => currentDefaultServerSession(process.env),
+	killSession,
+	layoutTmux: defaultOuterTmuxRunner,
+};
+
+/**
+ * Workspace sessions stay alive; only the layout closes. The renderer resets
+ * the terminal first: closing the layout can kill the session that owns this
+ * pty.
+ */
+export function quitTui(
+	renderer: CliRenderer,
+	repoName: string,
+	paneLayout: PaneLayout | null,
+): void {
+	renderer.destroy();
+	if (paneLayout) closeTuiLayout(repoName, paneLayout, closeLayoutDeps);
+}
+
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
 	paneLayout: PaneLayout | null;
@@ -228,7 +261,8 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
-	const {stdout} = useStdout();
+	const renderer = useRenderer();
+	const {stdout} = process;
 
 	const repoName = React.useMemo(() => {
 		try {
@@ -250,8 +284,18 @@ export default function App({
 		[repoName],
 	);
 
-	const {spaces, setSpaces, selectedIndex, setSelectedIndex, selectSpace} =
-		useSpaceSelection();
+	const {
+		spaces,
+		setSpaces,
+		selectedIndex,
+		setSelectedIndex,
+		selectSpace,
+		current: currentSelection,
+	} = useSpaceSelection();
+	const selectedSpaceNow = useCallback(() => {
+		const {spaces, selectedIndex} = currentSelection();
+		return spaces[selectedIndex];
+	}, [currentSelection]);
 	const spacesRef = useRef(spaces);
 	spacesRef.current = spaces;
 	const statusKeysRef = useRef(new Set<string>());
@@ -336,7 +380,9 @@ export default function App({
 
 	const showHeaderMessage = useCallback((msg: string) => {
 		if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
-		setHeaderMessage(msg);
+		// Messages often quote script output, whose color codes OpenTUI would
+		// print as literal text.
+		setHeaderMessage(stripVTControlCharacters(msg));
 		return ++headerGeneration.current;
 	}, []);
 
@@ -351,6 +397,7 @@ export default function App({
 	// Identifies the most recent `d` launch so a slow editor's failure can't
 	// overwrite the header of whatever the user did after it.
 	const ideLaunchCounter = useRef(0);
+	const openPRRequest = useRef(0);
 
 	// Load config once at startup. Used for keybindings, emoji lookup, etc.
 	// May be null if .pappardelle.yml is missing or invalid; downstream lookups
@@ -441,15 +488,13 @@ export default function App({
 	// Instead: release the alt screen + mouse tracking so the installer's stdout
 	// is visible in the list pane, run it to completion with inherited stdio, and
 	// only then tear down the outer session.
-	const handleUpdateConfirmed = useCallback(() => {
+	const handleUpdateConfirmed = useCallback(async () => {
 		log.info('Update keybinding triggered — running install.sh');
 		// Leaving the alt screen: restore stderr→terminal forwarding (suppressed
 		// while the TUI owned the screen, STA-1496) so the installer's diagnostics
 		// are visible.
 		setStderrTerminalPassthrough(true);
-		process.stdout.write('\x1b[?1006l'); // disable SGR mouse
-		process.stdout.write('\x1b[?1000l'); // disable basic mouse
-		process.stdout.write('\x1b[?1049l'); // exit alt screen
+		await renderer.suspend();
 		runUpdateScript({waitOnFailure: true});
 		// Reruns the TUI through the shim the installer just re-pinned (which
 		// still points at the old build after a failed install).
@@ -459,16 +504,15 @@ export default function App({
 				paneId: process.env['TMUX_PANE'] ?? '',
 				command: installedLaunchCommand({
 					execPath: process.execPath,
-					cliPath: path.resolve(process.argv[1] ?? ''),
+					cliPath: cliFilePath(),
 					home: homedir(),
 				}),
-				hasPaneLayout: paneLayout !== null,
+				paneLayout,
 			},
 			{
+				...closeLayoutDeps,
 				tmux: defaultServerTmuxRunner,
 				repoStateRoot: DEFAULT_REPO_STATE_ROOT,
-				currentSession: () => currentDefaultServerSession(process.env),
-				killSession,
 				print(line) {
 					process.stdout.write(`\n${line}\n`);
 				},
@@ -481,7 +525,7 @@ export default function App({
 		);
 		// eslint-disable-next-line unicorn/no-process-exit
 		process.exit(0);
-	}, [paneLayout, repoName]);
+	}, [paneLayout, repoName, renderer]);
 
 	// Tells `pappardelle restart` which build came up in this pane. Written on
 	// mount, so it also says the TUI got as far as rendering.
@@ -492,7 +536,7 @@ export default function App({
 			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
 			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
 				pid: process.pid,
-				cliPath: path.resolve(process.argv[1] ?? ''),
+				cliPath: cliFilePath(),
 				sha: commitSha,
 				paneId,
 				startedAt: Date.now(),
@@ -515,10 +559,32 @@ export default function App({
 	const closeTasks = useRef(new WorkspaceCloseTasks());
 	const workspaceRefresh = useRef<WorkspaceRefresh | null>(null);
 
-	const [termDimensions, setTermDimensions] = useState({
+	const [paneDimensions, setPaneDimensions] = useState({
 		rows: stdout?.rows ?? 40,
 		cols: stdout?.columns ?? 80,
 	});
+	// Everything inside the rail's frame lays out in the space it leaves.
+	const termDimensions = {
+		rows: Math.max(1, paneDimensions.rows - PANE_FRAME_SIZE),
+		cols: Math.max(1, paneDimensions.cols - PANE_FRAME_SIZE),
+	};
+	const [isRailFocused, setIsRailFocused] = useState(true);
+	useEffect(() => {
+		const focus = () => {
+			setIsRailFocused(true);
+		};
+
+		const blur = () => {
+			setIsRailFocused(false);
+		};
+
+		renderer.on('focus', focus);
+		renderer.on('blur', blur);
+		return () => {
+			renderer.off('focus', focus);
+			renderer.off('blur', blur);
+		};
+	}, [renderer]);
 
 	const railDialogState = {
 		showPromptDialog,
@@ -624,6 +690,8 @@ export default function App({
 
 	const startupQueue = useMemo(() => new StartupQueue(2), []);
 	const attachmentTask = useMemo(() => new LatestTask(), []);
+	const sendTask = useMemo(() => new LatestTask(), []);
+	const attachmentGate = useMemo(() => new AttachmentGate(), []);
 	const [attachmentRevision, setAttachmentRevision] = useState(0);
 	useEffect(
 		() => () => {
@@ -686,10 +754,11 @@ export default function App({
 					syncingTerminalSize.current = true;
 					try {
 						if (stdout) syncTerminalDimensions(stdout, dimensions);
+						renderer.resize(dimensions.cols, dimensions.rows);
 					} finally {
 						syncingTerminalSize.current = false;
 					}
-					setTermDimensions(dimensions);
+					setPaneDimensions(dimensions);
 					setSettledRevision(revision);
 				},
 				onError(error, revision) {
@@ -702,7 +771,7 @@ export default function App({
 					setSettledRevision(revision);
 				},
 			}),
-		[attachmentTask, stdout],
+		[attachmentTask, stdout, renderer],
 	);
 	const dialogOpenRef = useRef(anyDialogOpen);
 	dialogOpenRef.current = anyDialogOpen;
@@ -715,7 +784,7 @@ export default function App({
 		if (!stdout) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const handleResize = () => {
-			setTermDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
+			setPaneDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
 			if (syncingTerminalSize.current) return;
 			clearTimeout(timer);
 			timer = setTimeout(() => {
@@ -735,8 +804,6 @@ export default function App({
 
 	const selectedSpace = spaces[selectedIndex];
 	const selectedSpaceName = selectedSpace?.name;
-	const selectedSpaceNameRef = useRef(selectedSpaceName);
-	selectedSpaceNameRef.current = selectedSpaceName;
 	const selectedWorktreePath = selectedSpace?.isMainWorktree
 		? (selectedSpace.worktreePath ?? undefined)
 		: undefined;
@@ -751,6 +818,7 @@ export default function App({
 			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
 		)
 			return;
+
 		void attachmentTask
 			.run(async signal => {
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
@@ -802,6 +870,19 @@ export default function App({
 		attachmentTask,
 		attachmentRevision,
 	]);
+	// Declared after the attachment effect so it runs after any attachment
+	// this render queued. Every render releases waiting keys: one whose space
+	// was left again in the same input write is then refused, not kept.
+	useEffect(() => {
+		attachmentGate.rendered(selectedSpaceName);
+	});
+	// Every key in one input write runs before React renders, so keys after one
+	// that opened an inline dialog or search would still act on the rail.
+	// They are dropped until that dialog is on screen to take them.
+	const inlineDialogOpening = useRef(false);
+	useEffect(() => {
+		inlineDialogOpening.current = false;
+	});
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -825,10 +906,11 @@ export default function App({
 	// Open the GitHub PR / GitLab MR in browser for the selected space
 	// For main worktree, opens the repo page instead
 	const handleOpenPR = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending) return;
 
 		if (space.isMainWorktree) {
+			++openPRRequest.current;
 			const generation = showHeaderMessage('Opening repo...');
 			const child = spawn('gh', ['repo', 'view', '--web'], {
 				detached: true,
@@ -849,10 +931,14 @@ export default function App({
 			return;
 		}
 
+		const request = ++openPRRequest.current;
 		const generation = showHeaderMessage(`Opening PR for ${space.name}...`);
 		void openPR(space.name, {
 			provider: createVcsHost(),
-			isCurrent: () => headerGeneration.current === generation,
+			// link-pr appends, so the last link is the one recorded most recently.
+			linked: readSpaceState(repoName, space.name)?.prLinks?.at(-1),
+			isLatest: () => openPRRequest.current === request,
+			ownsHeader: () => headerGeneration.current === generation,
 			async openUrl(url) {
 				const child = spawn('open', [url], {
 					detached: true,
@@ -871,7 +957,7 @@ export default function App({
 	// Open the issue for the selected space — in a browser for trackers with a
 	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending || space.isMainWorktree) {
 			if (space?.isMainWorktree)
 				setHeaderWithTimeout('No issue for main worktree', 2000);
@@ -885,7 +971,7 @@ export default function App({
 
 	// Open the configured editor at the worktree path for the selected space
 	const handleOpenIDE = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending) return;
 
 		const {worktreePath} = space;
@@ -952,17 +1038,21 @@ export default function App({
 
 	// Focus the Claude viewer pane (Enter or right arrow)
 	const handleFocusAgent = () => {
-		if (!paneLayout) return;
+		const targetSpace = selectedSpaceNow()?.name;
+		if (!paneLayout || !targetSpace) return;
 
-		spawnSync('tmux', ['select-pane', '-t', paneLayout.agentViewerPaneId], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		// Attaching ends by selecting the rail pane, so focus goes after it.
+		void attachmentGate.whenRendered(targetSpace).then(async () =>
+			attachmentTask.exclusive(async () => {
+				const layout = paneLayoutRef.current;
+				if (layout) await focusPane(layout.agentViewerPaneId);
+			}),
+		);
 	};
 
 	// Git pull in the selected space's worktree
 	const handleGitPull = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space || space.isPending) return;
 
 		const {worktreePath} = space;
@@ -1014,26 +1104,34 @@ export default function App({
 			return;
 		}
 
-		const targetSpace = selectedSpaceNameRef.current;
+		const targetSpace = selectedSpaceNow()?.name;
 		if (!targetSpace) return;
-		const paneId = paneLayout.agentViewerPaneId;
-		void sendToSelectedAgent({
-			queue: attachmentTask,
-			targetSpace,
-			viewingSpace: getCurrentlyViewingSpace,
-			send: () => sendToPane(paneId, targetSpace, text),
-		}).then(result => {
-			if (result === 'sent') {
-				setHeaderWithTimeout(`Agent: ${text}`, 3000);
-			} else if (result === 'wrong-space') {
+		void attachmentGate
+			.whenRendered(targetSpace)
+			.then(async () =>
+				sendToSelectedAgent({
+					queue: attachmentTask,
+					sends: sendTask,
+					targetSpace,
+					viewingSpace: getCurrentlyViewingSpace,
+					// Not through the viewer pane: its frame process holds a bracketed
+					// paste briefly while plain keys pass, so Enter would arrive first.
+					async send() {
+						const result = await sendToSpaceAgent(targetSpace, text);
+						if (result !== 'sent') {
+							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
+						}
+
+						return result;
+					},
+				}),
+			)
+			.then(result => {
 				setHeaderWithTimeout(
-					`✗ Not sent: ${targetSpace} is not shown yet`,
+					sendResultMessage(result, targetSpace, text),
 					3000,
 				);
-			} else {
-				setHeaderWithTimeout(`✗ Failed to send to the agent`, 3000);
-			}
-		});
+			});
 	};
 
 	// Execute a custom keybinding command for the selected workspace
@@ -1043,7 +1141,7 @@ export default function App({
 			return;
 		}
 
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (kb.send_skill) {
 			if (!space || !configMemo) return;
 			const agentProfile = runningAgentProfile(
@@ -1115,13 +1213,21 @@ export default function App({
 	// finished: a close confirmed in a popup keeps running its deinit hooks
 	// after the popup is gone, and a second x must not start another.
 	const popupBusy = useRef(false);
+	// Keys typed right after a popup opener (`x Enter`, `x n`) still reach the
+	// rail until the popup is on screen, and would act behind the dialog.
+	const popupOpening = useRef(false);
 	const showDialog = (
 		spec: PopupSpec,
 		handlers: PopupHandlers,
 		showInline: () => void,
 	) => {
-		if (!isPopupAvailable()) {
+		const openInline = () => {
+			inlineDialogOpening.current = true;
 			showInline();
+		};
+
+		if (!isPopupAvailable()) {
+			openInline();
 			return;
 		}
 
@@ -1131,12 +1237,19 @@ export default function App({
 		}
 
 		popupBusy.current = true;
-		void openPopup(spec, handlers)
+		popupOpening.current = true;
+		void openPopup(spec, {
+			...handlers,
+			onShown() {
+				popupOpening.current = false;
+			},
+		})
 			.then(outcome => {
-				if (outcome === 'unavailable') showInline();
+				if (outcome === 'unavailable') openInline();
 			})
 			.finally(() => {
 				popupBusy.current = false;
+				popupOpening.current = false;
 			});
 	};
 
@@ -1235,227 +1348,224 @@ export default function App({
 	}, []);
 
 	// Handle keyboard input
-	useInput(
-		(input, key) => {
-			if (railInputBlocked) return;
+	useKeyboard(event => {
+		if (anyDialogOpen || popupOpening.current || inlineDialogOpening.current)
+			return;
+		const {input, key} = shortcutKey(event);
+		if (railInputBlocked) return;
 
-			const totalItems = spaces.length;
-
-			// Check custom keybindings first — they can override default keys
-			const kb = keybindingMap.get(input);
-			if (kb) {
-				if (!kb.disabled) {
-					handleCustomKeybinding(kb);
-				}
-				return;
+		// Check custom keybindings first — they can override default keys
+		const kb = keybindingMap.get(input);
+		if (kb) {
+			if (!kb.disabled) {
+				handleCustomKeybinding(kb);
 			}
+			return;
+		}
 
-			// Non-overridable built-in shortcuts
-			if (key.upArrow || input === 'k') {
-				if (selectedIndex > 0) {
-					setSelectedIndex(selectedIndex - 1);
-				}
-			} else if (key.downArrow || input === 'j') {
-				if (selectedIndex < totalItems - 1) {
-					setSelectedIndex(selectedIndex + 1);
-				}
-			} else if (isFocusAgentKey(key)) {
-				handleFocusAgent();
-			} else if (input === 'n') {
-				// 'n' for new session
+		// Non-overridable built-in shortcuts
+		if (key.upArrow || input === 'k') {
+			const {selectedIndex} = currentSelection();
+			if (selectedIndex > 0) {
+				setSelectedIndex(selectedIndex - 1);
+			}
+		} else if (key.downArrow || input === 'j') {
+			const {spaces, selectedIndex} = currentSelection();
+			if (selectedIndex < spaces.length - 1) {
+				setSelectedIndex(selectedIndex + 1);
+			}
+		} else if (isFocusAgentKey(key)) {
+			handleFocusAgent();
+		} else if (input === 'n') {
+			if (hasNoProfiles()) {
+				setHeaderWithTimeout(
+					'Add a profile to .pappardelle.yml to create spaces',
+					4000,
+				);
+			} else {
+				inlineDialogOpening.current = true;
 				setShowPromptDialog(true);
-			} else if (isCloseSpaceKey(input, key)) {
-				// Backspace, Delete, or 'x' closes the selected space
-				const space = spaces[selectedIndex];
-				if (space?.isMainWorktree) {
-					setHeaderWithTimeout('Cannot close main worktree', 2000);
-				} else if (space) {
-					showDialog(
-						{
-							kind: 'close-space',
-							props: {
-								spaceName: space.name,
-								currentIssue: space.trackerIssue ?? space.linearIssue ?? null,
-							},
+			}
+		} else if (isCloseSpaceKey(input, key)) {
+			// Backspace, Delete, or 'x' closes the selected space
+			const space = selectedSpaceNow();
+			if (space?.isMainWorktree) {
+				setHeaderWithTimeout('Cannot close main worktree', 2000);
+			} else if (space) {
+				showDialog(
+					{
+						kind: 'close-space',
+						props: {
+							spaceName: space.name,
+							currentIssue: space.trackerIssue ?? space.linearIssue ?? null,
 						},
-						{
-							onConfirm: async payload =>
-								handleDeleteSpace(space, payload?.choice),
-						},
-						() => {
-							setDeleteTarget(space);
-						},
-					);
-				}
-			} else if (input === 'K') {
-				// Shift+K closes every done/canceled space at once (STA-2111).
-				// Checked before the switch below so it can't be shadowed by the
-				// lowercase `k` navigation branch above.
-				const targets = findDoneSpaces(spaces);
-				if (targets.length === 0) {
-					setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
-				} else {
-					showDialog(
-						{
-							kind: 'confirm',
-							props: buildKillDoneConfirmContent(targets.length),
-						},
-						{onConfirm: async () => handleKillDoneSpaces(targets)},
-						() => {
-							setKillDoneTargets(targets);
-						},
-					);
-				}
-			} else
-				switch (input) {
-					case '/': {
-						// Start searching spaces
-						setIsSearching(true);
-						setSearchQuery('');
-						setSearchSelectedIndex(0);
-
-						break;
-					}
-					case 'q': {
-						// Quit Pappardelle — kill the tmux session so viewer panes
-						// are cleaned up too (workspace sessions stay alive).
-						if (paneLayout) {
-							killSession(outerSessionName(repoName));
-						}
-						// eslint-disable-next-line unicorn/no-process-exit
-						process.exit(0);
-
-						break;
-					}
-					case '?': {
-						// Show help overlay
-						showDialog(
-							{
-								kind: 'help',
-								props: {
-									customKeybindings: keybindings,
-									commitSha,
-									installedVersion,
-									isDevBuild,
-								},
-							},
-							{},
-							() => {
-								setShowHelp(true);
-							},
-						);
-
-						// Default behaviors for overridable keys (only reached if not custom-bound)
-
-						break;
-					}
-					case 'g': {
-						handleOpenPR();
-
-						break;
-					}
-					case 'i': {
-						handleOpenIssue();
-
-						break;
-					}
-					case 'd': {
-						handleOpenIDE();
-
-						break;
-					}
-					case 'o': {
-						handleOpenWorkspace();
-
-						break;
-					}
-					case 'e': {
-						if (errorCount > 0) {
-							showDialog(
-								{kind: 'errors', props: {errors: getRecentErrors()}},
-								{
-									onClearErrors: clearRecentErrors,
-									subscribeErrors: subscribeToErrors,
-								},
-								() => {
-									setShowErrorDialog(true);
-								},
-							);
-						}
-
-						break;
-					}
-					case 'p': {
-						handleGitPull();
-
-						break;
-					}
-					default: {
-						const updateAction = resolveUpdateKeyAction(
-							input,
-							updateInfo !== null,
-						);
-						if (updateAction === 'open-confirm') {
-							// U is always live (STA-1548): open the "are you sure?"
-							// confirm dialog. The installer only runs once the user
-							// confirms (handleUpdateConfirmed).
-							showDialog(
-								{kind: 'confirm', props: updateConfirmContent},
-								{
-									closeBeforeConfirm: true,
-									onConfirm: handleUpdateConfirmed,
-								},
-								() => {
-									setShowUpdateConfirm(true);
-								},
-							);
-						} else if (updateAction === 'dismiss-banner') {
-							// Dismiss the banner for this session. Next launch re-checks
-							// against the cache on disk. Reset the measured height so
-							// the mouse hit-test stops compensating for a banner that
-							// is no longer rendered.
-							setUpdateInfo(null);
-							setBannerHeight(0);
-						}
-					}
-				}
-		},
-		{
-			isActive: !anyDialogOpen,
-		},
-	);
-
-	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
-	useInput(
-		(_input, key) => {
-			if (key.escape) {
-				setIsSearching(false);
-				setSearchQuery('');
-			} else if (key.return) {
-				// Confirm: resolve filtered selection back to real spaces index
-				const displayIdx = filteredToDisplayMap[searchSelectedIndex];
-				if (displayIdx !== undefined) {
-					// Map display index back to spaces index (reverse the pending offset)
-					const spacesIdx =
-						pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
-							? displayIdx - 1
-							: displayIdx;
-					if (spacesIdx >= 0 && spacesIdx < spaces.length) {
-						setSelectedIndex(spacesIdx);
-					}
-				}
-				setIsSearching(false);
-				setSearchQuery('');
-			} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
-				setSearchSelectedIndex(prev => Math.max(0, prev - 1));
-			} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
-				setSearchSelectedIndex(prev =>
-					Math.min(filteredDisplaySpaces.length - 1, prev + 1),
+					},
+					{
+						onConfirm: async payload =>
+							handleDeleteSpace(space, payload?.choice),
+					},
+					() => {
+						setDeleteTarget(space);
+					},
 				);
 			}
-		},
-		{isActive: isSearching},
-	);
+		} else if (input === 'K') {
+			// Shift+K closes every done/canceled space at once (STA-2111).
+			// Checked before the switch below so it can't be shadowed by the
+			// lowercase `k` navigation branch above.
+			const targets = findDoneSpaces(currentSelection().spaces);
+			if (targets.length === 0) {
+				setHeaderWithTimeout(KILL_DONE_EMPTY_MESSAGE, 2000);
+			} else {
+				showDialog(
+					{
+						kind: 'confirm',
+						props: buildKillDoneConfirmContent(targets.length),
+					},
+					{onConfirm: async () => handleKillDoneSpaces(targets)},
+					() => {
+						setKillDoneTargets(targets);
+					},
+				);
+			}
+		} else
+			switch (input) {
+				case '/': {
+					inlineDialogOpening.current = true;
+					setIsSearching(true);
+					setSearchQuery('');
+					setSearchSelectedIndex(0);
+
+					break;
+				}
+				case 'q': {
+					quitTui(renderer, repoName, paneLayout);
+					break;
+				}
+				case '?': {
+					// Show help overlay
+					showDialog(
+						{
+							kind: 'help',
+							props: {
+								customKeybindings: keybindings,
+								commitSha,
+								installedVersion,
+								isDevBuild,
+							},
+						},
+						{},
+						() => {
+							setShowHelp(true);
+						},
+					);
+
+					// Default behaviors for overridable keys (only reached if not custom-bound)
+
+					break;
+				}
+				case 'g': {
+					handleOpenPR();
+
+					break;
+				}
+				case 'i': {
+					handleOpenIssue();
+
+					break;
+				}
+				case 'd': {
+					handleOpenIDE();
+
+					break;
+				}
+				case 'o': {
+					handleOpenWorkspace();
+
+					break;
+				}
+				case 'e': {
+					if (errorCount > 0) {
+						showDialog(
+							{kind: 'errors', props: {errors: getRecentErrors()}},
+							{
+								onClearErrors: clearRecentErrors,
+								subscribeErrors: subscribeToErrors,
+							},
+							() => {
+								setShowErrorDialog(true);
+							},
+						);
+					}
+
+					break;
+				}
+				case 'p': {
+					handleGitPull();
+
+					break;
+				}
+				default: {
+					const updateAction = resolveUpdateKeyAction(
+						input,
+						updateInfo !== null,
+					);
+					if (updateAction === 'open-confirm') {
+						// U is always live (STA-1548): open the "are you sure?"
+						// confirm dialog. The installer only runs once the user
+						// confirms (handleUpdateConfirmed).
+						showDialog(
+							{kind: 'confirm', props: updateConfirmContent},
+							{
+								closeBeforeConfirm: true,
+								onConfirm: handleUpdateConfirmed,
+							},
+							() => {
+								setShowUpdateConfirm(true);
+							},
+						);
+					} else if (updateAction === 'dismiss-banner') {
+						// Dismiss the banner for this session. Next launch re-checks
+						// against the cache on disk. Reset the measured height so
+						// the mouse hit-test stops compensating for a banner that
+						// is no longer rendered.
+						setUpdateInfo(null);
+						setBannerHeight(0);
+					}
+				}
+			}
+	});
+
+	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
+	useKeyboard(event => {
+		if (!isSearching) return;
+		const {input: _input, key} = shortcutKey(event);
+		if (key.escape) {
+			setIsSearching(false);
+			setSearchQuery('');
+		} else if (key.return) {
+			// Confirm: resolve filtered selection back to real spaces index
+			const displayIdx = filteredToDisplayMap[searchSelectedIndex];
+			if (displayIdx !== undefined) {
+				// Map display index back to spaces index (reverse the pending offset)
+				const spacesIdx =
+					pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
+						? displayIdx - 1
+						: displayIdx;
+				if (spacesIdx >= 0 && spacesIdx < spaces.length) {
+					setSelectedIndex(spacesIdx);
+				}
+			}
+			setIsSearching(false);
+			setSearchQuery('');
+		} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
+			setSearchSelectedIndex(prev => Math.max(0, prev - 1));
+		} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
+			setSearchSelectedIndex(prev =>
+				Math.min(filteredDisplaySpaces.length - 1, prev + 1),
+			);
+		}
+	});
 
 	const spawnSession = useCallback(
 		(pending: PendingSession, options?: {queued: boolean}) => {
@@ -1720,7 +1830,7 @@ export default function App({
 
 			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
-			if (selectedSpaceNameRef.current === space.name) attachmentTask.cancel();
+			if (selectedSpaceNow()?.name === space.name) attachmentTask.cancel();
 			return attachmentTask
 				.exclusive(async () => {
 					// STA-1420: kill tmux first, then update the registry. If the kill
@@ -1753,7 +1863,7 @@ export default function App({
 					}
 
 					const layout = paneLayoutRef.current;
-					if (layout && selectedSpaceNameRef.current === space.name) {
+					if (layout && selectedSpaceNow()?.name === space.name) {
 						await Promise.all([
 							displayMessageInPaneAsync(
 								layout.agentViewerPaneId,
@@ -1784,7 +1894,13 @@ export default function App({
 					return false;
 				});
 		},
-		[setHeaderWithTimeout, attachmentTask, setSpaces, repoName],
+		[
+			setHeaderWithTimeout,
+			attachmentTask,
+			setSpaces,
+			repoName,
+			selectedSpaceNow,
+		],
 	);
 
 	const deleteSpace = useCallback(
@@ -1936,7 +2052,7 @@ export default function App({
 
 	// Open workspace apps/links/etc for the selected space (runs idow --resume)
 	const handleOpenWorkspace = () => {
-		const space = spaces[selectedIndex];
+		const space = selectedSpaceNow();
 		if (!space) return;
 		if (space.isPending) return;
 		if (space.isMainWorktree) {
@@ -2127,17 +2243,13 @@ export default function App({
 		};
 
 		if (pendingSession.type === 'issue') {
-			// Insert at the correct sorted position by issue number (descending)
-			const pendingNum = parseInt(pendingSession.name.split('-')[1] ?? '0', 10);
 			const result = [...spaces];
-			// Find the first non-main issue space with a lower number
 			let insertIdx = result.findIndex(
 				s =>
 					!s.isMainWorktree &&
-					parseInt(s.name.split('-')[1] ?? '0', 10) < pendingNum,
+					compareSpaceNames(pendingSession.name, s.name) < 0,
 			);
 			if (insertIdx === -1) {
-				// No lower-numbered space found — append at the end
 				insertIdx = result.length;
 			}
 			result.splice(insertIdx, 0, pendingRow);
@@ -2201,57 +2313,29 @@ export default function App({
 		scrollOffset + visibleCount,
 	);
 
-	// Handle mouse clicks on the list
-	const handleMouse = useCallback(
-		(event: {x: number; y: number; button: string}) => {
-			if (event.button !== 'left') return;
+	// OpenTUI hit-tests the actual row, including wrapping banners and two-line
+	// layouts. Select by identity so filtering and pending rows cannot shift clicks.
+	const selectRow = useCallback(
+		(name: string) => {
 			if (railInputBlocked) return;
-			if (displaySpaces.length === 0) return;
-
-			// Map the raw mouse y into a visible-list row index. `bannerHeight`
-			// is measured by UpdateBanner — it's 0 when the banner is hidden
-			// and grows when content wraps at narrow pane widths. Without
-			// this offset, clicks land on the row `bannerHeight` above the
-			// intended target (STA-873).
-			const clickedRow = calculateListClickRow({
-				y: event.y,
-				bannerHeight,
-				visibleRows: visibleDisplaySpaces.length,
-				linesPerItem,
-			});
-			if (clickedRow === null) return;
-
-			// Convert visible row to absolute display index
-			const displayIndex = scrollOffset + clickedRow;
-			if (displayIndex < 0 || displayIndex >= displaySpaces.length) return;
-
-			// Ignore clicks on the pending row
-			if (displaySpaces[displayIndex]?.isPending) return;
-
-			// Map display index back to spaces index (reverse the +1 offset)
-			const spacesIndex =
-				pendingInsertIndex >= 0 && displayIndex > pendingInsertIndex
-					? displayIndex - 1
-					: displayIndex;
-
-			if (spacesIndex >= 0 && spacesIndex < spaces.length) {
-				setSelectedIndex(spacesIndex);
+			if (isSearching) {
+				const index = filteredDisplaySpaces.findIndex(
+					space => space.name === name && !space.isPending,
+				);
+				if (index !== -1) setSearchSelectedIndex(index);
+			} else {
+				const index = spaces.findIndex(space => space.name === name);
+				if (index !== -1) setSelectedIndex(index);
 			}
 		},
 		[
-			setSelectedIndex,
-			displaySpaces,
-			spaces.length,
 			railInputBlocked,
-			scrollOffset,
-			visibleDisplaySpaces.length,
-			pendingInsertIndex,
-			bannerHeight,
-			linesPerItem,
+			isSearching,
+			filteredDisplaySpaces,
+			spaces,
+			setSelectedIndex,
 		],
 	);
-
-	useMouse(handleMouse, !anyDialogOpen);
 
 	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
 	const spaceCount = getSpaceCount(spaces);
@@ -2260,27 +2344,34 @@ export default function App({
 	const renderList = () => {
 		if (activeSpaces.length === 0) {
 			return (
-				<Box flexDirection="column" paddingY={1}>
-					<Text dimColor>
+				<box
+					flexDirection="column"
+					paddingY={1}
+					paddingLeft={ROW_PADDING_CELLS}
+				>
+					<text {...dimText()}>
 						{isSearching ? 'No matches.' : 'No spaces found.'}
-					</Text>
-					{!isSearching && <Text dimColor>Press n to create a new space.</Text>}
-				</Box>
+					</text>
+					{!isSearching && (
+						<text {...dimText()}>Press n to create a new space.</text>
+					)}
+				</box>
 			);
 		}
 
 		return (
-			<Box flexDirection="column">
+			<box flexDirection="column">
 				{visibleDisplaySpaces.map((space, index) => (
 					<SpaceListItem
 						key={space.isPending ? `pending-${space.name}` : space.name}
 						space={space}
+						onSelect={selectRow}
 						isSelected={index === adjustedDisplayIndex}
 						width={termDimensions.cols}
 						layout={listLayout}
 					/>
 				))}
-			</Box>
+			</box>
 		);
 	};
 
@@ -2290,181 +2381,246 @@ export default function App({
 
 	if (loading && spaces.length === 0) {
 		return (
-			<Box flexDirection="column" padding={1}>
-				<Text>Loading spaces...</Text>
-			</Box>
+			<PaneFrame title="rail" isActive={isRailFocused}>
+				<box flexDirection="column" padding={1}>
+					<text fg={terminalColor()} flexShrink={1}>
+						Loading spaces...
+					</text>
+				</box>
+			</PaneFrame>
 		);
 	}
 
-	return (
-		// Keep blank rows in the frame so filtering clears old results after a
-		// search zoom. Ink's incremental renderer only writes rows that change.
-		<Box flexDirection="column" height={termHeight}>
-			{/* Update banner (only shown if an update is available and not dismissed) */}
-			{updateInfo && (
-				<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
-			)}
-
-			{/* Header, pinned to exactly one row.
-			    `LIST_CHROME_ROWS` (and with it `calculateListClickRow`) assumes
-			    the header is one row and the status line is one row. Once the
-			    rail can be dragged narrow (STA-2040), the header no longer fits,
-			    and a wrapped header would push every list row down and send
-			    mouse clicks to the wrong space. So: `flexShrink={0}` on an inner
-			    box keeps the segments at their natural widths, `truncate-end` on
-			    each segment stops Ink wrapping them, and `overflowX="hidden"`
-			    clips the line at the pane edge. At any ordinary width nothing is
-			    clipped and the output is identical to master. */}
-			<Box height={1} overflowX="hidden">
-				<Box flexShrink={0}>
-					<Text bold color="cyan" wrap="truncate-end">
-						🍝 {repoName}
-					</Text>
-					{!inTmux && (
-						<>
-							<Text dimColor wrap="truncate-end">
-								{' '}
-								|{' '}
-							</Text>
-							<Text color="yellow" wrap="truncate-end">
-								Not in tmux
-							</Text>
-						</>
-					)}
-					<Text dimColor wrap="truncate-end">
+	const statusFits = statusLineFits(termHeight, bannerHeight, linesPerItem);
+	const searchInHeader = !statusFits && isSearching && !isZooming;
+	const searchRow = (
+		/* Keep the slash and match count at their natural widths;
+	   the native input scrolls its text within the remaining space. */
+		<box flexDirection="row" width="100%">
+			<box flexDirection="row" flexShrink={0}>
+				<text
+					flexShrink={1}
+					fg={terminalColor('cyan')}
+					wrapMode="none"
+					height={1}
+				>
+					/
+				</text>
+			</box>
+			<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
+				<TextInput
+					value={searchQuery}
+					onChange={setSearchQuery}
+					placeholder="filter by key or title..."
+				/>
+			</box>
+			{filteredDisplaySpaces.length !== displaySpaces.length && (
+				<box flexDirection="row" flexShrink={0}>
+					<text {...dimText()} wrapMode="none" height={1}>
 						{' '}
-						|{' '}
-					</Text>
-					<Text dimColor wrap="truncate-end">
-						{spaceCount} space{spaceCount !== 1 ? 's' : ''}
-						{visibleDisplaySpaces.length < activeSpaces.length &&
-							` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`}
-					</Text>
-					{errorCount > 0 && (
-						<>
-							<Text dimColor wrap="truncate-end">
-								{' '}
-								|{' '}
-							</Text>
-							<Text color="red" wrap="truncate-end">
-								✗ {errorCount}
-							</Text>
-							<Text dimColor wrap="truncate-end">
-								{' '}
-								(e)
-							</Text>
-						</>
-					)}
-				</Box>
-			</Box>
-
-			{/* Status message line (occupies the row between header and list).
-			    Clipped for the same reason as the header above. */}
-			<Box height={1} overflowX="hidden">
-				{isSearching && !isZooming ? (
-					/* Each segment gets its own `flexShrink={0}` box. Ink drops a
-					   one-cell Text outright when a sibling Text is truncated, so
-					   the `/` prefix vanished when the segments were bare Texts.
-					   Boxed, every segment keeps its natural width and the line
-					   clips left to right at the pane edge. */
-					<Box flexShrink={0}>
-						<Box flexShrink={0}>
-							<Text color="cyan" wrap="truncate-end">
-								/
-							</Text>
-						</Box>
-						<Box flexShrink={0}>
-							<TextInput
-								value={searchQuery}
-								onChange={setSearchQuery}
-								placeholder="filter by key or title..."
-							/>
-						</Box>
-						{filteredDisplaySpaces.length !== displaySpaces.length && (
-							<Box flexShrink={0}>
-								<Text dimColor wrap="truncate-end">
-									{' '}
-									({filteredDisplaySpaces.length} match
-									{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
-								</Text>
-							</Box>
-						)}
-					</Box>
-				) : (
-					<Text color="yellow" wrap="truncate-end">
-						{headerMessage || ' '}
-					</Text>
-				)}
-			</Box>
-
-			{/* Main content */}
-			<Box flexDirection="column">
-				{isZooming ? null : showUpdateConfirm ? (
-					<ConfirmDialog
-						title={updateConfirmContent.title}
-						message={updateConfirmContent.message}
-						detail={updateConfirmContent.detail}
-						onConfirm={handleUpdateConfirmed}
-						onCancel={() => setShowUpdateConfirm(false)}
-					/>
-				) : configMigrations ? (
-					<ConfirmDialog
-						{...buildConfigMigrationConfirmContent(configMigrations)}
-						onConfirm={() => {
-							handleConfigMigration(configMigrations);
-							setConfigMigrations(null);
-						}}
-						onCancel={() => setConfigMigrations(null)}
-					/>
-				) : showPromptDialog ? (
-					<PromptDialog
-						onSubmit={handleNewSession}
-						onCancel={() => setShowPromptDialog(false)}
-						savedProfileFor={savedProfileFor}
-						availableWidth={termDimensions.cols}
-						availableHeight={dialogHeight}
-						isInTmux={inTmux}
-					/>
-				) : killDoneTargets !== null ? (
-					<ConfirmDialog
-						title={killDoneConfirmContent.title}
-						message={killDoneConfirmContent.message}
-						detail={killDoneConfirmContent.detail}
-						processingMessage={killDoneConfirmContent.processingMessage}
-						onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
-						onCancel={() => setKillDoneTargets(null)}
-					/>
-				) : deleteTarget ? (
-					<CloseSpaceDialog
-						spaceName={deleteTarget.name}
-						currentIssue={
-							deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
-						}
-						onConfirm={async choice => handleDeleteSpace(deleteTarget, choice)}
-						onCancel={() => setDeleteTarget(null)}
-					/>
-				) : showHelp ? (
-					<HelpOverlay
-						onClose={() => setShowHelp(false)}
-						customKeybindings={keybindings}
-						commitSha={commitSha}
-						installedVersion={installedVersion}
-						isDevBuild={isDevBuild}
-						availableHeight={dialogHeight}
-					/>
-				) : showErrorDialog ? (
-					<ErrorDialog
-						errors={recentErrors}
-						onClose={() => setShowErrorDialog(false)}
-						onClear={() => {
-							clearRecentErrors();
-							setShowErrorDialog(false);
-						}}
-					/>
-				) : (
-					renderList()
-				)}
-			</Box>
-		</Box>
+						({filteredDisplaySpaces.length} match
+						{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
+					</text>
+				</box>
+			)}
+		</box>
 	);
+
+	return (
+		<PaneFrame title="rail" isActive={isRailFocused}>
+			{/* Keep blank rows in the frame so filtering clears old results after a
+		    search zoom. OpenTUI retains and updates only the cells that change. */}
+			<box flexDirection="column" height={termHeight}>
+				{/* Update banner (only shown if an update is available and not dismissed) */}
+				{updateInfo && (
+					<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
+				)}
+
+				{/* One row, so list height calculations stay valid when a pane narrows.
+				    A pane too short for the status row searches in this one instead. */}
+				<box flexDirection="row" height={1} paddingLeft={ROW_PADDING_CELLS}>
+					{searchInHeader ? (
+						searchRow
+					) : (
+						<TruncatedLine
+							runs={railHeaderRuns({
+								repoName,
+								inTmux,
+								spaceCount,
+								range:
+									visibleDisplaySpaces.length < activeSpaces.length
+										? ` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`
+										: '',
+								errorCount,
+							})}
+						/>
+					)}
+				</box>
+
+				{/* Status message line (occupies the row between header and list).
+			    Clipped for the same reason as the header above. */}
+				{statusFits && (
+					<box
+						flexDirection="row"
+						height={1}
+						overflow="hidden"
+						paddingLeft={ROW_PADDING_CELLS}
+					>
+						{isSearching && !isZooming ? (
+							searchRow
+						) : (
+							<TruncatedLine
+								runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
+							/>
+						)}
+					</box>
+				)}
+
+				{/* Main content */}
+				<box flexDirection="column">
+					{isZooming ? null : showUpdateConfirm ? (
+						<ConfirmDialog
+							title={updateConfirmContent.title}
+							message={updateConfirmContent.message}
+							detail={updateConfirmContent.detail}
+							isDestructive={updateConfirmContent.isDestructive}
+							onConfirm={handleUpdateConfirmed}
+							onCancel={() => setShowUpdateConfirm(false)}
+						/>
+					) : configMigrations ? (
+						<ConfirmDialog
+							{...buildConfigMigrationConfirmContent(configMigrations)}
+							onConfirm={() => {
+								handleConfigMigration(configMigrations);
+								setConfigMigrations(null);
+							}}
+							onCancel={() => setConfigMigrations(null)}
+						/>
+					) : showPromptDialog ? (
+						<PromptDialog
+							onSubmit={handleNewSession}
+							onCancel={() => setShowPromptDialog(false)}
+							savedProfileFor={savedProfileFor}
+							availableWidth={termDimensions.cols}
+							availableHeight={dialogHeight}
+							isInTmux={inTmux}
+						/>
+					) : killDoneTargets !== null ? (
+						<ConfirmDialog
+							title={killDoneConfirmContent.title}
+							message={killDoneConfirmContent.message}
+							detail={killDoneConfirmContent.detail}
+							processingMessage={killDoneConfirmContent.processingMessage}
+							isDestructive={killDoneConfirmContent.isDestructive}
+							onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
+							onCancel={() => setKillDoneTargets(null)}
+						/>
+					) : deleteTarget ? (
+						<CloseSpaceDialog
+							spaceName={deleteTarget.name}
+							currentIssue={
+								deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
+							}
+							onConfirm={async choice =>
+								handleDeleteSpace(deleteTarget, choice)
+							}
+							onCancel={() => setDeleteTarget(null)}
+						/>
+					) : showHelp ? (
+						<HelpOverlay
+							onClose={() => setShowHelp(false)}
+							customKeybindings={keybindings}
+							commitSha={commitSha}
+							installedVersion={installedVersion}
+							isDevBuild={isDevBuild}
+							availableHeight={dialogHeight}
+						/>
+					) : showErrorDialog ? (
+						<ErrorDialog
+							errors={recentErrors}
+							onClose={() => setShowErrorDialog(false)}
+							onClear={() => {
+								clearRecentErrors();
+								setShowErrorDialog(false);
+							}}
+						/>
+					) : (
+						renderList()
+					)}
+				</box>
+			</box>
+		</PaneFrame>
+	);
+}
+
+function railHeaderRuns(header: {
+	repoName: string;
+	inTmux: boolean;
+	spaceCount: number;
+	range: string;
+	errorCount: number;
+}): Run[] {
+	const {fg, attributes} = dimText();
+	const dim = {fg, attributes};
+	const separator = {text: ' | ', ...dim};
+	return [
+		{
+			text: `🍝 ${header.repoName}`,
+			fg: terminalColor('cyan'),
+			attributes: textAttributes({bold: true}),
+		},
+		...(header.inTmux
+			? []
+			: [separator, {text: 'Not in tmux', fg: terminalColor('yellow')}]),
+		separator,
+		{
+			text: `${header.spaceCount} space${header.spaceCount === 1 ? '' : 's'}${header.range}`,
+			...dim,
+		},
+		...(header.errorCount > 0
+			? [
+					separator,
+					{text: `✗ ${header.errorCount}`, fg: terminalColor('red')},
+					{text: ' (e)', ...dim},
+				]
+			: []),
+	];
+}
+
+// The new-space dialog picks a profile for every space, so it can't open
+// without one. A config that fails to load is left to the dialog to report.
+function hasNoProfiles(): boolean {
+	try {
+		return Object.keys(loadConfig().profiles).length === 0;
+	} catch {
+		return false;
+	}
+}
+
+function sendResultMessage(
+	result: SendToClaudeResult,
+	targetSpace: string,
+	text: string,
+): string {
+	switch (result) {
+		case 'sent': {
+			return `Agent: ${text}`;
+		}
+
+		case 'busy': {
+			return `✗ Not sent: another send to ${targetSpace} is still running`;
+		}
+
+		case 'wrong-space': {
+			return `✗ Not sent: ${targetSpace} is not shown yet`;
+		}
+
+		case 'no-session': {
+			return `✗ Not sent: ${targetSpace} has no agent session`;
+		}
+
+		case 'failed': {
+			return '✗ Failed to send to the agent';
+		}
+	}
 }

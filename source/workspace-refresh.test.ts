@@ -265,3 +265,20 @@ test('stop suppresses late disk, tracker and hook publications', async t => {
 	await h.refresh.idle();
 	t.is(h.spaces, before);
 });
+
+test('spaces list newest number first, and beads hash keys keep one order whatever the registry order', async t => {
+	const order = async (registry: string[]) => {
+		const h = setup({readRegistry: async () => registry});
+		await h.settle();
+		return h.spaces.filter(space => !space.isMainWorktree).map(s => s.name);
+	};
+
+	t.deepEqual(await order(['STA-9', 'ABC-50', 'STA-12', 'STA-100']), [
+		'STA-100',
+		'ABC-50',
+		'STA-12',
+		'STA-9',
+	]);
+	const keys = ['fl-ec0', 'fl-1a2', 'fl-zz9', 'fl-x3'];
+	t.deepEqual(await order(keys), await order([...keys].reverse()));
+});

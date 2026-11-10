@@ -1,25 +1,38 @@
-import React, {useState, useEffect, useRef} from 'react';
-import {Text} from 'ink';
-import chalk from 'chalk';
-import {handleTextInputKey} from './text-input-key.ts';
-import {reconcileCursorOffset} from './cursor-reconcile.ts';
-import {useRawInput} from './use-raw-input.ts';
+import {useEffect, useLayoutEffect, useMemo, useRef} from 'react';
+import {
+	type InputRenderable,
+	type InputKeyBinding,
+	type KeyEvent,
+	type TextareaRenderable,
+	SyntaxStyle,
+	RGBA,
+} from '@opentui/core';
+import {useKeyboard, useRenderer} from '@opentui/react';
+import {terminalColor} from '../tui-style.ts';
 
-/**
- * Foreground colors a caller can ask for. A closed set rather than a free
- * string so the lookup stays typed, and so the palette is visible from here.
- */
-const HIGHLIGHT_COLORS = {
-	cyan: chalk.cyan,
-	green: chalk.green,
-	magenta: chalk.magenta,
-} as const;
+const maxPromptRows = 10;
 
 export type InputHighlight = {
-	/** Characters from the start of the value to paint. */
 	length: number;
-	color: keyof typeof HIGHLIGHT_COLORS;
+	color: 'cyan' | 'green' | 'magenta';
 };
+
+const keyBindings: InputKeyBinding[] = [
+	{name: 'a', ctrl: true, action: 'line-home'},
+	{name: 'e', ctrl: true, action: 'line-end'},
+	{name: 'u', ctrl: true, action: 'delete-to-line-start'},
+	{name: 'left', meta: true, action: 'word-backward'},
+	{name: 'right', meta: true, action: 'word-forward'},
+	{name: 'b', meta: true, action: 'word-backward'},
+	{name: 'f', meta: true, action: 'word-forward'},
+	{name: 'backspace', meta: true, action: 'delete-word-backward'},
+	// Readline's undo; Ctrl+- reaches us as Ctrl+_ without the kitty protocol.
+	{name: '_', ctrl: true, action: 'undo'},
+];
+const multilineKeyBindings: InputKeyBinding[] = [
+	...keyBindings,
+	{name: 'return', action: 'submit'},
+];
 
 type Props = {
 	value: string;
@@ -28,150 +41,121 @@ type Props = {
 	placeholder?: string;
 	isFocused?: boolean;
 	isShowingCursor?: boolean;
-	/**
-	 * Paint a run at the head of the value. The input itself has no opinion on
-	 * what that run means; the parent measures it. Composes with the cursor,
-	 * which keeps its inverse block wherever it lands.
-	 */
 	highlight?: InputHighlight;
+	isMultiline?: boolean;
+	/** Up/Down move the caret instead of going to a list the parent shows. */
+	isKeepingVerticalArrows?: boolean;
 };
 
-/**
- * Custom TextInput component based on ink-text-input with added support for:
- * - Alt+Left/Right: move cursor by word boundary
- * - Alt+Backspace: delete previous word
- * - fn+Delete: forward delete (Mac-native)
- *
- * Uses `useRawInput` instead of Ink's `useInput` because Ink 4.x conflates the
- * Mac Delete/Backspace key (`\x7f`) and fn+Delete (`\x1b[3~`) under one
- * `'delete'` name — which silently broke regular delete after the forward-
- * delete feature landed in STA-1131 (see STA-1145). Parsing raw stdin
- * ourselves restores the distinction.
- *
- * All keypress logic lives in `handleTextInputKey` so it can be unit-tested
- * without rendering React.
+/** Native editing supplies paste buffering, Unicode cursor movement and scrolling.
+ * The suggestion picker can own navigation while Enter still submits the field.
  */
 export default function TextInput({
-	value: originalValue,
+	value,
+	onChange,
+	onSubmit,
 	placeholder = '',
 	isFocused = true,
 	isShowingCursor = true,
 	highlight,
-	onChange,
-	onSubmit,
+	isMultiline = false,
+	isKeepingVerticalArrows = false,
 }: Props) {
-	const [cursorOffset, setCursorOffset] = useState(
-		(originalValue || '').length,
+	const renderer = useRenderer();
+	const ref = useRef<InputRenderable | TextareaRenderable>(null);
+	const syntaxStyle = useMemo(
+		() =>
+			SyntaxStyle.fromStyles(
+				{
+					cyan: {fg: terminalColor('cyan')},
+					green: {fg: terminalColor('green')},
+					magenta: {fg: terminalColor('magenta')},
+				},
+				renderer.nativeScene!,
+			),
+		[renderer],
 	);
-
-	// The last value this input emitted, so a parent-driven replacement can be
-	// told apart from the parent echoing back our own keystroke. See
-	// `reconcileCursorOffset`.
-	const lastEmittedRef = useRef(originalValue || '');
-
-	useEffect(() => {
-		setCursorOffset(prev => {
-			if (!isFocused || !isShowingCursor) {
-				return prev;
-			}
-
-			const next = reconcileCursorOffset({
-				incomingValue: originalValue || '',
-				lastEmittedValue: lastEmittedRef.current,
-				cursorOffset: prev,
+	useEffect(() => () => syntaxStyle.destroy(), [syntaxStyle]);
+	useLayoutEffect(() => {
+		const input = ref.current;
+		if (!input) return;
+		if (isMultiline && input.plainText !== value) {
+			input.setText(value);
+			input.gotoBufferEnd();
+		}
+		input.clearAllHighlights();
+		if (highlight && highlight.length > 0) {
+			input.addHighlightByCharRange({
+				start: 0,
+				end: highlight.length,
+				styleId: syntaxStyle.getStyleId(highlight.color)!,
 			});
-			lastEmittedRef.current = originalValue || '';
-			return next;
-		});
-	}, [originalValue, isFocused, isShowingCursor]);
-
-	// A paste can arrive as several stdin reads before React re-renders, so the
-	// handler edits from these instead of the last render's props and state.
-	const valueRef = useRef(originalValue);
-	const cursorRef = useRef(cursorOffset);
-	cursorRef.current = cursorOffset;
-	if (originalValue !== lastEmittedRef.current) {
-		valueRef.current = originalValue;
-	}
-	const value = originalValue;
-	const paint = (char: string, index: number): string =>
-		highlight && index < highlight.length
-			? HIGHLIGHT_COLORS[highlight.color](char)
-			: char;
-
-	let renderedValue =
-		highlight && highlight.length > 0
-			? HIGHLIGHT_COLORS[highlight.color](value.slice(0, highlight.length)) +
-				value.slice(highlight.length)
-			: value;
-	let renderedPlaceholder = placeholder ? chalk.grey(placeholder) : undefined;
-
-	if (isShowingCursor && isFocused) {
-		renderedPlaceholder =
-			placeholder.length > 0
-				? chalk.inverse(placeholder[0]) + chalk.grey(placeholder.slice(1))
-				: chalk.inverse(' ');
-		renderedValue = value.length > 0 ? '' : chalk.inverse(' ');
-
-		let i = 0;
-		for (const char of value) {
-			const painted = paint(char, i);
-			renderedValue += i === cursorOffset ? chalk.inverse(painted) : painted;
-			i++;
 		}
-
-		if (value.length > 0 && cursorOffset === value.length) {
-			renderedValue += chalk.inverse(' ');
-		}
-	}
-
-	useRawInput(
-		(input, key) => {
-			const result = handleTextInputKey(
-				valueRef.current,
-				cursorRef.current,
-				input,
-				key,
-			);
-
-			if (result.ignored) {
-				return;
-			}
-
-			if (result.submit) {
-				if (onSubmit) {
-					onSubmit(valueRef.current);
-				}
-				return;
-			}
-
-			// The cursor is the field's claim on the keyboard. Hidden, the caret has
-			// moved to a sibling list and every edit belongs to that list instead —
-			// only Enter, handled above, still reaches the field.
-			if (!isShowingCursor) {
-				return;
-			}
-
-			const valueChanged = result.value !== valueRef.current;
-
-			cursorRef.current = result.cursorOffset;
-			setCursorOffset(result.cursorOffset);
-			if (valueChanged) {
-				valueRef.current = result.value;
-				lastEmittedRef.current = result.value;
-				onChange(result.value);
-			}
-		},
-		{isActive: isFocused},
+	}, [value, highlight, syntaxStyle, isMultiline]);
+	useKeyboard(key => {
+		if (isFocused && !isShowingCursor && key.name === 'return')
+			onSubmit?.(value);
+	});
+	const common = useMemo(
+		() => ({
+			flexGrow: 1,
+			flexShrink: 1,
+			minWidth: 1,
+			focused: isFocused && isShowingCursor,
+			showCursor: isShowingCursor,
+			backgroundColor: 'transparent',
+			focusedBackgroundColor: 'transparent',
+			textColor: RGBA.defaultForeground(),
+			focusedTextColor: RGBA.defaultForeground(),
+			// The input takes one color and no dim, and bright black is the
+			// background itself on Solarized Dark.
+			placeholderColor: terminalColor('cyan'),
+			placeholder,
+			cursorStyle: {style: 'block' as const, blinking: false},
+			selectionBg: terminalColor('cyan'),
+			selectionFg: terminalColor('black'),
+			syntaxStyle,
+		}),
+		[isFocused, isShowingCursor, placeholder, syntaxStyle],
 	);
-
+	const parentKeys = isKeepingVerticalArrows
+		? ['tab', 'escape']
+		: ['up', 'down', 'tab', 'escape'];
+	const onKeyDown = (key: KeyEvent) => {
+		// These belong to the parent's pickers; do not move the input caret.
+		if (parentKeys.includes(key.name)) key.preventDefault();
+	};
+	const submit = () => onSubmit?.(ref.current?.plainText ?? value);
+	if (isMultiline)
+		return (
+			<textarea
+				{...common}
+				ref={node => {
+					ref.current = node;
+				}}
+				initialValue={value}
+				minHeight={1}
+				maxHeight={maxPromptRows}
+				wrapMode="word"
+				keyBindings={multilineKeyBindings}
+				onKeyDown={onKeyDown}
+				onSubmit={submit}
+				onContentChange={() => onChange(ref.current?.plainText ?? value)}
+			/>
+		);
 	return (
-		<Text>
-			{placeholder
-				? value.length > 0
-					? renderedValue
-					: renderedPlaceholder
-				: renderedValue}
-		</Text>
+		<input
+			{...common}
+			ref={node => {
+				ref.current = node;
+			}}
+			value={value}
+			// The end of a long query sits at the right edge, as in readline.
+			scrollMargin={0}
+			keyBindings={keyBindings}
+			onKeyDown={onKeyDown}
+			onInput={onChange}
+			onSubmit={submit}
+		/>
 	);
 }

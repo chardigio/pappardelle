@@ -21,20 +21,26 @@ git clone https://github.com/chardigio/pappardelle.git
 cd pappardelle
 
 # Install dependencies
-npm install
+bun install --frozen-lockfile
 
-# Run tests
-npm test
+# Build the native executable and JavaScript fallback, then check types
+bun run build
+bun run typecheck
 
-# Build
-npm run build
+# Run tests (includes compiled-runtime tests)
+bun run test
 ```
+
+`bun run build` embeds production React, OpenTUI, and Bun startup bytecode in
+`dist/pappardelle`. `bun run dev` keeps the source development workflow. Use
+`bun scripts/build.ts --bundle-only` for a JavaScript-only production build;
+compiled-runtime tests require the default build.
 
 ## Running tests
 
 ```bash
 # Unit tests (ava)
-npx ava 'source/**/*.test.ts'
+bun --bun ava 'source/**/*.test.ts'
 
 # Python hook tests
 pip install pytest

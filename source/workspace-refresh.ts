@@ -72,6 +72,24 @@ function reuseArray(previous: SpaceData[], next: SpaceData[]): SpaceData[] {
 		: next;
 }
 
+/**
+ * Rail order: newest first by issue number, whatever the team prefix (ABC-50
+ * above STA-12). Beads hash keys have no order of their own, but must keep one
+ * place across refreshes.
+ */
+export function compareSpaceNames(a: string, b: string): number {
+	const numberA = issueNumber(a);
+	const numberB = issueNumber(b);
+	if (numberA !== undefined && numberB !== undefined && numberA !== numberB)
+		return numberB - numberA;
+	return b.localeCompare(a, 'en', {numeric: true});
+}
+
+function issueNumber(name: string): number | undefined {
+	const match = /-(\d+)$/.exec(name);
+	return match ? Number(match[1]) : undefined;
+}
+
 /** Polling repairs missed hook events without replacing newer hook or rail state. */
 export class WorkspaceRefresh {
 	private stopped = false;
@@ -154,11 +172,7 @@ export class WorkspaceRefresh {
 		if (this.stopped || generation !== this.listGeneration || !names) return;
 		this.names = [...new Set(names)]
 			.filter(name => name !== MAIN_WORKTREE_KEY)
-			.sort(
-				(a, b) =>
-					parseInt(b.split('-')[1] ?? '0', 10) -
-					parseInt(a.split('-')[1] ?? '0', 10),
-			);
+			.sort(compareSpaceNames);
 		const orderedNames = this.names;
 		this.publish(previous => {
 			if (generation !== this.listGeneration) return previous;

@@ -5,6 +5,6 @@ export function spawnQuietCommand(
 	args: string[],
 	options: SpawnOptions,
 ) {
-	// Lifecycle output must not reach Ink or keep completion waiting on inherited pipes.
+	// Lifecycle output must not reach the TUI or keep completion waiting on inherited pipes.
 	return spawn(command, args, {...options, stdio: 'ignore'});
 }

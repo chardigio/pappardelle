@@ -18,7 +18,7 @@ test('rapid requests only open and report the latest result', async t => {
 	const keys: string[] = [];
 	const urls: string[] = [];
 	const messages: string[] = [];
-	let current = 1;
+	let latest = 1;
 	const options = {
 		provider: {
 			async getPRLink(key: string) {
@@ -26,6 +26,7 @@ test('rapid requests only open and report the latest result', async t => {
 				return key === 'FIRST' ? first.promise : second.promise;
 			},
 		},
+		ownsHeader: () => true,
 		async openUrl(url: string) {
 			urls.push(url);
 		},
@@ -35,12 +36,12 @@ test('rapid requests only open and report the latest result', async t => {
 	};
 	const firstRequest = openPR('FIRST', {
 		...options,
-		isCurrent: () => current === 1,
+		isLatest: () => latest === 1,
 	});
-	current = 2;
+	latest = 2;
 	const secondRequest = openPR('SECOND', {
 		...options,
-		isCurrent: () => current === 2,
+		isLatest: () => latest === 2,
 	});
 	second.resolve({number: 2, url: 'https://github.com/org/repo/pull/2'});
 	await secondRequest;
@@ -51,9 +52,59 @@ test('rapid requests only open and report the latest result', async t => {
 	t.deepEqual(messages, ['Opened PR #2']);
 });
 
+test('an unrelated header message during the lookup still opens the PR without replacing that message', async t => {
+	const lookup = deferred<PRLink | null>();
+	let ownsHeader = true;
+	const urls: string[] = [];
+	const messages: string[] = [];
+	const request = openPR('STA-1', {
+		provider: {
+			async getPRLink() {
+				return lookup.promise;
+			},
+		},
+		isLatest: () => true,
+		ownsHeader: () => ownsHeader,
+		async openUrl(url) {
+			urls.push(url);
+		},
+		showMessage(message) {
+			messages.push(message);
+		},
+	});
+	ownsHeader = false;
+	lookup.resolve({number: 7, url: 'https://github.com/org/repo/pull/7'});
+	await request;
+	t.deepEqual(urls, ['https://github.com/org/repo/pull/7']);
+	t.deepEqual(messages, []);
+});
+
+for (const outcome of ['missing', 'lookup failure'] as const) {
+	test(`a ${outcome} result does not replace newer unrelated header feedback`, async t => {
+		const messages: string[] = [];
+		await openPR('STA-1', {
+			provider: {
+				async getPRLink() {
+					if (outcome === 'lookup failure') throw new Error('unavailable');
+					return null;
+				},
+			},
+			isLatest: () => true,
+			ownsHeader: () => false,
+			async openUrl() {
+				t.fail('no PR must not launch a browser');
+			},
+			showMessage(message) {
+				messages.push(message);
+			},
+		});
+		t.deepEqual(messages, []);
+	});
+}
+
 test('a superseded lookup failure does not replace a newer action message', async t => {
 	const lookup = deferred<PRLink | null>();
-	let current = true;
+	let latest = true;
 	const messages: string[] = [];
 	const request = openPR('FIRST', {
 		provider: {
@@ -61,7 +112,8 @@ test('a superseded lookup failure does not replace a newer action message', asyn
 				return lookup.promise;
 			},
 		},
-		isCurrent: () => current,
+		isLatest: () => latest,
+		ownsHeader: () => true,
 		async openUrl() {
 			t.fail('failed lookup must not launch a browser');
 		},
@@ -69,17 +121,17 @@ test('a superseded lookup failure does not replace a newer action message', asyn
 			messages.push(message);
 		},
 	});
-	current = false;
+	latest = false;
 	lookup.reject(new Error('lookup failed'));
 	await request;
 	t.deepEqual(messages, []);
 });
 
 for (const fails of [false, true]) {
-	test(`late browser ${fails ? 'failure' : 'success'} does not replace a newer action message`, async t => {
+	test(`late browser ${fails ? 'failure' : 'success'} does not replace a newer header message`, async t => {
 		const launch = deferred<void>();
 		const started = deferred<void>();
-		let current = true;
+		let ownsHeader = true;
 		const messages: string[] = [];
 		const request = openPR('FIRST', {
 			provider: {
@@ -87,7 +139,8 @@ for (const fails of [false, true]) {
 					return {number: 1, url: 'https://example.com/pr/1'};
 				},
 			},
-			isCurrent: () => current,
+			isLatest: () => true,
+			ownsHeader: () => ownsHeader,
 			async openUrl() {
 				started.resolve();
 				return launch.promise;
@@ -97,7 +150,7 @@ for (const fails of [false, true]) {
 			},
 		});
 		await started.promise;
-		current = false;
+		ownsHeader = false;
 		if (fails) launch.reject(new Error('open failed'));
 		else launch.resolve();
 		await request;
@@ -121,7 +174,8 @@ for (const outcome of [
 						: {number: 1, url: 'https://example.com/pr/1'};
 				},
 			},
-			isCurrent: () => true,
+			isLatest: () => true,
+			ownsHeader: () => true,
 			async openUrl() {
 				throw new Error('open unavailable');
 			},
@@ -138,3 +192,25 @@ for (const outcome of [
 		]);
 	});
 }
+
+test('a PR recorded by link-pr opens without the issue-key lookup', async t => {
+	const urls: string[] = [];
+	let lookedUp = false;
+	await openPR('STA-1', {
+		provider: {
+			async getPRLink() {
+				lookedUp = true;
+				return null;
+			},
+		},
+		linked: {url: 'https://github.com/o/nested/pull/7', number: 7},
+		isLatest: () => true,
+		ownsHeader: () => true,
+		async openUrl(url) {
+			urls.push(url);
+		},
+		showMessage() {},
+	});
+	t.deepEqual(urls, ['https://github.com/o/nested/pull/7']);
+	t.false(lookedUp);
+});

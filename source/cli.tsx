@@ -1,12 +1,12 @@
-#!/usr/bin/env node
-import React from 'react';
+#!/usr/bin/env bun
 import {renderTui} from './render-tui.ts';
+import {routeDrops} from './drop-routing.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {fileURLToPath} from 'node:url';
+import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
-import App from './app.tsx';
+import App, {quitTui} from './app.tsx';
 import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
@@ -38,7 +38,7 @@ import {
 } from './config.ts';
 import {captureStderr, setStderrTerminalPassthrough} from './logger.ts';
 
-// Capture stderr early so Ink/React rendering errors go to the log file
+// Capture stderr early so OpenTUI/React rendering errors go to the log file
 captureStderr();
 import {bootstrapRepo} from './repo-bootstrap.ts';
 import {createIssueTracker} from './providers/index.ts';
@@ -48,17 +48,17 @@ import {buildSpawnEnv} from './spawn-env.ts';
 import {getRegisteredSpaces} from './space-registry.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
-import {createNormalizingStdin} from './components/kitty-keyboard.ts';
 import {linkPr} from './link-pr.ts';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
 	runCloseTeardown,
 } from './close-command.ts';
-import {parseCli, subcommandGate} from './cli-args.ts';
+import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
+import {SEND_LOCK_TIMEOUT_MS} from './send-lock.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
 	defaultRestartCommandDeps,
@@ -66,9 +66,7 @@ import {
 	restartRepo,
 } from './restart-command.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+const SCRIPTS_DIR = scriptsDir;
 
 const gate = subcommandGate(process.argv.slice(2));
 if (gate.action === 'help') {
@@ -106,7 +104,7 @@ if (cli.flags.resume && cli.input.length === 0) {
 	process.exit(1);
 }
 
-const pappardelleDir = path.resolve(__dirname, '..');
+const pappardelleDir = installationRoot;
 
 const isRestart = cli.input.length === 1 && cli.input[0] === 'restart';
 
@@ -252,8 +250,8 @@ function resolveCliSpaceKey(rawKey: string): string {
 
 // Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
-	const rawKey = cli.input[1];
-	let text = cli.input.slice(2).join(' ');
+	const {key: rawKey, text: argText} = parseSendArgs(process.argv.slice(2));
+	let text = argText;
 	if (!text && !process.stdin.isTTY) {
 		text = readFileSync(0, 'utf8').replace(/\n$/, '');
 	}
@@ -267,11 +265,18 @@ if (cli.input[0] === 'send') {
 
 	const issueKey = resolveCliSpaceKey(rawKey);
 	migrateLegacyAgentSessions();
-	const result = sendToSpaceAgent(issueKey, text);
+	const result = await sendToSpaceAgent(issueKey, text);
 	if (result === 'no-session') {
 		const session = getSessionNames(issueKey).agent;
 		console.error(
 			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
+		);
+		process.exit(1);
+	}
+
+	if (result === 'busy') {
+		console.error(
+			`Not sent: another send to ${issueKey} is still running after ${SEND_LOCK_TIMEOUT_MS / 1000}s`,
 		);
 		process.exit(1);
 	}
@@ -342,6 +347,15 @@ if (cli.input.length > 0) {
 	process.exit(status);
 }
 
+function exitWithTmux(result: ReturnType<typeof spawnSync>): never {
+	if (result.error) {
+		console.error(`Could not run tmux: ${result.error.message}`);
+		process.exit(1);
+	}
+
+	process.exit(result.status ?? 0);
+}
+
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
@@ -362,23 +376,37 @@ if (!isInTmux() && cli.flags.layout) {
 			stdio: 'inherit',
 			env: process.env,
 		});
-		process.exit(result.status ?? 0);
+		exitWithTmux(result);
 	}
 
 	// No existing session - create a new one.
 	const cmd = tuiLaunchCommand({
 		execPath: process.execPath,
-		cliPath: process.argv[1] ?? 'pappardelle',
+		cliPath: cliFilePath(),
 		args: process.argv.slice(2),
 		home: homedir(),
 	});
 
-	const tmuxArgs = ['new-session', '-s', sessionName, cmd];
-	const result = spawnSync('tmux', tmuxArgs, {
-		stdio: 'inherit',
-		env: process.env,
-	});
-	process.exit(result.status ?? 0);
+	// The rail's header already names the repo, so the user's status bar would
+	// only repeat it.
+	const tmuxArgs = [
+		'new-session',
+		'-s',
+		sessionName,
+		cmd,
+		';',
+		'set-option',
+		'-t',
+		exactSessionTarget(sessionName),
+		'status',
+		'off',
+	];
+	exitWithTmux(
+		spawnSync('tmux', tmuxArgs, {
+			stdio: 'inherit',
+			env: process.env,
+		}),
+	);
 }
 
 // Set up tmux layout if in tmux and not disabled
@@ -426,40 +454,12 @@ if (isInTmux() && cli.flags.layout) {
 	}
 }
 
-// Helper to clear the screen completely
-const clearScreen = () => {
-	process.stdout.write('\x1b[2J'); // Clear screen
-	process.stdout.write('\x1b[H'); // Move cursor to home
-	process.stdout.write('\x1b[3J'); // Clear scrollback buffer
-};
-
-// Enter alternate screen buffer for full-screen mode
-process.stdout.write('\x1b[?1049h'); // Enter alt screen
-clearScreen();
-// Now that we own the alt screen, stop forwarding intercepted stderr to the
-// terminal — a stray subprocess stderr write here corrupts Ink's frame (STA-1496).
-// It's still logged + shown in the in-app error overlay. Re-enabled on teardown.
+// OpenTUI owns terminal modes and restores them during renderer teardown.
 setStderrTerminalPassthrough(false);
-
-// Cleanup on exit
-const cleanup = () => {
-	// Restore stderr→terminal forwarding before we leave the alt screen so any
-	// teardown/exit diagnostics are visible to the user again.
+process.on('exit', () => {
 	setStderrTerminalPassthrough(true);
-	// Disable mouse tracking before exiting
-	process.stdout.write('\x1b[?1006l');
-	process.stdout.write('\x1b[?1000l');
-	process.stdout.write('\x1b[?1049l'); // Exit alt screen
-};
-
-process.on('exit', cleanup);
-process.on('SIGINT', () => {
-	cleanup();
-	process.exit(0);
-});
-process.on('SIGTERM', () => {
-	cleanup();
-	process.exit(0);
+	// OpenTUI turns on grapheme clustering (mode 2027) and leaves it on at exit.
+	if (process.stdout.isTTY) process.stdout.write('\u001B[?2027l');
 });
 
 // Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
@@ -488,16 +488,7 @@ const {version: installedVersion, isDev: isDevBuild} =
 // isn't blocked on the network.
 const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
 
-// Render the app. We feed Ink a CSI-u-normalizing wrapper around stdin so the
-// Kitty keyboard protocol (e.g. Esc arriving as `ESC [ 27 u` under tmux
-// extended-keys) is translated back to legacy bytes before either Ink's
-// `useInput` or our `useRawInput` ever sees it (STA-1545). On a non-TTY stdin
-// (no raw keyboard input to normalize) we pass it through untouched.
-const inkStdin = process.stdin.isTTY
-	? createNormalizingStdin(process.stdin)
-	: process.stdin;
-
-renderTui(
+const {renderer} = await renderTui(
 	<App
 		paneLayout={paneLayout}
 		commitSha={commitSha}
@@ -505,5 +496,20 @@ renderTui(
 		isDevBuild={isDevBuild}
 		updateCheckPromise={updateCheckPromise}
 	/>,
-	{stdin: inkStdin},
+	{},
+	renderer => {
+		quitTui(renderer, repoName, paneLayout);
+	},
 );
+
+const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');
+const railPaneId = process.env['TMUX_PANE'];
+if (tmuxSocket && railPaneId)
+	routeDrops(renderer, {
+		socket: tmuxSocket,
+		paneId: railPaneId,
+		isFocused: true,
+	});
+
+await renderer.closed;
+process.exit(0);

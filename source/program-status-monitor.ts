@@ -1,3 +1,4 @@
+import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {Buffer} from 'node:buffer';
 import {execFile} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
@@ -180,17 +181,12 @@ export function readProgramSnapshot(
 }
 
 function monitorEntry(): string[] {
+	if (isStandalone) return [process.execPath, '--internal-status-monitor'];
 	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
 	const entry = fileURLToPath(
 		new URL(`program-status-monitor-cli${extension}`, import.meta.url),
 	);
-	return [
-		process.execPath,
-		...(extension === '.ts'
-			? ['--import', fileURLToPath(import.meta.resolve('tsx'))]
-			: []),
-		entry,
-	];
+	return [process.execPath, ...bunIsolationArgs, entry];
 }
 
 export async function attachStatusMonitor(
@@ -280,7 +276,14 @@ export async function attachStatusMonitor(
 			),
 			socket,
 		);
-		if (attached?.generation !== pane.generation) rmSync(lease, {force: true});
+		if (attached?.generation === pane.generation) {
+			// A session has one status pane, so earlier generations' files belong
+			// to panes that no longer exist.
+			removeProgramSnapshots(repo, key, pane.generation);
+		} else {
+			rmSync(lease, {force: true});
+		}
+
 		return attached;
 	} catch (error) {
 		log.debug(`Cannot monitor ${session}: ${String(error)}`);
@@ -288,12 +291,21 @@ export async function attachStatusMonitor(
 	}
 }
 
-export function removeProgramSnapshots(repo: string, key: string): void {
+export function removeProgramSnapshots(
+	repo: string,
+	key: string,
+	keepGeneration?: string,
+): void {
 	try {
+		const kept =
+			keepGeneration === undefined
+				? undefined
+				: path.basename(programStatusPath(repo, key, keepGeneration));
 		const files = readdirSync(programStatusDir(repo)).filter(
 			file =>
 				statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) ===
-				key,
+					key &&
+				(kept === undefined || !file.startsWith(kept)),
 		);
 		for (const file of files.filter(file => file.endsWith('.lease')))
 			rmSync(path.join(programStatusDir(repo), file), {force: true});

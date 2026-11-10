@@ -2,9 +2,13 @@
 	"extends": "@sindresorhus/tsconfig",
 	"compilerOptions": {
 		"target": "ES2023",
-		"lib": ["ES2023"],
+		"lib": ["ESNext", "DOM"],
 		"outDir": "dist",
-		"rewriteRelativeImportExtensions": true
+		"rewriteRelativeImportExtensions": true,
+		"jsx": "react-jsx",
+		"jsxImportSource": "@opentui/react",
+		"types": ["bun"],
+		"resolveJsonModule": true
 	},
 	"include": ["source"],
 	"exclude": ["source/**/*.test.ts"]

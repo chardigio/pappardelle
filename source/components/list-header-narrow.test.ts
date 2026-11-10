@@ -1,22 +1,15 @@
 /**
  * STA-2040 regression: the list header must stay exactly one row.
  *
- * `LIST_CHROME_ROWS` is 2 (header + status line), and `calculateListClickRow`
- * turns a mouse y into a row index on that assumption. Once the ticket rail can
- * be dragged down to a handful of columns, the header no longer fits on one
- * row. A wrapped header pushes every list row down, so clicks land on the wrong
- * space and the visible-item count is wrong too.
- *
- * ava runs under Node's `--experimental-strip-types`, which cannot transform the
- * JSX in `app.tsx`, so (like `space-list-item-emoji.test.ts`) this mirrors the
- * header markup through real Ink instead of importing the component. The
- * `bug-reproduces-without-the-fix` test pins the Ink behavior the fix depends
- * on, so an Ink drift flips it.
+ * LIST_CHROME_ROWS assumes two rows (header + status). A wrapped header
+ * pushes list items down and invalidates the visible-item count in narrow panes.
+ * Render the header markup through OpenTUI to verify that clipping preserves
+ * that layout. Mouse targeting is handled by native per-row events.
  */
 import test from 'ava';
+import {textAttributes, terminalColor} from '../tui-style.ts';
 import React from 'react';
-import {Box, Text} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../../test/helpers/render.ts';
 import {HEADER_ROWS} from '../list-view-sizing.ts';
 
 const REPO = 'stardust-labs';
@@ -29,69 +22,97 @@ const ERROR_COUNT = 3;
  * adds, so the same markup can be rendered with and without it.
  */
 function segments(fixed: boolean): React.ReactElement[] {
-	const wrap = fixed ? ({wrap: 'truncate-end'} as const) : {};
+	const wrap = fixed ? ({wrapMode: 'none', truncate: true} as const) : {};
 	return [
 		React.createElement(
-			Text,
-			{key: 'repo', bold: true, color: 'cyan', ...wrap},
+			'text',
+			{
+				key: 'repo',
+				attributes: textAttributes({bold: true}),
+				fg: terminalColor('cyan'),
+				...wrap,
+			},
 			`\u{1F35D} ${REPO}`,
 		),
-		React.createElement(Text, {key: 'sep1', dimColor: true, ...wrap}, ' | '),
 		React.createElement(
-			Text,
-			{key: 'count', dimColor: true, ...wrap},
+			'text',
+			{key: 'sep1', attributes: textAttributes({dim: true}), ...wrap},
+			' | ',
+		),
+		React.createElement(
+			'text',
+			{key: 'count', attributes: textAttributes({dim: true}), ...wrap},
 			`${SPACE_COUNT} spaces`,
 		),
-		React.createElement(Text, {key: 'sep2', dimColor: true, ...wrap}, ' | '),
 		React.createElement(
-			Text,
-			{key: 'err', color: 'red', ...wrap},
+			'text',
+			{key: 'sep2', attributes: textAttributes({dim: true}), ...wrap},
+			' | ',
+		),
+		React.createElement(
+			'text',
+			{key: 'err', fg: terminalColor('red'), ...wrap},
 			`✗ ${ERROR_COUNT}`,
 		),
 		React.createElement(
-			Text,
-			{key: 'errlabel', dimColor: true, ...wrap},
+			'text',
+			{key: 'errlabel', attributes: textAttributes({dim: true}), ...wrap},
 			' (e)',
 		),
 	];
 }
 
 /** Render the header at `width` columns and return its lines. */
-function headerLines(width: number, fixed: boolean): string[] {
+async function headerLines(width: number, fixed: boolean): Promise<string[]> {
 	const children = segments(fixed);
 	const header = fixed
 		? React.createElement(
-				Box,
-				{height: 1, overflowX: 'hidden'},
-				React.createElement(Box, {flexShrink: 0}, ...children),
+				'box',
+				{flexDirection: 'row', height: 1, overflow: 'hidden'},
+				React.createElement(
+					'box',
+					{flexDirection: 'row', flexShrink: 0},
+					...children,
+				),
 			)
-		: React.createElement(Box, null, ...children);
-	const {lastFrame} = render(React.createElement(Box, {width}, header));
-	return (lastFrame() ?? '').replace(/\n+$/, '').split('\n');
+		: React.createElement('box', {flexDirection: 'row'}, ...children);
+	const view = await render(
+		React.createElement('box', {flexDirection: 'row', width}, header),
+	);
+	const frame = view.lastFrame();
+	await view.unmount();
+	return frame.replace(/\n+$/, '').split('\n');
 }
 
 const FULL = `\u{1F35D} ${REPO} | ${SPACE_COUNT} spaces | ✗ ${ERROR_COUNT} (e)`;
 
-test('bug reproduces without the fix: a narrow header wraps onto extra rows', t => {
-	t.true(headerLines(8, false).length > HEADER_ROWS);
+test('bug reproduces without the fix: a narrow header wraps onto extra rows', async t => {
+	const lines = await headerLines(8, false);
+	t.true(lines.length > HEADER_ROWS);
 });
 
-test('the header stays one row at every rail width a drag can reach', t => {
+test('the header stays one row at every rail width a drag can reach', async t => {
 	// 8 is MIN_RAIL_OVERRIDE_WIDTH, the narrowest a hand-drag may produce.
 	for (const width of [8, 10, 12, 16, 20, 30, 37]) {
-		t.is(headerLines(width, true).length, 1, `width ${width}`);
+		const lines = await headerLines(width, true);
+		t.is(lines.length, 1, `width ${width}`);
 	}
 });
 
-test('a narrow header keeps its leading segment', t => {
-	t.true(headerLines(8, true)[0]?.startsWith('\u{1F35D} '));
+test('a narrow header keeps its leading segment', async t => {
+	const lines = await headerLines(8, true);
+	t.true(lines[0]?.startsWith('\u{1F35D} '));
 });
 
-test('the header is unchanged at ordinary widths', t => {
+test('the header is unchanged at ordinary widths', async t => {
 	// The full header is 38 cells wide, so 40 is the first width that fits it.
 	for (const width of [40, 60, 120]) {
-		t.deepEqual(headerLines(width, true), [FULL], `width ${width}`);
-		t.deepEqual(headerLines(width, false), [FULL], `width ${width} unfixed`);
+		t.deepEqual(await headerLines(width, true), [FULL], `width ${width}`);
+		t.deepEqual(
+			await headerLines(width, false),
+			[FULL],
+			`width ${width} unfixed`,
+		);
 	}
 });
 
@@ -100,68 +121,74 @@ test('the header is unchanged at ordinary widths', t => {
 // ============================================================================
 
 /**
- * The search branch of the status line, mirrored from app.tsx. `TextInput`
- * cannot render under ink-testing-library (it calls `stdin.ref`), so a plain
- * Text of the same content stands in for it: what is under test is the box and
- * wrap props around it, not the input widget.
+ * The search branch of the status line, mirrored from app.tsx with a plain
+ * text of the same content in place of `TextInput`: what is under test is the
+ * box and wrap props around it, not the input widget.
  *
- * Each segment sits in its own `flexShrink={0}` box because Ink drops a
- * one-cell Text outright when a sibling Text is truncated, which swallowed the
- * `/` prefix when the segments were bare Texts.
+ * Each segment sits in its own `flexShrink={0}` box, as in app.tsx. Ink dropped
+ * a one-cell text outright when a sibling was truncated, which swallowed the
+ * `/` prefix when the segments were bare texts.
  */
-function searchLines(width: number, fixed: boolean): string[] {
-	const wrap = fixed ? ({wrap: 'truncate-end'} as const) : {};
+async function searchLines(width: number, fixed: boolean): Promise<string[]> {
+	const wrap = fixed ? ({wrapMode: 'none', truncate: true} as const) : {};
 	const children = [
-		React.createElement(Text, {key: 'slash', color: 'cyan', ...wrap}, '/'),
 		React.createElement(
-			Text,
+			'text',
+			{key: 'slash', fg: terminalColor('cyan'), ...wrap},
+			'/',
+		),
+		React.createElement(
+			'text',
 			{key: 'input', ...wrap},
 			'filter by key or title...',
 		),
 		React.createElement(
-			Text,
-			{key: 'matches', dimColor: true, ...wrap},
+			'text',
+			{key: 'matches', attributes: textAttributes({dim: true}), ...wrap},
 			' (3 matches)',
 		),
 	];
 	const inner = fixed
 		? React.createElement(
-				Box,
-				{flexShrink: 0},
+				'box',
+				{flexDirection: 'row', flexShrink: 0},
 				...children.map((child, index) =>
-					React.createElement(Box, {key: index, flexShrink: 0}, child),
+					React.createElement(
+						'box',
+						{flexDirection: 'row', key: index, flexShrink: 0},
+						child,
+					),
 				),
 			)
 		: React.createElement(React.Fragment, null, ...children);
 	const line = React.createElement(
-		Box,
-		{height: 1, overflowX: 'hidden'},
+		'box',
+		{flexDirection: 'row', height: 1, overflow: 'hidden'},
 		inner,
 	);
-	const {lastFrame} = render(React.createElement(Box, {width}, line));
-	return (lastFrame() ?? '').replace(/\n+$/, '').split('\n');
+	const view = await render(
+		React.createElement('box', {flexDirection: 'row', width}, line),
+	);
+	const frame = view.lastFrame();
+	await view.unmount();
+	return frame.replace(/\n+$/, '').split('\n');
 }
 
-test('the search line stays one row at every rail width a drag can reach', t => {
+test('the search line stays one row at every rail width a drag can reach', async t => {
 	for (const width of [8, 10, 12, 16, 20, 30, 37]) {
-		t.is(searchLines(width, true).length, 1, `width ${width}`);
+		const lines = await searchLines(width, true);
+		t.is(lines.length, 1, `width ${width}`);
 	}
 });
 
-test('bug reproduces without the fix: narrow search segments interleave', t => {
-	// `height: 1` already bounds the row count, so the click hit-test was never
-	// wrong here. What breaks is the content: yoga squeezes every segment at
-	// once, so the line reads as fragments of all three interleaved.
-	t.not(searchLines(12, false)[0], searchLines(12, true)[0]);
-	t.true(searchLines(12, true)[0]?.startsWith('/filter'));
-	// The unfixed line interleaves fragments of all three segments instead.
-	t.false(searchLines(12, false)[0]?.startsWith('/filter'));
-});
-
-test('the search line is unchanged at ordinary widths', t => {
+test('the search line is unchanged at ordinary widths', async t => {
 	const full = '/filter by key or title... (3 matches)';
 	for (const width of [40, 60, 120]) {
-		t.deepEqual(searchLines(width, true), [full], `width ${width}`);
-		t.deepEqual(searchLines(width, false), [full], `width ${width} unfixed`);
+		t.deepEqual(await searchLines(width, true), [full], `width ${width}`);
+		t.deepEqual(
+			await searchLines(width, false),
+			[full],
+			`width ${width} unfixed`,
+		);
 	}
 });

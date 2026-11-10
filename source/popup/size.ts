@@ -1,4 +1,3 @@
-import widestLine from 'widest-line';
 import {
 	buildHelpLines,
 	buildHelpRows,
@@ -6,8 +5,16 @@ import {
 	HELP_CHROME_ROWS,
 } from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
-import {closeSpaceContent} from '../close-state-choice.ts';
+import {
+	closeSpaceContent,
+	STATE_ROW_ONE_LINE_COLS,
+} from '../close-state-choice.ts';
 import {agentPickerHeight, agentPickerWidth} from '../agent-profile-picker.ts';
+import {
+	displayWidth,
+	POPUP_WIDTH_METHOD,
+	wrappedLineCount,
+} from '../text-measure.ts';
 import type {ConfirmPopupProps, PopupSpec} from './spec.ts';
 
 export type ClientSize = {cols: number; rows: number};
@@ -20,37 +27,6 @@ const HORIZONTAL_CHROME = 6;
 const VERTICAL_CHROME = 4;
 const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
 const CLOSE_SPACE_HINT = '←/→ change state · y/Enter confirm · n/Esc cancel';
-
-/**
- * Rows a string takes once Ink word-wraps it at `width` columns. Words longer
- * than the line are split, which is what Ink's hard wrap does too.
- */
-export function wrappedLineCount(text: string, width: number): number {
-	if (width <= 0) return 1;
-	let lines = 0;
-	for (const paragraph of text.split('\n')) {
-		let current = 0;
-		lines++;
-		for (const word of paragraph.split(' ')) {
-			let wordWidth = widestLine(word);
-			const needed = current === 0 ? wordWidth : current + 1 + wordWidth;
-			if (needed <= width) {
-				current = needed;
-				continue;
-			}
-
-			if (current > 0) lines++;
-			while (wordWidth > width) {
-				wordWidth -= width;
-				lines++;
-			}
-
-			current = wordWidth;
-		}
-	}
-
-	return lines;
-}
 
 // tmux refuses a popup as tall as the client when a status line is on.
 const STATUS_LINE_ROWS = 2;
@@ -69,6 +45,10 @@ function fraction(client: ClientSize): PopupSize {
 	};
 }
 
+function lines(text: string, inner: number): number {
+	return wrappedLineCount(text, inner, POPUP_WIDTH_METHOD);
+}
+
 function confirmHeight(
 	{title, message, detail}: ConfirmPopupProps,
 	inner: number,
@@ -76,12 +56,12 @@ function confirmHeight(
 ): number {
 	return (
 		VERTICAL_CHROME +
-		wrappedLineCount(title, inner) +
+		lines(title, inner) +
 		1 +
-		wrappedLineCount(message, inner) +
+		lines(message, inner) +
 		1 +
-		(detail ? wrappedLineCount(detail, inner) + 1 : 0) +
-		wrappedLineCount(hint, inner)
+		(detail ? lines(detail, inner) + 1 : 0) +
+		lines(hint, inner)
 	);
 }
 
@@ -100,10 +80,9 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			const content = closeSpaceContent(spec.props.spaceName);
 			// The tracker's ability to pick a state is only known inside the
 			// popup, so it is sized for the state row and its margin either way.
+			const stateRows = inner < STATE_ROW_ONE_LINE_COLS ? 2 : 1;
 			const height =
-				confirmHeight(content, inner, CLOSE_SPACE_HINT) +
-				// The state row is truncated to one line, plus its margin.
-				2;
+				confirmHeight(content, inner, CLOSE_SPACE_HINT) + stateRows + 1;
 			return clamp({width, height}, client);
 		}
 
@@ -115,15 +94,27 @@ export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 			const customRows = rows.extraCustom;
 			const rowWidth = Math.max(
 				...[...shortcutRows, ...customRows].map(
-					row => rows.maxKeyLength + 1 + widestLine(row.description),
+					row =>
+						rows.maxKeyLength +
+						1 +
+						displayWidth(row.description, POPUP_WIDTH_METHOD),
 				),
 			);
-			const height = HELP_CHROME_ROWS + buildHelpLines(rows).length;
+			const lines = buildHelpLines(rows);
+			const height = HELP_CHROME_ROWS + lines.length;
 			const maxHeight = client.rows - STATUS_LINE_ROWS;
 			const contentWidth = Math.max(
 				rowWidth,
-				widestLine(formatVersionLine(installedVersion, commitSha, isDevBuild)),
-				widestLine(helpFooter(height > maxHeight)),
+				...lines.map(line =>
+					line.kind === 'heading'
+						? displayWidth(line.text, POPUP_WIDTH_METHOD)
+						: 0,
+				),
+				displayWidth(
+					formatVersionLine(installedVersion, commitSha, isDevBuild),
+					POPUP_WIDTH_METHOD,
+				),
+				displayWidth(helpFooter(height > maxHeight), POPUP_WIDTH_METHOD),
 			);
 			return clamp({width: contentWidth + HORIZONTAL_CHROME, height}, client);
 		}

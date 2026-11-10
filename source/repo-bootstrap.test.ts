@@ -2,21 +2,11 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import test from 'ava';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const tsx = path.join(
-	here,
-	'..',
-	'node_modules',
-	'tsx',
-	'dist',
-	'esm',
-	'index.mjs',
-);
-
-// The popup child is a fresh node process. This runs one the same way, in a
+// The popup child is a fresh Bun process. This runs one the same way, in a
 // repo configured for beads, and asks which tracker it ended up with.
 function trackerInFreshProcess(bootstrap: boolean): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bootstrap-repo-'));
@@ -36,13 +26,7 @@ function trackerInFreshProcess(bootstrap: boolean): string {
 		].join('\n');
 		return execFileSync(
 			process.execPath,
-			[
-				'--import',
-				pathToFileURL(tsx).href,
-				'--input-type=module',
-				'-e',
-				script,
-			],
+			['--input-type=module', '-e', script],
 			{
 				cwd: root,
 				encoding: 'utf8',

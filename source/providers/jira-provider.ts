@@ -17,10 +17,13 @@ const log = createLogger('jira-provider');
 const CACHE_TTL_MS = 60_000;
 export const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 500;
+// Jira Cloud has taken 20-50s to answer acli at times, regardless of the
+// fields asked for.
+const ACLI_TIMEOUT_MS = 60_000;
 
-// acli defaults to a limited field set that excludes labels.
-// `view` supports '*all'; `search` only accepts explicit field names.
-const ACLI_VIEW_FIELDS = '*all';
+// acli defaults to a limited field set that excludes labels. These are the
+// fields mapJiraIssue reads; asking `view` for '*all' returns ~100KB per issue.
+const ACLI_VIEW_FIELDS = 'summary,status,project,labels';
 const ACLI_SEARCH_FIELDS =
 	'issuetype,key,assignee,priority,status,summary,labels';
 
@@ -222,7 +225,7 @@ export class JiraProvider implements IssueTrackerProvider {
 						ACLI_VIEW_FIELDS,
 						'--json',
 					],
-					{encoding: 'utf-8', timeout: 15_000},
+					{encoding: 'utf-8', timeout: ACLI_TIMEOUT_MS},
 				);
 				const raw = JSON.parse(output) as Record<string, unknown>;
 				const issue = this.aliasToRequestedKey(mapJiraIssue(raw), issueKey);
@@ -310,7 +313,7 @@ export class JiraProvider implements IssueTrackerProvider {
 					ACLI_SEARCH_FIELDS,
 					'--json',
 				],
-				{encoding: 'utf-8', timeout: 30_000},
+				{encoding: 'utf-8', timeout: ACLI_TIMEOUT_MS},
 			);
 			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
 			const requested = new Set(issueKeys);
@@ -441,7 +444,7 @@ export class JiraProvider implements IssueTrackerProvider {
 					ACLI_SEARCH_FIELDS,
 					'--json',
 				],
-				{encoding: 'utf-8', timeout: 30_000},
+				{encoding: 'utf-8', timeout: ACLI_TIMEOUT_MS},
 			);
 			const rawList = JSON.parse(output) as Array<Record<string, unknown>>;
 			const results: TrackerIssue[] = [];
@@ -501,7 +504,7 @@ export class JiraProvider implements IssueTrackerProvider {
 						'--body',
 						body,
 					],
-					{encoding: 'utf-8', timeout: 30_000},
+					{encoding: 'utf-8', timeout: ACLI_TIMEOUT_MS},
 				);
 				return true;
 			} catch (err) {

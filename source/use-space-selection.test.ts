@@ -1,6 +1,5 @@
 import React, {useEffect} from 'react';
-import {Text} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
 import {useSpaceSelection} from './use-space-selection.ts';
@@ -36,11 +35,13 @@ async function setup(t: ExecutionContext) {
 		useEffect(() => {
 			attachments.push(selectedName);
 		}, [selectedName]);
-		return React.createElement(Text, {}, selectedName ?? 'empty');
+		return React.createElement('text', {}, selectedName ?? 'empty');
 	}
 
-	const view = render(React.createElement(WorkspaceView));
-	t.teardown(() => view.unmount());
+	const view = await render(React.createElement(WorkspaceView));
+	t.teardown(async () => {
+		await view.unmount();
+	});
 	await update(() => {
 		selection.setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
 		selection.setSelectedIndex(2);
@@ -147,5 +148,19 @@ test.serial(
 		);
 		t.is(harness.view.lastFrame(), 'STA-2');
 		t.deepEqual(harness.attachments, ['STA-2']);
+	},
+);
+
+test.serial(
+	'keys in one input write see the selection the previous key made',
+	async t => {
+		const harness = await setup(t);
+		harness.selection.setSelectedIndex(3);
+		t.is(harness.selection.current().selectedIndex, 3);
+		harness.selection.setSpaces(current =>
+			current.filter(space => space.name !== 'STA-2'),
+		);
+		const {spaces, selectedIndex} = harness.selection.current();
+		t.is(spaces[selectedIndex]?.name, 'STA-1');
 	},
 );

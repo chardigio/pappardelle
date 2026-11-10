@@ -1,6 +1,7 @@
+import {useKeyboard} from '@opentui/react';
+import {shortcutKey} from './tui-key.ts';
 import React from 'react';
-import {Text, useInput} from 'ink';
-import {render} from 'ink-testing-library';
+import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {
@@ -54,39 +55,40 @@ test('other keys do not close the selected space', t => {
 	t.false(isCloseSpaceKey('', {}));
 });
 
-// STA-2573: Ink 4 named the Mac Backspace byte (\x7f) `delete`, and Ink 7 names
-// it `backspace`. The rail only checked `key.delete`, so the upgrade silently
-// unbound Backspace. Drive the real bytes through Ink's own parser so the next
-// Ink upgrade can't move them again unnoticed.
+// STA-2573: a framework upgrade once renamed the Mac Backspace byte (\x7f) from
+// `delete` to `backspace` while the rail only checked `key.delete`, silently
+// unbinding Backspace. Drive the real bytes through OpenTUI's parser so a
+// renamed key fails here.
 async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
 	let closed = false;
 	function Rail() {
-		useInput((input, key) => {
+		useKeyboard(event => {
+			const {input, key} = shortcutKey(event);
 			if (isCloseSpaceKey(input, key)) closed = true;
 		});
-		return React.createElement(Text, null, 'rail');
+		return React.createElement('text', null, 'rail');
 	}
 
-	const view = render(React.createElement(Rail));
+	const view = await render(React.createElement(Rail));
 	try {
 		await delay(10);
-		view.stdin.write(bytes);
+		await view.stdin.write(bytes);
 		await delay(20);
 		return closed;
 	} finally {
-		view.unmount();
+		await view.unmount();
 	}
 }
 
-test('Ink delivers the Backspace byte as a close-space key', async t => {
+test('OpenTUI delivers the Backspace byte as a close-space key', async t => {
 	t.true(await closesSpaceOnStdin('\x7f'));
 });
 
-test('Ink delivers ctrl+h backspace as a close-space key', async t => {
+test('OpenTUI delivers ctrl+h backspace as a close-space key', async t => {
 	t.true(await closesSpaceOnStdin('\b'));
 });
 
-test('Ink delivers fn+Delete as a close-space key', async t => {
+test('OpenTUI delivers fn+Delete as a close-space key', async t => {
 	t.true(await closesSpaceOnStdin('\x1b[3~'));
 });
 

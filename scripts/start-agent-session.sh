@@ -46,9 +46,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATUS_MONITOR=()
 STATUS_GATE=""
-STATUS_NODE="${PAPPARDELLE_NODE:-$(command -v node || true)}"
-if [[ -x "$STATUS_NODE" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
-    STATUS_MONITOR=("$STATUS_NODE" "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
+STATUS_BUN="${PAPPARDELLE_BUN:-$(command -v bun || true)}"
+if [[ -x "${PAPPARDELLE_EXECUTABLE:-}" ]]; then
+    STATUS_MONITOR=("$PAPPARDELLE_EXECUTABLE" --internal-status-monitor)
+elif [[ -x "$SCRIPT_DIR/../dist/pappardelle" ]]; then
+    # Direct idow launches use the compiled monitor, which never loads the
+    # workspace's .env or bunfig.toml and needs no Bun on PATH.
+    STATUS_MONITOR=("$SCRIPT_DIR/../dist/pappardelle" --internal-status-monitor)
+elif [[ -x "$STATUS_BUN" && -f "$SCRIPT_DIR/../dist/program-status-monitor-cli.js" ]]; then
+    STATUS_MONITOR=("$STATUS_BUN" --no-env-file --config=/dev/null "$SCRIPT_DIR/../dist/program-status-monitor-cli.js")
 fi
 
 ISSUE_KEY=""
@@ -273,7 +279,9 @@ new_launch_session() {
 new_inner_session() {
     local session="$1"
     shift
-    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@")
+    # Viewer panes nest the session under the rail, so its status bar is hidden.
+    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \; \
+        set-option -t "=$session:" status off)
 }
 
 # A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:

@@ -98,12 +98,11 @@ export function buildHelpLines(rows: {
 			...rows.extraCustom.map(row => ({kind: 'row' as const, row})),
 		);
 	}
+	// Split so the legend fits the width the shortcut rows already need.
 	lines.push(
 		{kind: 'blank'},
-		{
-			kind: 'heading',
-			text: 'Program status: working · ● idle/done · ? question · ! blocked · ✗ error',
-		},
+		{kind: 'heading', text: 'Program status: ✢ working · ● idle/done'},
+		{kind: 'heading', text: '                ? question · ! blocked · ✗ error'},
 	);
 
 	return lines;

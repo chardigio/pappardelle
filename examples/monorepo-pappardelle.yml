@@ -128,7 +128,7 @@ keybindings:
         tell application "iTerm"
           create window with default profile
           tell current session of current window
-            write text "cd \"${WORKTREE_PATH}/_dev/scripts/pappardelle\" && npm test"
+            write text "cd \"${WORKTREE_PATH}/_dev/scripts/pappardelle\" && bun run test"
           end tell
         end tell'
 
@@ -276,5 +276,5 @@ profiles:
         path: '${WORKTREE_PATH}'
     commands:
       - name: 'Install dependencies'
-        run: 'cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && npm install'
+        run: 'cd ${WORKTREE_PATH}/_dev/scripts/pappardelle && bun install'
         continue_on_error: true

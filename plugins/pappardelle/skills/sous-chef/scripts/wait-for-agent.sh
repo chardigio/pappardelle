@@ -16,6 +16,11 @@ if [ $# -ne 3 ]; then
 fi
 
 # Pass all values via environment variables to avoid shell injection into Python
+if ! [[ "$3" =~ ^[0-9]+$ ]]; then
+  echo "SINCE-MS must be epoch milliseconds, got: $3" >&2
+  exit 2
+fi
+
 export SC_REPO_NAME="$1"
 export SC_ISSUE_KEY="$2"
 export SC_SINCE_MS="$3"

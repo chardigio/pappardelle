@@ -110,7 +110,7 @@ beads_id_prefixes() {
         yq -r '[.team_prefix, .profiles[].team_prefix, .profiles[].tracker_projects[]]
                | .[] | select(. != null and . != "")' \
             "$config_path" 2>/dev/null
-    } | tr '[:upper:]' '[:lower:]' | sort -u
+    } | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort -u
 }
 
 is_beads_issue_key() {

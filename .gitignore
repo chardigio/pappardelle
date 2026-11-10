@@ -7,3 +7,7 @@ __pycache__
 # The beads database is per-machine state, not source.
 .beads
 .claude/settings.local.json
+*.bun-build
+dist.next
+
+benchmark-results
