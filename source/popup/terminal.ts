@@ -41,24 +41,29 @@ export type PopupLaunch = {
 };
 
 /**
- * The terminal the user was last at, from `list-clients` lines of control
- * mode, activity time and tty. Left to itself tmux shows a popup on the
- * session's most recently active client, and the TUI's control-mode client,
- * which cannot show one, counts as active each time it attaches.
+ * `-c` and the client for a popup, or nothing when tmux's own choice is right.
+ *
+ * tmux shows a popup on the session's most recently active client. That is
+ * the terminal that just typed, except that the TUI's control-mode client,
+ * which cannot show a popup, is the most recent one until a key is pressed
+ * after it attaches. `report` is the control-mode flag of tmux's choice, then
+ * one line per client: control mode, activity time and tty.
  */
-export function newestTerminalClient(listing: string): string | undefined {
+export function popupClientArgs(report: string): string[] {
+	const [chosenIsControl, ...clients] = report.split('\n');
+	if (chosenIsControl !== '1') return [];
 	let newest: {activity: number; tty: string} | undefined;
-	for (const line of listing.split('\n')) {
+	for (const line of clients) {
 		const [control, activity, tty] = line.split('\t');
 		if (control !== '0' || !tty) continue;
 		if (!newest || Number(activity) >= newest.activity)
 			newest = {activity: Number(activity), tty};
 	}
 
-	return newest?.tty;
+	return newest ? ['-c', newest.tty] : [];
 }
 
-/** `-c <client>` for a popup command, empty when the client is not known. */
+/** See popupClientArgs. */
 export async function userClientArgs(): Promise<string[]> {
 	const pane = process.env['TMUX_PANE'];
 	if (!pane) return [];
@@ -66,6 +71,10 @@ export async function userClientArgs(): Promise<string[]> {
 		execFile(
 			'tmux',
 			[
+				'display-message',
+				'-p',
+				'#{client_control_mode}',
+				';',
 				'list-clients',
 				'-t',
 				pane,
@@ -74,8 +83,7 @@ export async function userClientArgs(): Promise<string[]> {
 			],
 			{encoding: 'utf8', timeout: 2000},
 			(error, stdout) => {
-				const client = error ? undefined : newestTerminalClient(stdout);
-				resolve(client ? ['-c', client] : []);
+				resolve(error ? [] : popupClientArgs(stdout));
 			},
 		);
 	});

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
-import {buildDisplayPopupArgs, newestTerminalClient} from './terminal.ts';
+import {buildDisplayPopupArgs, popupClientArgs} from './terminal.ts';
 
 /**
  * Run the popup's command the way tmux does: through a shell with `-c`, in a
@@ -71,13 +71,17 @@ test('the popup shell exits once the TUI is gone', async t => {
 	t.true(existsSync(readyPath));
 });
 
-test('a popup goes to the terminal last used, never to a control-mode client', t => {
+test('a popup is left to tmux unless tmux would pick the control-mode client', t => {
 	const clients = [
 		'0\t1794332400\t/dev/pts/3',
 		'0\t1794332491\t/dev/pts/31',
 		'1\t1794332492\t',
 		'',
-	].join('\n');
-	t.is(newestTerminalClient(clients), '/dev/pts/31');
-	t.is(newestTerminalClient('1\t1794332492\t\n'), undefined);
+	];
+	t.deepEqual(popupClientArgs(['0', ...clients].join('\n')), []);
+	t.deepEqual(popupClientArgs(['1', ...clients].join('\n')), [
+		'-c',
+		'/dev/pts/31',
+	]);
+	t.deepEqual(popupClientArgs('1\n1\t1794332492\t\n'), []);
 });
