@@ -37,8 +37,11 @@ export type QuestionDialog = {
 	options: PromptOption[];
 	/** Options are ticked with a digit or Enter, then confirmed on a Submit or Next row. */
 	multiSelect: boolean;
-	/** The row that takes a typed answer, and the text typed in it so far, if it is open. */
-	textOption: {number: number; typed: string | null} | null;
+	/**
+	 * The row that takes a typed answer: the text in it ('' under its
+	 * placeholder), and whether it is open for typing.
+	 */
+	textOption: {number: number; text: string; open: boolean} | null;
 	/** The numbered row the cursor is on, free-text row included; null on Submit or Next. */
 	cursor: number | null;
 };
@@ -214,8 +217,13 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 		.map(tab => tab.trim().replace(/^[☐☒✔]\s*/, ''))
 		.filter(tab => tab !== '' && tab !== 'Submit');
 	const typing = lines[footerAt]?.includes('-- INSERT --') ?? false;
-	const rows = readOptions(lines, firstOptionAt, {joinWrapped: false})
-		.filter(option => option.label !== 'Chat about this')
+	const all = readOptions(lines, firstOptionAt, {joinWrapped: false});
+	// Claude puts the free-text row right above "Chat about this", and shows
+	// what's typed in it in place of its label, focused or not. The review
+	// step has neither.
+	const chat = all.find(option => option.label === 'Chat about this');
+	const rows = all
+		.filter(option => option !== chat)
 		.map(option => {
 			const box = CHECKBOX.exec(option.label);
 			return box
@@ -226,10 +234,9 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 					}
 				: option;
 		});
-	// The free-text row shows what's typed in it in place of its label.
-	const text = rows.find(option =>
-		typing ? option.selected : TYPE_SOMETHING.test(option.label),
-	);
+	const text = chat
+		? rows.find(option => option.number === chat.number - 1)
+		: undefined;
 	return {
 		tabs,
 		question: lines[questionAt]?.trim() ?? '',
@@ -239,11 +246,8 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 		textOption: text
 			? {
 					number: text.number,
-					typed: typing
-						? TYPE_SOMETHING.test(text.label)
-							? ''
-							: text.label
-						: null,
+					text: TYPE_SOMETHING.test(text.label) ? '' : text.label,
+					open: typing && text.selected,
 				}
 			: null,
 	};
