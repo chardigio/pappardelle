@@ -124,18 +124,7 @@ export function formatState(report: AgentStateReport): string {
 		);
 	}
 
-	if (report.question) {
-		lines.push(
-			report.question.multiSelect
-				? `${report.question.question} (pick several)`
-				: report.question.question,
-			formatOptions(report.question.options),
-		);
-		if (report.question.textOption)
-			lines.push(
-				`  ${report.question.textOption.number}. ${report.question.textOption.typed ?? '(type an answer with --text)'}`,
-			);
-	}
+	if (report.question) lines.push(formatQuestion(report.question));
 
 	if (report.usageLimit) {
 		lines.push(
@@ -147,6 +136,22 @@ export function formatState(report: AgentStateReport): string {
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
 	// Shown under a limit too, since a draft there stops the wake-up.
 	if (report.composer) lines.push(`Composer: ${report.composer}`);
+	return lines.join('\n');
+}
+
+function formatQuestion(question: QuestionTab): string {
+	const lines = [
+		question.multiSelect
+			? `${question.question} (pick several)`
+			: question.question,
+		formatOptions(question.options),
+	];
+	const row = question.textOption;
+	// Typed answers are only taken on a single-select question.
+	if (row && !question.multiSelect)
+		lines.push(
+			`  ${row.number}. ${row.typed ?? '(type an answer with --text)'}`,
+		);
 	return lines.join('\n');
 }
 
@@ -457,13 +462,30 @@ function planQuestionAnswer(
 		shows: report =>
 			report.state !== 'question' || report.question?.question !== asked,
 	};
+	const row = question.textOption;
+	// While the free-text row is open it takes every key as text, digits too.
+	if (row?.typed)
+		return `its free-text row already holds "${row.typed}"; clear it first with --keys or by hand`;
+	const leaveRow: AnswerStep[] =
+		row?.typed === ''
+			? [
+					{
+						keys: ['Up'],
+						expect: 'the cursor off the free-text row',
+						shows: report =>
+							report.question?.question === asked &&
+							report.question.textOption?.typed === null,
+					},
+				]
+			: [];
 
 	if (command.text !== undefined) {
 		const {text} = command;
-		const {textOption: row} = question;
 		if (question.multiSelect)
 			return 'typed answers on a multi-select question are not supported; tick options with --option';
 		if (!row) return 'this question has no row to type an answer into';
+		if (/[\r\n]/.test(text))
+			return 'the free-text row takes one line; Enter would submit the rest';
 		const flat = (value: string) => value.replaceAll(/\s+/g, ' ').trim();
 		return {
 			sent: text,
@@ -495,28 +517,43 @@ function planQuestionAnswer(
 
 	const wanted = [...new Set(command.options)].sort((a, b) => a - b);
 	const numbers = question.options.map(option => option.number);
+	if (row && wanted.includes(row.number))
+		return `option ${row.number} is the free-text row; answer it with --text`;
 	const missing = wanted.find(number => !numbers.includes(number));
 	if (missing !== undefined) return `the question has no option ${missing}`;
-	const ticked = () =>
+	const labels = question.options
+		.filter(option => wanted.includes(option.number))
+		.map(option => `${option.number}. ${option.label}`);
+
+	if (!question.multiSelect) {
+		if (wanted.length > 1)
+			return 'more than one --option answers a multi-select question; this is a single-select one';
+		return {
+			sent: labels.join(', '),
+			steps: [...leaveRow, {...left, keys: [String(wanted[0])]}],
+		};
+	}
+
+	const ticked = new Set(
 		question.options
 			.filter(option => option.checked)
-			.map(option => option.number);
+			.map(option => option.number),
+	);
 	const toggles = numbers.filter(
-		number => wanted.includes(number) !== ticked().includes(number),
+		number => wanted.includes(number) !== ticked.has(number),
 	);
 	const tickedOn = (report: AgentStateReport) =>
 		(report.question?.options ?? [])
 			.filter(option => option.checked)
 			.map(option => option.number);
-	const lastRow = question.textOption?.number ?? Math.max(...numbers);
+	const lastRow = row?.number ?? Math.max(...numbers);
+	const cursor = leaveRow.length > 0 ? lastRow - 1 : question.cursor;
 	// Submit or Next sits under the last numbered row.
-	const downs = question.cursor === null ? 0 : lastRow - question.cursor + 1;
-	const labels = question.options
-		.filter(option => wanted.includes(option.number))
-		.map(option => `${option.number}. ${option.label}`);
+	const downs = cursor === null ? 0 : lastRow - cursor + 1;
 	return {
 		sent: labels.join(', '),
 		steps: [
+			...leaveRow,
 			...(toggles.length > 0
 				? [
 						{
@@ -941,9 +978,7 @@ async function execute(
 					? JSON.stringify({...report, ...(tabs ? {tabs} : {})}, null, 2)
 					: [
 							formatState(report),
-							...(tabs ?? [])
-								.slice(1)
-								.map(tab => `${tab.question}\n${formatOptions(tab.options)}`),
+							...(tabs ?? []).slice(1).map(tab => formatQuestion(tab)),
 						].join('\n'),
 			);
 			return 0;
@@ -990,8 +1025,7 @@ async function execute(
 			if (
 				before.state === 'question' &&
 				question &&
-				(command.text !== undefined ||
-					(question.multiSelect && command.options.length > 0))
+				(command.text !== undefined || command.options.length > 0)
 			) {
 				const plan = planQuestionAnswer(command, question);
 				if (typeof plan === 'string') {
