@@ -118,3 +118,12 @@ test('a paste goes to the renderer whole, however it is split, and keys after it
 		'program:l',
 	]);
 });
+
+test('an unfinished reply does not hold later typing', t => {
+	const router = new FrameInputRouter();
+	const to = (read: string, now: number) =>
+		router.route(encoder.encode(read), now).map(segment => segment.to);
+	t.deepEqual(to(`${ESC}]1hello`, 0), ['renderer']);
+	t.deepEqual(to('x', 50), ['renderer']);
+	t.deepEqual(to('y', 200), ['program']);
+});

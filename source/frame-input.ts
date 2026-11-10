@@ -11,6 +11,11 @@ export type InputSegment = {to: 'program' | 'renderer'; bytes: Uint8Array};
 
 type Carry = 'none' | 'string' | 'string-escape' | 'csi' | 'paste';
 
+// A terminal writes a reply or a mouse report within a few milliseconds even
+// when it comes in pieces. One still unfinished after this long was not one:
+// Alt+] and a digit typed with it, say.
+const CARRY_MS = 100;
+
 /**
  * Splits what a viewer pane reads from its terminal between the program in
  * the pane and the frame host's renderer.
@@ -26,9 +31,18 @@ type Carry = 'none' | 'string' | 'string-escape' | 'csi' | 'paste';
  */
 export class FrameInputRouter {
 	private carry: Carry = 'none';
+	private carriedSince = 0;
+	private now = 0;
 	private pasteEndMatched = 0;
 
-	route(chunk: Uint8Array): InputSegment[] {
+	route(chunk: Uint8Array, now = performance.now()): InputSegment[] {
+		if (
+			this.carry !== 'none' &&
+			this.carry !== 'paste' &&
+			now - this.carriedSince > CARRY_MS
+		)
+			this.carry = 'none';
+		this.now = now;
 		const segments: InputSegment[] = [];
 		const emit = (to: InputSegment['to'], from: number, end: number) => {
 			if (end <= from) return;
@@ -54,6 +68,11 @@ export class FrameInputRouter {
 		}
 
 		return segments;
+	}
+
+	private begin(carry: Carry): void {
+		this.carry = carry;
+		this.carriedSince = this.now;
 	}
 
 	/** The rest of a sequence the renderer was given the start of. */
@@ -125,7 +144,7 @@ export class FrameInputRouter {
 		}
 
 		if (this.startsReply(chunk, from)) {
-			this.carry = 'string';
+			this.begin('string');
 			return this.continued(chunk, from, emit);
 		}
 
@@ -181,7 +200,7 @@ export class FrameInputRouter {
 			// The rest of a mouse report or a reply follows in the next read. A
 			// key cut short is the program's to make sense of.
 			if (isPrivate) {
-				this.carry = 'csi';
+				this.begin('csi');
 				emit('renderer', from, index);
 			} else {
 				emit('program', from, index);
@@ -193,7 +212,7 @@ export class FrameInputRouter {
 		const final = String.fromCodePoint(chunk[index]!);
 		const end = index + 1;
 		if (final === '~' && parameters === '200') {
-			this.carry = 'paste';
+			this.begin('paste');
 			emit('renderer', from, end);
 			return end;
 		}
