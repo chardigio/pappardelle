@@ -185,12 +185,16 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 		keys.map(async (name): Promise<SpaceEntry> => {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
 
-			const statusFile = path.join(
-				home,
-				'.pappardelle',
-				'claude-status',
+			const statusDir = path.join(home, '.pappardelle', 'claude-status');
+			// An agent started before status files were qualified by repo writes
+			// under the bare name until it restarts.
+			const qualified = path.join(
+				statusDir,
 				`${hookStatusKey(repoName, name)}.json`,
 			);
+			const bare = path.join(statusDir, `${name}.json`);
+			const statusFile =
+				!fs.existsSync(qualified) && fs.existsSync(bare) ? bare : qualified;
 			if (fs.existsSync(statusFile)) {
 				try {
 					const status = readJson(statusFile);

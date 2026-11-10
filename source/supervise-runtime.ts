@@ -5,7 +5,11 @@ import {spawnSync} from 'node:child_process';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
-import {getHookStatusDir, hookStatusKey} from './claude-status.ts';
+import {
+	getHookStatusDir,
+	hookStatusKey,
+	readableHookStatusKey,
+} from './claude-status.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
 import {waitForDirChange} from './file-watch.ts';
 import {programStatusDir} from './program-status-monitor.ts';
@@ -126,7 +130,8 @@ export function defaultSuperviseDeps(
 		repo: getRepoName,
 		resolveKey,
 		async hookKey(key) {
-			if (key !== MAIN_WORKTREE_KEY) return hookStatusKey(getRepoName(), key);
+			if (key !== MAIN_WORKTREE_KEY)
+				return readableHookStatusKey(getRepoName(), key);
 			const main = await getMainWorktreeInfo();
 			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
 		},

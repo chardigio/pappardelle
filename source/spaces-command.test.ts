@@ -323,3 +323,18 @@ test('text output puts one space per line with its flags', t => {
 		'STA-1  waiting_for_input  12m ago  Fix auth  +3 commits  +2 new files  [pipeline red]  [2 unresolved]',
 	);
 });
+
+test('an agent still writing the bare status name is read until the qualified file appears', async t => {
+	const home = tempHome(t);
+	openSpaces(home, ['STA-1']);
+	const bare = path.join(home, '.pappardelle', 'claude-status', 'STA-1.json');
+	writeJson(bare, {status: 'working', lastUpdate: Date.now()});
+	const before = await gather(home);
+	t.is(before[0]?.status, 'working');
+	writeJson(statusFile(home, 'STA-1'), {
+		status: 'ended',
+		lastUpdate: Date.now(),
+	});
+	const after = await gather(home);
+	t.is(after[0]?.status, 'ended');
+});
