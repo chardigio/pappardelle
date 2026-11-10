@@ -201,7 +201,15 @@ test('a Codex dialog is answered only with --force', async t => {
 	t.deepEqual(h.pressed, []);
 	t.like(h.logged[0], {verdict: 'refused: Codex dialog'});
 	t.is(await h.run('answer', 'STA-1', '--option', '1', '--force'), 0);
-	t.deepEqual(h.pressed, [['1']]);
+	t.deepEqual(h.pressed, [['Enter']]);
+});
+
+test('a forced option on a Codex dialog moves the highlight there and presses Enter', async t => {
+	const h = harness(t, [fixture('codex-trust-down')]);
+	t.is(await h.run('answer', 'STA-1', '--option', '1', '--force'), 0);
+	t.deepEqual(h.pressed, [['Up', 'Enter']]);
+	t.is(await h.run('answer', 'STA-1', '--option', '3', '--force'), 1);
+	t.deepEqual(h.pressed, [['Up', 'Enter']]);
 });
 
 test('scheduling refuses a time that has passed and a second keep-going job', async t => {

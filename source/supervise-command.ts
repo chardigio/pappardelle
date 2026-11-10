@@ -20,7 +20,11 @@ import {
 	targetStates,
 	type WatchCursor,
 } from './space-watch.ts';
-import {parseAgentScreen, type PromptOption} from './agent-screen.ts';
+import {
+	parseAgentScreen,
+	type CodexDialog,
+	type PromptOption,
+} from './agent-screen.ts';
 import {
 	checkApproval,
 	type ApprovalPolicy,
@@ -329,6 +333,22 @@ type AnswerResult =
 	| {ok: true; pressed: string[]; entry: SuperviseEntry}
 	| {ok: false; exit: number; message: string; entry?: SuperviseEntry};
 
+/**
+ * A digit on a Codex dialog only moves the highlight, except one that picks
+ * Quit at once, so the arrows move to the option and Enter takes it.
+ */
+function codexDialogKeys(
+	dialog: CodexDialog | null,
+	option: number,
+): string[] | null {
+	if (!dialog?.selected || option > dialog.options) return null;
+	const steps = option - dialog.selected;
+	return [
+		...Array.from({length: Math.abs(steps)}, () => (steps > 0 ? 'Down' : 'Up')),
+		'Enter',
+	];
+}
+
 function decideAnswer(
 	command: Extract<SuperviseCommand, {verb: 'answer'}>,
 	key: string,
@@ -357,10 +377,27 @@ function decideAnswer(
 			};
 		}
 
+		if (command.option === undefined) {
+			return {
+				ok: true,
+				pressed: command.keys,
+				entry: {...entry, verdict: 'forced'},
+			};
+		}
+
+		const pressed = codexDialogKeys(report.codexDialog, command.option);
+		if (!pressed) {
+			return {
+				ok: false,
+				exit: 1,
+				message: `${key}'s Codex dialog has no option ${command.option}; use --keys`,
+			};
+		}
+
 		return {
 			ok: true,
-			pressed: command.option === undefined ? command.keys : [sent],
-			entry: {...entry, verdict: 'forced'},
+			pressed,
+			entry: {...entry, sent: pressed.join(' '), verdict: 'forced'},
 		};
 	}
 

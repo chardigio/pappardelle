@@ -48,6 +48,10 @@ export type CodexDialog = {
 	 */
 	kind: 'model_switch' | 'other';
 	title: string;
+	/** How many numbered options it has; a table such as the hooks review has none. */
+	options: number;
+	/** The highlighted option, which Enter accepts. */
+	selected: number | null;
 };
 
 export type AgentScreen = {
@@ -73,7 +77,13 @@ const OPTION = /^\s*(❯\s*)?(\d+)\.\s+(.+?)\s*$/;
 // 17s · done`, has neither the timer nor the ellipsis.
 const CLAUDE_SPINNER = /\(\d+[smh](?: \d+[smh])* ·|^\s*[·✢✳✶✻✽*] \S+…/;
 const CODEX_SPINNER = /\bWorking \(/;
-const CODEX_DIALOG_FOOTER = /enter (?:select|confirm|continue) · esc/;
+// `enter continue · esc quit`, `t trust all · enter review · esc close`.
+const CODEX_DIALOG_FOOTER = /\benter \w+ · esc \w+/;
+// A dialog's title is the bold line over it.
+const BOLD_LINE = new RegExp(
+	`^\\s*${ESC}\\[1m\\s*([^${ESC}]+?)\\s*${ESC}\\[0m\\s*$`,
+);
+const CODEX_OPTION = /^\s*(›\s*)?(\d+)\.\s/;
 const QUESTION_FOOTER = /^\s*Enter to select · /;
 // A bare reset time up to this far in the past is today's and has passed: a
 // limit that reset at 4:28 AM, read at 5:00 AM, isn't tomorrow's.
@@ -182,7 +192,11 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 	const above = (index: number) =>
 		lastIndex(lines.slice(0, index), line => line.trim() !== '');
 	const questionAt = above(firstOptionAt);
-	const bar = lines[above(questionAt)] ?? '';
+	// The Submit step lists the answers between the tab bar and its question.
+	const barAt = lastIndex(lines.slice(0, questionAt), line =>
+		TAB_BAR.test(line),
+	);
+	const bar = lines[barAt === -1 ? above(questionAt) : barAt] ?? '';
 	const tabs = bar
 		.replace(/^\s*←|→\s*$/g, '')
 		.split(/\s{2,}/)
@@ -299,29 +313,44 @@ function parseComposer(raw: string[], lines: string[]): string | null {
 		.join('\n');
 }
 
-function parseCodexDialog(lines: string[]): CodexDialog | null {
+function parseCodexDialog(raw: string[], lines: string[]): CodexDialog | null {
 	const footer = lastIndex(lines, line => CODEX_DIALOG_FOOTER.test(line));
 	if (footer === -1) return null;
-	const firstOption = lines.findIndex(
-		(line, index) => index < footer && /^\s*(?:› )?1\. /.test(line),
-	);
+	const body = lines.slice(0, footer);
+	const firstOption = body.findIndex(line => /^\s*(?:› )?1\. /.test(line));
+	const firstHighlight = body.findIndex(line => line.startsWith('›'));
+	const top =
+		firstOption === -1
+			? firstHighlight === -1
+				? footer
+				: firstHighlight
+			: firstOption;
 	const above = lines
-		.slice(0, firstOption === -1 ? footer : firstOption)
+		.slice(0, top)
 		.map(line => line.trim())
 		.filter(Boolean);
-	const title = above.at(-1) ?? '';
+	const boldAt = lastIndex(raw.slice(0, top), line => BOLD_LINE.test(line));
+	const title =
+		boldAt === -1 ? (above.at(-1) ?? '') : BOLD_LINE.exec(raw[boldAt]!)![1]!;
+	const options = body
+		.slice(top)
+		.map(line => CODEX_OPTION.exec(line))
+		.filter(match => match !== null);
+	const selected = options.find(match => match[1]);
 	return {
 		kind: above.some(line => line === 'Approaching rate limits')
 			? 'model_switch'
 			: 'other',
 		title,
+		options: options.length,
+		selected: selected ? Number(selected[2]) : null,
 	};
 }
 
 export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const raw = capture.replace(/\n+$/, '').split('\n');
 	const lines = raw.map(line => stripVTControlCharacters(line));
-	const codexDialog = parseCodexDialog(lines);
+	const codexDialog = parseCodexDialog(raw, lines);
 	return {
 		spinner: lines.some(
 			line => CLAUDE_SPINNER.test(line) || CODEX_SPINNER.test(line),
