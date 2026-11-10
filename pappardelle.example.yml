@@ -87,7 +87,8 @@ team_prefix: ENG
 # Run the main checkout's agent as the sous-chef: it launches as `sous-chef`
 # with /sous-chef as its first prompt, the rail shows it as sous-chef, and it
 # is told to watch the other spaces and bring their prompts to you.
-# Off by default.
+# Off by default. Put your own instructions for it in SOUS-CHEF.md at the
+# repo root.
 # sous_chef: true
 
 # Override the ticket-rail color for named issue statuses. Names match
