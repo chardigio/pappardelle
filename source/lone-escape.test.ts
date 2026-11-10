@@ -118,3 +118,15 @@ test.serial(
 		);
 	},
 );
+
+test.serial(
+	'Alt with a character outside ASCII does not take the next key',
+	async t => {
+		const {keys, stdin} = await keyLog(t);
+		stdin.write(`${ESCAPE}é`);
+		stdin.write('a');
+		await delay(PARSER_WAIT_MS * 3);
+		t.is(keys.at(-1), 'a');
+		t.false(keys.includes('escape'));
+	},
+);
