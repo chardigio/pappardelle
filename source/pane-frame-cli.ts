@@ -8,7 +8,7 @@ import {
 } from '@opentui/core';
 import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
-import {deliverLoneEscapeAtOnce} from './lone-escape.ts';
+import {deliverHeldKeysAtOnce} from './lone-escape.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
 import {
@@ -60,7 +60,6 @@ const renderer = await createCliRenderer({
 	exitSignals: [],
 	maxFps: 120,
 });
-deliverLoneEscapeAtOnce(renderer, process.stdin);
 const frame = new BoxRenderable(renderer, {
 	id: 'frame',
 	width: '100%',
@@ -114,6 +113,9 @@ terminal.handleKeyPress = key => {
 	childPty.current?.write(key.raw);
 	return true;
 };
+deliverHeldKeysAtOnce(renderer, process.stdin, bytes => {
+	childPty.current?.write(bytes);
+});
 frame.add(terminal);
 terminal.focus();
 
