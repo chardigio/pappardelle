@@ -46,9 +46,8 @@ export function searchKeyStep(
 		};
 	}
 
-	if (key.upArrow || (input === 'k' && key.ctrl))
-		return {search: {...search, index: Math.max(0, index - 1)}};
-	if (key.downArrow || (input === 'j' && key.ctrl)) {
+	if (key.upArrow) return {search: {...search, index: Math.max(0, index - 1)}};
+	if (key.downArrow) {
 		return {
 			search: {
 				...search,
@@ -57,7 +56,10 @@ export function searchKeyStep(
 		};
 	}
 
-	if (!inputDrawn && input && !key.ctrl && !key.meta)
+	if (inputDrawn) return {search};
+	if (key.backspace)
+		return {search: {query: search.query.slice(0, -1), index: 0}};
+	if (input && !key.ctrl && !key.meta)
 		return {search: {query: search.query + input, index: 0}};
 	return {search};
 }

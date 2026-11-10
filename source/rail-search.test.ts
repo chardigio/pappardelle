@@ -52,14 +52,13 @@ test('the tightest match comes first, whichever row it is', t => {
 	t.deepEqual(names(filterSpaces(rows, 'rail')), ['STA-2', 'STA-1']);
 });
 
-function press(name: string, modifiers: {ctrl?: boolean} = {}) {
+function press(name: string) {
 	return shortcutKey({
 		name,
 		ctrl: false,
 		meta: false,
 		shift: false,
 		option: false,
-		...modifiers,
 	} as Parameters<typeof shortcutKey>[0]);
 }
 
@@ -102,11 +101,6 @@ test('the arrows move the highlight within the matches', t => {
 	t.is(step(search, 'up').search?.index, 0);
 	t.is(step(search, 'down').search?.index, 1);
 	t.is(step({...search, index: 1}, 'down').search?.index, 1);
-	t.is(
-		searchKeyStep(search, searchable, press('j', {ctrl: true}), true).search
-			?.index,
-		1,
-	);
 });
 
 test('text typed before the input is drawn joins the query', t => {
@@ -117,6 +111,16 @@ test('text typed before the input is drawn joins the query', t => {
 		false,
 	);
 	t.deepEqual(typed.search, {query: 'sta', index: 0});
+});
+
+test('Backspace before the input is drawn removes the last character', t => {
+	const erased = searchKeyStep(
+		{query: 'sta', index: 1},
+		searchable,
+		press('backspace'),
+		false,
+	);
+	t.deepEqual(erased.search, {query: 'st', index: 0});
 });
 
 test('once the input is drawn, typed text is left to it', t => {
