@@ -116,6 +116,7 @@ import {
 import {
 	getDefaultHomeConfigDir,
 	loadConfig,
+	sousChefLaunch,
 	getStateColors,
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
@@ -582,6 +583,7 @@ export default function App({
 		if (rail && rail.rows[rail.cursor]?.kind === 'header') return undefined;
 		return attachedSpaceNow();
 	}, [railNow, attachedSpaceNow]);
+	const mainLabel = sousChefLaunch(configMemo)?.name;
 
 	// Install the user's issue-status color overrides before anything renders,
 	// so the ticket rail's first paint already uses them (STA-2070). A useMemo
@@ -2868,6 +2870,7 @@ export default function App({
 							isSelected={index === visibleCursor}
 							width={termDimensions.cols}
 							layout={isAgentSpace(row.space) ? 'single_line' : listLayout}
+							label={row.space.isMainWorktree ? mainLabel : undefined}
 						/>
 					),
 				)}
