@@ -84,11 +84,16 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Give agents in this repo the pappardelle MCP tools (companion panes, other
+# spaces) and the rules for keeping the companion showing their work.
+# Off by default.
+# workspace_aware_agents: true
+
 # Run the main checkout's agent as the sous-chef: it launches as `sous-chef`
 # with /sous-chef as its first prompt, the rail shows it as sous-chef, and it
 # is told to watch the other spaces and bring their prompts to you.
-# Off by default. Put your own instructions for it in SOUS-CHEF.md at the
-# repo root.
+# Off by default, and needs workspace_aware_agents. Put your own instructions
+# for it in SOUS-CHEF.md at the repo root.
 # sous_chef: true
 
 # Override the ticket-rail color for named issue statuses. Names match

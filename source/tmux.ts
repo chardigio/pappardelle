@@ -144,6 +144,7 @@ import {
 	type ResolvedAgentProfile,
 	sousChefLaunch,
 	type AgentLaunch,
+	workspaceAwareAgents,
 } from './config.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
 import {
@@ -874,10 +875,10 @@ export function buildAgentResumeCommand(
 ): string {
 	let base: string;
 	let prompt = '';
-	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${agentRulesFlags(agentProfile.command)}`;
+	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${launch?.rules ? agentRulesFlags(agentProfile.command) : ''}`;
 	if (agentProfile.isClaude) {
 		const safeKey = quoteLaunchValue(launch?.name ?? issueKey);
-		if (launch) prompt = ` ${quoteLaunchValue(launch.prompt)}`;
+		if (launch?.prompt) prompt = ` ${quoteLaunchValue(launch.prompt)}`;
 		const withDsp = skipPermissions
 			? `${agentProfile.command} --dangerously-skip-permissions`
 			: agentProfile.command;
@@ -2465,10 +2466,13 @@ async function attachViewers(
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
 	let agentProfile: ResolvedAgentProfile | undefined;
 	let sessionId: string | undefined;
-	let launch: AgentLaunch | undefined;
+	let launch: AgentLaunch = {rules: false};
 	try {
 		const config = loadConfig();
-		if (issueKey === MAIN_WORKTREE_KEY) launch = sousChefLaunch(config);
+		launch = {
+			rules: workspaceAwareAgents(config),
+			...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
+		};
 		const profileName = savedSpaceProfile(issueKey);
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
@@ -3829,12 +3833,14 @@ export async function ensureAgentSession(
 		pretrustDirectoryForClaude(worktreePath);
 	}
 
-	try {
-		await installAgentRules(agentProfile.command, worktreePath);
-	} catch (err) {
-		log.warn(
-			`Could not write the companion rules for ${issueKey}: ${err instanceof Error ? err.message : String(err)}`,
-		);
+	if (launch?.rules) {
+		try {
+			await installAgentRules(agentProfile.command, worktreePath);
+		} catch (err) {
+			log.warn(
+				`Could not write the companion rules for ${issueKey}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
 	}
 
 	// Native agents report at startup, before an ungated monitor could attach.

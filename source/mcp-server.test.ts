@@ -10,11 +10,11 @@ import {
 } from './mcp-server.ts';
 import type {CliCall} from './mcp-tools.ts';
 
-async function connect(options: {inRepo?: boolean; runCli?: RunCli} = {}) {
+async function connect(options: {enabled?: boolean; runCli?: RunCli} = {}) {
 	const calls: CliCall[] = [];
 	const result: CliResult = {code: 0, stdout: 'out\n', stderr: ''};
 	const server = createMcpServer({
-		inRepo: options.inRepo ?? true,
+		enabled: options.enabled ?? true,
 		space: 'STA-1',
 		repoName: 'repo',
 		runCli:
@@ -114,7 +114,7 @@ test('cancelling a call aborts the running command', async t => {
 });
 
 test('outside a Pappardelle repo the server offers nothing', async t => {
-	const {client} = await connect({inRepo: false});
+	const {client} = await connect({enabled: false});
 	t.is(client.getServerCapabilities()?.tools, undefined);
 	t.is(client.getInstructions(), undefined);
 });

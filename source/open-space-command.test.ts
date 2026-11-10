@@ -46,6 +46,7 @@ function fixture(t: ExecutionContext, provider = 'jira') {
 	fs.writeFileSync(
 		path.join(repo, '.pappardelle.yml'),
 		`version: 1
+workspace_aware_agents: true
 team_prefix: STE
 issue_tracker:
   provider: ${provider}
