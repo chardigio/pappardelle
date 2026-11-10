@@ -6,13 +6,26 @@ import {readFileSync} from 'node:fs';
 import {stripVTControlCharacters} from 'node:util';
 import {
 	captureAgentScreen,
+	listAgentKeys,
 	readAgentState,
 	WAIT_TARGETS,
+	type AgentState,
 	type AgentStateDeps,
 	type AgentStateReport,
 } from './agent-state.ts';
+import {
+	changesSince,
+	encodeCursor,
+	snapshot,
+	targetStates,
+	type WatchCursor,
+} from './space-watch.ts';
 import {parseAgentScreen, type PromptOption} from './agent-screen.ts';
-import {checkApproval, type ApprovalPolicy} from './approve-policy.ts';
+import {
+	checkApproval,
+	type ApprovalPolicy,
+	type ApprovalVerdict,
+} from './approve-policy.ts';
 import {readCompanionPane} from './companion.ts';
 import {
 	deleteJob,
@@ -56,6 +69,8 @@ export type SuperviseDeps = {
 	waitForStatusChange: (ms: number) => Promise<void>;
 	send: (key: string, text: string) => Promise<SendOutcome>;
 	sendKeys: (key: string, keys: string[]) => 'sent' | 'no-session' | 'failed';
+	/** The model check a command passes after the hard refusals. */
+	classify: (key: string, command: string) => Promise<ApprovalVerdict>;
 	policy: ApprovalPolicy;
 	store: () => ScheduleStore;
 	timers: () => TimerBackend;
@@ -111,9 +126,14 @@ export function formatState(report: AgentStateReport): string {
 		);
 	}
 
-	if (report.state === 'draft') lines.push(`Composer: ${report.composer}`);
+	if (report.codexDialog)
+		lines.push(`Codex dialog: ${report.codexDialog.title}`);
+	// Shown under a limit too, since a draft there stops the wake-up.
+	if (report.composer) lines.push(`Composer: ${report.composer}`);
 	return lines.join('\n');
 }
+
+const paneText = (screen: string) => screen.trim() || '(the pane is blank)';
 
 type QuestionTab = {question: string; options: PromptOption[]};
 
@@ -172,7 +192,11 @@ async function waitFor(
 		command.until === 'changed'
 			? report.state !== first.state
 			: WAIT_TARGETS[command.until].includes(report.state);
-	if (command.until !== 'changed' && matches(first)) {
+	// Nothing will change in a space with no agent, so don't wait it out.
+	if (
+		(command.until !== 'changed' && matches(first)) ||
+		first.state === 'no_session'
+	) {
 		return {...first, timedOut: false};
 	}
 
@@ -190,6 +214,117 @@ async function waitFor(
 	return {...report, timedOut: true};
 }
 
+export type SpaceChange = {
+	key: string;
+	/** null for a space the cursor didn't have. */
+	from: AgentState | null;
+	to: AgentState;
+} & Partial<
+	Pick<
+		AgentStateReport,
+		'permission' | 'question' | 'codexDialog' | 'usageLimit' | 'composer'
+	>
+>;
+
+export type WatchResult =
+	| {result: 'changed'; changes: SpaceChange[]; cursor: string}
+	| {result: 'timed_out'; changes: []; cursor: string};
+
+function describeChange(report: AgentStateReport, from: AgentState | null) {
+	const change: SpaceChange = {key: report.key, from, to: report.state};
+	for (const field of [
+		'permission',
+		'question',
+		'codexDialog',
+		'usageLimit',
+		'composer',
+	] as const) {
+		if (report[field]) Object.assign(change, {[field]: report[field]});
+	}
+
+	return change;
+}
+
+function describeChanges(
+	reports: AgentStateReport[],
+	baseline: WatchCursor,
+): SpaceChange[] {
+	return reports.map(report =>
+		describeChange(report, baseline[report.key] ?? null),
+	);
+}
+
+async function watchSpaces(
+	command: Extract<SuperviseCommand, {verb: 'watch'}>,
+	deps: SuperviseDeps,
+): Promise<WatchResult> {
+	const deadline = deps.now().getTime() + command.timeoutSeconds * 1000;
+	const named = command.keys.map(raw => deps.resolveKey(raw));
+	const keys = () => {
+		if (named.length > 0) return named;
+		// A space in the cursor that has since closed still reports, as no_session.
+		const all = new Set([
+			...listAgentKeys(deps.repo(), deps.runner),
+			...Object.keys(command.since ?? {}),
+		]);
+		all.delete(deps.caller);
+		return [...all];
+	};
+
+	const read = async () =>
+		Promise.all(keys().map(async key => readState(key, deps)));
+	const targets = targetStates(command.until);
+	let reports = await read();
+	// Without a cursor, every space already in a target state is news; with no
+	// targets either, only what changes from here on is.
+	let baseline = command.since ?? (targets ? {} : snapshot(reports));
+	for (;;) {
+		const changed = changesSince(baseline, reports, targets);
+		const cursor = encodeCursor({...baseline, ...snapshot(reports)});
+		if (changed.length > 0) {
+			return {
+				result: 'changed',
+				changes: describeChanges(changed, baseline),
+				cursor,
+			};
+		}
+
+		const left = deadline - deps.now().getTime();
+		if (left <= 0) return {result: 'timed_out', changes: [], cursor};
+		// A space that leaves a target state and comes back, say to a second
+		// prompt, is news even though it ends where it started.
+		baseline = {...baseline, ...snapshot(reports)};
+		// The screen-only states (a usage limit, a draft) change no status file.
+		await deps.waitForStatusChange(Math.min(SCREEN_POLL_MS, left));
+		reports = await read();
+	}
+}
+
+function formatChange(change: SpaceChange): string {
+	const lines = [`${change.key}: ${change.from ?? 'new'} -> ${change.to}`];
+	if (change.permission) {
+		lines.push(
+			`  ${change.permission.tool}: ${change.permission.command}`,
+			formatOptions(change.permission.options),
+		);
+	}
+
+	if (change.question) {
+		lines.push(
+			`  ${change.question.question}`,
+			formatOptions(change.question.options),
+		);
+	}
+
+	if (change.codexDialog)
+		lines.push(`  Codex dialog: ${change.codexDialog.title}`);
+	if (change.composer) lines.push(`  Composer: ${change.composer}`);
+	return lines.join('\n');
+}
+
+// Codex redraws its composer once the dialog closes.
+const MODEL_SWITCH_SETTLE_MS = 500;
+
 type AnswerResult =
 	| {ok: true; pressed: string[]; entry: SuperviseEntry}
 	| {ok: false; exit: number; message: string; entry?: SuperviseEntry};
@@ -200,6 +335,35 @@ function decideAnswer(
 	report: AgentStateReport,
 	policy: ApprovalPolicy,
 ): AnswerResult {
+	if (report.state === 'dialog') {
+		// Codex's dialogs decide things like trusting a folder, and Escape on
+		// one can quit Codex, so a person answers them.
+		const sent =
+			command.option === undefined
+				? command.keys.join(' ')
+				: String(command.option);
+		const entry = {
+			action: 'answer' as const,
+			key,
+			sent,
+			detail: report.codexDialog?.title ?? '',
+		};
+		if (!command.force) {
+			return {
+				ok: false,
+				exit: POLICY_REFUSED_EXIT,
+				message: `${key} shows a Codex dialog ("${report.codexDialog?.title ?? ''}"); a person answers it`,
+				entry: {...entry, verdict: 'refused: Codex dialog'},
+			};
+		}
+
+		return {
+			ok: true,
+			pressed: command.option === undefined ? command.keys : [sent],
+			entry: {...entry, verdict: 'forced'},
+		};
+	}
+
 	if (report.state !== 'permission' && report.state !== 'question') {
 		return {
 			ok: false,
@@ -221,6 +385,11 @@ function decideAnswer(
 				ok: false,
 				exit: POLICY_REFUSED_EXIT,
 				message: `Keys other than Escape on ${key}'s permission prompt need --force; answer it with --option`,
+				entry: {
+					...base,
+					sent: command.keys.join(' '),
+					verdict: 'refused: keys on a permission prompt',
+				},
 			};
 		}
 
@@ -233,7 +402,18 @@ function decideAnswer(
 
 	const pressed = [String(command.option)];
 	if (report.state === 'question') {
-		return {ok: true, pressed, entry: {...base, sent: pressed[0]}};
+		const label = report.question?.options.find(
+			option => option.number === command.option,
+		)?.label;
+		return {
+			ok: true,
+			pressed,
+			entry: {
+				...base,
+				sent: label ? `${command.option}. ${label}` : pressed[0],
+				...(report.question ? {detail: report.question.question} : {}),
+			},
+		};
 	}
 
 	const option = permission?.options.find(
@@ -260,6 +440,17 @@ function decideAnswer(
 			ok: true,
 			pressed,
 			entry: {...entry, ...(command.force ? {verdict: 'forced'} : {})},
+		};
+	}
+
+	// The policy reads shell commands. An edit or a write is checked by
+	// neither its path nor its content here, so a person approves it.
+	if (option.kind === 'approve_once' && permission.tool !== 'Bash command') {
+		return {
+			ok: false,
+			exit: POLICY_REFUSED_EXIT,
+			message: `Only Bash commands are approved without a person; this is "${permission.tool}"${permission.description ? ` (${permission.description})` : ''}`,
+			entry: {...entry, verdict: `refused: ${permission.tool}`},
 		};
 	}
 
@@ -296,19 +487,23 @@ async function newJob(
 		case 'at': {
 			const at = parseWhen(request.at, now);
 			if (!at) throw new SuperviseUsageError(`Can't read --at ${request.at}`);
+			if (at <= now) {
+				throw new SuperviseUsageError(`--at ${request.at} has already passed`);
+			}
+
 			return {
 				kind: 'at',
 				id,
 				key,
 				at: at.toISOString(),
 				message: request.message,
+				arm: 0,
 			};
 		}
 
 		case 'after_limit': {
 			const report = await readState(key, deps);
-			const lifts =
-				report.state === 'usage_limit' ? limitLiftsAt(report) : null;
+			const lifts = limitLiftsAt(report);
 			if (!lifts) {
 				throw new SuperviseUsageError(
 					`${key} is ${report.state}, with no usage limit reset to wait for`,
@@ -322,10 +517,20 @@ async function newJob(
 				key,
 				at: new Date(Math.max(lifts.getTime(), soonest)).toISOString(),
 				message: request.message,
+				arm: 0,
 			};
 		}
 
 		case 'keep_going': {
+			const running = listJobs(deps.store()).find(
+				job => job.kind === 'keep_going' && job.key === key,
+			);
+			if (running) {
+				throw new SuperviseUsageError(
+					`${key} already has keep-going job ${running.id}; unschedule it first`,
+				);
+			}
+
 			const everySeconds = parseDuration(request.every);
 			if (!everySeconds) {
 				throw new SuperviseUsageError(
@@ -383,10 +588,12 @@ function tuiPanes(deps: SuperviseDeps): string {
 		);
 	}
 
-	return result.stdout
+	const rows = result.stdout
 		.split('\n')
 		.filter(line => line.startsWith('pappardelle-'))
-		.map(line => line.split('\t').join('  '))
+		.map(line => line.split('\t'));
+	return [['SESSION', 'PANE', 'TITLE', 'RUNNING', 'STARTED AS'], ...rows]
+		.map(row => row.join('\t'))
 		.join('\n');
 }
 
@@ -451,8 +658,11 @@ async function execute(
 				return 1;
 			}
 
-			const lines = stripVTControlCharacters(text).split('\n');
-			deps.out(lines.slice(-command.lines).join('\n').trimEnd());
+			const lines = stripVTControlCharacters(text)
+				.split('\n')
+				.map(line => line.trimEnd());
+			const shown = lines.slice(-command.lines).join('\n').trim();
+			deps.out(paneText(shown));
 			return 0;
 		}
 
@@ -481,7 +691,30 @@ async function execute(
 			deps.out(
 				command.json
 					? JSON.stringify(report, null, 2)
-					: `${report.timedOut ? 'Still ' : ''}${formatState(report)}\n\n${report.screen}`,
+					: `${report.timedOut ? 'Still ' : ''}${formatState(report)}\n\n${paneText(report.screen)}`,
+			);
+			return 0;
+		}
+
+		case 'watch': {
+			const result = await watchSpaces(command, deps);
+			for (const change of result.changes) {
+				log({
+					action: 'watch',
+					key: change.key,
+					detail: `${change.from ?? 'new'} -> ${change.to}`,
+				});
+			}
+
+			deps.out(
+				command.json
+					? JSON.stringify(result, null, 2)
+					: result.result === 'timed_out'
+						? `Timed out after ${command.timeoutSeconds}s: no watched space changed\nCursor: ${result.cursor}`
+						: [
+								...result.changes.map(change => formatChange(change)),
+								`Cursor: ${result.cursor}`,
+							].join('\n'),
 			);
 			return 0;
 		}
@@ -498,6 +731,21 @@ async function execute(
 				if (decision.entry) log(decision.entry);
 				deps.err(decision.message);
 				return decision.exit;
+			}
+
+			if (decision.entry.verdict === 'allowed' && decision.entry.command) {
+				const verdict = await deps.classify(key, decision.entry.command);
+				if (!verdict.allow) {
+					log({...decision.entry, verdict: `refused: ${verdict.reason}`});
+					deps.err(
+						`Not approved (${verdict.reason}); a person decides this one:\n${decision.entry.command}`,
+					);
+					return POLICY_REFUSED_EXIT;
+				}
+
+				decision.entry.verdict = verdict.reason
+					? `allowed: ${verdict.reason}`
+					: 'allowed';
 			}
 
 			if (deps.sendKeys(key, decision.pressed) !== 'sent') {
@@ -549,6 +797,9 @@ async function execute(
 			}
 
 			const caller = `timer:${job.id}`;
+			// Removed only after the log line is written: on macOS, booting out
+			// the job that fired ends this process.
+			const retired: Job[] = [];
 			const result: FireResult = await fireJob(job, {
 				store: deps.store(),
 				now: deps.now(),
@@ -558,14 +809,39 @@ async function execute(
 					log({action: 'send', key, sent: text, detail: outcome}, caller);
 					return outcome;
 				},
+				async dismissModelSwitch(key) {
+					const outcome = deps.sendKeys(key, ['Escape']);
+					log(
+						{
+							action: 'answer',
+							key,
+							sent: 'Escape',
+							detail: `kept the current model: ${outcome}`,
+						},
+						caller,
+					);
+					await deps.sleep(MODEL_SWITCH_SETTLE_MS);
+				},
 				createTimer(next) {
 					deps.timers().create(next, timerWhen(next));
 				},
 				removeTimer(done) {
-					deps.timers().remove(done);
+					retired.push(done);
 				},
 			});
-			log({action: 'fire', key: job.key, detail: result}, caller);
+			const next = loadJob(deps.store(), job.id);
+			log(
+				{
+					action: 'fire',
+					key: job.key,
+					detail:
+						next && next.kind !== 'keep_going'
+							? `${result}, next at ${next.at}`
+							: result,
+				},
+				caller,
+			);
+			for (const done of retired) deps.timers().remove(done);
 			deps.out(`${job.id}: ${result}`);
 			return 0;
 		}

@@ -359,8 +359,16 @@ tmuxTest(
 
 		const cleanup = agent('STE-2', 'rm -rf /tmp/q-abc');
 		const push = agent('STE-3', 'git push origin main');
+		// The approval check runs `claude -p`; this one says yes and keeps what it was asked.
+		const bin = path.join(f.root, 'bin');
+		const asked = path.join(f.root, 'asked');
+		fs.mkdirSync(bin);
+		fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\ncat > ${asked}\necho '{"structured_output":{"approve":true,"reason":"local cleanup"}}'\n`, {mode: 0o755}); // prettier-ignore
 		await delay(500);
-		const client = await connect(t, f, {PAPPARDELLE_SPACE: 'STE-9'});
+		const client = await connect(t, f, {
+			PAPPARDELLE_SPACE: 'STE-9',
+			PATH: `${bin}:${f.env['PATH'] ?? ''}`,
+		});
 		const call = async (name: string, args: Record<string, unknown>) =>
 			client.callTool({name, arguments: args});
 
@@ -391,6 +399,7 @@ tmuxTest(
 		t.like(waited, {state: 'idle', timedOut: false});
 		t.is(fs.readFileSync(cleanup, 'utf8').trim(), '1');
 		t.false(fs.existsSync(push));
+		t.regex(fs.readFileSync(asked, 'utf8'), /Command:\nrm -rf \/tmp\/q-abc/);
 
 		const sentIntoPrompt = await call('space_send', {
 			key: 'STE-3',
@@ -419,7 +428,7 @@ tmuxTest(
 			key: 'STE-3',
 			verdict: 'refused: git push',
 		});
-		t.like(log[1], {caller: 'STE-9', key: 'STE-2', verdict: 'allowed'});
+		t.like(log[1], {caller: 'STE-9', key: 'STE-2', verdict: 'allowed: local cleanup'});
 		t.like(log[2], {
 			caller: 'STE-9',
 			action: 'send',

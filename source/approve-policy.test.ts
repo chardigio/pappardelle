@@ -8,6 +8,9 @@ test('cleaning up QA scratch is approved', t => {
 	t.true(allowed('rm -rf /tmp/q-abc /tmp/claude-1000/x/scratchpad/out'));
 	t.true(allowed('rm -f "/tmp/q-abc/s" && ls'));
 	t.true(allowed('dir=$(mktemp -d); rm -rf "$dir"'));
+	t.true(allowed('rm -rf /tmp/q-abc/'));
+	t.true(allowed('rm -rf "/tmp/q-abc/a b"'));
+	t.true(allowed('gh pr view 3 && git log --oneline -3'));
 	t.true(allowed('bun --bun ava source/x.test.ts'));
 });
 
@@ -17,6 +20,19 @@ test('rm anywhere else needs a person', t => {
 	t.false(allowed('rm -fr src'));
 	t.false(allowed('X=/home/u; rm -rf "$X"'));
 	t.false(allowed('D=/; rm -rf $D'));
+	t.false(allowed('D=/tmp/q-a rm -rf $D'));
+	t.false(allowed('rm -rf /tmp/q-sup/../../home/u/x'));
+	t.false(allowed('rm -rf $HOME/x'));
+	// eslint-disable-next-line no-template-curly-in-string
+	t.false(allowed('rm -rf "${HOME}"'));
+	t.false(allowed('rm /home/u/x -rf'));
+	t.false(allowed('D=$(mktemp -d); D=$HOME; rm -rf "$D"'));
+	t.false(allowed('dir=$(mktemp -d); rm -rf "$dir/../x"'));
+	t.false(allowed('echo /home/u | xargs rm -rf'));
+	t.false(allowed('sudo rm -rf /tmp/q-a'));
+	t.false(allowed('sh -c "rm -rf /home/u"'));
+	t.false(allowed('find /home/u -delete'));
+	t.false(allowed('find /tmp/q-a -exec rm {} +'));
 });
 
 test('publishing anything needs a person', t => {
@@ -27,6 +43,11 @@ test('publishing anything needs a person', t => {
 		'gh pr edit 3 --title x',
 		'gh api repos/x/y/pulls/1 -X PATCH',
 		'git push --force-with-lease',
+		'git -C . push origin main',
+		'git -c a=b push',
+		'gh release create v1',
+		'gh issue close 4',
+		'gh api repos/x/y/issues -f title=x',
 		'git reset --hard HEAD~1',
 	]) {
 		t.false(allowed(command), `${command}`);

@@ -31,7 +31,6 @@ import {
 	DEFAULT_COMPANION_COMMAND,
 	DEFAULT_IDE_COMMAND,
 	repoNameFromGitCommonDir,
-	qualifyMainBranch,
 	validateConfig,
 	buildWorkspaceTemplateVars,
 	ConfigValidationError,
@@ -2042,26 +2041,6 @@ test('validateConfig accepts boolean dangerously_skip_permissions', t => {
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
 	t.notThrows(() => validateConfig(rawConfig));
-});
-
-// ============================================================================
-// qualifyMainBranch Tests
-// ============================================================================
-
-test('qualifyMainBranch combines repo name and branch', t => {
-	t.is(qualifyMainBranch('stardust-labs', 'master'), 'stardust-labs-master');
-});
-
-test('qualifyMainBranch works with main branch', t => {
-	t.is(qualifyMainBranch('pappa-chex', 'main'), 'pappa-chex-main');
-});
-
-test('qualifyMainBranch flattens slashes in branch names', t => {
-	t.is(qualifyMainBranch('repo', 'alice/STA-1'), 'repo-alice-STA-1');
-});
-
-test('qualifyMainBranch works with arbitrary branch names', t => {
-	t.is(qualifyMainBranch('my-repo', 'develop'), 'my-repo-develop');
 });
 
 // ============================================================================

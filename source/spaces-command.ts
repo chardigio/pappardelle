@@ -7,6 +7,7 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
+import {hookStatusKey} from './claude-status.ts';
 import {claudeProjectDir} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
@@ -188,7 +189,7 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				home,
 				'.pappardelle',
 				'claude-status',
-				`${name}.json`,
+				`${hookStatusKey(repoName, name)}.json`,
 			);
 			if (fs.existsSync(statusFile)) {
 				try {

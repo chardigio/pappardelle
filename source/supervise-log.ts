@@ -8,6 +8,7 @@ import {DEFAULT_REPO_STATE_ROOT} from './tui-marker.ts';
 
 export type SuperviseAction =
 	| 'send'
+	| 'watch'
 	| 'answer'
 	| 'queue'
 	| 'schedule'

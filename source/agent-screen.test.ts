@@ -118,13 +118,92 @@ test('a bare reset time up to six hours past has passed; older means tomorrow', 
 	t.deepEqual(parseResetTime('12:05 AM', at(1)), new Date(2026, 10, 9, 0, 5));
 });
 
-test('the Codex composer is empty under its dim placeholder and holds a typed draft', t => {
+test('the input box is empty under its dim placeholder and holds a typed draft', t => {
 	t.is(screen('codex-limit-narrow').composer, '');
 	t.is(screen('codex-draft').composer, 'a draft I have not sent yet');
+	t.is(screen('claude-placeholder').composer, '');
+	t.is(screen('claude-idle').composer, '');
+	t.is(screen('claude-draft').composer, 'a draft I have not sent yet');
 });
 
 test("a Codex dialog holds the keyboard, so there's no composer to read", t => {
 	const wide = screen('codex-limit-wide');
-	t.true(wide.codexDialog);
+	t.deepEqual(wide.codexDialog, {
+		kind: 'model_switch',
+		title: 'Switch to gpt-6-luna for lower credit usage?',
+	});
 	t.is(wide.composer, null);
+	const trust = parseAgentScreen(
+		[
+			'> You are in /tmp/q-a/repo',
+			'',
+			'  Do you trust the contents of this directory?',
+			'',
+			'› 1. Yes, continue',
+			'  2. No, quit',
+			'',
+			'  Press enter to continue',
+			'  enter continue · esc quit',
+		].join('\n'),
+		new Date(),
+	);
+	t.like(trust.codexDialog, {kind: 'other'});
+});
+
+test("a permission option's wrapped label is read whole", t => {
+	const {permission} = parseAgentScreen(
+		[
+			'────────',
+			' Create file',
+			' Do you want to create x.txt?',
+			' ❯ 1. Yes',
+			'   2. Yes, and switch to accept edits for this session; Yes, and',
+			'      always allow access to /tmp/q-a for this session (shift+tab)',
+			'   3. No',
+			' Esc to cancel · Tab to amend',
+		].join('\n'),
+		new Date(),
+	);
+	t.is(
+		permission?.options[1]?.label,
+		'Yes, and switch to accept edits for this session; Yes, and always allow access to /tmp/q-a for this session (shift+tab)',
+	);
+	t.is(permission?.options[2]?.label, 'No');
+});
+
+test('a same-day reset with a one-digit hour is read', t => {
+	const now = new Date(2026, 10, 9, 8, 0);
+	const {usageLimit} = parseAgentScreen(
+		[
+			"■ You've hit your usage limit. Upgrade to Pro, or try again at 9:31 AM.",
+			'',
+			'› Ask Codex to do anything',
+		].join('\n'),
+		now,
+	);
+	t.is(usageLimit?.resetText, '9:31 AM');
+	t.deepEqual(usageLimit?.resetAt, new Date(2026, 10, 9, 9, 31));
+});
+
+test("a question dialog's Submit step is still a question", t => {
+	const capture = [
+		'←  ☒ Color  ☒ Fruit  ✔ Submit  →',
+		'Review your answers',
+		' ● What is your favorite color? → Blue',
+		'Ready to submit your answers?',
+		'❯ 1. Submit answers',
+		'  2. Cancel',
+	].join('\n');
+	t.like(parseAgentScreen(capture, NOW).question, {
+		question: 'Ready to submit your answers?',
+		options: [
+			{number: 1, label: 'Submit answers', kind: 'other', selected: true},
+			{number: 2, label: 'Cancel', kind: 'other', selected: false},
+		],
+	});
+});
+
+test('the first seconds of a Claude turn, before its timer shows, are working', t => {
+	t.true(parseAgentScreen('· Warping…', NOW).spinner);
+	t.false(parseAgentScreen('✻ Cogitated for 17s · done 7:32 AM', NOW).spinner);
 });

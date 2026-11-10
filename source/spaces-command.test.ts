@@ -33,6 +33,9 @@ function writeJson(file: string, data: unknown): void {
 const repoState = (home: string, ...rest: string[]) =>
 	path.join(home, '.pappardelle', 'repos', REPO, ...rest);
 
+const statusFile = (home: string, key: string, repo = REPO) =>
+	path.join(home, '.pappardelle', 'claude-status', `${repo}-${key}.json`);
+
 function openSpaces(home: string, keys: string[]): void {
 	writeJson(repoState(home, 'open-spaces.json'), keys);
 }
@@ -69,17 +72,14 @@ test('status comes from the claude-status file, raw', async t => {
 	const home = tempHome(t);
 	const now = Date.now();
 	openSpaces(home, ['STA-100', 'STA-200', 'STA-700']);
-	writeJson(path.join(home, '.pappardelle', 'claude-status', 'STA-100.json'), {
+	writeJson(statusFile(home, 'STA-100'), {
 		status: 'processing',
 		currentTool: 'Bash',
 		// Older than the TUI's active-status timeout; the board still sees it.
 		lastUpdate: now - 3 * 60 * 60_000,
 		sessionId: 'sess-abc',
 	});
-	writeJson(
-		path.join(home, '.pappardelle', 'claude-status', 'STA-700.json'),
-		'not json{{{',
-	);
+	writeJson(statusFile(home, 'STA-700'), 'not json{{{');
 	const spaces = await gather(home, {now});
 	const byName = new Map(spaces.map(space => [space.name, space]));
 	t.like(byName.get('STA-100'), {
@@ -90,6 +90,23 @@ test('status comes from the claude-status file, raw', async t => {
 	});
 	t.is(byName.get('STA-200')?.status, 'no_status');
 	t.is(byName.get('STA-700')?.status, 'unknown');
+});
+
+test('another repo with a space of the same key does not supply its status', async t => {
+	const home = tempHome(t);
+	openSpaces(home, ['STA-1']);
+	writeJson(statusFile(home, 'STA-1', 'other-repo'), {
+		status: 'waiting_for_approval',
+		lastUpdate: Date.now(),
+	});
+	const before = await gather(home);
+	t.is(before[0]?.status, 'no_status');
+	writeJson(statusFile(home, 'STA-1'), {
+		status: 'ended',
+		lastUpdate: Date.now(),
+	});
+	const after = await gather(home);
+	t.is(after[0]?.status, 'ended');
 });
 
 test('metadata, rail state and the newest PR link are included', async t => {
@@ -175,7 +192,7 @@ test('spaces sort by last update and carry tmux session names', async t => {
 	const now = Date.now();
 	openSpaces(home, ['STA-OLD', 'STA-NEW', 'a.b_c']);
 	const status = (key: string, ago: number) =>
-		writeJson(path.join(home, '.pappardelle', 'claude-status', `${key}.json`), {
+		writeJson(statusFile(home, key), {
 			status: 'ended',
 			lastUpdate: now - ago,
 		});

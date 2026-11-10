@@ -11,6 +11,7 @@ import {
 	parseAgentScreen,
 	type AgentScreen,
 	type PermissionPrompt,
+	type CodexDialog,
 	type QuestionDialog,
 	type UsageLimit,
 } from './agent-screen.ts';
@@ -26,28 +27,35 @@ import {
 import type {ProgramStatusInfo} from './program-status.ts';
 import {
 	exactSessionTarget,
+	fromSessionKey,
 	getSessionNames,
+	getSessionPrefix,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 import {mergeProgramStatus} from './workspace-status.ts';
 
-export type AgentState =
-	| 'working'
-	| 'permission'
-	| 'question'
-	| 'auth'
-	| 'usage_limit'
-	| 'draft'
-	| 'idle'
-	| 'no_session';
-
-export type WaitTarget = 'working' | 'idle' | 'blocked' | 'ready' | 'changed';
-
-const BLOCKED: readonly AgentState[] = [
+export const AGENT_STATES = [
+	'working',
 	'permission',
 	'question',
 	'auth',
+	'dialog',
+	'usage_limit',
+	'draft',
+	'idle',
+	'no_session',
+] as const;
+
+export type AgentState = (typeof AGENT_STATES)[number];
+
+export type WaitTarget = 'working' | 'idle' | 'blocked' | 'ready' | 'changed';
+
+export const BLOCKED: readonly AgentState[] = [
+	'permission',
+	'question',
+	'auth',
+	'dialog',
 	'usage_limit',
 ];
 
@@ -71,6 +79,7 @@ export type AgentStateReport = {
 	permission: PermissionPrompt | null;
 	question: QuestionDialog | null;
 	usageLimit: UsageLimit | null;
+	codexDialog: CodexDialog | null;
 	composer: string | null;
 	screen: string;
 };
@@ -89,6 +98,7 @@ export function classifyAgent(
 		return 'permission';
 	}
 
+	if (screen.codexDialog) return 'dialog';
 	if (screen.usageLimit) return 'usage_limit';
 	if (status?.status === 'working' || screen.spinner) return 'working';
 	if (screen.composer) return 'draft';
@@ -142,6 +152,15 @@ function pinnedStatusPane(
 	return pane ? parseStatusPane(pane, statusSocket()) : null;
 }
 
+/** The keys of every space in `repo` with an agent session. */
+export function listAgentKeys(repo: string, runner: OuterTmuxRunner): string[] {
+	const prefix = getSessionPrefix('agent', repo);
+	return (tmuxOut(runner, ['list-sessions', '-F', '#{session_name}']) ?? '')
+		.split('\n')
+		.filter(name => name.startsWith(prefix))
+		.map(name => fromSessionKey(name.slice(prefix.length)));
+}
+
 export function captureAgentScreen(
 	key: string,
 	lines: number,
@@ -188,9 +207,11 @@ export async function readAgentState(
 		permission: screen?.permission ?? null,
 		question: screen?.question ?? null,
 		usageLimit: screen?.usageLimit ?? null,
+		codexDialog: screen?.codexDialog ?? null,
 		composer: screen?.composer ?? null,
 		screen: (screen?.lines ?? [])
-			.filter(line => line.trim() !== '')
+			.map(line => line.trimEnd())
+			.filter(line => line !== '')
 			.slice(-SCREEN_TAIL_LINES)
 			.join('\n'),
 	};

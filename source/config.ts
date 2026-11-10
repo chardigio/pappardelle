@@ -617,16 +617,6 @@ export function getRepoName(): string {
 }
 
 /**
- * Qualify a main-worktree branch name with the repo name to avoid
- * collisions across repos (e.g. "stardust-labs-master" instead of "master").
- */
-export function qualifyMainBranch(repoName: string, branch: string): string {
-	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
-	// same way so the status file name stays a single path segment.
-	return `${repoName}-${branch}`.replaceAll('/', '-');
-}
-
-/**
  * Merge local keybinding overrides on top of base keybindings.
  * - New keys are added
  * - Existing keys are replaced entirely
