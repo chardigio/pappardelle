@@ -17,7 +17,7 @@ Enter also read the match list from the last render. A character and Enter arriv
 - Search stays in the rail: the search row replaces the status row (or the header row in a rail too short for one) and the list filters below it. The window is never zoomed
 - Search keys act on the current query and highlight instead of the last render, so several keys in one write each see what the previous one did. Text typed before the search row is drawn is added to the query
 - Enter selects the highlighted workspace by name, not by a row index translated around the pending row
-- The query is matched the way the agent and profile popups match theirs (`rankByFuzzyMatch`): its characters must appear in order in the key or in the title, spaces ignored, and the tightest match is listed first. `fx lgn` finds "Fix the login redirect". Before, the query had to appear as one unbroken string and matches kept the rail's order
+- The query is matched the way the agent and profile popups match theirs (`rankByFuzzyMatch`): its characters must appear in order in the key or in the title, spaces ignored, and the tightest match is listed first, a key or title typed in full ahead of longer ones that start with it. `fx lgn` finds "Fix the login redirect". Before, the query had to appear as one unbroken string and matches kept the rail's order
 - Escape is acted on as it arrives. The renderer's input parser holds a lone Escape byte for 20 ms in case an escape sequence follows, and the wait is a literal inside OpenTUI. tmux has already made that call and writes each key to a pane whole, so inside tmux the rail and the popups treat a read of just the Escape byte as the key and drop the parser's late copy (`source/lone-escape.ts`)
 
 ## Measurements

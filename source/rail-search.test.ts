@@ -52,6 +52,15 @@ test('the tightest match comes first, whichever row it is', t => {
 	t.deepEqual(names(filterSpaces(rows, 'rail')), ['STA-2', 'STA-1']);
 });
 
+test('a key typed in full comes ahead of longer keys that start with it', t => {
+	const rows = [makeSpace('STA-19'), makeSpace('STA-10'), makeSpace('STA-1')];
+	t.deepEqual(names(filterSpaces(rows, 'sta-1')), [
+		'STA-1',
+		'STA-19',
+		'STA-10',
+	]);
+});
+
 function press(name: string) {
 	return shortcutKey({
 		name,

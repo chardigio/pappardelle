@@ -337,8 +337,9 @@ export function handleProfilePickerKey(
 /**
  * Narrow a list to the items with a label containing the query's characters
  * in order, tightest match first: `sh` finds `sol-high` ahead of
- * `sonnet-high`. An item's best-scoring label counts, and ties keep the list's
- * own order.
+ * `sonnet-high`. An item's best-scoring label counts. Among equal scores a
+ * label the query spells out in full comes first, so typing `sta-1` reaches
+ * `STA-1` ahead of `STA-10`; other ties keep the list's own order.
  */
 export function rankByFuzzyMatch<T>(
 	items: readonly T[],
@@ -363,14 +364,23 @@ export function rankByFuzzyMatch<T>(
 		return total;
 	};
 
+	const spelledOut = (label: string): boolean =>
+		label.toLowerCase().replaceAll(/\s+/g, '') === needle;
+
 	return items
 		.map((item, index) => ({
 			item,
 			index,
 			score: Math.min(...labels(item).map(label => score(label))),
+			isExact: labels(item).some(label => spelledOut(label)),
 		}))
 		.filter(row => Number.isFinite(row.score))
-		.sort((a, b) => a.score - b.score || a.index - b.index)
+		.sort(
+			(a, b) =>
+				a.score - b.score ||
+				Number(b.isExact) - Number(a.isExact) ||
+				a.index - b.index,
+		)
 		.map(row => row.item);
 }
 
