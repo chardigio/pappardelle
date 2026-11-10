@@ -102,6 +102,7 @@ install_private_bun() {
     fi
     print_info "Downloading $archive for Pappardelle (your own Bun is not changed)" >&2
     if ! curl -fsSL "$BUN_DIST_URL/$archive" -o "$tmp/$archive"; then
+        print_error "Could not download $BUN_DIST_URL/$archive" >&2
         rm -rf "$tmp"; return 1
     fi
     if command -v shasum &>/dev/null; then
@@ -122,6 +123,8 @@ install_private_bun() {
     mv "$tmp/$name/bun" "$destination/bun"
     rm -rf "$tmp"
     ln -sfn "$destination" "$PRIVATE_BUN_DIR/current"
+    # Each release is about 90 MB, and only the one `current` names is used.
+    find "$PRIVATE_BUN_DIR" -mindepth 1 -maxdepth 1 -name 'release.*' ! -path "$destination" -exec rm -rf {} +
     printf '%s\n' "$PRIVATE_BUN_DIR/current/bun"
 }
 
