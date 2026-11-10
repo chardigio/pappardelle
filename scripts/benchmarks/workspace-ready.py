@@ -8,7 +8,6 @@ wrappers add overhead, so never compare its wall time with untraced samples.
 import argparse
 from contextlib import contextmanager
 import datetime
-import errno
 import fcntl
 import hashlib
 import json
@@ -16,6 +15,7 @@ import os
 from pathlib import Path
 import platform
 import pty
+import re
 import shlex
 import shutil
 import signal
@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 
 
@@ -109,6 +110,29 @@ def sweep_stale_fixtures():
         owner = root.name[len(FIXTURE_PREFIX):].split('-', 1)[0]
         if root.is_dir() and owner.isdigit() and not pid_alive(int(owner)):
             remove_fixture(str(root))
+
+
+COLOUR_QUERY = re.compile(rb'\x1b\](4;\d+|1[0-2]);\?(?:\x07|\x1b\\)')
+
+
+def answer_colour_queries(master):
+    """Stand in for the terminal emulator behind the outer tmux client.
+
+    tmux 3.6+ forwards a pane's palette query to its client's terminal. With
+    nothing answering, each viewer frame waits out the renderer's 300 ms probe
+    before it starts its program, which a real terminal never makes it do.
+    """
+    pending = b''
+    try:
+        while data := os.read(master, 65536):
+            pending += data
+            end = 0
+            for match in COLOUR_QUERY.finditer(pending):
+                os.write(master, b'\x1b]' + match[1] + b';rgb:8080/8080/8080\x1b\\')
+                end = match.end()
+            pending = pending[end:][-64:]
+    except OSError:
+        pass  # The client exited and closed its side of the pty.
 
 
 @contextmanager
@@ -249,7 +273,6 @@ signal.pause()
             def wait_screen(accept):
                 deadline = time.monotonic() + timeout
                 while time.monotonic() < deadline:
-                    drain_launchers()
                     screen = tmux('bench-outer', 'capture-pane', '-p', '-t', 'bench:0.0').stdout
                     if accept(screen):
                         return screen
@@ -270,42 +293,37 @@ signal.pause()
 
         launchers = []
 
-        def drain_launchers():
-            for _, master in launchers:
-                try:
-                    while os.read(master, 65536):
-                        pass
-                except BlockingIOError:
-                    pass
-                except OSError as exc:
-                    if exc.errno != errno.EIO:
-                        raise
+        def attach_terminal(command):
+            master, slave = pty.openpty()
+            try:
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 52, width, 0, 0))
+                client = subprocess.Popen(command, cwd=repo, env=env, stdin=slave,
+                                          stdout=slave, stderr=slave, start_new_session=True)
+            except BaseException:
+                os.close(master)
+                raise
+            finally:
+                os.close(slave)
+            terminal = threading.Thread(target=answer_colour_queries, args=(master,), daemon=True)
+            terminal.start()
+            launchers.append((client, master, terminal))
 
         def launch():
             if outside_tmux:
-                master, slave = pty.openpty()
-                try:
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 52, width, 0, 0))
-                    os.set_blocking(master, False)
-                    launcher = subprocess.Popen([str(binary)], cwd=repo, env=env, stdin=slave,
-                                                stdout=slave, stderr=slave, start_new_session=True)
-                    launchers.append((launcher, master))
-                except BaseException:
-                    os.close(master)
-                    raise
-                finally:
-                    os.close(slave)
+                attach_terminal([str(binary)])
                 return
+            # Status off as the real launcher sets it, so the window keeps all 52 rows.
             result = tmux('bench-outer', '-f', '/dev/null', 'new-session', '-d',
-                          '-x', str(width), '-y', '52', '-s', 'bench', shlex.quote(str(binary)))
+                          '-x', str(width), '-y', '52', '-s', 'bench', shlex.quote(str(binary)),
+                          ';', 'set-option', '-t', 'bench', 'status', 'off')
             if result.returncode:
                 raise RuntimeError(result.stderr)
+            attach_terminal([real_tools['tmux'], '-L', 'bench-outer', 'attach-session', '-t', 'bench'])
 
         def observe(start_ns, retained=None, selected=None):
             milestones, identities, screens = {}, {}, {}
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                drain_launchers()
                 for kind in kinds:
                     ready = root / (kind + ('-' + selected if selected else '') + '.json')
                     if ready.exists():
@@ -376,7 +394,6 @@ signal.pause()
             milestones, identities, screens = observe(start_ns, retained)
             observation_start = time.monotonic()
             while time.monotonic() - observation_start < observe_seconds:
-                drain_launchers()
                 tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', 'F12').check_returncode()
                 time.sleep(.02)
             for _ in range(filter_cycles):
@@ -393,7 +410,6 @@ signal.pause()
                 pid = int(tmux('bench-outer', 'display-message', '-p', '-t', 'bench:0.0', '#{pane_pid}').stdout)
                 deadline = time.monotonic() + timeout
                 while True:
-                    drain_launchers()
                     records = [json.loads(line.partition('[startup] ')[2])
                                for p in (home / '.pappardelle/logs').glob('*.log')
                                for line in p.read_text().splitlines() if '[startup] {' in line]
@@ -416,13 +432,14 @@ signal.pause()
                 error = error or 'Unexpected provider invocation; inspect providerCalls'
             tmux('bench-outer', 'kill-server')
             tmux('bench-inner', 'kill-server')
-            for launcher, master in launchers:
+            for launcher, master, terminal in launchers:
                 try:
                     launcher.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     launcher.kill()
                     launcher.wait()
                 finally:
+                    terminal.join(timeout=2)
                     os.close(master)
         events = []
         for line in log.splitlines():
@@ -520,7 +537,7 @@ def main():
                               'installationRoot': str(binary.parent.parent)}
                         for name, binary in binaries.items()},
         'bun': subprocess.check_output(['bun', '--version'], text=True).strip(),
-        'terminal': ('PTY launcher with attached real tmux' if args.outside_tmux else 'detached real tmux') + ', variable width x 52',
+        'terminal': ('PTY launcher with attached real tmux' if args.outside_tmux else 'real tmux with a PTY client attached') + ', variable width x 52; the PTY answers OSC 4/10/11/12 colour queries',
         'scope': 'isolated HOME/repo/servers; OS caches NOT flushed; dummy Python agents; bd/gh stubbed; update cache primed; no real agent startup',
         'observation': f'{args.poll_interval_ms:g} ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately',
     }, 'settings': vars(args) | {'binary': str(args.binary), 'candidate': str(args.candidate) if args.candidate else None,
