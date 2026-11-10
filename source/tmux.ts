@@ -2311,8 +2311,11 @@ async function attachViewers(
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
+	let configuredSplits: ResolvedCompanionSplit[] | undefined;
 	// A split that fails to show leaves the agent and companion attached.
-	const syncSplitsAfterAttach = async (): Promise<boolean> => {
+	// `listing` is the session listing the attach asked for along with its own
+	// commands, which saves this a tmux call of its own.
+	const syncSplitsAfterAttach = async (listing?: string): Promise<boolean> => {
 		try {
 			await syncCompanionSplits(
 				{agentViewerPaneId, companionViewerPaneId},
@@ -2321,7 +2324,9 @@ async function attachViewers(
 					// Not cut short by a newer selection: half-made split panes would
 					// stay on screen. The next attach's sync waits for this one.
 					run: options.run ?? runTmux,
+					listing,
 					seed: () =>
+						configuredSplits ??
 						getCompanionSplits(
 							loadConfig(),
 							issueTitle,
@@ -2373,12 +2378,13 @@ async function attachViewers(
 					';',
 					...viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE),
 				);
+			commands.push(';', ...SPLIT_LIST_ARGS);
 			// Existing clients can switch directly. tmux validates both targets;
 			// an exited client or missing session falls back to setup below.
-			await run(innerTmuxArgs(commands));
+			const listing = await run(innerTmuxArgs(commands));
 			await run(agentTitleAndFocusArgs(agentViewerPaneId, name, listPaneId));
 			currentlyViewingSpace = issueKey;
-			const shown = await syncSplitsAfterAttach();
+			const shown = await syncSplitsAfterAttach(listing);
 			traceDone?.(shown ? undefined : 'cancelled');
 			return shown;
 		} catch (err) {
@@ -2406,6 +2412,7 @@ async function attachViewers(
 	let agentProfile: ResolvedAgentProfile | undefined;
 	let sessionId: string | undefined;
 	let launch: AgentLaunch = {rules: false};
+	let splitListing: string | undefined;
 	try {
 		const config = loadConfig();
 		launch = {
@@ -2415,6 +2422,7 @@ async function attachViewers(
 		const profileName = savedSpaceProfile(issueKey);
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
+		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
 		sessionId = readAgentSession(getRepoName(), issueKey, agentProfile.name);
 	} catch {
@@ -2486,10 +2494,11 @@ async function attachViewers(
 					? [viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE)]
 					: []),
 			];
+			// Listed with the setup only when there is a session, and so a server.
 			if (sessionSetup.length > 0)
-				await run(
+				splitListing = await run(
 					innerTmuxArgs(
-						sessionSetup.flatMap((args, index) =>
+						[...sessionSetup, SPLIT_LIST_ARGS].flatMap((args, index) =>
 							index === 0 ? args : [';', ...args],
 						),
 					),
@@ -2571,7 +2580,7 @@ async function attachViewers(
 			throw error;
 		}
 		currentlyViewingSpace = issueKey;
-		const shown = await syncSplitsAfterAttach();
+		const shown = await syncSplitsAfterAttach(splitListing);
 		traceDone?.(shown ? undefined : 'cancelled');
 		return shown;
 	} catch (err) {
@@ -2752,9 +2761,11 @@ export async function closeCompanionSplitPanes(
 	}
 }
 
+const SPLIT_LIST_ARGS = ['list-sessions', '-F', SPLIT_LIST_FORMAT];
+
 async function listCompanionSessions(run: AsyncTmuxRunner): Promise<string> {
 	try {
-		return await run(innerTmuxArgs(['list-sessions', '-F', SPLIT_LIST_FORMAT]));
+		return await run(innerTmuxArgs(SPLIT_LIST_ARGS));
 	} catch (err) {
 		if (err instanceof Error && err.name === 'AbortError') throw err;
 		return '';
@@ -2774,23 +2785,26 @@ async function listCompanion(
 /**
  * Start the configured splits once per companion session, so a split the
  * user closes stays closed. They're ordered as listed. One that fails to
- * start is tried again at the next attach.
+ * start is tried again at the next attach. Returns whether it started any.
  */
 async function seedCompanionSplits(
 	issueKey: string,
 	splits: CompanionSplit[],
 	configured: ResolvedCompanionSplit[],
 	run: AsyncTmuxRunner,
-): Promise<void> {
+): Promise<boolean> {
 	const order = Date.now();
 	let failed = false;
+	let started = false;
 	for (const [index, split] of configured.entries()) {
 		if (splits.some(existing => existing.name === split.name)) continue;
 		const result = createCompanionSplit(issueKey, {
 			...split,
 			order: order + index,
 		});
-		if (!result.ok) {
+		if (result.ok) {
+			started = true;
+		} else {
 			failed = true;
 			log.warn(
 				`Failed to start companion split ${split.name} for ${issueKey}: ${result.reason}`,
@@ -2798,12 +2812,15 @@ async function seedCompanionSplits(
 		}
 	}
 
-	if (failed) return;
-	await run(
-		innerTmuxArgs(
-			splitOptionArgs(getSessionNames(issueKey).companion, 'seeded', 1),
-		),
-	);
+	if (!failed) {
+		await run(
+			innerTmuxArgs(
+				splitOptionArgs(getSessionNames(issueKey).companion, 'seeded', 1),
+			),
+		);
+	}
+
+	return started;
 }
 
 export type SplitSyncOutcome = 'applied' | 'deferred' | 'no-pane';
@@ -2819,16 +2836,27 @@ export type SplitSyncOutcome = 'applied' | 'deferred' | 'no-pane';
 export async function syncCompanionSplits(
 	layout: Pick<PaneLayout, 'agentViewerPaneId' | 'companionViewerPaneId'>,
 	issueKey: string,
-	options: {run?: AsyncTmuxRunner; seed?: () => ResolvedCompanionSplit[]} = {},
+	options: {
+		run?: AsyncTmuxRunner;
+		seed?: () => ResolvedCompanionSplit[];
+		/** The inner sessions in SPLIT_LIST_FORMAT, when the caller just listed them. */
+		listing?: string;
+	} = {},
 ): Promise<SplitSyncOutcome> {
 	const run = options.run ?? runTmux;
 	const companionSession = getSessionNames(issueKey).companion;
-	const listing = await listCompanion(companionSession, run);
+	const listing = parseCompanionListing(
+		options.listing ?? (await listCompanionSessions(run)),
+		companionSession,
+	);
 	let {splits} = listing;
-	if (options.seed && listing.companion && !listing.companion.seeded) {
-		await seedCompanionSplits(issueKey, splits, options.seed(), run);
+	if (
+		options.seed &&
+		listing.companion &&
+		!listing.companion.seeded &&
+		(await seedCompanionSplits(issueKey, splits, options.seed(), run))
+	)
 		({splits} = await listCompanion(companionSession, run));
-	}
 
 	// rebuildLayout takes the split panes down with the companion pane.
 	if (!layout.companionViewerPaneId) return 'no-pane';
