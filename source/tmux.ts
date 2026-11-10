@@ -2656,6 +2656,8 @@ type ShownSplit = {
 
 const shownSplits: ShownSplit[] = [];
 let shownSplitSignature: string | null = null;
+/** The space whose splits are shown. */
+let shownSplitsSpace: string | null = null;
 let splitSizesWindow: WindowSize | null = null;
 let splitSizesColumn: number | null = null;
 let splitSyncPending = false;
@@ -2764,12 +2766,12 @@ async function keepSplitDrags(
 	run: AsyncTmuxRunner,
 	snapshot?: WindowGeometry,
 ): Promise<void> {
-	if (shownSplits.length === 0 || !currentlyViewingSpace) return;
+	if (shownSplits.length === 0 || !shownSplitsSpace) return;
 	const measured =
 		snapshot ??
 		parseWindowGeometry(await run(paneGeometryArgs(layout.listPaneId)));
 	const {splits} = await listCompanion(
-		getSessionNames(currentlyViewingSpace).companion,
+		getSessionNames(shownSplitsSpace).companion,
 		run,
 	);
 	await rememberSplitDrags(
@@ -2889,33 +2891,57 @@ export async function syncCompanionSplits(
 
 	let column = companionColumnWidth(measured, layout);
 	await rememberSplitDrags(measured, column, splits, run);
-	// tmux takes a resized pane's cells from whichever neighbour it picks, not
-	// from main, so panes are only kept when they already have the sizes
-	// they should; otherwise they are made again at those sizes.
 	const targets = splitTargets(splits, {
 		width: column ?? 0,
 		height: measured.window.height,
 	});
-	const signature = splitSignature(splits);
-	const reuse =
-		signature === shownSplitSignature &&
+	const fit = (panes: WindowGeometry) =>
 		shownSplits.every((split, index) => {
-			const pane = measured.panes.get(split.paneId);
-			return (
-				split.tty && pane && alongSplit(pane, split.split) === targets[index]
-			);
-		}) &&
-		(await switchSplitClients(splits, run));
+			const pane = panes.panes.get(split.paneId);
+			return pane && alongSplit(pane, split.split) === targets[index];
+		});
+	const sameShape =
+		splitSignature(splits) === shownSplitSignature &&
+		shownSplits.every(split => split.tty && measured.panes.has(split.paneId));
+	// tmux takes a resized pane's cells from whichever neighbour it picks, not
+	// always from main. When the panes don't come out at their sizes, they
+	// are made again at those sizes.
+	if (sameShape && !fit(measured)) {
+		await resizeSplitPanes(targets, run);
+		measured = await measure();
+	}
+
+	const reuse =
+		sameShape && fit(measured) && (await switchSplitClients(splits, run));
 	if (!reuse) {
 		await closeCompanionSplitPanes(run);
 		await showSplits(layout.companionViewerPaneId, splits, targets, run);
-		shownSplitSignature = signature;
+		shownSplitSignature = splitSignature(splits);
 	}
 
+	shownSplitsSpace = issueKey;
 	measured = await measure();
 	column = companionColumnWidth(measured, layout);
 	recordSplitSizes(measured, column);
 	return 'applied';
+}
+
+async function resizeSplitPanes(
+	targets: number[],
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	for (const [index, split] of shownSplits.entries()) {
+		await runLayoutCommand(
+			[
+				'resize-pane',
+				'-t',
+				split.paneId,
+				split.split === 'right' ? '-x' : '-y',
+				String(targets[index]),
+			],
+			run,
+		);
+	}
 }
 
 // Each split's client moves on its own call, after the agent and main ones,
@@ -3428,9 +3454,8 @@ async function relayoutGeometry(
 		if (!resizeAttempted) recordGeometry(measured, layout);
 
 		// A new window or column size gives the splits new sizes to keep.
-		const viewing = currentlyViewingSpace;
-		if (shownSplits.length > 0 && viewing)
-			await syncCompanionSplits(layout, viewing, {run});
+		if (shownSplits.length > 0 && shownSplitsSpace)
+			await syncCompanionSplits(layout, shownSplitsSpace, {run});
 
 		log.info('Relayout completed successfully');
 		return measured;

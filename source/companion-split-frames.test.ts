@@ -240,6 +240,27 @@ tmuxTest(
 		t.is(await option(session(b, 'logs'), '@pappa_size'), '');
 		t.deepEqual(companionSplitPaneIds(), reopened2);
 
+		// A size that a resize in place can reach keeps the panes and clients.
+		await innerTmux(
+			'set-option',
+			'-t',
+			`=${session(b, 'tests')}:`,
+			'@pappa_size',
+			'30%',
+		);
+		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
+		t.deepEqual(companionSplitPaneIds(), reopened2);
+		const grown = await paneSize(reopened2[0]!);
+		t.is(grown.h, 15);
+		await run(['resize-window', '-t', pane, '-y', '40']);
+		await reconcilePaneLayout(layout, false, run);
+		t.deepEqual(companionSplitPaneIds(), reopened2);
+		const shorter = await paneSize(reopened2[0]!);
+		t.is(shorter.h, 12);
+		await run(['resize-window', '-t', pane, '-y', '50']);
+		await reconcilePaneLayout(layout, false, run);
+		t.deepEqual(companionSplitPaneIds(), reopened2);
+
 		// Dragging the agent pane's border resizes the whole column: the right
 		// split keeps no size of its own, and goes back to half of main.
 		const agent = await paneSize(layout.agentViewerPaneId);
