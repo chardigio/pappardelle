@@ -6,7 +6,6 @@ import test from 'ava';
 import React from 'react';
 import {useKeyboard} from '@opentui/react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
-import {deliverHeldKeysAtOnce} from './lone-escape.ts';
 
 // RenderTui delivers a lone Escape early only in a tmux pane. Nothing here
 // runs tmux, so the socket does not have to exist.
@@ -29,7 +28,7 @@ async function keyLog(
 
 	const view = await terminalView(React.createElement(KeyLog), {typedAhead});
 	t.teardown(async () => view.dispose());
-	return {keys, stdin: view.stdin, renderer: view.renderer};
+	return {keys, stdin: view.stdin};
 }
 
 test.serial('a lone Escape is delivered on arrival, and only once', async t => {
@@ -125,27 +124,5 @@ test.serial(
 			keys.filter(key => !key.startsWith('meta+')),
 			['a', 'b'],
 		);
-	},
-);
-
-test.serial(
-	'a read the parser would hold or split goes to the program whole',
-	async t => {
-		const {stdin, renderer} = await keyLog(t);
-		const delivered: string[] = [];
-		deliverHeldKeysAtOnce(renderer, stdin, bytes => delivered.push(bytes));
-		for (const bytes of [
-			ESCAPE,
-			`${ESCAPE}P`,
-			`${ESCAPE}é`,
-			`${ESCAPE}[A`,
-			'a',
-		]) {
-			stdin.write(bytes);
-			// eslint-disable-next-line no-await-in-loop
-			await nextTurn();
-		}
-
-		t.deepEqual(delivered, [ESCAPE, `${ESCAPE}P`, `${ESCAPE}é`]);
 	},
 );

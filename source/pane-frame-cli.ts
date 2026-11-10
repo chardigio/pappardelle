@@ -9,7 +9,8 @@ import {
 } from '@opentui/core';
 import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
-import {deliverHeldKeysAtOnce} from './lone-escape.ts';
+import {FrameInputRouter} from './frame-input.ts';
+import {interceptInput} from './lone-escape.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
 import {
@@ -104,40 +105,21 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 		childPty.current?.resize(cols, rows);
 	},
 });
-// A key goes to the child as the bytes tmux wrote for it. The child reads a
-// terminal's input itself, and the terminal's own encoding of the parsed key
-// loses some: Alt+P and Alt with punctuation produce nothing, and Alt+B
-// becomes Alt+Left.
-const encodeKey = terminal.handleKeyPress.bind(terminal);
-terminal.handleKeyPress = key => {
-	if (key.eventType !== 'press' || key.raw === '') return encodeKey(key);
-	childPty.current?.write(key.raw);
-	return true;
-};
-// Keys the renderer's parser takes for something else: Shift, Ctrl or Alt
-// with F3 has the form of a cursor position report, and a keypad key in
-// application mode is not a key it knows. A report can only be the
-// renderer's own while it starts, before the program does.
-const ESCAPE = '\u001B';
-function isKeyTheParserMisreads(bytes: string): boolean {
-	if (!childPty.current) return false;
-	if (bytes.length === 3 && bytes.startsWith(`${ESCAPE}O`)) return true;
-	return (
-		bytes.length === 6 &&
-		bytes.startsWith(`${ESCAPE}[1;`) &&
-		'2345678'.includes(bytes[4]!) &&
-		bytes.endsWith('R')
-	);
-}
+// Keys go to the program as the bytes tmux wrote, without passing through
+// the renderer's input parser; see FrameInputRouter. Until the program has
+// started, everything read is the terminal answering the renderer.
+const inputRouter = new FrameInputRouter();
+interceptInput(renderer, process.stdin, (chunk, parse) => {
+	if (!childPty.current || typeof chunk === 'string') {
+		parse(chunk);
+		return;
+	}
 
-deliverHeldKeysAtOnce(
-	renderer,
-	process.stdin,
-	bytes => {
-		childPty.current?.write(bytes);
-	},
-	isKeyTheParserMisreads,
-);
+	for (const segment of inputRouter.route(chunk)) {
+		if (segment.to === 'program') childPty.current.write(segment.bytes);
+		else parse(Buffer.from(segment.bytes));
+	}
+});
 // The terminal a paste came from has already made it safe to paste. The
 // embedded terminal's own encoding would replace Escape, Ctrl+C and Delete in
 // it with spaces, so only its bracketing is used: what it puts around a

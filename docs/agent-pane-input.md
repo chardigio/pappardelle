@@ -16,9 +16,10 @@ Only the first is needed. tmux writes each key to a pane whole, and so does the 
 
 ## What changed
 
-- A read of just the Escape byte, or of Escape and one character the parser would hold or split (one that opens a sequence, such as `P`, `O` or `[`, or one outside ASCII), skips the frame host's input parser and goes to the program as it is (`source/lone-escape.ts`). The rail and the popups do the same and deliver the key
+- The frame host sends keys to the program as the bytes tmux wrote, without passing them through its renderer's input parser (`source/frame-input.ts`). The parser gets only what the frame host acts on itself: mouse reports, pastes, focus reports and the terminal's replies to its queries. Parsed first, a key that looks like the start of a longer sequence was held or dropped (Alt+P, Alt+O, Alt+[, Shift+F3), and whatever followed it in the same read went with it
+- A paste is forwarded as it arrived, bracketed only if the program asked for that; the embedded terminal's own encoding replaced Escape, Ctrl+C and Delete in it with spaces. The program's keypad mode is passed on to the outer terminal
+- In the rail and the popups, a read of just the Escape byte, or of Escape and a character that opens a sequence, skips the parser and is delivered as the key (`source/lone-escape.ts`)
 - The first attachment sets `escape-time` to 0 on the inner server, which is Pappardelle's own
-- The frame host writes each key to its program as the bytes tmux wrote for it. It used to parse the key and have its embedded terminal encode it again, which lost Alt+P, Alt+O and Alt with punctuation, turned Alt+B and Alt+F into Alt+Left and Alt+Right, and dropped two Escapes that arrived together and a sequence that arrived in two parts
 
 ## Measurements
 
