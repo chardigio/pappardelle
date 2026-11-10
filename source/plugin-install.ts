@@ -265,10 +265,14 @@ function removeAgyLegacyHook(deps: PluginInstallDeps): void {
 	const file = path.join(deps.agyConfigDir, 'hooks.json');
 	const original = deps.readFile(file);
 	if (original === undefined) return;
-	let hooks: Record<string, unknown>;
+	let hooks: unknown;
 	try {
-		hooks = JSON.parse(original) as Record<string, unknown>;
+		hooks = JSON.parse(original);
 	} catch {
+		hooks = undefined;
+	}
+
+	if (typeof hooks !== 'object' || hooks === null) {
 		deps.print(
 			`Could not parse ${file}; remove its ${AGY_LEGACY_HOOK} hook by hand.`,
 		);
