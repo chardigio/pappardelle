@@ -78,7 +78,7 @@ function fakeTmux() {
 const deps = (show: ShowPopup) => ({
 	show,
 	env: {TMUX: '/tmp/tmux-test,1,0'},
-	clientSize: async () => ({cols: 100, rows: 40}),
+	client: async () => ({args: [], size: {cols: 100, rows: 40}}),
 });
 
 const tick = async (ms = 20) =>

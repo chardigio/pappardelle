@@ -14,7 +14,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import tty from 'node:tty';
 import {createLogger} from '../logger.ts';
 import {shellQuote} from '../shell-quote.ts';
-import type {PopupSize} from './size.ts';
+import type {ClientSize, PopupSize} from './size.ts';
 
 const log = createLogger('popup');
 
@@ -40,50 +40,68 @@ export type PopupLaunch = {
 	client?: string[];
 };
 
+/** Where a popup goes: `-c` and a client, or nothing for tmux's own choice. */
+export type PopupClient = {args: string[]; size: ClientSize};
+
 /**
- * `-c` and the client for a popup, or nothing when tmux's own choice is right.
+ * The client a popup is shown on and that client's size.
  *
  * tmux shows a popup on the session's most recently active client. That is
  * the terminal that just typed, except that the TUI's control-mode client,
- * which cannot show a popup, is the most recent one until a key is pressed
- * after it attaches. `report` is the control-mode flag of tmux's choice, then
- * one line per client: control mode, activity time and tty.
+ * which cannot show a popup and has no size, is the most recent one until a
+ * key is pressed after it attaches. `report` is the control-mode flag, width
+ * and height of tmux's choice, then one line per client: control mode,
+ * activity time, tty, width and height.
  */
-export function popupClientArgs(report: string): string[] {
-	const [chosenIsControl, ...clients] = report.split('\n');
-	if (chosenIsControl !== '1') return [];
-	let newest: {activity: number; tty: string} | undefined;
+export function popupClient(report: string, fallback: ClientSize): PopupClient {
+	const [chosen = '', ...clients] = report.split('\n');
+	const sized = (cols?: string, rows?: string): ClientSize =>
+		Number(cols) > 0 && Number(rows) > 0
+			? {cols: Number(cols), rows: Number(rows)}
+			: fallback;
+	const [chosenIsControl, chosenCols, chosenRows] = chosen.split('\t');
+	if (chosenIsControl !== '1')
+		return {args: [], size: sized(chosenCols, chosenRows)};
+	let newest: {activity: number; tty: string; size: ClientSize} | undefined;
 	for (const line of clients) {
-		const [control, activity, tty] = line.split('\t');
+		const [control, activity, tty, cols, rows] = line.split('\t');
 		if (control !== '0' || !tty) continue;
 		if (!newest || Number(activity) >= newest.activity)
-			newest = {activity: Number(activity), tty};
+			newest = {activity: Number(activity), tty, size: sized(cols, rows)};
 	}
 
-	return newest ? ['-c', newest.tty] : [];
+	return newest
+		? {args: ['-c', newest.tty], size: newest.size}
+		: {args: [], size: fallback};
 }
 
-/** See popupClientArgs. */
-export async function userClientArgs(): Promise<string[]> {
+/** See popupClient. */
+export async function findPopupClient(): Promise<PopupClient> {
+	const fallback = {
+		cols: process.stdout.columns ?? 80,
+		rows: process.stdout.rows ?? 24,
+	};
 	const pane = process.env['TMUX_PANE'];
-	if (!pane) return [];
+	if (!pane) return {args: [], size: fallback};
 	return new Promise(resolve => {
 		execFile(
 			'tmux',
 			[
 				'display-message',
 				'-p',
-				'#{client_control_mode}',
+				'#{client_control_mode}\t#{client_width}\t#{client_height}',
 				';',
 				'list-clients',
 				'-t',
 				pane,
 				'-F',
-				'#{client_control_mode}\t#{client_activity}\t#{client_tty}',
+				'#{client_control_mode}\t#{client_activity}\t#{client_tty}\t#{client_width}\t#{client_height}',
 			],
 			{encoding: 'utf8', timeout: 2000},
 			(error, stdout) => {
-				resolve(error ? [] : popupClientArgs(stdout));
+				resolve(
+					error ? {args: [], size: fallback} : popupClient(stdout, fallback),
+				);
 			},
 		);
 	});
@@ -194,11 +212,11 @@ function killPopupShell(shellPid: number) {
  */
 export async function openPopupTerminal(
 	size: PopupSize,
+	client: string[],
 ): Promise<PopupTerminal | undefined> {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
 	const readyPath = path.join(dir, 'ready');
 	let isPopupOpen = true;
-	const client = await userClientArgs();
 	const closed = new Promise<void>(resolve => {
 		const popup = spawn(
 			'tmux',
