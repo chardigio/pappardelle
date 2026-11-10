@@ -6,7 +6,7 @@ When the terminal changes size, tmux scales every pane at once and the rail then
 
 ## What changed
 
-The rail asks for its layout on the first resize it sees. Resizes that follow within 150 ms, as a drag sends, are laid out once more when they pause.
+The rail asks for its layout on the first resize it sees, and once more 150 ms after the last one. The second request covers a drag, and a window that changed again while the first layout ran: tmux can leave the rail's pane at the width that layout set, so the rail gets no further resize to react to.
 
 ## Measurements
 

@@ -374,17 +374,21 @@ export default function App({
 	// the previous one left; the state copy is for drawing.
 	const searchNow = useRef<RailSearch | null>(null);
 	const [search, setSearch] = useState<RailSearch | null>(null);
+	// Until the search row is drawn there is no input to take typed text.
+	const searchInputDrawn = useRef(false);
+	// A search reopened before its closing is drawn gets a new input, not the
+	// closed one with its text.
+	const [searchSession, setSearchSession] = useState(0);
 	const updateSearch = useCallback((next: RailSearch | null) => {
+		if (!next) searchInputDrawn.current = false;
 		searchNow.current = next;
 		setSearch(next);
 	}, []);
 	const isSearching = search !== null;
 	const displaySpacesRef = useRef<SpaceData[]>([]);
-	// Until the search row is drawn there is no input to take typed text.
-	const searchInputDrawn = useRef(false);
 	useEffect(() => {
 		searchInputDrawn.current = isSearching;
-	}, [isSearching]);
+	}, [isSearching, searchSession]);
 	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 	// Whether the "Update Pappardelle?" confirm dialog is open. Reached via the
 	// always-available U key (STA-1548) — the banner's U routes here too, so the
@@ -865,7 +869,6 @@ export default function App({
 	useEffect(() => {
 		if (!stdout) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		let resizedSinceRequest = false;
 		const requestLayout = () => {
 			if (!paneLayoutRef.current) return;
 			const done = startupTrace.current?.begin('layout-request', {
@@ -884,18 +887,16 @@ export default function App({
 		};
 
 		// A single resize, such as a tiling window manager making room for a
-		// window, is laid out at once. A drag sends a stream of them; those are
-		// laid out once more when it pauses.
+		// window, is laid out at once. The window can change again while that
+		// layout runs without this pane's size changing, so no further event
+		// arrives; laying out once more after a pause covers that and a drag.
 		const handleResize = () => {
 			setPaneDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
 			if (syncingTerminalSize.current) return;
 			if (timer === undefined) requestLayout();
-			else resizedSinceRequest = true;
 			clearTimeout(timer);
 			timer = setTimeout(() => {
 				timer = undefined;
-				if (!resizedSinceRequest) return;
-				resizedSinceRequest = false;
 				requestLayout();
 			}, 150);
 		};
@@ -1555,6 +1556,7 @@ export default function App({
 		} else
 			switch (input) {
 				case '/': {
+					setSearchSession(session => session + 1);
 					updateSearch({query: '', index: 0});
 					break;
 				}
@@ -2366,6 +2368,7 @@ export default function App({
 	const typeSearch = useCallback(
 		(query: string) => {
 			const {current} = searchNow;
+			if (!searchInputDrawn.current) return;
 			if (current && current.query !== query) updateSearch({query, index: 0});
 		},
 		[updateSearch],
@@ -2500,6 +2503,7 @@ export default function App({
 			</box>
 			<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
 				<TextInput
+					key={searchSession}
 					value={searchQuery}
 					onChange={typeSearch}
 					placeholder="filter by key or title..."
