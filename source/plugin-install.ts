@@ -68,10 +68,10 @@ export function installPlugin(deps: PluginInstallDeps): number {
 		installForAgy(deps),
 	]);
 	// Closing a workspace removes its worktree, and with it the plugin Claude
-	// Code and agy load in place.
+	// Code and agy load in place and the script Codex's session hook runs.
 	if (deps.isLinkedWorktree() && outcomes.has('installed')) {
 		deps.print(
-			'This is a git worktree: run install.sh from your main checkout before removing it, or Claude Code and agy lose the plugin.',
+			'This is a git worktree: run install.sh from your main checkout before removing it, or Claude Code and agy lose the plugin and Codex its session hook.',
 		);
 	}
 
