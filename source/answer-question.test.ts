@@ -14,7 +14,9 @@ class Dialog {
 	checked = new Set<number>();
 	/** 1-based row, or 'done' for Submit/Next. */
 	cursor: number | 'done' = 1;
-	typed: string | null = null;
+	text = '';
+	/** The free-text row is taking keys as text. */
+	open = false;
 	answered = false;
 	/** Rows whose digit the dialog ignores, to test the screen check. */
 	deaf = new Set<string>();
@@ -28,8 +30,13 @@ class Dialog {
 	press(key: string) {
 		if (this.deaf.has(key)) return;
 		// An open free-text row takes digits as text, as Claude's does.
-		if (this.typed !== null && /^\d$/.test(key)) {
-			this.typed += key;
+		if (this.open && /^\d$/.test(key)) {
+			this.text += key;
+			return;
+		}
+
+		if (this.open && key === 'C-u') {
+			this.text = '';
 			return;
 		}
 
@@ -37,7 +44,7 @@ class Dialog {
 			const row = Number(key);
 			if (row === this.textRow) {
 				this.cursor = row;
-				this.typed = '';
+				this.open = true;
 			} else if (this.multi) {
 				if (this.checked.has(row)) this.checked.delete(row);
 				else this.checked.add(row);
@@ -49,23 +56,20 @@ class Dialog {
 		}
 
 		if (key === 'Up' && typeof this.cursor === 'number' && this.cursor > 1) {
-			if (this.cursor === this.textRow && this.typed === '') this.typed = null;
+			if (this.cursor === this.textRow) this.open = false;
 			this.cursor--;
 		} else if (key === 'Down') {
 			this.cursor =
 				this.cursor === 'done' || this.cursor === this.textRow
 					? 'done'
 					: this.cursor + 1;
-		} else if (
-			key === 'Enter' &&
-			(this.cursor === 'done' || this.typed !== null)
-		) {
+		} else if (key === 'Enter' && (this.cursor === 'done' || this.open)) {
 			this.answered = true;
 		}
 	}
 
 	type(text: string) {
-		if (this.typed !== null) this.typed += text;
+		if (this.open) this.text += text;
 	}
 
 	render(): string {
@@ -75,8 +79,7 @@ class Dialog {
 			const box = this.multi ? (this.checked.has(row) ? '[✔] ' : '[ ] ') : '';
 			return `${this.cursor === row ? '❯' : ' '} ${row}. ${box}${label}\n     ${label} topping`;
 		});
-		const text =
-			this.typed === null || this.typed === '' ? 'Type something.' : this.typed;
+		const text = this.text || 'Type something.';
 		rows.push(
 			`${this.cursor === this.textRow ? '❯' : ' '} ${this.textRow}. ${this.multi ? '[ ] ' : ''}${text}`,
 		);
@@ -89,7 +92,7 @@ class Dialog {
 			...rows,
 			'────────────────',
 			'  6. Chat about this',
-			`${this.typed === null ? '' : '-- INSERT -- · '}Enter to select · ↑/↓ to navigate · Esc to cancel`,
+			`${this.open ? '-- INSERT -- · ' : ''}Enter to select · ↑/↓ to navigate · Esc to cancel`,
 		].join('\n');
 	}
 }
@@ -258,4 +261,26 @@ test('a single-select option is pressed and checked like the rest', async t => {
 	t.deepEqual(h.sent, ['2']);
 	t.true(dialog.answered);
 	t.like(h.logged[0], {sent: '2. Olives'});
+});
+
+test('text left in an unfocused free-text row is still the free-text row, not an option', async t => {
+	const dialog = new Dialog(false);
+	dialog.press('5');
+	dialog.type('abc');
+	dialog.press('Up');
+	const h = harness(dialog);
+	t.is(await h.run('--option', '5'), 1);
+	t.is(await h.run('--option', '1'), 1);
+	t.is(await h.run('--text', 'fresh'), 1);
+	for (const message of h.err) t.regex(message, /already holds "abc"/);
+	t.deepEqual(h.sent, []);
+});
+
+test('clearing the free-text row with keys counts as taken', async t => {
+	const dialog = new Dialog(false);
+	dialog.press('5');
+	dialog.type('abc');
+	const h = harness(dialog);
+	t.is(await h.run('--keys', 'C-u'), 0);
+	t.is(dialog.text, '');
 });

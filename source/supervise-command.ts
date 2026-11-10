@@ -150,7 +150,7 @@ function formatQuestion(question: QuestionTab): string {
 	// Typed answers are only taken on a single-select question.
 	if (row && !question.multiSelect)
 		lines.push(
-			`  ${row.number}. ${row.typed ?? '(type an answer with --text)'}`,
+			`  ${row.number}. ${row.text || (row.open ? '' : '(type an answer with --text)')}`,
 		);
 	return lines.join('\n');
 }
@@ -421,6 +421,7 @@ function promptShown(report: AgentStateReport): string {
 		report.permission?.command,
 		report.question?.question,
 		report.question?.options.map(option => [option.selected, option.checked]),
+		report.question?.textOption,
 		report.codexDialog?.title,
 		report.codexDialog?.selected,
 	]);
@@ -464,20 +465,19 @@ function planQuestionAnswer(
 	};
 	const row = question.textOption;
 	// While the free-text row is open it takes every key as text, digits too.
-	if (row?.typed)
-		return `its free-text row already holds "${row.typed}"; clear it first with --keys or by hand`;
-	const leaveRow: AnswerStep[] =
-		row?.typed === ''
-			? [
-					{
-						keys: ['Up'],
-						expect: 'the cursor off the free-text row',
-						shows: report =>
-							report.question?.question === asked &&
-							report.question.textOption?.typed === null,
-					},
-				]
-			: [];
+	if (row?.text)
+		return `its free-text row already holds "${row.text}"; clear it first with --keys or by hand`;
+	const leaveRow: AnswerStep[] = row?.open
+		? [
+				{
+					keys: ['Up'],
+					expect: 'the cursor off the free-text row',
+					shows: report =>
+						report.question?.question === asked &&
+						report.question.textOption?.open === false,
+				},
+			]
+		: [];
 
 	if (command.text !== undefined) {
 		const {text} = command;
@@ -490,23 +490,23 @@ function planQuestionAnswer(
 		return {
 			sent: text,
 			steps: [
-				...(row.typed === null
-					? [
+				...(row.open
+					? []
+					: [
 							{
 								keys: [String(row.number)],
 								expect: 'the free-text row open for typing',
 								shows: (report: AgentStateReport) =>
-									report.question?.textOption?.typed === '',
+									report.question?.textOption?.open === true,
 							},
-						]
-					: []),
+						]),
 				{
 					text,
 					expect: `"${text}" in the free-text row`,
 					// Only the row's first line shows, so a long answer is checked
 					// as far as it fits.
 					shows(report) {
-						const typed = flat(report.question?.textOption?.typed ?? '');
+						const typed = flat(report.question?.textOption?.text ?? '');
 						return typed !== '' && flat(text).startsWith(typed);
 					},
 				},

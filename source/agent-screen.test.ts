@@ -73,7 +73,7 @@ test('a question dialog gives its tabs, question and answers', t => {
 			{number: 3, label: 'Green', kind: 'other', selected: false},
 		],
 		multiSelect: false,
-		textOption: {number: 4, typed: null},
+		textOption: {number: 4, text: '', open: false},
 		cursor: 1,
 	});
 	t.is(
@@ -257,7 +257,7 @@ test('a multi-select question reports which options are ticked', t => {
 			[4, 'Onions', false],
 		],
 	);
-	t.deepEqual(toggled.textOption, {number: 5, typed: null});
+	t.deepEqual(toggled.textOption, {number: 5, text: '', open: false});
 	t.like(screen('claude-q-multi-two').question, {
 		multiSelect: true,
 		tabs: ['Toppings', 'Crust'],
@@ -266,13 +266,14 @@ test('a multi-select question reports which options are ticked', t => {
 });
 
 test('the free-text row says whether it is open and what is typed in it', t => {
-	t.is(screen('claude-question-two').question?.textOption?.typed, null);
+	t.false(screen('claude-question-two').question!.textOption!.open);
 	t.deepEqual(screen('claude-q-text-selected').question?.textOption, {
 		number: 4,
-		typed: '',
+		text: '',
+		open: true,
 	});
 	const typed = screen('claude-q-text-typed').question!;
-	t.deepEqual(typed.textOption, {number: 4, typed: 'hello there'});
+	t.deepEqual(typed.textOption, {number: 4, text: 'hello there', open: true});
 	t.deepEqual(
 		typed.options.map(option => option.label),
 		['Water', 'Juice', 'Soda'],
