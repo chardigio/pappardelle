@@ -198,30 +198,40 @@ export async function attachStatusMonitor(
 ): Promise<StatusPane | null> {
 	try {
 		const target = `=${session}:`;
-		const option = await run(
+		// The pinned pane and the session's current pane in one call. They are
+		// the same pane unless the session has grown a second one.
+		const located = await run(
 			statusTmuxArgs(
-				['show-option', '-qv', '-t', target, STATUS_PANE_OPTION],
+				[
+					'display-message',
+					'-p',
+					'-t',
+					target,
+					`#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`,
+				],
 				socket,
 			),
 		);
-		const pinned = option.trim();
-		let pane = parseStatusPane(
-			await run(
-				statusTmuxArgs(
-					['display-message', '-p', '-t', pinned || target, STATUS_PANE_FORMAT],
-					socket,
-				),
-			),
-			socket,
+		const [pinned = '', ...current] = (located.split('\n')[0] ?? '').split(
+			'\t',
 		);
-		if (!pane) return null;
-		if (!pinned)
-			await run(
-				statusTmuxArgs(
-					['set-option', '-t', target, STATUS_PANE_OPTION, pane.id],
-					socket,
+		let pane = parseStatusPane(current.join('\t'), socket);
+		if (pinned && pinned !== pane?.id)
+			pane = parseStatusPane(
+				await run(
+					statusTmuxArgs(
+						['display-message', '-p', '-t', pinned, STATUS_PANE_FORMAT],
+						socket,
+					),
 				),
+				socket,
 			);
+		if (!pane) return null;
+		const pin = pinned
+			? []
+			: ['set-option', '-t', target, STATUS_PANE_OPTION, pane.id];
+		if (pin.length > 0 && (pane.dead || pane.piped))
+			await run(statusTmuxArgs(pin, socket));
 		if (pane.dead) return pane;
 		if (pane.piped) {
 			if (!pane.marker.startsWith(`${pane.pid}.`))
@@ -260,17 +270,28 @@ export async function attachStatusMonitor(
 		]
 			.map(args => args.map(value => shellQuoteStatus(value)).join(' '))
 			.join(' ; ');
-		// The tmux command queue keeps the marker and pipe owned by the same attachment.
-		await run(
-			statusTmuxArgs(
-				['if-shell', '-F', '-t', pane.id, '#{pane_pipe}', '', commands],
-				socket,
-			),
-		);
+		// The tmux command queue keeps the marker and pipe owned by the same
+		// attachment, and the read that follows sees what it left.
 		const attached = parseStatusPane(
 			await run(
 				statusTmuxArgs(
-					['display-message', '-p', '-t', pane.id, STATUS_PANE_FORMAT],
+					[
+						...pin,
+						...(pin.length > 0 ? [';'] : []),
+						'if-shell',
+						'-F',
+						'-t',
+						pane.id,
+						'#{pane_pipe}',
+						'',
+						commands,
+						';',
+						'display-message',
+						'-p',
+						'-t',
+						pane.id,
+						STATUS_PANE_FORMAT,
+					],
 					socket,
 				),
 			),
