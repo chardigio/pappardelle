@@ -17,6 +17,16 @@ Work through the pappardelle MCP server's tools: `spaces_list`, `space_read`, `s
 
 ## On Invocation
 
+**Step 0: Read the chef's house rules**
+
+The user can keep their own instructions for you in `SOUS-CHEF.md` at the main checkout's root. Read it if it exists:
+
+```bash
+cat "$(git worktree list --porcelain | sed -n '1s/^worktree //p')/SOUS-CHEF.md" 2>/dev/null
+```
+
+Follow it for the rest of the session. Where it differs from this skill, it wins.
+
 **Step 1: Gather space data**
 
 Call `spaces_list`. Each space entry has:

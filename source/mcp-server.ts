@@ -4,14 +4,17 @@
 // the process and write to stdout, which here is the MCP protocol channel.
 
 import {spawn} from 'node:child_process';
+import fs from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
 	configExists,
+	getMainRepoRoot,
 	getRepoName,
 	loadConfig,
+	SOUS_CHEF_FILE,
 	SOUS_CHEF_NAME,
 	sousChefLaunch,
 } from './config.ts';
@@ -34,12 +37,21 @@ const SOUS_CHEF =
 export function workspaceInstructions(
 	space: string | undefined,
 	repoName: string | undefined,
-	options: {sousChef?: boolean} = {},
+	options: {
+		sousChef?: boolean;
+		/** The SOUS-CHEF.md to point the coordinator at, when there is one. */
+		sousChefFile?: string;
+	} = {},
 ): string {
 	if (!space) {
 		return [
 			"This repo uses Pappardelle, which gives each issue a git worktree, an agent session and a companion pane. This session isn't in a space, so pass `space` to the companion tools. Use this server's tools rather than tmux. The pappardelle-agent skill covers updating and restarting Pappardelle.",
 			...(options.sousChef ? [SOUS_CHEF] : []),
+			...(options.sousChef && options.sousChefFile
+				? [
+						`The user's own instructions for the sous-chef are in ${options.sousChefFile}. Read it before anything else, and follow it where it differs from this routine.`,
+					]
+				: []),
 			MESSAGING,
 		].join('\n\n');
 	}
@@ -56,13 +68,19 @@ export function createMcpServer(options: {
 	space?: string;
 	repoName?: string;
 	sousChef?: boolean;
+	sousChefFile?: string;
 	runCli: RunCli;
 }): McpServer {
-	const {inRepo, space, repoName, sousChef, runCli} = options;
+	const {inRepo, space, repoName, sousChef, sousChefFile, runCli} = options;
 	const server = new McpServer(
 		{name: 'pappardelle', version: '1.0.0'},
 		inRepo
-			? {instructions: workspaceInstructions(space, repoName, {sousChef})}
+			? {
+					instructions: workspaceInstructions(space, repoName, {
+						sousChef,
+						sousChefFile,
+					}),
+				}
 			: {},
 	);
 	if (!inRepo) return server;
@@ -160,6 +178,15 @@ function sousChefEnabled(): boolean {
 	}
 }
 
+function findSousChefFile(): string | undefined {
+	try {
+		const file = path.join(getMainRepoRoot(), SOUS_CHEF_FILE);
+		return fs.existsSync(file) ? file : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Resolves when the client closes the connection. */
 export async function runMcpServer(): Promise<void> {
 	let repoName: string | undefined;
@@ -174,6 +201,7 @@ export async function runMcpServer(): Promise<void> {
 		(repoName && spaceFromWorktreePath(process.cwd(), homedir(), repoName)) ||
 		undefined;
 	const inRepo = Boolean(space) || configExists();
+	const sousChef = inRepo && sousChefEnabled();
 	const closed = new Promise(resolve => {
 		process.stdin.once('close', resolve);
 	});
@@ -181,7 +209,8 @@ export async function runMcpServer(): Promise<void> {
 		inRepo,
 		space,
 		repoName,
-		sousChef: inRepo && sousChefEnabled(),
+		sousChef,
+		sousChefFile: sousChef && !space ? findSousChefFile() : undefined,
 		runCli: spawnCli(space),
 	}).connect(new StdioServerTransport());
 	await closed;
