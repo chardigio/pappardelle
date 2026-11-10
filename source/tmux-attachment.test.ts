@@ -581,6 +581,25 @@ test.serial(
 	},
 );
 
+test.serial('a label titles the agent frame in place of the key', async t => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	t.true(
+		await attachToSpace('%1', '%2', 'main', '%0', undefined, undefined, {
+			run: fake.run,
+			label: 'sous-chef',
+		}),
+	);
+	const titles = splitBatch(fake.calls[0]!.slice(2))
+		.filter(command => command[3] === 'set-titles-string')
+		.map(command => command[4]);
+	t.deepEqual(titles, ['agent · sous-chef', 'companion']);
+	t.deepEqual(fake.calls[1], titleAndFocus('sous-chef'));
+});
+
 test.serial(
 	'warm switches move both viewers in one request without setup probes',
 	async t => {

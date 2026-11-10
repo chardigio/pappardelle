@@ -668,16 +668,16 @@ function viewerTitleArgs(
 	return args;
 }
 
-function agentFrameTitle(issueKey: string): string {
-	return `agent · ${issueKey}`;
+function agentFrameTitle(title: string): string {
+	return `agent · ${title}`;
 }
 
 function agentTitleAndFocusArgs(
 	agentViewerPaneId: string,
-	issueKey: string,
+	title: string,
 	listPaneId?: string,
 ): string[] {
-	const args = paneTitleArgs(agentViewerPaneId, agentFrameTitle(issueKey));
+	const args = paneTitleArgs(agentViewerPaneId, agentFrameTitle(title));
 	if (listPaneId) args.push(';', 'select-pane', '-t', listPaneId);
 	return args;
 }
@@ -2232,6 +2232,13 @@ export function runningAgentProfile(
 	return getNamedAgentProfile(config, name, issueTitle, profileName);
 }
 
+type AttachOptions = {
+	signal?: AbortSignal;
+	run?: AsyncTmuxRunner;
+	/** Titles the agent frame in place of the key. */
+	label?: string;
+};
+
 /**
  * Attach viewer panes to a space's sessions
  *
@@ -2247,7 +2254,7 @@ export async function attachToSpace(
 		listPaneId?: string,
 		mainWorktreePath?: string,
 		issueTitle?: string,
-		options?: {signal?: AbortSignal; run?: AsyncTmuxRunner},
+		options?: AttachOptions,
 	]
 ): Promise<boolean> {
 	return attachViewers(
@@ -2275,10 +2282,11 @@ async function attachViewers(
 	listPaneId?: string,
 	mainWorktreePath?: string,
 	issueTitle?: string,
-	options: {signal?: AbortSignal; run?: AsyncTmuxRunner} = {},
+	options: AttachOptions = {},
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('attachment');
 	const {signal} = options;
+	const name = options.label ?? issueKey;
 	const run: AsyncTmuxRunner = async args => {
 		signal?.throwIfAborted();
 		const output = await (options.run ?? runTmux)(args);
@@ -2357,7 +2365,7 @@ async function attachViewers(
 			// missing session.
 			commands.push(
 				';',
-				...viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey)),
+				...viewerSessionArgs(sessions.agent, agentFrameTitle(name)),
 			);
 			if (companionViewerPaneId)
 				commands.push(
@@ -2367,9 +2375,7 @@ async function attachViewers(
 			// Existing clients can switch directly. tmux validates both targets;
 			// an exited client or missing session falls back to setup below.
 			await run(innerTmuxArgs(commands));
-			await run(
-				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
-			);
+			await run(agentTitleAndFocusArgs(agentViewerPaneId, name, listPaneId));
 			currentlyViewingSpace = issueKey;
 			const shown = await syncSplitsAfterAttach();
 			traceDone?.(shown ? undefined : 'cancelled');
@@ -2470,7 +2476,7 @@ async function attachViewers(
 					? [frameTerminalFeaturesArgs(), FRAME_ESCAPE_TIME_ARGS]
 					: []),
 				...(hasAgentSession
-					? [viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey))]
+					? [viewerSessionArgs(sessions.agent, agentFrameTitle(name))]
 					: []),
 				...(hasCompanionSession
 					? [viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE)]
@@ -2513,7 +2519,7 @@ async function attachViewers(
 					agentTty,
 					sessions.agent,
 					hasAgentSession,
-					agentFrameTitle(issueKey),
+					agentFrameTitle(name),
 					'agent',
 				),
 				companionViewerPaneId
@@ -2545,9 +2551,7 @@ async function attachViewers(
 				);
 			}
 
-			await run(
-				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
-			);
+			await run(agentTitleAndFocusArgs(agentViewerPaneId, name, listPaneId));
 			({attached: agentViewerHasClient, tty: agentViewerTty} =
 				agentAttachment.value);
 			if (
