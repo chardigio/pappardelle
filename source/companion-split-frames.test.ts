@@ -96,7 +96,8 @@ async function startSpace(
 	const {companion} = getSessionNames(key);
 	await innerTmux('new-session', '-d', '-s', companion, '-c', dir, 'sleep 600');
 	for (const split of splits) {
-		createCompanionSplit(key, {...split, command: 'sleep 600'});
+		const created = createCompanionSplit(key, {...split, command: 'sleep 600'});
+		if (!created.ok) throw new Error(created.reason);
 		// Creation order is by the millisecond.
 		await delay(5);
 	}
@@ -206,6 +207,29 @@ tmuxTest(
 		const dragged = await paneSize(reopened[0]!);
 		t.is(dragged.h, 8);
 
+		// A size set after a drag (companion resize) wins over the drag.
+		await run(['resize-pane', '-t', reopened[0]!, '-y', '10']);
+		await innerTmux(
+			'set-option',
+			'-t',
+			`=${session(b, 'tests')}:`,
+			'@pappa_size',
+			'12',
+		);
+		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
+		t.is(await option(session(b, 'tests'), '@pappa_size'), '12');
+		const resized = await paneSize(companionSplitPaneIds()[0]!);
+		t.is(resized.h, 12);
+		await innerTmux(
+			'set-option',
+			'-t',
+			`=${session(b, 'tests')}:`,
+			'@pappa_size',
+			'8',
+		);
+		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
+		const reopened2 = companionSplitPaneIds();
+
 		// The rail and the column keep their widths with a split beside main,
 		// and neither writes a split size.
 		await run(['resize-pane', '-t', pane, '-x', '44']);
@@ -214,7 +238,7 @@ tmuxTest(
 		t.is(rail.w, 44);
 		t.is(await measureCompanionColumnWidth(layout, run), column);
 		t.is(await option(session(b, 'logs'), '@pappa_size'), '');
-		t.deepEqual(companionSplitPaneIds(), reopened);
+		t.deepEqual(companionSplitPaneIds(), reopened2);
 
 		// Dragging the agent pane's border resizes the whole column: the right
 		// split keeps no size of its own, and goes back to half of main.
@@ -258,7 +282,13 @@ tmuxTest(
 		]);
 
 		// An open dialog zooms the rail; splitting would unzoom it.
-		createCompanionSplit(a, {name: 'dev', split: 'down', command: 'sleep 600'});
+		t.true(
+			createCompanionSplit(a, {
+				name: 'dev',
+				split: 'down',
+				command: 'sleep 600',
+			}).ok,
+		);
 		await run(['resize-pane', '-Z', '-t', pane]);
 		t.is(await syncCompanionSplits(layout, a, {run}), 'deferred');
 		t.is(await display(pane, '#{window_zoomed_flag}'), '1');
@@ -279,5 +309,9 @@ tmuxTest(
 		// A split whose session ends takes its frame with it.
 		await innerTmux('kill-session', '-t', `=${session(a, 'dev')}:`);
 		t.true(await waitFor(async () => (await paneCount()) === 5));
+		// Its rows went to a neighbour, which is no drag of that neighbour.
+		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
+		t.is(await option(session(a, 'tests'), '@pappa_size'), '30%');
+		t.is(await option(session(a, 'logs'), '@pappa_size'), '');
 	},
 );

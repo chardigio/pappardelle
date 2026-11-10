@@ -156,7 +156,6 @@ test('quick requests each get their own answer', async t => {
 		requestCompanionLayout({
 			repoName: REPO,
 			space,
-			kind: 'layout',
 			tuiIsRunning: () => true,
 			baseDir: base,
 			attemptMs: 300,
@@ -178,7 +177,6 @@ test('a layout request leaves the widths store alone', async t => {
 		await requestCompanionLayout({
 			repoName: REPO,
 			space: 'A',
-			kind: 'layout',
 			tuiIsRunning: () => true,
 			baseDir: base,
 		}),
@@ -186,4 +184,36 @@ test('a layout request leaves the widths store alone', async t => {
 	);
 	t.deepEqual(seen, ['layout:A']);
 	t.deepEqual(readCompanionWidths(REPO, base), {A: 50});
+});
+
+test('an answer to a request the CLI stopped waiting for is not left on disk', async t => {
+	const base = tempBase(t);
+	const late: Array<() => void> = [];
+	const unwatch = watchLayoutRequests(
+		REPO,
+		request => {
+			late.push(() => {
+				writeLayoutAck(REPO, {id: request.id, result: 'applied'}, base);
+			});
+		},
+		base,
+	);
+	t.teardown(unwatch);
+	t.deepEqual(
+		await requestCompanionLayout({
+			repoName: REPO,
+			space: 'A',
+			tuiIsRunning: () => true,
+			baseDir: base,
+			attemptMs: 30,
+			attempts: 1,
+			pollMs: 5,
+		}),
+		{outcome: 'no-ack'},
+	);
+	for (const answer of late) answer();
+	t.deepEqual(
+		fs.readdirSync(path.join(base, 'repos', REPO, 'companion-requests')),
+		[],
+	);
 });

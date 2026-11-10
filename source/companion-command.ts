@@ -221,7 +221,6 @@ async function relayout(
 	const result = await requestCompanionLayout({
 		repoName,
 		space,
-		kind: 'layout',
 		tuiIsRunning: () => tuiIsRunning(repoName),
 	});
 	return report(deps, label, 'shows', result, space);
