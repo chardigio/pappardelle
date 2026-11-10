@@ -146,4 +146,4 @@ jobs:
         run: pip install pytest
 
       - name: Run hook tests
-        run: pytest hooks/ -v
+        run: pytest plugins/pappardelle/hooks/ -v

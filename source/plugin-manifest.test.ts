@@ -55,3 +55,12 @@ test('plugin manifest description matches its marketplace entry', t => {
 		return;
 	t.is(plugin.description, marketplaceEntry.description);
 });
+
+test('the Codex and agy manifests ship the same version as Claude Code', t => {
+	for (const agent of ['.codex-plugin', '.antigravity-plugin']) {
+		const manifest = readJson<PluginManifest>(
+			`plugins/pappardelle/${agent}/plugin.json`,
+		);
+		t.is(manifest.version, plugin.version, `${agent} version`);
+	}
+});

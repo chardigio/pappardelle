@@ -265,7 +265,7 @@ def record_agent_session(
     env = os.environ if environ is None else environ
     started = started or process_start
     # agy's hooks send camelCase fields and no event name; it registers only
-    # the events worth recording (agy-hooks.json.example).
+    # the events worth recording (the plugin's root hooks.json).
     is_agy = is_agy_payload(payload)
     if is_agy:
         session_id = payload.get("conversationId")

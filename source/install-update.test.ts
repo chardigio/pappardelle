@@ -72,10 +72,9 @@ function toolsDir(): string {
 // major version, and `--version`) without running JavaScript.
 function fakeBunScript(version: string): string {
 	return `#!/bin/bash
-case "$1" in
-	-p)
-		if [[ "$2" == *execPath* ]]; then echo "$0"; else echo "${version.split('.')[0]!}"; fi
-		;;
+case "$*" in
+	*-p*execPath*) echo "$0" ;;
+	*-p*) echo "${version.split('.')[0]!}" ;;
 	--version) echo "${version}" ;;
 esac
 `;
@@ -167,6 +166,36 @@ test('find_bun finds the standard user install after a stale PATH runtime', t =>
 	const result = runInstallFunction('find_bun', {HOME: home, PATH: tools});
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
 	t.is(result.stdout.trim(), installed);
+});
+
+test('find_bun ignores the bunfig.toml preload of the directory it runs from', t => {
+	const workspace = temporaryDir();
+	fs.writeFileSync(
+		path.join(workspace, 'bunfig.toml'),
+		'preload = ["./preload.ts"]\n',
+	);
+	fs.writeFileSync(
+		path.join(workspace, 'preload.ts'),
+		'console.log("from the preload");\n',
+	);
+
+	const result = spawnSync(
+		'/bin/bash',
+		['-c', `source "${installSh}"; find_bun`],
+		{
+			cwd: workspace,
+			encoding: 'utf8',
+			env: {
+				PAPPARDELLE_INSTALL_SOURCE_ONLY: '1',
+				HOME: temporaryDir(),
+				PATH: toolsDir(),
+				PAPPARDELLE_BUN: process.execPath,
+			},
+		},
+	);
+
+	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	t.is(result.stdout.trim(), fs.realpathSync(process.execPath));
 });
 
 test('find_bun fails when no bun meets the floor', t => {

@@ -28,6 +28,20 @@ test("--help on close, restart or update prints that command's help and runs not
 	}
 });
 
+test('plugin install answers --help and rejects flags instead of installing', t => {
+	const help = subcommandGate(['plugin', 'install', '--help']);
+	t.is(help.action, 'help');
+	if (help.action === 'help') {
+		t.true(help.text.includes('$ pappardelle plugin install'));
+	}
+
+	t.deepEqual(subcommandGate(['plugin', 'install', '--yes']), {
+		action: 'reject',
+		message:
+			'Unknown flag --yes for pappardelle plugin install\nUsage: pappardelle plugin install\nRun pappardelle plugin install --help for details',
+	});
+});
+
 test('close, restart and update reject flags that are not theirs', t => {
 	const usages: Record<string, string> = {
 		close: 'Usage: pappardelle close <issue-key> [--yes]',
@@ -63,6 +77,22 @@ test('update rejects asking to both restart and leave TUIs', t => {
 	t.is(gate.action, 'reject');
 });
 
+test('plugin commands other than install are rejected, not run as a prompt', t => {
+	for (const argv of [
+		['plugin'],
+		['plugin', 'instal'],
+		['plugin', 'uninstall'],
+		['plugin', 'install', 'extra'],
+	]) {
+		t.deepEqual(subcommandGate(argv), {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: pappardelle plugin install`,
+		});
+	}
+
+	t.is(subcommandGate(['plugin', '--help']).action, 'help');
+});
+
 test('known flags and every other command pass through', t => {
 	for (const argv of [
 		['close', 'STA-1'],
@@ -76,6 +106,7 @@ test('known flags and every other command pass through', t => {
 		['--no-layout'],
 		['fix the --verbose flag'],
 		['send', 'STA-1', '--help'],
+		['plugin', 'install'],
 	]) {
 		t.deepEqual(subcommandGate(argv), {action: 'run'});
 	}

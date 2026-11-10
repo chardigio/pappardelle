@@ -1,0 +1,15 @@
+{
+	"name": "pappardelle",
+	"version": "1.1.0",
+	"description": "Install, update, configure, and monitor Pappardelle workspaces. Provides the init-pappardelle, update-pappardelle, configure-pappardelle, sous-chef and link-pr skills.",
+	"author": {
+		"name": "chardigio",
+		"email": "hi@charliedigiovanna.com"
+	},
+	"homepage": "https://github.com/chardigio/pappardelle",
+	"repository": "https://github.com/chardigio/pappardelle",
+	"license": "MIT",
+	"keywords": ["pappardelle", "worktree", "workspace", "tui", "configuration"],
+	"skills": "./skills/",
+	"hooks": {"hooks": {}}
+}

@@ -10,6 +10,7 @@ const helpText = `
 	  $ pappardelle close <issue-key> [--yes]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
+	  $ pappardelle plugin install
 
 	Description
 	  Interactive TUI for managing pappardelle workspaces.
@@ -31,6 +32,8 @@ const helpText = `
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
+	  plugin install   Install the plugin (skills and hooks) from this checkout
+	                   into Claude Code, Codex and agy. install.sh runs this
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -153,6 +156,24 @@ const subcommands = {
 	  --no-restart-tuis   Leave running TUIs alone and print a hint
 `,
 	},
+	'plugin install': {
+		usage: 'pappardelle plugin install',
+		flags: [],
+		help: `
+	Usage
+	  $ pappardelle plugin install
+
+	Installs the Pappardelle plugin (skills and hooks) from this checkout into
+	Claude Code, Codex and agy, skipping any that isn't installed.
+	  Claude Code: points pappardelle-marketplace at the checkout; it loads the
+	    plugin in place, so edits take effect after /reload-plugins. Removes
+	    the hooks older installs merged into ~/.claude/settings.json.
+	  Codex: installs the plugin's skills, and points the session hook in
+	    ~/.codex/hooks.json at the checkout. Rerun after editing the checkout.
+	  agy: links ~/.gemini/config/plugins/pappardelle to the checkout.
+	Files it changes are backed up to <file>.pappardelle.bak first.
+`,
+	},
 } as const;
 
 // The prompt is read from raw argv because meow would pull anything
@@ -171,19 +192,32 @@ export type SubcommandGate =
 	| {action: 'help'; text: string}
 	| {action: 'reject'; message: string};
 
-// `close`, `restart` and `update` act on live spaces or TUIs, so a flag they
-// don't know must stop them. meow only answers --help when it is the sole argument and
-// otherwise ignores unknown flags.
+// `close`, `restart` and `update` act on live spaces or TUIs and `plugin
+// install` rewrites Claude Code settings, so a flag they don't know must stop
+// them. meow only answers --help when it is the sole argument and otherwise
+// ignores unknown flags.
 export function subcommandGate(argv: readonly string[]): SubcommandGate {
-	const name = argv[0];
+	// Any other `plugin ...` is a typo, not a prompt, and as a prompt it would
+	// create a workspace.
+	const name = argv[0] === 'plugin' ? 'plugin install' : argv[0];
 	if (name === undefined || !Object.hasOwn(subcommands, name)) {
 		return {action: 'run'};
 	}
 
 	const {usage, flags, help} = subcommands[name as keyof typeof subcommands];
-	const given = argv.slice(1).filter(arg => arg.startsWith('-'));
+	const given = argv.filter(arg => arg.startsWith('-'));
 	if (given.some(arg => arg === '--help' || arg === '-h')) {
 		return {action: 'help', text: help};
+	}
+
+	if (
+		name === 'plugin install' &&
+		argv.filter(arg => !arg.startsWith('-')).join(' ') !== 'plugin install'
+	) {
+		return {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: ${usage}`,
+		};
 	}
 
 	const unknown = given.find(

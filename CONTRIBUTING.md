@@ -44,19 +44,19 @@ bun --bun ava 'source/**/*.test.ts'
 
 # Python hook tests
 pip install pytest
-pytest hooks/ -v
+pytest plugins/pappardelle/hooks/ -v
 ```
 
 ## Code style
 
 - TypeScript source lives in `source/`
-- Python hooks live in `hooks/`
+- Python hooks live in `plugins/pappardelle/hooks/`
 - Prettier handles formatting (see `.prettierignore`)
 - Keep changes focused — one logical change per PR
 
 ## Adding a built-in agent
 
-`scripts/builtin-agents.json` holds the defaults each known agent CLI gets (model, effort and prompt flag templates, resume args, skill prefix), keyed by the command's basename, except that the claude entry follows Claude gating (`is_claude`). Both the TUI (`source/builtin-agents.ts`) and `idow` (`scripts/resolve-agent-config.sh`) read it, so supporting a new CLI is one entry there. If the CLI has hooks, `hooks/record-agent-session.py` can record its session id for `{session_id}`; see the agy and codex installers in `hooks/`.
+`scripts/builtin-agents.json` holds the defaults each known agent CLI gets (model, effort and prompt flag templates, resume args, skill prefix), keyed by the command's basename, except that the claude entry follows Claude gating (`is_claude`). Both the TUI (`source/builtin-agents.ts`) and `idow` (`scripts/resolve-agent-config.sh`) read it, so supporting a new CLI is one entry there. If the CLI has hooks, `plugins/pappardelle/hooks/record-agent-session.py` can record its session id for `{session_id}`; register it from `source/plugin-install.ts`, in the plugin the way `.antigravity-plugin/` does for agy, or in the CLI's own hooks file the way Codex gets it when the CLI trusts plugin hooks by the whole plugin's contents.
 
 ## Questions?
 

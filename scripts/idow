@@ -883,7 +883,7 @@ print_step 6 "Starting agent tmux session..."
 # A new issue has no conversation of its own to resume. An existing issue keeps
 # its conversation even when its worktree was deleted and recreated:
 # {session_id} is the id the agent's hook recorded for this space under the
-# same agent profile (hooks/agent_session.py), and with none claude falls back
+# same agent profile (plugins/pappardelle/hooks/agent_session.py), and with none claude falls back
 # to its directory-scoped --continue while other agents launch fresh with the
 # prompt. Resume args without {session_id} aren't tied to the space (codex's
 # `resume --last` picks the most recent session from any directory), so a

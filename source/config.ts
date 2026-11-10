@@ -106,7 +106,7 @@ export interface AgentProfileConfig {
 	/**
 	 * Appended for the resume attempt of the resume-then-launch chain.
 	 * `{session_id}` is replaced with the session id the agent's hook recorded
-	 * for the space (see hooks/agent_session.py); with none recorded, the
+	 * for the space (see plugins/pappardelle/hooks/agent_session.py); with none recorded, the
 	 * resume attempt is skipped (claude falls back to `--continue`). Built in
 	 * for the agents in scripts/builtin-agents.json; any other agent defaults
 	 * to none, which skips the resume attempt entirely (a made-up resume flag
@@ -530,7 +530,7 @@ function resolveMainRepoRoot(): string {
  * `.pappardelle.yml` is checked out into the worktree and found there; one kept
  * out of git exists only in the main checkout. `.pappardelle.local.yml` is
  * gitignored but copied into each worktree by workspace setup, so the worktree's
- * copy wins. Mirrors `find_repo_config` in hooks/tracker_config.py.
+ * copy wins. Mirrors `find_repo_config` in plugins/pappardelle/hooks/tracker_config.py.
  */
 export function findRepoConfig(filename: string): string | undefined {
 	const inWorkingTree = path.join(getRepoRoot(), filename);
