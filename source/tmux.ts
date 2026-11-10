@@ -2039,6 +2039,31 @@ export function runningAgentProfile(
 export async function attachToSpace(
 	agentViewerPaneId: string,
 	companionViewerPaneId: string,
+	...rest: [
+		issueKey: string,
+		listPaneId?: string,
+		mainWorktreePath?: string,
+		issueTitle?: string,
+		options?: {signal?: AbortSignal; run?: AsyncTmuxRunner},
+	]
+): Promise<boolean> {
+	return attachViewers(
+		agentViewerPaneId,
+		closedCompanionPanes.has(companionViewerPaneId)
+			? ''
+			: companionViewerPaneId,
+		...rest,
+	);
+}
+
+// Companion viewer panes that have closed: the shell left in one after its
+// program ends can be exited. The layout still names the pane until it is
+// rebuilt, and a workspace then has only its agent to show.
+const closedCompanionPanes = new Set<string>();
+
+async function attachViewers(
+	agentViewerPaneId: string,
+	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
 	mainWorktreePath?: string,
@@ -2274,16 +2299,27 @@ export async function attachToSpace(
 				throw new Error('Agent attachment failed', {
 					cause: agentAttachment.reason,
 				});
-			if (companionAttachment.status === 'rejected')
-				throw new Error('Companion attachment failed', {
-					cause: companionAttachment.reason,
-				});
+			if (companionAttachment.status === 'rejected') {
+				const {stderr} = companionAttachment.reason as {stderr?: string};
+				if (!/^can't find pane:/m.test(stderr ?? ''))
+					throw new Error('Companion attachment failed', {
+						cause: companionAttachment.reason,
+					});
+				closedCompanionPanes.add(companionViewerPaneId);
+				log.info(
+					`Companion pane ${companionViewerPaneId} has closed; showing the agent only`,
+				);
+			}
+
 			await run(
 				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
 			);
 			({attached: agentViewerHasClient, tty: agentViewerTty} =
 				agentAttachment.value);
-			if (companionAttachment.value) {
+			if (
+				companionAttachment.status === 'fulfilled' &&
+				companionAttachment.value
+			) {
 				({attached: companionViewerHasClient, tty: companionViewerTty} =
 					companionAttachment.value);
 			}
@@ -2399,9 +2435,11 @@ async function killPane(
 	try {
 		const result = await runLayoutCommand(['kill-pane', '-t', paneId], run);
 		if (result.error || result.status !== 0) {
+			if (/^can't find pane:/m.test(result.stderr ?? '')) return true;
 			log.warn(`Failed to kill pane ${paneId}: ${result.stderr}`);
 			return false;
 		}
+
 		log.debug(`Killed pane ${paneId}`);
 		return true;
 	} catch {
