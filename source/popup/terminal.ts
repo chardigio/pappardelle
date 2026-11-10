@@ -212,7 +212,7 @@ function killPopupShell(shellPid: number) {
  */
 export async function openPopupTerminal(
 	size: PopupSize,
-	client: string[],
+	client: string[] = [],
 ): Promise<PopupTerminal | undefined> {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
 	const readyPath = path.join(dir, 'ready');
