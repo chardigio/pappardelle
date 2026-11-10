@@ -242,6 +242,7 @@ function installForAgy(deps: PluginInstallDeps): Outcome {
 	}
 
 	if (deps.readLink(link) !== target) deps.link(target, link);
+	removeAgyLegacyHook(deps);
 	if (agyDisabledPlugin(deps)) {
 		deps.print(
 			`Linked the Pappardelle plugin into agy at ${link}, but agy has it disabled; run agy plugin enable pappardelle to load it.`,
@@ -253,6 +254,36 @@ function installForAgy(deps: PluginInstallDeps): Outcome {
 	}
 
 	return 'installed';
+}
+
+// install-agy-hooks.sh merged this named hook, running the copy in
+// ~/.pappardelle/hooks, into agy's global hooks.json. Left there it records
+// every agy session a second time.
+const AGY_LEGACY_HOOK = 'pappardelle-session';
+
+function removeAgyLegacyHook(deps: PluginInstallDeps): void {
+	const file = path.join(deps.agyConfigDir, 'hooks.json');
+	const original = deps.readFile(file);
+	if (original === undefined) return;
+	let hooks: Record<string, unknown>;
+	try {
+		hooks = JSON.parse(original) as Record<string, unknown>;
+	} catch {
+		deps.print(
+			`Could not parse ${file}; remove its ${AGY_LEGACY_HOOK} hook by hand.`,
+		);
+		return;
+	}
+
+	if (!(AGY_LEGACY_HOOK in hooks)) return;
+	const kept = Object.fromEntries(
+		Object.entries(hooks).filter(([name]) => name !== AGY_LEGACY_HOOK),
+	);
+	deps.writeFile(`${file}.pappardelle.bak`, original);
+	deps.writeFile(file, JSON.stringify(kept, null, 2) + '\n');
+	deps.print(
+		`Removed the old ${AGY_LEGACY_HOOK} hook from ${file} (backup: ${file}.pappardelle.bak).`,
+	);
 }
 
 function agyDisabledPlugin(deps: PluginInstallDeps): boolean {

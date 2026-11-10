@@ -202,6 +202,26 @@ test('repoints an agy link left by another checkout', t => {
 	t.is(links.get(AGY_LINK), PLUGIN_DIR);
 });
 
+test('removes the session hook install-agy-hooks.sh merged into agy hooks.json, keeping a backup', t => {
+	const lint = {PostToolUse: [{type: 'command', command: 'lint.sh'}]};
+	const original = JSON.stringify({
+		'pappardelle-session': {
+			SessionStart: [
+				{
+					type: 'command',
+					command: 'python3 ~/.pappardelle/hooks/record-agent-session.py',
+				},
+			],
+		},
+		lint,
+	});
+	const {deps, files} = fakeDeps({agy: true});
+	files.set(`${AGY}/hooks.json`, original);
+	t.is(installPlugin(deps), 0);
+	t.deepEqual(JSON.parse(files.get(`${AGY}/hooks.json`)!), {lint});
+	t.is(files.get(`${AGY}/hooks.json.pappardelle.bak`), original);
+});
+
 test('warns when agy has the plugin disabled', t => {
 	const {deps, files, printed} = fakeDeps({agy: true});
 	files.set(

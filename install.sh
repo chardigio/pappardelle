@@ -393,7 +393,9 @@ install_skill_scripts init-pappardelle
 # Install the Plugin
 # ============================================================================
 
-if ! "$BUN_BIN" "$CLI_JS" plugin install; then
+# Through the shim, so the cwd's .env and bunfig.toml (the TUI runs this from
+# a workspace) cannot redirect which agent configs it edits.
+if ! "$LOCAL_BIN/pappardelle" plugin install; then
     print_warning "Could not install the Pappardelle plugin (skills and hooks) for every agent"
     print_info "Retry with: pappardelle plugin install"
 fi
