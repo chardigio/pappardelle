@@ -90,6 +90,8 @@ export type SuperviseDeps = {
 };
 
 const SCREEN_POLL_MS = 2000;
+// A timer set for a moment already gone wouldn't fire.
+const SOONEST_WAKE_MS = 60_000;
 const TAB_SETTLE_MS = 300;
 
 async function readState(key: string, deps: SuperviseDeps) {
@@ -737,7 +739,7 @@ function decideAnswer(
 	}
 
 	const entry = {...base, sent: `${option.number}. ${option.label}`};
-	if (option.kind === 'deny' || option.kind === 'other' || command.force) {
+	if (option.kind === 'deny' || command.force) {
 		return {
 			ok: true,
 			pressed,
@@ -753,6 +755,17 @@ function decideAnswer(
 			exit: POLICY_REFUSED_EXIT,
 			message: `Only Bash commands are approved without a person; this is "${permission.tool}"${permission.description ? ` (${permission.description})` : ''}`,
 			entry: {...entry, verdict: `refused: ${permission.tool}`},
+		};
+	}
+
+	// An option worded neither Yes nor No may approve anything; its label is
+	// all there is to go on.
+	if (option.kind === 'other') {
+		return {
+			ok: false,
+			exit: POLICY_REFUSED_EXIT,
+			message: `"${option.label}" isn't a plain yes or no; a person decides it`,
+			entry: {...entry, verdict: 'refused: unrecognised option'},
 		};
 	}
 
@@ -812,7 +825,7 @@ async function newJob(
 				);
 			}
 
-			const soonest = now.getTime() + 60_000;
+			const soonest = now.getTime() + SOONEST_WAKE_MS;
 			return {
 				kind: 'after_limit',
 				id,
@@ -1073,6 +1086,7 @@ async function execute(
 				return decision.exit;
 			}
 
+			let approvedBecause: string | undefined;
 			if (decision.entry.verdict === 'allowed' && decision.entry.command) {
 				const verdict = await deps.classify(key, decision.entry.command);
 				if (!verdict.allow) {
@@ -1083,9 +1097,22 @@ async function execute(
 					return POLICY_REFUSED_EXIT;
 				}
 
-				decision.entry.verdict = verdict.reason
-					? `allowed: ${verdict.reason}`
-					: 'allowed';
+				// The check takes seconds, and the key must answer the prompt it
+				// judged, not one that replaced it meanwhile.
+				if (promptShown(await readState(key, deps)) !== promptShown(before)) {
+					log({
+						...decision.entry,
+						detail: 'the prompt changed during the check',
+					});
+					deps.err(
+						`${key}'s prompt changed while its command was being checked; nothing was pressed`,
+					);
+					return 1;
+				}
+
+				approvedBecause = verdict.reason;
+				if (approvedBecause)
+					decision.entry.verdict = `allowed: ${approvedBecause}`;
 			}
 
 			if (deps.sendKeys(key, decision.pressed) !== 'sent') {
@@ -1104,8 +1131,8 @@ async function execute(
 
 			log(decision.entry);
 			deps.out(
-				decision.entry.verdict?.startsWith('allowed: ')
-					? `Pressed ${pressed} in ${key} (${decision.entry.verdict})`
+				approvedBecause
+					? `Pressed ${pressed} in ${key} (allowed: ${approvedBecause})`
 					: `Pressed ${pressed} in ${key}`,
 			);
 			return 0;
