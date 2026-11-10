@@ -262,7 +262,15 @@ export function parseSendArgs(argv: readonly string[]): {
 		}
 	}
 
-	return {key, text: rest.join(' '), keys, force};
+	// A --force typed after the text is still the flag; text that really ends
+	// in --force goes on stdin.
+	const words = rest.filter(word => word !== '--force');
+	return {
+		key,
+		text: words.join(' '),
+		keys,
+		force: force || words.length < rest.length,
+	};
 }
 
 export type SubcommandGate =
