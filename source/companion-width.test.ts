@@ -5,11 +5,12 @@ import test from 'ava';
 import {
 	getCompanionWidth,
 	readCompanionWidths,
+	requestCompanionLayout,
 	requestCompanionWidth,
 	setCompanionWidth,
-	watchWidthRequests,
-	writeWidthAck,
-	type WidthAck,
+	watchLayoutRequests,
+	writeLayoutAck,
+	type LayoutAck,
 } from './companion-width.ts';
 
 const REPO = 'repo';
@@ -26,14 +27,14 @@ function tempBase(t: {teardown: (fn: () => void) => void}): string {
 function fakeTui(
 	t: {teardown: (fn: () => void) => void},
 	baseDir: string,
-	answer: (space: string) => Omit<WidthAck, 'id'>,
+	answer: (space: string) => Omit<LayoutAck, 'id'>,
 ): string[] {
 	const seen: string[] = [];
-	const unwatch = watchWidthRequests(
+	const unwatch = watchLayoutRequests(
 		REPO,
 		request => {
-			seen.push(request.space);
-			writeWidthAck(REPO, {id: request.id, ...answer(request.space)}, baseDir);
+			seen.push(`${request.kind}:${request.space}`);
+			writeLayoutAck(REPO, {id: request.id, ...answer(request.space)}, baseDir);
 		},
 		baseDir,
 	);
@@ -105,7 +106,7 @@ for (const [name, answer, expected] of [
 			baseDir: base,
 		});
 		t.deepEqual(result, expected);
-		t.true(seen.includes('A'));
+		t.true(seen.includes('width:A'));
 	});
 }
 
@@ -127,26 +128,23 @@ test('a TUI that never answers ends in no-ack after the retries', async t => {
 	t.is(getCompanionWidth(REPO, 'A', base), 50);
 });
 
-test('overlapping requests both get answered', async t => {
+test('quick requests each get their own answer', async t => {
 	const base = tempBase(t);
-	// Answers only the request on disk when it wakes, after a pause long
-	// enough for the second CLI to replace the first one's request.
-	const unwatch = watchWidthRequests(
+	// Answers each request once, after a pause long enough for the other
+	// request to be written meanwhile.
+	const handled = new Set<string>();
+	const unwatch = watchLayoutRequests(
 		REPO,
-		() => {
+		request => {
+			if (handled.has(request.id)) return;
+			handled.add(request.id);
 			setTimeout(() => {
-				const file = path.join(
-					base,
-					'repos',
+				writeLayoutAck(
 					REPO,
-					'companion-width-request.json',
-				);
-				const request = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-					id: string;
-				};
-				writeWidthAck(
-					REPO,
-					{id: request.id, result: 'applied', columns: 40},
+					{
+						id: request.id,
+						result: request.space === 'A' ? 'applied' : 'stored',
+					},
 					base,
 				);
 			}, 40);
@@ -155,18 +153,37 @@ test('overlapping requests both get answered', async t => {
 	);
 	t.teardown(unwatch);
 	const request = async (space: string) =>
-		requestCompanionWidth({
+		requestCompanionLayout({
 			repoName: REPO,
 			space,
-			width: 40,
+			kind: 'layout',
 			tuiIsRunning: () => true,
 			baseDir: base,
 			attemptMs: 300,
 			pollMs: 5,
 		});
 	const results = await Promise.all([request('A'), request('B')]);
-	t.deepEqual(results, [
-		{outcome: 'applied', columns: 40},
-		{outcome: 'applied', columns: 40},
-	]);
+	t.deepEqual(results, [{outcome: 'applied'}, {outcome: 'stored'}]);
+	t.deepEqual(
+		fs.readdirSync(path.join(base, 'repos', REPO, 'companion-requests')),
+		[],
+	);
+});
+
+test('a layout request leaves the widths store alone', async t => {
+	const base = tempBase(t);
+	await setCompanionWidth(REPO, 'A', 50, base);
+	const seen = fakeTui(t, base, () => ({result: 'no-pane'}));
+	t.deepEqual(
+		await requestCompanionLayout({
+			repoName: REPO,
+			space: 'A',
+			kind: 'layout',
+			tuiIsRunning: () => true,
+			baseDir: base,
+		}),
+		{outcome: 'no-pane'},
+	);
+	t.deepEqual(seen, ['layout:A']);
+	t.deepEqual(readCompanionWidths(REPO, base), {A: 50});
 });

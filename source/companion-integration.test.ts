@@ -83,30 +83,42 @@ test.after.always(() => {
 	rmSync(dir, {recursive: true, force: true});
 });
 
+const sessions = () =>
+	tmux('list-sessions', '-F', '#{session_name}').split('\n');
+const SIDE = `${COMPANION}~side`;
+
 tmuxTest('companion verbs on a real tmux server', async t => {
 	const agentPanes = panesOf(AGENT);
 
 	t.true(
 		runInCompanion(
 			'KEY-1',
-			{pane: 'side', split: 'down', command: 'sleep 600'},
+			{pane: 'side', split: 'down', size: '30%', command: 'sleep 600'},
 			deps,
 		).created,
 	);
-	t.is(panesOf(COMPANION).length, 2);
+	t.true(sessions().includes(SIDE));
+	t.is(panesOf(COMPANION).length, 1);
 
 	// Running the same pane again replaces it instead of adding a split.
 	const again = runInCompanion(
 		'KEY-1',
-		{pane: 'side', split: 'down', command: 'sleep 601'},
+		{pane: 'side', split: 'right', command: 'sleep 601'},
 		deps,
 	);
 	t.false(again.created);
-	t.is(panesOf(COMPANION).length, 2);
+	t.is(sessions().filter(name => name.startsWith(COMPANION)).length, 2);
 	const side = listCompanion('KEY-1', deps).find(p => p.name === 'side')!;
-	t.regex(side.startCommand, /sleep 601/);
+	t.like(side, {split: 'down', size: '30%'});
+	t.true(
+		await waitFor(() =>
+			listCompanion('KEY-1', deps)
+				.find(p => p.name === 'side')!
+				.startCommand.includes('sleep 601'),
+		),
+	);
 	t.is(
-		tmux('display-message', '-p', '-t', side.paneId, '#{pane_current_path}'),
+		tmux('display-message', '-p', '-t', `=${SIDE}:`, '#{pane_current_path}'),
 		dir,
 	);
 
@@ -123,13 +135,14 @@ tmuxTest('companion verbs on a real tmux server', async t => {
 		),
 	);
 
-	resizeCompanionPane('KEY-1', {pane: 'side', height: '5'}, deps);
-	t.is(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.height, 5);
+	resizeCompanionPane('KEY-1', {pane: 'side', size: 5}, deps);
+	t.is(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.size, 5);
 
 	t.throws(() => closeCompanionPane('KEY-1', 'main', deps), {
 		instanceOf: CompanionError,
 	});
 	closeCompanionPane('KEY-1', 'side', deps);
+	t.false(sessions().includes(SIDE));
 	t.is(panesOf(COMPANION).length, 1);
 
 	t.deepEqual(panesOf(AGENT), agentPanes);

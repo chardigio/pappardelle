@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
 import {
-	measurePaneWidth,
 	rebuildLayout,
 	reconcilePaneLayout,
 	setConfiguredPaneWidthsForTests,
@@ -16,6 +15,12 @@ import {
 import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
 
 const exec = promisify(execFile);
+
+const paneWidth = async (
+	paneId: string,
+	run: (args: string[]) => Promise<string>,
+) =>
+	Number(await run(['display-message', '-p', '-t', paneId, '#{pane_width}']));
 
 test.serial(
 	'a space width keeps the rail that a configured claude width gave it',
@@ -71,7 +76,7 @@ test.serial(
 			return;
 		}
 
-		const cols = async (id: string) => measurePaneWidth(id, run);
+		const cols = async (id: string) => paneWidth(id, run);
 
 		await reconcilePaneLayout(layout, false, run);
 		const rail = await cols(pane);

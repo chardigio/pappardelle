@@ -1,15 +1,22 @@
-// Per-space companion widths. The CLI and the TUI exchange request and ack
-// files under ~/.pappardelle/repos/{repo}/ so `pappardelle companion width`
-// can report whether the running TUI applied the width. The store is written
+// Per-space companion widths, and the requests the CLI sends the TUI to lay
+// out a space's companion. The CLI and the TUI exchange request and ack files
+// under ~/.pappardelle/repos/{repo}/ so `pappardelle companion` can report
+// whether the running TUI applied the change. The store is written
 // by the CLI and by the TUI when the user drags the border, so every
 // read-modify-write holds the store's file lock.
 
 import {randomUUID} from 'node:crypto';
-import {mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	watch,
+	writeFileSync,
+} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {watchFileContent} from './file-watch.ts';
 import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
 import {withFileLock} from './file-lock.ts';
 
@@ -23,13 +30,20 @@ export function companionWidthsPath(repoName: string, baseDir?: string) {
 	return path.join(repoDir(repoName, baseDir), 'companion-widths.json');
 }
 
-function requestPath(repoName: string, baseDir?: string) {
-	return path.join(repoDir(repoName, baseDir), 'companion-width-request.json');
+// One file per request, so two quick calls never replace each other's.
+function requestsDir(repoName: string, baseDir?: string) {
+	return path.join(repoDir(repoName, baseDir), 'companion-requests');
 }
 
-function ackPath(repoName: string, baseDir?: string) {
-	return path.join(repoDir(repoName, baseDir), 'companion-width-ack.json');
+function requestPath(id: string, repoName: string, baseDir?: string) {
+	return path.join(requestsDir(repoName, baseDir), `${id}.json`);
 }
+
+function ackPath(id: string, repoName: string, baseDir?: string) {
+	return path.join(requestsDir(repoName, baseDir), `${id}${ACK_SUFFIX}`);
+}
+
+const ACK_SUFFIX = '.ack.json';
 
 function readJson(file: string): unknown {
 	try {
@@ -86,50 +100,68 @@ export async function setCompanionWidth(
 	});
 }
 
-export type WidthRequest = {id: string; space: string};
+/**
+ * Asks the TUI to lay out a space's companion again: `width` after the
+ * column width was stored, `layout` after a split was opened, resized or
+ * closed.
+ */
+export type LayoutRequest = {
+	id: string;
+	space: string;
+	kind: 'width' | 'layout';
+};
 
-export type WidthAck = {
+export type LayoutAck = {
 	id: string;
 	result: 'applied' | 'stored' | 'no-pane' | 'deferred' | 'failed';
+	/** The column's width, for an applied width request. */
 	columns?: number;
 };
 
-function readRequest(repoName: string, baseDir?: string): WidthRequest | null {
-	const parsed = readJson(
-		requestPath(repoName, baseDir),
-	) as WidthRequest | null;
-	return typeof parsed?.id === 'string' && typeof parsed.space === 'string'
+function readRequest(file: string): LayoutRequest | null {
+	const parsed = readJson(file) as LayoutRequest | null;
+	return typeof parsed?.id === 'string' &&
+		typeof parsed.space === 'string' &&
+		(parsed.kind === 'width' || parsed.kind === 'layout')
 		? parsed
 		: null;
 }
 
-function readAck(repoName: string, baseDir?: string): WidthAck | null {
-	const parsed = readJson(ackPath(repoName, baseDir)) as WidthAck | null;
-	return typeof parsed?.id === 'string' ? parsed : null;
+function readAck(
+	id: string,
+	repoName: string,
+	baseDir?: string,
+): LayoutAck | null {
+	const parsed = readJson(ackPath(id, repoName, baseDir)) as LayoutAck | null;
+	return parsed?.id === id ? parsed : null;
 }
 
-export function writeWidthAck(
+export function writeLayoutAck(
 	repoName: string,
-	ack: WidthAck,
+	ack: LayoutAck,
 	baseDir?: string,
 ): void {
-	writeJsonAtomic(ackPath(repoName, baseDir), ack);
+	writeJsonAtomic(ackPath(ack.id, repoName, baseDir), ack);
 }
 
 /** Calls `onRequest` for every request the CLI writes while the TUI runs. */
-export function watchWidthRequests(
+export function watchLayoutRequests(
 	repoName: string,
-	onRequest: (request: WidthRequest) => void,
+	onRequest: (request: LayoutRequest) => void,
 	baseDir?: string,
 ): () => void {
-	return watchFileContent(requestPath(repoName, baseDir), () => {
-		const request = readRequest(repoName, baseDir);
+	const dir = requestsDir(repoName, baseDir);
+	mkdirSync(dir, {recursive: true});
+	const watcher = watch(dir, (_event, file) => {
+		if (!file?.endsWith('.json') || file.endsWith(ACK_SUFFIX)) return;
+		const request = readRequest(path.join(dir, file));
 		if (request) onRequest(request);
 	});
+	return () => watcher.close();
 }
 
-export type WidthOutcome =
-	| {outcome: 'applied'; columns: number}
+export type LayoutOutcome =
+	| {outcome: 'applied'; columns?: number}
 	| {outcome: 'stored'}
 	| {outcome: 'no-pane'}
 	| {outcome: 'deferred'}
@@ -137,47 +169,72 @@ export type WidthOutcome =
 	| {outcome: 'no-ack'}
 	| {outcome: 'no-tui'};
 
-/**
- * Store the width, then ask a running TUI to apply it and wait for its
- * answer. There is one request file, so a concurrent call can replace this
- * one before the TUI reads it, and a busy machine can drop the file event.
- * The request is written again after each wait; the TUI answers an id once.
- */
-export async function requestCompanionWidth(options: {
-	repoName: string;
-	space: string;
-	width: PaneWidth | null;
-	tuiIsRunning: () => boolean;
+type RequestTiming = {
 	baseDir?: string;
 	attemptMs?: number;
 	attempts?: number;
 	pollMs?: number;
-}): Promise<WidthOutcome> {
-	const {repoName, space, baseDir} = options;
-	await setCompanionWidth(repoName, space, options.width, baseDir);
+};
+
+/**
+ * Ask a running TUI to lay out the space's companion and wait for its answer.
+ * A busy machine can drop the file event, so the request is written again
+ * after each wait; the TUI answers an id once.
+ */
+export async function requestCompanionLayout(
+	options: {
+		repoName: string;
+		space: string;
+		kind: LayoutRequest['kind'];
+		tuiIsRunning: () => boolean;
+	} & RequestTiming,
+): Promise<LayoutOutcome> {
+	const {repoName, space, kind, baseDir} = options;
 	if (!options.tuiIsRunning()) return {outcome: 'no-tui'};
 
 	const id = randomUUID();
+	const file = requestPath(id, repoName, baseDir);
 	const attemptMs = options.attemptMs ?? 1000;
 	const pollMs = options.pollMs ?? 50;
-	writeJsonAtomic(requestPath(repoName, baseDir), {id, space});
-	for (let attempt = 0; attempt < (options.attempts ?? 3); attempt++) {
-		const deadline = Date.now() + attemptMs;
-		while (Date.now() < deadline) {
-			const ack = readAck(repoName, baseDir);
-			if (ack?.id === id) {
-				if (ack.result === 'applied' && typeof ack.columns === 'number')
-					return {outcome: 'applied', columns: ack.columns};
-				return {
-					outcome: ack.result === 'applied' ? 'failed' : ack.result,
-				};
-			}
+	try {
+		for (let attempt = 0; attempt < (options.attempts ?? 3); attempt++) {
+			writeJsonAtomic(file, {id, space, kind} satisfies LayoutRequest);
+			const deadline = Date.now() + attemptMs;
+			while (Date.now() < deadline) {
+				const ack = readAck(id, repoName, baseDir);
+				if (ack) {
+					if (ack.result !== 'applied') return {outcome: ack.result};
+					if (kind === 'layout') return {outcome: 'applied'};
+					return typeof ack.columns === 'number'
+						? {outcome: 'applied', columns: ack.columns}
+						: {outcome: 'failed'};
+				}
 
-			await delay(pollMs);
+				await delay(pollMs);
+			}
 		}
 
-		writeJsonAtomic(requestPath(repoName, baseDir), {id, space});
+		return {outcome: 'no-ack'};
+	} finally {
+		rmSync(file, {force: true});
+		rmSync(ackPath(id, repoName, baseDir), {force: true});
 	}
+}
 
-	return {outcome: 'no-ack'};
+/** Store the width, then ask a running TUI to apply it. */
+export async function requestCompanionWidth(
+	options: {
+		repoName: string;
+		space: string;
+		width: PaneWidth | null;
+		tuiIsRunning: () => boolean;
+	} & RequestTiming,
+): Promise<LayoutOutcome> {
+	await setCompanionWidth(
+		options.repoName,
+		options.space,
+		options.width,
+		options.baseDir,
+	);
+	return requestCompanionLayout({...options, kind: 'width'});
 }
