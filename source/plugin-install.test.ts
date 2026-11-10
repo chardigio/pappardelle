@@ -46,8 +46,8 @@ function fakeDeps(
 		settingsPath: SETTINGS,
 		codexHooksPath: CODEX_HOOKS,
 		agyConfigDir: AGY,
-		run(command, args) {
-			calls.push([command, ...args].join(' '));
+		run(command, args, quiet) {
+			calls.push([command, ...args, ...(quiet ? ['(quiet)'] : [])].join(' '));
 			return options.respond?.(command, args) ?? {status: 0};
 		},
 		readFile: file => files.get(file),
@@ -73,7 +73,7 @@ test('points the Claude Code and Codex marketplaces at the checkout, then instal
 	t.deepEqual(calls, [
 		`claude plugin marketplace add ${REPO}`,
 		'claude plugin install pappardelle@pappardelle-marketplace --scope user',
-		'codex plugin marketplace remove pappardelle-marketplace',
+		'codex plugin marketplace remove pappardelle-marketplace (quiet)',
 		`codex plugin marketplace add ${REPO}`,
 		'codex plugin add pappardelle@pappardelle-marketplace',
 	]);

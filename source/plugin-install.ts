@@ -31,7 +31,8 @@ export type RunResult = {
 };
 
 export type PluginInstallDeps = {
-	run: (command: string, args: string[]) => RunResult;
+	/** `quiet` hides the command's output from the user. */
+	run: (command: string, args: string[], quiet?: boolean) => RunResult;
 	repoDir: string;
 	settingsPath: string;
 	codexHooksPath: string;
@@ -124,13 +125,12 @@ function installForCodex(deps: PluginInstallDeps): Outcome {
 	// Codex refuses to add a marketplace under a name it already has from
 	// another source, such as the GitHub one or another checkout. Removing it
 	// keeps the plugin enabled and its hooks trusted. It fails when there is
-	// nothing to remove, which is fine.
-	const removed = deps.run('codex', [
-		'plugin',
-		'marketplace',
-		'remove',
-		MARKETPLACE,
-	]);
+	// nothing to remove, which is fine, so its error would only alarm the user.
+	const removed = deps.run(
+		'codex',
+		['plugin', 'marketplace', 'remove', MARKETPLACE],
+		true,
+	);
 	if (isMissingCli(removed)) return skipMissing(deps, 'Codex', 'codex');
 	const outcome = runSteps(deps, 'codex', 'Codex', [
 		['plugin', 'marketplace', 'add', deps.repoDir],
@@ -253,8 +253,10 @@ export function defaultPluginInstallDeps(
 		settingsPath: path.join(claudeDir, 'settings.json'),
 		codexHooksPath: path.join(codexDir, 'hooks.json'),
 		agyConfigDir: path.join(homedir(), '.gemini', 'config'),
-		run(command, args) {
-			const result = spawnSync(command, args, {stdio: 'inherit'});
+		run(command, args, quiet) {
+			const result = spawnSync(command, args, {
+				stdio: quiet ? 'ignore' : 'inherit',
+			});
 			return {status: result.status, error: result.error};
 		},
 		readFile(file) {
