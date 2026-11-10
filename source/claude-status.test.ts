@@ -21,6 +21,7 @@ import {
 	getClaudeStatusInfo,
 	getClaudeStatusInfoAsync,
 	hookStatusKey,
+	readableHookStatusKey,
 	setClaudeStatus,
 } from './claude-status.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
@@ -415,3 +416,15 @@ test('getClaudeStatusInfo parse failures do NOT surface a warn-level log to the 
 		'parse failures must stay at debug level (file logs only, no TUI noise)',
 	);
 });
+
+test.serial(
+	'the bare status name is read only while the qualified one is missing',
+	t => {
+		const dir = withStatusDir(t);
+		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
+		writeFileSync(path.join(dir, 'STA-1.json'), '{}');
+		t.is(readableHookStatusKey('repo', 'STA-1'), 'STA-1');
+		writeFileSync(path.join(dir, 'repo-STA-1.json'), '{}');
+		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
+	},
+);
