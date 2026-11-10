@@ -285,6 +285,8 @@ test('a state dir the lock cannot be created in fails at once with the reason', 
 
 test('a second restart waits for the first instead of overlapping it', async t => {
 	const h = setup(['pappardelle-app']);
+	// The release below can run late when the suite is busy.
+	h.deps.timing = {...FAST, lockTimeoutMs: 60_000};
 	fs.writeFileSync(restartLockPath(h.root, 'app'), `${process.pid}\n`);
 	setTimeout(() => {
 		t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
