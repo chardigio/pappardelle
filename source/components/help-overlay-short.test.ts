@@ -51,3 +51,17 @@ test.serial('a tall pane shows every shortcut with no scroll hint', async t => {
 	t.true(frame.includes('Close all done/canceled spaces'));
 	t.false(frame.includes('j/k scroll'));
 });
+
+test.serial('keys that arrive together each scroll a line', async t => {
+	const view = await open(13);
+	t.teardown(async () => {
+		await view.unmount();
+	});
+	await delay(20);
+	const before = (view.lastFrame() ?? '').split('\n');
+
+	await view.stdin.write('jjj');
+	await delay(20);
+	const after = (view.lastFrame() ?? '').split('\n');
+	t.is(after[5], before[8]);
+});
