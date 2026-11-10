@@ -88,6 +88,7 @@ function spaces(initial: Record<string, string>) {
 		},
 		send: async () => 'sent',
 		sendKeys: () => 'sent',
+		typeText: () => 'sent',
 		classify: async () => ({allow: true}),
 		policy: {scratchRoots: ['/tmp/q-']},
 		store: () => ({root: '/nonexistent', repo: 'repo'}),

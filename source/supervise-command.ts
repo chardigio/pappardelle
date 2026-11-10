@@ -24,6 +24,7 @@ import {
 	parseAgentScreen,
 	type CodexDialog,
 	type PromptOption,
+	type QuestionDialog,
 } from './agent-screen.ts';
 import {
 	checkApproval,
@@ -73,6 +74,8 @@ export type SuperviseDeps = {
 	waitForStatusChange: (ms: number) => Promise<void>;
 	send: (key: string, text: string) => Promise<SendOutcome>;
 	sendKeys: (key: string, keys: string[]) => 'sent' | 'no-session' | 'failed';
+	/** Types text as it is, where sendKeys would read `Enter` as the key. */
+	typeText: (key: string, text: string) => 'sent' | 'no-session' | 'failed';
 	/** The model check a command passes after the hard refusals. */
 	classify: (key: string, command: string) => Promise<ApprovalVerdict>;
 	policy: ApprovalPolicy;
@@ -100,7 +103,10 @@ async function readState(key: string, deps: SuperviseDeps) {
 
 function formatOptions(options: PromptOption[]): string {
 	return options
-		.map(option => `  ${option.number}. ${option.label}`)
+		.map(
+			option =>
+				`  ${option.number}. ${option.checked === undefined ? '' : option.checked ? '[x] ' : '[ ] '}${option.label}`,
+		)
 		.join('\n');
 }
 
@@ -119,9 +125,15 @@ export function formatState(report: AgentStateReport): string {
 
 	if (report.question) {
 		lines.push(
-			report.question.question,
+			report.question.multiSelect
+				? `${report.question.question} (pick several)`
+				: report.question.question,
 			formatOptions(report.question.options),
 		);
+		if (report.question.textOption)
+			lines.push(
+				`  ${report.question.textOption.number}. ${report.question.textOption.typed ?? '(type an answer with --text)'}`,
+			);
 	}
 
 	if (report.usageLimit) {
@@ -139,7 +151,21 @@ export function formatState(report: AgentStateReport): string {
 
 const paneText = (screen: string) => screen.trim() || '(the pane is blank)';
 
-type QuestionTab = {question: string; options: PromptOption[]};
+type QuestionTab = Pick<
+	QuestionDialog,
+	'question' | 'options' | 'multiSelect' | 'textOption'
+>;
+const asTab = ({
+	question,
+	options,
+	multiSelect,
+	textOption,
+}: QuestionDialog) => ({
+	question,
+	options,
+	multiSelect,
+	textOption,
+});
 
 /**
  * Every tab of a multi-question dialog. Right moves to the next question and
@@ -152,9 +178,7 @@ async function readQuestionTabs(
 ): Promise<QuestionTab[]> {
 	const first = report.question;
 	if (!first) throw new SuperviseUsageError(`${key} is not showing a question`);
-	const tabs: QuestionTab[] = [
-		{question: first.question, options: first.options},
-	];
+	const tabs: QuestionTab[] = [asTab(first)];
 	const press = (direction: 'Right' | 'Left') => {
 		if (deps.sendKeys(key, [direction]) !== 'sent') {
 			throw new Error(`Could not press ${direction} in ${key}`);
@@ -173,7 +197,7 @@ async function readQuestionTabs(
 		press('Right');
 		await deps.sleep(TAB_SETTLE_MS);
 		const tab = current();
-		if (tab) tabs.push({question: tab.question, options: tab.options});
+		if (tab) tabs.push(asTab(tab));
 	}
 
 	for (let index = 1; index < first.tabs.length; index++) press('Left');
@@ -359,7 +383,7 @@ function promptShown(report: AgentStateReport): string {
 		report.state,
 		report.permission?.command,
 		report.question?.question,
-		report.question?.options.map(option => option.selected),
+		report.question?.options.map(option => [option.selected, option.checked]),
 		report.codexDialog?.title,
 		report.codexDialog?.selected,
 	]);
@@ -371,11 +395,152 @@ async function answerTaken(
 	deps: SuperviseDeps,
 ): Promise<boolean> {
 	const shown = promptShown(before);
+	return settlesOn(key, report => promptShown(report) !== shown, deps);
+}
+
+type AnswerStep = {
+	keys?: string[];
+	text?: string;
+	/** What the screen shows once the agent took the step. */
+	expect: string;
+	shows: (report: AgentStateReport) => boolean;
+};
+
+const sameRows = (a: readonly number[], b: readonly number[]) =>
+	a.length === b.length && a.every((number, index) => number === b[index]);
+
+/**
+ * The steps that answer a question with typed text or with the ticks of a
+ * multi-select, or why it can't be. Each one is checked on screen before the
+ * next, since a key the dialog ignores looks the same as one it took.
+ */
+function planQuestionAnswer(
+	command: Extract<SuperviseCommand, {verb: 'answer'}>,
+	question: QuestionDialog,
+): {steps: AnswerStep[]; sent: string} | string {
+	const asked = question.question;
+	const left: AnswerStep = {
+		keys: ['Enter'],
+		expect: 'the next question or the end of the dialog',
+		shows: report =>
+			report.state !== 'question' || report.question?.question !== asked,
+	};
+
+	if (command.text !== undefined) {
+		const {text} = command;
+		const {textOption: row} = question;
+		if (question.multiSelect)
+			return 'typed answers on a multi-select question are not supported; tick options with --option';
+		if (!row) return 'this question has no row to type an answer into';
+		const flat = (value: string) => value.replaceAll(/\s+/g, ' ').trim();
+		return {
+			sent: text,
+			steps: [
+				...(row.typed === null
+					? [
+							{
+								keys: [String(row.number)],
+								expect: 'the free-text row open for typing',
+								shows: (report: AgentStateReport) =>
+									report.question?.textOption?.typed === '',
+							},
+						]
+					: []),
+				{
+					text,
+					expect: `"${text}" in the free-text row`,
+					// Only the row's first line shows, so a long answer is checked
+					// as far as it fits.
+					shows(report) {
+						const typed = flat(report.question?.textOption?.typed ?? '');
+						return typed !== '' && flat(text).startsWith(typed);
+					},
+				},
+				left,
+			],
+		};
+	}
+
+	const wanted = [...new Set(command.options)].sort((a, b) => a - b);
+	const numbers = question.options.map(option => option.number);
+	const missing = wanted.find(number => !numbers.includes(number));
+	if (missing !== undefined) return `the question has no option ${missing}`;
+	const ticked = () =>
+		question.options
+			.filter(option => option.checked)
+			.map(option => option.number);
+	const toggles = numbers.filter(
+		number => wanted.includes(number) !== ticked().includes(number),
+	);
+	const tickedOn = (report: AgentStateReport) =>
+		(report.question?.options ?? [])
+			.filter(option => option.checked)
+			.map(option => option.number);
+	const lastRow = question.textOption?.number ?? Math.max(...numbers);
+	// Submit or Next sits under the last numbered row.
+	const downs = question.cursor === null ? 0 : lastRow - question.cursor + 1;
+	const labels = question.options
+		.filter(option => wanted.includes(option.number))
+		.map(option => `${option.number}. ${option.label}`);
+	return {
+		sent: labels.join(', '),
+		steps: [
+			...(toggles.length > 0
+				? [
+						{
+							keys: toggles.map(String),
+							expect: `options ${wanted.join(', ')} ticked`,
+							shows: (report: AgentStateReport) =>
+								sameRows(tickedOn(report), wanted),
+						},
+					]
+				: []),
+			...(downs > 0
+				? [
+						{
+							keys: Array.from({length: downs}, () => 'Down'),
+							expect: 'the cursor on Submit or Next',
+							shows: (report: AgentStateReport) =>
+								report.question?.question === asked &&
+								report.question.cursor === null &&
+								sameRows(tickedOn(report), wanted),
+						},
+					]
+				: []),
+			left,
+		],
+	};
+}
+
+/** Runs each step and waits for it on screen; the step that never showed, if any. */
+async function runSteps(
+	key: string,
+	steps: AnswerStep[],
+	deps: SuperviseDeps,
+): Promise<string | null> {
+	for (const step of steps) {
+		const sent =
+			step.text === undefined
+				? deps.sendKeys(key, step.keys ?? [])
+				: deps.typeText(key, step.text);
+		if (sent !== 'sent') return step.expect;
+		// eslint-disable-next-line no-await-in-loop
+		if (!(await settlesOn(key, step.shows, deps))) return step.expect;
+	}
+
+	return null;
+}
+
+async function settlesOn(
+	key: string,
+	shows: (report: AgentStateReport) => boolean,
+	deps: SuperviseDeps,
+): Promise<boolean> {
 	for (let waited = 0; waited < ANSWER_SETTLE_MS; waited += ANSWER_POLL_MS) {
 		// eslint-disable-next-line no-await-in-loop
 		await deps.sleep(ANSWER_POLL_MS);
 		// eslint-disable-next-line no-await-in-loop
-		if (promptShown(await readState(key, deps)) !== shown) return true;
+		if (shows(await readState(key, deps))) return true;
 	}
 
 	return false;
@@ -387,13 +552,11 @@ function decideAnswer(
 	report: AgentStateReport,
 	policy: ApprovalPolicy,
 ): AnswerResult {
+	const chosen = command.options[0];
 	if (report.state === 'dialog') {
 		// Codex's dialogs decide things like trusting a folder, and Escape on
 		// one can quit Codex, so a person answers them.
-		const sent =
-			command.option === undefined
-				? command.keys.join(' ')
-				: String(command.option);
+		const sent = chosen === undefined ? command.keys.join(' ') : String(chosen);
 		const entry = {
 			action: 'answer' as const,
 			key,
@@ -409,7 +572,7 @@ function decideAnswer(
 			};
 		}
 
-		if (command.option === undefined) {
+		if (chosen === undefined) {
 			return {
 				ok: true,
 				pressed: command.keys,
@@ -417,12 +580,12 @@ function decideAnswer(
 			};
 		}
 
-		const pressed = codexDialogKeys(report.codexDialog, command.option);
+		const pressed = codexDialogKeys(report.codexDialog, chosen);
 		if (!pressed) {
 			return {
 				ok: false,
 				exit: 1,
-				message: `${key}'s Codex dialog has no option ${command.option}; use --keys`,
+				message: `${key}'s Codex dialog has no option ${chosen}; use --keys`,
 			};
 		}
 
@@ -447,7 +610,7 @@ function decideAnswer(
 		key,
 		...(permission ? {command: permission.command} : {}),
 	};
-	if (command.option === undefined) {
+	if (chosen === undefined) {
 		const onlyEscape = command.keys.every(name => name === 'Escape');
 		if (report.state === 'permission' && !onlyEscape && !command.force) {
 			return {
@@ -469,24 +632,24 @@ function decideAnswer(
 		};
 	}
 
-	const pressed = [String(command.option)];
+	const pressed = [String(chosen)];
 	if (report.state === 'question') {
 		const label = report.question?.options.find(
-			option => option.number === command.option,
+			option => option.number === chosen,
 		)?.label;
 		return {
 			ok: true,
 			pressed,
 			entry: {
 				...base,
-				sent: label ? `${command.option}. ${label}` : pressed[0],
+				sent: label ? `${chosen}. ${label}` : pressed[0],
 				...(report.question ? {detail: report.question.question} : {}),
 			},
 		};
 	}
 
 	const option = permission?.options.find(
-		candidate => candidate.number === command.option,
+		candidate => candidate.number === chosen,
 	);
 	if (!permission || !option) {
 		// The hook says a prompt is up but the screen shows none to check.
@@ -499,7 +662,7 @@ function decideAnswer(
 		return {
 			ok: false,
 			exit: POLICY_REFUSED_EXIT,
-			message: `Can't read option ${command.option} on ${key}'s prompt; check it with \`pappardelle screen ${key}\``,
+			message: `Can't read option ${chosen} on ${key}'s prompt; check it with \`pappardelle screen ${key}\``,
 		};
 	}
 
@@ -791,6 +954,51 @@ async function execute(
 		case 'answer': {
 			const key = deps.resolveKey(command.key);
 			const before = await readState(key, deps);
+			const {question} = before;
+			if (
+				before.state === 'question' &&
+				question &&
+				(command.text !== undefined ||
+					(question.multiSelect && command.options.length > 0))
+			) {
+				const plan = planQuestionAnswer(command, question);
+				if (typeof plan === 'string') {
+					deps.err(`${key}: ${plan}`);
+					return 1;
+				}
+
+				const entry: SuperviseEntry = {
+					action: 'answer',
+					key,
+					sent: plan.sent,
+					detail: question.question,
+				};
+				const stuck = await runSteps(key, plan.steps, deps);
+				if (stuck) {
+					log({...entry, detail: `${question.question}; stuck: ${stuck}`});
+					deps.err(
+						`Answering ${key} stopped: ${stuck} didn't show on screen. Check it with \`pappardelle screen ${key}\``,
+					);
+					return 1;
+				}
+
+				log(entry);
+				deps.out(`Answered ${key}: ${plan.sent}`);
+				return 0;
+			}
+
+			if (command.text !== undefined) {
+				deps.err(`--text answers a question; ${key} is ${before.state}`);
+				return 1;
+			}
+
+			if (command.options.length > 1) {
+				deps.err(
+					`More than one --option answers a multi-select question; ${key} is ${before.state === 'question' ? 'showing a single-select question' : before.state}`,
+				);
+				return 1;
+			}
+
 			const decision = decideAnswer(command, key, before, deps.policy);
 			if (!decision.ok) {
 				if (decision.entry) log(decision.entry);

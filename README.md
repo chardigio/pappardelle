@@ -677,18 +677,18 @@ Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappard
 
 Claude Code gets the server from the plugin. `install.sh` runs `pappardelle mcp install`, which adds it to each of Codex, OpenCode, Antigravity and Pi that is installed. Run that yourself if you install one of them later. It edits their global config through their own `mcp add`, so a symlinked or commented config keeps its link and comments.
 
-| Tools                                                                                                                                | Do                                                      |
-| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| `companion_run`, `companion_type`, `companion_press_keys`, `companion_read`, `companion_resize`, `companion_close`, `companion_list` | Run, drive, read and arrange named panes in a companion |
-| `companion_width`                                                                                                                    | Set a space's companion column width in the TUI         |
-| `spaces_list`, `space_read`, `space_highlight`                                                                                       | See open spaces and their conversations                 |
-| `space_send`, `space_press_keys`                                                                                                     | Prompt or press keys in a space's agent TUI             |
-| `space_open`, `space_close`, `tui_restart`                                                                                           | Open or close spaces, restart the TUI                   |
-| `link_pr`                                                                                                                            | Record a PR/MR for the workspace                        |
-| `space_screen`, `space_state`, `space_question_tabs`, `space_wait`, `space_watch`                                                    | Watch other spaces' agents                              |
-| `space_answer`                                                                                                                       | Answer its permission prompt or question                |
-| `space_queue`, `space_schedule`, `space_schedules`, `space_unschedule`                                                               | Wake it later with an OS timer                          |
-| `tui_panes`, `tui_focus_log`                                                                                                         | Diagnostics for the TUIs' panes                         |
+| Tools                                                                                                                                | Do                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `companion_run`, `companion_type`, `companion_press_keys`, `companion_read`, `companion_resize`, `companion_close`, `companion_list` | Run, drive, read and arrange named panes in a companion                            |
+| `companion_width`                                                                                                                    | Set a space's companion column width in the TUI                                    |
+| `spaces_list`, `space_read`, `space_highlight`                                                                                       | See open spaces and their conversations                                            |
+| `space_send`, `space_press_keys`                                                                                                     | Prompt or press keys in a space's agent TUI                                        |
+| `space_open`, `space_close`, `tui_restart`                                                                                           | Open or close spaces, restart the TUI                                              |
+| `link_pr`                                                                                                                            | Record a PR/MR for the workspace                                                   |
+| `space_screen`, `space_state`, `space_question_tabs`, `space_wait`, `space_watch`                                                    | Watch other spaces' agents                                                         |
+| `space_answer`                                                                                                                       | Answer its permission prompt or question, including multi-select and typed answers |
+| `space_queue`, `space_schedule`, `space_schedules`, `space_unschedule`                                                               | Wake it later with an OS timer                                                     |
+| `tui_panes`, `tui_focus_log`                                                                                                         | Diagnostics for the TUIs' panes                                                    |
 
 The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run` and `companion_type`, which can run commands. So are `space_send` and the supervision tools, since watching other spaces means calling them in a loop. Two checks hold without a prompt, and no tool can override them:
 

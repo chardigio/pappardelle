@@ -403,7 +403,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_answer',
 		description:
-			"Answer a permission prompt or question in a space's agent by option number, or press keys in it. Approving a Bash command once goes through only when it clears hard refusals (push, PR changes, --force, reset --hard, rm outside QA scratch, kill-server outside an isolated socket) and a model check finds it publishes nothing, deletes nothing outside the worktree or scratch, and sends no secrets. Anything else, edits, and every \"Yes, and don't ask again\" fail with the command and the reason for the user to decide. Ask the user then; don't work around it",
+			"Answer a permission prompt or question in a space's agent: an option number, several options on a multi-select question (ticked, then confirmed with Submit or Next), typed text into a question's free-text row, or keys. Each step is checked on screen, and an answer the agent didn't take fails rather than reporting success. A multi-question dialog takes one call per question, then option 1 on its review step to submit. Approving a Bash command once goes through only when it clears hard refusals (push, PR changes, --force, reset --hard, rm outside QA scratch, kill-server outside an isolated socket) and a model check finds it publishes nothing, deletes nothing outside the worktree or scratch, and sends no secrets. Anything else, edits, and every \"Yes, and don't ask again\" fail with the command and the reason for the user to decide. Ask the user then; don't work around it",
 		inputSchema: {
 			key,
 			option: z
@@ -412,6 +412,20 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.positive()
 				.optional()
 				.describe('The number of the option to choose'),
+			options: z
+				.array(z.number().int().positive())
+				.min(1)
+				.optional()
+				.describe(
+					'On a multi-select question, every option to tick; the others are unticked',
+				),
+			text: z
+				.string()
+				.min(1)
+				.optional()
+				.describe(
+					"Typed into a single-select question's free-text row (Type something) and submitted",
+				),
 			keys: z
 				.array(z.string())
 				.min(1)
@@ -420,11 +434,16 @@ export const MCP_TOOLS: readonly McpTool[] = [
 					'tmux key names instead of an option. On a permission prompt only Escape, which declines',
 				),
 		},
-		toCli: ({key, option, keys}) => ({
+		toCli: ({key, option, options, text, keys}) => ({
 			args: [
 				'answer',
 				key,
-				...flags({option}),
+				...[
+					...(option === undefined ? [] : [option]),
+					...(options ?? []),
+				].flatMap(number => ['--option', String(number)]),
+				// Joined, so an answer that starts with a dash stays the value.
+				...(text === undefined ? [] : [`--text=${text}`]),
 				...(keys ?? []).flatMap(name => ['--keys', name]),
 			],
 		}),
