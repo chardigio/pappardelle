@@ -117,6 +117,7 @@ export const superviseHelp = `
 	  watch       Wait for any of several spaces (default: every space with an
 	              agent but your own) to change state, or with --until to reach
 	              one of those states (blocked is any that waits on a person).
+	              A space that closes comes back whatever --until says.
 	              Without --since, spaces already in an --until state come back
 	              at once. The answer carries a cursor: pass it as --since next
 	              time, and nothing that changed in between is missed
