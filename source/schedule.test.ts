@@ -375,3 +375,12 @@ test('a launchd agent runs the same command on the calendar date', t => {
 		/<key>WorkingDirectory<\/key>\n\t<string>\/src\/repo<\/string>/,
 	);
 });
+
+test('a launchd time with seconds fires at the start of the next minute', t => {
+	const plist = launchdPlist(
+		context(),
+		{kind: 'at', id: 'ab12', key: 'STA-1', at: '', message: 'hi', arm: 0},
+		{at: new Date(2026, 10, 14, 7, 51, 20)},
+	);
+	t.regex(plist, /<key>Minute<\/key>\n\t\t<integer>52<\/integer>/);
+});
