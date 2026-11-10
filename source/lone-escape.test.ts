@@ -126,3 +126,16 @@ test.serial(
 		);
 	},
 );
+
+test.serial(
+	'Alt with a character outside ASCII is not read as a control key',
+	async t => {
+		const {keys, stdin} = await keyLog(t);
+		// Their UTF-8 ends in 0x83, 0x8d and 0x88, which an 8-bit terminal
+		// would send for Alt with Ctrl+C, Enter and Backspace.
+		for (const character of ['ă', 'č', 'Ĉ', '🍝'])
+			stdin.write(`${ESCAPE}${character}`);
+		await delay(PARSER_WAIT_MS * 3);
+		t.deepEqual(keys, []);
+	},
+);

@@ -6,13 +6,20 @@ const ESCAPE = '\u001B';
 // APC, PM and SOS.
 const SEQUENCE_OPENERS = '[]OP_^X';
 
-/** Escape on its own, or Alt with a character that opens a sequence. */
+/**
+ * Escape on its own, or Alt with a character the parser does not report as a
+ * key: one that opens a sequence, or one outside ASCII. The parser splits the
+ * latter and reads the bytes after the first as Alt with a control key, so
+ * Alt+ă, whose last byte is 0x83, arrives as Alt+Ctrl+C.
+ */
 function isHeldKey(bytes: string): boolean {
 	if (bytes.replaceAll(ESCAPE, '') === '') return bytes !== '';
+	const [first, second, ...rest] = bytes;
 	return (
-		bytes.length === 2 &&
-		bytes.startsWith(ESCAPE) &&
-		SEQUENCE_OPENERS.includes(bytes[1]!)
+		first === ESCAPE &&
+		second !== undefined &&
+		rest.length === 0 &&
+		(SEQUENCE_OPENERS.includes(second) || second > '\u007F')
 	);
 }
 
