@@ -147,8 +147,9 @@ function formatQuestion(question: QuestionTab): string {
 		formatOptions(question.options),
 	];
 	const row = question.textOption;
-	// Typed answers are only taken on a single-select question.
-	if (row && !question.multiSelect)
+	// Typed answers are only taken on a single-select question, but text left
+	// in the row blocks any answer, so it shows either way.
+	if (row && (!question.multiSelect || row.text))
 		lines.push(
 			`  ${row.number}. ${row.text || (row.open ? '' : '(type an answer with --text)')}`,
 		);
@@ -466,7 +467,7 @@ function planQuestionAnswer(
 	const row = question.textOption;
 	// While the free-text row is open it takes every key as text, digits too.
 	if (row?.text)
-		return `its free-text row already holds "${row.text}"; clear it first with --keys or by hand`;
+		return `its free-text row already holds "${row.text}"; a person clears it, or with the row open (cursor on it) --keys C-e --keys C-u deletes it`;
 	const leaveRow: AnswerStep[] = row?.open
 		? [
 				{
