@@ -1,7 +1,7 @@
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
-import type {CliRenderer} from '@opentui/core';
+import type {CliRenderer, KeyEvent} from '@opentui/core';
 import {shortcutKey} from './tui-key.ts';
 import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
@@ -189,7 +189,13 @@ import {
 	HEADER_ROWS,
 	statusLineFits,
 } from './list-view-sizing.ts';
-import {filterSpaces, tearDownSpace} from './space-utils.ts';
+import {tearDownSpace} from './space-utils.ts';
+import {
+	filterSpaces,
+	highlightedIndex,
+	searchKeyStep,
+	type RailSearch,
+} from './rail-search.ts';
 import {
 	getRegisteredSpaces,
 	getRegisteredSpacesAsync,
@@ -363,9 +369,22 @@ export default function App({
 	const [recentErrors, setRecentErrors] = useState<LogEntry[]>([]);
 	const errorCount = recentErrors.length;
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
-	const [isSearching, setIsSearching] = useState(false);
-	const [searchQuery, setSearchQuery] = useState('');
-	const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
+	// Several keys can arrive in one input write, and their handlers all run
+	// before the next render. Search keys read the ref so each acts on what
+	// the previous one left; the state copy is for drawing.
+	const searchNow = useRef<RailSearch | null>(null);
+	const [search, setSearch] = useState<RailSearch | null>(null);
+	const updateSearch = useCallback((next: RailSearch | null) => {
+		searchNow.current = next;
+		setSearch(next);
+	}, []);
+	const isSearching = search !== null;
+	const displaySpacesRef = useRef<SpaceData[]>([]);
+	// Until the search row is drawn there is no input to take typed text.
+	const searchInputDrawn = useRef(false);
+	useEffect(() => {
+		searchInputDrawn.current = isSearching;
+	}, [isSearching]);
 	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 	// Whether the "Update Pappardelle?" confirm dialog is open. Reached via the
 	// always-available U key (STA-1548) — the banner's U routes here too, so the
@@ -623,9 +642,6 @@ export default function App({
 	};
 	const railInputBlocked = isRailInputBlocked(railDialogState);
 
-	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
-	const anyDialogOpen = railInputBlocked || isSearching;
-
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
 
@@ -762,10 +778,10 @@ export default function App({
 		});
 	}, [renderer, repoName]);
 
-	const dialogRequest = useRef({zoomed: anyDialogOpen, revision: 0});
-	if (dialogRequest.current.zoomed !== anyDialogOpen) {
+	const dialogRequest = useRef({zoomed: railInputBlocked, revision: 0});
+	if (dialogRequest.current.zoomed !== railInputBlocked) {
 		dialogRequest.current = {
-			zoomed: anyDialogOpen,
+			zoomed: railInputBlocked,
 			revision: dialogRequest.current.revision + 1,
 		};
 	}
@@ -829,22 +845,22 @@ export default function App({
 			}),
 		[attachmentTask, stdout, renderer],
 	);
-	const dialogOpenRef = useRef(anyDialogOpen);
-	dialogOpenRef.current = anyDialogOpen;
+	const dialogOpenRef = useRef(railInputBlocked);
+	dialogOpenRef.current = railInputBlocked;
 	useEffect(() => {
 		if (paneLayoutRef.current) {
 			const done = startupTrace.current?.begin('layout-request', {
 				cause: 'state',
 				loading,
 				spaces: spaces.length,
-				zoomed: anyDialogOpen,
+				zoomed: railInputBlocked,
 				revision: dialogRequest.current.revision,
 			});
 			void layoutTasks
-				.request(anyDialogOpen, dialogRequest.current.revision)
+				.request(railInputBlocked, dialogRequest.current.revision)
 				.finally(() => done?.());
 		}
-	}, [layoutTasks, anyDialogOpen, loading, spaces.length]);
+	}, [layoutTasks, railInputBlocked, loading, spaces.length]);
 	useEffect(() => () => layoutTasks.stop(), [layoutTasks]);
 	useEffect(() => {
 		if (!stdout) return;
@@ -962,7 +978,7 @@ export default function App({
 		attachmentGate.rendered(selectedSpaceName);
 	});
 	// Every key in one input write runs before React renders, so keys after one
-	// that opened an inline dialog or search would still act on the rail.
+	// that opened an inline dialog would still act on the rail.
 	// They are dropped until that dialog is on screen to take them.
 	const inlineDialogOpening = useRef(false);
 	useEffect(() => {
@@ -1432,12 +1448,27 @@ export default function App({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	// Returns whether search took the key.
+	const handleSearchKey = (event: KeyEvent): boolean => {
+		const {current} = searchNow;
+		if (!current) return false;
+		const step = searchKeyStep(
+			current,
+			displaySpacesRef.current,
+			shortcutKey(event),
+			searchInputDrawn.current,
+		);
+		if (step.select) selectSpace(step.select);
+		updateSearch(step.search);
+		return true;
+	};
+
 	// Handle keyboard input
 	useKeyboard(event => {
-		if (anyDialogOpen || popupOpening.current || inlineDialogOpening.current)
+		if (handleSearchKey(event)) return;
+		if (railInputBlocked || popupOpening.current || inlineDialogOpening.current)
 			return;
 		const {input, key} = shortcutKey(event);
-		if (railInputBlocked) return;
 
 		// Check custom keybindings first — they can override default keys
 		const kb = keybindingMap.get(input);
@@ -1516,11 +1547,7 @@ export default function App({
 		} else
 			switch (input) {
 				case '/': {
-					inlineDialogOpening.current = true;
-					setIsSearching(true);
-					setSearchQuery('');
-					setSearchSelectedIndex(0);
-
+					updateSearch({query: '', index: 0});
 					break;
 				}
 				case 'q': {
@@ -1619,37 +1646,6 @@ export default function App({
 					}
 				}
 			}
-	});
-
-	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
-	useKeyboard(event => {
-		if (!isSearching) return;
-		const {input: _input, key} = shortcutKey(event);
-		if (key.escape) {
-			setIsSearching(false);
-			setSearchQuery('');
-		} else if (key.return) {
-			// Confirm: resolve filtered selection back to real spaces index
-			const displayIdx = filteredToDisplayMap[searchSelectedIndex];
-			if (displayIdx !== undefined) {
-				// Map display index back to spaces index (reverse the pending offset)
-				const spacesIdx =
-					pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
-						? displayIdx - 1
-						: displayIdx;
-				if (spacesIdx >= 0 && spacesIdx < spaces.length) {
-					setSelectedIndex(spacesIdx);
-				}
-			}
-			setIsSearching(false);
-			setSearchQuery('');
-		} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
-			setSearchSelectedIndex(prev => Math.max(0, prev - 1));
-		} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
-			setSearchSelectedIndex(prev =>
-				Math.min(filteredDisplaySpaces.length - 1, prev + 1),
-			);
-		}
 	});
 
 	const spawnSession = useCallback(
@@ -2349,22 +2345,23 @@ export default function App({
 		return {displaySpaces: result, pendingInsertIndex: insertIdx};
 	}, [spaces, pendingSession]);
 
-	// Filter display spaces when searching
-	const {filteredDisplaySpaces, filteredToDisplayMap} = useMemo(() => {
-		if (!isSearching || !searchQuery) {
-			return {
-				filteredDisplaySpaces: displaySpaces,
-				filteredToDisplayMap: displaySpaces.map((_, i) => i),
-			};
-		}
-		const {filtered, indexMap} = filterSpaces(displaySpaces, searchQuery);
-		return {filteredDisplaySpaces: filtered, filteredToDisplayMap: indexMap};
-	}, [displaySpaces, isSearching, searchQuery]);
+	displaySpacesRef.current = displaySpaces;
 
-	// Reset search selection when query changes
-	useEffect(() => {
-		setSearchSelectedIndex(0);
-	}, [searchQuery]);
+	const searchQuery = search?.query ?? '';
+	const filteredDisplaySpaces = useMemo(
+		() => filterSpaces(displaySpaces, searchQuery),
+		[displaySpaces, searchQuery],
+	);
+	const searchSelectedIndex = search
+		? highlightedIndex(search, filteredDisplaySpaces.length)
+		: 0;
+	const typeSearch = useCallback(
+		(query: string) => {
+			const {current} = searchNow;
+			if (current && current.query !== query) updateSearch({query, index: 0});
+		},
+		[updateSearch],
+	);
 
 	// Map selectedIndex (which indexes into `spaces`) to the display list.
 	// When a pending row is inserted before the selected item, shift by 1.
@@ -2403,11 +2400,12 @@ export default function App({
 	const selectRow = useCallback(
 		(name: string) => {
 			if (railInputBlocked) return;
-			if (isSearching) {
+			const {current} = searchNow;
+			if (current) {
 				const index = filteredDisplaySpaces.findIndex(
 					space => space.name === name && !space.isPending,
 				);
-				if (index !== -1) setSearchSelectedIndex(index);
+				if (index !== -1) updateSearch({...current, index});
 			} else {
 				const index = spaces.findIndex(space => space.name === name);
 				if (index !== -1) setSelectedIndex(index);
@@ -2415,10 +2413,10 @@ export default function App({
 		},
 		[
 			railInputBlocked,
-			isSearching,
 			filteredDisplaySpaces,
 			spaces,
 			setSelectedIndex,
+			updateSearch,
 		],
 	);
 
@@ -2477,7 +2475,7 @@ export default function App({
 	}
 
 	const statusFits = statusLineFits(termHeight, bannerHeight, linesPerItem);
-	const searchInHeader = !statusFits && isSearching && !isZooming;
+	const searchInHeader = !statusFits && isSearching;
 	const searchRow = (
 		/* Keep the slash and match count at their natural widths;
 	   the native input scrolls its text within the remaining space. */
@@ -2495,7 +2493,7 @@ export default function App({
 			<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
 				<TextInput
 					value={searchQuery}
-					onChange={setSearchQuery}
+					onChange={typeSearch}
 					placeholder="filter by key or title..."
 				/>
 			</box>
@@ -2513,8 +2511,8 @@ export default function App({
 
 	return (
 		<PaneFrame title="rail" isActive={isRailFocused}>
-			{/* Keep blank rows in the frame so filtering clears old results after a
-		    search zoom. OpenTUI retains and updates only the cells that change. */}
+			{/* Keep blank rows in the frame so filtering clears old results.
+		    OpenTUI retains and updates only the cells that change. */}
 			<box flexDirection="column" height={termHeight}>
 				{/* Update banner (only shown if an update is available and not dismissed) */}
 				{updateInfo && (
@@ -2551,7 +2549,7 @@ export default function App({
 						overflow="hidden"
 						paddingLeft={ROW_PADDING_CELLS}
 					>
-						{isSearching && !isZooming ? (
+						{isSearching ? (
 							searchRow
 						) : (
 							<TruncatedLine
