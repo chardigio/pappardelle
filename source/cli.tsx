@@ -581,9 +581,12 @@ process.on('exit', () => {
 
 const rendererDone = startupTrace.current?.begin('renderer');
 let railPainted = false;
+// The rail has rows to act on only once its list is drawn.
+const railReady = Promise.withResolvers<void>();
 function finishStartup() {
 	if (railPainted) return;
 	railPainted = true;
+	railReady.resolve();
 	finishFirstRailPaint();
 	metadata = readDisplayMetadata();
 	rerender(app());
@@ -605,6 +608,7 @@ const {renderer, rerender} = await renderTui(
 	renderer => {
 		quitTui(renderer, repoName, paneLayout);
 	},
+	railReady.promise,
 );
 rendererDone?.();
 

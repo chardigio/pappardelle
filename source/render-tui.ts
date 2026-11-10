@@ -36,15 +36,23 @@ function Mounted({
 	return children;
 }
 
-/** Each terminal (rail or tmux popup) has its own renderer and input stream. */
+// How long keys typed at start-up wait for a view that never says it is ready.
+const TYPED_AHEAD_WAIT_MS = 1000;
+
+/**
+ * Each terminal (rail or tmux popup) has its own renderer and input stream.
+ * `ready` resolves when the view can act on keys, for a view that cannot as
+ * soon as it has mounted.
+ */
 export async function renderTui(
 	node: ReactNode,
 	options: CliRendererConfig = {},
 	onFailedViewClose?: (renderer: CliRenderer) => void,
+	ready?: Promise<void>,
 ) {
 	// The renderer reads input as soon as it exists, before the tree has
 	// mounted anything that listens for keys. Keys typed in that time are kept
-	// and delivered once it has.
+	// and delivered once the view can act on them.
 	const typedAhead: string[] = [];
 	const keepKey = (sequence: string): boolean => {
 		if (!parseKeypress(sequence)) return false;
@@ -72,6 +80,16 @@ export async function renderTui(
 			renderer.keyInput.processParsedKey(parseKeypress(sequence)!);
 	};
 
+	const onMounted = ready
+		? () => {
+				const timer = setTimeout(deliverTypedAhead, TYPED_AHEAD_WAIT_MS);
+				void ready.then(() => {
+					clearTimeout(timer);
+					deliverTypedAhead();
+				});
+			}
+		: deliverTypedAhead;
+
 	if (isInTmux())
 		deliverHeldKeysAtOnce(renderer, options.stdin ?? process.stdin);
 	const root = createRoot(renderer);
@@ -80,7 +98,7 @@ export async function renderTui(
 		root.render(
 			createElement(
 				Mounted,
-				{onMounted: deliverTypedAhead},
+				{onMounted},
 				createElement(TuiErrorBoundary, {onClose}, next),
 			),
 		);
