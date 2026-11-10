@@ -78,6 +78,18 @@ export function hookStatusFile(statusKey: string): string {
 	return path.join(getHookStatusDir(), `${statusKey}.json`);
 }
 
+/**
+ * The status key to read a space under. An agent started before status files
+ * were qualified by repo still writes under the bare name until it restarts,
+ * so that file is read when only it exists. It can belong to another repo's
+ * space with the same key, the collision the qualified name fixes.
+ */
+export function readableHookStatusKey(repoName: string, name: string): string {
+	const qualified = hookStatusKey(repoName, name);
+	if (existsSync(hookStatusFile(qualified))) return qualified;
+	return existsSync(hookStatusFile(name)) ? name : qualified;
+}
+
 export interface ClaudeStatusInfo {
 	status: ClaudeStatus;
 	tool?: string;
