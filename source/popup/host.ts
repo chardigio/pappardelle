@@ -2,7 +2,11 @@ import {execFile, spawn} from 'node:child_process';
 import {createLogger, type LogEntry} from '../logger.ts';
 import type {ConfirmPayload, PopupActions, PopupSpec} from './spec.ts';
 import type {ClientSize, PopupSize} from './size.ts';
-import {openPopupTerminal, type PopupTerminal} from './terminal.ts';
+import {
+	openPopupTerminal,
+	userClientArgs,
+	type PopupTerminal,
+} from './terminal.ts';
 
 const log = createLogger('popup');
 
@@ -76,11 +80,13 @@ export async function runCommandPopup(
 	command: string,
 	{cwd, title}: {cwd: string; title: string},
 ): Promise<number | undefined> {
+	const client = await userClientArgs();
 	return new Promise(resolve => {
 		const popup = spawn(
 			'tmux',
 			[
 				'display-popup',
+				...client,
 				'-EE',
 				'-w',
 				'90%',

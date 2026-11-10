@@ -36,12 +36,56 @@ export type PopupLaunch = {
 	readyPath: string;
 	size: PopupSize;
 	ownerPid: number;
+	/** `-c` and the client to show the popup on, or nothing for tmux's choice. */
+	client?: string[];
 };
+
+/**
+ * The terminal the user was last at, from `list-clients` lines of control
+ * mode, activity time and tty. Left to itself tmux shows a popup on the
+ * session's most recently active client, and the TUI's control-mode client,
+ * which cannot show one, counts as active each time it attaches.
+ */
+export function newestTerminalClient(listing: string): string | undefined {
+	let newest: {activity: number; tty: string} | undefined;
+	for (const line of listing.split('\n')) {
+		const [control, activity, tty] = line.split('\t');
+		if (control !== '0' || !tty) continue;
+		if (!newest || Number(activity) >= newest.activity)
+			newest = {activity: Number(activity), tty};
+	}
+
+	return newest?.tty;
+}
+
+/** `-c <client>` for a popup command, empty when the client is not known. */
+export async function userClientArgs(): Promise<string[]> {
+	const pane = process.env['TMUX_PANE'];
+	if (!pane) return [];
+	return new Promise(resolve => {
+		execFile(
+			'tmux',
+			[
+				'list-clients',
+				'-t',
+				pane,
+				'-F',
+				'#{client_control_mode}\t#{client_activity}\t#{client_tty}',
+			],
+			{encoding: 'utf8', timeout: 2000},
+			(error, stdout) => {
+				const client = error ? undefined : newestTerminalClient(stdout);
+				resolve(client ? ['-c', client] : []);
+			},
+		);
+	});
+}
 
 export function buildDisplayPopupArgs({
 	readyPath,
 	size,
 	ownerPid,
+	client = [],
 }: PopupLaunch): string[] {
 	const pending = shellQuote(`${readyPath}.tmp`);
 	const script = [
@@ -61,6 +105,7 @@ export function buildDisplayPopupArgs({
 	const command = `exec /bin/sh -c ${shellQuote(script)}`;
 	return [
 		'display-popup',
+		...client,
 		'-B',
 		'-E',
 		'-w',
@@ -79,6 +124,7 @@ async function waitForReady(
 	dir: string,
 	readyPath: string,
 	popupExited: Promise<void>,
+	client: string[],
 ): Promise<string | undefined> {
 	const watcher = watch(dir);
 	const timeout = new AbortController();
@@ -98,7 +144,7 @@ async function waitForReady(
 			popupExited.then(() => undefined),
 			delay(READY_TIMEOUT_MS, undefined, {signal: timeout.signal})
 				.then(() => {
-					execFile('tmux', ['display-popup', '-C']);
+					execFile('tmux', ['display-popup', ...client, '-C']);
 					return undefined;
 				})
 				// Aborted once the race is decided.
@@ -110,9 +156,9 @@ async function waitForReady(
 	}
 }
 
-function closePopupOnClient() {
+function closePopupOnClient(client: string[]) {
 	try {
-		execFileSync('tmux', ['display-popup', '-C'], {
+		execFileSync('tmux', ['display-popup', ...client, '-C'], {
 			stdio: 'ignore',
 			timeout: 2000,
 		});
@@ -144,10 +190,11 @@ export async function openPopupTerminal(
 	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
 	const readyPath = path.join(dir, 'ready');
 	let isPopupOpen = true;
+	const client = await userClientArgs();
 	const closed = new Promise<void>(resolve => {
 		const popup = spawn(
 			'tmux',
-			buildDisplayPopupArgs({readyPath, size, ownerPid: process.pid}),
+			buildDisplayPopupArgs({readyPath, size, ownerPid: process.pid, client}),
 			{stdio: 'ignore'},
 		);
 		popup.on('error', error => {
@@ -162,7 +209,7 @@ export async function openPopupTerminal(
 	});
 
 	try {
-		const ready = await waitForReady(dir, readyPath, closed);
+		const ready = await waitForReady(dir, readyPath, closed, client);
 		if (!ready) return undefined;
 		const [pid, ttyPath = ''] = ready.split(' ');
 		const shellPid = Number(pid);
@@ -191,7 +238,8 @@ export async function openPopupTerminal(
 			output,
 			closed,
 			dismiss() {
-				if (isPopupOpen) execFile('tmux', ['display-popup', '-C'], () => {});
+				if (isPopupOpen)
+					execFile('tmux', ['display-popup', ...client, '-C'], () => {});
 			},
 			close() {
 				if (isClosing) return;
@@ -205,7 +253,7 @@ export async function openPopupTerminal(
 				killPopupShell(shellPid);
 				// The input fd stays open too while Bun has a read pending on it,
 				// and only a hangup ends that read, so tmux has to close the popup.
-				if (isPopupOpen) closePopupOnClient();
+				if (isPopupOpen) closePopupOnClient(client);
 			},
 		};
 	} finally {
