@@ -132,11 +132,25 @@ test('inside a repo tools are annotated and instructions are sent', async t => {
 test('instructions fit before Claude Code truncates them', t => {
 	// Measured with Claude Code 2.1.318: text past roughly 3KB gets cut off.
 	t.true(workspaceInstructions('A-KEY-THAT-IS-LONG', 'repo').length < 3000);
-	t.true(workspaceInstructions(undefined, undefined).length < 3000);
+	t.true(
+		workspaceInstructions(undefined, 'repo', {sousChef: true}).length < 3000,
+	);
 });
 
 test('only a session in a space is told to keep a companion current', t => {
 	t.regex(workspaceInstructions('STA-1', 'repo'), /companion_run/);
 	t.notRegex(workspaceInstructions(undefined, 'repo'), /companion_run/);
 	t.regex(workspaceInstructions(undefined, 'repo'), /isn't in a space/);
+});
+
+test('only an opted-in session outside a space is told to coordinate', t => {
+	t.notRegex(workspaceInstructions(undefined, 'repo'), /Sous-chef mode/);
+	t.regex(
+		workspaceInstructions(undefined, 'repo', {sousChef: true}),
+		/Sous-chef mode is on/,
+	);
+	t.notRegex(
+		workspaceInstructions('STA-1', 'repo', {sousChef: true}),
+		/Sous-chef mode/,
+	);
 });

@@ -450,6 +450,10 @@ Available in all command templates, link URLs, and app paths:
 
 Profile `vars` keys also become template variables (e.g., `vars: { APP_DIR: "src" }` → `${APP_DIR}`).
 
+## Configuring Sous-Chef Mode
+
+`sous_chef: true` (top level, off by default) tells the agent in the main checkout that it coordinates the repo's spaces. Sessions inside a space are unaffected. The MCP server reads it when the agent starts, so the main checkout's agent needs a restart to pick up a change. Set it only when the user asks for sous-chef mode or a main session that watches the other spaces.
+
 ## Important Rules
 
 - **Always read the existing config before editing** — use the Read tool to get current state
