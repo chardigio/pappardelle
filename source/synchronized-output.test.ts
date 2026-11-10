@@ -24,9 +24,7 @@ import test from 'ava';
 import {
 	SYNC_TERMINAL_FEATURE,
 	enableInnerSynchronizedOutput,
-	innerTmuxArgs,
 	synchronizedOutputArgs,
-	type OuterTmuxRunner,
 } from './tmux.ts';
 
 const exec = promisify(execFile);
@@ -47,38 +45,27 @@ test('appends rather than assigns, so user-configured features survive', t => {
 	);
 });
 
-test('the inner-socket call routes through innerTmuxArgs (keeps the -L flag)', t => {
-	// The inner runner is the only thing that adds `-L pappardelle_inner`; this
-	// pins that the argv we hand it is the un-prefixed form it expects, so the
-	// socket flag can't end up doubled or missing.
-	const calls: Array<readonly string[]> = [];
-	enableInnerSynchronizedOutput(args => {
+test('the inner-socket call keeps the -L flag', async t => {
+	const calls: string[][] = [];
+	await enableInnerSynchronizedOutput(async args => {
 		calls.push(args);
-		return {status: 0, stdout: ''};
+		return '';
 	});
 
-	t.deepEqual(innerTmuxArgs(calls[0]!), [
-		'-L',
-		'pappardelle_inner',
-		...synchronizedOutputArgs(),
+	t.deepEqual(calls, [
+		['-L', 'pappardelle_inner', ...synchronizedOutputArgs()],
 	]);
 });
 
-test('a failing or throwing tmux never breaks layout setup', t => {
+test('a failing tmux never breaks layout setup', async t => {
 	// This runs inside setupPappardellLayout. Synchronized output is a rendering
 	// nicety; an old tmux that rejects the option must not cost the user their
 	// panes.
-	const failing: OuterTmuxRunner = () => ({status: 1, stdout: ''});
-	const throwing: OuterTmuxRunner = () => {
-		throw new Error('tmux not found');
-	};
-
-	t.notThrows(() => {
-		enableInnerSynchronizedOutput(failing);
-	});
-	t.notThrows(() => {
-		enableInnerSynchronizedOutput(throwing);
-	});
+	await t.notThrowsAsync(
+		enableInnerSynchronizedOutput(async () => {
+			throw new Error('tmux not found');
+		}),
+	);
 });
 
 test.serial(
@@ -140,7 +127,7 @@ test('setupPappardellLayout enables synchronized output on both sockets', t => {
 	// the call sites keeps them from being dropped in a future refactor of that
 	// function, which would bring the flicker back with no test failing.
 	const layoutBody = TMUX_SOURCE.slice(
-		TMUX_SOURCE.indexOf('export function setupPappardellLayout'),
+		TMUX_SOURCE.indexOf('export async function setupPappardellLayout'),
 	);
 	for (const call of [
 		'...synchronizedOutputArgs()',

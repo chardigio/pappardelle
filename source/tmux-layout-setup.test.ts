@@ -87,7 +87,7 @@ test.serial(
 		}
 
 		const {run, listPaneId} = await isolatedPane(t, 200);
-		const layout = setupPappardellLayout();
+		const layout = await setupPappardellLayout();
 		t.truthy(layout);
 		const {agentViewerPaneId, companionViewerPaneId} = layout!;
 		const panes = await run([
@@ -136,7 +136,7 @@ test.serial(
 		}
 
 		const {run, listPaneId} = await isolatedPane(t, 80);
-		const layout = setupPappardellLayout();
+		const layout = await setupPappardellLayout();
 		t.is(layout?.companionViewerPaneId, '');
 		const panes = await run([
 			'list-panes',

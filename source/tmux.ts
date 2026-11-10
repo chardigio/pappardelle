@@ -557,27 +557,28 @@ function windowChromeArgs(listPaneId: string): string[] {
 // because tmux drops the rest of a command list at the first error and
 // `spaces` only arrived in tmux 3.6. Older releases draw their dividers beside
 // the frames unless the lines are concealed.
-function hideDividers(listPaneId: string): void {
-	const spaces = spawnSync(
-		'tmux',
-		windowOptionArgs(listPaneId, 'pane-border-lines', 'spaces'),
-		{encoding: 'utf-8', timeout: 5000},
-	);
-	if (!spaces.error && spaces.status === 0) return;
-	log.info(
-		`Failed to set pane-border-lines on the layout window: ${spaces.stderr}`,
-	);
-	const hidden = spawnSync(
-		'tmux',
-		[
+async function hideDividers(listPaneId: string): Promise<void> {
+	try {
+		await runTmux(windowOptionArgs(listPaneId, 'pane-border-lines', 'spaces'));
+		return;
+	} catch (error) {
+		log.info(
+			`Failed to set pane-border-lines on the layout window: ${String(error)}`,
+		);
+	}
+
+	try {
+		await runTmux([
 			...windowOptionArgs(listPaneId, 'pane-border-style', 'hidden'),
 			';',
 			...windowOptionArgs(listPaneId, 'pane-active-border-style', 'hidden'),
-		],
-		{encoding: 'utf-8', timeout: 5000},
-	);
-	if (hidden.error || hidden.status !== 0)
-		log.warn(`Failed to hide the layout window's dividers: ${hidden.stderr}`);
+		]);
+	} catch (error) {
+		log.warn(
+			`Failed to hide the layout window's dividers`,
+			error instanceof Error ? error : undefined,
+		);
+	}
 }
 
 function windowOptionArgs(
@@ -1046,15 +1047,14 @@ export function synchronizedOutputArgs(): string[] {
  * The inner socket is a separate tmux server with its own option table.
  * `run` is exposed for tests only.
  */
-export function enableInnerSynchronizedOutput(
-	run: OuterTmuxRunner = defaultInnerTmuxRunner,
-): void {
+export async function enableInnerSynchronizedOutput(
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
 	try {
-		const {error, status} = run(synchronizedOutputArgs());
-		if (error || status !== 0)
-			log.debug('Could not enable synchronized output on inner socket');
+		await run(innerTmuxArgs(synchronizedOutputArgs()));
 	} catch {
 		// Purely a rendering nicety — never let it break layout setup.
+		log.debug('Could not enable synchronized output on inner socket');
 	}
 }
 
@@ -1590,12 +1590,10 @@ function currentPaneWidths(): PaneWidths {
  * Layout depends on screen width:
  * - Narrow screens (< 100 chars): Vertical layout [list on top] [agent below], no companion
  * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
+ *
+ * Asynchronous so the caller can load the renderer while tmux works.
  */
-export function setupPappardellLayout(): {
-	listPaneId: string;
-	agentViewerPaneId: string;
-	companionViewerPaneId: string;
-} | null {
+export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 	const done = startupTrace.current?.begin('layout-setup');
 	try {
 		// Get current pane from TMUX_PANE env var
@@ -1608,7 +1606,6 @@ export function setupPappardellLayout(): {
 
 		const cwd = process.cwd();
 
-		const geometryDone = startupTrace.current?.begin('setup-geometry');
 		// Before the splits the rail's own terminal is the whole pane.
 		const {columns, rows} = process.stdout;
 		const initial =
@@ -1618,13 +1615,14 @@ export function setupPappardellLayout(): {
 		const totalWidth = initial?.cols ?? 120;
 		const totalHeight = initial?.rows ?? 40;
 		const layout = calculateLayout(totalWidth, totalHeight);
-		geometryDone?.();
 
 		log.info(
 			`Terminal size: ${totalWidth}x${totalHeight}, layout: ${layout.direction}`,
 		);
 
-		const panesDone = startupTrace.current?.begin('setup-panes');
+		// A split makes its new pane the target of an untargeted command that
+		// follows it in the same list, which is how each pane gets its title
+		// before its id is known.
 		const split = (
 			direction: '-h' | '-v',
 			size: number | undefined,
@@ -1642,6 +1640,11 @@ export function setupPappardellLayout(): {
 			'-F',
 			'#{pane_id}',
 			awaitingFrameCommand(title),
+			';',
+			'set-option',
+			'-p',
+			PANE_TITLE_OPTION,
+			title,
 		];
 		const hasCompanion =
 			layout.direction !== 'vertical' &&
@@ -1670,11 +1673,32 @@ export function setupPappardellLayout(): {
 			);
 		}
 
-		const created = spawnSync('tmux', splits, {
-			encoding: 'utf-8',
-			timeout: 10_000,
-		});
-		const paneIds = (created.stdout ?? '').trim().split('\n').filter(Boolean);
+		// Ordered so the measurements are taken before the two server options,
+		// the likeliest to be refused.
+		const windowSetup = [
+			...paneTitleArgs(listPaneId, 'rail'),
+			';',
+			...windowChromeArgs(listPaneId),
+			';',
+			'select-pane',
+			'-t',
+			listPaneId,
+			';',
+			...paneGeometryArgs(listPaneId),
+			';',
+			...FOCUS_EVENTS_ARGS,
+			';',
+			...synchronizedOutputArgs(),
+		];
+
+		const panesDone = startupTrace.current?.begin('setup-panes');
+		const [created] = await Promise.all([
+			runSetup([...splits, ';', ...windowSetup]),
+			hideDividers(listPaneId),
+			enableInnerSynchronizedOutput(),
+		]);
+		const lines = created.stdout.trim().split('\n');
+		const paneIds = lines.filter(line => /^%\d+$/.test(line));
 		// tmux stops at the first split that fails, so a single id from two
 		// splits is the pane that was to be the companion. It hosts the agent.
 		const agentViewerPaneId = paneIds.at(-1);
@@ -1688,51 +1712,24 @@ export function setupPappardellLayout(): {
 		}
 
 		for (const paneId of paneIds) registerAwaitingFrame(paneId);
-		if (created.error || created.status !== 0)
-			log.error(`Failed to create companion viewer pane: ${created.stderr}`);
+		let geometry = lines.filter(line => !paneIds.includes(line)).join('\n');
+		if (!created.ok) {
+			// The list stopped part-way, so the window is set up on its own.
+			log.error(`Failed to create a viewer pane: ${created.stderr}`);
+			const retried = await runSetup(windowSetup);
+			geometry = retried.stdout;
+			if (!retried.ok)
+				log.warn(
+					`Failed to finish setting up the layout window: ${retried.stderr}`,
+				);
+		}
+
+		panesDone?.();
 		log.info(
 			layout.direction === 'vertical'
 				? `Vertical layout: list=${layout.listHeight} rows, agent=${layout.agentHeight} rows`
 				: `Horizontal layout: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
 		);
-		panesDone?.();
-
-		// One command list, ordered so the measurements are taken before the two
-		// server options, the likeliest to be refused.
-		const chromeDone = startupTrace.current?.begin('setup-chrome');
-		const chrome = spawnSync(
-			'tmux',
-			[
-				...paneTitleArgs(listPaneId, 'rail'),
-				';',
-				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
-				';',
-				...windowChromeArgs(listPaneId),
-				';',
-				'select-pane',
-				'-t',
-				listPaneId,
-				';',
-				...paneGeometryArgs(listPaneId),
-				';',
-				...FOCUS_EVENTS_ARGS,
-				';',
-				...synchronizedOutputArgs(),
-			],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		const chromeFailed = Boolean(chrome.error) || chrome.status !== 0;
-		if (chromeFailed)
-			log.warn(
-				`Failed to finish setting up the layout window: ${chrome.stderr}`,
-			);
-		hideDividers(listPaneId);
-		chromeDone?.(chromeFailed ? 'failed' : 'ok');
-
-		const syncDone = startupTrace.current?.begin('setup-sync-output');
-		enableInnerSynchronizedOutput();
-		syncDone?.();
-
 		log.info(
 			`Set up pappardelle layout: list=${listPaneId}, agent=${agentViewerPaneId}, companion=${
 				companionViewerPaneId || '(none)'
@@ -1741,7 +1738,7 @@ export function setupPappardellLayout(): {
 
 		try {
 			recordGeometry(
-				parseWindowGeometry(chrome.stdout ?? ''),
+				parseWindowGeometry(geometry),
 				listPaneId,
 				companionViewerPaneId,
 			);
@@ -1761,6 +1758,28 @@ export function setupPappardellLayout(): {
 		);
 		done?.('failed');
 		return null;
+	}
+}
+
+// A command list that stops part-way has still printed what its earlier
+// commands had to say, which the caller needs.
+async function runSetup(
+	args: string[],
+): Promise<{ok: boolean; stdout: string; stderr: string}> {
+	try {
+		const {stdout, stderr} = await execFileAsync('tmux', args, {
+			cwd: TMUX_SERVER_CWD,
+			encoding: 'utf-8',
+			timeout: 10_000,
+		});
+		return {ok: true, stdout, stderr};
+	} catch (error) {
+		const failed = error as {stdout?: string; stderr?: string};
+		return {
+			ok: false,
+			stdout: failed.stdout ?? '',
+			stderr: failed.stderr ?? String(error),
+		};
 	}
 }
 

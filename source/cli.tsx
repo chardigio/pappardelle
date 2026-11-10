@@ -487,23 +487,12 @@ const firstRailPaint = new Promise<void>(resolve => {
 	finishFirstRailPaint = resolve;
 });
 
+// tmux splits the panes while the renderer's modules load below.
+let layoutSetup: ReturnType<typeof setupPappardellLayout> | undefined;
 if (isInTmux() && cli.flags.layout) {
 	maintainSessions();
-	paneLayout = setupPappardellLayout();
-	if (!paneLayout) {
-		console.error(
-			'\x1b[33mWarning: Failed to set up tmux pane layout. Running in standalone mode.\x1b[0m',
-		);
-	}
+	layoutSetup = setupPappardellLayout();
 }
-
-// OpenTUI owns terminal modes and restores them during renderer teardown.
-setStderrTerminalPassthrough(false);
-process.on('exit', () => {
-	setStderrTerminalPassthrough(true);
-	// OpenTUI turns on grapheme clustering (mode 2027) and leaves it on at exit.
-	if (process.stdout.isTTY) process.stdout.write('\u001B[?2027l');
-});
 
 function readDisplayMetadata() {
 	// Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
@@ -556,6 +545,23 @@ const [{renderTui, rendererExitSignals}, {default: App, quitTui}] =
 		},
 	);
 importsDone?.();
+if (layoutSetup) {
+	paneLayout = await layoutSetup;
+	if (!paneLayout) {
+		console.error(
+			'\x1b[33mWarning: Failed to set up tmux pane layout. Running in standalone mode.\x1b[0m',
+		);
+	}
+}
+
+// OpenTUI owns terminal modes and restores them during renderer teardown.
+setStderrTerminalPassthrough(false);
+process.on('exit', () => {
+	setStderrTerminalPassthrough(true);
+	// OpenTUI turns on grapheme clustering (mode 2027) and leaves it on at exit.
+	if (process.stdout.isTTY) process.stdout.write('\u001B[?2027l');
+});
+
 const rendererDone = startupTrace.current?.begin('renderer');
 let railPainted = false;
 function finishStartup() {
