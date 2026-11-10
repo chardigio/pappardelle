@@ -3696,6 +3696,18 @@ test('getIssueWatchlist returns key_prefixes when configured', t => {
 	t.deepEqual(watchlist!.key_prefixes, ['STA']);
 });
 
+test('validateConfig rejects sous_chef with a non-boolean value', t => {
+	const raw = {
+		version: 1,
+		profiles: {test: {display_name: 'Test'}},
+		sous_chef: 'on',
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('sous_chef: must be a boolean'));
+});
+
 // ============================================================================
 // auto_remove_when_done Validation Tests
 // ============================================================================

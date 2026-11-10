@@ -385,6 +385,11 @@ export interface PappardelleConfig {
 	 */
 	sous_chef_key?: string | false;
 	/**
+	 * When true, an agent session in the repo but outside any space (the
+	 * main checkout's) is told it coordinates the other spaces. Off by default.
+	 */
+	sous_chef?: boolean;
+	/**
 	 * Optional per-status color overrides for the ticket rail, keyed by issue
 	 * status name (case-insensitive, surrounding space ignored). A listed status
 	 * is painted with this color instead of the color the tracker reports, which
@@ -1465,6 +1470,9 @@ export function validateConfig(
 		(typeof sousChefKey !== 'string' || sousChefKey.trim() === '')
 	) {
 		errors.push('sous_chef_key: must be a tmux key name or false');
+	}
+	if (cfg['sous_chef'] !== undefined && typeof cfg['sous_chef'] !== 'boolean') {
+		errors.push('sous_chef: must be a boolean');
 	}
 
 	// Check list_view (optional; an absent layout defers to the tracker default)

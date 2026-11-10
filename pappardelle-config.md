@@ -1096,6 +1096,23 @@ sous_chef_key?: string | false;
 - If Pappardelle is killed without a clean exit while running inside a window of your own tmux session, the key stays bound in that window until Pappardelle runs there again or the window closes
 - `pappardelle highlight main --focus` does the same from a script
 
+## Sous-Chef Mode
+
+The top-level `sous_chef` flag tells the agent in the main checkout that it coordinates the repo's spaces. Off by default.
+
+```yaml
+sous_chef: true # default: false
+```
+
+```typescript
+sous_chef?: boolean;
+```
+
+- With it on, the pappardelle MCP server's instructions to a session in the repo but outside any space say to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
+- Sessions inside a space are not affected
+- `/sous-chef` still loads the full routine. The flag only tells the session its role before you run it
+- The MCP server reads the flag when the agent starts, so restart the main checkout's agent after changing it
+
 ## Issue Status Colors
 
 The ticket rail paints an issue key with the exact color the tracker reports for that issue's status. The top-level `state_colors` map replaces that color for the statuses it lists. This matters most on Jira, where one color often covers several statuses ("In Progress" and "In Review" are the usual pair) and the rail cannot tell them apart.
