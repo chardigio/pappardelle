@@ -23,6 +23,8 @@ export const PANE_NAME_RULE =
 
 export type SplitDirection = 'right' | 'down';
 
+export const DEFAULT_SPLIT: SplitDirection = 'down';
+
 export function isSplitDirection(value: unknown): value is SplitDirection {
 	return value === 'right' || value === 'down';
 }
@@ -58,26 +60,44 @@ export type CompanionSplit = {
 	startCommand: string;
 };
 
-export const SPLIT_LIST_FORMAT = [
+/** The session options a split's arrangement is kept in. */
+export const SPLIT_OPTION = {
+	split: '@pappa_split',
+	size: '@pappa_size',
+	order: '@pappa_order',
+	/** On the companion session: its configured splits were started. */
+	seeded: '@pappa_splits_seeded',
+} as const;
+
+const LIST_FIELDS = [
 	'#{session_name}',
-	'#{@pappa_split}',
-	'#{@pappa_size}',
-	'#{@pappa_order}',
+	`#{${SPLIT_OPTION.split}}`,
+	`#{${SPLIT_OPTION.size}}`,
+	`#{${SPLIT_OPTION.order}}`,
 	'#{pane_id}',
 	'#{pane_current_command}',
 	'#{pane_width}',
 	'#{pane_height}',
 	'#{session_attached}',
-	'#{@pappa_splits_seeded}',
+	`#{${SPLIT_OPTION.seeded}}`,
 	'#{pane_start_command}',
-].join('\t');
+];
 
-/** The splits of one companion session, from list-sessions in SPLIT_LIST_FORMAT. */
-export function parseSplitList(
+export const SPLIT_LIST_FORMAT = LIST_FIELDS.join('\t');
+
+export type CompanionListing = {
+	/** The companion session itself, or null when it isn't running. */
+	companion: {seeded: boolean} | null;
+	splits: CompanionSplit[];
+};
+
+/** One companion's session and its splits, from list-sessions in SPLIT_LIST_FORMAT. */
+export function parseCompanionListing(
 	stdout: string,
 	companionSession: string,
-): CompanionSplit[] {
+): CompanionListing {
 	const prefix = splitSessionName(companionSession, '');
+	let companion: CompanionListing['companion'] = null;
 	const splits: CompanionSplit[] = [];
 	for (const line of stdout.split('\n')) {
 		const [
@@ -90,9 +110,10 @@ export function parseSplitList(
 			width,
 			height,
 			attached,
-			_seeded,
+			seeded,
 			...start
 		] = line.split('\t');
+		if (session === companionSession) companion = {seeded: Boolean(seeded)};
 		if (!session?.startsWith(prefix) || !isSplitDirection(split)) continue;
 		splits.push({
 			name: session.slice(prefix.length),
@@ -109,23 +130,23 @@ export function parseSplitList(
 		});
 	}
 
-	return splits.sort(
-		(a, b) => a.order - b.order || a.name.localeCompare(b.name),
-	);
+	splits.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+	return {companion, splits};
 }
 
-/**
- * Whether the configured splits were started for this companion session
- * already, from the same list-sessions output as `parseSplitList`.
- */
-export function splitsSeeded(
-	stdout: string,
-	companionSession: string,
-): boolean {
-	return stdout.split('\n').some(line => {
-		const fields = line.split('\t');
-		return fields[0] === companionSession && Boolean(fields[9]);
-	});
+/** `set-option` for one of a split's options. */
+export function splitOptionArgs(
+	session: string,
+	name: keyof typeof SPLIT_OPTION,
+	value: string | number,
+): string[] {
+	return [
+		'set-option',
+		'-t',
+		`=${session}:`,
+		SPLIT_OPTION[name],
+		String(value),
+	];
 }
 
 /**

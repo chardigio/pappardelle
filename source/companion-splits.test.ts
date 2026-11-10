@@ -1,7 +1,7 @@
 import test from 'ava';
 import {
 	MIN_MAIN_PANE,
-	parseSplitList,
+	parseCompanionListing,
 	splitSignature,
 	splitTargets,
 } from './companion-splits.ts';
@@ -82,7 +82,9 @@ const listing = [
 	.join('\n');
 
 test('splits are read for their own companion only, in the order they were made', t => {
-	const splits = parseSplitList(listing, 'companion-r-K');
+	const {companion, splits} = parseCompanionListing(listing, 'companion-r-K');
+	t.deepEqual(companion, {seeded: true});
+	t.is(parseCompanionListing(listing, 'companion-r-X').companion, null);
 	t.deepEqual(
 		splits.map(split => [split.name, split.split, split.size, split.shown]),
 		[
@@ -93,7 +95,7 @@ test('splits are read for their own companion only, in the order they were made'
 });
 
 test('the signature follows names, directions and order, not sizes or creation times', t => {
-	const splits = parseSplitList(listing, 'companion-r-K');
+	const {splits} = parseCompanionListing(listing, 'companion-r-K');
 	const resized = splits.map(split => ({
 		...split,
 		size: 9,

@@ -18,6 +18,7 @@ import {
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import {isPaneWidth, type PaneWidth, type PaneWidths} from './layout-sizing.ts';
 import {
+	DEFAULT_SPLIT,
 	isPaneName,
 	isSplitDirection,
 	MAIN_PANE,
@@ -3468,7 +3469,7 @@ export function getCompanionSplits(
 ): ResolvedCompanionSplit[] {
 	const profile = selectProfile(config, issueTitle, profileName);
 	const splits = profile?.companion_splits ?? config.companion_splits ?? [];
-	return splits.map(split => ({...split, split: split.split ?? 'down'}));
+	return splits.map(split => ({...split, split: split.split ?? DEFAULT_SPLIT}));
 }
 
 // eslint-disable-next-line no-template-curly-in-string

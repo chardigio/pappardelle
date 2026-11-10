@@ -7,6 +7,7 @@
 
 import {randomUUID} from 'node:crypto';
 import {
+	existsSync,
 	mkdirSync,
 	readFileSync,
 	renameSync,
@@ -136,11 +137,16 @@ function readAck(
 	return parsed?.id === id ? parsed : null;
 }
 
+/**
+ * Answer a request, unless the CLI stopped waiting and removed it: an answer
+ * nobody reads would stay on disk.
+ */
 export function writeLayoutAck(
 	repoName: string,
 	ack: LayoutAck,
 	baseDir?: string,
 ): void {
+	if (!existsSync(requestPath(ack.id, repoName, baseDir))) return;
 	writeJsonAtomic(ackPath(ack.id, repoName, baseDir), ack);
 }
 
@@ -160,14 +166,17 @@ export function watchLayoutRequests(
 	return () => watcher.close();
 }
 
-export type LayoutOutcome =
-	| {outcome: 'applied'; columns?: number}
+type Unapplied =
 	| {outcome: 'stored'}
 	| {outcome: 'no-pane'}
 	| {outcome: 'deferred'}
 	| {outcome: 'failed'}
 	| {outcome: 'no-ack'}
 	| {outcome: 'no-tui'};
+
+export type LayoutOutcome = {outcome: 'applied'} | Unapplied;
+
+export type WidthOutcome = {outcome: 'applied'; columns: number} | Unapplied;
 
 type RequestTiming = {
 	baseDir?: string;
@@ -181,14 +190,14 @@ type RequestTiming = {
  * A busy machine can drop the file event, so the request is written again
  * after each wait; the TUI answers an id once.
  */
-export async function requestCompanionLayout(
+async function requestOfTui(
 	options: {
 		repoName: string;
 		space: string;
 		kind: LayoutRequest['kind'];
 		tuiIsRunning: () => boolean;
 	} & RequestTiming,
-): Promise<LayoutOutcome> {
+): Promise<LayoutAck | Extract<Unapplied, {outcome: 'no-ack' | 'no-tui'}>> {
 	const {repoName, space, kind, baseDir} = options;
 	if (!options.tuiIsRunning()) return {outcome: 'no-tui'};
 
@@ -202,14 +211,7 @@ export async function requestCompanionLayout(
 			const deadline = Date.now() + attemptMs;
 			while (Date.now() < deadline) {
 				const ack = readAck(id, repoName, baseDir);
-				if (ack) {
-					if (ack.result !== 'applied') return {outcome: ack.result};
-					if (kind === 'layout') return {outcome: 'applied'};
-					return typeof ack.columns === 'number'
-						? {outcome: 'applied', columns: ack.columns}
-						: {outcome: 'failed'};
-				}
-
+				if (ack) return ack;
 				await delay(pollMs);
 			}
 		}
@@ -221,6 +223,27 @@ export async function requestCompanionLayout(
 	}
 }
 
+/**
+ * Ask the TUI to show a space's splits again after one was opened, resized
+ * or closed. Opening a split waits for its frame to start, so this waits
+ * longer than a width request.
+ */
+export async function requestCompanionLayout(
+	options: {
+		repoName: string;
+		space: string;
+		tuiIsRunning: () => boolean;
+	} & RequestTiming,
+): Promise<LayoutOutcome> {
+	const answer = await requestOfTui({
+		attempts: 5,
+		...options,
+		kind: 'layout',
+	});
+	if ('outcome' in answer) return answer;
+	return {outcome: answer.result};
+}
+
 /** Store the width, then ask a running TUI to apply it. */
 export async function requestCompanionWidth(
 	options: {
@@ -229,12 +252,17 @@ export async function requestCompanionWidth(
 		width: PaneWidth | null;
 		tuiIsRunning: () => boolean;
 	} & RequestTiming,
-): Promise<LayoutOutcome> {
+): Promise<WidthOutcome> {
 	await setCompanionWidth(
 		options.repoName,
 		options.space,
 		options.width,
 		options.baseDir,
 	);
-	return requestCompanionLayout({...options, kind: 'width'});
+	const answer = await requestOfTui({...options, kind: 'width'});
+	if ('outcome' in answer) return answer;
+	if (answer.result !== 'applied') return {outcome: answer.result};
+	return typeof answer.columns === 'number'
+		? {outcome: 'applied', columns: answer.columns}
+		: {outcome: 'failed'};
 }
