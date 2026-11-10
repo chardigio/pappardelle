@@ -1,0 +1,45 @@
+
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.321
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mSonnet 5.5 · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/q-a/qa-prompts-repo · [0m[92m]8;id=60m6lm;https://claude.ai/code/session_x?from=cli\/rc[39m]8;;\            
+
+
+[37m[100m❯ [97mUse the AskUserQuestion tool once, with two questions in the same call: my favorite color (options Red, Blue, Green) [39m 
+  [97mand my favorite fruit (options Apple, Banana, Cherry).[39m                                                                
+
+[37m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m←  ☒ Color  ☒ Fruit [30m[104m ✔ Submit [37m[49m →
+
+[1m[97mReview your answers
+
+[0m ● What is your favorite color?
+   [92m→ Blue[39m  
+ ● What is your favorite fruit?
+   [92m→ Banana
+[39m           
+[37mReady to submit your answers?
+
+[94m❯[39m [2m[37m1. [0m[94mSubmit answers[39m 
+  [2m[37m2. [0mCancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                        
+
+
+
+                                                                                                                      
+                               

@@ -128,7 +128,7 @@ test('the input box is empty under its dim placeholder and holds a typed draft',
 
 test("a Codex dialog holds the keyboard, so there's no composer to read", t => {
 	const wide = screen('codex-limit-wide');
-	t.deepEqual(wide.codexDialog, {
+	t.like(wide.codexDialog, {
 		kind: 'model_switch',
 		title: 'Switch to gpt-6-luna for lower credit usage?',
 	});
@@ -206,4 +206,34 @@ test("a question dialog's Submit step is still a question", t => {
 test('the first seconds of a Claude turn, before its timer shows, are working', t => {
 	t.true(parseAgentScreen('· Warping…', NOW).spinner);
 	t.false(parseAgentScreen('✻ Cogitated for 17s · done 7:32 AM', NOW).spinner);
+});
+
+test("a Codex dialog's title is its bold heading, and the highlight is the option Enter takes", t => {
+	t.deepEqual(screen('codex-trust').codexDialog, {
+		kind: 'other',
+		title: 'Folder access',
+		options: 2,
+		selected: 1,
+	});
+	t.like(screen('codex-trust-down').codexDialog, {selected: 2});
+	t.like(screen('codex-hooks-review-offer').codexDialog, {
+		title: 'Hooks need review',
+		options: 3,
+		selected: 1,
+	});
+});
+
+test("Codex's hooks table is a dialog, not a draft", t => {
+	const hooks = screen('codex-hooks');
+	t.deepEqual(hooks.codexDialog, {
+		kind: 'other',
+		title: 'Hooks',
+		options: 0,
+		selected: null,
+	});
+	t.is(hooks.composer, null);
+});
+
+test("the Submit step's tabs come from its tab bar, not the answers above the question", t => {
+	t.deepEqual(screen('claude-submit').question?.tabs, ['Color', 'Fruit']);
 });
