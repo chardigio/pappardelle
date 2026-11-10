@@ -18,25 +18,26 @@ Enter also read the match list from the last render. A character and Enter arriv
 - Search keys act on the current query and highlight instead of the last render, so several keys in one write each see what the previous one did. Text typed before the search row is drawn is added to the query
 - Enter selects the highlighted workspace by name, not by a row index translated around the pending row
 - The query is matched the way the agent and profile popups match theirs (`rankByFuzzyMatch`): its characters must appear in order in the key or in the title, spaces ignored, and the tightest match is listed first. `fx lgn` finds "Fix the login redirect". Before, the query had to appear as one unbroken string and matches kept the rail's order
+- Escape is acted on as it arrives. The renderer's input parser holds a lone Escape byte for 20 ms in case an escape sequence follows, and the wait is a literal inside OpenTUI. tmux has already made that call and writes each key to a pane whole, so inside tmux the rail and the popups treat a read of just the Escape byte as the key and drop the parser's late copy (`source/lone-escape.ts`)
 
 ## Measurements
 
-Isolated Linux fixture (`scripts/benchmarks/workspace-ready.py --search typed burst --filter-cycles 2`), three workspaces, 24 alternating launches per build at 80, 100 and 160 columns. Before is the branch at `f8e56c5`. Medians in milliseconds with the range in brackets; each includes about 10 ms of observer overhead (a `send-keys` process and `capture-pane` polling).
+Isolated Linux fixture (`scripts/benchmarks/workspace-ready.py --search typed burst --filter-cycles 2`), three workspaces, 24 alternating launches per build at 80, 100 and 160 columns. Before is the branch at `f8e56c5`, after is `78d13b6`. Medians in milliseconds with the range in brackets; each includes about 10 ms of observer overhead (a `send-keys` process and `capture-pane` polling).
 
 | Step                                                | Before        | After         |
 | --------------------------------------------------- | ------------- | ------------- |
-| `/` to search row visible                           | 25 [24-27]    | 11 [10-12]    |
-| Four typed characters to the single match shown     | 15 [14-17]    | 15 [14-19]    |
+| `/` to search row visible                           | 25 [24-26]    | 11 [10-12]    |
+| Four typed characters to the single match shown     | 15 [14-16]    | 15 [14-16]    |
 | Window zoomed while searching                       | 24 of 24      | 0 of 24       |
 | `/`, query and Enter sent at once selects the match | 0 of 24       | 24 of 24      |
-| Escape to list restored                             | 31-44 [30-49] | 30 [30-37]    |
-| Enter to the selected workspace's programs visible  | 41-47 [40-49] | 48-53 [47-59] |
+| Escape to list restored                             | 31-44 [30-45] | 17 [10-19]    |
+| Enter to the selected workspace's programs visible  | 41-46 [35-53] | 47-52 [46-57] |
 
 The fixture's panes hold programs that redraw instantly, so the zoom cost here (about 14 ms on opening) is a floor. With real agents each zoom resizes every viewer pane and waits for them to redraw.
 
-The last row is not a regression in what the user sees. Before, the programs were drawn into panes still hidden behind the zoomed rail, which `capture-pane` reports as visible. After, the figure matches an ordinary `j` switch on the same build (46-49 ms).
+The last row is not a regression in what the user sees. Before, the programs were drawn into panes still hidden behind the zoomed rail, which `capture-pane` reports as visible. After, the figure matches an ordinary `j` switch (46-49 ms, measured at `f137f5c`).
 
 ## What is left
 
-- Escape takes about 30 ms: tmux holds a lone Escape for its `escape-time` (10 ms by default) and the renderer's input parser holds it for another 20 ms to tell it from the start of an escape sequence. The parser's wait is fixed inside OpenTUI
-- Enter immediately after a typed character waits for the rail's next frame, up to 16 ms at its 60 frames a second. The fixture presses Enter the moment the match appears and measures 17 ms; with an 80 ms pause before Enter it measures 11 ms, the observer's floor
+- A key pressed just after the rail drew a frame waits for the next one, up to 16 ms at the rail's 60 frames a second. The fixture presses Escape and Enter the moment the previous step appears and measures 17 ms for both; with an 80 ms pause before Enter it measures 11 ms, the observer's floor. Tracked as `pappardelle-3wf.37`
+- The fixture sends keys with `send-keys`, which skips tmux's `escape-time`. A real Escape keypress first waits that out in the server the rail runs in (10 ms by default); `set -s escape-time 0` in the user's tmux configuration removes it
