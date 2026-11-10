@@ -1,7 +1,12 @@
 import {parseArgs} from 'node:util';
-import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
+import {
+	isPaneName,
+	MAIN_PANE,
+	PANE_NAME_RULE,
+	type SplitDirection,
+} from './companion-splits.ts';
+import {parsePaneWidth, type PaneWidth} from './layout-sizing.ts';
 import {shellQuote} from './shell-quote.ts';
-import {MAIN_PANE} from './tmux.ts';
 
 export const COMPANION_VERBS = [
 	'run',
@@ -15,15 +20,13 @@ export const COMPANION_VERBS = [
 
 export type CompanionVerb = (typeof COMPANION_VERBS)[number];
 
-export type SplitDirection = 'right' | 'down';
-
 export type CompanionCommand =
 	| {
 			verb: 'run';
 			space?: string;
 			pane: string;
 			split: SplitDirection;
-			size?: string;
+			size?: PaneWidth;
 			command: string;
 	  }
 	| {
@@ -35,13 +38,7 @@ export type CompanionCommand =
 			text?: string;
 	  }
 	| {verb: 'read'; space?: string; pane: string; lines: number}
-	| {
-			verb: 'resize';
-			space?: string;
-			pane: string;
-			width?: string;
-			height?: string;
-	  }
+	| {verb: 'resize'; space?: string; pane: string; size: PaneWidth}
 	| {verb: 'close'; space?: string; pane: string}
 	| {verb: 'list'; space?: string; json: boolean}
 	| {verb: 'width'; space?: string; width: PaneWidth | 'reset'}
@@ -55,7 +52,7 @@ const companionHelp = `
 	  $ pappardelle companion run    [--pane NAME] [--split right|down] [--size N|N%] -- <command...>
 	  $ pappardelle companion keys   [--pane NAME] [--no-enter] [--keys KEY]... [text]
 	  $ pappardelle companion read   [--pane NAME] [--lines N]
-	  $ pappardelle companion resize NAME [--width N|N%] [--height N|N%]
+	  $ pappardelle companion resize NAME --size N|N%
 	  $ pappardelle companion close  NAME
 	  $ pappardelle companion list   [--json]
 	  $ pappardelle companion width  <N|N%|reset>
@@ -72,13 +69,18 @@ const companionHelp = `
 	A single command argument runs as a shell command line, so pipes work
 	(\`run -- 'make 2>&1 | less'\`). Several arguments are quoted one by one.
 
+	Pane names are lowercase letters, digits and dashes. Each pane other than
+	main is a tmux session of its own, which the TUI shows in a framed pane
+	of its own beside the companion. --size counts that whole pane, frame
+	included, in cells or as a percentage of the companion column.
+
 	Commands
 	  run     Run a command in pane NAME (default main). An existing pane is
 	          restarted with the command; a missing one is split off main
 	  keys    Type text into a pane and press Enter (--no-enter skips it),
 	          or send tmux key names such as Escape, C-c, q with --keys
 	  read    Print the last N lines of a pane (default 50)
-	  resize  Resize pane NAME
+	  resize  Resize pane NAME along the way it was split
 	  close   Close pane NAME. main can't be closed; run something else in it
 	  list    List the companion's panes
 	  width   Set this space's companion column width in the TUI, or reset it
@@ -115,16 +117,26 @@ function withUsageError<T>(verb: string, parse: () => T): T {
 	}
 }
 
-const SIZE_PATTERN = /^\d+%?$/;
-
 function checkSize(
 	flag: string,
 	value: string | undefined,
-): string | undefined {
+): PaneWidth | undefined {
 	if (value === undefined) return undefined;
-	if (!SIZE_PATTERN.test(value) || /^0+%?$/.test(value)) {
+	const size = parsePaneWidth(value);
+	if (size === null) {
 		throw new CompanionUsageError(
 			`${flag} takes a positive number of cells or a percentage, such as 20 or 30%`,
+		);
+	}
+
+	return size;
+}
+
+function paneName(value: string | undefined): string {
+	if (value === undefined) return MAIN_PANE;
+	if (!isPaneName(value)) {
+		throw new CompanionUsageError(
+			`Pane name ${JSON.stringify(value)} must be ${PANE_NAME_RULE}`,
 		);
 	}
 
@@ -136,14 +148,13 @@ function onePane(verb: string, positionals: string[]): string {
 		throw new CompanionUsageError(`Usage: pappardelle companion ${verb} NAME`);
 	}
 
-	return positionals[0]!;
+	return paneName(positionals[0]);
 }
 
 function parseWidth(value: string | undefined): PaneWidth | 'reset' {
 	if (value === 'reset') return 'reset';
-	const width: unknown =
-		value !== undefined && /^\d+$/.test(value) ? Number(value) : value;
-	if (!isPaneWidth(width)) {
+	const width = value === undefined ? null : parsePaneWidth(value);
+	if (width === null) {
 		throw new CompanionUsageError(
 			'Usage: pappardelle companion width <N|N%|reset>',
 		);
@@ -214,7 +225,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 			return {
 				verb,
 				space: values.space,
-				pane: values.pane ?? MAIN_PANE,
+				pane: paneName(values.pane),
 				split,
 				size: checkSize('--size', values.size),
 				command: commandFromArgs(commandArgs),
@@ -246,7 +257,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 			return {
 				verb,
 				space: values.space,
-				pane: values.pane ?? MAIN_PANE,
+				pane: paneName(values.pane),
 				enter: !values['no-enter'],
 				keys,
 				text: words.length > 0 ? words.join(' ') : undefined,
@@ -279,7 +290,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 				throw new CompanionUsageError('--lines takes a positive number');
 			}
 
-			return {verb, space: values.space, pane: values.pane ?? MAIN_PANE, lines};
+			return {verb, space: values.space, pane: paneName(values.pane), lines};
 		}
 
 		case 'resize': {
@@ -291,17 +302,15 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 					options: {
 						...helpOption,
 						...spaceOption,
-						width: {type: 'string'},
-						height: {type: 'string'},
+						size: {type: 'string'},
 					},
 				}),
 			);
 			if (values.help) return {verb: 'help', text: companionHelp};
-			const width = checkSize('--width', values.width);
-			const height = checkSize('--height', values.height);
-			if (width === undefined && height === undefined) {
+			const size = checkSize('--size', values.size);
+			if (size === undefined) {
 				throw new CompanionUsageError(
-					'Usage: pappardelle companion resize NAME [--width N|N%] [--height N|N%]',
+					'Usage: pappardelle companion resize NAME --size N|N%',
 				);
 			}
 
@@ -309,8 +318,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 				verb,
 				space: values.space,
 				pane: onePane(verb, [...positionals, ...(afterDash ?? [])]),
-				width,
-				height,
+				size,
 			};
 		}
 

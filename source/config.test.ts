@@ -23,6 +23,7 @@ import {
 	getListLayout,
 	getPaneWidths,
 	getCompanionCommand,
+	getCompanionSplits,
 	getIdeCommand,
 	getStateColors,
 	DEFAULT_COMPANION_COMMAND,
@@ -3848,6 +3849,79 @@ test('validateConfig rejects a non-string per-profile companion_command', t => {
 // ============================================================================
 // getCompanionCommand Tests
 // ============================================================================
+
+test('companion_splits: a matched profile replaces the top-level list, and split defaults to down', t => {
+	const config = createConfig(
+		{
+			backend: {
+				...createProfile(['backend'], 'Backend'),
+				companion_splits: [{name: 'api', command: 'make run', size: 40}],
+			},
+			web: createProfile(['web'], 'Web'),
+		},
+		'web',
+	);
+	config.companion_splits = [
+		{name: 'tests', command: 'bun test --watch', split: 'right', size: '30%'},
+	];
+	t.deepEqual(getCompanionSplits(config, 'fix backend timeout'), [
+		{name: 'api', command: 'make run', size: 40, split: 'down'},
+	]);
+	t.deepEqual(getCompanionSplits(config, 'web tweak'), [
+		{name: 'tests', command: 'bun test --watch', split: 'right', size: '30%'},
+	]);
+	t.deepEqual(getCompanionSplits(createConfig({}, undefined)), []);
+});
+
+test('validateConfig checks each companion split', t => {
+	const validate =
+		(splits: unknown, inProfile = false) =>
+		() => {
+			validateConfig({
+				version: 1,
+				profiles: {
+					test: {
+						display_name: 'Test',
+						...(inProfile ? {companion_splits: splits} : {}),
+					},
+				},
+				...(inProfile ? {} : {companion_splits: splits}),
+			});
+		};
+
+	t.notThrows(
+		validate([
+			{name: 'tests', command: 'bun test', split: 'down', size: '30%'},
+			{name: 'logs-2', command: 'tail -f log', size: 12},
+		]),
+	);
+	for (const [splits, message] of [
+		[{name: 'x'}, 'companion_splits: must be a list'],
+		[[{name: 'Tests', command: 'x'}], 'companion_splits[0].name'],
+		[[{name: 'main', command: 'x'}], 'not main'],
+		[[{name: 'a~b', command: 'x'}], 'companion_splits[0].name'],
+		[
+			[
+				{name: 'a', command: 'x'},
+				{name: 'a', command: 'y'},
+			],
+			'a is listed twice',
+		],
+		[[{name: 'a'}], 'companion_splits[0].command'],
+		[[{name: 'a', command: 'x', split: 'left'}], 'right or down'],
+		[[{name: 'a', command: 'x', size: '30'}], 'companion_splits[0].size'],
+	] as const) {
+		const error = t.throws(validate(splits), {
+			instanceOf: ConfigValidationError,
+		});
+		t.true(String(error?.message).includes(message));
+	}
+
+	const error = t.throws(validate([{name: 'A', command: 'x'}], true), {
+		instanceOf: ConfigValidationError,
+	});
+	t.true(error?.message.includes('profiles.test.companion_splits[0].name'));
+});
 
 test('getCompanionCommand defaults to gitui when nothing is configured', t => {
 	const config = createConfig(

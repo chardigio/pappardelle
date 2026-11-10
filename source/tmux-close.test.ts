@@ -77,8 +77,10 @@ test('a failed session kill does not schedule simulator cleanup', async t => {
 		},
 	});
 	t.false(result);
-	t.is(calls.length, 1);
-	t.true(calls[0]!.includes('=companion-fixture-A:'));
+	// The companion's splits are listed first, then the companion is killed.
+	t.is(calls.length, 2);
+	t.true(calls[0]!.includes('list-sessions'));
+	t.true(calls[1]!.includes('=companion-fixture-A:'));
 });
 
 test('successful session close returns while simulator cleanup is still pending', async t => {

@@ -59,14 +59,17 @@ test('innerTmuxArgs does not mutate the input array', t => {
 // If a future patch adds a call site that forgets the socket, these tests fail.
 // ============================================================================
 
+// The companion and its splits share one new-session builder, which the
+// companion runs through innerTmuxArgs and a split through the inner runner.
+const COMPANION_BUILDER =
+	/function companionSessionArgs\([^]*?\n}\n/.exec(TMUX_SOURCE)?.[0] ?? '';
+
 test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
-	// The two call sites that create claude/companion sessions (ensureAgentSession
-	// and ensureCompanionSession) both call innerTmuxArgs with 'new-session'.
-	const matches =
-		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"]/g) ?? [];
-	t.true(
-		matches.length >= 2,
-		`expected >=2 innerTmuxArgs(['new-session', ...]) call sites, got ${matches.length}`,
+	t.regex(TMUX_SOURCE, /innerTmuxArgs\(\[\s*['"]new-session['"]/);
+	t.regex(TMUX_SOURCE, /innerTmuxArgs\(\s*companionSessionArgs\(/);
+	t.regex(
+		TMUX_SOURCE,
+		/runner = options\.runner \?\? defaultInnerTmuxRunner;[^]*?companionSessionArgs\(/,
 	);
 });
 
@@ -75,15 +78,13 @@ test('every per-issue new-session carries the space session environment', t => {
 	// PAPPARDELLE_SPACE, so a session the TUI makes must carry it just like one
 	// start-agent-session.sh makes. Without it, the fix from
 	// chardigio/pappardelle#22 holds only until the next reboot.
-	const calls =
+	const agent =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"][^\]]*\]/g) ?? [];
-	t.true(calls.length >= 2);
-	for (const call of calls) {
-		t.true(
-			call.includes('...spaceSessionEnvArgs(issueKey)'),
-			`new-session without the space env: ${call}`,
-		);
-	}
+	t.is(agent.length, 1);
+	t.true(agent[0]!.includes('...spaceSessionEnvArgs(issueKey)'));
+	t.true(
+		COMPANION_BUILDER.includes('...spaceSessionEnvArgs(issueKey, repoName)'),
+	);
 });
 
 test('companion session launches the configurable command, never a hardcoded git UI', t => {
@@ -92,9 +93,10 @@ test('companion session launches the configurable command, never a hardcoded git
 	// that reintroduces a literal `lazygit`/`gitui` invocation here.
 	t.regex(
 		TMUX_SOURCE,
-		/buildShellLaunchArgs\(companionCommand\)/,
+		/companionSessionArgs\(\s*issueKey,\s*sessionName,\s*worktreePath,\s*companionCommand,?\s*\)/,
 		'ensureCompanionSession must launch the companionCommand variable',
 	);
+	t.regex(COMPANION_BUILDER, /buildShellLaunchArgs\(command\)/);
 	t.notRegex(
 		TMUX_SOURCE,
 		/GIT_OPTIONAL_LOCKS=0 (lazygit|gitui)/,
@@ -106,9 +108,9 @@ test('companion session launches nothing when the command is empty (plain shell)
 	// An empty companion_command means "leave a plain shell", so the session
 	// must be created with tmux's default shell rather than a launch wrapper.
 	t.regex(
-		TMUX_SOURCE,
-		/companionCommand\.trim\(\)\s*===\s*''\s*\?\s*\[\]/,
-		'ensureCompanionSession must skip the launch args for an empty companionCommand',
+		COMPANION_BUILDER,
+		/command\.trim\(\)\s*===\s*''\s*\?\s*\[\]/,
+		'the companion builder must skip the launch args for an empty command',
 	);
 });
 
@@ -408,6 +410,21 @@ test('cleanupOrphanedInnerSessions returns 0 when list-sessions throws', t => {
 	});
 	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
 	t.is(calls.length, 1);
+});
+
+test('cleanupOrphanedInnerSessions keeps the splits of a registered space and reaps a closed one', t => {
+	const {runner, calls} = makeFakeRunner({
+		listSessionsStdout: [
+			'companion-repo-STA-1~tests',
+			'companion-repo-STA-999~tests',
+			'companion-repo-main~logs',
+		].join('\n'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 1);
+	t.deepEqual(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+		['=companion-repo-STA-999~tests:'],
+	);
 });
 
 test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t => {

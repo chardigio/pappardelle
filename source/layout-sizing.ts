@@ -70,6 +70,12 @@ export function isPaneWidth(value: unknown): value is PaneWidth {
 	return percent > 0 && percent <= 100;
 }
 
+/** Read a width as typed, `30` or `30%`, or null when it isn't one. */
+export function parsePaneWidth(text: string): PaneWidth | null {
+	const value: unknown = /^\d+$/.test(text) ? Number(text) : text;
+	return isPaneWidth(value) ? value : null;
+}
+
 export function resolvePaneWidth(
 	width: PaneWidth,
 	usableWidth: number,

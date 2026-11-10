@@ -366,6 +366,8 @@ export type CloseLayoutDeps = {
 	killSession: (sessionName: string) => void;
 	// Reaches the server the layout was split on, which is the one $TMUX names.
 	layoutTmux: OuterTmuxRunner;
+	/** The panes showing the companion's splits, which come and go with the space. */
+	splitPanes: () => string[];
 };
 
 export type RestartOwnTuiDeps = RestartTuiDeps &
@@ -383,9 +385,13 @@ function isOwnTuiSession(
 
 // One call per pane: tmux skips the rest of a command list after a failure,
 // so a viewer the user already closed would keep the other one open.
-function closeViewerPanes(layout: PaneLayout, tmux: OuterTmuxRunner): void {
-	for (const paneId of [layout.agentViewerPaneId, layout.companionViewerPaneId])
-		if (paneId) tmux(['kill-pane', '-t', paneId]);
+function closeViewerPanes(layout: PaneLayout, deps: CloseLayoutDeps): void {
+	for (const paneId of [
+		layout.agentViewerPaneId,
+		layout.companionViewerPaneId,
+		...deps.splitPanes(),
+	])
+		if (paneId) deps.layoutTmux(['kill-pane', '-t', paneId]);
 }
 
 // Quitting takes the TUI's own session down with it. A TUI started inside the
@@ -399,7 +405,7 @@ export function closeTuiLayout(
 ): void {
 	const current = deps.currentSession();
 	if (isOwnTuiSession(repoName, current)) deps.killSession(current);
-	else closeViewerPanes(layout, deps.layoutTmux);
+	else closeViewerPanes(layout, deps);
 }
 
 // `pappardelle restart` reruns the TUI with `respawn-pane -k`, which hangs up
@@ -437,8 +443,7 @@ export function restartOwnTui(
 ): void {
 	const current = deps.currentSession();
 	if (!isOwnTuiSession(options.repoName, current)) {
-		if (options.paneLayout)
-			closeViewerPanes(options.paneLayout, deps.layoutTmux);
+		if (options.paneLayout) closeViewerPanes(options.paneLayout, deps);
 		return;
 	}
 

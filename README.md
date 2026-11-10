@@ -201,6 +201,7 @@ Agents can see and change their workspace. In Claude Code, the plugin gives them
 ```bash
 pappardelle companion hunk diff --watch            # replace this space's companion command
 pappardelle companion run --pane app --split right -- npm run dev
+pappardelle companion resize app --size 40%        # along the way it was split
 pappardelle companion read --pane app              # last lines of a pane
 pappardelle companion width 40%                    # this space's companion width in the TUI
 pappardelle spaces --json                          # every space: status, title, PR, branch summary
@@ -213,7 +214,7 @@ pappardelle schedule STE-20 --after-limit          # send continue when its Code
 pappardelle schedule STE-20 --keep-going --every 10m --nudge 'keep going'
 ```
 
-Run `pappardelle companion --help` for every companion verb.
+Each companion pane other than `main` runs in a tmux session of its own, and the TUI shows it in a framed pane of its own in the companion column. The terminal launchers attach only `main`, so splits show only in the TUI. Run `pappardelle companion --help` for every companion verb.
 
 ### From the TUI
 

@@ -14,7 +14,12 @@ import {
 	runInCompanion,
 	sendCompanionKeys,
 } from './companion.ts';
-import {requestCompanionWidth} from './companion-width.ts';
+import {MAIN_PANE} from './companion-splits.ts';
+import {
+	requestCompanionLayout,
+	requestCompanionWidth,
+	type LayoutOutcome,
+} from './companion-width.ts';
 import {NoTargetSpaceError} from './space-target.ts';
 import {
 	DEFAULT_REPO_STATE_ROOT,
@@ -50,10 +55,16 @@ async function execute(
 	switch (command.verb) {
 		case 'run': {
 			const {created} = runInCompanion(space, command);
-			deps.out(
-				`${created ? 'Opened' : 'Restarted'} ${command.pane} in ${space}'s companion`,
-			);
-			return 0;
+			const label = `${created ? 'Opened' : 'Restarted'} ${command.pane} in ${space}'s companion`;
+			if (
+				command.pane === MAIN_PANE ||
+				(!created && command.size === undefined)
+			) {
+				deps.out(label);
+				return 0;
+			}
+
+			return relayout(deps, label, space);
 		}
 
 		case 'keys': {
@@ -79,13 +90,20 @@ async function execute(
 
 		case 'resize': {
 			resizeCompanionPane(space, command);
-			return 0;
+			return relayout(
+				deps,
+				`Resized ${command.pane} in ${space}'s companion to ${command.size}`,
+				space,
+			);
 		}
 
 		case 'close': {
 			closeCompanionPane(space, command.pane);
-			deps.out(`Closed ${command.pane} in ${space}'s companion`);
-			return 0;
+			return relayout(
+				deps,
+				`Closed ${command.pane} in ${space}'s companion`,
+				space,
+			);
 		}
 
 		case 'list': {
@@ -93,14 +111,27 @@ async function execute(
 			deps.out(
 				command.json
 					? JSON.stringify(
-							panes.map(({name, paneId, command, width, height, active}) => ({
-								name,
-								paneId,
-								command,
-								width,
-								height,
-								active,
-							})),
+							panes.map(
+								({
+									name,
+									paneId,
+									split,
+									size,
+									command,
+									width,
+									height,
+									shown,
+								}) => ({
+									name,
+									paneId,
+									split,
+									size,
+									command,
+									width,
+									height,
+									shown,
+								}),
+							),
 							null,
 							2,
 						)
@@ -122,46 +153,78 @@ async function execute(
 				width,
 				tuiIsRunning: () => tuiIsRunning(repoName),
 			});
-			switch (result.outcome) {
-				case 'applied': {
-					deps.out(
-						`Applied ${space} companion width: ${result.columns} columns`,
-					);
-					return 0;
-				}
-
-				case 'stored': {
-					deps.out(`${label}; applies when ${space} is selected`);
-					return 0;
-				}
-
-				case 'no-pane': {
-					deps.out(`${label}; applies when the companion pane is showing`);
-					return 0;
-				}
-
-				case 'deferred': {
-					deps.out(`${label}; applies when the open dialog closes`);
-					return 0;
-				}
-
-				case 'no-tui': {
-					deps.out(`${label}; applies when Pappardelle next launches`);
-					return 0;
-				}
-
-				case 'failed': {
-					deps.err(`${label}; the TUI could not apply it`);
-					return 1;
-				}
-
-				case 'no-ack': {
-					deps.err(`${label}; the running TUI did not confirm`);
-					return 1;
-				}
+			if (result.outcome === 'applied') {
+				deps.out(`Applied ${space} companion width: ${result.columns} columns`);
+				return 0;
 			}
+
+			return report(deps, label, 'applies', result, space);
 		}
 	}
+}
+
+/**
+ * Print where a change landed in the TUI, as the outcome of its layout
+ * request says.
+ */
+function report(
+	deps: Required<CompanionCommandDeps>,
+	label: string,
+	verb: 'applies' | 'shows',
+	result: LayoutOutcome,
+	space: string,
+): number {
+	switch (result.outcome) {
+		case 'applied': {
+			deps.out(`${label}; the TUI shows it`);
+			return 0;
+		}
+
+		case 'stored': {
+			deps.out(`${label}; ${verb} when ${space} is selected`);
+			return 0;
+		}
+
+		case 'no-pane': {
+			deps.out(`${label}; ${verb} when the companion pane is showing`);
+			return 0;
+		}
+
+		case 'deferred': {
+			deps.out(`${label}; ${verb} when the open dialog closes`);
+			return 0;
+		}
+
+		case 'no-tui': {
+			deps.out(`${label}; ${verb} when Pappardelle next launches`);
+			return 0;
+		}
+
+		case 'failed': {
+			deps.err(`${label}; the TUI could not apply it`);
+			return 1;
+		}
+
+		case 'no-ack': {
+			deps.err(`${label}; the running TUI did not confirm`);
+			return 1;
+		}
+	}
+}
+
+async function relayout(
+	deps: Required<CompanionCommandDeps>,
+	label: string,
+	space: string,
+): Promise<number> {
+	const repoName = deps.repoName();
+	const result = await requestCompanionLayout({
+		repoName,
+		space,
+		kind: 'layout',
+		tuiIsRunning: () => tuiIsRunning(repoName),
+	});
+	return report(deps, label, 'shows', result, space);
 }
 
 export async function runCompanionCommand(

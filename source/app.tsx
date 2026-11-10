@@ -183,15 +183,19 @@ import {
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
 	runningAgentProfile,
-	measurePaneWidth,
+	measureCompanionColumnWidth,
 	setSpaceCompanionWidth,
 	setSpaceCompanionDragHandler,
+	syncCompanionSplits,
+	takePendingSplitSync,
+	closeCompanionSplitPanes,
+	companionSplitPaneIds,
 } from './tmux.ts';
 import {
 	getCompanionWidth,
 	setCompanionWidth,
-	watchWidthRequests,
-	writeWidthAck,
+	watchLayoutRequests,
+	writeLayoutAck,
 } from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
@@ -254,6 +258,7 @@ const closeLayoutDeps = {
 	currentSession: () => currentDefaultServerSession(process.env),
 	killSession,
 	layoutTmux: defaultOuterTmuxRunner,
+	splitPanes: companionSplitPaneIds,
 };
 
 /**
@@ -836,6 +841,12 @@ export default function App({
 						paneLayoutRef.current = reconciled.layout;
 						setPaneLayout(reconciled.layout);
 						panesInitialized.current = false;
+						// The new layout attaches the space again, splits included.
+						takePendingSplitSync();
+					} else if (!zoomed) {
+						const viewing = getCurrentlyViewingSpace();
+						if (takePendingSplitSync() && viewing)
+							await syncCompanionSplits(layout, viewing);
 					}
 					return reconciled.dimensions;
 				},
@@ -971,9 +982,9 @@ export default function App({
 	// the pane really took it.
 	useEffect(() => {
 		const handled = new Set<string>();
-		const ack = (ackValue: Parameters<typeof writeWidthAck>[1]) => {
+		const ack = (ackValue: Parameters<typeof writeLayoutAck>[1]) => {
 			try {
-				writeWidthAck(repoName, ackValue);
+				writeLayoutAck(repoName, ackValue);
 			} catch (error) {
 				log.warn(
 					'Failed to answer a companion width request',
@@ -982,11 +993,33 @@ export default function App({
 			}
 		};
 
-		return watchWidthRequests(repoName, request => {
+		return watchLayoutRequests(repoName, request => {
 			if (handled.has(request.id)) return;
 			handled.add(request.id);
 			if (request.space !== selectedSpaceNameRef.current) {
 				ack({id: request.id, result: 'stored'});
+				return;
+			}
+
+			if (request.kind === 'layout') {
+				void attachmentTask.exclusive(async () => {
+					const layout = paneLayoutRef.current;
+					if (!layout?.companionViewerPaneId) {
+						ack({id: request.id, result: 'no-pane'});
+						return;
+					}
+
+					try {
+						const result = await syncCompanionSplits(layout, request.space);
+						ack({id: request.id, result});
+					} catch (error) {
+						log.warn(
+							`Failed to show the companion splits of ${request.space}`,
+							error instanceof Error ? error : undefined,
+						);
+						ack({id: request.id, result: 'failed'});
+					}
+				});
 				return;
 			}
 
@@ -1016,14 +1049,14 @@ export default function App({
 					dialogRequest.current.revision,
 				);
 				// The layout may have been rebuilt with new pane ids.
-				const companion = paneLayoutRef.current?.companionViewerPaneId;
-				if (!companion) {
+				const layout = paneLayoutRef.current;
+				if (!layout?.companionViewerPaneId) {
 					ack({id: request.id, result: 'no-pane'});
 					return;
 				}
 
 				const columns = layoutSucceeded.current
-					? await measurePaneWidth(companion).catch(() => null)
+					? await measureCompanionColumnWidth(layout).catch(() => null)
 					: null;
 				ack(
 					columns === null
@@ -1032,7 +1065,7 @@ export default function App({
 				);
 			})();
 		});
-	}, [repoName, layoutTasks]);
+	}, [repoName, layoutTasks, attachmentTask]);
 
 	useEffect(() => {
 		if (
@@ -2080,6 +2113,7 @@ export default function App({
 
 					const layout = paneLayoutRef.current;
 					if (layout && selectedSpaceNow()?.name === space.name) {
+						await closeCompanionSplitPanes();
 						await Promise.all([
 							displayMessageInPaneAsync(
 								layout.agentViewerPaneId,

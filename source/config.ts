@@ -17,6 +17,13 @@ import {
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import {isPaneWidth, type PaneWidth, type PaneWidths} from './layout-sizing.ts';
+import {
+	isPaneName,
+	isSplitDirection,
+	MAIN_PANE,
+	PANE_NAME_RULE,
+	type SplitDirection,
+} from './companion-splits.ts';
 import {BUILTIN_AGENTS, type BuiltinAgentDefaults} from './builtin-agents.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
@@ -280,6 +287,11 @@ export interface Profile {
 	 */
 	companion_command?: string;
 	/**
+	 * Companion splits started with this profile's spaces. Replaces the
+	 * top-level `companion_splits`.
+	 */
+	companion_splits?: CompanionSplitConfig[];
+	/**
 	 * Command the `d` key runs for spaces matched to this profile. Overrides the
 	 * top-level `ide_command`. An empty string means "do nothing", which is how
 	 * a profile opts out of the key. When unset, falls back to the top-level
@@ -305,6 +317,19 @@ export interface Profile {
 	 */
 	issue_watchlist?: IssueWatchlistConfig;
 }
+
+export interface CompanionSplitConfig {
+	name: string;
+	command: string;
+	/** Which way it is split off the companion's main pane. Defaults to down. */
+	split?: SplitDirection;
+	/** Cells or a percentage of the companion column, along the split. */
+	size?: PaneWidth;
+}
+
+export type ResolvedCompanionSplit = CompanionSplitConfig & {
+	split: SplitDirection;
+};
 
 export interface PappardelleConfig {
 	version: number;
@@ -364,6 +389,12 @@ export interface PappardelleConfig {
 	 * lazygit is restorable with `companion_command: lazygit`.
 	 */
 	companion_command?: string;
+	/**
+	 * Panes started beside the companion when a space first shows in the TUI,
+	 * each in a framed pane of its own. One the user closes stays closed. A
+	 * profile's own `companion_splits` replaces this list.
+	 */
+	companion_splits?: CompanionSplitConfig[];
 	/**
 	 * Command the `d` key runs to open an editor on the selected worktree.
 	 * Defaults to Cursor. A profile's own `ide_command` overrides this value,
@@ -1450,6 +1481,8 @@ export function validateConfig(
 		errors.push('companion_command: must be a string');
 	}
 
+	validateCompanionSplits(cfg['companion_splits'], 'companion_splits', errors);
+
 	// Check ide_command (optional, free-form shell command). Any string is
 	// accepted — including the empty string, which disables the `d` key.
 	if (
@@ -1850,6 +1883,45 @@ function validateAgentProfileReference(
 	return [];
 }
 
+function validateCompanionSplits(
+	value: unknown,
+	path: string,
+	errors: string[],
+): void {
+	if (value === undefined) return;
+	if (!Array.isArray(value)) {
+		errors.push(`${path}: must be a list of splits`);
+		return;
+	}
+
+	const names = new Set<string>();
+	for (const [index, entry] of value.entries()) {
+		const at = `${path}[${index}]`;
+		if (typeof entry !== 'object' || entry === null) {
+			errors.push(`${at}: must be an object with name and command`);
+			continue;
+		}
+
+		const split = entry as Record<string, unknown>;
+		if (!isPaneName(split['name']) || split['name'] === MAIN_PANE) {
+			errors.push(`${at}.name: must be ${PANE_NAME_RULE}, and not main`);
+		} else if (names.has(split['name'])) {
+			errors.push(`${at}.name: ${split['name']} is listed twice`);
+		} else {
+			names.add(split['name']);
+		}
+
+		if (typeof split['command'] !== 'string')
+			errors.push(`${at}.command: must be a string`);
+		if (split['split'] !== undefined && !isSplitDirection(split['split']))
+			errors.push(`${at}.split: must be right or down`);
+		if (split['size'] !== undefined && !isPaneWidth(split['size']))
+			errors.push(
+				`${at}.size: must be a positive whole number of cells or a percentage like "30%"`,
+			);
+	}
+}
+
 function validateProfile(
 	name: string,
 	profile: unknown,
@@ -1910,6 +1982,12 @@ function validateProfile(
 	) {
 		errors.push(`${prefix}.companion_command: must be a string`);
 	}
+
+	validateCompanionSplits(
+		p['companion_splits'],
+		`${prefix}.companion_splits`,
+		errors,
+	);
 
 	// Optional per-profile ide_command override (any string, incl. empty)
 	if (p['ide_command'] !== undefined && typeof p['ide_command'] !== 'string') {
@@ -3376,6 +3454,21 @@ export function getCompanionCommand(
 		return profile.companion_command;
 	}
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
+}
+
+/**
+ * The splits a space's companion starts with: the matched profile's
+ * `companion_splits`, else the top-level list, chosen the same way as
+ * `getCompanionCommand`.
+ */
+export function getCompanionSplits(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	profileName?: string,
+): ResolvedCompanionSplit[] {
+	const profile = selectProfile(config, issueTitle, profileName);
+	const splits = profile?.companion_splits ?? config.companion_splits ?? [];
+	return splits.map(split => ({...split, split: split.split ?? 'down'}));
 }
 
 // eslint-disable-next-line no-template-curly-in-string
