@@ -237,6 +237,22 @@ for (const [sessions, height] of [
 	});
 }
 
+// A two-line row takes two terminal rows, so the same sessions need more.
+for (const [sessions, height] of [
+	[1, 6],
+	[3, 10],
+	[5, 14],
+	[13, 14],
+] as const) {
+	test(`list height for ${sessions} two-line sessions = ${height}`, t => {
+		t.is(calculateIdealListHeightForCount(sessions, 2), height);
+	});
+}
+
+test('a stacked layout fits two-line rows for every session', t => {
+	t.is(calculateLayoutForSize(80, 52, 3, {}, 2).listHeight, 10);
+});
+
 // ============================================================================
 // Threshold Behavior: Vertical vs Horizontal
 // ============================================================================

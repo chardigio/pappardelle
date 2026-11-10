@@ -125,6 +125,7 @@ import {
 	quoteLaunchValue,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
+	getListLayout,
 	getPaneWidths,
 	getRepoName,
 	loadConfig,
@@ -314,6 +315,19 @@ function getConfiguredPaneWidths(): PaneWidths {
 	}
 
 	return configuredPaneWidths;
+}
+
+let configuredListLines: 1 | 2 | undefined;
+function getConfiguredListLines(): 1 | 2 {
+	if (configuredListLines === undefined) {
+		try {
+			configuredListLines = getListLayout(loadConfig()) === 'two_line' ? 2 : 1;
+		} catch {
+			configuredListLines = 1;
+		}
+	}
+
+	return configuredListLines;
 }
 
 /**
@@ -1653,6 +1667,7 @@ const PINNED_LIST_ROWS = 1;
 export function calculateIdealListHeight(): number {
 	return calculateIdealListHeightForCount(
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
+		getConfiguredListLines(),
 	);
 }
 
@@ -1670,6 +1685,7 @@ export function calculateLayout(
 		totalHeight,
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
 		currentPaneWidths(),
+		getConfiguredListLines(),
 	);
 }
 
