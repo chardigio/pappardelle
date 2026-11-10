@@ -144,6 +144,18 @@ function plistValue(value: unknown, indent: string): string {
 	].join('\n');
 }
 
+// launchd matches whole minutes, and a minute already under way never
+// matches, so a time with seconds goes to the next minute.
+function calendarMinute(time: Date) {
+	const at = new Date(Math.ceil(time.getTime() / 60_000) * 60_000);
+	return {
+		Month: at.getMonth() + 1,
+		Day: at.getDate(),
+		Hour: at.getHours(),
+		Minute: at.getMinutes(),
+	};
+}
+
 export function launchdPlist(
 	context: TimerContext,
 	job: Job,
@@ -151,14 +163,7 @@ export function launchdPlist(
 ): string {
 	const schedule =
 		'at' in when
-			? {
-					StartCalendarInterval: {
-						Month: when.at.getMonth() + 1,
-						Day: when.at.getDate(),
-						Hour: when.at.getHours(),
-						Minute: when.at.getMinutes(),
-					},
-				}
+			? {StartCalendarInterval: calendarMinute(when.at)}
 			: {StartInterval: when.everySeconds};
 	return [
 		'<?xml version="1.0" encoding="UTF-8"?>',
