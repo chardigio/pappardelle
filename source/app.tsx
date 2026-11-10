@@ -865,30 +865,38 @@ export default function App({
 	useEffect(() => {
 		if (!stdout) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		let resizedSinceRequest = false;
+		const requestLayout = () => {
+			if (!paneLayoutRef.current) return;
+			const done = startupTrace.current?.begin('layout-request', {
+				cause: 'resize',
+				zoomed: dialogOpenRef.current,
+				revision: dialogRequest.current.revision,
+				cols: stdout.columns,
+				rows: stdout.rows,
+			});
+			void layoutTasks
+				.request(dialogOpenRef.current, dialogRequest.current.revision, () => ({
+					cols: stdout.columns ?? 80,
+					rows: stdout.rows ?? 40,
+				}))
+				.finally(() => done?.());
+		};
+
+		// A single resize, such as a tiling window manager making room for a
+		// window, is laid out at once. A drag sends a stream of them; those are
+		// laid out once more when it pauses.
 		const handleResize = () => {
 			setPaneDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
 			if (syncingTerminalSize.current) return;
+			if (timer === undefined) requestLayout();
+			else resizedSinceRequest = true;
 			clearTimeout(timer);
 			timer = setTimeout(() => {
-				if (paneLayoutRef.current) {
-					const done = startupTrace.current?.begin('layout-request', {
-						cause: 'resize',
-						zoomed: dialogOpenRef.current,
-						revision: dialogRequest.current.revision,
-						cols: stdout.columns,
-						rows: stdout.rows,
-					});
-					void layoutTasks
-						.request(
-							dialogOpenRef.current,
-							dialogRequest.current.revision,
-							() => ({
-								cols: stdout.columns ?? 80,
-								rows: stdout.rows ?? 40,
-							}),
-						)
-						.finally(() => done?.());
-				}
+				timer = undefined;
+				if (!resizedSinceRequest) return;
+				resizedSinceRequest = false;
+				requestLayout();
 			}, 150);
 		};
 		stdout.on('resize', handleResize);
