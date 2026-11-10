@@ -142,6 +142,8 @@ import {
 	type ResolvedCompanionSplit,
 	type PappardelleConfig,
 	type ResolvedAgentProfile,
+	sousChefLaunch,
+	type AgentLaunch,
 } from './config.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
 import {
@@ -868,11 +870,14 @@ export function buildAgentResumeCommand(
 	skipPermissions = false,
 	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
 	sessionId?: string,
+	launch?: AgentLaunch,
 ): string {
 	let base: string;
+	let prompt = '';
 	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${agentRulesFlags(agentProfile.command)}`;
 	if (agentProfile.isClaude) {
-		const safeKey = quoteLaunchValue(issueKey);
+		const safeKey = quoteLaunchValue(launch?.name ?? issueKey);
+		if (launch) prompt = ` ${quoteLaunchValue(launch.prompt)}`;
 		const withDsp = skipPermissions
 			? `${agentProfile.command} --dangerously-skip-permissions`
 			: agentProfile.command;
@@ -889,9 +894,9 @@ export function buildAgentResumeCommand(
 
 	const resumeArgs = bindResumeArgs(agentProfile, sessionId);
 	if (!resumeArgs) {
-		return base;
+		return `${base}${prompt}`;
 	}
-	return `${base} ${resumeArgs} || { printf '\\033[A\\033[2K'; false; } || ${base}`;
+	return `${base} ${resumeArgs}${prompt} || { printf '\\033[A\\033[2K'; false; } || ${base}${prompt}`;
 }
 
 const CLIENT_TTY_WAIT_MS = 3000;
@@ -2454,8 +2459,10 @@ async function attachViewers(
 	let companionCommand = DEFAULT_COMPANION_COMMAND;
 	let agentProfile: ResolvedAgentProfile | undefined;
 	let sessionId: string | undefined;
+	let launch: AgentLaunch | undefined;
 	try {
 		const config = loadConfig();
+		if (issueKey === MAIN_WORKTREE_KEY) launch = sousChefLaunch(config);
 		const profileName = savedSpaceProfile(issueKey);
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
@@ -2476,6 +2483,7 @@ async function attachViewers(
 				options.run ?? runTmux,
 				agentProfile,
 				sessionId,
+				launch,
 			),
 			companionViewerPaneId
 				? ensureCompanionSession(
@@ -3786,6 +3794,7 @@ export async function ensureAgentSession(
 	run: AsyncTmuxRunner = runTmux,
 	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
 	sessionId?: string,
+	launch?: AgentLaunch,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('agent-session');
 	const sessions = getSessionNames(issueKey);
@@ -3844,6 +3853,7 @@ export async function ensureAgentSession(
 				skipPermissions,
 				agentProfile,
 				sessionId,
+				launch,
 			),
 			true,
 		),

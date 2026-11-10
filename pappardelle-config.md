@@ -1108,10 +1108,12 @@ sous_chef: true # default: false
 sous_chef?: boolean;
 ```
 
-- With it on, the pappardelle MCP server's instructions to a session in the repo but outside any space say to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
-- Sessions inside a space are not affected
-- `/sous-chef` still loads the full routine. The flag only tells the session its role before you run it
-- The MCP server reads the flag when the agent starts, so restart the main checkout's agent after changing it
+- The main checkout's Claude agent launches as `sous-chef` with `/sous-chef` as its first prompt, so it opens on the board. A resumed conversation gets the prompt too
+- The rail shows the main row as `sous-chef`. The CLI and MCP tools still take the key `main`
+- The pappardelle MCP server tells a session in the repo but outside any space to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
+- It tells agents inside a space they can reach the coordinator with SendMessage to `sous-chef`
+- The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
+- A main checkout running Codex or another non-Claude agent gets the instructions and the rail label, but no rename or `/sous-chef` prompt
 
 ## Issue Status Colors
 

@@ -149,8 +149,8 @@ test('only an opted-in session outside a space is told to coordinate', t => {
 		workspaceInstructions(undefined, 'repo', {sousChef: true}),
 		/Sous-chef mode is on/,
 	);
-	t.notRegex(
-		workspaceInstructions('STA-1', 'repo', {sousChef: true}),
-		/Sous-chef mode/,
-	);
+	const inSpace = workspaceInstructions('STA-1', 'repo', {sousChef: true});
+	t.notRegex(inSpace, /Sous-chef mode/);
+	t.regex(inSpace, /SendMessage to `sous-chef`/);
+	t.notRegex(workspaceInstructions('STA-1', 'repo'), /sous-chef/);
 });
