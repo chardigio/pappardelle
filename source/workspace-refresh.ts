@@ -72,7 +72,6 @@ function reuseArray(previous: SpaceData[], next: SpaceData[]): SpaceData[] {
 		: next;
 }
 
-/** Polling repairs missed hook events without replacing newer hook or rail state. */
 /**
  * Rail order: newest first by issue number, whatever the team prefix (ABC-50
  * above STA-12). Beads hash keys have no order of their own, but must keep one
@@ -91,6 +90,7 @@ function issueNumber(name: string): number | undefined {
 	return match ? Number(match[1]) : undefined;
 }
 
+/** Polling repairs missed hook events without replacing newer hook or rail state. */
 export class WorkspaceRefresh {
 	private stopped = false;
 	private listGeneration = 0;
