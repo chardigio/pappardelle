@@ -22,13 +22,14 @@ import {
 	type TimerContext,
 } from './schedule-timers.ts';
 import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
-import {recordSupervision} from './supervise-log.ts';
+import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
 	getMainWorktreeInfo,
 	getSessionNames,
 	resolveInnerSessionTargetSync,
 	sendKeysToSpaceAgent,
+	type SendToSpaceAgentResult,
 	sendToSpaceAgent,
 	supervisedInnerTmuxRunner,
 	supervisedServerTmuxRunner,
@@ -123,6 +124,9 @@ export function rearmSchedules(): void {
 	}
 }
 
+const keyOutcome = (result: SendToSpaceAgentResult) =>
+	result === 'sent' || result === 'no-session' ? result : 'failed';
+
 export function defaultSuperviseDeps(
 	resolveKey: (raw: string) => string,
 ): SuperviseDeps {
@@ -157,7 +161,7 @@ export function defaultSuperviseDeps(
 				runner: supervisedInnerTmuxRunner,
 				answering: true,
 			});
-			return result === 'sent' || result === 'no-session' ? result : 'failed';
+			return keyOutcome(result);
 		},
 		typeText(key, text) {
 			const result = sendKeysToSpaceAgent(key, [text], {
@@ -165,7 +169,7 @@ export function defaultSuperviseDeps(
 				answering: true,
 				literal: true,
 			});
-			return result === 'sent' || result === 'no-session' ? result : 'failed';
+			return keyOutcome(result);
 		},
 		async classify(key, command) {
 			return classifyCommand(
@@ -176,7 +180,7 @@ export function defaultSuperviseDeps(
 		policy: {scratchRoots: scratchRoots()},
 		store: () => defaultScheduleStore(getRepoName()),
 		timers: timerBackend,
-		caller: process.env['PAPPARDELLE_SPACE'] || 'user',
+		caller: callerFromEnv(process.env),
 		readStdin: defaultReadStdin,
 		out(text) {
 			console.log(text);

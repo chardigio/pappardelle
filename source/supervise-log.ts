@@ -4,6 +4,7 @@
 
 import {appendFileSync, mkdirSync} from 'node:fs';
 import path from 'node:path';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {DEFAULT_REPO_STATE_ROOT} from './tui-marker.ts';
 
 export type SuperviseAction =
@@ -27,8 +28,18 @@ export type SuperviseEntry = {
 	detail?: string;
 };
 
-/** `PAPPARDELLE_SPACE` of the supervising agent, `timer:{id}`, or `user`. */
+/** The supervising agent's space, `timer:{id}`, or `user`. */
 export type Caller = string;
+
+/**
+ * Who is acting, from the session's environment. The main space's session
+ * has no PAPPARDELLE_SPACE, since its checkout changes branch, but every
+ * space's session carries PAPPARDELLE_REPO.
+ */
+export function callerFromEnv(env: NodeJS.ProcessEnv): Caller {
+	if (env['PAPPARDELLE_SPACE']) return env['PAPPARDELLE_SPACE'];
+	return env['PAPPARDELLE_REPO'] ? MAIN_WORKTREE_KEY : 'user';
+}
 
 export function superviseLogPath(
 	repo: string,
