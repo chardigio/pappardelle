@@ -120,29 +120,73 @@ test('a Codex marketplace that is not there to remove does not stop the install'
 	);
 });
 
-test('removes the session hook install.sh merged into Codex hooks.json, keeping a backup', t => {
-	const session = (dir: string) => ({
-		type: 'command',
-		command: `python3 ${dir}/record-agent-session.py`,
-	});
+const sessionHook = (script: string) => ({
+	type: 'command',
+	command: `python3 ${script}`,
+});
+const CODEX_COMMAND = `python3 "${PLUGIN_DIR}/hooks/record-agent-session.py"`;
+const codexSessionHooks = {
+	SessionStart: [
+		{
+			matcher: 'startup|resume|clear',
+			hooks: [{type: 'command', command: CODEX_COMMAND}],
+		},
+	],
+	UserPromptSubmit: [{hooks: [{type: 'command', command: CODEX_COMMAND}]}],
+};
+
+test('adds the Codex session hook to hooks.json, pointing at the checkout', t => {
+	const {deps, files, printed} = fakeDeps();
+	t.is(installPlugin(deps), 0);
+	t.deepEqual(JSON.parse(files.get(CODEX_HOOKS)!), {hooks: codexSessionHooks});
+	t.false(files.has(`${CODEX_HOOKS}.pappardelle.bak`));
+	t.true(printed.some(line => line.includes('trust the session hook')));
+});
+
+test("replaces session hooks from older installs, keeping the user's hooks and a backup", t => {
 	const original = JSON.stringify({
 		hooks: {
 			SessionStart: [
 				{
 					matcher: 'startup|resume|clear',
-					hooks: [session('~/.pappardelle/hooks')],
+					hooks: [sessionHook('~/.pappardelle/hooks/record-agent-session.py')],
 				},
 				{hooks: [mine]},
 			],
-			UserPromptSubmit: [{hooks: [session(`${PLUGIN_DIR}/hooks`)]}],
+			UserPromptSubmit: [
+				{
+					hooks: [sessionHook('"/old/checkout/hooks/record-agent-session.py"')],
+				},
+			],
 		},
 	});
-	const {deps, files} = fakeDeps({codexHooks: original});
+	const {deps, files, printed} = fakeDeps({codexHooks: original});
 	t.is(installPlugin(deps), 0);
 	t.deepEqual(JSON.parse(files.get(CODEX_HOOKS)!), {
-		hooks: {SessionStart: [{hooks: [mine]}]},
+		hooks: {
+			SessionStart: [{hooks: [mine]}, ...codexSessionHooks.SessionStart],
+			UserPromptSubmit: codexSessionHooks.UserPromptSubmit,
+		},
 	});
 	t.is(files.get(`${CODEX_HOOKS}.pappardelle.bak`), original);
+	t.true(printed.some(line => line.includes('review your other hooks')));
+});
+
+test('leaves a Codex hooks.json that already has the session hook untouched, so its trust holds', t => {
+	const original = JSON.stringify({
+		hooks: {...codexSessionHooks, Stop: [{hooks: [mine]}]},
+	});
+	const {deps, files, printed} = fakeDeps({codexHooks: original});
+	t.is(installPlugin(deps), 0);
+	t.is(files.get(CODEX_HOOKS), original);
+	t.false(printed.some(line => line.includes('trust')));
+});
+
+test('leaves an unparseable Codex hooks.json alone and says what to add', t => {
+	const {deps, files, printed} = fakeDeps({codexHooks: '{'});
+	t.is(installPlugin(deps), 0);
+	t.is(files.get(CODEX_HOOKS), '{');
+	t.true(printed.some(line => line.includes(CODEX_COMMAND)));
 });
 
 test('links the plugin into agy in place', t => {

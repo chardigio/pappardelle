@@ -9,6 +9,12 @@ import path from 'node:path';
 // refreshes on a version bump; `marketplace add` under the same name repoints
 // it. Codex copies even a local plugin into its cache, and `plugin add`
 // refreshes that copy.
+//
+// Codex trusts a plugin's hooks by a hash of the whole plugin, so any skill
+// edit would silently stop the session hook until the user re-trusted it, and
+// codex spaces would launch fresh instead of resuming. Its manifest therefore
+// declares no hooks (left out, Codex would load Claude Code's), and the
+// session hook goes in ~/.codex/hooks.json, which Codex trusts per command.
 
 const MARKETPLACE = 'pappardelle-marketplace';
 const PLUGIN_ID = `pappardelle@${MARKETPLACE}`;
@@ -20,10 +26,14 @@ const PLUGIN_ID = `pappardelle@${MARKETPLACE}`;
 // commands until they reload.
 const LEGACY_HOOK_DIR = '.pappardelle/hooks/';
 
-// Codex's session hook was merged into ~/.codex/hooks.json, first from
-// ~/.pappardelle/hooks and later from the checkout. The plugin registers it
-// now, so any copy left there records every session twice.
+// Older installs pointed Codex's session hook at ~/.pappardelle/hooks or at
+// another checkout; any copy left beside this checkout's records every
+// session twice.
 const CODEX_SESSION_HOOK = 'record-agent-session.py';
+const CODEX_SESSION_EVENTS: Array<[event: string, matcher?: string]> = [
+	['SessionStart', 'startup|resume|clear'],
+	['UserPromptSubmit'],
+];
 
 export type RunResult = {
 	status: number | null;
@@ -137,17 +147,81 @@ function installForCodex(deps: PluginInstallDeps): Outcome {
 		['plugin', 'add', PLUGIN_ID],
 	]);
 	if (outcome !== 'installed') return outcome;
-	const original = deps.readFile(deps.codexHooksPath);
+	deps.print('Installed the Pappardelle plugin for Codex.');
+	installCodexSessionHook(deps);
+	return 'installed';
+}
+
+function installCodexSessionHook(deps: PluginInstallDeps): void {
+	const file = deps.codexHooksPath;
+	const script = path.join(
+		deps.repoDir,
+		'plugins',
+		'pappardelle',
+		'hooks',
+		CODEX_SESSION_HOOK,
+	);
+	const command = `python3 "${script}"`;
+	const original = deps.readFile(file);
+	let settings: HookSettings;
+	try {
+		settings = JSON.parse(original ?? '{}') as HookSettings;
+	} catch {
+		deps.print(
+			`Could not parse ${file}; add ${command} to its SessionStart and UserPromptSubmit hooks by hand.`,
+		);
+		return;
+	}
+
+	const removed = stripHooks(
+		settings,
+		hook => hook.includes(CODEX_SESSION_HOOK) && hook !== command,
+	);
+	const hooks = settings.hooks ?? {};
+	let added = false;
+	for (const [event, matcher] of CODEX_SESSION_EVENTS) {
+		const groups = hooks[event] ?? [];
+		if (groups.some(group => group.hooks?.some(h => h.command === command))) {
+			continue;
+		}
+
+		hooks[event] = [
+			...groups,
+			{...(matcher ? {matcher} : {}), hooks: [{type: 'command', command}]},
+		];
+		added = true;
+	}
+
+	if (!removed && !added) return;
+	settings.hooks = hooks;
 	if (original !== undefined) {
-		removeHooks(deps, deps.codexHooksPath, original, hook =>
-			hook.includes(CODEX_SESSION_HOOK),
+		deps.writeFile(`${file}.pappardelle.bak`, original);
+	}
+
+	deps.writeFile(file, JSON.stringify(settings, null, 2) + '\n');
+	deps.print(
+		`Pointed the Codex session hook in ${file} at this checkout${original === undefined ? '' : ` (backup: ${file}.pappardelle.bak)`}.`,
+	);
+	if (added) {
+		deps.print(
+			'Codex asks to trust the session hook on its next launch; until you do, codex spaces launch fresh instead of resuming.',
 		);
 	}
 
-	deps.print(
-		'Installed the Pappardelle plugin for Codex. Codex asks to trust its session hook on the next launch; until you do, codex spaces launch fresh instead of resuming.',
-	);
-	return 'installed';
+	// Codex keys hook trust by each hook's position in the file, so removing
+	// an old entry makes it treat the hooks after it as changed.
+	const others = Object.values(hooks)
+		.flat()
+		.some(group =>
+			group.hooks?.some(
+				h => typeof h.command === 'string' && !h.command.includes(script),
+			),
+		);
+	if (removed && others) {
+		deps.print(
+			`Codex will also ask you to review your other hooks in ${file} again, since removing the old entries moved them.`,
+		);
+	}
 }
 
 function installForAgy(deps: PluginInstallDeps): Outcome {
@@ -174,7 +248,10 @@ function installForAgy(deps: PluginInstallDeps): Outcome {
 	return 'installed';
 }
 
-type HookGroup = {hooks?: Array<{command?: unknown}>};
+type HookGroup = {
+	matcher?: string;
+	hooks?: Array<{type?: string; command?: unknown}>;
+};
 type HookSettings = {hooks?: Record<string, HookGroup[]>};
 
 type HookFilter = (command: string) => boolean;
