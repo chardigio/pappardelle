@@ -59,7 +59,7 @@ To keep an agent in another space moving, wait on it instead of checking it over
 4. At `usage_limit`, `space_schedule` with `after_limit` sends `continue` once it resets. `keep_going` checks every interval, continues after limits, and nudges an agent that sits idle twice in a row
 5. `space_send` refuses while a prompt is up, and over a draft unless `force`
 
-To supervise several spaces, loop on `space_watch` instead. With `until: [blocked]` it returns every space waiting on a person, each with its prompt, question or dialog. Handle them, then call it again with the `cursor` it returned: a space that changed while you were busy comes back at once, and one still on a prompt you already saw doesn't. `result: timed_out` means nothing changed; call it again with the same cursor.
+To supervise several spaces, loop on `space_watch` instead. With `until: [blocked]` it returns every space waiting on a person, each with its prompt, question or dialog. Handle them, then call it again with the `cursor` it returned: a space that changed while you were busy comes back at once, and one still on a prompt you already saw doesn't. `result: timed_out` means nothing changed; call it again with the same cursor. Two identical prompts in a row look unchanged, so after answering a space, check it with `space_state` if `space_watch` stays quiet.
 
 Every send, answer, schedule and reported watch change is logged in `~/.pappardelle/repos/{repo}/supervise.jsonl`.
 
