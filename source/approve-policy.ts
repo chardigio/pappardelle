@@ -21,7 +21,7 @@ const PUBLISHING: Array<[RegExp, string]> = [
 		'changes something on GitHub',
 	],
 	[
-		/\bgh\s+api\b[^;&|\n]*\s(?:-X|--method|-f|-F|--field|--raw-field|--input)\b/,
+		/\bgh\s+api\b[^;&|\n]*\s(?:-[XfF]|--method|--field|--raw-field|--input)/,
 		'gh api that writes',
 	],
 	[/--force\b/, '--force'],
@@ -55,7 +55,13 @@ function scratchVariables(
 		/\b([A-Za-z_]\w*)=("[^"]*"|'[^']*'|\$\([^)]*\)|\S+)/g,
 	)) {
 		const value = unquote(match[2]!);
-		const safe = /^\$\(\s*mktemp\b/.test(value) || isScratchPath(value, policy);
+		// Only the bare directory mktemp just made: nothing run beside it in
+		// the subshell, and no path after it.
+		const after = command[match.index + match[0].length];
+		const freshDir =
+			/^\$\(\s*mktemp(?:\s+[^\s;&|$`()]+)*\s*\)$/.test(value) &&
+			(after === undefined || /[\s;&|]/.test(after));
+		const safe = freshDir || isScratchPath(value, policy);
 		(safe ? scratch : elsewhere).add(match[1]!);
 	}
 
@@ -109,11 +115,12 @@ export function checkApproval(
 		if (pattern.test(command)) return {allow: false, reason: what};
 	}
 
-	if (/\bkill-server\b/.test(command) && !ISOLATED_TMUX.test(command)) {
-		return {allow: false, reason: 'kill-server outside an isolated socket'};
-	}
-
 	for (const segment of command.split(SEGMENT_SEPARATOR)) {
+		const kill = /\bkill-(?:server|session|pane)\b/.exec(segment);
+		if (kill && !ISOLATED_TMUX.test(segment)) {
+			return {allow: false, reason: `${kill[0]} outside an isolated socket`};
+		}
+
 		const words = segment.match(WORD) ?? [];
 		const prefixed = new Set<string>();
 		while (words[0] && ASSIGNMENT.test(words[0]))

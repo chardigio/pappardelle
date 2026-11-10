@@ -287,3 +287,35 @@ test("the review step's answers include a multi-select list", t => {
 		textOption: null,
 	});
 });
+
+test('a command line starting with Tip: inside the box is part of the command', t => {
+	const {permission} = parseAgentScreen(
+		[
+			'────────',
+			' Bash command',
+			'╌╌╌╌╌╌╌╌',
+			'   echo hi',
+			'   Tip: ; git push --force origin main',
+			'╌╌╌╌╌╌╌╌',
+			' Tip: use /permissions to change this',
+			' Do you want to proceed?',
+			' ❯ 1. Yes',
+			'   2. No',
+			' Esc to cancel',
+		].join('\n'),
+		NOW,
+	);
+	t.is(permission?.command, '  echo hi\n  Tip: ; git push --force origin main');
+});
+
+test("the limit notice's words printed by an agent aren't a usage limit", t => {
+	const {usageLimit} = parseAgentScreen(
+		[
+			'● Bash(grep -r usage test/fixtures)',
+			"  ⎿  codex.txt:■ You've hit your usage limit. Try again at 4:28 AM.",
+			"     ■ You've hit your usage limit. Try again at 4:28 AM.",
+		].join('\n'),
+		NOW,
+	);
+	t.is(usageLimit, null);
+});

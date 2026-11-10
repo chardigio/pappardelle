@@ -168,9 +168,14 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 	const boxStart = body.findIndex(line => DASHED_RULE.test(line));
 	const boxEnd = lastIndex(body, line => DASHED_RULE.test(line));
 	const hasBox = boxStart !== -1 && boxEnd > boxStart;
-	const text = (part: string[]) =>
+	// Claude's hints sit outside the dashed box; inside it every line is the
+	// command, whatever it starts with.
+	const text = (part: string[], {boxed = false} = {}) =>
 		part
-			.filter(line => !/^\s*(Tip:|This command requires approval)/.test(line))
+			.filter(
+				line =>
+					boxed || !/^\s*(Tip:|This command requires approval)/.test(line),
+			)
 			.map(line => line.replace(/^ /, '').trimEnd())
 			.join('\n')
 			.replace(/^\n+|\n+$/g, '');
@@ -180,9 +185,9 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 		description: text(
 			body.slice(headerAt + 1, hasBox ? boxStart : headerAt + 1),
 		),
-		command: text(
-			hasBox ? body.slice(boxStart + 1, boxEnd) : body.slice(headerAt + 1),
-		),
+		command: hasBox
+			? text(body.slice(boxStart + 1, boxEnd), {boxed: true})
+			: text(body.slice(headerAt + 1)),
 		question: lines[questionAt]!.trim(),
 		options,
 	};
@@ -302,8 +307,11 @@ export function parseResetTime(text: string, now: Date): Date | null {
 }
 
 function parseUsageLimit(lines: string[], now: Date): UsageLimit | null {
-	const limitAt = lastIndex(lines, line =>
-		line.includes('hit your usage limit'),
+	// Codex starts the notice at the left edge with its error mark; the same
+	// words elsewhere, say in a file an agent prints, aren't a limit.
+	const limitAt = lastIndex(
+		lines,
+		line => line.startsWith('■ ') && line.includes('hit your usage limit'),
 	);
 	if (limitAt === -1) return null;
 	// Once the agent works again, an old limit message scrolls up above it.
