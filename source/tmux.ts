@@ -318,6 +318,11 @@ function getConfiguredPaneWidths(): PaneWidths {
 }
 
 let configuredListLines: 1 | 2 | undefined;
+
+/** Replaces the configured list layout, or reads it again when undefined. */
+export function setConfiguredListLines(lines: 1 | 2 | undefined): void {
+	configuredListLines = lines;
+}
 function getConfiguredListLines(): 1 | 2 {
 	if (configuredListLines === undefined) {
 		try {
