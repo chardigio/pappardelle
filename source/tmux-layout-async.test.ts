@@ -222,6 +222,63 @@ test.serial(
 	},
 );
 
+test.serial(
+	'a layout pass still sizes the rail after the companion pane has closed',
+	async t => {
+		try {
+			await exec('tmux', ['-V']);
+		} catch {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-layout-'));
+		const socket = path.join(dir, 'outer');
+		const run = async (args: string[]) => {
+			const {stdout} = await exec('tmux', ['-S', socket, ...args], {
+				env: {...process.env, TMUX: ''},
+				timeout: 5000,
+			});
+			return stdout;
+		};
+
+		setRegistryPath(path.join(dir, 'registry.json'));
+		t.teardown(async () => {
+			try {
+				await exec('tmux', ['-S', socket, 'kill-server']);
+			} catch {}
+
+			resetRegistryPath();
+			fs.rmSync(dir, {recursive: true, force: true});
+		});
+		await run([
+			'-f',
+			'/dev/null',
+			'new-session',
+			'-d',
+			'-s',
+			'fixture',
+			'-x',
+			'220',
+			'-y',
+			'50',
+		]);
+		await run(['set-option', '-g', 'status', 'off']);
+		const paneOutput = await run(['display-message', '-p', '#{pane_id}']);
+		const pane = paneOutput.trim();
+		const initial = await rebuildLayout(pane, '', '', run);
+		t.truthy(initial);
+		if (!initial) return;
+		const railWidth = await paneWidth(pane, run);
+
+		await run(['kill-pane', '-t', initial.layout.companionViewerPaneId]);
+		await run(['resize-pane', '-t', pane, '-x', String(railWidth + 20)]);
+		await reconcilePaneLayout(initial.layout, false, run);
+		await reconcilePaneLayout(initial.layout, false, run);
+		t.is(await paneWidth(pane, run), railWidth + 20);
+	},
+);
+
 test('failed geometry discovery leaves existing panes untouched', async t => {
 	const commands: string[] = [];
 	const result = await rebuildLayout(

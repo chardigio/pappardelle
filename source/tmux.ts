@@ -868,10 +868,6 @@ async function switchClientToSession(
 	log.debug(`Switched client ${clientTty} to session ${sessionName}`);
 }
 
-/**
- * Kill a tmux session by name on the default socket.
- * Used for the outer `pappardelle-{repo}` session on Pappardelle quit.
- */
 /** The pid tmux started in a pane; it changes when the pane is respawned. */
 export async function panePid(paneId: string): Promise<string | undefined> {
 	try {
@@ -888,6 +884,10 @@ export async function panePid(paneId: string): Promise<string | undefined> {
 	}
 }
 
+/**
+ * Kill a tmux session by name on the default socket.
+ * Used for the outer `pappardelle-{repo}` session on Pappardelle quit.
+ */
 export function killSession(sessionName: string): boolean {
 	try {
 		if (!sessionExists(sessionName)) {
@@ -1628,9 +1628,8 @@ function recordGeometry(
 ): void {
 	lastWindowSize = snapshot.window;
 	lastRailWidth = paneGeometry(snapshot, listPaneId).cols;
-	lastCompanionWidth = companionPaneId
-		? paneGeometry(snapshot, companionPaneId).cols
-		: null;
+	// The companion pane closes when the shell left in it exits.
+	lastCompanionWidth = snapshot.panes.get(companionPaneId)?.cols ?? null;
 }
 
 function readGeometrySync(paneId: string): WindowGeometry | null {
@@ -2590,9 +2589,8 @@ async function relayoutGeometry(
 		const measuredRail = paneGeometry(geometry, listPaneId);
 		let resizeAttempted = false;
 		const measuredRailWidth = measuredRail.cols;
-		const measuredCompanionWidth = companionViewerPaneId
-			? paneGeometry(geometry, companionViewerPaneId).cols
-			: null;
+		const measuredCompanionWidth =
+			geometry.panes.get(companionViewerPaneId)?.cols ?? null;
 		const previousRail = railWidthOverride;
 		const previousCompanion = companionWidthOverride;
 		railWidthOverride = nextWidthOverride({
@@ -2675,7 +2673,7 @@ async function relayoutGeometry(
 			}
 
 			if (
-				companionViewerPaneId &&
+				measuredCompanionWidth !== null &&
 				layout.companionWidth !== undefined &&
 				(resizeRail || layout.companionWidth !== measuredCompanionWidth)
 			) {
