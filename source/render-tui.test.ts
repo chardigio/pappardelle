@@ -1,5 +1,6 @@
 import {spawnSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {
 	clearRecentErrors,
@@ -148,25 +149,35 @@ test.serial(
 );
 
 test.serial(
-	'the first of SIGINT, SIGTERM or SIGHUP runs the quit handler, and a later one kills the process',
+	'the first of SIGINT, SIGTERM or SIGHUP quits once, and a later one cannot end teardown early',
 	t => {
+		const loggerUrl = pathToFileURL(path.resolve('source/logger.ts')).href;
 		const moduleUrl = pathToFileURL(path.resolve('source/render-tui.ts')).href;
+		const home = mkdtempSync(path.join(tmpdir(), 'pappardelle-home-'));
+		t.teardown(() => {
+			rmSync(home, {recursive: true, force: true});
+		});
 		const child = spawnSync(
 			process.execPath,
 			[
 				'-e',
 				`const {writeSync} = await import('node:fs');
+await import(${JSON.stringify(loggerUrl)});
 const {quitOnSignals} = await import(${JSON.stringify(moduleUrl)});
 quitOnSignals(() => {
 	writeSync(1, 'quit\\n');
 	process.kill(process.pid, 'SIGTERM');
+	setTimeout(() => {
+		writeSync(1, 'torn down\\n');
+		process.exit(0);
+	}, 50);
 });
 setInterval(() => {}, 1000);
 process.kill(process.pid, 'SIGHUP');`,
 			],
-			{encoding: 'utf8'},
+			{encoding: 'utf8', env: {...process.env, HOME: home}},
 		);
-		t.is(child.stdout, 'quit\n');
-		t.is(child.signal, 'SIGTERM');
+		t.is(child.stdout, 'quit\ntorn down\n');
+		t.is(child.status, 0);
 	},
 );

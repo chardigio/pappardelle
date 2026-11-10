@@ -71,13 +71,15 @@ export const rendererExitSignals: NodeJS.Signals[] = [
 /**
  * A terminal closing (SIGHUP) or a kill would otherwise only destroy the
  * renderer and leave the layout's viewer panes behind, or a session holding
- * only viewers that the next `pappardelle` attaches to. Quitting runs once:
- * closing the layout can kill the session that owns this pty, and a later
- * signal then ends the process the default way.
+ * only viewers that the next `pappardelle` attaches to. Quitting runs once,
+ * and the listener stays for the rest of teardown: with none left, a second
+ * signal would kill the process before the renderer restores the terminal.
  */
 export function quitOnSignals(quit: () => void): void {
+	let quitting = false;
 	const onSignal = () => {
-		for (const signal of quitSignals) process.off(signal, onSignal);
+		if (quitting) return;
+		quitting = true;
 		quit();
 	};
 
