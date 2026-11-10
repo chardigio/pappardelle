@@ -213,6 +213,22 @@ test('a space reads and takes hook updates under its repo-qualified key', async 
 	t.is(h.spaces[1]!.programStatus?.status, 'error');
 });
 
+test('a space moves to the qualified status key once its agent writes it', async t => {
+	let bare = true;
+	const h = setup({
+		readRegistry: async () => ['STA-1'],
+		statusKey: name => (bare && name === 'STA-1' ? name : `repo-${name}`),
+	});
+	await h.settle();
+	t.is(h.spaces[1]!.statusKey, 'STA-1');
+	bare = false;
+	await h.refresh.refresh();
+	await h.refresh.idle();
+	t.is(h.spaces[1]!.statusKey, 'repo-STA-1');
+	h.refresh.applyStatusUpdates(new Map([['repo-STA-1', {status: 'error'}]]));
+	t.is(h.spaces[1]!.programStatus?.status, 'error');
+});
+
 test('coalesces overlapping requests and discards a registry snapshot predating a local close', async t => {
 	const h = setup();
 	await h.settle();

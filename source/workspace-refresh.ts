@@ -216,7 +216,7 @@ export class WorkspaceRefresh {
 					this.deps.readWorktreePath(key),
 				]);
 				await nextTurn();
-				return {key, version, status, worktreePath};
+				return {key, statusKey, version, status, worktreePath};
 			}),
 			4,
 		);
@@ -232,14 +232,15 @@ export class WorkspaceRefresh {
 				previous.map(space => {
 					const detail = byName.get(space.name);
 					if (!detail || space.isPending || space.isMainWorktree) return space;
-					const patch: Partial<SpaceData> = {};
+					// An agent restarted since the space was listed moves from the
+					// bare status file to the qualified one.
+					const patch: Partial<SpaceData> = {statusKey: detail.statusKey};
 					if (detail.worktreePath.status === 'fulfilled')
 						patch.worktreePath = detail.worktreePath.value;
 					if (
 						detail.status.status === 'fulfilled' &&
 						detail.status.value &&
-						detail.version ===
-							(this.statusVersions.get(this.deps.statusKey(space.name)) ?? 0)
+						detail.version === (this.statusVersions.get(detail.statusKey) ?? 0)
 					) {
 						patch.programStatus = detail.status.value;
 					}

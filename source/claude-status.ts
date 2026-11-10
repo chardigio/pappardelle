@@ -84,10 +84,14 @@ export function hookStatusFile(statusKey: string): string {
  * so that file is read when only it exists. It can belong to another repo's
  * space with the same key, the collision the qualified name fixes.
  */
-export function readableHookStatusKey(repoName: string, name: string): string {
+export function readableHookStatusKey(
+	repoName: string,
+	name: string,
+	dir = getHookStatusDir(),
+): string {
 	const qualified = hookStatusKey(repoName, name);
-	if (existsSync(hookStatusFile(qualified))) return qualified;
-	return existsSync(hookStatusFile(name)) ? name : qualified;
+	if (existsSync(path.join(dir, `${qualified}.json`))) return qualified;
+	return existsSync(path.join(dir, `${name}.json`)) ? name : qualified;
 }
 
 export interface ClaudeStatusInfo {

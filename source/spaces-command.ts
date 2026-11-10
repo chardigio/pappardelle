@@ -7,7 +7,7 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {hookStatusKey} from './claude-status.ts';
+import {readableHookStatusKey} from './claude-status.ts';
 import {claudeProjectDir} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
@@ -186,15 +186,10 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
 
 			const statusDir = path.join(home, '.pappardelle', 'claude-status');
-			// An agent started before status files were qualified by repo writes
-			// under the bare name until it restarts.
-			const qualified = path.join(
+			const statusFile = path.join(
 				statusDir,
-				`${hookStatusKey(repoName, name)}.json`,
+				`${readableHookStatusKey(repoName, name, statusDir)}.json`,
 			);
-			const bare = path.join(statusDir, `${name}.json`);
-			const statusFile =
-				!fs.existsSync(qualified) && fs.existsSync(bare) ? bare : qualified;
 			if (fs.existsSync(statusFile)) {
 				try {
 					const status = readJson(statusFile);
