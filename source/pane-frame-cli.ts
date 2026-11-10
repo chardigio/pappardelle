@@ -104,6 +104,16 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 		childPty.current?.resize(cols, rows);
 	},
 });
+// A key goes to the child as the bytes tmux wrote for it. The child reads a
+// terminal's input itself, and the terminal's own encoding of the parsed key
+// loses some: Alt+P and Alt with punctuation produce nothing, and Alt+B
+// becomes Alt+Left.
+const encodeKey = terminal.handleKeyPress.bind(terminal);
+terminal.handleKeyPress = key => {
+	if (key.eventType !== 'press' || key.raw === '') return encodeKey(key);
+	childPty.current?.write(key.raw);
+	return true;
+};
 frame.add(terminal);
 terminal.focus();
 
