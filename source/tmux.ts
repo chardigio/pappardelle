@@ -624,6 +624,12 @@ function frameTerminalFeaturesArgs(): string[] {
 	];
 }
 
+// tmux holds a lone Escape typed at a client for `escape-time` in case the
+// rest of an escape sequence follows: 10 ms by default, 500 ms before tmux
+// 3.5. The frame host writes each key to its client whole, so on the inner
+// server the wait only delays Escape on its way to the agent.
+const FRAME_ESCAPE_TIME_ARGS = ['set-option', '-s', 'escape-time', '0'];
+
 // Each pane draws its own rounded frame, so tmux's border titles stay off. Set
 // on pappardelle's own window only, so the user's other windows keep theirs.
 function windowChromeArgs(listPaneId: string): string[] {
@@ -2095,7 +2101,7 @@ export async function attachToSpace(
 			const sessionSetup = [
 				...((hasAgentSession && !hasClient(agentTty)) ||
 				(hasCompanionSession && !hasClient(companionTty))
-					? [frameTerminalFeaturesArgs()]
+					? [frameTerminalFeaturesArgs(), FRAME_ESCAPE_TIME_ARGS]
 					: []),
 				...(hasAgentSession
 					? [viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey))]

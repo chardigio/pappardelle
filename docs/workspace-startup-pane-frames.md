@@ -23,6 +23,8 @@ Tracks `pappardelle-3wf` after the rebase onto `main` at `fd19896`, which merged
 
 tmux 3.6 and later forward a pane's palette query to its client's terminal. The fixture's outer session had no client, so every frame host waited out the renderer's 300 ms probe and viewer timings were about 300 ms too high. Each launch now attaches a PTY client that answers OSC 4, 10, 11 and 12 queries and turns the status line off as the real launcher does. Numbers from before that change are not comparable with the ones here.
 
+The stand-in terminal later learned to answer tmux's own queries too (device attributes, version, synchronized output, window size), because tmux holds a typed Escape for 500 ms while any is outstanding. Startup medians stayed in the same range; see `docs/agent-pane-input.md`.
+
 ## Changes, in order
 
 Each was measured against the build before it. Raw records are in the gitignored `benchmark-results/` directory of the checkout that produced them.
