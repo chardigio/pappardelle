@@ -11,7 +11,11 @@ import {renderTui} from '../../source/render-tui.ts';
  */
 export async function terminalView(
 	node: React.ReactNode,
-	{columns = 60, rows = 12}: {columns?: number; rows?: number} = {},
+	{
+		columns = 60,
+		rows = 12,
+		typedAhead = '',
+	}: {columns?: number; rows?: number; typedAhead?: string} = {},
 ) {
 	const stdout = Object.assign(new PassThrough(), {
 		isTTY: true,
@@ -33,6 +37,8 @@ export async function terminalView(
 		rows,
 		allowProposedApi: true,
 	});
+	// Input that is waiting when the renderer starts reading.
+	if (typedAhead) stdin.write(typedAhead);
 	const view = await renderTui(node, {
 		stdout: stdout as unknown as NodeJS.WriteStream,
 		stdin: stdin as unknown as NodeJS.ReadStream,

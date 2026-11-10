@@ -14,7 +14,10 @@ process.env['TMUX'] = '/nonexistent/tmux-socket,0,0';
 const ESCAPE = '\u001B';
 const PARSER_WAIT_MS = 20;
 
-async function keyLog(t: {teardown: (fn: () => Promise<void>) => void}) {
+async function keyLog(
+	t: {teardown: (fn: () => Promise<void>) => void},
+	typedAhead = '',
+) {
 	const keys: string[] = [];
 	function KeyLog() {
 		useKeyboard(key => {
@@ -23,7 +26,7 @@ async function keyLog(t: {teardown: (fn: () => Promise<void>) => void}) {
 		return React.createElement('text', null, 'keys');
 	}
 
-	const view = await terminalView(React.createElement(KeyLog));
+	const view = await terminalView(React.createElement(KeyLog), {typedAhead});
 	t.teardown(async () => view.dispose());
 	return {keys, stdin: view.stdin};
 }
@@ -97,3 +100,8 @@ test.serial(
 		t.deepEqual(logged, []);
 	},
 );
+
+test.serial('keys typed before the app has mounted are delivered', async t => {
+	const {keys} = await keyLog(t, 'jk');
+	t.deepEqual(keys, ['j', 'k']);
+});

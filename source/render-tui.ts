@@ -1,9 +1,10 @@
-import {createElement, type ReactNode} from 'react';
+import {createElement, useEffect, type ReactNode} from 'react';
 import {deliverLoneEscapeAtOnce} from './lone-escape.ts';
 import {isInTmux} from './tmux.ts';
 import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
 import {
 	createCliRenderer,
+	parseKeypress,
 	type CliRenderer,
 	type CliRendererConfig,
 } from '@opentui/core';
@@ -21,12 +22,36 @@ export const tmuxRendererEnvironment: Readonly<Record<string, string>> = {
 	OPENTUI_GRAPHICS: '0',
 };
 
+/** Runs `onMounted` once everything under it has mounted its effects. */
+function Mounted({
+	onMounted,
+	children,
+}: {
+	onMounted: () => void;
+	children?: ReactNode;
+}): ReactNode {
+	useEffect(() => {
+		onMounted();
+	}, [onMounted]);
+	return children;
+}
+
 /** Each terminal (rail or tmux popup) has its own renderer and input stream. */
 export async function renderTui(
 	node: ReactNode,
 	options: CliRendererConfig = {},
 	onFailedViewClose?: (renderer: CliRenderer) => void,
 ) {
+	// The renderer reads input as soon as it exists, before the tree has
+	// mounted anything that listens for keys. Keys typed in that time are kept
+	// and delivered once it has.
+	const typedAhead: string[] = [];
+	const keepKey = (sequence: string): boolean => {
+		if (!parseKeypress(sequence)) return false;
+		typedAhead.push(sequence);
+		return true;
+	};
+
 	const renderer = await createCliRenderer({
 		screenMode: 'alternate-screen',
 		// OpenTUI's overlay would replace console.error with an in-memory cache
@@ -39,13 +64,26 @@ export async function renderTui(
 		// A key that lands just after a frame waits for the next one.
 		maxFps: 120,
 		...options,
+		prependInputHandlers: [keepKey, ...(options.prependInputHandlers ?? [])],
 	});
+	const deliverTypedAhead = () => {
+		renderer.removeInputHandler(keepKey);
+		for (const sequence of typedAhead.splice(0))
+			renderer.keyInput.processParsedKey(parseKeypress(sequence)!);
+	};
+
 	if (isInTmux())
 		deliverLoneEscapeAtOnce(renderer, options.stdin ?? process.stdin);
 	const root = createRoot(renderer);
 	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
 	const rerender = (next: ReactNode) =>
-		root.render(createElement(TuiErrorBoundary, {onClose}, next));
+		root.render(
+			createElement(
+				Mounted,
+				{onMounted: deliverTypedAhead},
+				createElement(TuiErrorBoundary, {onClose}, next),
+			),
+		);
 	rerender(node);
 	return {renderer, root, rerender};
 }
