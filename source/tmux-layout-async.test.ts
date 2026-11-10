@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
-import {rebuildLayout, relayoutPanes, reconcilePaneLayout} from './tmux.ts';
+import {rebuildLayout, reconcilePaneLayout} from './tmux.ts';
 import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
 
 const exec = promisify(execFile);

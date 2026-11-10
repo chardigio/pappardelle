@@ -14,8 +14,6 @@ type Stage =
 	| 'setup-panes'
 	| 'setup-chrome'
 	| 'setup-sync-output'
-	| 'setup-focus'
-	| 'setup-measurements'
 	| 'commit-metadata'
 	| 'version-metadata'
 	| 'renderer'

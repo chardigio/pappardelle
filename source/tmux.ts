@@ -483,43 +483,52 @@ async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
 	);
 }
 
-// Each pane draws its own rounded frame, so tmux's border titles stay off and
-// its dividers become a blank gap between frames. Set on pappardelle's own
-// window only, so the user's other windows keep theirs. Each option is its own
-// command because tmux drops the rest of a command list at the first error,
-// and a tmux that rejects the blank divider style must still turn off the
-// titles a previous build drew.
-function applyWindowChrome(listPaneId: string): void {
-	setWindowOption(listPaneId, 'pane-border-status', 'off');
-	// Left behind by builds that drew the titles in the border.
-	setWindowOption(listPaneId, 'pane-border-format', undefined);
-	// `spaces` arrived in tmux 3.6. Older releases draw their dividers beside
-	// the frames unless the lines are concealed.
-	if (!setWindowOption(listPaneId, 'pane-border-lines', 'spaces', 'quiet')) {
-		setWindowOption(listPaneId, 'pane-border-style', 'hidden');
-		setWindowOption(listPaneId, 'pane-active-border-style', 'hidden');
-	}
+// Each pane draws its own rounded frame, so tmux's border titles stay off. Set
+// on pappardelle's own window only, so the user's other windows keep theirs.
+function windowChromeArgs(listPaneId: string): string[] {
+	return [
+		...windowOptionArgs(listPaneId, 'pane-border-status', 'off'),
+		';',
+		// Left behind by builds that drew the titles in the border.
+		...windowOptionArgs(listPaneId, 'pane-border-format', undefined),
+	];
 }
 
-function setWindowOption(
+// tmux's dividers become a blank gap between frames. A command of its own,
+// because tmux drops the rest of a command list at the first error and
+// `spaces` only arrived in tmux 3.6. Older releases draw their dividers beside
+// the frames unless the lines are concealed.
+function hideDividers(listPaneId: string): void {
+	const spaces = spawnSync(
+		'tmux',
+		windowOptionArgs(listPaneId, 'pane-border-lines', 'spaces'),
+		{encoding: 'utf-8', timeout: 5000},
+	);
+	if (!spaces.error && spaces.status === 0) return;
+	log.info(
+		`Failed to set pane-border-lines on the layout window: ${spaces.stderr}`,
+	);
+	const hidden = spawnSync(
+		'tmux',
+		[
+			...windowOptionArgs(listPaneId, 'pane-border-style', 'hidden'),
+			';',
+			...windowOptionArgs(listPaneId, 'pane-active-border-style', 'hidden'),
+		],
+		{encoding: 'utf-8', timeout: 5000},
+	);
+	if (hidden.error || hidden.status !== 0)
+		log.warn(`Failed to hide the layout window's dividers: ${hidden.stderr}`);
+}
+
+function windowOptionArgs(
 	paneId: string,
 	name: string,
 	value: string | undefined,
-	onFailure: 'warn' | 'quiet' = 'warn',
-): boolean {
-	const args =
-		value === undefined
-			? ['set-option', '-w', '-u', '-t', paneId, name]
-			: ['set-option', '-w', '-t', paneId, name, value];
-	const result = spawnSync('tmux', args, {encoding: 'utf-8', timeout: 5000});
-	const ok = !result.error && result.status === 0;
-	if (!ok) {
-		const message = `Failed to set ${name} on the layout window: ${result.stderr}`;
-		if (onFailure === 'warn') log.warn(message);
-		else log.info(message);
-	}
-
-	return ok;
+): string[] {
+	return value === undefined
+		? ['set-option', '-w', '-u', '-t', paneId, name]
+		: ['set-option', '-w', '-t', paneId, name, value];
 }
 
 /**
@@ -911,28 +920,6 @@ export const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
 export const SYNC_TERMINAL_FEATURE = '*:Sync';
 
 /**
- * Whether this socket's `terminal-features` already carries our Sync entry.
- */
-function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
-	try {
-		const {error, status, stdout} = run([
-			'show-options',
-			'-gqv',
-			'terminal-features',
-		]);
-		if (error || status !== 0) {
-			return false;
-		}
-
-		return stdout
-			.split('\n')
-			.some(line => line.trim() === SYNC_TERMINAL_FEATURE);
-	} catch {
-		return false;
-	}
-}
-
-/**
  * Make tmux batch each repaint into a single atomic frame.
  *
  * tmux only wraps a redraw in DEC 2026 when it believes the attached client's
@@ -951,33 +938,33 @@ function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
  * user-configured features survive, and terminals that don't implement DEC 2026
  * ignore the private mode, which is what makes the blanket `*` workable.
  *
- * Runners are exposed for tests only; production uses the spawnSync defaults.
+ * The append is conditional on the socket not already carrying the entry:
+ * `-ga` alone adds another copy on every launch against a long-lived server.
  */
-export function enableSynchronizedOutput(
-	outerRunner: OuterTmuxRunner = defaultOuterTmuxRunner,
-	innerRunner: OuterTmuxRunner = defaultInnerTmuxRunner,
-): void {
-	for (const [label, run] of [
-		['outer', outerRunner],
-		['inner', innerRunner],
-	] as const) {
-		try {
-			if (hasSynchronizedOutputFeature(run)) {
-				continue;
-			}
+export function synchronizedOutputArgs(): string[] {
+	const entry = SYNC_TERMINAL_FEATURE.replace('*', String.raw`\*`);
+	return [
+		'if-shell',
+		'-F',
+		`#{m:* ${entry} *, #{terminal-features} }`,
+		'',
+		`set-option -ga terminal-features ',${SYNC_TERMINAL_FEATURE}'`,
+	];
+}
 
-			const {error, status} = run([
-				'set-option',
-				'-ga',
-				'terminal-features',
-				`,${SYNC_TERMINAL_FEATURE}`,
-			]);
-			if (error || status !== 0) {
-				log.debug(`Could not enable synchronized output on ${label} socket`);
-			}
-		} catch {
-			// Purely a rendering nicety — never let it break layout setup.
-		}
+/**
+ * The inner socket is a separate tmux server with its own option table.
+ * `run` is exposed for tests only.
+ */
+export function enableInnerSynchronizedOutput(
+	run: OuterTmuxRunner = defaultInnerTmuxRunner,
+): void {
+	try {
+		const {error, status} = run(synchronizedOutputArgs());
+		if (error || status !== 0)
+			log.debug('Could not enable synchronized output on inner socket');
+	} catch {
+		// Purely a rendering nicety — never let it break layout setup.
 	}
 }
 
@@ -987,18 +974,7 @@ export function enableSynchronizedOutput(
  * server-scope, like `terminal-features` above; it only adds reports for
  * programs that ask for them.
  */
-export function enableFocusEvents(
-	run: OuterTmuxRunner = defaultOuterTmuxRunner,
-): void {
-	try {
-		const current = run(['show-options', '-gqv', 'focus-events']);
-		if (current.stdout.trim() === 'on') return;
-		const {error, status} = run(['set-option', '-g', 'focus-events', 'on']);
-		if (error || status !== 0) log.debug('Could not enable focus events');
-	} catch {
-		// Frames still draw; they just stay lit.
-	}
-}
+const FOCUS_EVENTS_ARGS = ['set-option', '-g', 'focus-events', 'on'];
 
 /**
  * STA-1420 layer 2: reap orphaned `agent-{repo}-*` / `companion-{repo}-*`
@@ -1522,9 +1498,13 @@ export function setupPappardellLayout(): {
 
 		const cwd = process.cwd();
 
-		// Get terminal dimensions and calculate layout
 		const geometryDone = startupTrace.current?.begin('setup-geometry');
-		const initial = readGeometrySync(listPaneId)?.panes.get(listPaneId);
+		// Before the splits the rail's own terminal is the whole pane.
+		const {columns, rows} = process.stdout;
+		const initial =
+			columns && rows
+				? {cols: columns, rows}
+				: readGeometrySync(listPaneId)?.panes.get(listPaneId);
 		const totalWidth = initial?.cols ?? 120;
 		const totalHeight = initial?.rows ?? 40;
 		const layout = calculateLayout(totalWidth, totalHeight);
@@ -1535,116 +1515,70 @@ export function setupPappardellLayout(): {
 		);
 
 		const panesDone = startupTrace.current?.begin('setup-panes');
-		let agentViewerPaneId: string;
-		let companionViewerPaneId = ''; // Empty by default (not created for vertical layout)
-
+		const split = (direction: '-h' | '-v', size: number | undefined) => [
+			'split-window',
+			direction,
+			'-t',
+			listPaneId,
+			'-c',
+			cwd,
+			'-l',
+			String(size),
+			'-P',
+			'-F',
+			'#{pane_id}',
+		];
+		const hasCompanion =
+			layout.direction !== 'vertical' &&
+			(layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH;
+		const agentWidth = layout.agentWidth ?? 40;
+		let splits: string[];
 		if (layout.direction === 'vertical') {
-			// VERTICAL LAYOUT: list on top, agent below, no companion
-			// Use -v for vertical split (top/bottom)
-			const agentResult = spawnSync(
-				'tmux',
-				[
-					'split-window',
-					'-v', // vertical split (top/bottom)
-					'-t',
-					listPaneId,
-					'-c',
-					cwd,
-					'-l',
-					String(layout.agentHeight), // claude pane gets this many rows
-					'-P',
-					'-F',
-					'#{pane_id}',
-				],
-				{encoding: 'utf-8', timeout: 10000},
-			);
-
-			if (agentResult.error || agentResult.status !== 0) {
-				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
-				panesDone?.('failed');
-				done?.('failed');
-				return null;
-			}
-
-			agentViewerPaneId = agentResult.stdout.trim();
-
-			log.info(
-				`Vertical layout: list=${layout.listHeight} rows, agent=${layout.agentHeight} rows`,
-			);
+			// List on top, agent below, no companion.
+			splits = split('-v', layout.agentHeight);
+		} else if (hasCompanion) {
+			// Both splits take their columns from the list pane, so the rightmost
+			// pane is made first and neither needs the other's id.
+			splits = [
+				...split('-h', layout.companionWidth),
+				';',
+				...split('-h', agentWidth),
+			];
 		} else {
-			// HORIZONTAL LAYOUT: list | claude | companion (existing logic)
-			// Create the right portion (claude + companion combined)
-			const rightPortionWidth =
-				(layout.agentWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
-
-			const agentResult = spawnSync(
-				'tmux',
-				[
-					'split-window',
-					'-h', // horizontal split (left/right)
-					'-t',
-					listPaneId,
-					'-c',
-					cwd,
-					'-l',
-					String(rightPortionWidth),
-					'-P',
-					'-F',
-					'#{pane_id}',
-				],
-				{encoding: 'utf-8', timeout: 10000},
-			);
-
-			if (agentResult.error || agentResult.status !== 0) {
-				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
-				panesDone?.('failed');
-				done?.('failed');
-				return null;
-			}
-
-			agentViewerPaneId = agentResult.stdout.trim();
-
-			// Create right pane (companion viewer) from the claude pane
-			// Only create if we have space for companion
-			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
-				const companionResult = spawnSync(
-					'tmux',
-					[
-						'split-window',
-						'-h',
-						'-t',
-						agentViewerPaneId,
-						'-c',
-						cwd,
-						'-l',
-						String(layout.companionWidth),
-						'-P',
-						'-F',
-						'#{pane_id}',
-					],
-					{encoding: 'utf-8', timeout: 10000},
-				);
-
-				if (companionResult.error || companionResult.status !== 0) {
-					log.error(
-						`Failed to create companion viewer pane: ${companionResult.stderr}`,
-					);
-					// Continue without companion pane
-				} else {
-					companionViewerPaneId = companionResult.stdout.trim();
-				}
-			} else {
-				log.info(
-					`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
-				);
-			}
-
 			log.info(
-				`Horizontal layout: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
+				`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
 			);
+			splits = split('-h', agentWidth + (layout.companionWidth ?? 0) + 1);
 		}
 
+		const created = spawnSync('tmux', splits, {
+			encoding: 'utf-8',
+			timeout: 10_000,
+		});
+		const paneIds = (created.stdout ?? '').trim().split('\n').filter(Boolean);
+		// tmux stops at the first split that fails, so a single id from two
+		// splits is the pane that was to be the companion. It hosts the agent.
+		const agentViewerPaneId = paneIds.at(-1);
+		const companionViewerPaneId =
+			hasCompanion && paneIds.length === 2 ? paneIds[0]! : '';
+		if (!agentViewerPaneId) {
+			log.error(`Failed to create agent viewer pane: ${created.stderr}`);
+			panesDone?.('failed');
+			done?.('failed');
+			return null;
+		}
+
+		if (created.error || created.status !== 0)
+			log.error(`Failed to create companion viewer pane: ${created.stderr}`);
+		log.info(
+			layout.direction === 'vertical'
+				? `Vertical layout: list=${layout.listHeight} rows, agent=${layout.agentHeight} rows`
+				: `Horizontal layout: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
+		);
 		panesDone?.();
+
+		// One command list, ordered so the measurements are taken before the two
+		// server options, the likeliest to be refused.
 		const chromeDone = startupTrace.current?.begin('setup-chrome');
 		const chrome = spawnSync(
 			'tmux',
@@ -1652,26 +1586,32 @@ export function setupPappardellLayout(): {
 				...paneTitleArgs(listPaneId, 'rail'),
 				';',
 				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
+				';',
+				...windowChromeArgs(listPaneId),
+				';',
+				'select-pane',
+				'-t',
+				listPaneId,
+				';',
+				...paneGeometryArgs(listPaneId),
+				';',
+				...FOCUS_EVENTS_ARGS,
+				';',
+				...synchronizedOutputArgs(),
 			],
 			{encoding: 'utf-8', timeout: 5000},
 		);
-		if (chrome.error || chrome.status !== 0)
-			log.warn(`Failed to title the viewer panes: ${chrome.stderr}`);
-		applyWindowChrome(listPaneId);
-		chromeDone?.(chrome.error || chrome.status !== 0 ? 'failed' : 'ok');
+		const chromeFailed = Boolean(chrome.error) || chrome.status !== 0;
+		if (chromeFailed)
+			log.warn(
+				`Failed to finish setting up the layout window: ${chrome.stderr}`,
+			);
+		hideDividers(listPaneId);
+		chromeDone?.(chromeFailed ? 'failed' : 'ok');
 
 		const syncDone = startupTrace.current?.begin('setup-sync-output');
-		enableSynchronizedOutput();
-		enableFocusEvents();
+		enableInnerSynchronizedOutput();
 		syncDone?.();
-
-		// Return focus to list pane
-		const focusDone = startupTrace.current?.begin('setup-focus');
-		execSync(`tmux select-pane -t "${listPaneId}"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-		focusDone?.();
 
 		log.info(
 			`Set up pappardelle layout: list=${listPaneId}, agent=${agentViewerPaneId}, companion=${
@@ -1679,15 +1619,18 @@ export function setupPappardellLayout(): {
 			}`,
 		);
 
-		const measurementsDone = startupTrace.current?.begin('setup-measurements');
-		const measured = readGeometrySync(listPaneId);
-		if (measured) recordGeometry(measured, listPaneId, companionViewerPaneId);
-		else {
+		try {
+			recordGeometry(
+				parseWindowGeometry(chrome.stdout ?? ''),
+				listPaneId,
+				companionViewerPaneId,
+			);
+		} catch {
 			lastWindowSize = null;
 			lastRailWidth = null;
 			lastCompanionWidth = null;
 		}
-		measurementsDone?.();
+
 		done?.();
 
 		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
