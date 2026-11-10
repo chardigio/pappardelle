@@ -219,3 +219,12 @@ test('mcp answers --help and rejects flags it does not know', t => {
 	t.is(subcommandGate(['mcp', 'install']).action, 'run');
 	t.is(subcommandGate(['mcp', 'nope']).action, 'reject');
 });
+
+test('a --force after the text is the flag, not part of the message', t => {
+	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hello', 'there', '--force']), {
+		key: 'STE-1',
+		text: 'hello there',
+		keys: [],
+		force: true,
+	});
+});
