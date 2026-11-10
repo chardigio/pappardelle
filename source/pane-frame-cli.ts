@@ -52,7 +52,13 @@ let title =
 let isActive =
 	outerTmux(['display-message', '-p', '-t', paneId, '#{pane_active}']) === '1';
 
-const renderer = await createCliRenderer({exitOnCtrlC: false, exitSignals: []});
+// Everything a pane's program draws waits for this renderer's next frame, so
+// the cap is twice the default 60.
+const renderer = await createCliRenderer({
+	exitOnCtrlC: false,
+	exitSignals: [],
+	maxFps: 120,
+});
 const frame = new BoxRenderable(renderer, {
 	id: 'frame',
 	width: '100%',
