@@ -77,6 +77,20 @@ test('a lock left by a process that died is taken over', async t => {
 	t.is(result, 'sent');
 });
 
+test('a stale lock whose takeover another sender holds times out instead of spinning', async t => {
+	const dir = lockDir(t);
+	writeFileSync(path.join(dir, 'agent-r-STA-1.lock'), '999999\n');
+	writeFileSync(path.join(dir, 'agent-r-STA-1.lock.takeover'), '');
+	await t.throwsAsync(
+		withSendLock('agent-r-STA-1', async () => 'sent', {
+			dir,
+			isAlive: pid => pid !== 999_999,
+			timeoutMs: 100,
+		}),
+		{instanceOf: SendLockTimeout},
+	);
+});
+
 test('a lock held by a live process times out instead of waiting forever', async t => {
 	const dir = lockDir(t);
 	writeFileSync(path.join(dir, 'agent-r-STA-1.lock'), '4242\n');
