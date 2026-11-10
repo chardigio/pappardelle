@@ -242,10 +242,30 @@ function installForAgy(deps: PluginInstallDeps): Outcome {
 	}
 
 	if (deps.readLink(link) !== target) deps.link(target, link);
-	deps.print(
-		`Linked the Pappardelle plugin into agy at ${link}. New agy sessions load it.`,
-	);
+	if (agyDisabledPlugin(deps)) {
+		deps.print(
+			`Linked the Pappardelle plugin into agy at ${link}, but agy has it disabled; run agy plugin enable pappardelle to load it.`,
+		);
+	} else {
+		deps.print(
+			`Linked the Pappardelle plugin into agy at ${link}. New agy sessions load it.`,
+		);
+	}
+
 	return 'installed';
+}
+
+function agyDisabledPlugin(deps: PluginInstallDeps): boolean {
+	const config = deps.readFile(path.join(deps.agyConfigDir, 'config.json'));
+	if (config === undefined) return false;
+	try {
+		const parsed = JSON.parse(config) as {
+			plugins?: Record<string, {enabled?: boolean}>;
+		};
+		return parsed.plugins?.['pappardelle']?.enabled === false;
+	} catch {
+		return false;
+	}
 }
 
 type HookGroup = {

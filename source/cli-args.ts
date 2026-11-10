@@ -163,10 +163,15 @@ const subcommands = {
 	Usage
 	  $ pappardelle plugin install
 
-	Points Claude Code's pappardelle-marketplace at this checkout and installs
-	the Pappardelle plugin (skills and hooks) from it. Claude Code loads it in
-	place, so edits take effect after /reload-plugins. Also removes the hooks
-	that older installs merged into ~/.claude/settings.json, keeping a backup.
+	Installs the Pappardelle plugin (skills and hooks) from this checkout into
+	Claude Code, Codex and agy, skipping any that isn't installed.
+	  Claude Code: points pappardelle-marketplace at the checkout; it loads the
+	    plugin in place, so edits take effect after /reload-plugins. Removes
+	    the hooks older installs merged into ~/.claude/settings.json.
+	  Codex: installs the plugin's skills, and points the session hook in
+	    ~/.codex/hooks.json at the checkout. Rerun after editing the checkout.
+	  agy: links ~/.gemini/config/plugins/pappardelle to the checkout.
+	Files it changes are backed up to <file>.pappardelle.bak first.
 `,
 	},
 } as const;

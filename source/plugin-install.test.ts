@@ -202,6 +202,16 @@ test('repoints an agy link left by another checkout', t => {
 	t.is(links.get(AGY_LINK), PLUGIN_DIR);
 });
 
+test('warns when agy has the plugin disabled', t => {
+	const {deps, files, printed} = fakeDeps({agy: true});
+	files.set(
+		`${AGY}/config.json`,
+		JSON.stringify({plugins: {pappardelle: {enabled: false}}}),
+	);
+	t.is(installPlugin(deps), 0);
+	t.true(printed.some(line => line.includes('agy plugin enable pappardelle')));
+});
+
 test('skips agy until it has been set up', t => {
 	const {deps, links, printed} = fakeDeps();
 	t.is(installPlugin(deps), 0);
