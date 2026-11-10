@@ -43,3 +43,13 @@ export async function renderTui(
 	root.render(createElement(TuiErrorBoundary, {onClose}, node));
 	return {renderer, root};
 }
+
+/**
+ * OpenTUI's own Ctrl+C exit only destroys the renderer, which would leave the
+ * layout's viewer panes behind. Pair with `exitOnCtrlC: false`.
+ */
+export function quitOnCtrlC(renderer: CliRenderer, quit: () => void): void {
+	renderer.keyInput.on('keypress', event => {
+		if (event.ctrl && event.name === 'c') quit();
+	});
+}

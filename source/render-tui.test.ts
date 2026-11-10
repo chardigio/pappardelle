@@ -10,6 +10,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import React from 'react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
+import {quitOnCtrlC} from './render-tui.ts';
 
 const list = (query: string, rows: string[]) =>
 	React.createElement(
@@ -119,5 +120,27 @@ test.serial(
 		await view.renderer.closed;
 		const bytes = await view.flush();
 		t.true(bytes.includes('\x1b[?1049l'));
+	},
+);
+
+test.serial(
+	'Ctrl+C runs the quit handler instead of only destroying the renderer',
+	async t => {
+		const {createTestRenderer} = await import('@opentui/core/testing');
+		const {renderer, mockInput} = await createTestRenderer({
+			exitOnCtrlC: false,
+		});
+		t.teardown(() => {
+			renderer.destroy();
+		});
+		let quits = 0;
+		quitOnCtrlC(renderer, () => {
+			quits++;
+		});
+
+		mockInput.pressKey('c');
+		t.is(quits, 0);
+		mockInput.pressCtrlC();
+		t.is(quits, 1);
 	},
 );
