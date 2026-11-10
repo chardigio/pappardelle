@@ -23,6 +23,7 @@ import {
 	setupPappardellLayout,
 	getSessionNames,
 	getWorktreePath,
+	getMainWorktreeInfo,
 	INNER_SOCKET,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
@@ -53,7 +54,10 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {getRegisteredSpaces} from './space-registry.ts';
+import {
+	getRegisteredSpaces,
+	getRegisteredSpacesAsync,
+} from './space-registry.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
@@ -487,6 +491,17 @@ const firstRailPaint = new Promise<void>(resolve => {
 	finishFirstRailPaint = resolve;
 });
 
+// Read while tmux and the renderer are set up, for the first list the rail
+// draws.
+function startWorkspaceReads() {
+	const registry = getRegisteredSpacesAsync();
+	// App reports a failed read when it takes this over.
+	registry.catch(() => null);
+	return {registry, mainWorktree: getMainWorktreeInfo()};
+}
+
+const initialWorkspaces = startWorkspaceReads();
+
 // tmux splits the panes while the renderer's modules load below.
 let layoutSetup: ReturnType<typeof setupPappardellLayout> | undefined;
 if (isInTmux() && cli.flags.layout) {
@@ -577,6 +592,7 @@ const app = () => (
 		paneLayout={paneLayout}
 		{...metadata}
 		updateCheckPromise={updateCheckPromise}
+		initialWorkspaces={initialWorkspaces}
 		firstRailPaint={firstRailPaint}
 		onFirstRailPaint={finishStartup}
 	/>

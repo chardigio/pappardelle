@@ -213,6 +213,19 @@ import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
 
+/** A reader whose first answer was already asked for. */
+function firstFrom<T>(
+	first: Promise<T> | undefined,
+	read: () => Promise<T>,
+): () => Promise<T> {
+	let pending = first;
+	return async () => {
+		const value = pending;
+		pending = undefined;
+		return value ?? read();
+	};
+}
+
 function claimIssueInBackground(issueKey: string): void {
 	void claimIssue(issueKey).then(claimed => {
 		if (claimed) log.info(`Claimed ${issueKey} — removed from ready work`);
@@ -241,6 +254,11 @@ export function quitTui(
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
+	/** Reads started before the renderer loaded, for the first list drawn. */
+	initialWorkspaces?: {
+		registry: ReturnType<typeof getRegisteredSpacesAsync>;
+		mainWorktree: ReturnType<typeof getMainWorktreeInfo>;
+	};
 	firstRailPaint?: Promise<void>;
 	onFirstRailPaint?: () => void;
 	paneLayout: PaneLayout | null;
@@ -253,6 +271,7 @@ interface AppProps {
 }
 
 export default function App({
+	initialWorkspaces,
 	firstRailPaint,
 	onFirstRailPaint,
 	paneLayout: initialPaneLayout,
@@ -612,14 +631,17 @@ export default function App({
 		await workspaceRefresh.current?.refresh();
 	}, []);
 
+	const earlyWorkspaces = useRef(initialWorkspaces);
 	useEffect(() => {
+		const early = earlyWorkspaces.current;
+		earlyWorkspaces.current = undefined;
 		const refresh = new WorkspaceRefresh({
 			detailReady: firstRailPaint,
-			readRegistry: getRegisteredSpacesAsync,
+			readRegistry: firstFrom(early?.registry, getRegisteredSpacesAsync),
 			readStatus: async (key, sessionKey) =>
 				workspaceStatuses.read(key, sessionKey),
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
-			readMainWorktree: getMainWorktreeInfo,
+			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
 			mainStatusKey: branch => qualifyMainBranch(repoName, branch),
 			getCachedIssue: getIssueCached,
