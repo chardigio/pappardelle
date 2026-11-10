@@ -105,6 +105,14 @@ test.serial('keys typed before the app has mounted are delivered', async t => {
 });
 
 test.serial(
+	'Enter typed before the terminal is raw is still Enter',
+	async t => {
+		const {keys} = await keyLog(t, 'j\n');
+		t.deepEqual(keys, ['j', 'return']);
+	},
+);
+
+test.serial(
 	'Alt with a character that opens a sequence does not take the next key',
 	async t => {
 		const {keys, stdin} = await keyLog(t);

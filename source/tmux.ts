@@ -2056,6 +2056,10 @@ export async function attachToSpace(
 	);
 }
 
+// What tmux says of a pane that no longer exists; the wording depends on the
+// command.
+const PANE_GONE = /^(?:can't find pane|no such pane):/m;
+
 // Companion viewer panes that have closed: the shell left in one after its
 // program ends can be exited. The layout still names the pane until it is
 // rebuilt, and a workspace then has only its agent to show.
@@ -2301,7 +2305,7 @@ async function attachViewers(
 				});
 			if (companionAttachment.status === 'rejected') {
 				const {stderr} = companionAttachment.reason as {stderr?: string};
-				if (!/^can't find pane:/m.test(stderr ?? ''))
+				if (!PANE_GONE.test(stderr ?? ''))
 					throw new Error('Companion attachment failed', {
 						cause: companionAttachment.reason,
 					});
@@ -2435,7 +2439,7 @@ async function killPane(
 	try {
 		const result = await runLayoutCommand(['kill-pane', '-t', paneId], run);
 		if (result.error || result.status !== 0) {
-			if (/^can't find pane:/m.test(result.stderr ?? '')) return true;
+			if (PANE_GONE.test(result.stderr ?? '')) return true;
 			log.warn(`Failed to kill pane ${paneId}: ${result.stderr}`);
 			return false;
 		}

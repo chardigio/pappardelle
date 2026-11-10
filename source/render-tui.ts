@@ -56,7 +56,9 @@ export async function renderTui(
 	const typedAhead: string[] = [];
 	const keepKey = (sequence: string): boolean => {
 		if (!parseKeypress(sequence)) return false;
-		typedAhead.push(sequence);
+		// Until the renderer makes the terminal raw, the terminal turns Enter
+		// into a line feed.
+		typedAhead.push(sequence === '\n' ? '\r' : sequence);
 		return true;
 	};
 
