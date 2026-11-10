@@ -1,17 +1,26 @@
-import type {SplitDirection} from './companion-args.ts';
 import {
 	MAIN_PANE,
+	SPLIT_LIST_FORMAT,
+	parseSplitList,
+	type CompanionSplit,
+	type SplitDirection,
+} from './companion-splits.ts';
+import type {PaneWidth} from './layout-sizing.ts';
+import {
 	buildShellLaunchArgs,
+	CompanionSplitError,
+	createCompanionSplit,
 	defaultInnerTmuxRunner,
+	exactSessionTarget,
 	getSessionNames,
 	INNER_SOCKET,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 
-// Panes in a space's companion session are named with the pane user option
-// @pappa_pane. @pappa_split remembers which way a pane was split off main, so
-// `run --size` on an existing pane resizes the same axis it was created on.
+// main is the companion session's own pane, named with the pane user option
+// @pappa_pane. Every other pane is a split: a session of its own (see
+// companion-splits.ts), which the TUI shows in a framed pane beside main.
 
 export class CompanionError extends Error {}
 
@@ -19,11 +28,13 @@ export interface CompanionPane {
 	name: string | null;
 	paneId: string;
 	split: SplitDirection | null;
+	size: PaneWidth | null;
 	command: string;
 	startCommand: string;
 	width: number;
 	height: number;
-	active: boolean;
+	/** The TUI is showing it. */
+	shown: boolean;
 }
 
 export interface CompanionDeps {
@@ -34,11 +45,10 @@ export interface CompanionDeps {
 const PANE_FORMAT = [
 	'#{pane_id}',
 	'#{@pappa_pane}',
-	'#{@pappa_split}',
 	'#{pane_current_command}',
 	'#{pane_width}',
 	'#{pane_height}',
-	'#{pane_active}',
+	'#{session_attached}',
 	'#{pane_start_command}',
 ].join('\t');
 
@@ -62,16 +72,17 @@ export function parsePaneList(stdout: string): CompanionPane[] {
 		.split('\n')
 		.filter(Boolean)
 		.map(line => {
-			const [paneId, name, split, command, width, height, active, ...start] =
+			const [paneId, name, command, width, height, attached, ...start] =
 				line.split('\t');
 			return {
 				paneId: paneId!,
 				name: name || null,
-				split: split === 'right' || split === 'down' ? split : null,
+				split: null,
+				size: null,
 				command: command ?? '',
 				width: Number(width),
 				height: Number(height),
-				active: active === '1',
+				shown: Number(attached) > 0,
 				startCommand: start.join('\t'),
 			};
 		});
@@ -129,49 +140,79 @@ export function listCompanionPanes(
 	return panes;
 }
 
-function findPane(panes: CompanionPane[], name: string): CompanionPane {
-	const pane = panes.find(p => p.name === name);
-	if (!pane) {
-		const names = panes.map(p => p.name).filter(Boolean);
+function loadSpace(spaceKey: string, deps: CompanionDeps) {
+	const runner = deps.runner ?? defaultInnerTmuxRunner;
+	const session = getSessionNames(spaceKey, deps.repoName).companion;
+	const target = companionSessionTarget(spaceKey, {...deps, runner});
+	const main = listCompanionPanes(target, runner).find(
+		pane => pane.name === MAIN_PANE,
+	)!;
+	const splits = parseSplitList(
+		tmux(runner, ['list-sessions', '-F', SPLIT_LIST_FORMAT]),
+		session,
+	);
+	return {runner, session, main, splits};
+}
+
+type Space = ReturnType<typeof loadSpace>;
+
+function findSplit(space: Space, name: string): CompanionSplit {
+	const split = space.splits.find(each => each.name === name);
+	if (!split) {
+		const names = [MAIN_PANE, ...space.splits.map(each => each.name)];
 		throw new CompanionError(
 			`No companion pane named ${name} (panes: ${names.join(', ')})`,
 		);
 	}
 
-	return pane;
+	return split;
 }
 
-function loadCompanionPanes(spaceKey: string, deps: CompanionDeps) {
-	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const target = companionSessionTarget(spaceKey, {...deps, runner});
-	return {runner, panes: listCompanionPanes(target, runner)};
+/** The pane id for keys and reads: main's pane, or the split's one pane. */
+function paneTarget(space: Space, name: string): string {
+	return name === MAIN_PANE ? space.main.paneId : findSplit(space, name).paneId;
 }
 
-export type RunResult = {paneId: string; created: boolean};
+function setSplitSize(
+	runner: OuterTmuxRunner,
+	split: CompanionSplit,
+	size: PaneWidth,
+): void {
+	tmux(runner, [
+		'set-option',
+		'-t',
+		exactSessionTarget(split.session),
+		'@pappa_size',
+		String(size),
+	]);
+}
+
+export type RunResult = {created: boolean};
 
 export function runInCompanion(
 	spaceKey: string,
 	options: {
 		pane: string;
 		split: SplitDirection;
-		size?: string;
+		size?: PaneWidth;
 		command: string;
 	},
 	deps: CompanionDeps = {},
 ): RunResult {
-	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
-	const launch = buildShellLaunchArgs(options.command);
-	const existing = panes.find(p => p.name === options.pane);
-	if (existing) {
-		if (options.size !== undefined && !existing.split) {
-			throw new CompanionError(
-				`${options.pane} was not split off main, so --size has no axis; use companion resize ${options.pane} --width/--height`,
-			);
-		}
+	if (options.pane === MAIN_PANE && options.size !== undefined) {
+		throw new CompanionError(
+			"main's size is the companion column; use companion width to change it",
+		);
+	}
 
+	const space = loadSpace(spaceKey, deps);
+	const launch = buildShellLaunchArgs(options.command);
+	const split = space.splits.find(each => each.name === options.pane);
+	const existing = options.pane === MAIN_PANE ? space.main : split;
+	if (existing) {
 		// #{session_path} keeps the command in the worktree even after the user
 		// has cd'd elsewhere in the pane.
-		tmux(runner, [
+		tmux(space.runner, [
 			'respawn-pane',
 			'-k',
 			'-t',
@@ -180,44 +221,27 @@ export function runInCompanion(
 			'#{session_path}',
 			...launch,
 		]);
-		if (options.size !== undefined) {
-			tmux(runner, [
-				'resize-pane',
-				'-t',
-				existing.paneId,
-				existing.split === 'right' ? '-x' : '-y',
-				options.size,
-			]);
-		}
-
-		return {paneId: existing.paneId, created: false};
+		if (split && options.size !== undefined)
+			setSplitSize(space.runner, split, options.size);
+		return {created: false};
 	}
 
-	const main = findPane(panes, MAIN_PANE);
-	const paneId = tmux(runner, [
-		'split-window',
-		'-d',
-		options.split === 'right' ? '-h' : '-v',
-		...(options.size === undefined ? [] : ['-l', options.size]),
-		'-t',
-		main.paneId,
-		'-c',
-		'#{session_path}',
-		'-P',
-		'-F',
-		'#{pane_id}',
-		...launch,
-	]).trim();
-	tmux(runner, ['set-option', '-p', '-t', paneId, '@pappa_pane', options.pane]);
-	tmux(runner, [
-		'set-option',
-		'-p',
-		'-t',
-		paneId,
-		'@pappa_split',
-		options.split,
-	]);
-	return {paneId, created: true};
+	try {
+		createCompanionSplit(
+			spaceKey,
+			{...options, name: options.pane},
+			{
+				runner: space.runner,
+				repoName: deps.repoName,
+			},
+		);
+	} catch (error) {
+		if (error instanceof CompanionSplitError)
+			throw new CompanionError(error.message);
+		throw error;
+	}
+
+	return {created: true};
 }
 
 /**
@@ -230,19 +254,19 @@ export function sendCompanionKeys(
 	options: {pane: string; text?: string; keys: string[]; enter: boolean},
 	deps: CompanionDeps = {},
 ): void {
-	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
-	const {paneId} = findPane(panes, options.pane);
+	const space = loadSpace(spaceKey, deps);
+	const paneId = paneTarget(space, options.pane);
 	if (options.keys.length > 0) {
 		for (const key of options.keys) {
-			tmux(runner, ['send-keys', '-t', paneId, key]);
+			tmux(space.runner, ['send-keys', '-t', paneId, key]);
 		}
 
 		return;
 	}
 
 	if (options.text)
-		tmux(runner, ['send-keys', '-t', paneId, '-l', '--', options.text]);
-	if (options.enter) tmux(runner, ['send-keys', '-t', paneId, 'Enter']);
+		tmux(space.runner, ['send-keys', '-t', paneId, '-l', '--', options.text]);
+	if (options.enter) tmux(space.runner, ['send-keys', '-t', paneId, 'Enter']);
 }
 
 export function readCompanionPane(
@@ -250,16 +274,15 @@ export function readCompanionPane(
 	options: {pane: string; lines: number},
 	deps: CompanionDeps = {},
 ): string {
-	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
-	const {paneId} = findPane(panes, options.pane);
-	const output = tmux(runner, [
+	const space = loadSpace(spaceKey, deps);
+	const output = tmux(space.runner, [
 		'capture-pane',
 		'-p',
 		'-J',
 		'-S',
 		`-${options.lines}`,
 		'-t',
-		paneId,
+		paneTarget(space, options.pane),
 	]);
 	// capture-pane runs from -S through the bottom of the screen, so a short
 	// --lines still captures a whole screenful.
@@ -272,18 +295,17 @@ export function readCompanionPane(
 
 export function resizeCompanionPane(
 	spaceKey: string,
-	options: {pane: string; width?: string; height?: string},
+	options: {pane: string; size: PaneWidth},
 	deps: CompanionDeps = {},
 ): void {
-	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
-	const {paneId} = findPane(panes, options.pane);
-	tmux(runner, [
-		'resize-pane',
-		'-t',
-		paneId,
-		...(options.width === undefined ? [] : ['-x', options.width]),
-		...(options.height === undefined ? [] : ['-y', options.height]),
-	]);
+	if (options.pane === MAIN_PANE) {
+		throw new CompanionError(
+			"main's size is the companion column; use companion width to change it",
+		);
+	}
+
+	const space = loadSpace(spaceKey, deps);
+	setSplitSize(space.runner, findSplit(space, options.pane), options.size);
 }
 
 export function closeCompanionPane(
@@ -297,15 +319,33 @@ export function closeCompanionPane(
 		);
 	}
 
-	const {runner, panes} = loadCompanionPanes(spaceKey, deps);
-	tmux(runner, ['kill-pane', '-t', findPane(panes, pane).paneId]);
+	const space = loadSpace(spaceKey, deps);
+	tmux(space.runner, [
+		'kill-session',
+		'-t',
+		exactSessionTarget(findSplit(space, pane).session),
+	]);
 }
 
 export function listCompanion(
 	spaceKey: string,
 	deps: CompanionDeps = {},
 ): CompanionPane[] {
-	return loadCompanionPanes(spaceKey, deps).panes;
+	const space = loadSpace(spaceKey, deps);
+	return [
+		space.main,
+		...space.splits.map(split => ({
+			name: split.name,
+			paneId: split.paneId,
+			split: split.split,
+			size: split.size,
+			command: split.command,
+			startCommand: split.startCommand,
+			width: split.width,
+			height: split.height,
+			shown: split.shown,
+		})),
+	];
 }
 
 export function formatPaneList(panes: CompanionPane[]): string {
@@ -316,10 +356,13 @@ export function formatPaneList(panes: CompanionPane[]): string {
 				pane.paneId,
 				pane.command,
 				`${pane.width}x${pane.height}`,
-				pane.active ? 'active' : '',
+				pane.split
+					? `${pane.split}${pane.size === null ? '' : ` ${pane.size}`}`
+					: '',
+				pane.shown ? 'shown' : '',
 			]
-				.join('  ')
-				.trimEnd(),
+				.filter(Boolean)
+				.join('  '),
 		)
 		.join('\n');
 }

@@ -344,6 +344,7 @@ function ownHarness(
 		current?: string | null;
 		behavior?: Parameters<typeof fakeTuiTmux>[0]['behavior'];
 		gonePane?: string;
+		splitPanes?: string[];
 	} = {},
 ) {
 	const h = setup(['pappardelle-app'], options.behavior, {
@@ -365,6 +366,7 @@ function ownHarness(
 					stdout: '',
 				};
 			},
+			splitPanes: () => options.splitPanes ?? [],
 			currentSession: () =>
 				options.current === undefined ? 'pappardelle-app' : options.current,
 			killSession(name: string) {
@@ -503,6 +505,19 @@ test("q inside the user's own tmux session closes only the viewer panes", t => {
 		['kill-pane', '-t', '%4'],
 		['kill-pane', '-t', '%5'],
 		SOUS_CHEF_CLEARED,
+	]);
+});
+
+test("q inside the user's own tmux session also closes the companion split panes", t => {
+	const h = ownHarness({current: 'work', splitPanes: ['%8', '%9']});
+
+	closeTuiLayout('app', layout, h.deps);
+
+	t.deepEqual(h.layoutCalls, [
+		['kill-pane', '-t', '%4'],
+		['kill-pane', '-t', '%5'],
+		['kill-pane', '-t', '%8'],
+		['kill-pane', '-t', '%9'],
 	]);
 });
 

@@ -258,6 +258,9 @@ for (const delayed of ['%1', '%2']) {
 		);
 	}
 }
+// After the viewers attach, one listing finds the space's companion splits.
+const isSplitListing = (args: string[] | undefined) =>
+	args?.[2] === 'list-sessions' && args[4]!.includes('@pappa_split');
 
 const isSwitchBatch = (args: string[]) =>
 	args.includes('switch-client') && args.includes(';');
@@ -533,7 +536,8 @@ test.serial(
 		);
 		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1:'));
 		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1:'));
-		t.deepEqual(fake.calls.at(-1), titleAndFocus('TEST-1'));
+		t.deepEqual(fake.calls.at(-2), titleAndFocus('TEST-1'));
+		t.true(isSplitListing(fake.calls.at(-1)));
 	},
 );
 
@@ -569,8 +573,9 @@ test.serial(
 		);
 		t.deepEqual(
 			fake.calls.map(args => args.includes('switch-client')),
-			[true, false],
+			[true, false, false],
 		);
+		t.true(isSplitListing(fake.calls[2]));
 		t.true(fake.calls[0]!.includes(';'));
 		t.is(getCurrentlyViewingSpace(), 'TEST-A');
 	},
@@ -589,7 +594,8 @@ test.serial(
 				run: fake.run,
 			}),
 		);
-		t.is(fake.calls.length, 2);
+		t.is(fake.calls.length, 3);
+		t.true(isSplitListing(fake.calls[2]));
 		const batch = fake.calls[0]!;
 		t.deepEqual(batch.slice(0, 2), ['-L', 'pappardelle_inner']);
 		const commands = splitBatch(batch.slice(2));

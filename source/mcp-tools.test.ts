@@ -83,11 +83,14 @@ test('companion_read, resize, close, list and width reach their verbs', t => {
 		lines: 5,
 		pane: 'a',
 	});
-	t.like(
-		companion('companion_resize', {pane: 'a', width: '40%', height: '10'})
-			.command,
-		{verb: 'resize', pane: 'a', width: '40%', height: '10'},
-	);
+	t.like(companion('companion_resize', {pane: 'a', size: '40%'}).command, {
+		verb: 'resize',
+		pane: 'a',
+		size: '40%',
+	});
+	t.like(companion('companion_resize', {pane: 'a', size: '12'}).command, {
+		size: 12,
+	});
 	t.like(companion('companion_close', {pane: 'a', space: 'S'}).command, {
 		verb: 'close',
 		pane: 'a',

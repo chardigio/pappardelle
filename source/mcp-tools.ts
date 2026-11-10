@@ -6,6 +6,7 @@
 // other ends every session, so both should take a deliberate command.
 
 import {z} from 'zod';
+import {PANE_NAME_PATTERN, PANE_NAME_RULE} from './companion-splits.ts';
 import {MAX_WAIT_SECONDS} from './supervise-args.ts';
 import {WATCH_TARGETS, type WatchTarget} from './space-watch.ts';
 
@@ -46,10 +47,17 @@ const space = z
 	.string()
 	.optional()
 	.describe('Space key, such as STA-696. Defaults to your own space');
-const pane = z
+const paneName = z
 	.string()
+	.regex(PANE_NAME_PATTERN, `Pane names are ${PANE_NAME_RULE}`);
+const pane = paneName
 	.optional()
 	.describe('Pane name. Defaults to main, the pane the companion starts with');
+const splitSize = z
+	.string()
+	.describe(
+		'Cells along the split (40), or a share of the companion column (30%). Counts the whole framed pane',
+	);
 const key = z
 	.string()
 	.describe(
@@ -96,7 +104,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'companion_run',
 		description:
-			"Run a command in a pane of a space's companion, replacing what runs there. An existing pane restarts with the new command, so running again with the same name doesn't add a pane. A missing pane is split off main. Use a named split for an app, dev server or test watcher so the user can watch it start",
+			"Run a command in a pane of a space's companion, replacing what runs there. An existing pane restarts with the new command, so running again with the same name doesn't add a pane. A missing pane is split off main, and the TUI shows it in a framed pane of its own. Use a named split for an app, dev server or test watcher so the user can watch it start. The result says whether the TUI is showing it or when it will",
 		inputSchema: {
 			command: z
 				.string()
@@ -106,12 +114,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.enum(['right', 'down'])
 				.optional()
 				.describe('Direction for a new pane. Defaults to down'),
-			size: z
-				.string()
-				.optional()
-				.describe(
-					'Size of a new pane: lines or columns (40), or a share (30%)',
-				),
+			size: splitSize.optional(),
 			space,
 		},
 		toCli: ({command, pane, split, size, space}) => ({
@@ -181,23 +184,23 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	}),
 	defineTool({
 		name: 'companion_resize',
-		description: 'Resize a pane inside the companion',
+		description:
+			"Resize a companion split along the way it was split: its width for right, its height for down. The size is kept for that split. main's width is the companion column; set it with companion_width",
 		inputSchema: {
-			pane: z.string().describe('Pane name'),
-			width: z.string().optional().describe('Columns (60) or a share (40%)'),
-			height: z.string().optional().describe('Lines (10) or a share (40%)'),
+			pane: paneName.describe('Pane name'),
+			size: splitSize,
 			space,
 		},
-		toCli: ({pane, width, height, space}) => ({
-			args: ['companion', 'resize', pane, ...flags({width, height, space})],
+		toCli: ({pane, size, space}) => ({
+			args: ['companion', 'resize', pane, ...flags({size, space})],
 		}),
 	}),
 	defineTool({
 		name: 'companion_close',
 		description:
-			"Close a companion pane. main can't be closed; run something else in it",
+			"Close a companion split and its framed pane in the TUI. main can't be closed; run something else in it",
 		destructive: true,
-		inputSchema: {pane: z.string().describe('Pane name'), space},
+		inputSchema: {pane: paneName.describe('Pane name'), space},
 		toCli: ({pane, space}) => ({
 			args: ['companion', 'close', pane, ...flags({space})],
 		}),
@@ -205,7 +208,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'companion_list',
 		description:
-			"List a space's companion panes: name, pane id, command, size, active",
+			"List a space's companion panes: name, pane id, command, size in cells, which way and how big each split was asked for, and whether the TUI is showing it",
 		readOnly: true,
 		inputSchema: {space},
 		toCli: ({space}) => ({

@@ -129,18 +129,35 @@ test('read defaults to 50 lines on main', t => {
 	});
 });
 
-test('resize needs a name and at least one of --width and --height', t => {
-	t.like(parseCompanionArgs(['resize', 'app', '--height', '10']), {
+test('resize needs a name and a size', t => {
+	t.like(parseCompanionArgs(['resize', 'app', '--size', '10']), {
 		pane: 'app',
-		height: '10',
-		width: undefined,
+		size: 10,
 	});
-	t.throws(() => parseCompanionArgs(['resize', 'app']), {
-		instanceOf: CompanionUsageError,
+	t.like(parseCompanionArgs(['resize', 'app', '--size', '30%']), {
+		size: '30%',
 	});
-	t.throws(() => parseCompanionArgs(['resize', '--width', '10']), {
-		instanceOf: CompanionUsageError,
+	for (const argv of [
+		['resize', 'app'],
+		['resize', '--size', '10'],
+		['resize', 'app', '--size', '0'],
+		['resize', 'app', '--width', '10'],
+	]) {
+		t.throws(() => parseCompanionArgs(argv), {
+			instanceOf: CompanionUsageError,
+		});
+	}
+});
+
+test('pane names are what a split session name can hold', t => {
+	t.like(parseCompanionArgs(['run', '--pane', 'dev-2', '--', 'x']), {
+		pane: 'dev-2',
 	});
+	for (const name of ['Dev', 'a~b', 'a.b', '-x', 'a b', '']) {
+		t.throws(() => parseCompanionArgs(['read', '--pane', name]), {
+			instanceOf: CompanionUsageError,
+		});
+	}
 });
 
 test('width takes columns, a percentage, or reset', t => {

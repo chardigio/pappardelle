@@ -131,6 +131,7 @@ import {
 	resolveAgentProfileName,
 	renderAgentLaunchFlags,
 	getCompanionCommand,
+	getCompanionSplits,
 	quoteLaunchValue,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
@@ -138,10 +139,23 @@ import {
 	getPaneWidths,
 	getRepoName,
 	loadConfig,
+	type ResolvedCompanionSplit,
 	type PappardelleConfig,
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
+import {
+	MAIN_PANE,
+	SPLIT_LIST_FORMAT,
+	owningCompanionSession,
+	parseSplitList,
+	splitTargets,
+	splitSessionName,
+	splitSignature,
+	splitsSeeded,
+	type CompanionSplit,
+	type SplitDirection,
+} from './companion-splits.ts';
 import {createLogger} from './logger.ts';
 import {
 	ControlClientNeverStarted,
@@ -164,6 +178,7 @@ import {
 	paneGeometryArgs,
 	parseWindowGeometry,
 	paneGeometry,
+	type PaneGeometry,
 	type WindowGeometry,
 } from './tmux-geometry.ts';
 import {sameFile} from './same-file.ts';
@@ -224,9 +239,6 @@ const log = createLogger('tmux');
 // like Claude Code's Agent Teams feature. Must match PAPPARDELLE_TMUX_SOCKET
 // in _dev/scripts/dow/*.sh — the two sides have to agree.
 export const INNER_SOCKET = 'pappardelle_inner';
-
-/** The `@pappa_pane` name of the pane a companion session starts with. */
-export const MAIN_PANE = 'main';
 
 /**
  * Prefix `['-L', INNER_SOCKET, ...]` onto a tmux argv. Every inner-session
@@ -521,14 +533,6 @@ function viewerRespawnArgs(
 	command: string,
 	title?: string,
 ): string[] {
-	const host = [
-		...paneFrameEntry(),
-		...(title === undefined ? [] : ['--title', title]),
-		'--',
-		'/bin/sh',
-		'-c',
-		`${command}; exec "$SHELL" -l`,
-	];
 	return [
 		'set-option',
 		'-p',
@@ -541,7 +545,7 @@ function viewerRespawnArgs(
 		'-k',
 		'-t',
 		paneId,
-		host.map(value => shellQuote(value)).join(' '),
+		frameHostCommand(command, title),
 	];
 }
 
@@ -592,6 +596,37 @@ function viewerStartArgs(
 		'-S',
 		frameReadyChannel(paneId),
 	];
+}
+
+/**
+ * The shell command a viewer pane runs: the frame host around `command`, then
+ * a login shell. A split's pane has no shell after it, so the pane closes
+ * when the split's session ends instead of leaving a shell of no space.
+ */
+function frameHostCommand(
+	command: string,
+	title?: string,
+	then: 'shell' | 'close' = 'shell',
+): string {
+	return [
+		...paneFrameEntry(),
+		...(title === undefined ? [] : ['--title', title]),
+		'--',
+		'/bin/sh',
+		'-c',
+		then === 'shell' ? `${command}; exec "$SHELL" -l` : command,
+	]
+		.map(value => shellQuote(value))
+		.join(' ');
+}
+
+function nestedAttachCommand(session: string): string {
+	return [
+		'tmux',
+		...innerTmuxArgs(['attach', '-t', exactSessionTarget(session)]),
+	]
+		.map(value => shellQuote(value))
+		.join(' ');
 }
 
 function viewerMessageCommand(message: string): string {
@@ -1375,7 +1410,9 @@ export function cleanupOrphanedInnerSessions(
 			} else if (name.startsWith(legacyAgentPrefix)) {
 				key = fromSessionKey(name.slice(legacyAgentPrefix.length));
 			} else if (name.startsWith(companionPrefix)) {
-				key = fromSessionKey(name.slice(companionPrefix.length));
+				key = fromSessionKey(
+					owningCompanionSession(name).slice(companionPrefix.length),
+				);
 			} else if (name.startsWith(legacyCompanionPrefix)) {
 				key = fromSessionKey(name.slice(legacyCompanionPrefix.length));
 			} else {
@@ -1425,6 +1462,9 @@ export async function killSpaceSessions(
 	const sessions = getSessionNames(issueKey, options?.repoName);
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
+	const run = options?.run ?? runTmux;
+	for (const split of await listCompanionSplits(sessions.companion, run))
+		if (!(await innerKillSession(split.session, run))) return false;
 	if (!(await innerKillSession(sessions.companion, options?.run))) return false;
 	const killed = await innerKillSession(sessions.agent, options?.run);
 	// Also address the legacy name: a space whose session hasn't been
@@ -1838,35 +1878,22 @@ async function runLayoutCommand(args: string[], run: AsyncTmuxRunner) {
 }
 
 async function recordPaneSampleAsync(
-	listPaneId: string,
-	companionViewerPaneId: string,
+	layout: PaneLayout,
 	run: AsyncTmuxRunner,
 ): Promise<WindowGeometry> {
-	const geometry = parseWindowGeometry(await run(paneGeometryArgs(listPaneId)));
-	recordGeometry(geometry, listPaneId, companionViewerPaneId);
+	const geometry = parseWindowGeometry(
+		await run(paneGeometryArgs(layout.listPaneId)),
+	);
+	recordGeometry(geometry, layout);
 	return geometry;
 }
 
 // tmux rounds split sizes; sample the resulting window and side panes together
 // so rounding or a concurrent window resize cannot masquerade as a hand-drag.
-function recordGeometry(
-	snapshot: WindowGeometry,
-	listPaneId: string,
-	companionPaneId: string,
-): void {
+function recordGeometry(snapshot: WindowGeometry, layout: PaneLayout): void {
 	lastWindowSize = snapshot.window;
-	lastRailWidth = paneGeometry(snapshot, listPaneId).cols;
-	// The companion pane closes when the shell left in it exits.
-	lastCompanionWidth = snapshot.panes.get(companionPaneId)?.cols ?? null;
-}
-
-export async function measurePaneWidth(
-	paneId: string,
-	run: AsyncTmuxRunner = runTmux,
-): Promise<number | null> {
-	if (!paneId) return null;
-	const geometry = parseWindowGeometry(await run(paneGeometryArgs(paneId)));
-	return paneGeometry(geometry, paneId).cols;
+	lastRailWidth = paneGeometry(snapshot, layout.listPaneId).cols;
+	lastCompanionWidth = companionColumnWidth(snapshot, layout);
 }
 
 function readGeometrySync(paneId: string): WindowGeometry | null {
@@ -2107,11 +2134,11 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 		);
 
 		try {
-			recordGeometry(
-				parseWindowGeometry(geometry),
+			recordGeometry(parseWindowGeometry(geometry), {
 				listPaneId,
+				agentViewerPaneId,
 				companionViewerPaneId,
-			);
+			});
 		} catch {
 			lastWindowSize = null;
 			lastRailWidth = null;
@@ -2329,6 +2356,32 @@ async function attachViewers(
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
 	const sessions = getSessionNames(issueKey);
+	// A split that fails to show leaves the agent and companion attached.
+	const syncSplitsAfterAttach = async (): Promise<boolean> => {
+		try {
+			await syncCompanionSplits(
+				{agentViewerPaneId, companionViewerPaneId},
+				issueKey,
+				{
+					run,
+					seed: () =>
+						getCompanionSplits(
+							loadConfig(),
+							issueTitle,
+							savedSpaceProfile(issueKey),
+						),
+				},
+			);
+		} catch (err) {
+			if (signal?.aborted) return false;
+			log.warn(
+				`Failed to show the companion splits of ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
+		}
+
+		return true;
+	};
 	if (
 		agentViewerHasClient &&
 		agentViewerTty &&
@@ -2370,8 +2423,9 @@ async function attachViewers(
 				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
 			);
 			currentlyViewingSpace = issueKey;
-			traceDone?.();
-			return true;
+			const shown = await syncSplitsAfterAttach();
+			traceDone?.(shown ? undefined : 'cancelled');
+			return shown;
 		} catch (err) {
 			if (signal?.aborted) {
 				traceDone?.('cancelled');
@@ -2493,12 +2547,7 @@ async function attachViewers(
 					return {attached: true, tty: tty!};
 				}
 				const command = exists
-					? [
-							'tmux',
-							...innerTmuxArgs(['attach', '-t', exactSessionTarget(session)]),
-						]
-							.map(value => shellQuote(value))
-							.join(' ')
+					? nestedAttachCommand(session)
 					: viewerNoSessionCommand(issueKey, program);
 				await run(viewerStartArgs(paneId, command, title));
 				// The fast path finds the respawned frame's nested client by its tty.
@@ -2563,8 +2612,9 @@ async function attachViewers(
 			throw error;
 		}
 		currentlyViewingSpace = issueKey;
-		traceDone?.();
-		return true;
+		const shown = await syncSplitsAfterAttach();
+		traceDone?.(shown ? undefined : 'cancelled');
+		return shown;
 	} catch (err) {
 		// A respawn can recycle a pty even when its sibling attachment fails.
 		clearCurrentlyViewingSpace();
@@ -2577,6 +2627,353 @@ async function attachViewers(
 		traceDone?.(signal?.aborted ? 'cancelled' : 'failed');
 		return false;
 	}
+}
+
+// ============================================================================
+// Companion splits in the outer window
+// ============================================================================
+
+/**
+ * A companion split the TUI shows in an outer pane of its own, with its own
+ * frame. Only the space on screen has these panes; switching to a space whose
+ * splits are arranged the same way moves their clients instead.
+ */
+type ShownSplit = {
+	name: string;
+	session: string;
+	split: SplitDirection;
+	paneId: string;
+	tty: string;
+	/** Its size along its axis when the TUI last moved the panes. */
+	size: number | null;
+};
+
+let shownSplits: ShownSplit[] = [];
+let shownSplitSignature: string | null = null;
+let splitSizesWindow: WindowSize | null = null;
+let splitSizesColumn: number | null = null;
+let splitSyncPending = false;
+
+export function companionSplitPaneIds(): string[] {
+	return shownSplits.map(split => split.paneId);
+}
+
+/** True once after a sync was put off because a dialog had the rail zoomed. */
+export function takePendingSplitSync(): boolean {
+	const pending = splitSyncPending;
+	splitSyncPending = false;
+	return pending;
+}
+
+/**
+ * The companion column is everything right of the agent pane, so a split
+ * beside main counts toward `companion width` as main does.
+ */
+function companionColumnWidth(
+	geometry: WindowGeometry,
+	layout: Pick<PaneLayout, 'agentViewerPaneId' | 'companionViewerPaneId'>,
+): number | null {
+	// The companion pane closes when the shell left in it exits.
+	if (!geometry.panes.has(layout.companionViewerPaneId)) return null;
+	const agent = geometry.panes.get(layout.agentViewerPaneId);
+	return agent ? geometry.window.width - agent.right - 2 : null;
+}
+
+export async function measureCompanionColumnWidth(
+	layout: Pick<PaneLayout, 'agentViewerPaneId' | 'companionViewerPaneId'>,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<number | null> {
+	if (!layout.companionViewerPaneId) return null;
+	return companionColumnWidth(
+		parseWindowGeometry(
+			await run(paneGeometryArgs(layout.companionViewerPaneId)),
+		),
+		layout,
+	);
+}
+
+function alongSplit(pane: PaneGeometry, split: SplitDirection): number {
+	return split === 'right' ? pane.cols : pane.rows;
+}
+
+/**
+ * A split whose size changed while the window's didn't had its border moved
+ * by hand. The size is kept on its session, in cells, so the split opens at
+ * it next time.
+ */
+async function rememberSplitDrags(
+	measured: WindowGeometry,
+	column: number | null,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	for (const split of shownSplits) {
+		// A new column width moves every split beside main with it; that is
+		// `companion width` or the agent pane's border, not this split's.
+		if (split.split === 'right' && column !== splitSizesColumn) continue;
+		const pane = measured.panes.get(split.paneId);
+		const dragged = nextWidthOverride({
+			previousWindow: splitSizesWindow,
+			currentWindow: measured.window,
+			previousSize: split.size,
+			currentSize: pane ? alongSplit(pane, split.split) : null,
+			currentOverride: null,
+		});
+		if (dragged === null) continue;
+		split.size = dragged;
+		log.info(`Companion split ${split.session} resized by hand: ${dragged}`);
+		try {
+			await run(
+				innerTmuxArgs([
+					'set-option',
+					'-t',
+					exactSessionTarget(split.session),
+					'@pappa_size',
+					String(dragged),
+				]),
+			);
+		} catch (err) {
+			log.warn(
+				`Failed to keep the size of ${split.session}`,
+				err instanceof Error ? err : undefined,
+			);
+		}
+	}
+}
+
+function recordSplitSizes(
+	measured: WindowGeometry,
+	column: number | null,
+): void {
+	splitSizesWindow = measured.window;
+	splitSizesColumn = column;
+	for (const split of shownSplits) {
+		const pane = measured.panes.get(split.paneId);
+		split.size = pane ? alongSplit(pane, split.split) : null;
+	}
+}
+
+// One call per pane: tmux skips the rest of a command list after a failure.
+async function dropSplitPanes(run: AsyncTmuxRunner): Promise<void> {
+	const panes = shownSplits;
+	shownSplits = [];
+	shownSplitSignature = null;
+	for (const split of panes) await killPane(split.paneId, run);
+}
+
+/** Close the split panes, as when the space on screen is closed. */
+export async function closeCompanionSplitPanes(
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	await dropSplitPanes(run);
+}
+
+async function listCompanionSessions(run: AsyncTmuxRunner): Promise<string> {
+	try {
+		return await run(innerTmuxArgs(['list-sessions', '-F', SPLIT_LIST_FORMAT]));
+	} catch (err) {
+		if (err instanceof Error && err.name === 'AbortError') throw err;
+		return '';
+	}
+}
+
+async function listCompanionSplits(
+	companionSession: string,
+	run: AsyncTmuxRunner,
+): Promise<CompanionSplit[]> {
+	return parseSplitList(await listCompanionSessions(run), companionSession);
+}
+
+const SPLITS_SEEDED_OPTION = '@pappa_splits_seeded';
+
+/**
+ * Start the configured splits once per companion session, so a split the
+ * user closes stays closed. Returns whether it started any.
+ */
+async function seedCompanionSplits(
+	issueKey: string,
+	splits: CompanionSplit[],
+	configured: ResolvedCompanionSplit[],
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	if (configured.length === 0) return false;
+	for (const split of configured) {
+		if (splits.some(existing => existing.name === split.name)) continue;
+		try {
+			createCompanionSplit(issueKey, split);
+		} catch (err) {
+			log.warn(
+				`Failed to start companion split ${split.name} for ${issueKey}`,
+				err instanceof Error ? err : undefined,
+			);
+		}
+	}
+
+	await run(
+		innerTmuxArgs([
+			'set-option',
+			'-t',
+			exactSessionTarget(getSessionNames(issueKey).companion),
+			SPLITS_SEEDED_OPTION,
+			'1',
+		]),
+	);
+	return true;
+}
+
+export type SplitSyncOutcome = 'applied' | 'deferred' | 'no-pane';
+
+/**
+ * Show the space's companion splits in framed outer panes split off the
+ * companion pane. Runs inside the attachment queue, so two syncs never both
+ * decide to split.
+ *
+ * Splitting or killing a pane unzooms the window, so while a dialog has the
+ * rail zoomed this only notes that a sync is owed (`takePendingSplitSync`).
+ */
+export async function syncCompanionSplits(
+	layout: Pick<PaneLayout, 'agentViewerPaneId' | 'companionViewerPaneId'>,
+	issueKey: string,
+	options: {run?: AsyncTmuxRunner; seed?: () => ResolvedCompanionSplit[]} = {},
+): Promise<SplitSyncOutcome> {
+	const run = options.run ?? runTmux;
+	const companionSession = getSessionNames(issueKey).companion;
+	const listing = await listCompanionSessions(run);
+	let splits = parseSplitList(listing, companionSession);
+	if (
+		options.seed &&
+		listing
+			.split('\n')
+			.some(line => line.startsWith(`${companionSession}\t`)) &&
+		!splitsSeeded(listing, companionSession) &&
+		(await seedCompanionSplits(issueKey, splits, options.seed(), run))
+	)
+		splits = await listCompanionSplits(companionSession, run);
+	// rebuildLayout takes the split panes down with the companion pane.
+	if (!layout.companionViewerPaneId) return 'no-pane';
+	if (splits.length === 0 && shownSplits.length === 0) return 'applied';
+
+	const measure = async () =>
+		parseWindowGeometry(
+			await run(paneGeometryArgs(layout.companionViewerPaneId)),
+		);
+	let measured = await measure();
+	if (measured.window.zoomed) {
+		splitSyncPending = true;
+		return 'deferred';
+	}
+
+	let column = companionColumnWidth(measured, layout);
+	await rememberSplitDrags(measured, column, run);
+	// tmux takes a resized pane's cells from whichever neighbour it picks, not
+	// from main, so panes are only kept when they already have the sizes
+	// they should; otherwise they are made again at those sizes.
+	const targets = splitTargets(splits, {
+		width: column ?? 0,
+		height: measured.window.height,
+	});
+	const signature = splitSignature(splits);
+	const reuse =
+		signature === shownSplitSignature &&
+		shownSplits.every((split, index) => {
+			const pane = measured.panes.get(split.paneId);
+			return (
+				split.tty && pane && alongSplit(pane, split.split) === targets[index]
+			);
+		}) &&
+		(await switchSplitClients(splits, run));
+	if (!reuse) {
+		await dropSplitPanes(run);
+		await showSplits(layout.companionViewerPaneId, splits, targets, run);
+		shownSplitSignature = signature;
+	}
+
+	measured = await measure();
+	column = companionColumnWidth(measured, layout);
+	recordSplitSizes(measured, column);
+	return 'applied';
+}
+
+// Each split's client moves on its own call, after the agent and main ones,
+// so a split whose client is gone rebuilds only the split panes.
+async function switchSplitClients(
+	splits: CompanionSplit[],
+	run: AsyncTmuxRunner,
+): Promise<boolean> {
+	const commands: string[] = [];
+	for (const [index, split] of splits.entries()) {
+		const shown = shownSplits[index]!;
+		if (commands.length > 0) commands.push(';');
+		commands.push(
+			'switch-client',
+			'-c',
+			shown.tty,
+			'-t',
+			exactSessionTarget(split.session),
+			';',
+			...viewerSessionArgs(split.session, split.name),
+		);
+		shown.session = split.session;
+	}
+
+	try {
+		await run(innerTmuxArgs(commands));
+		return true;
+	} catch (err) {
+		if (err instanceof Error && err.name === 'AbortError') throw err;
+		log.debug('Companion split clients could not switch; reopening the panes');
+		return false;
+	}
+}
+
+async function showSplits(
+	companionViewerPaneId: string,
+	splits: CompanionSplit[],
+	targets: number[],
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	if (splits.length === 0) return;
+	// Features apply when a client attaches, so before the panes start.
+	await run(
+		innerTmuxArgs([
+			...frameTerminalFeaturesArgs(),
+			';',
+			...FRAME_ESCAPE_TIME_ARGS,
+		]),
+	);
+	// Each split comes off the companion pane in the order it was made, which
+	// rebuilds the arrangement the splits were asked for.
+	for (const [index, split] of splits.entries()) {
+		await run(innerTmuxArgs(viewerSessionArgs(split.session, split.name)));
+		const output = await run([
+			'split-window',
+			'-d',
+			split.split === 'right' ? '-h' : '-v',
+			'-l',
+			String(targets[index]),
+			'-t',
+			companionViewerPaneId,
+			'-P',
+			'-F',
+			'#{pane_id}',
+			frameHostCommand(nestedAttachCommand(split.session), split.name, 'close'),
+		]);
+		const paneId = output.trim();
+		shownSplits.push({
+			name: split.name,
+			session: split.session,
+			split: split.split,
+			paneId,
+			tty: '',
+			size: null,
+		});
+	}
+
+	// The tty waits overlap, so several splits open as fast as one.
+	await Promise.all(
+		shownSplits.map(async split => {
+			split.tty = await awaitViewerClientTty(split.paneId, run);
+		}),
+	);
 }
 
 async function innerSessionExistsAsync(
@@ -2702,6 +3099,7 @@ export async function rebuildLayout(
 			snapshot ?? parseWindowGeometry(await run(paneGeometryArgs(listPaneId)))
 		).window;
 
+		await dropSplitPanes(run);
 		// Detach any nested clients before killing panes
 		if (oldAgentViewerPaneId) {
 			if (agentViewerHasClient) {
@@ -2836,14 +3234,10 @@ export async function rebuildLayout(
 			`Layout rebuilt: agent=${agentViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		const geometry = await recordPaneSampleAsync(
-			listPaneId,
-			companionViewerPaneId,
-			run,
-		);
+		const layoutPanes = {listPaneId, agentViewerPaneId, companionViewerPaneId};
 		return {
-			layout: {listPaneId, agentViewerPaneId, companionViewerPaneId},
-			geometry,
+			layout: layoutPanes,
+			geometry: await recordPaneSampleAsync(layoutPanes, run),
 		};
 	} catch (err) {
 		log.error(
@@ -2855,16 +3249,24 @@ export async function rebuildLayout(
 }
 
 async function relayoutGeometry(
-	listPaneId: string,
-	companionViewerPaneId: string,
+	layout: PaneLayout,
 	run: AsyncTmuxRunner,
 	geometry: WindowGeometry,
 	spaceWidth: typeof spaceCompanionWidth,
 ): Promise<WindowGeometry | null> {
+	const {listPaneId, agentViewerPaneId} = layout;
 	try {
 		const windowDims = geometry.window;
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
+
+		if (shownSplits.length > 0) {
+			await rememberSplitDrags(
+				geometry,
+				companionColumnWidth(geometry, layout),
+				run,
+			);
+		}
 
 		// Separate a window resize from a hand-drag of a side-pane border
 		// *before* computing the layout, so a drag feeds its own width back in
@@ -2872,22 +3274,21 @@ async function relayoutGeometry(
 		const measuredRail = paneGeometry(geometry, listPaneId);
 		let resizeAttempted = false;
 		const measuredRailWidth = measuredRail.cols;
-		const measuredCompanionWidth =
-			geometry.panes.get(companionViewerPaneId)?.cols ?? null;
+		const measuredCompanionWidth = companionColumnWidth(geometry, layout);
 		const previousRail = railWidthOverride;
 		const previousCompanion = companionWidthOverride;
 		railWidthOverride = nextWidthOverride({
 			previousWindow: lastWindowSize,
 			currentWindow: windowDims,
-			previousWidth: lastRailWidth,
-			currentWidth: measuredRailWidth,
+			previousSize: lastRailWidth,
+			currentSize: measuredRailWidth,
 			currentOverride: railWidthOverride,
 		});
 		const companionDrag = nextWidthOverride({
 			previousWindow: lastWindowSize,
 			currentWindow: windowDims,
-			previousWidth: lastCompanionWidth,
-			currentWidth: measuredCompanionWidth,
+			previousSize: lastCompanionWidth,
+			currentSize: measuredCompanionWidth,
 			currentOverride: null,
 		});
 		if (companionDrag !== null && spaceWidth) {
@@ -2923,25 +3324,25 @@ async function relayoutGeometry(
 			);
 		}
 
-		const layout = calculateLayout(totalWidth, totalHeight);
+		const sizes = calculateLayout(totalWidth, totalHeight);
 
 		log.info(
-			`Relayout: ${totalWidth}x${totalHeight}, mode=${layout.direction}` +
+			`Relayout: ${totalWidth}x${totalHeight}, mode=${sizes.direction}` +
 				(railWidthOverride === null ? '' : `, rail=${railWidthOverride}`) +
 				(companionWidthOverride === null
 					? ''
 					: `, companion=${companionWidthOverride}`),
 		);
 
-		if (layout.direction === 'vertical') {
+		if (sizes.direction === 'vertical') {
 			// Vertical: resize list pane height, claude gets remainder
 			if (
-				layout.listHeight !== undefined &&
-				layout.listHeight !== measuredRail.rows
+				sizes.listHeight !== undefined &&
+				sizes.listHeight !== measuredRail.rows
 			) {
 				resizeAttempted = true;
 				const result = await runLayoutCommand(
-					['resize-pane', '-t', listPaneId, '-y', String(layout.listHeight)],
+					['resize-pane', '-t', listPaneId, '-y', String(sizes.listHeight)],
 					run,
 				);
 				if (result.error || result.status !== 0) {
@@ -2952,12 +3353,11 @@ async function relayoutGeometry(
 		} else {
 			// Horizontal: resize list width and companion width, claude gets remainder
 			const resizeRail =
-				layout.listWidth !== undefined &&
-				layout.listWidth !== measuredRailWidth;
+				sizes.listWidth !== undefined && sizes.listWidth !== measuredRailWidth;
 			if (resizeRail) {
 				resizeAttempted = true;
 				const result = await runLayoutCommand(
-					['resize-pane', '-t', listPaneId, '-x', String(layout.listWidth)],
+					['resize-pane', '-t', listPaneId, '-x', String(sizes.listWidth)],
 					run,
 				);
 				if (result.error || result.status !== 0) {
@@ -2966,34 +3366,41 @@ async function relayoutGeometry(
 				}
 			}
 
+			// The agent pane is sized, not the companion: the companion column
+			// may hold splits beside main, and it takes what the agent leaves.
 			if (
 				measuredCompanionWidth !== null &&
-				layout.companionWidth !== undefined &&
-				(resizeRail || layout.companionWidth !== measuredCompanionWidth)
+				sizes.agentWidth !== undefined &&
+				(resizeRail ||
+					sizes.agentWidth !== paneGeometry(geometry, agentViewerPaneId).cols)
 			) {
 				resizeAttempted = true;
 				const result = await runLayoutCommand(
 					[
 						'resize-pane',
 						'-t',
-						companionViewerPaneId,
+						agentViewerPaneId,
 						'-x',
-						String(layout.companionWidth),
+						String(sizes.agentWidth),
 					],
 					run,
 				);
 				if (result.error || result.status !== 0) {
-					log.error(`Failed to resize companion pane width: ${result.stderr}`);
+					log.error(`Failed to resize the agent pane width: ${result.stderr}`);
 					// Non-fatal, continue
 				}
 			}
 		}
 
 		const measured = resizeAttempted
-			? await recordPaneSampleAsync(listPaneId, companionViewerPaneId, run)
+			? await recordPaneSampleAsync(layout, run)
 			: geometry;
-		if (!resizeAttempted)
-			recordGeometry(measured, listPaneId, companionViewerPaneId);
+		if (!resizeAttempted) recordGeometry(measured, layout);
+
+		// A new window or column size gives the splits new sizes to keep.
+		const viewing = currentlyViewingSpace;
+		if (shownSplits.length > 0 && viewing)
+			await syncCompanionSplits(layout, viewing, {run});
 
 		log.info('Relayout completed successfully');
 		return measured;
@@ -3044,8 +3451,7 @@ export async function reconcilePaneLayout(
 			({layout, geometry} = rebuilt);
 		} else {
 			const measured = await relayoutGeometry(
-				layout.listPaneId,
-				layout.companionViewerPaneId,
+				layout,
 				run,
 				geometry,
 				spaceWidth,
@@ -3054,11 +3460,8 @@ export async function reconcilePaneLayout(
 			geometry = measured;
 		}
 	}
-	return {
-		layout,
-		dimensions: paneGeometry(geometry, layout.listPaneId),
-		stacked,
-	};
+	const {cols, rows} = paneGeometry(geometry, layout.listPaneId);
+	return {layout, dimensions: {cols, rows}, stacked};
 }
 
 /**
@@ -3203,7 +3606,10 @@ export function pretrustDirectoryForClaude(
  * The session environment for a space the TUI makes itself. A failure to find
  * the main checkout must not stop the session: the hook can still work it out.
  */
-function spaceSessionEnvArgs(issueKey: string): string[] {
+function spaceSessionEnvArgs(
+	issueKey: string,
+	repoName = getRepoName(),
+): string[] {
 	let mainRepoRoot: string | undefined;
 	try {
 		mainRepoRoot = getMainRepoRoot();
@@ -3211,7 +3617,7 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 		// Leave it unset
 	}
 
-	return buildSessionEnvArgs(issueKey, getRepoName(), mainRepoRoot);
+	return buildSessionEnvArgs(issueKey, repoName, mainRepoRoot);
 }
 
 const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
@@ -3435,6 +3841,100 @@ export async function ensureAgentSession(
 }
 
 /**
+ * `new-session` for a space's companion or one of its splits. An empty command
+ * means "leave a plain shell". The default command carries
+ * GIT_OPTIONAL_LOCKS=0, which keeps the git UI from acquiring locks for
+ * read-only ops like `git status`, avoiding contention with Claude's
+ * concurrent git calls. Custom commands run verbatim.
+ */
+function companionSessionArgs(
+	issueKey: string,
+	sessionName: string,
+	cwd: string,
+	command: string,
+	repoName?: string,
+): string[] {
+	return [
+		'new-session',
+		'-d',
+		'-s',
+		sessionName,
+		'-c',
+		cwd,
+		...spaceSessionEnvArgs(issueKey, repoName),
+		...(command.trim() === '' ? [] : buildShellLaunchArgs(command)),
+		...hideStatusBarArgs(sessionName),
+		...KEEP_UNVIEWED_SESSIONS_ARGS,
+	];
+}
+
+export class CompanionSplitError extends Error {}
+
+/**
+ * Start a companion split as a session of its own, in the directory the
+ * space's companion session started in, so a split of the main space runs in
+ * the main checkout. Returns the split's session name.
+ */
+export function createCompanionSplit(
+	issueKey: string,
+	split: {
+		name: string;
+		command: string;
+		split: SplitDirection;
+		size?: PaneWidth;
+	},
+	options: {runner?: OuterTmuxRunner; repoName?: string} = {},
+): string {
+	const runner = options.runner ?? defaultInnerTmuxRunner;
+	const tmux = (args: string[]) => {
+		const result = runner(args);
+		if (result.error || result.status !== 0) {
+			throw new CompanionSplitError(
+				`tmux ${args[0]} failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`,
+			);
+		}
+
+		return result.stdout;
+	};
+
+	const main = getSessionNames(issueKey, options.repoName).companion;
+	const cwd = tmux([
+		'display-message',
+		'-p',
+		'-t',
+		exactSessionTarget(main),
+		'#{session_path}',
+	]).trim();
+	const session = splitSessionName(main, split.name);
+	const target = exactSessionTarget(session);
+	tmux([
+		...companionSessionArgs(
+			issueKey,
+			session,
+			cwd,
+			split.command,
+			options.repoName,
+		),
+		';',
+		'set-option',
+		'-t',
+		target,
+		'@pappa_split',
+		split.split,
+		';',
+		'set-option',
+		'-t',
+		target,
+		'@pappa_order',
+		String(Date.now()),
+		...(split.size === undefined
+			? []
+			: [';', 'set-option', '-t', target, '@pappa_size', String(split.size)]),
+	]);
+	return session;
+}
+
+/**
  * Create a companion session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
@@ -3470,27 +3970,15 @@ export async function ensureCompanionSession(
 	}
 
 	try {
-		// An empty command means "leave a plain shell". The default command
-		// carries GIT_OPTIONAL_LOCKS=0, which keeps the git UI from acquiring
-		// locks for read-only ops like `git status`, avoiding contention with
-		// Claude's concurrent git calls. Custom commands run verbatim.
-		const launchArgs =
-			companionCommand.trim() === ''
-				? []
-				: buildShellLaunchArgs(companionCommand);
 		await run(
-			innerTmuxArgs([
-				'new-session',
-				'-d',
-				'-s',
-				sessionName,
-				'-c',
-				worktreePath,
-				...spaceSessionEnvArgs(issueKey),
-				...launchArgs,
-				...hideStatusBarArgs(sessionName),
-				...KEEP_UNVIEWED_SESSIONS_ARGS,
-			]),
+			innerTmuxArgs(
+				companionSessionArgs(
+					issueKey,
+					sessionName,
+					worktreePath,
+					companionCommand,
+				),
+			),
 		);
 
 		// `pappardelle companion` addresses panes by name; the first one is main.

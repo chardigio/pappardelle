@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
 import {
-	measurePaneWidth,
 	rebuildLayout,
 	reconcilePaneLayout,
 	setSpaceCompanionDragHandler,
@@ -16,6 +15,12 @@ import {
 import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
 
 const exec = promisify(execFile);
+
+const paneWidth = async (
+	paneId: string,
+	run: (args: string[]) => Promise<string>,
+) =>
+	Number(await run(['display-message', '-p', '-t', paneId, '#{pane_width}']));
 
 test.serial(
 	'a space width applies while set, takes drags for its own space, and leaves the global drag override alone',
@@ -72,7 +77,7 @@ test.serial(
 		}
 
 		const companion = layout.companionViewerPaneId;
-		const width = async () => measurePaneWidth(companion, run);
+		const width = async () => paneWidth(companion, run);
 		const drags: Array<[string, number]> = [];
 		setSpaceCompanionDragHandler((key, columns) => drags.push([key, columns]));
 
