@@ -11,10 +11,14 @@ export type InputSegment = {to: 'program' | 'renderer'; bytes: Uint8Array};
 
 type Carry = 'none' | 'string' | 'string-escape' | 'csi' | 'paste';
 
-// The renderer's parser gives up on an unfinished sequence after 20 ms and
-// reads what follows as keys. One still unfinished by then was not a reply:
-// Alt+] and a digit typed with it, say.
-const CARRY_MS = 20;
+// An OSC, DCS or APC string still unfinished after this long was not a reply:
+// Alt+] and a digit typed with it, say. The time between two reads includes
+// the handling of the first, which in a burst of input takes tens of
+// milliseconds.
+const UNFINISHED_REPLY_MS = 100;
+
+const isCsiFinal = (byte: number) => byte >= 0x40 && byte <= 0x7e;
+const isCsiParameter = (byte: number) => byte >= 0x20 && byte <= 0x3f;
 
 /**
  * Splits what a viewer pane reads from its terminal between the program in
@@ -61,9 +65,8 @@ export class FrameInputRouter {
 		}
 
 		if (
-			this.carry !== 'none' &&
-			this.carry !== 'paste' &&
-			now - this.carriedSince > CARRY_MS
+			(this.carry === 'string' || this.carry === 'string-escape') &&
+			now - this.carriedSince > UNFINISHED_REPLY_MS
 		)
 			this.carry = 'none';
 		this.now = now;
@@ -84,11 +87,10 @@ export class FrameInputRouter {
 
 		let index = 0;
 		while (index < chunk.length) {
-			const end =
-				this.carry === 'none'
-					? this.token(chunk, index, emit)
-					: this.continued(chunk, index, emit);
-			index = end;
+			if (this.carry === 'none') index = this.token(chunk, index, emit);
+			else if (this.carry === 'csi')
+				index = this.continuedCsi(chunk, index, emit);
+			else index = this.continued(chunk, index, emit);
 		}
 
 		return segments;
@@ -99,7 +101,31 @@ export class FrameInputRouter {
 		this.carriedSince = this.now;
 	}
 
-	/** The rest of a sequence the renderer was given the start of. */
+	/**
+	 * The rest of a mouse report or reply the renderer was given the start of.
+	 * It has no time limit, as in the renderer's parser, which waits for the
+	 * rest of a mouse report until something else arrives.
+	 */
+	private continuedCsi(
+		chunk: Uint8Array,
+		from: number,
+		emit: (to: InputSegment['to'], from: number, end: number) => void,
+	): number {
+		let index = from;
+		while (index < chunk.length && isCsiParameter(chunk[index]!)) index++;
+		if (index === chunk.length) {
+			emit('renderer', from, index);
+			return index;
+		}
+
+		this.carry = 'none';
+		// Anything but the final byte is the start of other input.
+		const end = isCsiFinal(chunk[index]!) ? index + 1 : index;
+		emit('renderer', from, end);
+		return end;
+	}
+
+	/** The rest of a string or paste the renderer was given the start of. */
 	private continued(
 		chunk: Uint8Array,
 		from: number,
@@ -128,10 +154,6 @@ export class FrameInputRouter {
 				return this.pasteEndMatched === PASTE_END.length;
 			}
 
-			case 'csi': {
-				return byte >= 0x40 && byte <= 0x7e;
-			}
-
 			case 'string-escape': {
 				if (byte === BACKSLASH) return true;
 				this.carry = byte === ESC ? 'string-escape' : 'string';
@@ -139,6 +161,7 @@ export class FrameInputRouter {
 			}
 
 			case 'string':
+			case 'csi':
 			case 'none': {
 				if (byte === ESC) this.carry = 'string-escape';
 				return byte === BEL;
@@ -227,9 +250,9 @@ export class FrameInputRouter {
 		let index = from + 2;
 		while (index < chunk.length) {
 			const byte = chunk[index]!;
-			if (byte >= 0x40 && byte <= 0x7e) break;
+			if (isCsiFinal(byte)) break;
 			// Not a parameter or intermediate byte: the sequence stops short.
-			if (byte < 0x20 || byte > 0x3f) {
+			if (!isCsiParameter(byte)) {
 				emit('program', from, index);
 				return index;
 			}

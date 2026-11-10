@@ -124,8 +124,25 @@ test('an unfinished reply does not hold later typing', t => {
 	const to = (read: string, now: number) =>
 		router.route(encoder.encode(read), now).map(segment => segment.to);
 	t.deepEqual(to(`${ESC}]1hello`, 0), ['renderer']);
-	t.deepEqual(to('x', 10), ['renderer']);
-	t.deepEqual(to('y', 50), ['program']);
+	t.deepEqual(to('x', 50), ['renderer']);
+	t.deepEqual(to('y', 150), ['program']);
+});
+
+test('the rest of a mouse report is the renderer’s however late it is read', t => {
+	const router = new FrameInputRouter();
+	const route = (read: string, now: number) =>
+		router
+			.route(encoder.encode(read), now)
+			.map(segment => `${segment.to}:${decoder.decode(segment.bytes)}`);
+	t.deepEqual(route(`${ESC}[<35;11`, 0), [`renderer:${ESC}[<35;11`]);
+	t.deepEqual(route(';6Mj', 5000), ['renderer:;6M', 'program:j']);
+});
+
+test('a key after half a mouse report is not taken as the rest of it', t => {
+	t.deepEqual(routed(`${ESC}[<35;11`, `${ESC}[A`), [
+		`renderer:${ESC}[<35;11`,
+		`program:${ESC}[A`,
+	]);
 });
 
 test('a read that ends inside a sequence holds its last bytes for the next', t => {
