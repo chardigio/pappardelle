@@ -1,4 +1,5 @@
 import {createElement, type ReactNode} from 'react';
+import {deliverLoneEscapeAtOnce} from './lone-escape.ts';
 import {isInTmux} from './tmux.ts';
 import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
 import {
@@ -38,6 +39,8 @@ export async function renderTui(
 		maxFps: 60,
 		...options,
 	});
+	if (isInTmux())
+		deliverLoneEscapeAtOnce(renderer, options.stdin ?? process.stdin);
 	const root = createRoot(renderer);
 	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
 	const rerender = (next: ReactNode) =>
