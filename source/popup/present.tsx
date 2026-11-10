@@ -31,6 +31,7 @@ export function presentPopup(
 	};
 	const close = () => {
 		closing = true;
+		terminal.dismiss();
 		// Answers originate in key handlers. Defer teardown until dispatch ends.
 		queueMicrotask(() => renderer?.destroy());
 	};

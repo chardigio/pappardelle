@@ -24,6 +24,11 @@ export type PopupTerminal = {
 	output: tty.WriteStream;
 	/** Resolves once the popup has closed, whoever closed it. */
 	closed: Promise<void>;
+	/**
+	 * Take the popup off the client now. The renderer drawing into it needs
+	 * about 20 ms to shut down, and `close` has to wait for that.
+	 */
+	dismiss(): void;
 	close(): void;
 };
 
@@ -185,6 +190,9 @@ export async function openPopupTerminal(
 			input,
 			output,
 			closed,
+			dismiss() {
+				if (isPopupOpen) execFile('tmux', ['display-popup', '-C'], () => {});
+			},
 			close() {
 				if (isClosing) return;
 				isClosing = true;

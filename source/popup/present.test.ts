@@ -39,10 +39,14 @@ function fakeTerminal() {
 		closeFromTmux = resolve;
 	});
 	let closes = 0;
+	let dismissals = 0;
 	const terminal = {
 		input,
 		output,
 		closed,
+		dismiss() {
+			dismissals++;
+		},
 		close() {
 			closes++;
 		},
@@ -50,6 +54,7 @@ function fakeTerminal() {
 	return {
 		terminal,
 		closes: () => closes,
+		dismissals: () => dismissals,
 		closeFromTmux,
 		killTty() {
 			isTtyDead = true;
@@ -108,6 +113,8 @@ test('closing waits for the current key handler before unmounting', async t => {
 	await until(fake.isListening);
 
 	close();
+	// The popup leaves the client without waiting for the renderer.
+	t.is(fake.dismissals(), 1);
 	t.is(fake.closes(), 0);
 	await until(() => fake.closes() === 1);
 	t.pass();
