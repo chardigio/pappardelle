@@ -664,10 +664,13 @@ test('lines logged right before process.exit land in the file', t => {
 process.exit(3);`,
 	);
 	t.is(status, 3);
+	// line-0 is already in fs.write when the process exits, so it may land after
+	// the flushed lines or not at all; everything queued behind it must land.
 	t.deepEqual(
-		lines,
-		Array.from({length: 50}, (_, index) => `[child] line-${index}`),
+		lines.filter(line => line !== '[child] line-0'),
+		Array.from({length: 49}, (_, index) => `[child] line-${index + 1}`),
 	);
+	t.true(lines.filter(line => line === '[child] line-0').length <= 1);
 });
 
 test('a line logged right before an uncaught crash lands in the file', t => {
