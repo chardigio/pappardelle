@@ -19,6 +19,8 @@ for (const stderr of [
 	"can't find session: claude-repo-A",
 	'no server running on /tmp/test-socket',
 	'error connecting to /tmp/test-socket (No such file or directory)',
+	'server exited unexpectedly',
+	'no current target',
 ]) {
 	test(`already absent sessions close successfully: ${stderr}`, async t => {
 		t.true(

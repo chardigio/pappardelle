@@ -805,6 +805,12 @@ async function awaitViewerClientTty(
 	}
 }
 
+// What tmux prints when no server is behind the socket. A server exits when
+// its last session is killed, and a command that reaches it on its way out
+// gets the third.
+const SERVER_GONE =
+	/^(?:no server running on |error connecting to .* \(No such file or directory\)|server exited unexpectedly)/m;
+
 /**
  * Snapshot the clients available to both viewers.
  * Nested clients created by the viewer-pane attach live on the inner socket,
@@ -826,9 +832,7 @@ async function innerClientTtys(run: AsyncTmuxRunner): Promise<Set<string>> {
 			typeof error.code === 'number' &&
 			!error.killed &&
 			!error.signal &&
-			/^(?:no server running on |error connecting to .* \(No such file or directory\))/m.test(
-				error.stderr ?? '',
-			)
+			SERVER_GONE.test(error.stderr ?? '')
 		)
 			return new Set();
 		throw err;
@@ -927,9 +931,8 @@ export async function innerKillSession(
 			typeof error.code === 'number' &&
 			!error.signal &&
 			!error.killed &&
-			/^(?:can't find session:|no server running on |error connecting to .* \(No such file or directory\))/m.test(
-				error.stderr ?? '',
-			)
+			(SERVER_GONE.test(error.stderr ?? '') ||
+				/^(?:can't find session:|no current target)/m.test(error.stderr ?? ''))
 		)
 			return true;
 		log.error(
