@@ -1144,6 +1144,26 @@ export async function focusPane(
 }
 
 /**
+ * An inner-socket runner for the startup maintenance passes, which each begin
+ * by listing the sessions. The listing is reused until a pass renames or kills
+ * a session.
+ */
+export function sharedSessionListingRunner(
+	run: OuterTmuxRunner = defaultInnerTmuxRunner,
+): OuterTmuxRunner {
+	let listing: ReturnType<OuterTmuxRunner> | undefined;
+	return (args, input) => {
+		if (args[0] !== 'list-sessions') {
+			listing = undefined;
+			return run(args, input);
+		}
+
+		listing ??= run(args, input);
+		return listing;
+	};
+}
+
+/**
  * Rename live legacy `claude-{repo}-{key}` sessions on the inner socket to
  * their `agent-{repo}-{key}` names. cli.tsx runs it when the TUI starts,
  * before the orphan reap, and before `pappardelle send`, which can run before

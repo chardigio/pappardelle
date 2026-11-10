@@ -12,6 +12,7 @@ import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
 import {
 	cleanupOrphanedInnerSessions,
+	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
 	exactSessionTarget,
@@ -458,7 +459,8 @@ function maintainSessions() {
 	// a rename preserves the running conversation, a reap would kill it.
 	// Each rename is logged at info; stderr would list them as TUI errors.
 	const migrationDone = startupTrace.current?.begin('legacy-migration');
-	migrateLegacyAgentSessions();
+	const innerTmux = sharedSessionListingRunner();
+	migrateLegacyAgentSessions(undefined, innerTmux);
 	migrationDone?.();
 
 	// STA-1420: also reap inner-socket orphans whose key isn't in the registry
@@ -470,6 +472,8 @@ function maintainSessions() {
 	const reapingDone = startupTrace.current?.begin('inner-reaping');
 	const innerReaped = cleanupOrphanedInnerSessions(
 		new Set(getRegisteredSpaces()),
+		undefined,
+		innerTmux,
 	);
 	reapingDone?.();
 	if (innerReaped > 0) {

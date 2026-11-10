@@ -15,6 +15,7 @@ import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
 	migrateLegacyAgentSessions,
+	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	exactSessionTarget,
 	getSessionPrefix,
@@ -619,4 +620,57 @@ test('migrateLegacyAgentSessions returns 0 when list-sessions errors', t => {
 	});
 	t.is(migrateLegacyAgentSessions('repo', runner), 0);
 	t.is(calls.length, 1);
+});
+
+// A fake inner server whose session list follows renames and kills.
+function fakeInnerServer(initial: string[]) {
+	let sessions = [...initial];
+	const calls: string[][] = [];
+	const named = (target: string) => target.replace(/^=/, '').replace(/:$/, '');
+	const runner: OuterTmuxRunner = args => {
+		calls.push([...args]);
+		const target = named(args[args.indexOf('-t') + 1] ?? '');
+		if (args[0] === 'list-sessions')
+			return {status: 0, stdout: sessions.join('\n') + '\n'};
+		if (args[0] === 'rename-session')
+			sessions = sessions.map(name => (name === target ? args.at(-1)! : name));
+		if (args[0] === 'kill-session')
+			sessions = sessions.filter(name => name !== target);
+		return {status: 0, stdout: ''};
+	};
+	return {runner, calls, sessions: () => sessions};
+}
+
+const listings = (calls: string[][]) =>
+	calls.filter(args => args[0] === 'list-sessions').length;
+
+test('startup maintenance lists the inner sessions once when the migration changes nothing', t => {
+	const server = fakeInnerServer(['agent-repo-STA-1', 'agent-repo-STA-2']);
+	const shared = sharedSessionListingRunner(server.runner);
+
+	t.is(migrateLegacyAgentSessions('repo', shared, ['repo']), 0);
+	t.is(
+		cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', shared, ['repo']),
+		1,
+	);
+
+	t.is(listings(server.calls), 1);
+	t.deepEqual(server.sessions(), ['agent-repo-STA-1']);
+});
+
+test('the reaping pass sees a session the migration just renamed', t => {
+	// A listing taken before the rename still names the legacy session, and the
+	// reap would then target a session that no longer exists.
+	const server = fakeInnerServer(['claude-repo-STA-9', 'agent-repo-STA-1']);
+	const shared = sharedSessionListingRunner(server.runner);
+
+	t.is(migrateLegacyAgentSessions('repo', shared, ['repo']), 1);
+	t.deepEqual(server.sessions(), ['agent-repo-STA-9', 'agent-repo-STA-1']);
+	t.is(
+		cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', shared, ['repo']),
+		1,
+	);
+
+	t.is(listings(server.calls), 2);
+	t.deepEqual(server.sessions(), ['agent-repo-STA-1']);
 });
