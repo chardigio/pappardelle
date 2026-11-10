@@ -6,7 +6,7 @@
 	},
 	"metadata": {
 		"description": "Official plugin marketplace for Pappardelle — the TUI for multi-clauding without losing your marbles. Includes the Pappardelle plugin: skills for installing, updating, and configuring Pappardelle, and the hooks that connect Claude sessions to the TUI.",
-		"version": "1.0.1",
+		"version": "1.1.0",
 		"pluginRoot": "./plugins"
 	},
 	"plugins": [
@@ -14,7 +14,7 @@
 			"name": "pappardelle",
 			"source": "./plugins/pappardelle",
 			"description": "Install, update, configure, and monitor Pappardelle workspaces. Provides /init-pappardelle (interactive setup wizard), /update-pappardelle (update to latest version), /configure-pappardelle (interactive config editor), /sous-chef (kitchen-style workspace coordinator), and /link-pr (record a PR/MR for the workspace), plus the hooks that report Claude status to the TUI, post question answers to the issue, and send ntfy notifications.",
-			"version": "1.0.1",
+			"version": "1.1.0",
 			"author": {
 				"name": "chardigio"
 			},

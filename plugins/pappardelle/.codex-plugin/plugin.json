@@ -1,6 +1,6 @@
 {
 	"name": "pappardelle",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"description": "Install, update, configure, and monitor Pappardelle workspaces. Provides the init-pappardelle, update-pappardelle, configure-pappardelle, sous-chef and link-pr skills.",
 	"author": {
 		"name": "chardigio",
