@@ -39,5 +39,5 @@ The last row is not a regression in what the user sees. Before, the programs wer
 
 ## What is left
 
-- A key pressed just after the rail drew a frame waits for the next one, up to 16 ms at the rail's 60 frames a second. The fixture presses Escape and Enter the moment the previous step appears and measures 17 ms for both; with an 80 ms pause before Enter it measures 11 ms, the observer's floor. Tracked as `pappardelle-3wf.37`
+- A key pressed just after the rail drew a frame waited for the next one, up to 16 ms at 60 frames a second, which is where the 17 ms for Escape and Enter above came from. The rail and the popups may now draw 120 frames a second (`pappardelle-3wf.37`). 18 alternating launches per build against `c8bd654`: Escape to list restored 17 → 10 ms, Enter to search closed 17 → 10 ms, Enter to the selected workspace's programs visible 47-51 → 40-46 ms, startup unchanged. 10 ms is the observer's floor
 - The fixture sends keys with `send-keys`, which skips tmux's `escape-time`. A real Escape keypress first waits that out in the server the rail runs in (10 ms by default); `set -s escape-time 0` in the user's tmux configuration removes it

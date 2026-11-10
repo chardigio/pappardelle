@@ -36,7 +36,8 @@ export async function renderTui(
 		openConsoleOnError: false,
 		environment: isInTmux() ? tmuxRendererEnvironment : {},
 		targetFps: 60,
-		maxFps: 60,
+		// A key that lands just after a frame waits for the next one.
+		maxFps: 120,
 		...options,
 	});
 	if (isInTmux())
