@@ -258,9 +258,10 @@ for (const delayed of ['%1', '%2']) {
 		);
 	}
 }
-// After the viewers attach, one listing finds the space's companion splits.
-const isSplitListing = (args: string[] | undefined) =>
-	args?.[2] === 'list-sessions' && args[4]!.includes('@pappa_split');
+// The listing that finds a space's companion splits rides the attach's own
+// tmux call.
+const isSplitListing = (command: string[] | undefined) =>
+	command?.[0] === 'list-sessions' && command[2]!.includes('@pappa_split');
 
 const isSwitchBatch = (args: string[]) =>
 	args.includes('switch-client') && args.includes(';');
@@ -536,8 +537,7 @@ test.serial(
 		);
 		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1:'));
 		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1:'));
-		t.deepEqual(fake.calls.at(-2), titleAndFocus('TEST-1'));
-		t.true(isSplitListing(fake.calls.at(-1)));
+		t.deepEqual(fake.calls.at(-1), titleAndFocus('TEST-1'));
 	},
 );
 
@@ -573,9 +573,8 @@ test.serial(
 		);
 		t.deepEqual(
 			fake.calls.map(args => args.includes('switch-client')),
-			[true, false, false],
+			[true, false],
 		);
-		t.true(isSplitListing(fake.calls[2]));
 		t.true(fake.calls[0]!.includes(';'));
 		t.is(getCurrentlyViewingSpace(), 'TEST-A');
 	},
@@ -613,11 +612,11 @@ test.serial(
 				run: fake.run,
 			}),
 		);
-		t.is(fake.calls.length, 3);
-		t.true(isSplitListing(fake.calls[2]));
+		t.is(fake.calls.length, 2);
 		const batch = fake.calls[0]!;
 		t.deepEqual(batch.slice(0, 2), ['-L', 'pappardelle_inner']);
 		const commands = splitBatch(batch.slice(2));
+		t.true(isSplitListing(commands.at(-1)));
 		const target = (prefix: string) =>
 			commands.find(
 				command =>
@@ -643,6 +642,37 @@ test.serial(
 			.map(command => command[4]);
 		t.deepEqual(titles, ['agent · TEST-B', 'companion']);
 		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
+	},
+);
+
+test.serial(
+	"a warm switch finds the space's splits in its own request's listing",
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		const run: AsyncTmuxRunner = async args => {
+			const output = await fake.run(args);
+			if (!isSwitchBatch(args)) return output;
+			const companion = args
+				.find(arg => arg.startsWith('=companion-'))!
+				.slice(1, -1);
+			return [
+				`${companion}\t\t\t\t%8\tsh\t80\t24\t1\t1\t`,
+				`${companion}~logs\tdown\t\t1\t%9\tsh\t80\t24\t0\t\t`,
+			].join('\n');
+		};
+
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+				run,
+			}),
+		);
+		// The split it found sends it on to measure the window.
+		t.deepEqual(fake.calls[2]?.slice(0, 3), ['list-panes', '-t', '%2']);
+		t.false(fake.calls.some(args => args[2] === 'list-sessions'));
 	},
 );
 
