@@ -76,6 +76,7 @@ function runResolver(
 	agent_is_claude: string;
 	agent_launch_flags: string;
 	agent_rules_flags: string;
+	workspace_aware: string;
 	model: string;
 	effort: string;
 	deprecation_warnings: string;
@@ -599,6 +600,7 @@ maybeMacro('renders the same rule flags as the TUI launcher', t => {
 	for (const command of ['codex', '/opt/bin/pi', 'claude', 'agy', 'opencode']) {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
+workspace_aware_agents: true
 agent_profiles:
   a:
     command: ${command}
@@ -616,6 +618,27 @@ profiles:
 		} finally {
 			cleanup();
 		}
+	}
+});
+
+maybeMacro('renders no rule flags without workspace_aware_agents', t => {
+	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
+		`version: 1
+agent_profiles:
+  a:
+    command: codex
+agent_profile: a
+profiles:
+  test:
+    display_name: Test
+`,
+	);
+	try {
+		const result = runResolver(configPath, localConfigPath);
+		t.is(result.agent_rules_flags, '');
+		t.is(result.workspace_aware, 'false');
+	} finally {
+		cleanup();
 	}
 });
 

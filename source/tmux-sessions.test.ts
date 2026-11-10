@@ -2,7 +2,6 @@ import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'ava';
-import {agentRulesFlags} from './companion-rules.ts';
 import {
 	getSessionNames,
 	extractIssueKeyFromSession,
@@ -193,8 +192,6 @@ test('buildAgentResumeCommand without a recorded session continues claude', t =>
 	);
 });
 
-const codexRules = agentRulesFlags('codex');
-
 // A literal {session_id} would reach the agent as a session name and fail, and
 // codex's directory-agnostic `resume --last` would find another space's.
 test('buildAgentResumeCommand without a recorded session launches other agents directly', t => {
@@ -209,7 +206,7 @@ test('buildAgentResumeCommand without a recorded session launches other agents d
 		extraArgs: [],
 		skillPrefix: '$',
 	};
-	t.is(buildAgentResumeCommand('STA-806', false, codex), `codex${codexRules}`);
+	t.is(buildAgentResumeCommand('STA-806', false, codex), `codex`);
 });
 
 test('buildAgentResumeCommand with skipPermissions includes flag in both branches', t => {
@@ -326,7 +323,7 @@ test('non-claude agent with resume args gets the fallback chain', t => {
 	const cmd = buildAgentResumeCommand('STA-1', false, codexAgentProfile);
 	t.is(
 		cmd,
-		`codex --yolo${codexRules} resume --last || { printf '\\033[A\\033[2K'; false; } || codex --yolo${codexRules}`,
+		`codex --yolo resume --last || { printf '\\033[A\\033[2K'; false; } || codex --yolo`,
 	);
 });
 
@@ -335,7 +332,7 @@ test('non-claude agent without resume args launches directly', t => {
 		...codexAgentProfile,
 		resumeArgs: undefined,
 	});
-	t.is(cmd, `codex --yolo${codexRules}`);
+	t.is(cmd, `codex --yolo`);
 });
 
 // Codex's `resume` is a subcommand, so every flag has to come before it.
@@ -348,7 +345,7 @@ test('model and effort flags precede the resume args', t => {
 		model: 'gpt-5.5',
 		effort: 'high',
 	});
-	const base = `codex --yolo -m gpt-5.5 -c model_reasoning_effort=high${codexRules}`;
+	const base = `codex --yolo -m gpt-5.5 -c model_reasoning_effort=high`;
 	t.is(
 		cmd,
 		`${base} resume abc || { printf '\\033[A\\033[2K'; false; } || ${base}`,
@@ -375,7 +372,7 @@ test('empty-string resume args also launch directly (no malformed chain)', t => 
 		...codexAgentProfile,
 		resumeArgs: '',
 	});
-	t.is(cmd, `codex --yolo${codexRules}`);
+	t.is(cmd, `codex --yolo`);
 });
 
 test('non-claude agent without args uses the bare command', t => {
@@ -388,7 +385,7 @@ test('non-claude agent without args uses the bare command', t => {
 		model: '',
 		effort: '',
 	});
-	t.is(cmd, `codex${codexRules}`);
+	t.is(cmd, `codex`);
 });
 
 // buildAgentResumeCommand: claude-gating agent profiles (is_claude override)

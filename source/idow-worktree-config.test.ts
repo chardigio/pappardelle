@@ -567,6 +567,7 @@ test('idow launches Codex with the companion rules and writes agy its rule file'
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
 		stringify({
+			workspace_aware_agents: true,
 			agent_profiles: {
 				codex: {command: 'codex', model: 'gpt-5.5'},
 				agy: {command: 'agy'},
@@ -597,6 +598,34 @@ test('idow launches Codex with the companion rules and writes agy its rule file'
 		),
 		/first call companion_run/,
 	);
+});
+
+test('idow passes no companion rules without workspace_aware_agents', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({
+			agent_profiles: {
+				codex: {command: 'codex', model: 'gpt-5.5'},
+				agy: {command: 'agy'},
+			},
+			profiles: {
+				cx: {display_name: 'Codex', agent_profile: 'codex'},
+				ag: {display_name: 'Agy', agent_profile: 'agy'},
+			},
+		}),
+	);
+	const worktree = path.join(fixture.home, '.worktrees/main checkout/test-abc');
+	fs.mkdirSync(worktree, {recursive: true});
+	const launchFlags = () => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args[args.indexOf('--agent-launch-flags') + 1];
+	};
+
+	await fixture.run({profile: 'cx'});
+	t.is(launchFlags(), '-m gpt-5.5');
+	await fixture.run({profile: 'ag'});
+	t.false(fs.existsSync(path.join(worktree, '.agents')));
 });
 
 // codex's `resume --last` is not scoped to the cwd, so resuming in a brand new

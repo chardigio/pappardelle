@@ -49,18 +49,33 @@ test('agents that get the rules another way get no flags', t => {
 	}
 });
 
+const codexProfile = {
+	...DEFAULT_RESOLVED_AGENT_PROFILE,
+	name: 'codex',
+	command: 'codex',
+	isClaude: false,
+	resumeArgs: 'resume --last',
+};
+
 test("Codex's rules come before the resume subcommand, on both launch paths", t => {
-	const command = buildAgentResumeCommand('STA-1', false, {
-		...DEFAULT_RESOLVED_AGENT_PROFILE,
-		name: 'codex',
-		command: 'codex',
-		isClaude: false,
-		resumeArgs: 'resume --last',
-	});
+	const command = buildAgentResumeCommand(
+		'STA-1',
+		false,
+		codexProfile,
+		undefined,
+		{rules: true},
+	);
 	const rules = agentRulesFlags('codex');
 	t.is(
 		command,
 		`codex${rules} resume --last || { printf '\\033[A\\033[2K'; false; } || codex${rules}`,
+	);
+});
+
+test('an agent launched without workspace awareness gets no rules', t => {
+	t.is(
+		buildAgentResumeCommand('STA-1', false, codexProfile),
+		"codex resume --last || { printf '\\033[A\\033[2K'; false; } || codex",
 	);
 });
 

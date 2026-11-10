@@ -1,5 +1,5 @@
 // `pappardelle mcp`: agents start this for every session on the machine, so it
-// stays small and serves nothing outside a Pappardelle repo.
+// stays small and serves nothing unless the repo sets workspace_aware_agents.
 // Tools run the CLI as a subprocess instead of calling its handlers: those exit
 // the process and write to stdout, which here is the MCP protocol channel.
 
@@ -10,13 +10,14 @@ import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
-	configExists,
 	getMainRepoRoot,
 	getRepoName,
 	loadConfig,
 	SOUS_CHEF_FILE,
 	SOUS_CHEF_NAME,
 	sousChefLaunch,
+	workspaceAwareAgents,
+	type PappardelleConfig,
 } from './config.ts';
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
@@ -64,17 +65,17 @@ ${companionRules()}`;
 }
 
 export function createMcpServer(options: {
-	inRepo: boolean;
+	enabled: boolean;
 	space?: string;
 	repoName?: string;
 	sousChef?: boolean;
 	sousChefFile?: string;
 	runCli: RunCli;
 }): McpServer {
-	const {inRepo, space, repoName, sousChef, sousChefFile, runCli} = options;
+	const {enabled, space, repoName, sousChef, sousChefFile, runCli} = options;
 	const server = new McpServer(
 		{name: 'pappardelle', version: '1.0.0'},
-		inRepo
+		enabled
 			? {
 					instructions: workspaceInstructions(space, repoName, {
 						sousChef,
@@ -83,7 +84,7 @@ export function createMcpServer(options: {
 				}
 			: {},
 	);
-	if (!inRepo) return server;
+	if (!enabled) return server;
 
 	for (const tool of MCP_TOOLS) {
 		server.registerTool(
@@ -169,12 +170,12 @@ const spawnCli =
 			child.stdin.end(stdin);
 		});
 
-/** A config that doesn't load leaves the mode off; the TUI reports why. */
-function sousChefEnabled(): boolean {
+/** A config that doesn't load leaves workspace awareness off; the TUI reports why. */
+function loadRepoConfig(): PappardelleConfig | null {
 	try {
-		return sousChefLaunch(loadConfig()) !== undefined;
+		return loadConfig();
 	} catch {
-		return false;
+		return null;
 	}
 }
 
@@ -200,13 +201,14 @@ export async function runMcpServer(): Promise<void> {
 		process.env['PAPPARDELLE_SPACE'] ||
 		(repoName && spaceFromWorktreePath(process.cwd(), homedir(), repoName)) ||
 		undefined;
-	const inRepo = Boolean(space) || configExists();
-	const sousChef = inRepo && sousChefEnabled();
+	const config = loadRepoConfig();
+	const enabled = workspaceAwareAgents(config);
+	const sousChef = enabled && sousChefLaunch(config) !== undefined;
 	const closed = new Promise(resolve => {
 		process.stdin.once('close', resolve);
 	});
 	await createMcpServer({
-		inRepo,
+		enabled,
 		space,
 		repoName,
 		sousChef,

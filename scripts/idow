@@ -210,13 +210,14 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' AGENT_PROFILE
         IFS= read -r -d '' AGENT_LAUNCH_FLAGS
         IFS= read -r -d '' agent_rules_flags
+        IFS= read -r -d '' WORKSPACE_AWARE
         IFS= read -r -d '' INIT_CMD
         IFS= read -r -d '' profile_init_cmd_set
         IFS= read -r -d '' profile_init_cmd
         IFS= read -r -d '' deprecations
         IFS= read -r -d '' profile_deprecations
     } < <(jq -j '[.companion_command, .skip_permissions, .model, .effort, .agent_command, .agent_args,
-        .agent_resume_args, .agent_prompt_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .agent_rules_flags, .init_cmd,
+        .agent_resume_args, .agent_prompt_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .agent_rules_flags, .workspace_aware, .init_cmd,
         .profile_init_cmd_set, .profile_init_cmd, .deprecation_warnings,
         .profile_deprecation_warnings][] | tostring | sub("\n+$"; "") + "\u0000"' <<< "$json")
     if [[ -n "$agent_rules_flags" ]]; then
@@ -914,8 +915,10 @@ elif [[ "$WORKTREE_CREATED" == true && "$AGENT_IS_CLAUDE" != true ]]; then
     # --continue is scoped to the worktree's directory, which outlives it.
     AGENT_RESUME_ARGS=""
 fi
-"$SCRIPT_DIR/install-agent-rules.sh" "$AGENT_COMMAND" "$WORKTREE_PATH" ||
-    print_warning "Could not write the companion rules for $AGENT_COMMAND"
+if [[ "$WORKSPACE_AWARE" == true ]]; then
+    "$SCRIPT_DIR/install-agent-rules.sh" "$AGENT_COMMAND" "$WORKTREE_PATH" ||
+        print_warning "Could not write the companion rules for $AGENT_COMMAND"
+fi
 
 # One array for the resolved agent profile, appended to both start-agent-session.sh
 # and the terminal launchers below so the two launch paths can't drift.

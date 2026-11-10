@@ -16,7 +16,10 @@ const tmuxTest =
 const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
 const tsx = import.meta.resolve('tsx');
 
-function fixture(t: ExecutionContext, options: {config?: boolean} = {}) {
+function fixture(
+	t: ExecutionContext,
+	options: {config?: boolean; aware?: boolean} = {},
+) {
 	const root = fs.realpathSync(fs.mkdtempSync('/tmp/pm-'));
 	t.teardown(() => {
 		fs.rmSync(root, {recursive: true, force: true});
@@ -30,7 +33,7 @@ function fixture(t: ExecutionContext, options: {config?: boolean} = {}) {
 		fs.writeFileSync(
 			path.join(repo, '.pappardelle.yml'),
 			`version: 1
-team_prefix: STE
+${options.aware === false ? '' : 'workspace_aware_agents: true\n'}team_prefix: STE
 issue_tracker:
   provider: jira
   base_url: https://example.invalid
@@ -84,6 +87,16 @@ test.serial('a repo with no config gets no tools or instructions', async t => {
 	t.is(client.getServerCapabilities()?.tools, undefined);
 	t.is(client.getInstructions(), undefined);
 });
+
+test.serial(
+	'a repo that leaves workspace_aware_agents off gets no tools or instructions',
+	async t => {
+		const f = fixture(t, {aware: false});
+		const client = await connect(t, f);
+		t.is(client.getServerCapabilities()?.tools, undefined);
+		t.is(client.getInstructions(), undefined);
+	},
+);
 
 test.serial(
 	'spaces_list answers from the CLI in a configured repo',
