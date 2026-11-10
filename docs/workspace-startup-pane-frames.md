@@ -4,18 +4,18 @@ Tracks `pappardelle-3wf` after the rebase onto `main` at `fd19896`, which merged
 
 ## Where it stands
 
-96 alternating launches of `main` (`fd19896`) and the branch at `8bdf0b3`, 5 ms polling, load average about 2.6. Medians in milliseconds, range in brackets.
+96 alternating launches of `main` (`fd19896`) and the branch at `38cfea4`, 5 ms polling, load average 2-3. Medians in milliseconds, range in brackets.
 
 | Width / mode    | Rail main → branch                       | Viewers main → branch                     |
 | --------------- | ---------------------------------------- | ----------------------------------------- |
-| 80x52 fresh     | 237.3 [226.9-286.9] → 94.8 [89.4-119.2]  | 203.8 [193.8-274.3] → 145.8 [140.0-189.8] |
-| 80x52 existing  | 226.8 [216.0-510.6] → 95.9 [90.1-121.2]  | 191.1 [182.1-488.9] → 134.2 [126.9-163.6] |
-| 100x52 fresh    | 486.8 [336.5-652.9] → 118.2 [99.6-130.2] | 453.6 [294.7-626.6] → 190.5 [160.4-203.6] |
-| 100x52 existing | 443.4 [292.1-644.2] → 119.9 [99.0-163.7] | 413.2 [255.0-617.0] → 166.1 [144.8-207.6] |
-| 160x52 fresh    | 324.2 [306.6-724.3] → 110.4 [97.9-129.3] | 285.5 [271.4-692.8] → 173.4 [157.4-200.9] |
-| 160x52 existing | 303.6 [289.5-940.4] → 110.7 [99.7-148.4] | 266.8 [252.6-913.5] → 151.0 [144.9-206.3] |
+| 80x52 fresh     | 231.8 [223.0-264.1] → 78.0 [76.3-100.1]  | 201.7 [189.9-240.3] → 128.5 [125.9-156.2] |
+| 80x52 existing  | 217.0 [207.2-561.2] → 86.9 [79.4-116.6]  | 184.7 [181.1-547.9] → 117.8 [104.6-165.8] |
+| 100x52 fresh    | 326.7 [304.4-635.3] → 101.8 [84.2-112.8] | 291.4 [278.6-609.5] → 151.5 [143.6-169.6] |
+| 100x52 existing | 294.7 [292.0-329.8] → 88.7 [86.1-110.1]  | 257.5 [254.9-294.3] → 134.7 [131.0-149.1] |
+| 160x52 fresh    | 335.4 [304.7-625.1] → 103.1 [98.5-125.8] | 302.4 [267.2-601.0] → 150.4 [145.2-189.4] |
+| 160x52 existing | 297.4 [292.7-597.6] → 90.8 [86.2-107.6]  | 259.9 [256.4-561.6] → 134.2 [128.0-146.7] |
 
-"Rail" is the main row and the last registered workspace visible in the list pane. "Viewers" is every viewer pane showing its program's ready marker. Both are observed by polling `capture-pane`, which adds roughly 10-15 ms; the application's own span for the first settled rail frame is about 88 ms at 100 columns. Cold-switch viewers (57-69 ms) and filter return (44-51 ms) are unchanged.
+"Rail" is the main row and the last registered workspace visible in the list pane. "Viewers" is every viewer pane showing its program's ready marker. Both are observed by polling `capture-pane`, which adds roughly 10-15 ms; the application's own span for the first settled rail frame is about 87 ms at 100 columns. Cold-switch viewers went from 56-73 ms to 52-58 ms. Filter return is unchanged at 44-51 ms.
 
 `main` paints the rail only after viewer attachment, attaches the two viewers one after the other, and loses 300 ms in a viewer whenever its color query stalls (below). Those three account for most of the difference.
 
@@ -27,14 +27,17 @@ tmux 3.6 and later forward a pane's palette query to its client's terminal. The 
 
 Each was measured against the build before it. Raw records are in the gitignored `benchmark-results/` directory of the checkout that produced them.
 
-| Change                                                                                                                               | Evidence                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| Rebased startup work: concurrent viewer attachment, geometry snapshots, lazy UI imports, rail painted before workspace details       | 60 launches against `main`: rail 114-153 ms against 221-631 ms, viewers 201-243 ms against 188-599 ms       |
-| Frame host asks for colors itself, ending on a status report                                                                         | 96 launches: 20 of 48 stalled 300 ms before, 1 of 48 after; mean viewers 405 → 258 ms                       |
-| Pane setup in four tmux calls instead of twelve to fifteen                                                                           | 96 launches: rail 9-35 ms earlier, viewers 2-31 ms earlier                                                  |
-| One git process for repo root and common directory                                                                                   | 20 traced launches each: configuration and repo bootstrap 7.2 → 2.0 ms                                      |
-| One inner session listing for migration and reaping                                                                                  | 20 traced launches each: reaping pass 1.6 → 0.1 ms                                                          |
-| Frame hosts start with their panes; first attachment signals them; the rail waits for a signal instead of polling for the client tty | Viewer attachment 76 → 22 ms; 96 launches: viewers 13-40 ms earlier, rail about 5 ms later with two viewers |
+| Change                                                                                                                               | Evidence                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Rebased startup work: concurrent viewer attachment, geometry snapshots, lazy UI imports, rail painted before workspace details       | 60 launches against `main`: rail 114-153 ms against 221-631 ms, viewers 201-243 ms against 188-599 ms                         |
+| Frame host asks for colors itself, ending on a status report                                                                         | 96 launches: 20 of 48 stalled 300 ms before, 1 of 48 after; mean viewers 405 → 258 ms                                         |
+| Pane setup in four tmux calls instead of twelve to fifteen                                                                           | 96 launches: rail 9-35 ms earlier, viewers 2-31 ms earlier                                                                    |
+| One git process for repo root and common directory                                                                                   | 20 traced launches each: configuration and repo bootstrap 7.2 → 2.0 ms                                                        |
+| One inner session listing for migration and reaping                                                                                  | 20 traced launches each: reaping pass 1.6 → 0.1 ms                                                                            |
+| Frame hosts start with their panes; first attachment signals them; the rail waits for a signal instead of polling for the client tty | Viewer attachment 76 → 22 ms; 96 launches: viewers 13-40 ms earlier, rail about 5 ms later with two viewers                   |
+| Status monitor installed in two tmux calls instead of five                                                                           | 20 traced launches each: installation 14.4 → 7.3 ms, viewers 7-10 ms earlier; the four program-status integration suites pass |
+| Pane setup as one asynchronous tmux command list, beside module loading                                                              | 32 traced launches each: module loading starts 10 ms earlier, first rail frame 13 ms earlier                                  |
+| Registry and main-worktree reads started before the renderer mounts                                                                  | 20 traced launches each: attachment starts 6 ms earlier, first rail frame 3.5 ms earlier                                      |
 
 ### The color-query stall
 
@@ -52,26 +55,30 @@ The frame hosts now start while the rail does. Rail spans are each about a milli
 
 ## What one launch looks like now
 
-Medians of 16 traced launches at 100 columns, application clock, milliseconds:
+Medians of 40 traced launches at 100 and 160 columns, application clock, milliseconds:
 
-- 0-14: process start to the CLI body
-- 14-20: configuration, repo bootstrap, session maintenance
-- 20-32: pane setup (frame hosts start here)
-- 32-49: renderer and application modules, renderer creation
-- 49-57: first React commit and first layout request
-- 57-80: workspace list loaded, list rendered, two layout passes
-- 83-105: session preparation (22 ms, 13 of it the status monitor)
-- 105-128: viewer attachment
-- 88: first settled rail frame
+- 0-16: process start to the CLI body
+- 16-24: configuration, repo bootstrap, session maintenance; the workspace reads start at 19
+- 24-42: pane setup in tmux (frame hosts start here) beside renderer and application module loading
+- 42-51: renderer creation
+- 57: first layout request
+- 76-82: attachment queued, then started
+- 82-102: session preparation (20 ms, 9 of it the status monitor)
+- 102-125: viewer attachment (22 ms)
+- 87: first settled rail frame
 
-One tmux call costs about 2.2 ms of wall time here, 0.5 ms of it blocking the TUI's thread. About 25 remain on the path to both viewers.
+One tmux call costs about 2.2 ms of wall time here, 0.5 ms of it blocking the TUI's thread.
+
+## Measured and not kept
+
+- **Main row details after the first frame.** 80 traced launches: the first rail frame is 5 ms earlier (91.9 → 86.9 ms), attachment then takes 7 ms longer, and viewers move by -3.6 to +3.1 ms. The main row's status, dirty flag and emoji would arrive later for no viewer gain
+- **A larger initial heap.** Every startup runs two garbage collections with 3-7 ms pauses because the initial allocation budget is 8 MB. `BUN_JSC_largeHeapSize` at 64 MB removes one and moves the first rail frame 3.8 ms earlier (80 traced launches). It can only be set through the environment before the process starts, and would be inherited by the shells in the panes
+- **The process before the CLI body.** A compiled hello-world exits in 3.8 ms. Pappardelle's lightest entry point takes 15.4 ms and the CLI reaches its argument gate at 22 ms, so about 11 ms is loading the bundle and its bytecode whichever entry runs. Bytecode already saves 55-65 ms. The modern x64 target was slower than the baseline one for hello-world (6.7 against 3.9 ms), and minifying identifiers gained 0.3-0.6 ms
+- **The first list render.** No application function stands out in a CPU profile. React work totals about 70 ms across startup; the 10-14 ms busy stretch after the list arrives is a pause inside the first re-render of `App`, which overlaps one of the collections above
+- **Rail-published palette.** Having the rail read the terminal's colors once and leave them on its window did not help: the rail's own `getPalette` takes about 650 ms for the same cursor-color reason, so frames never found the value in time. The direct query replaced it
 
 ## Open
 
-- `pappardelle-3wf.19`: batch the status-monitor installation calls
-- `pappardelle-3wf.20`: overlap pane setup with renderer module loading
-- `pappardelle-3wf.24`: a persistent tmux control-mode client instead of a process per command
-- `pappardelle-3wf.25`: the 10 ms first list render
-- `pappardelle-3wf.26`: load the workspace list before the renderer mounts
-- `pappardelle-3wf.21`, `.22`: attribute the 14 ms before the CLI body; repeat the main-row deferral measurement
+- `pappardelle-3wf.24`: a persistent tmux control-mode client instead of a process per command. About 20 tmux calls remain on the path to both viewers
+- `pappardelle-3wf.27`: prepare the first workspace's sessions while the renderer loads. Viewers now wait on session preparation, which starts at 82 ms
 - `pappardelle-3wf.6`: macOS and a real agent
