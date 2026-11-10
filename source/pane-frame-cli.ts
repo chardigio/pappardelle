@@ -10,7 +10,13 @@ import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
-import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {
+	CLIENT_TTY_OPTION,
+	FRAME_COMMAND_OPTION,
+	PANE_TITLE_OPTION,
+	frameReadyChannel,
+	frameStartedChannel,
+} from './pane-frame-options.ts';
 
 // Draws a rounded, titled frame in a viewer pane and runs the pane's command
 // (a nested `tmux attach`, or a message) inside it. tmux can only draw the
@@ -18,7 +24,9 @@ import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 
 const args = process.argv.slice(2);
 const separator = args.indexOf('--');
-const command = args.slice(separator + 1);
+const command = separator === -1 ? [] : args.slice(separator + 1);
+// Started with its pane, before the rail knows what the pane will show.
+const awaitsCommand = args.includes('--await');
 const titleFlag = args.indexOf('--title');
 const outerSocket = (process.env['TMUX'] ?? '').split(',')[0] ?? '';
 const paneId = process.env['TMUX_PANE'] ?? '';
@@ -32,7 +40,7 @@ function outerTmux(tmuxArgs: string[]): string {
 }
 
 let title =
-	titleFlag !== -1 && titleFlag < separator
+	titleFlag !== -1 && (separator === -1 || titleFlag < separator)
 		? (args[titleFlag + 1] ?? '')
 		: outerTmux([
 				'display-message',
@@ -148,18 +156,35 @@ delete childEnv['TMUX'];
 delete childEnv['TMUX_PANE'];
 
 // The rail moves this pane's nested tmux client between sessions by its tty,
-// which only the child can see, so the child publishes it before starting.
+// which only the child can see, so the child publishes it before starting and
+// signals the rail, which is waiting for it. A child without a program yet
+// waits for the rail's signal first, so that its tty still appears only once
+// the program is about to run.
 const child = Bun.spawn(
-	[
-		'/bin/sh',
-		'-c',
-		'[ -n "$1" ] && tmux -S "$1" set-option -p -t "$2" "$3" "$(tty)" 2>/dev/null; shift 3; exec "$@"',
-		'sh',
-		outerSocket,
-		paneId,
-		CLIENT_TTY_OPTION,
-		...command,
-	],
+	awaitsCommand
+		? [
+				'/bin/sh',
+				'-c',
+				't=$(tty); tmux -S "$1" wait-for "$5" && exec /bin/sh -c "$(tmux -S "$1" set-option -p -t "$2" "$3" "$t" \\; wait-for -S "$6" \\; show-option -pqv -t "$2" "$4")"',
+				'sh',
+				outerSocket,
+				paneId,
+				CLIENT_TTY_OPTION,
+				FRAME_COMMAND_OPTION,
+				frameReadyChannel(paneId),
+				frameStartedChannel(paneId),
+			]
+		: [
+				'/bin/sh',
+				'-c',
+				'[ -n "$1" ] && tmux -S "$1" set-option -p -t "$2" "$3" "$(tty)" \\; wait-for -S "$4" 2>/dev/null; shift 4; exec "$@"',
+				'sh',
+				outerSocket,
+				paneId,
+				CLIENT_TTY_OPTION,
+				frameStartedChannel(paneId),
+				...command,
+			],
 	{
 		env: childEnv,
 		terminal: {

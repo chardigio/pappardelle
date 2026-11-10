@@ -13,8 +13,14 @@ import {
 	ensureCompanionSession,
 	getSessionNames,
 	killSpaceSessions,
+	registerAwaitingFrame,
 	type AsyncTmuxRunner,
 } from './tmux.ts';
+import {
+	FRAME_COMMAND_OPTION,
+	frameReadyChannel,
+	frameStartedChannel,
+} from './pane-frame-options.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
 import {attachStatusMonitor} from './program-status-monitor.ts';
@@ -60,12 +66,19 @@ function fakeTmux() {
 	const calls: string[][] = [];
 	const run: AsyncTmuxRunner = async args => {
 		calls.push(args);
-		if (args[0] === 'display-message')
-			return args[3] === '%1' ? '/dev/claude' : '/dev/companion';
+		if (ttyQueryPane(args) !== undefined)
+			return ttyQueryPane(args) === '%1' ? '/dev/claude' : '/dev/companion';
 		if (args.includes('list-clients')) return '/dev/claude\n/dev/companion\n';
 		return '';
 	};
 	return {calls, run};
+}
+
+// The pane whose client tty a call asks for: a plain read, or the wait for a
+// frame that was just started to publish it.
+function ttyQueryPane(args: string[]): string | undefined {
+	const read = args.indexOf('display-message');
+	return read === -1 ? undefined : args[read + 3];
 }
 
 // The shell script a viewer's frame host runs, unwrapped from the
@@ -128,8 +141,8 @@ for (const delayed of ['agent-gate', 'companion-create']) {
 					blocked = true;
 					await pending;
 				}
-				if (args[0] === 'display-message')
-					return args[3] === '%1' ? '/dev/agent' : '/dev/companion';
+				if (ttyQueryPane(args) !== undefined)
+					return ttyQueryPane(args) === '%1' ? '/dev/agent' : '/dev/companion';
 				if (args.includes('list-clients')) return '/dev/agent\n/dev/companion';
 				return '';
 			};
@@ -194,7 +207,8 @@ for (const delayed of ['%1', '%2']) {
 				let finished = false;
 				const run: AsyncTmuxRunner = async args => {
 					if (args.includes('list-clients')) return '';
-					if (args[0] === 'display-message') return `/dev/${args[3]}`;
+					if (ttyQueryPane(args) !== undefined)
+						return `/dev/${ttyQueryPane(args)}`;
 					if (!recovering && args.includes('respawn-pane')) {
 						const pane = args[args.indexOf('-t') + 1]!;
 						started.add(pane);
@@ -399,8 +413,8 @@ test.serial(
 		const run: AsyncTmuxRunner = async args => {
 			if (args.includes('has-session') && phase === 'empty')
 				throw new Error('no session');
-			if (args[0] === 'display-message') {
-				const pane = args[3]!;
+			if (ttyQueryPane(args) !== undefined) {
+				const pane = ttyQueryPane(args)!;
 				if (phase === 'failed' && pane === '%2')
 					throw new Error('tty query failed after respawn');
 				return ttys.get(pane)!;
@@ -618,8 +632,10 @@ test.serial(
 		const run: AsyncTmuxRunner = async args => {
 			const output = await fake.run(args);
 			if (isSwitchBatch(args)) throw new Error('second client disappeared');
-			if (args[0] === 'display-message') {
-				return args[3] === '%1' ? '/dev/new-claude' : '/dev/new-companion';
+			if (ttyQueryPane(args) !== undefined) {
+				return ttyQueryPane(args) === '%1'
+					? '/dev/new-claude'
+					: '/dev/new-companion';
 			}
 			if (args.includes('list-clients')) {
 				return '/dev/new-claude\n/dev/new-companion\n';
@@ -847,11 +863,7 @@ test.serial(
 				run: fake.run,
 			}),
 		);
-		t.true(
-			fake.calls.some(
-				args => args[0] === 'display-message' && args[3] === '%3',
-			),
-		);
+		t.true(fake.calls.some(args => ttyQueryPane(args) === '%3'));
 		t.false(fake.calls.some(args => isSwitchBatch(args)));
 	},
 );
@@ -970,5 +982,62 @@ test.serial(
 					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
 			),
 		);
+	},
+);
+
+test.serial(
+	'a frame started with its pane is handed its program, and a later start respawns it',
+	async t => {
+		registerAwaitingFrame('%7');
+		const calls: string[][] = [];
+		let clientGone = false;
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (clientGone && isSwitchBatch(args)) throw new Error('client gone');
+			return ttyQueryPane(args) === undefined ? '' : '/dev/frame';
+		};
+		const attach = async (key: string) =>
+			attachToSpace('%7', '', key, '%0', undefined, undefined, {run});
+
+		t.true(await attach('TEST-WARM'));
+		const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
+		const program = handed[handed.indexOf(FRAME_COMMAND_OPTION) + 1]!;
+		t.true(program.includes(`=${getSessionNames('TEST-WARM').agent}:`));
+		t.true(program.includes('agent · TEST-WARM'));
+		t.deepEqual(handed.slice(-3), ['wait-for', '-S', frameReadyChannel('%7')]);
+		t.false(calls.some(args => args.includes('respawn-pane')));
+
+		calls.length = 0;
+		clientGone = true;
+		t.true(await attach('TEST-NEXT'));
+		t.true(calls.some(args => args.includes('respawn-pane')));
+		t.false(calls.some(args => args.includes(FRAME_COMMAND_OPTION)));
+	},
+);
+
+test.serial(
+	'a started signal left by an earlier start does not stand in for the new frame',
+	async t => {
+		const calls: string[][] = [];
+		let waits = 0;
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args[0] === 'wait-for') return ++waits === 1 ? '' : '/dev/late';
+			return '';
+		};
+		const attach = async (key: string) =>
+			attachToSpace('%8', '', key, '%0', undefined, undefined, {run});
+
+		t.true(await attach('TEST-STALE'));
+		t.is(waits, 2);
+		t.true(
+			calls
+				.filter(args => args[0] === 'wait-for')
+				.every(args => args[1] === frameStartedChannel('%8')),
+		);
+		calls.length = 0;
+		t.true(await attach('TEST-AFTER'));
+		const switched = calls.find(args => isSwitchBatch(args))!;
+		t.is(switched[switched.indexOf('-c') + 1], '/dev/late');
 	},
 );

@@ -46,7 +46,13 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
-import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {
+	CLIENT_TTY_OPTION,
+	FRAME_COMMAND_OPTION,
+	PANE_TITLE_OPTION,
+	frameReadyChannel,
+	frameStartedChannel,
+} from './pane-frame-options.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
@@ -385,6 +391,55 @@ function viewerRespawnArgs(
 	];
 }
 
+// Panes whose frame host started with the pane and has no program yet.
+const awaitingFrames = new Set<string>();
+
+/**
+ * The pane command for a viewer pane created before the rail knows what it
+ * will show. The frame host's start-up, the longest part of bringing a viewer
+ * up, then overlaps everything between pane setup and the first attachment.
+ */
+function awaitingFrameCommand(title: string): string {
+	return [...paneFrameEntry(), '--title', title, '--await']
+		.map(value => shellQuote(value))
+		.join(' ');
+}
+
+/** `paneId` was created running `awaitingFrameCommand`. Exported for tests. */
+export function registerAwaitingFrame(paneId: string): void {
+	awaitingFrames.add(paneId);
+}
+
+/**
+ * Start `command` in a viewer pane's frame. A frame that started with its
+ * pane is already waiting for exactly this; any other pane is respawned.
+ */
+function viewerStartArgs(
+	paneId: string,
+	command: string,
+	title?: string,
+): string[] {
+	if (!awaitingFrames.delete(paneId))
+		return viewerRespawnArgs(paneId, command, title);
+	// The frame takes its title from the window title its program sets.
+	const titled =
+		title === undefined
+			? ''
+			: `printf '\\033]2;%s\\033\\\\' ${shellQuote(title)}; `;
+	return [
+		'set-option',
+		'-p',
+		'-t',
+		paneId,
+		FRAME_COMMAND_OPTION,
+		`${titled}${command}; exec "$SHELL" -l`,
+		';',
+		'wait-for',
+		'-S',
+		frameReadyChannel(paneId),
+	];
+}
+
 function viewerMessageCommand(message: string): string {
 	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
 }
@@ -402,6 +457,9 @@ function viewerNoSessionCommand(
 	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
 }
 
+const AGENT_PANE_TITLE = 'agent';
+const COMPANION_FRAME_TITLE = 'companion';
+
 function paneTitleArgs(paneId: string, title: string): string[] {
 	return ['set-option', '-p', '-t', paneId, PANE_TITLE_OPTION, title];
 }
@@ -410,13 +468,14 @@ function viewerTitleArgs(
 	agentViewerPaneId: string,
 	companionViewerPaneId: string,
 ): string[] {
-	const args = paneTitleArgs(agentViewerPaneId, 'agent');
+	const args = paneTitleArgs(agentViewerPaneId, AGENT_PANE_TITLE);
 	if (companionViewerPaneId)
-		args.push(';', ...paneTitleArgs(companionViewerPaneId, 'companion'));
+		args.push(
+			';',
+			...paneTitleArgs(companionViewerPaneId, COMPANION_FRAME_TITLE),
+		);
 	return args;
 }
-
-const COMPANION_FRAME_TITLE = 'companion';
 
 function agentFrameTitle(issueKey: string): string {
 	return `agent · ${issueKey}`;
@@ -585,30 +644,61 @@ export function buildAgentResumeCommand(
 
 const CLIENT_TTY_WAIT_MS = 3000;
 
+const CLIENT_TTY_FORMAT = `#{${CLIENT_TTY_OPTION}}`;
+
 /**
  * The tty of the nested tmux client inside a viewer pane's frame, which the
- * frame host publishes on the pane once its child starts. A freshly respawned
- * pane gets a moment to publish it.
+ * frame's child publishes on the pane as it starts its program.
  */
 async function getViewerClientTty(
 	paneId: string,
 	run: AsyncTmuxRunner,
-	{wait = false}: {wait?: boolean} = {},
 ): Promise<string> {
-	const deadline = Date.now() + (wait ? CLIENT_TTY_WAIT_MS : 0);
-	for (;;) {
-		const output = await run([
-			'display-message',
-			'-p',
-			'-t',
-			paneId,
-			`#{${CLIENT_TTY_OPTION}}`,
-		]);
-		const tty = output.trim();
-		if (tty || Date.now() >= deadline) return tty;
-		await new Promise(resolve => {
-			setTimeout(resolve, 25);
-		});
+	const output = await run([
+		'display-message',
+		'-p',
+		'-t',
+		paneId,
+		CLIENT_TTY_FORMAT,
+	]);
+	return output.trim();
+}
+
+/**
+ * The client tty of a frame that was just started, once its child signals
+ * that it has published it. A signal left by a start nobody waited for wakes
+ * the first wait before the tty is there, so an empty answer waits once more.
+ */
+async function awaitViewerClientTty(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<string> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timedOut = new Promise<string>(resolve => {
+		timer = setTimeout(resolve, CLIENT_TTY_WAIT_MS, '');
+	});
+	try {
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const started = run([
+				'wait-for',
+				frameStartedChannel(paneId),
+				';',
+				'display-message',
+				'-p',
+				'-t',
+				paneId,
+				CLIENT_TTY_FORMAT,
+			]);
+			// Abandoned at the deadline, its own timeout still ends it later.
+			started.catch(() => {});
+			// eslint-disable-next-line no-await-in-loop -- The second wait depends on the first's answer.
+			const output = await Promise.race([started, timedOut]);
+			if (output.trim()) return output.trim();
+		}
+
+		return '';
+	} finally {
+		clearTimeout(timer);
 	}
 }
 
@@ -1535,7 +1625,11 @@ export function setupPappardellLayout(): {
 		);
 
 		const panesDone = startupTrace.current?.begin('setup-panes');
-		const split = (direction: '-h' | '-v', size: number | undefined) => [
+		const split = (
+			direction: '-h' | '-v',
+			size: number | undefined,
+			title: string,
+		) => [
 			'split-window',
 			direction,
 			'-t',
@@ -1547,6 +1641,7 @@ export function setupPappardellLayout(): {
 			'-P',
 			'-F',
 			'#{pane_id}',
+			awaitingFrameCommand(title),
 		];
 		const hasCompanion =
 			layout.direction !== 'vertical' &&
@@ -1555,20 +1650,24 @@ export function setupPappardellLayout(): {
 		let splits: string[];
 		if (layout.direction === 'vertical') {
 			// List on top, agent below, no companion.
-			splits = split('-v', layout.agentHeight);
+			splits = split('-v', layout.agentHeight, AGENT_PANE_TITLE);
 		} else if (hasCompanion) {
 			// Both splits take their columns from the list pane, so the rightmost
 			// pane is made first and neither needs the other's id.
 			splits = [
-				...split('-h', layout.companionWidth),
+				...split('-h', layout.companionWidth, COMPANION_FRAME_TITLE),
 				';',
-				...split('-h', agentWidth),
+				...split('-h', agentWidth, AGENT_PANE_TITLE),
 			];
 		} else {
 			log.info(
 				`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
 			);
-			splits = split('-h', agentWidth + (layout.companionWidth ?? 0) + 1);
+			splits = split(
+				'-h',
+				agentWidth + (layout.companionWidth ?? 0) + 1,
+				AGENT_PANE_TITLE,
+			);
 		}
 
 		const created = spawnSync('tmux', splits, {
@@ -1588,6 +1687,7 @@ export function setupPappardellLayout(): {
 			return null;
 		}
 
+		for (const paneId of paneIds) registerAwaitingFrame(paneId);
 		if (created.error || created.status !== 0)
 			log.error(`Failed to create companion viewer pane: ${created.stderr}`);
 		log.info(
@@ -1895,13 +1995,11 @@ export async function attachToSpace(
 							.map(value => shellQuote(value))
 							.join(' ')
 					: viewerNoSessionCommand(issueKey, program);
-				await run(viewerRespawnArgs(paneId, command, title));
+				await run(viewerStartArgs(paneId, command, title));
 				// The fast path finds the respawned frame's nested client by its tty.
 				return {
 					attached: exists,
-					tty: exists
-						? await getViewerClientTty(paneId, run, {wait: true})
-						: '',
+					tty: exists ? await awaitViewerClientTty(paneId, run) : '',
 				};
 			};
 			const attached = await Promise.allSettled([
@@ -1989,7 +2087,7 @@ export function displayMessageInPane(paneId: string, message: string): boolean {
 	forgetViewerClient(paneId);
 	const result = spawnSync(
 		'tmux',
-		viewerRespawnArgs(paneId, viewerMessageCommand(message)),
+		viewerStartArgs(paneId, viewerMessageCommand(message)),
 		{encoding: 'utf-8', timeout: 5000},
 	);
 	if (result.error || result.status !== 0) {
@@ -2007,7 +2105,7 @@ export async function displayMessageInPaneAsync(
 	if (!paneId) return;
 	forgetViewerClient(paneId);
 	try {
-		await run(viewerRespawnArgs(paneId, viewerMessageCommand(message)));
+		await run(viewerStartArgs(paneId, viewerMessageCommand(message)));
 	} catch (err) {
 		log.error(
 			`Failed to display message in pane ${paneId}`,
