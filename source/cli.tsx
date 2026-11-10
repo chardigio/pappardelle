@@ -438,7 +438,7 @@ if (!isInTmux() && cli.flags.layout) {
 // Set up tmux layout if in tmux and not disabled
 let paneLayout: PaneLayout | null = null;
 
-if (isInTmux() && cli.flags.layout) {
+function maintainSessions() {
 	// On startup, kill any leftover claude-{repo}-* / companion-{repo}-* sessions
 	// on the default socket from a pre-STA-860 run. tmux can't migrate sessions
 	// between servers, so we drop them; idow / Pappardelle recreates them on
@@ -477,7 +477,14 @@ if (isInTmux() && cli.flags.layout) {
 			`\x1b[33mPappardelle: reaped ${innerReaped} orphaned inner-socket session(s).\x1b[0m`,
 		);
 	}
+}
+let finishFirstRailPaint: () => void;
+const firstRailPaint = new Promise<void>(resolve => {
+	finishFirstRailPaint = resolve;
+});
 
+if (isInTmux() && cli.flags.layout) {
+	maintainSessions();
 	paneLayout = setupPappardellLayout();
 	if (!paneLayout) {
 		console.error(
@@ -494,36 +501,47 @@ process.on('exit', () => {
 	if (process.stdout.isTTY) process.stdout.write('\u001B[?2027l');
 });
 
-// Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
-// Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
-let commitSha = 'unknown';
-const commitDone = startupTrace.current?.begin('commit-metadata');
-try {
-	commitSha = execSync('git log -1 --format=%h -- .', {
-		cwd: pappardelleDir,
-		encoding: 'utf8',
-		stdio: ['pipe', 'pipe', 'pipe'],
-	}).trim();
-} catch {
-	// Not in a git repo or git not available - leave as 'unknown'
-} finally {
-	commitDone?.(commitSha === 'unknown' ? 'unavailable' : 'ok');
+function readDisplayMetadata() {
+	// Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
+	// Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
+	let commitSha = 'unknown';
+	const commitDone = startupTrace.current?.begin('commit-metadata');
+	try {
+		commitSha = execSync('git log -1 --format=%h -- .', {
+			cwd: pappardelleDir,
+			encoding: 'utf8',
+			stdio: ['pipe', 'pipe', 'pipe'],
+		}).trim();
+	} catch {
+		// Not in a git repo or git not available - leave as 'unknown'
+	} finally {
+		commitDone?.(commitSha === 'unknown' ? 'unavailable' : 'ok');
+	}
+
+	// Resolve the version for display in the help overlay. A real release checkout
+	// reports its own vX.Y.Z tag; a dev/worktree build (run from the monorepo, where
+	// no release tag exists) reports the latest installed release flagged `-dev`;
+	// neither resolvable → null, and the help line degrades to sha-only (STA-1494).
+	const versionDone = startupTrace.current?.begin('version-metadata');
+	const {version: installedVersion, isDev: isDevBuild} =
+		resolveDisplayVersion(pappardelleDir);
+	versionDone?.();
+
+	return {commitSha, installedVersion, isDevBuild};
 }
-
-// Resolve the version for display in the help overlay. A real release checkout
-// reports its own vX.Y.Z tag; a dev/worktree build (run from the monorepo, where
-// no release tag exists) reports the latest installed release flagged `-dev`;
-// neither resolvable → null, and the help line degrades to sha-only (STA-1494).
-const versionDone = startupTrace.current?.begin('version-metadata');
-const {version: installedVersion, isDev: isDevBuild} =
-	resolveDisplayVersion(pappardelleDir);
-versionDone?.();
-
-// Kick off the update check asynchronously — never blocks startup, fails silent.
-// safeCheckForUpdate swallows all errors, so the promise will only ever
-// resolve (never reject). We hand the promise straight to App so render()
-// isn't blocked on the network.
-const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
+let metadata = {
+	commitSha: 'unknown',
+	installedVersion: null as string | null,
+	isDevBuild: true,
+};
+let finishUpdate: (
+	info: Awaited<ReturnType<typeof safeCheckForUpdate>>,
+) => void;
+const updateCheckPromise = new Promise<
+	Awaited<ReturnType<typeof safeCheckForUpdate>>
+>(resolve => {
+	finishUpdate = resolve;
+});
 
 const importsDone = startupTrace.current?.begin('renderer-imports');
 const [{renderTui, rendererExitSignals}, {default: App, quitTui}] =
@@ -535,14 +553,26 @@ const [{renderTui, rendererExitSignals}, {default: App, quitTui}] =
 	);
 importsDone?.();
 const rendererDone = startupTrace.current?.begin('renderer');
-const {renderer} = await renderTui(
+let railPainted = false;
+function finishStartup() {
+	if (railPainted) return;
+	railPainted = true;
+	finishFirstRailPaint();
+	metadata = readDisplayMetadata();
+	rerender(app());
+	void safeCheckForUpdate({projectDir: pappardelleDir}).then(finishUpdate);
+}
+const app = () => (
 	<App
 		paneLayout={paneLayout}
-		commitSha={commitSha}
-		installedVersion={installedVersion}
-		isDevBuild={isDevBuild}
+		{...metadata}
 		updateCheckPromise={updateCheckPromise}
-	/>,
+		firstRailPaint={firstRailPaint}
+		onFirstRailPaint={finishStartup}
+	/>
+);
+const {renderer, rerender} = await renderTui(
+	app(),
 	{exitOnCtrlC: false, exitSignals: rendererExitSignals},
 	renderer => {
 		quitTui(renderer, repoName, paneLayout);

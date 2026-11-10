@@ -40,8 +40,10 @@ export async function renderTui(
 	});
 	const root = createRoot(renderer);
 	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
-	root.render(createElement(TuiErrorBoundary, {onClose}, node));
-	return {renderer, root};
+	const rerender = (next: ReactNode) =>
+		root.render(createElement(TuiErrorBoundary, {onClose}, next));
+	rerender(node);
+	return {renderer, root, rerender};
 }
 
 /**

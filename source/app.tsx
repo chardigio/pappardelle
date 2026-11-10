@@ -241,6 +241,8 @@ export function quitTui(
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
+	firstRailPaint?: Promise<void>;
+	onFirstRailPaint?: () => void;
 	paneLayout: PaneLayout | null;
 	commitSha: string;
 	installedVersion: string | null;
@@ -251,6 +253,8 @@ interface AppProps {
 }
 
 export default function App({
+	firstRailPaint,
+	onFirstRailPaint,
 	paneLayout: initialPaneLayout,
 	commitSha,
 	installedVersion,
@@ -308,6 +312,11 @@ export default function App({
 		[spaces],
 	);
 	const [loading, setLoading] = useState(true);
+	const [backgroundReady, setBackgroundReady] = useState(!firstRailPaint);
+	useEffect(() => {
+		if (firstRailPaint)
+			void firstRailPaint.then(() => setBackgroundReady(true));
+	}, [firstRailPaint]);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	// Snapshotted at keypress like killDoneTargets below, so the 10s poll can't
 	// move the selection onto a different space while the confirm is open.
@@ -524,10 +533,10 @@ export default function App({
 	}, [paneLayout, repoName, renderer]);
 
 	// Tells `pappardelle restart` which build came up in this pane. Written on
-	// mount, so it also says the TUI got as far as rendering.
+	// first paint, after display metadata is available.
 	useEffect(() => {
 		const paneId = process.env['TMUX_PANE'];
-		if (!initialPaneLayout || !paneId) return;
+		if (!initialPaneLayout || !paneId || !backgroundReady) return;
 		try {
 			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
 			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
@@ -543,7 +552,7 @@ export default function App({
 				error instanceof Error ? error : undefined,
 			);
 		}
-	}, [initialPaneLayout, repoName, commitSha]);
+	}, [initialPaneLayout, repoName, commitSha, backgroundReady]);
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
@@ -605,6 +614,7 @@ export default function App({
 
 	useEffect(() => {
 		const refresh = new WorkspaceRefresh({
+			detailReady: firstRailPaint,
 			readRegistry: getRegisteredSpacesAsync,
 			readStatus: async (key, sessionKey) =>
 				workspaceStatuses.read(key, sessionKey),
@@ -640,15 +650,15 @@ export default function App({
 			refresh.stop();
 			workspaceRefresh.current = null;
 		};
-	}, [configMemo, repoName, setSpaces, workspaceStatuses]);
+	}, [configMemo, repoName, setSpaces, workspaceStatuses, firstRailPaint]);
 
 	// Warm the skill list once the rail has painted, so the first new-session
 	// prompt can offer completions without waiting on a scan of its own.
 	useEffect(() => {
-		if (loading) return;
+		if (loading || !backgroundReady) return;
 		const roots = skillRoots();
 		if (roots) void skillSnapshot.refresh(roots);
-	}, [loading]);
+	}, [loading, backgroundReady]);
 
 	useEffect(
 		() =>
@@ -722,6 +732,22 @@ export default function App({
 	const isZooming = Boolean(
 		paneLayout && settledRevision !== dialogRequest.current.revision,
 	);
+	useEffect(() => {
+		if (loading || isZooming || backgroundReady || !onFirstRailPaint) return;
+		let fired = false;
+		let timer: ReturnType<typeof setTimeout>;
+		const afterFrame = () => {
+			if (fired) return;
+			fired = true;
+			timer = setTimeout(onFirstRailPaint, 0);
+		};
+		renderer.addPostProcessFn(afterFrame);
+		renderer.requestRender();
+		return () => {
+			renderer.removePostProcessFn(afterFrame);
+			clearTimeout(timer);
+		};
+	}, [loading, isZooming, backgroundReady, onFirstRailPaint, renderer]);
 	const syncingTerminalSize = useRef(false);
 	const layoutTasks = useMemo(
 		() =>
@@ -1990,7 +2016,7 @@ export default function App({
 	const hasRailTargets = spaces.some(
 		s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
 	);
-	useRailStatusPolling(hasRailTargets, async () => {
+	useRailStatusPolling(hasRailTargets && backgroundReady, async () => {
 		try {
 			const targets = spacesRef.current.filter(
 				s => !s.isMainWorktree && !s.isPending && s.name.length > 0,

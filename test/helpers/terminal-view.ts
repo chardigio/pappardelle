@@ -57,7 +57,7 @@ export async function terminalView(
 		stdin,
 		flush,
 		async update(next: React.ReactNode) {
-			flushSync(() => view.root.render(next));
+			flushSync(() => view.rerender(next));
 			return flush();
 		},
 		line: (row: number) =>
