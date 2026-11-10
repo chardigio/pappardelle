@@ -63,7 +63,9 @@ find_bun() {
         "$HOME/.bun/bin/bun" "$PRIVATE_BUN_DIR/current/bun"; do
         [[ -x "$candidate" ]] || continue
         if bun_supported "$candidate"; then
-            "$candidate" -p 'process.execPath'
+            # Same isolation as the shim: the TUI runs this from a workspace,
+            # whose bunfig.toml preload would print into the captured path.
+            "$candidate" --no-env-file --config=/dev/null -p 'process.execPath'
             return 0
         fi
     done
