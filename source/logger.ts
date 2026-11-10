@@ -221,7 +221,10 @@ export function createLogSink({
 
 			if (!current) return;
 			const line = formatLogEntry(entry) + '\n';
-			if (flushed) {
+			// An error is often the last line before a crash, and a line still in
+			// sonic-boom's hands when the process dies can be lost.
+			if (flushed || entry.level === 'error') {
+				if (!flushed) flushSync();
 				try {
 					writeSync(current.fd, line);
 				} catch {
