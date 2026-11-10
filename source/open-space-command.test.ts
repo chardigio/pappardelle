@@ -427,9 +427,9 @@ test.serial(
 				`import fs from 'node:fs';
 fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 process.stdout.write('worker started\\n');
-setTimeout(() => process.stdout.write('worker progress\\n'), 50);
+// The CLI only learns its stdout broke on its next write, so keep writing.
+setInterval(() => process.stdout.write('worker progress\\n'), 50);
 setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished'), 500);
-setTimeout(() => {}, 30000);
 `,
 			);
 			fs.writeFileSync(
