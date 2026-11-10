@@ -1796,7 +1796,7 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 		// Ordered so the measurements are taken before the two server options,
 		// the likeliest to be refused.
 		const windowSetup = [
-			...paneTitleArgs(listPaneId, 'rail'),
+			...paneTitleArgs(listPaneId, RAIL_PANE_TITLE),
 			';',
 			...windowChromeArgs(listPaneId),
 			';',
@@ -1869,6 +1869,7 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 		}
 
 		done?.();
+		void closeOrphanedViewerPanes(listPaneId, paneIds);
 
 		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1879,6 +1880,71 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 		done?.('failed');
 		return null;
 	}
+}
+
+const RAIL_PANE_TITLE = 'rail';
+
+/**
+ * The viewer panes a rail left behind when it was killed or crashed: frame
+ * hosts in this rail's window that it did not create, and frame hosts in a
+ * window of the session that no rail runs in. `listing` is one line per pane
+ * of the session: window id, pane id, pane title option and start command,
+ * tab-separated. Exported for tests.
+ */
+export function orphanedViewerPanes(
+	listing: string,
+	listPaneId: string,
+	viewerPaneIds: readonly string[],
+): string[] {
+	const panes = listing
+		.split('\n')
+		.filter(Boolean)
+		.map(line => {
+			const [windowId, paneId, title, ...command] = line.split('\t');
+			return {windowId, paneId: paneId!, title, command: command.join('\t')};
+		});
+	const ownWindow = panes.find(pane => pane.paneId === listPaneId)?.windowId;
+	const railWindows = new Set(
+		panes
+			.filter(pane => pane.title === RAIL_PANE_TITLE)
+			.map(pane => pane.windowId),
+	);
+	return panes
+		.filter(
+			pane =>
+				/--internal-pane-frame|pane-frame-cli/.test(pane.command) &&
+				!viewerPaneIds.includes(pane.paneId) &&
+				(pane.windowId === ownWindow || !railWindows.has(pane.windowId)),
+		)
+		.map(pane => pane.paneId);
+}
+
+async function closeOrphanedViewerPanes(
+	listPaneId: string,
+	viewerPaneIds: readonly string[],
+): Promise<void> {
+	const listed = await runSetup([
+		'list-panes',
+		'-s',
+		'-t',
+		listPaneId,
+		'-F',
+		`#{window_id}\t#{pane_id}\t#{${PANE_TITLE_OPTION}}\t#{pane_start_command}`,
+	]);
+	if (!listed.ok) return;
+	const orphans = orphanedViewerPanes(listed.stdout, listPaneId, viewerPaneIds);
+	if (orphans.length === 0) return;
+	log.info(
+		`Closing viewer panes left by an earlier rail: ${orphans.join(' ')}`,
+	);
+	await runSetup(
+		orphans.flatMap((paneId, index) => [
+			...(index === 0 ? [] : [';']),
+			'kill-pane',
+			'-t',
+			paneId,
+		]),
+	);
 }
 
 // A command list that stops part-way has still printed what its earlier
