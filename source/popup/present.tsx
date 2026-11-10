@@ -35,19 +35,16 @@ export function presentPopup(
 		// Answers originate in key handlers. Defer teardown until dispatch ends.
 		queueMicrotask(() => renderer?.destroy());
 	};
-	// Once tmux has torn the popup's tty down, OpenTUI's raw-mode reset on it
-	// throws, and the logged throw would show in the rail's error count.
-	let ttyGone = false;
+	// Once tmux is tearing the popup's tty down, OpenTUI's raw-mode reset on it
+	// throws, and the logged throw would show in the rail's error count. A
+	// dismissed popup's tty can go at any moment, before either event below.
 	const {input} = terminal;
 	const setRawMode = input.setRawMode.bind(input);
-	input.setRawMode = mode => (ttyGone ? input : setRawMode(mode));
+	input.setRawMode = mode => (closing ? input : setRawMode(mode));
 	input.once('close', () => {
-		ttyGone = true;
+		closing = true;
 	});
-	void terminal.closed.then(() => {
-		ttyGone = true;
-		close();
-	});
+	void terminal.closed.then(close);
 	void renderTui(
 		<PopupRoot
 			spec={spec}
