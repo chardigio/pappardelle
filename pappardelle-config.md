@@ -1069,6 +1069,23 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Sous-Chef Mode
+
+The top-level `sous_chef` flag tells the agent in the main checkout that it coordinates the repo's spaces. Off by default.
+
+```yaml
+sous_chef: true # default: false
+```
+
+```typescript
+sous_chef?: boolean;
+```
+
+- With it on, the pappardelle MCP server's instructions to a session in the repo but outside any space say to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
+- Sessions inside a space are not affected
+- `/sous-chef` still loads the full routine. The flag only tells the session its role before you run it
+- The MCP server reads the flag when the agent starts, so restart the main checkout's agent after changing it
+
 ## Issue Status Colors
 
 The ticket rail paints an issue key with the exact color the tracker reports for that issue's status. The top-level `state_colors` map replaces that color for the statuses it lists. This matters most on Jira, where one color often covers several statuses ("In Progress" and "In Review" are the usual pair) and the rail cannot tell them apart.

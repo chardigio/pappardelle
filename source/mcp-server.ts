@@ -8,7 +8,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
-import {configExists, getRepoName} from './config.ts';
+import {configExists, getRepoName, loadConfig} from './config.ts';
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
@@ -17,15 +17,28 @@ import {spaceFromWorktreePath} from './space-target.ts';
 export type CliResult = {code: number | null; stdout: string; stderr: string};
 export type RunCli = (call: CliCall, signal: AbortSignal) => Promise<CliResult>;
 
+const MESSAGING =
+	"To message the agent in another space, use SendMessage with the space key as `to` (ListAgents lists them): the agent sees who sent it and can reply. `space_send` types into that agent's TUI as if the user did. Codex, Pi and agy agents can't receive SendMessage, so `space_send` is the only way to reach them.";
+
+const SOUS_CHEF =
+	"Sous-chef mode is on: this session coordinates the repo's spaces. Keep the other agents moving: `spaces_list` for the board, `space_watch` with `until: [blocked]` in a loop to catch every space waiting on a person, `space_state` and `space_question_tabs` to read what it asks, and `space_answer` for the user's answer. Bring each prompt and question to the user, and answer it on their word. The user's /sous-chef command loads the full kitchen routine.";
+
 export function workspaceInstructions(
 	space: string | undefined,
 	repoName: string | undefined,
+	options: {sousChef?: boolean} = {},
 ): string {
 	if (!space) {
-		return "This repo uses Pappardelle, which gives each issue a git worktree, an agent session and a companion pane. This session isn't in a space, so pass `space` to the companion tools. Use this server's tools rather than tmux. The pappardelle-agent skill covers updating and restarting Pappardelle.";
+		return [
+			"This repo uses Pappardelle, which gives each issue a git worktree, an agent session and a companion pane. This session isn't in a space, so pass `space` to the companion tools. Use this server's tools rather than tmux. The pappardelle-agent skill covers updating and restarting Pappardelle.",
+			...(options.sousChef ? [SOUS_CHEF] : []),
+			MESSAGING,
+		].join('\n\n');
 	}
 
 	return `You are in Pappardelle space ${space}${repoName ? ` (repo ${repoName})` : ''}. Pappardelle gives each issue a git worktree, an agent session and a companion pane next to it, and the user watches both. Use this server's tools rather than tmux; they target your own space unless you pass \`space\`. The pappardelle-agent skill covers updating and restarting Pappardelle.
+
+${MESSAGING}
 
 ${companionRules()}`;
 }
@@ -34,12 +47,15 @@ export function createMcpServer(options: {
 	inRepo: boolean;
 	space?: string;
 	repoName?: string;
+	sousChef?: boolean;
 	runCli: RunCli;
 }): McpServer {
-	const {inRepo, space, repoName, runCli} = options;
+	const {inRepo, space, repoName, sousChef, runCli} = options;
 	const server = new McpServer(
 		{name: 'pappardelle', version: '1.0.0'},
-		inRepo ? {instructions: workspaceInstructions(space, repoName)} : {},
+		inRepo
+			? {instructions: workspaceInstructions(space, repoName, {sousChef})}
+			: {},
 	);
 	if (!inRepo) return server;
 
@@ -127,6 +143,15 @@ const spawnCli =
 			child.stdin.end(stdin);
 		});
 
+/** A config that doesn't load leaves the mode off; the TUI reports why. */
+function sousChefEnabled(): boolean {
+	try {
+		return loadConfig().sous_chef === true;
+	} catch {
+		return false;
+	}
+}
+
 /** Resolves when the client closes the connection. */
 export async function runMcpServer(): Promise<void> {
 	let repoName: string | undefined;
@@ -148,6 +173,7 @@ export async function runMcpServer(): Promise<void> {
 		inRepo,
 		space,
 		repoName,
+		sousChef: !space && inRepo && sousChefEnabled(),
 		runCli: spawnCli(space),
 	}).connect(new StdioServerTransport());
 	await closed;

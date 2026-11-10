@@ -84,6 +84,11 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Tell the agent in the main checkout that it coordinates the other spaces:
+# it watches them and brings their prompts and questions to you. /sous-chef
+# has the full routine. Off by default.
+# sous_chef: true
+
 # Override the ticket-rail color for named issue statuses. Names match
 # case-insensitively; values are hex (#rgb / #rrggbb) or an ANSI color name
 # (red, cyan, blueBright, ...). Any status you leave out keeps the color the
