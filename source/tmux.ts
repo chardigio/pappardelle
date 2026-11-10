@@ -526,20 +526,15 @@ function viewerSessionArgs(sessionName: string, title: string): string[] {
 // feature is server-scope, and the inner server is Pappardelle's own.
 export const FRAME_TERMINAL_FEATURE = 'xterm-256color:extkeys';
 
-async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
-	const features = await run(
-		innerTmuxArgs(['show-options', '-sqv', 'terminal-features']),
-	);
-	if (features.split('\n').some(line => line.trim() === FRAME_TERMINAL_FEATURE))
-		return;
-	await run(
-		innerTmuxArgs([
-			'set-option',
-			'-sa',
-			'terminal-features',
-			`,${FRAME_TERMINAL_FEATURE}`,
-		]),
-	);
+// Appended only when the server does not already carry it as a whole entry.
+function frameTerminalFeaturesArgs(): string[] {
+	return [
+		'if-shell',
+		'-F',
+		`#{m:* ${FRAME_TERMINAL_FEATURE} *, #{terminal-features} }`,
+		'',
+		`set-option -sa terminal-features ',${FRAME_TERMINAL_FEATURE}'`,
+	];
 }
 
 // Each pane draws its own rounded frame, so tmux's border titles stay off. Set
@@ -1976,22 +1971,44 @@ export async function attachToSpace(
 
 		const viewersDone = startupTrace.current?.begin('viewer-attachment');
 		try {
-			const [agentTty, companionTty, clients] = await Promise.all([
-				agentViewerTty || getViewerClientTty(agentViewerPaneId, run),
-				companionViewerPaneId
-					? companionViewerTty || getViewerClientTty(companionViewerPaneId, run)
-					: null,
-				innerClientTtys(run),
-			]);
+			// A frame still waiting for its first program has no client to find.
+			const unstarted =
+				awaitingFrames.has(agentViewerPaneId) &&
+				(!companionViewerPaneId || awaitingFrames.has(companionViewerPaneId));
+			const [agentTty, companionTty, clients] = unstarted
+				? ['', companionViewerPaneId ? '' : null, new Set<string>()]
+				: await Promise.all([
+						agentViewerTty || getViewerClientTty(agentViewerPaneId, run),
+						companionViewerPaneId
+							? companionViewerTty ||
+								getViewerClientTty(companionViewerPaneId, run)
+							: null,
+						innerClientTtys(run),
+					]);
 			const hasClient = (tty: string | null) =>
 				Boolean(tty && clients.has(tty));
-			// Features apply when a client attaches, so before any respawn. Both
-			// viewers appending at once would add the feature twice.
-			if (
-				(hasAgentSession && !hasClient(agentTty)) ||
+			// One call on the inner socket: the features a new client needs, which
+			// apply when it attaches, then each session's own options.
+			const sessionSetup = [
+				...((hasAgentSession && !hasClient(agentTty)) ||
 				(hasCompanionSession && !hasClient(companionTty))
-			)
-				await ensureFrameTerminalFeatures(run);
+					? [frameTerminalFeaturesArgs()]
+					: []),
+				...(hasAgentSession
+					? [viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey))]
+					: []),
+				...(hasCompanionSession
+					? [viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE)]
+					: []),
+			];
+			if (sessionSetup.length > 0)
+				await run(
+					innerTmuxArgs(
+						sessionSetup.flatMap((args, index) =>
+							index === 0 ? args : [';', ...args],
+						),
+					),
+				);
 
 			const attach = async (
 				paneId: string,
@@ -2001,7 +2018,6 @@ export async function attachToSpace(
 				title: string,
 				program: 'agent' | 'companion',
 			): Promise<{attached: boolean; tty: string}> => {
-				if (exists) await run(innerTmuxArgs(viewerSessionArgs(session, title)));
 				if (exists && hasClient(tty)) {
 					await switchClientToSession(tty!, session, run);
 					return {attached: true, tty: tty!};
