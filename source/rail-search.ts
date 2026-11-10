@@ -1,21 +1,16 @@
+import {rankByFuzzyMatch} from './profile-picker.ts';
 import type {shortcutKey} from './tui-key.ts';
 import type {SpaceData} from './types.ts';
 
 /** The rail's search: what was typed and which match is highlighted. */
 export type RailSearch = {query: string; index: number};
 
-/**
- * The rows whose key or title contains every word of the query, in any order
- * and any case.
- */
+/** Matches a row by its key or its title; see rankByFuzzyMatch. */
 export function filterSpaces(spaces: SpaceData[], query: string): SpaceData[] {
-	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-	if (words.length === 0) return spaces;
-	return spaces.filter(space => {
-		const text =
-			`${space.name} ${space.linearIssue?.title ?? ''}`.toLowerCase();
-		return words.every(word => text.includes(word));
-	});
+	return rankByFuzzyMatch(spaces, query, space => [
+		space.name,
+		space.linearIssue?.title ?? '',
+	]);
 }
 
 /** A refresh can remove rows from under the highlight. */

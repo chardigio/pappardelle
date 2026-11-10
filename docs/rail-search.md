@@ -17,7 +17,7 @@ Enter also read the match list from the last render. A character and Enter arriv
 - Search stays in the rail: the search row replaces the status row (or the header row in a rail too short for one) and the list filters below it. The window is never zoomed
 - Search keys act on the current query and highlight instead of the last render, so several keys in one write each see what the previous one did. Text typed before the search row is drawn is added to the query
 - Enter selects the highlighted workspace by name, not by a row index translated around the pending row
-- Every word of the query must appear in the key or title, in any order. `fix login` now matches "Fix the login redirect"; before, the query had to appear as one unbroken string
+- The query is matched the way the agent and profile popups match theirs (`rankByFuzzyMatch`): its characters must appear in order in the key or in the title, spaces ignored, and the tightest match is listed first. `fx lgn` finds "Fix the login redirect". Before, the query had to appear as one unbroken string and matches kept the rail's order
 
 ## Measurements
 

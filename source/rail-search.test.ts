@@ -29,8 +29,8 @@ const searchable = [
 ];
 
 test('an empty or blank query keeps every row', t => {
-	t.is(filterSpaces(searchable, ''), searchable);
-	t.is(filterSpaces(searchable, '  '), searchable);
+	t.deepEqual(filterSpaces(searchable, ''), searchable);
+	t.deepEqual(filterSpaces(searchable, '  '), searchable);
 });
 
 test('a query matches the key or the title in any case', t => {
@@ -39,10 +39,17 @@ test('a query matches the key or the title in any case', t => {
 	t.deepEqual(names(filterSpaces(searchable, 'mai')), ['main']);
 });
 
-test('every word must match, in any order and across key and title', t => {
-	t.deepEqual(names(filterSpaces(searchable, 'regression fix')), ['STA-20']);
-	t.deepEqual(names(filterSpaces(searchable, '30 rail')), ['STA-30']);
-	t.deepEqual(names(filterSpaces(searchable, 'fix dashboard')), []);
+test('the query is matched the way the popup pickers match theirs', t => {
+	t.deepEqual(names(filterSpaces(searchable, 'fx lgn')), ['STA-20']);
+	t.deepEqual(names(filterSpaces(searchable, 'regression fix')), []);
+});
+
+test('the tightest match comes first, whichever row it is', t => {
+	const rows = [
+		titled('STA-1', 'Rework the daily email'),
+		titled('STA-2', 'Rail search'),
+	];
+	t.deepEqual(names(filterSpaces(rows, 'rail')), ['STA-2', 'STA-1']);
 });
 
 function press(name: string, modifiers: {ctrl?: boolean} = {}) {
