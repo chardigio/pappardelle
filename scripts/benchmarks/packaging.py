@@ -16,7 +16,7 @@ from pty_benchmark import command, run_pty
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--runs', type=int, default=5)
-parser.add_argument('--output', type=Path, default=Path('docs/opentui-packaging-benchmark.json'))
+parser.add_argument('--output', type=Path, default=Path('benchmark-results/opentui-packaging-benchmark.json'))
 args = parser.parse_args()
 project = Path(__file__).resolve().parents[2]
 fixture = Path(__file__).with_name('tui-fixture.mjs')

@@ -146,7 +146,7 @@ def main():
     parser.add_argument('--shell-delay-ms', type=int, default=1000)
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--timeout', type=float, default=30)
-    parser.add_argument('--output', type=Path, default=Path('docs/workspace-startup-benchmark.json'))
+    parser.add_argument('--output', type=Path, default=Path('benchmark-results/workspace-startup-benchmark.json'))
     args = parser.parse_args()
     if args.runs < 1 or args.shell_delay_ms < 0 or args.timeout <= 0:
         parser.error('runs and timeout must be positive; shell delay must be nonnegative')

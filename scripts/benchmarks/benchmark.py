@@ -18,7 +18,7 @@ from pty_benchmark import command, run_pty
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--baseline', required=True, type=Path)
 parser.add_argument('--runs', type=int, default=7)
-parser.add_argument('--output', type=Path, default=Path('docs/opentui-benchmark.json'))
+parser.add_argument('--output', type=Path, default=Path('benchmark-results/opentui-benchmark.json'))
 parser.add_argument('--production', action='store_true', help='Use production React for both variants')
 args = parser.parse_args()
 if args.production:

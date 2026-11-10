@@ -10,14 +10,14 @@ remaining path; it does not implement startup optimizations.
 
 ## Evidence and scope
 
-- [Observed macOS timeline](workspace-startup-macos.json): 2,163 ms from the
+- Observed macOS timeline: 2,163 ms from the
   last app-import start message to both sessions being created; layout activity
   continues through 3,518 ms. The earlier 13-second gap belongs to a separate
   `pappardelle restart --hard` invocation and must not be counted.
-- [Local raw samples](workspace-startup-benchmark.json): five runs per case,
+- Local samples: five runs per case,
   alternating order, compiled Bun bytecode binary, real tmux 3.5a, Linux x64,
-  100×52 terminal. Source commit and executable SHA-256 are recorded in the JSON.
-- [Subprocess trace](workspace-startup-benchmark.trace.json): load in Perfetto
+  100×52 terminal.
+- Subprocess trace (`--trace`): load in Perfetto
   (`ui.perfetto.dev`) or a Chrome trace viewer. Includes completed Git/tmux calls,
   application-log milestones, and readiness observations. Raw commands are also
   embedded in the benchmark JSON.
@@ -117,7 +117,7 @@ root. Use the same executable, terminal geometry, and sample count for compariso
 bun install --frozen-lockfile
 bun run build
 python3 scripts/benchmarks/workspace-ready.py --runs 5 --trace \
-  --output docs/workspace-startup-benchmark.json
+  --output benchmark-results/workspace-startup-benchmark.json
 ```
 
 Each sample destroys only its own uniquely isolated servers. A timeout fails the

@@ -116,8 +116,6 @@ The installed dependency trees in this environment occupy 104.1 MiB (upstream) a
 them for rebuilding and the JavaScript fallback, although the native runtime
 does not need them. No installation-size reduction is claimed.
 
-[Raw comparison samples](opentui-benchmark.json) include the measured commit IDs.
-
 ## Packaging comparison
 
 Five alternating runs per mode. All times are milliseconds; CPU covers the
@@ -150,8 +148,6 @@ debuggable fallback. JavaScript artifact sizes include their source maps where
 emitted, but exclude Bun and installed dependencies. Native artifact sizes
 include the runtime and native assets, so these size columns are not equivalent
 deployment footprints.
-
-[Raw packaging samples](opentui-packaging-benchmark.json) record every repetition.
 
 The comparison includes unbundled modules with development and production React,
 production bundles with OpenTUI core external or bundled, standalone without

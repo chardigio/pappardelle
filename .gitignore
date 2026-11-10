@@ -9,3 +9,5 @@ __pycache__
 .claude/settings.local.json
 *.bun-build
 dist.next
+
+benchmark-results
