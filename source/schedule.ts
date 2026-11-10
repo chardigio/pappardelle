@@ -3,6 +3,7 @@
 // when it sits idle. Jobs live in ~/.pappardelle/repos/{repo}/schedules/, and
 // an OS user timer runs `pappardelle schedule fire ID` for each.
 
+import type {SendToSpaceAgentResult} from './tmux.ts';
 import {randomUUID} from 'node:crypto';
 import {
 	mkdirSync,
@@ -53,13 +54,7 @@ export type FireResult =
 	| 'no_session'
 	| 'expired';
 
-export type SendOutcome =
-	| 'sent'
-	| 'draft'
-	| 'prompt'
-	| 'no-session'
-	| 'busy'
-	| 'failed';
+export type SendOutcome = SendToSpaceAgentResult;
 
 // Codex can refuse a message sent the second its limit resets.
 export const RESET_MARGIN_MS = 60_000;
