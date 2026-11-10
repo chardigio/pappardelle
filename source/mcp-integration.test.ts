@@ -428,7 +428,11 @@ tmuxTest(
 			key: 'STE-3',
 			verdict: 'refused: git push',
 		});
-		t.like(log[1], {caller: 'STE-9', key: 'STE-2', verdict: 'allowed: local cleanup'});
+		t.like(log[1], {
+			caller: 'STE-9',
+			key: 'STE-2',
+			verdict: 'allowed: local cleanup',
+		});
 		t.like(log[2], {
 			caller: 'STE-9',
 			action: 'send',
