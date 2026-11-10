@@ -18,6 +18,7 @@ import platform
 import pty
 import shlex
 import shutil
+import signal
 import statistics
 import struct
 import subprocess
@@ -27,24 +28,99 @@ import termios
 import time
 
 
+FIXTURE_PREFIX = 'pappa-ready-'
+# Every fixture process inherits this, including the tmux servers, the TUI and
+# the status monitors tmux spawns. Teardown finds them by it, because they are
+# not children of this script and outlive kill-server.
+FIXTURE_MARKER = 'PAPPA_BENCH_FIXTURE'
+
+
+def fixture_processes():
+    """Map each live process carrying the fixture marker to its fixture root."""
+    found = {}
+    needle = f'{FIXTURE_MARKER}='
+    if os.path.isdir('/proc/self'):
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit() or int(entry) == os.getpid():
+                continue
+            try:
+                with open(f'/proc/{entry}/environ', 'rb') as f:
+                    variables = f.read().decode(errors='replace').split('\0')
+            except OSError:
+                continue
+            for variable in variables:
+                if variable.startswith(needle):
+                    found[int(entry)] = variable[len(needle):]
+    else:
+        # macOS: -E appends the environment of the user's own processes.
+        out = subprocess.run(['ps', '-axwwE', '-o', 'pid=', '-o', 'command='],
+                             capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            pid, _, rest = line.strip().partition(' ')
+            if needle not in rest or not pid.isdigit() or int(pid) == os.getpid():
+                continue
+            found[int(pid)] = rest.split(needle, 1)[1].split(' ', 1)[0]
+    return found
+
+
+def terminate_fixture(root):
+    pids = [pid for pid, owner in fixture_processes().items() if owner == root]
+    for sig, grace in ((signal.SIGTERM, 3), (signal.SIGKILL, 1)):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + grace
+        while pids and time.monotonic() < deadline:
+            pids = [pid for pid in pids if pid_alive(pid)]
+            time.sleep(0.02)
+        if not pids:
+            return
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    # A zombie still answers kill(0); it holds no files, so treat it as gone.
+    try:
+        with open(f'/proc/{pid}/stat') as f:
+            return f.read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except OSError:
+        return True
+
+
+def remove_fixture(root):
+    terminate_fixture(root)
+    shutil.rmtree(root, ignore_errors=True)
+    if os.path.exists(root):
+        print(f'warning: could not remove fixture {root}', file=sys.stderr)
+
+
+def sweep_stale_fixtures():
+    """Remove fixtures whose run died before teardown, e.g. killed by a timeout.
+
+    The directory name carries the owning run's PID. Its tmux servers and
+    monitors may still be alive; they are terminated with the directory.
+    """
+    for root in Path(tempfile.gettempdir()).glob(f'{FIXTURE_PREFIX}*'):
+        owner = root.name[len(FIXTURE_PREFIX):].split('-', 1)[0]
+        if root.is_dir() and owner.isdigit() and not pid_alive(int(owner)):
+            remove_fixture(str(root))
+
+
 @contextmanager
 def fixture_directory():
-    root = tempfile.mkdtemp(prefix='pappa-ready-')
+    root = tempfile.mkdtemp(prefix=f'{FIXTURE_PREFIX}{os.getpid()}-')
     try:
         yield root
     finally:
-        # pipe-pane monitors can finish a final write after kill-server returns.
-        for attempt in range(40):
-            try:
-                shutil.rmtree(root)
-                break
-            except OSError as exc:
-                if exc.errno != errno.ENOTEMPTY or attempt == 39:
-                    raise
-                time.sleep(0.05)
+        remove_fixture(root)
 
 
-def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None):
+def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20):
     with fixture_directory() as tmp:
         root = Path(tmp)
         home, repo, bin_dir = (root / name for name in ('home', 'repo', 'bin'))
@@ -67,7 +143,10 @@ elif name == 'gh' and args[:2] == ['repo', 'view']:
     print('fixture/repo')
 elif name == 'gh' and args[:2] == ['api', 'graphql']:
     query = next((a for a in args if a.startswith('query=')), '')
-    print(json.dumps(dict(data={{key: dict(nodes=[]) for key in ['search', *re.findall(r'pr[0-9]+', query)]}})))
+    aliases = ['search', *re.findall(r'pr[0-9]+', query)]
+    checks = [dict(__typename='CheckRun', status='COMPLETED', conclusion='SUCCESS', name='fixture-check-'+str(i)) for i in range({status_checks})]
+    node = dict(number=42, mergeable='MERGEABLE', commits=dict(nodes=[dict(commit=dict(statusCheckRollup=dict(contexts=dict(nodes=checks))))]), reviewThreads=dict(nodes=[dict(isResolved=False)]))
+    print(json.dumps(dict(data={{key: dict(nodes=[node] if {status_checks} else []) for key in aliases}})))
 elif name == 'gh' and args[:2] == ['pr', 'view']:
     print('no pull requests found', file=sys.stderr)
     sys.exit(1)
@@ -104,8 +183,12 @@ sys.exit(code)
         fixture = root / 'ready.py'
         fixture.write_text('''import json, os, pathlib, signal, sys, time
 kind = sys.argv[1]
-pathlib.Path(sys.argv[2]).write_text(json.dumps({'readyNs': time.perf_counter_ns(), 'pid': os.getpid()}))
-print(kind.upper() + '_READY', flush=True)
+space = pathlib.Path.cwd().name
+ready = pathlib.Path(sys.argv[2])
+if space != 'repo':
+    ready = ready.with_name(kind + '-' + space + '.json')
+ready.write_text(json.dumps({'readyNs': time.perf_counter_ns(), 'pid': os.getpid()}))
+print(kind.upper() + '_READY ' + space, flush=True)
 signal.pause()
 ''')
         def fixture_command(kind):
@@ -122,8 +205,13 @@ signal.pause()
         (home / '.pappardelle/update-check.json').write_text(json.dumps({
             'checkedAt': int(time.time() * 1000), 'latestVersion': 'v0.0.0',
         }))
+        for index in range(skill_count):
+            skill = home / '.claude/skills' / f'fixture-{index}' / 'SKILL.md'
+            skill.parent.mkdir(parents=True)
+            skill.write_text(f'---\nname: fixture-{index}\ndescription: Fixture skill {index}\n---\nFixture content.\n')
         env = {'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'USER': 'fixture',
                'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null'}
+        env[FIXTURE_MARKER] = tmp
         env.update(HOME=str(home), SHELL='/bin/bash', TERM='xterm-256color',
                    PATH=str(bin_dir) + os.pathsep + os.environ['PATH'],
                    XDG_CONFIG_HOME=str(home / '.config'), XDG_STATE_HOME=str(home / '.local/state'),
@@ -213,13 +301,13 @@ signal.pause()
             if result.returncode:
                 raise RuntimeError(result.stderr)
 
-        def observe(start_ns, retained=None):
+        def observe(start_ns, retained=None, selected=None):
             milestones, identities, screens = {}, {}, {}
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 drain_launchers()
                 for kind in kinds:
-                    ready = root / (kind + '.json')
+                    ready = root / (kind + ('-' + selected if selected else '') + '.json')
                     if ready.exists():
                         try:
                             identity = json.loads(ready.read_text())
@@ -234,7 +322,7 @@ signal.pause()
                             pass  # The child may still be writing its timestamp.
                 clients = tmux('bench-inner', 'list-clients', '-F', '#{client_session}').stdout.splitlines()
                 for kind in kinds:
-                    if kind + '-repo-main' in clients:
+                    if kind + '-repo-' + (selected or 'main') in clients:
                         milestones.setdefault(kind + 'AttachedMs', (time.perf_counter_ns() - start_ns) / 1e6)
                 panes = tmux('bench-outer', 'list-panes', '-t', 'bench', '-F', '#{pane_id}').stdout.splitlines()
                 for pane in panes:
@@ -243,7 +331,7 @@ signal.pause()
                     if pane == panes[0] and rail_visible(screen):
                         milestones.setdefault('railVisibleMs', (time.perf_counter_ns() - start_ns) / 1e6)
                     for kind in kinds:
-                        if kind.upper() + '_READY' in screen:
+                        if kind.upper() + '_READY ' + (selected or 'repo') in screen:
                             milestones.setdefault(kind + 'VisibleMs', (time.perf_counter_ns() - start_ns) / 1e6)
                 required = ['railVisibleMs', *[kind + suffix for kind in kinds for suffix in ('AttachedMs', 'VisibleMs')]]
                 if all(key in milestones for key in required) and len(identities) == len(kinds):
@@ -251,19 +339,20 @@ signal.pause()
                     time.sleep(0.3)
                     for kind, identity in identities.items():
                         os.kill(identity['pid'], 0)
-                        if json.loads((root / (kind + '.json')).read_text()) != identity:
+                        if json.loads((root / (kind + ('-' + selected if selected else '') + '.json')).read_text()) != identity:
                             raise RuntimeError(f'{kind} process changed during observation window')
                     screens = {pane: tmux('bench-outer', 'capture-pane', '-p', '-t', pane).stdout for pane in panes}
                     milestones['requiredClientsAttachedMs'] = max(milestones[k + 'AttachedMs'] for k in kinds)
                     milestones['requiredVisibleMs'] = max(milestones[k + 'VisibleMs'] for k in kinds)
                     return milestones, identities, screens
-                time.sleep(0.02)
+                time.sleep(poll_interval_ms / 1000)
             raise RuntimeError(f'Timed out waiting for workspace readiness: {milestones}; screens={screens}')
 
         start_ns, wall_start_ns = time.perf_counter_ns(), time.time_ns()
         milestones, identities, screens, retained = {}, {}, {}, None
         error = None
         interactions = []
+        cold = None
         try:
             if existing:
                 launch()
@@ -285,11 +374,21 @@ signal.pause()
             start_ns, wall_start_ns = time.perf_counter_ns(), time.time_ns()
             launch()
             milestones, identities, screens = observe(start_ns, retained)
+            observation_start = time.monotonic()
+            while time.monotonic() - observation_start < observe_seconds:
+                drain_launchers()
+                tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', 'F12').check_returncode()
+                time.sleep(.02)
             for _ in range(filter_cycles):
                 interaction = filter_roundtrip()
                 interactions.append(interaction)
                 if max_filter_close_ms is not None and interaction['closeMs'] > max_filter_close_ms:
                     raise RuntimeError(f'Rail return took {interaction["closeMs"]:.1f} ms; budget {max_filter_close_ms} ms')
+            if cold_switch:
+                cold_start = time.perf_counter_ns()
+                tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', 'j').check_returncode()
+                cold_milestones, cold_identities, cold_screens = observe(cold_start, selected=keys[-1])
+                cold = dict(milestones=cold_milestones, identities=cold_identities, screens=cold_screens, startOffsetMs=(cold_start - start_ns) / 1e6)
             if startup_trace:
                 pid = int(tmux('bench-outer', 'display-message', '-p', '-t', 'bench:0.0', '#{pane_pid}').stdout)
                 deadline = time.monotonic() + timeout
@@ -350,8 +449,9 @@ signal.pause()
                 event['durationMs'] = event.pop('durationNs') / 1e6
                 commands.append(event)
         return dict(shellDelayMs=shell_delay_ms, traced=traced, startupTrace=startup_trace, width=width, existing=existing,
+                    statusChecks=status_checks, skillCount=skill_count, observeSeconds=observe_seconds,
                     tmuxDelayMs=tmux_delay_ms, interactions=interactions,
-                    outsideTmux=outside_tmux, profileEmoji=profile_emoji,
+                    outsideTmux=outside_tmux, profileEmoji=profile_emoji, coldSwitch=cold, wallStartMs=wall_start_ns / 1e6,
                     workspaces=workspaces, success=error is None, error=error,
                     readiness='pre-existing' if existing else 'new', identities=identities,
                     retainedIdentities=retained, milestones=milestones, screens=screens,
@@ -367,6 +467,7 @@ def main():
     parser.add_argument('--workspaces', type=int, nargs='+', default=[0, 3])
     parser.add_argument('--modes', choices=['fresh', 'existing'], nargs='+', default=['fresh', 'existing'])
     parser.add_argument('--runs', type=int, default=5)
+    parser.add_argument('--poll-interval-ms', type=float, default=20, help='Readiness polling sleep; smaller values add observer overhead')
     parser.add_argument('--shell-delay-ms', type=int, default=1000)
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--startup-trace', action='store_true', help='Enable application spans; do not mix these timings with trace-disabled medians')
@@ -375,12 +476,19 @@ def main():
     parser.add_argument('--filter-cycles', type=int, default=0, help='Measure / then Escape until workspace rows return')
     parser.add_argument('--tmux-delay-ms', type=int, default=0, help='Synthetic per-call tmux delay; also incurs Python wrapper overhead, not native timing')
     parser.add_argument('--max-filter-close-ms', type=float, help='Optional diagnostic assertion for rail-return latency')
+    parser.add_argument('--status-checks', type=int, default=0)
+    parser.add_argument('--skill-count', type=int, default=0)
+    parser.add_argument('--observe-seconds', type=float, default=0, help='Send harmless input while background refreshes run before switching')
+    parser.add_argument('--cold-switch', action='store_true', help='After startup select the next workspace and measure its new sessions')
     parser.add_argument('--outside-tmux', action='store_true', help='Launch on an isolated PTY, including the parent launcher and delegated TUI')
     parser.add_argument('--profile-emoji', help='Configure the fixture rail emoji to exercise Unicode width measurement')
     parser.add_argument('--output', type=Path, required=True, help='New artifact path; historical results are never overwritten')
     args = parser.parse_args()
+    sweep_stale_fixtures()
     if args.runs < 1 or args.shell_delay_ms < 0 or args.timeout <= 0 or args.filter_cycles < 0 or args.tmux_delay_ms < 0:
         parser.error('runs and timeout must be positive; shell delay must be nonnegative')
+    if args.poll_interval_ms <= 0 or min(args.status_checks, args.skill_count, args.observe_seconds) < 0:
+        parser.error('poll interval must be positive; stress counts and observation duration must be nonnegative')
     if not args.binary.is_file() or not all(shutil.which(name) for name in ('tmux', 'git')):
         parser.error('build the native binary and install tmux and git first')
     if args.output.exists():
@@ -389,6 +497,8 @@ def main():
         parser.error('--compare-tracing cannot be combined with --candidate, --startup-trace or --trace')
     if any(w < 1 for w in args.widths) or any(w < 0 for w in args.workspaces):
         parser.error('widths must be positive and workspace counts nonnegative')
+    if args.cold_switch and any(n < 1 for n in args.workspaces):
+        parser.error('--cold-switch requires at least one registered workspace')
     binaries = {'baseline': args.binary.resolve()}
     if args.compare_tracing:
         binaries = {'traceDisabled': args.binary.resolve(), 'traceEnabled': args.binary.resolve()}
@@ -399,6 +509,7 @@ def main():
     samples = {}
     result = {'environment': {
         'platform': platform.platform(), 'python': platform.python_version(),
+        'loadAverageStart': os.getloadavg(),
         'tmux': subprocess.check_output(['tmux', '-V'], text=True).strip(),
         'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
         'harnessSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -411,12 +522,13 @@ def main():
         'bun': subprocess.check_output(['bun', '--version'], text=True).strip(),
         'terminal': ('PTY launcher with attached real tmux' if args.outside_tmux else 'detached real tmux') + ', variable width x 52',
         'scope': 'isolated HOME/repo/servers; OS caches NOT flushed; dummy Python agents; bd/gh stubbed; update cache primed; no real agent startup',
-        'observation': '20 ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately',
+        'observation': f'{args.poll_interval_ms:g} ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately',
     }, 'settings': vars(args) | {'binary': str(args.binary), 'candidate': str(args.candidate) if args.candidate else None,
                                 'output': str(args.output)}, 'samples': samples}
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     def save():
+        result['environment']['loadAverageLatest'] = os.getloadavg()
         result['summary'] = {}
         for name, runs in samples.items():
             valid = [s for s in runs if s['success']]
@@ -433,6 +545,12 @@ def main():
                         'median': statistics.median(values), 'min': min(values), 'max': max(values),
                         'observations': len(values),
                     }
+            cold_samples = [s['coldSwitch']['milestones'] for s in valid if s.get('coldSwitch')]
+            if cold_samples:
+                result['summary'][name]['coldSwitchMs'] = {
+                    key: {'median': statistics.median(values), 'min': min(values), 'max': max(values)}
+                    for key in cold_samples[0]
+                    for values in [[s[key] for s in cold_samples]]}
         args.output.write_text(json.dumps(result, indent=2) + '\n')
 
     cases = [(width, workspaces, mode, delay)
@@ -443,12 +561,26 @@ def main():
             order = list(binaries) if index % 2 == 0 else list(reversed(binaries))
             for name in order:
                 key = f'{name}/{width}x52/{workspaces}spaces/{mode}/{delay}ms-shell'
-                sample = run_sample(binaries[name], delay, False, args.timeout, width, mode == 'existing', workspaces, args.startup_trace or name == 'traceEnabled', args.filter_cycles, args.tmux_delay_ms, args.max_filter_close_ms, args.outside_tmux, args.profile_emoji)
+                sample = run_sample(
+                    binaries[name], delay, False, args.timeout,
+                    width=width, existing=mode == 'existing', workspaces=workspaces,
+                    startup_trace=args.startup_trace or name == 'traceEnabled',
+                    filter_cycles=args.filter_cycles, tmux_delay_ms=args.tmux_delay_ms,
+                    max_filter_close_ms=args.max_filter_close_ms, outside_tmux=args.outside_tmux,
+                    profile_emoji=args.profile_emoji, cold_switch=args.cold_switch,
+                    status_checks=args.status_checks, skill_count=args.skill_count,
+                    observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms)
                 samples.setdefault(key, []).append(sample)
                 save()
                 print(key, index + 1, json.dumps(sample['milestones'] if sample['success'] else sample['error']), flush=True)
     if args.trace:
-        trace = run_sample(binaries['baseline'], 0, True, args.timeout, 100, False, 3, args.startup_trace, args.filter_cycles, args.tmux_delay_ms, args.max_filter_close_ms, args.outside_tmux, args.profile_emoji)
+        trace = run_sample(
+            binaries['baseline'], 0, True, args.timeout, width=100, existing=False, workspaces=3,
+            startup_trace=args.startup_trace, filter_cycles=args.filter_cycles,
+            tmux_delay_ms=args.tmux_delay_ms, max_filter_close_ms=args.max_filter_close_ms,
+            outside_tmux=args.outside_tmux, profile_emoji=args.profile_emoji, cold_switch=args.cold_switch,
+            status_checks=args.status_checks, skill_count=args.skill_count,
+            observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms)
         result['instrumentedSample'] = trace
         chrome = {'traceEvents': [dict(name=e['tool'] + ' ' + shlex.join(e['args']),
                    cat='subprocess', ph='X', ts=e['elapsedMs'] * 1000,
