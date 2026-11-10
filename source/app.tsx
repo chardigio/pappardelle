@@ -1227,7 +1227,10 @@ export default function App({
 					layout.listPaneId,
 					selectedWorktreePath,
 					selectedIssueTitle,
-					{signal},
+					{
+						signal,
+						label: selectedSpace?.isMainWorktree ? mainLabel : undefined,
+					},
 				);
 				if (success && !signal.aborted) {
 					panesInitialized.current = true;
@@ -1250,6 +1253,7 @@ export default function App({
 		selectedSpace?.isMainWorktree,
 		selectedSpace?.isPending,
 		selectedIssueTitle,
+		mainLabel,
 		paneLayout,
 		attachmentTask,
 		attachmentRevision,
