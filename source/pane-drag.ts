@@ -51,7 +51,7 @@ export interface PaneResizeSample {
  * override otherwise. An established override survives window resizes so the
  * pane keeps the width the user chose.
  */
-export function nextWidthOverride(sample: PaneResizeSample): number | null {
+export function nextSizeOverride(sample: PaneResizeSample): number | null {
 	const {
 		previousWindow,
 		currentWindow,

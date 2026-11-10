@@ -1,5 +1,5 @@
 import test from 'ava';
-import {nextWidthOverride, type PaneResizeSample} from './pane-drag.ts';
+import {nextSizeOverride, type PaneResizeSample} from './pane-drag.ts';
 import {
 	MIN_CLAUDE_WIDTH,
 	MIN_COMPANION_WIDTH,
@@ -80,20 +80,20 @@ const sample = (overrides: Partial<PaneResizeSample>): PaneResizeSample => ({
 });
 
 test('same window + same rail = no override', t => {
-	t.is(nextWidthOverride(sample({})), null);
+	t.is(nextSizeOverride(sample({})), null);
 });
 
 test('same window + different rail = the dragged width becomes the override', t => {
-	t.is(nextWidthOverride(sample({currentSize: 12})), 12);
+	t.is(nextSizeOverride(sample({currentSize: 12})), 12);
 });
 
 test('a widening drag is captured too', t => {
-	t.is(nextWidthOverride(sample({currentSize: 60})), 60);
+	t.is(nextSizeOverride(sample({currentSize: 60})), 60);
 });
 
 test('a window resize is not read as a drag', t => {
 	t.is(
-		nextWidthOverride(
+		nextSizeOverride(
 			sample({
 				currentWindow: {width: 160, height: 50},
 				currentSize: 38,
@@ -105,7 +105,7 @@ test('a window resize is not read as a drag', t => {
 
 test('a window height change is not read as a drag', t => {
 	t.is(
-		nextWidthOverride(
+		nextSizeOverride(
 			sample({
 				currentWindow: {width: 200, height: 40},
 				currentSize: 38,
@@ -117,7 +117,7 @@ test('a window height change is not read as a drag', t => {
 
 test('an established override survives a window resize', t => {
 	t.is(
-		nextWidthOverride(
+		nextSizeOverride(
 			sample({
 				currentWindow: {width: 160, height: 50},
 				currentSize: 30,
@@ -130,7 +130,7 @@ test('an established override survives a window resize', t => {
 
 test('a second drag replaces the first override', t => {
 	t.is(
-		nextWidthOverride(
+		nextSizeOverride(
 			sample({
 				previousSize: 12,
 				currentSize: 20,
@@ -143,13 +143,13 @@ test('a second drag replaces the first override', t => {
 
 test('unknown window samples keep the current override', t => {
 	t.is(
-		nextWidthOverride(
+		nextSizeOverride(
 			sample({previousWindow: null, currentSize: 12, currentOverride: 30}),
 		),
 		30,
 	);
 	t.is(
-		nextWidthOverride(
+		nextSizeOverride(
 			sample({currentWindow: null, currentSize: 12, currentOverride: 30}),
 		),
 		30,
@@ -157,8 +157,8 @@ test('unknown window samples keep the current override', t => {
 });
 
 test('unknown width samples keep the current override', t => {
-	t.is(nextWidthOverride(sample({previousSize: null, currentSize: 12})), null);
-	t.is(nextWidthOverride(sample({currentSize: null, currentOverride: 12})), 12);
+	t.is(nextSizeOverride(sample({previousSize: null, currentSize: 12})), null);
+	t.is(nextSizeOverride(sample({currentSize: null, currentOverride: 12})), 12);
 });
 
 // ============================================================================

@@ -1,5 +1,6 @@
 import {parseArgs} from 'node:util';
 import {
+	DEFAULT_SPLIT,
 	isPaneName,
 	MAIN_PANE,
 	PANE_NAME_RULE,
@@ -185,7 +186,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 		return {
 			verb: 'run',
 			pane: MAIN_PANE,
-			split: 'down',
+			split: DEFAULT_SPLIT,
 			command: commandFromArgs(argv),
 		};
 	}
@@ -217,7 +218,7 @@ export function parseCompanionArgs(argv: readonly string[]): CompanionCommand {
 				);
 			}
 
-			const split = values.split ?? 'down';
+			const split = values.split ?? DEFAULT_SPLIT;
 			if (split !== 'right' && split !== 'down') {
 				throw new CompanionUsageError('--split takes right or down');
 			}

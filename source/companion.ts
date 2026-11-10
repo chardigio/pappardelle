@@ -1,14 +1,14 @@
 import {
 	MAIN_PANE,
 	SPLIT_LIST_FORMAT,
-	parseSplitList,
+	parseCompanionListing,
+	splitOptionArgs,
 	type CompanionSplit,
 	type SplitDirection,
 } from './companion-splits.ts';
 import type {PaneWidth} from './layout-sizing.ts';
 import {
 	buildShellLaunchArgs,
-	CompanionSplitError,
 	createCompanionSplit,
 	defaultInnerTmuxRunner,
 	exactSessionTarget,
@@ -147,7 +147,7 @@ function loadSpace(spaceKey: string, deps: CompanionDeps) {
 	const main = listCompanionPanes(target, runner).find(
 		pane => pane.name === MAIN_PANE,
 	)!;
-	const splits = parseSplitList(
+	const {splits} = parseCompanionListing(
 		tmux(runner, ['list-sessions', '-F', SPLIT_LIST_FORMAT]),
 		session,
 	);
@@ -178,13 +178,15 @@ function setSplitSize(
 	split: CompanionSplit,
 	size: PaneWidth,
 ): void {
-	tmux(runner, [
-		'set-option',
-		'-t',
-		exactSessionTarget(split.session),
-		'@pappa_size',
-		String(size),
-	]);
+	tmux(runner, splitOptionArgs(split.session, 'size', size));
+}
+
+function refuseMainSize(pane: string): void {
+	if (pane === MAIN_PANE) {
+		throw new CompanionError(
+			"main's size is the companion column; use companion width to change it",
+		);
+	}
 }
 
 export type RunResult = {created: boolean};
@@ -199,11 +201,7 @@ export function runInCompanion(
 	},
 	deps: CompanionDeps = {},
 ): RunResult {
-	if (options.pane === MAIN_PANE && options.size !== undefined) {
-		throw new CompanionError(
-			"main's size is the companion column; use companion width to change it",
-		);
-	}
+	if (options.size !== undefined) refuseMainSize(options.pane);
 
 	const space = loadSpace(spaceKey, deps);
 	const launch = buildShellLaunchArgs(options.command);
@@ -226,21 +224,12 @@ export function runInCompanion(
 		return {created: false};
 	}
 
-	try {
-		createCompanionSplit(
-			spaceKey,
-			{...options, name: options.pane},
-			{
-				runner: space.runner,
-				repoName: deps.repoName,
-			},
-		);
-	} catch (error) {
-		if (error instanceof CompanionSplitError)
-			throw new CompanionError(error.message);
-		throw error;
-	}
-
+	const created = createCompanionSplit(
+		spaceKey,
+		{...options, name: options.pane},
+		{runner: space.runner, repoName: deps.repoName},
+	);
+	if (!created.ok) throw new CompanionError(created.reason);
 	return {created: true};
 }
 
@@ -298,12 +287,7 @@ export function resizeCompanionPane(
 	options: {pane: string; size: PaneWidth},
 	deps: CompanionDeps = {},
 ): void {
-	if (options.pane === MAIN_PANE) {
-		throw new CompanionError(
-			"main's size is the companion column; use companion width to change it",
-		);
-	}
-
+	refuseMainSize(options.pane);
 	const space = loadSpace(spaceKey, deps);
 	setSplitSize(space.runner, findSplit(space, options.pane), options.size);
 }
