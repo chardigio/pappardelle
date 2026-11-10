@@ -373,6 +373,11 @@ export interface PappardelleConfig {
 	 */
 	sous_chef?: boolean;
 	/**
+	 * When true, agents in the repo get the pappardelle MCP server's tools and
+	 * instructions, and the companion rules at launch. Off by default.
+	 */
+	workspace_aware_agents?: boolean;
+	/**
 	 * Optional per-status color overrides for the ticket rail, keyed by issue
 	 * status name (case-insensitive, surrounding space ignored). A listed status
 	 * is painted with this color instead of the color the tracker reports, which
@@ -1447,6 +1452,20 @@ export function validateConfig(
 
 	if (cfg['sous_chef'] !== undefined && typeof cfg['sous_chef'] !== 'boolean') {
 		errors.push('sous_chef: must be a boolean');
+	} else if (
+		cfg['sous_chef'] === true &&
+		cfg['workspace_aware_agents'] !== true
+	) {
+		errors.push(
+			'sous_chef: needs workspace_aware_agents: true, since the sous-chef works through its tools',
+		);
+	}
+
+	if (
+		cfg['workspace_aware_agents'] !== undefined &&
+		typeof cfg['workspace_aware_agents'] !== 'boolean'
+	) {
+		errors.push('workspace_aware_agents: must be a boolean');
 	}
 
 	// Check list_view (optional; an absent layout defers to the tracker default)
@@ -2850,7 +2869,19 @@ export const SOUS_CHEF_NAME = 'sous-chef';
 /** The user's own instructions for the sous-chef, at the main checkout's root. */
 export const SOUS_CHEF_FILE = 'SOUS-CHEF.md';
 
-export type AgentLaunch = {name: string; prompt: string};
+export type SousChefLaunch = {name: string; prompt: string};
+
+/** How the TUI launches a space's agent, beyond its agent profile. */
+export type AgentLaunch = Partial<SousChefLaunch> & {
+	/** Pass the companion rules to the agents that take them at launch. */
+	rules: boolean;
+};
+
+export function workspaceAwareAgents(
+	config: PappardelleConfig | null,
+): boolean {
+	return config?.workspace_aware_agents === true;
+}
 
 /**
  * How the main checkout's agent launches in sous-chef mode: under the
@@ -2859,7 +2890,7 @@ export type AgentLaunch = {name: string; prompt: string};
  */
 export function sousChefLaunch(
 	config: PappardelleConfig | null,
-): AgentLaunch | undefined {
+): SousChefLaunch | undefined {
 	return config?.sous_chef === true
 		? {name: SOUS_CHEF_NAME, prompt: `/${SOUS_CHEF_NAME}`}
 		: undefined;

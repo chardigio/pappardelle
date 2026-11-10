@@ -79,7 +79,8 @@
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
 #    "agent_resume_args": "...", "agent_prompt_args": "...",
 #    "agent_is_claude": "true|false",
-#    "agent_launch_flags": "...", "agent_rules_flags": "...", "deprecation_warnings": "...",
+#    "agent_launch_flags": "...", "agent_rules_flags": "...", "workspace_aware": "true|false",
+#    "deprecation_warnings": "...",
 #    "profile_deprecation_warnings": "..."}
 
 set -eo pipefail
@@ -166,6 +167,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
     ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "prompt_args", "skill_prefix"] as $fields |
     {
+        "workspace_aware_agents": .workspace_aware_agents,
         "initialization_command": .initialization_command,
         "claude": {
             "dangerously_skip_permissions": .claude.dangerously_skip_permissions,
@@ -268,12 +270,13 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
+        workspace_aware: (.workspace_aware_agents == true),
         # Mirrors agentRulesFlags() in source/companion-rules.ts.
-        agent_rules_flags: (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
+        agent_rules_flags: if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
             | ($def_resolved.command | basename) as $agent
             | if $agent == "codex" then "-c " + ("developer_instructions=\"\($rules)\"" | @sh)
               elif $agent == "pi" then "--append-system-prompt " + ($rules | @sh)
-              else "" end),
+              else "" end) end,
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors

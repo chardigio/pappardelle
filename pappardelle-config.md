@@ -1069,9 +1069,28 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Workspace-Aware Agents
+
+The top-level `workspace_aware_agents` flag lets agents in the repo see and change their workspace. Off by default.
+
+```yaml
+workspace_aware_agents: true # default: false
+```
+
+```typescript
+workspace_aware_agents?: boolean;
+```
+
+- **On:**
+  - the pappardelle MCP server serves its tools (`companion_*`, `space_*`, `spaces_list`, `link_pr` and the rest) in this repo
+  - the server's instructions tell each agent which space it's in, to keep the companion showing its work, and how to message other spaces
+  - Codex and Pi get the same companion rules at launch, and agy gets them in a rule file in its worktree
+- **Off:** the server serves nothing in this repo, as if it weren't a Pappardelle repo, and agents launch without the rules. The `pappardelle` CLI verbs work either way
+- The MCP server reads the flag when an agent starts, and the rules go in at launch, so a running agent keeps what it started with
+
 ## Sous-Chef Mode
 
-The top-level `sous_chef` flag tells the agent in the main checkout that it coordinates the repo's spaces. Off by default.
+The top-level `sous_chef` flag tells the agent in the main checkout that it coordinates the repo's spaces. Off by default. It needs `workspace_aware_agents: true`, since the sous-chef works through the MCP tools; config validation rejects it without.
 
 ```yaml
 sous_chef: true # default: false

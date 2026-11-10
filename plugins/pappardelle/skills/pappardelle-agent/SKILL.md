@@ -25,7 +25,7 @@ To talk to the agent in another space, use Claude Code's SendMessage and ListAge
 
 ## Without the MCP tools
 
-If you don't have the tools, `pappardelle mcp install` adds the server to Codex, OpenCode, Antigravity and Pi. Every tool is also a `pappardelle` command. Run them from the repo or any of its worktrees. `pappardelle --help` and `pappardelle companion --help` have the details.
+If you don't have the tools, either the repo's config doesn't set `workspace_aware_agents: true`, or your agent doesn't have the server: `pappardelle mcp install` adds it to Codex, OpenCode, Antigravity and Pi. Every tool is also a `pappardelle` command. Run them from the repo or any of its worktrees. `pappardelle --help` and `pappardelle companion --help` have the details.
 
 | Tools                        | Command                                                                  |
 | ---------------------------- | ------------------------------------------------------------------------ |
