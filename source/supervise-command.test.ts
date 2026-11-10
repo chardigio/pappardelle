@@ -38,7 +38,11 @@ const permission = (command: string) =>
 	].join('\n');
 
 /** An agent session showing each of `screens` in turn, the last one after. */
-function harness(t: ExecutionContext, screens: string[]) {
+function harness(
+	t: ExecutionContext,
+	screens: string[],
+	{ignoresKeys = false} = {},
+) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'supervise-'));
 	t.teardown(() => {
 		fs.rmSync(root, {recursive: true, force: true});
@@ -55,6 +59,7 @@ function harness(t: ExecutionContext, screens: string[]) {
 	const start = new Date(2026, 10, 9, 12, 0).getTime();
 	let clock = start;
 	let reads = 0;
+	let redraws = 0;
 	let live = true;
 	const runner: OuterTmuxRunner = args => {
 		if (args[0] === 'list-sessions') {
@@ -62,6 +67,12 @@ function harness(t: ExecutionContext, screens: string[]) {
 		}
 
 		if (args[0] === 'capture-pane') {
+			// The agent redraws once after a key: the prompt is gone.
+			if (redraws > 0) {
+				redraws--;
+				return {status: 0, stdout: fixture('claude-idle')};
+			}
+
 			const screen = screens[Math.min(reads++, screens.length - 1)]!;
 			return {status: 0, stdout: screen};
 		}
@@ -85,6 +96,9 @@ function harness(t: ExecutionContext, screens: string[]) {
 		send: async () => 'sent',
 		sendKeys(_key, keys) {
 			pressed.push(keys);
+			// Moving between question tabs is read back by the test's own screens.
+			const movesTab = keys.every(name => name === 'Right' || name === 'Left');
+			if (!ignoresKeys && !movesTab) redraws = 1;
 			return 'sent';
 		},
 		async classify(_key, command) {
@@ -130,6 +144,14 @@ test('approving a QA cleanup command presses 1 and logs the verdict', async t =>
 		verdict: 'allowed: local cleanup',
 	});
 	t.deepEqual(h.classified, ['rm -rf /tmp/q-abc']);
+});
+
+test('an answer the agent does not take is reported, not claimed', async t => {
+	const h = harness(t, [permission('rm -rf /tmp/q-abc')], {ignoresKeys: true});
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 1);
+	t.deepEqual(h.pressed, [['1']]);
+	t.regex(h.err[0]!, /still shows the same prompt/);
+	t.like(h.logged[0], {detail: 'the prompt did not change'});
 });
 
 test('a command the model check turns down comes back for a person', async t => {
