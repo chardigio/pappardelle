@@ -32,7 +32,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
 		readDirty: async () => false,
-		mainStatusKey: branch => `repo-${branch}`,
+		statusKey: name => `repo-${name}`,
 		getCachedIssue: issue,
 		async fetchIssues() {},
 		readEmoji: async () => '🍝',
@@ -177,7 +177,7 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	await nextTurn();
 	h.refresh.applyStatusUpdates(
 		new Map([
-			['STA-1', {status: 'working', tool: 'AskUserQuestion'}],
+			['repo-STA-1', {status: 'working', tool: 'AskUserQuestion'}],
 			['repo-master', {status: 'working'}],
 		]),
 	);
@@ -192,6 +192,25 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	await h.settle();
 	t.is(h.spaces[2]!.programStatus?.status, 'unknown');
 	t.is(h.spaces[2]!.programStatus?.tool, undefined);
+});
+
+test('a space reads and takes hook updates under its repo-qualified key', async t => {
+	const reads = new Map<string, string>();
+	const h = setup({
+		readRegistry: async () => ['STA-1'],
+		async readStatus(key, sessionKey) {
+			reads.set(key, sessionKey);
+			return {status: 'idle'};
+		},
+	});
+	await h.settle();
+	t.is(reads.get('repo-STA-1'), 'STA-1');
+	t.is(reads.get('repo-master'), 'main');
+	t.is(reads.size, 2);
+	h.refresh.applyStatusUpdates(new Map([['other-STA-1', {status: 'error'}]]));
+	t.is(h.spaces[1]!.programStatus?.status, 'idle');
+	h.refresh.applyStatusUpdates(new Map([['repo-STA-1', {status: 'error'}]]));
+	t.is(h.spaces[1]!.programStatus?.status, 'error');
 });
 
 test('coalesces overlapping requests and discards a registry snapshot predating a local close', async t => {
@@ -302,7 +321,7 @@ test('stop suppresses late disk, tracker and hook publications', async t => {
 	h.refresh.stop();
 	const before = h.spaces;
 	gate.resolve(['STA-99']);
-	h.refresh.applyStatusUpdates(new Map([['STA-1', {status: 'error'}]]));
+	h.refresh.applyStatusUpdates(new Map([['repo-STA-1', {status: 'error'}]]));
 	await pending;
 	await h.refresh.idle();
 	t.is(h.spaces, before);

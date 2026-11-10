@@ -63,8 +63,19 @@ export function ensureStatusDir(): void {
 	}
 }
 
-function getStatusFilePath(workspaceName: string): string {
-	return path.join(getHookStatusDir(), `${workspaceName}.json`);
+/**
+ * The name of a space's hook status file: the space key, or the main
+ * checkout's branch, qualified by repo. Every repo writes to the same
+ * directory, and two repos can have spaces with the same key.
+ */
+export function hookStatusKey(repoName: string, name: string): string {
+	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
+	// same way so the status file name stays a single path segment.
+	return `${repoName}-${name}`.replaceAll('/', '-');
+}
+
+export function hookStatusFile(statusKey: string): string {
+	return path.join(getHookStatusDir(), `${statusKey}.json`);
 }
 
 export interface ClaudeStatusInfo {
@@ -85,7 +96,7 @@ function parseStatus(content: string): ClaudeStatusInfo {
 
 export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
 	try {
-		const filePath = getStatusFilePath(workspaceName);
+		const filePath = hookStatusFile(workspaceName);
 		if (!existsSync(filePath)) {
 			return {status: 'unknown'};
 		}
@@ -109,9 +120,7 @@ export async function getClaudeStatusInfoAsync(
 	workspaceName: string,
 ): Promise<ClaudeStatusInfo | null> {
 	try {
-		return parseStatus(
-			await readFile(getStatusFilePath(workspaceName), 'utf-8'),
-		);
+		return parseStatus(await readFile(hookStatusFile(workspaceName), 'utf-8'));
 	} catch (err) {
 		return (err as NodeJS.ErrnoException).code === 'ENOENT'
 			? {status: 'unknown'}
@@ -126,7 +135,7 @@ export function setClaudeStatus(
 	currentTool?: string,
 ): void {
 	ensureStatusDir();
-	const filePath = getStatusFilePath(workspaceName);
+	const filePath = hookStatusFile(workspaceName);
 	const state: ClaudeSessionState = {
 		sessionId: sessionId ?? 'unknown',
 		workspaceName,

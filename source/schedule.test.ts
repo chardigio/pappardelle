@@ -9,6 +9,9 @@ import {
 	loadJob,
 	parseWhen,
 	queuedMessage,
+	rearmMissingTimers,
+	RETRY_MS,
+	type TimerWhen,
 	queueMessage,
 	saveJob,
 	type Job,
@@ -38,6 +41,7 @@ function report(
 		usageLimit: resetAt
 			? {resetText: '', resetAt, passed: resetAt <= NOW}
 			: null,
+		codexDialog: null,
 		composer: null,
 		screen: '',
 	};
@@ -54,11 +58,13 @@ function harness(
 	});
 	const store = {root, repo: 'repo'};
 	const sent: string[] = [];
+	const dismissed: string[] = [];
 	const timers: Job[] = [];
 	const removed: string[] = [];
 	return {
 		store,
 		sent,
+		dismissed,
 		timers,
 		removed,
 		async fire(job: Job, now = NOW) {
@@ -69,6 +75,9 @@ function harness(
 				async send(_key, text) {
 					sent.push(text);
 					return sendOutcome;
+				},
+				async dismissModelSwitch(key) {
+					dismissed.push(key);
 				},
 				createTimer(next) {
 					timers.push(next);
@@ -163,6 +172,7 @@ test('after_limit sends once the reset has passed, though Codex still shows the 
 		key: 'STA-1',
 		at: NOW.toISOString(),
 		message: 'continue',
+		arm: 0,
 	};
 	const h = harness(t, [report('usage_limit', new Date(2026, 10, 9, 11, 58))]);
 	saveJob(h.store, job);
@@ -171,26 +181,122 @@ test('after_limit sends once the reset has passed, though Codex still shows the 
 	t.deepEqual(listJobs(h.store), []);
 });
 
-test('after_limit moves to a later reset under a new id', async t => {
-	const job: Job = {
-		kind: 'after_limit',
-		id: 'al',
-		key: 'STA-1',
-		at: NOW.toISOString(),
-		message: 'continue',
-	};
+test('--at refuses clock times that do not exist', t => {
+	t.is(parseWhen('25:00', NOW), null);
+	t.is(parseWhen('9:99', NOW), null);
+});
+
+const afterLimit: Job = {
+	kind: 'after_limit',
+	id: 'al',
+	key: 'STA-1',
+	at: NOW.toISOString(),
+	message: 'continue',
+	arm: 0,
+};
+
+test('after_limit moves to a later reset, keeping its id under a new timer', async t => {
 	const later = new Date(2026, 10, 10, 4, 28);
 	const h = harness(t, [report('usage_limit', later)]);
-	saveJob(h.store, job);
-	t.is(await h.fire(job), 'waiting');
+	saveJob(h.store, afterLimit);
+	t.is(await h.fire(afterLimit), 'waiting');
 	t.deepEqual(h.sent, []);
-	const [next] = listJobs(h.store);
-	t.not(next?.id, 'al');
-	t.like(next, {
-		kind: 'after_limit',
-		at: new Date(later.getTime() + 60_000).toISOString(),
+	t.deepEqual(listJobs(h.store), [
+		{
+			...afterLimit,
+			at: new Date(later.getTime() + 60_000).toISOString(),
+			arm: 1,
+		},
+	]);
+	t.like(h.timers[0], {id: 'al', arm: 1});
+	t.deepEqual(h.removed, ['al']);
+});
+
+test('a one-shot whose send is refused tries again in five minutes', async t => {
+	const h = harness(
+		t,
+		[report('usage_limit', new Date(2026, 10, 9, 11, 58))],
+		'draft',
+	);
+	saveJob(h.store, afterLimit);
+	queueMessage(h.store, 'STA-1', 'the next step');
+	t.is(await h.fire(afterLimit), 'retrying');
+	t.like(listJobs(h.store)[0], {
+		at: new Date(NOW.getTime() + RETRY_MS).toISOString(),
+		arm: 1,
 	});
-	t.is(h.timers[0]?.id, next?.id);
+	t.is(queuedMessage(h.store, 'STA-1'), 'the next step');
+});
+
+test('a one-shot for a space with no agent session is dropped', async t => {
+	const h = harness(t, [report('no_session')]);
+	saveJob(h.store, afterLimit);
+	t.is(await h.fire(afterLimit), 'no_session');
+	t.deepEqual(h.sent, []);
+	t.deepEqual(listJobs(h.store), []);
+});
+
+test('a wake-up keeps the current model when Codex offers to switch, then sends', async t => {
+	const atLimit = {
+		...report('dialog', new Date(2026, 10, 9, 11, 58)),
+		codexDialog: {kind: 'model_switch' as const, title: 'Switch?'},
+	};
+	const h = harness(t, [atLimit, atLimit]);
+	saveJob(h.store, afterLimit);
+	t.is(await h.fire(afterLimit), 'sent');
+	t.deepEqual(h.dismissed, ['STA-1']);
+	saveJob(h.store, keepGoing());
+	t.is(await h.fire(keepGoing()), 'sent');
+	t.deepEqual(h.sent, ['continue', 'continue']);
+});
+
+test('keep_going leaves any other Codex dialog to a person', async t => {
+	const h = harness(t, [
+		{...report('dialog'), codexDialog: {kind: 'other', title: 'Trust?'}},
+	]);
+	saveJob(h.store, {...keepGoing(), idleChecks: 1});
+	t.is(await h.fire(keepGoing()), 'waiting');
+	t.deepEqual(h.sent, []);
+	t.deepEqual(h.dismissed, []);
+});
+
+test('jobs whose timers a reboot dropped get new ones; a missed time fires soon', t => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schedule-'));
+	t.teardown(() => {
+		fs.rmSync(root, {recursive: true, force: true});
+	});
+	const store = {root, repo: 'repo'};
+	const missed: Job = {
+		...afterLimit,
+		at: new Date(2026, 10, 9, 8).toISOString(),
+	};
+	const loaded: Job = {...keepGoing(), id: 'loaded'};
+	saveJob(store, missed);
+	saveJob(store, loaded);
+	saveJob(store, keepGoing());
+	const created: Array<[Job, TimerWhen]> = [];
+	const rearmed = rearmMissingTimers(
+		store,
+		{
+			exists: job => job.id === 'loaded',
+			create(job, when) {
+				created.push([job, when]);
+			},
+		},
+		NOW,
+	);
+	t.deepEqual(rearmed.map(job => job.id).sort(), ['al', 'kg']);
+	t.deepEqual(
+		created.find(([job]) => job.id === 'al'),
+		[
+			{...missed, at: new Date(NOW.getTime() + 60_000).toISOString(), arm: 1},
+			{at: new Date(NOW.getTime() + 60_000)},
+		],
+	);
+	t.like(loadJob(store, 'al'), {arm: 1});
+	t.deepEqual(created.find(([job]) => job.id === 'kg')?.[1], {
+		everySeconds: 600,
+	});
 });
 
 test('--at takes a time of day as its next occurrence', t => {
@@ -222,6 +328,7 @@ test('a systemd one-shot fires at local time and unloads once it has', t => {
 		key: 'STA-1',
 		at: '',
 		message: 'hi',
+		arm: 0,
 	};
 	backend.create(job, {at: new Date(2026, 10, 9, 23, 59, 5)});
 	t.deepEqual(calls[0], [
@@ -241,13 +348,14 @@ test('a systemd one-shot fires at local time and unloads once it has', t => {
 		'ab12',
 	]);
 	t.is(systemdUnitName('a.b', job), 'pappardelle-a.b-ab12');
+	t.is(systemdUnitName('a.b', {...job, arm: 2}), 'pappardelle-a.b-ab12-2');
 	t.is(onCalendar(new Date(2026, 0, 2, 3, 4, 5)), '2026-01-02 03:04:05');
 });
 
 test('a launchd agent runs the same command on the calendar date', t => {
 	const plist = launchdPlist(
 		context(),
-		{kind: 'at', id: 'ab12', key: 'STA-1', at: '', message: 'hi'},
+		{kind: 'at', id: 'ab12', key: 'STA-1', at: '', message: 'hi', arm: 0},
 		{at: new Date(2026, 10, 14, 7, 51)},
 	);
 	t.regex(

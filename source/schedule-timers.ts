@@ -25,6 +25,8 @@ export type TimerContext = {
 export interface TimerBackend {
 	create(job: Job, when: TimerWhen): void;
 	remove(job: Job): void;
+	/** Whether the job's timer is still loaded; a reboot drops systemd's. */
+	exists(job: Job): boolean;
 }
 
 export class TimerError extends Error {}
@@ -48,8 +50,14 @@ export function onCalendar(at: Date): string {
 	return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
 }
 
+function timerId(job: Job): string {
+	return job.kind !== 'keep_going' && job.arm > 0
+		? `${job.id}-${job.arm}`
+		: job.id;
+}
+
 export function systemdUnitName(repo: string, job: Job): string {
-	return `pappardelle-${repo.replaceAll(/[^\w:.-]/g, '_')}-${job.id}`;
+	return `pappardelle-${repo.replaceAll(/[^\w:.-]/g, '_')}-${timerId(job)}`;
 }
 
 export function systemdBackend(context: TimerContext): TimerBackend {
@@ -89,11 +97,22 @@ export function systemdBackend(context: TimerContext): TimerBackend {
 			// service, which stopping would kill mid-run.
 			context.run('systemctl', ['--user', 'stop', `${unit}.timer`]);
 		},
+		exists(job) {
+			const unit = systemdUnitName(context.repo, job);
+			return (
+				context.run('systemctl', [
+					'--user',
+					'is-active',
+					'--quiet',
+					`${unit}.timer`,
+				]).status === 0
+			);
+		},
 	};
 }
 
 export function launchdLabel(repo: string, job: Job): string {
-	return `dev.pappardelle.${repo.replaceAll(/[^\w.-]/g, '_')}.${job.id}`;
+	return `dev.pappardelle.${repo.replaceAll(/[^\w.-]/g, '_')}.${timerId(job)}`;
 }
 
 function plistValue(value: unknown, indent: string): string {
@@ -187,6 +206,14 @@ export function launchdBackend(
 				'bootout',
 				`gui/${context.uid}/${launchdLabel(context.repo, job)}`,
 			]);
+		},
+		exists(job) {
+			return (
+				context.run('launchctl', [
+					'print',
+					`gui/${context.uid}/${launchdLabel(context.repo, job)}`,
+				]).status === 0
+			);
 		},
 	};
 }

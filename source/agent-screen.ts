@@ -2,7 +2,7 @@
 // status Pappardelle tracks says whether an agent is working or blocked; only
 // the screen says what it is blocked on: the command, the subagent that asked,
 // the dialog's choices, a usage limit and its reset time, or text typed into
-// the Codex composer.
+// the input box.
 
 import {stripVTControlCharacters} from 'node:util';
 
@@ -41,15 +41,24 @@ export type UsageLimit = {
 	passed: boolean;
 };
 
+export type CodexDialog = {
+	/**
+	 * `model_switch` is the offer to move to a cheaper model that Codex shows
+	 * as a limit nears; Escape keeps the current model.
+	 */
+	kind: 'model_switch' | 'other';
+	title: string;
+};
+
 export type AgentScreen = {
 	spinner: boolean;
 	permission: PermissionPrompt | null;
 	question: QuestionDialog | null;
 	usageLimit: UsageLimit | null;
-	/** The Codex composer's text, `''` when it shows only its placeholder. */
+	/** The agent's input box text, `''` when it shows only its placeholder. */
 	composer: string | null;
 	/** Codex's own dialogs (folder trust, model switch) that take the keyboard. */
-	codexDialog: boolean;
+	codexDialog: CodexDialog | null;
 	lines: string[];
 };
 
@@ -59,7 +68,10 @@ const RULE = /^\s*[─━]{8,}\s*$/;
 const DASHED_RULE = /^\s*╌{8,}\s*$/;
 const PROMPT_QUESTION = /^\s*(?:Do you want to|Would you like to) .+\?\s*$/;
 const OPTION = /^\s*(❯\s*)?(\d+)\.\s+(.+?)\s*$/;
-const CLAUDE_SPINNER = /\(\d+[smh](?: \d+[smh])* ·/;
+// Claude's working line: `* Caramelizing… (5s · thinking)`, and for its
+// first seconds just `· Warping…`. The line after a turn, `✻ Cogitated for
+// 17s · done`, has neither the timer nor the ellipsis.
+const CLAUDE_SPINNER = /\(\d+[smh](?: \d+[smh])* ·|^\s*[·✢✳✶✻✽*] \S+…/;
 const CODEX_SPINNER = /\bWorking \(/;
 const CODEX_DIALOG_FOOTER = /enter (?:select|confirm|continue) · esc/;
 const QUESTION_FOOTER = /^\s*Enter to select · /;
@@ -76,12 +88,26 @@ function optionKind(label: string): OptionKind {
 	return 'other';
 }
 
-function readOptions(lines: string[], from: number): PromptOption[] {
+function readOptions(
+	lines: string[],
+	from: number,
+	{joinWrapped}: {joinWrapped: boolean},
+): PromptOption[] {
 	const options: PromptOption[] = [];
 	for (const line of lines.slice(from)) {
 		if (QUESTION_FOOTER.test(line) || /^\s*Esc to cancel/.test(line)) break;
 		const match = OPTION.exec(line);
-		if (!match) continue;
+		const last = options.at(-1);
+		if (!match) {
+			// A permission option's label wraps onto the lines under it. A
+			// question's options have descriptions there instead.
+			if (joinWrapped && last && line.trim()) {
+				last.label = `${last.label} ${line.trim()}`;
+			}
+
+			continue;
+		}
+
 		const label = match[3]!;
 		options.push({
 			number: Number(match[2]),
@@ -94,9 +120,12 @@ function readOptions(lines: string[], from: number): PromptOption[] {
 	return options;
 }
 
-function lastIndex(lines: string[], test: (line: string) => boolean): number {
+function lastIndex(
+	lines: string[],
+	test: (line: string, index: number) => boolean,
+): number {
 	for (let index = lines.length - 1; index >= 0; index--) {
-		if (test(lines[index]!)) return index;
+		if (test(lines[index]!, index)) return index;
 	}
 
 	return -1;
@@ -105,7 +134,7 @@ function lastIndex(lines: string[], test: (line: string) => boolean): number {
 function parsePermission(lines: string[]): PermissionPrompt | null {
 	const questionAt = lastIndex(lines, line => PROMPT_QUESTION.test(line));
 	if (questionAt === -1) return null;
-	const options = readOptions(lines, questionAt + 1);
+	const options = readOptions(lines, questionAt + 1, {joinWrapped: true});
 	if (options.length === 0) return null;
 	const ruleAt = lastIndex(lines.slice(0, questionAt), line => RULE.test(line));
 	const body = lines.slice(ruleAt + 1, questionAt);
@@ -135,8 +164,16 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 	};
 }
 
+// The tab bar of a multi-question dialog, which stays up on its last step,
+// "Review your answers", whose footer differs from the questions'.
+const TAB_BAR = /^\s*←.*✔ Submit\s+→\s*$/;
+
 function parseQuestion(lines: string[]): QuestionDialog | null {
-	const footerAt = lastIndex(lines, line => QUESTION_FOOTER.test(line));
+	let footerAt = lastIndex(lines, line => QUESTION_FOOTER.test(line));
+	if (footerAt === -1 && lines.some(line => TAB_BAR.test(line))) {
+		footerAt = lines.length;
+	}
+
 	if (footerAt === -1) return null;
 	const firstOptionAt = lastIndex(lines.slice(0, footerAt), line =>
 		/^\s*(❯\s*)?1\.\s/.test(line),
@@ -154,7 +191,7 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 	return {
 		tabs,
 		question: lines[questionAt]?.trim() ?? '',
-		options: readOptions(lines, firstOptionAt).filter(
+		options: readOptions(lines, firstOptionAt, {joinWrapped: false}).filter(
 			option => !/^(Type something|Chat about this)/.test(option.label),
 		),
 	};
@@ -217,7 +254,7 @@ function parseUsageLimit(lines: string[], now: Date): UsageLimit | null {
 	if (lastIndex(lines, line => line.startsWith('• ')) > limitAt) return null;
 	const joined = lines.slice(limitAt).join(' ').replace(/\s+/g, ' ');
 	const resetText =
-		/try again at (.+?\d{1,2}:\d{2} ?[AP]M)/i.exec(joined)?.[1] ?? '';
+		/try again at (.*?\d{1,2}:\d{2} ?[AP]M)/i.exec(joined)?.[1] ?? '';
 	const resetAt = resetText ? parseResetTime(resetText, now) : null;
 	return {
 		resetText,
@@ -226,22 +263,65 @@ function parseUsageLimit(lines: string[], now: Date): UsageLimit | null {
 	};
 }
 
+/** The input line: Codex's `›`, or Claude's `❯` boxed between two rules. */
+function composerLine(lines: string[]): {at: number; glyph: string} | null {
+	const codex = lastIndex(lines, line => line.startsWith('› ') || line === '›');
+	const claude = lastIndex(
+		lines,
+		(line, index) => line.startsWith('❯') && RULE.test(lines[index - 1] ?? ''),
+	);
+	if (codex === -1 && claude === -1) return null;
+	return codex > claude ? {at: codex, glyph: '›'} : {at: claude, glyph: '❯'};
+}
+
 function parseComposer(raw: string[], lines: string[]): string | null {
-	const at = lastIndex(lines, line => line.startsWith('› ') || line === '›');
-	if (at === -1) return null;
-	// Codex draws its rotating placeholder dim; typed text is plain.
+	const input = composerLine(lines);
+	if (!input) return null;
+	const {at, glyph} = input;
+	// Both agents draw their placeholder dim; typed text is plain.
 	const line = raw[at]!;
-	let afterPrompt = line.slice(line.indexOf('›') + 1);
+	let afterPrompt = line.slice(line.indexOf(glyph) + 1);
 	if (afterPrompt.startsWith(`${ESC}[0m`)) afterPrompt = afterPrompt.slice(4);
-	if (afterPrompt.startsWith(' ')) afterPrompt = afterPrompt.slice(1);
+	if (/^[ \u00A0]/.test(afterPrompt)) afterPrompt = afterPrompt.slice(1);
 	if (afterPrompt.startsWith(`${ESC}[2m`)) return '';
-	return lines[at]!.replace(/^› ?/, '').trimEnd();
+	const draft = [lines[at]!.slice(lines[at]!.indexOf(glyph) + 1)];
+	if (glyph === '❯') {
+		// A long Claude draft wraps onto more lines inside the box.
+		for (const next of lines.slice(at + 1)) {
+			if (RULE.test(next)) break;
+			draft.push(next);
+		}
+	}
+
+	return draft
+		.map(text => text.trim())
+		.filter(Boolean)
+		.join('\n');
+}
+
+function parseCodexDialog(lines: string[]): CodexDialog | null {
+	const footer = lastIndex(lines, line => CODEX_DIALOG_FOOTER.test(line));
+	if (footer === -1) return null;
+	const firstOption = lines.findIndex(
+		(line, index) => index < footer && /^\s*(?:› )?1\. /.test(line),
+	);
+	const above = lines
+		.slice(0, firstOption === -1 ? footer : firstOption)
+		.map(line => line.trim())
+		.filter(Boolean);
+	const title = above.at(-1) ?? '';
+	return {
+		kind: above.some(line => line === 'Approaching rate limits')
+			? 'model_switch'
+			: 'other',
+		title,
+	};
 }
 
 export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const raw = capture.replace(/\n+$/, '').split('\n');
 	const lines = raw.map(line => stripVTControlCharacters(line));
-	const codexDialog = lines.some(line => CODEX_DIALOG_FOOTER.test(line));
+	const codexDialog = parseCodexDialog(lines);
 	return {
 		spinner: lines.some(
 			line => CLAUDE_SPINNER.test(line) || CODEX_SPINNER.test(line),
