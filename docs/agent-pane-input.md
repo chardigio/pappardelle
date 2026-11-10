@@ -16,7 +16,7 @@ Only the first is needed. tmux writes each key to a pane whole, and so does the 
 
 ## What changed
 
-- The frame host treats a read of just the Escape byte as the key and drops the parser's late copy, as the rail and the popups do (`source/lone-escape.ts`). A key typed while the parser still holds that Escape comes out of the parser joined to it; the Escape is dropped there and the key delivered as itself
+- A read of just the Escape byte, or of Escape and one character the parser would hold or split (one that opens a sequence, such as `P`, `O` or `[`, or one outside ASCII), skips the frame host's input parser and goes to the program as it is (`source/lone-escape.ts`). The rail and the popups do the same and deliver the key
 - The first attachment sets `escape-time` to 0 on the inner server, which is Pappardelle's own
 - The frame host writes each key to its program as the bytes tmux wrote for it. It used to parse the key and have its embedded terminal encode it again, which lost Alt+P, Alt+O and Alt with punctuation, turned Alt+B and Alt+F into Alt+Left and Alt+Right, and dropped two Escapes that arrived together and a sequence that arrived in two parts
 
