@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {
@@ -7,10 +8,11 @@ import {
 	isCaughtBoundaryReport,
 } from './logger.ts';
 import {setTimeout as delay} from 'node:timers/promises';
+import {pathToFileURL} from 'node:url';
 import test from 'ava';
 import React from 'react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
-import {quitOnCtrlC} from './render-tui.ts';
+import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
 
 const list = (query: string, rows: string[]) =>
 	React.createElement(
@@ -142,5 +144,29 @@ test.serial(
 		t.is(quits, 0);
 		mockInput.pressCtrlC();
 		t.is(quits, 1);
+	},
+);
+
+test.serial(
+	'the first of SIGINT, SIGTERM or SIGHUP runs the quit handler, and a later one kills the process',
+	t => {
+		const moduleUrl = pathToFileURL(path.resolve('source/render-tui.ts')).href;
+		const child = spawnSync(
+			process.execPath,
+			[
+				'-e',
+				`const {writeSync} = await import('node:fs');
+const {quitOnSignals} = await import(${JSON.stringify(moduleUrl)});
+quitOnSignals(() => {
+	writeSync(1, 'quit\\n');
+	process.kill(process.pid, 'SIGTERM');
+});
+setInterval(() => {}, 1000);
+process.kill(process.pid, 'SIGHUP');`,
+			],
+			{encoding: 'utf8'},
+		);
+		t.is(child.stdout, 'quit\n');
+		t.is(child.signal, 'SIGTERM');
 	},
 );

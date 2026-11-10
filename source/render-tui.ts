@@ -53,3 +53,33 @@ export function quitOnCtrlC(renderer: CliRenderer, quit: () => void): void {
 		if (event.ctrl && event.name === 'c') quit();
 	});
 }
+
+const quitSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+
+/**
+ * OpenTUI's remaining default exit signals. The quit signals are handled by
+ * `quitOnSignals` instead, so they close the layout like `q` does.
+ */
+export const rendererExitSignals: NodeJS.Signals[] = [
+	'SIGQUIT',
+	'SIGABRT',
+	'SIGPIPE',
+	'SIGBREAK',
+	'SIGBUS',
+];
+
+/**
+ * A terminal closing (SIGHUP) or a kill would otherwise only destroy the
+ * renderer and leave the layout's viewer panes behind, or a session holding
+ * only viewers that the next `pappardelle` attaches to. Quitting runs once:
+ * closing the layout can kill the session that owns this pty, and a later
+ * signal then ends the process the default way.
+ */
+export function quitOnSignals(quit: () => void): void {
+	const onSignal = () => {
+		for (const signal of quitSignals) process.off(signal, onSignal);
+		quit();
+	};
+
+	for (const signal of quitSignals) process.on(signal, onSignal);
+}
