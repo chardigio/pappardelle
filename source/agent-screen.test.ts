@@ -72,6 +72,9 @@ test('a question dialog gives its tabs, question and answers', t => {
 			{number: 2, label: 'Blue', kind: 'other', selected: false},
 			{number: 3, label: 'Green', kind: 'other', selected: false},
 		],
+		multiSelect: false,
+		textOption: {number: 4, typed: null},
+		cursor: 1,
 	});
 	t.is(
 		screen('claude-question-two-right').question?.question,
@@ -236,4 +239,50 @@ test("Codex's hooks table is a dialog, not a draft", t => {
 
 test("the Submit step's tabs come from its tab bar, not the answers above the question", t => {
 	t.deepEqual(screen('claude-submit').question?.tabs, ['Color', 'Fruit']);
+});
+
+test('a multi-select question reports which options are ticked', t => {
+	const toggled = screen('claude-q-multi-toggled').question!;
+	t.true(toggled.multiSelect);
+	t.deepEqual(
+		toggled.options.map(option => [
+			option.number,
+			option.label,
+			option.checked,
+		]),
+		[
+			[1, 'Cheese', true],
+			[2, 'Olives', false],
+			[3, 'Peppers', true],
+			[4, 'Onions', false],
+		],
+	);
+	t.deepEqual(toggled.textOption, {number: 5, typed: null});
+	t.like(screen('claude-q-multi-two').question, {
+		multiSelect: true,
+		tabs: ['Toppings', 'Crust'],
+	});
+	t.false(screen('claude-question-two').question!.multiSelect);
+});
+
+test('the free-text row says whether it is open and what is typed in it', t => {
+	t.is(screen('claude-question-two').question?.textOption?.typed, null);
+	t.deepEqual(screen('claude-q-text-selected').question?.textOption, {
+		number: 4,
+		typed: '',
+	});
+	const typed = screen('claude-q-text-typed').question!;
+	t.deepEqual(typed.textOption, {number: 4, typed: 'hello there'});
+	t.deepEqual(
+		typed.options.map(option => option.label),
+		['Water', 'Juice', 'Soda'],
+	);
+});
+
+test("the review step's answers include a multi-select list", t => {
+	t.like(screen('claude-q-multi-two-submit').question, {
+		question: 'Ready to submit your answers?',
+		multiSelect: false,
+		textOption: null,
+	});
 });

@@ -1713,6 +1713,8 @@ export function sendKeysToSpaceAgent(
 		runner?: OuterTmuxRunner;
 		/** Set by `pappardelle answer`, which has already checked the prompt. */
 		answering?: boolean;
+		/** Type each entry as text rather than as a key name such as Enter. */
+		literal?: boolean;
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
@@ -1733,7 +1735,13 @@ export function sendKeysToSpaceAgent(
 	}
 
 	for (const key of keys) {
-		const r = runner(['send-keys', '-t', target, key]);
+		const r = runner([
+			'send-keys',
+			...(options.literal ? ['-l'] : []),
+			'-t',
+			target,
+			key,
+		]);
 		if (r.error || r.status !== 0) return 'failed';
 	}
 

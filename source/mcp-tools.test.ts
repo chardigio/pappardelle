@@ -295,3 +295,18 @@ test('space_watch passes its spaces, states and cursor to watch', t => {
 		timeoutSeconds: 50,
 	});
 });
+
+test('space_answer passes several options and typed text to answer', t => {
+	t.like(
+		parseSuperviseArgs(
+			call('space_answer', {key: 'STA-1', options: [1, 3]}).args,
+		),
+		{verb: 'answer', options: [1, 3], keys: []},
+	);
+	t.like(
+		parseSuperviseArgs(
+			call('space_answer', {key: 'STA-1', text: '-- no, the other one'}).args,
+		),
+		{verb: 'answer', options: [], text: '-- no, the other one'},
+	);
+});

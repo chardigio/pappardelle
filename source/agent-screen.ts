@@ -13,6 +13,8 @@ export type PromptOption = {
 	label: string;
 	kind: OptionKind;
 	selected: boolean;
+	/** On a multi-select question: whether the option is ticked. */
+	checked?: boolean;
 };
 
 export type PermissionPrompt = {
@@ -33,6 +35,12 @@ export type QuestionDialog = {
 	tabs: string[];
 	question: string;
 	options: PromptOption[];
+	/** Options are ticked with a digit or Enter, then confirmed on a Submit or Next row. */
+	multiSelect: boolean;
+	/** The row that takes a typed answer, and the text typed in it so far, if it is open. */
+	textOption: {number: number; typed: string | null} | null;
+	/** The numbered row the cursor is on, free-text row included; null on Submit or Next. */
+	cursor: number | null;
 };
 
 export type UsageLimit = {
@@ -84,7 +92,10 @@ const BOLD_LINE = new RegExp(
 	`^\\s*${ESC}\\[1m\\s*([^${ESC}]+?)\\s*${ESC}\\[0m\\s*$`,
 );
 const CODEX_OPTION = /^\s*(›\s*)?(\d+)\.\s/;
-const QUESTION_FOOTER = /^\s*Enter to select · /;
+// Typing into the free-text row puts `-- INSERT -- · ` in front.
+const QUESTION_FOOTER = /^\s*(?:-- INSERT -- · )?Enter to select · /;
+const TYPE_SOMETHING = /^Type something\.?$/;
+const CHECKBOX = /^\[([ ✔])\]\s*/;
 // A bare reset time up to this far in the past is today's and has passed: a
 // limit that reset at 4:28 AM, read at 5:00 AM, isn't tomorrow's.
 const BARE_TIME_GRACE_MS = 6 * 60 * 60 * 1000;
@@ -202,12 +213,39 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 		.split(/\s{2,}/)
 		.map(tab => tab.trim().replace(/^[☐☒✔]\s*/, ''))
 		.filter(tab => tab !== '' && tab !== 'Submit');
+	const typing = lines[footerAt]?.includes('-- INSERT --') ?? false;
+	const rows = readOptions(lines, firstOptionAt, {joinWrapped: false})
+		.filter(option => option.label !== 'Chat about this')
+		.map(option => {
+			const box = CHECKBOX.exec(option.label);
+			return box
+				? {
+						...option,
+						label: option.label.slice(box[0].length),
+						checked: box[1] === '✔',
+					}
+				: option;
+		});
+	// The free-text row shows what's typed in it in place of its label.
+	const text = rows.find(option =>
+		typing ? option.selected : TYPE_SOMETHING.test(option.label),
+	);
 	return {
 		tabs,
 		question: lines[questionAt]?.trim() ?? '',
-		options: readOptions(lines, firstOptionAt, {joinWrapped: false}).filter(
-			option => !/^(Type something|Chat about this)/.test(option.label),
-		),
+		options: rows.filter(option => option !== text),
+		multiSelect: rows.some(option => option.checked !== undefined),
+		cursor: rows.find(option => option.selected)?.number ?? null,
+		textOption: text
+			? {
+					number: text.number,
+					typed: typing
+						? TYPE_SOMETHING.test(text.label)
+							? ''
+							: text.label
+						: null,
+				}
+			: null,
 	};
 }
 
