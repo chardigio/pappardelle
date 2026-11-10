@@ -21,6 +21,7 @@ import {
 	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
+	enableTmuxControlClients,
 	getSessionNames,
 	getWorktreePath,
 	getMainWorktreeInfo,
@@ -506,6 +507,7 @@ const initialWorkspaces = startWorkspaceReads();
 let layoutSetup: ReturnType<typeof setupPappardellLayout> | undefined;
 if (isInTmux() && cli.flags.layout) {
 	maintainSessions();
+	enableTmuxControlClients();
 	layoutSetup = setupPappardellLayout();
 }
 

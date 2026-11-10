@@ -19,13 +19,99 @@ export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
 // later session in that deleted directory, even with -c.
 const TMUX_SERVER_CWD = homedir();
 
-const runTmux: AsyncTmuxRunner = async args => {
+const runTmuxProcess: AsyncTmuxRunner = async args => {
 	const {stdout} = await execFileAsync('tmux', args, {
 		cwd: TMUX_SERVER_CWD,
 		encoding: 'utf-8',
 		timeout: args.includes('new-session') ? 10_000 : 5000,
 	});
 	return stdout;
+};
+
+// One control-mode client per tmux server, keyed by the socket flags a call
+// carries. A server that refuses one is left to processes.
+const controlClients = new Map<string, TmuxControlClient | null>();
+let controlClientsEnabled = false;
+
+/**
+ * Send this process's tmux commands over long-lived control-mode clients
+ * instead of a `tmux` process each. For the TUI, which sends them for as long
+ * as it runs; a one-shot subcommand has nothing to gain from a second client.
+ */
+export function enableTmuxControlClients(): void {
+	controlClientsEnabled = true;
+}
+const CONTROL_FLAGS = 'ignore-size,no-output';
+
+function controlClient(server: string[]): TmuxControlClient | undefined {
+	const key = server.join(' ');
+	let client = controlClients.get(key);
+	if (client === undefined) {
+		const pane = process.env['TMUX_PANE'];
+		if (server.length === 0 && !(process.env['TMUX'] && pane)) {
+			client = null;
+		} else {
+			// The rail's own session is there to join on its server. Any other
+			// server gets a session that lasts exactly as long as this client.
+			const session = `pappardelle-control-${process.pid}`;
+			client = new TmuxControlClient(
+				server.length === 0
+					? ['-C', 'attach-session', '-f', CONTROL_FLAGS, '-t', pane!]
+					: [
+							...server,
+							'-C',
+							'new-session',
+							'-f',
+							CONTROL_FLAGS,
+							'-s',
+							session,
+							'tail -f /dev/null',
+							';',
+							'set-option',
+							'-t',
+							exactSessionTarget(session),
+							'destroy-unattached',
+							'on',
+						],
+				{cwd: TMUX_SERVER_CWD},
+			);
+		}
+
+		controlClients.set(key, client);
+	}
+
+	if (client && !client.usable) {
+		controlClients.set(key, null);
+		return undefined;
+	}
+
+	return client ?? undefined;
+}
+
+const runTmux: AsyncTmuxRunner = async args => {
+	const hasSocket = args[0] === '-L' || args[0] === '-S';
+	const server = hasSocket ? args.slice(0, 2) : [];
+	const command = controlCommandLine(hasSocket ? args.slice(2) : args);
+	const client =
+		controlClientsEnabled && command !== undefined
+			? controlClient(server)
+			: undefined;
+	if (!client) return runTmuxProcess(args);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			client.run(command!),
+			new Promise<string>((_resolve, reject) => {
+				timer = setTimeout(() => {
+					// A client that stops answering is not asked again.
+					client.stop();
+					reject(new Error(`tmux did not answer: ${args.join(' ')}`));
+				}, 5000);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
 };
 import {
 	DEFAULT_COMPANION_COMMAND,
@@ -46,6 +132,7 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+import {TmuxControlClient, controlCommandLine} from './tmux-control.ts';
 import {
 	CLIENT_TTY_OPTION,
 	FRAME_COMMAND_OPTION,
