@@ -1113,6 +1113,7 @@ sous_chef?: boolean;
 - The pappardelle MCP server tells a session in the repo but outside any space to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
 - It tells agents inside a space they can reach the coordinator with SendMessage to `sous-chef`
 - The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
+- Put your own instructions for the sous-chef in `SOUS-CHEF.md` at the main checkout's root, such as which spaces to prioritize, what it may approve without asking, or how to report. `/sous-chef` reads it first and follows it over its own routine, and the MCP instructions point the sous-chef at it so it still applies after the conversation is compacted. Commit it to share it, or leave it untracked to keep it to yourself
 - A main checkout running Codex or another non-Claude agent gets the instructions and the rail label, but no rename or `/sous-chef` prompt
 
 ## Issue Status Colors

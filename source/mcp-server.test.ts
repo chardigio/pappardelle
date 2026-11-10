@@ -133,7 +133,10 @@ test('instructions fit before Claude Code truncates them', t => {
 	// Measured with Claude Code 2.1.318: text past roughly 3KB gets cut off.
 	t.true(workspaceInstructions('A-KEY-THAT-IS-LONG', 'repo').length < 3000);
 	t.true(
-		workspaceInstructions(undefined, 'repo', {sousChef: true}).length < 3000,
+		workspaceInstructions(undefined, 'repo', {
+			sousChef: true,
+			sousChefFile: `/${'long-directory/'.repeat(12)}SOUS-CHEF.md`,
+		}).length < 3000,
 	);
 });
 
@@ -153,4 +156,20 @@ test('only an opted-in session outside a space is told to coordinate', t => {
 	t.notRegex(inSpace, /Sous-chef mode/);
 	t.regex(inSpace, /SendMessage to `sous-chef`/);
 	t.notRegex(workspaceInstructions('STA-1', 'repo'), /sous-chef/);
+});
+
+test('the coordinator is pointed at SOUS-CHEF.md only in sous-chef mode', t => {
+	const sousChefFile = '/repo/SOUS-CHEF.md';
+	t.regex(
+		workspaceInstructions(undefined, 'repo', {sousChef: true, sousChefFile}),
+		/instructions for the sous-chef are in \/repo\/SOUS-CHEF\.md/,
+	);
+	t.notRegex(
+		workspaceInstructions(undefined, 'repo', {sousChefFile}),
+		/SOUS-CHEF\.md/,
+	);
+	t.notRegex(
+		workspaceInstructions(undefined, 'repo', {sousChef: true}),
+		/SOUS-CHEF\.md/,
+	);
 });

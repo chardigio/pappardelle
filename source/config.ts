@@ -2884,6 +2884,9 @@ export function getInitializationCommand(config: PappardelleConfig): string {
  */
 export const SOUS_CHEF_NAME = 'sous-chef';
 
+/** The user's own instructions for the sous-chef, at the main checkout's root. */
+export const SOUS_CHEF_FILE = 'SOUS-CHEF.md';
+
 export type AgentLaunch = {name: string; prompt: string};
 
 /**
