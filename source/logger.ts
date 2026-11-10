@@ -149,13 +149,11 @@ export function createLogSink({
 			contentMode: 'buffer',
 		});
 		const stream: LogStream = {fd, writer, idle: true, idleWaiters: []};
-		// Unhandled, an error event would crash the app. sonic-boom keeps the
-		// failed buffer and retries it on the next write, and emits no drain
-		// until then.
-		// sonic-boom keeps a failed batch but retries it only on the next write,
-		// and once the queue is full every later line is dropped before that
-		// write happens. An empty write retries it, so logging resumes when
-		// storage recovers (a full disk, say) instead of staying dead all day.
+		// Unhandled, an error event would crash the app. sonic-boom keeps a failed
+		// batch but retries it only on the next write, and once the queue is full
+		// every later line is dropped before that write happens. An empty write
+		// retries it, so logging resumes when storage recovers (a full disk, say)
+		// instead of staying dead all day.
 		let retryPending = false;
 		writer.on('error', () => {
 			markIdle(stream);
