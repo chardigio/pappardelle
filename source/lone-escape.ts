@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {parseKeypress, type CliRenderer} from '@opentui/core';
 
 const ESCAPE = '\u001B';
@@ -14,20 +15,32 @@ export function deliverLoneEscapeAtOnce(
 ): void {
 	const escapeKey = parseKeypress(ESCAPE)!;
 	let heldByParser = 0;
-	stdin.on('data', (chunk: Uint8Array | string) => {
-		if (chunk.toString() !== ESCAPE) {
-			// The parser reads an Escape it still holds as the start of this input.
-			heldByParser = 0;
-			return;
-		}
-
+	// Ahead of the renderer's own listener, so the count is right by the time
+	// the parser emits anything for this read.
+	stdin.prependListener('data', (chunk: Uint8Array | string) => {
+		if (chunk.toString() !== ESCAPE) return;
 		heldByParser++;
 		renderer.keyInput.processParsedKey(escapeKey);
 	});
 	renderer.prependInputHandler(sequence => {
-		if (heldByParser === 0 || sequence.replaceAll(ESCAPE, '') !== '')
+		if (heldByParser === 0) return false;
+		let delivered = 0;
+		while (delivered < heldByParser && sequence[delivered] === ESCAPE)
+			delivered++;
+		if (delivered === 0) {
+			heldByParser = 0;
 			return false;
-		heldByParser = Math.max(0, heldByParser - sequence.length);
+		}
+
+		heldByParser -= delivered;
+		// The parser joins an Escape it still holds to the key typed after it.
+		const following = sequence.slice(delivered);
+		if (following === '') return true;
+		const followingKey = parseKeypress(following);
+		if (followingKey) renderer.keyInput.processParsedKey(followingKey);
+		// A focus report or a terminal's reply: back through the parser, once
+		// it has finished with the read this came from.
+		else queueMicrotask(() => stdin.emit('data', Buffer.from(following)));
 		return true;
 	});
 }

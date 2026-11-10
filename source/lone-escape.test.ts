@@ -45,14 +45,55 @@ test.serial('an escape sequence is left to the parser', async t => {
 });
 
 test.serial(
-	'an Escape at the end of other input is still delivered',
+	'a key typed while the parser still holds the Escape keeps its meaning',
 	async t => {
 		const {keys, stdin} = await keyLog(t);
 		stdin.write(ESCAPE);
-		stdin.write('j');
+		stdin.write('/');
 		await delay(PARSER_WAIT_MS * 3);
+		stdin.write(ESCAPE);
+		stdin.write(`${ESCAPE}[A`);
+		await delay(PARSER_WAIT_MS * 3);
+		t.deepEqual(keys, ['escape', '/', 'escape', 'up']);
+	},
+);
+
+test.serial('two Escapes in quick succession are two keys', async t => {
+	const {keys, stdin} = await keyLog(t);
+	stdin.write(ESCAPE);
+	stdin.write(ESCAPE);
+	await delay(PARSER_WAIT_MS * 3);
+	stdin.write(`${ESCAPE}[A`);
+	await delay(PARSER_WAIT_MS * 3);
+	t.deepEqual(keys, ['escape', 'escape', 'up']);
+});
+
+test.serial(
+	'an Escape at the end of other input is still delivered',
+	async t => {
+		const {keys, stdin} = await keyLog(t);
 		stdin.write(`a${ESCAPE}`);
 		await delay(PARSER_WAIT_MS * 3);
-		t.deepEqual(keys, ['escape', 'meta+j', 'a', 'escape']);
+		t.deepEqual(keys, ['a', 'escape']);
+	},
+);
+
+test.serial(
+	'a focus report that follows a held Escape is not read as a key',
+	async t => {
+		const {keys, stdin} = await keyLog(t);
+		const logged: unknown[][] = [];
+		const logError = console.error;
+		console.error = (...args: unknown[]) => logged.push(args);
+		t.teardown(() => {
+			console.error = logError;
+		});
+		stdin.write(ESCAPE);
+		stdin.write(`${ESCAPE}[O`);
+		await delay(PARSER_WAIT_MS * 3);
+		stdin.write('a');
+		await delay(PARSER_WAIT_MS * 3);
+		t.deepEqual(keys, ['escape', 'a']);
+		t.deepEqual(logged, []);
 	},
 );
