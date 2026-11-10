@@ -101,6 +101,7 @@ function harness(
 			if (!ignoresKeys && !movesTab) redraws = 1;
 			return 'sent';
 		},
+		typeText: () => 'sent',
 		async classify(_key, command) {
 			classified.push(command);
 			return classifierVerdict;

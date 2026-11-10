@@ -39,7 +39,7 @@ If you don't have the tools, `pappardelle mcp install` adds the server to Codex,
 | `space_state`                | `pappardelle state KEY --json`, `--tabs` for `space_question_tabs`       |
 | `space_wait`                 | `pappardelle wait KEY --until STATE [--timeout S] --json`                |
 | `space_watch`                | `pappardelle watch [KEY...] [--until STATE...] [--since CURSOR] --json`  |
-| `space_answer`               | `pappardelle answer KEY --option N` or `--keys K`                        |
+| `space_answer`               | `pappardelle answer KEY --option N...`, `--text T` or `--keys K`         |
 | `space_queue`                | `pappardelle queue KEY`, with the text on stdin                          |
 | `space_schedule*`            | `pappardelle schedule\|schedules\|unschedule`                            |
 | `tui_panes`, `tui_focus_log` | `pappardelle tui panes\|focus-log`                                       |
@@ -55,7 +55,7 @@ To keep an agent in another space moving, wait on it instead of checking it over
 
 1. `space_wait` with `until: ready` returns when the agent stops working: idle, at a prompt or question, at a Codex usage limit, or with a draft in its composer. It returns after 50 seconds either way; call it again
 2. At `permission`, the state has the command. `space_answer` with the option approves a Bash command once only when it passes the hard refusals (push, PR changes, `--force`, rm outside QA scratch) and a model check that it publishes nothing, deletes nothing outside the worktree or scratch, and sends no secrets. Anything else comes back refused, with the reason, with the command: ask the user, and don't retry it another way
-3. At `question`, `space_question_tabs` reads every question of a multi-question dialog. Answer it with the user's choice
+3. At `question`, `space_question_tabs` reads every question of a multi-question dialog. Answer it with the user's choice: `option` for one, `options` for every tick on a multi-select question, or `text` for a typed answer in its free-text row. A multi-question dialog takes one `space_answer` per question, then `option: 1` on its review step. An answer the dialog didn't take fails with the step it got stuck on
 4. At `usage_limit`, `space_schedule` with `after_limit` sends `continue` once it resets. `keep_going` checks every interval, continues after limits, and nudges an agent that sits idle twice in a row
 5. `space_send` refuses while a prompt is up, and over a draft unless `force`
 

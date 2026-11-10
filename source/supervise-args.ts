@@ -69,7 +69,9 @@ export type SuperviseCommand =
 	| {
 			verb: 'answer';
 			key: string;
-			option?: number;
+			/** More than one only on a multi-select question. */
+			options: number[];
+			text?: string;
 			keys: string[];
 			force: boolean;
 	  }
@@ -90,7 +92,7 @@ export const superviseHelp = `
 	  $ pappardelle state KEY [--json] [--tabs]
 	  $ pappardelle wait KEY --until working|idle|blocked|ready|changed [--timeout SECONDS] [--json]
 	  $ pappardelle watch [KEY...] [--until STATE...] [--since CURSOR] [--timeout SECONDS] [--json]
-	  $ pappardelle answer KEY (--option N | --keys KEY...) [--force]
+	  $ pappardelle answer KEY (--option N... | --text TEXT | --keys KEY...) [--force]
 	  $ pappardelle queue KEY [text]
 	  $ pappardelle schedule KEY --at TIME --message TEXT
 	  $ pappardelle schedule KEY --after-limit [--message TEXT]
@@ -118,7 +120,11 @@ export const superviseHelp = `
 	              Without --since, spaces already in an --until state come back
 	              at once. The answer carries a cursor: pass it as --since next
 	              time, and nothing that changed in between is missed
-	  answer      Press an option on a permission prompt or question. Approving a
+	  answer      Press an option on a permission prompt or question, tick the
+	              --options of a multi-select question and confirm them, or
+	              type --text into a question's free-text row. It checks the
+	              screen after each step, and fails if the agent didn't take
+	              it. Approving a
 	              Bash command once needs the hard refusals (push, --force, rm
 	              outside QA scratch…) and a Haiku check that it publishes and
 	              destroys nothing; anything else exits 3 with the command and
@@ -351,23 +357,32 @@ export function parseSuperviseArgs(argv: string[]): SuperviseCommand {
 
 		case 'answer': {
 			const {values, positionals} = parse(rest, {
-				option: {type: 'string'},
+				option: {type: 'string', multiple: true},
+				text: {type: 'string'},
 				keys: {type: 'string', multiple: true},
 				force: {type: 'boolean'},
 			});
 			const keys = (values.keys as string[] | undefined) ?? [];
-			if ((values.option === undefined) === (keys.length === 0)) {
+			const options = ((values.option as string[] | undefined) ?? []).map(
+				value => positiveInt(value, '--option'),
+			);
+			const text = values.text as string | undefined;
+			const given = [options.length > 0, keys.length > 0, text !== undefined];
+			if (given.filter(Boolean).length !== 1) {
 				throw new SuperviseUsageError(
-					'answer takes one of --option N or --keys',
+					'answer takes one of --option N (repeat it on a multi-select question), --text or --keys',
 				);
+			}
+
+			if (text?.trim() === '') {
+				throw new SuperviseUsageError('--text needs some text');
 			}
 
 			return {
 				verb,
 				key: oneKey(positionals, verb),
-				...(values.option === undefined
-					? {}
-					: {option: positiveInt(values.option as string, '--option')}),
+				options,
+				...(text === undefined ? {} : {text}),
 				keys,
 				force: Boolean(values.force),
 			};

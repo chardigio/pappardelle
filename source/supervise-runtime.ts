@@ -154,6 +154,14 @@ export function defaultSuperviseDeps(
 			});
 			return result === 'sent' || result === 'no-session' ? result : 'failed';
 		},
+		typeText(key, text) {
+			const result = sendKeysToSpaceAgent(key, [text], {
+				runner: supervisedInnerTmuxRunner,
+				answering: true,
+				literal: true,
+			});
+			return result === 'sent' || result === 'no-session' ? result : 'failed';
+		},
 		async classify(key, command) {
 			return classifyCommand(
 				{command, cwd: agentCwd(key), scratchRoots: scratchRoots()},
