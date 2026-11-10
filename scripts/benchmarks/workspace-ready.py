@@ -144,7 +144,11 @@ def fixture_directory():
         remove_fixture(root)
 
 
-def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20):
+# The start of the search row's placeholder; a narrow rail cuts the rest off.
+SEARCH_PLACEHOLDER = 'filter by key'
+
+
+def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20, search_modes=()):
     with fixture_directory() as tmp:
         root = Path(tmp)
         home, repo, bin_dir = (root / name for name in ('home', 'repo', 'bin'))
@@ -269,24 +273,52 @@ signal.pause()
         def rail_visible(screen):
             return 'main' in screen and (not keys or keys[-1] in screen)
 
+        def wait_screen(accept):
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                screen = tmux('bench-outer', 'capture-pane', '-p', '-t', 'bench:0.0').stdout
+                if accept(screen):
+                    return screen
+                time.sleep(0.005)
+            raise RuntimeError('Rail transition timed out: ' + screen)
+
+        def search_select(target, mode):
+            """Search for one workspace by the end of its key and select it with Enter."""
+            query, pane = target[-4:], 'bench:0.0'
+            result = dict(mode=mode, target=target)
+            start = time.perf_counter_ns()
+            if mode == 'burst':
+                # The whole interaction reaches the rail before it can draw the search row.
+                tmux('bench-outer', 'send-keys', '-t', pane, '-l', '/' + query, ';',
+                     'send-keys', '-t', pane, 'Enter').check_returncode()
+            else:
+                tmux('bench-outer', 'send-keys', '-t', pane, '/').check_returncode()
+                wait_screen(lambda screen: SEARCH_PLACEHOLDER in screen)
+                result['openMs'] = (time.perf_counter_ns() - start) / 1e6
+                typed = time.perf_counter_ns()
+                for character in query:
+                    tmux('bench-outer', 'send-keys', '-t', pane, '-l', character).check_returncode()
+                result['screen'] = wait_screen(lambda screen: '(1 match)' in screen and target in screen)
+                result['filterMs'] = (time.perf_counter_ns() - typed) / 1e6
+                result['zoomed'] = tmux('bench-outer', 'display-message', '-p', '-t', pane, '#{window_zoomed_flag}').stdout.strip() == '1'
+                start = time.perf_counter_ns()
+                tmux('bench-outer', 'send-keys', '-t', pane, 'Enter').check_returncode()
+                # A short rail scrolls to the selected row, so the first rows may be out of view.
+                wait_screen(lambda screen: 'match' not in screen and target in screen)
+                result['closeMs'] = (time.perf_counter_ns() - start) / 1e6
+            result['viewersMs'] = observe(start, selected=target, rail_shown=lambda screen: target in screen)[0]['requiredVisibleMs']
+            return result
+
         def filter_roundtrip():
-            def wait_screen(accept):
-                deadline = time.monotonic() + timeout
-                while time.monotonic() < deadline:
-                    screen = tmux('bench-outer', 'capture-pane', '-p', '-t', 'bench:0.0').stdout
-                    if accept(screen):
-                        return screen
-                    time.sleep(0.005)
-                raise RuntimeError('Rail transition timed out: ' + screen)
             start = time.perf_counter_ns()
             open_start = (start - start_ns) / 1e6
             tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', '/').check_returncode()
-            opened = wait_screen(lambda screen: 'filter by key or title' in screen)
+            opened = wait_screen(lambda screen: SEARCH_PLACEHOLDER in screen)
             open_ms = (time.perf_counter_ns() - start) / 1e6
             start = time.perf_counter_ns()
             close_start = (start - start_ns) / 1e6
             tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', 'Escape').check_returncode()
-            closed = wait_screen(lambda screen: 'filter by key or title' not in screen and rail_visible(screen))
+            closed = wait_screen(lambda screen: SEARCH_PLACEHOLDER not in screen and rail_visible(screen))
             close_ms = (time.perf_counter_ns() - start) / 1e6
             time.sleep(0.3)
             return dict(openStartMs=open_start, closeStartMs=close_start, openMs=open_ms, closeMs=close_ms, opened=opened, closed=closed)
@@ -320,7 +352,7 @@ signal.pause()
                 raise RuntimeError(result.stderr)
             attach_terminal([real_tools['tmux'], '-L', 'bench-outer', 'attach-session', '-t', 'bench'])
 
-        def observe(start_ns, retained=None, selected=None):
+        def observe(start_ns, retained=None, selected=None, rail_shown=rail_visible):
             milestones, identities, screens = {}, {}, {}
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
@@ -346,7 +378,7 @@ signal.pause()
                 for pane in panes:
                     screen = tmux('bench-outer', 'capture-pane', '-p', '-t', pane).stdout
                     screens[pane] = screen
-                    if pane == panes[0] and rail_visible(screen):
+                    if pane == panes[0] and rail_shown(screen):
                         milestones.setdefault('railVisibleMs', (time.perf_counter_ns() - start_ns) / 1e6)
                     for kind in kinds:
                         if kind.upper() + '_READY ' + (selected or 'repo') in screen:
@@ -370,6 +402,7 @@ signal.pause()
         milestones, identities, screens, retained = {}, {}, {}, None
         error = None
         interactions = []
+        searches = []
         cold = None
         try:
             if existing:
@@ -401,6 +434,8 @@ signal.pause()
                 interactions.append(interaction)
                 if max_filter_close_ms is not None and interaction['closeMs'] > max_filter_close_ms:
                     raise RuntimeError(f'Rail return took {interaction["closeMs"]:.1f} ms; budget {max_filter_close_ms} ms')
+            for target, mode in zip(keys, search_modes):
+                searches.append(search_select(target, mode))
             if cold_switch:
                 cold_start = time.perf_counter_ns()
                 tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', 'j').check_returncode()
@@ -467,7 +502,7 @@ signal.pause()
                 commands.append(event)
         return dict(shellDelayMs=shell_delay_ms, traced=traced, startupTrace=startup_trace, width=width, existing=existing,
                     statusChecks=status_checks, skillCount=skill_count, observeSeconds=observe_seconds,
-                    tmuxDelayMs=tmux_delay_ms, interactions=interactions,
+                    tmuxDelayMs=tmux_delay_ms, interactions=interactions, searches=searches,
                     outsideTmux=outside_tmux, profileEmoji=profile_emoji, coldSwitch=cold, wallStartMs=wall_start_ns / 1e6,
                     workspaces=workspaces, success=error is None, error=error,
                     readiness='pre-existing' if existing else 'new', identities=identities,
@@ -491,6 +526,7 @@ def main():
     parser.add_argument('--compare-tracing', action='store_true', help='Alternate trace-disabled/enabled launches of the same binary')
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--filter-cycles', type=int, default=0, help='Measure / then Escape until workspace rows return')
+    parser.add_argument('--search', choices=['typed', 'burst'], nargs='+', default=[], help='After startup, search for a workspace and select it: typed waits for each step to draw, burst sends / query Enter at once. Each mode selects a different workspace')
     parser.add_argument('--tmux-delay-ms', type=int, default=0, help='Synthetic per-call tmux delay; also incurs Python wrapper overhead, not native timing')
     parser.add_argument('--max-filter-close-ms', type=float, help='Optional diagnostic assertion for rail-return latency')
     parser.add_argument('--status-checks', type=int, default=0)
@@ -514,6 +550,10 @@ def main():
         parser.error('--compare-tracing cannot be combined with --candidate, --startup-trace or --trace')
     if any(w < 1 for w in args.widths) or any(w < 0 for w in args.workspaces):
         parser.error('widths must be positive and workspace counts nonnegative')
+    if args.search and args.cold_switch:
+        parser.error('--cold-switch starts from the main row, which --search leaves')
+    if args.search and any(n < len(args.search) for n in args.workspaces):
+        parser.error('--search needs one registered workspace per mode')
     if args.cold_switch and any(n < 1 for n in args.workspaces):
         parser.error('--cold-switch requires at least one registered workspace')
     binaries = {'baseline': args.binary.resolve()}
@@ -562,6 +602,13 @@ def main():
                         'median': statistics.median(values), 'min': min(values), 'max': max(values),
                         'observations': len(values),
                     }
+            for mode in args.search:
+                done = [search for s in runs for search in s['searches'] if search['mode'] == mode]
+                result['summary'][name]['search' + mode.capitalize()] = {
+                    'selected': len(done), 'attempts': len(runs),
+                    **{metric: {'median': statistics.median(values), 'min': min(values), 'max': max(values)}
+                       for metric in ('openMs', 'filterMs', 'closeMs', 'viewersMs')
+                       for values in [[search[metric] for search in done if metric in search]] if values}}
             cold_samples = [s['coldSwitch']['milestones'] for s in valid if s.get('coldSwitch')]
             if cold_samples:
                 result['summary'][name]['coldSwitchMs'] = {
@@ -586,7 +633,8 @@ def main():
                     max_filter_close_ms=args.max_filter_close_ms, outside_tmux=args.outside_tmux,
                     profile_emoji=args.profile_emoji, cold_switch=args.cold_switch,
                     status_checks=args.status_checks, skill_count=args.skill_count,
-                    observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms)
+                    observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms,
+            search_modes=args.search)
                 samples.setdefault(key, []).append(sample)
                 save()
                 print(key, index + 1, json.dumps(sample['milestones'] if sample['success'] else sample['error']), flush=True)
@@ -597,7 +645,8 @@ def main():
             tmux_delay_ms=args.tmux_delay_ms, max_filter_close_ms=args.max_filter_close_ms,
             outside_tmux=args.outside_tmux, profile_emoji=args.profile_emoji, cold_switch=args.cold_switch,
             status_checks=args.status_checks, skill_count=args.skill_count,
-            observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms)
+            observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms,
+            search_modes=args.search)
         result['instrumentedSample'] = trace
         chrome = {'traceEvents': [dict(name=e['tool'] + ' ' + shlex.join(e['args']),
                    cat='subprocess', ph='X', ts=e['elapsedMs'] * 1000,
