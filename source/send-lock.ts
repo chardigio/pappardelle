@@ -46,10 +46,12 @@ export async function withSendLock<T>(
 		}
 
 		const holder = await readHolder(file);
-		if (holder && isStale(holder, isAlive)) {
-			await removeStale(file, holder.id);
+		if (
+			holder &&
+			isStale(holder, isAlive) &&
+			(await removeStale(file, holder.id))
+		)
 			continue;
-		}
 
 		if (Date.now() >= deadline) {
 			throw new SendLockTimeout(`Another send to ${session} is still running`);
@@ -92,7 +94,9 @@ async function unlinkIfSame(file: string, id: FileId): Promise<void> {
 // Two senders can both find the same stale lock, and the slower one would
 // delete the fresh lock the faster one created after removing it. Removals
 // take turns behind a guard file, and each removes only the file it judged.
-async function removeStale(file: string, stale: FileId): Promise<void> {
+// Reports whether this sender got to take the lock over. When another sender
+// holds the takeover, the caller waits its turn like any other busy lock.
+async function removeStale(file: string, stale: FileId): Promise<boolean> {
 	const guard = `${file}.takeover`;
 	try {
 		await writeFile(guard, '', {flag: 'wx'});
@@ -103,7 +107,7 @@ async function removeStale(file: string, stale: FileId): Promise<void> {
 			await unlink(guard).catch(() => {});
 		}
 
-		return;
+		return false;
 	}
 
 	try {
@@ -111,6 +115,8 @@ async function removeStale(file: string, stale: FileId): Promise<void> {
 	} finally {
 		await unlink(guard).catch(() => {});
 	}
+
+	return true;
 }
 
 async function readHolder(file: string): Promise<Holder | undefined> {

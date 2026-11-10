@@ -1,4 +1,6 @@
-import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {
 	clearRecentErrors,
@@ -7,9 +9,11 @@ import {
 	isCaughtBoundaryReport,
 } from './logger.ts';
 import {setTimeout as delay} from 'node:timers/promises';
+import {pathToFileURL} from 'node:url';
 import test from 'ava';
 import React from 'react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
+import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
 
 const list = (query: string, rows: string[]) =>
 	React.createElement(
@@ -119,5 +123,61 @@ test.serial(
 		await view.renderer.closed;
 		const bytes = await view.flush();
 		t.true(bytes.includes('\x1b[?1049l'));
+	},
+);
+
+test.serial(
+	'Ctrl+C runs the quit handler instead of only destroying the renderer',
+	async t => {
+		const {createTestRenderer} = await import('@opentui/core/testing');
+		const {renderer, mockInput} = await createTestRenderer({
+			exitOnCtrlC: false,
+		});
+		t.teardown(() => {
+			renderer.destroy();
+		});
+		let quits = 0;
+		quitOnCtrlC(renderer, () => {
+			quits++;
+		});
+
+		mockInput.pressKey('c');
+		t.is(quits, 0);
+		mockInput.pressCtrlC();
+		t.is(quits, 1);
+	},
+);
+
+test.serial(
+	'the first of SIGINT, SIGTERM or SIGHUP quits once, and a later one cannot end teardown early',
+	t => {
+		const loggerUrl = pathToFileURL(path.resolve('source/logger.ts')).href;
+		const moduleUrl = pathToFileURL(path.resolve('source/render-tui.ts')).href;
+		const home = mkdtempSync(path.join(tmpdir(), 'pappardelle-home-'));
+		t.teardown(() => {
+			rmSync(home, {recursive: true, force: true});
+		});
+		const child = spawnSync(
+			process.execPath,
+			[
+				'-e',
+				`const {writeSync} = await import('node:fs');
+await import(${JSON.stringify(loggerUrl)});
+const {quitOnSignals} = await import(${JSON.stringify(moduleUrl)});
+quitOnSignals(() => {
+	writeSync(1, 'quit\\n');
+	process.kill(process.pid, 'SIGTERM');
+	setTimeout(() => {
+		writeSync(1, 'torn down\\n');
+		process.exit(0);
+	}, 50);
+});
+setInterval(() => {}, 1000);
+process.kill(process.pid, 'SIGHUP');`,
+			],
+			{encoding: 'utf8', env: {...process.env, HOME: home}},
+		);
+		t.is(child.stdout, 'quit\ntorn down\n');
+		t.is(child.status, 0);
 	},
 );

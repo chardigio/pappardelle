@@ -43,3 +43,45 @@ export async function renderTui(
 	root.render(createElement(TuiErrorBoundary, {onClose}, node));
 	return {renderer, root};
 }
+
+/**
+ * OpenTUI's own Ctrl+C exit only destroys the renderer, which would leave the
+ * layout's viewer panes behind. Pair with `exitOnCtrlC: false`.
+ */
+export function quitOnCtrlC(renderer: CliRenderer, quit: () => void): void {
+	renderer.keyInput.on('keypress', event => {
+		if (event.ctrl && event.name === 'c') quit();
+	});
+}
+
+const quitSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+
+/**
+ * OpenTUI's remaining default exit signals. The quit signals are handled by
+ * `quitOnSignals` instead, so they close the layout like `q` does.
+ */
+export const rendererExitSignals: NodeJS.Signals[] = [
+	'SIGQUIT',
+	'SIGABRT',
+	'SIGPIPE',
+	'SIGBREAK',
+	'SIGBUS',
+];
+
+/**
+ * A terminal closing (SIGHUP) or a kill would otherwise only destroy the
+ * renderer and leave the layout's viewer panes behind, or a session holding
+ * only viewers that the next `pappardelle` attaches to. Quitting runs once,
+ * and the listener stays for the rest of teardown: with none left, a second
+ * signal would kill the process before the renderer restores the terminal.
+ */
+export function quitOnSignals(quit: () => void): void {
+	let quitting = false;
+	const onSignal = () => {
+		if (quitting) return;
+		quitting = true;
+		quit();
+	};
+
+	for (const signal of quitSignals) process.on(signal, onSignal);
+}

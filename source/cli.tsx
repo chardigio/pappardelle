@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import {renderTui} from './render-tui.ts';
+import {renderTui, rendererExitSignals} from './render-tui.ts';
 import {routeDrops} from './drop-routing.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
@@ -496,7 +496,7 @@ const {renderer} = await renderTui(
 		isDevBuild={isDevBuild}
 		updateCheckPromise={updateCheckPromise}
 	/>,
-	{},
+	{exitOnCtrlC: false, exitSignals: rendererExitSignals},
 	renderer => {
 		quitTui(renderer, repoName, paneLayout);
 	},

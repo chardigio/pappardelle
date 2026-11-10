@@ -229,6 +229,40 @@ test('install_private_bun refuses a checksum mismatch and keeps an earlier priva
 	t.is(fs.readlinkSync(current), before);
 });
 
+test('install_private_bun removes the private bun it replaces', t => {
+	const home = temporaryDir();
+	const env = {
+		HOME: home,
+		PATH: toolsDir(),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(),
+	};
+	for (let run = 0; run < 2; run++) {
+		const result = runInstallFunction('install_private_bun', env);
+		t.is(result.status, 0, `stderr: ${result.stderr}`);
+	}
+
+	const bunDir = path.join(home, '.pappardelle', 'bun');
+	const releases = fs
+		.readdirSync(bunDir)
+		.filter(entry => entry.startsWith('release.'));
+	t.deepEqual(releases, [
+		path.basename(fs.readlinkSync(path.join(bunDir, 'current'))),
+	]);
+});
+
+test('install_private_bun names the archive URL when its download fails', t => {
+	const dist = fakeBunDist();
+	fs.rmSync(new URL(`${dist}/bun-${platformSuffix()}.zip`));
+	const result = runInstallFunction('install_private_bun', {
+		HOME: temporaryDir(),
+		PATH: toolsDir(),
+		PAPPARDELLE_BUN_DIST_URL: dist,
+	});
+
+	t.not(result.status, 0);
+	t.true(result.stderr.includes(`${dist}/bun-${platformSuffix()}.zip`));
+});
+
 // ============================================================================
 // install_repo_atomically
 // ============================================================================
