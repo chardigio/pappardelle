@@ -27,6 +27,12 @@ class Dialog {
 
 	press(key: string) {
 		if (this.deaf.has(key)) return;
+		// An open free-text row takes digits as text, as Claude's does.
+		if (this.typed !== null && /^\d$/.test(key)) {
+			this.typed += key;
+			return;
+		}
+
 		if (/^\d$/.test(key)) {
 			const row = Number(key);
 			if (row === this.textRow) {
@@ -42,7 +48,10 @@ class Dialog {
 			return;
 		}
 
-		if (key === 'Down') {
+		if (key === 'Up' && typeof this.cursor === 'number' && this.cursor > 1) {
+			if (this.cursor === this.textRow && this.typed === '') this.typed = null;
+			this.cursor--;
+		} else if (key === 'Down') {
 			this.cursor =
 				this.cursor === 'done' || this.cursor === this.textRow
 					? 'done'
@@ -209,4 +218,44 @@ test('the answer rules refuse what the question cannot take', async t => {
 	t.is(await single.run('--option', '1', '--option', '2'), 1);
 	t.regex(single.err[0]!, /single-select/);
 	t.deepEqual([...multi.sent, ...single.sent], []);
+});
+
+test('an open free-text row is left before ticking, and digits never go into it', async t => {
+	const dialog = new Dialog(true);
+	dialog.press('5');
+	const h = harness(dialog);
+	t.is(await h.run('--option', '2', '--option', '4'), 0);
+	t.deepEqual(h.sent.slice(0, 2), ['Up', '2']);
+	t.deepEqual(
+		[...dialog.checked].sort((a, b) => a - b),
+		[2, 4],
+	);
+});
+
+test('a free-text row holding text, the free-text row as an option, and multi-line text are refused before any key', async t => {
+	const typedIn = new Dialog(false);
+	typedIn.press('5');
+	typedIn.type('half an answer');
+	const typed = harness(typedIn);
+	t.is(await typed.run('--option', '1'), 1);
+	t.is(await typed.run('--text', 'fresh'), 1);
+	t.regex(typed.err[0]!, /already holds "half an answer"/);
+
+	const single = harness(new Dialog(false));
+	t.is(await single.run('--option', '5'), 1);
+	t.regex(single.err[0]!, /free-text row; answer it with --text/);
+	t.is(await single.run('--option', '7'), 1);
+	t.regex(single.err[1]!, /no option 7/);
+	t.is(await single.run('--text', 'line one\nline two'), 1);
+	t.regex(single.err[2]!, /one line/);
+	t.deepEqual([...typed.sent, ...single.sent], []);
+});
+
+test('a single-select option is pressed and checked like the rest', async t => {
+	const dialog = new Dialog(false);
+	const h = harness(dialog);
+	t.is(await h.run('--option', '2'), 0);
+	t.deepEqual(h.sent, ['2']);
+	t.true(dialog.answered);
+	t.like(h.logged[0], {sent: '2. Olives'});
 });
