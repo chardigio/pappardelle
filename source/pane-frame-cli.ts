@@ -9,7 +9,7 @@ import {
 import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
-import {paletteSequences} from './pane-frame-palette.ts';
+import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
 import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 
 // Draws a rounded, titled frame in a viewer pane and runs the pane's command
@@ -72,6 +72,10 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 	id: 'terminal',
 	width: '100%',
 	height: '100%',
+	// Until its first layout the terminal would otherwise be 80x24, and a
+	// program that drew at the pane's real size before then is not asked to
+	// draw again.
+	...childSize,
 	maxScrollback: 0,
 	transparentBackground: true,
 	selectable: false,
@@ -100,8 +104,22 @@ if (outerSocket && paneId)
 
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.
-const palette = await renderer.getPalette({timeout: 500}).catch(() => null);
-if (palette) terminal.write(paletteSequences(palette));
+const palette = await queryPalette(
+	{
+		write(sequence) {
+			process.stdout.write(sequence);
+		},
+		subscribeOsc: handler => renderer.subscribeOsc(handler),
+		prependInputHandler(handler) {
+			renderer.prependInputHandler(handler);
+		},
+		removeInputHandler(handler) {
+			renderer.removeInputHandler(handler);
+		},
+	},
+	500,
+);
+terminal.write(paletteSequences(palette));
 renderer.on('palette', (colors: Parameters<typeof paletteSequences>[0]) => {
 	terminal.write(paletteSequences(colors));
 	terminal.invalidate();
