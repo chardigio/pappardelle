@@ -74,7 +74,7 @@ function spaces(initial: Record<string, string>) {
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
-		resolveKey: raw => raw,
+		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
 		hookKey: async key => `no-such-hook-${key}`,
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
@@ -93,7 +93,7 @@ function spaces(initial: Record<string, string>) {
 		policy: {scratchRoots: ['/tmp/q-']},
 		store: () => ({root: '/nonexistent', repo: 'repo'}),
 		timers: () => ({create() {}, remove() {}}),
-		caller: 'STA-9',
+		caller: '9',
 		readStdin: () => undefined,
 		out: text => out.push(text),
 		err() {},
@@ -228,4 +228,32 @@ test('the cursor survives a round trip and junk is refused', t => {
 	t.throws(() => parseSuperviseArgs(['watch', '--timeout', '601']), {
 		instanceOf: SuperviseUsageError,
 	});
+});
+
+test('a new prompt where the last one was answered is news, though the state is the same', async t => {
+	const h = spaces({'STA-1': permission('cksum a')});
+	const first = await h.watch('--until', 'blocked');
+	// Answered; by the next call the agent already asks again.
+	h.screens['STA-1'] = permission('cksum b');
+	const next = await h.watch('--until', 'blocked', '--since', first.cursor);
+	t.like(next.changes[0], {key: 'STA-1', from: 'permission', to: 'permission'});
+	t.is(next.changes[0]!.permission?.command, 'cksum b');
+});
+
+test('a named space with no session comes back at once', async t => {
+	const h = spaces({'STA-1': idle});
+	const result = await h.watch('STA-77', '--until', 'blocked');
+	t.deepEqual(
+		result.changes.map(change => [change.key, change.from, change.to]),
+		[['STA-77', null, 'no_session']],
+	);
+});
+
+test('a closed space leaves the cursor once reported, and junk after a cursor is refused', async t => {
+	const h = spaces({'STA-1': idle, 'STA-2': idle});
+	const first = await h.watch('--timeout', '1');
+	delete h.screens['STA-2'];
+	const closed = await h.watch('--since', first.cursor);
+	t.deepEqual(Object.keys(decodeCursor(closed.cursor)!), ['STA-1']);
+	t.is(decodeCursor(`${first.cursor}!!`), null);
 });

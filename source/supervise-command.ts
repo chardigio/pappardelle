@@ -17,6 +17,7 @@ import {
 	changesSince,
 	encodeCursor,
 	snapshot,
+	stateOf,
 	targetStates,
 	type WatchCursor,
 } from './space-watch.ts';
@@ -278,8 +279,18 @@ function describeChanges(
 	baseline: WatchCursor,
 ): SpaceChange[] {
 	return reports.map(report =>
-		describeChange(report, baseline[report.key] ?? null),
+		describeChange(report, stateOf(baseline[report.key] ?? '')),
 	);
+}
+
+/** The caller's own space, which watching every space leaves out. */
+function ownSpace(deps: SuperviseDeps): string | null {
+	if (deps.caller === 'user' || deps.caller.startsWith('timer:')) return null;
+	try {
+		return deps.resolveKey(deps.caller);
+	} catch {
+		return deps.caller;
+	}
 }
 
 async function watchSpaces(
@@ -288,6 +299,7 @@ async function watchSpaces(
 ): Promise<WatchResult> {
 	const deadline = deps.now().getTime() + command.timeoutSeconds * 1000;
 	const named = command.keys.map(raw => deps.resolveKey(raw));
+	const own = ownSpace(deps);
 	const keys = () => {
 		if (named.length > 0) return named;
 		// A space in the cursor that has since closed still reports, as no_session.
@@ -295,9 +307,21 @@ async function watchSpaces(
 			...listAgentKeys(deps.repo(), deps.runner),
 			...Object.keys(command.since ?? {}),
 		]);
-		all.delete(deps.caller);
+		if (own) all.delete(own);
 		return [...all];
 	};
+
+	// Once a space reported closed, watching every space forgets it.
+	const toCursor = (seen: WatchCursor) =>
+		encodeCursor(
+			named.length > 0
+				? seen
+				: Object.fromEntries(
+						Object.entries(seen).filter(
+							([, value]) => stateOf(value) !== 'no_session',
+						),
+					),
+		);
 
 	const read = async () =>
 		Promise.all(keys().map(async key => readState(key, deps)));
@@ -305,10 +329,18 @@ async function watchSpaces(
 	let reports = await read();
 	// Without a cursor, every space already in a target state is news; with no
 	// targets either, only what changes from here on is.
-	let baseline = command.since ?? (targets ? {} : snapshot(reports));
+	let baseline =
+		command.since ??
+		(targets
+			? {}
+			: Object.fromEntries(
+					Object.entries(snapshot(reports)).filter(
+						([, value]) => stateOf(value) !== 'no_session',
+					),
+				));
 	for (;;) {
 		const changed = changesSince(baseline, reports, targets);
-		const cursor = encodeCursor({...baseline, ...snapshot(reports)});
+		const cursor = toCursor({...baseline, ...snapshot(reports)});
 		if (changed.length > 0) {
 			return {
 				result: 'changed',
@@ -940,7 +972,7 @@ async function execute(
 
 			deps.out(
 				command.json
-					? JSON.stringify(result, null, 2)
+					? JSON.stringify(result)
 					: result.result === 'timed_out'
 						? `Timed out after ${command.timeoutSeconds}s: no watched space changed\nCursor: ${result.cursor}`
 						: [
