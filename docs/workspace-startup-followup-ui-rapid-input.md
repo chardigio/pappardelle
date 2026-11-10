@@ -6,4 +6,4 @@ Real Linux tmux and attached PTY; isolated HOME/config/repository; dummy program
 
 Failure: AssertionError("quick reopen: '🍝 repo | 4 spaces\\n// (0 matches)\\n\\nNo matches.'")
 
-Owned fixture servers stopped, attached client exited, PTYs closed, fixture directory removed. Captured screens: [JSON transcript](workspace-startup-followup-ui-qa.json).
+Owned fixture servers stopped, attached client exited, PTYs closed, fixture directory removed. Captured screens: JSON transcript.

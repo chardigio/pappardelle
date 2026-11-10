@@ -9,4 +9,4 @@ Real Linux tmux and attached PTY; isolated HOME/config/repository; dummy program
 
 No defects found.
 
-Owned fixture servers stopped, attached client exited, PTYs closed, fixture directory removed. Captured screens: [JSON transcript](workspace-startup-followup-ui-qa.json).
+Owned fixture servers stopped, attached client exited, PTYs closed, fixture directory removed. Captured screens: JSON transcript.

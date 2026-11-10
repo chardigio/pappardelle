@@ -6,9 +6,9 @@ The retained changes consolidate tmux geometry reads, avoid resizing panes alrea
 
 ## Current candidate after review fixes
 
-Published QA evidence: [interaction transcript](workspace-startup-qa/review-fixes-qa-interaction.md), [lifecycle transcript](workspace-startup-qa/review-fixes-lifecycle.md), [integration results](workspace-startup-qa/review-fixes-integration-gates.json), [startup trace correlation](workspace-startup-qa/review-fixes-startup-correlation.json), and [restored rail capture](workspace-startup-qa/review-fixes-qa-filter-return.json).
+Published QA evidence: [interaction transcript](workspace-startup-qa/review-fixes-qa-interaction.md), [lifecycle transcript](workspace-startup-qa/review-fixes-lifecycle.md), integration results, startup trace correlation, and restored rail capture.
 
-Candidate SHA-256: `2302b230d0c5a75a9b298f9631082d0a1680afccb6c9dd5e50f537215afd83f5`, preserved with its runtime installation at `/tmp/pappardelle-3wf-review-fixes-vxzzofaq`. The [180-sample comparison](workspace-startup-review-fixes-full-comparison.json) covers five alternating pairs for each width, workspace count and shell/session case. Main plus three registered workspaces, clean shells, medians in milliseconds:
+Candidate SHA-256: `2302b230d0c5a75a9b298f9631082d0a1680afccb6c9dd5e50f537215afd83f5`, preserved with its runtime installation at `/tmp/pappardelle-3wf-review-fixes-vxzzofaq`. The 180-sample comparison covers five alternating pairs for each width, workspace count and shell/session case. Main plus three registered workspaces, clean shells, medians in milliseconds:
 
 | Width | Sessions | Baseline rail | Candidate rail | Baseline all visible | Candidate all visible |
 | ----- | -------- | ------------: | -------------: | -------------------: | --------------------: |
@@ -21,9 +21,9 @@ Candidate SHA-256: `2302b230d0c5a75a9b298f9631082d0a1680afccb6c9dd5e50f537215afd
 
 “All visible” is the per-sample maximum of rail and required viewer visibility, then summarized. Main-only wide fresh launches improved from 258–260 ms to 236 ms; narrow main-only launches were unchanged at about 231 ms. Injecting a one-second shell delay still delays agent visibility by approximately one second. Differences of a few milliseconds are below the launch observer's polling resolution.
 
-The [40-sample contention comparison](workspace-startup-review-fixes-contention.json), with [two busy workers sharing two CPUs](workspace-startup-review-fixes-contention-settings.json), had all-visible medians of 463.9→439.4 ms and 456.3→406.1 ms for fresh 100/160-column launches. Retained medians were 387.3→374.5 ms and 410.7→381.3 ms. The candidate's slowest fresh 160-column sample was 540.7 ms versus baseline 506.7 ms; improved medians do not mean every launch is faster.
+The 40-sample contention comparison, with two busy workers sharing two CPUs, had all-visible medians of 463.9→439.4 ms and 456.3→406.1 ms for fresh 100/160-column launches. Retained medians were 387.3→374.5 ms and 410.7→381.3 ms. The candidate's slowest fresh 160-column sample was 540.7 ms versus baseline 506.7 ms; improved medians do not mean every launch is faster.
 
-The stricter resize guard initially regressed the delayed-tmux diagnostic to [272–274 ms](workspace-startup-review-fixes-delayed.json). Reusing already measured geometry when reconciliation performs no mutation removed the redundant query. The [final delayed diagnostic](workspace-startup-review-fixes-noop-delayed.json) passed all nine filter-return cycles across three launches: median 191.8 ms, range 185.5–195.0 ms, against the 250 ms diagnostic budget. This is synthetic delay evidence, not native latency.
+The stricter resize guard initially regressed the delayed-tmux diagnostic to 272–274 ms. Reusing already measured geometry when reconciliation performs no mutation removed the redundant query. The final delayed diagnostic passed all nine filter-return cycles across three launches: median 191.8 ms, range 185.5–195.0 ms, against the 250 ms diagnostic budget. This is synthetic delay evidence, not native latency.
 
 Review fixes also clear attachment caches after partial failure, distinguish real resize/state changes from same-size resize notifications, scope monitor tracing to selected startup preparation, overlap independent TTY reads, and reuse measured geometry during orientation rebuilds. Obsolete layout helpers were removed. The full formatting/lint/unit gate passed 2,540 tests. All four program-status integrations and 24 compiled CLI smoke tests passed again after the review fixes; commands and results are recorded in `.show-your-work/review-fixes-integration-gates.json` and its log.
 
@@ -35,7 +35,7 @@ All three requested review tracks completed. Nine Claude findings were fixed; Co
 
 ## Previously validated comparison
 
-The [final 180-sample comparison](workspace-startup-final-comparison.json) has no readiness failures. Five alternating pairs cover each of the 18 fixture cases. For main plus three registered workspaces and clean shells:
+The final 180-sample comparison has no readiness failures. Five alternating pairs cover each of the 18 fixture cases. For main plus three registered workspaces and clean shells:
 
 | Width | Session  | Baseline visible median (range) | Candidate visible median (range) |
 | ----- | -------- | ------------------------------: | -------------------------------: |
@@ -50,9 +50,9 @@ Fresh wide visibility improves by about 24–25 ms. Narrow and retained visibili
 
 Baseline SHA-256: `3362a6c678606e6953f39c881b5eb2a3b30a704144dfbbdf4004a9c8cabcc57b`. Candidate SHA-256: `acbc90e28fbb4094ad3ba096ad8e20a44207def1eff6cc1c810e1c19af71d697`. The compared installations are `/tmp/pappardelle-3wf-baseline-bipgmn76` and `/tmp/pappardelle-3wf-concurrency-5yad0v16`, each with matching runtime scripts and dependencies.
 
-The [final separate command trace](workspace-startup-final-trace.json) contains 49 completed tmux calls versus the baseline's 63, eight Git calls, two incomplete long-lived viewer attaches, and two completed relayouts. It was collected during QA activity; its wall times are not performance evidence.
+The final separate command trace contains 49 completed tmux calls versus the baseline's 63, eight Git calls, two incomplete long-lived viewer attaches, and two completed relayouts. It was collected during QA activity; its wall times are not performance evidence.
 
-A [40-sample contention comparison](workspace-startup-contention.json) also completed without readiness failures. The benchmark and two busy workers shared two CPUs; [settings](workspace-startup-contention-settings.json) record this synthetic constraint. At 100 columns, fresh visible medians were 472.7 ms baseline and 422.0 ms candidate, but the candidate's slowest sample reached 520.4 ms versus 479.0 ms baseline. At 160 columns, fresh medians were 443.6 and 439.9 ms. Retained medians were 384.5→369.6 ms and 368.1→343.7 ms respectively. These small sets show successful operation under contention, not a guarantee that the candidate wins every launch or reproduces macOS scheduling.
+A 40-sample contention comparison also completed without readiness failures. The benchmark and two busy workers shared two CPUs; settings record this synthetic constraint. At 100 columns, fresh visible medians were 472.7 ms baseline and 422.0 ms candidate, but the candidate's slowest sample reached 520.4 ms versus 479.0 ms baseline. At 160 columns, fresh medians were 443.6 and 439.9 ms. Retained medians were 384.5→369.6 ms and 368.1→343.7 ms respectively. These small sets show successful operation under contention, not a guarantee that the candidate wins every launch or reproduces macOS scheduling.
 
 ## Measurement method
 
@@ -64,7 +64,7 @@ Raw artifacts include executable hashes, installation roots, harness hash, envir
 
 ## Geometry stage
 
-[180 paired samples](workspace-startup-geometry-comparison.json), five baseline/candidate pairs per case, completed without readiness failures. Cases cover 80/100/160 columns, 0/3 registered workspaces, fresh clean shells, fresh shells with an injected one-second delay, and retained inner sessions.
+180 paired samples, five baseline/candidate pairs per case, completed without readiness failures. Cases cover 80/100/160 columns, 0/3 registered workspaces, fresh clean shells, fresh shells with an injected one-second delay, and retained inner sessions.
 
 Main plus three workspaces, clean shell:
 
@@ -81,13 +81,13 @@ Fresh wide visibility improved by 24–27 ms, with roughly 8 ms earlier agent re
 
 One targeted `list-panes` response supplies window dimensions and measured pane sizes together. Post-split and post-mutation measurements remain authoritative, preserving tmux rounding and user drags. The reconciliation path skips resize commands when dimensions already match. A rail resize still forces companion reconciliation because changing one pane can change another.
 
-The [separate geometry command trace](workspace-startup-geometry-trace.json) contains 50 completed tmux calls, down from 63 in the baseline trace. Both retain two incomplete long-lived viewer attach processes. Git counts were 7 versus 8 in these individual runs; that difference is not attributed to geometry. Both initial layout passes remain.
+The separate geometry command trace contains 50 completed tmux calls, down from 63 in the baseline trace. Both retain two incomplete long-lived viewer attach processes. Git counts were 7 versus 8 in these individual runs; that difference is not attributed to geometry. Both initial layout passes remain.
 
 ## Session and viewer concurrency
 
-[180 paired samples](workspace-startup-concurrency-comparison.json) compare this stage with geometry alone and have no readiness failures. End-to-end medians do not establish a standalone visibility improvement. In particular, the narrow fresh case sometimes falls into the next visibility polling interval. The earlier [session-only experiment](workspace-startup-session-preparation.json) also showed no consistent end-to-end improvement.
+180 paired samples compare this stage with geometry alone and have no readiness failures. End-to-end medians do not establish a standalone visibility improvement. In particular, the narrow fresh case sometimes falls into the next visibility polling interval. The earlier session-only experiment also showed no consistent end-to-end improvement.
 
-[Twenty separately traced native samples](workspace-startup-concurrency-spans.json), five pairs each for fresh and retained sessions at 100 columns with three registered workspaces, resolve the smaller internal difference:
+Twenty separately traced native samples, five pairs each for fresh and retained sessions at 100 columns with three registered workspaces, resolve the smaller internal difference:
 
 | Span              | Geometry fresh | Concurrent fresh | Geometry retained | Concurrent retained |
 | ----------------- | -------------: | ---------------: | ----------------: | ------------------: |
@@ -100,15 +100,15 @@ The retained rationale is a repeatable reduction in internal attachment wait, no
 
 ## Rejected experiments and remaining work
 
-- Skipping the loading-time layout pass alone regressed fresh visibility by roughly 24–26 ms across all three widths in [60 paired samples](workspace-startup-layout-comparison.json). It moved reconciliation in front of attachment instead of overlapping discovery
-- Starting main-worktree Git discovery before synchronous pane setup, passing its promise to the first refresh only, produced no consistent visible improvement in [60 paired samples](workspace-startup-discovery-comparison.json)
-- Combining early discovery with the skipped pass likewise did not improve visibility in [20 paired samples](workspace-startup-combined-discovery-layout.json): fresh medians 235.95 versus 236.60 ms; retained 212.56 versus 212.84 ms
+- Skipping the loading-time layout pass alone regressed fresh visibility by roughly 24–26 ms across all three widths in 60 paired samples. It moved reconciliation in front of attachment instead of overlapping discovery
+- Starting main-worktree Git discovery before synchronous pane setup, passing its promise to the first refresh only, produced no consistent visible improvement in 60 paired samples
+- Combining early discovery with the skipped pass likewise did not improve visibility in 20 paired samples: fresh medians 235.95 versus 236.60 ms; retained 212.56 versus 212.84 ms
 
 Those experiments were removed. The original loading/workspace-count, resize and dialog requests remain. The first layout overlaps discovery; the final pass supplies measured renderer dimensions and settles the revision that allows the rail to paint. The geometry change removes redundant mutations inside those passes without dropping their settlement guarantees.
 
 The geometry-stage native trace places roughly 84 ms before the CLI body, 9 ms in configuration/bootstrap, 3 ms in required cleanup/migration/reaping, 15 ms in pane setup, 5 ms in commit/version metadata, and 12 ms in renderer initialization. These are one-run observations, not additive exclusive profile totals. Imports and executable initialization are reported as unattributed; this investigation has not established how much could be removed by changing module loading. Commit metadata also identifies the running TUI build for restart, so it is not solely help text. Dependent pane splits need returned pane IDs. Chrome and focus keep their independent failure behavior. Monitor installation precedes agent launch so the first status report is captured.
 
-A [ten-run separately compiled import probe](workspace-startup-import-profile.json) used the same native bytecode/minification settings. Its median intervals were 40.4 ms before the probe entry point, 19.9 ms loading OpenTUI core, 1.3 ms loading its React integration, 5.8 ms for remaining App dependencies, and 4.3 ms for CLI argument dependencies. React itself added less than 0.1 ms. The probe deliberately imports sequentially, so these are attribution clues rather than the production CLI's exact import order. Most of the interval belongs to native process initialization and the renderer required for the TUI; lazily moving App imports would retain those dependencies before first render. No module-loading change was retained.
+A ten-run separately compiled import probe used the same native bytecode/minification settings. Its median intervals were 40.4 ms before the probe entry point, 19.9 ms loading OpenTUI core, 1.3 ms loading its React integration, 5.8 ms for remaining App dependencies, and 4.3 ms for CLI argument dependencies. React itself added less than 0.1 ms. The probe deliberately imports sequentially, so these are attribution clues rather than the production CLI's exact import order. Most of the interval belongs to native process initialization and the renderer required for the TUI; lazily moving App imports would retain those dependencies before first render. No module-loading change was retained.
 
 This is a finite investigation, not evidence of an absolute optimum. Real macOS startup, user shell initialization, Claude initialization and resume remain separate acceptance work under `pappardelle-3wf.6`.
 
@@ -116,15 +116,15 @@ This is a finite investigation, not evidence of an absolute optimum. Real macOS 
 
 The benchmark now observes the main row plus the first visible registered workspace, independently of agent readiness and viewer visibility. It also sends `/`, waits for the filter prompt, sends Escape, and captures the restored workspace list. Interaction polling is 5 ms plus observer overhead; launch polling remains 20 ms plus overhead.
 
-The [slow-tmux reproduction](workspace-startup-rail-delayed-repro.json) failed a diagnostic 250 ms rail-return budget: about 671 ms after Escape. Each wrapped tmux invocation includes an injected 20 ms delay and Python startup overhead. These times expose serialized work; they are neither native Linux timings nor a macOS simulation.
+The slow-tmux reproduction failed a diagnostic 250 ms rail-return budget: about 671 ms after Escape. Each wrapped tmux invocation includes an injected 20 ms delay and Python startup overhead. These times expose serialized work; they are neither native Linux timings nor a macOS simulation.
 
-[Temporary instrumentation](workspace-startup-rail-diagnostic-delayed.json) found three layout passes after Escape. Zoom/unzoom resize notifications queued further requests while the current pass was running. A generation guard suppressed readiness for each completed pass even though the desired zoom state and dialog revision had not changed. Event-loop lag during these waits was mostly below 1 ms: the rail was waiting for asynchronous layout completion rather than continuously blocking the UI thread.
+Temporary instrumentation found three layout passes after Escape. Zoom/unzoom resize notifications queued further requests while the current pass was running. A generation guard suppressed readiness for each completed pass even though the desired zoom state and dialog revision had not changed. Event-loop lag during these waits was mostly below 1 ms: the rail was waiting for asynchronous layout completion rather than continuously blocking the UI thread.
 
-Publishing confirmed geometry for the current dialog revision, while still running the pending final pass, reduced the [intermediate median](workspace-startup-rail-intermediate-ready-delayed.json) to about 272 ms. Consolidating zoom, direction, layout and final dimensions into targeted geometry snapshots reduced it to [193 ms median, 217 ms maximum](workspace-startup-rail-reconciled-delayed.json), with all three cycles passing the diagnostic budget. A regression test covers a resize arriving during unzoom; existing tests still cover reopening dialogs, cancellation and final geometry. The real tmux test covers another selected window, preserved dragged widths, zoom and orientation rebuilds.
+Publishing confirmed geometry for the current dialog revision, while still running the pending final pass, reduced the intermediate median to about 272 ms. Consolidating zoom, direction, layout and final dimensions into targeted geometry snapshots reduced it to 193 ms median, 217 ms maximum, with all three cycles passing the diagnostic budget. A regression test covers a resize arriving during unzoom; existing tests still cover reopening dialogs, cancellation and final geometry. The real tmux test covers another selected window, preserved dragged widths, zoom and orientation rebuilds.
 
-The [36-sample native pilot](workspace-startup-rail-reconciliation.json) had no readiness failures. Filter return remained approximately 45 ms on this machine. That pilot included the experimental renderer/preparation gate described below, so its startup timings do not isolate the rail fix. Temporary rail probes were removed after diagnosis. The benchmark retains terminal captures, interaction timings and the optional delayed-tmux diagnostic.
+The 36-sample native pilot had no readiness failures. Filter return remained approximately 45 ms on this machine. That pilot included the experimental renderer/preparation gate described below, so its startup timings do not isolate the rail fix. Temporary rail probes were removed after diagnosis. The benchmark retains terminal captures, interaction timings and the optional delayed-tmux diagnostic.
 
-The [clean 60-sample comparison](workspace-startup-rail-clean-comparison.json) compares the previously validated concurrency stage with the rail changes, without simultaneous builds or tests. There were no readiness failures. Medians in milliseconds:
+The clean 60-sample comparison compares the previously validated concurrency stage with the rail changes, without simultaneous builds or tests. There were no readiness failures. Medians in milliseconds:
 
 | Width | Sessions | Earlier rail | Current rail | Earlier both visible | Current both visible |
 | ----- | -------- | -----------: | -----------: | -------------------: | -------------------: |
@@ -139,15 +139,15 @@ The [clean 60-sample comparison](workspace-startup-rail-clean-comparison.json) c
 
 That pre-review executable SHA-256 is `771921c1f909c3f06e6e0434729ac4947501775f10f5ce9058410c1433b47c22`, preserved at `/tmp/pappardelle-3wf-rail-first-paint-t7dostly`. Its table records an intermediate stage; the current candidate is measured above. The simpler original attachment queue is retained; speculative preparation queues and background timers are not.
 
-The first rail render also invoked a synchronous tmux version query even for text containing no skin-tone modifiers. The no-op path now returns without querying tmux; tests retain the exact bare-3.6 workaround. A [12-sample pilot](workspace-startup-rail-version-probe.json) was noisy and does not establish a general startup gain. Rendering an actual skin-tone modifier can still invoke the synchronous probe; its asynchronous replacement remains part of `pappardelle-p9s`.
+The first rail render also invoked a synchronous tmux version query even for text containing no skin-tone modifiers. The no-op path now returns without querying tmux; tests retain the exact bare-3.6 workaround. A 12-sample pilot was noisy and does not establish a general startup gain. Rendering an actual skin-tone modifier can still invoke the synchronous probe; its asynchronous replacement remains part of `pappardelle-p9s`.
 
 ## Additional orchestration experiments
 
-- Preparing inner sessions while outer layout runs was measured in [60 paired samples](workspace-startup-preparation-layout-overlap.json) and [20 native traced samples](workspace-startup-preparation-overlap-spans.json). Only about 4 ms of layout queue wait was available to overlap, and competing preparation took about 2 ms longer. End-to-end results were inconclusive
-- Starting preparation alongside dynamic renderer imports made the dummy agent ready about 41 ms earlier in a [20-sample pilot](workspace-startup-renderer-preparation-overlap.json), but did not make its output visible earlier. It also gated rendering on preparation. Removing that gate in [20 paired samples](workspace-startup-reject-renderer-gate.json) moved fresh rail visibility from 239.0 to 209.4 ms while visible workspace readiness stayed around 263 ms. The gate and its initial-workspace handoff were removed
-- A [20-sample queue-removal experiment](workspace-startup-reject-preparation-queue.json) had large fresh-start outliers and does not conclusively establish a benefit or regression. Focused tests overlapped its first samples. All samples are preserved; the final candidate comparison above provides the clean follow-up
-- A temporary 500 ms deferral moved status/detail reads, provider polling and skill discovery after initial visibility. In [20 paired samples](workspace-startup-background-deferral.json), fresh rail medians were 209.2 versus 209.8 ms, and visible readiness 262.8 versus 261.3 ms. Agent readiness improved 247.5→239.1 ms, but retained rail and viewer medians became about 4–5 ms slower. The prototype was removed because it did not improve visible readiness enough to justify delaying status information
-- Making initial readiness wait for all pending layout requests, while retaining early readiness after dialog close, did not recover earlier agent visibility in [20 paired samples](workspace-startup-initial-readiness-policy.json). This special case was removed
+- Preparing inner sessions while outer layout runs was measured in 60 paired samples and 20 native traced samples. Only about 4 ms of layout queue wait was available to overlap, and competing preparation took about 2 ms longer. End-to-end results were inconclusive
+- Starting preparation alongside dynamic renderer imports made the dummy agent ready about 41 ms earlier in a 20-sample pilot, but did not make its output visible earlier. It also gated rendering on preparation. Removing that gate in 20 paired samples moved fresh rail visibility from 239.0 to 209.4 ms while visible workspace readiness stayed around 263 ms. The gate and its initial-workspace handoff were removed
+- A 20-sample queue-removal experiment had large fresh-start outliers and does not conclusively establish a benefit or regression. Focused tests overlapped its first samples. All samples are preserved; the final candidate comparison above provides the clean follow-up
+- A temporary 500 ms deferral moved status/detail reads, provider polling and skill discovery after initial visibility. In 20 paired samples, fresh rail medians were 209.2 versus 209.8 ms, and visible readiness 262.8 versus 261.3 ms. Agent readiness improved 247.5→239.1 ms, but retained rail and viewer medians became about 4–5 ms slower. The prototype was removed because it did not improve visible readiness enough to justify delaying status information
+- Making initial readiness wait for all pending layout requests, while retaining early readiness after dialog close, did not recover earlier agent visibility in 20 paired samples. This special case was removed
 
 These experiments preserve their installation roots and executable hashes in the raw artifacts. They do not replace the final correctness checks or real-configuration macOS measurements.
 
@@ -161,7 +161,7 @@ An outside-tmux launcher passes tracing and its parent correlation through expli
 
 Monitor spans cover selected startup preparation only; background workspace-status probes do not consume the startup trace budget. Tracing ends after attachment, pending work and a 300 ms quiet observation interval. A 30-second cap and 512-record bound produce an explicit incomplete result. Disabled tracing allocates no spans and writes no trace records. Failure/cancellation records use debug logging and do not populate the error overlay.
 
-The [trace overhead comparison](workspace-startup-trace-overhead.json) has 20 alternating trace-disabled/enabled samples. Host variation (fresh visible ranges of roughly 236–364 ms) exceeds any observable tracing difference; it does not justify claiming zero overhead. Performance claims above use trace-disabled samples. Native traced spans are labeled separately.
+The trace overhead comparison has 20 alternating trace-disabled/enabled samples. Host variation (fresh visible ranges of roughly 236–364 ms) exceeds any observable tracing difference; it does not justify claiming zero overhead. Performance claims above use trace-disabled samples. Native traced spans are labeled separately.
 
 ## Earlier-stage validation and boundaries
 

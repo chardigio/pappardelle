@@ -9,4 +9,4 @@ Passed against binary SHA `0d29663b776f20cd670fbf8703665742a74fcc9bad6868b0755b2
 
 No introduced lifecycle defect found. Logs still contain `setRawMode failed with errno: 5` after outer-session teardown, also recorded in the preserved original baseline (`.show-your-work/qa-lifecycle-baseline.json`). This does not indicate a new regression; the attached PTY restoration check passed. Startup SIGTERM is tested separately from keyboard readiness: this test does not claim that `q` is handled before the UI mounts.
 
-[Captures, retained identities, terminal result and teardown logs](workspace-startup-followup-lifecycle-qa.json). Replay script and raw terminal capture remain under `.show-your-work/startup-followup-lifecycle*` for local audit; no fixture processes remain running.
+Captures, retained identities, terminal result and teardown logs. Replay script and raw terminal capture remain under `.show-your-work/startup-followup-lifecycle*` for local audit; no fixture processes remain running.

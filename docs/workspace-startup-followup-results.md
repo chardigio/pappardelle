@@ -25,7 +25,7 @@ Times below are medians in milliseconds for **three registered workspaces**. Vis
 | Outside tmux | 160   | Fresh    | 327.1 → 283.1       | 380.9 → 334.7          |
 | Outside tmux | 160   | Retained | 308.2 → 286.1       | 335.9 → 287.9          |
 
-[Inside raw comparison](workspace-startup-combined-inside-comparison.json), [outside raw comparison](workspace-startup-combined-outside-comparison.json). Main-only inside-tmux cases showed about 22–25 ms earlier rail visibility at 100/160 columns; three-workspace first rail paint was roughly unchanged. Do not generalize the outside-launch benefit to every inside launch.
+Inside raw comparison, outside raw comparison. Main-only inside-tmux cases showed about 22–25 ms earlier rail visibility at 100/160 columns; three-workspace first rail paint was roughly unchanged. Do not generalize the outside-launch benefit to every inside launch.
 
 ## Attribution and rejected routes
 
@@ -36,7 +36,7 @@ Times below are medians in milliseconds for **three registered workspaces**. Vis
 - A truncation-only native-width candidate passed 180 comparison samples and improved retained viewer visibility at 100/160 columns by about 25 ms. The final shared helper also covers profile emoji, frame titles, ready work, and popup sizing
 - Synchronous initial React rendering and skipping no-argument CLI parsing showed no reliable gain in their 20-sample pilots and were reverted
 
-Diagnostic artifacts: [bootstrap probes](workspace-startup-bootstrap-attribution.json), [CPU attribution](workspace-startup-cpu-attribution.json), [effect probes](workspace-startup-effect-diagnostic.json), [render probes](workspace-startup-render-diagnostic.json), [native-width comparison](workspace-startup-native-width-full-comparison.json), [lazy-popup comparison](workspace-startup-lazy-popup-outside-comparison.json), [synchronous-render pilot](workspace-startup-sync-render-pilot.json), [argument-parser pilot](workspace-startup-noargs-parse-pilot.json). The initial CPU diagnostic attempt did not produce profiles because it awaited the long-lived CLI; use the attribution artifact and subsequent profiled runs instead. Diagnostic native-width spans included one overlapping focused test and are not clean comparative performance evidence.
+Diagnostic artifacts: bootstrap probes, CPU attribution, effect probes, render probes, native-width comparison, lazy-popup comparison, synchronous-render pilot, argument-parser pilot. The initial CPU diagnostic attempt did not produce profiles because it awaited the long-lived CLI; use the attribution artifact and subsequent profiled runs instead. Diagnostic native-width spans included one overlapping focused test and are not clean comparative performance evidence.
 
 ## Updated waterfall and filter return
 
@@ -46,9 +46,9 @@ This is the median-visible actual sample of three traced fresh launches at 100 c
 
 The remaining pre-trace executable/import block is 64.8 ms. Renderer/application module loading is now visible as a separate 25.8 ms span, followed by 11.6 ms of renderer initialization. Initial/final layout passes take 10.1/3.3 ms; gaps around rendering are 10.7/11.0 ms. Agent preparation takes 27.3 ms and overlaps 19.1 ms of companion preparation; viewer attachment takes 9.2 ms. These overlapping bars must not be added. The diagram covers the TUI process inside tmux: the outside-launch gain comes from skipping renderer loading in its parent, which this diagram does not include.
 
-[Raw trace](workspace-startup-combined-waterfall.json), [selected sample](workspace-startup-combined-waterfall-summary.json), [SVG](workspace-startup-combined-waterfall.svg). Regenerate with `uv run --with matplotlib python -P scripts/benchmarks/startup-waterfall.py --input docs/workspace-startup-combined-waterfall.json --output-prefix docs/workspace-startup-combined-waterfall`.
+Raw trace, selected sample, SVG. Regenerate with `uv run --with matplotlib python -P scripts/benchmarks/startup-waterfall.py --input docs/workspace-startup-combined-waterfall.json --output-prefix docs/workspace-startup-combined-waterfall`.
 
-Nine native filter-close cycles had a 44.7 ms median and 45.1 ms maximum. Nine cycles with an added 8 ms delay per tmux call had a 113.1 ms median and 156.8 ms maximum; all passed the 250 ms diagnostic budget. The delayed case also includes Python wrapper overhead and is synthetic. [Native evidence](workspace-startup-combined-filter-native.json), [delayed evidence](workspace-startup-combined-filter-delayed.json).
+Nine native filter-close cycles had a 44.7 ms median and 45.1 ms maximum. Nine cycles with an added 8 ms delay per tmux call had a 113.1 ms median and 156.8 ms maximum; all passed the 250 ms diagnostic budget. The delayed case also includes Python wrapper overhead and is synthetic. Native evidence, delayed evidence.
 
 ## Validation and review
 
@@ -56,7 +56,7 @@ Build and type checking passed. All 2,543 tests passed with `bun --bun ava --con
 
 [Lifecycle QA](workspace-startup-followup-lifecycle-qa.md) passed ten exit/reopen cycles, three startup interruptions, retained process identities, and complete terminal-mode restoration. [Attached-terminal UI QA](workspace-startup-followup-ui-qa.md) passed family ZWJ icons, clipped Unicode issue titles, help, close confirmation, and the native issue popup. Owned fixture servers/processes and PTYs were cleaned up.
 
-The extended QA harness exposed limits rather than new regressions: forced resize with long Unicode titles showed only the selected row on both [baseline](workspace-startup-followup-ui-baseline.json) and [candidate](workspace-startup-followup-ui-resize.json); a rapid Escape-then-slash sequence was interpreted as input before filter dismissal. The final popup check waits for actual rendered dismissal. The first fixture's provider stub had an invalid newline escape and was corrected. These failed attempts remain recorded; they are not counted as passes. Separate native/delayed filter benchmarks above passed all 18 cycles.
+The extended QA harness exposed limits rather than new regressions: forced resize with long Unicode titles showed only the selected row on both baseline and candidate; a rapid Escape-then-slash sequence was interpreted as input before filter dismissal. The final popup check waits for actual rendered dismissal. The first fixture's provider stub had an invalid newline escape and was corrected. These failed attempts remain recorded; they are not counted as passes. Separate native/delayed filter benchmarks above passed all 18 cycles.
 
 All three review tracks completed; [verified dispositions](workspace-startup-followup-review.md) distinguish the corrected stale comment, existing limitations, and retained tradeoffs.
 

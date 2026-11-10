@@ -2,7 +2,7 @@
 
 ![Measured startup waterfall](workspace-startup-waterfall.png)
 
-This is the historical pre-follow-up waterfall, not a demonstrated minimum. The [follow-up investigation](workspace-startup-followup-results.md) identified removable renderer imports and cold Unicode regex work. See the [updated waterfall](workspace-startup-combined-waterfall.png) and [raw trace](workspace-startup-combined-waterfall.json) for the combined candidate.
+This is the historical pre-follow-up waterfall, not a demonstrated minimum. The [follow-up investigation](workspace-startup-followup-results.md) identified removable renderer imports and cold Unicode regex work. See the [updated waterfall](workspace-startup-combined-waterfall.png) and raw trace for the combined candidate.
 
 The diagram uses the middle-visible sample of three fresh launches of candidate SHA `2302b230`, at 100 columns with three registered workspaces. It uses actual overlapping spans from one launch, not separately calculated medians. All three launches passed: rail visibility 208.1–209.0 ms, required viewer visibility 260.1–262.9 ms. These are Linux fixtures with dummy agents, not real Claude or macOS measurements.
 
@@ -17,4 +17,4 @@ Process-uptime spans are aligned to the benchmark clock using the median differe
 
 The rail becomes visible before session preparation finishes. For rail launch feel, focus first on module initialization and the renderer/layout gaps. For real agent readiness, measure the user's interactive shell and Claude process separately; those are replaced with a controlled dummy here.
 
-Source data: [raw spans](workspace-startup-waterfall-trace.json), [selected sample and alignment](workspace-startup-waterfall-summary.json), [SVG](workspace-startup-waterfall.svg). Regenerate with `uv run --with matplotlib python -P scripts/benchmarks/startup-waterfall.py`.
+Source data: raw spans, selected sample and alignment, SVG. Regenerate with `uv run --with matplotlib python -P scripts/benchmarks/startup-waterfall.py`.

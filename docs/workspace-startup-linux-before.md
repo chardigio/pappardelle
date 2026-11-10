@@ -23,9 +23,9 @@ All 30 retained-session samples verified unchanged process IDs and ready timesta
 
 The raw matrix also includes main alone and the delayed-shell cases at all three widths. It retains every sample, minimum, median, maximum, provider invocation, application log event, and final pane transcript:
 
-- [Final raw matrix](workspace-startup-linux-before.json)
-- [Separate subprocess trace](workspace-startup-linux-before.trace.json)
-- [Alternating identical-build check](workspace-startup-linux-equivalence.json)
+- Final raw matrix
+- Separate subprocess trace
+- Alternating identical-build check
 
 ## Command trace and investigation targets
 
