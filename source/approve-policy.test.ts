@@ -33,6 +33,8 @@ test('rm anywhere else needs a person', t => {
 	t.false(allowed('sh -c "rm -rf /home/u"'));
 	t.false(allowed('find /home/u -delete'));
 	t.false(allowed('find /tmp/q-a -exec rm {} +'));
+	t.false(allowed('D=$(mktemp -d)/../../home/u; rm -rf $D'));
+	t.false(allowed('D="$(mktemp -d; echo $HOME)"; rm -rf $D'));
 });
 
 test('publishing anything needs a person', t => {
@@ -49,6 +51,7 @@ test('publishing anything needs a person', t => {
 		'gh issue close 4',
 		'gh api repos/x/y/issues -f title=x',
 		'git reset --hard HEAD~1',
+		'gh api repos/o/r/issues -XPOST -ftitle=x',
 	]) {
 		t.false(allowed(command), `${command}`);
 	}
@@ -60,6 +63,9 @@ test('kill-server is approved only on an isolated QA socket', t => {
 	t.false(allowed('tmux kill-server'));
 	t.false(allowed('TMUX_TMPDIR=/tmp/x tmux kill-server'));
 	t.false(allowed('tmux -L pappardelle_inner kill-server'));
+	t.false(allowed('tmux -S /tmp/q-a/s kill-server; tmux kill-server'));
+	t.false(allowed('tmux kill-session -t agent-repo-STA-1'));
+	t.true(allowed('tmux -S /tmp/q-a/s kill-session -t x'));
 });
 
 test('a refusal says why', t => {
