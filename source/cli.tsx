@@ -70,7 +70,7 @@ import {
 } from './close-command.ts';
 import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
-import {recordSupervision} from './supervise-log.ts';
+import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {isSuperviseVerb} from './supervise-args.ts';
 import {runSuperviseCommand} from './supervise-command.ts';
 import {defaultSuperviseDeps, rearmSchedules} from './supervise-runtime.ts';
@@ -367,7 +367,7 @@ if (cli.input[0] === 'send') {
 			: await sendToSpaceAgent(issueKey, text, {force});
 	recordSupervision(
 		getRepoName(),
-		process.env['PAPPARDELLE_SPACE'] || 'user',
+		callerFromEnv(process.env),
 		{
 			action: 'send',
 			key: issueKey,
