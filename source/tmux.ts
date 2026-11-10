@@ -843,6 +843,22 @@ async function switchClientToSession(
  * Kill a tmux session by name on the default socket.
  * Used for the outer `pappardelle-{repo}` session on Pappardelle quit.
  */
+/** The pid tmux started in a pane; it changes when the pane is respawned. */
+export async function panePid(paneId: string): Promise<string | undefined> {
+	try {
+		const pid = await runTmux([
+			'display-message',
+			'-p',
+			'-t',
+			paneId,
+			'#{pane_pid}',
+		]);
+		return pid.trim();
+	} catch {
+		return undefined;
+	}
+}
+
 export function killSession(sessionName: string): boolean {
 	try {
 		if (!sessionExists(sessionName)) {

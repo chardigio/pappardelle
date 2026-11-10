@@ -30,6 +30,7 @@ import TruncatedLine, {type Run} from './components/TruncatedLine.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
 import {
 	closeTuiLayout,
+	paneRespawned,
 	installedLaunchCommand,
 	restartOwnTui,
 } from './tui-sessions.ts';
@@ -172,6 +173,7 @@ import {
 	focusPane,
 	getCurrentlyViewingSpace,
 	killSession,
+	panePid,
 	currentDefaultServerSession,
 	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
@@ -740,7 +742,24 @@ export default function App({
 		};
 
 		quitOnCtrlC(renderer, quit);
-		quitOnSignals(quit);
+
+		const paneId = process.env['TMUX_PANE'];
+		let startedPid: string | undefined;
+		if (paneId) {
+			void panePid(paneId).then(pid => {
+				startedPid = pid;
+			});
+		}
+
+		quitOnSignals(() => {
+			if (
+				paneId &&
+				startedPid &&
+				paneRespawned(paneId, startedPid, closeLayoutDeps.layoutTmux)
+			)
+				renderer.destroy();
+			else quit();
+		});
 	}, [renderer, repoName]);
 
 	const dialogRequest = useRef({zoomed: anyDialogOpen, revision: 0});
