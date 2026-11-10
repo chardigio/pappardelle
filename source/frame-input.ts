@@ -11,10 +11,10 @@ export type InputSegment = {to: 'program' | 'renderer'; bytes: Uint8Array};
 
 type Carry = 'none' | 'string' | 'string-escape' | 'csi' | 'paste';
 
-// A terminal writes a reply or a mouse report within a few milliseconds even
-// when it comes in pieces. One still unfinished after this long was not one:
+// The renderer's parser gives up on an unfinished sequence after 20 ms and
+// reads what follows as keys. One still unfinished by then was not a reply:
 // Alt+] and a digit typed with it, say.
-const CARRY_MS = 100;
+const CARRY_MS = 20;
 
 /**
  * Splits what a viewer pane reads from its terminal between the program in
@@ -27,15 +27,39 @@ const CARRY_MS = 100;
  * reports, whose position is in this pane's cells, pastes, focus reports and
  * the terminal's replies to its queries.
  *
- * A reply or a paste can be split across reads, so state carries over.
+ * A reply or a paste can be split across reads, so state carries over. A
+ * read can also end one or two bytes into a sequence when input arrives
+ * faster than it is read, as a stream of mouse reports does. Those bytes are
+ * held for the next read; `release` hands them over when none follows.
  */
 export class FrameInputRouter {
 	private carry: Carry = 'none';
 	private carriedSince = 0;
 	private now = 0;
 	private pasteEndMatched = 0;
+	private held: Uint8Array | undefined;
 
-	route(chunk: Uint8Array, now = performance.now()): InputSegment[] {
+	/** Whether the last read ended in bytes held for the next one. */
+	get isHolding(): boolean {
+		return this.held !== undefined;
+	}
+
+	/** The held bytes, for the program: nothing followed them, so they were a key. */
+	release(): Uint8Array | undefined {
+		const {held} = this;
+		this.held = undefined;
+		return held;
+	}
+
+	route(read: Uint8Array, now = performance.now()): InputSegment[] {
+		let chunk = read;
+		if (this.held) {
+			chunk = new Uint8Array(this.held.length + read.length);
+			chunk.set(this.held);
+			chunk.set(read, this.held.length);
+			this.held = undefined;
+		}
+
 		if (
 			this.carry !== 'none' &&
 			this.carry !== 'paste' &&
@@ -136,6 +160,11 @@ export class FrameInputRouter {
 		}
 
 		const introducer = chunk[from + 1];
+		if (this.endsMidSequence(chunk, from)) {
+			this.held = chunk.slice(from);
+			return chunk.length;
+		}
+
 		if (introducer === code('[')) return this.csi(chunk, from, emit);
 		if (introducer === code('O')) {
 			const end = Math.min(from + 3, chunk.length);
@@ -152,6 +181,20 @@ export class FrameInputRouter {
 		const end = Math.min(from + 2, chunk.length);
 		emit('program', from, end);
 		return end;
+	}
+
+	/**
+	 * Whether a read with other input before it ends on Escape, or on Escape
+	 * and a character that opens a sequence. A read of only those bytes is a
+	 * key, since tmux writes each key whole.
+	 */
+	private endsMidSequence(chunk: Uint8Array, from: number): boolean {
+		if (from === 0) return false;
+		const rest = chunk.length - from;
+		return (
+			rest === 1 ||
+			(rest === 2 && '[]P_'.includes(String.fromCodePoint(chunk[from + 1]!)))
+		);
 	}
 
 	/**

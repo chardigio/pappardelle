@@ -109,16 +109,25 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 // the renderer's input parser; see FrameInputRouter. Until the program has
 // started, everything read is the terminal answering the renderer.
 const inputRouter = new FrameInputRouter();
+let heldInput: ReturnType<typeof setTimeout> | undefined;
 interceptInput(renderer, process.stdin, (chunk, parse) => {
 	if (!childPty.current || typeof chunk === 'string') {
 		parse(chunk);
 		return;
 	}
 
+	clearTimeout(heldInput);
 	for (const segment of inputRouter.route(chunk)) {
 		if (segment.to === 'program') childPty.current.write(segment.bytes);
 		else parse(Buffer.from(segment.bytes));
 	}
+
+	// The rest of a sequence the read ended in arrives at once if it is coming.
+	if (inputRouter.isHolding)
+		heldInput = setTimeout(() => {
+			const held = inputRouter.release();
+			if (held) childPty.current?.write(held);
+		}, 3);
 });
 // The terminal a paste came from has already made it safe to paste. The
 // embedded terminal's own encoding would replace Escape, Ctrl+C and Delete in

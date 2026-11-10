@@ -124,6 +124,31 @@ test('an unfinished reply does not hold later typing', t => {
 	const to = (read: string, now: number) =>
 		router.route(encoder.encode(read), now).map(segment => segment.to);
 	t.deepEqual(to(`${ESC}]1hello`, 0), ['renderer']);
-	t.deepEqual(to('x', 50), ['renderer']);
-	t.deepEqual(to('y', 200), ['program']);
+	t.deepEqual(to('x', 10), ['renderer']);
+	t.deepEqual(to('y', 50), ['program']);
+});
+
+test('a read that ends inside a sequence holds its last bytes for the next', t => {
+	const router = new FrameInputRouter();
+	const route = (read: string) =>
+		router
+			.route(encoder.encode(read))
+			.map(segment => `${segment.to}:${decoder.decode(segment.bytes)}`);
+	// A stream of mouse reports read faster than it is written.
+	t.deepEqual(route(`${ESC}[<35;20;2M${ESC}`), [`renderer:${ESC}[<35;20;2M`]);
+	t.true(router.isHolding);
+	t.deepEqual(route(`[<35;21;2M${ESC}[`), [`renderer:${ESC}[<35;21;2M`]);
+	t.deepEqual(route('<35;22;2Mj'), [`renderer:${ESC}[<35;22;2M`, 'program:j']);
+	t.false(router.isHolding);
+});
+
+test('held bytes that nothing follows are the program’s', t => {
+	const router = new FrameInputRouter();
+	t.deepEqual(
+		router.route(encoder.encode(`a${ESC}`)).map(segment => segment.to),
+		['program'],
+	);
+	t.is(decoder.decode(router.release()), ESC);
+	t.false(router.isHolding);
+	t.is(router.release(), undefined);
 });
