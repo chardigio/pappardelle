@@ -2845,6 +2845,23 @@ export function getInitializationCommand(config: PappardelleConfig): string {
  * Get the Claude dangerously_skip_permissions flag from config.
  * Returns false if not configured (safe default).
  */
+export const SOUS_CHEF_NAME = 'sous-chef';
+
+export type AgentLaunch = {name: string; prompt: string};
+
+/**
+ * How the main checkout's agent launches in sous-chef mode: under the
+ * coordinator's name, which other agents address with SendMessage, and with
+ * the skill as its first prompt, so every launch opens on the board.
+ */
+export function sousChefLaunch(
+	config: PappardelleConfig | null,
+): AgentLaunch | undefined {
+	return config?.sous_chef === true
+		? {name: SOUS_CHEF_NAME, prompt: `/${SOUS_CHEF_NAME}`}
+		: undefined;
+}
+
 export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
 ): boolean {

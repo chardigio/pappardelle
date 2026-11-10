@@ -84,9 +84,10 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
-# Tell the agent in the main checkout that it coordinates the other spaces:
-# it watches them and brings their prompts and questions to you. /sous-chef
-# has the full routine. Off by default.
+# Run the main checkout's agent as the sous-chef: it launches as `sous-chef`
+# with /sous-chef as its first prompt, the rail shows it as sous-chef, and it
+# is told to watch the other spaces and bring their prompts to you.
+# Off by default.
 # sous_chef: true
 
 # Override the ticket-rail color for named issue statuses. Names match

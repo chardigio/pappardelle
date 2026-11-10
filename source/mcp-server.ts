@@ -8,7 +8,13 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
-import {configExists, getRepoName, loadConfig} from './config.ts';
+import {
+	configExists,
+	getRepoName,
+	loadConfig,
+	SOUS_CHEF_NAME,
+	sousChefLaunch,
+} from './config.ts';
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
@@ -20,8 +26,10 @@ export type RunCli = (call: CliCall, signal: AbortSignal) => Promise<CliResult>;
 const MESSAGING =
 	"To message the agent in another space, use SendMessage with the space key as `to` (ListAgents lists them): the agent sees who sent it and can reply. `space_send` types into that agent's TUI as if the user did. Codex, Pi and agy agents can't receive SendMessage, so `space_send` is the only way to reach them.";
 
+const MESSAGE_SOUS_CHEF = `The main checkout's agent coordinates the spaces; reach it with SendMessage to \`${SOUS_CHEF_NAME}\`.`;
+
 const SOUS_CHEF =
-	"Sous-chef mode is on: this session coordinates the repo's spaces. Keep the other agents moving: `spaces_list` for the board, `space_watch` with `until: [blocked]` in a loop to catch every space waiting on a person, `space_state` and `space_question_tabs` to read what it asks, and `space_answer` for the user's answer. Bring each prompt and question to the user, and answer it on their word. The user's /sous-chef command loads the full kitchen routine.";
+	"Sous-chef mode is on: this session coordinates the repo's spaces. Keep the other agents moving: `spaces_list` for the board, `space_watch` with `until: [blocked]` in a loop to catch every space waiting on a person, `space_state` and `space_question_tabs` to read what it asks, and `space_answer` for the user's answer. Bring each prompt and question to the user, and answer it on their word. The /sous-chef skill has the full kitchen routine.";
 
 export function workspaceInstructions(
 	space: string | undefined,
@@ -38,7 +46,7 @@ export function workspaceInstructions(
 
 	return `You are in Pappardelle space ${space}${repoName ? ` (repo ${repoName})` : ''}. Pappardelle gives each issue a git worktree, an agent session and a companion pane next to it, and the user watches both. Use this server's tools rather than tmux; they target your own space unless you pass \`space\`. The pappardelle-agent skill covers updating and restarting Pappardelle.
 
-${MESSAGING}
+${options.sousChef ? `${MESSAGING} ${MESSAGE_SOUS_CHEF}` : MESSAGING}
 
 ${companionRules()}`;
 }
@@ -146,7 +154,7 @@ const spawnCli =
 /** A config that doesn't load leaves the mode off; the TUI reports why. */
 function sousChefEnabled(): boolean {
 	try {
-		return loadConfig().sous_chef === true;
+		return sousChefLaunch(loadConfig()) !== undefined;
 	} catch {
 		return false;
 	}
@@ -173,7 +181,7 @@ export async function runMcpServer(): Promise<void> {
 		inRepo,
 		space,
 		repoName,
-		sousChef: !space && inRepo && sousChefEnabled(),
+		sousChef: inRepo && sousChefEnabled(),
 		runCli: spawnCli(space),
 	}).connect(new StdioServerTransport());
 	await closed;

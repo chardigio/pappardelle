@@ -34,6 +34,8 @@ interface Props {
 	isSelected: boolean;
 	width: number;
 	layout: ListLayout;
+	/** Shown in place of the space's key. */
+	label?: string;
 	onSelect?: (name: string) => void;
 }
 
@@ -53,7 +55,14 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
+function SpaceListItem({
+	space,
+	isSelected,
+	width,
+	layout,
+	label,
+	onSelect,
+}: Props) {
 	const handleClick = (event: MouseEvent) => {
 		if (event.button === 0 && !space.isPending) {
 			event.stopPropagation();
@@ -142,7 +151,7 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 	// columns they need would push them off the row and wrap it again, which is
 	// the very thing the clip exists to prevent.
 	const issueKey = clipIssueKey(
-		space.name,
+		label ?? space.name,
 		contentWidth - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
 	);
 	const hasIssueKey = issueKey.length > 0;
