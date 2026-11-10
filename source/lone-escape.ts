@@ -30,7 +30,7 @@ type StdinListener = (chunk: Uint8Array | string) => void;
  * typed next is read as part of the same sequence. tmux has already decided
  * where a key ends and writes each one to a pane whole, so in a pane a read
  * of just those bytes is the key. Such a read goes to `deliver` and the
- * parser never sees it.
+ * parser never sees it. `isAlsoKey` names further reads to treat that way.
  */
 export function deliverHeldKeysAtOnce(
 	renderer: CliRenderer,
@@ -42,6 +42,7 @@ export function deliverHeldKeysAtOnce(
 			if (parsed?.name) renderer.keyInput.processParsedKey(parsed);
 		}
 	},
+	isAlsoKey: (bytes: string) => boolean = () => false,
 ): void {
 	// The renderer adds and removes this listener by reading the field, when
 	// it suspends and resumes, so the field is replaced along with the listener.
@@ -49,7 +50,7 @@ export function deliverHeldKeysAtOnce(
 	const parse = input.stdinListener;
 	const route: StdinListener = chunk => {
 		const bytes = chunk.toString();
-		if (isHeldKey(bytes)) deliver(bytes);
+		if (isHeldKey(bytes) || isAlsoKey(bytes)) deliver(bytes);
 		else parse(chunk);
 	};
 

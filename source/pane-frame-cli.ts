@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {spawnSync} from 'node:child_process';
 import process from 'node:process';
 import {
@@ -113,9 +114,46 @@ terminal.handleKeyPress = key => {
 	childPty.current?.write(key.raw);
 	return true;
 };
-deliverHeldKeysAtOnce(renderer, process.stdin, bytes => {
-	childPty.current?.write(bytes);
-});
+// Keys the renderer's parser takes for something else: Shift, Ctrl or Alt
+// with F3 has the form of a cursor position report, and a keypad key in
+// application mode is not a key it knows. A report can only be the
+// renderer's own while it starts, before the program does.
+const ESCAPE = '\u001B';
+function isKeyTheParserMisreads(bytes: string): boolean {
+	if (!childPty.current) return false;
+	if (bytes.length === 3 && bytes.startsWith(`${ESCAPE}O`)) return true;
+	return (
+		bytes.length === 6 &&
+		bytes.startsWith(`${ESCAPE}[1;`) &&
+		'2345678'.includes(bytes[4]!) &&
+		bytes.endsWith('R')
+	);
+}
+
+deliverHeldKeysAtOnce(
+	renderer,
+	process.stdin,
+	bytes => {
+		childPty.current?.write(bytes);
+	},
+	isKeyTheParserMisreads,
+);
+// The terminal a paste came from has already made it safe to paste. The
+// embedded terminal's own encoding would replace Escape, Ctrl+C and Delete in
+// it with spaces, so only its bracketing is used: what it puts around a
+// single letter says whether the program asked for bracketed paste.
+terminal.handlePaste = event => {
+	const marker = 0x78;
+	const framed = terminal.encodePaste(Uint8Array.of(marker));
+	const at = framed.indexOf(marker);
+	childPty.current?.write(
+		Buffer.concat([
+			framed.subarray(0, at),
+			event.bytes,
+			framed.subarray(at + 1),
+		]),
+	);
+};
 frame.add(terminal);
 terminal.focus();
 
@@ -164,6 +202,12 @@ function sizeReply(query: SizeQuery): string {
 	const cellWidth = resolution ? resolution.width / renderer.width : 0;
 	const cellHeight = resolution ? resolution.height / renderer.height : 0;
 	return `\u001B[4;${Math.round(cellHeight * rows)};${Math.round(cellWidth * cols)}t`;
+}
+
+// The program's keypad mode was passed on to this pane, and a program that is
+// killed does not take it back.
+function leaveKeypadMode(): void {
+	process.stdout.write('\u001B>');
 }
 
 const scanner = new OscScanner();
@@ -232,6 +276,7 @@ const child = Bun.spawn(
 for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
 	process.on(signal, () => {
 		child.kill(signal);
+		leaveKeypadMode();
 		renderer.destroy();
 		process.exit(0);
 	});
@@ -239,4 +284,5 @@ for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
 
 childPty.current = child.terminal;
 process.exitCode = await child.exited;
+leaveKeypadMode();
 renderer.destroy();
