@@ -1109,7 +1109,7 @@ sous_chef?: boolean;
 ```
 
 - The main checkout's Claude agent launches as `sous-chef` with `/sous-chef` as its first prompt, so it opens on the board. A resumed conversation gets the prompt too
-- The rail shows the main row as `sous-chef`. The CLI and MCP tools still take the key `main`
+- The rail and the agent pane's frame show the main space as `sous-chef`. The CLI and MCP tools still take the key `main`
 - The pappardelle MCP server tells a session in the repo but outside any space to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
 - It tells agents inside a space they can reach the coordinator with SendMessage to `sous-chef`
 - The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
