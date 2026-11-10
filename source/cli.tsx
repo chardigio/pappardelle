@@ -1,10 +1,5 @@
 #!/usr/bin/env bun
-import {
-	quitOnCtrlC,
-	quitOnSignals,
-	renderTui,
-	rendererExitSignals,
-} from './render-tui.ts';
+import {renderTui, rendererExitSignals} from './render-tui.ts';
 import {routeDrops} from './drop-routing.ts';
 import {execSync, spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
@@ -506,12 +501,6 @@ const {renderer} = await renderTui(
 		quitTui(renderer, repoName, paneLayout);
 	},
 );
-const quit = () => {
-	quitTui(renderer, repoName, paneLayout);
-};
-
-quitOnCtrlC(renderer, quit);
-quitOnSignals(quit);
 
 const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');
 const railPaneId = process.env['TMUX_PANE'];

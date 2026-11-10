@@ -1,5 +1,6 @@
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
+import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
 import type {CliRenderer} from '@opentui/core';
 import {shortcutKey} from './tui-key.ts';
 import {textAttributes, terminalColor, dimText} from './tui-style.ts';
@@ -703,6 +704,18 @@ export default function App({
 
 	const paneLayoutRef = useRef(paneLayout);
 	paneLayoutRef.current = paneLayout;
+
+	// Not undone on unmount: quitting unmounts App, and a signal arriving during
+	// that teardown must still find a listener.
+	useEffect(() => {
+		const quit = () => {
+			quitTui(renderer, repoName, paneLayoutRef.current);
+		};
+
+		quitOnCtrlC(renderer, quit);
+		quitOnSignals(quit);
+	}, [renderer, repoName]);
+
 	const dialogRequest = useRef({zoomed: anyDialogOpen, revision: 0});
 	if (dialogRequest.current.zoomed !== anyDialogOpen) {
 		dialogRequest.current = {
