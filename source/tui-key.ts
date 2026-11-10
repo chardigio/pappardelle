@@ -6,8 +6,11 @@ import type {KeyEvent} from '@opentui/core';
 export function shortcutKey(event: KeyEvent) {
 	const {name, ctrl, meta, shift, option} = event;
 	const printable = name === 'space' ? ' ' : [...name].length === 1 ? name : '';
+	// Ctrl+Q is not `q`: a letter held with Ctrl or Alt types nothing, so it
+	// reaches no single-letter shortcut.
+	const typed = ctrl || meta || option ? '' : printable;
 	return {
-		input: shift ? printable.toUpperCase() : printable,
+		input: shift ? typed.toUpperCase() : typed,
 		key: {
 			ctrl,
 			meta: meta || option,
