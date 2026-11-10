@@ -500,6 +500,53 @@ test('log sink survives a failed write and retries it on the next write', async 
 	);
 });
 
+test('log sink drains a failed batch once storage recovers, even after the queue filled', async t => {
+	const dir = makeLogDir();
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
+	const fifo = path.join(dir, 'pappardelle-2026-10-05.log');
+	execFileSync('mkfifo', [fifo]);
+	// eslint-disable-next-line no-bitwise
+	const nonBlockingRead = constants.O_RDONLY | constants.O_NONBLOCK;
+	const firstReader = openSync(fifo, nonBlockingRead);
+	const retries: Array<() => void> = [];
+	const sink = createLogSink({
+		dir,
+		maxQueuedBytes: 300,
+		scheduleRetry(retry) {
+			retries.push(retry);
+		},
+	});
+	sink.write(entry('before outage'));
+	await sink.settle();
+	const chunk = Buffer.alloc(64 * 1024);
+	readSync(firstReader, chunk);
+	closeSync(firstReader);
+
+	// With no reader left the write fails with EPIPE, and later lines fill the
+	// queue, so no further write would retry the failed batch.
+	sink.write(entry('during outage'));
+	await sink.settle();
+	for (let i = 0; i < 10; i++) sink.write(entry(`overflow ${i}`));
+	await sink.settle();
+
+	const reader = openSync(fifo, nonBlockingRead);
+	t.teardown(() => {
+		closeSync(reader);
+	});
+	t.true(retries.length > 0);
+	retries.shift()!();
+	await sink.settle();
+
+	const n = readSync(reader, chunk);
+	const recovered = messages(
+		chunk.subarray(0, n).toString('utf8').split('\n').filter(Boolean),
+	);
+	t.is(recovered[0], 'during outage');
+	t.true(recovered.some(line => /dropped \d+ messages/.test(line)));
+});
+
 test('log sink survives an unusable log dir and retries on the next date', async t => {
 	const root = makeLogDir();
 	t.teardown(() => {

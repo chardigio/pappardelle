@@ -23,6 +23,7 @@ const MAX_LOG_FILES = 7; // Keep last 7 days of logs
 const MAX_RECENT_ERRORS = 10; // Keep last 10 errors in memory for TUI display
 const ERROR_TTL_MS = 5 * 60 * 1000; // Auto-clear errors from UI after 5 minutes
 const MAX_QUEUED_LOG_BYTES = 1024 * 1024;
+const RETRY_AFTER_ERROR_MS = 1000;
 
 // sonic-boom is CommonJS; its types describe the default import as the module
 // object, which carries the class as a property.
@@ -98,9 +99,13 @@ type LogStream = {
 export function createLogSink({
 	dir,
 	maxQueuedBytes = MAX_QUEUED_LOG_BYTES,
+	scheduleRetry = retry => {
+		setTimeout(retry, RETRY_AFTER_ERROR_MS).unref();
+	},
 }: {
 	dir: string;
 	maxQueuedBytes?: number;
+	scheduleRetry?: (retry: () => void) => void;
 }) {
 	const openStreams = new Set<LogStream>();
 	let current: LogStream | undefined;
@@ -147,8 +152,21 @@ export function createLogSink({
 		// Unhandled, an error event would crash the app. sonic-boom keeps the
 		// failed buffer and retries it on the next write, and emits no drain
 		// until then.
+		// sonic-boom keeps a failed batch but retries it only on the next write,
+		// and once the queue is full every later line is dropped before that
+		// write happens. An empty write retries it, so logging resumes when
+		// storage recovers (a full disk, say) instead of staying dead all day.
+		let retryPending = false;
 		writer.on('error', () => {
 			markIdle(stream);
+			if (retryPending) return;
+			retryPending = true;
+			scheduleRetry(() => {
+				retryPending = false;
+				if (!openStreams.has(stream)) return;
+				stream.idle = false;
+				writer.write(Buffer.alloc(0) as unknown as string);
+			});
 		});
 		writer.on('drop', () => {
 			dropped++;
