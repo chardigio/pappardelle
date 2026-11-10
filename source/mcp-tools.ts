@@ -374,7 +374,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.array(z.enum(WATCH_TARGETS as [WatchTarget, ...WatchTarget[]]))
 				.optional()
 				.describe(
-					'Return only for these states. blocked is any state waiting on a person: permission, question, auth, dialog or usage_limit. Without until, any change returns',
+					'Return only for these states, and for a space that closes. blocked is any state waiting on a person: permission, question, auth, dialog or usage_limit. Without until, any change returns',
 				),
 			since: z
 				.string()

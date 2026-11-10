@@ -69,6 +69,7 @@ function seenAs(report: AgentStateReport): string {
 		report.question
 			? [
 					report.question.question,
+					...report.question.tabs,
 					...report.question.options.map(option => option.label),
 				]
 			: null,
