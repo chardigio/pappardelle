@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import {renderTui, rendererExitSignals} from './render-tui.ts';
 import {routeDrops} from './drop-routing.ts';
 import {
 	startStartupTrace,
@@ -11,7 +10,6 @@ import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
-import App, {quitTui} from './app.tsx';
 import {
 	cleanupOrphanedInnerSessions,
 	cleanupOrphanedOuterSessions,
@@ -527,6 +525,15 @@ versionDone?.();
 // isn't blocked on the network.
 const updateCheckPromise = safeCheckForUpdate({projectDir: pappardelleDir});
 
+const importsDone = startupTrace.current?.begin('renderer-imports');
+const [{renderTui, rendererExitSignals}, {default: App, quitTui}] =
+	await Promise.all([import('./render-tui.ts'), import('./app.tsx')]).catch(
+		(error: unknown) => {
+			importsDone?.('failed');
+			throw error;
+		},
+	);
+importsDone?.();
 const rendererDone = startupTrace.current?.begin('renderer');
 const {renderer} = await renderTui(
 	<App

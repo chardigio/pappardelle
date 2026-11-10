@@ -1,8 +1,7 @@
 import {execFile, spawn} from 'node:child_process';
 import {createLogger, type LogEntry} from '../logger.ts';
-import {presentPopup} from './present.tsx';
 import type {ConfirmPayload, PopupActions, PopupSpec} from './spec.ts';
-import {popupSize, type ClientSize, type PopupSize} from './size.ts';
+import type {ClientSize, PopupSize} from './size.ts';
 import {openPopupTerminal, type PopupTerminal} from './terminal.ts';
 
 const log = createLogger('popup');
@@ -49,6 +48,7 @@ export type PopupDeps = {
 const showInTmux: ShowPopup = async (spec, size, actions) => {
 	let terminal: PopupTerminal | undefined;
 	try {
+		const {presentPopup} = await import('./present.tsx');
 		terminal = await openPopupTerminal(size);
 		if (!terminal) return undefined;
 		return {
@@ -147,6 +147,7 @@ export async function openPopup(
 ): Promise<PopupOutcome> {
 	if (!isPopupAvailable(deps.env)) return 'unavailable';
 
+	const {popupSize} = await import('./size.ts');
 	const client = await (deps.clientSize ?? tmuxClientSize)();
 
 	return new Promise<PopupOutcome>(resolve => {

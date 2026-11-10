@@ -9,17 +9,21 @@ import argparse
 from contextlib import contextmanager
 import datetime
 import errno
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import pty
 import shlex
 import shutil
 import statistics
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 
 
@@ -40,7 +44,7 @@ def fixture_directory():
                 time.sleep(0.05)
 
 
-def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None):
+def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None):
     with fixture_directory() as tmp:
         root = Path(tmp)
         home, repo, bin_dir = (root / name for name in ('home', 'repo', 'bin'))
@@ -112,6 +116,7 @@ signal.pause()
             'agent_profiles': {'fixture': {'command': fixture_command('agent')}},
             'agent_profile': 'fixture', 'companion_command': fixture_command('companion'),
             'profiles': {'dev': {'display_name': 'Dev'}}, 'default_profile': 'dev',
+            **({'default_emoji': profile_emoji} if profile_emoji is not None else {}),
         }))
         (home / '.bashrc').write_text(f'sleep {shell_delay_ms / 1000}\n' if shell_delay_ms else '')
         (home / '.pappardelle/update-check.json').write_text(json.dumps({
@@ -141,6 +146,9 @@ signal.pause()
 
         def tmux(socket, *args):
             # Observer calls bypass wrappers and are excluded from command traces.
+            if outside_tmux and socket == 'bench-outer':
+                socket = 'default'
+                args = tuple('pappardelle-repo' + arg[5:] if arg == 'bench' or arg.startswith('bench:') else arg for arg in args)
             return subprocess.run([real_tools['tmux'], '-L', socket, *args],
                                   cwd=repo, env=env, capture_output=True, text=True, timeout=5)
 
@@ -153,6 +161,7 @@ signal.pause()
             def wait_screen(accept):
                 deadline = time.monotonic() + timeout
                 while time.monotonic() < deadline:
+                    drain_launchers()
                     screen = tmux('bench-outer', 'capture-pane', '-p', '-t', 'bench:0.0').stdout
                     if accept(screen):
                         return screen
@@ -171,7 +180,34 @@ signal.pause()
             time.sleep(0.3)
             return dict(openStartMs=open_start, closeStartMs=close_start, openMs=open_ms, closeMs=close_ms, opened=opened, closed=closed)
 
+        launchers = []
+
+        def drain_launchers():
+            for _, master in launchers:
+                try:
+                    while os.read(master, 65536):
+                        pass
+                except BlockingIOError:
+                    pass
+                except OSError as exc:
+                    if exc.errno != errno.EIO:
+                        raise
+
         def launch():
+            if outside_tmux:
+                master, slave = pty.openpty()
+                try:
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 52, width, 0, 0))
+                    os.set_blocking(master, False)
+                    launcher = subprocess.Popen([str(binary)], cwd=repo, env=env, stdin=slave,
+                                                stdout=slave, stderr=slave, start_new_session=True)
+                    launchers.append((launcher, master))
+                except BaseException:
+                    os.close(master)
+                    raise
+                finally:
+                    os.close(slave)
+                return
             result = tmux('bench-outer', '-f', '/dev/null', 'new-session', '-d',
                           '-x', str(width), '-y', '52', '-s', 'bench', shlex.quote(str(binary)))
             if result.returncode:
@@ -181,6 +217,7 @@ signal.pause()
             milestones, identities, screens = {}, {}, {}
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
+                drain_launchers()
                 for kind in kinds:
                     ready = root / (kind + '.json')
                     if ready.exists():
@@ -257,6 +294,7 @@ signal.pause()
                 pid = int(tmux('bench-outer', 'display-message', '-p', '-t', 'bench:0.0', '#{pane_pid}').stdout)
                 deadline = time.monotonic() + timeout
                 while True:
+                    drain_launchers()
                     records = [json.loads(line.partition('[startup] ')[2])
                                for p in (home / '.pappardelle/logs').glob('*.log')
                                for line in p.read_text().splitlines() if '[startup] {' in line]
@@ -279,6 +317,14 @@ signal.pause()
                 error = error or 'Unexpected provider invocation; inspect providerCalls'
             tmux('bench-outer', 'kill-server')
             tmux('bench-inner', 'kill-server')
+            for launcher, master in launchers:
+                try:
+                    launcher.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    launcher.kill()
+                    launcher.wait()
+                finally:
+                    os.close(master)
         events = []
         for line in log.splitlines():
             try:
@@ -305,6 +351,7 @@ signal.pause()
                 commands.append(event)
         return dict(shellDelayMs=shell_delay_ms, traced=traced, startupTrace=startup_trace, width=width, existing=existing,
                     tmuxDelayMs=tmux_delay_ms, interactions=interactions,
+                    outsideTmux=outside_tmux, profileEmoji=profile_emoji,
                     workspaces=workspaces, success=error is None, error=error,
                     readiness='pre-existing' if existing else 'new', identities=identities,
                     retainedIdentities=retained, milestones=milestones, screens=screens,
@@ -328,6 +375,8 @@ def main():
     parser.add_argument('--filter-cycles', type=int, default=0, help='Measure / then Escape until workspace rows return')
     parser.add_argument('--tmux-delay-ms', type=int, default=0, help='Synthetic per-call tmux delay; also incurs Python wrapper overhead, not native timing')
     parser.add_argument('--max-filter-close-ms', type=float, help='Optional diagnostic assertion for rail-return latency')
+    parser.add_argument('--outside-tmux', action='store_true', help='Launch on an isolated PTY, including the parent launcher and delegated TUI')
+    parser.add_argument('--profile-emoji', help='Configure the fixture rail emoji to exercise Unicode width measurement')
     parser.add_argument('--output', type=Path, required=True, help='New artifact path; historical results are never overwritten')
     args = parser.parse_args()
     if args.runs < 1 or args.shell_delay_ms < 0 or args.timeout <= 0 or args.filter_cycles < 0 or args.tmux_delay_ms < 0:
@@ -360,7 +409,7 @@ def main():
                               'installationRoot': str(binary.parent.parent)}
                         for name, binary in binaries.items()},
         'bun': subprocess.check_output(['bun', '--version'], text=True).strip(),
-        'terminal': 'detached real tmux, variable width x 52',
+        'terminal': ('PTY launcher with attached real tmux' if args.outside_tmux else 'detached real tmux') + ', variable width x 52',
         'scope': 'isolated HOME/repo/servers; OS caches NOT flushed; dummy Python agents; bd/gh stubbed; update cache primed; no real agent startup',
         'observation': '20 ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately',
     }, 'settings': vars(args) | {'binary': str(args.binary), 'candidate': str(args.candidate) if args.candidate else None,
@@ -394,12 +443,12 @@ def main():
             order = list(binaries) if index % 2 == 0 else list(reversed(binaries))
             for name in order:
                 key = f'{name}/{width}x52/{workspaces}spaces/{mode}/{delay}ms-shell'
-                sample = run_sample(binaries[name], delay, False, args.timeout, width, mode == 'existing', workspaces, args.startup_trace or name == 'traceEnabled', args.filter_cycles, args.tmux_delay_ms, args.max_filter_close_ms)
+                sample = run_sample(binaries[name], delay, False, args.timeout, width, mode == 'existing', workspaces, args.startup_trace or name == 'traceEnabled', args.filter_cycles, args.tmux_delay_ms, args.max_filter_close_ms, args.outside_tmux, args.profile_emoji)
                 samples.setdefault(key, []).append(sample)
                 save()
                 print(key, index + 1, json.dumps(sample['milestones'] if sample['success'] else sample['error']), flush=True)
     if args.trace:
-        trace = run_sample(binaries['baseline'], 0, True, args.timeout, 100, False, 3, args.startup_trace, args.filter_cycles, args.tmux_delay_ms, args.max_filter_close_ms)
+        trace = run_sample(binaries['baseline'], 0, True, args.timeout, 100, False, 3, args.startup_trace, args.filter_cycles, args.tmux_delay_ms, args.max_filter_close_ms, args.outside_tmux, args.profile_emoji)
         result['instrumentedSample'] = trace
         chrome = {'traceEvents': [dict(name=e['tool'] + ' ' + shlex.join(e['args']),
                    cat='subprocess', ph='X', ts=e['elapsedMs'] * 1000,

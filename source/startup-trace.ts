@@ -19,6 +19,7 @@ type Stage =
 	| 'commit-metadata'
 	| 'version-metadata'
 	| 'renderer'
+	| 'renderer-imports'
 	| 'main-discovery'
 	| 'attachment-queue'
 	| 'attachment'
