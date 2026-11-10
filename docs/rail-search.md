@@ -39,4 +39,4 @@ The last row is not a regression in what the user sees. Before, the programs wer
 ## What is left
 
 - Escape takes about 30 ms: tmux holds a lone Escape for its `escape-time` (10 ms by default) and the renderer's input parser holds it for another 20 ms to tell it from the start of an escape sequence. The parser's wait is fixed inside OpenTUI
-- Enter immediately after a typed character waits for the rail's next frame, up to 16 ms at its 60 frames a second. The fixture presses Enter the moment the match appears and measures 17 ms; a person pauses longer than a frame
+- Enter immediately after a typed character waits for the rail's next frame, up to 16 ms at its 60 frames a second. The fixture presses Enter the moment the match appears and measures 17 ms; with an 80 ms pause before Enter it measures 11 ms, the observer's floor
