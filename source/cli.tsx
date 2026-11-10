@@ -68,14 +68,10 @@ import {
 	runCloseCommand,
 	runCloseTeardown,
 } from './close-command.ts';
-import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {isSuperviseVerb} from './supervise-args.ts';
-import {runSuperviseCommand} from './supervise-command.ts';
-import {defaultSuperviseDeps, rearmSchedules} from './supervise-runtime.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
-import {defaultMcpInstallDeps, installMcpServer} from './mcp-install.ts';
 import {waitForAgentStart} from './agent-start.ts';
 import {hookStatusFile, hookStatusKey} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
@@ -92,14 +88,12 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {runCompanionCommand} from './companion-command.ts';
 import {resolveTargetSpace} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
-import {runReadCommand} from './read-command.ts';
-import {runSpacesCommand} from './spaces-command.ts';
 import {exitAfterFlush} from './exit-after-flush.ts';
 
 const SCRIPTS_DIR = scriptsDir;
+const REARM_SCHEDULES_DELAY_MS = 5000;
 
 const gate = subcommandGate(process.argv.slice(2));
 if (gate.action === 'help') {
@@ -112,7 +106,11 @@ if (gate.action === 'reject') {
 	process.exit(2);
 }
 
+// A subcommand's modules load when it runs, so starting the TUI doesn't pay
+// for them.
 if (process.argv[2] === 'mcp' && process.argv[3] === 'install') {
+	const {defaultMcpInstallDeps, installMcpServer} =
+		await import('./mcp-install.ts');
 	process.exit(installMcpServer(defaultMcpInstallDeps()));
 }
 
@@ -150,6 +148,7 @@ function resolveCliSpaceKey(rawKey: string): string {
 // (including --help) as Pappardelle's own.
 if (process.argv[2] === 'companion') {
 	const companionArgv = process.argv.slice(3);
+	const {runCompanionCommand} = await import('./companion-command.ts');
 	await exitAfterFlush(
 		await runCompanionCommand(companionArgv, {
 			resolveSpace(flag) {
@@ -171,6 +170,10 @@ if (process.argv[2] === 'companion') {
 if (isSuperviseVerb(process.argv[2])) {
 	checkConfig();
 	bootstrapRepo();
+	const [{runSuperviseCommand}, {defaultSuperviseDeps}] = await Promise.all([
+		import('./supervise-command.ts'),
+		import('./supervise-runtime.ts'),
+	]);
 	await exitAfterFlush(
 		await runSuperviseCommand(
 			process.argv.slice(2),
@@ -220,6 +223,8 @@ if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
 }
 
 if (process.argv[2] === 'plugin') {
+	const {defaultPluginInstallDeps, installPlugin} =
+		await import('./plugin-install.ts');
 	process.exit(installPlugin(defaultPluginInstallDeps(pappardelleDir)));
 }
 
@@ -433,6 +438,7 @@ if (cli.input[0] === 'close') {
 }
 
 if (cli.input[0] === 'spaces') {
+	const {runSpacesCommand} = await import('./spaces-command.ts');
 	await exitAfterFlush(
 		await runSpacesCommand({
 			repoName,
@@ -451,6 +457,7 @@ if (cli.input[0] === 'read') {
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
+	const {runReadCommand} = await import('./read-command.ts');
 	await exitAfterFlush(
 		await runReadCommand({
 			issueKey,
@@ -752,6 +759,13 @@ function finishStartup() {
 	metadata = readDisplayMetadata();
 	rerender(app());
 	void safeCheckForUpdate({projectDir: pappardelleDir}).then(finishUpdate);
+	// Wake-ups lost to a reboot can wait; loading this while the first
+	// workspace attaches would hold that up.
+	setTimeout(() => {
+		void import('./supervise-runtime.ts').then(({rearmSchedules}) => {
+			rearmSchedules();
+		});
+	}, REARM_SCHEDULES_DELAY_MS);
 }
 const app = () => (
 	<App
@@ -772,8 +786,6 @@ const {renderer, rerender} = await renderTui(
 	railReady.promise,
 );
 rendererDone?.();
-
-rearmSchedules();
 
 const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');
 const railPaneId = process.env['TMUX_PANE'];
