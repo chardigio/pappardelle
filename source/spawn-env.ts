@@ -31,15 +31,21 @@ export function buildSpawnEnv(
  * The variables go on the session because the inner tmux server is long-lived:
  * its global environment is whatever the process that started it had.
  *
+ * PAPPARDELLE_REPO qualifies the hook's status file name, since spaces of two
+ * repos can share a key and all repos write to one status directory.
+ *
  * The main space gets no PAPPARDELLE_SPACE. Its checkout can change branch
  * while the session lives on, and the rail keys its dot by the branch, so a
  * fixed value would go stale. The hook's cwd logic already follows the branch.
  */
 export function buildSessionEnvArgs(
 	spaceKey: string,
+	repoName: string,
 	mainRepoRoot?: string,
 ): string[] {
 	return [
+		'-e',
+		`PAPPARDELLE_REPO=${repoName}`,
 		...(spaceKey === MAIN_WORKTREE_KEY
 			? []
 			: ['-e', `PAPPARDELLE_SPACE=${spaceKey}`]),

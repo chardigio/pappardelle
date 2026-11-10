@@ -73,11 +73,11 @@ import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {recordSupervision} from './supervise-log.ts';
 import {isSuperviseVerb} from './supervise-args.ts';
 import {runSuperviseCommand} from './supervise-command.ts';
-import {defaultSuperviseDeps} from './supervise-runtime.ts';
+import {defaultSuperviseDeps, rearmSchedules} from './supervise-runtime.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {defaultMcpInstallDeps, installMcpServer} from './mcp-install.ts';
 import {waitForAgentStart} from './agent-start.ts';
-import {getHookStatusDir} from './claude-status.ts';
+import {hookStatusFile, hookStatusKey} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
@@ -378,14 +378,14 @@ if (cli.input[0] === 'send') {
 	);
 	if (result === 'prompt') {
 		console.error(
-			`Not sent: ${issueKey} is showing a permission prompt or question. Answer it with \`pappardelle answer ${issueKey}\``,
+			`Not sent: ${issueKey} is showing a permission prompt, a question or a Codex dialog. Answer it with \`pappardelle answer ${issueKey}\`; Escape can still be pressed on a prompt or question`,
 		);
 		process.exit(1);
 	}
 
 	if (result === 'draft') {
 		console.error(
-			`Not sent: ${issueKey}'s Codex composer has text that sending would clear. Check it with \`pappardelle screen ${issueKey}\`, or pass --force`,
+			`Not sent: ${issueKey}'s input box has text that sending would clear. Check it with \`pappardelle screen ${issueKey}\`, or pass --force`,
 		);
 		process.exit(1);
 	}
@@ -503,7 +503,7 @@ if (cli.input.length > 0) {
 		waitForAgent: cli.flags.wait
 			? async (issueKey, since) =>
 					waitForAgentStart({
-						statusFile: path.join(getHookStatusDir(), `${issueKey}.json`),
+						statusFile: hookStatusFile(hookStatusKey(getRepoName(), issueKey)),
 						worktree: path.join(
 							homedir(),
 							'.worktrees',
@@ -769,6 +769,8 @@ const {renderer, rerender} = await renderTui(
 	railReady.promise,
 );
 rendererDone?.();
+
+rearmSchedules();
 
 const [tmuxSocket] = (process.env['TMUX'] ?? '').split(',');
 const railPaneId = process.env['TMUX_PANE'];

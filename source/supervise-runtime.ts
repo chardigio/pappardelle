@@ -4,12 +4,13 @@
 import {spawnSync} from 'node:child_process';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
-import {getHookStatusDir} from './claude-status.ts';
-import {getMainRepoRoot, getRepoName, qualifyMainBranch} from './config.ts';
+import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
+import {getHookStatusDir, hookStatusKey} from './claude-status.ts';
+import {getMainRepoRoot, getRepoName} from './config.ts';
 import {waitForDirChange} from './file-watch.ts';
 import {programStatusDir} from './program-status-monitor.ts';
 import {selfLaunchArgs} from './runtime.ts';
-import {defaultScheduleStore} from './schedule.ts';
+import {defaultScheduleStore, rearmMissingTimers} from './schedule.ts';
 import {
 	launchdBackend,
 	systemdBackend,
@@ -17,14 +18,20 @@ import {
 	type TimerContext,
 } from './schedule-timers.ts';
 import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
+import {recordSupervision} from './supervise-log.ts';
+import {createLogger} from './logger.ts';
 import {
 	getMainWorktreeInfo,
+	getSessionNames,
+	resolveInnerSessionTargetSync,
 	sendKeysToSpaceAgent,
 	sendToSpaceAgent,
 	supervisedInnerTmuxRunner,
 	supervisedServerTmuxRunner,
 } from './tmux.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+
+const log = createLogger('supervise');
 
 // Timer services start with a bare environment; these decide which tmux
 // server and status files `pappardelle` reaches when one fires.
@@ -64,6 +71,22 @@ function timerBackend(): TimerBackend {
 	throw new Error(`Scheduling isn't supported on ${process.platform}`);
 }
 
+function agentCwd(key: string): string | null {
+	const target = resolveInnerSessionTargetSync(
+		getSessionNames(key).agent,
+		supervisedInnerTmuxRunner,
+	);
+	if (!target) return null;
+	const result = supervisedInnerTmuxRunner([
+		'display-message',
+		'-p',
+		'-t',
+		target,
+		'#{pane_current_path}',
+	]);
+	return result.status === 0 ? result.stdout.trim() || null : null;
+}
+
 function scratchRoots(): string[] {
 	const claude = `claude-${userInfo().uid}`;
 	return [
@@ -75,6 +98,27 @@ function scratchRoots(): string[] {
 	];
 }
 
+/** Run as the TUI starts, so wake-ups lost to a reboot come back. */
+export function rearmSchedules(): void {
+	try {
+		const store = defaultScheduleStore(getRepoName());
+		for (const job of rearmMissingTimers(store, timerBackend(), new Date())) {
+			recordSupervision(
+				getRepoName(),
+				'tui',
+				{
+					action: 'schedule',
+					key: job.key,
+					detail: `re-armed ${job.id}, its timer was gone`,
+				},
+				new Date(),
+			);
+		}
+	} catch (error) {
+		log.warn('Could not re-arm scheduled wake-ups', error as Error);
+	}
+}
+
 export function defaultSuperviseDeps(
 	resolveKey: (raw: string) => string,
 ): SuperviseDeps {
@@ -82,10 +126,9 @@ export function defaultSuperviseDeps(
 		repo: getRepoName,
 		resolveKey,
 		async hookKey(key) {
-			if (key !== MAIN_WORKTREE_KEY) return key;
+			if (key !== MAIN_WORKTREE_KEY) return hookStatusKey(getRepoName(), key);
 			const main = await getMainWorktreeInfo();
-			const branch = main?.branch ?? MAIN_WORKTREE_KEY;
-			return qualifyMainBranch(getRepoName(), branch);
+			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
 		},
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
@@ -107,8 +150,15 @@ export function defaultSuperviseDeps(
 		sendKeys(key, keys) {
 			const result = sendKeysToSpaceAgent(key, keys, {
 				runner: supervisedInnerTmuxRunner,
+				answering: true,
 			});
 			return result === 'sent' || result === 'no-session' ? result : 'failed';
+		},
+		async classify(key, command) {
+			return classifyCommand(
+				{command, cwd: agentCwd(key), scratchRoots: scratchRoots()},
+				defaultClassifierRun,
+			);
 		},
 		policy: {scratchRoots: scratchRoots()},
 		store: () => defaultScheduleStore(getRepoName()),

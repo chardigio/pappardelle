@@ -1,10 +1,17 @@
 import {parseArgs, type ParseArgsConfig} from 'node:util';
 import type {WaitTarget} from './agent-state.ts';
+import {
+	decodeCursor,
+	WATCH_TARGETS,
+	type WatchCursor,
+	type WatchTarget,
+} from './space-watch.ts';
 
 export const SUPERVISE_VERBS = [
 	'screen',
 	'state',
 	'wait',
+	'watch',
 	'answer',
 	'queue',
 	'schedule',
@@ -52,6 +59,14 @@ export type SuperviseCommand =
 			json: boolean;
 	  }
 	| {
+			verb: 'watch';
+			keys: string[];
+			until: WatchTarget[];
+			since?: WatchCursor;
+			timeoutSeconds: number;
+			json: boolean;
+	  }
+	| {
 			verb: 'answer';
 			key: string;
 			option?: number;
@@ -74,6 +89,7 @@ export const superviseHelp = `
 	  $ pappardelle screen KEY [--companion [--pane NAME]] [--lines N]
 	  $ pappardelle state KEY [--json] [--tabs]
 	  $ pappardelle wait KEY --until working|idle|blocked|ready|changed [--timeout SECONDS] [--json]
+	  $ pappardelle watch [KEY...] [--until STATE...] [--since CURSOR] [--timeout SECONDS] [--json]
 	  $ pappardelle answer KEY (--option N | --keys KEY...) [--force]
 	  $ pappardelle queue KEY [text]
 	  $ pappardelle schedule KEY --at TIME --message TEXT
@@ -89,16 +105,24 @@ export const superviseHelp = `
 
 	Commands
 	  screen      Print the agent's screen (or its companion's) with scrollback
-	  state       working, permission, question, auth, usage_limit, draft
-	              (text in the Codex composer), idle or no_session, with the
+	  state       working, permission, question, auth, dialog (a Codex dialog,
+	              answered by a person), usage_limit, draft
+	              (text in the input box), idle or no_session, with the
 	              pending command or question. --tabs also reads every tab of a
 	              question dialog, which presses Right and Left in it
 	  wait        Return once the state matches, or after --timeout (default 50,
 	              at most ${MAX_WAIT_SECONDS}) with the state as it is then
+	  watch       Wait for any of several spaces (default: every space with an
+	              agent but your own) to change state, or with --until to reach
+	              one of those states (blocked is any that waits on a person).
+	              Without --since, spaces already in an --until state come back
+	              at once. The answer carries a cursor: pass it as --since next
+	              time, and nothing that changed in between is missed
 	  answer      Press an option on a permission prompt or question. Approving a
-	              command once is allowed only for commands that just clean up QA
-	              scratch and publish nothing; anything else exits 3 with the
-	              command, for a person to decide. --force skips that check
+	              Bash command once needs the hard refusals (push, --force, rm
+	              outside QA scratch…) and a Haiku check that it publishes and
+	              destroys nothing; anything else exits 3 with the command and
+	              the reason, for a person to decide. --force skips both
 	  queue       Hold a message for the next scheduled send to that space
 	  schedule    Wake the agent with an OS timer: a message at a time, continue
 	              once a Codex usage limit resets, or a nudge whenever it sits
@@ -108,7 +132,7 @@ export const superviseHelp = `
 	  tui panes   What every TUI's rail and viewer panes are running
 	  tui focus-log  Log active-pane and client-focus changes for --seconds (30)
 
-	Everything sent or scheduled is logged to
+	Everything sent or scheduled, and each change watch reports, is logged to
 	~/.pappardelle/repos/<repo>/supervise.jsonl.
 `;
 
@@ -121,9 +145,20 @@ function positiveInt(value: string | undefined, flag: string): number {
 	return number;
 }
 
-function oneKey(positionals: string[], verb: string): string {
+function timeoutSeconds(value: string | undefined): number {
+	const seconds = value === undefined ? 50 : positiveInt(value, '--timeout');
+	if (seconds > MAX_WAIT_SECONDS) {
+		throw new SuperviseUsageError(
+			`--timeout is at most ${MAX_WAIT_SECONDS} seconds`,
+		);
+	}
+
+	return seconds;
+}
+
+function oneKey(positionals: string[], verb: string, name = 'KEY'): string {
 	if (positionals.length !== 1) {
-		throw new SuperviseUsageError(`Usage: pappardelle ${verb} KEY ...`);
+		throw new SuperviseUsageError(`Usage: pappardelle ${verb} ${name} ...`);
 	}
 
 	return positionals[0]!;
@@ -147,7 +182,7 @@ function parse<T extends NonNullable<ParseArgsConfig['options']>>(
 
 function parseSchedule(argv: string[]): SuperviseCommand {
 	if (argv[0] === 'fire') {
-		return {verb: 'fire', id: oneKey(argv.slice(1), 'schedule fire')};
+		return {verb: 'fire', id: oneKey(argv.slice(1), 'schedule fire', 'ID')};
 	}
 
 	const {values, positionals} = parse(argv, {
@@ -268,21 +303,48 @@ export function parseSuperviseArgs(argv: string[]): SuperviseCommand {
 				);
 			}
 
-			const timeoutSeconds =
-				values.timeout === undefined
-					? 50
-					: positiveInt(values.timeout as string, '--timeout');
-			if (timeoutSeconds > MAX_WAIT_SECONDS) {
-				throw new SuperviseUsageError(
-					`--timeout is at most ${MAX_WAIT_SECONDS} seconds`,
-				);
-			}
-
 			return {
 				verb,
 				key: oneKey(positionals, verb),
 				until,
-				timeoutSeconds,
+				timeoutSeconds: timeoutSeconds(values.timeout as string | undefined),
+				json: Boolean(values.json),
+			};
+		}
+
+		case 'watch': {
+			const {values, positionals} = parse(rest, {
+				until: {type: 'string', multiple: true},
+				since: {type: 'string'},
+				timeout: {type: 'string'},
+				json: {type: 'boolean'},
+			});
+			const until = (values.until as string[] | undefined) ?? [];
+			const unknown = until.find(
+				state => !(WATCH_TARGETS as readonly string[]).includes(state),
+			);
+			if (unknown !== undefined) {
+				throw new SuperviseUsageError(
+					`--until takes ${WATCH_TARGETS.join('|')}, not ${unknown}`,
+				);
+			}
+
+			let since: WatchCursor | undefined;
+			if (values.since !== undefined) {
+				since = decodeCursor(values.since as string) ?? undefined;
+				if (!since) {
+					throw new SuperviseUsageError(
+						'--since takes the cursor a previous watch returned',
+					);
+				}
+			}
+
+			return {
+				verb,
+				keys: positionals,
+				until: until as WatchTarget[],
+				...(since ? {since} : {}),
+				timeoutSeconds: timeoutSeconds(values.timeout as string | undefined),
 				json: Boolean(values.json),
 			};
 		}
@@ -296,7 +358,7 @@ export function parseSuperviseArgs(argv: string[]): SuperviseCommand {
 			const keys = (values.keys as string[] | undefined) ?? [];
 			if ((values.option === undefined) === (keys.length === 0)) {
 				throw new SuperviseUsageError(
-					'answer takes --option N or --keys, not both',
+					'answer takes one of --option N or --keys',
 				);
 			}
 
@@ -328,7 +390,7 @@ export function parseSuperviseArgs(argv: string[]): SuperviseCommand {
 		}
 
 		case 'unschedule': {
-			return {verb, id: oneKey(parse(rest, {}).positionals, verb)};
+			return {verb, id: oneKey(parse(rest, {}).positionals, verb, 'ID')};
 		}
 
 		case 'tui': {

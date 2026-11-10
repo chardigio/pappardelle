@@ -122,6 +122,8 @@ assert_eq "companion's first pane is named main" "main" "$MAIN_PANE"
 
 SPACE_ENV=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_SPACE 2>/dev/null)
 assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY" "$SPACE_ENV"
+assert_eq "session env carries PAPPARDELLE_REPO" "PAPPARDELLE_REPO=$TEST_REPO" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_REPO 2>/dev/null)"
 
 # The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py)
 assert_eq "agent session env names the agent" "PAPPARDELLE_AGENT_PROFILE=claude" \

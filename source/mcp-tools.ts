@@ -7,6 +7,7 @@
 
 import {z} from 'zod';
 import {MAX_WAIT_SECONDS} from './supervise-args.ts';
+import {WATCH_TARGETS, type WatchTarget} from './space-watch.ts';
 
 export type CliCall = {args: string[]; stdin?: string; cwd?: string};
 
@@ -63,8 +64,9 @@ const tmuxKeys = z
  * Approved without a prompt on every agent: the companion tools because an
  * agent changes its companion constantly to show its work, and the
  * supervision tools because watching other spaces means calling them in a
- * loop. space_answer stays safe unprompted because it refuses any approval
- * the policy in approve-policy.ts doesn't allow, and has no override.
+ * loop. space_answer stays safe unprompted because it approves only what
+ * passes both gates (approve-policy.ts, then approve-classifier.ts), and has
+ * no override.
  */
 export const AUTO_APPROVED_TOOLS = [
 	'companion_run',
@@ -80,6 +82,7 @@ export const AUTO_APPROVED_TOOLS = [
 	'space_state',
 	'space_question_tabs',
 	'space_wait',
+	'space_watch',
 	'space_answer',
 	'space_queue',
 	'space_schedule',
@@ -266,7 +269,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.boolean()
 				.optional()
 				.describe(
-					"Send even though the Codex composer has text in it, which sending clears. Without it, a draft fails the send so a person's typing isn't thrown away",
+					"Send even though the agent's input box has text in it, which sending clears. Without it, a draft fails the send so a person's typing isn't thrown away",
 				),
 		},
 		toCli: ({key, text, force}) => ({
@@ -317,7 +320,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_state',
 		description:
-			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, usage_limit (Codex, with the reset time), draft (text sitting in the Codex composer), idle or no_session",
+			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, dialog (a Codex dialog such as folder trust; a person answers it), usage_limit (Codex, with the reset time), draft (text sitting in the input box), idle or no_session",
 		readOnly: true,
 		inputSchema: {key},
 		toCli: ({key}) => ({args: ['state', key, '--json']}),
@@ -332,7 +335,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_wait',
 		description:
-			"Wait until a space's agent reaches a state, instead of checking it over and over. Returns its state and screen tail, or timedOut with the state as it is then: call it again to keep waiting",
+			"Wait until a space's agent reaches a state, instead of checking it over and over. Returns its state and screen tail, or timedOut with the state as it is then: call it again to keep waiting. A space with no agent session returns at once with state no_session",
 		readOnly: true,
 		inputSchema: {
 			key,
@@ -356,9 +359,51 @@ export const MCP_TOOLS: readonly McpTool[] = [
 		}),
 	}),
 	defineTool({
+		name: 'space_watch',
+		description:
+			"Wait for any of several spaces to change state, for a supervising loop: call it, handle what it returns with space_answer or space_send, then call it again with the cursor it returned. Returns result changed with each space's old and new state and, for one waiting on a person, its prompt, question or dialog; or result timed_out. Without since, spaces already in an until state return at once; with it, only what changed after that cursor, so nothing that happened while you were handling another space is missed",
+		readOnly: true,
+		inputSchema: {
+			keys: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Spaces to watch. Defaults to every space with an agent except your own',
+				),
+			until: z
+				.array(z.enum(WATCH_TARGETS as [WatchTarget, ...WatchTarget[]]))
+				.optional()
+				.describe(
+					'Return only for these states. blocked is any state waiting on a person: permission, question, auth, dialog or usage_limit. Without until, any change returns',
+				),
+			since: z
+				.string()
+				.optional()
+				.describe('The cursor the previous space_watch returned'),
+			timeout_seconds: z
+				.number()
+				.int()
+				.positive()
+				.max(MAX_WAIT_SECONDS)
+				.optional()
+				.describe(
+					'Defaults to 50, under the 60 seconds Codex gives a tool call. Raise it only if your client allows longer',
+				),
+		},
+		toCli: ({keys, until, since, timeout_seconds: timeout}) => ({
+			args: [
+				'watch',
+				...(until ?? []).flatMap(state => ['--until', state]),
+				...flags({since, timeout}),
+				'--json',
+				...(keys?.length ? ['--', ...keys] : []),
+			],
+		}),
+	}),
+	defineTool({
 		name: 'space_answer',
 		description:
-			"Answer a permission prompt or question in a space's agent by option number, or press keys in it. Approving a command once goes through only when the command just cleans up QA scratch and publishes nothing (no push, merge, --force, or kill-server outside an isolated socket); anything else, and every \"Yes, and don't ask again\", fails with the command for the user to decide. Ask the user then; don't work around it",
+			"Answer a permission prompt or question in a space's agent by option number, or press keys in it. Approving a Bash command once goes through only when it clears hard refusals (push, PR changes, --force, reset --hard, rm outside QA scratch, kill-server outside an isolated socket) and a model check finds it publishes nothing, deletes nothing outside the worktree or scratch, and sends no secrets. Anything else, edits, and every \"Yes, and don't ask again\" fail with the command and the reason for the user to decide. Ask the user then; don't work around it",
 		inputSchema: {
 			key,
 			option: z

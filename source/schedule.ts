@@ -16,9 +16,22 @@ import path from 'node:path';
 import type {AgentStateReport} from './agent-state.ts';
 import {DEFAULT_REPO_STATE_ROOT} from './tui-marker.ts';
 
+type OneShot = {
+	id: string;
+	key: string;
+	at: string;
+	message: string;
+	/**
+	 * Counts the timers this job has had. A job that has to try again, or
+	 * whose limit moved later, keeps its id but needs a new timer, and the
+	 * running timer's unit still holds the old name.
+	 */
+	arm: number;
+};
+
 export type Job =
-	| {kind: 'at'; id: string; key: string; at: string; message: string}
-	| {kind: 'after_limit'; id: string; key: string; at: string; message: string}
+	| ({kind: 'at'} & OneShot)
+	| ({kind: 'after_limit'} & OneShot)
 	| {
 			kind: 'keep_going';
 			id: string;
@@ -34,8 +47,10 @@ export type TimerWhen = {at: Date} | {everySeconds: number};
 export type FireResult =
 	| 'sent'
 	| 'waiting'
+	| 'retrying'
 	| 'skipped_working'
 	| 'skipped_draft'
+	| 'no_session'
 	| 'expired';
 
 export type SendOutcome =
@@ -48,6 +63,8 @@ export type SendOutcome =
 
 // Codex can refuse a message sent the second its limit resets.
 export const RESET_MARGIN_MS = 60_000;
+// How soon a one-shot whose send was refused, say over a draft, tries again.
+export const RETRY_MS = 5 * 60_000;
 // The idle check after which keep_going nudges, as 3wf.sh did: one idle
 // check can catch an agent between two turns.
 const IDLE_CHECKS_BEFORE_NUDGE = 2;
@@ -142,6 +159,7 @@ export function parseDuration(text: string): number | null {
 export function parseWhen(text: string, now: Date): Date | null {
 	const clock = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
 	if (clock) {
+		if (Number(clock[1]) > 23 || Number(clock[2]) > 59) return null;
 		const at = new Date(now);
 		at.setHours(Number(clock[1]), Number(clock[2]), 0, 0);
 		if (at.getTime() <= now.getTime()) at.setDate(at.getDate() + 1);
@@ -163,6 +181,8 @@ export type FireDeps = {
 	now: Date;
 	readState: (key: string) => Promise<AgentStateReport>;
 	send: (key: string, text: string) => Promise<SendOutcome>;
+	/** Escape on Codex's offer to switch models, which keeps the current one. */
+	dismissModelSwitch: (key: string) => Promise<void>;
 	createTimer: (job: Job) => void;
 	/** Removes the job's timer once the job is done. */
 	removeTimer: (job: Job) => void;
@@ -171,15 +191,21 @@ export type FireDeps = {
 async function sendNext(
 	job: Job,
 	text: string,
+	report: AgentStateReport,
 	deps: FireDeps,
-): Promise<FireResult> {
+): Promise<SendOutcome> {
+	if (report.codexDialog?.kind === 'model_switch') {
+		await deps.dismissModelSwitch(job.key);
+	}
+
 	const queued = queuedMessage(deps.store, job.key);
 	const outcome = await deps.send(job.key, queued ?? text);
-	if (outcome === 'draft') return 'skipped_draft';
-	if (outcome !== 'sent') return 'waiting';
 	// Only once it's out, so a refused send keeps it for the next try.
-	if (queued !== null) clearQueuedMessage(deps.store, job.key);
-	return 'sent';
+	if (outcome === 'sent' && queued !== null) {
+		clearQueuedMessage(deps.store, job.key);
+	}
+
+	return outcome;
 }
 
 function finish(job: Job, deps: FireDeps): void {
@@ -187,34 +213,67 @@ function finish(job: Job, deps: FireDeps): void {
 	deps.removeTimer(job);
 }
 
-export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
+function rearm(
+	job: Extract<Job, {kind: 'at' | 'after_limit'}>,
+	at: Date,
+	deps: FireDeps,
+): void {
+	const next = {...job, at: at.toISOString(), arm: job.arm + 1};
+	saveJob(deps.store, next);
+	deps.createTimer(next);
+	deps.removeTimer(job);
+}
+
+/** The state under Codex's model-switch offer, which a wake-up dismisses. */
+function underModelSwitch(report: AgentStateReport): AgentStateReport['state'] {
+	if (report.codexDialog?.kind !== 'model_switch') return report.state;
+	return report.usageLimit ? 'usage_limit' : 'idle';
+}
+
+async function fireOneShot(
+	job: Extract<Job, {kind: 'at' | 'after_limit'}>,
+	deps: FireDeps,
+): Promise<FireResult> {
 	const {now} = deps;
-	if (job.kind === 'at') {
-		const result = await sendNext(job, job.message, deps);
+	const report = await deps.readState(job.key);
+	if (report.state === 'no_session') {
 		finish(job, deps);
-		return result;
+		return 'no_session';
 	}
 
 	if (job.kind === 'after_limit') {
-		const report = await deps.readState(job.key);
 		const lifts = limitLiftsAt(report);
-		if (report.state === 'usage_limit' && lifts && lifts > now) {
-			// The limit now resets later than first shown. A new id, since the
-			// running timer's unit still holds this one's name.
-			const later: Job = {...job, id: newJobId(), at: lifts.toISOString()};
-			saveJob(deps.store, later);
-			deps.createTimer(later);
-			deleteJob(deps.store, job.id);
+		if (lifts && lifts > now) {
+			rearm(job, lifts, deps);
 			return 'waiting';
 		}
-
-		// Codex keeps the limit message on screen after the reset until
-		// something is sent, so a passed reset sends even though it's showing.
-		const result = await sendNext(job, job.message, deps);
-		finish(job, deps);
-		return result;
 	}
 
+	// Codex keeps the limit message on screen after the reset until
+	// something is sent, so a passed reset sends even though it's showing.
+	const outcome = await sendNext(job, job.message, report, deps);
+	if (outcome === 'sent') {
+		finish(job, deps);
+		return 'sent';
+	}
+
+	if (outcome === 'no-session') {
+		finish(job, deps);
+		return 'no_session';
+	}
+
+	rearm(job, new Date(now.getTime() + RETRY_MS), deps);
+	return 'retrying';
+}
+
+function nudgeResult(outcome: SendOutcome): FireResult {
+	if (outcome === 'sent') return 'sent';
+	return outcome === 'draft' ? 'skipped_draft' : 'waiting';
+}
+
+export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
+	if (job.kind !== 'keep_going') return fireOneShot(job, deps);
+	const {now} = deps;
 	if (job.until && new Date(job.until) <= now) {
 		finish(job, deps);
 		return 'expired';
@@ -223,7 +282,7 @@ export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
 	const report = await deps.readState(job.key);
 	const save = (idleChecks: number) =>
 		saveJob(deps.store, {...job, idleChecks});
-	switch (report.state) {
+	switch (underModelSwitch(report)) {
 		case 'working': {
 			save(0);
 			return 'skipped_working';
@@ -237,7 +296,7 @@ export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
 			const lifts = limitLiftsAt(report);
 			if (!lifts || lifts > now) return 'waiting';
 			save(0);
-			return sendNext(job, 'continue', deps);
+			return nudgeResult(await sendNext(job, 'continue', report, deps));
 		}
 
 		case 'idle': {
@@ -248,18 +307,49 @@ export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
 			}
 
 			save(0);
-			return sendNext(job, job.nudge, deps);
+			return nudgeResult(await sendNext(job, job.nudge, report, deps));
 		}
 
 		case 'permission':
 		case 'question':
 		case 'auth':
+		case 'dialog':
 		case 'no_session': {
 			// The supervising agent's to answer.
 			save(0);
 			return 'waiting';
 		}
 	}
+}
+
+// A job whose time passed while its timer was gone fires this soon after.
+const LATE_FIRE_MS = 60_000;
+
+/**
+ * Gives every saved job without a timer a new one: systemd's transient timers
+ * don't survive a reboot, while the job files do. Returns the jobs re-armed.
+ */
+export function rearmMissingTimers(
+	store: ScheduleStore,
+	timers: {exists(job: Job): boolean; create(job: Job, when: TimerWhen): void},
+	now: Date,
+): Job[] {
+	const rearmed: Job[] = [];
+	for (const job of listJobs(store)) {
+		if (timers.exists(job)) continue;
+		let next = job;
+		if (job.kind !== 'keep_going') {
+			const soonest = now.getTime() + LATE_FIRE_MS;
+			const at = Math.max(new Date(job.at).getTime(), soonest);
+			next = {...job, at: new Date(at).toISOString(), arm: job.arm + 1};
+			saveJob(store, next);
+		}
+
+		timers.create(next, timerWhen(next));
+		rearmed.push(next);
+	}
+
+	return rearmed;
 }
 
 export function timerWhen(job: Job): TimerWhen {

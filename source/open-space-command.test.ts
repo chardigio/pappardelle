@@ -73,7 +73,7 @@ fs.writeFileSync(process.env.IDOW_TEST_RECORD, JSON.stringify({
 if (process.env.IDOW_TEST_STATUS_DIR) {
   const key = process.argv.at(-1);
   fs.mkdirSync(process.env.IDOW_TEST_STATUS_DIR, {recursive: true});
-  fs.writeFileSync(process.env.IDOW_TEST_STATUS_DIR + '/' + key + '.json', JSON.stringify({
+  fs.writeFileSync(process.env.IDOW_TEST_STATUS_DIR + '/project-' + key + '.json', JSON.stringify({
     status: 'waiting_for_input',
     event: 'SessionStart',
     cwd: process.env.HOME + '/.worktrees/project/' + key,

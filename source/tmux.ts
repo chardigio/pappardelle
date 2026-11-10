@@ -1652,7 +1652,8 @@ async function sendBlocker(
 	const r = await runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
 	if (r.error || r.status !== 0) return null;
 	const screen = parseAgentScreen(r.stdout, new Date());
-	if (screen.permission || screen.question) return 'prompt';
+	if (screen.permission || screen.question || screen.codexDialog)
+		return 'prompt';
 	return screen.composer && !force ? 'draft' : null;
 }
 
@@ -1668,7 +1669,7 @@ export async function sendToSpaceAgent(
 		runner?: SendTmuxRunner;
 		lockDir?: string;
 		lockTimeoutMs?: number;
-		/** Send over a draft in the Codex composer. Never over a prompt. */
+		/** Send over a draft in the input box. Never over a prompt. */
 		force?: boolean;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
@@ -1707,7 +1708,12 @@ export async function sendToSpaceAgent(
 export function sendKeysToSpaceAgent(
 	issueKey: string,
 	keys: readonly string[],
-	options: {repoName?: string; runner?: OuterTmuxRunner} = {},
+	options: {
+		repoName?: string;
+		runner?: OuterTmuxRunner;
+		/** Set by `pappardelle answer`, which has already checked the prompt. */
+		answering?: boolean;
+	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const target = resolveInnerSessionTargetSync(
@@ -1715,6 +1721,17 @@ export function sendKeysToSpaceAgent(
 		runner,
 	);
 	if (!target) return 'no-session';
+	// A key such as 1 or Enter answers a prompt, which only `answer` may do
+	// under its policy. Escape declines a Claude prompt, so it stays open to
+	// anyone, but on a Codex dialog such as folder trust it quits Codex.
+	if (!options.answering) {
+		const screen = runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
+		const parsed = parseAgentScreen(screen.stdout ?? '', new Date());
+		if (parsed.codexDialog) return 'prompt';
+		const answers = keys.some(key => key !== 'Escape');
+		if (answers && (parsed.permission || parsed.question)) return 'prompt';
+	}
+
 	for (const key of keys) {
 		const r = runner(['send-keys', '-t', target, key]);
 		if (r.error || r.status !== 0) return 'failed';
@@ -3114,7 +3131,7 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 		// Leave it unset
 	}
 
-	return buildSessionEnvArgs(issueKey, mainRepoRoot);
+	return buildSessionEnvArgs(issueKey, getRepoName(), mainRepoRoot);
 }
 
 const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';

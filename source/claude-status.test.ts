@@ -20,6 +20,7 @@ import {
 	findSpaceByStatusKey,
 	getClaudeStatusInfo,
 	getClaudeStatusInfoAsync,
+	hookStatusKey,
 	setClaudeStatus,
 } from './claude-status.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
@@ -270,6 +271,12 @@ function withStatusDir(t: ExecutionContext): string {
 	});
 	return dir;
 }
+
+test('hookStatusKey qualifies a space key or main branch by repo, flattening slashes', t => {
+	t.is(hookStatusKey('stardust-labs', 'STA-1'), 'stardust-labs-STA-1');
+	t.is(hookStatusKey('stardust-labs', 'master'), 'stardust-labs-master');
+	t.is(hookStatusKey('repo', 'alice/STA-1'), 'repo-alice-STA-1');
+});
 
 test.serial(
 	'async status resync distinguishes failed reads, removed files and expired active state',

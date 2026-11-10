@@ -7,6 +7,8 @@ import test from 'ava';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {parseCompanionArgs} from './companion-args.ts';
 import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
+import {encodeCursor} from './space-watch.ts';
+import {parseSuperviseArgs} from './supervise-args.ts';
 
 function call(name: string, input: Record<string, unknown>): CliCall {
 	const tool = MCP_TOOLS.find(candidate => candidate.name === name);
@@ -264,5 +266,32 @@ test('the approval hook answers allow', t => {
 			hookEventName: 'PreToolUse',
 			permissionDecision: 'allow',
 		},
+	});
+});
+
+test('space_watch passes its spaces, states and cursor to watch', t => {
+	const cursor = encodeCursor({'STA-1': 'idle'});
+	t.deepEqual(
+		parseSuperviseArgs(
+			call('space_watch', {
+				keys: ['STA-1', 'STA-2'],
+				until: ['blocked', 'idle'],
+				since: cursor,
+				timeout_seconds: 30,
+			}).args,
+		),
+		{
+			verb: 'watch',
+			keys: ['STA-1', 'STA-2'],
+			until: ['blocked', 'idle'],
+			since: {'STA-1': 'idle'},
+			timeoutSeconds: 30,
+			json: true,
+		},
+	);
+	t.like(parseSuperviseArgs(call('space_watch', {}).args), {
+		keys: [],
+		until: [],
+		timeoutSeconds: 50,
 	});
 });
