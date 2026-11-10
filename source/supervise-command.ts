@@ -349,6 +349,38 @@ function codexDialogKeys(
 	];
 }
 
+// How long an agent gets to redraw after an answer before it counts as not taken.
+const ANSWER_SETTLE_MS = 3000;
+const ANSWER_POLL_MS = 250;
+
+/** What the person sees on a prompt: answering it changes this. */
+function promptShown(report: AgentStateReport): string {
+	return JSON.stringify([
+		report.state,
+		report.permission?.command,
+		report.question?.question,
+		report.question?.options.map(option => option.selected),
+		report.codexDialog?.title,
+		report.codexDialog?.selected,
+	]);
+}
+
+async function answerTaken(
+	key: string,
+	before: AgentStateReport,
+	deps: SuperviseDeps,
+): Promise<boolean> {
+	const shown = promptShown(before);
+	for (let waited = 0; waited < ANSWER_SETTLE_MS; waited += ANSWER_POLL_MS) {
+		// eslint-disable-next-line no-await-in-loop
+		await deps.sleep(ANSWER_POLL_MS);
+		// eslint-disable-next-line no-await-in-loop
+		if (promptShown(await readState(key, deps)) !== shown) return true;
+	}
+
+	return false;
+}
+
 function decideAnswer(
 	command: Extract<SuperviseCommand, {verb: 'answer'}>,
 	key: string,
@@ -758,12 +790,8 @@ async function execute(
 
 		case 'answer': {
 			const key = deps.resolveKey(command.key);
-			const decision = decideAnswer(
-				command,
-				key,
-				await readState(key, deps),
-				deps.policy,
-			);
+			const before = await readState(key, deps);
+			const decision = decideAnswer(command, key, before, deps.policy);
 			if (!decision.ok) {
 				if (decision.entry) log(decision.entry);
 				deps.err(decision.message);
@@ -790,10 +818,17 @@ async function execute(
 				return 1;
 			}
 
+			const pressed = decision.entry.sent ?? decision.pressed.join(' ');
+			if (!(await answerTaken(key, before, deps))) {
+				log({...decision.entry, detail: 'the prompt did not change'});
+				deps.err(
+					`Pressed ${pressed} in ${key}, but it still shows the same prompt. Check it with \`pappardelle screen ${key}\``,
+				);
+				return 1;
+			}
+
 			log(decision.entry);
-			deps.out(
-				`Pressed ${decision.entry.sent ?? decision.pressed.join(' ')} in ${key}`,
-			);
+			deps.out(`Pressed ${pressed} in ${key}`);
 			return 0;
 		}
 
