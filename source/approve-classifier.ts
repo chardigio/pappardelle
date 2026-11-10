@@ -132,14 +132,23 @@ export const defaultClassifierRun: ClassifierRun = async (
 			cwd: tmpdir(),
 			env,
 			stdio: ['pipe', 'pipe', 'ignore'],
-			timeout: timeoutMs,
 		});
+		// Settles on the deadline itself: a child of claude that keeps stdout
+		// open would otherwise hold the answer past it.
+		const timer = setTimeout(() => {
+			child.kill();
+			reject(new Error(`timed out after ${timeoutMs / 1000}s`));
+		}, timeoutMs);
 		let stdout = '';
 		child.stdout.on('data', (chunk: Uint8Array) => {
 			stdout += String(chunk);
 		});
-		child.on('error', reject);
+		child.on('error', error => {
+			clearTimeout(timer);
+			reject(error);
+		});
 		child.on('close', status => {
+			clearTimeout(timer);
 			resolve({status, stdout});
 		});
 		child.stdin.end(input);

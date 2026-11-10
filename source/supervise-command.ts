@@ -828,7 +828,11 @@ async function execute(
 			}
 
 			log(decision.entry);
-			deps.out(`Pressed ${pressed} in ${key}`);
+			deps.out(
+				decision.entry.verdict?.startsWith('allowed: ')
+					? `Pressed ${pressed} in ${key} (${decision.entry.verdict})`
+					: `Pressed ${pressed} in ${key}`,
+			);
 			return 0;
 		}
 
