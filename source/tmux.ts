@@ -19,11 +19,14 @@ export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
 // later session in that deleted directory, even with -c.
 const TMUX_SERVER_CWD = homedir();
 
+const tmuxTimeoutMs = (args: string[]) =>
+	args.includes('new-session') ? 10_000 : 5000;
+
 const runTmuxProcess: AsyncTmuxRunner = async args => {
 	const {stdout} = await execFileAsync('tmux', args, {
 		cwd: TMUX_SERVER_CWD,
 		encoding: 'utf-8',
-		timeout: args.includes('new-session') ? 10_000 : 5000,
+		timeout: tmuxTimeoutMs(args),
 	});
 	return stdout;
 };
@@ -106,9 +109,15 @@ const runTmux: AsyncTmuxRunner = async args => {
 					// A client that stops answering is not asked again.
 					client.stop();
 					reject(new Error(`tmux did not answer: ${args.join(' ')}`));
-				}, 5000);
+				}, tmuxTimeoutMs(args));
 			}),
 		]);
+	} catch (error) {
+		// A tmux too old for the client's flags refuses it after the first
+		// commands are already queued.
+		if (error instanceof ControlClientNeverStarted)
+			return await runTmuxProcess(args);
+		throw error;
 	} finally {
 		clearTimeout(timer);
 	}
@@ -133,7 +142,11 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
-import {TmuxControlClient, controlCommandLine} from './tmux-control.ts';
+import {
+	ControlClientNeverStarted,
+	TmuxControlClient,
+	controlCommandLine,
+} from './tmux-control.ts';
 import {
 	CLIENT_TTY_OPTION,
 	FRAME_COMMAND_OPTION,

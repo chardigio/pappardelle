@@ -77,17 +77,25 @@ function commandError(command: string, stderr: string): Error {
 	);
 }
 
+/**
+ * A command was queued on a client that never came up, so tmux has not run
+ * it and it is safe to run another way.
+ */
+export class ControlClientNeverStarted extends Error {}
+
 export class TmuxControlClient {
 	private readonly pending: Pending[] = [];
 	private buffer = '';
 	private block: string[] | undefined;
 	private blockNumber = '';
-	// The client's own attach or new-session reports before any command sent.
-	private awaitingStart = true;
+	// The client's own command list reports before any command sent: one
+	// reply for each command in it.
+	private startReplies: number;
 	private closed = false;
 	private readonly child: ChildProcess;
 
 	constructor(tmuxArgs: string[], options: {cwd: string}) {
+		this.startReplies = 1 + tmuxArgs.filter(arg => arg === ';').length;
 		this.child = spawn('tmux', tmuxArgs, {
 			cwd: options.cwd,
 			stdio: ['pipe', 'pipe', 'ignore'],
@@ -141,7 +149,11 @@ export class TmuxControlClient {
 	private close(reason: Error): void {
 		if (this.closed) return;
 		this.closed = true;
-		for (const {reject} of this.pending.splice(0)) reject(reason);
+		const failure =
+			this.startReplies > 0
+				? new ControlClientNeverStarted(reason.message)
+				: reason;
+		for (const {reject} of this.pending.splice(0)) reject(failure);
 		this.hold(false);
 	}
 
@@ -178,9 +190,9 @@ export class TmuxControlClient {
 
 		const output = this.block;
 		this.block = undefined;
-		if (this.awaitingStart) {
-			this.awaitingStart = false;
+		if (this.startReplies > 0) {
 			if (end[1] === 'error') this.stop();
+			else this.startReplies--;
 			return;
 		}
 

@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import test from 'ava';
-import {TmuxControlClient, controlCommandLine} from './tmux-control.ts';
+import {
+	ControlClientNeverStarted,
+	TmuxControlClient,
+	controlCommandLine,
+} from './tmux-control.ts';
 
 const exec = promisify(execFile);
 
@@ -130,5 +134,93 @@ test.serial(
 		);
 		// The queue keeps answering after a failure.
 		t.is(await run(['show-option', '-gqv', '@probe']), `${awkward}\n`);
+	},
+);
+
+test.serial(
+	'a client that starts a session with two commands answers the first command sent',
+	async t => {
+		try {
+			await exec('tmux', ['-V']);
+		} catch {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
+		const socket = path.join(dir, 'server');
+		const client = new TmuxControlClient(
+			[
+				'-S',
+				socket,
+				'-f',
+				'/dev/null',
+				'-C',
+				'new-session',
+				'-s',
+				'control',
+				'tail -f /dev/null',
+				';',
+				'set-option',
+				'-t',
+				'=control:',
+				'destroy-unattached',
+				'on',
+			],
+			{cwd: dir},
+		);
+		t.teardown(async () => {
+			client.stop();
+			try {
+				await exec('tmux', ['-S', socket, 'kill-server'], {
+					env: {...process.env, TMUX: ''},
+				});
+			} catch {}
+
+			fs.rmSync(dir, {recursive: true, force: true});
+		});
+		t.is(
+			await client.run(controlCommandLine(['display-message', '-p', 'first'])!),
+			'first\n',
+		);
+		t.is(
+			await client.run(
+				controlCommandLine(['display-message', '-p', 'second'])!,
+			),
+			'second\n',
+		);
+	},
+);
+
+test.serial(
+	'commands queued on a client that never starts say tmux has not run them',
+	async t => {
+		try {
+			await exec('tmux', ['-V']);
+		} catch {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
+		t.teardown(() => {
+			fs.rmSync(dir, {recursive: true, force: true});
+		});
+		const client = new TmuxControlClient(
+			[
+				'-S',
+				path.join(dir, 'no-server'),
+				'-C',
+				'attach-session',
+				'-t',
+				'missing',
+			],
+			{cwd: dir},
+		);
+		await t.throwsAsync(
+			client.run(controlCommandLine(['display-message', '-p', 'x'])!),
+			{instanceOf: ControlClientNeverStarted},
+		);
+		t.false(client.usable);
 	},
 );
