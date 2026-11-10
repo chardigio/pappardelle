@@ -228,3 +228,10 @@ test('a --force after the text is the flag, not part of the message', t => {
 		force: true,
 	});
 });
+
+test('a --force inside the message stays text', t => {
+	t.like(parseSendArgs(['send', 'STE-1', 'why', '--force', 'is', 'risky']), {
+		text: 'why --force is risky',
+		force: false,
+	});
+});

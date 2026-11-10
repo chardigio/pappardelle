@@ -24,8 +24,8 @@ test('--keys presses each key name in order with no C-u, -l or Enter', t => {
 		'sent',
 	);
 	t.deepEqual(calls.slice(1), [
-		['send-keys', '-t', '=agent-repo-STA-1:', 'Escape'],
-		['send-keys', '-t', '=agent-repo-STA-1:', 'S-Tab'],
+		['send-keys', '-t', '=agent-repo-STA-1:', '--', 'Escape'],
+		['send-keys', '-t', '=agent-repo-STA-1:', '--', 'S-Tab'],
 	]);
 });
 

@@ -263,13 +263,13 @@ export function parseSendArgs(argv: readonly string[]): {
 	}
 
 	// A --force typed after the text is still the flag; text that really ends
-	// in --force goes on stdin.
-	const words = rest.filter(word => word !== '--force');
+	// in --force goes on stdin. One inside the text is text.
+	const trailing = rest.length > 1 && rest.at(-1) === '--force';
 	return {
 		key,
-		text: words.join(' '),
+		text: (trailing ? rest.slice(0, -1) : rest).join(' '),
 		keys,
-		force: force || words.length < rest.length,
+		force: force || trailing,
 	};
 }
 

@@ -1740,6 +1740,8 @@ export function sendKeysToSpaceAgent(
 			...(options.literal ? ['-l'] : []),
 			'-t',
 			target,
+			// Typed text can start with a dash.
+			'--',
 			key,
 		]);
 		if (r.error || r.status !== 0) return 'failed';
