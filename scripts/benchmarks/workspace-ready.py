@@ -112,23 +112,41 @@ def sweep_stale_fixtures():
             remove_fixture(str(root))
 
 
-COLOUR_QUERY = re.compile(rb'\x1b\](4;\d+|1[0-2]);\?(?:\x07|\x1b\\)')
+TERMINAL_QUERY = re.compile(rb'\x1b\](4;\d+|1[0-2]);\?(?:\x07|\x1b\\)|\x1b\[(>?)0?c|\x1b\[>0?q|\x1b\[1[48]t|\x1b\[\?2026\$p')
 
 
-def answer_colour_queries(master):
+def answer_terminal_queries(master, columns, rows=52):
     """Stand in for the terminal emulator behind the outer tmux client.
 
     tmux 3.6+ forwards a pane's palette query to its client's terminal. With
     nothing answering, each viewer frame waits out the renderer's 300 ms probe
     before it starts its program, which a real terminal never makes it do.
+
+    tmux also asks the terminal what it is (device attributes and version),
+    how large its window is and whether it has synchronized output when a
+    client attaches. Until those are answered it
+    holds a lone Escape typed at the client for 500 ms instead of its
+    escape-time.
     """
     pending = b''
     try:
         while data := os.read(master, 65536):
             pending += data
             end = 0
-            for match in COLOUR_QUERY.finditer(pending):
-                os.write(master, b'\x1b]' + match[1] + b';rgb:8080/8080/8080\x1b\\')
+            for match in TERMINAL_QUERY.finditer(pending):
+                if match[1]:
+                    reply = b'\x1b]' + match[1] + b';rgb:8080/8080/8080\x1b\\'
+                elif match[0].endswith(b'q'):
+                    reply = b'\x1bP>|fixture 0\x1b\\'
+                elif match[0].endswith(b'p'):
+                    reply = b'\x1b[?2026;2$y'
+                elif match[0].endswith(b'18t'):
+                    reply = b'\x1b[8;%d;%dt' % (rows, columns)
+                elif match[0].endswith(b'14t'):
+                    reply = b'\x1b[4;%d;%dt' % (rows * 20, columns * 10)
+                else:
+                    reply = b'\x1b[>0;0;0c' if match[2] else b'\x1b[?62;22c'
+                os.write(master, reply)
                 end = match.end()
             pending = pending[end:][-64:]
     except OSError:
@@ -148,7 +166,7 @@ def fixture_directory():
 SEARCH_PLACEHOLDER = 'filter by key'
 
 
-def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20, search_modes=()):
+def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20, search_modes=(), agent_keys=0):
     with fixture_directory() as tmp:
         root = Path(tmp)
         home, repo, bin_dir = (root / name for name in ('home', 'repo', 'bin'))
@@ -273,14 +291,14 @@ signal.pause()
         def rail_visible(screen):
             return 'main' in screen and (not keys or keys[-1] in screen)
 
-        def wait_screen(accept):
+        def wait_screen(accept, pane='bench:0.0'):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                screen = tmux('bench-outer', 'capture-pane', '-p', '-t', 'bench:0.0').stdout
+                screen = tmux('bench-outer', 'capture-pane', '-p', '-t', pane).stdout
                 if accept(screen):
                     return screen
                 time.sleep(0.005)
-            raise RuntimeError('Rail transition timed out: ' + screen)
+            raise RuntimeError('Pane transition timed out: ' + screen)
 
         def search_select(target, mode):
             """Search for one workspace by the end of its key and select it with Enter."""
@@ -325,6 +343,26 @@ signal.pause()
 
         launchers = []
 
+        def agent_key_echo():
+            """Type into the agent's viewer pane through the client terminal, as a keyboard does.
+
+            The fixture agent leaves its terminal in line mode, so the kernel echoes
+            each key (Escape as ^[) and the time measured is the path there and back.
+            """
+            panes = tmux('bench-outer', 'list-panes', '-t', 'bench', '-F', '#{pane_id}').stdout.splitlines()
+            pane = next(p for p in panes if 'AGENT_READY' in tmux('bench-outer', 'capture-pane', '-p', '-t', p).stdout)
+            tmux('bench-outer', 'select-pane', '-t', pane).check_returncode()
+            time.sleep(0.3)
+            result = {}
+            for metric, data, shown in (('letterMs', b'x', 'x'), ('escapeMs', b'\x1b', '^[')):
+                before = tmux('bench-outer', 'capture-pane', '-p', '-t', pane).stdout.count(shown)
+                start = time.perf_counter_ns()
+                os.write(launchers[-1][1], data)
+                wait_screen(lambda screen: screen.count(shown) > before, pane)
+                result[metric] = (time.perf_counter_ns() - start) / 1e6
+                time.sleep(0.2)
+            return result
+
         def attach_terminal(command):
             master, slave = pty.openpty()
             try:
@@ -336,7 +374,7 @@ signal.pause()
                 raise
             finally:
                 os.close(slave)
-            terminal = threading.Thread(target=answer_colour_queries, args=(master,), daemon=True)
+            terminal = threading.Thread(target=answer_terminal_queries, args=(master, width), daemon=True)
             terminal.start()
             launchers.append((client, master, terminal))
 
@@ -403,6 +441,7 @@ signal.pause()
         error = None
         interactions = []
         searches = []
+        typed = []
         cold = None
         try:
             if existing:
@@ -441,6 +480,8 @@ signal.pause()
                 tmux('bench-outer', 'send-keys', '-t', 'bench:0.0', 'j').check_returncode()
                 cold_milestones, cold_identities, cold_screens = observe(cold_start, selected=keys[-1])
                 cold = dict(milestones=cold_milestones, identities=cold_identities, screens=cold_screens, startOffsetMs=(cold_start - start_ns) / 1e6)
+            for _ in range(agent_keys):
+                typed.append(agent_key_echo())
             if startup_trace:
                 pid = int(tmux('bench-outer', 'display-message', '-p', '-t', 'bench:0.0', '#{pane_pid}').stdout)
                 deadline = time.monotonic() + timeout
@@ -502,7 +543,7 @@ signal.pause()
                 commands.append(event)
         return dict(shellDelayMs=shell_delay_ms, traced=traced, startupTrace=startup_trace, width=width, existing=existing,
                     statusChecks=status_checks, skillCount=skill_count, observeSeconds=observe_seconds,
-                    tmuxDelayMs=tmux_delay_ms, interactions=interactions, searches=searches,
+                    tmuxDelayMs=tmux_delay_ms, interactions=interactions, searches=searches, agentKeys=typed,
                     outsideTmux=outside_tmux, profileEmoji=profile_emoji, coldSwitch=cold, wallStartMs=wall_start_ns / 1e6,
                     workspaces=workspaces, success=error is None, error=error,
                     readiness='pre-existing' if existing else 'new', identities=identities,
@@ -527,6 +568,7 @@ def main():
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--filter-cycles', type=int, default=0, help='Measure / then Escape until workspace rows return')
     parser.add_argument('--search', choices=['typed', 'burst'], nargs='+', default=[], help='After startup, search for a workspace and select it: typed waits for each step to draw, burst sends / query Enter at once. Each mode selects a different workspace')
+    parser.add_argument('--agent-keys', type=int, default=0, help='After startup, type a letter and Escape into the agent pane this many times and time each echo')
     parser.add_argument('--tmux-delay-ms', type=int, default=0, help='Synthetic per-call tmux delay; also incurs Python wrapper overhead, not native timing')
     parser.add_argument('--max-filter-close-ms', type=float, help='Optional diagnostic assertion for rail-return latency')
     parser.add_argument('--status-checks', type=int, default=0)
@@ -538,7 +580,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True, help='New artifact path; historical results are never overwritten')
     args = parser.parse_args()
     sweep_stale_fixtures()
-    if args.runs < 1 or args.shell_delay_ms < 0 or args.timeout <= 0 or args.filter_cycles < 0 or args.tmux_delay_ms < 0:
+    if args.runs < 1 or args.shell_delay_ms < 0 or args.timeout <= 0 or min(args.filter_cycles, args.agent_keys) < 0 or args.tmux_delay_ms < 0:
         parser.error('runs and timeout must be positive; shell delay must be nonnegative')
     if args.poll_interval_ms <= 0 or min(args.status_checks, args.skill_count, args.observe_seconds) < 0:
         parser.error('poll interval must be positive; stress counts and observation duration must be nonnegative')
@@ -577,7 +619,7 @@ def main():
                               'installationRoot': str(binary.parent.parent)}
                         for name, binary in binaries.items()},
         'bun': subprocess.check_output(['bun', '--version'], text=True).strip(),
-        'terminal': ('PTY launcher with attached real tmux' if args.outside_tmux else 'real tmux with a PTY client attached') + ', variable width x 52; the PTY answers OSC 4/10/11/12 colour queries',
+        'terminal': ('PTY launcher with attached real tmux' if args.outside_tmux else 'real tmux with a PTY client attached') + ', variable width x 52; the PTY answers OSC 4/10/11/12 colour queries, device attributes, XTVERSION, window size and synchronized output',
         'scope': 'isolated HOME/repo/servers; OS caches NOT flushed; dummy Python agents; bd/gh stubbed; update cache primed; no real agent startup',
         'observation': f'{args.poll_interval_ms:g} ms polling plus observer subprocess overhead; readiness files timestamped by fixtures; client attachment and visible markers sampled separately',
     }, 'settings': vars(args) | {'binary': str(args.binary), 'candidate': str(args.candidate) if args.candidate else None,
@@ -609,6 +651,13 @@ def main():
                     **{metric: {'median': statistics.median(values), 'min': min(values), 'max': max(values)}
                        for metric in ('openMs', 'filterMs', 'closeMs', 'viewersMs')
                        for values in [[search[metric] for search in done if metric in search]] if values}}
+            for metric in ('letterMs', 'escapeMs'):
+                values = [echo[metric] for s in runs for echo in s['agentKeys'] if metric in echo]
+                if values:
+                    result['summary'][name]['agentKey' + metric[0].upper() + metric[1:]] = {
+                        'median': statistics.median(values), 'min': min(values), 'max': max(values),
+                        'observations': len(values),
+                    }
             cold_samples = [s['coldSwitch']['milestones'] for s in valid if s.get('coldSwitch')]
             if cold_samples:
                 result['summary'][name]['coldSwitchMs'] = {
@@ -634,7 +683,7 @@ def main():
                     profile_emoji=args.profile_emoji, cold_switch=args.cold_switch,
                     status_checks=args.status_checks, skill_count=args.skill_count,
                     observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms,
-            search_modes=args.search)
+                    search_modes=args.search, agent_keys=args.agent_keys)
                 samples.setdefault(key, []).append(sample)
                 save()
                 print(key, index + 1, json.dumps(sample['milestones'] if sample['success'] else sample['error']), flush=True)
@@ -646,7 +695,7 @@ def main():
             outside_tmux=args.outside_tmux, profile_emoji=args.profile_emoji, cold_switch=args.cold_switch,
             status_checks=args.status_checks, skill_count=args.skill_count,
             observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms,
-            search_modes=args.search)
+            search_modes=args.search, agent_keys=args.agent_keys)
         result['instrumentedSample'] = trace
         chrome = {'traceEvents': [dict(name=e['tool'] + ' ' + shlex.join(e['args']),
                    cat='subprocess', ph='X', ts=e['elapsedMs'] * 1000,
