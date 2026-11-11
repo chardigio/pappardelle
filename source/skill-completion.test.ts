@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -660,6 +661,87 @@ test('discoverSkills skips plugins that are disabled, not enabled here, or insta
 	t.deepEqual(
 		found.map(f => f.name),
 		['repo-on:go'],
+	);
+});
+
+function gitRepoWithWorktrees(worktreeCount: number) {
+	const main = makeTmpDir();
+	const git = (...args: string[]) =>
+		execFileSync('git', ['-C', main, ...args], {stdio: 'pipe'});
+	git('init', '-q');
+	git(
+		'-c',
+		'user.name=Test',
+		'-c',
+		'user.email=test@example.com',
+		'-c',
+		'commit.gpgsign=false',
+		'commit',
+		'-q',
+		'--allow-empty',
+		'-m',
+		'initial',
+	);
+	const worktrees = Array.from({length: worktreeCount}, (_, index) => {
+		const worktree = path.join(makeTmpDir(), 'worktree');
+		git('worktree', 'add', '-q', '-b', `linked-${index}`, worktree);
+		return worktree;
+	});
+	return {main, worktrees};
+}
+
+function installEnabledCommandPlugin(
+	home: string,
+	key: string,
+	projectPath: string,
+) {
+	const plugin = installPlugin(home, {key, projectPath});
+	fs.mkdirSync(path.join(plugin, 'commands'));
+	fs.writeFileSync(path.join(plugin, 'commands', 'go.md'), 'Go.\n');
+	const settings = path.join(home, '.claude', 'settings.json');
+	const enabled = fs.existsSync(settings)
+		? (
+				JSON.parse(fs.readFileSync(settings, 'utf8')) as {
+					enabledPlugins: Record<string, boolean>;
+				}
+			).enabledPlugins
+		: {};
+	enablePlugins(home, 'settings.json', {...enabled, [key]: true});
+}
+
+test('discoverSkills offers a project plugin in every worktree of the repository it was installed in', async t => {
+	const {main, worktrees} = gitRepoWithWorktrees(2);
+	const [here, sibling] = worktrees as [string, string];
+	const subdirectory = path.join(main, 'packages', 'app');
+	fs.mkdirSync(subdirectory, {recursive: true});
+	const otherRepo = gitRepoWithWorktrees(0).main;
+	const home = makeTmpDir();
+	installEnabledCommandPlugin(home, 'main@m', main);
+	installEnabledCommandPlugin(home, 'sibling@m', sibling);
+	installEnabledCommandPlugin(home, 'subdirectory@m', subdirectory);
+	installEnabledCommandPlugin(home, 'other-repo@m', otherRepo);
+	installEnabledCommandPlugin(
+		home,
+		'removed@m',
+		path.join(main, '.claude', 'worktrees', 'removed'),
+	);
+
+	const found = await discoverSkills({repoRoot: here, homeDir: home});
+	t.deepEqual(
+		found.map(f => f.name),
+		['main:go', 'removed:go', 'sibling:go', 'subdirectory:go'],
+	);
+});
+
+test('discoverSkills offers a project plugin installed in a worktree from the main checkout', async t => {
+	const {main, worktrees} = gitRepoWithWorktrees(1);
+	const home = makeTmpDir();
+	installEnabledCommandPlugin(home, 'linked@m', worktrees[0]!);
+
+	const found = await discoverSkills({repoRoot: main, homeDir: home});
+	t.deepEqual(
+		found.map(f => f.name),
+		['linked:go'],
 	);
 });
 

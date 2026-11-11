@@ -1,9 +1,13 @@
 import {Buffer} from 'node:buffer';
+import {execFile} from 'node:child_process';
 import os from 'node:os';
 import type {Dirent} from 'node:fs';
 import fs, {type FileHandle} from 'node:fs/promises';
 import path from 'node:path';
+import {promisify} from 'node:util';
 import {getRepoRoot} from './config.ts';
+
+const run = promisify(execFile);
 
 /**
  * Slash-command autocomplete for the "+ New Session" prompt.
@@ -500,8 +504,42 @@ async function enabledPluginKeys(roots: SkillRoots): Promise<Set<string>> {
 type Plugin = {key: string; installPath: string};
 
 /**
- * An install with a `projectPath` belongs to that one project; the rest are
- * installed for the user and apply everywhere.
+ * The `.git` directory every worktree of one repository shares, which is how
+ * two paths are told to be the same repository. A recorded path that has since
+ * been deleted is resolved from its nearest surviving ancestor, as Claude does.
+ */
+async function gitCommonDir(dir: string): Promise<string | undefined> {
+	let existing = dir;
+	for (;;) {
+		try {
+			await fs.access(existing);
+			break;
+		} catch {
+			const parent = path.dirname(existing);
+			if (parent === existing) return undefined;
+			existing = parent;
+		}
+	}
+
+	try {
+		const {stdout} = await run('git', [
+			'-C',
+			existing,
+			'rev-parse',
+			'--path-format=absolute',
+			'--git-common-dir',
+		]);
+		return stdout.trim() || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * An install with a `projectPath` belongs to the repository it was recorded
+ * in, from any of that repository's worktrees or subdirectories, which is
+ * where Claude Code loads it; the rest are installed for the user and apply
+ * everywhere.
  */
 async function enabledPlugins(roots: SkillRoots): Promise<Plugin[]> {
 	const [installed, enabled] = await Promise.all([
@@ -515,22 +553,52 @@ async function enabledPlugins(roots: SkillRoots): Promise<Plugin[]> {
 			? installed['plugins']
 			: {};
 
-	const result: Plugin[] = [];
-	for (const [key, installs] of Object.entries(plugins)) {
-		if (!enabled.has(key) || !Array.isArray(installs)) continue;
-		const install: unknown = installs.find(
-			candidate =>
-				isRecord(candidate) &&
-				typeof candidate['installPath'] === 'string' &&
-				(candidate['projectPath'] === undefined ||
-					candidate['projectPath'] === roots.repoRoot),
-		);
-		if (isRecord(install)) {
-			result.push({key, installPath: install['installPath'] as string});
-		}
-	}
+	const candidates = Object.entries(plugins).flatMap(([key, installs]) =>
+		enabled.has(key) && Array.isArray(installs)
+			? [{key, installs: installs.filter(install => isInstall(install))}]
+			: [],
+	);
+	const otherPaths = new Set(
+		candidates.flatMap(({installs}) =>
+			installs.flatMap(install =>
+				install.projectPath !== undefined &&
+				install.projectPath !== roots.repoRoot
+					? [install.projectPath]
+					: [],
+			),
+		),
+	);
+	const commonDirs =
+		otherPaths.size === 0
+			? new Map<string, string | undefined>()
+			: new Map(
+					await Promise.all(
+						[roots.repoRoot, ...otherPaths].map(
+							async dir => [dir, await gitCommonDir(dir)] as const,
+						),
+					),
+				);
+	const here = commonDirs.get(roots.repoRoot);
+	const appliesHere = (install: Install) =>
+		install.projectPath === undefined ||
+		install.projectPath === roots.repoRoot ||
+		(here !== undefined && commonDirs.get(install.projectPath) === here);
 
-	return result;
+	return candidates.flatMap(({key, installs}) => {
+		const install = installs.find(install => appliesHere(install));
+		return install ? [{key, installPath: install.installPath}] : [];
+	});
+}
+
+type Install = {installPath: string; projectPath?: string};
+
+function isInstall(value: unknown): value is Install {
+	return (
+		isRecord(value) &&
+		typeof value['installPath'] === 'string' &&
+		(value['projectPath'] === undefined ||
+			typeof value['projectPath'] === 'string')
+	);
 }
 
 function manifestPaths(
