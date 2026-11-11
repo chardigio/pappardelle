@@ -473,6 +473,7 @@ interface PappardelleConfig {
 		companion_width?: number | string;
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
+	companion?: boolean; // false = no companion pane; the agent takes its width (default: true). Per-profile overridable. See "Turning the companion off".
 	companion_splits?: CompanionSplit[]; // Panes started beside the companion, each framed. Per-profile overridable. See "Companion splits".
 	ide_command?: string; // Command the `d` key runs to open an editor (default: cursor). Per-profile overridable. "" = disable `d`.
 	initialization_command?: string; // Skill the agent runs on new sessions, without its prefix (e.g. "idow"). Agent-agnostic; replaces claude.initialization_command.
@@ -519,6 +520,7 @@ interface Profile {
 		extra_args?: string[]; // DEPRECATED: select an agent profile that sets args. Replaces the global claude.extra_args; [] clears it.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
+	companion?: boolean; // Override the top-level companion on/off for this profile.
 	companion_splits?: CompanionSplit[]; // Replaces the top-level companion_splits for this profile.
 	ide_command?: string; // Override the top-level `d`-key editor command for this profile. "" = disable `d` for this profile.
 	vars?: Record<string, string>; // Generic template variables
@@ -1208,6 +1210,35 @@ companion_command?: string; // top-level and per-profile
 - **The default carries `GIT_OPTIONAL_LOCKS=0`**, which keeps the git UI from taking lock files for read-only ops, avoiding contention with Claude's concurrent git calls. Custom commands run exactly as written — add the prefix yourself if your command is git-heavy.
 - **Honored on every launch path** — the Pappardelle TUI, `idow`/`start-agent-session.sh`, and the terminal launchers all resolve the same value, so a session launched from any of them runs the same companion command.
 - **Default change (STA-1464):** the default companion tool changed from `lazygit` to `gitui`. Restore the old behavior with `companion_command: lazygit`.
+
+### Turning the companion off
+
+`companion: false` removes the companion pane from the wide layout. The agent pane takes its width, so the layout is the rail and the agent only. `companion_command: ""` is not the same: it keeps the pane (a plain shell, at least 20 columns wide).
+
+```yaml
+companion: false # every space: the rail and the agent only
+
+profiles:
+  backend:
+    display_name: Backend
+    keywords: [backend, api]
+    companion: true # this profile keeps its companion
+```
+
+```typescript
+companion?: boolean; // top-level and per-profile. Default: true
+```
+
+**How it works:**
+
+- **Resolution order** (first defined wins): the matched profile's `companion` → the top-level `companion` → `true`. A config that never sets it keeps the companion. Mirrors `getCompanionEnabled()` in `source/config.ts`; the bash side lives in `scripts/resolve-agent-config.sh`.
+- **Per space.** When you select a space whose profile sets a different value than the space before it, the TUI rebuilds the panes to add or remove the companion.
+- **No companion session.** Pappardelle starts no companion session (and no `gitui`) for a space with the companion off. `idow` passes `--no-companion` to `start-agent-session.sh`.
+- **The rail keeps its width.** `layout.rail_width` still applies. `layout.claude_width` sizes the rail when `rail_width` is unset. `layout.companion_width` has no effect.
+- **Narrow terminals do not change.** Below 100 columns the layout stacks the rail over the agent, with or without the companion.
+- **The companion verbs refuse.** `pappardelle companion ...`, the `companion_*` MCP tools and `pappardelle screen --companion` exit 1 and say which setting turned the companion off. The CLI reads the space's saved profile, so a space that only a title keyword matches is checked against the top-level value.
+- **`companion_splits` fails validation** where the companion is off: in the same scope, or in a profile that takes `companion: false` from the top level. Top-level splits stay valid when only some profiles turn the companion off.
+- **TUI and idow only.** The terminal launchers (`open-*-agent.sh`, `idow --open`) still open a companion pane.
 
 ### Companion splits
 

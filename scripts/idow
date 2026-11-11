@@ -198,6 +198,7 @@ resolve_agent_launch_config() {
     local profile_init_cmd_set profile_init_cmd deprecations profile_deprecations agent_rules_flags
     {
         IFS= read -r -d '' COMPANION_COMMAND
+        IFS= read -r -d '' COMPANION_ENABLED
         IFS= read -r -d '' SKIP_PERMISSIONS
         IFS= read -r -d '' AGENT_MODEL
         IFS= read -r -d '' AGENT_EFFORT
@@ -216,7 +217,7 @@ resolve_agent_launch_config() {
         IFS= read -r -d '' profile_init_cmd
         IFS= read -r -d '' deprecations
         IFS= read -r -d '' profile_deprecations
-    } < <(jq -j '[.companion_command, .skip_permissions, .model, .effort, .agent_command, .agent_args,
+    } < <(jq -j '[.companion_command, .companion, .skip_permissions, .model, .effort, .agent_command, .agent_args,
         .agent_resume_args, .agent_prompt_args, .agent_is_claude, .agent_skill_prefix, .agent_profile, .agent_launch_flags, .agent_rules_flags, .workspace_aware, .init_cmd,
         .profile_init_cmd_set, .profile_init_cmd, .deprecation_warnings,
         .profile_deprecation_warnings][] | tostring | sub("\n+$"; "") + "\u0000"' <<< "$json")
@@ -933,6 +934,11 @@ elif [[ -n "$INIT_CMD" ]]; then
 fi
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     AGENT_SESSION_ARGS+=(--skip-permissions)
+fi
+# companion: false: the TUI shows no companion pane, so no hidden companion
+# session runs for the space (STA-3069).
+if [[ "$COMPANION_ENABLED" == "false" ]]; then
+    AGENT_SESSION_ARGS+=(--no-companion)
 fi
 # Matches the '.' → '_' encoding in start-agent-session.sh and
 # getSessionNames(); see the comment there.

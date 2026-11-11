@@ -13,6 +13,7 @@ import {
 	resizeCompanionPane,
 	runInCompanion,
 	sendCompanionKeys,
+	spaceCompanionOffReason,
 } from './companion.ts';
 import {MAIN_PANE} from './companion-splits.ts';
 import {
@@ -33,6 +34,8 @@ export interface CompanionCommandDeps {
 	/** Needed only after parsing, so --help works outside a repo. */
 	repoName: () => string;
 	readStdin?: () => string | undefined;
+	/** Why the space has no companion pane, or null when it has one. */
+	companionOff?: (space: string) => string | null;
 	out?: (text: string) => void;
 	err?: (text: string) => void;
 }
@@ -232,6 +235,7 @@ export async function runCompanionCommand(
 ): Promise<number> {
 	const deps: Required<CompanionCommandDeps> = {
 		readStdin: defaultReadStdin,
+		companionOff: space => spaceCompanionOffReason(space, options.repoName()),
 		out: text => console.log(text),
 		err: text => console.error(text),
 		...options,
@@ -243,7 +247,14 @@ export async function runCompanionCommand(
 			return 0;
 		}
 
-		return await execute(command, deps.resolveSpace(command.space), deps);
+		const space = deps.resolveSpace(command.space);
+		const off = deps.companionOff(space);
+		if (off !== null) {
+			deps.err(off);
+			return 1;
+		}
+
+		return await execute(command, space, deps);
 	} catch (error) {
 		if (
 			error instanceof CompanionUsageError ||

@@ -1056,3 +1056,59 @@ test('vertical: session count changes list height', t => {
 	t.is(few.agentHeight, 23); // 29-6
 	t.is(many.agentHeight, 22); // 29-7
 });
+
+// ============================================================================
+// COMPANION OFF (STA-3069)
+// ============================================================================
+
+test('companion off: the agent takes the companion width, with one divider', t => {
+	// usable = 120-1 = 119 (one divider between two panes)
+	// list = floor(119*0.24) = 28, agent = 119-28 = 91
+	const layout = calculateLayoutForSize(120, 15, 5, {}, 1, false);
+	t.deepEqual(layout, {
+		direction: 'horizontal',
+		listWidth: 28,
+		agentWidth: 91,
+		companionWidth: 0,
+	});
+});
+
+test('companion off: the rail keeps its cap on a very wide window', t => {
+	const layout = calculateLayoutForSize(500, 40, 5, {}, 1, false);
+	t.is(layout.listWidth, MAX_LIST_WIDTH);
+	t.is(layout.agentWidth, 499 - MAX_LIST_WIDTH);
+	t.is(layout.companionWidth, 0);
+});
+
+test('companion off: a rail width applies and a companion width is ignored', t => {
+	const layout = calculateLayoutForSize(
+		160,
+		40,
+		5,
+		{rail: 30, companion: 60},
+		1,
+		false,
+	);
+	t.deepEqual(
+		[layout.listWidth, layout.agentWidth, layout.companionWidth],
+		[30, 129, 0],
+	);
+});
+
+test('companion off: a claude width sizes the rail when the rail has none', t => {
+	const layout = calculateLayoutForSize(160, 40, 5, {claude: 120}, 1, false);
+	t.deepEqual([layout.listWidth, layout.agentWidth], [39, 120]);
+	// The claude minimum wins over a rail that leaves it too little room.
+	const squeezed = calculateLayoutForSize(100, 40, 5, {rail: 90}, 1, false);
+	t.deepEqual(
+		[squeezed.listWidth, squeezed.agentWidth],
+		[99 - MIN_CLAUDE_WIDTH, MIN_CLAUDE_WIDTH],
+	);
+});
+
+test('companion off: a narrow window stacks the same as with the companion', t => {
+	t.deepEqual(
+		calculateLayoutForSize(80, 30, 3, {}, 1, false),
+		calculateLayoutForSize(80, 30, 3),
+	);
+});

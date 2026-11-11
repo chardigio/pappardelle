@@ -34,6 +34,7 @@ Options:
 - **Configure Claude settings** — initialization command, permissions
 - **Configure agent profiles** — run codex or another CLI in the agent pane, or set model and effort
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
+- **Turn the companion pane off**: the agent takes its width (`companion: false`; default true)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
 Then follow the appropriate section below based on their choice.
@@ -398,6 +399,8 @@ companion_splits:
 ```
 
 `split` is `right` or `down` (default `down`), `size` is cells or a share of the companion column, and names are lowercase letters, digits and dashes. A profile's `companion_splits` replaces the top-level list. The TUI starts them the first time it shows a space, and one the user closes stays closed. Don't use `tmux split-window` in `companion_command` for this: a split inside the companion's session draws tmux's plain divider inside the companion's frame.
+
+**Turn the pane off** with `companion: false` (top-level or per-profile; profile wins, default `true`). The agent then takes the companion's width. It is not the same as `companion_command: ""`, which keeps a plain-shell pane at least 20 columns wide. With it off, the companion verbs and `companion_*` MCP tools exit with an error, and `companion_splits` set where the companion is off fails validation, so remove them. A top-level `companion: false` plus `companion: true` on one profile keeps the pane for that profile only.
 
 **When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), splits beside the companion (`companion_splits` above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
 

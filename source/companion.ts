@@ -6,7 +6,14 @@ import {
 	type CompanionSplit,
 	type SplitDirection,
 } from './companion-splits.ts';
+import {
+	getCompanionEnabled,
+	loadConfig,
+	type PappardelleConfig,
+} from './config.ts';
 import type {PaneWidth} from './layout-sizing.ts';
+import {readSpaceState} from './space-state.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildShellLaunchArgs,
 	createCompanionSplit,
@@ -23,6 +30,46 @@ import {
 // companion-splits.ts), which the TUI shows in a framed pane beside main.
 
 export class CompanionError extends Error {}
+
+/**
+ * Why a space has no companion pane, or null when it has one. With the
+ * companion off the TUI starts no companion session, so without this check
+ * a verb fails with "no companion session", which reads as a bug to fix
+ * rather than a setting. The profile is the space's saved one: the CLI has no
+ * issue title, so a legacy space that only a title keyword matches is checked
+ * against the top-level value.
+ */
+export function companionOffReason(
+	config: PappardelleConfig,
+	spaceKey: string,
+	profileName?: string,
+): string | null {
+	if (getCompanionEnabled(config, undefined, profileName)) return null;
+	const where =
+		profileName !== undefined &&
+		config.profiles[profileName]?.companion === false
+			? `profiles.${profileName}`
+			: 'the top-level config';
+	return `${spaceKey}'s companion is off (${where} sets companion: false), so it has no companion pane. Set companion: true to use the companion verbs`;
+}
+
+/** `companionOffReason` for a space of the repo, from the config on disk. */
+export function spaceCompanionOffReason(
+	spaceKey: string,
+	repoName: string,
+): string | null {
+	try {
+		const profile =
+			spaceKey === MAIN_WORKTREE_KEY
+				? undefined
+				: readSpaceState(repoName, spaceKey)?.profile;
+		return companionOffReason(loadConfig(), spaceKey, profile);
+	} catch {
+		// A config that does not load cannot turn the companion off; the verb
+		// reports its own error.
+		return null;
+	}
+}
 
 export interface CompanionPane {
 	name: string | null;

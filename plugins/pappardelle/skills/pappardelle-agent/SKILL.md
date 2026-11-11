@@ -17,6 +17,7 @@ Pappardelle gives each issue a git worktree, an agent session (Claude, or the ag
 - `PAPPARDELLE_MAIN_REPO_ROOT` is the main checkout. Worktrees live in `~/.worktrees/{repo}/{KEY}`
 - Each space has two tmux sessions on the `pappardelle_inner` socket: `agent-{repo}-{key}` (the agent) and `companion-{repo}-{key}` (the companion). In the key, `_` becomes `__` and `.` becomes `_`, because tmux rejects `.` in session names
 - Each companion split is a session of its own, `companion-{repo}-{key}~{name}`, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
+- A space whose config sets `companion: false` has no companion. The companion tools then exit with an error that says so; do not retry them for that space
 - The TUI runs in the session `pappardelle-{repo}` on the default tmux server
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.

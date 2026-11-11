@@ -1,6 +1,7 @@
 import test from 'ava';
 import {
 	closeCompanionPane,
+	companionOffReason,
 	CompanionError,
 	listCompanion,
 	readCompanionPane,
@@ -364,4 +365,29 @@ test('read returns only the last N lines of what tmux captured', t => {
 		readCompanionPane('STA-1', {pane: 'main', lines: 3}, deps(tmux.runner)),
 		'line 28\nline 29\nline 30',
 	);
+});
+
+test('companionOffReason names where the companion is turned off, and is null while it is on', t => {
+	const config = {
+		version: 1 as const,
+		profiles: {
+			quiet: {display_name: 'Quiet', companion: false},
+			plain: {display_name: 'Plain'},
+			loud: {display_name: 'Loud', companion: true},
+		},
+	};
+	t.is(companionOffReason(config, 'STA-1', 'plain'), null);
+	t.is(companionOffReason(config, 'STA-1'), null);
+	t.is(
+		companionOffReason(config, 'STA-1', 'quiet'),
+		"STA-1's companion is off (profiles.quiet sets companion: false), so it has no companion pane. Set companion: true to use the companion verbs",
+	);
+
+	const off = {...config, companion: false};
+	t.is(
+		companionOffReason(off, 'main'),
+		"main's companion is off (the top-level config sets companion: false), so it has no companion pane. Set companion: true to use the companion verbs",
+	);
+	t.true(companionOffReason(off, 'STA-2', 'plain')!.includes('top-level'));
+	t.is(companionOffReason(off, 'STA-3', 'loud'), null);
 });

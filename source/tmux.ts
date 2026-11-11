@@ -131,6 +131,7 @@ import {
 	resolveAgentProfileName,
 	renderAgentLaunchFlags,
 	getCompanionCommand,
+	getCompanionEnabled,
 	getCompanionSplits,
 	quoteLaunchValue,
 	getDangerouslySkipPermissions,
@@ -378,6 +379,39 @@ function getConfiguredPaneWidths(): PaneWidths {
 	}
 
 	return configuredPaneWidths;
+}
+
+/**
+ * Whether the selected space has a companion pane, from its profile. Null
+ * before any space is selected, which leaves the top-level setting.
+ */
+let spaceCompanionEnabled: boolean | null = null;
+let configuredCompanionEnabled: boolean | undefined;
+/**
+ * The companion setting the current panes were built with. The setting can
+ * differ from one space to the next, and a pane can be added or removed only
+ * by a rebuild, so `reconcilePaneLayout` compares the two. A companion split
+ * that tmux refused does not count as a difference, so it cannot cause a
+ * rebuild at each relayout.
+ */
+let layoutBuiltWithCompanion: boolean | null = null;
+
+/** Set from the selected space's profile, or null to use the top-level setting. */
+export function setSpaceCompanionEnabled(value: boolean | null): void {
+	spaceCompanionEnabled = value;
+}
+
+function companionEnabled(): boolean {
+	if (spaceCompanionEnabled !== null) return spaceCompanionEnabled;
+	if (configuredCompanionEnabled === undefined) {
+		try {
+			configuredCompanionEnabled = getCompanionEnabled(loadConfig());
+		} catch {
+			configuredCompanionEnabled = true;
+		}
+	}
+
+	return configuredCompanionEnabled;
 }
 
 let configuredListLines: 1 | 2 | undefined;
@@ -1897,6 +1931,7 @@ export function calculateIdealListHeight(): number {
 export function calculateLayout(
 	totalWidth: number,
 	totalHeight: number,
+	withCompanion = companionEnabled(),
 ): LayoutConfig {
 	return calculateLayoutForSize(
 		totalWidth,
@@ -1904,6 +1939,7 @@ export function calculateLayout(
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
 		currentPaneWidths(),
 		getConfiguredListLines(),
+		withCompanion,
 	);
 }
 
@@ -1958,7 +1994,8 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 				: readGeometrySync(listPaneId)?.panes.get(listPaneId);
 		const totalWidth = initial?.cols ?? 120;
 		const totalHeight = initial?.rows ?? 40;
-		const layout = calculateLayout(totalWidth, totalHeight);
+		const withCompanion = companionEnabled();
+		const layout = calculateLayout(totalWidth, totalHeight, withCompanion);
 
 		log.info(
 			`Terminal size: ${totalWidth}x${totalHeight}, layout: ${layout.direction}`,
@@ -2006,6 +2043,9 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 				';',
 				...split('-h', agentWidth, AGENT_PANE_TITLE),
 			];
+		} else if (!withCompanion) {
+			log.info('The companion is off in the config; the agent takes its width');
+			splits = split('-h', agentWidth, AGENT_PANE_TITLE);
 		} else {
 			log.info(
 				`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
@@ -2092,6 +2132,7 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 			lastCompanionWidth = null;
 		}
 
+		layoutBuiltWithCompanion = withCompanion;
 		done?.();
 		void closeOrphanedViewerPanes(listPaneId, paneIds);
 
@@ -2258,12 +2299,48 @@ export async function attachToSpace(
 		options?: AttachOptions,
 	]
 ): Promise<boolean> {
+	// A space with the companion off gets no companion session, even while
+	// the pane from the previous space waits for its rebuild.
+	const issueKey = rest[0];
+	const issueTitle = rest[3];
 	return attachViewers(
 		agentViewerPaneId,
-		closedCompanionPanes.has(companionViewerPaneId)
+		closedCompanionPanes.has(companionViewerPaneId) ||
+			!spaceCompanionSetting(issueKey, issueTitle)
 			? ''
 			: companionViewerPaneId,
 		...rest,
+	);
+}
+
+/**
+ * Whether a space gets a companion pane: its saved profile, else the profile
+ * its issue title matches, else the top-level setting. A config that does not
+ * load keeps the companion, the same as before the setting existed.
+ */
+export function spaceCompanionSetting(
+	issueKey: string,
+	issueTitle?: string,
+): boolean {
+	try {
+		return getCompanionEnabled(
+			loadConfig(),
+			issueTitle,
+			savedSpaceProfile(issueKey),
+		);
+	} catch {
+		return true;
+	}
+}
+
+/**
+ * True when the selected space's companion setting differs from the one the
+ * panes were built with, so a layout pass must rebuild them.
+ */
+export function companionLayoutIsStale(): boolean {
+	return (
+		layoutBuiltWithCompanion !== null &&
+		layoutBuiltWithCompanion !== companionEnabled()
 	);
 }
 
@@ -3175,10 +3252,11 @@ export async function rebuildLayout(
 		const cwd = process.cwd();
 
 		const {width: totalWidth, height: totalHeight} = windowDims;
-		const layout = calculateLayout(totalWidth, totalHeight);
+		const withCompanion = companionEnabled();
+		const layout = calculateLayout(totalWidth, totalHeight, withCompanion);
 
 		log.info(
-			`Rebuilding layout: ${totalWidth}x${totalHeight}, mode=${layout.direction}`,
+			`Rebuilding layout: ${totalWidth}x${totalHeight}, mode=${layout.direction}, companion=${withCompanion ? 'on' : 'off'}`,
 		);
 
 		let agentViewerPaneId: string;
@@ -3215,9 +3293,11 @@ export async function rebuildLayout(
 				`Rebuilt vertical: list=${layout.listHeight}, agent=${layout.agentHeight}`,
 			);
 		} else {
-			// HORIZONTAL: list | claude | companion
-			const rightPortionWidth =
-				(layout.agentWidth ?? 40) + (layout.companionWidth ?? 0) + 1;
+			// HORIZONTAL: list | claude | companion, or list | claude with the
+			// companion off (the agent pane is then the whole right portion)
+			const rightPortionWidth = withCompanion
+				? (layout.agentWidth ?? 40) + (layout.companionWidth ?? 0) + 1
+				: (layout.agentWidth ?? 40);
 
 			const agentResult = await runLayoutCommand(
 				[
@@ -3244,7 +3324,10 @@ export async function rebuildLayout(
 			}
 			agentViewerPaneId = agentResult.stdout.trim();
 
-			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
+			if (
+				withCompanion &&
+				(layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH
+			) {
 				const companionResult = await runLayoutCommand(
 					[
 						'split-window',
@@ -3285,6 +3368,7 @@ export async function rebuildLayout(
 			`Layout rebuilt: agent=${agentViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
+		layoutBuiltWithCompanion = withCompanion;
 		const layoutPanes = {listPaneId, agentViewerPaneId, companionViewerPaneId};
 		return {
 			layout: layoutPanes,
@@ -3478,7 +3562,10 @@ export async function reconcilePaneLayout(
 		const vertical =
 			paneGeometry(geometry, layout.listPaneId).cols === geometry.window.width;
 		const desiredVertical = geometry.window.width < NARROW_SCREEN_THRESHOLD;
-		if (vertical !== desiredVertical) {
+		// A space whose profile turns the companion on or off needs a pane
+		// added or removed, which only a rebuild does.
+		const companionChanged = !desiredVertical && companionLayoutIsStale();
+		if (vertical !== desiredVertical || companionChanged) {
 			const rebuilt = await rebuildLayout(
 				layout.listPaneId,
 				layout.agentViewerPaneId,

@@ -185,7 +185,10 @@ import {
 	reconcilePaneLayout,
 	runningAgentProfile,
 	measureCompanionColumnWidth,
+	setSpaceCompanionEnabled,
 	setSpaceCompanionWidth,
+	spaceCompanionSetting,
+	companionLayoutIsStale,
 	setSpaceCompanionDragHandler,
 	syncCompanionSplits,
 	takePendingSplitSync,
@@ -965,6 +968,21 @@ export default function App({
 				dialogRequest.current.revision,
 			);
 	}, [repoName, selectedSpaceName, layoutTasks]);
+
+	// A profile can turn the companion off (STA-3069). The pane is added or
+	// removed by the next layout pass, which runs before the attachment the
+	// effect below queues, so a space never attaches to the wrong panes.
+	useEffect(() => {
+		if (!selectedSpaceName) return;
+		setSpaceCompanionEnabled(
+			spaceCompanionSetting(selectedSpaceName, selectedIssueTitle),
+		);
+		if (paneLayoutRef.current && companionLayoutIsStale())
+			void layoutTasks.request(
+				dialogOpenRef.current,
+				dialogRequest.current.revision,
+			);
+	}, [selectedSpaceName, selectedIssueTitle, layoutTasks]);
 
 	useEffect(() => {
 		setSpaceCompanionDragHandler((key, columns) => {

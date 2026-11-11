@@ -2,7 +2,7 @@
 
 # start-agent-session.sh - Ensure agent and companion tmux sessions exist for an issue
 #
-# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-companion] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # Creates detached tmux sessions (repo-qualified):
 #   agent-<REPO>-<KEY>      — runs the configured agent (default: Claude Code)
@@ -13,6 +13,7 @@
 # duplicated, preserving its running conversation.
 # --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
+# --no-companion: start no companion session (the config sets companion: false)
 # --no-agent: create sessions but don't launch the agent/companion command (for testing)
 # --no-prompt: launch the agent without a prompt (idow's resume mode), so a
 #              fresh launch after a failed or skipped resume starts idle.
@@ -62,6 +63,7 @@ REPO_NAME=""
 WORKTREE_PATH=""
 INIT_CMD=""
 NO_AGENT=false
+NO_COMPANION=false
 SKIP_PERMISSIONS=false
 AGENT_COMMAND=""
 AGENT_ARGS=""
@@ -101,6 +103,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-agent)
             NO_AGENT=true
+            shift
+            ;;
+        --no-companion)
+            NO_COMPANION=true
             shift
             ;;
         --skip-permissions)
@@ -372,7 +378,8 @@ fi
 
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).
 # An empty command leaves a plain shell.
-if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$COMPANION_SESSION:" 2>/dev/null; then
+# --no-companion (companion: false) starts none: the TUI shows no companion pane.
+if [[ "$NO_COMPANION" != true ]] && ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$COMPANION_SESSION:" 2>/dev/null; then
     if [[ "$NO_AGENT" != true && -n "$COMPANION_COMMAND" ]]; then
         new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
     else

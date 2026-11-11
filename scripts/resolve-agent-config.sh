@@ -75,7 +75,7 @@
 # Output: JSON object with resolved values:
 #   {"init_cmd": "...", "profile_init_cmd_set": true|false, "profile_init_cmd": "...",
 #    "skip_permissions": "true|false", "model": "...", "effort": "...",
-#    "companion_command": "...",
+#    "companion_command": "...", "companion": "true|false",
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
 #    "agent_resume_args": "...", "agent_prompt_args": "...",
 #    "agent_is_claude": "true|false",
@@ -176,9 +176,11 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
             "extra_args": .claude.extra_args
         },
         "companion_command": .companion_command,
+        "companion": .companion,
         "selected": {
             "claude": {"model": $selected.claude.model, "effort": $selected.claude.effort, "extra_args": $selected.claude.extra_args},
-            "companion_command": $selected.companion_command
+            "companion_command": $selected.companion_command,
+            "companion": $selected.companion
         },
         "profile_init": ($selected | pick(["initialization_command"])),
         "agent_profile_ref": $agent_profile_ref,
@@ -258,6 +260,10 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         model: $launch.model.value,
         effort: $launch.effort.value,
         companion_command: ($selected.companion_command // .companion_command // "GIT_OPTIONAL_LOCKS=0 gitui" | sub("\n+$"; "")),
+        # `//` would skip an explicit false. Mirrors getCompanionEnabled().
+        companion: (if ($selected.companion | type) == "boolean" then $selected.companion
+                    elif (.companion | type) == "boolean" then .companion
+                    else true end),
         agent_profile: $agent_profile,
         agent_command: $def_resolved.command,
         agent_args: ($def_resolved.args // ""),
@@ -272,11 +278,11 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
         workspace_aware: (.workspace_aware_agents == true),
         # Mirrors agentRulesFlags() in source/companion-rules.ts.
-        agent_rules_flags: if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
+        agent_rules_flags: (if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
             | ($def_resolved.command | basename) as $agent
             | if $agent == "codex" then "-c " + ("developer_instructions=\"\($rules)\"" | @sh)
               elif $agent == "pi" then "--append-system-prompt " + ($rules | @sh)
-              else "" end) end,
+              else "" end) end),
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors
