@@ -108,6 +108,14 @@ test.serial('keys typed before the app has mounted are delivered', async t => {
 });
 
 test.serial(
+	'Alt with a character outside ASCII typed before the renderer reads is not a control key',
+	async t => {
+		const {keys} = await keyLog(t, `j${ESCAPE}ăk${ESCAPE}č`);
+		t.deepEqual(keys, ['j', 'k']);
+	},
+);
+
+test.serial(
 	'an Escape typed while start-up keys are held keeps its place',
 	async t => {
 		const ready = Promise.withResolvers<void>();

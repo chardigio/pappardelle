@@ -43,6 +43,22 @@ function withoutAltNonAscii(read: Buffer): Buffer {
 	return kept.length === read.length ? read : Buffer.from(kept);
 }
 
+/**
+ * Takes Alt with a character outside ASCII out of everything `stdin` reads.
+ * It is done on the stream, before a renderer is given it, because a renderer
+ * reads what was typed while the app started as soon as it is created.
+ */
+export function dropAltNonAscii(stdin: NodeJS.ReadStream): void {
+	const emit = stdin.emit.bind(stdin);
+	stdin.emit = (event: string | symbol, ...args: unknown[]): boolean => {
+		if (event !== 'data') return emit(event, ...args);
+		const read = withoutAltNonAscii(
+			Buffer.from(args[0] as Uint8Array | string),
+		);
+		return read.length > 0 && emit('data', read);
+	};
+}
+
 type StdinListener = (chunk: Uint8Array | string) => void;
 
 /**
@@ -82,10 +98,9 @@ export function deliverHeldKeysAtOnce(
 	take: (key: string) => boolean = () => false,
 ): void {
 	interceptInput(renderer, stdin, (chunk, parse) => {
-		const read = withoutAltNonAscii(Buffer.from(chunk));
-		const bytes = read.toString();
+		const bytes = chunk.toString();
 		if (!isHeldKey(bytes)) {
-			if (read.length > 0) parse(read);
+			parse(chunk);
 			return;
 		}
 

@@ -1,5 +1,5 @@
 import {createElement, useEffect, type ReactNode} from 'react';
-import {deliverHeldKeysAtOnce} from './lone-escape.ts';
+import {deliverHeldKeysAtOnce, dropAltNonAscii} from './lone-escape.ts';
 import {isInTmux} from './tmux.ts';
 import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
 import {
@@ -63,6 +63,8 @@ export async function renderTui(
 		return true;
 	};
 
+	const stdin = options.stdin ?? process.stdin;
+	dropAltNonAscii(stdin);
 	const renderer = await createCliRenderer({
 		screenMode: 'alternate-screen',
 		// OpenTUI's overlay would replace console.error with an in-memory cache
@@ -96,8 +98,7 @@ export async function renderTui(
 
 	// A key that skips the parser skips its input handlers too, and would
 	// arrive ahead of the keys still being kept.
-	if (isInTmux())
-		deliverHeldKeysAtOnce(renderer, options.stdin ?? process.stdin, keepKey);
+	if (isInTmux()) deliverHeldKeysAtOnce(renderer, stdin, keepKey);
 	const root = createRoot(renderer);
 	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
 	const rerender = (next: ReactNode) =>
