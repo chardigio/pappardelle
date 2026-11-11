@@ -141,6 +141,7 @@ import {useSpaceSelection} from './use-space-selection.ts';
 import {
 	buildRailRows,
 	flatRailRows,
+	searchRailRows,
 	isAgentSpace,
 	isSpaceRow,
 	nextSelectableRow,
@@ -2565,7 +2566,9 @@ export default function App({
 		if (drawnRow.kind === 'space') selectSpace(drawnRow.space.name);
 	}, [selectedHeader, drawnRow, selectHeader, selectSpace]);
 
-	const allRows = railRows ?? flatRailRows(activeSpaces);
+	const allRows =
+		railRows ??
+		(isSearching ? searchRailRows(activeSpaces) : flatRailRows(activeSpaces));
 	const activeSpace = activeSpaces[activeSelectedIndex];
 	const allCursor = railRows
 		? cursorRow

@@ -128,17 +128,25 @@ function agentRowsWithDivider(
 	return rows;
 }
 
+function spaceRows(spaces: readonly SpaceData[]): RailRow[] {
+	return spaces.map(space =>
+		space.isPending ? {kind: 'pending', space} : {kind: 'space', space},
+	);
+}
+
 /** The ungrouped rail: the display list, with the divider under agent spaces. */
 export function flatRailRows(displaySpaces: readonly SpaceData[]): RailRow[] {
 	const agents = displaySpaces.filter(space => isAgentSpace(space));
 	const workspaces = displaySpaces.filter(space => !isAgentSpace(space));
 	return [
 		...agentRowsWithDivider(agents, workspaces.length > 0),
-		...workspaces.map(
-			(space): RailRow =>
-				space.isPending ? {kind: 'pending', space} : {kind: 'space', space},
-		),
+		...spaceRows(workspaces),
 	];
+}
+
+/** Search results: the matches as they are, with no headers or divider. */
+export function searchRailRows(matches: readonly SpaceData[]): RailRow[] {
+	return spaceRows(matches);
 }
 
 /**

@@ -7,6 +7,7 @@ import {
 	railGroupOf,
 	railGroupsFromConfig,
 	resolveCursorRow,
+	searchRailRows,
 	type RailRow,
 } from './rail-groups.ts';
 import type {SpaceData} from './types.ts';
@@ -343,4 +344,11 @@ test('a vanished header never falls back onto a starting session', t => {
 		defaults,
 	);
 	t.is(shape(rows)[row], '# In Progress (0)');
+});
+
+test('search results have no divider', t => {
+	t.deepEqual(shape(searchRailRows([main, spaces[1]!])), [
+		'  main',
+		'  STE-20',
+	]);
 });
