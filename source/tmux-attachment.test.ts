@@ -671,7 +671,7 @@ test.serial(
 			}),
 		);
 		// The split it found sends it on to measure the window.
-		t.deepEqual(fake.calls[2]?.slice(0, 3), ['list-panes', '-t', '%2']);
+		t.deepEqual(fake.calls[2]?.slice(0, 3), ['list-panes', '-t', '%1']);
 		t.false(fake.calls.some(args => args[2] === 'list-sessions'));
 	},
 );
