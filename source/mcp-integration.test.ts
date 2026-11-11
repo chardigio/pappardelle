@@ -14,7 +14,6 @@ import test, {type ExecutionContext} from 'ava';
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
 const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
-const tsx = import.meta.resolve('tsx');
 
 function fixture(
 	t: ExecutionContext,
@@ -68,7 +67,7 @@ async function connect(
 	await client.connect(
 		new StdioClientTransport({
 			command: process.execPath,
-			args: ['--import', tsx, entry],
+			args: [entry],
 			cwd: f.repo,
 			env: {...f.env, ...env},
 			stderr: 'ignore',
@@ -217,7 +216,7 @@ echo '{"state":"open","number":7,"head":{"repo":{"full_name":"o/child"},"ref":"s
 
 test.serial('the server stops when the client closes stdin', async t => {
 	const f = fixture(t);
-	const child = spawn(process.execPath, ['--import', tsx, entry], {
+	const child = spawn(process.execPath, [entry], {
 		cwd: f.repo,
 		env: f.env,
 		stdio: ['pipe', 'ignore', 'ignore'],
