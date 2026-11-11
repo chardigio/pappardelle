@@ -2964,6 +2964,23 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 
 const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
 
+// The inner server loads the user's tmux.conf. With destroy-unattached on,
+// tmux destroys every session no client is viewing, which is every background
+// agent. With exit-unattached on, the server exits once no client is attached,
+// taking the agents with it when the TUI quits.
+const KEEP_UNVIEWED_SESSIONS_ARGS = [
+	';',
+	'set-option',
+	'-g',
+	'destroy-unattached',
+	'off',
+	';',
+	'set-option',
+	'-s',
+	'exit-unattached',
+	'off',
+];
+
 // A space's sessions are only ever seen nested in a viewer pane, where the
 // user's own status bar would add a row naming the session under the rail's
 // own header.
@@ -3133,6 +3150,7 @@ export async function ensureAgentSession(
 				STARTUP_GATE_OPTION,
 				gate,
 				...hideStatusBarArgs(sessionName),
+				...KEEP_UNVIEWED_SESSIONS_ARGS,
 			]),
 		);
 		try {
@@ -3211,6 +3229,7 @@ export async function ensureCompanionSession(
 				...spaceSessionEnvArgs(issueKey),
 				...launchArgs,
 				...hideStatusBarArgs(sessionName),
+				...KEEP_UNVIEWED_SESSIONS_ARGS,
 			]),
 		);
 

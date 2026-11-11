@@ -280,8 +280,13 @@ new_inner_session() {
     local session="$1"
     shift
     # Viewer panes nest the session under the rail, so its status bar is hidden.
+    # The user's tmux.conf may turn on destroy-unattached or exit-unattached,
+    # which kill agents no client is viewing; see KEEP_UNVIEWED_SESSIONS_ARGS
+    # in source/tmux.ts.
     (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \; \
-        set-option -t "=$session:" status off)
+        set-option -t "=$session:" status off \; \
+        set-option -g destroy-unattached off \; \
+        set-option -s exit-unattached off)
 }
 
 # A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:
