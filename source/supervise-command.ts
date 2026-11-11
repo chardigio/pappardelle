@@ -33,7 +33,7 @@ import {
 	type ApprovalPolicy,
 	type ApprovalVerdict,
 } from './approve-policy.ts';
-import {readCompanionPane} from './companion.ts';
+import {readCompanionPane, spaceCompanionOffReason} from './companion.ts';
 import {
 	deleteJob,
 	fireJob,
@@ -88,6 +88,8 @@ export type SuperviseDeps = {
 	out: (text: string) => void;
 	err: (text: string) => void;
 	log?: typeof recordSupervision;
+	/** Why a space has no companion pane, or null when it has one. */
+	companionOff?: (key: string) => string | null;
 };
 
 const SCREEN_POLL_MS = 2000;
@@ -973,6 +975,17 @@ async function execute(
 	switch (command.verb) {
 		case 'screen': {
 			const key = deps.resolveKey(command.key);
+			if (command.companion) {
+				const off = (
+					deps.companionOff ??
+					(space => spaceCompanionOffReason(space, deps.repo()))
+				)(key);
+				if (off !== null) {
+					deps.err(off);
+					return 1;
+				}
+			}
+
 			const text = command.companion
 				? readCompanionPane(
 						key,

@@ -41,7 +41,10 @@ const permission = (command: string) =>
 function harness(
 	t: ExecutionContext,
 	screens: string[],
-	{ignoresKeys = false} = {},
+	{
+		ignoresKeys = false,
+		companionOff,
+	}: {ignoresKeys?: boolean; companionOff?: SuperviseDeps['companionOff']} = {},
 ) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'supervise-'));
 	t.teardown(() => {
@@ -116,6 +119,7 @@ function harness(
 		log(_repo, _caller, entry) {
 			logged.push(entry);
 		},
+		companionOff,
 	};
 	return {
 		pressed,
@@ -399,4 +403,20 @@ test('a timeout past the cap and a missing --until are usage errors', t => {
 			]),
 		{instanceOf: SuperviseUsageError},
 	);
+});
+
+test('screen --companion refuses with a clear error when the companion is off', async t => {
+	const asked: string[] = [];
+	const h = harness(t, [fixture('claude-idle')], {
+		companionOff(key) {
+			asked.push(key);
+			return `${key}'s companion is off`;
+		},
+	});
+	t.is(await h.run('screen', 'STA-1', '--companion'), 1);
+	t.deepEqual(h.err, ["STA-1's companion is off"]);
+	t.deepEqual(asked, ['STA-1']);
+	// The agent's own screen does not depend on the companion.
+	t.is(await h.run('screen', 'STA-1'), 0);
+	t.deepEqual(asked, ['STA-1']);
 });
