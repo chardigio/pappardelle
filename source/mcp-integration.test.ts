@@ -345,7 +345,10 @@ tmuxTest(
 		}
 
 		// A stand-in agent: shows a Claude permission prompt for `command`,
-		// records the one key it gets, then drops to an idle prompt.
+		// records the one key it gets, then drops to an idle prompt. It clears
+		// the screen and the scrollback, as clear does, with the escapes
+		// themselves: macOS's clear has no terminfo for tmux's terminal and
+		// leaves the prompt up.
 		const agent = (key: string, command: string) => {
 			const prompt = path.join(f.root, `${key}.prompt`);
 			fs.writeFileSync(
@@ -365,7 +368,7 @@ tmuxTest(
 				].join('\n'),
 			);
 			const answered = path.join(f.root, `${key}.answer`);
-			tmux('new-session', '-d', '-s', `agent-project-${key}`, '-x', '120', `bash -c 'cat ${prompt}; read -rn1 k; echo "$k" > ${answered}; clear; echo "❯ "; sleep 600'`); // prettier-ignore
+			tmux('new-session', '-d', '-s', `agent-project-${key}`, '-x', '120', `bash -c 'cat ${prompt}; read -rn1 k; echo "$k" > ${answered}; printf "\\033[H\\033[2J\\033[3J"; echo "❯ "; sleep 600'`); // prettier-ignore
 			return answered;
 		};
 
