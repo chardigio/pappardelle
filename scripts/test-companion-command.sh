@@ -182,6 +182,50 @@ cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
+resolve_companion() {
+    "$SCRIPT_DIR/resolve-agent-config.sh" \
+        --config "$TMPDIR_ROOT/.pappardelle.yml" \
+        --local-config "$TMPDIR_ROOT/.pappardelle.local.yml" \
+        --home-config "$TMPDIR_ROOT/home/.pappardelle.yml" \
+        --profile "$1" | jq -r '.companion'
+}
+
+echo -e "\n${BOLD}Test: companion (on/off) resolves profile first, then top level, then true (STA-3069)${RESET}"
+setup_configs "version: 1
+default_profile: api
+$API_PROFILE"
+assert_eq "absent → true" "true" "$(resolve_companion api)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+default_profile: plain
+companion: false
+profiles:
+  plain:
+    display_name: Plain
+  loud:
+    display_name: Loud
+    companion: true"
+assert_eq "top-level false reaches a profile without the key" "false" "$(resolve_companion plain)"
+assert_eq "profile true beats top-level false" "true" "$(resolve_companion loud)"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+default_profile: quiet
+profiles:
+  quiet:
+    display_name: Quiet
+    companion: false" "" "version: 1
+companion: true"
+assert_eq "profile false beats a home top-level true" "false" "$(resolve_companion quiet)"
+cleanup; unset TMPDIR_ROOT
+
+echo -e "\n${BOLD}Test: idow passes --no-companion when the companion is off${RESET}"
+assert_eq "idow reads .companion from the resolver" "1" "$(grep -c '\.companion_command, \.companion,' "$SCRIPT_DIR/idow" || true)"
+assert_eq "idow adds --no-companion" "1" "$(grep -c 'AGENT_SESSION_ARGS+=(--no-companion)' "$SCRIPT_DIR/idow" || true)"
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: idow reads companion_command from the layered resolver, not the project file${RESET}"
 IDOW_RAW_LOOKUPS=$(grep -c 'companion_command // .companion_command' "$SCRIPT_DIR/idow" || true)
 assert_eq "no single-file yq lookup left in idow" "0" "$IDOW_RAW_LOOKUPS"

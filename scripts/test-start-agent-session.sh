@@ -186,6 +186,33 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION2" 2>/dev/
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: --no-companion starts the agent session only (STA-3069)${RESET}"
+ISSUE_KEY_NC="${TEST_PREFIX}-300"
+WORKTREE_NC="$TMPDIR_ROOT/worktree-nc"
+mkdir -p "$WORKTREE_NC"
+
+"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY_NC" --repo-name "$TEST_REPO" --worktree "$WORKTREE_NC" --no-agent --no-companion 2>/dev/null
+assert_eq "exits 0 with --no-companion" "0" "$?"
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY_NC}:" 2>/dev/null; then
+    echo -e "  ${GREEN}PASS${RESET} agent session created"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} agent session created"
+    FAIL=$((FAIL + 1))
+fi
+if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=companion-${TEST_REPO}-${ISSUE_KEY_NC}:" 2>/dev/null; then
+    echo -e "  ${RED}FAIL${RESET} no companion session with --no-companion"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${RESET} no companion session with --no-companion"
+    PASS=$((PASS + 1))
+fi
+
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-${TEST_REPO}-${ISSUE_KEY_NC}:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY_NC}:" 2>/dev/null || true
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: a session name that prefixes an existing one is distinct${RESET}"
 # tmux -t resolves by prefix when no exact match exists, so STA-1 would find a
 # live STA-12 and skip creating its own sessions, leaving the workspace
