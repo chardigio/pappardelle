@@ -125,12 +125,15 @@ AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
-# Only with prompt_args: the template's text around {prompt} and the prompt,
-# single-quoted for the inner shell, go into one string that crosses the outer
-# shell as $AGENT_PROMPT_WORDS, so a quote or $() in either stays literal.
-# Without prompt_args the line keeps its bare '<prompt>' word.
+# The prompt, single-quoted for the inner shell and wrapped in the
+# prompt_args template's text around {prompt}, goes into one string that
+# crosses the outer shell as $AGENT_PROMPT_WORDS, so a quote or $() in either
+# stays literal. Without prompt_args the template is just {prompt}.
 PROMPT_WORDS=""
-if [[ -n "$AGENT_PROMPT_ARGS" && -n "$AGENT_PROMPT" ]]; then
+if [[ -n "$AGENT_PROMPT" ]]; then
+    if [[ -z "$AGENT_PROMPT_ARGS" ]]; then
+        AGENT_PROMPT_ARGS='{prompt}'
+    fi
     escaped_quote="'\\''"
     PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
 fi
@@ -148,7 +151,7 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
 FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
-PROMPT_SEG=" '${AGENT_PROMPT}'"
+PROMPT_SEG=""
 if [[ -n "$PROMPT_WORDS" ]]; then
     FLAGS_ASSIGN="${FLAGS_ASSIGN}AGENT_PROMPT_WORDS=$(quoted_form "$PROMPT_WORDS"); "
     # shellcheck disable=SC2016  # expanded by the pane shell, not here

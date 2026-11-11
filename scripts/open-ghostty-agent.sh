@@ -220,12 +220,15 @@ AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
-# Only with prompt_args: the template's text around {prompt} and the prompt,
-# single-quoted for the inner shell, go into one string that crosses the outer
-# shell as $AGENT_PROMPT_WORDS, so a quote or $() in either stays literal.
-# Without prompt_args the line keeps its bare '<prompt>' word.
+# The prompt, single-quoted for the inner shell and wrapped in the
+# prompt_args template's text around {prompt}, goes into one string that
+# crosses the outer shell as $AGENT_PROMPT_WORDS, so a quote or $() in either
+# stays literal. Without prompt_args the template is just {prompt}.
 PROMPT_WORDS=""
-if [[ -n "$AGENT_PROMPT_ARGS" && -n "$AGENT_PROMPT" ]]; then
+if [[ -n "$AGENT_PROMPT" ]]; then
+    if [[ -z "$AGENT_PROMPT_ARGS" ]]; then
+        AGENT_PROMPT_ARGS='{prompt}'
+    fi
     escaped_quote="'\\''"
     PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
 fi
@@ -267,8 +270,8 @@ on run argv
     set agentProfile to item 15 of argv
     set agentSessions to item 16 of argv
     set agentIsClaude to item 17 of argv
-    -- Empty => the prompt goes in as one bare word. Otherwise the prompt_args
-    -- rendering, already quoted for the inner shell (see PROMPT_WORDS).
+    -- The prompt, already quoted for the inner shell and wrapped in any
+    -- prompt_args template (see PROMPT_WORDS). Empty when the prompt is.
     set promptWords to item 18 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
@@ -300,7 +303,7 @@ on run argv
     -- exactly that parse. Empty flags leave the command word
     -- unchanged.
     set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
-    set promptSeg to " '" & agentPrompt & "'"
+    set promptSeg to ""
     if promptWords is not equal to "" then
         set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
         set promptSeg to " $AGENT_PROMPT_WORDS"
