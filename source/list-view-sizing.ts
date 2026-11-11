@@ -129,7 +129,7 @@ export interface RailIcons {
  * Optional emoji rendered to the left of the Claude status icon (the very
  * first cell on the row). `width` is the visual width in terminal cells —
  * most emoji render as 2 cells, but the caller is responsible for supplying
- * the correct width (e.g. via `string-width`).
+ * the correct width (e.g. via `displayWidth` in `text-measure.ts`).
  */
 export interface RowPrefix {
 	emoji?: string;

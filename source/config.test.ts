@@ -32,6 +32,7 @@ import {
 	validateConfig,
 	buildWorkspaceTemplateVars,
 	ConfigValidationError,
+	parseConfigLayer,
 	RESERVED_KEYS,
 	NON_OVERRIDABLE_KEYS,
 	DEFAULT_KEYBINDING_KEYS,
@@ -6146,4 +6147,47 @@ test('isClaudeCommand matches bare names and paths, not wrappers', t => {
 	t.false(isClaudeCommand('codex'));
 	t.false(isClaudeCommand('claude-local'));
 	t.false(isClaudeCommand('my-claude-wrapper'));
+});
+
+test('a config file with broken YAML is reported with the file and line', t => {
+	const error = t.throws(
+		() =>
+			parseConfigLayer(
+				'.pappardelle.yml',
+				'claude:\n  model: opus\n   extra: x\n',
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	t.regex(error!.errors[0]!, /^\.pappardelle\.yml: .*at line \d+, column \d+/);
+});
+
+test('YAML merge keys resolve in a config file', t => {
+	const layer = parseConfigLayer(
+		'.pappardelle.yml',
+		[
+			'base: &base',
+			'  vcs_label: Backend',
+			'  team_prefix: BE',
+			'profiles:',
+			'  api:',
+			'    <<: *base',
+			'    team_prefix: API',
+		].join('\n'),
+	);
+	t.deepEqual((layer!['profiles'] as Record<string, unknown>)['api'], {
+		vcs_label: 'Backend',
+		team_prefix: 'API',
+	});
+});
+
+test('an unknown YAML tag in a config file is reported with the file and line', t => {
+	const error = t.throws(
+		() => parseConfigLayer('.pappardelle.local.yml', 'a: 1\nemoji: !foo bar\n'),
+		{instanceOf: ConfigValidationError},
+	);
+	t.is(error!.errors.length, 1);
+	t.regex(
+		error!.errors[0]!,
+		/^\.pappardelle\.local\.yml: Unresolved tag: !foo at line 2, column \d+/,
+	);
 });

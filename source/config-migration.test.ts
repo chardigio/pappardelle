@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
-import YAML from 'js-yaml';
+import {parse, stringify} from 'yaml';
 import {
 	findDeprecatedClaudeFields,
 	getAgentProfile,
@@ -28,7 +28,7 @@ function writeConfig(dir: string, file: string, config: unknown) {
 	fs.mkdirSync(dir, {recursive: true});
 	fs.writeFileSync(
 		path.join(dir, file),
-		typeof config === 'string' ? config : YAML.dump(config),
+		typeof config === 'string' ? config : stringify(config),
 	);
 }
 
@@ -127,7 +127,7 @@ test('every profile launches the same way after the rewrite', t => {
 	t.is(after.profiles['project']!.initialization_command, 'plan');
 	t.true(after.claude?.dangerously_skip_permissions);
 	for (const {path: file} of migrations) {
-		const layer = YAML.load(fs.readFileSync(file, 'utf8')) as Record<
+		const layer = parse(fs.readFileSync(file, 'utf8')) as Record<
 			string,
 			unknown
 		>;
@@ -443,7 +443,7 @@ test('YAML aliases make the rewrite unsupported rather than throw', t => {
 test('a symlinked config is rewritten at its target with its permissions', t => {
 	const paths = setup(undefined, {version: 1, profiles: {}});
 	const dotfiles = path.join(root(), 'pappardelle.yml');
-	fs.writeFileSync(dotfiles, YAML.dump({version: 1, claude: {model: 'opus'}}));
+	fs.writeFileSync(dotfiles, stringify({version: 1, claude: {model: 'opus'}}));
 	fs.chmodSync(dotfiles, 0o664);
 	fs.mkdirSync(paths.homeConfigDir, {recursive: true});
 	const link = path.join(paths.homeConfigDir, '.pappardelle.yml');
@@ -454,7 +454,7 @@ test('a symlinked config is rewritten at its target with its permissions', t => 
 	t.true(fs.lstatSync(link).isSymbolicLink());
 	t.deepEqual(
 		findDeprecatedClaudeFields(
-			YAML.load(fs.readFileSync(dotfiles, 'utf8')) as Record<string, unknown>,
+			parse(fs.readFileSync(dotfiles, 'utf8')) as Record<string, unknown>,
 		),
 		[],
 	);

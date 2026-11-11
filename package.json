@@ -23,7 +23,6 @@
 	"dependencies": {
 		"@opentui/core": "0.8.3",
 		"@opentui/react": "0.8.3",
-		"js-yaml": "^4.1.0",
 		"meow": "^11.0.0",
 		"react": "^19.3.0",
 		"sonic-boom": "^5.0.1",
@@ -32,8 +31,6 @@
 	},
 	"devDependencies": {
 		"@sindresorhus/tsconfig": "^3.0.1",
-		"@types/js-yaml": "^4.0.9",
-		"@types/node": "^20.0.0",
 		"@types/react": "^19.2.0",
 		"@types/semver": "^7.5.0",
 		"@xterm/headless": "^6.0.0",

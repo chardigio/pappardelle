@@ -237,7 +237,7 @@ export type Frontmatter = {
 /**
  * Pull the keys the picker needs out of a Claude markdown frontmatter block.
  *
- * Hand-rolled rather than routed through js-yaml because a malformed SKILL.md
+ * Hand-rolled rather than routed through a YAML parser because a malformed SKILL.md
  * should cost that one entry its blurb, not throw the whole list away, and
  * because only two scalar keys are ever wanted.
  */
