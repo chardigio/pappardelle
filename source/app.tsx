@@ -33,7 +33,6 @@ import {
 	paneRespawned,
 	installedLaunchCommand,
 	restartOwnTui,
-	sousChefJumpCommand,
 } from './tui-sessions.ts';
 import {
 	DEFAULT_REPO_STATE_ROOT,
@@ -208,7 +207,7 @@ import {
 	HEADER_ROWS,
 	statusLineFits,
 } from './list-view-sizing.ts';
-import {tearDownSpace} from './space-utils.ts';
+import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	filterSpaces,
 	highlightedIndex,
@@ -239,6 +238,7 @@ import {
 	watchHighlightTarget,
 	clearHighlightTarget,
 	findSpaceIndexByIssueKey,
+	highlightWriteCommand,
 } from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
@@ -871,14 +871,12 @@ export default function App({
 		void installSousChefKey(
 			listPaneId,
 			getSousChefKey(configMemo),
-			sousChefJumpCommand({
-				execPath: process.execPath,
-				cliPath: cliFilePath(),
-				home: homedir(),
-				repoRoot: getMainRepoRoot(),
+			highlightWriteCommand(repoName, {
+				issueKey: MAIN_WORKTREE_KEY,
+				focus: true,
 			}),
 		);
-	}, [listPaneId, configMemo]);
+	}, [listPaneId, configMemo, repoName]);
 
 	// Not undone on unmount: quitting unmounts App, and a signal arriving during
 	// that teardown must still find a listener.

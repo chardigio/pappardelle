@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {shellQuote} from './shell-quote.ts';
 import type {SpaceData} from './types.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
@@ -55,6 +56,21 @@ export function writeHighlightTarget(
 	const filePath = getHighlightFilePath(repoName, baseDir);
 	mkdirSync(path.dirname(filePath), {recursive: true});
 	writeFileSync(filePath, serializeRequest(request) + '\n');
+}
+
+/**
+ * The shell form of writeHighlightTarget, for the sous-chef key binding to run
+ * from tmux without starting Pappardelle. Its output and failures are dropped:
+ * either would put the pane the key was pressed in into view mode.
+ */
+export function highlightWriteCommand(
+	repoName: string,
+	request: HighlightRequest,
+	baseDir?: string,
+): string {
+	const line = shellQuote(serializeRequest(request));
+	const file = shellQuote(getHighlightFilePath(repoName, baseDir));
+	return `printf '%s\\n' ${line} > ${file} 2>/dev/null || true`;
 }
 
 /**

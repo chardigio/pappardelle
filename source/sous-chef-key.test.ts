@@ -6,7 +6,11 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import test, {type ExecutionContext} from 'ava';
 import {installSousChefKey} from './tmux.ts';
-import {sousChefJumpCommand} from './tui-sessions.ts';
+import {
+	getHighlightFilePath,
+	highlightWriteCommand,
+	readHighlightTarget,
+} from './highlight.ts';
 
 const exec = promisify(execFile);
 
@@ -81,22 +85,13 @@ async function fixture(t: ExecutionContext) {
 		'#{pane_id}',
 	]);
 
-	// Stands in for the pappardelle executable: records its arguments and
-	// cwd, and prints and fails the way a broken config would.
-	const marker = path.join(dir, 'marker');
-	const stub = path.join(dir, 'pappardelle');
-	fs.writeFileSync(
-		stub,
-		`#!/bin/sh\necho "$(pwd -P) $*" > '${marker}'\necho noisy\nexit 3\n`,
-		{mode: 0o755},
-	);
-	const repoRoot = fs.realpathSync(fs.mkdtempSync(path.join(dir, 'repo-')));
-	const command = sousChefJumpCommand({
-		execPath: stub,
-		cliPath: stub,
-		home: dir,
-		repoRoot,
+	const repoName = 'fixture-repo';
+	const request = {issueKey: 'main', focus: true};
+	const command = highlightWriteCommand(repoName, request, dir);
+	fs.mkdirSync(path.dirname(getHighlightFilePath(repoName, dir)), {
+		recursive: true,
 	});
+	const jumped = () => readHighlightTarget(repoName, dir);
 
 	const press = async (window: number, key: string) => {
 		await run(['select-window', '-t', `fixture:${window}`]);
@@ -126,8 +121,8 @@ async function fixture(t: ExecutionContext) {
 		echoed,
 		waitFor,
 		install,
-		marker,
-		repoRoot,
+		jumped,
+		request,
 		pappardellePane,
 		userPane,
 	};
@@ -157,11 +152,8 @@ test.serial(
 		await f.install('M-s');
 		await f.press(0, 'M-s');
 
-		t.true(await f.waitFor(async () => fs.existsSync(f.marker)));
-		t.is(
-			fs.readFileSync(f.marker, 'utf8').trim(),
-			`${f.repoRoot} highlight main --focus`,
-		);
+		t.true(await f.waitFor(async () => f.jumped() !== null));
+		t.deepEqual(f.jumped(), f.request);
 		t.is(
 			await f.run([
 				'display-message',
@@ -187,7 +179,7 @@ test.serial('the key reaches the program in any other window', async t => {
 	await f.press(1, 'M-s');
 
 	t.true(await f.waitFor(async () => f.echoed(f.userPane, '^[s')));
-	t.false(fs.existsSync(f.marker));
+	t.is(f.jumped(), null);
 });
 
 test.serial(
@@ -204,10 +196,10 @@ test.serial(
 
 		await f.press(0, 'M-s');
 		t.true(await f.waitFor(async () => f.echoed(f.pappardellePane, '^[s')));
-		t.false(fs.existsSync(f.marker));
+		t.is(f.jumped(), null);
 
 		await f.press(0, 'M-j');
-		t.true(await f.waitFor(async () => fs.existsSync(f.marker)));
+		t.true(await f.waitFor(async () => f.jumped() !== null));
 	},
 );
 
@@ -223,5 +215,5 @@ test.serial('a key turned off passes through in the window', async t => {
 	await f.press(0, 'M-s');
 
 	t.true(await f.waitFor(async () => f.echoed(f.pappardellePane, '^[s')));
-	t.false(fs.existsSync(f.marker));
+	t.is(f.jumped(), null);
 });
