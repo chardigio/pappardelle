@@ -24,6 +24,7 @@ import {
 import {
 	parseAgentScreen,
 	type CodexDialog,
+	type PermissionPrompt,
 	type PromptOption,
 	type QuestionDialog,
 } from './agent-screen.ts';
@@ -113,15 +114,20 @@ function formatOptions(options: PromptOption[]): string {
 		.join('\n');
 }
 
+function permissionTitle(permission: PermissionPrompt): string {
+	if (permission.cutOff) return 'Top of the prompt is off the screen; it ends';
+	const {tool, subagent, description} = permission;
+	return `${tool}${subagent ? ` from ${subagent}` : ''}${description ? `: ${description}` : ''}`;
+}
+
 export function formatState(report: AgentStateReport): string {
 	const lines = [
 		`${report.key}: ${report.state}${report.app ? ` (${report.app})` : ''}`,
 	];
 	if (report.permission) {
-		const {tool, subagent, description, command} = report.permission;
 		lines.push(
-			`${tool}${subagent ? ` from ${subagent}` : ''}${description ? `: ${description}` : ''}`,
-			command,
+			permissionTitle(report.permission),
+			report.permission.command,
 			formatOptions(report.permission.options),
 		);
 	}
@@ -372,7 +378,7 @@ function formatChange(change: SpaceChange): string {
 	const lines = [`${change.key}: ${change.from ?? 'new'} -> ${change.to}`];
 	if (change.permission) {
 		lines.push(
-			`  ${change.permission.tool}: ${change.permission.command}`,
+			`  ${permissionTitle(change.permission)}: ${change.permission.command}`,
 			formatOptions(change.permission.options),
 		);
 	}
@@ -744,6 +750,15 @@ function decideAnswer(
 			ok: true,
 			pressed,
 			entry: {...entry, ...(command.force ? {verdict: 'forced'} : {})},
+		};
+	}
+
+	if (permission.cutOff) {
+		return {
+			ok: false,
+			exit: POLICY_REFUSED_EXIT,
+			message: `The top of ${key}'s prompt is off its screen, so what it would run can't be checked; a person decides this one. It ends:\n${permission.command}`,
+			entry: {...entry, verdict: 'refused: prompt cut off'},
 		};
 	}
 
