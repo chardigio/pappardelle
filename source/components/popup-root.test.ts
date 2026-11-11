@@ -66,12 +66,12 @@ test.serial(
 		t.teardown(async () => {
 			await popup.view.unmount();
 		});
-		await delay(20);
 
 		const rows = popup.view.lastFrame()?.split('\n').length;
 		await popup.view.stdin.write('y');
 		await until(
-			() => popup.view.lastFrame()?.includes('Closing space bd-1…') ?? false,
+			() => popup.view.lastFrame().includes('Closing space bd-1…'),
+			popup.view.lastFrame,
 		);
 		const frame = popup.view.lastFrame() ?? '';
 		t.is(frame.split('\n').length, rows);
@@ -94,7 +94,6 @@ test.serial('Esc cancels without confirming', async t => {
 	t.teardown(async () => {
 		await popup.view.unmount();
 	});
-	await delay(20);
 
 	await popup.view.stdin.write('\u001B');
 	await until(() => popup.cancels() === 1);
@@ -108,8 +107,10 @@ test.serial(
 		t.teardown(async () => {
 			await popup.view.unmount();
 		});
-		await delay(20);
-		t.true(popup.view.lastFrame()?.includes('No errors.'));
+		await until(
+			() => popup.view.lastFrame().includes('No errors.'),
+			popup.view.lastFrame,
+		);
 
 		popup.pushErrors([
 			{
@@ -120,10 +121,12 @@ test.serial(
 			},
 		]);
 		await until(
-			() => popup.view.lastFrame()?.includes('fetch failed') ?? false,
+			() => popup.view.lastFrame().includes('fetch failed'),
+			popup.view.lastFrame,
 		);
 
 		await popup.view.stdin.write('c');
 		await until(() => popup.clears() === 1);
+		t.pass();
 	},
 );

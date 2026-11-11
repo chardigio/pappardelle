@@ -1,7 +1,6 @@
 import test from 'ava';
 import React from 'react';
-import {render} from '../../test/helpers/render.ts';
-import {setTimeout as delay} from 'node:timers/promises';
+import {render, until} from '../../test/helpers/render.ts';
 import type {StateChoice} from '../close-state-choice.ts';
 import type {
 	IssueTrackerProvider,
@@ -11,9 +10,11 @@ import type {
 import CloseSpaceDialog from './CloseSpaceDialog.tsx';
 
 const RIGHT = '\u001B[C';
+// Named apart from the "Closed" placeholder shown while loading, so a frame
+// with "Done" is one drawn after the load.
 const STATES: TrackerState[] = [
 	{id: 'open', name: 'Open', done: false},
-	{id: 'closed', name: 'Closed', done: true},
+	{id: 'closed', name: 'Done', done: true},
 	{id: 'deferred', name: 'Deferred', done: false},
 ];
 const ISSUE: TrackerIssue = {
@@ -36,13 +37,13 @@ function trackerWithStates() {
 	return {tracker, load: () => resolve(STATES)};
 }
 
-async function setup(tracker: IssueTrackerProvider | null) {
+async function setup(tracker: IssueTrackerProvider | null, issue = ISSUE) {
 	const confirmed: Array<StateChoice | undefined> = [];
 	let calls = 0;
 	const view = await render(
 		React.createElement(CloseSpaceDialog, {
 			spaceName: 'bd-1',
-			currentIssue: ISSUE,
+			currentIssue: issue,
 			tracker,
 			onConfirm(choice) {
 				calls++;
@@ -54,32 +55,31 @@ async function setup(tracker: IssueTrackerProvider | null) {
 	return {view, confirmed, calls: () => calls};
 }
 
-async function until(check: () => boolean) {
-	const deadline = Date.now() + 2000;
-	while (!check()) {
-		if (Date.now() > deadline) throw new Error('condition never held');
-		await delay(10);
-	}
-}
+test.serial(
+	'defaults to the closed-id state and Right moves to the next state',
+	async t => {
+		const {tracker, load} = trackerWithStates();
+		const dialog = await setup(tracker);
+		t.teardown(async () => {
+			await dialog.view.unmount();
+		});
+		load();
+		await until(
+			() => dialog.view.lastFrame().includes('Issue state: ‹ Done ›'),
+			dialog.view.lastFrame,
+		);
 
-test.serial('defaults to Closed and Right moves to the next state', async t => {
-	const {tracker, load} = trackerWithStates();
-	const dialog = await setup(tracker);
-	t.teardown(async () => {
-		await dialog.view.unmount();
-	});
-	load();
-	await delay(20);
-	t.regex(dialog.view.lastFrame()!, /Issue state: ‹ Closed ›/);
+		await dialog.view.stdin.write(RIGHT);
+		await until(
+			() => dialog.view.lastFrame().includes('‹ Deferred ›'),
+			dialog.view.lastFrame,
+		);
 
-	await dialog.view.stdin.write(RIGHT);
-	await delay(20);
-	t.regex(dialog.view.lastFrame()!, /‹ Deferred ›/);
-
-	await dialog.view.stdin.write('\r');
-	await until(() => dialog.calls() > 0);
-	t.like(dialog.confirmed[0], {kind: 'set', state: {id: 'deferred'}});
-});
+		await dialog.view.stdin.write('\r');
+		await until(() => dialog.calls() > 0);
+		t.like(dialog.confirmed[0], {kind: 'set', state: {id: 'deferred'}});
+	},
+);
 
 test.serial('Enter before the states load still closes the issue', async t => {
 	const {tracker} = trackerWithStates();
@@ -87,7 +87,6 @@ test.serial('Enter before the states load still closes the issue', async t => {
 	t.teardown(async () => {
 		await dialog.view.unmount();
 	});
-	await delay(20);
 
 	await dialog.view.stdin.write('\r');
 	await until(() => dialog.calls() > 0);
@@ -96,19 +95,29 @@ test.serial('Enter before the states load still closes the issue', async t => {
 
 test.serial('a choice made while loading survives the load', async t => {
 	const {tracker, load} = trackerWithStates();
-	const dialog = await setup(tracker);
+	// A done issue defaults to leaving it as is, so picking Closed is a choice
+	// the load could lose.
+	const dialog = await setup(tracker, {
+		...ISSUE,
+		state: {name: 'Deferred', type: 'canceled', color: ''},
+	});
 	t.teardown(async () => {
 		await dialog.view.unmount();
 	});
-	await delay(20);
+	t.regex(dialog.view.lastFrame(), /‹ Leave as Deferred ›/);
 
 	await dialog.view.stdin.write(RIGHT);
-	await delay(20);
-	t.regex(dialog.view.lastFrame()!, /‹ Leave as Open ›/);
+	await until(
+		() => dialog.view.lastFrame().includes('‹ Closed ›'),
+		dialog.view.lastFrame,
+	);
 
 	load();
-	await delay(20);
-	t.regex(dialog.view.lastFrame()!, /‹ Leave as Open ›/);
+	await until(
+		() => dialog.view.lastFrame().includes('‹ Done ›'),
+		dialog.view.lastFrame,
+	);
+	t.pass();
 });
 
 test.serial(
@@ -118,9 +127,11 @@ test.serial(
 		t.teardown(async () => {
 			await dialog.view.unmount();
 		});
-		await delay(20);
-		t.notRegex(dialog.view.lastFrame()!, /Issue state/);
-		t.regex(dialog.view.lastFrame()!, /Press y or Enter to confirm/);
+		await until(
+			() => dialog.view.lastFrame().includes('Press y or Enter to confirm'),
+			dialog.view.lastFrame,
+		);
+		t.notRegex(dialog.view.lastFrame(), /Issue state/);
 
 		await dialog.view.stdin.write('y');
 		await until(() => dialog.calls() > 0);
