@@ -6,7 +6,11 @@ import {promisify} from 'node:util';
 import test from 'ava';
 import {PANE_TITLE_OPTION} from './pane-frame-options.ts';
 import {resetRegistryPath, setRegistryPath} from './space-registry.ts';
-import {SYNC_TERMINAL_FEATURE, setupPappardellLayout} from './tmux.ts';
+import {
+	SYNC_TERMINAL_FEATURE,
+	setSpaceCompanionEnabled,
+	setupPappardellLayout,
+} from './tmux.ts';
 
 const exec = promisify(execFile);
 
@@ -149,5 +153,43 @@ test.serial(
 			`${listPaneId} 80 1 rail`,
 			`${layout!.agentViewerPaneId} 80 0 agent`,
 		]);
+	},
+);
+
+test.serial(
+	'with the companion off a wide window has the rail and the agent only',
+	async t => {
+		if (!(await tmuxAvailable())) {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const {run, listPaneId} = await isolatedPane(t, 200);
+		setSpaceCompanionEnabled(false);
+		t.teardown(() => {
+			setSpaceCompanionEnabled(null);
+		});
+		const layout = await setupPappardellLayout();
+		t.is(layout?.companionViewerPaneId, '');
+		const panes = await run([
+			'list-panes',
+			'-t',
+			listPaneId,
+			'-F',
+			`#{pane_id} #{pane_width} #{${PANE_TITLE_OPTION}}`,
+		]);
+		const rows = panes.split('\n').map(line => line.split(' '));
+		t.deepEqual(
+			rows.map(([id, , title]) => [id, title]),
+			[
+				[listPaneId, 'rail'],
+				[layout!.agentViewerPaneId, 'agent'],
+			],
+		);
+		// usable = 199: the rail keeps floor(199 * 0.24) = 47 → 40 (its cap).
+		t.deepEqual(
+			rows.map(([, width]) => Number(width)),
+			[40, 159],
+		);
 	},
 );

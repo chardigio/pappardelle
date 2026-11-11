@@ -24,6 +24,7 @@ import {
 	getPaneWidths,
 	getCompanionCommand,
 	getCompanionSplits,
+	getCompanionEnabled,
 	getIdeCommand,
 	getStateColors,
 	DEFAULT_COMPANION_COMMAND,
@@ -3869,6 +3870,127 @@ test('validateConfig rejects a non-string per-profile companion_command', t => {
 			'profiles.backend.companion_command: must be a string',
 		),
 	);
+});
+
+// ============================================================================
+// companion (on/off) Tests (STA-3069)
+// ============================================================================
+
+test('getCompanionEnabled is true when no config sets companion', t => {
+	// Off-by-default regression: a config without the key keeps the pane.
+	const config = createConfig({web: createProfile(['web'], 'Web')}, 'web');
+	t.true(getCompanionEnabled(config));
+	t.true(getCompanionEnabled(config, 'web tweak'));
+	t.true(getCompanionEnabled(config, undefined, 'web'));
+});
+
+test('getCompanionEnabled: the profile value wins over the top-level value', t => {
+	const config = createConfig(
+		{
+			quiet: {...createProfile(['quiet'], 'Quiet'), companion: false},
+			loud: {...createProfile(['loud'], 'Loud'), companion: true},
+			plain: createProfile(['plain'], 'Plain'),
+		},
+		'plain',
+	);
+	t.false(getCompanionEnabled(config, undefined, 'quiet'));
+	t.false(getCompanionEnabled(config, 'a quiet task'));
+	t.true(getCompanionEnabled(config, undefined, 'plain'));
+
+	config.companion = false;
+	t.false(getCompanionEnabled(config));
+	t.false(getCompanionEnabled(config, undefined, 'plain'));
+	t.true(getCompanionEnabled(config, undefined, 'loud'));
+	t.true(getCompanionEnabled(config, 'a loud task'));
+});
+
+test('validateConfig accepts companion as a boolean at the top level and in a profile', t => {
+	t.notThrows(() => {
+		validateConfig({
+			version: 1,
+			companion: false,
+			profiles: {test: {display_name: 'Test', companion: true}},
+		});
+	});
+});
+
+test('validateConfig rejects a companion value that is not a boolean', t => {
+	for (const [raw, message] of [
+		[
+			{version: 1, companion: 'off', profiles: {test: {display_name: 'T'}}},
+			'companion: must be true or false',
+		],
+		[
+			{version: 1, profiles: {test: {display_name: 'T', companion: 0}}},
+			'profiles.test.companion: must be true or false',
+		],
+	] as const) {
+		const error = t.throws(() => validateConfig(raw), {
+			instanceOf: ConfigValidationError,
+		});
+		t.true(String(error?.message).includes(message));
+	}
+});
+
+test('validateConfig rejects companion_splits where the companion is off', t => {
+	const split = [{name: 'tests', command: 'bun test'}];
+	for (const [raw, message] of [
+		[
+			{
+				version: 1,
+				companion: false,
+				companion_splits: split,
+				profiles: {test: {display_name: 'T'}},
+			},
+			'companion_splits: the companion is off',
+		],
+		[
+			{
+				version: 1,
+				profiles: {
+					test: {display_name: 'T', companion: false, companion_splits: split},
+				},
+			},
+			'profiles.test.companion_splits: the companion is off',
+		],
+		[
+			// The profile takes companion: false from the top level.
+			{
+				version: 1,
+				companion: false,
+				profiles: {test: {display_name: 'T', companion_splits: split}},
+			},
+			'profiles.test.companion_splits: the companion is off',
+		],
+	] as const) {
+		const error = t.throws(() => validateConfig(raw), {
+			instanceOf: ConfigValidationError,
+		});
+		t.true(String(error?.message).includes(message));
+	}
+
+	// Top-level splits serve the profiles that keep the companion, so a profile
+	// that turns it off does not make them an error. An empty list is no split.
+	t.notThrows(() => {
+		validateConfig({
+			version: 1,
+			companion_splits: split,
+			profiles: {
+				quiet: {display_name: 'Q', companion: false},
+				loud: {display_name: 'L'},
+			},
+		});
+	});
+	t.notThrows(() => {
+		validateConfig({
+			version: 1,
+			companion: false,
+			companion_splits: [],
+			profiles: {
+				loud: {display_name: 'L', companion: true, companion_splits: split},
+			},
+		});
+	});
 });
 
 // ============================================================================

@@ -172,11 +172,14 @@ export function calculateIdealListHeightForCount(
  * @param widths - Pane widths from config or a hand-drag that replace the
  *   derived ones. Only meaningful in horizontal layout.
  * @param linesPerItem - Terminal rows each session takes in the list
+ * @param withCompanion - False when the config turns the companion off, so the
+ *   wide layout has two panes and the agent takes the companion's width.
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
  * - Narrow screens (< 100 chars): Vertical layout with list on top, agent below, no companion
- * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
+ * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion],
+ *   or [list] [claude] with the companion off
  */
 export function calculateLayoutForSize(
 	totalWidth: number,
@@ -184,6 +187,7 @@ export function calculateLayoutForSize(
 	sessionCount: number,
 	widths: PaneWidths = {},
 	linesPerItem: 1 | 2 = 1,
+	withCompanion = true,
 ): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
@@ -207,6 +211,8 @@ export function calculateLayoutForSize(
 			agentHeight,
 		};
 	}
+
+	if (!withCompanion) return layoutWithoutCompanion(totalWidth, widths);
 
 	// Wide screen: use horizontal layout
 	// Account for tmux borders (2 chars per split = 2 borders between 3 panes)
@@ -286,5 +292,43 @@ export function calculateLayoutForSize(
 		listWidth,
 		agentWidth,
 		companionWidth,
+	};
+}
+
+/**
+ * The wide layout with the companion off: the rail, one divider, and the
+ * agent in every other column. The rail keeps its derived share so turning
+ * the companion off changes only the agent. A claude width can size the
+ * rail, the same as when the companion is on and the rail is unset; a
+ * companion width has no pane to apply to.
+ */
+function layoutWithoutCompanion(
+	totalWidth: number,
+	widths: PaneWidths,
+): LayoutConfig {
+	const usableWidth = totalWidth - 1;
+	const resolve = (width: PaneWidth | null | undefined) =>
+		width === null || width === undefined
+			? null
+			: resolvePaneWidth(width, usableWidth);
+	const rail = resolve(widths.rail);
+	const claude = resolve(widths.claude);
+	let listWidth =
+		rail ??
+		(claude === null
+			? Math.min(
+					MAX_LIST_WIDTH,
+					Math.max(MIN_LIST_WIDTH, Math.floor(usableWidth * 0.24)),
+				)
+			: usableWidth - claude);
+	listWidth = Math.max(
+		MIN_RAIL_OVERRIDE_WIDTH,
+		Math.min(listWidth, usableWidth - MIN_CLAUDE_WIDTH),
+	);
+	return {
+		direction: 'horizontal',
+		listWidth,
+		agentWidth: usableWidth - listWidth,
+		companionWidth: 0,
 	};
 }

@@ -288,6 +288,13 @@ export interface Profile {
 	 */
 	companion_command?: string;
 	/**
+	 * Whether this profile's spaces get a companion pane. Overrides the
+	 * top-level `companion`. Exists so one kind of work (for example research
+	 * with no code) can give the agent the whole width while other profiles
+	 * keep their git UI or dev server.
+	 */
+	companion?: boolean;
+	/**
 	 * Companion splits started with this profile's spaces. Replaces the
 	 * top-level `companion_splits`.
 	 */
@@ -400,6 +407,15 @@ export interface PappardelleConfig {
 	 * lazygit is restorable with `companion_command: lazygit`.
 	 */
 	companion_command?: string;
+	/**
+	 * `false` removes the companion pane in the wide layout, and the agent pane
+	 * takes its width. Absent means `true`, so a config without the key keeps
+	 * the pane. Before this key the smallest companion was a plain shell 20
+	 * columns wide (`companion_command: ""` at the `MIN_COMPANION_WIDTH`
+	 * floor), which still cost the agent those columns. A profile's own
+	 * `companion` overrides this value.
+	 */
+	companion?: boolean;
 	/**
 	 * Panes started beside the companion when a space first shows in the TUI,
 	 * each in a framed pane of its own. One the user closes stays closed. A
@@ -1510,7 +1526,17 @@ export function validateConfig(
 		errors.push('companion_command: must be a string');
 	}
 
+	if (cfg['companion'] !== undefined && typeof cfg['companion'] !== 'boolean') {
+		errors.push('companion: must be true or false');
+	}
+
 	validateCompanionSplits(cfg['companion_splits'], 'companion_splits', errors);
+	if (cfg['companion'] === false)
+		refuseSplitsWithoutCompanion(
+			cfg['companion_splits'],
+			'companion_splits',
+			errors,
+		);
 
 	// Check ide_command (optional, free-form shell command). Any string is
 	// accepted — including the empty string, which disables the `d` key.
@@ -1680,7 +1706,12 @@ export function validateConfig(
 
 		// Validate each profile
 		for (const [name, profile] of Object.entries(profiles)) {
-			const profileErrors = validateProfile(name, profile, agentProfileNames);
+			const profileErrors = validateProfile(
+				name,
+				profile,
+				agentProfileNames,
+				cfg['companion'] !== false,
+			);
 			errors.push(...profileErrors);
 		}
 	}
@@ -1951,10 +1982,27 @@ function validateCompanionSplits(
 	}
 }
 
+/**
+ * Splits live in the companion column, so a list where the companion is off
+ * can never show. Failing here, at load, is the clear error: at runtime the
+ * splits would silently not appear.
+ */
+function refuseSplitsWithoutCompanion(
+	value: unknown,
+	path: string,
+	errors: string[],
+): void {
+	if (Array.isArray(value) && value.length > 0)
+		errors.push(
+			`${path}: the companion is off (companion: false), so these splits can never show. Remove them or set companion: true`,
+		);
+}
+
 function validateProfile(
 	name: string,
 	profile: unknown,
 	agentProfileNames: Set<string>,
+	topLevelCompanion = true,
 ): string[] {
 	const errors: string[] = [];
 	const prefix = `profiles.${name}`;
@@ -2012,11 +2060,23 @@ function validateProfile(
 		errors.push(`${prefix}.companion_command: must be a string`);
 	}
 
+	if (p['companion'] !== undefined && typeof p['companion'] !== 'boolean') {
+		errors.push(`${prefix}.companion: must be true or false`);
+	}
+
 	validateCompanionSplits(
 		p['companion_splits'],
 		`${prefix}.companion_splits`,
 		errors,
 	);
+	const companion =
+		typeof p['companion'] === 'boolean' ? p['companion'] : topLevelCompanion;
+	if (!companion)
+		refuseSplitsWithoutCompanion(
+			p['companion_splits'],
+			`${prefix}.companion_splits`,
+			errors,
+		);
 
 	// Optional per-profile ide_command override (any string, incl. empty)
 	if (p['ide_command'] !== undefined && typeof p['ide_command'] !== 'string') {
@@ -3515,6 +3575,20 @@ export function getCompanionCommand(
 		return profile.companion_command;
 	}
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
+}
+
+/**
+ * Whether a space gets a companion pane: the matched profile's `companion`,
+ * else the top-level value, else true. The profile is chosen the same way as
+ * `getCompanionCommand`.
+ */
+export function getCompanionEnabled(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	profileName?: string,
+): boolean {
+	const profile = selectProfile(config, issueTitle, profileName);
+	return profile?.companion ?? config.companion ?? true;
 }
 
 /**
