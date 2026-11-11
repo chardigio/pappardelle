@@ -239,7 +239,6 @@ test.serial(
 			new StdioClientTransport({
 				command: process.execPath,
 				args: [
-					...(useBuiltCli ? [] : ['--import', import.meta.resolve('tsx')]),
 					path.join(
 						f.install,
 						f.directory,
