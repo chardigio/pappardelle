@@ -48,6 +48,31 @@ test('a prompt from a subagent names the subagent', t => {
 	});
 });
 
+test("a command of several lines is read without Claude's bar down its left", t => {
+	t.like(screen('claude-permission-multiline').permission, {
+		tool: 'Bash command',
+		description: 'Remove old scratch directory and print done',
+		command: 'SP=/tmp/q-sasrepro2/scratch\nrm -rf "$SP/old"\necho done',
+		cutOff: false,
+	});
+});
+
+test('a prompt taller than the screen is cut off, with no tool and only the end of its command', t => {
+	const {permission} = screen('claude-permission-cut-off');
+	t.like(permission, {
+		tool: '',
+		description: '',
+		question: 'Do you want to proceed?',
+		cutOff: true,
+	});
+	t.regex(permission!.command, /^creates them\.\n\n## Cleanup\n/);
+	t.regex(permission!.command, /\n- three\nEOF$/);
+	t.deepEqual(
+		permission?.options.map(option => option.kind),
+		['approve_once', 'deny'],
+	);
+});
+
 test('an Edit prompt gives the file and the diff', t => {
 	const {permission} = screen('claude-permission-edit');
 	t.is(permission?.tool, 'Edit file');
