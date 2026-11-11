@@ -10,6 +10,7 @@ export async function buildNative(destination: string, bytecode = true) {
 		compile: nativeCompileOptions(destination),
 		bytecode,
 		minify: {syntax: true, whitespace: true, identifiers: false},
+		sourcemap: 'linked',
 		define: {
 			PAPPARDELLE_COMPILED: 'true',
 			'process.env.NODE_ENV': JSON.stringify('production'),

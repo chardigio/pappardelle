@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {execFileSync, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -84,6 +85,24 @@ test.serial(
 			spawnSync(executable, ['--internal-status-monitor'], {env, cwd: repo})
 				.status,
 			1,
+		);
+		const malformedPane = Buffer.from('notjson').toString('base64');
+		const crash = spawnSync(
+			executable,
+			[
+				'--internal-status-monitor',
+				'watch',
+				'r',
+				'k',
+				's',
+				malformedPane,
+				root,
+			],
+			{env, cwd: repo, encoding: 'utf8'},
+		);
+		t.regex(
+			crash.stderr,
+			/at .*source\/program-status-monitor-cli\.ts:\d+:\d+/,
 		);
 		runTmux(
 			'new-session',
