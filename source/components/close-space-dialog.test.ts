@@ -20,7 +20,7 @@ const STATES: TrackerState[] = [
 const ISSUE: TrackerIssue = {
 	identifier: 'bd-1',
 	title: 't',
-	state: {name: 'Open', type: 'open', color: ''},
+	state: {name: 'In Progress', type: 'started', color: ''},
 	project: null,
 };
 
