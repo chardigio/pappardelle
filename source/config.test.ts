@@ -6191,3 +6191,11 @@ test('an unknown YAML tag in a config file is reported with the file and line', 
 		/^\.pappardelle\.local\.yml: Unresolved tag: !foo at line 2, column \d+/,
 	);
 });
+
+test('an undefined YAML alias in a config file is reported with the file', t => {
+	const error = t.throws(
+		() => parseConfigLayer('.pappardelle.yml', 'emoji: *nope\n'),
+		{instanceOf: ConfigValidationError},
+	);
+	t.regex(error!.errors[0]!, /^\.pappardelle\.yml: .*nope/);
+});

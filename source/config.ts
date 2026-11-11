@@ -790,7 +790,13 @@ export function parseConfigLayer(
 		throw new ConfigValidationError([`${label}: ${problem.message}`]);
 	}
 
-	const parsed: unknown = document.toJS();
+	let parsed: unknown;
+	try {
+		parsed = document.toJS();
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : String(error);
+		throw new ConfigValidationError([`${label}: ${msg}`]);
+	}
 	return parsed && typeof parsed === 'object'
 		? (parsed as Record<string, unknown>)
 		: null;
