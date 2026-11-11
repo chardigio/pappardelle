@@ -398,14 +398,14 @@ install_skill_scripts
 # Install the Plugin
 # ============================================================================
 
-# Through the shim, so the cwd's .env and bunfig.toml (the TUI runs this from
-# a workspace) cannot redirect which agent configs it edits.
+# Through the shim, so the cwd's .env and bunfig.toml (the TUI runs these
+# from a workspace) cannot redirect which agent configs they edit.
 if ! "$LOCAL_BIN/pappardelle" plugin install; then
     print_warning "Could not install the Pappardelle plugin (skills, hooks and MCP tools) for every agent"
     print_info "Retry with: pappardelle plugin install"
 fi
 
-if ! "$BUN_BIN" "$CLI_JS" mcp install; then
+if ! "$LOCAL_BIN/pappardelle" mcp install; then
     print_warning "Could not add the Pappardelle MCP server to every agent"
     print_info "Retry with: pappardelle mcp install"
 fi
