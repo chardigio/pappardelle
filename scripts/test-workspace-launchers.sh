@@ -11,7 +11,7 @@
 #
 # The AppleScript pair assemble inside osascript, so --print-command runs the
 # real thing rather than a bash-side reimplementation. osascript is macOS-only,
-# so this suite is not in CI; test-terminal-launcher.sh covers the portable half.
+# so CI runs only the portable prompt test that precedes it.
 #
 # Usage: ./test-workspace-launchers.sh
 
@@ -42,37 +42,52 @@ assert_eq() {
     fi
 }
 
+summarize() {
+    echo ""
+    local total=$((PASS + FAIL))
+    if [[ "$FAIL" -eq 0 ]]; then
+        echo -e "${GREEN}${BOLD}All $total tests passed${RESET}"
+        exit 0
+    fi
+    echo -e "${RED}${BOLD}$FAIL of $total tests failed${RESET}"
+    exit 1
+}
+
 # Runs anywhere: the default-terminal agent line, executed with tmux swapped
-# for sh, hands agy the prompt behind -i as one literal word through both
-# shell parses.
-echo -e "${BOLD}Test: prompt_args survive both shell parses${RESET}"
-PROMPT_TMP=$(mktemp -d)
-mkdir -p "$PROMPT_TMP/bin"
-cat > "$PROMPT_TMP/bin/agy" <<SHIM
+# for sh, hands agy the prompt as one literal word through both shell parses,
+# behind -i with prompt_args and as a bare word without.
+# shellcheck disable=SC2016 # the $ signs are the prompt's own text
+PROMPT_RAW='/idow it'"'"'s "q" $HOME $(touch PWNED) `touch PWNED` \\n & x'
+for prompt_args in "-i {prompt}" ""; do
+    echo -e "${BOLD}Test: prompt survives both shell parses (prompt_args [$prompt_args])${RESET}"
+    PROMPT_TMP=$(mktemp -d)
+    mkdir -p "$PROMPT_TMP/bin"
+    cat > "$PROMPT_TMP/bin/agy" <<SHIM
 #!/bin/bash
 printf '<%s>' "\$@" >> "$PROMPT_TMP/argv"
 printf '\n' >> "$PROMPT_TMP/argv"
 [[ "\$*" == *RESUME_FAIL* ]] && exit 1
 exit 0
 SHIM
-chmod +x "$PROMPT_TMP/bin/agy"
-# shellcheck disable=SC2016 # the $ signs are the prompt's own text
-PROMPT_TEXT='/idow it'"'"'s "q" $HOME $(touch '"$PROMPT_TMP"'/pwned) & x'
-PROMPT_LINE=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree "$PROMPT_TMP" --issue-key QA-1 \
-    --repo-name testrepo --companion-command "" --prompt "$PROMPT_TEXT" --agent-command agy \
-    --agent-is-claude false --agent-launch-flags "--model m1" --agent-resume-args "--conversation RESUME_FAIL" \
-    --agent-prompt-args "-i {prompt}" --print-command | head -1)
-# shellcheck disable=SC2001 # a regex replace over one line
-RUNNABLE=$(sed -E "s#tmux -L [^ ]+ new-session -A -s '[^']*'( -e \"[^\"]*\")* #sh -c #" <<< "$PROMPT_LINE")
-PATH="$PROMPT_TMP/bin:$PATH" sh -c "$RUNNABLE" >/dev/null 2>&1 || true
-assert_eq "resume attempt" "<--model><m1><--conversation><RESUME_FAIL><-i><$PROMPT_TEXT>" "$(sed -n 1p "$PROMPT_TMP/argv")"
-assert_eq "fresh launch" "<--model><m1><-i><$PROMPT_TEXT>" "$(sed -n 2p "$PROMPT_TMP/argv")"
-assert_eq "nothing in the prompt ran" "no" "$([[ -e "$PROMPT_TMP/pwned" ]] && echo yes || echo no)"
-rm -rf "$PROMPT_TMP"
+    chmod +x "$PROMPT_TMP/bin/agy"
+    PROMPT_TEXT=${PROMPT_RAW//PWNED/$PROMPT_TMP/pwned}
+    PROMPT_LINE=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree "$PROMPT_TMP" --issue-key QA-1 \
+        --repo-name testrepo --companion-command "" --prompt "$PROMPT_TEXT" --agent-command agy \
+        --agent-is-claude false --agent-launch-flags "--model m1" --agent-resume-args "--conversation RESUME_FAIL" \
+        --agent-prompt-args "$prompt_args" --print-command | head -1)
+    # shellcheck disable=SC2001 # a regex replace over one line
+    RUNNABLE=$(sed -E "s#tmux -L [^ ]+ new-session -A -s '[^']*'( -e \"[^\"]*\")* #sh -c #" <<< "$PROMPT_LINE")
+    PATH="$PROMPT_TMP/bin:$PATH" sh -c "$RUNNABLE" >/dev/null 2>&1 || true
+    PROMPT_ARGV="${prompt_args:+<-i>}<$PROMPT_TEXT>"
+    assert_eq "resume attempt" "<--model><m1><--conversation><RESUME_FAIL>$PROMPT_ARGV" "$(sed -n 1p "$PROMPT_TMP/argv")"
+    assert_eq "fresh launch" "<--model><m1>$PROMPT_ARGV" "$(sed -n 2p "$PROMPT_TMP/argv")"
+    assert_eq "nothing in the prompt ran" "no" "$([[ -e "$PROMPT_TMP/pwned" ]] && echo yes || echo no)"
+    rm -rf "$PROMPT_TMP"
+done
 
 if ! command -v osascript >/dev/null 2>&1; then
     echo "SKIP (no osascript — macOS only)"
-    exit 0
+    summarize
 fi
 
 # Reassigned by the session-name tests below; every helper reads it live.
@@ -180,6 +195,14 @@ assert_eq "empty prompt (resume mode)" \
 assert_eq "empty prompt (resume mode) (default)" \
     "$(iterm --prompt "" --print-command)" \
     "$(default_term --prompt "" --print-command)"
+for prompt_args in "" "-i {prompt}"; do
+    assert_eq "quoted prompt, prompt_args [$prompt_args]" \
+        "$(iterm --prompt "/fix it's \"QA-1\"" --agent-prompt-args "$prompt_args" --print-command)" \
+        "$(ghostty --prompt "/fix it's \"QA-1\"" --agent-prompt-args "$prompt_args" --print-command)"
+    assert_eq "quoted prompt, prompt_args [$prompt_args] (default)" \
+        "$(iterm --prompt "/fix it's \"QA-1\"" --agent-prompt-args "$prompt_args" --print-command)" \
+        "$(default_term --prompt "/fix it's \"QA-1\"" --agent-prompt-args "$prompt_args" --print-command)"
+done
 assert_eq "custom companion command" \
     "$(iterm --prompt "" --companion-command "lazygit" --print-command)" \
     "$(ghostty --prompt "" --companion-command "lazygit" --print-command)"
@@ -245,12 +268,4 @@ else
         "parse < capture < step 1" "parse=$PARSE_LINE capture=$CAPTURE_LINE step1=$STEP1_LINE"
 fi
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

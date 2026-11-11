@@ -125,12 +125,15 @@ AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
-# Only with prompt_args: the template's text around {prompt} and the prompt,
-# single-quoted for the inner shell, go into one string that crosses the outer
-# shell as $AGENT_PROMPT_WORDS, so a quote or $() in either stays literal.
-# Without prompt_args the line keeps its bare '<prompt>' word.
+# The prompt, single-quoted for the inner shell and wrapped in the
+# prompt_args template's text around {prompt}, goes into one string that
+# crosses the outer shell as $AGENT_PROMPT_WORDS, so a quote or $() in either
+# stays literal.
 PROMPT_WORDS=""
-if [[ -n "$AGENT_PROMPT_ARGS" && -n "$AGENT_PROMPT" ]]; then
+if [[ -n "$AGENT_PROMPT" ]]; then
+    if [[ -z "$AGENT_PROMPT_ARGS" ]]; then
+        AGENT_PROMPT_ARGS='{prompt}'
+    fi
     escaped_quote="'\\''"
     PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
 fi
@@ -148,7 +151,7 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
 FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
-PROMPT_SEG=" '${AGENT_PROMPT}'"
+PROMPT_SEG=""
 if [[ -n "$PROMPT_WORDS" ]]; then
     FLAGS_ASSIGN="${FLAGS_ASSIGN}AGENT_PROMPT_WORDS=$(quoted_form "$PROMPT_WORDS"); "
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
@@ -159,19 +162,11 @@ AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_
 RESUME_CHAIN=""
 if [[ -n "$AGENT_RESUME_STR" ]]; then
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
-    RESUME_ATTEMPT='$AGENT_RESUME'
-    if [[ -n "$AGENT_PROMPT" ]]; then
-        RESUME_ATTEMPT="${RESUME_ATTEMPT}${PROMPT_SEG}"
-    fi
-    RESUME_CHAIN="${RESUME_ATTEMPT} || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
+    RESUME_CHAIN='$AGENT_RESUME'"${PROMPT_SEG} || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
 fi
 
 AGENT_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}'${AGENT_ENV} \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
-if [[ -z "$AGENT_PROMPT" ]]; then
-    AGENT_LINE="${AGENT_PREFIX}\""
-else
-    AGENT_LINE="${AGENT_PREFIX}${PROMPT_SEG}\""
-fi
+AGENT_LINE="${AGENT_PREFIX}${PROMPT_SEG}\""
 
 COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"
 COMPANION_ASSIGN=""
