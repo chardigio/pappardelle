@@ -503,6 +503,17 @@ async function enabledPluginKeys(roots: SkillRoots): Promise<Set<string>> {
 
 type Plugin = {key: string; installPath: string};
 
+type Install = {installPath: string; projectPath?: string};
+
+function isInstall(value: unknown): value is Install {
+	return (
+		isRecord(value) &&
+		typeof value['installPath'] === 'string' &&
+		(value['projectPath'] === undefined ||
+			typeof value['projectPath'] === 'string')
+	);
+}
+
 /**
  * The `.git` directory every worktree of one repository shares, which is how
  * two paths are told to be the same repository. A recorded path that has since
@@ -541,7 +552,10 @@ async function gitCommonDir(dir: string): Promise<string | undefined> {
  * where Claude Code loads it; the rest are installed for the user and apply
  * everywhere.
  */
-async function enabledPlugins(roots: SkillRoots): Promise<Plugin[]> {
+async function enabledPlugins(
+	roots: SkillRoots,
+	limit: Limit,
+): Promise<Plugin[]> {
 	const [installed, enabled] = await Promise.all([
 		readJson(
 			path.join(roots.homeDir, '.claude', 'plugins', 'installed_plugins.json'),
@@ -574,7 +588,8 @@ async function enabledPlugins(roots: SkillRoots): Promise<Plugin[]> {
 			: new Map(
 					await Promise.all(
 						[roots.repoRoot, ...otherPaths].map(
-							async dir => [dir, await gitCommonDir(dir)] as const,
+							async dir =>
+								[dir, await limit(async () => gitCommonDir(dir))] as const,
 						),
 					),
 				);
@@ -588,17 +603,6 @@ async function enabledPlugins(roots: SkillRoots): Promise<Plugin[]> {
 		const install = installs.find(install => appliesHere(install));
 		return install ? [{key, installPath: install.installPath}] : [];
 	});
-}
-
-type Install = {installPath: string; projectPath?: string};
-
-function isInstall(value: unknown): value is Install {
-	return (
-		isRecord(value) &&
-		typeof value['installPath'] === 'string' &&
-		(value['projectPath'] === undefined ||
-			typeof value['projectPath'] === 'string')
-	);
 }
 
 function manifestPaths(
@@ -678,7 +682,7 @@ async function scanPlugins(
 	roots: SkillRoots,
 	limit: Limit,
 ): Promise<SkillEntry[]> {
-	const plugins = await enabledPlugins(roots);
+	const plugins = await enabledPlugins(roots, limit);
 	const candidates = await Promise.all(
 		plugins.map(async plugin => pluginCandidates(plugin, limit)),
 	);
