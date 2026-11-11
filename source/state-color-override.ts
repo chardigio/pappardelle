@@ -110,13 +110,26 @@ export function getStateColorOverride(
 }
 
 /**
+ * Built-in colors that apply on every tracker unless the user's
+ * `state_colors:` names the same status. Jira files In Review under the same
+ * category as In Progress, so without this both come out the same blue (STE-70).
+ */
+export const DEFAULT_STATE_COLORS: Readonly<Record<string, string>> = {
+	'In Review': '#a78bfa',
+};
+
+/**
  * The color the ticket rail paints an issue key with: the user's override when
- * one is installed for this status, otherwise the tracker's own color. With no
- * `state_colors:` configured this is the identity function on `trackerColor`.
+ * one is installed for this status, then the built-in default, otherwise the
+ * tracker's own color.
  */
 export function resolveStateColor(
 	stateName: string | undefined,
 	trackerColor: string,
 ): string {
-	return getStateColorOverride(stateName) ?? trackerColor;
+	return (
+		getStateColorOverride(stateName) ??
+		lookupStateColorOverride(DEFAULT_STATE_COLORS, stateName) ??
+		trackerColor
+	);
 }

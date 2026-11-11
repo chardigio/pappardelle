@@ -131,11 +131,17 @@ test.serial(
 	'resolveStateColor returns the tracker color when nothing is configured',
 	t => {
 		resetStateColorOverrides();
-		// The off-by-default regression: with no state_colors the rail is
-		// byte-identical to master for every state.
 		t.is(resolveStateColor('In Progress', '#f2c94c'), '#f2c94c');
-		t.is(resolveStateColor('In Review', '#f2c94c'), '#f2c94c');
 		t.is(resolveStateColor('Done', '#74d09f'), '#74d09f');
+	},
+);
+
+test.serial(
+	'resolveStateColor paints In Review purple on any tracker by default',
+	t => {
+		resetStateColorOverrides();
+		t.is(resolveStateColor('In Review', '#4b9fea'), '#a78bfa');
+		t.is(resolveStateColor(' in review ', '#f2c94c'), '#a78bfa');
 	},
 );
 

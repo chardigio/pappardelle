@@ -466,6 +466,13 @@ interface PappardelleConfig {
 	};
 	list_view?: {
 		layout?: 'single_line' | 'two_line'; // TUI list row layout. Default: two_line for beads, single_line otherwise.
+		group_by?: 'status'; // Group the rail by issue status. See "Status Groups".
+		groups?: Array<{
+			name: string;
+			color: string;
+			statuses?: string[];
+			categories?: Array<'todo' | 'in_progress' | 'done'>;
+		}>;
 	};
 	layout?: {
 		rail_width?: number | string; // Starting pane widths: columns (30) or a percentage ("25%"). See "Pane Widths".
@@ -1084,7 +1091,8 @@ state_colors?: Record<string, string>;
 
 **How it works:**
 
-- **Off by default.** With no `state_colors` key, every row keeps its tracker color. Pinned by the `resolveStateColor returns the tracker color when nothing is configured` test in `source/state-color-override.test.ts`.
+- **One built-in default: In Review is purple (`#a78bfa`) on every tracker.** Jira files In Review in the same category as In Progress, so without it both are the same blue. It replaces Linear's team color for In Review too. A `state_colors` entry for In Review wins over it.
+- **Every other status keeps its tracker color** when `state_colors` doesn't list it.
 - **Names match case-insensitively**, and surrounding space is ignored, because a status name is prose a human copies out of a tracker UI. `in progress` matches `In Progress`.
 - **Two names that differ only in letter case are a validation error**, since the match could not choose between them.
 - **Accepted values**: hex (`#rgb` or `#rrggbb`) and the ANSI color names (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`/`grey`, and their `*Bright` forms). Any other value fails validation at load time instead of falling back silently at render time.
@@ -1096,6 +1104,8 @@ state_colors?: Record<string, string>;
 ## List Layout
 
 Each space in the TUI list normally occupies one row: status icon, issue key, then the title filling whatever width is left. `list_view.layout` can instead give the title a row of its own, indented to line up under the issue key.
+
+Agent spaces (spaces with no issue behind them, which today means the main worktree where the sous-chef runs) sit at the top on one row each in either layout, since they have no title, with a dim rule under them separating them from the workspaces.
 
 ```yaml
 list_view:
@@ -1118,6 +1128,76 @@ two_line:
 🍝 ● pappardelle-29r                                                       (2) ✓
      Residual TUI flicker: rapid typing in the new-workspace issue field r…
 ```
+
+## Status Groups
+
+`list_view.group_by: status` splits the rail into groups, each under a header with a count:
+
+```
+ ● main
+ ──────────────────────────
+▾ In Progress (2)
+ ● STE-70 Group rail workspaces by issue status
+ ● STE-69 Review explainer
+▾ In Review (1)
+ ● STE-67 Review explainer
+▸ Done (12)
+```
+
+```yaml
+list_view:
+  group_by: status
+  groups: # optional; these are the defaults
+    - name: In Progress
+      color: '#4b9fea'
+      categories: [todo, in_progress]
+    - name: In Review
+      color: '#a78bfa'
+      statuses: [In Review]
+    - name: Done
+      color: '#4caf50'
+      categories: [done]
+```
+
+**How it works:**
+
+- **Off by default.** Without `group_by`, the rail is the flat list it has always been.
+- **Agent spaces stay above the groups.** Spaces with no issue behind them (the main worktree, where the sous-chef runs) aren't in any group. They sit at the top above the divider and can't be collapsed away.
+- **`groups` lists the rest, in rail order.** Leave it out for the defaults above. A layer that sets `groups` replaces the whole list, it doesn't merge item by item.
+- **Placing a space:** a status named in some group's `statuses` goes to that group (names match case-insensitively). Otherwise the first group whose `categories` include the status's category takes it, and anything still unplaced, including an issue that hasn't loaded yet, goes to the first group.
+- **Categories** are tracker-neutral: `todo` (Jira To Do, Linear Backlog/Todo/Triage, beads `open`), `done` (completed or canceled on any tracker, beads `closed`) and `in_progress` (everything else, including beads `in_progress` and `blocked`).
+- **Validation** rejects a group with no `statuses` or `categories`, an unknown category, a color that isn't hex or an ANSI name, two groups with the same name, and a status listed in two groups.
+- **Group colors are used on the header only.** Issue keys keep their tracker or `state_colors` color, so a To Do key stays gray inside In Progress.
+- **Order inside a group** is the usual newest-first order.
+- **A new space** that's still starting shows at the top of the first group.
+- **Search** (`/`) shows the flat list with no headers and finds spaces in collapsed groups too.
+
+Example: pull beads `blocked` issues into their own group.
+
+```yaml
+list_view:
+  group_by: status
+  groups:
+    - name: Working
+      color: blue
+      categories: [todo, in_progress]
+    - name: Blocked
+      color: red
+      statuses: [blocked]
+    - name: Closed
+      color: green
+      categories: [done]
+```
+
+**Collapsing:**
+
+- `j`/`k` stop on group headers. Enter, Space or a click on a header collapses or expands it, and `z` toggles the group of whatever row is selected
+- Actions that work on a space (`x`, `g`, `i`, `d`, `o`, `p`, custom keybindings) do nothing while a header is selected. The agent and companion panes keep showing the last space
+- A collapsed group whose space is blocked on a question or an approval blinks its header like a blocked row
+- Selecting a space in a collapsed group (search, `pappardelle highlight`) expands the group
+- Collapsed groups are saved in `~/.pappardelle/repos/<repo>/rail-groups.json` and restored at startup
+- A custom keybinding on `z` takes priority over the built-in toggle, as custom bindings do for other keys
+- Config is read at startup, so a change to `list_view.groups` shows after a restart
 
 ## Pane Widths
 

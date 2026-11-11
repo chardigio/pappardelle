@@ -126,6 +126,8 @@ import {
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	getListLayout,
+	getRailGroups,
+	isRailGroupedByStatus,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	getIdeCommand,
@@ -136,6 +138,17 @@ import {
 	type ResolvedWatchlist,
 } from './config.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
+import {
+	buildRailRows,
+	flatRailRows,
+	isAgentSpace,
+	isSelectableRow,
+	railGroupOf,
+	resolveCursorRow,
+	type RailRow,
+} from './rail-groups.ts';
+import {readCollapsedGroups, writeCollapsedGroups} from './rail-group-state.ts';
+import RailGroupHeader, {RailDivider} from './components/RailGroupHeader.tsx';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {
 	buildKillDoneConfirmContent,
@@ -185,7 +198,7 @@ import {
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
-	calculateVisibleWindow,
+	calculateRowWindow,
 	HEADER_ROWS,
 	statusLineFits,
 } from './list-view-sizing.ts';
@@ -317,10 +330,18 @@ export default function App({
 		selectedIndex,
 		setSelectedIndex,
 		selectSpace,
+		selectHeader,
+		selectedHeader,
 		current: currentSelection,
 	} = useSpaceSelection();
+	// Rows of the grouped rail as last rendered; null when the rail is flat.
+	const railRowsRef = useRef<RailRow[] | null>(null);
+	const cursorOnHeaderRef = useRef(false);
+	// Nothing acts on a space while the cursor sits on a group header, including
+	// a selected space that a collapse hid behind its header.
 	const selectedSpaceNow = useCallback(() => {
-		const {spaces, selectedIndex} = currentSelection();
+		const {spaces, selectedIndex, selectedHeader} = currentSelection();
+		if (selectedHeader !== null || cursorOnHeaderRef.current) return undefined;
 		return spaces[selectedIndex];
 	}, [currentSelection]);
 	const spacesRef = useRef(spaces);
@@ -462,6 +483,57 @@ export default function App({
 			return null;
 		}
 	}, []);
+
+	const railGrouped = isRailGroupedByStatus(configMemo);
+	const railGroups = useMemo(() => getRailGroups(configMemo), [configMemo]);
+	const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
+		() =>
+			readCollapsedGroups(
+				repoName,
+				railGroups.map(group => group.id),
+			),
+	);
+	const collapsedGroupsRef = useRef(collapsedGroups);
+	const setGroupCollapsed = useCallback(
+		(groupId: string, collapse: boolean) => {
+			const group = railGroups.find(candidate => candidate.id === groupId);
+			if (!group) return;
+			const previous = collapsedGroupsRef.current;
+			if (previous.has(groupId) === collapse) return;
+			const next = new Set(previous);
+			if (collapse) next.add(groupId);
+			else next.delete(groupId);
+			collapsedGroupsRef.current = next;
+			setCollapsedGroups(next);
+			writeCollapsedGroups(repoName, next);
+			const {spaces, selectedIndex} = currentSelection();
+			const selected = spaces[selectedIndex];
+			if (
+				collapse &&
+				selected &&
+				railGroupOf(selected, railGroups)?.id === groupId
+			) {
+				selectHeader(groupId);
+			}
+		},
+		[railGroups, repoName, currentSelection, selectHeader],
+	);
+	// Selecting a space by key (search, `pappardelle highlight`) opens its group
+	// so the selection is never hidden.
+	const revealSpace = useCallback(
+		(name: string) => {
+			const space = currentSelection().spaces.find(
+				candidate => candidate.name.toLowerCase() === name.toLowerCase(),
+			);
+			if (railGrouped && space) {
+				const group = railGroupOf(space, railGroups);
+				if (group) setGroupCollapsed(group.id, false);
+			}
+
+			selectSpace(name);
+		},
+		[railGrouped, railGroups, currentSelection, setGroupCollapsed, selectSpace],
+	);
 
 	// Install the user's issue-status color overrides before anything renders,
 	// so the ticket rail's first paint already uses them (STA-2070). A useMemo
@@ -716,12 +788,12 @@ export default function App({
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
 	useEffect(() => {
 		const unwatch = watchHighlightTarget(repoName, issueKey => {
-			selectSpace(issueKey);
+			revealSpace(issueKey);
 			clearHighlightTarget(repoName);
 		});
 
 		return unwatch;
-	}, [repoName, selectSpace]);
+	}, [repoName, revealSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -1467,7 +1539,7 @@ export default function App({
 			shortcutKey(event),
 			searchInputDrawn.current,
 		);
-		if (step.select) selectSpace(step.select);
+		if (step.select) revealSpace(step.select);
 		updateSearch(step.search);
 		return true;
 	};
@@ -1486,6 +1558,66 @@ export default function App({
 				handleCustomKeybinding(kb);
 			}
 			return;
+		}
+
+		const railRows = railRowsRef.current;
+		if (railRows && railRows.length > 0) {
+			const {spaces, selectedIndex, selectedHeader} = currentSelection();
+			const cursor = resolveCursorRow(
+				railRows,
+				{space: spaces[selectedIndex], headerId: selectedHeader},
+				railGroups,
+			);
+			const cursorRow = railRows[cursor];
+			const step =
+				key.upArrow || input === 'k'
+					? -1
+					: key.downArrow || input === 'j'
+						? 1
+						: 0;
+			if (step !== 0) {
+				let target = cursor + step;
+				while (
+					target >= 0 &&
+					target < railRows.length &&
+					!isSelectableRow(railRows[target])
+				) {
+					target += step;
+				}
+
+				const row = railRows[target];
+				if (row?.kind === 'header') selectHeader(row.group.id);
+				else if (row?.kind === 'space') {
+					const index = spaces.findIndex(
+						space => space.name === row.space.name,
+					);
+					if (index !== -1) setSelectedIndex(index);
+				}
+
+				return;
+			}
+
+			if (cursorRow?.kind === 'header' && (key.return || input === ' ')) {
+				setGroupCollapsed(cursorRow.group.id, !cursorRow.collapsed);
+				return;
+			}
+
+			if (input === 'z' && cursorRow) {
+				const group =
+					cursorRow.kind === 'header'
+						? cursorRow.group
+						: cursorRow.kind === 'divider'
+							? null
+							: railGroupOf(cursorRow.space, railGroups);
+				if (group) {
+					setGroupCollapsed(
+						group.id,
+						!collapsedGroupsRef.current.has(group.id),
+					);
+				}
+
+				return;
+			}
 		}
 
 		// Non-overridable built-in shortcuts
@@ -1574,6 +1706,7 @@ export default function App({
 								commitSha,
 								installedVersion,
 								isDevBuild,
+								isRailGrouped: railGrouped,
 							},
 						},
 						{},
@@ -2390,21 +2523,79 @@ export default function App({
 	const listLayout = getListLayout(configMemo);
 	const linesPerItem = listLayout === 'two_line' ? 2 : 1;
 
+	// The grouped rail interleaves group headers with spaces; search and the
+	// flat rail draw the space list as it is.
+	const railRows = useMemo(
+		() =>
+			railGrouped && !isSearching
+				? buildRailRows({
+						displaySpaces,
+						groups: railGroups,
+						collapsed: collapsedGroups,
+					})
+				: null,
+		[railGrouped, isSearching, displaySpaces, railGroups, collapsedGroups],
+	);
+	railRowsRef.current = railRows;
+	const cursorRow = railRows
+		? resolveCursorRow(
+				railRows,
+				{space: spaces[selectedIndex], headerId: selectedHeader},
+				railGroups,
+			)
+		: -1;
+	cursorOnHeaderRef.current = railRows?.[cursorRow]?.kind === 'header';
+	// A selected header loses its row when its last space changes status or
+	// closes. Move the stored cursor onto the row the rail now draws, so the
+	// panes and actions follow what the user sees.
+	const drawnRow = railRows?.[cursorRow];
+	useEffect(() => {
+		if (selectedHeader === null || !drawnRow) return;
+		if (drawnRow.kind === 'header') {
+			if (drawnRow.group.id !== selectedHeader) selectHeader(drawnRow.group.id);
+			return;
+		}
+
+		if (drawnRow.kind === 'space') {
+			const index = spaces.findIndex(
+				space => space.name === drawnRow.space.name,
+			);
+			if (index !== -1) setSelectedIndex(index);
+		}
+	}, [selectedHeader, drawnRow, spaces, selectHeader, setSelectedIndex]);
+
+	const allRows = railRows ?? flatRailRows(activeSpaces);
+	const activeSpace = activeSpaces[activeSelectedIndex];
+	const allCursor = railRows
+		? cursorRow
+		: allRows.findIndex(
+				row =>
+					(row.kind === 'space' || row.kind === 'pending') &&
+					row.space === activeSpace,
+			);
+
 	// Calculate scroll offset for large lists
-	const {
-		scrollOffset,
-		visibleCount,
-		adjustedSelectedIndex: adjustedDisplayIndex,
-	} = calculateVisibleWindow(
-		activeSelectedIndex,
-		activeSpaces.length,
+	const {scrollOffset, visibleCount} = calculateRowWindow(
+		allRows.map(row =>
+			row.kind === 'header' || row.kind === 'divider' || isAgentSpace(row.space)
+				? 1
+				: linesPerItem,
+		),
+		allCursor,
 		termHeight,
-		linesPerItem,
 	);
-	const visibleDisplaySpaces = activeSpaces.slice(
-		scrollOffset,
-		scrollOffset + visibleCount,
-	);
+	const visibleRows = allRows.slice(scrollOffset, scrollOffset + visibleCount);
+	const visibleCursor = allCursor - scrollOffset;
+	// "(a-b of n)" counts spaces, not headers or the divider.
+	const spaceRowCount = (rows: readonly RailRow[]) =>
+		rows.filter(row => row.kind === 'space' || row.kind === 'pending').length;
+	const shownSpaces = spaceRowCount(visibleRows);
+	const totalShownSpaces = spaceRowCount(allRows);
+	const firstShownSpace = spaceRowCount(allRows.slice(0, scrollOffset)) + 1;
+	const railRange =
+		visibleRows.length < allRows.length
+			? ` (${firstShownSpace}-${firstShownSpace + shownSpaces - 1} of ${totalShownSpaces})`
+			: '';
 
 	// OpenTUI hit-tests the actual row, including wrapping banners and two-line
 	// layouts. Select by identity so filtering and pending rows cannot shift clicks.
@@ -2431,6 +2622,14 @@ export default function App({
 		],
 	);
 
+	const toggleRow = useCallback(
+		(groupId: string, collapse: boolean) => {
+			if (railInputBlocked) return;
+			setGroupCollapsed(groupId, collapse);
+		},
+		[railInputBlocked, setGroupCollapsed],
+	);
+
 	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
 	const spaceCount = getSpaceCount(spaces);
 
@@ -2455,16 +2654,32 @@ export default function App({
 
 		return (
 			<box flexDirection="column">
-				{visibleDisplaySpaces.map((space, index) => (
-					<SpaceListItem
-						key={space.isPending ? `pending-${space.name}` : space.name}
-						space={space}
-						onSelect={selectRow}
-						isSelected={index === adjustedDisplayIndex}
-						width={termDimensions.cols}
-						layout={listLayout}
-					/>
-				))}
+				{visibleRows.map((row, index) =>
+					row.kind === 'divider' ? (
+						<RailDivider key="agents-divider" width={termDimensions.cols} />
+					) : row.kind === 'header' ? (
+						<RailGroupHeader
+							key={`group-${row.group.id}`}
+							row={row}
+							isSelected={index === visibleCursor}
+							width={termDimensions.cols}
+							onToggle={toggleRow}
+						/>
+					) : (
+						<SpaceListItem
+							key={
+								row.kind === 'pending'
+									? `pending-${row.space.name}`
+									: row.space.name
+							}
+							space={row.space}
+							onSelect={selectRow}
+							isSelected={index === visibleCursor}
+							width={termDimensions.cols}
+							layout={isAgentSpace(row.space) ? 'single_line' : listLayout}
+						/>
+					),
+				)}
 			</box>
 		);
 	};
@@ -2542,10 +2757,7 @@ export default function App({
 								repoName,
 								inTmux,
 								spaceCount,
-								range:
-									visibleDisplaySpaces.length < activeSpaces.length
-										? ` (${scrollOffset + 1}-${scrollOffset + visibleDisplaySpaces.length} of ${activeSpaces.length})`
-										: '',
+								range: railRange,
 								errorCount,
 							})}
 						/>
@@ -2629,6 +2841,7 @@ export default function App({
 							installedVersion={installedVersion}
 							isDevBuild={isDevBuild}
 							availableHeight={dialogHeight}
+							isRailGrouped={railGrouped}
 						/>
 					) : showErrorDialog ? (
 						<ErrorDialog

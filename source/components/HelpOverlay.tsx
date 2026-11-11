@@ -26,6 +26,8 @@ interface Props {
 	isFullHeight?: boolean;
 	/** Rows the overlay may use. The shortcut list scrolls when it needs more. */
 	availableHeight?: number;
+	/** Adds the group collapse keys of the grouped rail. */
+	isRailGrouped?: boolean;
 }
 
 export default function HelpOverlay({
@@ -36,11 +38,12 @@ export default function HelpOverlay({
 	isDevBuild,
 	isFullHeight,
 	availableHeight,
+	isRailGrouped,
 }: Props) {
 	const [top, setTop] = useState(0);
 	// Several keys can arrive before the next render.
 	const topNow = useRef(0);
-	const rows = buildHelpRows(customKeybindings);
+	const rows = buildHelpRows(customKeybindings, isRailGrouped);
 	const lines = buildHelpLines(rows);
 	const viewHeight =
 		availableHeight === undefined

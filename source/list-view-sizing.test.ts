@@ -4,6 +4,7 @@ import {
 	twoLineTitleIndent,
 	titleSharesKeyLine,
 	calculateScrollOffset,
+	calculateRowWindow,
 	calculateVisibleWindow,
 	calculateAvailableTitleWidth,
 	truncateTitle,
@@ -1378,4 +1379,55 @@ test('a pane with room for the status line keeps it', t => {
 	t.true(statusLineFits(3, 0, 1));
 	t.true(statusLineFits(4, 0, 2));
 	t.true(statusLineFits(7, 4, 1));
+});
+
+// ============================================================================
+// calculateRowWindow (grouped rail: one-line headers, 1- or 2-line spaces)
+// ============================================================================
+
+test('calculateRowWindow matches calculateVisibleWindow for equal heights', t => {
+	for (const [cursor, total, termHeight] of [
+		[0, 5, 8],
+		[4, 5, 8],
+		[5, 10, 8],
+		[9, 10, 8],
+		[0, 2, 8],
+	] as const) {
+		const expected = calculateVisibleWindow(cursor, total, termHeight);
+		const actual = calculateRowWindow(
+			Array.from({length: total}, () => 1),
+			cursor,
+			termHeight,
+		);
+		t.deepEqual(actual, {
+			scrollOffset: expected.scrollOffset,
+			visibleCount: expected.visibleCount,
+		});
+	}
+});
+
+test('calculateRowWindow fits mixed heights within the pane', t => {
+	// header, space, space, header, space, space, header, space (two-line layout)
+	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
+	const termHeight = 2 + 7; // chrome + 7 lines
+	for (let cursor = 0; cursor < heights.length; cursor++) {
+		const {scrollOffset, visibleCount} = calculateRowWindow(
+			heights,
+			cursor,
+			termHeight,
+		);
+		const lines = heights
+			.slice(scrollOffset, scrollOffset + visibleCount)
+			.reduce((sum, height) => sum + height, 0);
+		t.true(lines <= 7, `cursor ${cursor} overflows with ${lines} lines`);
+		t.true(cursor >= scrollOffset && cursor < scrollOffset + visibleCount);
+	}
+});
+
+test('calculateRowWindow fills the pane at the end of the list', t => {
+	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
+	t.deepEqual(calculateRowWindow(heights, 7, 2 + 7), {
+		scrollOffset: 4,
+		visibleCount: 4,
+	});
 });

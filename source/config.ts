@@ -11,6 +11,13 @@ import {
 	normalizeStateName,
 } from './state-color-override.ts';
 import {
+	STATUS_CATEGORIES,
+	railGroupId,
+	railGroupsFromConfig,
+	type RailGroup,
+	type RailGroupConfig,
+} from './rail-groups.ts';
+import {
 	isBeadsIssueKey,
 	issueKeyPrefix,
 	issueKeyTeamPrefix,
@@ -212,6 +219,10 @@ export type ListLayout = 'single_line' | 'two_line';
 
 export interface ListViewConfig {
 	layout?: ListLayout;
+	/** Groups the rail by issue status. Absent keeps the flat list. */
+	group_by?: 'status';
+	/** Groups after Agents, in rail order. Absent means `DEFAULT_RAIL_GROUPS`. */
+	groups?: RailGroupConfig[];
 }
 
 /**
@@ -1430,6 +1441,17 @@ export function validateConfig(
 				listView['layout'] !== 'two_line'
 			) {
 				errors.push('list_view.layout: must be "single_line" or "two_line"');
+			}
+
+			if (
+				listView['group_by'] !== undefined &&
+				listView['group_by'] !== 'status'
+			) {
+				errors.push('list_view.group_by: must be "status"');
+			}
+
+			if (listView['groups'] !== undefined) {
+				errors.push(...validateRailGroups(listView['groups']));
 			}
 		}
 	}
@@ -3354,6 +3376,87 @@ export function getPaneWidths(config: PappardelleConfig | null): PaneWidths {
 		claude: layout?.claude_width,
 		companion: layout?.companion_width,
 	};
+}
+
+export function isRailGroupedByStatus(
+	config: PappardelleConfig | null,
+): boolean {
+	return config?.list_view?.group_by === 'status';
+}
+
+export function getRailGroups(config: PappardelleConfig | null): RailGroup[] {
+	return railGroupsFromConfig(config?.list_view?.groups);
+}
+
+/** Validate `list_view.groups`: the rail groups after Agents. */
+function validateRailGroups(value: unknown): string[] {
+	if (!Array.isArray(value) || value.length === 0) {
+		return ['list_view.groups: must be a non-empty list'];
+	}
+
+	const errors: string[] = [];
+	const names = new Set<string>();
+	const statusOwners = new Map<string, string>();
+	for (const [index, item] of value.entries()) {
+		const at = `list_view.groups[${index}]`;
+		if (typeof item !== 'object' || item === null) {
+			errors.push(`${at}: must be an object`);
+			continue;
+		}
+
+		const group = item as Record<string, unknown>;
+		const {name, color, statuses, categories} = group;
+		if (typeof name !== 'string' || name.trim().length === 0) {
+			errors.push(`${at}.name: must be a non-empty string`);
+		} else if (names.has(railGroupId(name))) {
+			errors.push(`${at}.name: duplicate group "${name}"`);
+		} else {
+			names.add(railGroupId(name));
+		}
+
+		if (!isValidStateColor(color)) {
+			errors.push(
+				`${at}.color: must be a hex color (#rgb or #rrggbb) or an ANSI color name`,
+			);
+		}
+
+		if (statuses === undefined && categories === undefined) {
+			errors.push(`${at}: needs statuses, categories or both`);
+		}
+
+		if (statuses !== undefined) {
+			if (
+				!Array.isArray(statuses) ||
+				statuses.some(s => typeof s !== 'string' || s.trim().length === 0)
+			) {
+				errors.push(`${at}.statuses: must be a list of status names`);
+			} else {
+				for (const status of statuses as string[]) {
+					const key = normalizeStateName(status);
+					const owner = statusOwners.get(key);
+					if (owner !== undefined && owner !== at) {
+						errors.push(`${at}.statuses: "${status}" is already in ${owner}`);
+					}
+
+					statusOwners.set(key, at);
+				}
+			}
+		}
+
+		if (
+			categories !== undefined &&
+			(!Array.isArray(categories) ||
+				categories.some(
+					c => !(STATUS_CATEGORIES as readonly unknown[]).includes(c),
+				))
+		) {
+			errors.push(
+				`${at}.categories: must be a list of ${STATUS_CATEGORIES.map(c => `"${c}"`).join(', ')}`,
+			);
+		}
+	}
+
+	return errors;
 }
 
 export function getListLayout(config: PappardelleConfig | null): ListLayout {
