@@ -89,6 +89,9 @@ const SIDE = `${COMPANION}~side`;
 
 tmuxTest('companion verbs on a real tmux server', async t => {
 	const agentPanes = panesOf(AGENT);
+	const agentPid = () =>
+		tmux('display-message', '-p', '-t', `=${AGENT}:`, '#{pane_pid}');
+	const agentPidBefore = agentPid();
 
 	t.true(
 		runInCompanion(
@@ -146,14 +149,5 @@ tmuxTest('companion verbs on a real tmux server', async t => {
 	t.is(panesOf(COMPANION).length, 1);
 
 	t.deepEqual(panesOf(AGENT), agentPanes);
-	t.is(
-		tmux(
-			'display-message',
-			'-p',
-			'-t',
-			`=${AGENT}:`,
-			'#{pane_current_command}',
-		),
-		'sleep',
-	);
+	t.is(agentPid(), agentPidBefore, "the agent's process was left running");
 });
