@@ -1018,10 +1018,6 @@ done
 
 # ==========================================================================
 
-# With destroy-unattached on, tmux destroys each session the moment no client
-# views it; with exit-unattached on, the server exits once no client is
-# attached. The inner server loads the user's tmux.conf, so either would kill
-# every background agent.
 echo -e "\n${BOLD}Test: sessions survive a tmux.conf that drops unattached sessions${RESET}"
 KEEP_KEY="${TEST_PREFIX}-keep"
 KEEP_HOME="$TMPDIR_ROOT/keep-home"

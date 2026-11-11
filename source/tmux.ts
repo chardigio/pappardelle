@@ -2964,9 +2964,6 @@ function spaceSessionEnvArgs(issueKey: string): string[] {
 
 const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
 
-// A space's sessions are only ever seen nested in a viewer pane, where the
-// user's own status bar would add a row naming the session under the rail's
-// own header.
 // The inner server loads the user's tmux.conf. With destroy-unattached on,
 // tmux destroys every session no client is viewing, which is every background
 // agent. With exit-unattached on, the server exits once no client is attached,
@@ -2984,6 +2981,9 @@ const KEEP_UNVIEWED_SESSIONS_ARGS = [
 	'off',
 ];
 
+// A space's sessions are only ever seen nested in a viewer pane, where the
+// user's own status bar would add a row naming the session under the rail's
+// own header.
 function hideStatusBarArgs(sessionName: string): string[] {
 	return [
 		';',
