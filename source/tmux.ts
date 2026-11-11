@@ -719,7 +719,7 @@ function windowOptionArgs(
 const SOUS_CHEF_KEY_OPTION = '@pappardelle-sous-chef-key';
 const SOUS_CHEF_COMMAND_OPTION = '@pappardelle-sous-chef';
 
-export function sousChefKeyArgs(
+function sousChefKeyArgs(
 	listPaneId: string,
 	key: string,
 	command: string,

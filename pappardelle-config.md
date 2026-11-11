@@ -1087,6 +1087,7 @@ sous_chef_key?: string | false;
 ```
 
 - The value is a tmux key name, as `bind-key` takes it: `M-s` for Option+s, `C-g` for Ctrl+g, `F12`
+- The default `M-s` is zsh's `spell-word` in emacs mode, which shells inside the Pappardelle window lose; pick another key if you use it
 - `M-` keys need the terminal to send Option as Meta (an "Option as Meta" or "Option as Alt" setting on macOS)
 - Pappardelle binds the key in tmux's root table, so it replaces a root binding of your own for the same key. The binding acts only in Pappardelle's window: in any other window the key is passed on to the program running there, and it keeps being passed on after Pappardelle quits
 - Set it in `.pappardelle.local.yml` to change it for yourself only
