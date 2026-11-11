@@ -113,7 +113,7 @@ Existing sessions gain a monitor when the TUI opens.
 
 ### tmux version
 
-Use a tmux build containing the [synchronized-output fix](https://github.com/tmux/tmux/commit/b2de803871e579565a6f79296f386115142593ed). Stable 3.7c and earlier can expose screen clears before an application finishes a synchronized frame, causing Codex and other TUIs to flash ([tmux/tmux#4983](https://github.com/tmux/tmux/issues/4983)). Pappardelle's incremental renderer reduces redraws, but the tmux fix is also needed to prevent these partial frames.
+Pappardelle requires tmux 3.3 or newer; the TUI exits at startup with an error on anything older. Beyond that floor, use a tmux build containing the [synchronized-output fix](https://github.com/tmux/tmux/commit/b2de803871e579565a6f79296f386115142593ed). Stable 3.7c and earlier can expose screen clears before an application finishes a synchronized frame, causing Codex and other TUIs to flash ([tmux/tmux#4983](https://github.com/tmux/tmux/issues/4983)). Pappardelle's incremental renderer reduces redraws, but the tmux fix is also needed to prevent these partial frames.
 
 The fix is currently available in the official [tmux preview builds](https://github.com/tmux/tmux-builds/releases/tag/preview). We verified `20260924-a4a2501b`, which reports `tmux next-3.9`. Preview downloads track upstream development; `next-3.9` alone does not identify the commit. These are prerelease builds until a stable release includes the fix.
 

@@ -1,8 +1,7 @@
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
 import {useSyncExternalStore} from 'react';
 import {stripSkinTones} from './emoji-rail-width.ts';
 import {isInTmux} from './tmux.ts';
+import {parseTmuxVersion, readTmuxVersion} from './tmux-version.ts';
 
 // tmux 3.6 draws an emoji plus a Fitzpatrick skin-tone modifier (💪🏼) as
 // two wide glyphs, 4 cells, while OpenTUI lays the grapheme out as 2 cells and
@@ -14,34 +13,20 @@ import {isInTmux} from './tmux.ts';
 // 3.5 and earlier predate the regression, so only a bare 3.6 needs the
 // modifiers stripped.
 
-const execFileAsync = promisify(execFile);
-
 let skinToneWide = false;
 let resolution: Promise<void> | undefined;
 let probe = queryTmuxVersion;
 const listeners = new Set<() => void>();
 
-export async function queryTmuxVersion(): Promise<string | null> {
-	try {
-		const {stdout} = await execFileAsync(
-			'tmux',
-			['display-message', '-p', '#{version}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		const version = stdout.trim();
-		return version === '' ? null : version;
-	} catch {
-		return null;
-	}
+async function queryTmuxVersion(): Promise<string | null> {
+	const read = await readTmuxVersion();
+	return read?.version ?? null;
 }
 
 function isBare36(version: string): boolean {
-	const match = version.match(/(\d+)\.(\d+)([a-z])?/);
+	const release = parseTmuxVersion(version);
 	return (
-		match !== null &&
-		match[1] === '3' &&
-		match[2] === '6' &&
-		match[3] === undefined
+		release?.major === 3 && release.minor === 6 && release.letter === undefined
 	);
 }
 

@@ -71,6 +71,11 @@ import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
+import {
+	readTmuxVersion,
+	tmuxTooOldMessage,
+	tmuxVersionTooOld,
+} from './tmux-version.ts';
 import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
 import {SEND_LOCK_TIMEOUT_MS} from './send-lock.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
@@ -380,6 +385,18 @@ function exitWithTmux(result: ReturnType<typeof spawnSync>): never {
 	}
 
 	process.exit(result.status ?? 0);
+}
+
+// Checked before the re-exec, where the message stays on screen; inside the
+// new session it would vanish with the pane.
+const tmuxVersionDone = startupTrace.current?.begin('tmux-version');
+const tmuxVersion = await readTmuxVersion();
+tmuxVersionDone?.();
+if (tmuxVersion && tmuxVersionTooOld(tmuxVersion.version)) {
+	const [headline, ...details] = tmuxTooOldMessage(tmuxVersion);
+	console.error(`\x1b[31m${headline}\x1b[0m`);
+	for (const line of details) console.error(line);
+	process.exit(1);
 }
 
 // If not in tmux, re-exec inside tmux
