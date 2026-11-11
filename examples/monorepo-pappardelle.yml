@@ -79,6 +79,7 @@ issue_watchlist:
 # Command run in the companion pane (right of Claude). gitui is the default;
 # this line is explicit for clarity. Set it to any command, or override it
 # per-profile below (e.g. a profile that boots a dev server instead of a git UI).
+# `companion: false` (top-level or per-profile) removes the pane altogether.
 companion_command: gitui
 
 # Terminal application for workspace windows (default: iTerm)

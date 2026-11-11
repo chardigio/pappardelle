@@ -142,6 +142,12 @@ team_prefix: ENG
 # override this (see profiles below). Restore the old default with `lazygit`.
 # companion_command: gitui
 
+# false removes the companion pane: the layout is the rail and the agent only,
+# and the agent takes the companion's width. Default true. A profile can
+# override this. The companion verbs then exit with an error, and
+# companion_splits cannot be set where the companion is off.
+# companion: false
+
 # Panes started beside the companion when a space first shows in the TUI, each
 # in a framed pane of its own. split is right or down (default down); size is
 # cells or a share of the companion column. A profile's own companion_splits
@@ -264,6 +270,8 @@ profiles:
     # Per-profile companion-pane command. Overrides the top-level
     # `companion_command` — e.g. boot the API server instead of a git UI.
     # companion_command: 'make run'
+    # Per-profile companion on/off. Overrides the top-level `companion`.
+    # companion: false
     github:
       label: 'backend'
     links:
