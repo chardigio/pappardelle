@@ -49,7 +49,7 @@ export function parseTmuxVersion(version: string): TmuxRelease | null {
 	return {
 		major: Number(match[1]),
 		minor: Number(match[2]),
-		...(match[3] === undefined ? {} : {letter: match[3]}),
+		letter: match[3],
 	};
 }
 
