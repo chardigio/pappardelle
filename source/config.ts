@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {scriptsDir} from './runtime.ts';
-import YAML from 'js-yaml';
+import {parse as parseYaml, parseDocument} from 'yaml';
 import {
 	ANSI_COLOR_NAMES,
 	isValidStateColor,
@@ -782,15 +782,24 @@ export function parseConfigLayer(
 	label: string,
 	content: string,
 ): Record<string, unknown> | null {
+	const document = parseDocument(content, {merge: true});
+	// Warnings such as an unknown tag are mistakes in the file, and `yaml`
+	// would otherwise drop the tag and keep the value.
+	const problem = document.errors[0] ?? document.warnings[0];
+	if (problem) {
+		throw new ConfigValidationError([`${label}: ${problem.message}`]);
+	}
+
+	let parsed: unknown;
 	try {
-		const parsed = YAML.load(content);
-		return parsed && typeof parsed === 'object'
-			? (parsed as Record<string, unknown>)
-			: null;
+		parsed = document.toJS();
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : String(error);
 		throw new ConfigValidationError([`${label}: ${msg}`]);
 	}
+	return parsed && typeof parsed === 'object'
+		? (parsed as Record<string, unknown>)
+		: null;
 }
 
 /**
@@ -2372,7 +2381,7 @@ function resolveBeadsIssuePrefix(root: string): string | undefined {
 			path.join(root, '.beads', 'config.yaml'),
 			'utf-8',
 		);
-		const parsed = YAML.load(raw) as Record<string, unknown> | undefined;
+		const parsed = parseYaml(raw) as Record<string, unknown> | undefined;
 		const prefix = parsed?.['issue-prefix'];
 		return typeof prefix === 'string' && prefix.trim()
 			? prefix.trim()

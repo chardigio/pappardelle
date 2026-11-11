@@ -1,15 +1,11 @@
 /* eslint-disable no-template-curly-in-string -- These are idow shell templates. */
-import {
-	type ExecFileException,
-	execFile,
-	execFileSync,
-} from 'node:child_process';
+import {type ExecException, execFile, execFileSync} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
-import YAML from 'js-yaml';
+import {parse, stringify} from 'yaml';
 import {idowSkippedAgentOverride} from './session-routing.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
@@ -131,7 +127,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 	fs.writeFileSync(path.join(main, '.env'), 'FROM_MAIN=1\n');
 
 	const config = (displayName: string) =>
-		YAML.dump({
+		stringify({
 			version: 1,
 			team_prefix: 'test',
 			issue_tracker: {provider: 'beads'},
@@ -359,7 +355,7 @@ touch "$IDOW_TEST_WORKSPACE/background-finished"`,
 	);
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			post_workspace_init: [
 				{
 					name: 'Background hook',
@@ -491,7 +487,7 @@ for (const c of fallbackCases) {
 		});
 		if (c.failing.length === 3) {
 			const error = await t.throwsAsync(run);
-			t.is((error as ExecFileException | undefined)?.code, 1);
+			t.is((error as ExecException | undefined)?.code, 1);
 		} else {
 			await run;
 		}
@@ -525,7 +521,7 @@ test('an explicit profile pick on an existing space is persisted and reused', as
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}},
 			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
 		}),
@@ -569,7 +565,7 @@ test('a recreated worktree launches the agent without resume args not tied to it
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}},
 			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
 		}),
@@ -601,7 +597,7 @@ test('a recreated worktree keeps claude resume args without a session id', async
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			agent_profiles: {
 				claude: {command: 'claude', resume_args: '--continue --fork-session'},
 			},
@@ -622,7 +618,7 @@ test('the profile is persisted before post_workspace_init runs', async t => {
 	const fixture = setup(t);
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			post_workspace_init: [
 				{
 					run: 'cp "$HOME/.pappardelle/repos/main checkout/space-state/test-abc.json" "$WORKTREE_PATH/state-during-init.json"',
@@ -643,7 +639,7 @@ test('--agent-profile launches another agent profile for that run only', async t
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+		stringify({agent_profiles: {codex: {command: 'codex'}}}),
 	);
 	const launchArg = (flag: string) => {
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
@@ -668,7 +664,7 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+		stringify({agent_profiles: {codex: {command: 'codex'}}}),
 	);
 	writeScript(path.join(fixture.bin, 'tmux'), 'exit 0');
 
@@ -683,7 +679,7 @@ test('--agent-profile on a space still running under its legacy session name say
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({agent_profiles: {codex: {command: 'codex'}}}),
+		stringify({agent_profiles: {codex: {command: 'codex'}}}),
 	);
 	writeScript(
 		path.join(fixture.bin, 'tmux'),
@@ -704,7 +700,7 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			agent_profiles: {
 				codex: {command: 'codex', resume_args: 'resume {session_id}'},
 			},
@@ -792,7 +788,7 @@ test('a claude space with no recorded session keeps its other resume flags', asy
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			agent_profiles: {
 				claude: {
 					command: 'claude',
@@ -822,7 +818,7 @@ test('opening without PR consumers skips VCS lookup', async t => {
 	const fixture = setup(t);
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({profiles: {dev: {links: []}}}),
+		stringify({profiles: {dev: {links: []}}}),
 	);
 	const output = await fixture.run({open: true});
 	t.false(fs.existsSync(fixture.vcsCalls));
@@ -849,7 +845,7 @@ test('resume mode launches without a prompt; agy gets its built-in prompt flag',
 	const fixture = setup(t);
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			agent_profiles: {argon: {command: 'agy', model: 'gemini-4-argon-medium'}},
 			profiles: {other: {display_name: 'Other', agent_profile: 'argon'}},
 		}),
@@ -879,7 +875,7 @@ test('a bad claude config fails before the issue is created', async t => {
 	const fixture = setup(t);
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({claude: {extra_args: '--verbose'}}),
+		stringify({claude: {extra_args: '--verbose'}}),
 	);
 	await t.throwsAsync(fixture.run({input: 'Make workspace startup faster'}));
 	t.false(
@@ -894,7 +890,7 @@ test('batched commands preserve order, multiline strings and command stdin', asy
 	const expected = 'a\tb\nquoted "text" and \u0024(literal)\n';
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			post_workspace_init: [
 				// Reading stdin must not consume the next command's config record.
 				{name: 'Read stdin\n\n', run: 'cat > "${WORKTREE_PATH}/stdin"'},
@@ -920,14 +916,14 @@ test('batched commands preserve order, multiline strings and command stdin', asy
 
 test('an aliased post_workspace_init list still runs', async t => {
 	const fixture = setup(t);
-	const config = YAML.load(fixture.config('Main config')) as Record<
+	const config = parse(fixture.config('Main config')) as Record<
 		string,
 		unknown
 	>;
 	delete config['post_workspace_init'];
 	fs.writeFileSync(
 		path.join(fixture.main, '.pappardelle.yml'),
-		YAML.dump(config) +
+		stringify(config) +
 			'common: &common\n  - run: touch "${WORKTREE_PATH}/aliased"\npost_workspace_init: *common\n',
 	);
 	await fixture.run();
@@ -938,7 +934,7 @@ test('a failing required command still stops setup before Claude starts', async 
 	const fixture = setup(t);
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			post_workspace_init: [
 				{run: 'false'},
 				{run: 'touch "${WORKTREE_PATH}/unexpected"'},
@@ -964,7 +960,7 @@ test('adding commands does not add YAML parser processes', async t => {
 	fs.writeFileSync(fixture.configCalls, '');
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
-		YAML.dump({
+		stringify({
 			post_workspace_init: Array.from({length: 20}, () => ({run: ':'})),
 		}),
 	);
@@ -980,7 +976,7 @@ for (const consumer of ['profile vars', 'post-create hook']) {
 		const fixture = setup(t);
 		fs.appendFileSync(
 			path.join(fixture.main, '.pappardelle.local.yml'),
-			YAML.dump({
+			stringify({
 				profiles: {
 					dev: {
 						links: [],
@@ -1042,7 +1038,7 @@ test.serial(
 		const fixture = setup(t);
 		fs.appendFileSync(
 			path.join(fixture.main, '.pappardelle.local.yml'),
-			YAML.dump({profiles: {dev: {links: []}}}),
+			stringify({profiles: {dev: {links: []}}}),
 		);
 		const output = await fixture.run({
 			open: true,

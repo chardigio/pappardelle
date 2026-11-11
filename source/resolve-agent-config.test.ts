@@ -3,7 +3,7 @@ import {execFileSync, execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import YAML from 'js-yaml';
+import {stringify} from 'yaml';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
 import {
 	getAgentProfile,
@@ -1165,7 +1165,7 @@ for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
 		`built-in agent defaults: ${name} resolves the same in TS and bash`,
 		t => {
 			const fixture = setupConfigFiles(
-				YAML.dump({
+				stringify({
 					version: 1,
 					agent_profiles: {[name]: expected.definition},
 					agent_profile: name,
@@ -1192,7 +1192,7 @@ for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
 for (const promptArgs of ['-i', '', '-i {prompt} {prompt}']) {
 	maybeMacro(`prompt_args ${JSON.stringify(promptArgs)} is an error`, t => {
 		const fixture = setupConfigFiles(
-			YAML.dump({
+			stringify({
 				version: 1,
 				agent_profiles: {agy: {command: 'agy', prompt_args: promptArgs}},
 				agent_profile: 'agy',
