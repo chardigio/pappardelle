@@ -206,7 +206,7 @@ AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 # The prompt, single-quoted for the inner shell and wrapped in the
 # prompt_args template's text around {prompt}, goes into one string that
 # crosses the outer shell as $AGENT_PROMPT_WORDS, so a quote or $() in either
-# stays literal. Without prompt_args the template is just {prompt}.
+# stays literal.
 PROMPT_WORDS=""
 if [[ -n "$AGENT_PROMPT" ]]; then
     if [[ -z "$AGENT_PROMPT_ARGS" ]]; then
