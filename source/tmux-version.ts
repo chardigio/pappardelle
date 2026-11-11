@@ -40,18 +40,30 @@ export async function readTmuxVersion(): Promise<TmuxVersion | null> {
 		: {version: binary.replace(/^tmux /, ''), source: 'binary'};
 }
 
+export type TmuxRelease = {major: number; minor: number; letter?: string};
+
+/** Null for builds without a release number, such as `master`. */
+export function parseTmuxVersion(version: string): TmuxRelease | null {
+	const match = /(\d+)\.(\d+)([a-z])?/.exec(version);
+	if (match === null) return null;
+	return {
+		major: Number(match[1]),
+		minor: Number(match[2]),
+		...(match[3] === undefined ? {} : {letter: match[3]}),
+	};
+}
+
 /**
- * True only for a release number below the floor. Builds without one, such
- * as `master`, are let through rather than blocked on a guess.
+ * True only for a release number below the floor. Builds without one are let
+ * through rather than blocked on a guess.
  */
 export function tmuxVersionTooOld(version: string): boolean {
-	const match = /(\d+)\.(\d+)/.exec(version);
-	if (match === null) return false;
-	const major = Number(match[1]);
-	const minor = Number(match[2]);
+	const release = parseTmuxVersion(version);
+	if (release === null) return false;
 	return (
-		major < MIN_TMUX_VERSION.major ||
-		(major === MIN_TMUX_VERSION.major && minor < MIN_TMUX_VERSION.minor)
+		release.major < MIN_TMUX_VERSION.major ||
+		(release.major === MIN_TMUX_VERSION.major &&
+			release.minor < MIN_TMUX_VERSION.minor)
 	);
 }
 

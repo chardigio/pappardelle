@@ -1,7 +1,7 @@
 import {useSyncExternalStore} from 'react';
 import {stripSkinTones} from './emoji-rail-width.ts';
 import {isInTmux} from './tmux.ts';
-import {readTmuxVersion} from './tmux-version.ts';
+import {parseTmuxVersion, readTmuxVersion} from './tmux-version.ts';
 
 // tmux 3.6 draws an emoji plus a Fitzpatrick skin-tone modifier (💪🏼) as
 // two wide glyphs, 4 cells, while OpenTUI lays the grapheme out as 2 cells and
@@ -24,12 +24,9 @@ async function queryTmuxVersion(): Promise<string | null> {
 }
 
 function isBare36(version: string): boolean {
-	const match = version.match(/(\d+)\.(\d+)([a-z])?/);
+	const release = parseTmuxVersion(version);
 	return (
-		match !== null &&
-		match[1] === '3' &&
-		match[2] === '6' &&
-		match[3] === undefined
+		release?.major === 3 && release.minor === 6 && release.letter === undefined
 	);
 }
 

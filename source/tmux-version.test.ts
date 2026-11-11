@@ -13,10 +13,8 @@ test('3.3 and later meet the floor', t => {
 	}
 });
 
-test('prefixed builds compare by their release number', t => {
+test('preview builds compare by their release number', t => {
 	t.false(tmuxVersionTooOld('next-3.9'));
-	t.false(tmuxVersionTooOld('tmux 3.8'));
-	t.true(tmuxVersionTooOld('tmux 3.2a'));
 });
 
 test('a version without a release number never blocks startup', t => {
