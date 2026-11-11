@@ -14,7 +14,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import tty from 'node:tty';
 import {createLogger} from '../logger.ts';
 import {shellQuote} from '../shell-quote.ts';
-import type {PopupSize} from './size.ts';
+import type {ClientSize, PopupSize} from './size.ts';
 
 const log = createLogger('popup');
 
@@ -24,6 +24,11 @@ export type PopupTerminal = {
 	output: tty.WriteStream;
 	/** Resolves once the popup has closed, whoever closed it. */
 	closed: Promise<void>;
+	/**
+	 * Take the popup off the client now. The renderer drawing into it needs
+	 * about 20 ms to shut down, and `close` has to wait for that.
+	 */
+	dismiss(): void;
 	close(): void;
 };
 
@@ -31,12 +36,82 @@ export type PopupLaunch = {
 	readyPath: string;
 	size: PopupSize;
 	ownerPid: number;
+	/** `-c` and the client to show the popup on, or nothing for tmux's choice. */
+	client?: string[];
 };
+
+/** Where a popup goes: `-c` and a client, or nothing for tmux's own choice. */
+export type PopupClient = {args: string[]; size: ClientSize};
+
+/**
+ * The client a popup is shown on and that client's size.
+ *
+ * tmux shows a popup on the session's most recently active client. That is
+ * the terminal that just typed, except that the TUI's control-mode client,
+ * which cannot show a popup and has no size, is the most recent one until a
+ * key is pressed after it attaches. `report` is the control-mode flag, width
+ * and height of tmux's choice, then one line per client: control mode,
+ * activity time, tty, width and height.
+ */
+export function popupClient(report: string, fallback: ClientSize): PopupClient {
+	const [chosen = '', ...clients] = report.split('\n');
+	const sized = (cols?: string, rows?: string): ClientSize =>
+		Number(cols) > 0 && Number(rows) > 0
+			? {cols: Number(cols), rows: Number(rows)}
+			: fallback;
+	const [chosenIsControl, chosenCols, chosenRows] = chosen.split('\t');
+	if (chosenIsControl !== '1')
+		return {args: [], size: sized(chosenCols, chosenRows)};
+	let newest: {activity: number; tty: string; size: ClientSize} | undefined;
+	for (const line of clients) {
+		const [control, activity, tty, cols, rows] = line.split('\t');
+		if (control !== '0' || !tty) continue;
+		if (!newest || Number(activity) >= newest.activity)
+			newest = {activity: Number(activity), tty, size: sized(cols, rows)};
+	}
+
+	return newest
+		? {args: ['-c', newest.tty], size: newest.size}
+		: {args: [], size: fallback};
+}
+
+/** See popupClient. */
+export async function findPopupClient(): Promise<PopupClient> {
+	const fallback = {
+		cols: process.stdout.columns ?? 80,
+		rows: process.stdout.rows ?? 24,
+	};
+	const pane = process.env['TMUX_PANE'];
+	if (!pane) return {args: [], size: fallback};
+	return new Promise(resolve => {
+		execFile(
+			'tmux',
+			[
+				'display-message',
+				'-p',
+				'#{client_control_mode}\t#{client_width}\t#{client_height}',
+				';',
+				'list-clients',
+				'-t',
+				pane,
+				'-F',
+				'#{client_control_mode}\t#{client_activity}\t#{client_tty}\t#{client_width}\t#{client_height}',
+			],
+			{encoding: 'utf8', timeout: 2000},
+			(error, stdout) => {
+				resolve(
+					error ? {args: [], size: fallback} : popupClient(stdout, fallback),
+				);
+			},
+		);
+	});
+}
 
 export function buildDisplayPopupArgs({
 	readyPath,
 	size,
 	ownerPid,
+	client = [],
 }: PopupLaunch): string[] {
 	const pending = shellQuote(`${readyPath}.tmp`);
 	const script = [
@@ -56,6 +131,7 @@ export function buildDisplayPopupArgs({
 	const command = `exec /bin/sh -c ${shellQuote(script)}`;
 	return [
 		'display-popup',
+		...client,
 		'-B',
 		'-E',
 		'-w',
@@ -74,6 +150,7 @@ async function waitForReady(
 	dir: string,
 	readyPath: string,
 	popupExited: Promise<void>,
+	client: string[],
 ): Promise<string | undefined> {
 	const watcher = watch(dir);
 	const timeout = new AbortController();
@@ -93,7 +170,7 @@ async function waitForReady(
 			popupExited.then(() => undefined),
 			delay(READY_TIMEOUT_MS, undefined, {signal: timeout.signal})
 				.then(() => {
-					execFile('tmux', ['display-popup', '-C']);
+					execFile('tmux', ['display-popup', ...client, '-C']);
 					return undefined;
 				})
 				// Aborted once the race is decided.
@@ -105,9 +182,9 @@ async function waitForReady(
 	}
 }
 
-function closePopupOnClient() {
+function closePopupOnClient(client: string[]) {
 	try {
-		execFileSync('tmux', ['display-popup', '-C'], {
+		execFileSync('tmux', ['display-popup', ...client, '-C'], {
 			stdio: 'ignore',
 			timeout: 2000,
 		});
@@ -135,6 +212,7 @@ function killPopupShell(shellPid: number) {
  */
 export async function openPopupTerminal(
 	size: PopupSize,
+	client: string[] = [],
 ): Promise<PopupTerminal | undefined> {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pappardelle-popup-'));
 	const readyPath = path.join(dir, 'ready');
@@ -142,7 +220,7 @@ export async function openPopupTerminal(
 	const closed = new Promise<void>(resolve => {
 		const popup = spawn(
 			'tmux',
-			buildDisplayPopupArgs({readyPath, size, ownerPid: process.pid}),
+			buildDisplayPopupArgs({readyPath, size, ownerPid: process.pid, client}),
 			{stdio: 'ignore'},
 		);
 		popup.on('error', error => {
@@ -157,7 +235,7 @@ export async function openPopupTerminal(
 	});
 
 	try {
-		const ready = await waitForReady(dir, readyPath, closed);
+		const ready = await waitForReady(dir, readyPath, closed, client);
 		if (!ready) return undefined;
 		const [pid, ttyPath = ''] = ready.split(' ');
 		const shellPid = Number(pid);
@@ -185,6 +263,10 @@ export async function openPopupTerminal(
 			input,
 			output,
 			closed,
+			dismiss() {
+				if (isPopupOpen)
+					execFile('tmux', ['display-popup', ...client, '-C'], () => {});
+			},
 			close() {
 				if (isClosing) return;
 				isClosing = true;
@@ -197,7 +279,7 @@ export async function openPopupTerminal(
 				killPopupShell(shellPid);
 				// The input fd stays open too while Bun has a read pending on it,
 				// and only a hangup ends that read, so tmux has to close the popup.
-				if (isPopupOpen) closePopupOnClient();
+				if (isPopupOpen) closePopupOnClient(client);
 			},
 		};
 	} finally {

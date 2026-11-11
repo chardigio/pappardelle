@@ -115,6 +115,10 @@ export default function PromptDialog({
 	// the next keystroke is a new query and deserves a fresh list.
 	const [dismissedFor, setDismissedFor] = useState<string | null>(null);
 	const [completionIndex, setCompletionIndex] = useState(0);
+	// Several keys can arrive before the next render; each acts on where the
+	// one before it left the selection.
+	const completionNow = useRef(completionIndex);
+	completionNow.current = completionIndex;
 	// Enter moves the focus into the Skills box, which freezes the text input
 	// and buys back `j`/`k` and Enter itself. Tab never needs this: it accepts
 	// from wherever you are.
@@ -271,10 +275,11 @@ export default function PromptDialog({
 		const {input: _input, key} = shortcutKey(event);
 		const result = handleSkillPickerKey(
 			key,
-			completionIndex,
+			completionNow.current,
 			completions.length,
 		);
 		if (result.action === 'move') {
+			completionNow.current = result.index;
 			setCompletionIndex(result.index);
 		} else if (result.action === 'accept') {
 			acceptCompletion(result.index);
@@ -289,11 +294,12 @@ export default function PromptDialog({
 		const result = handleSkillListKey(
 			input,
 			key,
-			completionIndex,
+			completionNow.current,
 			completions.length,
 		);
 		switch (result.action) {
 			case 'move': {
+				completionNow.current = result.index;
 				setCompletionIndex(result.index);
 				break;
 			}

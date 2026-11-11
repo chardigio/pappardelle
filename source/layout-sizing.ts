@@ -120,9 +120,10 @@ export interface LayoutConfig {
  * This is a pure function for testability.
  *
  * @param sessionCount - Number of active Claude sessions
+ * @param linesPerItem - Terminal rows each session takes (2 in two-line layout)
  * @returns Ideal height in rows for the list pane
  *
- * The pane holds one row per session plus the header and status rows, all
+ * The pane holds every session plus the header and status rows, all
  * inside the rail's frame, then is clamped between min(ideal,
  * DEFAULT_MIN_LIST_HEIGHT) and MAX_LIST_HEIGHT.
  *
@@ -130,9 +131,14 @@ export interface LayoutConfig {
  * based on terminal height (MAX_LIST_HEIGHT_RATIO) so the list doesn't
  * dominate small screens.
  */
-export function calculateIdealListHeightForCount(sessionCount: number): number {
+export function calculateIdealListHeightForCount(
+	sessionCount: number,
+	linesPerItem: 1 | 2 = 1,
+): number {
 	const idealHeight =
-		Math.max(1, sessionCount) + LIST_CHROME_ROWS + PANE_FRAME_ROWS;
+		Math.max(1, sessionCount) * linesPerItem +
+		LIST_CHROME_ROWS +
+		PANE_FRAME_ROWS;
 
 	// Minimum is the smaller of ideal or default (don't force default num rows if we only need 4)
 	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);
@@ -150,6 +156,7 @@ export function calculateIdealListHeightForCount(sessionCount: number): number {
  * @param sessionCount - Number of active sessions (for vertical layout list height)
  * @param widths - Pane widths from config or a hand-drag that replace the
  *   derived ones. Only meaningful in horizontal layout.
+ * @param linesPerItem - Terminal rows each session takes in the list
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
@@ -161,6 +168,7 @@ export function calculateLayoutForSize(
 	totalHeight: number,
 	sessionCount: number,
 	widths: PaneWidths = {},
+	linesPerItem: 1 | 2 = 1,
 ): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
@@ -173,7 +181,7 @@ export function calculateLayoutForSize(
 			Math.floor(usableHeight * MAX_LIST_HEIGHT_RATIO),
 		);
 		const listHeight = Math.min(
-			calculateIdealListHeightForCount(sessionCount),
+			calculateIdealListHeightForCount(sessionCount, linesPerItem),
 			maxListForScreen,
 		);
 		const agentHeight = usableHeight - listHeight;

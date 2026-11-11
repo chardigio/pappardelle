@@ -29,37 +29,6 @@ export function shouldShowLoadingTitle(space: SpaceData): boolean {
 }
 
 /**
- * Filter spaces by a search query, matching against issue key and title.
- *
- * Returns the filtered list and a mapping from filtered index → original index.
- * Pure function — no side effects, easy to test.
- */
-export function filterSpaces(
-	spaces: SpaceData[],
-	query: string,
-): {filtered: SpaceData[]; indexMap: number[]} {
-	if (!query) {
-		return {
-			filtered: spaces,
-			indexMap: spaces.map((_, i) => i),
-		};
-	}
-	const q = query.toLowerCase();
-	const filtered: SpaceData[] = [];
-	const indexMap: number[] = [];
-	for (let i = 0; i < spaces.length; i++) {
-		const space = spaces[i]!;
-		const nameMatch = space.name.toLowerCase().includes(q);
-		const titleMatch = space.linearIssue?.title?.toLowerCase().includes(q);
-		if (nameMatch || titleMatch) {
-			filtered.push(space);
-			indexMap.push(i);
-		}
-	}
-	return {filtered, indexMap};
-}
-
-/**
  * Kill a space's tmux sessions, then unregister it. STA-1420: the order is
  * load-bearing — if the kill fails we must NOT touch the registry, otherwise
  * it advertises "closed" while the inner-socket session is still alive.

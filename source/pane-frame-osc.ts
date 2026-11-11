@@ -3,6 +3,8 @@ const BEL = 0x07;
 const OSC_INTRODUCER = 0x5d; // ']'
 const CSI_INTRODUCER = 0x5b; // '['
 const STRING_TERMINATOR = 0x5c; // '\'
+const KEYPAD_APPLICATION = 0x3d; // '='
+const KEYPAD_NUMERIC = 0x3e; // '>'
 // tmux caps a clipboard copy well below this, so anything longer is not one.
 const MAX_PAYLOAD = 1024 * 1024;
 
@@ -23,8 +25,9 @@ type State = 'text' | 'escape' | 'osc' | 'osc-escape' | 'csi';
  * Picks the sequences out of a nested tmux client's output that the embedded
  * terminal would otherwise consume: the window title, which names the frame,
  * clipboard writes and bells, which must reach the user's real
- * terminal, and window size queries, which the embedded terminal leaves
- * unanswered.
+ * terminal, the keypad mode, which decides what the outer tmux sends this
+ * pane for a keypad key, and window size queries, which the embedded terminal
+ * leaves unanswered.
  * Sequences can be split across reads, so state carries over between chunks.
  */
 export class OscScanner {
@@ -54,6 +57,9 @@ export class OscScanner {
 						this.csiParameters = '';
 					} else if (byte !== ESC) {
 						this.state = 'text';
+						if (byte === KEYPAD_APPLICATION) events.passthrough.push('\u001B=');
+						else if (byte === KEYPAD_NUMERIC)
+							events.passthrough.push('\u001B>');
 					}
 
 					break;

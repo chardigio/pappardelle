@@ -19,13 +19,108 @@ export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
 // later session in that deleted directory, even with -c.
 const TMUX_SERVER_CWD = homedir();
 
-const runTmux: AsyncTmuxRunner = async args => {
+const tmuxTimeoutMs = (args: string[]) =>
+	args.includes('new-session') ? 10_000 : 5000;
+
+const runTmuxProcess: AsyncTmuxRunner = async args => {
 	const {stdout} = await execFileAsync('tmux', args, {
 		cwd: TMUX_SERVER_CWD,
 		encoding: 'utf-8',
-		timeout: args.includes('new-session') ? 10_000 : 5000,
+		timeout: tmuxTimeoutMs(args),
 	});
 	return stdout;
+};
+
+// One control-mode client per tmux server, keyed by the socket flags a call
+// carries. A server that refuses one is left to processes.
+const controlClients = new Map<string, TmuxControlClient | null>();
+let controlClientsEnabled = false;
+
+/**
+ * Send this process's tmux commands over long-lived control-mode clients
+ * instead of a `tmux` process each. For the TUI, which sends them for as long
+ * as it runs; a one-shot subcommand has nothing to gain from a second client.
+ */
+export function enableTmuxControlClients(): void {
+	controlClientsEnabled = true;
+}
+const CONTROL_FLAGS = 'ignore-size,no-output';
+
+function controlClient(server: string[]): TmuxControlClient | undefined {
+	const key = server.join(' ');
+	let client = controlClients.get(key);
+	if (client === undefined) {
+		const pane = process.env['TMUX_PANE'];
+		if (server.length === 0 && !(process.env['TMUX'] && pane)) {
+			client = null;
+		} else {
+			// The rail's own session is there to join on its server. Any other
+			// server gets a session that lasts exactly as long as this client.
+			const session = `pappardelle-control-${process.pid}`;
+			client = new TmuxControlClient(
+				server.length === 0
+					? ['-C', 'attach-session', '-f', CONTROL_FLAGS, '-t', pane!]
+					: [
+							...server,
+							'-C',
+							'new-session',
+							'-f',
+							CONTROL_FLAGS,
+							'-s',
+							session,
+							'tail -f /dev/null',
+							';',
+							'set-option',
+							'-t',
+							exactSessionTarget(session),
+							'destroy-unattached',
+							'on',
+						],
+				{cwd: TMUX_SERVER_CWD},
+			);
+		}
+
+		controlClients.set(key, client);
+	}
+
+	if (client && !client.usable) {
+		controlClients.set(key, null);
+		return undefined;
+	}
+
+	return client ?? undefined;
+}
+
+const runTmux: AsyncTmuxRunner = async args => {
+	const hasSocket = args[0] === '-L' || args[0] === '-S';
+	const server = hasSocket ? args.slice(0, 2) : [];
+	const command = controlCommandLine(hasSocket ? args.slice(2) : args);
+	const client =
+		controlClientsEnabled && command !== undefined
+			? controlClient(server)
+			: undefined;
+	if (!client) return runTmuxProcess(args);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			client.run(command!),
+			new Promise<string>((_resolve, reject) => {
+				timer = setTimeout(() => {
+					// A client that stops answering is not asked again.
+					client.stop();
+					reject(new Error(`tmux did not answer: ${args.join(' ')}`));
+				}, tmuxTimeoutMs(args));
+			}),
+		]);
+	} catch (error) {
+		// A tmux too old for the client's flags refuses it after the first
+		// commands are already queued.
+		if (error instanceof ControlClientNeverStarted)
+			return await runTmuxProcess(args);
+		throw error;
+	} finally {
+		clearTimeout(timer);
+	}
 };
 import {
 	DEFAULT_COMPANION_COMMAND,
@@ -39,6 +134,7 @@ import {
 	quoteLaunchValue,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
+	getListLayout,
 	getPaneWidths,
 	getRepoName,
 	loadConfig,
@@ -46,8 +142,27 @@ import {
 	type ResolvedAgentProfile,
 } from './config.ts';
 import {createLogger} from './logger.ts';
-import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {
+	ControlClientNeverStarted,
+	TmuxControlClient,
+	controlCommandLine,
+} from './tmux-control.ts';
+import {
+	CLIENT_TTY_OPTION,
+	FRAME_COMMAND_OPTION,
+	PANE_TITLE_OPTION,
+	frameReadyChannel,
+	frameStartedChannel,
+} from './pane-frame-options.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {startupTrace} from './startup-trace.ts';
+import type {PaneLayout} from './types.ts';
+import {
+	paneGeometryArgs,
+	parseWindowGeometry,
+	paneGeometry,
+	type WindowGeometry,
+} from './tmux-geometry.ts';
 import {sameFile} from './same-file.ts';
 import {SendLockTimeout, withSendLock} from './send-lock.ts';
 import {shellQuote} from './shell-quote.ts';
@@ -215,6 +330,24 @@ function getConfiguredPaneWidths(): PaneWidths {
 	return configuredPaneWidths;
 }
 
+let configuredListLines: 1 | 2 | undefined;
+
+/** Replaces the configured list layout, or reads it again when undefined. */
+export function setConfiguredListLines(lines: 1 | 2 | undefined): void {
+	configuredListLines = lines;
+}
+function getConfiguredListLines(): 1 | 2 {
+	if (configuredListLines === undefined) {
+		try {
+			configuredListLines = getListLayout(loadConfig()) === 'two_line' ? 2 : 1;
+		} catch {
+			configuredListLines = 1;
+		}
+	}
+
+	return configuredListLines;
+}
+
 /**
  * Check if running inside tmux
  */
@@ -377,6 +510,55 @@ function viewerRespawnArgs(
 	];
 }
 
+// Panes whose frame host started with the pane and has no program yet.
+const awaitingFrames = new Set<string>();
+
+/**
+ * The pane command for a viewer pane created before the rail knows what it
+ * will show. The frame host's start-up, the longest part of bringing a viewer
+ * up, then overlaps everything between pane setup and the first attachment.
+ */
+function awaitingFrameCommand(title: string): string {
+	return [...paneFrameEntry(), '--title', title, '--await']
+		.map(value => shellQuote(value))
+		.join(' ');
+}
+
+/** `paneId` was created running `awaitingFrameCommand`. Exported for tests. */
+export function registerAwaitingFrame(paneId: string): void {
+	awaitingFrames.add(paneId);
+}
+
+/**
+ * Start `command` in a viewer pane's frame. A frame that started with its
+ * pane is already waiting for exactly this; any other pane is respawned.
+ */
+function viewerStartArgs(
+	paneId: string,
+	command: string,
+	title?: string,
+): string[] {
+	if (!awaitingFrames.delete(paneId))
+		return viewerRespawnArgs(paneId, command, title);
+	// The frame takes its title from the window title its program sets.
+	const titled =
+		title === undefined
+			? ''
+			: `printf '\\033]2;%s\\033\\\\' ${shellQuote(title)}; `;
+	return [
+		'set-option',
+		'-p',
+		'-t',
+		paneId,
+		FRAME_COMMAND_OPTION,
+		`${titled}${command}; exec "$SHELL" -l`,
+		';',
+		'wait-for',
+		'-S',
+		frameReadyChannel(paneId),
+	];
+}
+
 function viewerMessageCommand(message: string): string {
 	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
 }
@@ -394,6 +576,9 @@ function viewerNoSessionCommand(
 	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
 }
 
+const AGENT_PANE_TITLE = 'agent';
+const COMPANION_FRAME_TITLE = 'companion';
+
 function paneTitleArgs(paneId: string, title: string): string[] {
 	return ['set-option', '-p', '-t', paneId, PANE_TITLE_OPTION, title];
 }
@@ -402,13 +587,14 @@ function viewerTitleArgs(
 	agentViewerPaneId: string,
 	companionViewerPaneId: string,
 ): string[] {
-	const args = paneTitleArgs(agentViewerPaneId, 'agent');
+	const args = paneTitleArgs(agentViewerPaneId, AGENT_PANE_TITLE);
 	if (companionViewerPaneId)
-		args.push(';', ...paneTitleArgs(companionViewerPaneId, 'companion'));
+		args.push(
+			';',
+			...paneTitleArgs(companionViewerPaneId, COMPANION_FRAME_TITLE),
+		);
 	return args;
 }
-
-const COMPANION_FRAME_TITLE = 'companion';
 
 function agentFrameTitle(issueKey: string): string {
 	return `agent · ${issueKey}`;
@@ -459,59 +645,70 @@ function viewerSessionArgs(sessionName: string, title: string): string[] {
 // feature is server-scope, and the inner server is Pappardelle's own.
 export const FRAME_TERMINAL_FEATURE = 'xterm-256color:extkeys';
 
-async function ensureFrameTerminalFeatures(run: AsyncTmuxRunner) {
-	const features = await run(
-		innerTmuxArgs(['show-options', '-sqv', 'terminal-features']),
-	);
-	if (features.split('\n').some(line => line.trim() === FRAME_TERMINAL_FEATURE))
-		return;
-	await run(
-		innerTmuxArgs([
-			'set-option',
-			'-sa',
-			'terminal-features',
-			`,${FRAME_TERMINAL_FEATURE}`,
-		]),
-	);
+// Appended only when the server does not already carry it as a whole entry.
+function frameTerminalFeaturesArgs(): string[] {
+	return [
+		'if-shell',
+		'-F',
+		`#{m:* ${FRAME_TERMINAL_FEATURE} *, #{terminal-features} }`,
+		'',
+		`set-option -sa terminal-features ',${FRAME_TERMINAL_FEATURE}'`,
+	];
 }
 
-// Each pane draws its own rounded frame, so tmux's border titles stay off and
-// its dividers become a blank gap between frames. Set on pappardelle's own
-// window only, so the user's other windows keep theirs. Each option is its own
-// command because tmux drops the rest of a command list at the first error,
-// and a tmux that rejects the blank divider style must still turn off the
-// titles a previous build drew.
-function applyWindowChrome(listPaneId: string): void {
-	setWindowOption(listPaneId, 'pane-border-status', 'off');
-	// Left behind by builds that drew the titles in the border.
-	setWindowOption(listPaneId, 'pane-border-format', undefined);
-	// `spaces` arrived in tmux 3.6. Older releases draw their dividers beside
-	// the frames unless the lines are concealed.
-	if (!setWindowOption(listPaneId, 'pane-border-lines', 'spaces', 'quiet')) {
-		setWindowOption(listPaneId, 'pane-border-style', 'hidden');
-		setWindowOption(listPaneId, 'pane-active-border-style', 'hidden');
+// tmux holds a lone Escape typed at a client for `escape-time` in case the
+// rest of an escape sequence follows: 10 ms by default, 500 ms before tmux
+// 3.5. The frame host writes each key to its client whole, so on the inner
+// server the wait only delays Escape on its way to the agent.
+const FRAME_ESCAPE_TIME_ARGS = ['set-option', '-s', 'escape-time', '0'];
+
+// Each pane draws its own rounded frame, so tmux's border titles stay off. Set
+// on pappardelle's own window only, so the user's other windows keep theirs.
+function windowChromeArgs(listPaneId: string): string[] {
+	return [
+		...windowOptionArgs(listPaneId, 'pane-border-status', 'off'),
+		';',
+		// Left behind by builds that drew the titles in the border.
+		...windowOptionArgs(listPaneId, 'pane-border-format', undefined),
+	];
+}
+
+// tmux's dividers become a blank gap between frames. A command of its own,
+// because tmux drops the rest of a command list at the first error and
+// `spaces` only arrived in tmux 3.6. Older releases draw their dividers beside
+// the frames unless the lines are concealed.
+async function hideDividers(listPaneId: string): Promise<void> {
+	try {
+		await runTmux(windowOptionArgs(listPaneId, 'pane-border-lines', 'spaces'));
+		return;
+	} catch (error) {
+		log.info(
+			`Failed to set pane-border-lines on the layout window: ${String(error)}`,
+		);
+	}
+
+	try {
+		await runTmux([
+			...windowOptionArgs(listPaneId, 'pane-border-style', 'hidden'),
+			';',
+			...windowOptionArgs(listPaneId, 'pane-active-border-style', 'hidden'),
+		]);
+	} catch (error) {
+		log.warn(
+			`Failed to hide the layout window's dividers`,
+			error instanceof Error ? error : undefined,
+		);
 	}
 }
 
-function setWindowOption(
+function windowOptionArgs(
 	paneId: string,
 	name: string,
 	value: string | undefined,
-	onFailure: 'warn' | 'quiet' = 'warn',
-): boolean {
-	const args =
-		value === undefined
-			? ['set-option', '-w', '-u', '-t', paneId, name]
-			: ['set-option', '-w', '-t', paneId, name, value];
-	const result = spawnSync('tmux', args, {encoding: 'utf-8', timeout: 5000});
-	const ok = !result.error && result.status === 0;
-	if (!ok) {
-		const message = `Failed to set ${name} on the layout window: ${result.stderr}`;
-		if (onFailure === 'warn') log.warn(message);
-		else log.info(message);
-	}
-
-	return ok;
+): string[] {
+	return value === undefined
+		? ['set-option', '-w', '-u', '-t', paneId, name]
+		: ['set-option', '-w', '-t', paneId, name, value];
 }
 
 /**
@@ -568,47 +765,81 @@ export function buildAgentResumeCommand(
 
 const CLIENT_TTY_WAIT_MS = 3000;
 
+const CLIENT_TTY_FORMAT = `#{${CLIENT_TTY_OPTION}}`;
+
 /**
  * The tty of the nested tmux client inside a viewer pane's frame, which the
- * frame host publishes on the pane once its child starts. A freshly respawned
- * pane gets a moment to publish it.
+ * frame's child publishes on the pane as it starts its program.
  */
 async function getViewerClientTty(
 	paneId: string,
 	run: AsyncTmuxRunner,
-	{wait = false}: {wait?: boolean} = {},
 ): Promise<string> {
-	const deadline = Date.now() + (wait ? CLIENT_TTY_WAIT_MS : 0);
-	for (;;) {
-		const output = await run([
-			'display-message',
-			'-p',
-			'-t',
-			paneId,
-			`#{${CLIENT_TTY_OPTION}}`,
-		]);
-		const tty = output.trim();
-		if (tty || Date.now() >= deadline) return tty;
-		await new Promise(resolve => {
-			setTimeout(resolve, 25);
-		});
-	}
+	const output = await run([
+		'display-message',
+		'-p',
+		'-t',
+		paneId,
+		CLIENT_TTY_FORMAT,
+	]);
+	return output.trim();
 }
 
 /**
- * Check if a tmux client exists on a given TTY.
+ * The client tty of a frame that was just started, once its child signals
+ * that it has published it. A signal left by a start nobody waited for wakes
+ * the first wait before the tty is there, so an empty answer waits once more.
+ */
+async function awaitViewerClientTty(
+	paneId: string,
+	run: AsyncTmuxRunner,
+): Promise<string> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timedOut = new Promise<string>(resolve => {
+		timer = setTimeout(resolve, CLIENT_TTY_WAIT_MS, '');
+	});
+	try {
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const started = run([
+				'wait-for',
+				frameStartedChannel(paneId),
+				';',
+				'display-message',
+				'-p',
+				'-t',
+				paneId,
+				CLIENT_TTY_FORMAT,
+			]);
+			// Abandoned at the deadline, its own timeout still ends it later.
+			started.catch(() => {});
+			// eslint-disable-next-line no-await-in-loop -- The second wait depends on the first's answer.
+			const output = await Promise.race([started, timedOut]);
+			if (output.trim()) return output.trim();
+		}
+
+		return '';
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+// What tmux prints when no server is behind the socket. A server exits when
+// its last session is killed, and a command that reaches it on its way out
+// gets the third.
+const SERVER_GONE =
+	/^(?:no server running on |error connecting to .* \(No such file or directory\)|server exited unexpectedly)/m;
+
+/**
+ * Snapshot the clients available to both viewers.
  * Nested clients created by the viewer-pane attach live on the inner socket,
  * so list-clients must target that socket.
  */
-async function clientExistsOnTty(
-	tty: string,
-	run: AsyncTmuxRunner,
-): Promise<boolean> {
+async function innerClientTtys(run: AsyncTmuxRunner): Promise<Set<string>> {
 	try {
 		const output = await run(
 			innerTmuxArgs(['list-clients', '-F', '#{client_tty}']),
 		);
-		return output.trim().split('\n').includes(tty);
+		return new Set(output.trim().split('\n'));
 	} catch (err) {
 		const error = err as NodeJS.ErrnoException & {
 			stderr?: string;
@@ -619,11 +850,9 @@ async function clientExistsOnTty(
 			typeof error.code === 'number' &&
 			!error.killed &&
 			!error.signal &&
-			/^(?:no server running on |error connecting to .* \(No such file or directory\))/m.test(
-				error.stderr ?? '',
-			)
+			SERVER_GONE.test(error.stderr ?? '')
 		)
-			return false;
+			return new Set();
 		throw err;
 	}
 }
@@ -650,6 +879,22 @@ async function switchClientToSession(
 		]),
 	);
 	log.debug(`Switched client ${clientTty} to session ${sessionName}`);
+}
+
+/** The pid tmux started in a pane; it changes when the pane is respawned. */
+export async function panePid(paneId: string): Promise<string | undefined> {
+	try {
+		const pid = await runTmux([
+			'display-message',
+			'-p',
+			'-t',
+			paneId,
+			'#{pane_pid}',
+		]);
+		return pid.trim();
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -704,9 +949,8 @@ export async function innerKillSession(
 			typeof error.code === 'number' &&
 			!error.signal &&
 			!error.killed &&
-			/^(?:can't find session:|no server running on |error connecting to .* \(No such file or directory\))/m.test(
-				error.stderr ?? '',
-			)
+			(SERVER_GONE.test(error.stderr ?? '') ||
+				/^(?:can't find session:|no current target)/m.test(error.stderr ?? ''))
 		)
 			return true;
 		log.error(
@@ -906,28 +1150,6 @@ export const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
 export const SYNC_TERMINAL_FEATURE = '*:Sync';
 
 /**
- * Whether this socket's `terminal-features` already carries our Sync entry.
- */
-function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
-	try {
-		const {error, status, stdout} = run([
-			'show-options',
-			'-gqv',
-			'terminal-features',
-		]);
-		if (error || status !== 0) {
-			return false;
-		}
-
-		return stdout
-			.split('\n')
-			.some(line => line.trim() === SYNC_TERMINAL_FEATURE);
-	} catch {
-		return false;
-	}
-}
-
-/**
  * Make tmux batch each repaint into a single atomic frame.
  *
  * tmux only wraps a redraw in DEC 2026 when it believes the attached client's
@@ -946,33 +1168,32 @@ function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
  * user-configured features survive, and terminals that don't implement DEC 2026
  * ignore the private mode, which is what makes the blanket `*` workable.
  *
- * Runners are exposed for tests only; production uses the spawnSync defaults.
+ * The append is conditional on the socket not already carrying the entry:
+ * `-ga` alone adds another copy on every launch against a long-lived server.
  */
-export function enableSynchronizedOutput(
-	outerRunner: OuterTmuxRunner = defaultOuterTmuxRunner,
-	innerRunner: OuterTmuxRunner = defaultInnerTmuxRunner,
-): void {
-	for (const [label, run] of [
-		['outer', outerRunner],
-		['inner', innerRunner],
-	] as const) {
-		try {
-			if (hasSynchronizedOutputFeature(run)) {
-				continue;
-			}
+export function synchronizedOutputArgs(): string[] {
+	const entry = SYNC_TERMINAL_FEATURE.replace('*', String.raw`\*`);
+	return [
+		'if-shell',
+		'-F',
+		`#{m:* ${entry} *, #{terminal-features} }`,
+		'',
+		`set-option -ga terminal-features ',${SYNC_TERMINAL_FEATURE}'`,
+	];
+}
 
-			const {error, status} = run([
-				'set-option',
-				'-ga',
-				'terminal-features',
-				`,${SYNC_TERMINAL_FEATURE}`,
-			]);
-			if (error || status !== 0) {
-				log.debug(`Could not enable synchronized output on ${label} socket`);
-			}
-		} catch {
-			// Purely a rendering nicety — never let it break layout setup.
-		}
+/**
+ * The inner socket is a separate tmux server with its own option table.
+ * `run` is exposed for tests only.
+ */
+export async function enableInnerSynchronizedOutput(
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	try {
+		await run(innerTmuxArgs(synchronizedOutputArgs()));
+	} catch {
+		// Purely a rendering nicety — never let it break layout setup.
+		log.debug('Could not enable synchronized output on inner socket');
 	}
 }
 
@@ -982,18 +1203,7 @@ export function enableSynchronizedOutput(
  * server-scope, like `terminal-features` above; it only adds reports for
  * programs that ask for them.
  */
-export function enableFocusEvents(
-	run: OuterTmuxRunner = defaultOuterTmuxRunner,
-): void {
-	try {
-		const current = run(['show-options', '-gqv', 'focus-events']);
-		if (current.stdout.trim() === 'on') return;
-		const {error, status} = run(['set-option', '-g', 'focus-events', 'on']);
-		if (error || status !== 0) log.debug('Could not enable focus events');
-	} catch {
-		// Frames still draw; they just stay lit.
-	}
-}
+const FOCUS_EVENTS_ARGS = ['set-option', '-g', 'focus-events', 'on'];
 
 /**
  * STA-1420 layer 2: reap orphaned `agent-{repo}-*` / `companion-{repo}-*`
@@ -1160,6 +1370,26 @@ export async function focusPane(
 	} catch (error) {
 		log.warn(`Failed to focus pane ${paneId}`, error as Error);
 	}
+}
+
+/**
+ * An inner-socket runner for the startup maintenance passes, which each begin
+ * by listing the sessions. The listing is reused until a pass renames or kills
+ * a session.
+ */
+export function sharedSessionListingRunner(
+	run: OuterTmuxRunner = defaultInnerTmuxRunner,
+): OuterTmuxRunner {
+	let listing: ReturnType<OuterTmuxRunner> | undefined;
+	return (args, input) => {
+		if (args[0] !== 'list-sessions') {
+			listing = undefined;
+			return run(args, input);
+		}
+
+		listing ??= run(args, input);
+		return listing;
+	};
 }
 
 /**
@@ -1375,33 +1605,6 @@ export async function sendToSpaceAgent(
 // ============================================================================
 
 /**
- * Get the window size (full terminal dimensions, not individual pane size)
- * This is needed for relayout calculations since individual panes may have
- * stale sizes after a resize.
- */
-function getTmuxWindowSize(): {width: number; height: number} | null {
-	try {
-		const result = spawnSync(
-			'tmux',
-			['display-message', '-p', '#{window_width} #{window_height}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return null;
-		}
-		const parts = result.stdout.trim().split(' ');
-		const width = parseInt(parts[0] ?? '', 10);
-		const height = parseInt(parts[1] ?? '', 10);
-		if (isNaN(width) || isNaN(height)) {
-			return null;
-		}
-		return {width, height};
-	} catch {
-		return null;
-	}
-}
-
-/**
  * Build the `tmux display-message` argv for reading a pane format variable.
  */
 export function paneQueryArgs(format: string, paneId?: string): string[] {
@@ -1419,133 +1622,40 @@ async function runLayoutCommand(args: string[], run: AsyncTmuxRunner) {
 	}
 }
 
-export async function getPaneDimensions(
-	paneId: string,
-	run: AsyncTmuxRunner = runTmux,
-): Promise<{cols: number; rows: number}> {
-	const output = await run(
-		paneQueryArgs('#{pane_width} #{pane_height}', paneId),
-	);
-	const values = output.trim().split(' ').map(Number);
-	const [cols, rows] = values;
-	if (!cols || !rows) throw new Error('Invalid tmux pane dimensions');
-	return {cols, rows};
-}
-
-async function getTmuxWindowSizeAsync(
-	paneId: string,
-	run: AsyncTmuxRunner,
-): Promise<WindowSize> {
-	const output = await run(
-		paneQueryArgs('#{window_width} #{window_height}', paneId),
-	);
-	const [width, height] = output.trim().split(' ').map(Number);
-	if (!width || !height) throw new Error('Invalid tmux window dimensions');
-	return {width, height};
-}
-
-type PaneSample = {
-	window: WindowSize;
-	railWidth: number | null;
-	companionWidth: number | null;
-};
-
-// Read in one tmux call: a window resize landing between separate reads of
-// the window and of the panes would look like a hand-drag and pin the width.
-async function samplePanes(
-	listPaneId: string,
-	companionViewerPaneId: string,
-	run: AsyncTmuxRunner,
-): Promise<PaneSample> {
-	const output = await run([
-		'list-panes',
-		'-t',
-		listPaneId,
-		'-F',
-		'#{pane_id} #{pane_width} #{window_width} #{window_height}',
-	]);
-	const widths = new Map<string, number>();
-	let window: WindowSize | undefined;
-	for (const line of output.trim().split('\n')) {
-		const [id, width, windowWidth, windowHeight] = line.split(' ');
-		if (!id) continue;
-		widths.set(id, Number(width));
-		window = {width: Number(windowWidth), height: Number(windowHeight)};
-	}
-
-	if (!window?.width || !window.height) {
-		throw new Error('Invalid tmux window dimensions');
-	}
-
-	return {
-		window,
-		railWidth: widths.get(listPaneId) ?? null,
-		companionWidth: companionViewerPaneId
-			? (widths.get(companionViewerPaneId) ?? null)
-			: null,
-	};
-}
-
 async function recordPaneSampleAsync(
 	listPaneId: string,
 	companionViewerPaneId: string,
 	run: AsyncTmuxRunner,
-): Promise<void> {
-	const sample = await samplePanes(listPaneId, companionViewerPaneId, run);
-	lastWindowSize = sample.window;
-	lastRailWidth = sample.railWidth;
-	lastCompanionWidth = sample.companionWidth;
+): Promise<WindowGeometry> {
+	const geometry = parseWindowGeometry(await run(paneGeometryArgs(listPaneId)));
+	recordGeometry(geometry, listPaneId, companionViewerPaneId);
+	return geometry;
 }
 
-function queryPaneDimension(format: string, fallback: number): number {
-	try {
-		const result = spawnSync(
-			'tmux',
-			paneQueryArgs(format, process.env['TMUX_PANE']),
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return fallback;
-		}
-		return parseInt(result.stdout.trim(), 10) || fallback;
-	} catch {
-		return fallback;
-	}
+// tmux rounds split sizes; sample the resulting window and side panes together
+// so rounding or a concurrent window resize cannot masquerade as a hand-drag.
+function recordGeometry(
+	snapshot: WindowGeometry,
+	listPaneId: string,
+	companionPaneId: string,
+): void {
+	lastWindowSize = snapshot.window;
+	lastRailWidth = paneGeometry(snapshot, listPaneId).cols;
+	// The companion pane closes when the shell left in it exits.
+	lastCompanionWidth = snapshot.panes.get(companionPaneId)?.cols ?? null;
 }
 
-/**
- * Get the width of a specific pane, or null when tmux cannot report it.
- *
- * Distinct from `getTmuxPaneWidth`, which asks about the calling pane. The rail
- * override needs to measure the list pane by id, from whichever pane asks.
- */
-function getPaneWidth(paneId: string): number | null {
+function readGeometrySync(paneId: string): WindowGeometry | null {
+	const result = spawnSync('tmux', paneGeometryArgs(paneId), {
+		encoding: 'utf-8',
+		timeout: 5000,
+	});
+	if (result.error || result.status !== 0) return null;
 	try {
-		const result = spawnSync(
-			'tmux',
-			['display-message', '-p', '-t', paneId, '#{pane_width}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) return null;
-		const width = parseInt(result.stdout.trim(), 10);
-		return isNaN(width) ? null : width;
+		return parseWindowGeometry(result.stdout);
 	} catch {
 		return null;
 	}
-}
-
-/**
- * Get current terminal/pane width from tmux
- */
-export function getTmuxPaneWidth(): number {
-	return queryPaneDimension('#{pane_width}', 120);
-}
-
-/**
- * Get current terminal/pane height from tmux
- */
-export function getTmuxPaneHeight(): number {
-	return queryPaneDimension('#{pane_height}', 40);
 }
 
 /**
@@ -1577,6 +1687,7 @@ const PINNED_LIST_ROWS = 1;
 export function calculateIdealListHeight(): number {
 	return calculateIdealListHeightForCount(
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
+		getConfiguredListLines(),
 	);
 }
 
@@ -1594,6 +1705,7 @@ export function calculateLayout(
 		totalHeight,
 		getActiveSpaceCount() + PINNED_LIST_ROWS,
 		currentPaneWidths(),
+		getConfiguredListLines(),
 	);
 }
 
@@ -1612,191 +1724,172 @@ function currentPaneWidths(): PaneWidths {
 }
 
 /**
- * Remember the window size and the *measured* side-pane widths, so the next
- * relayout can tell a window resize from a hand-drag.
- *
- * Called after every operation that moves the panes. The widths are measured
- * rather than assumed because tmux rounds split sizes, and an assumed value
- * would make the first harmless resize event look like a drag.
- */
-function recordPaneSample(
-	listPaneId: string,
-	companionViewerPaneId: string,
-	windowDims: WindowSize | null,
-): void {
-	lastWindowSize = windowDims;
-	lastRailWidth = getPaneWidth(listPaneId);
-	lastCompanionWidth = companionViewerPaneId
-		? getPaneWidth(companionViewerPaneId)
-		: null;
-}
-
-/**
  * Set up the pane layout for pappardelle
  * Returns pane IDs for [list, agentViewer, companionViewer]
  *
  * Layout depends on screen width:
  * - Narrow screens (< 100 chars): Vertical layout [list on top] [agent below], no companion
  * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
+ *
+ * Asynchronous so the caller can load the renderer while tmux works.
  */
-export function setupPappardellLayout(): {
-	listPaneId: string;
-	agentViewerPaneId: string;
-	companionViewerPaneId: string;
-} | null {
+export async function setupPappardellLayout(): Promise<PaneLayout | null> {
+	const done = startupTrace.current?.begin('layout-setup');
 	try {
 		// Get current pane from TMUX_PANE env var
 		const listPaneId = process.env['TMUX_PANE'];
 		if (!listPaneId) {
 			log.error('TMUX_PANE environment variable not set');
+			done?.('failed');
 			return null;
 		}
 
 		const cwd = process.cwd();
 
-		// Get terminal dimensions and calculate layout
-		const totalWidth = getTmuxPaneWidth();
-		const totalHeight = getTmuxPaneHeight();
+		// Before the splits the rail's own terminal is the whole pane.
+		const {columns, rows} = process.stdout;
+		const initial =
+			columns && rows
+				? {cols: columns, rows}
+				: readGeometrySync(listPaneId)?.panes.get(listPaneId);
+		const totalWidth = initial?.cols ?? 120;
+		const totalHeight = initial?.rows ?? 40;
 		const layout = calculateLayout(totalWidth, totalHeight);
 
 		log.info(
 			`Terminal size: ${totalWidth}x${totalHeight}, layout: ${layout.direction}`,
 		);
 
-		let agentViewerPaneId: string;
-		let companionViewerPaneId = ''; // Empty by default (not created for vertical layout)
-
+		// A split makes its new pane the target of an untargeted command that
+		// follows it in the same list, which is how each pane gets its title
+		// before its id is known.
+		const split = (
+			direction: '-h' | '-v',
+			size: number | undefined,
+			title: string,
+		) => [
+			'split-window',
+			direction,
+			'-t',
+			listPaneId,
+			'-c',
+			cwd,
+			'-l',
+			String(size),
+			'-P',
+			'-F',
+			'#{pane_id}',
+			awaitingFrameCommand(title),
+			';',
+			'set-option',
+			'-p',
+			PANE_TITLE_OPTION,
+			title,
+		];
+		const hasCompanion =
+			layout.direction !== 'vertical' &&
+			(layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH;
+		const agentWidth = layout.agentWidth ?? 40;
+		let splits: string[];
 		if (layout.direction === 'vertical') {
-			// VERTICAL LAYOUT: list on top, agent below, no companion
-			// Use -v for vertical split (top/bottom)
-			const agentResult = spawnSync(
-				'tmux',
-				[
-					'split-window',
-					'-v', // vertical split (top/bottom)
-					'-t',
-					listPaneId,
-					'-c',
-					cwd,
-					'-l',
-					String(layout.agentHeight), // claude pane gets this many rows
-					'-P',
-					'-F',
-					'#{pane_id}',
-				],
-				{encoding: 'utf-8', timeout: 10000},
-			);
-
-			if (agentResult.error || agentResult.status !== 0) {
-				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
-				return null;
-			}
-
-			agentViewerPaneId = agentResult.stdout.trim();
-
-			log.info(
-				`Vertical layout: list=${layout.listHeight} rows, agent=${layout.agentHeight} rows`,
-			);
+			// List on top, agent below, no companion.
+			splits = split('-v', layout.agentHeight, AGENT_PANE_TITLE);
+		} else if (hasCompanion) {
+			// Both splits take their columns from the list pane, so the rightmost
+			// pane is made first and neither needs the other's id.
+			splits = [
+				...split('-h', layout.companionWidth, COMPANION_FRAME_TITLE),
+				';',
+				...split('-h', agentWidth, AGENT_PANE_TITLE),
+			];
 		} else {
-			// HORIZONTAL LAYOUT: list | claude | companion (existing logic)
-			// Create the right portion (claude + companion combined)
-			const rightPortionWidth =
-				(layout.agentWidth ?? 40) + (layout.companionWidth ?? 0) + 1; // +1 for border
-
-			const agentResult = spawnSync(
-				'tmux',
-				[
-					'split-window',
-					'-h', // horizontal split (left/right)
-					'-t',
-					listPaneId,
-					'-c',
-					cwd,
-					'-l',
-					String(rightPortionWidth),
-					'-P',
-					'-F',
-					'#{pane_id}',
-				],
-				{encoding: 'utf-8', timeout: 10000},
-			);
-
-			if (agentResult.error || agentResult.status !== 0) {
-				log.error(`Failed to create agent viewer pane: ${agentResult.stderr}`);
-				return null;
-			}
-
-			agentViewerPaneId = agentResult.stdout.trim();
-
-			// Create right pane (companion viewer) from the claude pane
-			// Only create if we have space for companion
-			if ((layout.companionWidth ?? 0) >= MIN_COMPANION_WIDTH) {
-				const companionResult = spawnSync(
-					'tmux',
-					[
-						'split-window',
-						'-h',
-						'-t',
-						agentViewerPaneId,
-						'-c',
-						cwd,
-						'-l',
-						String(layout.companionWidth),
-						'-P',
-						'-F',
-						'#{pane_id}',
-					],
-					{encoding: 'utf-8', timeout: 10000},
-				);
-
-				if (companionResult.error || companionResult.status !== 0) {
-					log.error(
-						`Failed to create companion viewer pane: ${companionResult.stderr}`,
-					);
-					// Continue without companion pane
-				} else {
-					companionViewerPaneId = companionResult.stdout.trim();
-				}
-			} else {
-				log.info(
-					`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
-				);
-			}
-
 			log.info(
-				`Horizontal layout: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
+				`Not enough space for companion pane (need ${MIN_COMPANION_WIDTH}, have ${layout.companionWidth})`,
+			);
+			splits = split(
+				'-h',
+				agentWidth + (layout.companionWidth ?? 0) + 1,
+				AGENT_PANE_TITLE,
 			);
 		}
 
-		const chrome = spawnSync(
-			'tmux',
-			[
-				...paneTitleArgs(listPaneId, 'rail'),
-				';',
-				...viewerTitleArgs(agentViewerPaneId, companionViewerPaneId),
-			],
-			{encoding: 'utf-8', timeout: 5000},
+		// Ordered so the measurements are taken before the two server options,
+		// the likeliest to be refused.
+		const windowSetup = [
+			...paneTitleArgs(listPaneId, RAIL_PANE_TITLE),
+			';',
+			...windowChromeArgs(listPaneId),
+			';',
+			'select-pane',
+			'-t',
+			listPaneId,
+			';',
+			...paneGeometryArgs(listPaneId),
+			';',
+			...FOCUS_EVENTS_ARGS,
+			';',
+			...synchronizedOutputArgs(),
+		];
+
+		const panesDone = startupTrace.current?.begin('setup-panes');
+		const [created] = await Promise.all([
+			runSetup([...splits, ';', ...windowSetup]),
+			hideDividers(listPaneId),
+			enableInnerSynchronizedOutput(),
+		]);
+		const lines = created.stdout.trim().split('\n');
+		const paneIds = lines.filter(line => /^%\d+$/.test(line));
+		// tmux stops at the first split that fails, so a single id from two
+		// splits is the pane that was to be the companion. It hosts the agent.
+		const agentViewerPaneId = paneIds.at(-1);
+		const companionViewerPaneId =
+			hasCompanion && paneIds.length === 2 ? paneIds[0]! : '';
+		if (!agentViewerPaneId) {
+			log.error(`Failed to create agent viewer pane: ${created.stderr}`);
+			panesDone?.('failed');
+			done?.('failed');
+			return null;
+		}
+
+		for (const paneId of paneIds) registerAwaitingFrame(paneId);
+		let geometry = lines.filter(line => !paneIds.includes(line)).join('\n');
+		if (!created.ok) {
+			// The list stopped part-way, so the window is set up on its own.
+			log.error(`Failed to create a viewer pane: ${created.stderr}`);
+			const retried = await runSetup(windowSetup);
+			geometry = retried.stdout;
+			if (!retried.ok)
+				log.warn(
+					`Failed to finish setting up the layout window: ${retried.stderr}`,
+				);
+		}
+
+		panesDone?.();
+		log.info(
+			layout.direction === 'vertical'
+				? `Vertical layout: list=${layout.listHeight} rows, agent=${layout.agentHeight} rows`
+				: `Horizontal layout: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
 		);
-		if (chrome.error || chrome.status !== 0)
-			log.warn(`Failed to title the viewer panes: ${chrome.stderr}`);
-		applyWindowChrome(listPaneId);
-
-		enableSynchronizedOutput();
-		enableFocusEvents();
-
-		// Return focus to list pane
-		execSync(`tmux select-pane -t "${listPaneId}"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-
 		log.info(
 			`Set up pappardelle layout: list=${listPaneId}, agent=${agentViewerPaneId}, companion=${
 				companionViewerPaneId || '(none)'
 			}`,
 		);
 
-		recordPaneSample(listPaneId, companionViewerPaneId, getTmuxWindowSize());
+		try {
+			recordGeometry(
+				parseWindowGeometry(geometry),
+				listPaneId,
+				companionViewerPaneId,
+			);
+		} catch {
+			lastWindowSize = null;
+			lastRailWidth = null;
+			lastCompanionWidth = null;
+		}
+
+		done?.();
+		void closeOrphanedViewerPanes(listPaneId, paneIds);
 
 		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
 	} catch (err) {
@@ -1804,7 +1897,95 @@ export function setupPappardellLayout(): {
 			'Failed to set up pappardelle layout',
 			err instanceof Error ? err : undefined,
 		);
+		done?.('failed');
 		return null;
+	}
+}
+
+const RAIL_PANE_TITLE = 'rail';
+
+/**
+ * The viewer panes a rail left behind when it was killed or crashed: frame
+ * hosts in this rail's window that it did not create, and frame hosts in a
+ * window of the session that no rail runs in. `listing` is one line per pane
+ * of the session: window id, pane id, pane title option and start command,
+ * tab-separated. Exported for tests.
+ */
+export function orphanedViewerPanes(
+	listing: string,
+	listPaneId: string,
+	viewerPaneIds: readonly string[],
+): string[] {
+	const panes = listing
+		.split('\n')
+		.filter(Boolean)
+		.map(line => {
+			const [windowId, paneId, title, ...command] = line.split('\t');
+			return {windowId, paneId: paneId!, title, command: command.join('\t')};
+		});
+	const ownWindow = panes.find(pane => pane.paneId === listPaneId)?.windowId;
+	const railWindows = new Set(
+		panes
+			.filter(pane => pane.title === RAIL_PANE_TITLE)
+			.map(pane => pane.windowId),
+	);
+	return panes
+		.filter(
+			pane =>
+				/--internal-pane-frame|pane-frame-cli/.test(pane.command) &&
+				!viewerPaneIds.includes(pane.paneId) &&
+				(pane.windowId === ownWindow || !railWindows.has(pane.windowId)),
+		)
+		.map(pane => pane.paneId);
+}
+
+async function closeOrphanedViewerPanes(
+	listPaneId: string,
+	viewerPaneIds: readonly string[],
+): Promise<void> {
+	const listed = await runSetup([
+		'list-panes',
+		'-s',
+		'-t',
+		listPaneId,
+		'-F',
+		`#{window_id}\t#{pane_id}\t#{${PANE_TITLE_OPTION}}\t#{pane_start_command}`,
+	]);
+	if (!listed.ok) return;
+	const orphans = orphanedViewerPanes(listed.stdout, listPaneId, viewerPaneIds);
+	if (orphans.length === 0) return;
+	log.info(
+		`Closing viewer panes left by an earlier rail: ${orphans.join(' ')}`,
+	);
+	await runSetup(
+		orphans.flatMap((paneId, index) => [
+			...(index === 0 ? [] : [';']),
+			'kill-pane',
+			'-t',
+			paneId,
+		]),
+	);
+}
+
+// A command list that stops part-way has still printed what its earlier
+// commands had to say, which the caller needs.
+async function runSetup(
+	args: string[],
+): Promise<{ok: boolean; stdout: string; stderr: string}> {
+	try {
+		const {stdout, stderr} = await execFileAsync('tmux', args, {
+			cwd: TMUX_SERVER_CWD,
+			encoding: 'utf-8',
+			timeout: 10_000,
+		});
+		return {ok: true, stdout, stderr};
+	} catch (error) {
+		const failed = error as {stdout?: string; stderr?: string};
+		return {
+			ok: false,
+			stdout: failed.stdout ?? '',
+			stderr: failed.stderr ?? String(error),
+		};
 	}
 }
 
@@ -1858,12 +2039,42 @@ export function runningAgentProfile(
 export async function attachToSpace(
 	agentViewerPaneId: string,
 	companionViewerPaneId: string,
+	...rest: [
+		issueKey: string,
+		listPaneId?: string,
+		mainWorktreePath?: string,
+		issueTitle?: string,
+		options?: {signal?: AbortSignal; run?: AsyncTmuxRunner},
+	]
+): Promise<boolean> {
+	return attachViewers(
+		agentViewerPaneId,
+		closedCompanionPanes.has(companionViewerPaneId)
+			? ''
+			: companionViewerPaneId,
+		...rest,
+	);
+}
+
+// What tmux says of a pane that no longer exists; the wording depends on the
+// command.
+const PANE_GONE = /^(?:can't find pane|no such pane):/m;
+
+// Companion viewer panes that have closed: the shell left in one after its
+// program ends can be exited. The layout still names the pane until it is
+// rebuilt, and a workspace then has only its agent to show.
+const closedCompanionPanes = new Set<string>();
+
+async function attachViewers(
+	agentViewerPaneId: string,
+	companionViewerPaneId: string,
 	issueKey: string,
 	listPaneId?: string,
 	mainWorktreePath?: string,
 	issueTitle?: string,
 	options: {signal?: AbortSignal; run?: AsyncTmuxRunner} = {},
 ): Promise<boolean> {
+	const traceDone = startupTrace.current?.begin('attachment');
 	const {signal} = options;
 	const run: AsyncTmuxRunner = async args => {
 		signal?.throwIfAborted();
@@ -1871,13 +2082,19 @@ export async function attachToSpace(
 		signal?.throwIfAborted();
 		return output;
 	};
-	if (signal?.aborted) return false;
+	if (signal?.aborted) {
+		traceDone?.('cancelled');
+		return false;
+	}
 	const paneIds = JSON.stringify([agentViewerPaneId, companionViewerPaneId]);
 	if (viewerPaneIds !== paneIds) {
 		clearCurrentlyViewingSpace();
 		viewerPaneIds = paneIds;
 	}
-	if (currentlyViewingSpace === issueKey) return true;
+	if (currentlyViewingSpace === issueKey) {
+		traceDone?.();
+		return true;
+	}
 	// An interrupted switch may have moved only one pane. Never let the
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
@@ -1923,9 +2140,13 @@ export async function attachToSpace(
 				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
 			);
 			currentlyViewingSpace = issueKey;
+			traceDone?.();
 			return true;
 		} catch (err) {
-			if (signal?.aborted) return false;
+			if (signal?.aborted) {
+				traceDone?.('cancelled');
+				return false;
+			}
 			// Sessions are created on first visit, so a workspace that hasn't been
 			// opened yet always misses here, as does a viewer whose client left
 			// when the session it showed ended.
@@ -1959,93 +2180,171 @@ export async function attachToSpace(
 	try {
 		// Complete session creation and command launch together so a superseded
 		// selection can't leave an existing session with no agent running.
-		const hasAgentSession = await ensureAgentSession(
-			issueKey,
-			mainWorktreePath,
-			skipPermissions,
-			options.run ?? runTmux,
-			agentProfile,
-			sessionId,
-		);
+		const prepared = await Promise.allSettled([
+			ensureAgentSession(
+				issueKey,
+				mainWorktreePath,
+				skipPermissions,
+				options.run ?? runTmux,
+				agentProfile,
+				sessionId,
+			),
+			companionViewerPaneId
+				? ensureCompanionSession(
+						issueKey,
+						mainWorktreePath,
+						companionCommand,
+						options.run ?? runTmux,
+					)
+				: Promise.resolve(false),
+		]);
 		signal?.throwIfAborted();
-		const hasCompanionSession = companionViewerPaneId
-			? await ensureCompanionSession(
-					issueKey,
-					mainWorktreePath,
-					companionCommand,
-					options.run ?? runTmux,
-				)
-			: false;
-		signal?.throwIfAborted();
+		const [agent, companion] = prepared;
+		if (agent.status === 'rejected')
+			throw new Error('Agent preparation failed', {cause: agent.reason});
+		if (companion.status === 'rejected')
+			throw new Error('Companion preparation failed', {
+				cause: companion.reason,
+			});
+		const hasAgentSession = agent.value;
+		const hasCompanionSession = companion.value;
 
-		if (!agentViewerTty)
-			agentViewerTty = await getViewerClientTty(agentViewerPaneId, run);
-		if (!companionViewerTty && companionViewerPaneId) {
-			companionViewerTty = await getViewerClientTty(companionViewerPaneId, run);
-		}
+		const viewersDone = startupTrace.current?.begin('viewer-attachment');
+		try {
+			// A frame still waiting for its first program has no client to find.
+			const unstarted =
+				awaitingFrames.has(agentViewerPaneId) &&
+				(!companionViewerPaneId || awaitingFrames.has(companionViewerPaneId));
+			const [agentTty, companionTty, clients] = unstarted
+				? ['', companionViewerPaneId ? '' : null, new Set<string>()]
+				: await Promise.all([
+						agentViewerTty || getViewerClientTty(agentViewerPaneId, run),
+						companionViewerPaneId
+							? companionViewerTty ||
+								getViewerClientTty(companionViewerPaneId, run)
+							: null,
+						innerClientTtys(run),
+					]);
+			const hasClient = (tty: string | null) =>
+				Boolean(tty && clients.has(tty));
+			// One call on the inner socket: the features a new client needs, which
+			// apply when it attaches, then each session's own options.
+			const sessionSetup = [
+				...((hasAgentSession && !hasClient(agentTty)) ||
+				(hasCompanionSession && !hasClient(companionTty))
+					? [frameTerminalFeaturesArgs(), FRAME_ESCAPE_TIME_ARGS]
+					: []),
+				...(hasAgentSession
+					? [viewerSessionArgs(sessions.agent, agentFrameTitle(issueKey))]
+					: []),
+				...(hasCompanionSession
+					? [viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE)]
+					: []),
+			];
+			if (sessionSetup.length > 0)
+				await run(
+					innerTmuxArgs(
+						sessionSetup.flatMap((args, index) =>
+							index === 0 ? args : [';', ...args],
+						),
+					),
+				);
 
-		const attach = async (
-			paneId: string,
-			tty: string | null,
-			session: string,
-			exists: boolean,
-			title: string,
-			program: 'agent' | 'companion',
-		): Promise<{attached: boolean; tty: string}> => {
-			const hasClient = tty ? await clientExistsOnTty(tty, run) : false;
-			if (exists) {
-				await run(innerTmuxArgs(viewerSessionArgs(session, title)));
-				// Features apply when a client attaches, so before the respawn.
-				if (!hasClient) await ensureFrameTerminalFeatures(run);
-			}
-			if (exists && hasClient) {
-				await switchClientToSession(tty!, session, run);
-				return {attached: true, tty: tty!};
-			}
-			const command = exists
-				? [
-						'tmux',
-						...innerTmuxArgs(['attach', '-t', exactSessionTarget(session)]),
-					]
-						.map(value => shellQuote(value))
-						.join(' ')
-				: viewerNoSessionCommand(issueKey, program);
-			await run(viewerRespawnArgs(paneId, command, title));
-			// The fast path finds the respawned frame's nested client by its tty.
-			return {
-				attached: exists,
-				tty: exists ? await getViewerClientTty(paneId, run, {wait: true}) : '',
+			const attach = async (
+				paneId: string,
+				tty: string | null,
+				session: string,
+				exists: boolean,
+				title: string,
+				program: 'agent' | 'companion',
+			): Promise<{attached: boolean; tty: string}> => {
+				if (exists && hasClient(tty)) {
+					await switchClientToSession(tty!, session, run);
+					return {attached: true, tty: tty!};
+				}
+				const command = exists
+					? [
+							'tmux',
+							...innerTmuxArgs(['attach', '-t', exactSessionTarget(session)]),
+						]
+							.map(value => shellQuote(value))
+							.join(' ')
+					: viewerNoSessionCommand(issueKey, program);
+				await run(viewerStartArgs(paneId, command, title));
+				// The fast path finds the respawned frame's nested client by its tty.
+				return {
+					attached: exists,
+					tty: exists ? await awaitViewerClientTty(paneId, run) : '',
+				};
 			};
-		};
-		({attached: agentViewerHasClient, tty: agentViewerTty} = await attach(
-			agentViewerPaneId,
-			agentViewerTty,
-			sessions.agent,
-			hasAgentSession,
-			agentFrameTitle(issueKey),
-			'agent',
-		));
-		if (companionViewerPaneId) {
-			({attached: companionViewerHasClient, tty: companionViewerTty} =
-				await attach(
-					companionViewerPaneId,
-					companionViewerTty,
-					sessions.companion,
-					hasCompanionSession,
-					COMPANION_FRAME_TITLE,
-					'companion',
-				));
+			const attached = await Promise.allSettled([
+				attach(
+					agentViewerPaneId,
+					agentTty,
+					sessions.agent,
+					hasAgentSession,
+					agentFrameTitle(issueKey),
+					'agent',
+				),
+				companionViewerPaneId
+					? attach(
+							companionViewerPaneId,
+							companionTty,
+							sessions.companion,
+							hasCompanionSession,
+							COMPANION_FRAME_TITLE,
+							'companion',
+						)
+					: Promise.resolve(null),
+			]);
+			signal?.throwIfAborted();
+			const [agentAttachment, companionAttachment] = attached;
+			if (agentAttachment.status === 'rejected')
+				throw new Error('Agent attachment failed', {
+					cause: agentAttachment.reason,
+				});
+			if (companionAttachment.status === 'rejected') {
+				const {stderr} = companionAttachment.reason as {stderr?: string};
+				if (!PANE_GONE.test(stderr ?? ''))
+					throw new Error('Companion attachment failed', {
+						cause: companionAttachment.reason,
+					});
+				closedCompanionPanes.add(companionViewerPaneId);
+				log.info(
+					`Companion pane ${companionViewerPaneId} has closed; showing the agent only`,
+				);
+			}
+
+			await run(
+				agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId),
+			);
+			({attached: agentViewerHasClient, tty: agentViewerTty} =
+				agentAttachment.value);
+			if (
+				companionAttachment.status === 'fulfilled' &&
+				companionAttachment.value
+			) {
+				({attached: companionViewerHasClient, tty: companionViewerTty} =
+					companionAttachment.value);
+			}
+			viewersDone?.();
+		} catch (error) {
+			viewersDone?.(signal?.aborted ? 'cancelled' : 'failed');
+			throw error;
 		}
-		await run(agentTitleAndFocusArgs(agentViewerPaneId, issueKey, listPaneId));
 		currentlyViewingSpace = issueKey;
+		traceDone?.();
 		return true;
 	} catch (err) {
+		// A respawn can recycle a pty even when its sibling attachment fails.
+		clearCurrentlyViewingSpace();
 		if (!signal?.aborted) {
 			log.error(
 				`Failed to attach to space ${issueKey}`,
 				err instanceof Error ? err : undefined,
 			);
 		}
+		traceDone?.(signal?.aborted ? 'cancelled' : 'failed');
 		return false;
 	}
 }
@@ -2074,7 +2373,7 @@ export function displayMessageInPane(paneId: string, message: string): boolean {
 	forgetViewerClient(paneId);
 	const result = spawnSync(
 		'tmux',
-		viewerRespawnArgs(paneId, viewerMessageCommand(message)),
+		viewerStartArgs(paneId, viewerMessageCommand(message)),
 		{encoding: 'utf-8', timeout: 5000},
 	);
 	if (result.error || result.status !== 0) {
@@ -2092,7 +2391,7 @@ export async function displayMessageInPaneAsync(
 	if (!paneId) return;
 	forgetViewerClient(paneId);
 	try {
-		await run(viewerRespawnArgs(paneId, viewerMessageCommand(message)));
+		await run(viewerStartArgs(paneId, viewerMessageCommand(message)));
 	} catch (err) {
 		log.error(
 			`Failed to display message in pane ${paneId}`,
@@ -2129,28 +2428,6 @@ export function clearCurrentlyViewingSpace(): void {
 }
 
 /**
- * Get the current layout direction based on window dimensions.
- * Used to detect when the layout mode needs to switch.
- */
-export async function getLayoutDirections(
-	listPaneId: string,
-	run: AsyncTmuxRunner = runTmux,
-): Promise<{
-	current: 'horizontal' | 'vertical';
-	desired: 'horizontal' | 'vertical';
-}> {
-	const output = await run(
-		paneQueryArgs('#{window_width} #{pane_width}', listPaneId),
-	);
-	const [width, paneWidth] = output.trim().split(' ').map(Number);
-	if (!width || !paneWidth) throw new Error('Invalid tmux layout dimensions');
-	return {
-		current: paneWidth === width ? 'vertical' : 'horizontal',
-		desired: width >= NARROW_SCREEN_THRESHOLD ? 'horizontal' : 'vertical',
-	};
-}
-
-/**
  * Kill a tmux pane by ID.
  * Returns true if pane was killed or didn't exist.
  */
@@ -2162,9 +2439,11 @@ async function killPane(
 	try {
 		const result = await runLayoutCommand(['kill-pane', '-t', paneId], run);
 		if (result.error || result.status !== 0) {
+			if (PANE_GONE.test(result.stderr ?? '')) return true;
 			log.warn(`Failed to kill pane ${paneId}: ${result.stderr}`);
 			return false;
 		}
+
 		log.debug(`Killed pane ${paneId}`);
 		return true;
 	} catch {
@@ -2179,25 +2458,19 @@ async function killPane(
  * The list pane (where the TUI runs) is preserved — only viewer panes
  * are destroyed and recreated.
  *
- * Returns the new PaneLayout, or null on failure.
+ * Returns the rebuilt layout and its measured geometry, or null on failure.
  */
 export async function rebuildLayout(
 	listPaneId: string,
 	oldAgentViewerPaneId: string,
 	oldCompanionViewerPaneId: string,
 	run: AsyncTmuxRunner = runTmux,
-): Promise<{
-	listPaneId: string;
-	agentViewerPaneId: string;
-	companionViewerPaneId: string;
-} | null> {
+	snapshot?: WindowGeometry,
+): Promise<{layout: PaneLayout; geometry: WindowGeometry} | null> {
 	try {
-		// Get terminal dimensions and calculate new layout
-		const windowDims = await getTmuxWindowSizeAsync(listPaneId, run);
-		if (!windowDims) {
-			log.error('Failed to get window dimensions for rebuild');
-			return null;
-		}
+		const windowDims = (
+			snapshot ?? parseWindowGeometry(await run(paneGeometryArgs(listPaneId)))
+		).window;
 
 		// Detach any nested clients before killing panes
 		if (oldAgentViewerPaneId) {
@@ -2333,9 +2606,15 @@ export async function rebuildLayout(
 			`Layout rebuilt: agent=${agentViewerPaneId}, companion=${companionViewerPaneId || '(none)'}`,
 		);
 
-		await recordPaneSampleAsync(listPaneId, companionViewerPaneId, run);
-
-		return {listPaneId, agentViewerPaneId, companionViewerPaneId};
+		const geometry = await recordPaneSampleAsync(
+			listPaneId,
+			companionViewerPaneId,
+			run,
+		);
+		return {
+			layout: {listPaneId, agentViewerPaneId, companionViewerPaneId},
+			geometry,
+		};
 	} catch (err) {
 		log.error(
 			'Failed to rebuild layout',
@@ -2345,32 +2624,28 @@ export async function rebuildLayout(
 	}
 }
 
-/**
- * Relayout tmux panes based on current terminal dimensions.
- * Call this when the terminal is resized to keep panes properly proportioned.
- *
- * For horizontal layout: resizes list and companion widths (claude gets remainder)
- * For vertical layout: resizes list height (claude gets remainder)
- *
- * This only re-proportions within the current layout mode. For switching between
- * horizontal/vertical, use rebuildLayout() instead.
- */
-export async function relayoutPanes(
+async function relayoutGeometry(
 	listPaneId: string,
 	companionViewerPaneId: string,
-	run: AsyncTmuxRunner = runTmux,
-): Promise<boolean> {
+	run: AsyncTmuxRunner,
+	snapshot?: WindowGeometry,
+): Promise<WindowGeometry | null> {
 	try {
-		const {
-			window: windowDims,
-			railWidth: measuredRailWidth,
-			companionWidth: measuredCompanionWidth,
-		} = await samplePanes(listPaneId, companionViewerPaneId, run);
+		// Get current terminal dimensions from the window (not individual panes)
+		const geometry =
+			snapshot ?? parseWindowGeometry(await run(paneGeometryArgs(listPaneId)));
+		const windowDims = geometry.window;
+
 		const {width: totalWidth, height: totalHeight} = windowDims;
 
 		// Separate a window resize from a hand-drag of a side-pane border
 		// *before* computing the layout, so a drag feeds its own width back in
 		// instead of being recomputed away. See pane-drag.ts and STA-2040.
+		const measuredRail = paneGeometry(geometry, listPaneId);
+		let resizeAttempted = false;
+		const measuredRailWidth = measuredRail.cols;
+		const measuredCompanionWidth =
+			geometry.panes.get(companionViewerPaneId)?.cols ?? null;
 		const previousRail = railWidthOverride;
 		const previousCompanion = companionWidthOverride;
 		railWidthOverride = nextWidthOverride({
@@ -2421,30 +2696,43 @@ export async function relayoutPanes(
 
 		if (layout.direction === 'vertical') {
 			// Vertical: resize list pane height, claude gets remainder
-			if (layout.listHeight !== undefined) {
+			if (
+				layout.listHeight !== undefined &&
+				layout.listHeight !== measuredRail.rows
+			) {
+				resizeAttempted = true;
 				const result = await runLayoutCommand(
 					['resize-pane', '-t', listPaneId, '-y', String(layout.listHeight)],
 					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize list pane height: ${result.stderr}`);
-					return false;
+					return null;
 				}
 			}
 		} else {
 			// Horizontal: resize list width and companion width, claude gets remainder
-			if (layout.listWidth !== undefined) {
+			const resizeRail =
+				layout.listWidth !== undefined &&
+				layout.listWidth !== measuredRailWidth;
+			if (resizeRail) {
+				resizeAttempted = true;
 				const result = await runLayoutCommand(
 					['resize-pane', '-t', listPaneId, '-x', String(layout.listWidth)],
 					run,
 				);
 				if (result.error || result.status !== 0) {
 					log.error(`Failed to resize list pane width: ${result.stderr}`);
-					return false;
+					return null;
 				}
 			}
 
-			if (companionViewerPaneId && layout.companionWidth !== undefined) {
+			if (
+				measuredCompanionWidth !== null &&
+				layout.companionWidth !== undefined &&
+				(resizeRail || layout.companionWidth !== measuredCompanionWidth)
+			) {
+				resizeAttempted = true;
 				const result = await runLayoutCommand(
 					[
 						'resize-pane',
@@ -2462,27 +2750,63 @@ export async function relayoutPanes(
 			}
 		}
 
-		await recordPaneSampleAsync(listPaneId, companionViewerPaneId, run);
+		const measured = resizeAttempted
+			? await recordPaneSampleAsync(listPaneId, companionViewerPaneId, run)
+			: geometry;
+		if (!resizeAttempted)
+			recordGeometry(measured, listPaneId, companionViewerPaneId);
 
 		log.info('Relayout completed successfully');
-		return true;
+		return measured;
 	} catch (err) {
 		log.error(
 			'Failed to relayout panes',
 			err instanceof Error ? err : undefined,
 		);
-		return false;
+		return null;
 	}
 }
 
-export async function setPaneZoom(
-	paneId: string,
+export async function reconcilePaneLayout(
+	layout: PaneLayout,
 	zoomed: boolean,
 	run: AsyncTmuxRunner = runTmux,
-): Promise<void> {
-	const output = await run(paneQueryArgs('#{window_zoomed_flag}', paneId));
-	const current = output.trim() === '1';
-	if (current !== zoomed) await run(['resize-pane', '-Z', '-t', paneId]);
+): Promise<{layout: PaneLayout; dimensions: {rows: number; cols: number}}> {
+	let geometry = parseWindowGeometry(
+		await run(paneGeometryArgs(layout.listPaneId)),
+	);
+	if (geometry.window.zoomed !== zoomed) {
+		await run(['resize-pane', '-Z', '-t', layout.listPaneId]);
+		geometry = parseWindowGeometry(
+			await run(paneGeometryArgs(layout.listPaneId)),
+		);
+	}
+	if (!zoomed) {
+		const vertical =
+			paneGeometry(geometry, layout.listPaneId).cols === geometry.window.width;
+		const desiredVertical = geometry.window.width < NARROW_SCREEN_THRESHOLD;
+		if (vertical !== desiredVertical) {
+			const rebuilt = await rebuildLayout(
+				layout.listPaneId,
+				layout.agentViewerPaneId,
+				layout.companionViewerPaneId,
+				run,
+				geometry,
+			);
+			if (!rebuilt) throw new Error('Failed to rebuild pane layout');
+			({layout, geometry} = rebuilt);
+		} else {
+			const measured = await relayoutGeometry(
+				layout.listPaneId,
+				layout.companionViewerPaneId,
+				run,
+				geometry,
+			);
+			if (!measured) throw new Error('Failed to resize pane layout');
+			geometry = measured;
+		}
+	}
+	return {layout, dimensions: paneGeometry(geometry, layout.listPaneId)};
 }
 
 /**
@@ -2533,6 +2857,7 @@ export async function getMainWorktreeInfo(): Promise<{
 	path: string;
 	branch: string;
 } | null> {
+	const done = startupTrace.current?.begin('main-discovery');
 	try {
 		// `git worktree list --porcelain` outputs blocks like:
 		//   worktree /path/to/repo
@@ -2562,10 +2887,13 @@ export async function getMainWorktreeInfo(): Promise<{
 		}
 
 		if (path && branch) {
+			done?.();
 			return {path, branch};
 		}
+		done?.('unavailable');
 		return null;
 	} catch {
+		done?.('failed');
 		return null;
 	}
 }
@@ -2650,6 +2978,27 @@ function hideStatusBarArgs(sessionName: string): string[] {
 	];
 }
 
+async function attachStartupMonitor(
+	issueKey: string,
+	session: string,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	const done = startupTrace.current?.begin('monitor-ready');
+	try {
+		const pane = await attachStatusMonitor(
+			getRepoName(),
+			issueKey,
+			session,
+			statusSocket(),
+			run,
+		);
+		done?.(pane && !pane.dead ? 'ok' : 'unavailable');
+	} catch (error) {
+		done?.('failed');
+		throw error;
+	}
+}
+
 async function releaseStartupGate(
 	session: string,
 	run: AsyncTmuxRunner,
@@ -2708,26 +3057,23 @@ export async function ensureAgentSession(
 	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
 	sessionId?: string,
 ): Promise<boolean> {
+	const traceDone = startupTrace.current?.begin('agent-session');
 	const sessions = getSessionNames(issueKey);
 	const sessionName = sessions.agent;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
 		try {
-			await attachStatusMonitor(
-				getRepoName(),
-				issueKey,
-				sessionName,
-				statusSocket(),
-				run,
-			);
+			await attachStartupMonitor(issueKey, sessionName, run);
 			await releaseStartupGate(sessionName, run);
+			traceDone?.();
 			return true;
 		} catch (err) {
 			log.error(
 				`Failed to resume agent startup for ${issueKey}`,
 				err instanceof Error ? err : undefined,
 			);
+			traceDone?.('failed');
 			return false;
 		}
 	}
@@ -2735,6 +3081,7 @@ export async function ensureAgentSession(
 	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
 	if (!worktreePath) {
 		log.warn(`Cannot create agent session for ${issueKey}: no worktree found`);
+		traceDone?.('failed');
 		return false;
 	}
 
@@ -2789,13 +3136,7 @@ export async function ensureAgentSession(
 			]),
 		);
 		try {
-			await attachStatusMonitor(
-				getRepoName(),
-				issueKey,
-				sessionName,
-				statusSocket(),
-				run,
-			);
+			await attachStartupMonitor(issueKey, sessionName, run);
 		} finally {
 			await releaseStartupGate(sessionName, run, gate);
 		}
@@ -2803,12 +3144,14 @@ export async function ensureAgentSession(
 		log.info(
 			`Created agent session: ${sessionName} (agent profile: ${agentProfile.name})`,
 		);
+		traceDone?.();
 		return true;
 	} catch (err) {
 		log.error(
 			`Failed to create agent session for ${issueKey}`,
 			err instanceof Error ? err : undefined,
 		);
+		traceDone?.('failed');
 		return false;
 	}
 }
@@ -2830,10 +3173,12 @@ export async function ensureCompanionSession(
 	companionCommand: string = DEFAULT_COMPANION_COMMAND,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<boolean> {
+	const traceDone = startupTrace.current?.begin('companion-session');
 	const sessionName = getSessionNames(issueKey).companion;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
+		traceDone?.();
 		return true;
 	}
 
@@ -2842,6 +3187,7 @@ export async function ensureCompanionSession(
 		log.warn(
 			`Cannot create companion session for ${issueKey}: no worktree found`,
 		);
+		traceDone?.('failed');
 		return false;
 	}
 
@@ -2869,12 +3215,14 @@ export async function ensureCompanionSession(
 		);
 
 		log.info(`Created companion session: ${sessionName}`);
+		traceDone?.();
 		return true;
 	} catch (err) {
 		log.error(
 			`Failed to create companion session for ${issueKey}`,
 			err instanceof Error ? err : undefined,
 		);
+		traceDone?.('failed');
 		return false;
 	}
 }

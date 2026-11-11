@@ -11,7 +11,17 @@ import {renderTui} from '../../source/render-tui.ts';
  */
 export async function terminalView(
 	node: React.ReactNode,
-	{columns = 60, rows = 12}: {columns?: number; rows?: number} = {},
+	{
+		columns = 60,
+		rows = 12,
+		typedAhead = '',
+		ready,
+	}: {
+		columns?: number;
+		rows?: number;
+		typedAhead?: string;
+		ready?: Promise<void>;
+	} = {},
 ) {
 	const stdout = Object.assign(new PassThrough(), {
 		isTTY: true,
@@ -33,13 +43,20 @@ export async function terminalView(
 		rows,
 		allowProposedApi: true,
 	});
-	const view = await renderTui(node, {
-		stdout: stdout as unknown as NodeJS.WriteStream,
-		stdin: stdin as unknown as NodeJS.ReadStream,
-		exitOnCtrlC: false,
-		exitSignals: [],
-		useMouse: false,
-	});
+	// Input that is waiting when the renderer starts reading.
+	if (typedAhead) stdin.write(typedAhead);
+	const view = await renderTui(
+		node,
+		{
+			stdout: stdout as unknown as NodeJS.WriteStream,
+			stdin: stdin as unknown as NodeJS.ReadStream,
+			exitOnCtrlC: false,
+			exitSignals: [],
+			useMouse: false,
+		},
+		undefined,
+		ready,
+	);
 	const flush = async () => {
 		await delay(30);
 		await view.renderer.idle();
@@ -57,7 +74,7 @@ export async function terminalView(
 		stdin,
 		flush,
 		async update(next: React.ReactNode) {
-			flushSync(() => view.root.render(next));
+			flushSync(() => view.rerender(next));
 			return flush();
 		},
 		line: (row: number) =>

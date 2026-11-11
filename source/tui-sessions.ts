@@ -402,6 +402,21 @@ export function closeTuiLayout(
 	else closeViewerPanes(layout, deps.layoutTmux);
 }
 
+// `pappardelle restart` reruns the TUI with `respawn-pane -k`, which hangs up
+// the one running there. If that TUI closed its layout, it would kill the
+// session its replacement just started in.
+export function paneRespawned(
+	paneId: string,
+	startedPid: string,
+	tmux: OuterTmuxRunner,
+): boolean {
+	const result = tmux(['display-message', '-p', '-t', paneId, '#{pane_pid}']);
+	const pid = result.stdout.trim();
+	return (
+		!result.error && result.status === 0 && pid !== '' && pid !== startedPid
+	);
+}
+
 // The TUI restarting itself after U's install. A successful restart ends this
 // process, so nothing after it runs and the lock it leaves is stale at once.
 // Only this TUI's own session qualifies: another terminal may run the same

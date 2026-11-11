@@ -1,4 +1,5 @@
 import test from 'ava';
+import {spawnSync} from 'node:child_process';
 import {openPopup, type ShowPopup} from './host.ts';
 import type {PopupActions, PopupSpec} from './spec.ts';
 import type {PopupSize} from './size.ts';
@@ -11,6 +12,24 @@ const CONFIRM: PopupSpec = {
 		isDestructive: true,
 	},
 };
+
+test('loading the popup host does not initialize the renderer', t => {
+	const hostUrl = new URL('host.ts', import.meta.url).href;
+	const result = spawnSync(
+		process.execPath,
+		[
+			'-e',
+			`
+		import {mock} from 'bun:test';
+		mock.module('@opentui/core', () => { throw new Error('Renderer initialized before popup use'); });
+		const {isPopupAvailable} = await import(${JSON.stringify(hostUrl)});
+		if (isPopupAvailable({})) throw new Error('Unexpected popup availability');
+	`,
+		],
+		{encoding: 'utf8'},
+	);
+	t.is(result.status, 0, `${result.stderr}`);
+});
 
 type FakeDialog = {
 	size: PopupSize;
@@ -59,7 +78,7 @@ function fakeTmux() {
 const deps = (show: ShowPopup) => ({
 	show,
 	env: {TMUX: '/tmp/tmux-test,1,0'},
-	clientSize: async () => ({cols: 100, rows: 40}),
+	client: async () => ({args: [], size: {cols: 100, rows: 40}}),
 });
 
 const tick = async (ms = 20) =>

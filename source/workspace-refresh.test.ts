@@ -91,6 +91,48 @@ test('membership publishes while main discovery and dirty status are pending', a
 	t.true(h.spaces[0]!.isDirty);
 });
 
+test('first-paint gate publishes membership before workspace details', async t => {
+	const painted = deferred<void>();
+	const loaded = deferred<void>();
+	const h = setup({
+		detailReady: painted.promise,
+		onLoaded: () => loaded.resolve(),
+	});
+	const pending = h.refresh.refresh();
+	await loaded.promise;
+	for (let turn = 0; turn < 4; turn++) await nextTurn();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'STA-2', 'STA-1'],
+	);
+	t.is(h.spaces[1]!.worktreePath, null);
+	t.is(h.spaces[1]!.programStatus?.status, 'unknown');
+	painted.resolve();
+	await pending;
+	await h.refresh.idle();
+	t.is(h.spaces[1]!.worktreePath, '/worktrees/STA-2');
+	t.is(h.spaces[1]!.programStatus?.status, 'idle');
+});
+
+test('closing before first paint suppresses deferred detail publication', async t => {
+	const painted = deferred<void>();
+	const loaded = deferred<void>();
+	const h = setup({
+		detailReady: painted.promise,
+		onLoaded: () => loaded.resolve(),
+	});
+	const pending = h.refresh.refresh();
+	await loaded.promise;
+	for (let turn = 0; turn < 4; turn++) await nextTurn();
+	h.refresh.stop();
+	const before = h.spaces;
+	painted.resolve();
+	await pending;
+	await h.refresh.idle();
+	t.is(h.spaces, before);
+	t.is(h.spaces[1]!.worktreePath, null);
+});
+
 test('no-op polling retains the array, rows, tracker aliases and pending rows', async t => {
 	const h = setup();
 	await h.settle();

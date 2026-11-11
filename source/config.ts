@@ -1,5 +1,5 @@
 // Config loading and parsing for .pappardelle.yml
-import {execFileSync, execSync} from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -488,14 +488,42 @@ export function getRepoRoot(): string {
 	if (repoRootCache !== undefined) return repoRootCache;
 
 	try {
-		repoRootCache = execSync('git rev-parse --show-toplevel', {
-			encoding: 'utf-8',
-			stdio: ['pipe', 'pipe', 'pipe'],
-		}).trim();
+		// The TUI asks for the common directory right after the root, so one git
+		// process answers both.
+		const [root, commonDir] = execFileSync(
+			'git',
+			[
+				'rev-parse',
+				'--show-toplevel',
+				'--path-format=absolute',
+				'--git-common-dir',
+			],
+			{encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']},
+		)
+			.trim()
+			.split('\n');
+		if (!root) throw new Error('git reported no working tree');
+		repoRootCache = root;
+		gitCommonDirCache ??= commonDir || undefined;
 		return repoRootCache;
 	} catch {
 		throw new Error('Not in a git repository');
 	}
+}
+
+let gitCommonDirCache: string | undefined;
+
+/**
+ * The main repo's `.git` directory, even from inside a worktree. It can be
+ * read from a bare repository, where there is no working tree to report.
+ */
+function getGitCommonDir(): string {
+	gitCommonDirCache ??= execFileSync(
+		'git',
+		['rev-parse', '--path-format=absolute', '--git-common-dir'],
+		{encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']},
+	).trim();
+	return gitCommonDirCache;
 }
 
 let mainRepoRootCache: string | undefined;
@@ -513,10 +541,7 @@ function resolveMainRepoRoot(): string {
 	if (injected) return injected;
 
 	try {
-		const commonDir = execSync(
-			'git rev-parse --path-format=absolute --git-common-dir',
-			{encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']},
-		).trim();
+		const commonDir = getGitCommonDir();
 		if (commonDir) return path.dirname(commonDir.replace(/\/+$/, ''));
 	} catch {
 		// Fall through to the worktree root
@@ -566,14 +591,7 @@ export function getRepoName(): string {
 	if (cachedRepoName) return cachedRepoName;
 
 	try {
-		const gitCommonDir = execSync(
-			'git rev-parse --path-format=absolute --git-common-dir',
-			{
-				encoding: 'utf-8',
-				stdio: ['pipe', 'pipe', 'pipe'],
-			},
-		).trim();
-		cachedRepoName = repoNameFromGitCommonDir(gitCommonDir);
+		cachedRepoName = repoNameFromGitCommonDir(getGitCommonDir());
 		return cachedRepoName;
 	} catch {
 		throw new Error('Not in a git repository');

@@ -35,6 +35,7 @@ class RefreshLoop {
 type MainWorktree = {path: string; branch: string};
 
 export interface WorkspaceRefreshDeps {
+	detailReady?: Promise<void>;
 	readRegistry: () => Promise<string[] | null>;
 	readStatus: (
 		key: string,
@@ -200,6 +201,8 @@ export class WorkspaceRefresh {
 		});
 		void this.issues.request();
 		if (!this.stopped) this.deps.onLoaded();
+		if (this.deps.detailReady) await this.deps.detailReady;
+		if (this.stopped || generation !== this.listGeneration) return;
 		const details = await pLimit(
 			orderedNames.map(key => async () => {
 				if (this.stopped || generation !== this.listGeneration)
@@ -243,6 +246,7 @@ export class WorkspaceRefresh {
 	}
 
 	private async refreshIssues(): Promise<void> {
+		if (this.deps.detailReady) await this.deps.detailReady;
 		if (this.stopped || this.names.length === 0) return;
 		const {names} = this;
 		await this.publishIssues(names);

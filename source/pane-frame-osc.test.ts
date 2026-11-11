@@ -76,3 +76,9 @@ test('a BEL that ends a title is not a bell', t => {
 	const scanner = new OscScanner();
 	t.deepEqual(scanner.feed(bytes('\u001B]2;agent\u0007')).passthrough, []);
 });
+
+test('the keypad mode passes through, even split across reads', t => {
+	const scanner = new OscScanner();
+	t.deepEqual(scanner.feed(bytes('a\u001B=b\u001B')).passthrough, ['\u001B=']);
+	t.deepEqual(scanner.feed(bytes('>c')).passthrough, ['\u001B>']);
+});

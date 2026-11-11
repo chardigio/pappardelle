@@ -47,7 +47,7 @@ function setup(t: ExecutionContext) {
 		key => `claude-repo-${key}`,
 		async args => {
 			queries++;
-			return args.includes('show-option') ? '%1' : paneOutput;
+			return `%1\t${paneOutput}`;
 		},
 	);
 	const writeHook = (

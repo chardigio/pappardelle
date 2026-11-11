@@ -1,9 +1,13 @@
-import {execFile, spawn} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {createLogger, type LogEntry} from '../logger.ts';
-import {presentPopup} from './present.tsx';
 import type {ConfirmPayload, PopupActions, PopupSpec} from './spec.ts';
-import {popupSize, type ClientSize, type PopupSize} from './size.ts';
-import {openPopupTerminal, type PopupTerminal} from './terminal.ts';
+import type {PopupSize} from './size.ts';
+import {
+	openPopupTerminal,
+	findPopupClient,
+	type PopupClient,
+	type PopupTerminal,
+} from './terminal.ts';
 
 const log = createLogger('popup');
 
@@ -38,18 +42,20 @@ export type ShowPopup = (
 	spec: PopupSpec,
 	size: PopupSize,
 	actions: PopupActions,
+	client: string[],
 ) => Promise<ShownPopup | undefined>;
 
 export type PopupDeps = {
 	show?: ShowPopup;
-	clientSize?: () => Promise<ClientSize>;
+	client?: () => Promise<PopupClient>;
 	env?: NodeJS.ProcessEnv;
 };
 
-const showInTmux: ShowPopup = async (spec, size, actions) => {
+const showInTmux: ShowPopup = async (spec, size, actions, client) => {
 	let terminal: PopupTerminal | undefined;
 	try {
-		terminal = await openPopupTerminal(size);
+		const {presentPopup} = await import('./present.tsx');
+		terminal = await openPopupTerminal(size, client);
 		if (!terminal) return undefined;
 		return {
 			closed: terminal.closed,
@@ -76,11 +82,13 @@ export async function runCommandPopup(
 	command: string,
 	{cwd, title}: {cwd: string; title: string},
 ): Promise<number | undefined> {
+	const client = await findPopupClient();
 	return new Promise(resolve => {
 		const popup = spawn(
 			'tmux',
 			[
 				'display-popup',
+				...client.args,
 				'-EE',
 				'-w',
 				'90%',
@@ -103,24 +111,6 @@ export async function runCommandPopup(
 		popup.on('exit', code => {
 			resolve(code ?? undefined);
 		});
-	});
-}
-
-async function tmuxClientSize(): Promise<ClientSize> {
-	const fallback = {
-		cols: process.stdout.columns ?? 80,
-		rows: process.stdout.rows ?? 24,
-	};
-	return new Promise(resolve => {
-		execFile(
-			'tmux',
-			['display-message', '-p', '#{client_width} #{client_height}'],
-			{encoding: 'utf8', timeout: 2000},
-			(error, stdout) => {
-				const [cols, rows] = stdout.trim().split(' ').map(Number);
-				resolve(error || !cols || !rows ? fallback : {cols, rows});
-			},
-		);
 	});
 }
 
@@ -147,7 +137,8 @@ export async function openPopup(
 ): Promise<PopupOutcome> {
 	if (!isPopupAvailable(deps.env)) return 'unavailable';
 
-	const client = await (deps.clientSize ?? tmuxClientSize)();
+	const {popupSize} = await import('./size.ts');
+	const client = await (deps.client ?? findPopupClient)();
 
 	return new Promise<PopupOutcome>(resolve => {
 		let settled = false;
@@ -214,21 +205,24 @@ export async function openPopup(
 			subscribeErrors: handlers.subscribeErrors,
 		};
 
-		void (deps.show ?? showInTmux)(spec, popupSize(spec, client), actions).then(
-			shown => {
-				if (!shown) {
-					finish('unavailable');
-					return;
-				}
+		void (deps.show ?? showInTmux)(
+			spec,
+			popupSize(spec, client.size),
+			actions,
+			client.args,
+		).then(shown => {
+			if (!shown) {
+				finish('unavailable');
+				return;
+			}
 
-				popup = shown;
-				handlers.onShown?.();
-				if (closeRequested) shown.close();
-				void shown.closed.then(() => {
-					markPopupClosed();
-					if (!running) finish('cancelled');
-				});
-			},
-		);
+			popup = shown;
+			handlers.onShown?.();
+			if (closeRequested) shown.close();
+			void shown.closed.then(() => {
+				markPopupClosed();
+				if (!running) finish('cancelled');
+			});
+		});
 	});
 }

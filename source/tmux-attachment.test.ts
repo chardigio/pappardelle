@@ -1,6 +1,9 @@
 import {spawnSync} from 'node:child_process';
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import test from 'ava';
+import {mkdtempSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import test, {type ExecutionContext} from 'ava';
 import {LatestTask} from './latest-task.ts';
 import {
 	attachToSpace,
@@ -10,21 +13,72 @@ import {
 	ensureCompanionSession,
 	getSessionNames,
 	killSpaceSessions,
+	registerAwaitingFrame,
 	type AsyncTmuxRunner,
 } from './tmux.ts';
+import {
+	FRAME_COMMAND_OPTION,
+	frameReadyChannel,
+	frameStartedChannel,
+} from './pane-frame-options.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
+import {attachStatusMonitor} from './program-status-monitor.ts';
+import {
+	StartupTrace,
+	startupTrace,
+	type StartupRecord,
+} from './startup-trace.ts';
+
+test.serial(
+	'background monitor discovery does not consume the selected startup trace',
+	async t => {
+		const records: StartupRecord[] = [];
+		const previous = startupTrace.current;
+		startupTrace.current = new StartupTrace({
+			pid: 1,
+			now: () => 0,
+			write: record => records.push(record),
+			schedule: () => () => {},
+		});
+		t.teardown(() => {
+			startupTrace.current = previous;
+		});
+		await attachStatusMonitor(
+			'fixture',
+			'background',
+			'agent-background',
+			'fixture',
+			async () => '',
+		);
+		t.false(records.some(record => record.stage === 'monitor-ready'));
+		await ensureAgentSession('TEST-SELECTED', undefined, false, async () => '');
+		t.is(
+			records.filter(
+				record => record.stage === 'monitor-ready' && record.phase === 'begin',
+			).length,
+			1,
+		);
+	},
+);
 
 function fakeTmux() {
 	const calls: string[][] = [];
 	const run: AsyncTmuxRunner = async args => {
 		calls.push(args);
-		if (args[0] === 'display-message')
-			return args[3] === '%1' ? '/dev/claude' : '/dev/companion';
+		if (ttyQueryPane(args) !== undefined)
+			return ttyQueryPane(args) === '%1' ? '/dev/claude' : '/dev/companion';
 		if (args.includes('list-clients')) return '/dev/claude\n/dev/companion\n';
 		return '';
 	};
 	return {calls, run};
+}
+
+// The pane whose client tty a call asks for: a plain read, or the wait for a
+// frame that was just started to publish it.
+function ttyQueryPane(args: string[]): string | undefined {
+	const read = args.indexOf('display-message');
+	return read === -1 ? undefined : args[read + 3];
 }
 
 // The shell script a viewer's frame host runs, unwrapped from the
@@ -48,8 +102,223 @@ function splitBatch(args: string[]): string[][] {
 	return commands;
 }
 
+function isolatedHome(t: ExecutionContext): string {
+	const home = mkdtempSync(join(tmpdir(), 'pappa-cold-attach-'));
+	const previous = process.env['HOME'];
+	process.env['HOME'] = home;
+	t.teardown(() => {
+		if (previous === undefined) delete process.env['HOME'];
+		else process.env['HOME'] = previous;
+		rmSync(home, {recursive: true, force: true});
+	});
+	return home;
+}
+
+for (const delayed of ['agent-gate', 'companion-create']) {
+	test.serial(
+		`cold cancellation drains ${delayed} and delivers both launch commands before the next selection`,
+		async t => {
+			const home = isolatedHome(t);
+			const queue = new LatestTask();
+			const calls: string[][] = [];
+			let release = () => {};
+			const pending = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			let blocked = false;
+			let finished = false;
+			const run: AsyncTmuxRunner = async args => {
+				calls.push(args);
+				const cold = args.some(arg => arg.includes('TEST-COLD'));
+				if (cold && args.includes('has-session')) throw new Error('no session');
+				if (
+					cold &&
+					((delayed === 'agent-gate' && args.includes('if-shell')) ||
+						(delayed === 'companion-create' &&
+							args.includes('new-session') &&
+							args.some(arg => arg.startsWith('companion-'))))
+				) {
+					blocked = true;
+					await pending;
+				}
+				if (ttyQueryPane(args) !== undefined)
+					return ttyQueryPane(args) === '%1' ? '/dev/agent' : '/dev/companion';
+				if (args.includes('list-clients')) return '/dev/agent\n/dev/companion';
+				return '';
+			};
+			const select = async (key: string) =>
+				queue.run(async signal => {
+					await attachToSpace('%1', '%2', key, '%0', home, undefined, {
+						run,
+						signal,
+					});
+				});
+			const first = select('TEST-COLD').then(() => {
+				finished = true;
+			});
+			await nextTurn();
+			t.true(blocked);
+			const next = select('TEST-NEXT');
+			await nextTurn();
+			t.false(finished);
+			t.false(calls.some(args => args.some(arg => arg.includes('TEST-NEXT'))));
+			release();
+			await Promise.all([first, next]);
+			const creations = calls.filter(args => args.includes('new-session'));
+			t.is(creations.length, 2);
+			const agent = creations.find(args =>
+				args.some(arg => arg.startsWith('agent-')),
+			)!;
+			const companion = creations.find(args =>
+				args.some(arg => arg.startsWith('companion-')),
+			)!;
+			t.true(agent.some(arg => arg.includes('wait-for')));
+			for (const creation of [agent, companion]) {
+				const shell = creation.findIndex(arg => arg.includes('"$1" -ic "$2'));
+				t.true(shell !== -1);
+				t.truthy(creation[shell + 3]?.trim());
+			}
+			const gate = calls.findIndex(
+				args =>
+					args.includes('if-shell') &&
+					args.some(arg => arg.includes('TEST-COLD')),
+			);
+			const nextStart = calls.findIndex(args =>
+				args.some(arg => arg.includes('TEST-NEXT')),
+			);
+			t.true(gate !== -1 && gate < nextStart);
+			t.is(getCurrentlyViewingSpace(), 'TEST-NEXT');
+		},
+	);
+}
+
+for (const delayed of ['%1', '%2']) {
+	for (const cancelled of [false, true]) {
+		test.serial(
+			`cold viewer respawn ${cancelled ? 'cancellation' : 'failure'} drains ${delayed} before recovery`,
+			async t => {
+				const queue = new LatestTask();
+				const started = new Set<string>();
+				let release = () => {};
+				const pending = new Promise<void>(resolve => {
+					release = resolve;
+				});
+				let recovering = false;
+				let finished = false;
+				const run: AsyncTmuxRunner = async args => {
+					if (args.includes('list-clients')) return '';
+					if (ttyQueryPane(args) !== undefined)
+						return `/dev/${ttyQueryPane(args)}`;
+					if (!recovering && args.includes('respawn-pane')) {
+						const pane = args[args.indexOf('-t') + 1]!;
+						started.add(pane);
+						if (pane === delayed) await pending;
+						else if (!cancelled) throw new Error('respawn failed');
+					}
+					return '';
+				};
+				const first = queue.run(async signal => {
+					t.false(
+						await attachToSpace(
+							'%1',
+							'%2',
+							'TEST-COLD',
+							'%0',
+							undefined,
+							undefined,
+							{run, signal},
+						),
+					);
+					finished = true;
+				});
+				await nextTurn();
+				t.deepEqual([...started].sort(), ['%1', '%2']);
+				if (cancelled) queue.cancel();
+				const next = queue.exclusive(async () => {
+					recovering = true;
+					t.true(
+						await attachToSpace(
+							'%1',
+							'%2',
+							'TEST-RECOVER',
+							'%0',
+							undefined,
+							undefined,
+							{run},
+						),
+					);
+				});
+				await nextTurn();
+				t.false(finished);
+				t.false(recovering);
+				release();
+				await Promise.all([first, next]);
+				t.is(getCurrentlyViewingSpace(), 'TEST-RECOVER');
+			},
+		);
+	}
+}
+
 const isSwitchBatch = (args: string[]) =>
 	args.includes('switch-client') && args.includes(';');
+
+for (const delayed of ['agent', 'companion']) {
+	test.serial(
+		`superseding selection waits for pending ${delayed} preparation`,
+		async t => {
+			const fake = fakeTmux();
+			const task = new LatestTask();
+			let release = () => {};
+			const pending = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			const started = new Set<string>();
+			let firstFinished = false;
+			const run: AsyncTmuxRunner = async args => {
+				if (
+					args.includes('has-session') &&
+					args.some(arg => arg.endsWith('-TEST-A:'))
+				) {
+					const kind = args.some(arg => arg.startsWith('=companion-'))
+						? 'companion'
+						: 'agent';
+					started.add(kind);
+					if (kind === delayed) await pending;
+				}
+				return fake.run(args);
+			};
+			const select = async (key: string) =>
+				task.run(async signal => {
+					await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
+						run,
+						signal,
+					});
+				});
+			const first = select('TEST-A').then(() => {
+				firstFinished = true;
+			});
+			await nextTurn();
+			t.deepEqual([...started].sort(), ['agent', 'companion']);
+			const second = select('TEST-B');
+			await nextTurn();
+			t.false(firstFinished);
+			t.is(getCurrentlyViewingSpace(), null);
+			t.false(
+				fake.calls.some(args => args.some(arg => arg.includes('TEST-B'))),
+			);
+			release();
+			await Promise.all([first, second]);
+			t.is(getCurrentlyViewingSpace(), 'TEST-B');
+			t.false(
+				fake.calls.some(
+					args =>
+						args.includes('switch-client') &&
+						args.some(arg => arg.endsWith('-TEST-A:')),
+				),
+			);
+		},
+	);
+}
 
 const titleAndFocus = (issueKey: string) => [
 	'set-option',
@@ -64,9 +333,120 @@ const titleAndFocus = (issueKey: string) => [
 	'%0',
 ];
 
+for (const {delayed, cancel} of [
+	{delayed: '/dev/claude', cancel: false},
+	{delayed: '/dev/companion', cancel: false},
+	{delayed: '/dev/claude', cancel: true},
+	{delayed: '/dev/companion', cancel: true},
+]) {
+	test.serial(
+		`${cancel ? 'cancelled' : 'failed'} viewer waits for sibling on ${delayed} before allowing retry`,
+		async t => {
+			const fake = fakeTmux();
+			const controller = new AbortController();
+			let release = () => {};
+			const pending = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			const started = new Set<string>();
+			let finished = false;
+			const run: AsyncTmuxRunner = async args => {
+				if (args.includes('switch-client')) {
+					const tty = args[args.indexOf('-c') + 1]!;
+					started.add(tty);
+					if (tty === delayed) await pending;
+					else if (!cancel) throw new Error('client disappeared');
+				}
+				return fake.run(args);
+			};
+			const attaching = attachToSpace(
+				'%1',
+				'%2',
+				'TEST-FAIL',
+				'%0',
+				undefined,
+				undefined,
+				{run, signal: controller.signal},
+			).then(result => {
+				finished = true;
+				return result;
+			});
+			await nextTurn();
+			t.is(started.size, 2);
+			if (cancel) controller.abort();
+			t.false(finished);
+			t.is(getCurrentlyViewingSpace(), null);
+			release();
+			t.false(await attaching);
+			t.false(fake.calls.some(args => args.includes('@pappardelle_title')));
+			fake.calls.length = 0;
+			t.true(
+				await attachToSpace(
+					'%1',
+					'%2',
+					'TEST-RECOVER',
+					'%0',
+					undefined,
+					undefined,
+					{run: fake.run},
+				),
+			);
+			t.false(fake.calls.some(args => isSwitchBatch(args)));
+			t.is(getCurrentlyViewingSpace(), 'TEST-RECOVER');
+		},
+	);
+}
+
 test.beforeEach(() => {
 	clearCurrentlyViewingSpace();
 });
+
+test.serial(
+	'failed cold respawn discards cached ttys before a recycled pty can target the other viewer',
+	async t => {
+		let phase = 'empty';
+		const ttys = new Map([
+			['%1', '/dev/old-agent'],
+			['%2', '/dev/old-companion'],
+		]);
+		const destinations = new Map<string, string>();
+		const run: AsyncTmuxRunner = async args => {
+			if (args.includes('has-session') && phase === 'empty')
+				throw new Error('no session');
+			if (ttyQueryPane(args) !== undefined) {
+				const pane = ttyQueryPane(args)!;
+				if (phase === 'failed' && pane === '%2')
+					throw new Error('tty query failed after respawn');
+				return ttys.get(pane)!;
+			}
+			if (args.includes('list-clients'))
+				return phase === 'retry' ? [...ttys.values()].join('\n') : '';
+			if (args[0] === 'respawn-pane' && phase === 'failed') {
+				const pane = args[args.indexOf('-t') + 1]!;
+				ttys.set(pane, pane === '%1' ? '/dev/new-agent' : '/dev/old-agent');
+			}
+			if (args.includes('switch-client')) {
+				const tty = args[args.indexOf('-c') + 1]!;
+				const pane = [...ttys].find(([, value]) => value === tty)?.[0];
+				if (!pane) throw new Error('client not found');
+				destinations.set(pane, args[args.indexOf('-t') + 1]!);
+			}
+			return '';
+		};
+		const attach = async (key: string) =>
+			attachToSpace('%1', '%2', key, '%0', undefined, undefined, {run});
+		t.true(await attach('TEST-EMPTY'));
+		phase = 'failed';
+		t.false(await attach('TEST-FAILED'));
+		phase = 'retry';
+		t.true(await attach('TEST-RETRY'));
+		t.true(destinations.get('%1')?.startsWith('=agent-'));
+		t.true(destinations.get('%2')?.startsWith('=companion-'));
+		t.true(
+			[...destinations.values()].every(value => value.endsWith('-TEST-RETRY:')),
+		);
+	},
+);
 
 for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
 	test.serial(
@@ -252,8 +632,10 @@ test.serial(
 		const run: AsyncTmuxRunner = async args => {
 			const output = await fake.run(args);
 			if (isSwitchBatch(args)) throw new Error('second client disappeared');
-			if (args[0] === 'display-message') {
-				return args[3] === '%1' ? '/dev/new-claude' : '/dev/new-companion';
+			if (ttyQueryPane(args) !== undefined) {
+				return ttyQueryPane(args) === '%1'
+					? '/dev/new-claude'
+					: '/dev/new-companion';
 			}
 			if (args.includes('list-clients')) {
 				return '/dev/new-claude\n/dev/new-companion\n';
@@ -481,11 +863,7 @@ test.serial(
 				run: fake.run,
 			}),
 		);
-		t.true(
-			fake.calls.some(
-				args => args[0] === 'display-message' && args[3] === '%3',
-			),
-		);
+		t.true(fake.calls.some(args => ttyQueryPane(args) === '%3'));
 		t.false(fake.calls.some(args => isSwitchBatch(args)));
 	},
 );
@@ -604,5 +982,62 @@ test.serial(
 					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
 			),
 		);
+	},
+);
+
+test.serial(
+	'a frame started with its pane is handed its program, and a later start respawns it',
+	async t => {
+		registerAwaitingFrame('%7');
+		const calls: string[][] = [];
+		let clientGone = false;
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (clientGone && isSwitchBatch(args)) throw new Error('client gone');
+			return ttyQueryPane(args) === undefined ? '' : '/dev/frame';
+		};
+		const attach = async (key: string) =>
+			attachToSpace('%7', '', key, '%0', undefined, undefined, {run});
+
+		t.true(await attach('TEST-WARM'));
+		const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
+		const program = handed[handed.indexOf(FRAME_COMMAND_OPTION) + 1]!;
+		t.true(program.includes(`=${getSessionNames('TEST-WARM').agent}:`));
+		t.true(program.includes('agent · TEST-WARM'));
+		t.deepEqual(handed.slice(-3), ['wait-for', '-S', frameReadyChannel('%7')]);
+		t.false(calls.some(args => args.includes('respawn-pane')));
+
+		calls.length = 0;
+		clientGone = true;
+		t.true(await attach('TEST-NEXT'));
+		t.true(calls.some(args => args.includes('respawn-pane')));
+		t.false(calls.some(args => args.includes(FRAME_COMMAND_OPTION)));
+	},
+);
+
+test.serial(
+	'a started signal left by an earlier start does not stand in for the new frame',
+	async t => {
+		const calls: string[][] = [];
+		let waits = 0;
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args[0] === 'wait-for') return ++waits === 1 ? '' : '/dev/late';
+			return '';
+		};
+		const attach = async (key: string) =>
+			attachToSpace('%8', '', key, '%0', undefined, undefined, {run});
+
+		t.true(await attach('TEST-STALE'));
+		t.is(waits, 2);
+		t.true(
+			calls
+				.filter(args => args[0] === 'wait-for')
+				.every(args => args[1] === frameStartedChannel('%8')),
+		);
+		calls.length = 0;
+		t.true(await attach('TEST-AFTER'));
+		const switched = calls.find(args => isSwitchBatch(args))!;
+		t.is(switched[switched.indexOf('-c') + 1], '/dev/late');
 	},
 );

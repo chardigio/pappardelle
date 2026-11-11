@@ -1,8 +1,10 @@
-import {createElement, type ReactNode} from 'react';
+import {createElement, useEffect, type ReactNode} from 'react';
+import {deliverHeldKeysAtOnce, dropAltNonAscii} from './lone-escape.ts';
 import {isInTmux} from './tmux.ts';
 import TuiErrorBoundary from './components/TuiErrorBoundary.tsx';
 import {
 	createCliRenderer,
+	parseKeypress,
 	type CliRenderer,
 	type CliRendererConfig,
 } from '@opentui/core';
@@ -20,12 +22,49 @@ export const tmuxRendererEnvironment: Readonly<Record<string, string>> = {
 	OPENTUI_GRAPHICS: '0',
 };
 
-/** Each terminal (rail or tmux popup) has its own renderer and input stream. */
+/** Runs `onMounted` once everything under it has mounted its effects. */
+function Mounted({
+	onMounted,
+	children,
+}: {
+	onMounted: () => void;
+	children?: ReactNode;
+}): ReactNode {
+	useEffect(() => {
+		onMounted();
+	}, [onMounted]);
+	return children;
+}
+
+// How long keys typed at start-up wait for a view that never says it is ready.
+const TYPED_AHEAD_WAIT_MS = 1000;
+
+/**
+ * Each terminal (rail or tmux popup) has its own renderer and input stream.
+ * `ready` resolves when the view can act on keys, for a view that cannot as
+ * soon as it has mounted.
+ */
 export async function renderTui(
 	node: ReactNode,
 	options: CliRendererConfig = {},
 	onFailedViewClose?: (renderer: CliRenderer) => void,
+	ready?: Promise<void>,
 ) {
+	// The renderer reads input as soon as it exists, before the tree has
+	// mounted anything that listens for keys. Keys typed in that time are kept
+	// and delivered once the view can act on them.
+	const typedAhead: string[] = [];
+	let isKeepingKeys = true;
+	const keepKey = (sequence: string): boolean => {
+		if (!isKeepingKeys || !parseKeypress(sequence)) return false;
+		// Until the renderer makes the terminal raw, the terminal turns Enter
+		// into a line feed.
+		typedAhead.push(sequence === '\n' ? '\r' : sequence);
+		return true;
+	};
+
+	const stdin = options.stdin ?? process.stdin;
+	dropAltNonAscii(stdin);
 	const renderer = await createCliRenderer({
 		screenMode: 'alternate-screen',
 		// OpenTUI's overlay would replace console.error with an in-memory cache
@@ -35,13 +74,43 @@ export async function renderTui(
 		openConsoleOnError: false,
 		environment: isInTmux() ? tmuxRendererEnvironment : {},
 		targetFps: 60,
-		maxFps: 60,
+		// A key that lands just after a frame waits for the next one.
+		maxFps: 120,
 		...options,
+		prependInputHandlers: [keepKey, ...(options.prependInputHandlers ?? [])],
 	});
+	const deliverTypedAhead = () => {
+		isKeepingKeys = false;
+		renderer.removeInputHandler(keepKey);
+		for (const sequence of typedAhead.splice(0))
+			renderer.keyInput.processParsedKey(parseKeypress(sequence)!);
+	};
+
+	const onMounted = ready
+		? () => {
+				const timer = setTimeout(deliverTypedAhead, TYPED_AHEAD_WAIT_MS);
+				void ready.then(() => {
+					clearTimeout(timer);
+					deliverTypedAhead();
+				});
+			}
+		: deliverTypedAhead;
+
+	// A key that skips the parser skips its input handlers too, and would
+	// arrive ahead of the keys still being kept.
+	if (isInTmux()) deliverHeldKeysAtOnce(renderer, stdin, keepKey);
 	const root = createRoot(renderer);
 	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
-	root.render(createElement(TuiErrorBoundary, {onClose}, node));
-	return {renderer, root};
+	const rerender = (next: ReactNode) =>
+		root.render(
+			createElement(
+				Mounted,
+				{onMounted},
+				createElement(TuiErrorBoundary, {onClose}, next),
+			),
+		);
+	rerender(node);
+	return {renderer, root, rerender};
 }
 
 /**

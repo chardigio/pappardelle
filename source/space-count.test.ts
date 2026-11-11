@@ -6,6 +6,7 @@ import {
 	getActiveSpaceCount,
 	calculateIdealListHeight,
 	calculateLayout,
+	setConfiguredListLines,
 } from './tmux.ts';
 import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
 
@@ -17,8 +18,14 @@ function tempRegistryPath(): string {
 	);
 }
 
+// The repository's own configuration must not decide these heights.
+test.beforeEach(() => {
+	setConfiguredListLines(1);
+});
+
 test.afterEach(() => {
 	resetRegistryPath();
+	setConfiguredListLines(undefined);
 });
 
 // ============================================================================
@@ -133,5 +140,15 @@ test.serial(
 		const layout = calculateLayout(40, 30);
 		t.is(layout.direction, 'vertical');
 		t.is(layout.listHeight, 5);
+	},
+);
+
+test.serial(
+	'calculateIdealListHeight: two-line rows take two terminal rows each',
+	t => {
+		seedRegistry(['STA-100', 'STA-200']);
+		setConfiguredListLines(2);
+		// 2 registered + 1 main = 3 rows of 2 lines → ideal height 6+4 = 10
+		t.is(calculateIdealListHeight(), 10);
 	},
 );

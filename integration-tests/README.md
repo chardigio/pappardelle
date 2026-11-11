@@ -153,6 +153,14 @@ A non-zero exit code means something failed.
 
 ### Workspace startup benchmark
 
+Verify fixture teardown before running the real-tmux readiness benchmark:
+
+```bash
+python3 integration-tests/verify-benchmark-cleanup.py
+```
+
+This starts real marked and unrelated processes, verifies that teardown kills only owned processes, and checks stale-owner sweeping. It requires no credentials and cleans up its own fixture processes.
+
 Measure local workspace setup and reopening overhead against another checkout:
 
 ```bash

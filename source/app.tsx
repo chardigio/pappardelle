@@ -1,7 +1,7 @@
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
-import type {CliRenderer} from '@opentui/core';
+import type {CliRenderer, KeyEvent} from '@opentui/core';
 import {shortcutKey} from './tui-key.ts';
 import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
@@ -30,6 +30,7 @@ import TruncatedLine, {type Run} from './components/TruncatedLine.tsx';
 import {runUpdateScript, type UpdateInfo} from './update-check.ts';
 import {
 	closeTuiLayout,
+	paneRespawned,
 	installedLaunchCommand,
 	restartOwnTui,
 } from './tui-sessions.ts';
@@ -172,17 +173,14 @@ import {
 	focusPane,
 	getCurrentlyViewingSpace,
 	killSession,
+	panePid,
 	currentDefaultServerSession,
 	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
 	killSpaceSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
-	setPaneZoom,
-	relayoutPanes,
-	getLayoutDirections,
-	rebuildLayout,
-	getPaneDimensions,
+	reconcilePaneLayout,
 	runningAgentProfile,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
@@ -191,7 +189,13 @@ import {
 	HEADER_ROWS,
 	statusLineFits,
 } from './list-view-sizing.ts';
-import {filterSpaces, tearDownSpace} from './space-utils.ts';
+import {tearDownSpace} from './space-utils.ts';
+import {
+	filterSpaces,
+	highlightedIndex,
+	searchKeyStep,
+	type RailSearch,
+} from './rail-search.ts';
 import {
 	getRegisteredSpaces,
 	getRegisteredSpacesAsync,
@@ -214,7 +218,21 @@ import {
 } from './space-emoji.ts';
 import {watchHighlightTarget, clearHighlightTarget} from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
+import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
+
+/** A reader whose first answer was already asked for. */
+function firstFrom<T>(
+	first: Promise<T> | undefined,
+	read: () => Promise<T>,
+): () => Promise<T> {
+	let pending = first;
+	return async () => {
+		const value = pending;
+		pending = undefined;
+		return value ?? read();
+	};
+}
 
 function claimIssueInBackground(issueKey: string): void {
 	void claimIssue(issueKey).then(claimed => {
@@ -244,6 +262,13 @@ export function quitTui(
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
+	/** Reads started before the renderer loaded, for the first list drawn. */
+	initialWorkspaces?: {
+		registry: ReturnType<typeof getRegisteredSpacesAsync>;
+		mainWorktree: ReturnType<typeof getMainWorktreeInfo>;
+	};
+	firstRailPaint?: Promise<void>;
+	onFirstRailPaint?: () => void;
 	paneLayout: PaneLayout | null;
 	commitSha: string;
 	installedVersion: string | null;
@@ -253,9 +278,10 @@ interface AppProps {
 	updateCheckPromise?: Promise<UpdateInfo | null>;
 }
 
-log.info('Pappardelle starting');
-
 export default function App({
+	initialWorkspaces,
+	firstRailPaint,
+	onFirstRailPaint,
 	paneLayout: initialPaneLayout,
 	commitSha,
 	installedVersion,
@@ -313,6 +339,11 @@ export default function App({
 		[spaces],
 	);
 	const [loading, setLoading] = useState(true);
+	const [backgroundReady, setBackgroundReady] = useState(!firstRailPaint);
+	useEffect(() => {
+		if (firstRailPaint)
+			void firstRailPaint.then(() => setBackgroundReady(true));
+	}, [firstRailPaint]);
 	const [showPromptDialog, setShowPromptDialog] = useState(false);
 	// Snapshotted at keypress like killDoneTargets below, so the 10s poll can't
 	// move the selection onto a different space while the confirm is open.
@@ -338,9 +369,26 @@ export default function App({
 	const [recentErrors, setRecentErrors] = useState<LogEntry[]>([]);
 	const errorCount = recentErrors.length;
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
-	const [isSearching, setIsSearching] = useState(false);
-	const [searchQuery, setSearchQuery] = useState('');
-	const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
+	// Several keys can arrive in one input write, and their handlers all run
+	// before the next render. Search keys read the ref so each acts on what
+	// the previous one left; the state copy is for drawing.
+	const searchNow = useRef<RailSearch | null>(null);
+	const [search, setSearch] = useState<RailSearch | null>(null);
+	// Until the search row is drawn there is no input to take typed text.
+	const searchInputDrawn = useRef(false);
+	// A search reopened before its closing is drawn gets a new input, not the
+	// closed one with its text.
+	const [searchSession, setSearchSession] = useState(0);
+	const updateSearch = useCallback((next: RailSearch | null) => {
+		if (!next) searchInputDrawn.current = false;
+		searchNow.current = next;
+		setSearch(next);
+	}, []);
+	const isSearching = search !== null;
+	const displaySpacesRef = useRef<SpaceData[]>([]);
+	useEffect(() => {
+		searchInputDrawn.current = isSearching;
+	}, [isSearching, searchSession]);
 	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 	// Whether the "Update Pappardelle?" confirm dialog is open. Reached via the
 	// always-available U key (STA-1548) — the banner's U routes here too, so the
@@ -529,10 +577,10 @@ export default function App({
 	}, [paneLayout, repoName, renderer]);
 
 	// Tells `pappardelle restart` which build came up in this pane. Written on
-	// mount, so it also says the TUI got as far as rendering.
+	// first paint, after display metadata is available.
 	useEffect(() => {
 		const paneId = process.env['TMUX_PANE'];
-		if (!initialPaneLayout || !paneId) return;
+		if (!initialPaneLayout || !paneId || !backgroundReady) return;
 		try {
 			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
 			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
@@ -548,7 +596,7 @@ export default function App({
 				error instanceof Error ? error : undefined,
 			);
 		}
-	}, [initialPaneLayout, repoName, commitSha]);
+	}, [initialPaneLayout, repoName, commitSha, backgroundReady]);
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
@@ -598,9 +646,6 @@ export default function App({
 	};
 	const railInputBlocked = isRailInputBlocked(railDialogState);
 
-	// Derive whether any dialog is open (used for zoom, resize gating, and input gating)
-	const anyDialogOpen = railInputBlocked || isSearching;
-
 	// Calculate dimensions
 	const termHeight = termDimensions.rows;
 
@@ -608,13 +653,17 @@ export default function App({
 		await workspaceRefresh.current?.refresh();
 	}, []);
 
+	const earlyWorkspaces = useRef(initialWorkspaces);
 	useEffect(() => {
+		const early = earlyWorkspaces.current;
+		earlyWorkspaces.current = undefined;
 		const refresh = new WorkspaceRefresh({
-			readRegistry: getRegisteredSpacesAsync,
+			detailReady: firstRailPaint,
+			readRegistry: firstFrom(early?.registry, getRegisteredSpacesAsync),
 			readStatus: async (key, sessionKey) =>
 				workspaceStatuses.read(key, sessionKey),
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
-			readMainWorktree: getMainWorktreeInfo,
+			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
 			mainStatusKey: branch => qualifyMainBranch(repoName, branch),
 			getCachedIssue: getIssueCached,
@@ -645,15 +694,15 @@ export default function App({
 			refresh.stop();
 			workspaceRefresh.current = null;
 		};
-	}, [configMemo, repoName, setSpaces, workspaceStatuses]);
+	}, [configMemo, repoName, setSpaces, workspaceStatuses, firstRailPaint]);
 
 	// Warm the skill list once the rail has painted, so the first new-session
 	// prompt can offer completions without waiting on a scan of its own.
 	useEffect(() => {
-		if (loading) return;
+		if (loading || !backgroundReady) return;
 		const roots = skillRoots();
 		if (roots) void skillSnapshot.refresh(roots);
-	}, [loading]);
+	}, [loading, backgroundReady]);
 
 	useEffect(
 		() =>
@@ -713,13 +762,30 @@ export default function App({
 		};
 
 		quitOnCtrlC(renderer, quit);
-		quitOnSignals(quit);
+
+		const paneId = process.env['TMUX_PANE'];
+		let startedPid: string | undefined;
+		if (paneId) {
+			void panePid(paneId).then(pid => {
+				startedPid = pid;
+			});
+		}
+
+		quitOnSignals(() => {
+			if (
+				paneId &&
+				startedPid &&
+				paneRespawned(paneId, startedPid, closeLayoutDeps.layoutTmux)
+			)
+				renderer.destroy();
+			else quit();
+		});
 	}, [renderer, repoName]);
 
-	const dialogRequest = useRef({zoomed: anyDialogOpen, revision: 0});
-	if (dialogRequest.current.zoomed !== anyDialogOpen) {
+	const dialogRequest = useRef({zoomed: railInputBlocked, revision: 0});
+	if (dialogRequest.current.zoomed !== railInputBlocked) {
 		dialogRequest.current = {
-			zoomed: anyDialogOpen,
+			zoomed: railInputBlocked,
 			revision: dialogRequest.current.revision + 1,
 		};
 	}
@@ -727,41 +793,38 @@ export default function App({
 	const isZooming = Boolean(
 		paneLayout && settledRevision !== dialogRequest.current.revision,
 	);
+	useEffect(() => {
+		if (loading || isZooming || backgroundReady || !onFirstRailPaint) return;
+		let fired = false;
+		let timer: ReturnType<typeof setTimeout>;
+		const afterFrame = () => {
+			if (fired) return;
+			fired = true;
+			timer = setTimeout(onFirstRailPaint, 0);
+		};
+		renderer.addPostProcessFn(afterFrame);
+		renderer.requestRender();
+		return () => {
+			renderer.removePostProcessFn(afterFrame);
+			clearTimeout(timer);
+		};
+	}, [loading, isZooming, backgroundReady, onFirstRailPaint, renderer]);
 	const syncingTerminalSize = useRef(false);
 	const layoutTasks = useMemo(
 		() =>
 			new PaneLayoutTask({
 				queue: attachmentTask,
 				async apply(zoomed) {
-					let layout = paneLayoutRef.current;
+					const layout = paneLayoutRef.current;
 					if (!layout)
 						return {rows: stdout?.rows ?? 40, cols: stdout?.columns ?? 80};
-					await setPaneZoom(layout.listPaneId, zoomed);
-					if (!zoomed) {
-						const {current, desired} = await getLayoutDirections(
-							layout.listPaneId,
-						);
-						if (current !== desired) {
-							const next = await rebuildLayout(
-								layout.listPaneId,
-								layout.agentViewerPaneId,
-								layout.companionViewerPaneId,
-							);
-							if (!next) throw new Error('Failed to rebuild pane layout');
-							layout = next;
-							paneLayoutRef.current = next;
-							setPaneLayout(next);
-							panesInitialized.current = false;
-						} else if (
-							!(await relayoutPanes(
-								layout.listPaneId,
-								layout.companionViewerPaneId,
-							))
-						) {
-							throw new Error('Failed to resize pane layout');
-						}
+					const reconciled = await reconcilePaneLayout(layout, zoomed);
+					if (reconciled.layout !== layout) {
+						paneLayoutRef.current = reconciled.layout;
+						setPaneLayout(reconciled.layout);
+						panesInitialized.current = false;
 					}
-					return getPaneDimensions(layout.listPaneId);
+					return reconciled.dimensions;
 				},
 				onReady(_zoomed, dimensions, revision) {
 					syncingTerminalSize.current = true;
@@ -786,26 +849,55 @@ export default function App({
 			}),
 		[attachmentTask, stdout, renderer],
 	);
-	const dialogOpenRef = useRef(anyDialogOpen);
-	dialogOpenRef.current = anyDialogOpen;
+	const dialogOpenRef = useRef(railInputBlocked);
+	dialogOpenRef.current = railInputBlocked;
 	useEffect(() => {
-		if (paneLayoutRef.current)
-			void layoutTasks.request(anyDialogOpen, dialogRequest.current.revision);
-	}, [layoutTasks, anyDialogOpen, loading, spaces.length]);
+		if (paneLayoutRef.current) {
+			const done = startupTrace.current?.begin('layout-request', {
+				cause: 'state',
+				loading,
+				spaces: spaces.length,
+				zoomed: railInputBlocked,
+				revision: dialogRequest.current.revision,
+			});
+			void layoutTasks
+				.request(railInputBlocked, dialogRequest.current.revision)
+				.finally(() => done?.());
+		}
+	}, [layoutTasks, railInputBlocked, loading, spaces.length]);
 	useEffect(() => () => layoutTasks.stop(), [layoutTasks]);
 	useEffect(() => {
 		if (!stdout) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		const requestLayout = () => {
+			if (!paneLayoutRef.current) return;
+			const done = startupTrace.current?.begin('layout-request', {
+				cause: 'resize',
+				zoomed: dialogOpenRef.current,
+				revision: dialogRequest.current.revision,
+				cols: stdout.columns,
+				rows: stdout.rows,
+			});
+			void layoutTasks
+				.request(dialogOpenRef.current, dialogRequest.current.revision, () => ({
+					cols: stdout.columns ?? 80,
+					rows: stdout.rows ?? 40,
+				}))
+				.finally(() => done?.());
+		};
+
+		// A single resize, such as a tiling window manager making room for a
+		// window, is laid out at once. The window can change again while that
+		// layout runs without this pane's size changing, so no further event
+		// arrives; laying out once more after a pause covers that and a drag.
 		const handleResize = () => {
 			setPaneDimensions({rows: stdout.rows ?? 40, cols: stdout.columns ?? 80});
 			if (syncingTerminalSize.current) return;
+			if (timer === undefined) requestLayout();
 			clearTimeout(timer);
 			timer = setTimeout(() => {
-				if (paneLayoutRef.current)
-					void layoutTasks.request(
-						dialogOpenRef.current,
-						dialogRequest.current.revision,
-					);
+				timer = undefined;
+				requestLayout();
 			}, 150);
 		};
 		stdout.on('resize', handleResize);
@@ -831,9 +923,10 @@ export default function App({
 			(selectedSpace?.isMainWorktree && !selectedWorktreePath)
 		)
 			return;
-
+		const queued = startupTrace.current?.begin('attachment-queue');
 		void attachmentTask
 			.run(async signal => {
+				queued?.();
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
 				const registered = await getRegisteredSpacesAsync().catch(() => null);
 				if (signal.aborted) return;
@@ -864,6 +957,7 @@ export default function App({
 				);
 				if (success && !signal.aborted) {
 					panesInitialized.current = true;
+					startupTrace.current?.attachmentReady();
 				}
 			})
 			.catch((err: unknown) =>
@@ -872,7 +966,10 @@ export default function App({
 					err instanceof Error ? err : undefined,
 				),
 			);
-		return () => attachmentTask.cancel();
+		return () => {
+			queued?.('cancelled');
+			attachmentTask.cancel();
+		};
 	}, [
 		selectedSpaceName,
 		selectedWorktreePath,
@@ -890,7 +987,7 @@ export default function App({
 		attachmentGate.rendered(selectedSpaceName);
 	});
 	// Every key in one input write runs before React renders, so keys after one
-	// that opened an inline dialog or search would still act on the rail.
+	// that opened an inline dialog would still act on the rail.
 	// They are dropped until that dialog is on screen to take them.
 	const inlineDialogOpening = useRef(false);
 	useEffect(() => {
@@ -1360,12 +1457,27 @@ export default function App({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	// Returns whether search took the key.
+	const handleSearchKey = (event: KeyEvent): boolean => {
+		const {current} = searchNow;
+		if (!current) return false;
+		const step = searchKeyStep(
+			current,
+			displaySpacesRef.current,
+			shortcutKey(event),
+			searchInputDrawn.current,
+		);
+		if (step.select) selectSpace(step.select);
+		updateSearch(step.search);
+		return true;
+	};
+
 	// Handle keyboard input
 	useKeyboard(event => {
-		if (anyDialogOpen || popupOpening.current || inlineDialogOpening.current)
+		if (handleSearchKey(event)) return;
+		if (railInputBlocked || popupOpening.current || inlineDialogOpening.current)
 			return;
 		const {input, key} = shortcutKey(event);
-		if (railInputBlocked) return;
 
 		// Check custom keybindings first — they can override default keys
 		const kb = keybindingMap.get(input);
@@ -1444,11 +1556,8 @@ export default function App({
 		} else
 			switch (input) {
 				case '/': {
-					inlineDialogOpening.current = true;
-					setIsSearching(true);
-					setSearchQuery('');
-					setSearchSelectedIndex(0);
-
+					setSearchSession(session => session + 1);
+					updateSearch({query: '', index: 0});
 					break;
 				}
 				case 'q': {
@@ -1547,37 +1656,6 @@ export default function App({
 					}
 				}
 			}
-	});
-
-	// Search-mode input handler: Escape to cancel, Enter to confirm, j/k to navigate filtered results
-	useKeyboard(event => {
-		if (!isSearching) return;
-		const {input: _input, key} = shortcutKey(event);
-		if (key.escape) {
-			setIsSearching(false);
-			setSearchQuery('');
-		} else if (key.return) {
-			// Confirm: resolve filtered selection back to real spaces index
-			const displayIdx = filteredToDisplayMap[searchSelectedIndex];
-			if (displayIdx !== undefined) {
-				// Map display index back to spaces index (reverse the pending offset)
-				const spacesIdx =
-					pendingInsertIndex >= 0 && displayIdx > pendingInsertIndex
-						? displayIdx - 1
-						: displayIdx;
-				if (spacesIdx >= 0 && spacesIdx < spaces.length) {
-					setSelectedIndex(spacesIdx);
-				}
-			}
-			setIsSearching(false);
-			setSearchQuery('');
-		} else if (key.upArrow || (_input === 'k' && key.ctrl)) {
-			setSearchSelectedIndex(prev => Math.max(0, prev - 1));
-		} else if (key.downArrow || (_input === 'j' && key.ctrl)) {
-			setSearchSelectedIndex(prev =>
-				Math.min(filteredDisplaySpaces.length - 1, prev + 1),
-			);
-		}
 	});
 
 	const spawnSession = useCallback(
@@ -1985,7 +2063,7 @@ export default function App({
 	const hasRailTargets = spaces.some(
 		s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
 	);
-	useRailStatusPolling(hasRailTargets, async () => {
+	useRailStatusPolling(hasRailTargets && backgroundReady, async () => {
 		try {
 			const targets = spacesRef.current.filter(
 				s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
@@ -2277,22 +2355,24 @@ export default function App({
 		return {displaySpaces: result, pendingInsertIndex: insertIdx};
 	}, [spaces, pendingSession]);
 
-	// Filter display spaces when searching
-	const {filteredDisplaySpaces, filteredToDisplayMap} = useMemo(() => {
-		if (!isSearching || !searchQuery) {
-			return {
-				filteredDisplaySpaces: displaySpaces,
-				filteredToDisplayMap: displaySpaces.map((_, i) => i),
-			};
-		}
-		const {filtered, indexMap} = filterSpaces(displaySpaces, searchQuery);
-		return {filteredDisplaySpaces: filtered, filteredToDisplayMap: indexMap};
-	}, [displaySpaces, isSearching, searchQuery]);
+	displaySpacesRef.current = displaySpaces;
 
-	// Reset search selection when query changes
-	useEffect(() => {
-		setSearchSelectedIndex(0);
-	}, [searchQuery]);
+	const searchQuery = search?.query ?? '';
+	const filteredDisplaySpaces = useMemo(
+		() => filterSpaces(displaySpaces, searchQuery),
+		[displaySpaces, searchQuery],
+	);
+	const searchSelectedIndex = search
+		? highlightedIndex(search, filteredDisplaySpaces.length)
+		: 0;
+	const typeSearch = useCallback(
+		(query: string) => {
+			const {current} = searchNow;
+			if (!searchInputDrawn.current) return;
+			if (current && current.query !== query) updateSearch({query, index: 0});
+		},
+		[updateSearch],
+	);
 
 	// Map selectedIndex (which indexes into `spaces`) to the display list.
 	// When a pending row is inserted before the selected item, shift by 1.
@@ -2331,11 +2411,12 @@ export default function App({
 	const selectRow = useCallback(
 		(name: string) => {
 			if (railInputBlocked) return;
-			if (isSearching) {
+			const {current} = searchNow;
+			if (current) {
 				const index = filteredDisplaySpaces.findIndex(
 					space => space.name === name && !space.isPending,
 				);
-				if (index !== -1) setSearchSelectedIndex(index);
+				if (index !== -1) updateSearch({...current, index});
 			} else {
 				const index = spaces.findIndex(space => space.name === name);
 				if (index !== -1) setSelectedIndex(index);
@@ -2343,10 +2424,10 @@ export default function App({
 		},
 		[
 			railInputBlocked,
-			isSearching,
 			filteredDisplaySpaces,
 			spaces,
 			setSelectedIndex,
+			updateSearch,
 		],
 	);
 
@@ -2405,7 +2486,7 @@ export default function App({
 	}
 
 	const statusFits = statusLineFits(termHeight, bannerHeight, linesPerItem);
-	const searchInHeader = !statusFits && isSearching && !isZooming;
+	const searchInHeader = !statusFits && isSearching;
 	const searchRow = (
 		/* Keep the slash and match count at their natural widths;
 	   the native input scrolls its text within the remaining space. */
@@ -2422,8 +2503,9 @@ export default function App({
 			</box>
 			<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
 				<TextInput
+					key={searchSession}
 					value={searchQuery}
-					onChange={setSearchQuery}
+					onChange={typeSearch}
 					placeholder="filter by key or title..."
 				/>
 			</box>
@@ -2441,8 +2523,8 @@ export default function App({
 
 	return (
 		<PaneFrame title="rail" isActive={isRailFocused}>
-			{/* Keep blank rows in the frame so filtering clears old results after a
-		    search zoom. OpenTUI retains and updates only the cells that change. */}
+			{/* Keep blank rows in the frame so filtering clears old results.
+		    OpenTUI retains and updates only the cells that change. */}
 			<box flexDirection="column" height={termHeight}>
 				{/* Update banner (only shown if an update is available and not dismissed) */}
 				{updateInfo && (
@@ -2479,7 +2561,7 @@ export default function App({
 						overflow="hidden"
 						paddingLeft={ROW_PADDING_CELLS}
 					>
-						{isSearching && !isZooming ? (
+						{isSearching ? (
 							searchRow
 						) : (
 							<TruncatedLine

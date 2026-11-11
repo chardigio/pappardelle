@@ -1,20 +1,64 @@
-import {execFile, execFileSync} from 'node:child_process';
+import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
+import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
-import {
-	getPaneDimensions,
-	getLayoutDirections,
-	setPaneZoom,
-	rebuildLayout,
-	relayoutPanes,
-} from './tmux.ts';
+import {rebuildLayout, reconcilePaneLayout} from './tmux.ts';
 import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
 
 const exec = promisify(execFile);
+
+async function getPaneDimensions(
+	pane: string,
+	run: (args: string[]) => Promise<string>,
+) {
+	const output = await run([
+		'display-message',
+		'-p',
+		'-t',
+		pane,
+		'#{pane_width} #{pane_height}',
+	]);
+	const [cols, rows] = output.trim().split(' ').map(Number);
+	return {cols, rows};
+}
+
+test('zoom reconciliation waits for geometry without blocking other work or toggling an already zoomed pane', async t => {
+	let release = () => {};
+	const pending = new Promise<void>(resolve => {
+		release = resolve;
+	});
+	let zoomed = false;
+	let finished = false;
+	const mutations: string[][] = [];
+	const run = async (args: string[]) => {
+		await pending;
+		if (args[0] === 'resize-pane') {
+			zoomed = !zoomed;
+			mutations.push(args);
+		}
+		return `%fixture ${zoomed ? 160 : 30} 50 160 50 ${Number(zoomed)}`;
+	};
+	const layout = {
+		listPaneId: '%fixture',
+		agentViewerPaneId: '%agent',
+		companionViewerPaneId: '',
+	};
+	const reconciling = reconcilePaneLayout(layout, true, run).then(result => {
+		finished = true;
+		return result;
+	});
+	await nextTurn();
+	t.false(finished);
+	t.false(zoomed);
+	release();
+	const result = await reconciling;
+	t.deepEqual(result.dimensions, {cols: 160, rows: 50});
+	await reconcilePaneLayout(layout, true, run);
+	t.deepEqual(mutations, [['resize-pane', '-Z', '-t', '%fixture']]);
+});
 
 async function paneWidth(
 	pane: string,
@@ -68,55 +112,56 @@ test.serial(
 		await run(['set-option', '-g', 'status', 'off']);
 		const paneOutput = await run(['display-message', '-p', '#{pane_id}']);
 		const pane = paneOutput.trim();
-		let layout = await rebuildLayout(pane, '', '', run);
-		t.truthy(layout);
-		if (!layout) return;
-		t.deepEqual(await getLayoutDirections(pane, run), {
-			current: 'horizontal',
-			desired: 'horizontal',
-		});
+		const initial = await rebuildLayout(pane, '', '', run);
+		t.truthy(initial);
+		if (!initial) return;
+		let {layout} = initial;
+		t.true((await paneWidth(pane, run)) < 220);
 		await run(['resize-pane', '-t', pane, '-x', '44']);
-		t.true(await relayoutPanes(pane, layout.companionViewerPaneId, run));
+		await reconcilePaneLayout(layout, false, run);
 		t.is(await paneWidth(pane, run), 44);
 		// A companion drag raises no resize in the list pane, so it is only seen
 		// by the next relayout from some other cause, which must keep it.
 		await run(['resize-pane', '-t', layout.companionViewerPaneId, '-x', '60']);
-		t.true(await relayoutPanes(pane, layout.companionViewerPaneId, run));
-		t.true(await relayoutPanes(pane, layout.companionViewerPaneId, run));
+		await reconcilePaneLayout(layout, false, run);
+		await reconcilePaneLayout(layout, false, run);
 		t.is(await paneWidth(layout.companionViewerPaneId, run), 60);
 		t.is(await paneWidth(pane, run), 44);
-		const before: number[] = [];
-		const after: number[] = [];
-		for (let i = 0; i < 3; i++) {
-			const start = performance.now();
-			execFileSync('tmux', [
-				'-S',
-				socket,
-				'display-message',
-				'-p',
-				'-t',
-				pane,
-				'#{window_zoomed_flag}',
-			]);
-			execFileSync('tmux', ['-S', socket, 'resize-pane', '-Z', '-t', pane]);
-			await delay(100);
-			before.push(performance.now() - start);
-			await setPaneZoom(pane, false, run);
-			const next = performance.now();
-			await setPaneZoom(pane, true, run);
-			await getPaneDimensions(pane, run);
-			after.push(performance.now() - next);
-			await setPaneZoom(pane, false, run);
-		}
-		const median = (values: number[]) => values.sort((a, b) => a - b)[1]!;
-		t.log(
-			`isolated tmux zoom readiness: ${median(before).toFixed(1)} ms with old 100ms wait, ${median(after).toFixed(1)} ms with confirmed geometry`,
+		const createdWindow = await run([
+			'new-window',
+			'-d',
+			'-n',
+			'other',
+			'-P',
+			'-F',
+			'#{window_id}',
+		]);
+		const otherWindow = createdWindow.trim();
+		await run(['resize-window', '-t', otherWindow, '-x', '400', '-y', '60']);
+		await run(['select-window', '-t', otherWindow]);
+		const reconciled: string[][] = [];
+		t.truthy(
+			await reconcilePaneLayout(layout, false, async args => {
+				reconciled.push(args);
+				return run(args);
+			}),
 		);
-		await setPaneZoom(pane, true, run);
+		t.is(await paneWidth(pane, run), 44);
+		t.is(await paneWidth(layout.companionViewerPaneId, run), 60);
+		t.false(reconciled.some(args => args[0] === 'resize-pane'));
+		t.is(reconciled.filter(args => args[0] === 'list-panes').length, 1);
+		const zoomed = await reconcilePaneLayout(layout, true, run);
+		t.deepEqual(zoomed.dimensions, {cols: 220, rows: 50});
+		const restored = await reconcilePaneLayout(zoomed.layout, false, run);
+		t.deepEqual(restored.dimensions, {cols: 44, rows: 50});
+		t.is(await paneWidth(layout.companionViewerPaneId, run), 60);
+		await run(['select-window', '-t', pane]);
+
+		await reconcilePaneLayout(layout, true, run);
 		t.deepEqual(await getPaneDimensions(pane, run), {cols: 220, rows: 50});
-		await setPaneZoom(pane, true, run);
+		await reconcilePaneLayout(layout, true, run);
 		t.is(await paneWidth(pane, run), 220);
-		await setPaneZoom(pane, false, run);
+		await reconcilePaneLayout(layout, false, run);
 		t.is(await paneWidth(pane, run), 44);
 		await exec('tmux', [
 			'-S',
@@ -144,24 +189,26 @@ test.serial(
 			`env -u TMUX tmux -S '${inner}' attach-session -t work`,
 		]);
 		await run(['resize-window', '-x', '80', '-y', '40']);
-		layout = await rebuildLayout(
-			pane,
-			layout.agentViewerPaneId,
-			layout.companionViewerPaneId,
-			run,
-		);
+		({layout} = await reconcilePaneLayout(layout, false, run));
 		t.truthy(layout);
 		if (!layout) return;
 		t.is(layout.companionViewerPaneId, '');
-		t.deepEqual(await getLayoutDirections(pane, run), {
-			current: 'vertical',
-			desired: 'vertical',
-		});
+		t.is(await paneWidth(pane, run), 80);
+		fs.writeFileSync(
+			path.join(dir, 'registry.json'),
+			JSON.stringify(Array.from({length: 8}, (_, i) => `TEST-${i}`)),
+		);
+		await reconcilePaneLayout(layout, false, run);
+		const narrowDimensions = await getPaneDimensions(pane, run);
+		t.is(narrowDimensions.rows, 9);
 		const activePane = await run(['display-message', '-p', '#{pane_id}']);
 		t.is(activePane.trim(), pane);
 		await run(['resize-window', '-x', '220', '-y', '50']);
-		layout = await rebuildLayout(pane, layout.agentViewerPaneId, '', run);
-		t.truthy(layout?.companionViewerPaneId);
+		const wide = await rebuildLayout(pane, layout.agentViewerPaneId, '', run);
+		t.truthy(wide);
+		if (!wide) return;
+		layout = wide.layout;
+		t.truthy(layout.companionViewerPaneId);
 		t.is(await paneWidth(pane, run), 44);
 		t.is(await paneWidth(layout!.companionViewerPaneId, run), 60);
 		const {stdout: survivingSession} = await exec('tmux', [
@@ -175,28 +222,62 @@ test.serial(
 	},
 );
 
-test('slow tmux responses leave timers responsive and zoom has no fixed settling delay', async t => {
-	let zoomed = false;
-	let ticks = 0;
-	const timer = setInterval(() => {
-		ticks++;
-	}, 2);
-	t.teardown(() => clearInterval(timer));
-	const calls: string[][] = [];
-	const run = async (args: string[]) => {
-		calls.push(args);
-		await delay(35);
-		if (args[0] === 'resize-pane') zoomed = !zoomed;
-		return zoomed ? '1' : '0';
-	};
-	await setPaneZoom('%fixture', true, run);
-	t.true(ticks >= 10);
-	t.is(calls.length, 2);
-	t.true(zoomed);
-	await setPaneZoom('%fixture', true, run);
-	t.is(calls.length, 3);
-	t.true(zoomed);
-});
+test.serial(
+	'a layout pass still sizes the rail after the companion pane has closed',
+	async t => {
+		try {
+			await exec('tmux', ['-V']);
+		} catch {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-layout-'));
+		const socket = path.join(dir, 'outer');
+		const run = async (args: string[]) => {
+			const {stdout} = await exec('tmux', ['-S', socket, ...args], {
+				env: {...process.env, TMUX: ''},
+				timeout: 5000,
+			});
+			return stdout;
+		};
+
+		setRegistryPath(path.join(dir, 'registry.json'));
+		t.teardown(async () => {
+			try {
+				await exec('tmux', ['-S', socket, 'kill-server']);
+			} catch {}
+
+			resetRegistryPath();
+			fs.rmSync(dir, {recursive: true, force: true});
+		});
+		await run([
+			'-f',
+			'/dev/null',
+			'new-session',
+			'-d',
+			'-s',
+			'fixture',
+			'-x',
+			'220',
+			'-y',
+			'50',
+		]);
+		await run(['set-option', '-g', 'status', 'off']);
+		const paneOutput = await run(['display-message', '-p', '#{pane_id}']);
+		const pane = paneOutput.trim();
+		const initial = await rebuildLayout(pane, '', '', run);
+		t.truthy(initial);
+		if (!initial) return;
+		const railWidth = await paneWidth(pane, run);
+
+		await run(['kill-pane', '-t', initial.layout.companionViewerPaneId]);
+		await run(['resize-pane', '-t', pane, '-x', String(railWidth + 20)]);
+		await reconcilePaneLayout(initial.layout, false, run);
+		await reconcilePaneLayout(initial.layout, false, run);
+		t.is(await paneWidth(pane, run), railWidth + 20);
+	},
+);
 
 test('failed geometry discovery leaves existing panes untouched', async t => {
 	const commands: string[] = [];
@@ -210,5 +291,5 @@ test('failed geometry discovery leaves existing panes untouched', async t => {
 		},
 	);
 	t.is(result, null);
-	t.deepEqual(commands, ['display-message']);
+	t.deepEqual(commands, ['list-panes']);
 });

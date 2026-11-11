@@ -116,12 +116,20 @@ export default function CloseSpaceDialog({
 		if (!pickable) return;
 		const {input: _input, key} = shortcutKey(event);
 		if (!key.leftArrow && !key.rightArrow) return;
-		const next = cycleChoice(
-			index,
-			choices.length,
-			key.leftArrow ? 'left' : 'right',
-		);
-		setSelectedKey(keys[next]!);
+		const direction = key.leftArrow ? 'left' : 'right';
+		// Several arrows can arrive before the next render.
+		setSelectedKey(current => {
+			const from =
+				current !== null && keys.includes(current)
+					? current
+					: defaultChoiceKey(choices);
+			const next = cycleChoice(
+				Math.max(0, keys.indexOf(from)),
+				choices.length,
+				direction,
+			);
+			return keys[next]!;
+		});
 	});
 
 	const content = closeSpaceContent(spaceName);

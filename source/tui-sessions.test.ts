@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import {
 	closeTuiLayout,
 	installedLaunchCommand,
 	listRunningTuis,
+	paneRespawned,
 	restartAndVerifyTui,
 	restartOwnTui,
 	restartTuis,
@@ -283,6 +285,8 @@ test('a state dir the lock cannot be created in fails at once with the reason', 
 
 test('a second restart waits for the first instead of overlapping it', async t => {
 	const h = setup(['pappardelle-app']);
+	// The release below can run late when the suite is busy.
+	h.deps.timing = {...FAST, lockTimeoutMs: 60_000};
 	fs.writeFileSync(restartLockPath(h.root, 'app'), `${process.pid}\n`);
 	setTimeout(() => {
 		t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
@@ -581,4 +585,47 @@ test('a standalone restart invokes the executable once and installed releases us
 		}),
 		"'/home/me/.local/bin/pappardelle'",
 	);
+});
+
+// ============================================================================
+// A signal after the pane was respawned (pappardelle restart)
+// ============================================================================
+
+test('a pane counts as respawned only while another process runs in it', t => {
+	if (spawnSync('tmux', ['-V']).status !== 0) {
+		t.pass('tmux is not installed');
+		return;
+	}
+
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-respawn-'));
+	const tmux = (args: readonly string[]) => {
+		const result = spawnSync(
+			'tmux',
+			['-S', path.join(dir, 'outer'), '-f', '/dev/null', ...args],
+			{encoding: 'utf8', env: {...process.env, TMUX: ''}, timeout: 5000},
+		);
+		return {
+			error: result.error,
+			status: result.status,
+			stdout: result.stdout ?? '',
+		};
+	};
+
+	t.teardown(() => {
+		tmux(['kill-server']);
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+	tmux(['new-session', '-d', '-s', 'fixture', 'sleep 60']);
+	const read = (format: string) =>
+		tmux(['display-message', '-p', '-t', '=fixture:', format]).stdout.trim();
+	const paneId = read('#{pane_id}');
+	const startedPid = read('#{pane_pid}');
+
+	t.false(paneRespawned(paneId, startedPid, tmux));
+
+	tmux(['respawn-pane', '-k', '-t', paneId, 'sleep 60']);
+	t.true(paneRespawned(paneId, startedPid, tmux));
+
+	tmux(['kill-session', '-t', '=fixture']);
+	t.false(paneRespawned(paneId, startedPid, tmux));
 });

@@ -1,7 +1,7 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 
 import type {KeybindingConfig} from '../config.ts';
 import {formatVersionLine} from '../help-version-line.ts';
@@ -38,6 +38,8 @@ export default function HelpOverlay({
 	availableHeight,
 }: Props) {
 	const [top, setTop] = useState(0);
+	// Several keys can arrive before the next render.
+	const topNow = useRef(0);
 	const rows = buildHelpRows(customKeybindings);
 	const lines = buildHelpLines(rows);
 	const viewHeight =
@@ -54,11 +56,13 @@ export default function HelpOverlay({
 		}
 
 		const result = handleTextViewerKey(input, key, {
-			top,
+			top: topNow.current,
 			lineCount: lines.length,
 			viewHeight,
 		});
-		if (result.action === 'scroll') setTop(result.top);
+		if (result.action !== 'scroll') return;
+		topNow.current = result.top;
+		setTop(result.top);
 	});
 
 	return (

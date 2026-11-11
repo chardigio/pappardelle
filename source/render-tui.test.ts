@@ -14,6 +14,7 @@ import test from 'ava';
 import React from 'react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
+import {useKeyboard} from '@opentui/react';
 
 const list = (query: string, rows: string[]) =>
 	React.createElement(
@@ -23,6 +24,33 @@ const list = (query: string, rows: string[]) =>
 		React.createElement('text', null, '/' + query),
 		...rows.map(row => React.createElement('text', {key: row}, row)),
 	);
+
+test.serial(
+	'updating startup metadata preserves keyboard state and the mounted view',
+	async t => {
+		let mounts = 0;
+		function Stateful({sha}: {sha: string}) {
+			const [input, setInput] = React.useState('');
+			React.useEffect(() => {
+				mounts++;
+			}, []);
+			useKeyboard(key => {
+				if (key.name === 'x') setInput(value => value + 'x');
+			});
+			return React.createElement('text', null, `${sha} ${input}`);
+		}
+		const view = await terminalView(
+			React.createElement(Stateful, {sha: 'unknown'}),
+		);
+		t.teardown(async () => view.dispose());
+		view.stdin.write('x');
+		await view.flush();
+		t.is(view.line(0), 'unknown x');
+		await view.update(React.createElement(Stateful, {sha: 'abc123'}));
+		t.is(view.line(0), 'abc123 x');
+		t.is(mounts, 1);
+	},
+);
 
 test.serial(
 	'filtering and resizing remove stale rows and keep the list at the top',

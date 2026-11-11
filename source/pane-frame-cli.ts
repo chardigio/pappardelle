@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {spawnSync} from 'node:child_process';
 import process from 'node:process';
 import {
@@ -8,9 +9,17 @@ import {
 } from '@opentui/core';
 import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
+import {FrameInputRouter} from './frame-input.ts';
+import {interceptInput} from './lone-escape.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
-import {paletteSequences} from './pane-frame-palette.ts';
-import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
+import {
+	CLIENT_TTY_OPTION,
+	FRAME_COMMAND_OPTION,
+	PANE_TITLE_OPTION,
+	frameReadyChannel,
+	frameStartedChannel,
+} from './pane-frame-options.ts';
 
 // Draws a rounded, titled frame in a viewer pane and runs the pane's command
 // (a nested `tmux attach`, or a message) inside it. tmux can only draw the
@@ -18,7 +27,9 @@ import {CLIENT_TTY_OPTION, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 
 const args = process.argv.slice(2);
 const separator = args.indexOf('--');
-const command = args.slice(separator + 1);
+const command = separator === -1 ? [] : args.slice(separator + 1);
+// Started with its pane, before the rail knows what the pane will show.
+const awaitsCommand = args.includes('--await');
 const titleFlag = args.indexOf('--title');
 const outerSocket = (process.env['TMUX'] ?? '').split(',')[0] ?? '';
 const paneId = process.env['TMUX_PANE'] ?? '';
@@ -32,7 +43,7 @@ function outerTmux(tmuxArgs: string[]): string {
 }
 
 let title =
-	titleFlag !== -1 && titleFlag < separator
+	titleFlag !== -1 && (separator === -1 || titleFlag < separator)
 		? (args[titleFlag + 1] ?? '')
 		: outerTmux([
 				'display-message',
@@ -44,7 +55,13 @@ let title =
 let isActive =
 	outerTmux(['display-message', '-p', '-t', paneId, '#{pane_active}']) === '1';
 
-const renderer = await createCliRenderer({exitOnCtrlC: false, exitSignals: []});
+// Everything a pane's program draws waits for this renderer's next frame, so
+// the cap is twice the default 60.
+const renderer = await createCliRenderer({
+	exitOnCtrlC: false,
+	exitSignals: [],
+	maxFps: 120,
+});
 const frame = new BoxRenderable(renderer, {
 	id: 'frame',
 	width: '100%',
@@ -72,6 +89,10 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 	id: 'terminal',
 	width: '100%',
 	height: '100%',
+	// Until its first layout the terminal would otherwise be 80x24, and a
+	// program that drew at the pane's real size before then is not asked to
+	// draw again.
+	...childSize,
 	maxScrollback: 0,
 	transparentBackground: true,
 	selectable: false,
@@ -84,6 +105,46 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 		childPty.current?.resize(cols, rows);
 	},
 });
+// Keys go to the program as the bytes tmux wrote, without passing through
+// the renderer's input parser; see FrameInputRouter. Until the program has
+// started, everything read is the terminal answering the renderer.
+const inputRouter = new FrameInputRouter();
+let heldInput: ReturnType<typeof setTimeout> | undefined;
+interceptInput(renderer, process.stdin, (chunk, parse) => {
+	if (!childPty.current || typeof chunk === 'string') {
+		parse(chunk);
+		return;
+	}
+
+	clearTimeout(heldInput);
+	for (const segment of inputRouter.route(chunk)) {
+		if (segment.to === 'program') childPty.current.write(segment.bytes);
+		else parse(Buffer.from(segment.bytes));
+	}
+
+	// The rest of a sequence the read ended in arrives at once if it is coming.
+	if (inputRouter.isHolding)
+		heldInput = setTimeout(() => {
+			const held = inputRouter.release();
+			if (held) childPty.current?.write(held);
+		}, 3);
+});
+// The terminal a paste came from has already made it safe to paste. The
+// embedded terminal's own encoding would replace Escape, Ctrl+C and Delete in
+// it with spaces, so only its bracketing is used: what it puts around a
+// single letter says whether the program asked for bracketed paste.
+terminal.handlePaste = event => {
+	const marker = 0x78;
+	const framed = terminal.encodePaste(Uint8Array.of(marker));
+	const at = framed.indexOf(marker);
+	childPty.current?.write(
+		Buffer.concat([
+			framed.subarray(0, at),
+			event.bytes,
+			framed.subarray(at + 1),
+		]),
+	);
+};
 frame.add(terminal);
 terminal.focus();
 
@@ -100,8 +161,22 @@ if (outerSocket && paneId)
 
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.
-const palette = await renderer.getPalette({timeout: 500}).catch(() => null);
-if (palette) terminal.write(paletteSequences(palette));
+const palette = await queryPalette(
+	{
+		write(sequence) {
+			process.stdout.write(sequence);
+		},
+		subscribeOsc: handler => renderer.subscribeOsc(handler),
+		prependInputHandler(handler) {
+			renderer.prependInputHandler(handler);
+		},
+		removeInputHandler(handler) {
+			renderer.removeInputHandler(handler);
+		},
+	},
+	500,
+);
+terminal.write(paletteSequences(palette));
 renderer.on('palette', (colors: Parameters<typeof paletteSequences>[0]) => {
 	terminal.write(paletteSequences(colors));
 	terminal.invalidate();
@@ -120,6 +195,12 @@ function sizeReply(query: SizeQuery): string {
 	return `\u001B[4;${Math.round(cellHeight * rows)};${Math.round(cellWidth * cols)}t`;
 }
 
+// The program's keypad mode was passed on to this pane, and a program that is
+// killed does not take it back.
+function leaveKeypadMode(): void {
+	process.stdout.write('\u001B>');
+}
+
 const scanner = new OscScanner();
 const childEnv: Record<string, string | undefined> = {
 	...process.env,
@@ -130,18 +211,35 @@ delete childEnv['TMUX'];
 delete childEnv['TMUX_PANE'];
 
 // The rail moves this pane's nested tmux client between sessions by its tty,
-// which only the child can see, so the child publishes it before starting.
+// which only the child can see, so the child publishes it before starting and
+// signals the rail, which is waiting for it. A child without a program yet
+// waits for the rail's signal first, so that its tty still appears only once
+// the program is about to run.
 const child = Bun.spawn(
-	[
-		'/bin/sh',
-		'-c',
-		'[ -n "$1" ] && tmux -S "$1" set-option -p -t "$2" "$3" "$(tty)" 2>/dev/null; shift 3; exec "$@"',
-		'sh',
-		outerSocket,
-		paneId,
-		CLIENT_TTY_OPTION,
-		...command,
-	],
+	awaitsCommand
+		? [
+				'/bin/sh',
+				'-c',
+				't=$(tty); tmux -S "$1" wait-for "$5" && exec /bin/sh -c "$(tmux -S "$1" set-option -p -t "$2" "$3" "$t" \\; wait-for -S "$6" \\; show-option -pqv -t "$2" "$4")"',
+				'sh',
+				outerSocket,
+				paneId,
+				CLIENT_TTY_OPTION,
+				FRAME_COMMAND_OPTION,
+				frameReadyChannel(paneId),
+				frameStartedChannel(paneId),
+			]
+		: [
+				'/bin/sh',
+				'-c',
+				'[ -n "$1" ] && tmux -S "$1" set-option -p -t "$2" "$3" "$(tty)" \\; wait-for -S "$4" 2>/dev/null; shift 4; exec "$@"',
+				'sh',
+				outerSocket,
+				paneId,
+				CLIENT_TTY_OPTION,
+				frameStartedChannel(paneId),
+				...command,
+			],
 	{
 		env: childEnv,
 		terminal: {
@@ -169,6 +267,7 @@ const child = Bun.spawn(
 for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
 	process.on(signal, () => {
 		child.kill(signal);
+		leaveKeypadMode();
 		renderer.destroy();
 		process.exit(0);
 	});
@@ -176,4 +275,5 @@ for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
 
 childPty.current = child.terminal;
 process.exitCode = await child.exited;
+leaveKeypadMode();
 renderer.destroy();
