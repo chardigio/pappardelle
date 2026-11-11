@@ -147,6 +147,26 @@ test('approving a QA cleanup command presses 1 and logs the verdict', async t =>
 	t.deepEqual(h.classified, ['rm -rf /tmp/q-abc']);
 });
 
+test('a command of several lines is checked as Claude will run it', async t => {
+	const h = harness(t, [fixture('claude-permission-multiline')]);
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+	t.deepEqual(h.pressed, [['1']]);
+	t.deepEqual(h.classified, [
+		'SP=/tmp/q-sasrepro2/scratch\nrm -rf "$SP/old"\necho done',
+	]);
+});
+
+test('a prompt whose top is off the screen is left to a person', async t => {
+	const h = harness(t, [fixture('claude-permission-cut-off')]);
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), POLICY_REFUSED_EXIT);
+	t.deepEqual(h.pressed, []);
+	t.deepEqual(h.classified, []);
+	t.regex(h.err[0]!, /top of STA-1's prompt is off its screen/);
+	t.like(h.logged[0], {verdict: 'refused: prompt cut off'});
+	t.is(await h.run('answer', 'STA-1', '--option', '2'), 0);
+	t.deepEqual(h.pressed, [['2']]);
+});
+
 test('an answer the agent does not take is reported, not claimed', async t => {
 	const h = harness(t, [permission('rm -rf /tmp/q-abc')], {ignoresKeys: true});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 1);

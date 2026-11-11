@@ -28,6 +28,13 @@ export type PermissionPrompt = {
 	command: string;
 	question: string;
 	options: PromptOption[];
+	/**
+	 * The prompt is taller than the agent's screen and its top is cut off:
+	 * `tool`, `subagent` and `description` are unknown and `command` holds
+	 * only the part shown. Claude draws on the alternate screen, so tmux keeps
+	 * no scrollback to read the rest from.
+	 */
+	cutOff: boolean;
 };
 
 export type QuestionDialog = {
@@ -162,23 +169,51 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 	if (options.length === 0) return null;
 	const ruleAt = lastIndex(lines.slice(0, questionAt), line => RULE.test(line));
 	const body = lines.slice(ruleAt + 1, questionAt);
-	const headerAt = body.findIndex(line => line.trim() !== '');
-	const header = body[headerAt]?.trim() ?? '';
-	const [tool, from] = header.split(' · from the ');
 	const boxStart = body.findIndex(line => DASHED_RULE.test(line));
 	const boxEnd = lastIndex(body, line => DASHED_RULE.test(line));
 	const hasBox = boxStart !== -1 && boxEnd > boxStart;
 	// Claude's hints sit outside the dashed box; inside it every line is the
 	// command, whatever it starts with.
-	const text = (part: string[], {boxed = false} = {}) =>
-		part
+	const text = (part: string[], {boxed = false} = {}) => {
+		const shown = part
 			.filter(
 				line =>
 					boxed || !/^\s*(Tip:|This command requires approval)/.test(line),
 			)
-			.map(line => line.replace(/^ /, '').trimEnd())
+			.map(line => line.replace(/^ /, '').trimEnd());
+		// Claude draws a bar down the left of a command of more than one line.
+		const barred =
+			boxed &&
+			shown.some(line => line !== '') &&
+			shown.every(line => line === '' || /^│(?: |$)/.test(line));
+		return (barred ? shown.map(line => line.replace(/^│ ?/, '')) : shown)
 			.join('\n')
 			.replace(/^\n+|\n+$/g, '');
+	};
+	// Claude's rule sits over the header, and its box opens below it. A
+	// command's own lines can draw a rule too, so a box that only closes is
+	// the surer sign. Codex draws neither.
+	if ((boxEnd !== -1 && boxStart === boxEnd) || (ruleAt === -1 && hasBox)) {
+		return {
+			tool: '',
+			subagent: null,
+			description: '',
+			// Without the box's top, every line above its bottom is command.
+			command: text(
+				hasBox
+					? body.slice(boxStart + 1, boxEnd)
+					: lines.slice(0, ruleAt + 1 + boxEnd),
+				{boxed: true},
+			),
+			question: lines[questionAt]!.trim(),
+			options,
+			cutOff: true,
+		};
+	}
+
+	const headerAt = body.findIndex(line => line.trim() !== '');
+	const header = body[headerAt]?.trim() ?? '';
+	const [tool, from] = header.split(' · from the ');
 	return {
 		tool: tool ?? header,
 		subagent: from?.replace(/ agent$/, '') ?? null,
@@ -190,6 +225,7 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 			: text(body.slice(headerAt + 1)),
 		question: lines[questionAt]!.trim(),
 		options,
+		cutOff: false,
 	};
 }
 
