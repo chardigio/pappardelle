@@ -158,5 +158,9 @@ test.serial(
 			stdin.write(`${ESCAPE}${character}`);
 		await delay(PARSER_WAIT_MS * 3);
 		t.deepEqual(keys, []);
+		// The same when a busy app reads it together with the keys around it.
+		stdin.write(`a${ESCAPE}ăb${ESCAPE}č`);
+		await delay(PARSER_WAIT_MS * 3);
+		t.deepEqual(keys, ['a', 'b']);
 	},
 );

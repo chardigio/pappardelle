@@ -1,26 +1,46 @@
+import {Buffer} from 'node:buffer';
 import {parseKeypress, type CliRenderer} from '@opentui/core';
 
 const ESCAPE = '\u001B';
+const ESCAPE_BYTE = 0x1b;
 
 // Characters that open a longer sequence after Escape: CSI, SS3, OSC, DCS,
 // APC, PM and SOS.
 const SEQUENCE_OPENERS = '[]OP_^X';
 
-/**
- * Escape on its own, or Alt with a character the parser does not report as a
- * key: one that opens a sequence, or one outside ASCII. The parser splits the
- * latter and reads the bytes after the first as Alt with a control key, so
- * Alt+ă, whose last byte is 0x83, arrives as Alt+Ctrl+C.
- */
+/** Escape on its own, or Alt with a character that opens a sequence. */
 function isHeldKey(bytes: string): boolean {
 	if (bytes.replaceAll(ESCAPE, '') === '') return bytes !== '';
-	const [first, second, ...rest] = bytes;
 	return (
-		first === ESCAPE &&
-		second !== undefined &&
-		rest.length === 0 &&
-		(SEQUENCE_OPENERS.includes(second) || second > '\u007F')
+		bytes.length === 2 &&
+		bytes.startsWith(ESCAPE) &&
+		SEQUENCE_OPENERS.includes(bytes[1]!)
 	);
+}
+
+/**
+ * A read without Alt and a character outside ASCII: Escape and the bytes of
+ * the character. The parser splits them and reads the bytes after the first
+ * as Alt with a control key, so Alt+ă, whose last byte is 0x83, arrives as
+ * Alt+Ctrl+C and quits the app. Neither the rail nor a popup has a use for
+ * such a key.
+ */
+function withoutAltNonAscii(read: Buffer): Buffer {
+	if (!read.includes(ESCAPE_BYTE)) return read;
+	const kept: number[] = [];
+	let index = 0;
+	while (index < read.length) {
+		if (read[index] === ESCAPE_BYTE && read[index + 1]! >= 0xc0) {
+			index += 2;
+			// The character's continuation bytes.
+			while (read[index]! >= 0x80 && read[index]! <= 0xbf) index++;
+		} else {
+			kept.push(read[index]!);
+			index++;
+		}
+	}
+
+	return kept.length === read.length ? read : Buffer.from(kept);
 }
 
 type StdinListener = (chunk: Uint8Array | string) => void;
@@ -62,9 +82,10 @@ export function deliverHeldKeysAtOnce(
 	take: (key: string) => boolean = () => false,
 ): void {
 	interceptInput(renderer, stdin, (chunk, parse) => {
-		const bytes = chunk.toString();
+		const read = withoutAltNonAscii(Buffer.from(chunk));
+		const bytes = read.toString();
 		if (!isHeldKey(bytes)) {
-			parse(chunk);
+			if (read.length > 0) parse(read);
 			return;
 		}
 
