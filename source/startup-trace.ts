@@ -5,6 +5,7 @@ type Stage =
 	| 'unattributed-bootstrap'
 	| 'configuration'
 	| 'repo-bootstrap'
+	| 'tmux-version'
 	| 'outer-bootstrap'
 	| 'outer-cleanup'
 	| 'legacy-migration'
