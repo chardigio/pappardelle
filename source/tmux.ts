@@ -2859,17 +2859,23 @@ export async function syncCompanionSplits(
 		({splits} = await listCompanion(companionSession, run));
 
 	// rebuildLayout takes the split panes down with the companion pane.
-	if (!layout.companionViewerPaneId) return 'no-pane';
+	if (!layout.companionViewerPaneId && shownSplits.length === 0)
+		return 'no-pane';
 	if (splits.length === 0 && shownSplits.length === 0) return 'applied';
 
 	const measure = async () =>
-		parseWindowGeometry(
-			await run(paneGeometryArgs(layout.companionViewerPaneId)),
-		);
+		parseWindowGeometry(await run(paneGeometryArgs(layout.agentViewerPaneId)));
 	let measured = await measure();
 	if (measured.window.zoomed) {
 		splitSyncPending = true;
 		return 'deferred';
+	}
+
+	// The companion pane closes when the shell left in it exits. Splits left
+	// beside it would go on showing the space they were made for.
+	if (!measured.panes.has(layout.companionViewerPaneId)) {
+		await closeCompanionSplitPanes(run);
+		return 'no-pane';
 	}
 
 	let column = companionColumnWidth(measured, layout);

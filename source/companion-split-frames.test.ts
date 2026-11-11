@@ -334,5 +334,12 @@ tmuxTest(
 		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
 		t.is(await option(session(a, 'tests'), '@pappa_size'), '30%');
 		t.is(await option(session(a, 'logs'), '@pappa_size'), '');
+
+		// The companion pane closes when the shell left in it exits, and its
+		// splits close with it.
+		await run(['kill-pane', '-t', layout.companionViewerPaneId]);
+		t.is(await syncCompanionSplits(layout, a, {run}), 'no-pane');
+		t.deepEqual(companionSplitPaneIds(), []);
+		t.is(await paneCount(), 2);
 	},
 );
