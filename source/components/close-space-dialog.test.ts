@@ -95,16 +95,19 @@ test.serial('Enter before the states load still closes the issue', async t => {
 
 test.serial('a choice made while loading survives the load', async t => {
 	const {tracker, load} = trackerWithStates();
-	// A done issue defaults to leaving it as is, so picking Closed is a choice
-	// the load could lose.
+	// A canceled issue defaults to leaving it as is, so picking Closed is a
+	// choice the load could lose.
 	const dialog = await setup(tracker, {
 		...ISSUE,
-		state: {name: 'Deferred', type: 'canceled', color: ''},
+		state: {name: 'Canceled', type: 'canceled', color: ''},
 	});
 	t.teardown(async () => {
 		await dialog.view.unmount();
 	});
-	t.regex(dialog.view.lastFrame(), /‹ Leave as Deferred ›/);
+	await until(
+		() => dialog.view.lastFrame().includes('‹ Leave as Canceled ›'),
+		dialog.view.lastFrame,
+	);
 
 	await dialog.view.stdin.write(RIGHT);
 	await until(

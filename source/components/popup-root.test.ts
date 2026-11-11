@@ -66,8 +66,12 @@ test.serial(
 		t.teardown(async () => {
 			await popup.view.unmount();
 		});
+		await until(
+			() => popup.view.lastFrame().includes('Close space bd-1?'),
+			popup.view.lastFrame,
+		);
 
-		const rows = popup.view.lastFrame()?.split('\n').length;
+		const rows = popup.view.lastFrame().split('\n').length;
 		await popup.view.stdin.write('y');
 		await until(
 			() => popup.view.lastFrame().includes('Closing space bd-1…'),
@@ -81,7 +85,8 @@ test.serial(
 		t.deepEqual(popup.confirms, [undefined]);
 
 		// The TUI closes the popup once the deletion finishes; until then the
-		// spinner stays.
+		// spinner stays. Nothing is meant to change, so there's no frame to wait
+		// for and a fixed window has to do.
 		popup.finishConfirm();
 		await delay(20);
 		t.true(popup.view.lastFrame()?.includes('Closing space bd-1…'));
