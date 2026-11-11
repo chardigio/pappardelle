@@ -1385,27 +1385,6 @@ test('a pane with room for the status line keeps it', t => {
 // calculateRowWindow (grouped rail: one-line headers, 1- or 2-line spaces)
 // ============================================================================
 
-test('calculateRowWindow matches calculateVisibleWindow for equal heights', t => {
-	for (const [cursor, total, termHeight] of [
-		[0, 5, 8],
-		[4, 5, 8],
-		[5, 10, 8],
-		[9, 10, 8],
-		[0, 2, 8],
-	] as const) {
-		const expected = calculateVisibleWindow(cursor, total, termHeight);
-		const actual = calculateRowWindow(
-			Array.from({length: total}, () => 1),
-			cursor,
-			termHeight,
-		);
-		t.deepEqual(actual, {
-			scrollOffset: expected.scrollOffset,
-			visibleCount: expected.visibleCount,
-		});
-	}
-});
-
 test('calculateRowWindow fits mixed heights within the pane', t => {
 	// header, space, space, header, space, space, header, space (two-line layout)
 	const heights = [1, 2, 2, 1, 2, 2, 1, 2];

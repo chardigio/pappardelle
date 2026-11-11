@@ -6276,4 +6276,9 @@ test('validateConfig rejects groups that the rail could not place', t => {
 	);
 	t.true(message.includes('list_view.groups[4].categories:'));
 	t.true(validateListView({groups: []}).includes('must be a non-empty list'));
+	t.true(
+		validateListView({
+			groups: [{name: 'Nothing', color: 'blue', statuses: [], categories: []}],
+		}).includes('list_view.groups[0]: needs statuses, categories or both'),
+	);
 });

@@ -92,13 +92,11 @@ export function calculateVisibleWindow(
 	visibleCount: number;
 	adjustedSelectedIndex: number;
 } {
-	const maxVisible = calculateMaxVisibleItems(termHeight, linesPerItem);
-	const scrollOffset = calculateScrollOffset(
+	const {scrollOffset, visibleCount} = calculateRowWindow(
+		Array.from({length: totalItems}, () => linesPerItem),
 		selectedIndex,
-		totalItems,
-		maxVisible,
+		termHeight,
 	);
-	const visibleCount = Math.min(maxVisible, totalItems - scrollOffset);
 	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
 	return {scrollOffset, visibleCount, adjustedSelectedIndex};

@@ -3388,7 +3388,6 @@ export function getRailGroups(config: PappardelleConfig | null): RailGroup[] {
 	return railGroupsFromConfig(config?.list_view?.groups);
 }
 
-/** Validate `list_view.groups`: the rail groups after Agents. */
 function validateRailGroups(value: unknown): string[] {
 	if (!Array.isArray(value) || value.length === 0) {
 		return ['list_view.groups: must be a non-empty list'];
@@ -3420,7 +3419,9 @@ function validateRailGroups(value: unknown): string[] {
 			);
 		}
 
-		if (statuses === undefined && categories === undefined) {
+		const isEmpty = (list: unknown) =>
+			list === undefined || (Array.isArray(list) && list.length === 0);
+		if (isEmpty(statuses) && isEmpty(categories)) {
 			errors.push(`${at}: needs statuses, categories or both`);
 		}
 

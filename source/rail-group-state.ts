@@ -29,10 +29,16 @@ export function readCollapsedGroups(
 	knownIds: readonly string[],
 	baseDir?: string,
 ): Set<string> {
+	const file = getRailGroupStatePath(repoName, baseDir);
+	let text: string;
 	try {
-		const parsed: unknown = JSON.parse(
-			fs.readFileSync(getRailGroupStatePath(repoName, baseDir), 'utf8'),
-		);
+		text = fs.readFileSync(file, 'utf8');
+	} catch {
+		return new Set();
+	}
+
+	try {
+		const parsed: unknown = JSON.parse(text);
 		const collapsed =
 			parsed && typeof parsed === 'object'
 				? (parsed as Record<string, unknown>)['collapsed']
@@ -43,7 +49,8 @@ export function readCollapsedGroups(
 				(id): id is string => typeof id === 'string' && knownIds.includes(id),
 			),
 		);
-	} catch {
+	} catch (error) {
+		log.warn(`Ignoring unreadable ${file}`, error as Error);
 		return new Set();
 	}
 }

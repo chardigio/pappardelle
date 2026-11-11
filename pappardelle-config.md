@@ -1161,7 +1161,7 @@ list_view:
 
 **How it works:**
 
-- **Off by default.** Without `group_by`, the rail is the flat list it has always been.
+- **Off by default.** Without `group_by`, the rail is one flat list: agent spaces on top, one line each, a divider, then every workspace newest first.
 - **Agent spaces stay above the groups.** Spaces with no issue behind them (the main worktree, where the sous-chef runs) aren't in any group. They sit at the top above the divider and can't be collapsed away.
 - **`groups` lists the rest, in rail order.** Leave it out for the defaults above. A layer that sets `groups` replaces the whole list, it doesn't merge item by item.
 - **Placing a space:** a status named in some group's `statuses` goes to that group (names match case-insensitively). Otherwise the first group whose `categories` include the status's category takes it, and anything still unplaced, including an issue that hasn't loaded yet, goes to the first group.

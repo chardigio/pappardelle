@@ -66,8 +66,12 @@ export function buildHelpRows(
 		.filter(kb => !kb.disabled && !(kb.key in defaultKeyDescriptions))
 		.map(kb => ({key: kb.key, description: describe(kb), isCustom: true}));
 
+	// A custom binding on `z` replaces the built-in group toggle.
 	const fixed = railGrouped
-		? [...fixedShortcuts, ...groupedRailShortcuts]
+		? [
+				...fixedShortcuts,
+				...groupedRailShortcuts.filter(row => !customByKey.has(row.key)),
+			]
 		: fixedShortcuts;
 	const maxKeyLength = Math.max(
 		...[...fixed, ...overridable, ...extraCustom].map(row => row.key.length),

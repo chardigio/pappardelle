@@ -1,5 +1,5 @@
 import {AUTO_REMOVE_STATE_TYPES} from './auto-remove.ts';
-import {normalizeStateName} from './state-color-override.ts';
+import {IN_REVIEW_COLOR, normalizeStateName} from './state-color-override.ts';
 import type {SpaceData} from './types.ts';
 
 /**
@@ -42,7 +42,7 @@ export type RailRow =
 
 export const DEFAULT_RAIL_GROUPS: readonly RailGroupConfig[] = [
 	{name: 'In Progress', color: '#4b9fea', categories: ['todo', 'in_progress']},
-	{name: 'In Review', color: '#a78bfa', statuses: ['In Review']},
+	{name: 'In Review', color: IN_REVIEW_COLOR, statuses: ['In Review']},
 	{name: 'Done', color: '#4caf50', categories: ['done']},
 ];
 
@@ -106,18 +106,17 @@ export function railGroupOf(
 	return groups.find(group => group.categories.includes(category)) ?? first;
 }
 
+/** What a blocked agent is waiting on, or null when it isn't blocked. */
+export function spaceAttention(space: SpaceData): RailAttention | null {
+	if (space.programStatus?.status !== 'blocked') return null;
+	return space.programStatus.kind === 'question' ? 'question' : 'approval';
+}
+
+/** A question outranks an approval, matching the colors a blocked row blinks. */
 function attentionOf(spaces: readonly SpaceData[]): RailAttention | null {
-	const blocked = spaces.filter(
-		space => space.programStatus?.status === 'blocked',
-	);
-	if (blocked.length === 0) return null;
-	return blocked.some(
-		space =>
-			space.programStatus?.status === 'blocked' &&
-			space.programStatus.kind === 'question',
-	)
-		? 'question'
-		: 'approval';
+	const attentions = new Set(spaces.map(space => spaceAttention(space)));
+	if (attentions.has('question')) return 'question';
+	return attentions.has('approval') ? 'approval' : null;
 }
 
 function agentRowsWithDivider(
@@ -197,9 +196,42 @@ export function buildRailRows(options: {
 	return [...agentRowsWithDivider(agents, groupRows.length > 0), ...groupRows];
 }
 
+type SpaceRow = Extract<RailRow, {kind: 'space' | 'pending'}>;
+
+export function isSpaceRow(row: RailRow | undefined): row is SpaceRow {
+	return row?.kind === 'space' || row?.kind === 'pending';
+}
+
 /** Rows j/k and clicks can land on. */
 export function isSelectableRow(row: RailRow | undefined): boolean {
 	return row?.kind === 'space' || row?.kind === 'header';
+}
+
+/** Terminal lines a row takes. Agent spaces have no title line to show. */
+export function railRowHeight(row: RailRow, linesPerItem: number): number {
+	return isSpaceRow(row) && !isAgentSpace(row.space) ? linesPerItem : 1;
+}
+
+/** The next row j (step 1) or k (step -1) lands on, or -1 at either end. */
+export function nextSelectableRow(
+	rows: readonly RailRow[],
+	from: number,
+	step: 1 | -1,
+): number {
+	for (
+		let index = from + step;
+		index >= 0 && index < rows.length;
+		index += step
+	) {
+		if (isSelectableRow(rows[index])) return index;
+	}
+
+	return -1;
+}
+
+function lastSelectableRow(rows: readonly RailRow[]): number {
+	const last = nextSelectableRow(rows, rows.length, -1);
+	return last === -1 ? rows.length - 1 : last;
 }
 
 export interface RailCursor {
@@ -232,7 +264,7 @@ export function resolveCursorRow(
 		const next = rows.findIndex(
 			row => row.kind === 'header' && order.indexOf(row.group.id) > after,
 		);
-		return next === -1 ? rows.length - 1 : next;
+		return next === -1 ? lastSelectableRow(rows) : next;
 	}
 
 	const {space} = cursor;

@@ -114,8 +114,10 @@ export function getStateColorOverride(
  * `state_colors:` names the same status. Jira files In Review under the same
  * category as In Progress, so without this both come out the same blue (STE-70).
  */
+export const IN_REVIEW_COLOR = '#a78bfa';
+
 export const DEFAULT_STATE_COLORS: Readonly<Record<string, string>> = {
-	'In Review': '#a78bfa',
+	'In Review': IN_REVIEW_COLOR,
 };
 
 /**

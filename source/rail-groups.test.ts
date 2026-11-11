@@ -2,6 +2,8 @@ import test from 'ava';
 import {
 	buildRailRows,
 	flatRailRows,
+	nextSelectableRow,
+	railRowHeight,
 	railGroupOf,
 	railGroupsFromConfig,
 	resolveCursorRow,
@@ -287,4 +289,58 @@ test('a selected space inside a collapsed group resolves to its header', t => {
 		defaults,
 	);
 	t.is(shape(rows)[row], '# In Review (1) +');
+});
+
+// ============================================================================
+// row helpers
+// ============================================================================
+
+test('j/k skip the divider and pending rows and stop at either end', t => {
+	const pending: SpaceData = {
+		name: 'STE-30',
+		worktreePath: null,
+		isPending: true,
+	};
+	const rows = buildRailRows({
+		displaySpaces: [main, pending, ...spaces.slice(1)],
+		groups: defaults,
+		collapsed: new Set(),
+	});
+	// main, divider, # In Progress, ~ STE-30, STE-20, ...
+	t.is(shape(rows)[nextSelectableRow(rows, 0, 1)], '# In Progress (2)');
+	t.is(shape(rows)[nextSelectableRow(rows, 2, 1)], '  STE-20');
+	t.is(shape(rows)[nextSelectableRow(rows, 4, -1)], '# In Progress (2)');
+	t.is(nextSelectableRow(rows, 0, -1), -1);
+	t.is(nextSelectableRow(rows, rows.length - 1, 1), -1);
+});
+
+test('agent rows, headers and the divider are one line in a two-line rail', t => {
+	const rows = buildRailRows({
+		displaySpaces: spaces,
+		groups: defaults,
+		collapsed: new Set(),
+	});
+	t.deepEqual(
+		rows.map(row => railRowHeight(row, 2)),
+		[1, 1, 1, 2, 2, 1, 2, 1, 2],
+	);
+});
+
+test('a vanished header never falls back onto a starting session', t => {
+	const pending: SpaceData = {
+		name: 'STE-30',
+		worktreePath: null,
+		isPending: true,
+	};
+	const rows = buildRailRows({
+		displaySpaces: [main, pending],
+		groups: defaults,
+		collapsed: new Set(),
+	});
+	const row = resolveCursorRow(
+		rows,
+		{space: undefined, headerId: 'done'},
+		defaults,
+	);
+	t.is(shape(rows)[row], '# In Progress (0)');
 });

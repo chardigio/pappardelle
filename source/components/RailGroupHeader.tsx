@@ -15,7 +15,7 @@ interface Props {
 	row: HeaderRow;
 	isSelected: boolean;
 	width: number;
-	onToggle?: (groupId: string, collapse: boolean) => void;
+	onToggle: (groupId: string, collapse: boolean) => void;
 }
 
 /**
@@ -60,7 +60,7 @@ function RailGroupHeader({row, isSelected, width, onToggle}: Props) {
 	const handleClick = (event: MouseEvent) => {
 		if (event.button !== 0) return;
 		event.stopPropagation();
-		onToggle?.(row.group.id, !row.collapsed);
+		onToggle(row.group.id, !row.collapsed);
 	};
 
 	return (
