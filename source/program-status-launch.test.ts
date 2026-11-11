@@ -168,8 +168,8 @@ if (${JSON.stringify(launcher)} === 'tui') {
 		`#!/bin/sh
 printf '%s' "\${PI_PROGRAM_STATUS:-}" > ${shellQuoteStatus(path.join(root, 'pi-status'))}
 { /usr/bin/yes | /usr/bin/head -n 1 >/dev/null; } 2> ${shellQuoteStatus(path.join(root, 'pipeline-errors'))}
-printf launched > ${shellQuoteStatus(path.join(root, 'started'))}
 printf '%s' "$$" > ${shellQuoteStatus(path.join(root, 'agent-pid'))}
+printf launched > ${shellQuoteStatus(path.join(root, 'started'))}
 printf '\\033]7501;state=blocked:app=fixture\\007'
 IFS= read -r reply
 printf '%s' "$reply" > ${shellQuoteStatus(path.join(root, 'reply'))}
