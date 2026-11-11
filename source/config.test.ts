@@ -27,6 +27,7 @@ import {
 	getCompanionCommand,
 	getIdeCommand,
 	getStateColors,
+	getSousChefKey,
 	DEFAULT_COMPANION_COMMAND,
 	DEFAULT_IDE_COMMAND,
 	repoNameFromGitCommonDir,
@@ -6281,4 +6282,44 @@ test('validateConfig rejects groups that the rail could not place', t => {
 			groups: [{name: 'Nothing', color: 'blue', statuses: [], categories: []}],
 		}).includes('list_view.groups[0]: needs statuses, categories or both'),
 	);
+});
+
+// ============================================================================
+// sous_chef_key
+// ============================================================================
+
+const withSousChefKey = (value: unknown) => ({
+	version: 1,
+	profiles: {test: {display_name: 'Test'}},
+	sous_chef_key: value,
+});
+
+test('validateConfig accepts a sous_chef_key name or false', t => {
+	t.notThrows(() => validateConfig(withSousChefKey('M-j')));
+	t.notThrows(() => validateConfig(withSousChefKey(false)));
+});
+
+for (const value of ['', '  ', true, 3]) {
+	test(`validateConfig rejects sous_chef_key ${JSON.stringify(value)}`, t => {
+		const error = t.throws(() => validateConfig(withSousChefKey(value)), {
+			instanceOf: ConfigValidationError,
+		});
+		t.true(
+			error?.message.includes(
+				'sous_chef_key: must be a tmux key name or false',
+			),
+		);
+	});
+}
+
+test('getSousChefKey defaults to M-s, also when the config failed to load', t => {
+	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	t.is(getSousChefKey(config), 'M-s');
+	t.is(getSousChefKey(null), 'M-s');
+});
+
+test('getSousChefKey returns the configured key, and null when turned off', t => {
+	const base = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	t.is(getSousChefKey({...base, sous_chef_key: 'M-j'}), 'M-j');
+	t.is(getSousChefKey({...base, sous_chef_key: false}), null);
 });

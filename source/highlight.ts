@@ -2,7 +2,8 @@
 // Allows `pappardelle highlight STA-XXX` to select a row in a running TUI.
 // Uses a file-based IPC mechanism: the CLI writes an issue key to
 // ~/.pappardelle/repos/{repoName}/highlight-target, and the running app
-// watches for changes via fs.watch().
+// watches for changes via fs.watch(). With `--focus` the line also carries
+// FOCUS_MARKER, and the rail moves focus to the space's agent pane.
 
 import {
 	existsSync,
@@ -17,6 +18,19 @@ import path from 'node:path';
 import type {SpaceData} from './types.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
+const FOCUS_MARKER = 'focus';
+
+export type HighlightRequest = {issueKey: string; focus: boolean};
+
+function serializeRequest({issueKey, focus}: HighlightRequest): string {
+	return focus ? `${issueKey}\t${FOCUS_MARKER}` : issueKey;
+}
+
+function parseRequest(content: string): HighlightRequest | null {
+	const [issueKey, marker] = content.trim().split('\t');
+	if (!issueKey) return null;
+	return {issueKey, focus: marker === FOCUS_MARKER};
+}
 
 /**
  * Get the path to the highlight target file for a repo.
@@ -30,31 +44,31 @@ export function getHighlightFilePath(
 }
 
 /**
- * Write an issue key to the highlight target file.
+ * Write a highlight request to the highlight target file.
  * Called by `pappardelle highlight STA-XXX` from another terminal.
  */
 export function writeHighlightTarget(
 	repoName: string,
-	issueKey: string,
+	request: HighlightRequest,
 	baseDir?: string,
 ): void {
 	const filePath = getHighlightFilePath(repoName, baseDir);
 	mkdirSync(path.dirname(filePath), {recursive: true});
-	writeFileSync(filePath, issueKey + '\n');
+	writeFileSync(filePath, serializeRequest(request) + '\n');
 }
 
 /**
- * Read the current highlight target issue key.
+ * Read the current highlight request.
  * Returns null if no file exists.
  */
 export function readHighlightTarget(
 	repoName: string,
 	baseDir?: string,
-): string | null {
+): HighlightRequest | null {
 	const filePath = getHighlightFilePath(repoName, baseDir);
 	try {
 		if (!existsSync(filePath)) return null;
-		return readFileSync(filePath, 'utf-8').trim();
+		return parseRequest(readFileSync(filePath, 'utf-8'));
 	} catch {
 		return null;
 	}
@@ -89,12 +103,12 @@ export function findSpaceIndexByIssueKey(
 
 /**
  * Watch the highlight target file for changes.
- * Calls the callback with the issue key whenever the file is written to.
+ * Calls the callback with the request whenever the file is written to.
  * Returns an unwatch function.
  */
 export function watchHighlightTarget(
 	repoName: string,
-	callback: (issueKey: string) => void,
+	callback: (request: HighlightRequest) => void,
 	baseDir?: string,
 ): () => void {
 	const filePath = getHighlightFilePath(repoName, baseDir);
@@ -106,10 +120,8 @@ export function watchHighlightTarget(
 	const watcher = watch(dir, (_eventType, changedFile) => {
 		if (changedFile !== filename) return;
 		try {
-			const content = readFileSync(filePath, 'utf-8').trim();
-			if (content) {
-				callback(content);
-			}
+			const request = parseRequest(readFileSync(filePath, 'utf-8'));
+			if (request) callback(request);
 		} catch {
 			// File may have been deleted between event and read
 		}

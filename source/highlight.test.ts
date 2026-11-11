@@ -9,6 +9,7 @@ import {
 	clearHighlightTarget,
 	findSpaceIndexByIssueKey,
 	watchHighlightTarget,
+	type HighlightRequest,
 } from './highlight.ts';
 import type {SpaceData} from './types.ts';
 
@@ -44,7 +45,7 @@ test('getHighlightFilePath returns different paths for different repos', t => {
 
 test.serial('writeHighlightTarget writes issue key to file', t => {
 	const baseDir = tempDir();
-	writeHighlightTarget('my-repo', 'STA-313', baseDir);
+	writeHighlightTarget('my-repo', {issueKey: 'STA-313', focus: false}, baseDir);
 
 	const filePath = path.join(baseDir, 'repos', 'my-repo', 'highlight-target');
 	t.true(fs.existsSync(filePath));
@@ -53,8 +54,20 @@ test.serial('writeHighlightTarget writes issue key to file', t => {
 
 test.serial('readHighlightTarget reads the issue key', t => {
 	const baseDir = tempDir();
-	writeHighlightTarget('my-repo', 'STA-400', baseDir);
-	t.is(readHighlightTarget('my-repo', baseDir), 'STA-400');
+	writeHighlightTarget('my-repo', {issueKey: 'STA-400', focus: false}, baseDir);
+	t.deepEqual(readHighlightTarget('my-repo', baseDir), {
+		issueKey: 'STA-400',
+		focus: false,
+	});
+});
+
+test.serial('readHighlightTarget reads a focus request', t => {
+	const baseDir = tempDir();
+	writeHighlightTarget('my-repo', {issueKey: 'main', focus: true}, baseDir);
+	t.deepEqual(readHighlightTarget('my-repo', baseDir), {
+		issueKey: 'main',
+		focus: true,
+	});
 });
 
 test.serial('readHighlightTarget returns null when no file exists', t => {
@@ -64,9 +77,9 @@ test.serial('readHighlightTarget returns null when no file exists', t => {
 
 test.serial('writeHighlightTarget overwrites previous value', t => {
 	const baseDir = tempDir();
-	writeHighlightTarget('my-repo', 'STA-100', baseDir);
-	writeHighlightTarget('my-repo', 'STA-200', baseDir);
-	t.is(readHighlightTarget('my-repo', baseDir), 'STA-200');
+	writeHighlightTarget('my-repo', {issueKey: 'STA-100', focus: false}, baseDir);
+	writeHighlightTarget('my-repo', {issueKey: 'STA-200', focus: false}, baseDir);
+	t.is(readHighlightTarget('my-repo', baseDir)?.issueKey, 'STA-200');
 });
 
 // ============================================================================
@@ -75,7 +88,7 @@ test.serial('writeHighlightTarget overwrites previous value', t => {
 
 test.serial('clearHighlightTarget removes the file', t => {
 	const baseDir = tempDir();
-	writeHighlightTarget('my-repo', 'STA-100', baseDir);
+	writeHighlightTarget('my-repo', {issueKey: 'STA-100', focus: false}, baseDir);
 	clearHighlightTarget('my-repo', baseDir);
 	t.is(readHighlightTarget('my-repo', baseDir), null);
 });
@@ -130,25 +143,33 @@ test('findSpaceIndexByIssueKey matches first occurrence', t => {
 // watchHighlightTarget
 // ============================================================================
 
-test.serial(
-	'watchHighlightTarget calls callback when file is written',
-	async t => {
-		const baseDir = tempDir();
-		const received = await new Promise<string>(resolve => {
-			const unwatch = watchHighlightTarget(
-				'my-repo',
-				issueKey => {
-					unwatch();
-					resolve(issueKey);
-				},
-				baseDir,
-			);
-			// Write after a short delay to ensure watcher is ready
-			setTimeout(() => writeHighlightTarget('my-repo', 'STA-500', baseDir), 50);
-		});
-		t.is(received, 'STA-500');
-	},
-);
+async function nextRequest(
+	baseDir: string,
+	request: HighlightRequest,
+): Promise<HighlightRequest> {
+	return new Promise(resolve => {
+		const unwatch = watchHighlightTarget(
+			'my-repo',
+			received => {
+				unwatch();
+				resolve(received);
+			},
+			baseDir,
+		);
+		// Write after a short delay to ensure watcher is ready
+		setTimeout(() => writeHighlightTarget('my-repo', request, baseDir), 50);
+	});
+}
+
+test.serial('watchHighlightTarget delivers a plain highlight', async t => {
+	const request = {issueKey: 'STA-500', focus: false};
+	t.deepEqual(await nextRequest(tempDir(), request), request);
+});
+
+test.serial('watchHighlightTarget delivers a focus request', async t => {
+	const request = {issueKey: 'main', focus: true};
+	t.deepEqual(await nextRequest(tempDir(), request), request);
+});
 
 test.serial(
 	'watchHighlightTarget unwatch stops callback from firing',
@@ -163,7 +184,11 @@ test.serial(
 			baseDir,
 		);
 		unwatch();
-		writeHighlightTarget('my-repo', 'STA-600', baseDir);
+		writeHighlightTarget(
+			'my-repo',
+			{issueKey: 'STA-600', focus: false},
+			baseDir,
+		);
 		await new Promise(resolve => {
 			setTimeout(resolve, 100);
 		});

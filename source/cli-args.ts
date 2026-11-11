@@ -5,7 +5,7 @@ const helpText = `
 	Usage
 	  $ pappardelle [--profile <name>] [prompt]
 	  $ pappardelle --resume <prompt or issue-key>
-	  $ pappardelle highlight <issue-key>
+	  $ pappardelle highlight <issue-key> [--focus]
 	  $ pappardelle send <issue-key> [text]
 	  $ pappardelle close <issue-key> [--yes]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
@@ -22,7 +22,8 @@ const helpText = `
 	  Existing workspaces resume automatically when opened by issue key.
 
 	Commands
-	  highlight <key>  Select a row in the running TUI by issue key
+	  highlight <key>  Select a row in the running TUI by issue key. With
+	                   --focus, also focus that space's agent pane
 	  link-pr <url>    Record a verified PR/MR for the current workspace
 	  send <key> [text]
 	                   Submit text as a prompt to the space's agent session.
@@ -64,6 +65,7 @@ const helpText = `
 	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
+	  $ pappardelle highlight main --focus  # Jump to the sous-chef's agent pane
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
 	  $ pappardelle close STA-313 --yes  # Close STA-313 without asking
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
@@ -98,6 +100,9 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 				type: 'boolean',
 			},
 			teardownOnly: {
+				type: 'boolean',
+			},
+			focus: {
 				type: 'boolean',
 			},
 		},

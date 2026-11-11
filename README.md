@@ -157,6 +157,10 @@ The file also turns on tmux's extended keys. Without them Shift+Enter (newline i
 curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples/tmux.conf -o ~/.tmux.conf
 ```
 
+### Jumping to the sous-chef
+
+Press `Option+s` (`M-s`) from any pane in the Pappardelle window (the rail, an agent pane or a companion pane) to select the `main` space and focus its agent, where the [sous-chef](#skills) runs. The terminal must send Option as Meta (an "Option as Meta" or "Option as Alt" setting). Pappardelle installs this as a tmux key binding, so in your other tmux windows `M-s` still reaches the program running there. Change or turn off the key with [`sous_chef_key`](pappardelle-config.md#sous-chef-key). From a script, `pappardelle highlight main --focus` does the same.
+
 ### Exiting Pappardelle
 
 Press `q` in the workspace list pane to quit. This kills the Pappardelle tmux session and all its viewer panes, returning you to your original terminal. Your Claude and companion workspace sessions are **not** affected — they run in independent tmux sessions and will keep going after Pappardelle exits. To reattach, just run `pappardelle` again.

@@ -33,6 +33,7 @@ import {
 	paneRespawned,
 	installedLaunchCommand,
 	restartOwnTui,
+	sousChefJumpCommand,
 } from './tui-sessions.ts';
 import {
 	DEFAULT_REPO_STATE_ROOT,
@@ -120,6 +121,7 @@ import {
 	getTeamPrefix,
 	getRepoRoot,
 	getMainRepoRoot,
+	getSousChefKey,
 	getRepoName,
 	qualifyMainBranch,
 	getKeybindings,
@@ -198,6 +200,7 @@ import {
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
 	runningAgentProfile,
+	installSousChefKey,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
@@ -816,14 +819,20 @@ export default function App({
 	);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
+	const handleFocusAgentRef = useRef(() => {});
 	useEffect(() => {
-		const unwatch = watchHighlightTarget(repoName, issueKey => {
+		const unwatch = watchHighlightTarget(repoName, ({issueKey, focus}) => {
 			revealSpace(issueKey);
 			clearHighlightTarget(repoName);
+			const {spaces, selectedIndex} = currentSelection();
+			// Before the rows load, or for an unknown key, the selection stays put
+			// and focusing would land on another space's agent.
+			if (focus && findSpaceIndexByIssueKey(spaces, issueKey) === selectedIndex)
+				handleFocusAgentRef.current();
 		});
 
 		return unwatch;
-	}, [repoName, revealSpace]);
+	}, [repoName, revealSpace, currentSelection]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -855,6 +864,21 @@ export default function App({
 
 	const paneLayoutRef = useRef(paneLayout);
 	paneLayoutRef.current = paneLayout;
+
+	const listPaneId = paneLayout?.listPaneId;
+	useEffect(() => {
+		if (!listPaneId) return;
+		void installSousChefKey(
+			listPaneId,
+			getSousChefKey(configMemo),
+			sousChefJumpCommand({
+				execPath: process.execPath,
+				cliPath: cliFilePath(),
+				home: homedir(),
+				repoRoot: getMainRepoRoot(),
+			}),
+		);
+	}, [listPaneId, configMemo]);
 
 	// Not undone on unmount: quitting unmounts App, and a signal arriving during
 	// that teardown must still find a listener.
@@ -1261,6 +1285,7 @@ export default function App({
 			}),
 		);
 	};
+	handleFocusAgentRef.current = handleFocusAgent;
 
 	// Git pull in the selected space's worktree
 	const handleGitPull = () => {

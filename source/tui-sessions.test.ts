@@ -378,6 +378,24 @@ function ownHarness(
 	};
 }
 
+// Left set, the window's options keep the sous-chef key acting in the shell
+// the user is returned to.
+const SOUS_CHEF_CLEARED = [
+	'set-option',
+	'-w',
+	'-u',
+	'-t',
+	'%3',
+	'@pappardelle-sous-chef-key',
+	';',
+	'set-option',
+	'-w',
+	'-u',
+	'-t',
+	'%3',
+	'@pappardelle-sous-chef',
+];
+
 const layout = {
 	listPaneId: '%3',
 	agentViewerPaneId: '%4',
@@ -446,6 +464,7 @@ test("U inside the user's own tmux session closes only the viewer panes and rest
 	t.deepEqual(h.layoutCalls, [
 		['kill-pane', '-t', '%4'],
 		['kill-pane', '-t', '%5'],
+		SOUS_CHEF_CLEARED,
 	]);
 });
 
@@ -483,6 +502,7 @@ test("q inside the user's own tmux session closes only the viewer panes", t => {
 	t.deepEqual(h.layoutCalls, [
 		['kill-pane', '-t', '%4'],
 		['kill-pane', '-t', '%5'],
+		SOUS_CHEF_CLEARED,
 	]);
 });
 
@@ -491,7 +511,7 @@ test('q still closes the companion viewer when the agent viewer was closed by ha
 
 	closeTuiLayout('app', layout, h.deps);
 
-	t.deepEqual(h.layoutCalls.at(-1), ['kill-pane', '-t', '%5']);
+	t.deepEqual(h.layoutCalls.at(-2), ['kill-pane', '-t', '%5']);
 });
 
 test('q in a vertical layout closes its one viewer pane', t => {
@@ -499,7 +519,7 @@ test('q in a vertical layout closes its one viewer pane', t => {
 
 	closeTuiLayout('app', {...layout, companionViewerPaneId: ''}, h.deps);
 
-	t.deepEqual(h.layoutCalls, [['kill-pane', '-t', '%4']]);
+	t.deepEqual(h.layoutCalls, [['kill-pane', '-t', '%4'], SOUS_CHEF_CLEARED]);
 });
 
 // ============================================================================

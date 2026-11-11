@@ -4,12 +4,14 @@ import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
+	clearSousChefKeyArgs,
 	defaultServerTmuxRunner,
 	outerSessionName,
 	type OuterTmuxRunner,
 	tmuxSessionRepo,
 } from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {PaneLayout} from './types.ts';
 import {readTuiMarker, tryRestartLock, type TuiMarker} from './tui-marker.ts';
 
@@ -342,6 +344,23 @@ export function tuiLaunchCommand(options: {
 	return [command, ...options.args].join(' ');
 }
 
+// Run by the sous-chef key from the tmux server, whose cwd is wherever the
+// session started, so it changes into the repo the TUI resolves its name from.
+// Its output would land in the pane the key was pressed in and put it in view
+// mode, so none is kept.
+export function sousChefJumpCommand(options: {
+	execPath: string;
+	cliPath: string;
+	home: string;
+	repoRoot: string;
+}): string {
+	const highlight = tuiLaunchCommand({
+		...options,
+		args: ['highlight', MAIN_WORKTREE_KEY, '--focus'],
+	});
+	return `{ cd ${shellQuote(options.repoRoot)} && ${highlight}; } >/dev/null 2>&1 || true`;
+}
+
 // What a restart runs after an install: the shim the installer just re-pinned,
 // or this build when there is no shim.
 export function installedLaunchCommand(options: {
@@ -386,6 +405,7 @@ function isOwnTuiSession(
 function closeViewerPanes(layout: PaneLayout, tmux: OuterTmuxRunner): void {
 	for (const paneId of [layout.agentViewerPaneId, layout.companionViewerPaneId])
 		if (paneId) tmux(['kill-pane', '-t', paneId]);
+	tmux(clearSousChefKeyArgs(layout.listPaneId));
 }
 
 // Quitting takes the TUI's own session down with it. A TUI started inside the
