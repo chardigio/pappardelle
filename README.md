@@ -588,7 +588,7 @@ grep '\[ERROR\]' ~/.pappardelle/logs/*.log
 
 Warnings and errors also appear in a red box at the bottom of the TUI. Press `e` to view them.
 
-Workspace setup (`idow`) logs go to `~/Library/Logs/stardust-workspace/`. Every launch of a workspace, including `--resume` and `--open`, writes its own file named `idow-<issue key>-<YYYYMMDD>-<6 random characters>.log`, so one workspace can have several. Output from background `post_workspace_init` and `post_workspace_create` hooks lands in the same file. Use the issue key as the TUI shows it (beads keys are lowercase). Files not written to for about a week are deleted the next time `idow` starts.
+Workspace setup (`idow`) logs go to `~/Library/Logs/stardust-workspace/`. Every launch of a workspace, including `--resume` and `--open`, writes its own file named `idow-<issue key>-<YYYYMMDD>-<6 random characters>.log`, so one workspace can have several. Output from background `post_workspace_init` and `post_workspace_create` hooks and profile `commands` is written to the same file. Use the issue key as the TUI shows it (beads keys are lowercase). Files not written to for 8 days are deleted the next time `idow` starts.
 
 ```bash
 KEY=STA-123
@@ -599,8 +599,8 @@ ls -t ~/Library/Logs/stardust-workspace/idow-$KEY-????????-??????.log
 # Tail the latest one
 tail -f "$(ls -t ~/Library/Logs/stardust-workspace/idow-$KEY-????????-??????.log | head -1)"
 
-# Runs that stopped before the issue was created or fetched keep the name without a key
-grep -l "\[$KEY\]" ~/Library/Logs/stardust-workspace/idow-????????-??????.log
+# Runs that stopped before the issue was fetched keep the name without a key
+grep -lF "[$KEY]" ~/Library/Logs/stardust-workspace/idow-????????-??????.log
 ```
 
 ### Development
