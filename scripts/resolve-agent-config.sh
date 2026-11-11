@@ -272,11 +272,11 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
         workspace_aware: (.workspace_aware_agents == true),
         # Mirrors agentRulesFlags() in source/companion-rules.ts.
-        agent_rules_flags: if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
+        agent_rules_flags: (if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
             | ($def_resolved.command | basename) as $agent
             | if $agent == "codex" then "-c " + ("developer_instructions=\"\($rules)\"" | @sh)
               elif $agent == "pi" then "--append-system-prompt " + ($rules | @sh)
-              else "" end) end,
+              else "" end) end),
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors
