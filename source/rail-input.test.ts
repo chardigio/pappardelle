@@ -1,8 +1,7 @@
 import {useKeyboard} from '@opentui/react';
 import {shortcutKey} from './tui-key.ts';
 import React from 'react';
-import {render} from '../test/helpers/render.ts';
-import {setTimeout as delay} from 'node:timers/promises';
+import {render, until} from '../test/helpers/render.ts';
 import test from 'ava';
 import {
 	isCloseSpaceKey,
@@ -60,9 +59,11 @@ test('other keys do not close the selected space', t => {
 // unbinding Backspace. Drive the real bytes through OpenTUI's parser so a
 // renamed key fails here.
 async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
+	let received = false;
 	let closed = false;
 	function Rail() {
 		useKeyboard(event => {
+			received = true;
 			const {input, key} = shortcutKey(event);
 			if (isCloseSpaceKey(input, key)) closed = true;
 		});
@@ -71,9 +72,8 @@ async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
 
 	const view = await render(React.createElement(Rail));
 	try {
-		await delay(10);
 		await view.stdin.write(bytes);
-		await delay(20);
+		await until(() => received);
 		return closed;
 	} finally {
 		await view.unmount();
