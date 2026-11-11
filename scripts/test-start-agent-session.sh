@@ -1018,6 +1018,27 @@ done
 
 # ==========================================================================
 
+# With destroy-unattached on, tmux destroys each session the moment no client
+# views it; with exit-unattached on, the server exits once no client is
+# attached. The inner server loads the user's tmux.conf, so either would kill
+# every background agent.
+echo -e "\n${BOLD}Test: sessions survive a tmux.conf that drops unattached sessions${RESET}"
+KEEP_KEY="${TEST_PREFIX}-keep"
+KEEP_HOME="$TMPDIR_ROOT/keep-home"
+KEEP_SOCKET="pappardelle_inner_keep_$$"
+mkdir -p "$KEEP_HOME" "$TMPDIR_ROOT/keep-worktree"
+touch "$KEEP_HOME/.zshrc"
+printf 'set -g destroy-unattached on\nset -g exit-unattached on\n' > "$KEEP_HOME/.tmux.conf"
+env -u XDG_CONFIG_HOME HOME="$KEEP_HOME" PAPPARDELLE_TMUX_SOCKET="$KEEP_SOCKET" \
+    "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$KEEP_KEY" --repo-name "$TEST_REPO" \
+    --worktree "$TMPDIR_ROOT/keep-worktree" --no-agent --companion-command '' 2>/dev/null || true
+assert_eq "agent and companion sessions outlive the script" \
+    "$(printf 'agent-%s-%s\ncompanion-%s-%s' "$TEST_REPO" "$KEEP_KEY" "$TEST_REPO" "$KEEP_KEY")" \
+    "$(tmux -L "$KEEP_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | sort)"
+tmux -L "$KEEP_SOCKET" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
 rm -rf "$TMPDIR_ROOT"
 
 echo ""
