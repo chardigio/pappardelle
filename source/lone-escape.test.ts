@@ -17,6 +17,7 @@ const PARSER_WAIT_MS = 20;
 async function keyLog(
 	t: {teardown: (fn: () => Promise<void>) => void},
 	typedAhead = '',
+	ready?: Promise<void>,
 ) {
 	const keys: string[] = [];
 	function KeyLog() {
@@ -26,7 +27,10 @@ async function keyLog(
 		return React.createElement('text', null, 'keys');
 	}
 
-	const view = await terminalView(React.createElement(KeyLog), {typedAhead});
+	const view = await terminalView(React.createElement(KeyLog), {
+		typedAhead,
+		ready,
+	});
 	t.teardown(async () => view.dispose());
 	return {keys, stdin: view.stdin};
 }
@@ -102,6 +106,23 @@ test.serial('keys typed before the app has mounted are delivered', async t => {
 	const {keys} = await keyLog(t, 'jk');
 	t.deepEqual(keys, ['j', 'k']);
 });
+
+test.serial(
+	'an Escape typed while start-up keys are held keeps its place',
+	async t => {
+		const ready = Promise.withResolvers<void>();
+		const {keys, stdin} = await keyLog(t, '', ready.promise);
+		for (const read of ['a', ESCAPE, 'b']) {
+			stdin.write(read);
+			await nextTurn();
+		}
+
+		t.deepEqual(keys, []);
+		ready.resolve();
+		await nextTurn();
+		t.deepEqual(keys, ['a', 'escape', 'b']);
+	},
+);
 
 test.serial(
 	'Enter typed before the terminal is raw is still Enter',

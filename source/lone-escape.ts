@@ -54,11 +54,12 @@ export function interceptInput(
  * typed next is read as part of the same sequence. tmux has already decided
  * where a key ends and writes each one to a pane whole, so in a pane a read
  * of just those bytes is the key. It is delivered as one and the parser never
- * sees it.
+ * sees it. `take` is offered each key first, as an input handler would be.
  */
 export function deliverHeldKeysAtOnce(
 	renderer: CliRenderer,
 	stdin: NodeJS.ReadStream,
+	take: (key: string) => boolean = () => false,
 ): void {
 	interceptInput(renderer, stdin, (chunk, parse) => {
 		const bytes = chunk.toString();
@@ -69,6 +70,7 @@ export function deliverHeldKeysAtOnce(
 
 		const keys = bytes.replaceAll(ESCAPE, '') === '' ? [...bytes] : [bytes];
 		for (const key of keys) {
+			if (take(key)) continue;
 			const parsed = parseKeypress(key);
 			if (parsed?.name) renderer.keyInput.processParsedKey(parsed);
 		}

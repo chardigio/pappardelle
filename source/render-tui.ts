@@ -54,8 +54,9 @@ export async function renderTui(
 	// mounted anything that listens for keys. Keys typed in that time are kept
 	// and delivered once the view can act on them.
 	const typedAhead: string[] = [];
+	let isKeepingKeys = true;
 	const keepKey = (sequence: string): boolean => {
-		if (!parseKeypress(sequence)) return false;
+		if (!isKeepingKeys || !parseKeypress(sequence)) return false;
 		// Until the renderer makes the terminal raw, the terminal turns Enter
 		// into a line feed.
 		typedAhead.push(sequence === '\n' ? '\r' : sequence);
@@ -77,6 +78,7 @@ export async function renderTui(
 		prependInputHandlers: [keepKey, ...(options.prependInputHandlers ?? [])],
 	});
 	const deliverTypedAhead = () => {
+		isKeepingKeys = false;
 		renderer.removeInputHandler(keepKey);
 		for (const sequence of typedAhead.splice(0))
 			renderer.keyInput.processParsedKey(parseKeypress(sequence)!);
@@ -92,8 +94,10 @@ export async function renderTui(
 			}
 		: deliverTypedAhead;
 
+	// A key that skips the parser skips its input handlers too, and would
+	// arrive ahead of the keys still being kept.
 	if (isInTmux())
-		deliverHeldKeysAtOnce(renderer, options.stdin ?? process.stdin);
+		deliverHeldKeysAtOnce(renderer, options.stdin ?? process.stdin, keepKey);
 	const root = createRoot(renderer);
 	const onClose = onFailedViewClose && (() => onFailedViewClose(renderer));
 	const rerender = (next: ReactNode) =>
