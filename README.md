@@ -302,7 +302,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Custom keybindings** — Bind single keys to bash commands (`run`), skills (`send_skill`) or text for the agent (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira, beads) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
-- **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). Initialization hooks with `background: true` continue without delaying workspace readiness; their output goes to `~/Library/Logs/stardust-workspace/idow.log`. `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
+- **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). Initialization hooks with `background: true` continue without delaying workspace readiness; their output goes to that workspace's idow log in `~/Library/Logs/stardust-workspace/` (see [Logging](#logging)). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
 
 For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).
 
@@ -573,7 +573,7 @@ When running out of the stardust-labs monorepo (`LOCAL_MODE`), the **automatic**
 
 ### Logging
 
-Logs are written to `~/.pappardelle/logs/` with daily rotation (7-day retention):
+The TUI writes its logs to `~/.pappardelle/logs/` with daily rotation (7-day retention):
 
 ```bash
 # View today's log
@@ -587,6 +587,21 @@ grep '\[ERROR\]' ~/.pappardelle/logs/*.log
 ```
 
 Warnings and errors also appear in a red box at the bottom of the TUI. Press `e` to view them.
+
+Workspace setup (`idow`) logs go to `~/Library/Logs/stardust-workspace/`. Every launch of a workspace, including `--resume` and `--open`, writes its own file named `idow-<issue key>-<YYYYMMDD>-<6 random characters>.log`, so one workspace can have several. Output from background `post_workspace_init` and `post_workspace_create` hooks and profile `commands` is written to the same file. Use the issue key as the TUI shows it (beads keys are lowercase). Files not written to for 8 days are deleted the next time `idow` starts.
+
+```bash
+KEY=STA-123
+
+# List a workspace's setup logs, newest first
+ls -t ~/Library/Logs/stardust-workspace/idow-$KEY-????????-??????.log
+
+# Tail the latest one
+tail -f "$(ls -t ~/Library/Logs/stardust-workspace/idow-$KEY-????????-??????.log | head -1)"
+
+# Runs that stopped before the issue was fetched keep the name without a key
+grep -lF "[$KEY]" ~/Library/Logs/stardust-workspace/idow-????????-??????.log
+```
 
 ### Development
 
