@@ -100,6 +100,7 @@ test.serial(
 			],
 			{env, cwd: repo, encoding: 'utf8'},
 		);
+		t.is(crash.status, 1);
 		t.regex(
 			crash.stderr,
 			/at .*source\/program-status-monitor-cli\.ts:\d+:\d+/,
