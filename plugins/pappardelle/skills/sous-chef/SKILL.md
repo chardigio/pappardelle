@@ -135,9 +135,14 @@ If `space_send` fails with "No active session", reopen the space and send again 
 
 When a space's agent asks the chef something in a question dialog, relay it with your own AskUserQuestion, not in chat. The dialog shows the chef the sous-chef needs them, and the Claude app sends a push notification.
 
-1. Read the questions: every tab with `space_question_tabs` for a dialog of several, otherwise the question `space_watch` or `space_state` returned
-2. Ask them in one AskUserQuestion call. Start each question with the space number ("696: ...") and use the number as its header. Copy the space's options, labels and descriptions as they are, in the same order and with the same multi-select setting. Leave out the space's own free-text row, since AskUserQuestion adds Other
-3. Answer with `space_answer`: the chosen option's number in the space's dialog, `options` for a multi-select, `text` for an Other answer. For several questions, one call per question in order, then option 1 on the review step
+The dialog holds your turn until the chef answers, and nothing is watched meanwhile. So ask only once everything you can do alone is done:
+
+1. Call `space_watch` again with its cursor and a `timeout_seconds` of 1. Approve what's safe if the chef said to, and set `space_schedule` for each usage limit
+2. Read every waiting question: every tab with `space_question_tabs` for a dialog of several, otherwise the question `space_watch` or `space_state` returned
+3. Ask them all, from every space, in one AskUserQuestion call; it takes 4 questions, so ask any more in the next call. Start each question with the space number ("696: ...") and use the number as its header. Copy the space's options, labels and descriptions as they are, in the same order and with the same multi-select setting. Leave out the space's own free-text row, since AskUserQuestion adds Other
+4. Answer with `space_answer`: the chosen option's number in the space's dialog, `options` for a multi-select, `text` for an Other answer. For a dialog of several questions, one call per question in order, then option 1 on the review step
+
+Then go back to watching with the cursor; it returns everything that changed while the dialog was open.
 
 ## Watching the Line
 
