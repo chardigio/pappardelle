@@ -485,6 +485,7 @@ export default function App({
 	}, []);
 
 	const railGrouped = isRailGroupedByStatus(configMemo);
+	const [stackedLayout, setStackedLayout] = useState(false);
 	const railGroups = useMemo(() => getRailGroups(configMemo), [configMemo]);
 	// Grouped rows and cursor from the live selection, not the last render: one
 	// input write can carry several keys, and each must see what the previous
@@ -498,9 +499,10 @@ export default function App({
 				...displaySpacesRef.current.filter(space => space.isPending),
 			],
 			groups: railGroups,
+			headers: !stackedLayout,
 		});
 		return {rows, cursor: resolveCursorRow(rows, spaces[selectedIndex])};
-	}, [railGrouped, railGroups, currentSelection]);
+	}, [railGrouped, railGroups, stackedLayout, currentSelection]);
 
 	// Install the user's issue-status color overrides before anything renders,
 	// so the ticket rail's first paint already uses them (STA-2070). A useMemo
@@ -865,7 +867,6 @@ export default function App({
 	}, [loading, isZooming, backgroundReady, onFirstRailPaint, renderer]);
 	const syncingTerminalSize = useRef(false);
 	const stackedLayoutRef = useRef(false);
-	const [stackedLayout, setStackedLayout] = useState(false);
 	const layoutTasks = useMemo(
 		() =>
 			new PaneLayoutTask({

@@ -189,7 +189,6 @@ export function isSpaceRow(row: RailRow | undefined): row is SpaceRow {
 	return row?.kind === 'space' || row?.kind === 'pending';
 }
 
-/** Rows j/k and clicks can land on. Headers are labels, not stops. */
 export function isSelectableRow(row: RailRow | undefined): boolean {
 	return row?.kind === 'space';
 }
@@ -217,8 +216,8 @@ export function nextSelectableRow(
 }
 
 /**
- * The row the selected space sits on. Before the first refresh places it, the
- * cursor rests on the first row j/k can land on.
+ * The row the selected space sits on, or the first space row while the
+ * selection has no row yet (before the first refresh lists it).
  */
 export function resolveCursorRow(
 	rows: readonly RailRow[],

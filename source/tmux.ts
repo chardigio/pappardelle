@@ -2847,11 +2847,11 @@ export async function reconcilePaneLayout(
 			await run(paneGeometryArgs(layout.listPaneId)),
 		);
 	}
+	const stacked = geometry.window.width < NARROW_SCREEN_THRESHOLD;
 	if (!zoomed) {
 		const vertical =
 			paneGeometry(geometry, layout.listPaneId).cols === geometry.window.width;
-		const desiredVertical = geometry.window.width < NARROW_SCREEN_THRESHOLD;
-		if (vertical !== desiredVertical) {
+		if (vertical !== stacked) {
 			const rebuilt = await rebuildLayout(
 				layout.listPaneId,
 				layout.agentViewerPaneId,
@@ -2875,7 +2875,7 @@ export async function reconcilePaneLayout(
 	return {
 		layout,
 		dimensions: paneGeometry(geometry, layout.listPaneId),
-		stacked: geometry.window.width < NARROW_SCREEN_THRESHOLD,
+		stacked,
 	};
 }
 
