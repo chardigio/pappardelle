@@ -2,11 +2,7 @@ import test from 'ava';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-	readResolvedSqliteState,
-	recordSqliteState,
-	sqliteStateOverride,
-} from './state-flag.ts';
+import {readResolvedSqliteState, recordSqliteState} from './state-flag.ts';
 
 function stateDir(t: {teardown(fn: () => void): void}) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-flag-'));
@@ -49,11 +45,4 @@ test('the override wins for the process that has it and is never recorded', t =>
 	recordSqliteState(true, dir);
 	t.false(readResolvedSqliteState(dir, {PAPPARDELLE_SQLITE_STATE: '0'}));
 	t.true(recorded(dir).sqliteState);
-});
-
-test('only 1 and 0 are an override', t => {
-	t.is(sqliteStateOverride({PAPPARDELLE_SQLITE_STATE: '1'}), true);
-	t.is(sqliteStateOverride({PAPPARDELLE_SQLITE_STATE: '0'}), false);
-	t.is(sqliteStateOverride({PAPPARDELLE_SQLITE_STATE: 'true'}), undefined);
-	t.is(sqliteStateOverride({}), undefined);
 });

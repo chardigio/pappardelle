@@ -14,6 +14,7 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {createLogger} from './logger.ts';
 import {ringStateBell} from './state-db-watch.ts';
+import {readStateEnv} from './state-env.ts';
 
 const log = createLogger('state-db');
 
@@ -237,7 +238,7 @@ export function stateDbPath(
 ): string {
 	if (stateDir) return path.join(stateDir, 'state.db');
 	return (
-		env['PAPPARDELLE_STATE_DB'] ??
+		readStateEnv(env).dbPath ??
 		defaultPathForTests ??
 		path.join(DEFAULT_STATE_DIR, 'state.db')
 	);
@@ -608,7 +609,10 @@ export function checkpoint(state: StateDb): void {
 	try {
 		state.db.run('PRAGMA wal_checkpoint(PASSIVE)');
 	} catch (error) {
-		log.debug(`Could not checkpoint the state database: ${String(error)}`);
+		log.warn(
+			'Could not checkpoint the state database',
+			error instanceof Error ? error : undefined,
+		);
 	}
 }
 

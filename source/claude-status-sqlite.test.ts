@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import test, {type ExecutionContext} from 'ava';
 import {testState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {
 	JsonClaudeStatusDao,
 	type ClaudeSessionState,
@@ -86,14 +87,6 @@ const session = (
 	lastUpdate: Date.now(),
 	...rest,
 });
-
-async function until(predicate: () => boolean) {
-	const deadline = Date.now() + 5000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error('Status change did not arrive');
-		await delay(5);
-	}
-}
 
 // ============================================================================
 // Rows and files kept in step
@@ -244,7 +237,7 @@ test('watch reports a status the hook wrote from another process, and only that 
 	const reported: string[] = [];
 	t.teardown(f.dao.watch(key => reported.push(key)));
 	await f.hook('STA-1', {hook_event_name: 'Stop', session_id: 'sess-1'});
-	await until(() => reported.length > 0);
+	await waitUntil(() => reported.length > 0, 'a status change');
 	t.deepEqual(reported, ['repo-STA-1']);
 	t.deepEqual(await f.dao.read('repo-STA-1'), {
 		status: 'waiting_for_input',

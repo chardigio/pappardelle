@@ -5,13 +5,13 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import test, {type ExecutionContext} from 'ava';
-import {until} from '../test/helpers/render.ts';
 import {
 	publishSnapshot,
 	snapshotFile,
 	snapshotOf,
 } from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {
@@ -286,7 +286,10 @@ test.serial(
 		await delay(0);
 		const before = h.queries();
 		h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
-		await until(() => latest.get('TASK-1')?.status === 'blocked');
+		await waitUntil(
+			() => latest.get('TASK-1')?.status === 'blocked',
+			'a status update',
+		);
 		await h.writeHook('processing');
 		await delay(100);
 		t.is(h.queries(), before);
@@ -296,7 +299,10 @@ test.serial(
 		h.writeOsc({status: 'done', app: 'replacement'});
 		await h.status.read('TASK-1');
 		await h.writeHook('error');
-		await until(() => latest.get('TASK-1')?.app === 'replacement');
+		await waitUntil(
+			() => latest.get('TASK-1')?.app === 'replacement',
+			'a status update',
+		);
 		t.not(latest.get('TASK-1')?.generation, oldGeneration);
 		t.true(h.queries() > before);
 	},
@@ -328,10 +334,11 @@ test.serial(
 				Date.now(),
 				`ours-${i}`,
 			);
-		await until(
+		await waitUntil(
 			() =>
 				latest.size === 8 &&
 				[...latest.values()].every(info => info.status === 'blocked'),
+			'a status update',
 		);
 		for (const [key, info] of latest) {
 			t.true(key.startsWith('ours-'));
@@ -362,16 +369,156 @@ test.serial(
 		await delay(0);
 		const before = h.queries();
 		h.writeOsc({status: 'done'}, {key: 'main'});
-		await until(() => latest.get('repo-main')?.status === 'done');
+		await waitUntil(
+			() => latest.get('repo-main')?.status === 'done',
+			'a status update',
+		);
 		t.is(h.queries(), before);
 		t.false(latest.has('main'));
 		rmSync(`${file}.lease`);
 		await h.writeHook('processing', undefined, Date.now(), 'repo-main');
-		await until(() => h.queries() > before);
+		await waitUntil(() => h.queries() > before, 'a status update');
 	},
 );
 
-import type {SpaceData} from './types.ts';
+test.serial(
+	'a refresh locates every space with one tmux call and pipes only unmonitored live panes',
+	async t => {
+		const {state} = setup(t);
+		const keys = Array.from({length: 11}, (_, i) => `TASK-${i + 1}`);
+		const piped = new Set([...keys.slice(1), 'main']);
+		const calls: string[][] = [];
+		const listing = () =>
+			[...keys, 'main']
+				.map((key, i) => {
+					const pane = `%${i + 1}`;
+					const pid = String(100 + i);
+					const pipe = piped.has(key) ? '1' : '0';
+					const dead = key === 'TASK-11' ? '1' : '0';
+					const pinned = piped.has(key) ? pane : '';
+					return `agent-${key}\t1\t${pinned}\t${pane}\t${pid}\t${dead}\t${pipe}\t`;
+				})
+				.join('\n');
+		const statuses = new WorkspaceStatuses(
+			state.daos.programStatus,
+			key => `agent-${key}`,
+			state.daos.claudeStatus,
+			async args => {
+				calls.push(args);
+				return args.includes('list-panes') ? listing() : '';
+			},
+		);
+		let spaces: SpaceData[] = [];
+		const refresh = new WorkspaceRefresh({
+			readRegistry: async () => keys,
+			statusReader: () => statuses.reader(),
+			readWorktreePath: async () => null,
+			readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
+			readDirty: async () => null,
+			statusKey: name => name,
+			getCachedIssue: () => null,
+			async fetchIssues() {},
+			readEmoji: async () => undefined,
+			setSpaces(update) {
+				spaces = update(spaces);
+			},
+			onLoaded() {},
+			onError(error) {
+				throw error;
+			},
+		});
+		t.teardown(() => refresh.stop());
+		const commands = () => calls.map(args => args[2]);
+
+		await refresh.refresh();
+		await refresh.idle();
+		// The first space's pane is pinned and piped in one call.
+		t.deepEqual(commands(), ['list-panes', 'if-shell']);
+		t.true(calls[1]!.some(arg => arg.includes("'=agent-TASK-1:'")));
+		t.is(spaces.length, 12);
+
+		piped.add('TASK-1');
+		for (const _ of [1, 2]) {
+			calls.length = 0;
+			await refresh.refresh();
+			await refresh.idle();
+			t.deepEqual(commands(), ['list-panes']);
+		}
+
+		calls.length = 0;
+		await Promise.all(Array.from({length: 20}, async () => refresh.refresh()));
+		await refresh.idle();
+		t.true(commands().length <= 2);
+		t.true(commands().every(command => command === 'list-panes'));
+	},
+);
+
+const monitorCli = fileURLToPath(
+	new URL('program-status-monitor-cli.ts', import.meta.url),
+);
+
+// A pane's monitor is another process than the rail that shows its status.
+for (const sqlite of [false, true]) {
+	test.serial(
+		`${sqlite ? 'sqlite' : 'json'}: a status published by a pane's monitor reaches a watching rail`,
+		async t => {
+			const h = setup(t, {sqlite});
+			const pane = h.pane();
+			const file = snapshotFile(h.state, {repo: 'repo', key: 'TASK-1', pane});
+			mkdirSync(path.dirname(file), {recursive: true});
+			writeFileSync(`${file}.lease`, '');
+			const monitor = spawn(
+				process.execPath,
+				[
+					monitorCli,
+					'watch',
+					'repo',
+					'TASK-1',
+					'test-status',
+					Buffer.from(JSON.stringify(pane)).toString('base64'),
+					path.dirname(file),
+					'',
+					sqlite ? stateDbPath(h.state.stateDir) : '',
+				],
+				{
+					stdio: ['pipe', 'ignore', 'inherit'],
+					env: {
+						...process.env,
+						HOME: h.state.stateDir,
+						PAPPARDELLE_SQLITE_STATE: sqlite ? '1' : '0',
+					},
+				},
+			);
+			t.teardown(() => {
+				monitor.kill('SIGKILL');
+			});
+			await h.status.read('TASK-1');
+			const latest = new Map<string, ProgramStatusInfo>();
+			const stop = h.status.watch(
+				updates => {
+					for (const [key, info] of updates) latest.set(key, info);
+				},
+				key => key === 'TASK-1',
+			);
+			t.teardown(stop);
+			await delay(0);
+			monitor.stdin.write(
+				'\u001B]7501;state=blocked:app=fixture:kind=auth\u0007',
+			);
+			await waitUntil(
+				() => latest.get('TASK-1')?.status === 'blocked',
+				'a status update',
+				10_000,
+			);
+			t.like(latest.get('TASK-1'), {
+				source: 'osc',
+				app: 'fixture',
+				kind: 'auth',
+			});
+			rmSync(`${file}.lease`);
+		},
+	);
+}
 
 async function readField(
 	status: WorkspaceStatuses,
