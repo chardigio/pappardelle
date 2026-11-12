@@ -23,7 +23,13 @@ import {
 	type StatusChange,
 	type StatusClientOptions,
 } from './status-client.ts';
-import {encodeMessage, type ClientMessage} from './status-protocol.ts';
+import {
+	LineReader,
+	encodeMessage,
+	parseClientMessage,
+	type ClientMessage,
+	type DaemonMessage,
+} from './status-protocol.ts';
 
 const execute = promisify(execFile);
 const clientModule = fileURLToPath(
@@ -159,6 +165,7 @@ test('ready() gives up on a daemon that accepts and sends no state, stays connec
 	accepted[0]!.write(
 		encodeMessage({
 			type: 'state',
+			daemon: 'daemon',
 			hooks: [hookState('repo-A')],
 			snapshots: [],
 		}),
@@ -226,6 +233,73 @@ test('after the daemon is replaced the client reconnects, keeps what it knew, se
 		() => client.hook('repo-C') !== undefined,
 		'a push from the new daemon',
 	);
+});
+
+test('a state from the daemon the client was on replaces the replica: what the daemon forgot while the connection was down is dropped, and nothing is sent back to it', async t => {
+	const socketPath = testSocketPath(t);
+	const states: DaemonMessage[] = [
+		{
+			type: 'state',
+			daemon: 'daemon',
+			hooks: [hookState('repo-A')],
+			snapshots: [snapshot('A', 'g1'), snapshot('B', 'g1')],
+		},
+		{
+			type: 'state',
+			daemon: 'daemon',
+			hooks: [],
+			snapshots: [snapshot('B', 'g1')],
+		},
+	];
+	const accepted: net.Socket[] = [];
+	const received: ClientMessage[] = [];
+	const daemon = net.createServer(connection => {
+		const state = states[accepted.length]!;
+		accepted.push(connection);
+		const reader = new LineReader();
+		connection.setEncoding('utf8');
+		connection.on('data', (text: string) => {
+			for (const line of reader.feed(text)) {
+				const parsed = parseClientMessage(line);
+				if (parsed.kind !== 'message') continue;
+				received.push(parsed.message);
+				if (parsed.message.type === 'subscribe')
+					connection.write(encodeMessage(state));
+			}
+		});
+	});
+	daemon.listen(socketPath);
+	t.teardown(() => {
+		for (const connection of accepted) connection.destroy();
+		daemon.close();
+	});
+	const {client, clock, changes} = testClient(t, socketPath, {repo: 'repo'});
+	await client.ready();
+	client.onChange(change => changes.push(change));
+
+	accepted[0]!.destroy();
+	await waitUntil(
+		() => clock.delays().length === 1,
+		'the client to see that the connection closed',
+	);
+	clock.fire();
+	await waitUntil(() => changes.length > 0, 'the state after the reconnect');
+
+	t.is(client.snapshot('A', 'g1'), undefined);
+	t.deepEqual(client.snapshot('B', 'g1'), snapshot('B', 'g1'));
+	t.is(client.hook('repo-A'), undefined);
+	t.deepEqual(changes, [
+		{kind: 'hook', statusKey: 'repo-A'},
+		{kind: 'snapshot', key: 'A'},
+		{kind: 'snapshot', key: 'B'},
+	]);
+
+	// A line sent now is behind anything the client sent on applying the state.
+	const last = {type: 'forget', repo: 'repo', key: 'C'} as const;
+	await client.send(last);
+	await waitUntil(() => received.at(-1)?.type === 'forget', 'the last line');
+	const subscribe = {type: 'subscribe', repo: 'repo'};
+	t.deepEqual(received, [subscribe, subscribe, last]);
 });
 
 test('with nothing listening and start off, ready() resolves with an empty replica, no daemon is started, and a daemon started later is seen', async t => {
@@ -313,10 +387,8 @@ test('a connect listener runs on every connection, so a publisher’s latest sta
 		message => message.type === 'snapshot',
 		'the snapshot sent again',
 	);
-	t.deepEqual(rail.messages, [
-		{type: 'state', hooks: [], snapshots: []},
-		latest,
-	]);
+	t.like(rail.messages[0], {type: 'state', hooks: [], snapshots: []});
+	t.deepEqual(rail.messages.slice(1), [latest]);
 });
 
 test('a client with no repo is pushed nothing', async t => {

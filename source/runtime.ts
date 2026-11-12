@@ -28,6 +28,22 @@ export const bunIsolationArgs = ['--no-env-file', '--config=/dev/null'];
 export function selfLaunchArgs(): string[] {
 	return isStandalone ? [] : [...bunIsolationArgs, cliFilePath()];
 }
+/**
+ * The command that runs one of this install's own entry points in a process
+ * of its own. The compiled executable holds them all and picks one by `flag`;
+ * a source or dist install runs the entry's file, named `entryName`.
+ */
+export function internalEntryCommand(
+	flag: string,
+	entryName: string,
+): string[] {
+	if (isStandalone) return [process.execPath, flag];
+	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+	const entry = fileURLToPath(
+		new URL(`${entryName}${extension}`, import.meta.url),
+	);
+	return [process.execPath, ...bunIsolationArgs, entry];
+}
 // The Bun running a source install, handed to child scripts whose PATH (the
 // tmux server's, or a shell's behind the pinned shim) may not contain it. The
 // compiled executable needs no Bun.

@@ -7,7 +7,7 @@
 // off period does not answer with what it held before it.
 
 import {
-	hookStatusKey,
+	readableStatusKey,
 	statusInfo,
 	type ClaudeStatusDao,
 	type ClaudeStatusInfo,
@@ -29,26 +29,35 @@ export class DaemonClaudeStatusDao implements ClaudeStatusDao {
 	) {}
 
 	async readableKey(repoName: string, name: string): Promise<string> {
-		const qualified = hookStatusKey(repoName, name);
-		const underQualified = await this.readState(qualified);
-		if (underQualified.kind !== 'none') return qualified;
-		const underName = await this.readState(name);
-		return underName.kind === 'none' ? qualified : name;
+		return readableStatusKey(repoName, name, async statusKey => {
+			const stored = await this.readState(statusKey);
+			return stored.kind !== 'none';
+		});
 	}
 
-	async read(statusKey: string): Promise<ClaudeStatusInfo> {
+	async read(statusKey: string): Promise<ClaudeStatusInfo | null> {
 		const stored = await this.readState(statusKey);
-		return stored.kind === 'state'
-			? statusInfo(stored.state)
-			: {status: 'unknown'};
+		switch (stored.kind) {
+			case 'state': {
+				return statusInfo(stored.state);
+			}
+
+			case 'none': {
+				return {status: 'unknown'};
+			}
+
+			case 'unreadable': {
+				return null;
+			}
+		}
 	}
 
 	async readState(statusKey: string): Promise<StoredClaudeStatus> {
 		await this.client.ready();
-		const held = this.client.hook(statusKey);
 		const file = await this.files.readState(statusKey);
+		const held = this.client.hook(statusKey);
 		if (!held) return file;
-		return file.kind === 'state' && file.state.lastUpdate > held.lastUpdate
+		return file.kind === 'state' && file.state.lastUpdate >= held.lastUpdate
 			? file
 			: {kind: 'state', state: held};
 	}
