@@ -122,6 +122,14 @@ test('spaces_list and space_read ask for JSON', t => {
 	});
 });
 
+test('space_highlight passes focus on only when asked', t => {
+	t.like(cli('space_highlight', {key: 'STA-1', focus: true}), {
+		positional: ['highlight', 'STA-1'],
+		flags: {focus: true},
+	});
+	t.falsy(cli('space_highlight', {key: 'STA-1'}).flags.focus);
+});
+
 test('space_send sends its text on stdin', t => {
 	const {args, stdin} = call('space_send', {key: 'STA-1', text: "don't -x"});
 	t.deepEqual(parseSendArgs(args), {
