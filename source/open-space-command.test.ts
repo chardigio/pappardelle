@@ -820,7 +820,7 @@ test.serial(
 			sqlite: sqliteRun,
 		});
 		const selected: string[] = [];
-		t.teardown(highlight.watch(key => selected.push(key)));
+		t.teardown(highlight.watch(request => selected.push(request.issueKey)));
 
 		const result = await f.run(['highlight', 'STE-7']);
 		t.is(result.code, 0);

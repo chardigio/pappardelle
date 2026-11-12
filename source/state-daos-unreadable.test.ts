@@ -85,7 +85,7 @@ test('watches begun over a database that cannot be read deliver its changes once
 	});
 	t.notThrows(() => {
 		stops.push(
-			daos.highlight.watch(key => seen.highlight.push(key)),
+			daos.highlight.watch(request => seen.highlight.push(request.issueKey)),
 			daos.companionRequests.watch(request => seen.requests.push(request.id)),
 			// The rail's own subscription, which the app makes in an effect. No
 			// key is relevant to it, so it reads no status and runs no tmux.
@@ -109,7 +109,7 @@ test('watches begun over a database that cannot be read deliver its changes once
 	fs.rmSync(dbPath);
 	// Requests already in the database a watch comes to read were made for
 	// an earlier TUI, as they are when a watch begins over a readable one.
-	await daos.highlight.request('STA-1');
+	await daos.highlight.request({issueKey: 'STA-1', focus: false});
 	await daos.companionRequests.send({
 		id: 'request-0',
 		space: 'STA-1',
@@ -120,7 +120,7 @@ test('watches begun over a database that cannot be read deliver its changes once
 		'the watches to read what was written while they could not',
 	);
 
-	await daos.highlight.request('STA-2');
+	await daos.highlight.request({issueKey: 'STA-2', focus: false});
 	await daos.companionRequests.send({
 		id: 'request-1',
 		space: 'STA-2',
