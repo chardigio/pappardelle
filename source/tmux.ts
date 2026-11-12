@@ -200,7 +200,7 @@ import {
 	getAgentSessionsPath,
 	readAgentSession,
 	latestAgentProfile,
-	readSpaceState,
+	type SpaceStateDao,
 } from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
@@ -250,6 +250,11 @@ export function initTmuxState(daos: StateDaos): void {
 function registry(): SpaceRegistryDao {
 	if (!stateDaos) throw new Error('initTmuxState() was not called');
 	return stateDaos.registry;
+}
+
+function spaceState(): SpaceStateDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.spaceState;
 }
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
@@ -2321,7 +2326,7 @@ function isMissingSessionError(err: unknown): boolean {
 function savedSpaceProfile(issueKey: string): string | undefined {
 	return issueKey === MAIN_WORKTREE_KEY
 		? undefined
-		: readSpaceState(getRepoName(), issueKey)?.profile;
+		: spaceState().read(issueKey)?.profile;
 }
 
 /**

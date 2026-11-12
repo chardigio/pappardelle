@@ -10,11 +10,12 @@
 // cheap and failure-tolerant — consumers should treat missing/malformed
 // files the same as "no cached data yet".
 
+import {randomUUID} from 'node:crypto';
 import fs from 'node:fs';
 import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import type {PipelineStatus} from './providers/types.ts';
+import {PIPELINE_STATUSES, type PipelineStatus} from './providers/types.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 
@@ -24,15 +25,18 @@ export interface SpaceRecap {
 	lastAssistantExcerpt?: string;
 }
 
+/** A PR or MR recorded for one checkout in a space by `pappardelle link-pr`. */
+export type SpacePrLink = {
+	host: string;
+	project: string;
+	localBranch: string;
+	remoteBranch: string;
+	url: string;
+	number: number;
+};
+
 export interface SpaceState {
-	prLinks?: Array<{
-		host: string;
-		project: string;
-		localBranch: string;
-		remoteBranch: string;
-		url: string;
-		number: number;
-	}>;
+	prLinks?: SpacePrLink[];
 	pipeline?: PipelineStatus | null;
 	unresolvedCommentCount?: number;
 	prNumber?: number;
@@ -46,6 +50,147 @@ export interface SpaceState {
 	 * Written once per workspace creation; never updated by the rail-status poller.
 	 */
 	profile?: string;
+}
+
+/**
+ * The fields a writer sets. A key present with the value `undefined` removes
+ * that field, and a recap replaces the whole recap.
+ */
+export type SpaceStatePatch = Omit<SpaceState, 'prLinks' | 'updatedAt'>;
+
+/** What the rail poll learns about a space. It never chooses the profile. */
+export type RailStatusPatch = Omit<SpaceStatePatch, 'profile'>;
+
+/** One repo's per-space state, a record per space key. */
+export interface SpaceStateDao {
+	/** The file that holds a space's record, for messages that name it. */
+	file(key: string): string;
+	/** Null when nothing is recorded, or the record cannot be read. */
+	read(key: string): SpaceState | null;
+	write(key: string, patch: SpaceStatePatch): Promise<void>;
+	/** The result of one rail poll, for every space it covered. */
+	writeRailStatuses(
+		entries: Array<{key: string; patch: RailStatusPatch}>,
+	): Promise<void>;
+	/**
+	 * Record `link` as the space's newest. A checkout (host, project and local
+	 * branch) has one link, so an earlier one for the same checkout is replaced.
+	 */
+	addPrLink(key: string, link: SpacePrLink): Promise<void>;
+}
+
+export function withPrLink(
+	links: SpacePrLink[],
+	link: SpacePrLink,
+): SpacePrLink[] {
+	return [
+		...links.filter(
+			item =>
+				!(
+					item.host === link.host &&
+					item.project === link.project &&
+					item.localBranch === link.localBranch
+				),
+		),
+		link,
+	];
+}
+
+export function renderSpaceState(state: SpaceState): string {
+	return JSON.stringify(state, null, 2) + '\n';
+}
+
+const isOptionalString = (value: unknown): value is string | undefined =>
+	value === undefined || typeof value === 'string';
+
+const isOptionalInteger = (value: unknown): value is number | undefined =>
+	value === undefined || Number.isInteger(value);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseRecap(value: unknown): SpaceRecap {
+	if (!isRecord(value)) throw new Error('Not a recap');
+	const {customTitle, lastPrompt, lastAssistantExcerpt} = value;
+	if (
+		!isOptionalString(customTitle) ||
+		!isOptionalString(lastPrompt) ||
+		!isOptionalString(lastAssistantExcerpt)
+	)
+		throw new Error('Not a recap');
+	return {
+		...(customTitle === undefined ? {} : {customTitle}),
+		...(lastPrompt === undefined ? {} : {lastPrompt}),
+		...(lastAssistantExcerpt === undefined ? {} : {lastAssistantExcerpt}),
+	};
+}
+
+function parsePrLink(value: unknown): SpacePrLink {
+	if (!isRecord(value)) throw new Error('Not a PR link');
+	const {host, project, localBranch, remoteBranch, url, number} = value;
+	if (
+		typeof host !== 'string' ||
+		typeof project !== 'string' ||
+		typeof localBranch !== 'string' ||
+		typeof remoteBranch !== 'string' ||
+		typeof url !== 'string' ||
+		!Number.isInteger(number)
+	)
+		throw new Error('Not a PR link');
+	return {
+		host,
+		project,
+		localBranch,
+		remoteBranch,
+		url,
+		number: number as number,
+	};
+}
+
+/**
+ * A space-state file as its writers leave it. Throws when `content` is
+ * anything else. Fields no writer sets are left out.
+ */
+export function parseSpaceState(content: string): SpaceState {
+	const record: unknown = JSON.parse(content);
+	if (!isRecord(record)) throw new Error('Not a space state');
+	const {
+		prLinks,
+		pipeline,
+		unresolvedCommentCount,
+		prNumber,
+		hasConflict,
+		recap,
+		updatedAt,
+		profile,
+	} = record;
+	if (
+		(prLinks !== undefined && !Array.isArray(prLinks)) ||
+		(pipeline !== undefined &&
+			pipeline !== null &&
+			!PIPELINE_STATUSES.includes(pipeline as PipelineStatus)) ||
+		!isOptionalInteger(unresolvedCommentCount) ||
+		!isOptionalInteger(prNumber) ||
+		(hasConflict !== undefined && typeof hasConflict !== 'boolean') ||
+		!isOptionalString(updatedAt) ||
+		!isOptionalString(profile)
+	)
+		throw new Error('Not a space state');
+	return {
+		...(prLinks === undefined
+			? {}
+			: {prLinks: (prLinks as unknown[]).map(link => parsePrLink(link))}),
+		...(pipeline === undefined
+			? {}
+			: {pipeline: pipeline as PipelineStatus | null}),
+		...(unresolvedCommentCount === undefined ? {} : {unresolvedCommentCount}),
+		...(prNumber === undefined ? {} : {prNumber}),
+		...(hasConflict === undefined ? {} : {hasConflict}),
+		...(recap === undefined ? {} : {recap: parseRecap(recap)}),
+		...(updatedAt === undefined ? {} : {updatedAt}),
+		...(profile === undefined ? {} : {profile}),
+	};
 }
 
 /** Claude Code's transcript directory for a worktree. */
@@ -102,14 +247,6 @@ export async function findLatestSessionJsonl(
 export function getSpaceStateDir(repoName: string, baseDir?: string): string {
 	const base = baseDir ?? DEFAULT_BASE_DIR;
 	return path.join(base, 'repos', repoName, 'space-state');
-}
-
-export function getSpaceStatePath(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): string {
-	return path.join(getSpaceStateDir(repoName, baseDir), `${issueKey}.json`);
 }
 
 /**
@@ -193,49 +330,70 @@ export function readAgentSession(
 	return typeof id === 'string' ? id : undefined;
 }
 
-export function readSpaceState(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): SpaceState | null {
-	const p = getSpaceStatePath(repoName, issueKey, baseDir);
-	try {
-		const raw = fs.readFileSync(p, 'utf-8');
-		const parsed = JSON.parse(raw);
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed as SpaceState;
-		}
-	} catch {
-		// File missing, unreadable, or malformed — treat as "no state".
+export class JsonSpaceStateDao implements SpaceStateDao {
+	constructor(
+		private readonly dir: string,
+		private readonly clock: () => Date,
+	) {}
+
+	file(key: string): string {
+		return path.join(this.dir, `${key}.json`);
 	}
 
-	return null;
-}
+	read(key: string): SpaceState | null {
+		try {
+			const raw = fs.readFileSync(this.file(key), 'utf-8');
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+				return parsed as SpaceState;
+			}
+		} catch {
+			// File missing, unreadable, or malformed — treat as "no state".
+		}
 
-/**
- * Merge `patch` into the existing state (if any) and write atomically.
- * Fields in `patch` overwrite existing values; fields not present are preserved.
- * Always refreshes `updatedAt` to now.
- */
-export function writeSpaceState(
-	repoName: string,
-	issueKey: string,
-	patch: SpaceState,
-	baseDir?: string,
-): void {
-	const existing = readSpaceState(repoName, issueKey, baseDir) ?? {};
-	const next: SpaceState = {
-		...existing,
-		...patch,
-		updatedAt: new Date().toISOString(),
-	};
+		return null;
+	}
 
-	const p = getSpaceStatePath(repoName, issueKey, baseDir);
-	try {
-		fs.mkdirSync(path.dirname(p), {recursive: true});
-		fs.writeFileSync(p, JSON.stringify(next, null, 2) + '\n');
-	} catch {
-		// Non-critical — cache will be rebuilt on next poll.
+	/**
+	 * Merge `patch` into the existing state (if any) and write.
+	 * Fields in `patch` overwrite existing values; fields not present are preserved.
+	 * Always refreshes `updatedAt` to now.
+	 */
+	async write(key: string, patch: SpaceStatePatch): Promise<void> {
+		const existing = this.read(key) ?? {};
+		const next: SpaceState = {
+			...existing,
+			...patch,
+			updatedAt: this.clock().toISOString(),
+		};
+
+		const p = this.file(key);
+		try {
+			fs.mkdirSync(path.dirname(p), {recursive: true});
+			fs.writeFileSync(p, renderSpaceState(next));
+		} catch {
+			// Non-critical — cache will be rebuilt on next poll.
+		}
+	}
+
+	async writeRailStatuses(
+		entries: Array<{key: string; patch: RailStatusPatch}>,
+	): Promise<void> {
+		for (const {key, patch} of entries) await this.write(key, patch);
+	}
+
+	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
+		const state = this.read(key) ?? {};
+		state.prLinks = withPrLink(state.prLinks ?? [], link);
+		const file = this.file(key);
+		fs.mkdirSync(path.dirname(file), {recursive: true});
+		const temporary = `${file}.${randomUUID()}.tmp`;
+		try {
+			fs.writeFileSync(temporary, renderSpaceState(state));
+			fs.renameSync(temporary, file);
+		} finally {
+			fs.rmSync(temporary, {force: true});
+		}
 	}
 }
 

@@ -8,8 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import type {ClaudeStatusDao} from './claude-status.ts';
+import type {IssueMetaDao} from './issue-meta.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
-import {claudeProjectDir} from './space-state.ts';
+import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
 
@@ -57,6 +58,8 @@ export interface SpacesDeps {
 	repoName: string;
 	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
 	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'readState'>;
+	spaceState: Pick<SpaceStateDao, 'read'>;
+	issueMeta: Pick<IssueMetaDao, 'read'>;
 	home: string;
 	now?: number;
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
@@ -164,7 +167,6 @@ async function withTimeout<T>(
 export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	const {repoName, home} = deps;
 	const now = deps.now ?? Date.now();
-	const repoState = path.join(home, '.pappardelle', 'repos', repoName);
 	let keys: string[] | null;
 	try {
 		keys = deps.registry.openSpaces();
@@ -202,41 +204,29 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				entry.status = stored.kind === 'unreadable' ? 'unknown' : 'no_status';
 			}
 
-			try {
-				entry.meta = readJson(
-					path.join(repoState, 'issue-meta', `${name}.json`),
-				);
-			} catch {
-				// No metadata cached for this space
+			const meta = deps.issueMeta.read(name);
+			if (meta) {
+				entry.meta = {
+					created_by_pappardelle: meta.createdByPappardelle,
+					created_at: meta.createdAt,
+				};
 			}
 
-			let prUrl: string | null = null;
-			try {
-				const state = readJson(
-					path.join(repoState, 'space-state', `${name}.json`),
-				);
-				if (isRecord(state)) {
-					for (const field of [
-						'pipeline',
-						'unresolvedCommentCount',
-						'prNumber',
-						'recap',
-					] as const) {
-						if (field in state) entry[field] = state[field];
-					}
-
-					if ('updatedAt' in state)
-						entry.spaceStateUpdatedAt = state['updatedAt'];
-					const links = state['prLinks'];
-					if (Array.isArray(links)) {
-						const last: unknown = links.at(-1);
-						if (isRecord(last) && typeof last['url'] === 'string')
-							prUrl = last['url'];
-					}
+			const state = deps.spaceState.read(name);
+			if (state) {
+				for (const field of [
+					'pipeline',
+					'unresolvedCommentCount',
+					'prNumber',
+					'recap',
+				] as const) {
+					if (field in state) entry[field] = state[field];
 				}
-			} catch {
-				// No rail state cached for this space
+
+				if ('updatedAt' in state) entry.spaceStateUpdatedAt = state.updatedAt;
 			}
+
+			const prUrl = state?.prLinks?.at(-1)?.url ?? null;
 
 			const session = sessions.get(name);
 			if (session) {
@@ -371,6 +361,8 @@ export async function runSpacesCommand(options: {
 	repoName: string;
 	registry: SpacesDeps['registry'];
 	claudeStatus: SpacesDeps['claudeStatus'];
+	spaceState: SpacesDeps['spaceState'];
+	issueMeta: SpacesDeps['issueMeta'];
 	home: string;
 	json: boolean;
 	out: (text: string) => void;
@@ -379,6 +371,8 @@ export async function runSpacesCommand(options: {
 		repoName: options.repoName,
 		registry: options.registry,
 		claudeStatus: options.claudeStatus,
+		spaceState: options.spaceState,
+		issueMeta: options.issueMeta,
 		home: options.home,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);

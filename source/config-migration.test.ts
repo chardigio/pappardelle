@@ -21,8 +21,13 @@ import {
 	type ConfigMigration,
 } from './config-migration.ts';
 import {getRecentErrors} from './logger.ts';
+import {getSpaceStateDir} from './space-state.ts';
+import {testState} from '../test/helpers/state.ts';
 
 const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'config-migration-'));
+
+/** A repo where no space has saved a profile or recorded a session. */
+const noSpaces = {read: () => null};
 
 function writeConfig(dir: string, file: string, config: unknown) {
 	fs.mkdirSync(dir, {recursive: true});
@@ -496,7 +501,7 @@ test('confirming rewrites the files the user was shown', t => {
 	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 
-	t.deepEqual(confirmConfigMigrations(approved, root(), paths), {
+	t.deepEqual(confirmConfigMigrations(approved, root(), noSpaces, paths), {
 		kind: 'rewritten',
 	});
 	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
@@ -510,7 +515,9 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 			beta: {display_name: 'Beta'},
 		},
 	});
-	const stateDir = root();
+	const state = testState(t);
+	const stateDir = getSpaceStateDir('repo', state.stateDir);
+	fs.mkdirSync(stateDir, {recursive: true});
 	const space = (key: string, profile: string | undefined) => {
 		if (profile) {
 			fs.writeFileSync(
@@ -538,7 +545,12 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 	const main = space('main', undefined);
 
 	t.deepEqual(
-		confirmConfigMigrations(readyMigrations(paths), stateDir, paths),
+		confirmConfigMigrations(
+			readyMigrations(paths),
+			stateDir,
+			state.daos.spaceState,
+			paths,
+		),
 		{kind: 'rewritten'},
 	);
 	t.deepEqual(Object.keys(alpha()), ['alpha-claude']);
@@ -557,7 +569,7 @@ test('confirming keeps edits made while the dialog was open', t => {
 		profiles: {added: {display_name: 'Added'}},
 	});
 
-	t.deepEqual(confirmConfigMigrations(approved, root(), paths), {
+	t.deepEqual(confirmConfigMigrations(approved, root(), noSpaces, paths), {
 		kind: 'rewritten',
 	});
 	t.truthy(loadConfigFromPaths(paths).profiles['added']);
@@ -577,7 +589,7 @@ test('confirming writes nothing once the rewrite covers files the user was not s
 	});
 	const edited = fs.readFileSync(homeFile, 'utf8');
 
-	t.deepEqual(confirmConfigMigrations(approved, root(), paths), {
+	t.deepEqual(confirmConfigMigrations(approved, root(), noSpaces, paths), {
 		kind: 'changed',
 	});
 	t.is(fs.readFileSync(homeFile, 'utf8'), edited);
@@ -588,7 +600,9 @@ test('confirming reports a failed write so it can be handed to Claude', t => {
 	const approved = readyMigrations(paths);
 	fs.chmodSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 0o444);
 
-	t.like(confirmConfigMigrations(approved, root(), paths), {kind: 'failed'});
+	t.like(confirmConfigMigrations(approved, root(), noSpaces, paths), {
+		kind: 'failed',
+	});
 });
 
 test('a multi-line extra arg is named as the reason it cannot be rewritten', t => {

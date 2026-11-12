@@ -10,6 +10,7 @@ import {
 	type Node,
 	type Pair,
 } from 'yaml';
+import type {SpaceStateDao} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildConfigFromLayers,
@@ -681,6 +682,7 @@ function agentProfileRenames(
 export function moveAgentSessions(
 	renames: AgentProfileRename[],
 	stateDir: string,
+	spaceState: Pick<SpaceStateDao, 'read'>,
 ): void {
 	if (renames.length === 0) return;
 	let files: string[];
@@ -695,24 +697,12 @@ export function moveAgentSessions(
 			? file.slice(0, -'.agent-sessions.json'.length)
 			: undefined;
 		if (!key) continue;
-		const profileName = savedProfile(stateDir, key);
+		const profileName = spaceState.read(key)?.profile;
 		// Only the main space launches without a profile. Another space without
 		// a saved one predates saving it, so its profile isn't known.
 		if (profileName === undefined && key !== MAIN_WORKTREE_KEY) continue;
 		const rename = renames.find(rename => rename.profileName === profileName);
 		if (rename) moveAgentSession(path.join(stateDir, file), rename);
-	}
-}
-
-function savedProfile(stateDir: string, key: string): string | undefined {
-	try {
-		const state = asFields(
-			JSON.parse(fs.readFileSync(path.join(stateDir, `${key}.json`), 'utf8')),
-		);
-		const profile = state?.['profile'];
-		return typeof profile === 'string' ? profile : undefined;
-	} catch {
-		return undefined;
 	}
 }
 
@@ -783,6 +773,7 @@ export type ConfigMigrationOutcome =
 export function confirmConfigMigrations(
 	approved: ConfigMigration[],
 	stateDir: string,
+	spaceState: Pick<SpaceStateDao, 'read'>,
 	paths: ConfigPaths = defaultConfigPaths(),
 ): ConfigMigrationOutcome {
 	const plan = planConfigMigrations(paths);
@@ -796,7 +787,7 @@ export function confirmConfigMigrations(
 
 	try {
 		applyConfigMigrations(plan.migrations);
-		moveAgentSessions(plan.renames, stateDir);
+		moveAgentSessions(plan.renames, stateDir, spaceState);
 		return {kind: 'rewritten'};
 	} catch (error) {
 		return {

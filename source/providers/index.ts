@@ -11,6 +11,7 @@ import type {
 	VcsHostProvider,
 	VcsProviderName,
 } from './types.ts';
+import type {RepositoryDiscovery} from './workspace-repositories.ts';
 
 export type {
 	TrackerIssue,
@@ -38,6 +39,16 @@ let issueTrackerInstance: IssueTrackerProvider | null = null;
 let issueTrackerConfigKey: string | null = null;
 let vcsHostInstance: VcsHostProvider | null = null;
 let vcsHostConfigKey: string | null = null;
+let workspaceDiscovery: RepositoryDiscovery | undefined;
+
+/**
+ * How the VCS host finds the repositories in a workspace. The host is built
+ * on first use, wherever that is, so startup hands this over beforehand: it
+ * is what makes the rail follow a branch recorded by link-pr.
+ */
+export function setWorkspaceDiscovery(discover: RepositoryDiscovery): void {
+	workspaceDiscovery = discover;
+}
 
 function trackerKey(config?: IssueTrackerConfig): string {
 	const provider = config?.provider ?? 'linear';
@@ -148,12 +159,21 @@ export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
 
 	switch (provider) {
 		case 'github': {
-			vcsHostInstance = new GitHubProvider();
+			vcsHostInstance = new GitHubProvider(
+				undefined,
+				undefined,
+				workspaceDiscovery,
+			);
 			break;
 		}
 
 		case 'gitlab': {
-			vcsHostInstance = new GitLabProvider(config?.host);
+			vcsHostInstance = new GitLabProvider(
+				config?.host,
+				undefined,
+				undefined,
+				workspaceDiscovery,
+			);
 			break;
 		}
 
@@ -175,4 +195,5 @@ export function resetProviders(): void {
 	issueTrackerConfigKey = null;
 	vcsHostInstance = null;
 	vcsHostConfigKey = null;
+	workspaceDiscovery = undefined;
 }

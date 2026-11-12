@@ -1,4 +1,5 @@
 /* eslint-disable no-template-curly-in-string -- These are idow shell templates. */
+import {Database} from 'bun:sqlite';
 import {type ExecException, execFile, execFileSync} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import fs from 'node:fs';
@@ -8,6 +9,7 @@ import test, {type ExecutionContext} from 'ava';
 import {parse, stringify} from 'yaml';
 import {agentRulesFlags} from './companion-rules.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
+import {sqliteRun} from '../test/helpers/state.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
 
@@ -90,6 +92,14 @@ function setup(t: ExecutionContext, realWorktree = false) {
 		'test -f "$IDOW_TEST_LAUNCH_ARGS"\nprintf "%s\\n" "$*" >> "$IDOW_TEST_VCS_CALLS"\nprintf "%s\\n" "https://github.com/test/repo/pull/1"',
 	);
 	writeScript(path.join(bin, 'tmux'), 'exit 1');
+	// idow records state through the binary. The copied scripts have no build
+	// or sources beside them, so the fixture runs this checkout's state CLI.
+	const stateCli = path.join(bin, 'pappardelle-state');
+	writeScript(
+		stateCli,
+		`shift
+exec ${JSON.stringify(process.execPath)} --no-env-file --config=/dev/null ${JSON.stringify(path.resolve(import.meta.dirname, 'state-cli.ts'))} "$@"`,
+	);
 	writeScript(
 		path.join(bin, 'open'),
 		'printf "%s\\n" "$@" >> "$IDOW_TEST_OPEN_CALLS"',
@@ -236,6 +246,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 							IDOW_TEST_OPEN_CALLS: openCalls,
 							IDOW_TEST_YQ: yq,
 							IDOW_TEST_LAUNCHERS: launchers,
+							PAPPARDELLE_EXECUTABLE: stateCli,
 							...extraEnv,
 						},
 					},
@@ -1215,7 +1226,7 @@ test.serial(
 		t.regex(
 			call!,
 			new RegExp(
-				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --register --owner \\d+ test-abc$`,
+				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --register --owner \\d+ --profile dev test-abc$`,
 			),
 		);
 		t.true(fs.existsSync(fixture.launchArgs));
@@ -1233,12 +1244,101 @@ test.serial(
 	},
 );
 
-test.serial('idow run by hand records nothing', async t => {
+test.serial(
+	'idow run by hand saves the profile of a new workspace without registering the space, and records nothing on a reopen',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 0);
+		const extraEnv = {
+			PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE,
+		};
+		await fixture.run({extraEnv});
+		const recorded = [
+			`--internal-state prepare-space --repo ${path.basename(fixture.main)} --profile dev test-abc`,
+		];
+		t.deepEqual(state.calls(), recorded);
+		t.true(fs.existsSync(fixture.launchArgs));
+
+		// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
+		// only sees an existing worktree once its own path exists.
+		fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+			recursive: true,
+		});
+		await fixture.run({extraEnv});
+		t.deepEqual(state.calls(), recorded);
+	},
+);
+
+// idow used to write both files itself. They now come from the same writer
+// as the TUI's, in whichever mode the run is in.
+test('a new issue is recorded as created by Pappardelle, with its profile, before post_workspace_init', async t => {
 	const fixture = setup(t);
-	const state = stateCli(fixture, 0);
-	await fixture.run({
-		extraEnv: {PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE},
+	const stateDir = path.join(fixture.home, '.pappardelle');
+	const repoState = path.join(stateDir, 'repos/main checkout');
+	fs.appendFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({
+			post_workspace_init: [
+				{
+					run: `cp ${JSON.stringify(path.join(repoState, 'issue-meta/test-abc.json'))} "$WORKTREE_PATH/meta-during-init.json"`,
+				},
+			],
+		}),
+	);
+	const before = Date.now();
+	await fixture.run({input: 'Make workspace startup faster'});
+
+	const meta = JSON.parse(
+		fs.readFileSync(
+			path.join(fixture.workspace, 'meta-during-init.json'),
+			'utf8',
+		),
+	) as {created_by_pappardelle: boolean; created_at: string};
+	t.deepEqual(Object.keys(meta), ['created_by_pappardelle', 'created_at']);
+	t.true(meta.created_by_pappardelle);
+	t.regex(meta.created_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+	t.true(Date.parse(meta.created_at) >= before - 1000);
+	const state = JSON.parse(
+		fs.readFileSync(path.join(repoState, 'space-state/test-abc.json'), 'utf8'),
+	) as {profile: string; updatedAt: string};
+	t.is(state.profile, 'dev');
+	t.true(Date.parse(state.updatedAt) >= before);
+
+	const dbPath = path.join(stateDir, 'state.db');
+	if (!sqliteRun) {
+		t.false(fs.existsSync(dbPath));
+		return;
+	}
+
+	const db = new Database(dbPath, {readonly: true});
+	t.teardown(() => {
+		db.close();
 	});
-	t.throws(() => state.calls(), {code: 'ENOENT'});
-	t.true(fs.existsSync(fixture.launchArgs));
+	t.deepEqual(
+		db
+			.query(
+				`SELECT s.repo, s.key, s.profile, m.created_by_pappardelle, m.created_at
+				FROM space_state s JOIN issue_meta m USING (repo, key)`,
+			)
+			.all(),
+		[
+			{
+				repo: 'main checkout',
+				key: 'test-abc',
+				profile: 'dev',
+				created_by_pappardelle: 1,
+				created_at: meta.created_at,
+			},
+		],
+	);
+});
+
+test('an existing issue is not recorded as created by Pappardelle', async t => {
+	const fixture = setup(t);
+	await fixture.run();
+	t.false(
+		fs.existsSync(
+			path.join(fixture.home, '.pappardelle/repos/main checkout/issue-meta'),
+		),
+	);
 });

@@ -140,21 +140,30 @@ test('another repo with a space of the same key does not supply its status', asy
 test('metadata, rail state and the newest PR link are included', async t => {
 	const home = tempHome(t);
 	openSpaces(home, ['STA-350']);
-	writeJson(repoState(home, 'issue-meta', 'STA-350.json'), {title: 'Fix it'});
+	const meta = {
+		created_by_pappardelle: true,
+		created_at: '2026-04-21T04:00:00Z',
+	};
+	writeJson(repoState(home, 'issue-meta', 'STA-350.json'), meta);
+	const link = (number: number) => ({
+		host: 'example.com',
+		project: 'user/repo',
+		localBranch: `branch-${number}`,
+		remoteBranch: 'published',
+		url: `https://example.com/pr/${number}`,
+		number,
+	});
 	writeJson(repoState(home, 'space-state', 'STA-350.json'), {
 		pipeline: 'failing',
 		unresolvedCommentCount: 4,
 		prNumber: 777,
 		recap: {customTitle: 'refactor auth'},
 		updatedAt: '2026-04-21T05:00:00.000Z',
-		prLinks: [
-			{url: 'https://example.com/pr/1'},
-			{url: 'https://example.com/pr/2'},
-		],
+		prLinks: [link(1), link(2)],
 	});
 	const [space] = await gather(home);
 	t.like(space, {
-		meta: {title: 'Fix it'},
+		meta,
 		pipeline: 'failing',
 		unresolvedCommentCount: 4,
 		prNumber: 777,
@@ -173,6 +182,93 @@ test('rail fields are absent without a readable space-state file', async t => {
 		t.false('recap' in space);
 		t.is(space.prUrl, null);
 	}
+});
+
+// The board reads this report. With the database a space's state is only
+// rewritten when it changes, so `spaceStateUpdatedAt` is the one field that
+// may differ: the time of the last change, not of the last poll.
+test('the report is the same from files and from the database for the same history', async t => {
+	const report = async (sqlite: boolean) => {
+		const home = tempHome(t);
+		let now = '2026-04-21T05:00:00.000Z';
+		const daos = createStateDaos({
+			repo: REPO,
+			stateDir: path.join(home, '.pappardelle'),
+			sqlite,
+			clock: () => new Date(now),
+		});
+		openSpaces(home, ['NEW-1', 'OLD-2', 'IDLE-3']);
+		await daos.issueMeta.markCreated('NEW-1');
+		await daos.spaceState.write('NEW-1', {profile: 'dev'});
+		await daos.spaceState.write('IDLE-3', {profile: 'dev'});
+		const poll = async () =>
+			daos.spaceState.writeRailStatuses([
+				{
+					key: 'NEW-1',
+					patch: {
+						pipeline: 'failing',
+						unresolvedCommentCount: 4,
+						prNumber: 777,
+						hasConflict: true,
+						recap: {customTitle: 'refactor auth', lastPrompt: 'go on'},
+					},
+				},
+				{
+					key: 'OLD-2',
+					patch: {
+						pipeline: null,
+						unresolvedCommentCount: 0,
+						prNumber: undefined,
+						hasConflict: false,
+					},
+				},
+			]);
+		await poll();
+		await daos.spaceState.addPrLink('NEW-1', {
+			host: 'github.com',
+			project: 'user/repo',
+			localBranch: 'NEW-1',
+			remoteBranch: 'published',
+			url: 'https://github.com/user/repo/pull/777',
+			number: 777,
+		});
+		now = '2026-04-21T06:00:00.000Z';
+		await poll();
+		const spaces = await gather(home, {...daos, now: 0});
+		return {
+			updatedAt: Object.fromEntries(
+				spaces.map(space => [space.name, space.spaceStateUpdatedAt]),
+			),
+			rest: spaces.map(({spaceStateUpdatedAt, ...rest}) => rest),
+		};
+	};
+
+	const files = await report(false);
+	const database = await report(true);
+	t.deepEqual(database.rest, files.rest);
+	t.like(
+		files.rest.find(space => space.name === 'NEW-1'),
+		{
+			meta: {created_by_pappardelle: true, created_at: '2026-04-21T05:00:00Z'},
+			pipeline: 'failing',
+			prNumber: 777,
+			prUrl: 'https://github.com/user/repo/pull/777',
+		},
+	);
+	const polledWithoutPr = files.rest.find(space => space.name === 'OLD-2')!;
+	t.is(polledWithoutPr.pipeline, null);
+	t.false('prNumber' in polledWithoutPr);
+	t.false('pipeline' in files.rest.find(space => space.name === 'IDLE-3')!);
+	t.deepEqual(files.updatedAt, {
+		'NEW-1': '2026-04-21T06:00:00.000Z',
+		'OLD-2': '2026-04-21T06:00:00.000Z',
+		'IDLE-3': '2026-04-21T05:00:00.000Z',
+	});
+	t.deepEqual(database.updatedAt, {
+		'NEW-1': '2026-04-21T05:00:00.000Z',
+		'OLD-2': '2026-04-21T05:00:00.000Z',
+		'IDLE-3': '2026-04-21T05:00:00.000Z',
+	});
 });
 
 test('sessions match on the full worktree prefix and the newest wins', async t => {

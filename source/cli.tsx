@@ -60,6 +60,7 @@ import {buildSpawnEnv} from './spawn-env.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
+import {createStateDaos} from './state-daos.ts';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
@@ -296,7 +297,10 @@ if (cli.input[0] === 'link-pr') {
 			cli.input[1]!,
 			process.cwd(),
 			cli.flags.workspace ? path.resolve(cli.flags.workspace) : getRepoRoot(),
-			{gitlabHost: loadProviderConfigs().vcs_host?.host},
+			{
+				spaceStateFor: repo => createStateDaos({repo}).spaceState,
+				gitlabHost: loadProviderConfigs().vcs_host?.host,
+			},
 		);
 		console.log(
 			`Linked ${result.link.url} (${result.link.remoteBranch}) in ${result.file}`,
@@ -441,6 +445,8 @@ if (cli.input[0] === 'spaces') {
 			repoName,
 			registry: daos.registry,
 			claudeStatus: daos.claudeStatus,
+			spaceState: daos.spaceState,
+			issueMeta: daos.issueMeta,
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),

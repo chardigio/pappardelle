@@ -232,17 +232,13 @@ import {
 import {listOpenSpaces} from './space-registry.ts';
 import type {StateDaos} from './state-daos.ts';
 import {
-	readSpaceState,
-	writeSpaceState,
+	type RailStatusPatch,
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
 	getSpaceStateDir,
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
-import {
-	resolveSpaceEmojiAsync,
-	resolveSpaceProfileName,
-} from './space-emoji.ts';
+import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
 import {
 	watchHighlightTarget,
 	clearHighlightTarget,
@@ -323,7 +319,7 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
-	const {registry, claudeStatus} = daos;
+	const {registry, claudeStatus, spaceState} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
 
@@ -342,9 +338,9 @@ export default function App({
 				createIssueTracker().name,
 				config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
 			);
-			return key ? readSpaceState(repoName, key)?.profile : undefined;
+			return key ? spaceState.read(key)?.profile : undefined;
 		},
-		[repoName],
+		[spaceState],
 	);
 
 	const {
@@ -802,9 +798,9 @@ export default function App({
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {
-				return resolveSpaceEmojiAsync({
+				return resolveSpaceEmoji({
 					config: configMemo,
-					repoName,
+					spaceState,
 					issueKey,
 					cachedIssue,
 				});
@@ -1335,7 +1331,7 @@ export default function App({
 		void openPR(space.name, {
 			provider: createVcsHost(),
 			// link-pr appends, so the last link is the one recorded most recently.
-			linked: readSpaceState(repoName, space.name)?.prLinks?.at(-1),
+			linked: spaceState.read(space.name)?.prLinks?.at(-1),
 			isLatest: () => openPRRequest.current === request,
 			ownsHeader: () => headerGeneration.current === generation,
 			async openUrl(url) {
@@ -1381,7 +1377,7 @@ export default function App({
 
 		const profileName = resolveSpaceProfileName({
 			config: configMemo,
-			repoName,
+			spaceState,
 			issueKey: space.name,
 			cachedIssue: space.trackerIssue ?? space.linearIssue ?? null,
 		});
@@ -1728,6 +1724,7 @@ export default function App({
 		const outcome = confirmConfigMigrations(
 			approved,
 			getSpaceStateDir(repoName),
+			spaceState,
 		);
 		switch (outcome.kind) {
 			case 'rewritten': {
@@ -2511,21 +2508,26 @@ export default function App({
 			// Persist each space's state (rail-status + recap) so sous-chef
 			// and other consumers can read cached data without re-fetching.
 			// Transcript reads yield to input; unchanged files reuse cached recaps.
-			const repoName = getRepoName();
+			const entries: Array<{key: string; patch: RailStatusPatch}> = [];
 			for (const [name, rail] of lookup) {
 				const worktreePath = getWorktreePath(name);
 				const jsonl = worktreePath
 					? await findLatestSessionJsonl(worktreePath)
 					: null;
 				const recap = jsonl ? await extractRecapFromJsonl(jsonl) : null;
-				writeSpaceState(repoName, name, {
-					pipeline: rail.pipeline,
-					unresolvedCommentCount: rail.unresolvedCommentCount,
-					prNumber: rail.prNumber,
-					hasConflict: rail.hasConflict ?? false,
-					...(recap ? {recap} : {}),
+				entries.push({
+					key: name,
+					patch: {
+						pipeline: rail.pipeline,
+						unresolvedCommentCount: rail.unresolvedCommentCount,
+						prNumber: rail.prNumber,
+						hasConflict: rail.hasConflict ?? false,
+						...(recap ? {recap} : {}),
+					},
 				});
 			}
+
+			await spaceState.writeRailStatuses(entries);
 		} catch (err) {
 			log.warn(
 				'Rail status poll failed',

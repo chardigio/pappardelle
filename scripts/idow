@@ -683,12 +683,6 @@ if [[ "$IS_NEW_ISSUE" == true ]]; then
     # project (STA-959). When the profile has no tracker_projects, the issue
     # is created unassigned.
     print_success "Created issue: $ISSUE_KEY"
-
-    # Write issue metadata for hook tracking (plan → description vs comment)
-    # Namespaced per-repo under ~/.pappardelle/repos/{repoName}/issue-meta/
-    ISSUE_META_DIR="$HOME/.pappardelle/repos/$REPO_NAME/issue-meta"
-    mkdir -p "$ISSUE_META_DIR"
-    echo "{\"created_by_pappardelle\": true, \"created_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$ISSUE_META_DIR/$ISSUE_KEY.json"
 else
     # Fetch existing issue via provider
     print_step 3 "Fetching issue ($TRACKER_PROVIDER)..."
@@ -818,46 +812,39 @@ else
     FRESH_WORKSPACE="$IS_NEW_ISSUE"
 fi
 
-SPACE_STATE_DIR="$HOME/.pappardelle/repos/$REPO_NAME/space-state"
-SPACE_STATE_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.json"
-AGENT_SESSIONS_FILE="$SPACE_STATE_DIR/$ISSUE_KEY.agent-sessions.json"
+AGENT_SESSIONS_FILE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
 # A new issue's key can't own a conversation, so any recorded session belonged
 # to an earlier issue with the same key.
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     rm -f "$AGENT_SESSIONS_FILE"
 fi
 
+# What this run has to record about the space, in one call so the binary
+# starts once. It comes before post_workspace_init, which can run for minutes:
+# the TUI renders the ticket-rail emoji from the saved profile on first paint
+# (STA-930) and launches the space's agent from it.
+STATE_ARGS=()
+# A Pappardelle that will list the space started this run, so the space is
+# recorded before its sessions exist and held under this process until the
+# caller opens it. If that fails there is nothing to undo yet, and sessions
+# that belong to no space would be killed by the next Pappardelle to start.
+if [[ -n "${PAPPARDELLE_REGISTER_SPACE:-}" ]]; then
+    STATE_ARGS+=(--register --owner "$$")
+fi
+# For hook tracking (plan → description vs comment).
+if [[ "$IS_NEW_ISSUE" == true ]]; then
+    STATE_ARGS+=(--created-issue)
+fi
+# The profile is saved when the workspace is created or a profile is picked
+# explicitly (--profile). An unforced run on an existing space either read the
+# saved value above or fell back to default_profile, which must not overwrite
+# a real pick.
 if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
-    # Persist the profile to space-state: the TUI renders the ticket-rail emoji
-    # from it on first paint (STA-930), and both the TUI and later idow runs launch
-    # the space's agent from it. Written when the workspace is created or a profile
-    # is picked explicitly (--profile). An unforced run on an existing space either
-    # read this value above or fell back to default_profile, which must not
-    # overwrite a real pick.
-    mkdir -p "$SPACE_STATE_DIR"
-    NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    if [[ -f "$SPACE_STATE_FILE" ]]; then
-        # Merge so we don't clobber rail-status / recap fields written by the
-        # TUI poller (writeSpaceState in space-state.ts does the same merge).
-        # `&&` is part of a compound, so `set -e` doesn't trip on jq failure —
-        # gate the success log on the actual exit status and clean up the
-        # tempfile so a corrupted JSON read can't leak into /tmp.
-        TMP_FILE=$(mktemp)
-        if jq --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
-                '. + {profile: $p, updatedAt: $t}' \
-                "$SPACE_STATE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$SPACE_STATE_FILE"; then
-            log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
-        else
-            log "Warning: failed to persist profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
-            rm -f "$TMP_FILE"
-        fi
-    else
-        # `jq -n` generates from scratch (no file input) so failure is
-        # essentially impossible; the redirect already creates the file.
-        jq -n --arg p "$SELECTED_PROFILE" --arg t "$NOW_ISO" \
-            '{profile: $p, updatedAt: $t}' > "$SPACE_STATE_FILE"
-        log "Persisted profile '$SELECTED_PROFILE' to $SPACE_STATE_FILE"
-    fi
+    STATE_ARGS+=(--profile "$SELECTED_PROFILE")
+fi
+if [[ ${#STATE_ARGS[@]} -gt 0 ]]; then
+    pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY" \
+        || error "Could not record workspace $ISSUE_KEY"
 fi
 
 if [[ "$WORKTREE_CREATED" == true ]]; then
@@ -879,15 +866,6 @@ if [[ "$WORKTREE_CREATED" == true ]]; then
     # post_worktree_init is the legacy name, used only when post_workspace_init is empty
     run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init 'post_workspace_init[%d]' || true
     run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" 'profile_post_init[%d]' || true
-fi
-
-# Record the space before its sessions exist, when a Pappardelle that will
-# list it started this run. If that fails there is nothing to undo yet, and
-# sessions that belong to no space would be killed by the next Pappardelle to
-# start. The space is held under this process until the caller opens it.
-if [[ -n "${PAPPARDELLE_REGISTER_SPACE:-}" ]]; then
-    pappardelle_state prepare-space --repo "$REPO_NAME" --register --owner "$$" "$ISSUE_KEY" \
-        || error "Could not record workspace $ISSUE_KEY"
 fi
 
 # PR URLs are only needed when opening configured apps and links.

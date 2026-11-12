@@ -2,15 +2,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState, type TestState} from '../test/helpers/state.ts';
 import {
 	getAgentSessionsPath,
-	getSpaceStatePath,
 	latestAgentProfile,
-	readSpaceState,
-	writeSpaceState,
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
 	type SpaceState,
+	type SpacePrLink,
 } from './space-state.ts';
 
 let tempCounter = 0;
@@ -25,151 +25,303 @@ function tempDir(): string {
 }
 
 // ============================================================================
-// getSpaceStatePath
+// SpaceStateDao
 // ============================================================================
 
-test('getSpaceStatePath uses ~/.pappardelle/repos/{repo}/space-state/{space}.json', t => {
-	const base = tempDir();
-	const p = getSpaceStatePath('stardust-labs', 'STA-123', base);
+const stateFile = (s: TestState, key: string) =>
+	path.join(s.stateDir, 'repos', 'repo', 'space-state', `${key}.json`);
+
+const fileContent = (s: TestState, key: string) =>
+	JSON.parse(fs.readFileSync(stateFile(s, key), 'utf8')) as SpaceState;
+
+/** A state file as a process that does not use the database leaves it. */
+function writeStateFile(s: TestState, key: string, state: unknown): void {
+	fs.mkdirSync(path.dirname(stateFile(s, key)), {recursive: true});
+	fs.writeFileSync(stateFile(s, key), JSON.stringify(state, null, 2) + '\n');
+}
+
+const link = (rest: Partial<SpacePrLink> = {}): SpacePrLink => ({
+	host: 'github.com',
+	project: 'user/repo',
+	localBranch: 'STA-1',
+	remoteBranch: 'published',
+	url: 'https://github.com/user/repo/pull/1',
+	number: 1,
+	...rest,
+});
+
+contractTest('a space with nothing recorded reads as null', (t, s) => {
+	t.is(s.daos.spaceState.read('STA-999'), null);
 	t.is(
-		p,
-		path.join(base, 'repos', 'stardust-labs', 'space-state', 'STA-123.json'),
+		s.daos.spaceState.file('STA-999'),
+		path.join(s.stateDir, 'repos', 'repo', 'space-state', 'STA-999.json'),
 	);
 });
 
-// ============================================================================
-// readSpaceState
-// ============================================================================
-
-test('readSpaceState returns null when file does not exist', t => {
-	const base = tempDir();
-	t.is(readSpaceState('stardust-labs', 'STA-999', base), null);
+contractTest('a file that is not JSON reads as nothing recorded', (t, s) => {
+	fs.mkdirSync(path.dirname(stateFile(s, 'STA-100')), {recursive: true});
+	fs.writeFileSync(stateFile(s, 'STA-100'), 'not json{{{');
+	t.is(s.daos.spaceState.read('STA-100'), null);
 });
 
-test('readSpaceState returns parsed state when file exists', t => {
-	const base = tempDir();
-	const p = getSpaceStatePath('stardust-labs', 'STA-100', base);
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(
-		p,
-		JSON.stringify({
+for (const sqlite of [false, true]) {
+	test(`${sqlite ? 'sqlite' : 'json'}: a write records its fields with the time of the write, in the store and in the file`, async t => {
+		const s = testState(t, {
+			sqlite,
+			clock: () => new Date('2026-01-02T03:04:05.678Z'),
+		});
+		await s.daos.spaceState.write('STA-200', {
 			pipeline: 'passing',
 			unresolvedCommentCount: 2,
-			prNumber: 849,
-			updatedAt: '2026-04-21T05:00:00.000Z',
-		}),
-	);
-	const state = readSpaceState('stardust-labs', 'STA-100', base);
-	t.truthy(state);
-	t.is(state!.pipeline, 'passing');
-	t.is(state!.unresolvedCommentCount, 2);
-	t.is(state!.prNumber, 849);
-});
+			hasConflict: false,
+		});
+		const expected = {
+			pipeline: 'passing',
+			unresolvedCommentCount: 2,
+			hasConflict: false,
+			updatedAt: '2026-01-02T03:04:05.678Z',
+		};
+		t.deepEqual(s.daos.spaceState.read('STA-200'), expected);
+		t.deepEqual(fileContent(s, 'STA-200'), expected);
+	});
+}
 
-test('readSpaceState returns null for malformed JSON', t => {
-	const base = tempDir();
-	const p = getSpaceStatePath('stardust-labs', 'STA-100', base);
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(p, 'not valid json{{{');
-	t.is(readSpaceState('stardust-labs', 'STA-100', base), null);
-});
+contractTest(
+	'a write keeps the fields its patch does not name',
+	async (t, {daos: {spaceState}}) => {
+		await spaceState.write('STA-300', {
+			pipeline: 'failing',
+			unresolvedCommentCount: 5,
+			recap: {customTitle: 'Initial title'},
+		});
+		await spaceState.write('STA-300', {
+			pipeline: 'passing',
+			unresolvedCommentCount: 0,
+		});
+		const state = spaceState.read('STA-300');
+		t.is(state?.pipeline, 'passing');
+		t.is(state?.unresolvedCommentCount, 0);
+		t.deepEqual(state?.recap, {customTitle: 'Initial title'});
+	},
+);
 
-// ============================================================================
-// writeSpaceState
-// ============================================================================
+contractTest(
+	'a patch key with no value removes the field, and a recap replaces the whole recap',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-310', {
+			prNumber: 12,
+			recap: {
+				customTitle: 'Title',
+				lastPrompt: 'Prompt',
+				lastAssistantExcerpt: 'Excerpt',
+			},
+		});
+		await spaceState.write('STA-310', {
+			prNumber: undefined,
+			recap: {lastPrompt: 'Newer prompt'},
+		});
+		for (const state of [
+			spaceState.read('STA-310'),
+			fileContent(s, 'STA-310'),
+		]) {
+			t.false('prNumber' in state!);
+			t.deepEqual(state?.recap, {lastPrompt: 'Newer prompt'});
+		}
+	},
+);
 
-test('writeSpaceState creates file with given fields and updatedAt', t => {
-	const base = tempDir();
-	writeSpaceState(
-		'stardust-labs',
-		'STA-200',
-		{pipeline: 'failing', unresolvedCommentCount: 3, prNumber: 42},
-		base,
-	);
-	const state = readSpaceState('stardust-labs', 'STA-200', base);
-	t.truthy(state);
-	t.is(state!.pipeline, 'failing');
-	t.is(state!.unresolvedCommentCount, 3);
-	t.is(state!.prNumber, 42);
-	t.truthy(state!.updatedAt);
-	// ISO 8601 sanity check
-	t.regex(state!.updatedAt!, /^\d{4}-\d{2}-\d{2}T/);
-});
+// `pappardelle spaces` prints pipeline as null for a branch with no PR and
+// leaves it out for a space the rail has not polled.
+contractTest(
+	'a pipeline of null is kept apart from no pipeline at all',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('POLLED', {
+			pipeline: null,
+			unresolvedCommentCount: 0,
+		});
+		await spaceState.write('UNPOLLED', {profile: 'dev'});
+		for (const state of [spaceState.read('POLLED'), fileContent(s, 'POLLED')]) {
+			t.true('pipeline' in state!);
+			t.is(state?.pipeline, null);
+		}
 
-test('writeSpaceState merges with existing state rather than replacing it', t => {
-	const base = tempDir();
-	writeSpaceState(
-		'stardust-labs',
-		'STA-300',
-		{pipeline: 'passing', unresolvedCommentCount: 0},
-		base,
-	);
-	writeSpaceState(
-		'stardust-labs',
-		'STA-300',
-		{recap: {customTitle: 'Refactor auth', lastPrompt: 'ship it'}},
-		base,
-	);
-	const state = readSpaceState('stardust-labs', 'STA-300', base);
-	t.is(state!.pipeline, 'passing');
-	t.is(state!.unresolvedCommentCount, 0);
-	t.is(state!.recap?.customTitle, 'Refactor auth');
-	t.is(state!.recap?.lastPrompt, 'ship it');
-});
+		for (const state of [
+			spaceState.read('UNPOLLED'),
+			fileContent(s, 'UNPOLLED'),
+		])
+			t.false('pipeline' in state!);
 
-// Persisted at workspace-creation time by `idow` so the TUI can resolve the
-// profile (and therefore the emoji) on first paint, before the in-memory
-// issue cache has filled. See STA-930.
-test('writeSpaceState round-trips the profile field', t => {
-	const base = tempDir();
-	writeSpaceState('stardust-labs', 'STA-930', {profile: 'pappardelle'}, base);
-	const state = readSpaceState('stardust-labs', 'STA-930', base);
-	t.is(state!.profile, 'pappardelle');
-});
+		await spaceState.write('POLLED', {pipeline: undefined});
+		t.false('pipeline' in spaceState.read('POLLED')!);
+	},
+);
 
-test('writeSpaceState merges profile alongside rail-status fields', t => {
-	const base = tempDir();
-	// idow writes the profile first, then the rail-status poller adds pipeline data.
-	writeSpaceState('stardust-labs', 'STA-931', {profile: 'stardust_jams'}, base);
-	writeSpaceState(
-		'stardust-labs',
-		'STA-931',
-		{pipeline: 'passing', unresolvedCommentCount: 0, prNumber: 100},
-		base,
-	);
-	const state = readSpaceState('stardust-labs', 'STA-931', base);
-	t.is(state!.profile, 'stardust_jams');
-	t.is(state!.pipeline, 'passing');
-	t.is(state!.prNumber, 100);
-});
+contractTest(
+	'a rail poll leaves the profile, the recap and the PR links as they were',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'stardust_jams'});
+		await spaceState.addPrLink('STA-1', link());
+		await spaceState.writeRailStatuses([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'progressing_clean',
+					unresolvedCommentCount: 1,
+					prNumber: 1,
+					hasConflict: false,
+					recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+				},
+			},
+			{
+				key: 'STA-2',
+				patch: {pipeline: null, unresolvedCommentCount: 0, hasConflict: false},
+			},
+		]);
+		await spaceState.writeRailStatuses([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'failing',
+					unresolvedCommentCount: 3,
+					prNumber: undefined,
+					hasConflict: true,
+				},
+			},
+		]);
+		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')]) {
+			t.like(state, {
+				profile: 'stardust_jams',
+				pipeline: 'failing',
+				unresolvedCommentCount: 3,
+				hasConflict: true,
+				recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+				prLinks: [link()],
+			});
+			t.false('prNumber' in state!);
+		}
 
-test('writeSpaceState creates parent directories if missing', t => {
-	const base = tempDir();
-	// Note: base exists but repos/.../space-state does not.
-	writeSpaceState(
-		'stardust-labs',
-		'STA-400',
-		{pipeline: 'progressing_clean', unresolvedCommentCount: 1},
-		base,
-	);
-	const p = getSpaceStatePath('stardust-labs', 'STA-400', base);
-	t.true(fs.existsSync(p));
-});
+		t.is(spaceState.read('STA-2')?.pipeline, null);
+	},
+);
 
-test('writeSpaceState serialises null pipeline as null (not undefined)', t => {
-	const base = tempDir();
-	writeSpaceState(
-		'stardust-labs',
-		'STA-500',
-		{pipeline: null, unresolvedCommentCount: 0},
-		base,
-	);
-	const raw = fs.readFileSync(
-		getSpaceStatePath('stardust-labs', 'STA-500', base),
-		'utf-8',
-	);
-	const parsed = JSON.parse(raw) as SpaceState;
-	t.is(parsed.pipeline, null);
+contractTest(
+	'a PR link replaces the one for the same checkout and becomes the newest',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		const nested = link({project: 'user/nested', localBranch: 'local'});
+		await spaceState.addPrLink('STA-1', link());
+		await spaceState.addPrLink('STA-1', nested);
+		t.deepEqual(spaceState.read('STA-1')?.prLinks, [link(), nested]);
+
+		const republished = link({remoteBranch: 'published-again', number: 2});
+		await spaceState.addPrLink('STA-1', republished);
+		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')])
+			t.deepEqual(state?.prLinks, [nested, republished]);
+	},
+);
+
+contractTest(
+	'a file written by a process without the database is what the next read returns',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'dev', prNumber: 4});
+		const edited = {
+			profile: 'other',
+			pipeline: null,
+			unresolvedCommentCount: 2,
+			hasConflict: true,
+			recap: {lastAssistantExcerpt: 'Done'},
+			prLinks: [link()],
+			updatedAt: '2026-05-06T07:08:09Z',
+		};
+		writeStateFile(s, 'STA-1', edited);
+		t.deepEqual(spaceState.read('STA-1'), edited);
+
+		await spaceState.write('STA-1', {prNumber: 9});
+		const {updatedAt, ...kept} = edited;
+		const {updatedAt: rewrittenAt, ...rewritten} = fileContent(s, 'STA-1');
+		t.deepEqual(rewritten, {...kept, prNumber: 9});
+		t.not(rewrittenAt, updatedAt);
+	},
+);
+
+contractTest(
+	'a space whose file was deleted has nothing recorded',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'dev'});
+		await spaceState.addPrLink('STA-1', link());
+		fs.rmSync(stateFile(s, 'STA-1'));
+		t.is(spaceState.read('STA-1'), null);
+
+		await spaceState.write('STA-1', {prNumber: 3});
+		t.deepEqual(Object.keys(fileContent(s, 'STA-1')).sort(), [
+			'prNumber',
+			'updatedAt',
+		]);
+	},
+);
+
+test('both stores leave the same files for the same writes', async t => {
+	const files = async (sqlite: boolean) => {
+		const s = testState(t, {sqlite});
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'dev'});
+		await spaceState.writeRailStatuses([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'passing',
+					unresolvedCommentCount: 0,
+					prNumber: 7,
+					hasConflict: false,
+					recap: {customTitle: 'Title', lastAssistantExcerpt: 'Excerpt'},
+				},
+			},
+			{
+				key: 'STA-2',
+				patch: {
+					pipeline: null,
+					unresolvedCommentCount: 0,
+					prNumber: undefined,
+					hasConflict: false,
+				},
+			},
+		]);
+		await spaceState.addPrLink('STA-1', link());
+		await spaceState.addPrLink('STA-1', link({remoteBranch: 'again'}));
+		await spaceState.addPrLink('STA-3', link({localBranch: 'STA-3'}));
+		await spaceState.writeRailStatuses([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'failing',
+					unresolvedCommentCount: 2,
+					prNumber: undefined,
+					hasConflict: true,
+				},
+			},
+		]);
+		const dir = path.dirname(stateFile(s, 'STA-1'));
+		return Object.fromEntries(
+			fs
+				.readdirSync(dir)
+				.sort()
+				.map(name => {
+					const {updatedAt, ...rest} = JSON.parse(
+						fs.readFileSync(path.join(dir, name), 'utf8'),
+					) as SpaceState;
+					return [name, rest];
+				}),
+		);
+	};
+
+	const json = await files(false);
+	t.deepEqual(Object.keys(json), ['STA-1.json', 'STA-2.json', 'STA-3.json']);
+	t.deepEqual(await files(true), json);
 });
 
 // ============================================================================

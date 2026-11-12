@@ -8,6 +8,8 @@ import path from 'node:path';
 import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
 import {SqliteClaudeStatusDao} from './claude-status-sqlite.ts';
 import {readHomeSqliteState} from './config.ts';
+import {JsonIssueMetaDao, type IssueMetaDao} from './issue-meta.ts';
+import {SqliteIssueMetaDao} from './issue-meta-sqlite.ts';
 import {
 	getRegistryPathForRepo,
 	JsonSpaceRegistryDao,
@@ -15,12 +17,20 @@ import {
 	type SpaceRegistryDao,
 } from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
+import {
+	getSpaceStateDir,
+	JsonSpaceStateDao,
+	type SpaceStateDao,
+} from './space-state.ts';
+import {SqliteSpaceStateDao} from './space-state-sqlite.ts';
 import {DEFAULT_STATE_DIR, openStateDb, stateDbPath} from './state-db.ts';
 import {sqliteStateOverride} from './state-flag.ts';
 
 export type StateDaos = {
 	registry: SpaceRegistryDao;
 	claudeStatus: ClaudeStatusDao;
+	spaceState: SpaceStateDao;
+	issueMeta: IssueMetaDao;
 };
 
 export type StateDaoOptions = {
@@ -30,6 +40,8 @@ export type StateDaoOptions = {
 	dbPath?: string;
 	/** Which implementation to build. Defaults to experimental.sqliteState. */
 	sqlite?: boolean;
+	/** The time recorded on a write. */
+	clock?: () => Date;
 };
 
 let configured: boolean | undefined;
@@ -53,8 +65,22 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		process.env['PAPPARDELLE_STATUS_DIR'] ??
 			path.join(stateDir, 'claude-status'),
 	);
+	const clock = options.clock ?? (() => new Date());
+	const jsonSpaceState = new JsonSpaceStateDao(
+		getSpaceStateDir(repo, stateDir),
+		clock,
+	);
+	const jsonIssueMeta = new JsonIssueMetaDao(
+		path.join(stateDir, 'repos', repo, 'issue-meta'),
+		clock,
+	);
 	if (!(options.sqlite ?? sqliteStateEnabled())) {
-		return {registry: jsonRegistry, claudeStatus: jsonClaudeStatus};
+		return {
+			registry: jsonRegistry,
+			claudeStatus: jsonClaudeStatus,
+			spaceState: jsonSpaceState,
+			issueMeta: jsonIssueMeta,
+		};
 	}
 
 	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
@@ -62,5 +88,23 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
 		claudeStatus: new SqliteClaudeStatusDao(openDb, jsonClaudeStatus),
+		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
+		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
+	};
+}
+
+/**
+ * Stores for a repo that is only known once a path has been looked at (a
+ * workspace handed to link-pr, a checkout the rail discovered), built once
+ * per repo.
+ */
+export function stateDaosByRepo(
+	options: Omit<StateDaoOptions, 'repo'> = {},
+): (repo: string) => StateDaos {
+	const built = new Map<string, StateDaos>();
+	return repo => {
+		const daos = built.get(repo) ?? createStateDaos({...options, repo});
+		built.set(repo, daos);
+		return daos;
 	};
 }

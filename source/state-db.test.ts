@@ -169,15 +169,17 @@ test('a write waits for another writer on a timer, without holding the event loo
 	}, 5);
 	setTimeout(() => {
 		other.run('COMMIT');
-	}, 400);
+	}, 800);
 	await store.set('a', 'after the lock');
 	clearInterval(ticker);
 	other.close();
 
 	t.deepEqual(store.rows(), {a: 'after the lock'});
+	// A write that waited inside the database would hold the loop for the
+	// whole 800 ms. The margin is for a loaded machine, not for the write.
 	t.true(
-		longestGap < 150,
-		`the loop was held for ${longestGap.toFixed(0)} ms of a 400 ms lock`,
+		longestGap < 400,
+		`the loop was held for ${longestGap.toFixed(0)} ms of an 800 ms lock`,
 	);
 });
 

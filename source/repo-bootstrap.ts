@@ -7,9 +7,14 @@ import {
 	readHomeSqliteState,
 } from './config.ts';
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
-import {createIssueTracker, createVcsHost} from './providers/index.ts';
+import {
+	createIssueTracker,
+	createVcsHost,
+	setWorkspaceDiscovery,
+} from './providers/index.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
-import {createStateDaos, type StateDaos} from './state-daos.ts';
+import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
+import {stateDaosByRepo, type StateDaos} from './state-daos.ts';
 import {recordSqliteState} from './state-flag.ts';
 import {initTmuxState} from './tmux.ts';
 
@@ -31,8 +36,16 @@ export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 	// Initialize per-repo state directories so state is kept separate
 	// from other repos that may also use pappardelle.
 	const repoName = getRepoName();
-	const daos = createStateDaos({repo: repoName});
+	const daosByRepo = stateDaosByRepo();
+	const daos = daosByRepo(repoName);
 	initTmuxState(daos);
+	setWorkspaceDiscovery(async (directory, host) =>
+		discoverWorkspaceRepositories(
+			directory,
+			host,
+			repo => daosByRepo(repo).spaceState,
+		),
+	);
 	initStateColorCacheDir(
 		path.join(homedir(), '.pappardelle', 'repos', repoName),
 	);
