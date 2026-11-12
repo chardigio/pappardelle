@@ -27,6 +27,7 @@ const BUSY_RETRY_MS = 25;
 const WRITE_DEADLINE_MS = 2000;
 // Opening may wait for another process's migration, which runs once.
 const OPEN_BUSY_TIMEOUT_MS = 5000;
+const CHECKPOINT_INTERVAL_MS = 30_000;
 
 /**
  * Ordered schema changes. `PRAGMA user_version` counts how many have been
@@ -181,6 +182,35 @@ const MIGRATIONS: string[] = [
 	CREATE TABLE pr_link_stamp (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		touched_at INTEGER NOT NULL
+	) STRICT`,
+	`CREATE TABLE program_status (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		generation TEXT NOT NULL,
+		pane_id TEXT NOT NULL,
+		pane_pid TEXT NOT NULL,
+		pane_dead INTEGER NOT NULL CHECK (pane_dead IN (0, 1)),
+		pane_piped INTEGER NOT NULL CHECK (pane_piped IN (0, 1)),
+		marker TEXT NOT NULL,
+		authoritative INTEGER NOT NULL CHECK (authoritative IN (0, 1)),
+		exited INTEGER NOT NULL CHECK (exited IN (0, 1)),
+		updated_at INTEGER NOT NULL,
+		records TEXT NOT NULL,
+		info TEXT NOT NULL,
+		PRIMARY KEY (repo, key, generation)
+	) STRICT;
+	CREATE TABLE tui_markers (
+		repo TEXT PRIMARY KEY,
+		pid INTEGER NOT NULL,
+		cli_path TEXT NOT NULL,
+		sha TEXT NOT NULL,
+		pane_id TEXT NOT NULL,
+		started_at INTEGER NOT NULL
+	) STRICT;
+	CREATE TABLE update_check (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		checked_at INTEGER NOT NULL,
+		latest_version TEXT NOT NULL
 	) STRICT`,
 ];
 
@@ -347,11 +377,17 @@ export class StateDb {
 		return retryBusy(() => this.tryWrite(body));
 	}
 
+	/**
+	 * Rows changed without a mirrored file, attempted once: throws SQLITE_BUSY
+	 * when another process holds the write lock.
+	 */
+	tryWriteRows<T>(body: () => T): T {
+		return this.notifying(() => this.db.transaction(body).immediate());
+	}
+
 	/** Rows changed without a mirrored file, for stores that keep none. */
 	async writeRows<T>(body: () => T): Promise<T> {
-		return retryBusy(() =>
-			this.notifying(() => this.db.transaction(body).immediate()),
-		);
+		return retryBusy(() => this.tryWriteRows(body));
 	}
 
 	/** Ring the bell for watchers in other processes when rows changed. */
@@ -501,8 +537,43 @@ export function openStateDb(dbPath: string): StateDb {
 	return state;
 }
 
+const checkpointTimers = new WeakMap<StateDb, ReturnType<typeof setInterval>>();
+
+/** Move what the write-ahead log holds into the database file, as far as readers allow. */
+export function checkpoint(state: StateDb): void {
+	try {
+		state.db.run('PRAGMA wal_checkpoint(PASSIVE)');
+	} catch (error) {
+		log.debug(`Could not checkpoint the state database: ${String(error)}`);
+	}
+}
+
+/**
+ * Stop this connection checkpointing inside its commits, and checkpoint on a
+ * timer instead. For the TUI, which renders on the thread that commits.
+ *
+ * While other processes write without a pause (status monitors under load),
+ * the log stays past the size that triggers a checkpoint, so every commit on
+ * a connection with the default setting attempts one. A checkpoint is two
+ * fsyncs, 4 to 7 ms measured. Hooks, CLI verbs and status monitors keep the
+ * default and do most of the checkpointing.
+ */
+export function checkpointOutsideWrites(state: StateDb): void {
+	if (checkpointTimers.has(state)) return;
+	state.db.run('PRAGMA wal_autocheckpoint = 0');
+	const timer = setInterval(() => {
+		checkpoint(state);
+	}, CHECKPOINT_INTERVAL_MS);
+	timer.unref();
+	checkpointTimers.set(state, timer);
+}
+
 /** Close and forget a connection, so a test can remove its directory. */
 export function closeStateDb(dbPath: string): void {
-	connections.get(dbPath)?.db.close();
+	const state = connections.get(dbPath);
+	if (!state) return;
+	clearInterval(checkpointTimers.get(state));
+	checkpointTimers.delete(state);
+	state.db.close();
 	connections.delete(dbPath);
 }

@@ -9,10 +9,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-	attachStatusMonitor,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
 assert.ok(
@@ -74,7 +71,7 @@ try {
 		shellStartup,
 		'-i',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await harness.programStatus(repo).attach(key, session);
 	const statuses = await harness.mount(repo, key, session);
 	const args = [agent, '--standalone', '--prompt', task];
 	console.log(`Fixture ${harness.root}; ${agent} ${version}`);

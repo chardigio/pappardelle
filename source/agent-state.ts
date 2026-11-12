@@ -14,7 +14,6 @@ import {
 } from './agent-screen.ts';
 import {
 	parseStatusPane,
-	readProgramSnapshot,
 	STATUS_PANE_FORMAT,
 	STATUS_PANE_OPTION,
 	statusSocket,
@@ -110,11 +109,7 @@ export type AgentStateDeps = {
 	/** The hook file's key: the space key, or `{repo}-{branch}` for main. */
 	hookKey: string;
 	readHook: (key: string) => Promise<ClaudeStatusInfo | null>;
-	readSnapshot?: (
-		repo: string,
-		key: string,
-		pane: StatusPane,
-	) => ProgramStatusSnapshot | null;
+	readSnapshot: (key: string, pane: StatusPane) => ProgramStatusSnapshot | null;
 };
 
 const SCREEN_TAIL_LINES = 40;
@@ -248,7 +243,7 @@ export async function readAgentState(
 		: null;
 	const status = mergeProgramStatus(
 		await deps.readHook(deps.hookKey),
-		pane ? (deps.readSnapshot ?? readProgramSnapshot)(repo, key, pane) : null,
+		pane ? deps.readSnapshot(key, pane) : null,
 		pane,
 	);
 	return {

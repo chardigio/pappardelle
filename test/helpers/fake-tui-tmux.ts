@@ -1,5 +1,37 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {stateDaosByRepo} from '../../source/state-daos.ts';
+import {closeStateDb, stateDbPath} from '../../source/state-db.ts';
 import type {OuterTmuxRunner} from '../../source/tmux.ts';
-import {writeTuiMarker} from '../../source/tui-marker.ts';
+import type {TuiMarkerDao} from '../../source/tui-marker.ts';
+import {sqliteRun} from './state.ts';
+
+const stateDirs: string[] = [];
+process.once('exit', () => {
+	for (const stateDir of stateDirs) {
+		closeStateDb(stateDbPath(stateDir));
+		fs.rmSync(stateDir, {recursive: true, force: true});
+	}
+});
+
+/**
+ * A repo state root with a directory for each of `repos`, and each repo's
+ * marker store in the run's mode.
+ */
+export function tuiStateRoot(repos: string[]): {
+	repoStateRoot: string;
+	tuiMarker: (repo: string) => TuiMarkerDao;
+} {
+	const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-tui-state-'));
+	stateDirs.push(stateDir);
+	const repoStateRoot = path.join(stateDir, 'repos');
+	for (const repo of repos)
+		fs.mkdirSync(path.join(repoStateRoot, repo), {recursive: true});
+	fs.mkdirSync(repoStateRoot, {recursive: true});
+	const daosFor = stateDaosByRepo({stateDir, sqlite: sqliteRun});
+	return {repoStateRoot, tuiMarker: repo => daosFor(repo).tuiMarker};
+}
 
 // What a TUI does when its pane is restarted: come up and write its ready
 // marker, come up on some other cli.js, never report, exit during startup, or
@@ -20,7 +52,7 @@ const repoOf = (session: string) => session.replace(/^pappardelle-/, '');
 // A default tmux server holding `sessions`. Each window lists pane %<index>
 // first; `tuiPane` names a later pane for a TUI whose panes were rearranged.
 export function fakeTuiTmux(options: {
-	repoStateRoot: string;
+	tuiMarker: (repo: string) => TuiMarkerDao;
 	sessions?: string[];
 	listFails?: boolean;
 	behavior?: Record<string, FakeTuiBehavior>;
@@ -62,7 +94,7 @@ export function fakeTuiTmux(options: {
 
 				if (behavior === 'ready' || typeof behavior === 'object') {
 					const session = sessionOf(paneId);
-					writeTuiMarker(options.repoStateRoot, repoOf(session), {
+					void options.tuiMarker(repoOf(session)).write({
 						pid: 4242,
 						cliPath:
 							typeof behavior === 'object' ? behavior.cliPath : FAKE_CLI_PATH,

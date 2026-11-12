@@ -114,6 +114,7 @@ function harness(dialog: Dialog) {
 		resolveKey: raw => raw,
 		hookKey: async key => key,
 		readHook: async () => ({status: 'unknown'}),
+		readSnapshot: () => null,
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(2026, 10, 9, 12, 0),

@@ -4,10 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-	attachStatusMonitor,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {buildAgentSessionEnvArgs} from '../source/spawn-env.ts';
 import {StatusHarness} from './program-status-harness.ts';
 
@@ -119,7 +116,7 @@ try {
 		'/bin/bash',
 		'-l',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await harness.programStatus(repo).attach(key, session);
 	await harness.mount(repo, key, session);
 	console.log(`Fixture ${harness.root}; Pi ${version}; model=${model}`);
 	await launch('fresh launch');

@@ -25,13 +25,12 @@ import {getRepoName} from './config.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
 import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
-import {attachStatusMonitor} from './program-status-monitor.ts';
 import {
 	StartupTrace,
 	startupTrace,
 	type StartupRecord,
 } from './startup-trace.ts';
-import {testTmuxState} from '../test/helpers/state.ts';
+import {testState, testTmuxState} from '../test/helpers/state.ts';
 
 // A new agent session is told where its agent-sessions file is, which the
 // stores place.
@@ -70,8 +69,7 @@ test.serial(
 		t.teardown(() => {
 			startupTrace.current = previous;
 		});
-		await attachStatusMonitor(
-			'fixture',
+		await testState(t).daos.programStatus.attach(
 			'background',
 			'agent-background',
 			'fixture',

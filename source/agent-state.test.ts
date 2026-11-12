@@ -46,6 +46,7 @@ const state = async (
 			const info: ClaudeStatusInfo = {status: 'unknown', ...hook};
 			return info;
 		},
+		readSnapshot: () => null,
 	});
 const stateOf = async (
 	screen: string | null,

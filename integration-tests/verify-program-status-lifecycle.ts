@@ -8,13 +8,9 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {WorkspaceStatuses} from '../source/workspace-status.ts';
 import {
-	attachStatusMonitor,
 	listStatusPanes,
-	monitorStatusPane,
 	parseStatusPane,
 	programStatusPath,
-	readProgramSnapshot,
-	removeProgramSnapshots,
 	runStatusTmux,
 	shellQuoteStatus,
 } from '../source/program-status-monitor.ts';
@@ -40,6 +36,7 @@ execFileSync('shellcheck', ['-s', 'bash', '-'], {input: shim});
 writeFileSync(path.join(bin, 'tmux'), shim, {mode: 0o755});
 process.env['PATH'] = `${bin}:${previousPath}`;
 const repo = 'lifecycle';
+const programStatus = harness.programStatus(repo);
 const key = 'fixture';
 const session = 'lifecycle-fixture';
 let publisher: ChildProcess | undefined;
@@ -58,13 +55,13 @@ try {
 		'--noprofile',
 		'--norc',
 	]);
-	const pane = await attachStatusMonitor(repo, key, session);
+	const pane = await programStatus.attach(key, session);
 	assert.ok(pane);
 	await harness.fixture(session);
 	await harness.emit(session, 'state=working:app=fixture');
 	let queries = 0;
 	const statuses = new WorkspaceStatuses(
-		repo,
+		programStatus,
 		() => session,
 		harness.claudeStatus,
 		async args => {
@@ -153,7 +150,7 @@ try {
 	console.log('PASS listing locates the current pane of an unpinned session');
 	await harness.tmux(['kill-pane', '-t', current]);
 	assert.equal(
-		await monitorStatusPane(repo, 'probe', probe, located, harness.socket),
+		await programStatus.monitor('probe', probe, located, harness.socket),
 		null,
 	);
 	const pin = await harness.tmux([
@@ -192,7 +189,7 @@ try {
 	writeFileSync(fail, '');
 	await until(() => existsSync(used), Boolean, 'failed liveness probe');
 	await delay(100);
-	assert.equal(readProgramSnapshot(repo, key, pane)?.exited, false);
+	assert.equal(programStatus.read(key, pane)?.exited, false);
 	const afterProbe = await statuses.read(key);
 	assert.equal(afterProbe?.status, 'working');
 	await harness.emit(session, 'state=blocked:app=fixture:kind=question');
@@ -211,7 +208,11 @@ try {
 		`${pane.id}\t${pane.pid}\t0\t1\t${randomUUID()}`,
 		harness.socket,
 	)!;
-	const target = programStatusPath(repo, 'race', racePane.generation);
+	const target = programStatusPath(
+		harness.statusDir(repo),
+		'race',
+		racePane.generation,
+	);
 	const ready = path.join(harness.root, 'publisher-ready');
 	const paused = path.join(harness.root, 'publisher-paused');
 	const resume = path.join(harness.root, 'publisher-resume');
@@ -241,7 +242,10 @@ const interceptedWrite = function(file, ...args) {
 };
 mock.module('node:fs', () => ({...fs, writeFileSync: interceptedWrite}));
 const {monitorPane} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))});
-monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(harness.socket)}, ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))});
+const {SqliteSnapshotRows} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-sqlite.ts'))});
+const {openStateDb} = await import(${JSON.stringify(path.join(projectRoot, 'source/state-db.ts'))});
+const rows = ${JSON.stringify(harness.sqlite)} ? new SqliteSnapshotRows(() => openStateDb(${JSON.stringify(path.join(harness.stateDir, 'state.db'))})) : undefined;
+monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(harness.socket)}, ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))}, undefined, () => rows);
 original(${JSON.stringify(ready)}, '');
 `,
 	);
@@ -257,11 +261,12 @@ original(${JSON.stringify(ready)}, '');
 		Boolean,
 		'publication pauses after initial lease check',
 	);
-	removeProgramSnapshots(repo, 'race');
+	await programStatus.remove('race');
 	writeFileSync(resume, '');
 	await until(() => existsSync(done), Boolean, 'publication resumes');
 	assert.equal(existsSync(target), false);
 	assert.equal(existsSync(`${target}.lease`), false);
+	assert.equal(harness.snapshotRows(repo, 'race'), 0);
 	evidence['late-publication'] =
 		'revoked generation cannot recreate its snapshot after rename';
 	console.log(
@@ -269,7 +274,7 @@ original(${JSON.stringify(ready)}, '');
 	);
 
 	await harness.tmux(['kill-pane', '-t', pane.id]);
-	assert.equal(await attachStatusMonitor(repo, key, session), null);
+	assert.equal(await programStatus.attach(key, session), null);
 	evidence['missing-pin'] = 'surviving windows are not rebound as agent panes';
 	console.log('PASS missing pinned pane does not rebind another window');
 	await until(

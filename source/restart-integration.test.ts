@@ -4,7 +4,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {sqliteRun} from '../test/helpers/state.ts';
 import {restartRepo, type RestartCommandDeps} from './restart-command.ts';
+import {stateDaosByRepo} from './state-daos.ts';
+import {closeStateDb, stateDbPath} from './state-db.ts';
 import {defaultServerTmuxEnv, defaultServerTmuxRunner} from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
 
@@ -68,11 +71,13 @@ tmuxTest(
 			if (saved.tmux !== undefined) process.env['TMUX'] = saved.tmux;
 			if (saved.tmpdir === undefined) delete process.env['TMUX_TMPDIR'];
 			else process.env['TMUX_TMPDIR'] = saved.tmpdir;
+			closeStateDb(stateDbPath(dir));
 			rmSync(dir, {recursive: true, force: true});
 		});
 
 		const repoStateRoot = join(dir, 'repos');
 		mkdirSync(join(repoStateRoot, 'itest'), {recursive: true});
+		const daosFor = stateDaosByRepo({stateDir: dir, sqlite: sqliteRun});
 		const stub = join(dir, 'stub-tui.cjs');
 		writeFileSync(
 			stub,
@@ -126,6 +131,7 @@ setInterval(() => {}, 1000);`,
 				return {status: 0, stdout: ''};
 			},
 			repoStateRoot,
+			tuiMarker: repo => daosFor(repo).tuiMarker,
 			launchCommand,
 			cliPath: stub,
 			currentSession: () => null,

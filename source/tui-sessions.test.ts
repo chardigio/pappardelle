@@ -10,6 +10,7 @@ import {
 	REFUSAL,
 	fakeTuiTmux,
 	restarted,
+	tuiStateRoot,
 } from '../test/helpers/fake-tui-tmux.ts';
 import {restartLockPath} from './tui-marker.ts';
 import {
@@ -23,20 +24,6 @@ import {
 	tuiLaunchCommand,
 } from './tui-sessions.ts';
 
-let counter = 0;
-function repoStateRoot(repos: string[]): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`tui-sessions-test-${process.pid}-${Date.now()}-${counter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	for (const repo of repos) {
-		fs.mkdirSync(path.join(dir, repo));
-	}
-
-	return dir;
-}
-
 const COMMAND =
 	"'/node' '--no-env-file' '--config=/dev/null' '/build/dist/cli.js'";
 
@@ -45,12 +32,12 @@ function setup(
 	behavior: Parameters<typeof fakeTuiTmux>[0]['behavior'] = {},
 	tuiPane: Record<string, string> = {},
 ) {
-	const root = repoStateRoot(
+	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(
 		sessions.map(name => name.replace(/^pappardelle-/, '')),
 	);
 	const printed: string[] = [];
 	const {tmux, calls} = fakeTuiTmux({
-		repoStateRoot: root,
+		tuiMarker,
 		sessions,
 		behavior,
 		tuiPane,
@@ -62,6 +49,7 @@ function setup(
 		deps: {
 			tmux,
 			repoStateRoot: root,
+			tuiMarker,
 			timing: FAST,
 			print(line: string) {
 				printed.push(line);
@@ -73,9 +61,9 @@ function setup(
 const app = {session: 'pappardelle-app', repo: 'app'};
 
 test('only pappardelle sessions with a repo state dir count as TUIs', t => {
-	const root = repoStateRoot(['app', 'web']);
+	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['app', 'web']);
 	const {tmux} = fakeTuiTmux({
-		repoStateRoot: root,
+		tuiMarker,
 		sessions: [
 			'pappardelle-app',
 			'pappardelle-decoy',
@@ -91,9 +79,9 @@ test('only pappardelle sessions with a repo state dir count as TUIs', t => {
 });
 
 test('a dotted repo name matches with or without tmux rewriting the dot', t => {
-	const root = repoStateRoot(['my.repo', 'next.js']);
+	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['my.repo', 'next.js']);
 	const {tmux} = fakeTuiTmux({
-		repoStateRoot: root,
+		tuiMarker,
 		sessions: ['pappardelle-my_repo', 'pappardelle-next.js'],
 	});
 
@@ -108,9 +96,9 @@ test('when two repos could own a session, the one named exactly like it does', t
 		['my.app', 'my_app'],
 		['my_app', 'my.app'],
 	]) {
-		const root = repoStateRoot(repos);
+		const {repoStateRoot: root, tuiMarker} = tuiStateRoot(repos);
 		const {tmux} = fakeTuiTmux({
-			repoStateRoot: root,
+			tuiMarker,
 			sessions: ['pappardelle-my_app'],
 		});
 		// Readdir order is the filesystem's; neither order may change the answer.
