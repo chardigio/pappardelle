@@ -12,7 +12,7 @@ import {
 	setConfiguredPaneWidthsForTests,
 	setSpaceCompanionWidth,
 } from './tmux.ts';
-import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
 
 const exec = promisify(execFile);
 
@@ -43,14 +43,13 @@ test.serial(
 			return stdout;
 		};
 
-		setRegistryPath(path.join(dir, 'registry.json'));
+		testTmuxState(t);
 		t.teardown(async () => {
 			setSpaceCompanionWidth(null);
 			try {
 				await exec('tmux', ['-S', socket, 'kill-server']);
 			} catch {}
 
-			resetRegistryPath();
 			fs.rmSync(dir, {recursive: true, force: true});
 		});
 

@@ -7,7 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
-import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
 import {
 	companionSplitPaneIds,
 	createCompanionSplit,
@@ -110,14 +110,13 @@ const option = async (session: string, name: string) =>
 test.after.always(() => {
 	for (const socket of [outer, inner])
 		spawnSync('tmux', ['-S', socket, 'kill-server'], {env});
-	resetRegistryPath();
 	fs.rmSync(dir, {recursive: true, force: true});
 });
 
 tmuxTest(
 	'splits show in framed panes of their own, move between spaces and keep a dragged size',
 	async t => {
-		setRegistryPath(`${dir}/registry.json`);
+		testTmuxState(t);
 		// The repo that holds this test can set companion_width in its own
 		// .pappardelle.yml (the monorepo sets 20). A pane that narrow cuts the
 		// split titles, so the test uses the built-in widths.

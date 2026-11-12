@@ -6,7 +6,8 @@ import {confirm} from './confirm.ts';
 import {runCloseHooks, type ClosingSpace} from './close-space.ts';
 import {createLogger} from './logger.ts';
 import type {TrackerIssue} from './providers/types.ts';
-import {getRegisteredSpaces, removeSpace} from './space-registry.ts';
+import type {SpaceRegistryDao} from './space-registry.ts';
+import type {StateDaos} from './state-daos.ts';
 import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	currentInnerServerSession,
@@ -25,12 +26,11 @@ import type {DeinitResult} from './workspace-deinit.ts';
 const log = createLogger('close-command');
 
 export type CloseCommandDeps = {
-	registeredSpaces: () => string[];
+	registry: Pick<SpaceRegistryDao, 'has' | 'markClosing' | 'reopen' | 'remove'>;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
 	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
 	killSpaceSessions: (key: string) => Promise<boolean>;
-	removeSpace: (key: string) => Promise<void>;
 	cleanup: (key: string) => Promise<boolean>;
 	sessionNames: (key: string) => {
 		agent: string;
@@ -121,16 +121,20 @@ export async function runCloseTeardown(
 }
 
 function isOpenSpace(key: string, deps: CloseCommandDeps): boolean {
-	return key !== MAIN_WORKTREE_KEY && deps.registeredSpaces().includes(key);
+	// A space left closing by an interrupted close counts, so closing it
+	// again finishes the job.
+	return key !== MAIN_WORKTREE_KEY && deps.registry.has(key);
 }
 
 // The TUI leaves simulator cleanup running in the background; this process
 // exits right after teardown, so it waits for the cleanup first.
 async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
 	let cleanup: Promise<boolean> | undefined;
-	const tornDown = await tearDownSpace(key, {
+	const result = await tearDownSpace(key, {
+		markClosing: async closing => deps.registry.markClosing(closing),
+		reopen: async reopened => deps.registry.reopen(reopened),
 		killSpaceSessions: deps.killSpaceSessions,
-		removeSpace: deps.removeSpace,
+		removeSpace: async removed => deps.registry.remove(removed),
 		async cleanup(cleanupKey) {
 			cleanup = deps.cleanup(cleanupKey);
 			return cleanup;
@@ -140,12 +144,17 @@ async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
 		},
 	});
 	await cleanup?.catch(() => false);
-	return tornDown;
+	if (
+		result.outcome === 'mark-failed' ||
+		result.outcome === 'unregister-failed'
+	)
+		throw result.error;
+	return result.outcome === 'closed';
 }
 
-export function defaultCloseCommandDeps(): CloseCommandDeps {
+export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {
 	return {
-		registeredSpaces: getRegisteredSpaces,
+		registry: daos.registry,
 		getIssue,
 		worktreePath: getWorktreePath,
 		async runHooks(space) {
@@ -154,7 +163,6 @@ export function defaultCloseCommandDeps(): CloseCommandDeps {
 		async killSpaceSessions(key) {
 			return killSpaceSessions(key);
 		},
-		removeSpace,
 		async cleanup(key) {
 			removeProgramSnapshots(getRepoName(), key);
 			return deleteQaSimulator(key);
