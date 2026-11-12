@@ -96,6 +96,7 @@ export function calculateVisibleWindow(
 		Array.from({length: totalItems}, () => linesPerItem),
 		selectedIndex,
 		termHeight,
+		0,
 	);
 	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
@@ -111,11 +112,15 @@ export function calculateRowWindow(
 	heights: readonly number[],
 	cursorRow: number,
 	termHeight: number,
+	bannerHeight: number,
 ): {scrollOffset: number; visibleCount: number} {
 	const count = heights.length;
 	if (count === 0) return {scrollOffset: 0, visibleCount: 0};
 	const cursor = Math.min(Math.max(cursorRow, 0), count - 1);
-	const budget = Math.max(heights[cursor]!, termHeight - LIST_CHROME_ROWS);
+	const budget = Math.max(
+		heights[cursor]!,
+		termHeight - bannerHeight - LIST_CHROME_ROWS,
+	);
 	const total = heights.reduce((sum, height) => sum + height, 0);
 	if (total <= budget) return {scrollOffset: 0, visibleCount: count};
 

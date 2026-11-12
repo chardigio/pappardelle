@@ -2520,6 +2520,7 @@ export default function App({
 		allRows.map(row => railRowHeight(row, linesPerItem)),
 		allCursor,
 		termHeight,
+		bannerHeight,
 	);
 	const visibleRows = allRows.slice(scrollOffset, scrollOffset + visibleCount);
 	const visibleCursor = allCursor - scrollOffset;

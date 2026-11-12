@@ -1394,6 +1394,7 @@ test('calculateRowWindow fits mixed heights within the pane', t => {
 			heights,
 			cursor,
 			termHeight,
+			0,
 		);
 		const lines = heights
 			.slice(scrollOffset, scrollOffset + visibleCount)
@@ -1403,9 +1404,18 @@ test('calculateRowWindow fits mixed heights within the pane', t => {
 	}
 });
 
+test('calculateRowWindow leaves the update banner its rows', t => {
+	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
+	const {scrollOffset, visibleCount} = calculateRowWindow(heights, 7, 2 + 7, 2);
+	const lines = heights
+		.slice(scrollOffset, scrollOffset + visibleCount)
+		.reduce((sum, height) => sum + height, 0);
+	t.true(lines <= 5, `${lines} lines under a 2-line banner`);
+});
+
 test('calculateRowWindow fills the pane at the end of the list', t => {
 	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
-	t.deepEqual(calculateRowWindow(heights, 7, 2 + 7), {
+	t.deepEqual(calculateRowWindow(heights, 7, 2 + 7, 0), {
 		scrollOffset: 4,
 		visibleCount: 4,
 	});
