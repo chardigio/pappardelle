@@ -211,10 +211,16 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	};
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
-		claudeStatus: new SqliteClaudeStatusDao(openDb, jsonClaudeStatus),
+		claudeStatus: new SqliteClaudeStatusDao(openDb, dbPath, jsonClaudeStatus),
 		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
 		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
-		highlight: new SqliteHighlightDao(openDb, repo, highlightFile, clock),
+		highlight: new SqliteHighlightDao(
+			openDb,
+			dbPath,
+			repo,
+			highlightFile,
+			clock,
+		),
 		stateColors: new SqliteStateColorDao(openDb, repo, stateColorsFile),
 		agentSessions: new SqliteAgentSessionsDao(openDb, repo, jsonAgentSessions),
 		companionWidths: new SqliteCompanionWidthDao(
@@ -224,6 +230,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		),
 		companionRequests: new SqliteCompanionRequestDao(
 			openDb,
+			dbPath,
 			repo,
 			jsonCompanionRequests,
 		),

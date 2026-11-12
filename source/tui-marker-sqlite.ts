@@ -5,7 +5,7 @@
 // the database still sees a TUI without it come up.
 
 import {createLogger} from './logger.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 import {
 	parseTuiMarker,
 	renderTuiMarker,
@@ -25,7 +25,7 @@ type MarkerRow = {
 
 export class SqliteTuiMarkerDao implements TuiMarkerDao {
 	private readonly mirror: JsonMirror;
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'the TUI marker');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -45,7 +45,7 @@ export class SqliteTuiMarkerDao implements TuiMarkerDao {
 	}
 
 	read(): TuiMarker | null {
-		try {
+		return this.reads.or(null, () => {
 			this.openDb().sync(this.mirror);
 			const row = this.openDb()
 				.db.query<
@@ -62,17 +62,7 @@ export class SqliteTuiMarkerDao implements TuiMarkerDao {
 					startedAt: row.started_at,
 				}
 			);
-		} catch (error) {
-			if (!this.reportedUnreadable) {
-				this.reportedUnreadable = true;
-				log.warn(
-					'Could not read the TUI marker from the state database',
-					error instanceof Error ? error : undefined,
-				);
-			}
-
-			return null;
-		}
+		});
 	}
 
 	async write(marker: TuiMarker): Promise<void> {

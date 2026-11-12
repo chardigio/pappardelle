@@ -17,6 +17,7 @@ function fakeRegistry(
 	events: string[] = [],
 ): CloseCommandDeps['registry'] {
 	return {
+		keepsLifecycle: false,
 		has: key => open.includes(key),
 		async markClosing(key) {
 			events.push(`closing ${key}`);
@@ -247,5 +248,62 @@ test('close waits for simulator cleanup before it returns', async t => {
 		});
 		t.is(await close(deps), 0);
 		t.is(events.at(-1), 'cleanup done STA-1');
+	}
+});
+
+const closes = [
+	async (deps: CloseCommandDeps) =>
+		runCloseCommand({key: 'STA-1', yes: true}, deps),
+	async (deps: CloseCommandDeps) => runCloseTeardown('STA-1', deps),
+];
+
+function busyRegistry(
+	failing: 'markClosing' | 'remove',
+	keepsLifecycle: boolean,
+	events: string[],
+): CloseCommandDeps['registry'] {
+	return {
+		...fakeRegistry(['STA-1'], events),
+		keepsLifecycle,
+		async [failing]() {
+			throw new Error('database is locked');
+		},
+	};
+}
+
+test('a close that a lifecycle registry cannot record ends no sessions and says why', async t => {
+	for (const close of closes) {
+		const {deps, events} = fakeDeps();
+		deps.registry = busyRegistry('markClosing', true, events);
+		t.is(await close(deps), 1);
+		t.false(events.some(event => event.startsWith('kill')));
+		t.regex(
+			events.at(-1)!,
+			/^(print|log) Could not start closing STA-1: database is locked\. Its sessions were not ended and it is still open$/,
+		);
+	}
+});
+
+test('a space a lifecycle registry cannot remove is reported as closed but still registered', async t => {
+	for (const close of closes) {
+		const {deps, events} = fakeDeps();
+		deps.registry = busyRegistry('remove', true, events);
+		t.is(await close(deps), 1);
+		t.true(events.includes('kill STA-1'));
+		t.regex(
+			events.at(-1)!,
+			/^(print|log) Ended the sessions of STA-1, but could not remove it from the registry: database is locked\. Run close again to finish$/,
+		);
+	}
+});
+
+test('a registry without a lifecycle still fails a close with the error it threw', async t => {
+	for (const failing of ['markClosing', 'remove'] as const) {
+		for (const close of closes) {
+			const {deps, events} = fakeDeps();
+			deps.registry = busyRegistry(failing, false, events);
+			await t.throwsAsync(close(deps), {message: 'database is locked'});
+			t.false(events.some(event => event.includes('database is locked')));
+		}
 	}
 });

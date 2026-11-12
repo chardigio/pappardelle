@@ -30,6 +30,14 @@ bun integration-tests/verify-rail-boxes.ts
 
 Mounts the real `App` with fixture issues and checks the rail's two boxes: the workspace name in the top border with the status row above the agents, the space count or range in the rail box's border (left out with no spaces), agent rows staying put while the list scrolls, and search merging both boxes into one flat list. Runs under a throwaway HOME like the app check.
 
+## Unreadable state database
+
+```bash
+bun integration-tests/verify-unreadable-state-app.ts
+```
+
+Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
+
 ## Popups
 
 ```bash
