@@ -109,6 +109,7 @@ export type AgentStateDeps = {
 	repo: string;
 	runner: OuterTmuxRunner;
 	now: () => Date;
+	sleep: (ms: number) => Promise<void>;
 	/** The hook file's key: the space key, or `{repo}-{branch}` for main. */
 	hookKey: string;
 	readHook?: (key: string) => Promise<ClaudeStatusInfo | null>;
@@ -161,16 +162,70 @@ export function listAgentKeys(repo: string, runner: OuterTmuxRunner): string[] {
 		.map(name => fromSessionKey(name.slice(prefix.length)));
 }
 
-export function captureAgentScreen(
+// A window nobody is viewing keeps the size of whatever last showed it: a
+// phone's, or tmux's 80x24 for one never shown. The agent draws a dialog only
+// within it, on the alternate screen with no scrollback to read the rest from,
+// so a question with a few described options loses its top. Before a read, a
+// window no client shows grows to at least this, and the next client to show
+// it sizes it to itself again.
+export const READ_WINDOW = {columns: 120, rows: 60};
+// Claude redraws within about 35 ms of a resize.
+const REDRAW_MS = 200;
+
+async function growUnviewedWindow(
+	target: string,
+	deps: Pick<AgentStateDeps, 'runner' | 'sleep'>,
+): Promise<void> {
+	const [attached, columns, rows] = (
+		tmuxOut(deps.runner, [
+			'display-message',
+			'-p',
+			'-t',
+			target,
+			'#{session_attached} #{window_width} #{window_height}',
+		]) ?? ''
+	)
+		.trim()
+		.split(' ')
+		.map(Number);
+	if (
+		attached !== 0 ||
+		columns === undefined ||
+		rows === undefined ||
+		(columns >= READ_WINDOW.columns && rows >= READ_WINDOW.rows)
+	)
+		return;
+	const resized = deps.runner([
+		'resize-window',
+		'-t',
+		target,
+		'-x',
+		String(Math.max(columns, READ_WINDOW.columns)),
+		'-y',
+		String(Math.max(rows, READ_WINDOW.rows)),
+		';',
+		// resize-window pins the window at its size; unset, it follows the
+		// next client that shows it.
+		'set-option',
+		'-wu',
+		'-t',
+		target,
+		'window-size',
+	]);
+	if (!resized.error && resized.status === 0) await deps.sleep(REDRAW_MS);
+}
+
+export async function captureAgentScreen(
 	key: string,
 	lines: number,
-	deps: Pick<AgentStateDeps, 'repo' | 'runner'>,
-): string | null {
+	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'sleep'>,
+): Promise<string | null> {
 	const target = resolveInnerSessionTargetSync(
 		getSessionNames(key, deps.repo).agent,
 		deps.runner,
 	);
 	if (!target) return null;
+	await growUnviewedWindow(target, deps);
 	return tmuxOut(deps.runner, [
 		'capture-pane',
 		'-p',
@@ -188,7 +243,7 @@ export async function readAgentState(
 	deps: AgentStateDeps,
 ): Promise<AgentStateReport> {
 	const {repo, runner} = deps;
-	const capture = captureAgentScreen(key, SCREEN_TAIL_LINES, deps);
+	const capture = await captureAgentScreen(key, SCREEN_TAIL_LINES, deps);
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
 	const pane = screen

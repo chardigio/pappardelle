@@ -15,6 +15,8 @@ export type PromptOption = {
 	selected: boolean;
 	/** On a multi-select question: whether the option is ticked. */
 	checked?: boolean;
+	/** On a question: the text under the option's label. */
+	description?: string;
 };
 
 export type PermissionPrompt = {
@@ -132,8 +134,12 @@ function readOptions(
 		if (!match) {
 			// A permission option's label wraps onto the lines under it. A
 			// question's options have descriptions there instead.
-			if (joinWrapped && last && line.trim()) {
-				last.label = `${last.label} ${line.trim()}`;
+			if (last && line.trim() && !RULE.test(line)) {
+				if (joinWrapped) last.label = `${last.label} ${line.trim()}`;
+				else
+					last.description = [last.description, line.trim()]
+						.filter(Boolean)
+						.join(' ');
 			}
 
 			continue;
@@ -246,7 +252,17 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 	if (firstOptionAt === -1) return null;
 	const above = (index: number) =>
 		lastIndex(lines.slice(0, index), line => line.trim() !== '');
-	const questionAt = above(firstOptionAt);
+	// The question wraps onto as many lines as it needs, each drawn with a bar
+	// down its left by recent Claude versions.
+	const questionEnd = above(firstOptionAt);
+	let questionAt = questionEnd;
+	const edge = (line: string) =>
+		line.trim() === '' || RULE.test(line) || TAB_BAR.test(line);
+	while (questionAt > 0 && !edge(lines[questionAt - 1]!)) questionAt--;
+	const question = lines
+		.slice(Math.max(questionAt, 0), questionEnd + 1)
+		.map(line => line.replace(/^│ ?/, '').trim())
+		.join(' ');
 	// The Submit step lists the answers between the tab bar and its question.
 	const barAt = lastIndex(lines.slice(0, questionAt), line =>
 		TAB_BAR.test(line),
@@ -280,7 +296,7 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 		: undefined;
 	return {
 		tabs,
-		question: lines[questionAt]?.trim() ?? '',
+		question,
 		options: rows.filter(option => option !== text),
 		multiSelect: rows.some(option => option.checked !== undefined),
 		cursor: rows.find(option => option.selected)?.number ?? null,

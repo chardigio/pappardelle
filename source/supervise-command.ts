@@ -100,6 +100,7 @@ async function readState(key: string, deps: SuperviseDeps) {
 		repo: deps.repo(),
 		runner: deps.runner,
 		now: deps.now,
+		sleep: deps.sleep,
 		hookKey: await deps.hookKey(key),
 	};
 	return readAgentState(key, stateDeps);
@@ -109,7 +110,7 @@ function formatOptions(options: PromptOption[]): string {
 	return options
 		.map(
 			option =>
-				`  ${option.number}. ${option.checked === undefined ? '' : option.checked ? '[x] ' : '[ ] '}${option.label}`,
+				`  ${option.number}. ${option.checked === undefined ? '' : option.checked ? '[x] ' : '[ ] '}${option.label}${option.description ? `\n     ${option.description}` : ''}`,
 		)
 		.join('\n');
 }
@@ -200,10 +201,11 @@ async function readQuestionTabs(
 		}
 	};
 
-	const current = () => {
-		const capture = captureAgentScreen(key, 60, {
+	const current = async () => {
+		const capture = await captureAgentScreen(key, 60, {
 			repo: deps.repo(),
 			runner: deps.runner,
+			sleep: deps.sleep,
 		});
 		return capture ? parseAgentScreen(capture, deps.now()).question : null;
 	};
@@ -211,13 +213,14 @@ async function readQuestionTabs(
 	for (let index = 1; index < first.tabs.length; index++) {
 		press('Right');
 		await deps.sleep(TAB_SETTLE_MS);
-		const tab = current();
+		const tab = await current();
 		if (tab) tabs.push(asTab(tab));
 	}
 
 	for (let index = 1; index < first.tabs.length; index++) press('Left');
 	await deps.sleep(TAB_SETTLE_MS);
-	if (current()?.question !== first.question) {
+	const back = await current();
+	if (back?.question !== first.question) {
 		throw new Error(`${key}'s question dialog did not return to its first tab`);
 	}
 
@@ -979,9 +982,10 @@ async function execute(
 						{pane: command.pane, lines: command.lines},
 						{runner: deps.runner, repoName: deps.repo()},
 					)
-				: captureAgentScreen(key, command.lines, {
+				: await captureAgentScreen(key, command.lines, {
 						repo: deps.repo(),
 						runner: deps.runner,
+						sleep: deps.sleep,
 					});
 			if (text === null) {
 				deps.err(`No agent session for ${key}`);

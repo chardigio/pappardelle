@@ -39,6 +39,7 @@ const state = async (
 		repo: 'repo',
 		runner: runner(screen),
 		now: () => new Date(2026, 10, 9, 12, 0),
+		async sleep() {},
 		hookKey: 'STA-1',
 		async readHook() {
 			if (!hook) return null;

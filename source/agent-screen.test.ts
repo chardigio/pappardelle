@@ -93,9 +93,27 @@ test('a question dialog gives its tabs, question and answers', t => {
 		tabs: ['Color', 'Fruit'],
 		question: 'What is your favorite color?',
 		options: [
-			{number: 1, label: 'Red', kind: 'other', selected: true},
-			{number: 2, label: 'Blue', kind: 'other', selected: false},
-			{number: 3, label: 'Green', kind: 'other', selected: false},
+			{
+				number: 1,
+				label: 'Red',
+				kind: 'other',
+				selected: true,
+				description: 'Red',
+			},
+			{
+				number: 2,
+				label: 'Blue',
+				kind: 'other',
+				selected: false,
+				description: 'Blue',
+			},
+			{
+				number: 3,
+				label: 'Green',
+				kind: 'other',
+				selected: false,
+				description: 'Green',
+			},
 		],
 		multiSelect: false,
 		textOption: {number: 4, text: '', open: false},
@@ -106,6 +124,33 @@ test('a question dialog gives its tabs, question and answers', t => {
 		'What is your favorite fruit?',
 	);
 	t.deepEqual(screen('claude-question-one').question?.tabs, ['Color']);
+});
+
+test("a question over several lines is read whole, without Claude's bar, with each option's description", t => {
+	const {question} = screen('claude-question-wrapped');
+	t.deepEqual(question?.tabs, ['Cache strategy']);
+	t.is(
+		question?.question,
+		'Which caching strategy should the image proxy use for thumbnails generated on demand, given that the origin is slow and the CDN bills per request?',
+	);
+	t.deepEqual(question?.options[0], {
+		number: 1,
+		label: 'Aggressive CDN caching (Recommended)',
+		kind: 'other',
+		selected: true,
+		description:
+			'Cache thumbnails at the CDN with long TTLs and immutable URLs keyed by size and params. Repeat requests skip the slow origin and cut per-request billing sharply.',
+	});
+	t.deepEqual(
+		question?.options.map(option => option.label),
+		[
+			'Aggressive CDN caching (Recommended)',
+			'Proxy-local disk cache',
+			'Short TTL with revalidation',
+			'Pre-generate on upload',
+		],
+	);
+	t.is(question?.textOption?.number, 5);
 });
 
 test('a spinner means working; the done line after a turn does not', t => {
@@ -216,9 +261,14 @@ test('a same-day reset with a one-digit hour is read', t => {
 test("a question dialog's Submit step is still a question", t => {
 	const capture = [
 		'←  ☒ Color  ☒ Fruit  ✔ Submit  →',
+		'',
 		'Review your answers',
-		' ● What is your favorite color? → Blue',
+		'',
+		' ● What is your favorite color?',
+		'   → Blue',
+		'           ',
 		'Ready to submit your answers?',
+		'',
 		'❯ 1. Submit answers',
 		'  2. Cancel',
 	].join('\n');
