@@ -1,4 +1,4 @@
-import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {internalEntryCommand} from './runtime.ts';
 import {tmuxFormatLiteral} from './tmux-format.ts';
 import {Buffer} from 'node:buffer';
 import {execFile} from 'node:child_process';
@@ -15,7 +15,6 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual, promisify} from 'node:util';
 import {
 	ProgramStatusStore,
@@ -75,6 +74,14 @@ export function programStatusPath(
 	generation: string,
 ): string {
 	return path.join(dir, `${segment(key)}--${generation}.json`);
+}
+/** Whether the pane may publish. Closing its space deletes the lease. */
+export function programStatusLeased(
+	dir: string,
+	key: string,
+	generation: string,
+): boolean {
+	return existsSync(`${programStatusPath(dir, key, generation)}.lease`);
 }
 export function statusKeyFromFilename(filename: string): string | undefined {
 	const match = /^(.*)--[a-f\d]{32}\.json$/.exec(filename);
@@ -184,15 +191,6 @@ export function checkedProgramSnapshot(
 	} catch {
 		return null;
 	}
-}
-
-function monitorEntry(): string[] {
-	if (isStandalone) return [process.execPath, '--internal-status-monitor'];
-	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-	const entry = fileURLToPath(
-		new URL(`program-status-monitor-cli${extension}`, import.meta.url),
-	);
-	return [process.execPath, ...bunIsolationArgs, entry];
 }
 
 /** A session's status pane: the pinned pane once pinned, else its current one. */
@@ -347,7 +345,10 @@ export async function monitorStatusPane(
 		const lease = `${programStatusPath(dir, key, pane.generation)}.lease`;
 		writeFileSync(lease, '');
 		const command = [
-			...monitorEntry(),
+			...internalEntryCommand(
+				'--internal-status-monitor',
+				'program-status-monitor-cli',
+			),
 			'watch',
 			repo,
 			key,
@@ -443,7 +444,7 @@ export class JsonProgramStatusDao implements ProgramStatusDao {
 	}
 
 	monitored(key: string, generation: string): boolean {
-		return existsSync(`${programStatusPath(this.dir, key, generation)}.lease`);
+		return programStatusLeased(this.dir, key, generation);
 	}
 
 	async read(
@@ -514,7 +515,8 @@ export function publishProgramSnapshot(
 ): void {
 	const target = programStatusPath(dir, snapshot.key, snapshot.pane.generation);
 	const temp = `${target}.tmp.${process.pid}`;
-	const leased = () => existsSync(`${target}.lease`);
+	const leased = () =>
+		programStatusLeased(dir, snapshot.key, snapshot.pane.generation);
 	if (!leased()) return;
 	try {
 		writeFileSync(temp, JSON.stringify(snapshot));

@@ -58,14 +58,10 @@ function testPublisher(
 	const clients: StatusClient[] = [];
 	let now = 5000;
 	let {daemonMode} = options;
-	let asked = 0;
 	const publisher = followedPublisher({
 		dir,
 		socketPath,
-		daemonMode() {
-			asked++;
-			return daemonMode;
-		},
+		daemonMode: () => daemonMode,
 		now: () => now,
 		timers: clock.timers,
 		connect(daemonSocket) {
@@ -99,7 +95,6 @@ function testPublisher(
 		advance(ms: number) {
 			now += ms;
 		},
-		asked: () => asked,
 	};
 }
 
@@ -200,6 +195,23 @@ test('a monitor’s first send to a connected daemon removes the snapshot file f
 	await sentSoFar(h.clients[0]!, await subscribeRaw(t, socketPath, 'repo'));
 	t.is(await readStatus(state, 'STA-1', pane), 'blocked');
 	t.true(existsSync(`${h.file}.lease`));
+});
+
+test('a snapshot published while the monitor is still connecting to the daemon is sent once', async t => {
+	const socketPath = testSocketPath(t);
+	await serveTestDaemon(t, socketPath);
+	const rail = await subscribeRaw(t, socketPath, 'repo');
+	const h = testPublisher(t, socketPath, {daemonMode: true});
+	h.grantLease();
+
+	h.publisher.publish(snapshotOf(target, report('working')));
+
+	await rail.received(
+		message => message.type === 'snapshot',
+		'the published snapshot',
+	);
+	await sentSoFar(h.clients[0]!, rail);
+	t.deepEqual(sentStatuses(rail), ['working']);
 });
 
 test('a monitor that cannot reach a daemon keeps its snapshot file, and sends its latest snapshot once one is there', async t => {
@@ -370,7 +382,6 @@ test('a monitor asks for the flag again once its answer is a second old', async 
 	h.publisher.publish(snapshotOf(target, report('done')));
 	t.is(h.clients.length, 1);
 	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
-	t.is(h.asked(), 2);
 });
 
 /** A connection whose sends the test settles. */

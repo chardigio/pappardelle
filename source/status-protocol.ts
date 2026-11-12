@@ -2,7 +2,7 @@
 // per line over a Unix socket. The socket's file name carries the protocol
 // number (state-db.ts), so there is no version field and no handshake.
 
-import {parseSessionState, type ClaudeSessionState} from './claude-status.ts';
+import {sessionStateOf, type ClaudeSessionState} from './claude-status.ts';
 import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
 
 export type ClientMessage =
@@ -23,6 +23,12 @@ export type ClientMessage =
 export type DaemonMessage =
 	| {
 			type: 'state';
+			/**
+			 * Made once by each daemon process. A daemon that replaced another
+			 * holds nothing, and a client has to tell that from the daemon it
+			 * was on having since forgotten a snapshot.
+			 */
+			daemon: string;
 			hooks: ClaudeSessionState[];
 			snapshots: ProgramStatusSnapshot[];
 	  }
@@ -35,14 +41,6 @@ export type Parsed<Message> =
 	| {kind: 'invalid'};
 
 const INVALID = {kind: 'invalid'} as const;
-
-function hookState(value: unknown): ClaudeSessionState | undefined {
-	try {
-		return parseSessionState(JSON.stringify(value));
-	} catch {
-		return undefined;
-	}
-}
 
 /**
  * A snapshot the daemon and a replica can file: the fields they key it by.
@@ -93,7 +91,7 @@ export function parseClientMessage(line: string): Parsed<ClientMessage> {
 	switch (fields?.['type']) {
 		case 'hook':
 		case 'restore': {
-			const state = hookState(fields['state']);
+			const state = sessionStateOf(fields['state']);
 			return state
 				? {kind: 'message', message: {type: fields['type'], state}}
 				: INVALID;
@@ -131,15 +129,19 @@ export function parseDaemonMessage(line: string): Parsed<DaemonMessage> {
 	const fields = record(line);
 	switch (fields?.['type']) {
 		case 'state': {
-			const hooks = listOf(fields['hooks'], hookState);
+			const {daemon} = fields;
+			const hooks = listOf(fields['hooks'], sessionStateOf);
 			const snapshots = listOf(fields['snapshots'], snapshot);
-			return hooks && snapshots
-				? {kind: 'message', message: {type: 'state', hooks, snapshots}}
+			return typeof daemon === 'string' && hooks && snapshots
+				? {
+						kind: 'message',
+						message: {type: 'state', daemon, hooks, snapshots},
+					}
 				: INVALID;
 		}
 
 		case 'hook': {
-			const state = hookState(fields['state']);
+			const state = sessionStateOf(fields['state']);
 			return state
 				? {kind: 'message', message: {type: 'hook', state}}
 				: INVALID;
@@ -169,7 +171,6 @@ export function encodeMessage(message: ClientMessage | DaemonMessage): string {
 	return `${JSON.stringify(message)}\n`;
 }
 
-/** Cuts a socket's text into the lines that have arrived whole. */
 export class LineReader {
 	private partial = '';
 

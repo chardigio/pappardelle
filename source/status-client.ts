@@ -3,11 +3,11 @@
 
 import {spawn} from 'node:child_process';
 import net from 'node:net';
-import {fileURLToPath} from 'node:url';
 import type {ClaudeSessionState} from './claude-status.ts';
 import {createLogger} from './logger.ts';
 import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
-import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {internalEntryCommand} from './runtime.ts';
+import {SnapshotIndex} from './snapshot-index.ts';
 import {
 	LineReader,
 	backgroundTimers,
@@ -20,8 +20,6 @@ import {
 
 const log = createLogger('status-client');
 
-// The wait before a connection attempt: nothing after a lost connection, then
-// doubling from the base for each attempt that fails, plus a random part.
 const RECONNECT_BASE_MS = 100;
 const RECONNECT_MAX_MS = 5000;
 /**
@@ -57,15 +55,6 @@ export type StatusClientOptions = {
 	startDaemon?: (socketPath: string) => void;
 };
 
-function daemonCommand(): string[] {
-	if (isStandalone) return [process.execPath, '--internal-status-daemon'];
-	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-	const entry = fileURLToPath(
-		new URL(`status-daemon-cli${extension}`, import.meta.url),
-	);
-	return [process.execPath, ...bunIsolationArgs, entry];
-}
-
 /**
  * Start a daemon that outlives this process. It exits by itself when another
  * already serves the socket.
@@ -74,7 +63,10 @@ export function spawnStatusDaemon(
 	socketPath: string,
 	env: NodeJS.ProcessEnv = process.env,
 ): number | undefined {
-	const [command, ...args] = daemonCommand();
+	const [command, ...args] = internalEntryCommand(
+		'--internal-status-daemon',
+		'status-daemon-cli',
+	);
 	const daemon = spawn(command!, [...args, socketPath], {
 		detached: true,
 		stdio: 'ignore',
@@ -108,8 +100,9 @@ const nobodyListens = (error: NodeJS.ErrnoException) =>
 
 export class StatusClient {
 	private hooks = new Map<string, ClaudeSessionState>();
-	/** By space key, then pane generation. */
-	private snapshots = new Map<string, Map<string, ProgramStatusSnapshot>>();
+	private snapshots = new SnapshotIndex();
+	/** The daemon whose state the replica was last made from. */
+	private daemon: string | undefined;
 	private readonly changeListeners = new Set<(change: StatusChange) => void>();
 	private readonly connectListeners = new Set<() => void>();
 
@@ -144,7 +137,6 @@ export class StatusClient {
 		this.startDaemon = options.startDaemon ?? spawnStatusDaemon;
 	}
 
-	/** From now on, start a daemon when none listens. */
 	allowStart(): void {
 		this.start = true;
 	}
@@ -165,13 +157,13 @@ export class StatusClient {
 	}
 
 	snapshot(key: string, generation: string): ProgramStatusSnapshot | undefined {
-		return this.snapshots.get(key)?.get(generation);
+		return this.snapshots.get(key, generation);
 	}
 
 	/**
 	 * Call `listener` for each record the daemon pushes. After a reconnect
-	 * that is every key the replica holds, since anything may have changed
-	 * while the connection was down.
+	 * that is every key the replica held before or holds now, since anything
+	 * may have changed while the connection was down.
 	 */
 	onChange(listener: (change: StatusChange) => void): () => void {
 		this.use();
@@ -364,36 +356,48 @@ export class StatusClient {
 		switch (message.type) {
 			case 'state': {
 				const known = {hooks: this.hooks, snapshots: this.snapshots};
+				const replaced = message.daemon !== this.daemon;
+				this.daemon = message.daemon;
 				this.hooks = new Map();
-				this.snapshots = new Map();
+				this.snapshots = new SnapshotIndex();
 				for (const state of message.hooks)
 					this.hooks.set(state.workspaceName, state);
-				for (const snapshot of message.snapshots) this.keep(snapshot);
+				for (const snapshot of message.snapshots) this.snapshots.keep(snapshot);
 
-				// A daemon that replaced another holds nothing. Each monitor
-				// sends its snapshot again within a second, but an agent's hook
-				// status would be unknown until its next event, and an agent
-				// waiting for approval has none until a person acts. So what
-				// this process knew stays, and the daemon is sent the hook
-				// records it lacks.
+				// The daemon this process was on has everything it was sent, so
+				// what its state lacks it was told to forget: a space closed
+				// while the connection was down.
+				//
+				// A daemon that replaced it holds nothing. Each monitor sends
+				// its snapshot again within a second, but an agent's hook status
+				// would be unknown until its next event, and an agent waiting
+				// for approval has none until a person acts. So what this
+				// process knew stays, and the daemon is sent the hook records
+				// it lacks.
 				const unknownToDaemon: ClaudeSessionState[] = [];
-				for (const [statusKey, state] of known.hooks) {
-					const held = this.hooks.get(statusKey);
-					if (held && held.lastUpdate >= state.lastUpdate) continue;
-					this.hooks.set(statusKey, state);
-					unknownToDaemon.push(state);
-				}
+				if (replaced) {
+					for (const [statusKey, state] of known.hooks) {
+						const held = this.hooks.get(statusKey);
+						if (held && held.lastUpdate >= state.lastUpdate) continue;
+						this.hooks.set(statusKey, state);
+						unknownToDaemon.push(state);
+					}
 
-				for (const generations of known.snapshots.values()) {
-					for (const snapshot of generations.values()) {
+					for (const snapshot of known.snapshots.all()) {
 						if (!this.snapshot(snapshot.key, snapshot.pane.generation))
-							this.keep(snapshot);
+							this.snapshots.keep(snapshot);
 					}
 				}
 
-				for (const statusKey of this.hooks.keys())
+				for (const statusKey of new Set([
+					...known.hooks.keys(),
+					...this.hooks.keys(),
+				]))
 					this.tell({kind: 'hook', statusKey});
-				for (const key of this.snapshots.keys())
+				for (const key of new Set([
+					...known.snapshots.keys(),
+					...this.snapshots.keys(),
+				]))
 					this.tell({kind: 'snapshot', key});
 				for (const state of unknownToDaemon)
 					this.socket?.write(encodeMessage({type: 'restore', state}));
@@ -407,27 +411,17 @@ export class StatusClient {
 			}
 
 			case 'snapshot': {
-				this.keep(message.snapshot);
+				this.snapshots.keep(message.snapshot);
 				this.tell({kind: 'snapshot', key: message.snapshot.key});
 				break;
 			}
 
 			case 'forgotten': {
-				const generations = this.snapshots.get(message.key);
-				for (const generation of generations?.keys() ?? []) {
-					if (generation !== message.keep) generations!.delete(generation);
-				}
-
+				this.snapshots.forget(message.key, message.keep);
 				this.tell({kind: 'snapshot', key: message.key});
 				break;
 			}
 		}
-	}
-
-	private keep(snapshot: ProgramStatusSnapshot): void {
-		const generations = this.snapshots.get(snapshot.key) ?? new Map();
-		generations.set(snapshot.pane.generation, snapshot);
-		this.snapshots.set(snapshot.key, generations);
 	}
 
 	private tell(change: StatusChange): void {
