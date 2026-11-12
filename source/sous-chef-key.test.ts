@@ -9,7 +9,7 @@ import {installSousChefKey} from './tmux.ts';
 import {
 	getHighlightFilePath,
 	highlightWriteCommand,
-	readHighlightTarget,
+	parseHighlightTarget,
 } from './highlight.ts';
 
 const exec = promisify(execFile);
@@ -87,11 +87,13 @@ async function fixture(t: ExecutionContext) {
 
 	const repoName = 'fixture-repo';
 	const request = {issueKey: 'main', focus: true};
-	const command = highlightWriteCommand(repoName, request, dir);
-	fs.mkdirSync(path.dirname(getHighlightFilePath(repoName, dir)), {
-		recursive: true,
-	});
-	const jumped = () => readHighlightTarget(repoName, dir);
+	const target = getHighlightFilePath(repoName, dir);
+	const command = highlightWriteCommand(target, request);
+	fs.mkdirSync(path.dirname(target), {recursive: true});
+	const jumped = () =>
+		fs.existsSync(target)
+			? parseHighlightTarget(fs.readFileSync(target, 'utf8'))
+			: null;
 
 	const press = async (window: number, key: string) => {
 		await run(['select-window', '-t', `fixture:${window}`]);
