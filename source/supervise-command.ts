@@ -35,20 +35,15 @@ import {
 } from './approve-policy.ts';
 import {readCompanionPane} from './companion.ts';
 import {
-	deleteJob,
 	fireJob,
 	limitLiftsAt,
-	listJobs,
-	loadJob,
 	newJobId,
 	parseDuration,
 	parseWhen,
-	queueMessage,
-	saveJob,
 	timerWhen,
 	type FireResult,
 	type Job,
-	type ScheduleStore,
+	type ScheduleDao,
 	type SendOutcome,
 } from './schedule.ts';
 import type {TimerBackend} from './schedule-timers.ts';
@@ -82,7 +77,7 @@ export type SuperviseDeps = {
 	/** The model check a command passes after the hard refusals. */
 	classify: (key: string, command: string) => Promise<ApprovalVerdict>;
 	policy: ApprovalPolicy;
-	store: () => ScheduleStore;
+	store: () => ScheduleDao;
 	timers: () => TimerBackend;
 	caller: string;
 	readStdin: () => string | undefined;
@@ -857,9 +852,10 @@ async function newJob(
 		}
 
 		case 'keep_going': {
-			const running = listJobs(deps.store()).find(
-				job => job.kind === 'keep_going' && job.key === key,
-			);
+			const running = deps
+				.store()
+				.list()
+				.find(job => job.kind === 'keep_going' && job.key === key);
 			if (running) {
 				throw new SuperviseUsageError(
 					`${key} already has keep-going job ${running.id}; unschedule it first`,
@@ -1166,7 +1162,7 @@ async function execute(
 				throw new SuperviseUsageError(
 					'queue needs text, as an argument or on stdin',
 				);
-			queueMessage(deps.store(), key, text);
+			await deps.store().queue(key, text);
 			log({action: 'queue', key, sent: text});
 			deps.out(`Queued for ${key}'s next scheduled send`);
 			return 0;
@@ -1175,11 +1171,11 @@ async function execute(
 		case 'schedule': {
 			const key = deps.resolveKey(command.key);
 			const job = await newJob(key, command.request, deps);
-			saveJob(deps.store(), job);
+			await deps.store().save(job);
 			try {
 				deps.timers().create(job, timerWhen(job));
 			} catch (error) {
-				deleteJob(deps.store(), job.id);
+				await deps.store().delete(job.id);
 				throw error;
 			}
 
@@ -1189,7 +1185,7 @@ async function execute(
 		}
 
 		case 'fire': {
-			const job = loadJob(deps.store(), command.id);
+			const job = deps.store().load(command.id);
 			if (!job) {
 				deps.err(`No scheduled job ${command.id}`);
 				return 1;
@@ -1228,7 +1224,7 @@ async function execute(
 					retired.push(done);
 				},
 			});
-			const next = loadJob(deps.store(), job.id);
+			const next = deps.store().load(job.id);
 			log(
 				{
 					action: 'fire',
@@ -1247,9 +1243,10 @@ async function execute(
 
 		case 'schedules': {
 			const key = command.key ? deps.resolveKey(command.key) : undefined;
-			const jobs = listJobs(deps.store()).filter(
-				job => !key || job.key === key,
-			);
+			const jobs = deps
+				.store()
+				.list()
+				.filter(job => !key || job.key === key);
 			deps.out(
 				jobs.length > 0
 					? jobs.map(job => describeJob(job)).join('\n')
@@ -1259,14 +1256,14 @@ async function execute(
 		}
 
 		case 'unschedule': {
-			const job = loadJob(deps.store(), command.id);
+			const job = deps.store().load(command.id);
 			if (!job) {
 				deps.err(`No scheduled job ${command.id}`);
 				return 1;
 			}
 
 			deps.timers().remove(job);
-			deleteJob(deps.store(), job.id);
+			await deps.store().delete(job.id);
 			log({action: 'unschedule', key: job.key, detail: describeJob(job)});
 			deps.out(`Cancelled ${describeJob(job)}`);
 			return 0;

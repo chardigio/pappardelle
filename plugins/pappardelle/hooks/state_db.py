@@ -12,11 +12,13 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 # A hook runs inside the agent's turn, so it gives up on a busy database
 # quickly. The file it still writes is imported by the next reader.
 BUSY_TIMEOUT_SECONDS = 0.1
+
+Statements = Sequence[tuple[str, Sequence[Any]]]
 
 
 def _state_dir() -> Path:
@@ -61,16 +63,20 @@ def _log_failure(message: str) -> None:
 def write_through(
     db_path: str,
     file_path: Path,
-    write_file: Callable[[], os.stat_result],
-    statements: Sequence[tuple[str, Sequence[Any]]],
+    write_file: Callable[[], Optional[os.stat_result]],
+    statements: Union[Statements, Callable[[], Statements]],
 ) -> None:
     """Write a state file and the rows that mirror it.
 
     `write_file` replaces the file and returns the stat of what it wrote,
     taken before the rename so it cannot be another writer's. It runs inside
     the write transaction, which keeps the order of files the same as the
-    order of commits across processes. If the database cannot be used, the
-    file is written alone.
+    order of commits across processes, and lets it read the file it replaces
+    without another writer changing it in between. It returns None when it
+    decided to leave the file alone, and then no rows change either.
+    `statements` may be a function, asked once the file is written, for rows
+    that depend on what was written. If the database cannot be used, the file
+    is written alone.
     """
     # Imported here so a hook pays for it only while the flag is on.
     import sqlite3
@@ -89,7 +95,10 @@ def write_through(
         connection.execute("BEGIN IMMEDIATE")
         written = write_file()
         wrote = True
-        for sql, parameters in statements:
+        if written is None:
+            connection.execute("ROLLBACK")
+            return
+        for sql, parameters in statements() if callable(statements) else statements:
             connection.execute(sql, parameters)
         connection.execute(
             """INSERT INTO json_sync (path, ino, size, mtime_ns, malformed)

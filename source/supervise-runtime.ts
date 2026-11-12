@@ -10,7 +10,7 @@ import {getMainRepoRoot, getRepoName} from './config.ts';
 import {waitForDirChange} from './file-watch.ts';
 import {programStatusDir} from './program-status-monitor.ts';
 import {selfLaunchArgs} from './runtime.ts';
-import {defaultScheduleStore, rearmMissingTimers} from './schedule.ts';
+import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
 import {
 	launchdBackend,
 	systemdBackend,
@@ -104,10 +104,14 @@ function scratchRoots(): string[] {
 }
 
 /** Run as the TUI starts, so wake-ups lost to a reboot come back. */
-export function rearmSchedules(): void {
+export async function rearmSchedules(schedules: ScheduleDao): Promise<void> {
 	try {
-		const store = defaultScheduleStore(getRepoName());
-		for (const job of rearmMissingTimers(store, timerBackend(), new Date())) {
+		const rearmed = await rearmMissingTimers(
+			schedules,
+			timerBackend(),
+			new Date(),
+		);
+		for (const job of rearmed) {
 			recordSupervision(
 				getRepoName(),
 				'tui',
@@ -129,7 +133,7 @@ const keyOutcome = (result: SendToSpaceAgentResult) =>
 
 export function defaultSuperviseDeps(
 	resolveKey: (raw: string) => string,
-	{claudeStatus}: Pick<StateDaos, 'claudeStatus'>,
+	{claudeStatus, schedules}: Pick<StateDaos, 'claudeStatus' | 'schedules'>,
 ): SuperviseDeps {
 	return {
 		repo: getRepoName,
@@ -180,7 +184,7 @@ export function defaultSuperviseDeps(
 			);
 		},
 		policy: {scratchRoots: scratchRoots()},
-		store: () => defaultScheduleStore(getRepoName()),
+		store: () => schedules,
 		timers: timerBackend,
 		caller: callerFromEnv(process.env),
 		readStdin: defaultReadStdin,

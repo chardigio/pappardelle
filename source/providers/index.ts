@@ -5,6 +5,7 @@ import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
 import {createDefaultLinearGraphQLClient} from './linear-graphql.ts';
 import {LinearProvider} from './linear-provider.ts';
+import type {PrLinkStampDao} from '../pr-link-stamp.ts';
 import {StateColorCache, type StateColorDao} from './state-color-cache.ts';
 import type {
 	IssueTrackerProvider,
@@ -42,6 +43,7 @@ let vcsHostInstance: VcsHostProvider | null = null;
 let vcsHostConfigKey: string | null = null;
 let workspaceDiscovery: RepositoryDiscovery | undefined;
 let stateColors: StateColorDao | undefined;
+let prLinkStamp: PrLinkStampDao | undefined;
 
 /**
  * How the VCS host finds the repositories in a workspace. The host is built
@@ -59,6 +61,15 @@ export function setWorkspaceDiscovery(discover: RepositoryDiscovery): void {
  */
 export function setStateColors(dao: StateColorDao): void {
 	stateColors = dao;
+}
+
+/**
+ * Where `pappardelle link-pr` records that a PR was just linked, which ends
+ * GitHub's failure backoff early. Handed over at startup like the two above.
+ * Without it a failed lookup waits out its backoff.
+ */
+export function setPrLinkStamp(dao: PrLinkStampDao): void {
+	prLinkStamp = dao;
 }
 
 function trackerKey(config?: IssueTrackerConfig): string {
@@ -179,10 +190,12 @@ export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
 
 	switch (provider) {
 		case 'github': {
+			const stamp = prLinkStamp;
 			vcsHostInstance = new GitHubProvider(
 				undefined,
 				undefined,
 				workspaceDiscovery,
+				stamp ? {linkedAt: () => stamp.read()} : {},
 			);
 			break;
 		}
@@ -217,4 +230,5 @@ export function resetProviders(): void {
 	vcsHostConfigKey = null;
 	workspaceDiscovery = undefined;
 	stateColors = undefined;
+	prLinkStamp = undefined;
 }

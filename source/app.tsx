@@ -210,12 +210,7 @@ import {
 	closeCompanionSplitPanes,
 	companionSplitPaneIds,
 } from './tmux.ts';
-import {
-	getCompanionWidth,
-	setCompanionWidth,
-	watchLayoutRequests,
-	writeLayoutAck,
-} from './companion-width.ts';
+import type {LayoutAck} from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
 	calculateRowWindow,
@@ -235,7 +230,6 @@ import {
 	type RailStatusPatch,
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
-	getSpaceStateDir,
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
@@ -314,7 +308,15 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
-	const {registry, claudeStatus, spaceState, highlight} = daos;
+	const {
+		registry,
+		claudeStatus,
+		spaceState,
+		highlight,
+		agentSessions,
+		companionWidths,
+		companionRequests,
+	} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
 
@@ -1078,7 +1080,7 @@ export default function App({
 	const appliedSpaceWidth = useRef<string | null>(null);
 	useEffect(() => {
 		if (!selectedSpaceName) return;
-		const width = getCompanionWidth(repoName, selectedSpaceName);
+		const width = companionWidths.get(selectedSpaceName);
 		const signature = width === null ? null : `${selectedSpaceName}=${width}`;
 		setSpaceCompanionWidth(
 			width === null ? null : {key: selectedSpaceName, width},
@@ -1090,39 +1092,39 @@ export default function App({
 				dialogOpenRef.current,
 				dialogRequest.current.revision,
 			);
-	}, [repoName, selectedSpaceName, layoutTasks]);
+	}, [companionWidths, selectedSpaceName, layoutTasks]);
 
 	useEffect(() => {
 		setSpaceCompanionDragHandler((key, columns) => {
 			if (key === selectedSpaceNameRef.current)
 				appliedSpaceWidth.current = `${key}=${columns}`;
-			setCompanionWidth(repoName, key, columns).catch((error: unknown) =>
-				log.warn(
-					`Failed to store the companion width for ${key}`,
-					error instanceof Error ? error : undefined,
-				),
-			);
+			companionWidths
+				.set(key, columns)
+				.catch((error: unknown) =>
+					log.warn(
+						`Failed to store the companion width for ${key}`,
+						error instanceof Error ? error : undefined,
+					),
+				);
 		});
 		return () => setSpaceCompanionDragHandler(null);
-	}, [repoName]);
+	}, [companionWidths]);
 
 	// Requests from `pappardelle companion width`. The CLI has already stored
 	// the width; this applies it when the space is showing and says whether
 	// the pane really took it.
 	useEffect(() => {
 		const handled = new Set<string>();
-		const ack = (ackValue: Parameters<typeof writeLayoutAck>[1]) => {
-			try {
-				writeLayoutAck(repoName, ackValue);
-			} catch (error) {
+		const ack = (ackValue: LayoutAck) => {
+			companionRequests.answer(ackValue).catch((error: unknown) => {
 				log.warn(
 					'Failed to answer a companion width request',
 					error instanceof Error ? error : undefined,
 				);
-			}
+			});
 		};
 
-		return watchLayoutRequests(repoName, request => {
+		return companionRequests.watch(request => {
 			if (handled.has(request.id)) return;
 			handled.add(request.id);
 			if (request.space !== selectedSpaceNameRef.current) {
@@ -1154,7 +1156,7 @@ export default function App({
 
 			// Set even when nothing can show it yet, so the next layout of this
 			// space (a wider window, a closed dialog) uses the new width.
-			const width = getCompanionWidth(repoName, request.space);
+			const width = companionWidths.get(request.space);
 			setSpaceCompanionWidth(
 				width === null ? null : {key: request.space, width},
 			);
@@ -1194,7 +1196,7 @@ export default function App({
 				);
 			})();
 		});
-	}, [repoName, layoutTasks, attachmentTask]);
+	}, [companionWidths, companionRequests, layoutTasks, attachmentTask]);
 
 	useEffect(() => {
 		if (
@@ -1720,10 +1722,10 @@ export default function App({
 		});
 	};
 
-	const handleConfigMigration = (approved: ConfigMigration[]) => {
-		const outcome = confirmConfigMigrations(
+	const handleConfigMigration = async (approved: ConfigMigration[]) => {
+		const outcome = await confirmConfigMigrations(
 			approved,
-			getSpaceStateDir(repoName),
+			agentSessions,
 			spaceState,
 		);
 		switch (outcome.kind) {
@@ -1759,8 +1761,8 @@ export default function App({
 			},
 			{
 				closeBeforeConfirm: true,
-				onConfirm() {
-					handleConfigMigration(migrations);
+				async onConfirm() {
+					await handleConfigMigration(migrations);
 				},
 			},
 			() => {
@@ -3041,7 +3043,7 @@ export default function App({
 						<ConfirmDialog
 							{...buildConfigMigrationConfirmContent(configMigrations)}
 							onConfirm={() => {
-								handleConfigMigration(configMigrations);
+								void handleConfigMigration(configMigrations);
 								setConfigMigrations(null);
 							}}
 							onCancel={() => setConfigMigrations(null)}

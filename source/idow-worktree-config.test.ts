@@ -920,6 +920,37 @@ test('newly created issues launch fresh; existing keys keep conversation resume'
 	t.is(resumeArgs(), '--continue');
 });
 
+// A tracker can hand a new issue the key of one that was deleted. The agent
+// of the new issue must not resume the old one's conversation.
+test('a new issue drops the sessions recorded under its key; an existing one keeps them', async t => {
+	const fixture = setup(t);
+	const stateDir = path.join(fixture.home, '.pappardelle');
+	const sessionsPath = path.join(
+		stateDir,
+		'repos/main checkout/space-state/test-abc.agent-sessions.json',
+	);
+	const record = () => {
+		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
+		fs.writeFileSync(
+			sessionsPath,
+			JSON.stringify({claude: {session_id: 'earlier', pid: 1, started: null}}),
+		);
+	};
+
+	record();
+	await fixture.run({input: 'Make workspace startup faster'});
+	t.false(fs.existsSync(sessionsPath));
+	if (sqliteRun) {
+		const db = new Database(path.join(stateDir, 'state.db'), {readonly: true});
+		t.deepEqual(db.query('SELECT * FROM agent_sessions').all(), []);
+		db.close();
+	}
+
+	record();
+	await fixture.run();
+	t.true(fs.existsSync(sessionsPath));
+});
+
 // Resume mode reopens a space: if the agent has nothing to resume it starts
 // idle instead of being handed the issue key.
 test('resume mode launches without a prompt; agy gets its built-in prompt flag', async t => {

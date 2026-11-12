@@ -8,6 +8,7 @@ import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
+	setPrLinkStamp,
 	setStateColors,
 	setWorkspaceDiscovery,
 } from './providers/index.ts';
@@ -45,6 +46,7 @@ export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 		),
 	);
 	setStateColors(daos.stateColors);
+	setPrLinkStamp(daos.prLinkStamp);
 
 	try {
 		recordSqliteState(readHomeSqliteState());

@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
@@ -576,14 +577,19 @@ def test_the_session_env_comes_from_the_agent_session_holding_the_cwd(tmp_path: 
             tmux_server(
                 "new-session", "-d", "-s", f"{kind}-repo-{key}", "-c", str(worktree),
                 "-e", f"PAPPARDELLE_AGENT_SESSIONS={kind}-{key}.json",
+                "-e", "PAPPARDELLE_AGENT_SESSIONS_REPO=repo",
+                "-e", f"PAPPARDELLE_AGENT_SESSIONS_KEY={key}",
                 "-e", "PAPPARDELLE_AGENT_PROFILE=codex",
                 "-e", "PAPPARDELLE_AGENT_IS_CLAUDE=false",
+                "-e", "PAPPARDELLE_SPACE=unrelated",
             )
 
     pane = agent_session.tmux_agent_pane(str(tmp_path / "STA-1" / "sub"))
     assert pane is not None
     assert pane.env == {
         "PAPPARDELLE_AGENT_SESSIONS": "agent-STA-1.json",
+        "PAPPARDELLE_AGENT_SESSIONS_REPO": "repo",
+        "PAPPARDELLE_AGENT_SESSIONS_KEY": "STA-1",
         "PAPPARDELLE_AGENT_PROFILE": "codex",
         "PAPPARDELLE_AGENT_IS_CLAUDE": "false",
     }
@@ -642,3 +648,102 @@ def test_an_agy_payload_without_a_conversation_id_is_ignored(sessions_file: Path
     assert not record_agent_session(
         agy_payload(""), False, env_for(sessions_file, "argon"), HOOK_PID, no_process_walk
     )
+
+
+# With experimental.sqliteState the hook writes the file's rows as well
+# (state_db.py), named by the repo and space key the launcher passes it.
+
+
+def space_env(sessions_file: Path, key: str, agent_profile: str = "codex", is_claude: bool = False) -> dict[str, str]:
+    return {
+        **env_for(sessions_file, agent_profile, is_claude),
+        "PAPPARDELLE_AGENT_SESSIONS_REPO": "repo",
+        "PAPPARDELLE_AGENT_SESSIONS_KEY": key,
+    }
+
+
+def session_rows(db: Path, sql: str = "SELECT repo, key, agent_profile, session_id, pid, started FROM agent_sessions ORDER BY rowid"):
+    connection = sqlite3.connect(db)
+    try:
+        return connection.execute(sql).fetchall()
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("key", ["STA-1", "main"])
+def test_the_session_is_written_to_the_file_and_the_database(state_db: Path, tmp_path: Path, key: str):
+    sessions_file = tmp_path / "space-state" / f"{key}.agent-sessions.json"
+    assert record_agent_session(payload(), False, space_env(sessions_file, key), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+
+    assert entries(sessions_file) == {"codex": {"session_id": "01a117bd-5978", "pid": 98, "started": STARTED}}
+    assert session_rows(state_db) == [("repo", key, "codex", "01a117bd-5978", 98, STARTED)]
+    stat = os.stat(sessions_file)
+    assert session_rows(state_db, "SELECT path, ino, size, mtime_ns, malformed FROM json_sync") == [
+        (str(sessions_file), str(stat.st_ino), stat.st_size, str(stat.st_mtime_ns), 0)
+    ]
+
+
+def test_the_rows_of_a_space_are_replaced_from_its_whole_file(state_db: Path, sessions_file: Path):
+    # A hook without the database recorded claude; its entry has no row yet.
+    sessions_file.parent.mkdir(parents=True)
+    sessions_file.write_text(json.dumps({"claude": {"session_id": "claude-id", "pid": 7, "started": None}}))
+    connection = sqlite3.connect(state_db)
+    connection.execute("INSERT INTO agent_sessions VALUES ('repo', 'STA-1', 'gone', 'stale', 1, NULL)")
+    connection.execute("INSERT INTO agent_sessions VALUES ('repo', 'STA-2', 'codex', 'other-space', 1, NULL)")
+    connection.commit()
+    connection.close()
+
+    assert record_agent_session(payload("codex-id"), False, space_env(sessions_file, "STA-1"), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert session_rows(state_db) == [
+        ("repo", "STA-2", "codex", "other-space", 1, None),
+        ("repo", "STA-1", "claude", "claude-id", 7, None),
+        ("repo", "STA-1", "codex", "codex-id", 98, STARTED),
+    ]
+
+
+def test_a_session_the_hook_does_not_record_changes_no_rows(state_db: Path, sessions_file: Path):
+    env = space_env(sessions_file, "STA-1", "claude", is_claude=True)
+    record_agent_session(payload("pane"), True, env, HOOK_PID, lambda: TOP_LEVEL_CLAUDE)
+    before = os.stat(sessions_file)
+    # A nested claude is not the pane's agent, which is alive and owns the id.
+    assert not record_agent_session(payload("nested"), True, env, HOOK_PID, lambda: CLAUDE_IN_CLAUDE_MCP)
+    assert session_rows(state_db) == [("repo", "STA-1", "claude", "pane", 98, STARTED)]
+    assert os.stat(sessions_file).st_mtime_ns == before.st_mtime_ns
+
+
+@pytest.mark.parametrize("missing", ["PAPPARDELLE_AGENT_SESSIONS_REPO", "PAPPARDELLE_AGENT_SESSIONS_KEY"])
+def test_without_the_repo_or_the_key_only_the_file_is_written(state_db: Path, sessions_file: Path, missing: str):
+    env = space_env(sessions_file, "STA-1")
+    del env[missing]
+    assert record_agent_session(payload(), False, env, HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert recorded(sessions_file) == {"codex": "01a117bd-5978"}
+    assert session_rows(state_db) == []
+    assert session_rows(state_db, "SELECT path FROM json_sync") == []
+
+
+def test_a_locked_database_still_gets_the_file_written(
+    state_db: Path, sessions_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # The failure is logged under the home directory.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    holder = sqlite3.connect(state_db, isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        assert record_agent_session(payload(), False, space_env(sessions_file, "STA-1"), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+    assert recorded(sessions_file) == {"codex": "01a117bd-5978"}
+    assert session_rows(state_db) == []
+    log = (tmp_path / ".pappardelle" / "logs" / "hook-events.log").read_text()
+    assert "State database write failed" in log and str(sessions_file) in log
+
+
+def test_with_the_flag_off_the_database_is_left_alone(
+    state_db: Path, sessions_file: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+    assert record_agent_session(payload(), False, space_env(sessions_file, "STA-1"), HOOK_PID, lambda: TOP_LEVEL_CODEX)
+    assert recorded(sessions_file) == {"codex": "01a117bd-5978"}
+    assert session_rows(state_db) == []

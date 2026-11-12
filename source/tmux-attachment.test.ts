@@ -21,6 +21,7 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
+import {getRepoName} from './config.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
 import {attachStatusMonitor} from './program-status-monitor.ts';
@@ -29,6 +30,17 @@ import {
 	startupTrace,
 	type StartupRecord,
 } from './startup-trace.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
+
+// A new agent session is told where its agent-sessions file is, which the
+// stores place.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState({teardown: fn => stateTeardowns.push(fn)});
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 test.serial(
 	'background monitor discovery does not consume the selected startup trace',
@@ -1044,6 +1056,12 @@ test.serial(
 					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
 			),
 		);
+		// The main space has no PAPPARDELLE_SPACE, so the rows the hook writes
+		// are named by variables of their own.
+		t.true(
+			created.includes(`PAPPARDELLE_AGENT_SESSIONS_REPO=${getRepoName()}`),
+		);
+		t.true(created.includes('PAPPARDELLE_AGENT_SESSIONS_KEY=TEST-NEW'));
 	},
 );
 

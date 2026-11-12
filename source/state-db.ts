@@ -115,6 +115,73 @@ const MIGRATIONS: string[] = [
 		owner_pid INTEGER NOT NULL,
 		PRIMARY KEY (repo, key)
 	) STRICT`,
+	`CREATE TABLE agent_sessions (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		agent_profile TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		pid INTEGER,
+		started TEXT,
+		PRIMARY KEY (repo, key, agent_profile)
+	) STRICT;
+	CREATE TABLE companion_widths (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		cells INTEGER CHECK (cells > 0),
+		percent TEXT CHECK (percent GLOB '[0-9]*%'),
+		PRIMARY KEY (repo, key),
+		CHECK ((cells IS NULL) <> (percent IS NULL))
+	) STRICT;
+	CREATE TABLE companion_requests (
+		repo TEXT NOT NULL,
+		id TEXT NOT NULL,
+		space TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('width', 'layout')),
+		asked INTEGER NOT NULL DEFAULT 1,
+		ack_result TEXT CHECK (ack_result IN (
+			'applied', 'stored', 'no-pane', 'deferred', 'failed'
+		)),
+		ack_columns INTEGER,
+		PRIMARY KEY (repo, id),
+		CHECK (ack_columns IS NULL OR ack_result IS NOT NULL)
+	) STRICT;
+	CREATE TABLE schedules (
+		repo TEXT NOT NULL,
+		id TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('at', 'after_limit', 'keep_going')),
+		key TEXT NOT NULL,
+		at TEXT,
+		message TEXT,
+		arm INTEGER,
+		every_seconds INTEGER,
+		nudge TEXT,
+		until TEXT,
+		idle_checks INTEGER,
+		PRIMARY KEY (repo, id),
+		CHECK (
+			(
+				kind = 'keep_going'
+				AND every_seconds IS NOT NULL AND nudge IS NOT NULL
+				AND idle_checks IS NOT NULL
+				AND at IS NULL AND message IS NULL AND arm IS NULL
+			) OR (
+				kind IN ('at', 'after_limit')
+				AND at IS NOT NULL AND message IS NOT NULL AND arm IS NOT NULL
+				AND every_seconds IS NULL AND nudge IS NULL AND until IS NULL
+				AND idle_checks IS NULL
+			)
+		)
+	) STRICT;
+	CREATE TABLE queued_messages (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		text TEXT NOT NULL,
+		PRIMARY KEY (repo, key)
+	) STRICT;
+	CREATE TABLE pr_link_stamp (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		touched_at INTEGER NOT NULL
+	) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;

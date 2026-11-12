@@ -16,8 +16,9 @@ const verbs: Record<string, Verb> = {
 	/**
 	 * What idow records about a space before it starts the space's sessions.
 	 * `--register --owner <pid>` holds the space for the process setting it up,
-	 * `--created-issue` says this run created the space's issue, and
-	 * `--profile <name>` is the profile the space was created or reopened with.
+	 * `--created-issue` says this run created the space's issue,
+	 * `--profile <name>` is the profile the space was created or reopened with,
+	 * and `--fresh` says the space's key has no earlier conversation to resume.
 	 */
 	async 'prepare-space'(args) {
 		const {values, positionals} = parseArgs({
@@ -29,6 +30,7 @@ const verbs: Record<string, Verb> = {
 				owner: {type: 'string'},
 				'created-issue': {type: 'boolean'},
 				profile: {type: 'string'},
+				fresh: {type: 'boolean'},
 			},
 		});
 		const [key] = positionals;
@@ -42,6 +44,7 @@ const verbs: Record<string, Verb> = {
 			await daos.registry.reserveStart(key, owner);
 		}
 
+		if (values.fresh) await daos.agentSessions.clear(key);
 		if (values['created-issue']) await daos.issueMeta.markCreated(key);
 		if (values.profile !== undefined)
 			await daos.spaceState.write(key, {profile: values.profile});

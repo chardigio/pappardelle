@@ -283,13 +283,13 @@ on run argv
     -- parses the values — and the caller already quoted each flag value for
     -- exactly that parse. Empty flags leave the command word
     -- unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; AGENT_SESSIONS_REPO=" & quoted form of repoName & "; AGENT_SESSIONS_KEY=" & quoted form of issueKey & "; "
     set promptSeg to ""
     if promptWords is not equal to "" then
         set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
         set promptSeg to " $AGENT_PROMPT_WORDS"
     end if
-    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
+    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\" -e \"PAPPARDELLE_AGENT_SESSIONS_REPO=$AGENT_SESSIONS_REPO\" -e \"PAPPARDELLE_AGENT_SESSIONS_KEY=$AGENT_SESSIONS_KEY\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
     set resumeChain to ""
     if resumeArgs is not equal to "" then

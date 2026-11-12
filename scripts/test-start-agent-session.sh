@@ -133,6 +133,11 @@ assert_eq "agent session env says the agent is claude" "PAPPARDELLE_AGENT_IS_CLA
 assert_eq "agent session env names the agent-sessions file" \
     "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$TEST_REPO/space-state/$ISSUE_KEY.agent-sessions.json" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS 2>/dev/null)"
+# The repo and key the hook files those ids under in the state database
+assert_eq "agent session env names the sessions' repo" "PAPPARDELLE_AGENT_SESSIONS_REPO=$TEST_REPO" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS_REPO 2>/dev/null)"
+assert_eq "agent session env names the sessions' space" "PAPPARDELLE_AGENT_SESSIONS_KEY=$ISSUE_KEY" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS_KEY 2>/dev/null)"
 # An agent started by hand in the companion isn't the space's agent
 assert_eq "companion session env has no agent profile" "" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null || true)"

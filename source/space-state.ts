@@ -249,6 +249,14 @@ export function getSpaceStateDir(repoName: string, baseDir?: string): string {
 	return path.join(base, 'repos', repoName, 'space-state');
 }
 
+/** One agent profile's latest conversation in a space, as its hook records it. */
+export type AgentSession = {
+	sessionId: string;
+	/** The agent process that recorded the id, and when it started. */
+	pid: number | null;
+	started: string | null;
+};
+
 /**
  * Each agent profile's latest conversation in a space, by agent profile name,
  * written only by the agent's SessionStart/UserPromptSubmit hook
@@ -256,78 +264,165 @@ export function getSpaceStateDir(repoName: string, baseDir?: string): string {
  * in it: the TUI rewrites that file after every rail poll, and a hook write
  * landing between the TUI's read and its rename would be lost. Keyed by agent
  * profile so a one-launch override doesn't take the profile's own
- * conversation away. idow deletes it when it creates a workspace for a new
+ * conversation away. idow clears it when it creates a workspace for a new
  * issue, whose key can't own an earlier conversation.
  */
-export function getAgentSessionsPath(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): string {
-	return path.join(
-		getSpaceStateDir(repoName, baseDir),
-		`${issueKey}.agent-sessions.json`,
-	);
+export interface AgentSessionsDao {
+	/** The file the hook writes for a space. The launchers hand it this path. */
+	file(key: string): string;
+	/** The session id an agent profile recorded in a space. */
+	read(key: string, agentProfile: string): string | undefined;
+	/**
+	 * The agent profile whose agent started last in a space, which is the one
+	 * running there: a picker override launches once without being saved
+	 * anywhere else.
+	 */
+	latestProfile(key: string): string | undefined;
+	/** The spaces that have recorded sessions. */
+	keys(): string[];
+	/**
+	 * Move the session recorded under `from` to `to`. Nothing changes when
+	 * `from` has none or `to` already has its own.
+	 */
+	renameProfile(key: string, from: string, to: string): Promise<void>;
+	/** Forget every session recorded in a space. */
+	clear(key: string): Promise<void>;
 }
 
-function readAgentSessions(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): Record<string, unknown> {
-	try {
-		const sessions: unknown = JSON.parse(
-			fs.readFileSync(
-				getAgentSessionsPath(repoName, issueKey, baseDir),
-				'utf-8',
-			),
-		);
-		return sessions && typeof sessions === 'object'
-			? (sessions as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
+const AGENT_SESSIONS_SUFFIX = '.agent-sessions.json';
+
+/**
+ * An agent-sessions file as the hook leaves it. Throws when `content` is not
+ * an object of entries. An entry without a session id is one no reader uses,
+ * and is left out.
+ */
+export function parseAgentSessions(content: string): Map<string, AgentSession> {
+	const record: unknown = JSON.parse(content);
+	if (!isRecord(record)) throw new Error('Not an agent-sessions file');
+	const sessions = new Map<string, AgentSession>();
+	for (const [name, entry] of Object.entries(record)) {
+		if (!isRecord(entry)) continue;
+		const {session_id: sessionId, pid, started} = entry;
+		if (typeof sessionId !== 'string') continue;
+		sessions.set(name, {
+			sessionId,
+			pid: Number.isInteger(pid) ? (pid as number) : null,
+			started: typeof started === 'string' ? started : null,
+		});
 	}
+
+	return sessions;
+}
+
+export function renderAgentSessions(
+	sessions: Iterable<[string, AgentSession]>,
+): string {
+	const entries = Object.fromEntries(
+		[...sessions].map(([name, {sessionId, pid, started}]) => [
+			name,
+			{session_id: sessionId, pid, started},
+		]),
+	);
+	return JSON.stringify(entries, null, 2) + '\n';
 }
 
 /**
- * The agent profile whose agent started last in a space, which is the one
- * running there: a picker override launches once without being saved
- * anywhere else. `started` is the agent process's start time as the hook
- * reads it from `ps -o lstart` (LC_ALL=C).
+ * The name whose agent started last. `started` is the agent process's start
+ * time as the hook reads it from `ps -o lstart` (LC_ALL=C).
  */
-export function latestAgentProfile(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
+export function latestStarted(
+	entries: Iterable<[name: string, started: unknown]>,
 ): string | undefined {
 	let latest: {name: string; started: number} | undefined;
-	for (const [name, entry] of Object.entries(
-		readAgentSessions(repoName, issueKey, baseDir),
-	)) {
-		const started =
-			entry && typeof entry === 'object'
-				? Date.parse(String((entry as Record<string, unknown>)['started']))
-				: Number.NaN;
+	for (const [name, value] of entries) {
+		const started = Date.parse(String(value));
 		if (!Number.isNaN(started) && (!latest || started > latest.started)) {
 			latest = {name, started};
 		}
 	}
+
 	return latest?.name;
 }
 
-export function readAgentSession(
-	repoName: string,
-	issueKey: string,
-	agentProfile: string,
-	baseDir?: string,
-): string | undefined {
-	const entry = readAgentSessions(repoName, issueKey, baseDir)[agentProfile];
-	const id =
-		entry && typeof entry === 'object'
-			? (entry as Record<string, unknown>)['session_id']
-			: undefined;
-	return typeof id === 'string' ? id : undefined;
+export class JsonAgentSessionsDao implements AgentSessionsDao {
+	constructor(private readonly dir: string) {}
+
+	file(key: string): string {
+		return path.join(this.dir, `${key}${AGENT_SESSIONS_SUFFIX}`);
+	}
+
+	read(key: string, agentProfile: string): string | undefined {
+		const entry = this.sessions(key)[agentProfile];
+		const id =
+			entry && typeof entry === 'object'
+				? (entry as Record<string, unknown>)['session_id']
+				: undefined;
+		return typeof id === 'string' ? id : undefined;
+	}
+
+	latestProfile(key: string): string | undefined {
+		return latestStarted(
+			Object.entries(this.sessions(key)).map(([name, entry]) => [
+				name,
+				entry && typeof entry === 'object'
+					? (entry as Record<string, unknown>)['started']
+					: undefined,
+			]),
+		);
+	}
+
+	keys(): string[] {
+		let files: string[];
+		try {
+			files = fs.readdirSync(this.dir);
+		} catch {
+			return [];
+		}
+
+		return files
+			.filter(
+				file =>
+					file.endsWith(AGENT_SESSIONS_SUFFIX) &&
+					file.length > AGENT_SESSIONS_SUFFIX.length,
+			)
+			.map(file => file.slice(0, -AGENT_SESSIONS_SUFFIX.length));
+	}
+
+	async renameProfile(key: string, from: string, to: string): Promise<void> {
+		const file = this.file(key);
+		try {
+			const sessions: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+			if (!isRecord(sessions) || !(from in sessions) || to in sessions) return;
+			const moved = Object.fromEntries(
+				Object.entries(sessions).map(([name, entry]) => [
+					name === from ? to : name,
+					entry,
+				]),
+			);
+			const temporary = `${file}.tmp.${process.pid}`;
+			fs.writeFileSync(temporary, JSON.stringify(moved, null, 2) + '\n');
+			fs.renameSync(temporary, file);
+		} catch {
+			// The space relaunches with --continue instead.
+		}
+	}
+
+	async clear(key: string): Promise<void> {
+		fs.rmSync(this.file(key), {force: true});
+	}
+
+	private sessions(key: string): Record<string, unknown> {
+		try {
+			const sessions: unknown = JSON.parse(
+				fs.readFileSync(this.file(key), 'utf-8'),
+			);
+			return sessions && typeof sessions === 'object'
+				? (sessions as Record<string, unknown>)
+				: {};
+		} catch {
+			return {};
+		}
+	}
 }
 
 export class JsonSpaceStateDao implements SpaceStateDao {

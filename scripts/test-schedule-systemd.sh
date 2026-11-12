@@ -62,7 +62,23 @@ fi
 
 # This may itself run inside a space, whose PAPPARDELLE_* would point the
 # timer at that space's repo.
+SQLITE_STATE="${PAPPARDELLE_SQLITE_STATE:-}"
 for name in $(compgen -e | grep '^PAPPARDELLE_'); do unset "$name"; done
+# The run keeps its state mode. This test runs under the real $HOME, so the
+# database is one of its own, and the timer it starts is handed both.
+export PAPPARDELLE_STATE_DB="$ROOT/state.db"
+if [[ -n "$SQLITE_STATE" ]]; then
+    export PAPPARDELLE_SQLITE_STATE="$SQLITE_STATE"
+fi
+
+# The jobs the test's database holds for this repo.
+stored_jobs() {
+    bun -e '
+        import {Database} from "bun:sqlite";
+        const db = new Database(process.argv[1], {readonly: true});
+        console.log(db.query("SELECT COUNT(*) AS jobs FROM schedules WHERE repo = ?").get(process.argv[2]).jobs);
+    ' "$PAPPARDELLE_STATE_DB" "$REPO_NAME"
+}
 
 pappardelle() {
     (cd "$REPO" && env -u TMUX -u TMUX_PANE bun "$PROJECT/source/cli.tsx" "$@")
@@ -77,6 +93,10 @@ else
 fi
 units="$(systemctl --user list-timers --all --plain --no-legend "pappardelle-$REPO_NAME-*" | wc -l)"
 if [[ "$units" -eq 1 ]]; then pass "one timer loaded"; else fail "expected one timer, found $units"; fi
+if [[ "$SQLITE_STATE" == 1 ]]; then
+    jobs="$(stored_jobs)"
+    if [[ "$jobs" -eq 1 ]]; then pass "the job is a row in the test's database"; else fail "expected one stored job, found $jobs"; fi
+fi
 
 seen=""
 for _ in $(seq 1 40); do
@@ -90,6 +110,10 @@ if [[ -n "$seen" ]]; then pass "the timer typed the message into the session"; e
 sleep 2
 left="$(pappardelle schedules)"
 if [[ "$left" == "No scheduled wake-ups" ]]; then pass "the fired job removed itself"; else fail "jobs left: $left"; fi
+if [[ "$SQLITE_STATE" == 1 ]]; then
+    jobs="$(stored_jobs)"
+    if [[ "$jobs" -eq 0 ]]; then pass "the timer's process removed the row"; else fail "$jobs stored jobs left"; fi
+fi
 if grep -q '"caller":"timer:' "$HOME/.pappardelle/repos/$REPO_NAME/supervise.jsonl"; then
     pass "the send is logged as the timer's"
 else

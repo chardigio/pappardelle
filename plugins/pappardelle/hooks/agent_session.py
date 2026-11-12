@@ -8,11 +8,17 @@ the id is what keeps each space on its own conversation. The ids get a file of
 their own, beside the space-state file the TUI rewrites after every rail poll,
 so neither writer can drop the other's update.
 
-The agent session carries three variables, set by start-agent-session.sh and
+The agent session carries these variables, set by start-agent-session.sh and
 buildAgentSessionEnvArgs() in source/spawn-env.ts:
-    PAPPARDELLE_AGENT_PROFILE   - the agent profile the pane runs, from `agent_profiles:`
-    PAPPARDELLE_AGENT_IS_CLAUDE - whether that agent profile is a claude one
-    PAPPARDELLE_AGENT_SESSIONS  - the agent-sessions file to write
+    PAPPARDELLE_AGENT_PROFILE       - the agent profile the pane runs, from `agent_profiles:`
+    PAPPARDELLE_AGENT_IS_CLAUDE     - whether that agent profile is a claude one
+    PAPPARDELLE_AGENT_SESSIONS      - the agent-sessions file to write
+    PAPPARDELLE_AGENT_SESSIONS_REPO - the repo the space belongs to
+    PAPPARDELLE_AGENT_SESSIONS_KEY  - the space's key
+
+The last two name the file's rows in the state database (state_db.py). The
+main space has no PAPPARDELLE_SPACE, so they are variables of their own.
+Without them, or without the database, only the file is written.
 
 Anything the agent spawns inherits them, including other agents: Claude
 running codex for a review, or `claude -p` in a script. Those must not
@@ -62,6 +68,8 @@ SESSION_VARIABLES = (
     "PAPPARDELLE_AGENT_PROFILE",
     "PAPPARDELLE_AGENT_IS_CLAUDE",
     "PAPPARDELLE_AGENT_SESSIONS",
+    "PAPPARDELLE_AGENT_SESSIONS_REPO",
+    "PAPPARDELLE_AGENT_SESSIONS_KEY",
 )
 
 # pid: (ppid, command line)
@@ -317,27 +325,90 @@ def record_agent_session(
         return False
 
     path = Path(sessions_path)
-    sessions = read_sessions(path)
-    if sessions is None:
-        # A half-written file; writing over it would drop other agent profiles' ids.
-        return False
-    entry = sessions.get(agent_profile)
-    owner = entry.get("pid") if isinstance(entry, dict) else None
-    if (owner != agent_pid or not in_tmux or is_agy) and owner_alive(entry, started):
-        return False
-    recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
-    if entry == recording:
-        return False
-    sessions[agent_profile] = recording
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
-    try:
-        tmp.write_text(json.dumps(sessions, indent=2) + "\n")
-        os.replace(tmp, path)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
-    return True
+    written_sessions: dict[str, Any] = {}
+
+    # The read, the ownership check and the write run as one step: with the
+    # database they are inside its write transaction, so a profile rename
+    # (source/config-migration.ts) cannot land between them.
+    def write_file() -> Optional[os.stat_result]:
+        sessions = read_sessions(path)
+        if sessions is None:
+            # A half-written file; writing over it would drop other agent profiles' ids.
+            return None
+        entry = sessions.get(agent_profile)
+        owner = entry.get("pid") if isinstance(entry, dict) else None
+        if (owner != agent_pid or not in_tmux or is_agy) and owner_alive(entry, started):
+            return None
+        recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
+        if entry == recording:
+            return None
+        sessions[agent_profile] = recording
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+        try:
+            tmp.write_text(json.dumps(sessions, indent=2) + "\n")
+            written = os.stat(tmp)
+            os.replace(tmp, path)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+        written_sessions.update(sessions)
+        return written
+
+    repo = session_env.get("PAPPARDELLE_AGENT_SESSIONS_REPO", "").strip()
+    key = session_env.get("PAPPARDELLE_AGENT_SESSIONS_KEY", "").strip()
+    state_db = _load_state_db() if repo and key else None
+    db_path = state_db.state_db_path() if state_db else None
+    if state_db is None or db_path is None:
+        return write_file() is not None
+    state_db.write_through(
+        db_path, path, write_file, lambda: session_rows(repo, key, written_sessions)
+    )
+    return bool(written_sessions)
+
+
+def _load_state_db() -> Any:
+    """state_db.py, loaded by path as the hook scripts load this module."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("state_db", Path(__file__).parent / "state_db.py")
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def session_rows(repo: str, key: str, sessions: Mapping[str, Any]) -> list[tuple[str, tuple[Any, ...]]]:
+    """The statements that replace a space's rows with its file's entries.
+
+    The columns source/agent-sessions-sqlite.ts imports from the same file:
+    an entry without a session id is one no reader uses, and is left out.
+    """
+    statements: list[tuple[str, tuple[Any, ...]]] = [
+        ("DELETE FROM agent_sessions WHERE repo = ? AND key = ?", (repo, key))
+    ]
+    for agent_profile, entry in sessions.items():
+        session_id = entry_session_id(entry)
+        if session_id is None:
+            continue
+        pid, recorded_start = entry.get("pid"), entry.get("started")
+        statements.append(
+            (
+                """INSERT INTO agent_sessions
+                    (repo, key, agent_profile, session_id, pid, started)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    repo,
+                    key,
+                    agent_profile,
+                    session_id,
+                    pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
+                    recorded_start if isinstance(recorded_start, str) else None,
+                ),
+            )
+        )
+    return statements
 
 
 def entry_session_id(entry: Any) -> Optional[str]:
