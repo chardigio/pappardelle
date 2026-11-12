@@ -62,16 +62,4 @@ function RailGroupHeader({row, width}: Props) {
 	);
 }
 
-/** The rule between agent spaces (main) and the workspaces below them. */
-export function RailDivider({width}: {width: number}) {
-	return (
-		<box flexDirection="row" overflow="hidden" height={1}>
-			<text {...dimText()} wrapMode="none" height={1}>
-				{' '.repeat(ROW_PADDING_CELLS) +
-					'─'.repeat(Math.max(0, width - 2 * ROW_PADDING_CELLS))}
-			</text>
-		</box>
-	);
-}
-
 export default memo(RailGroupHeader);

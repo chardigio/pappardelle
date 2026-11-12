@@ -20,17 +20,43 @@ export type FrameSpec = {
 	inset?: number;
 };
 
+type RuleSpec = Pick<FrameSpec, 'borderColor' | 'style' | 'isDim'>;
+
+function ruleDrawer(
+	buffer: OptimizedBuffer,
+	{borderColor, isDim}: Pick<RuleSpec, 'borderColor' | 'isDim'>,
+) {
+	const color = parseColor(terminalColor(borderColor));
+	const attributes = textAttributes({dim: isDim});
+	return (text: string, x: number, y: number) => {
+		buffer.drawText(text, x, y, color, undefined, attributes);
+	};
+}
+
+/**
+ * A horizontal rule across a frame's content row, teed into the frame's
+ * sides: `row` is the content box, one cell inside each side.
+ */
+export function paintFrameRule(
+	row: Pick<BoxRenderable, 'x' | 'y' | 'width'>,
+	buffer: OptimizedBuffer,
+	{borderColor, style, isDim}: RuleSpec,
+) {
+	const chars = BorderChars[style];
+	ruleDrawer(buffer, {borderColor, isDim})(
+		chars.leftT + chars.horizontal.repeat(row.width) + chars.rightT,
+		row.x - 1,
+		row.y,
+	);
+}
+
 export function paintFrame(
 	box: Pick<BoxRenderable, 'x' | 'y' | 'width' | 'height'>,
 	buffer: OptimizedBuffer,
 	{title, borderColor, titleColor, style, isDim, inset = 0}: FrameSpec,
 ) {
 	const chars = BorderChars[style];
-	const color = parseColor(terminalColor(borderColor));
-	const attributes = textAttributes({dim: isDim});
-	const rule = (text: string, x: number, y: number) => {
-		buffer.drawText(text, x, y, color, undefined, attributes);
-	};
+	const rule = ruleDrawer(buffer, {borderColor, isDim});
 
 	const inner = Math.max(0, box.width - 2);
 	const right = box.x + box.width - 1;
