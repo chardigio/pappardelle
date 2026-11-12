@@ -154,19 +154,3 @@ export function onStateDbChange(
 		}
 	};
 }
-
-/** Resolve when the database changes, or after `ms`, whichever is first. */
-export async function waitForStateDbChange(
-	dbPath: string,
-	ms: number,
-): Promise<void> {
-	return new Promise(resolve => {
-		const timer = setTimeout(done, ms);
-		const stop = onStateDbChange(dbPath, done);
-		function done() {
-			clearTimeout(timer);
-			stop();
-			resolve();
-		}
-	});
-}

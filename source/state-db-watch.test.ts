@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {closeStateDb, openStateDb} from './state-db.ts';
-import {onStateDbChange, waitForStateDbChange} from './state-db-watch.ts';
+import {onStateDbChange} from './state-db-watch.ts';
 
 const run = promisify(execFile);
 const moduleUrl = (name: string) =>
@@ -78,11 +78,4 @@ test('a transaction that changes no rows rings nothing', async t => {
 		state.db.run("DELETE FROM marks WHERE name = 'absent'"),
 	);
 	t.false(await seen);
-});
-
-test('waiting for a change gives up after its timeout', async t => {
-	const {dbPath} = fixture(t);
-	const started = performance.now();
-	await waitForStateDbChange(dbPath, 80);
-	t.true(performance.now() - started >= 70);
 });

@@ -22,6 +22,7 @@ type Teardown = {teardown(fn: () => void): unknown};
 
 export type TestState = {
 	daos: StateDaos;
+	repo: string;
 	stateDir: string;
 	registryFile: string;
 	/** Whether these stores keep rows. */
@@ -33,7 +34,7 @@ export type TestState = {
  * `sqlite` says otherwise. `spaces` is written as a registry file, the way a
  * process without the database would have left it. With `sqlite` on, a
  * status daemon's hub serves the directory's socket from this process, so
- * nothing the test reads status through starts a daemon.
+ * nothing the test reads or sends status through starts a daemon.
  */
 export function testState(
 	t: Teardown,
@@ -68,7 +69,7 @@ export function testState(
 		closeStateDb(stateDbPath(stateDir));
 		fs.rmSync(stateDir, {recursive: true, force: true});
 	});
-	return {daos, stateDir, registryFile, sqlite};
+	return {daos, repo, stateDir, registryFile, sqlite};
 }
 
 const STATUS_ARRIVAL_TIMEOUT_MS = 5000;

@@ -16,9 +16,11 @@ import {WorkspaceStatuses} from './workspace-status.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {
 	parseStatusPane,
+	type ProgramStatusDao,
 	type ProgramStatusSnapshot,
+	type StatusPane,
 } from './program-status-monitor.ts';
-import {stateDbPath} from './state-db.ts';
+import {statusSocketPath} from './state-db.ts';
 import {
 	mapClaudeStatus,
 	ACTIVE_STATUS_TIMEOUT,
@@ -63,7 +65,7 @@ function setup(t: ExecutionContext, options: {sqlite?: boolean} = {}) {
 			currentTool,
 			lastUpdate,
 		});
-	const writeOsc = (
+	const writeOsc = async (
 		info: ProgramStatusInfo,
 		options: {
 			authoritative?: boolean;
@@ -127,11 +129,11 @@ test.serial(
 	async t => {
 		const h = setup(t);
 		await h.writeHook('waiting_for_input');
-		h.writeOsc({status: 'working', app: 'fixture'});
+		await h.writeOsc({status: 'working', app: 'fixture'});
 		h.exitPane();
 		t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
 		for (const status of ['done', 'error'] as const) {
-			h.writeOsc({status, app: 'fixture'});
+			await h.writeOsc({status, app: 'fixture'});
 			t.like(await h.status.read('TASK-1'), {status, source: 'osc'});
 		}
 	},
@@ -153,7 +155,7 @@ test.serial(
 				snapshot.records[0]!.id = 'invalid//id';
 			},
 		]) {
-			h.writeOsc({status: 'working', app: 'fixture'}, {tamper: change});
+			await h.writeOsc({status: 'working', app: 'fixture'}, {tamper: change});
 			t.like(await h.status.read('TASK-1'), {status: 'idle', source: 'hook'});
 		}
 	},
@@ -165,7 +167,7 @@ test.serial(
 		const h = setup(t);
 		await h.writeHook('processing');
 		t.is(await readField(h.status, 'TASK-1', 'source'), 'hook');
-		h.writeOsc(
+		await h.writeOsc(
 			{status: 'blocked', kind: 'auth', app: 'codex'},
 			{age: ACTIVE_STATUS_TIMEOUT * 2},
 		);
@@ -176,7 +178,7 @@ test.serial(
 			app: 'codex',
 			source: 'osc',
 		});
-		h.writeOsc({status: 'unknown'});
+		await h.writeOsc({status: 'unknown'});
 		t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
 	},
 );
@@ -186,20 +188,20 @@ test.serial(
 	async t => {
 		const h = setup(t);
 		await h.writeHook('running_tool', 'Bash');
-		h.writeOsc({status: 'unknown'}, {authoritative: false});
+		await h.writeOsc({status: 'unknown'}, {authoritative: false});
 		t.like(await h.status.read('TASK-1'), {
 			status: 'working',
 			source: 'hook',
 			tool: 'Bash',
 		});
-		h.writeOsc({status: 'working', app: 'claude-code', id: ''});
+		await h.writeOsc({status: 'working', app: 'claude-code', id: ''});
 		t.is(await readField(h.status, 'TASK-1', 'tool'), 'Bash');
 		for (const info of [
 			{status: 'idle', app: 'claude-code'},
 			{status: 'working', app: 'other'},
 			{status: 'working', app: 'claude-code', id: 'child'},
 		] as ProgramStatusInfo[]) {
-			h.writeOsc(info);
+			await h.writeOsc(info);
 			t.is(await readField(h.status, 'TASK-1', 'tool'), undefined);
 		}
 	},
@@ -210,10 +212,10 @@ test.serial(
 	async t => {
 		const h = setup(t);
 		await h.writeHook('waiting_for_input');
-		h.writeOsc({status: 'error'});
+		await h.writeOsc({status: 'error'});
 		h.replacePane();
 		t.like(await h.status.read('TASK-1'), {status: 'idle', source: 'hook'});
-		h.writeOsc({status: 'blocked'}, {repo: 'other'});
+		await h.writeOsc({status: 'blocked'}, {repo: 'other'});
 		t.is(await readField(h.status, 'TASK-1', 'source'), 'hook');
 	},
 );
@@ -223,7 +225,7 @@ test.serial(
 	async t => {
 		const h = setup(t);
 		await h.writeHook('waiting_for_input', undefined, Date.now(), 'repo-main');
-		h.writeOsc({status: 'working', app: 'claude-code'}, {key: 'main'});
+		await h.writeOsc({status: 'working', app: 'claude-code'}, {key: 'main'});
 		t.like(await h.status.read('repo-main', 'main'), {
 			status: 'working',
 			source: 'osc',
@@ -258,7 +260,7 @@ test.serial(
 		await hookPublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.source, 'hook');
 		const donePublished = nextPublication();
-		h.writeOsc({status: 'done', app: 'claude-code'});
+		await h.writeOsc({status: 'done', app: 'claude-code'});
 		await donePublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.status, 'done');
 		const before = batches.length;
@@ -273,7 +275,7 @@ test.serial(
 	'known native updates avoid discovery while full reads reconcile generations',
 	async t => {
 		const h = setup(t);
-		h.writeOsc({status: 'working', app: 'fixture'});
+		await h.writeOsc({status: 'working', app: 'fixture'});
 		await h.status.read('TASK-1');
 		const latest = new Map<string, ProgramStatusInfo>();
 		const stop = h.status.watch(
@@ -285,7 +287,7 @@ test.serial(
 		t.teardown(stop);
 		await delay(0);
 		const before = h.queries();
-		h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
+		await h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
 		await waitUntil(
 			() => latest.get('TASK-1')?.status === 'blocked',
 			'a status update',
@@ -296,7 +298,7 @@ test.serial(
 		t.is(latest.get('TASK-1')?.status, 'blocked');
 		const oldGeneration = latest.get('TASK-1')?.generation;
 		h.replacePane();
-		h.writeOsc({status: 'done', app: 'replacement'});
+		await h.writeOsc({status: 'done', app: 'replacement'});
 		await h.status.read('TASK-1');
 		await h.writeHook('error');
 		await waitUntil(
@@ -356,7 +358,7 @@ test.serial(
 	'main snapshot events retain their UI alias and revoked leases trigger discovery',
 	async t => {
 		const h = setup(t);
-		const file = h.writeOsc({status: 'working'}, {key: 'main'});
+		const file = await h.writeOsc({status: 'working'}, {key: 'main'});
 		await h.status.read('repo-main', 'main');
 		const latest = new Map<string, ProgramStatusInfo>();
 		const stop = h.status.watch(
@@ -368,7 +370,7 @@ test.serial(
 		t.teardown(stop);
 		await delay(0);
 		const before = h.queries();
-		h.writeOsc({status: 'done'}, {key: 'main'});
+		await h.writeOsc({status: 'done'}, {key: 'main'});
 		await waitUntil(
 			() => latest.get('repo-main')?.status === 'done',
 			'a status update',
@@ -453,6 +455,67 @@ test.serial(
 	},
 );
 
+// A status read is a question to another process when the daemon holds the
+// status, so a pane can be replaced while one is in progress.
+test('a watched read that a newer attach overtook reads the newer pane, and attaches nothing more', async t => {
+	const first = parseStatusPane('%1\t12\t0\t1\t12.first', 'test-status')!;
+	const second = parseStatusPane('%1\t13\t0\t1\t13.second', 'test-status')!;
+	const attached: StatusPane[] = [];
+	let answerHeldRead: ((snapshot: null) => void) | undefined;
+	let holdNextRead = false;
+	let snapshotChanged: (key: string) => void = () => {};
+	const attach = async () => {
+		const pane = attached.length === 0 ? first : second;
+		attached.push(pane);
+		return pane;
+	};
+	const programStatus: ProgramStatusDao = {
+		attach,
+		monitor: attach,
+		monitored: () => true,
+		async read(key, pane) {
+			if (holdNextRead) {
+				holdNextRead = false;
+				return new Promise(resolve => {
+					answerHeldRead = resolve;
+				});
+			}
+
+			return snapshotOf({repo: 'repo', key, pane}, [
+				{state: 'working', id: ''},
+			]);
+		},
+		async remove() {},
+		watch(listener) {
+			snapshotChanged = listener;
+			return () => {};
+		},
+		async waitForChange() {},
+	};
+	const statuses = new WorkspaceStatuses(programStatus, key => key, {
+		read: async () => ({status: 'unknown'}),
+		watch: () => () => {},
+	});
+	await statuses.read('TASK-1');
+	const delivered: Array<string | undefined> = [];
+	t.teardown(
+		statuses.watch(
+			updates => delivered.push(updates.get('TASK-1')?.generation),
+			() => true,
+		),
+	);
+
+	holdNextRead = true;
+	snapshotChanged('TASK-1');
+	await waitUntil(() => answerHeldRead !== undefined, 'the watched read');
+	await statuses.read('TASK-1');
+	answerHeldRead!(null);
+
+	await waitUntil(() => delivered.length > 0, 'the status update');
+	t.deepEqual(delivered, [second.generation]);
+	t.deepEqual(attached, [first, second]);
+});
+
 const monitorCli = fileURLToPath(
 	new URL('program-status-monitor-cli.ts', import.meta.url),
 );
@@ -478,7 +541,7 @@ for (const sqlite of [false, true]) {
 					Buffer.from(JSON.stringify(pane)).toString('base64'),
 					path.dirname(file),
 					'',
-					sqlite ? stateDbPath(h.state.stateDir) : '',
+					statusSocketPath(h.state.stateDir),
 				],
 				{
 					stdio: ['pipe', 'ignore', 'inherit'],
