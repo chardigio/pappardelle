@@ -175,7 +175,12 @@ export function buildRailRows(options: {
 		const starting = group === groups[0] ? pending : [];
 		if (spaces.length === 0 && starting.length === 0) continue;
 
-		if (headers) groupRows.push({kind: 'header', group, count: spaces.length});
+		if (headers)
+			groupRows.push({
+				kind: 'header',
+				group,
+				count: spaces.length + starting.length,
+			});
 		for (const space of starting) groupRows.push({kind: 'pending', space});
 		for (const space of spaces) groupRows.push({kind: 'space', space});
 	}

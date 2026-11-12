@@ -164,7 +164,7 @@ test('an issue moving into a group lands by number, not at the end', t => {
 	t.false(rows.includes('# In Review (0)'));
 });
 
-test('a starting session shows at the top of the first group', t => {
+test('a starting session shows at the top of the first group and counts toward it', t => {
 	const pending: SpaceData = {
 		name: 'STE-30',
 		worktreePath: null,
@@ -176,7 +176,7 @@ test('a starting session shows at the top of the first group', t => {
 			groups: defaults,
 		}),
 	);
-	t.deepEqual(rows.slice(2, 4), ['# In Progress (2)', '~ STE-30']);
+	t.deepEqual(rows.slice(2, 4), ['# In Progress (3)', '~ STE-30']);
 });
 
 test('the narrow layout keeps the group order without headers', t => {
