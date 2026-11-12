@@ -121,9 +121,11 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 			worker,
 			`
 import {execFileSync} from 'node:child_process';
-import {ensureAgentSession} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/tmux.js')).href)};
+import {ensureAgentSession, initTmuxState} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/tmux.js')).href)};
+import {createStateDaos} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/state-daos.js')).href)};
 import {buildSpawnEnv} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/spawn-env.js')).href)};
 const profile = ${JSON.stringify(profile)};
+initTmuxState(createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(path.join(root, 'state'))}}));
 if (${JSON.stringify(launcher)} === 'tui') {
   if (!await ensureAgentSession('TEST-1', process.cwd(), false, undefined, profile)) throw new Error('Launch failed');
 } else {

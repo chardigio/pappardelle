@@ -21,6 +21,7 @@ import {
 	type LayoutOutcome,
 } from './companion-width.ts';
 import {NoTargetSpaceError} from './space-target.ts';
+import type {StateDaos} from './state-daos.ts';
 import {
 	DEFAULT_REPO_STATE_ROOT,
 	processIsAlive,
@@ -32,6 +33,8 @@ export interface CompanionCommandDeps {
 	resolveSpace: (flag: string | undefined) => string;
 	/** Needed only after parsing, so --help works outside a repo. */
 	repoName: () => string;
+	/** The repo's stores, for the same reason only built once they are used. */
+	daos: () => Pick<StateDaos, 'companionWidths' | 'companionRequests'>;
 	readStdin?: () => string | undefined;
 	out?: (text: string) => void;
 	err?: (text: string) => void;
@@ -147,8 +150,10 @@ async function execute(
 				width === null
 					? `Reset ${space}'s companion width`
 					: `Stored ${space} companion width ${width}`;
+			const {companionWidths, companionRequests} = deps.daos();
 			const result = await requestCompanionWidth({
-				repoName,
+				widths: companionWidths,
+				requests: companionRequests,
 				space,
 				width,
 				tuiIsRunning: () => tuiIsRunning(repoName),
@@ -219,7 +224,7 @@ async function relayout(
 ): Promise<number> {
 	const repoName = deps.repoName();
 	const result = await requestCompanionLayout({
-		repoName,
+		requests: deps.daos().companionRequests,
 		space,
 		tuiIsRunning: () => tuiIsRunning(repoName),
 	});

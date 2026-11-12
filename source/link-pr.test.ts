@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {testState} from '../test/helpers/state.ts';
 import {linkPr, type LinkExecutor} from './link-pr.ts';
-import {readPrLinkStamp} from './pr-link-stamp.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 
 /** Stores for the repo named `workspace`, which every workspace here is in. */
@@ -18,8 +17,14 @@ function stores(t: ExecutionContext, sqlite?: boolean) {
 
 	return {
 		spaceState: daos.spaceState,
+		prLinkStamp: daos.prLinkStamp,
 		stateDir,
-		options: {spaceStateFor, stampBaseDir: stateDir},
+		options: {
+			daosFor(repoName: string) {
+				t.is(repoName, 'workspace');
+				return daos;
+			},
+		},
 		discover: async (directory: string) =>
 			discoverWorkspaceRepositories(directory, 'github.com', spaceStateFor),
 	};
@@ -32,7 +37,7 @@ for (const sqlite of [false, true]) {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-'));
 		t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 		const workspace = path.join(root, 'workspace');
-		const {spaceState, stateDir: state, options, discover} = stores(t, sqlite);
+		const {spaceState, prLinkStamp, options, discover} = stores(t, sqlite);
 		fs.mkdirSync(workspace);
 		const git = (args: string[]) =>
 			execFileSync('git', args, {cwd: workspace, encoding: 'utf-8'}).trim();
@@ -61,10 +66,10 @@ for (const sqlite of [false, true]) {
 			JSON.stringify({profile: 'codex', pipeline: 'passing'}),
 		);
 		const url = 'https://github.com/upstream/repo/pull/28';
-		t.is(readPrLinkStamp(state), 0);
+		t.is(prLinkStamp.read(), 0);
 		const linked = await linkPr(url, workspace, workspace, {...options, run});
 		t.is(linked.file, file);
-		t.true(readPrLinkStamp(state) > 0);
+		t.true(prLinkStamp.read() > 0);
 		remoteBranch = 'published-again';
 		await linkPr(url, workspace, workspace, {...options, run});
 		for (const saved of [

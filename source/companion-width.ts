@@ -1,9 +1,9 @@
 // Per-space companion widths, and the requests the CLI sends the TUI to lay
-// out a space's companion. The CLI and the TUI exchange request and ack files
-// under ~/.pappardelle/repos/{repo}/ so `pappardelle companion` can report
-// whether the running TUI applied the change. The store is written
-// by the CLI and by the TUI when the user drags the border, so every
-// read-modify-write holds the store's file lock.
+// out a space's companion. The CLI and the TUI exchange a request and its
+// answer, as files under ~/.pappardelle/repos/{repo}/ in the stores here, so
+// `pappardelle companion` can report whether the running TUI applied the
+// change. The widths store is written by the CLI and by the TUI when the user
+// drags the border, so every read-modify-write holds the store's file lock.
 
 import {randomUUID} from 'node:crypto';
 import {
@@ -15,33 +15,18 @@ import {
 	watch,
 	writeFileSync,
 } from 'node:fs';
-import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
 import {withFileLock} from './file-lock.ts';
 
-const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
-
-function repoDir(repoName: string, baseDir?: string): string {
-	return path.join(baseDir ?? DEFAULT_BASE_DIR, 'repos', repoName);
-}
-
-export function companionWidthsPath(repoName: string, baseDir?: string) {
-	return path.join(repoDir(repoName, baseDir), 'companion-widths.json');
+export function companionWidthsPath(repoName: string, baseDir: string) {
+	return path.join(baseDir, 'repos', repoName, 'companion-widths.json');
 }
 
 // One file per request, so two quick calls never replace each other's.
-function requestsDir(repoName: string, baseDir?: string) {
-	return path.join(repoDir(repoName, baseDir), 'companion-requests');
-}
-
-function requestPath(id: string, repoName: string, baseDir?: string) {
-	return path.join(requestsDir(repoName, baseDir), `${id}.json`);
-}
-
-function ackPath(id: string, repoName: string, baseDir?: string) {
-	return path.join(requestsDir(repoName, baseDir), `${id}${ACK_SUFFIX}`);
+export function companionRequestsDir(repoName: string, baseDir: string) {
+	return path.join(baseDir, 'repos', repoName, 'companion-requests');
 }
 
 const ACK_SUFFIX = '.ack.json';
@@ -61,12 +46,24 @@ function writeJsonAtomic(file: string, data: unknown): void {
 	renameSync(temporary, file);
 }
 
-export function readCompanionWidths(
-	repoName: string,
-	baseDir?: string,
+/** The width of each space's companion column that has one of its own. */
+export interface CompanionWidthDao {
+	all(): Record<string, PaneWidth>;
+	get(spaceKey: string): PaneWidth | null;
+	/** Store `width` for the space, or remove its entry when `width` is null. */
+	set(spaceKey: string, width: PaneWidth | null): Promise<void>;
+}
+
+/**
+ * The widths in a store file. Throws when `content` is not an object;
+ * entries that are not widths are left out.
+ */
+export function parseCompanionWidths(
+	content: string,
 ): Record<string, PaneWidth> {
-	const parsed = readJson(companionWidthsPath(repoName, baseDir));
-	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+	const parsed: unknown = JSON.parse(content);
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+		throw new Error('Not a companion widths store');
 	return Object.fromEntries(
 		Object.entries(parsed).filter((entry): entry is [string, PaneWidth] =>
 			isPaneWidth(entry[1]),
@@ -74,31 +71,41 @@ export function readCompanionWidths(
 	);
 }
 
-export function getCompanionWidth(
-	repoName: string,
-	spaceKey: string,
-	baseDir?: string,
-): PaneWidth | null {
-	return readCompanionWidths(repoName, baseDir)[spaceKey] ?? null;
+export function renderCompanionWidths(
+	widths: Record<string, PaneWidth>,
+): string {
+	return JSON.stringify(widths) + '\n';
 }
 
-/** Store `width` for the space, or remove its entry when `width` is null. */
-export async function setCompanionWidth(
-	repoName: string,
-	spaceKey: string,
-	width: PaneWidth | null,
-	baseDir?: string,
-): Promise<void> {
-	await withFileLock(companionWidthsPath(repoName, baseDir), file => {
-		const {[spaceKey]: _previous, ...others} = readCompanionWidths(
-			repoName,
-			baseDir,
-		);
-		writeJsonAtomic(
-			file,
-			width === null ? others : {...others, [spaceKey]: width},
-		);
-	});
+export class JsonCompanionWidthDao implements CompanionWidthDao {
+	constructor(readonly file: string) {}
+
+	all(): Record<string, PaneWidth> {
+		try {
+			return parseCompanionWidths(readFileSync(this.file, 'utf8'));
+		} catch {
+			return {};
+		}
+	}
+
+	get(spaceKey: string): PaneWidth | null {
+		return this.all()[spaceKey] ?? null;
+	}
+
+	async set(spaceKey: string, width: PaneWidth | null): Promise<void> {
+		await this.locked(() => {
+			const {[spaceKey]: _previous, ...others} = this.all();
+			writeJsonAtomic(
+				this.file,
+				width === null ? others : {...others, [spaceKey]: width},
+			);
+		});
+	}
+
+	/** Run `fn` holding the store's lock, which every writer of the file takes. */
+	async locked<T>(fn: () => T): Promise<T> {
+		return withFileLock(this.file, fn);
+	}
 }
 
 /**
@@ -119,6 +126,30 @@ export type LayoutAck = {
 	columns?: number;
 };
 
+/**
+ * The exchange between `pappardelle companion` and a running TUI: the CLI
+ * sends a request and reads the answer, the TUI watches for requests and
+ * answers them.
+ */
+export interface CompanionRequestDao {
+	/** Make the request, or make it again for a TUI that missed it. */
+	send(request: LayoutRequest): Promise<void>;
+	/** The TUI's answer to a request, once it has given one. */
+	answerTo(id: string): LayoutAck | null;
+	/** Take the request back, with any answer to it. */
+	withdraw(id: string): Promise<void>;
+	/**
+	 * Calls `onRequest` for requests made while the TUI runs, again each time
+	 * one is made again. One request can be reported more than once.
+	 */
+	watch(onRequest: (request: LayoutRequest) => void): () => void;
+	/**
+	 * Answer a request, unless the CLI stopped waiting and withdrew it: an
+	 * answer nobody reads would stay behind.
+	 */
+	answer(ack: LayoutAck): Promise<void>;
+}
+
 function readRequest(file: string): LayoutRequest | null {
 	const parsed = readJson(file) as LayoutRequest | null;
 	return typeof parsed?.id === 'string' &&
@@ -128,42 +159,57 @@ function readRequest(file: string): LayoutRequest | null {
 		: null;
 }
 
-function readAck(
-	id: string,
-	repoName: string,
-	baseDir?: string,
-): LayoutAck | null {
-	const parsed = readJson(ackPath(id, repoName, baseDir)) as LayoutAck | null;
-	return parsed?.id === id ? parsed : null;
-}
+export class JsonCompanionRequestDao implements CompanionRequestDao {
+	constructor(private readonly dir: string) {}
 
-/**
- * Answer a request, unless the CLI stopped waiting and removed it: an answer
- * nobody reads would stay on disk.
- */
-export function writeLayoutAck(
-	repoName: string,
-	ack: LayoutAck,
-	baseDir?: string,
-): void {
-	if (!existsSync(requestPath(ack.id, repoName, baseDir))) return;
-	writeJsonAtomic(ackPath(ack.id, repoName, baseDir), ack);
-}
+	async send(request: LayoutRequest): Promise<void> {
+		this.writeRequest(request);
+	}
 
-/** Calls `onRequest` for every request the CLI writes while the TUI runs. */
-export function watchLayoutRequests(
-	repoName: string,
-	onRequest: (request: LayoutRequest) => void,
-	baseDir?: string,
-): () => void {
-	const dir = requestsDir(repoName, baseDir);
-	mkdirSync(dir, {recursive: true});
-	const watcher = watch(dir, (_event, file) => {
-		if (!file?.endsWith('.json') || file.endsWith(ACK_SUFFIX)) return;
-		const request = readRequest(path.join(dir, file));
-		if (request) onRequest(request);
-	});
-	return () => watcher.close();
+	answerTo(id: string): LayoutAck | null {
+		const parsed = readJson(this.ackPath(id)) as LayoutAck | null;
+		return parsed?.id === id ? parsed : null;
+	}
+
+	async withdraw(id: string): Promise<void> {
+		this.remove(id);
+	}
+
+	watch(onRequest: (request: LayoutRequest) => void): () => void {
+		mkdirSync(this.dir, {recursive: true});
+		const watcher = watch(this.dir, (_event, file) => {
+			if (!file?.endsWith('.json') || file.endsWith(ACK_SUFFIX)) return;
+			const request = readRequest(path.join(this.dir, file));
+			if (request) onRequest(request);
+		});
+		return () => watcher.close();
+	}
+
+	async answer(ack: LayoutAck): Promise<void> {
+		if (!existsSync(this.requestPath(ack.id))) return;
+		this.writeAck(ack);
+	}
+
+	writeRequest(request: LayoutRequest): void {
+		writeJsonAtomic(this.requestPath(request.id), request);
+	}
+
+	writeAck(ack: LayoutAck): void {
+		writeJsonAtomic(this.ackPath(ack.id), ack);
+	}
+
+	remove(id: string): void {
+		rmSync(this.requestPath(id), {force: true});
+		rmSync(this.ackPath(id), {force: true});
+	}
+
+	private requestPath(id: string): string {
+		return path.join(this.dir, `${id}.json`);
+	}
+
+	private ackPath(id: string): string {
+		return path.join(this.dir, `${id}${ACK_SUFFIX}`);
+	}
 }
 
 type Unapplied =
@@ -179,7 +225,6 @@ export type LayoutOutcome = {outcome: 'applied'} | Unapplied;
 export type WidthOutcome = {outcome: 'applied'; columns: number} | Unapplied;
 
 type RequestTiming = {
-	baseDir?: string;
 	attemptMs?: number;
 	attempts?: number;
 	pollMs?: number;
@@ -187,30 +232,29 @@ type RequestTiming = {
 
 /**
  * Ask a running TUI to lay out the space's companion and wait for its answer.
- * A busy machine can drop the file event, so the request is written again
- * after each wait; the TUI answers an id once.
+ * A busy machine can drop the TUI's notice of it, so the request is made
+ * again after each wait; the TUI answers an id once.
  */
 async function requestOfTui(
 	options: {
-		repoName: string;
+		requests: CompanionRequestDao;
 		space: string;
 		kind: LayoutRequest['kind'];
 		tuiIsRunning: () => boolean;
 	} & RequestTiming,
 ): Promise<LayoutAck | Extract<Unapplied, {outcome: 'no-ack' | 'no-tui'}>> {
-	const {repoName, space, kind, baseDir} = options;
+	const {requests, space, kind} = options;
 	if (!options.tuiIsRunning()) return {outcome: 'no-tui'};
 
 	const id = randomUUID();
-	const file = requestPath(id, repoName, baseDir);
 	const attemptMs = options.attemptMs ?? 1000;
 	const pollMs = options.pollMs ?? 50;
 	try {
 		for (let attempt = 0; attempt < (options.attempts ?? 3); attempt++) {
-			writeJsonAtomic(file, {id, space, kind} satisfies LayoutRequest);
+			await requests.send({id, space, kind});
 			const deadline = Date.now() + attemptMs;
 			while (Date.now() < deadline) {
-				const ack = readAck(id, repoName, baseDir);
+				const ack = requests.answerTo(id);
 				if (ack) return ack;
 				await delay(pollMs);
 			}
@@ -218,8 +262,7 @@ async function requestOfTui(
 
 		return {outcome: 'no-ack'};
 	} finally {
-		rmSync(file, {force: true});
-		rmSync(ackPath(id, repoName, baseDir), {force: true});
+		await requests.withdraw(id);
 	}
 }
 
@@ -230,7 +273,7 @@ async function requestOfTui(
  */
 export async function requestCompanionLayout(
 	options: {
-		repoName: string;
+		requests: CompanionRequestDao;
 		space: string;
 		tuiIsRunning: () => boolean;
 	} & RequestTiming,
@@ -247,18 +290,14 @@ export async function requestCompanionLayout(
 /** Store the width, then ask a running TUI to apply it. */
 export async function requestCompanionWidth(
 	options: {
-		repoName: string;
+		widths: CompanionWidthDao;
+		requests: CompanionRequestDao;
 		space: string;
 		width: PaneWidth | null;
 		tuiIsRunning: () => boolean;
 	} & RequestTiming,
 ): Promise<WidthOutcome> {
-	await setCompanionWidth(
-		options.repoName,
-		options.space,
-		options.width,
-		options.baseDir,
-	);
+	await options.widths.set(options.space, options.width);
 	const answer = await requestOfTui({...options, kind: 'width'});
 	if ('outcome' in answer) return answer;
 	if (answer.result !== 'applied') return {outcome: answer.result};

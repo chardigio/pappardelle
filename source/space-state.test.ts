@@ -5,8 +5,6 @@ import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {
-	getAgentSessionsPath,
-	latestAgentProfile,
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
 	type SpaceState,
@@ -568,20 +566,4 @@ test('a 20 MiB line spanning chunks preserves its recap and following lines', as
 	t.log(
 		`20 MiB single-line transcript: ${(performance.now() - start).toFixed(1)} ms`,
 	);
-});
-
-test('the agent running in a space is the one that started last', t => {
-	const base = tempDir();
-	const file = getAgentSessionsPath('repo', 'STA-1', base);
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	fs.writeFileSync(
-		file,
-		JSON.stringify({
-			claude: {session_id: 'a', pid: 1, started: 'Mon Nov  2 10:00:00 2026'},
-			codex: {session_id: 'b', pid: 2, started: 'Mon Nov  2 11:30:00 2026'},
-			old: {session_id: 'c', pid: 3, started: 'Sun Nov  1 23:00:00 2026'},
-		}),
-	);
-
-	t.is(latestAgentProfile('repo', 'STA-1', base), 'codex');
 });

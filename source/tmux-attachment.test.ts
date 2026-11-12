@@ -21,6 +21,7 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
+import {getRepoName} from './config.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
 import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
@@ -30,6 +31,17 @@ import {
 	startupTrace,
 	type StartupRecord,
 } from './startup-trace.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
+
+// A new agent session is told where its agent-sessions file is, which the
+// stores place.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState({teardown: fn => stateTeardowns.push(fn)});
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 // attachToSpace reads the .pappardelle.yml of the repository it runs in. The
 // monorepo's config sets `companion_command: ""`, which starts no companion
@@ -1058,6 +1070,12 @@ test.serial(
 					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
 			),
 		);
+		// The main space has no PAPPARDELLE_SPACE, so the rows the hook writes
+		// are named by variables of their own.
+		t.true(
+			created.includes(`PAPPARDELLE_AGENT_SESSIONS_REPO=${getRepoName()}`),
+		);
+		t.true(created.includes('PAPPARDELLE_AGENT_SESSIONS_KEY=TEST-NEW'));
 	},
 );
 

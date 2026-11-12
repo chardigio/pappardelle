@@ -5,8 +5,21 @@
 // reads experimental.sqliteState, and removing the flag changes this file.
 
 import path from 'node:path';
+import {SqliteAgentSessionsDao} from './agent-sessions-sqlite.ts';
 import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
 import {SqliteClaudeStatusDao} from './claude-status-sqlite.ts';
+import {
+	companionRequestsDir,
+	companionWidthsPath,
+	JsonCompanionRequestDao,
+	JsonCompanionWidthDao,
+	type CompanionRequestDao,
+	type CompanionWidthDao,
+} from './companion-width.ts';
+import {
+	SqliteCompanionRequestDao,
+	SqliteCompanionWidthDao,
+} from './companion-width-sqlite.ts';
 import {readHomeSqliteState} from './config.ts';
 import {
 	getHighlightFilePath,
@@ -17,12 +30,25 @@ import {SqliteHighlightDao} from './highlight-sqlite.ts';
 import {JsonIssueMetaDao, type IssueMetaDao} from './issue-meta.ts';
 import {SqliteIssueMetaDao} from './issue-meta-sqlite.ts';
 import {
+	JsonPrLinkStampDao,
+	prLinkStampPath,
+	type PrLinkStampDao,
+} from './pr-link-stamp.ts';
+import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
+import {
 	getStateColorsPath,
 	JsonStateColorDao,
 	migrateLegacyStateColors,
 	type StateColorDao,
 } from './providers/state-color-cache.ts';
 import {SqliteStateColorDao} from './providers/state-color-cache-sqlite.ts';
+import {
+	JsonScheduleDao,
+	queuedMessagesDir,
+	schedulesDir,
+	type ScheduleDao,
+} from './schedule.ts';
+import {SqliteScheduleDao} from './schedule-sqlite.ts';
 import {
 	getRegistryPathForRepo,
 	JsonSpaceRegistryDao,
@@ -32,7 +58,9 @@ import {
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
 import {
 	getSpaceStateDir,
+	JsonAgentSessionsDao,
 	JsonSpaceStateDao,
+	type AgentSessionsDao,
 	type SpaceStateDao,
 } from './space-state.ts';
 import {SqliteSpaceStateDao} from './space-state-sqlite.ts';
@@ -46,6 +74,11 @@ export type StateDaos = {
 	issueMeta: IssueMetaDao;
 	highlight: HighlightDao;
 	stateColors: StateColorDao;
+	agentSessions: AgentSessionsDao;
+	companionWidths: CompanionWidthDao;
+	companionRequests: CompanionRequestDao;
+	schedules: ScheduleDao;
+	prLinkStamp: PrLinkStampDao;
 };
 
 export type StateDaoOptions = {
@@ -92,6 +125,23 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	);
 	const highlightFile = getHighlightFilePath(repo, stateDir);
 	const stateColorsFile = getStateColorsPath(repo, stateDir);
+	const jsonAgentSessions = new JsonAgentSessionsDao(
+		getSpaceStateDir(repo, stateDir),
+	);
+	const jsonCompanionWidths = new JsonCompanionWidthDao(
+		companionWidthsPath(repo, stateDir),
+	);
+	const jsonCompanionRequests = new JsonCompanionRequestDao(
+		companionRequestsDir(repo, stateDir),
+	);
+	const jsonSchedules = new JsonScheduleDao(
+		schedulesDir(repo, stateDir),
+		queuedMessagesDir(repo, stateDir),
+	);
+	const jsonPrLinkStamp = new JsonPrLinkStampDao(
+		prLinkStampPath(stateDir),
+		clock,
+	);
 	if (!(options.sqlite ?? sqliteStateEnabled())) {
 		return {
 			registry: jsonRegistry,
@@ -100,6 +150,11 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			issueMeta: jsonIssueMeta,
 			highlight: new JsonHighlightDao(highlightFile),
 			stateColors: new JsonStateColorDao(stateColorsFile),
+			agentSessions: jsonAgentSessions,
+			companionWidths: jsonCompanionWidths,
+			companionRequests: jsonCompanionRequests,
+			schedules: jsonSchedules,
+			prLinkStamp: jsonPrLinkStamp,
 		};
 	}
 
@@ -112,6 +167,19 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
 		highlight: new SqliteHighlightDao(openDb, repo, highlightFile, clock),
 		stateColors: new SqliteStateColorDao(openDb, repo, stateColorsFile),
+		agentSessions: new SqliteAgentSessionsDao(openDb, repo, jsonAgentSessions),
+		companionWidths: new SqliteCompanionWidthDao(
+			openDb,
+			repo,
+			jsonCompanionWidths,
+		),
+		companionRequests: new SqliteCompanionRequestDao(
+			openDb,
+			repo,
+			jsonCompanionRequests,
+		),
+		schedules: new SqliteScheduleDao(openDb, repo, jsonSchedules),
+		prLinkStamp: new SqlitePrLinkStampDao(openDb, jsonPrLinkStamp, clock),
 	};
 }
 

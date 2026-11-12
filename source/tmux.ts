@@ -197,12 +197,7 @@ import {
 } from './space-registry.ts';
 import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
-import {
-	getAgentSessionsPath,
-	readAgentSession,
-	latestAgentProfile,
-	type SpaceStateDao,
-} from './space-state.ts';
+import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -256,6 +251,11 @@ function registry(): SpaceRegistryDao {
 function spaceState(): SpaceStateDao {
 	if (!stateDaos) throw new Error('initTmuxState() was not called');
 	return stateDaos.spaceState;
+}
+
+function agentSessions(): AgentSessionsDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.agentSessions;
 }
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
@@ -2392,7 +2392,7 @@ export function runningAgentProfile(
 	issueTitle?: string,
 ): ResolvedAgentProfile {
 	const profileName = savedSpaceProfile(issueKey);
-	const latest = latestAgentProfile(getRepoName(), issueKey);
+	const latest = agentSessions().latestProfile(issueKey);
 	const name =
 		latest && (latest === 'claude' || config.agent_profiles?.[latest])
 			? latest
@@ -2591,7 +2591,7 @@ async function attachViewers(
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
-		sessionId = readAgentSession(getRepoName(), issueKey, agentProfile.name);
+		sessionId = agentSessions().read(issueKey, agentProfile.name);
 	} catch {
 		// Config load failed — use safe defaults.
 	}
@@ -4019,10 +4019,11 @@ export async function ensureAgentSession(
 				'-c',
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
-				...buildAgentSessionEnvArgs(
-					agentProfile,
-					getAgentSessionsPath(getRepoName(), issueKey),
-				),
+				...buildAgentSessionEnvArgs(agentProfile, {
+					file: agentSessions().file(issueKey),
+					repo: getRepoName(),
+					key: issueKey,
+				}),
 				...launchArgs,
 				';',
 				'set-option',

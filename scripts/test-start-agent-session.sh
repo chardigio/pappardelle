@@ -148,6 +148,11 @@ assert_eq "pappardelle's own agent var wins over a profile var of the same name"
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PI_PROGRAM_STATUS 2>/dev/null)"
 assert_eq "companion session env has no profile var" "" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" SPACED 2>/dev/null || true)"
+# The repo and key the hook files those ids under in the state database
+assert_eq "agent session env names the sessions' repo" "PAPPARDELLE_AGENT_SESSIONS_REPO=$TEST_REPO" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS_REPO 2>/dev/null)"
+assert_eq "agent session env names the sessions' space" "PAPPARDELLE_AGENT_SESSIONS_KEY=$ISSUE_KEY" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS_KEY 2>/dev/null)"
 # An agent started by hand in the companion isn't the space's agent
 assert_eq "companion session env has no agent profile" "" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null || true)"

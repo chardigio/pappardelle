@@ -1,9 +1,8 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import path from 'node:path';
-import type {SpaceStateDao} from './space-state.ts';
+import type {StateDaos} from './state-daos.ts';
 import {readRemoteUrls, remoteProjects} from './git-remotes.ts';
-import {touchPrLinkStamp} from './pr-link-stamp.ts';
 
 const exec = promisify(execFile);
 export type LinkExecutor = (
@@ -39,10 +38,11 @@ export async function linkPr(
 	directory: string,
 	workspace: string,
 	options: {
-		/** The space-state store of the repo the workspace belongs to. */
-		spaceStateFor: (repoName: string) => SpaceStateDao;
+		/** The stores of the repo the workspace belongs to. */
+		daosFor: (
+			repoName: string,
+		) => Pick<StateDaos, 'spaceState' | 'prLinkStamp'>;
 		run?: LinkExecutor;
-		stampBaseDir?: string;
 		gitlabHost?: string;
 	},
 ) {
@@ -148,8 +148,8 @@ export async function linkPr(
 		url: urlString,
 		number: Number(id),
 	};
-	const spaceState = options.spaceStateFor(repoName);
+	const {spaceState, prLinkStamp} = options.daosFor(repoName);
 	await spaceState.addPrLink(issueKey, link);
-	touchPrLinkStamp(options.stampBaseDir);
+	await prLinkStamp.touch();
 	return {file: spaceState.file(issueKey), link};
 }
