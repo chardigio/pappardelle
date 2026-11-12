@@ -60,6 +60,42 @@ const MIGRATIONS: string[] = [
 		event TEXT,
 		cwd TEXT
 	) STRICT`,
+	`CREATE TABLE space_state (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		profile TEXT,
+		pipeline TEXT CHECK (pipeline IN (
+			'passing', 'failing', 'progressing_clean', 'progressing_dirty', 'none'
+		)),
+		unresolved_comment_count INTEGER,
+		pr_number INTEGER,
+		has_conflict INTEGER CHECK (has_conflict IN (0, 1)),
+		recap_custom_title TEXT,
+		recap_last_prompt TEXT,
+		recap_last_assistant_excerpt TEXT,
+		updated_at TEXT,
+		PRIMARY KEY (repo, key)
+	) STRICT;
+	CREATE TABLE space_pr_links (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		host TEXT NOT NULL,
+		project TEXT NOT NULL,
+		local_branch TEXT NOT NULL,
+		remote_branch TEXT NOT NULL,
+		url TEXT NOT NULL,
+		number INTEGER NOT NULL,
+		seq INTEGER NOT NULL,
+		PRIMARY KEY (repo, key, host, project, local_branch)
+	) STRICT;
+	CREATE TABLE issue_meta (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		created_by_pappardelle INTEGER NOT NULL
+			CHECK (created_by_pappardelle IN (0, 1)),
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (repo, key)
+	) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;

@@ -3,6 +3,7 @@ import {
 	createIssueTracker,
 	createVcsHost,
 	resetProviders,
+	setWorkspaceDiscovery,
 } from './providers/index.ts';
 import {claimIssue} from './tracker.ts';
 
@@ -192,6 +193,26 @@ test.serial('createIssueTracker allows same config on subsequent calls', t => {
 	const b = createIssueTracker({provider: 'linear'});
 	t.is(a, b);
 });
+
+// The rail follows a branch recorded by link-pr only through the discovery
+// that startup hands over, whichever host the config then selects.
+for (const provider of ['github', 'gitlab'] as const) {
+	test.serial(
+		`the ${provider} host finds workspace repositories with the discovery set at startup`,
+		async t => {
+			const asked: string[] = [];
+			setWorkspaceDiscovery(async directory => {
+				asked.push(directory);
+				return [];
+			});
+			await createVcsHost({provider}).getBulkRailStatus(
+				['KEY-1'],
+				new Map([['KEY-1', '/workspace']]),
+			);
+			t.deepEqual(asked, ['/workspace']);
+		},
+	);
+}
 
 // ============================================================================
 // resetProviders

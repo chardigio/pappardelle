@@ -1,9 +1,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import path from 'node:path';
-import fs from 'node:fs';
-import {randomUUID} from 'node:crypto';
-import {getSpaceStatePath, readSpaceState} from './space-state.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import {readRemoteUrls, remoteProjects} from './git-remotes.ts';
 import {touchPrLinkStamp} from './pr-link-stamp.ts';
 
@@ -39,10 +37,16 @@ export async function workspaceIdentity(directory: string, run = execute) {
 export async function linkPr(
 	urlString: string,
 	directory: string,
-	workspace = directory,
-	options: {run?: LinkExecutor; baseDir?: string; gitlabHost?: string} = {},
+	workspace: string,
+	options: {
+		/** The space-state store of the repo the workspace belongs to. */
+		spaceStateFor: (repoName: string) => SpaceStateDao;
+		run?: LinkExecutor;
+		stampBaseDir?: string;
+		gitlabHost?: string;
+	},
 ) {
-	const {run = execute, baseDir} = options;
+	const {run = execute} = options;
 	const relative = path.relative(
 		path.resolve(workspace),
 		path.resolve(directory),
@@ -136,7 +140,6 @@ export async function linkPr(
 		directory,
 	);
 	const {repoName, issueKey} = await workspaceIdentity(workspace, run);
-	const state = readSpaceState(repoName, issueKey, baseDir) ?? {};
 	const link = {
 		host,
 		project,
@@ -145,26 +148,8 @@ export async function linkPr(
 		url: urlString,
 		number: Number(id),
 	};
-	state.prLinks = [
-		...(state.prLinks ?? []).filter(
-			item =>
-				!(
-					item.host === link.host &&
-					item.project === project &&
-					item.localBranch === localBranch
-				),
-		),
-		link,
-	];
-	const file = getSpaceStatePath(repoName, issueKey, baseDir);
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	const temporary = `${file}.${randomUUID()}.tmp`;
-	try {
-		fs.writeFileSync(temporary, JSON.stringify(state, null, 2) + '\n');
-		fs.renameSync(temporary, file);
-	} finally {
-		fs.rmSync(temporary, {force: true});
-	}
-	touchPrLinkStamp(baseDir);
-	return {file, link};
+	const spaceState = options.spaceStateFor(repoName);
+	await spaceState.addPrLink(issueKey, link);
+	touchPrLinkStamp(options.stampBaseDir);
+	return {file: spaceState.file(issueKey), link};
 }
