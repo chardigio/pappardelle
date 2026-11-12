@@ -1074,6 +1074,26 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Sous-chef key
+
+The top-level `sous_chef_key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s). When the rail has focus, plain `s` does the same; it is an overridable default like `g`, so a custom `s` keybinding replaces it.
+
+```yaml
+sous_chef_key: M-j # default: M-s; false turns it off
+```
+
+```typescript
+sous_chef_key?: string | false;
+```
+
+- The value is a tmux key name, as `bind-key` takes it: `M-s` for Option+s, `C-g` for Ctrl+g, `F12`
+- The default `M-s` is zsh's `spell-word` in emacs mode, which shells inside the Pappardelle window lose; pick another key if you use it
+- `M-` keys need the terminal to send Option as Meta (an "Option as Meta" or "Option as Alt" setting on macOS)
+- Pappardelle binds the key in tmux's root table, so it replaces a root binding of your own for the same key. The binding acts only in Pappardelle's window: in any other window the key is passed on to the program running there, and it keeps being passed on after Pappardelle quits
+- Set it in `.pappardelle.local.yml` to change it for yourself only
+- If Pappardelle is killed without a clean exit while running inside a window of your own tmux session, the key stays bound in that window until Pappardelle runs there again or the window closes
+- `pappardelle highlight main --focus` does the same from a script
+
 ## Issue Status Colors
 
 The ticket rail paints an issue key with the exact color the tracker reports for that issue's status. The top-level `state_colors` map replaces that color for the statuses it lists. This matters most on Jira, where one color often covers several statuses ("In Progress" and "In Review" are the usual pair) and the rail cannot tell them apart.
@@ -1453,7 +1473,7 @@ All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH
 
 You can create a `.pappardelle.local.yml` file in the same directory as `.pappardelle.yml` for personal keybinding overrides. This file is gitignored so it won't create noise in version control.
 
-The local file uses the same schema but only the `keybindings` section is merged. It supports three operations:
+The local file uses the same schema and is merged key by key over `.pappardelle.yml`, so any top-level setting (such as `sous_chef_key`) can be overridden there. The `keybindings` section is merged by key, with three operations:
 
 - **Add**: Keybindings with keys not in the base config are added
 - **Override**: Keybindings whose key matches a base keybinding replace it entirely
@@ -1519,7 +1539,7 @@ The following keys are reserved for built-in shortcuts and cannot be used for cu
 
 These keys have built-in defaults that a custom keybinding **may** override (the custom binding replaces the default action entirely, and `disabled: true` suppresses the default without adding a replacement):
 
-`g`, `i`, `d`, `o`, `e`, `p`, `K`
+`g`, `i`, `d`, `o`, `e`, `p`, `K`, `s`
 
 Additionally, `Enter` and `Delete` are reserved but use special key codes (not single characters).
 

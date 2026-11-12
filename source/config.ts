@@ -353,6 +353,12 @@ export interface PappardelleConfig {
 	 */
 	auto_remove_when_done?: boolean;
 	/**
+	 * tmux key (e.g. `M-s`) that jumps to the sous-chef: it selects the main
+	 * space and focuses its agent pane from any pane in Pappardelle's window.
+	 * `false` turns it off. Absent ⇒ DEFAULT_SOUS_CHEF_KEY.
+	 */
+	sous_chef_key?: string | false;
+	/**
 	 * Optional per-status color overrides for the ticket rail, keyed by issue
 	 * status name (case-insensitive, surrounding space ignored). A listed status
 	 * is painted with this color instead of the color the tracker reports, which
@@ -449,6 +455,7 @@ export const DEFAULT_KEYBINDING_KEYS = new Set([
 	'e',
 	'p',
 	'K',
+	's',
 ]);
 
 /**
@@ -1427,6 +1434,15 @@ export function validateConfig(
 		typeof cfg['auto_remove_when_done'] !== 'boolean'
 	) {
 		errors.push('auto_remove_when_done: must be a boolean');
+	}
+
+	const sousChefKey = cfg['sous_chef_key'];
+	if (
+		sousChefKey !== undefined &&
+		sousChefKey !== false &&
+		(typeof sousChefKey !== 'string' || sousChefKey.trim() === '')
+	) {
+		errors.push('sous_chef_key: must be a tmux key name or false');
 	}
 
 	// Check list_view (optional; an absent layout defers to the tracker default)
@@ -3358,6 +3374,20 @@ export function getStateColors(
  */
 export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
 	return config.auto_remove_when_done ?? false;
+}
+
+export const DEFAULT_SOUS_CHEF_KEY = 'M-s';
+
+/**
+ * The sous-chef jump key, or null when it is turned off. A config that failed
+ * to load still gets the default.
+ */
+export function getSousChefKey(
+	config: PappardelleConfig | null,
+): string | null {
+	const key = config?.sous_chef_key;
+	if (key === false) return null;
+	return key ?? DEFAULT_SOUS_CHEF_KEY;
 }
 
 function isPaneWidth(value: unknown): value is PaneWidth {

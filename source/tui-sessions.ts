@@ -4,6 +4,7 @@ import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
+	clearSousChefKeyArgs,
 	defaultServerTmuxRunner,
 	outerSessionName,
 	type OuterTmuxRunner,
@@ -386,6 +387,7 @@ function isOwnTuiSession(
 function closeViewerPanes(layout: PaneLayout, tmux: OuterTmuxRunner): void {
 	for (const paneId of [layout.agentViewerPaneId, layout.companionViewerPaneId])
 		if (paneId) tmux(['kill-pane', '-t', paneId]);
+	tmux(clearSousChefKeyArgs(layout.listPaneId));
 }
 
 // Quitting takes the TUI's own session down with it. A TUI started inside the

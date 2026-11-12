@@ -120,6 +120,7 @@ import {
 	getTeamPrefix,
 	getRepoRoot,
 	getMainRepoRoot,
+	getSousChefKey,
 	getRepoName,
 	qualifyMainBranch,
 	getKeybindings,
@@ -198,6 +199,7 @@ import {
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
 	runningAgentProfile,
+	installSousChefKey,
 } from './tmux.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
@@ -205,7 +207,7 @@ import {
 	HEADER_ROWS,
 	statusLineFits,
 } from './list-view-sizing.ts';
-import {tearDownSpace} from './space-utils.ts';
+import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	filterSpaces,
 	highlightedIndex,
@@ -236,6 +238,7 @@ import {
 	watchHighlightTarget,
 	clearHighlightTarget,
 	findSpaceIndexByIssueKey,
+	highlightWriteCommand,
 } from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
@@ -816,10 +819,12 @@ export default function App({
 	);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
+	const focusSpaceAgentRef = useRef((_issueKey: string) => {});
 	useEffect(() => {
-		const unwatch = watchHighlightTarget(repoName, issueKey => {
-			revealSpace(issueKey);
+		const unwatch = watchHighlightTarget(repoName, ({issueKey, focus}) => {
 			clearHighlightTarget(repoName);
+			if (focus) focusSpaceAgentRef.current(issueKey);
+			else revealSpace(issueKey);
 		});
 
 		return unwatch;
@@ -855,6 +860,19 @@ export default function App({
 
 	const paneLayoutRef = useRef(paneLayout);
 	paneLayoutRef.current = paneLayout;
+
+	const listPaneId = paneLayout?.listPaneId;
+	useEffect(() => {
+		if (!listPaneId) return;
+		void installSousChefKey(
+			listPaneId,
+			getSousChefKey(configMemo),
+			highlightWriteCommand(repoName, {
+				issueKey: MAIN_WORKTREE_KEY,
+				focus: true,
+			}),
+		);
+	}, [listPaneId, configMemo, repoName]);
 
 	// Not undone on unmount: quitting unmounts App, and a signal arriving during
 	// that teardown must still find a listener.
@@ -1262,6 +1280,27 @@ export default function App({
 		);
 	};
 
+	// While a dialog or prompt is open, the rail owns the keyboard.
+	const railInputBlockedNow = () =>
+		dialogOpenRef.current ||
+		popupOpening.current ||
+		inlineDialogOpening.current;
+
+	// Selects a space and focuses its agent, as the sous-chef key and `s` do.
+	const focusSpaceAgent = (issueKey: string) => {
+		// Moving focus away would leave the dialog open with the user's next
+		// keys going to the agent.
+		if (railInputBlockedNow()) return;
+		revealSpace(issueKey);
+		const {spaces, selectedIndex} = currentSelection();
+		// Before the rows load, or for an unknown key, the selection stays put
+		// and focusing would land on another space's agent.
+		if (findSpaceIndexByIssueKey(spaces, issueKey) === selectedIndex)
+			handleFocusAgent();
+	};
+
+	focusSpaceAgentRef.current = focusSpaceAgent;
+
 	// Git pull in the selected space's worktree
 	const handleGitPull = () => {
 		const space = selectedSpaceNow();
@@ -1577,8 +1616,7 @@ export default function App({
 	// Handle keyboard input
 	useKeyboard(event => {
 		if (handleSearchKey(event)) return;
-		if (railInputBlocked || popupOpening.current || inlineDialogOpening.current)
-			return;
+		if (railInputBlockedNow()) return;
 		const {input, key} = shortcutKey(event);
 
 		// Check custom keybindings first — they can override default keys
@@ -1766,6 +1804,11 @@ export default function App({
 				}
 				case 'p': {
 					handleGitPull();
+
+					break;
+				}
+				case 's': {
+					focusSpaceAgent(MAIN_WORKTREE_KEY);
 
 					break;
 				}

@@ -146,6 +146,7 @@ import {
 	ControlClientNeverStarted,
 	TmuxControlClient,
 	controlCommandLine,
+	quoteTmuxArgument,
 } from './tmux-control.ts';
 import {
 	CLIENT_TTY_OPTION,
@@ -709,6 +710,66 @@ function windowOptionArgs(
 	return value === undefined
 		? ['set-option', '-w', '-u', '-t', paneId, name]
 		: ['set-option', '-w', '-t', paneId, name, value];
+}
+
+// The sous-chef key is a root-table binding on the outer server, which every
+// window shares, so it only acts where Pappardelle's window says it may: the
+// window must name this exact key, and it carries the command for its own repo.
+// Anywhere else, the key goes on to the pane's program.
+const SOUS_CHEF_KEY_OPTION = '@pappardelle-sous-chef-key';
+const SOUS_CHEF_COMMAND_OPTION = '@pappardelle-sous-chef';
+
+function sousChefKeyArgs(
+	listPaneId: string,
+	key: string,
+	command: string,
+): string[] {
+	return [
+		...windowOptionArgs(listPaneId, SOUS_CHEF_KEY_OPTION, key),
+		';',
+		...windowOptionArgs(listPaneId, SOUS_CHEF_COMMAND_OPTION, command),
+		';',
+		'bind-key',
+		'-n',
+		key,
+		'if-shell',
+		'-F',
+		`#{==:#{${SOUS_CHEF_KEY_OPTION}},${key}}`,
+		`run-shell -b "#{${SOUS_CHEF_COMMAND_OPTION}}"`,
+		`send-keys ${quoteTmuxArgument(key)}`,
+	];
+}
+
+export function clearSousChefKeyArgs(listPaneId: string): string[] {
+	return [
+		...windowOptionArgs(listPaneId, SOUS_CHEF_KEY_OPTION, undefined),
+		';',
+		...windowOptionArgs(listPaneId, SOUS_CHEF_COMMAND_OPTION, undefined),
+	];
+}
+
+/**
+ * Bind the sous-chef key for this window, or with no key, stop a binding left
+ * by an earlier run from acting here.
+ */
+export async function installSousChefKey(
+	listPaneId: string,
+	key: string | null,
+	command: string,
+	run: AsyncTmuxRunner = runTmux,
+): Promise<void> {
+	try {
+		await run(
+			key === null
+				? clearSousChefKeyArgs(listPaneId)
+				: sousChefKeyArgs(listPaneId, key, command),
+		);
+	} catch (error) {
+		log.warn(
+			`Failed to install the sous-chef key ${key ?? '(off)'}`,
+			error instanceof Error ? error : undefined,
+		);
+	}
 }
 
 /**

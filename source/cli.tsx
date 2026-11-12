@@ -255,11 +255,14 @@ if (isRestart) {
 if (cli.input[0] === 'highlight') {
 	const issueKey = cli.input[1];
 	if (!issueKey) {
-		console.error('Usage: pappardelle highlight <issue-key>');
+		console.error('Usage: pappardelle highlight <issue-key> [--focus]');
 		process.exit(1);
 	}
 
-	writeHighlightTarget(repoName, issueKey);
+	writeHighlightTarget(repoName, {
+		issueKey,
+		focus: cli.flags.focus === true,
+	});
 	process.exit(0);
 }
 
