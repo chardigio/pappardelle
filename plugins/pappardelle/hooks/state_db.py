@@ -10,7 +10,6 @@ still writes its file.
 import json
 import os
 import time
-import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
@@ -73,6 +72,7 @@ def write_through(
     order of commits across processes. If the database cannot be used, the
     file is written alone.
     """
+    # Imported here so a hook pays for it only while the flag is on.
     import sqlite3
 
     wrote = False
@@ -80,7 +80,7 @@ def write_through(
     try:
         # mode=rw: a missing database is the TypeScript side's to create.
         connection = sqlite3.connect(
-            f"file:{urllib.parse.quote(db_path)}?mode=rw",
+            f"file:{_uri_path(db_path)}?mode=rw",
             uri=True,
             timeout=BUSY_TIMEOUT_SECONDS,
             isolation_level=None,
@@ -115,6 +115,14 @@ def write_through(
     finally:
         if connection is not None:
             connection.close()
+
+
+def _uri_path(path: str) -> str:
+    """Escape the characters that end the path part of a SQLite URI.
+
+    urllib.parse would do it, at about 2 ms of import on every hook event.
+    """
+    return path.replace("%", "%25").replace("?", "%3f").replace("#", "%23")
 
 
 def _ring_bell(db_path: str) -> None:

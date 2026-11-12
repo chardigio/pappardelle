@@ -166,7 +166,7 @@ try {
 		'●',
 	);
 	await turn('Pi status verified');
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(250);
 	await harness.expect(
 		'done',

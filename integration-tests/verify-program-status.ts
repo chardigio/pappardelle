@@ -55,7 +55,7 @@ try {
 		'on',
 	]);
 	await harness.mount(repo, key, session);
-	harness.writeHook(key, 'waiting_for_input');
+	await harness.writeHook(key, 'waiting_for_input');
 	await harness.expect(
 		'idle',
 		'TypeScript launch: hook fallback',
@@ -85,7 +85,7 @@ try {
 		{id: 'child', kind: 'question', app: 'fixture'},
 		'?',
 	);
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(150);
 	await harness.expect(
 		'blocked',

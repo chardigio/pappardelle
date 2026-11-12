@@ -1,10 +1,8 @@
 import {existsSync, mkdirSync, watch} from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
 import {
-	getClaudeStatusInfoAsync,
-	ensureStatusDir,
-	getHookStatusDir,
 	mapClaudeStatus,
+	type ClaudeStatusDao,
 	type ClaudeStatusInfo,
 } from './claude-status.ts';
 import {
@@ -89,6 +87,7 @@ export class WorkspaceStatuses {
 	constructor(
 		private readonly repo: string,
 		private readonly sessionName: (key: string) => string,
+		private readonly claudeStatus: Pick<ClaudeStatusDao, 'read' | 'watch'>,
 		private readonly run?: StatusTmuxRunner,
 	) {}
 
@@ -157,7 +156,7 @@ export class WorkspaceStatuses {
 		pane: StatusPane | null,
 	): Promise<ProgramStatusInfo | null> {
 		return mergeProgramStatus(
-			await getClaudeStatusInfoAsync(key),
+			await this.claudeStatus.read(key),
 			pane ? readProgramSnapshot(this.repo, sessionKey, pane) : null,
 			pane,
 		);
@@ -167,7 +166,6 @@ export class WorkspaceStatuses {
 		callback: (updates: ReadonlyMap<string, ProgramStatusInfo>) => void,
 		relevant: (key: string) => boolean,
 	): () => void {
-		ensureStatusDir();
 		mkdirSync(programStatusDir(this.repo), {recursive: true});
 		const pending = new Set<string>();
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -197,7 +195,7 @@ export class WorkspaceStatuses {
 					reading = false;
 					schedule();
 				}
-			}, 50);
+			}, 10);
 		};
 		const queue = (key: string | undefined) => {
 			if (key && relevant(key)) {
@@ -205,9 +203,7 @@ export class WorkspaceStatuses {
 				schedule();
 			}
 		};
-		const hookWatcher = watch(getHookStatusDir(), (_event, filename) => {
-			if (filename?.endsWith('.json')) queue(filename.slice(0, -5));
-		});
+		const stopHookWatch = this.claudeStatus.watch(queue);
 		const oscWatcher = watch(
 			programStatusDir(this.repo),
 			(_event, filename) => {
@@ -221,7 +217,7 @@ export class WorkspaceStatuses {
 			stopped = true;
 			clearTimeout(timer);
 			pending.clear();
-			hookWatcher.close();
+			stopHookWatch();
 			oscWatcher.close();
 		};
 	}

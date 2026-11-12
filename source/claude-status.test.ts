@@ -1,15 +1,16 @@
 import {
 	mkdirSync,
-	mkdtempSync,
 	readFileSync,
 	readdirSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import {tmpdir} from 'node:os';
 import path from 'node:path';
-import test, {type ExecutionContext} from 'ava';
+import {setTimeout as delay} from 'node:timers/promises';
+import test from 'ava';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState, type TestState} from '../test/helpers/state.ts';
 import type {ClaudeStatus, ClaudeSessionState} from './claude-status.ts';
 import {
 	STABLE_STATUSES,
@@ -18,32 +19,36 @@ import {
 } from './claude-status.ts';
 import {
 	findSpaceByStatusKey,
-	getClaudeStatusInfo,
-	getClaudeStatusInfoAsync,
 	hookStatusKey,
-	readableHookStatusKey,
-	setClaudeStatus,
+	parseSessionState,
 } from './claude-status.ts';
-import {clearRecentErrors, getRecentErrors} from './logger.ts';
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-function createStatusFile(
-	dir: string,
-	workspace: string,
+const statusDir = (s: TestState) => path.join(s.stateDir, 'claude-status');
+
+const statusFile = (s: TestState, key: string) =>
+	path.join(statusDir(s), `${key}.json`);
+
+const session = (
+	workspaceName: string,
 	status: ClaudeStatus,
-	lastUpdate: number,
-): void {
-	const state: ClaudeSessionState = {
-		sessionId: 'test-session',
-		workspaceName: workspace,
-		status,
-		lastUpdate,
-	};
+	rest: Partial<ClaudeSessionState> = {},
+): ClaudeSessionState => ({
+	sessionId: 'test-session',
+	workspaceName,
+	status,
+	lastUpdate: Date.now(),
+	...rest,
+});
+
+/** A status file as an agent whose hook does not use the database leaves it. */
+function writeStatusFile(s: TestState, state: ClaudeSessionState): void {
+	mkdirSync(statusDir(s), {recursive: true});
 	writeFileSync(
-		path.join(dir, `${workspace}.json`),
+		statusFile(s, state.workspaceName),
 		JSON.stringify(state, null, 2),
 	);
 }
@@ -247,184 +252,297 @@ test('findSpaceByStatusKey prevents cross-repo main branch collision', t => {
 	t.is(findSpaceByStatusKey(repoASpaces, 'repo-b-main'), -1);
 });
 
-// ============================================================================
-// Atomic write + defensive read tests
-//
-// Regression coverage for the file-race that produced "Unexpected end of JSON
-// input" warnings: pappardelle reads status JSON on every fs.watch event, and
-// the Claude Code hook (plus setClaudeStatus itself) was truncating-then-
-// rewriting the same file. The fix is an atomic write (tmp file + rename) on
-// the writer side and a silent fall-through to {status:'unknown'} on the
-// reader side.
-// ============================================================================
-
-function withStatusDir(t: ExecutionContext): string {
-	const dir = mkdtempSync(path.join(tmpdir(), 'papp-claude-status-'));
-	const previous = process.env['PAPPARDELLE_STATUS_DIR'];
-	process.env['PAPPARDELLE_STATUS_DIR'] = dir;
-	t.teardown(() => {
-		if (previous === undefined) {
-			delete process.env['PAPPARDELLE_STATUS_DIR'];
-		} else {
-			process.env['PAPPARDELLE_STATUS_DIR'] = previous;
-		}
-		rmSync(dir, {recursive: true, force: true});
-	});
-	return dir;
-}
-
 test('hookStatusKey qualifies a space key or main branch by repo, flattening slashes', t => {
 	t.is(hookStatusKey('stardust-labs', 'STA-1'), 'stardust-labs-STA-1');
 	t.is(hookStatusKey('stardust-labs', 'master'), 'stardust-labs-master');
 	t.is(hookStatusKey('repo', 'alice/STA-1'), 'repo-alice-STA-1');
 });
 
-test.serial(
-	'async status resync distinguishes failed reads, removed files and expired active state',
-	async t => {
-		const dir = withStatusDir(t);
-		const key = 'STA-async';
-		t.deepEqual(await getClaudeStatusInfoAsync(key), {status: 'unknown'});
-		setClaudeStatus(key, 'running_tool', 'session', 'Bash');
-		t.deepEqual(await getClaudeStatusInfoAsync(key), {
-			status: 'running_tool',
-			tool: 'Bash',
-		});
-		createStatusFile(
-			dir,
-			key,
-			'processing',
-			Date.now() - ACTIVE_STATUS_TIMEOUT - 1,
+test('a status record needs the fields the hook always writes, and a status it can report', t => {
+	const state = session('STA-1', 'running_tool', {
+		currentTool: 'Bash',
+		event: 'PreToolUse',
+		cwd: '/work',
+	});
+	t.deepEqual(parseSessionState(JSON.stringify(state)), state);
+	t.deepEqual(
+		parseSessionState(
+			JSON.stringify(session('STA-1', 'ended', {lastUpdate: 5})),
+		),
+		{
+			sessionId: 'test-session',
+			workspaceName: 'STA-1',
+			status: 'ended',
+			lastUpdate: 5,
+		},
+	);
+	for (const broken of [
+		{...state, sessionId: undefined},
+		{...state, workspaceName: 7},
+		{...state, status: 'working'},
+		{...state, lastUpdate: '5'},
+		{...state, currentTool: 7},
+		{...state, event: null},
+		{...state, cwd: false},
+		null,
+		[],
+	]) {
+		t.throws(() => parseSessionState(JSON.stringify(broken)));
+	}
+
+	t.throws(() => parseSessionState('{'));
+});
+
+// ============================================================================
+// What every status store does, whichever way it is stored
+// ============================================================================
+
+contractTest('a key nobody reported under is unknown', async (t, s) => {
+	t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {status: 'unknown'});
+	t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'none'});
+});
+
+contractTest('a written status is read back, with its tool', async (t, s) => {
+	const state = session('STA-1', 'running_tool', {
+		currentTool: 'Bash',
+		event: 'PreToolUse',
+		cwd: '/work/STA-1',
+	});
+	await s.daos.claudeStatus.write(state);
+	t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
+		status: 'running_tool',
+		tool: 'Bash',
+	});
+	t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'state', state});
+	t.deepEqual(
+		JSON.parse(readFileSync(statusFile(s, 'STA-1'), 'utf8')) as unknown,
+		state,
+	);
+});
+
+contractTest(
+	'a later write replaces the record, including fields it no longer reports',
+	async (t, s) => {
+		await s.daos.claudeStatus.write(
+			session('STA-1', 'running_tool', {currentTool: 'Bash', cwd: '/work'}),
 		);
-		t.deepEqual(await getClaudeStatusInfoAsync(key), {status: 'unknown'});
-		createStatusFile(dir, key, 'waiting_for_input', 0);
-		const stable = await getClaudeStatusInfoAsync(key);
-		t.is(stable?.status, 'waiting_for_input');
-		writeFileSync(path.join(dir, `${key}.json`), '{');
-		t.is(await getClaudeStatusInfoAsync(key), null);
+		const state = session('STA-1', 'waiting_for_input');
+		await s.daos.claudeStatus.write(state);
+		t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
+			status: 'waiting_for_input',
+			tool: undefined,
+		});
+		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {
+			kind: 'state',
+			state,
+		});
 	},
 );
 
-test('setClaudeStatus is atomic — inode changes on each write (rename, not in-place truncate)', t => {
-	const dir = withStatusDir(t);
-	const workspace = 'STA-9001';
-	const filePath = path.join(dir, `${workspace}.json`);
+contractTest(
+	'a status file written by a hook without the database is read',
+	async (t, s) => {
+		const state = session('STA-1', 'waiting_for_approval', {
+			currentTool: 'AskUserQuestion',
+		});
+		writeStatusFile(s, state);
+		t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
+			status: 'waiting_for_approval',
+			tool: 'AskUserQuestion',
+		});
+		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {
+			kind: 'state',
+			state,
+		});
+		const later = session('STA-1', 'ended');
+		writeStatusFile(s, later);
+		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {
+			kind: 'state',
+			state: later,
+		});
+	},
+);
 
-	setClaudeStatus(workspace, 'processing');
-	const inodeBefore = statSync(filePath).ino;
-
-	setClaudeStatus(workspace, 'running_tool');
-	const inodeAfter = statSync(filePath).ino;
-
-	// An atomic rename swaps the directory entry to a brand-new inode; an
-	// in-place writeFileSync would truncate and reuse the same inode.
-	// Note: this holds on ext4/APFS/HFS+ local filesystems (and is the case in
-	// CI). On some NFS/SMB mounts and certain container overlayfs setups
-	// inodes can be recycled — if this single assertion ever flakes on such a
-	// host, the other checks below (no straggler tmps, parseable JSON, no
-	// warn-level log) are the portable signals that the writer is atomic.
-	t.not(
-		inodeBefore,
-		inodeAfter,
-		'rewrite must replace the inode (atomic rename), not truncate in place',
-	);
+contractTest('a removed status file is unknown again', async (t, s) => {
+	await s.daos.claudeStatus.write(session('STA-1', 'ended'));
+	rmSync(statusFile(s, 'STA-1'));
+	t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {status: 'unknown'});
+	t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'none'});
 });
 
-test('setClaudeStatus leaves no .tmp sibling files after a successful write', t => {
-	const dir = withStatusDir(t);
-	setClaudeStatus('STA-9002', 'processing');
-	setClaudeStatus('STA-9002', 'running_tool');
+contractTest(
+	'an active status goes unknown after ten minutes without a report, a stable one never does',
+	async (t, s) => {
+		const stale = Date.now() - ACTIVE_STATUS_TIMEOUT - 1;
+		for (const status of ACTIVE_STATUSES) {
+			await s.daos.claudeStatus.write(
+				session('STA-1', status, {lastUpdate: stale}),
+			);
+			t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
+				status: 'unknown',
+			});
+			await s.daos.claudeStatus.write(
+				session('STA-1', status, {lastUpdate: stale + 60_000}),
+			);
+			t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
+				status,
+				tool: undefined,
+			});
+		}
 
-	const stragglers = readdirSync(dir).filter(f => f.includes('.tmp.'));
-	t.deepEqual(stragglers, [], 'rename should consume the temp file');
-});
+		await s.daos.claudeStatus.write(
+			session('STA-1', 'waiting_for_input', {lastUpdate: 0}),
+		);
+		t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
+			status: 'waiting_for_input',
+			tool: undefined,
+		});
+		// The record itself is not aged: `pappardelle spaces` reports it raw.
+		const stored = s.daos.claudeStatus.readState('STA-1');
+		t.is(stored.kind === 'state' && stored.state.lastUpdate, 0);
+	},
+);
 
-test('setClaudeStatus cleans up the tmp file when rename fails (no orphan on error)', t => {
-	const dir = withStatusDir(t);
-	const workspace = 'STA-9002b';
+contractTest(
+	'a status file that is not a status cannot be read, and is not reported as absent',
+	async (t, s) => {
+		mkdirSync(statusDir(s), {recursive: true});
+		writeFileSync(statusFile(s, 'STA-1'), '{');
+		t.is(await s.daos.claudeStatus.read('STA-1'), null);
+		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'unreadable'});
+	},
+);
 
-	// Create a directory where the final status file would go. renameSync of a
-	// regular file onto a non-empty directory fails (EISDIR/ENOTDIR/ENOTEMPTY),
-	// so the writer's try/catch must rm the tmp sibling before rethrowing.
-	const targetAsDir = path.join(dir, `${workspace}.json`);
-	mkdirSync(targetAsDir);
-	writeFileSync(path.join(targetAsDir, 'placeholder'), 'x');
-
-	t.throws(() => setClaudeStatus(workspace, 'processing'));
-
-	const stragglers = readdirSync(dir).filter(f => f.includes('.tmp.'));
-	t.deepEqual(
-		stragglers,
-		[],
-		'failed write must not leave .tmp.<pid> orphans behind',
-	);
-});
-
-test('setClaudeStatus produces parseable JSON at the final path', t => {
-	const dir = withStatusDir(t);
-	const workspace = 'STA-9003';
-	setClaudeStatus(workspace, 'waiting_for_input', 'sess-1', 'Bash');
-
-	const info = getClaudeStatusInfo(workspace);
-	t.is(info.status, 'waiting_for_input');
-	t.is(info.tool, 'Bash');
-
-	// And sanity-check the on-disk shape directly.
-	const raw = readFileSync(path.join(dir, `${workspace}.json`), 'utf-8');
-	const parsed = JSON.parse(raw) as ClaudeSessionState;
-	t.is(parsed.status, 'waiting_for_input');
-	t.is(parsed.workspaceName, workspace);
-});
-
-test('getClaudeStatusInfo returns {status:"unknown"} for an empty file (mid-truncate race)', t => {
-	const dir = withStatusDir(t);
-	const workspace = 'STA-9004';
-	writeFileSync(path.join(dir, `${workspace}.json`), '');
-
-	// The truncate-then-write race used to bubble "Unexpected end of JSON
-	// input" up to the TUI. Defensive read should swallow that and report
-	// unknown.
-	t.deepEqual(getClaudeStatusInfo(workspace), {status: 'unknown'});
-});
-
-test('getClaudeStatusInfo returns {status:"unknown"} for malformed JSON without throwing', t => {
-	const dir = withStatusDir(t);
-	const workspace = 'STA-9005';
-	writeFileSync(path.join(dir, `${workspace}.json`), '{not really json');
-
-	t.notThrows(() => getClaudeStatusInfo(workspace));
-	t.deepEqual(getClaudeStatusInfo(workspace), {status: 'unknown'});
-});
-
-test('getClaudeStatusInfo parse failures do NOT surface a warn-level log to the TUI', t => {
-	const dir = withStatusDir(t);
-	const workspace = 'STA-9006';
-	writeFileSync(path.join(dir, `${workspace}.json`), '');
-
-	clearRecentErrors();
-	getClaudeStatusInfo(workspace);
-	const surfaced = getRecentErrors().filter(
-		e => e.component === 'claude-status',
-	);
-
-	// warn/error entries get pushed to the in-memory buffer that powers the
-	// "Errors (N)" pane. A parse failure on the status file is a known
-	// transient and must not show up there.
-	t.deepEqual(
-		surfaced,
-		[],
-		'parse failures must stay at debug level (file logs only, no TUI noise)',
-	);
-});
-
-test.serial(
+contractTest(
 	'the bare status name is read only while the qualified one is missing',
-	t => {
-		const dir = withStatusDir(t);
-		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
-		writeFileSync(path.join(dir, 'STA-1.json'), '{}');
-		t.is(readableHookStatusKey('repo', 'STA-1'), 'STA-1');
-		writeFileSync(path.join(dir, 'repo-STA-1.json'), '{}');
-		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
+	async (t, s) => {
+		const dao = s.daos.claudeStatus;
+		t.is(dao.readableKey('repo', 'STA-1'), 'repo-STA-1');
+		await dao.write(session('STA-1', 'processing'));
+		t.is(dao.readableKey('repo', 'STA-1'), 'STA-1');
+		await dao.write(session('repo-STA-1', 'processing'));
+		t.is(dao.readableKey('repo', 'STA-1'), 'repo-STA-1');
+		rmSync(statusFile(s, 'repo-STA-1'));
+		t.is(dao.readableKey('repo', 'STA-1'), 'STA-1');
 	},
 );
+
+contractTest('a slash in a branch name stays out of the path', async (t, s) => {
+	const key = hookStatusKey('repo', 'alice/STA-1');
+	await s.daos.claudeStatus.write(session(key, 'processing'));
+	t.is(s.daos.claudeStatus.readableKey('repo', 'alice/STA-1'), key);
+	t.deepEqual(readdirSync(statusDir(s)), ['repo-alice-STA-1.json']);
+});
+
+contractTest('writes leave nothing beside the status files', async (t, s) => {
+	await s.daos.claudeStatus.write(session('STA-1', 'processing'));
+	await s.daos.claudeStatus.write(session('STA-1', 'running_tool'));
+	await s.daos.claudeStatus.write(session('STA-2', 'ended'));
+	t.deepEqual(readdirSync(statusDir(s)).sort(), ['STA-1.json', 'STA-2.json']);
+});
+
+contractTest(
+	'a write replaces the file by rename, so a reader never sees half of it',
+	async (t, s) => {
+		await s.daos.claudeStatus.write(session('STA-1', 'processing'));
+		const before = statSync(statusFile(s, 'STA-1')).ino;
+		await s.daos.claudeStatus.write(session('STA-1', 'running_tool'));
+		// An in-place write would truncate and keep the inode.
+		t.not(statSync(statusFile(s, 'STA-1')).ino, before);
+	},
+);
+
+contractTest(
+	'a write that cannot replace the file fails and leaves no temp file',
+	async (t, s) => {
+		// A rename onto a non-empty directory fails.
+		mkdirSync(path.join(statusFile(s, 'STA-1'), 'in-the-way'), {
+			recursive: true,
+		});
+		await t.throwsAsync(
+			s.daos.claudeStatus.write(session('STA-1', 'processing')),
+		);
+		t.deepEqual(readdirSync(statusDir(s)), ['STA-1.json']);
+	},
+);
+
+contractTest('watch reports the key that changed', async (t, s) => {
+	const dao = s.daos.claudeStatus;
+	await dao.write(session('STA-1', 'processing'));
+	await dao.write(session('STA-2', 'processing'));
+	const reported: string[] = [];
+	const stop = dao.watch(key => reported.push(key));
+	t.teardown(stop);
+	// A write can otherwise precede filesystem watch registration.
+	await delay(0);
+	await dao.write(session('STA-2', 'waiting_for_input'));
+	await until(() => reported.includes('STA-2'));
+	await dao.write(session('STA-3', 'ended'));
+	await until(() => reported.includes('STA-3'));
+	t.false(reported.includes('STA-1'));
+	stop();
+	const before = reported.length;
+	await dao.write(session('STA-1', 'ended'));
+	await delay(100);
+	t.is(reported.length, before);
+});
+
+contractTest(
+	'waitForChange resolves on a write, and otherwise when its time is up',
+	async (t, s) => {
+		const dao = s.daos.claudeStatus;
+		await dao.write(session('STA-1', 'processing'));
+		const started = performance.now();
+		const waiting = dao.waitForChange(5000);
+		await delay(50);
+		await dao.write(session('STA-1', 'ended'));
+		await waiting;
+		t.true(performance.now() - started < 2000);
+		const idle = performance.now();
+		await dao.waitForChange(100);
+		t.true(performance.now() - idle >= 90);
+	},
+);
+
+test('the two stores leave the same status files for the same writes', async t => {
+	const history: ClaudeSessionState[] = [
+		session('repo-STA-1', 'running_tool', {
+			currentTool: 'Bash',
+			event: 'PreToolUse',
+			cwd: '/work/STA-1',
+			lastUpdate: 1000,
+		}),
+		session('repo-STA-2', 'waiting_for_approval', {
+			currentTool: 'AskUserQuestion',
+			lastUpdate: 2000,
+		}),
+		session('repo-STA-1', 'waiting_for_input', {
+			event: 'Stop',
+			lastUpdate: 3000,
+		}),
+	];
+	const files = async (sqlite: boolean) => {
+		const s = testState(t, {sqlite});
+		for (const state of history) await s.daos.claudeStatus.write(state);
+		return Object.fromEntries(
+			readdirSync(statusDir(s))
+				.sort()
+				.map(name => [
+					name,
+					readFileSync(path.join(statusDir(s), name), 'utf8'),
+				]),
+		);
+	};
+
+	const json = await files(false);
+	t.deepEqual(Object.keys(json), ['repo-STA-1.json', 'repo-STA-2.json']);
+	t.deepEqual(await files(true), json);
+});
+
+async function until(predicate: () => boolean) {
+	const deadline = Date.now() + 3000;
+	while (!predicate()) {
+		if (Date.now() > deadline) throw new Error('Status change did not arrive');
+		await delay(5);
+	}
+}

@@ -75,7 +75,8 @@ function spaces(initial: Record<string, string>) {
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
 		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
-		hookKey: async key => `no-such-hook-${key}`,
+		hookKey: async key => key,
+		readHook: async () => ({status: 'unknown'}),
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),

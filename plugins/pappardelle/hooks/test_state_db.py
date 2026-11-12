@@ -65,7 +65,11 @@ def test_a_missing_database_is_not_created_and_the_file_is_still_written(tmp_pat
     assert not db.exists()
 
 
-def test_a_locked_database_costs_a_fraction_of_a_second_and_keeps_the_file(notes_db: Path, tmp_path: Path):
+def test_a_locked_database_costs_a_fraction_of_a_second_and_keeps_the_file(
+    notes_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # The failure is logged under the home directory.
+    monkeypatch.setenv("HOME", str(tmp_path))
     file = tmp_path / "notes.json"
     holder = sqlite3.connect(notes_db, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
@@ -80,6 +84,8 @@ def test_a_locked_database_costs_a_fraction_of_a_second_and_keeps_the_file(notes
     assert json.loads(file.read_text()) == {"a": "one"}
     assert elapsed < 1.0
     assert rows(notes_db, "SELECT * FROM notes") == []
+    log = (tmp_path / ".pappardelle" / "logs" / "hook-events.log").read_text()
+    assert "State database write failed" in log and str(file) in log
 
 
 def test_the_flag_comes_from_the_override_then_the_recorded_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -99,3 +105,17 @@ def test_the_flag_comes_from_the_override_then_the_recorded_config(tmp_path: Pat
     )
     assert state_db.state_db_path({}) is None
     assert state_db.state_db_path({"PAPPARDELLE_SQLITE_STATE": "1"}) == "/recorded/state.db"
+
+
+def test_a_database_path_with_uri_characters_is_opened(state_db: Path, tmp_path: Path):
+    odd = tmp_path / "50% done? #1"
+    odd.mkdir()
+    db = odd / "state.db"
+    db.write_bytes(state_db.read_bytes())
+    connection = sqlite3.connect(db)
+    connection.execute("CREATE TABLE notes (name TEXT PRIMARY KEY, body TEXT) STRICT")
+    connection.commit()
+    connection.close()
+
+    write_note(db, tmp_path / "notes.json", "one")
+    assert rows(db, "SELECT name, body FROM notes") == [("a", "one")]

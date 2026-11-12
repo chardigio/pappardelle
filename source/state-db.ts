@@ -47,6 +47,19 @@ const MIGRATIONS: string[] = [
 		owner_pid INTEGER,
 		PRIMARY KEY (repo, key)
 	) STRICT`,
+	`CREATE TABLE claude_status (
+		status_key TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		workspace_name TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN (
+			'processing', 'running_tool', 'waiting_for_input',
+			'waiting_for_approval', 'compacting', 'ended', 'error', 'unknown'
+		)),
+		last_update INTEGER NOT NULL,
+		current_tool TEXT,
+		event TEXT,
+		cwd TEXT
+	) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;
