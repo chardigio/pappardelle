@@ -518,6 +518,7 @@ test("q inside the user's own tmux session also closes the companion split panes
 		['kill-pane', '-t', '%5'],
 		['kill-pane', '-t', '%8'],
 		['kill-pane', '-t', '%9'],
+		SOUS_CHEF_CLEARED,
 	]);
 });
 
