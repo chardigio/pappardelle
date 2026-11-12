@@ -1,0 +1,60 @@
+
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.321
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mHaiku 5.5 · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/pgq.sz/work · [0m[92m]8;id=fixture;https://claude.ai/code/session_FIXTURE?from=cli\/rc]8;;\
+
+
+[37m[100m❯ [97mUse the AskUserQuestion tool right now to ask me one question: "Which caching strategy should the image proxy use for[39m 
+  [97mthumbnails generated on demand, given that the origin is slow and the CDN bills per request?" with 4 options, each [39m   
+  [97mwith a description of about 25 words. Do nothing else.[39m                                                                
+[37m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[30m[104m ☐ Cache strategy 
+
+[2m[39m[49m│[0m [1m[97mWhich caching strategy should the image proxy use for thumbnails generated on demand, given that the origin is slow 
+[0;2m│[0m [1m[97mand the CDN bills per request?
+
+[0m[94m❯[39m [2m[37m1.[0m [94mAggressive CDN caching (Recommended)
+[39m     [2m[37mCache thumbnails at the CDN with long TTLs and immutable URLs keyed by size and params. Repeat requests skip the 
+[0m     [2m[37mslow origin and cut per-request billing sharply.
+[0m  [2m[37m2.[0m Proxy-local disk cache
+     [2m[37mStore generated thumbnails on the proxy host's disk and serve from there. Avoids origin hits but still bills every 
+[0m     [2m[37mCDN request, and it doesn't scale across proxy instances.
+[0m  [2m[37m3.[0m Short TTL with revalidation
+     [2m[37mUse short max-age and revalidate with ETags on each expiry. Keeps thumbnails fresh after source edits, but each 
+[0m     [2m[37mrevalidation still bills a CDN request and may hit the slow origin.
+[0m  [2m[37m4.[0m Pre-generate on upload
+     [2m[37mGenerate all thumbnail sizes when the source image is uploaded and store them in object storage. Removes on-demand 
+[0m     [2m[37mlatency, but costs storage and wastes work on sizes nobody requests.
+[0m  [2m[37m5. [0m[37mType something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  6. Chat about this
+
+[2m[37mEnter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
