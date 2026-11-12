@@ -258,8 +258,18 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_highlight',
 		description: 'Select a space in the TUI',
-		inputSchema: {key},
-		toCli: ({key}) => ({args: ['highlight', key]}),
+		inputSchema: {
+			key,
+			focus: z
+				.boolean()
+				.optional()
+				.describe(
+					"Also make the space's agent pane the active pane in the Pappardelle window, as Enter does in the rail",
+				),
+		},
+		toCli: ({key, focus}) => ({
+			args: ['highlight', key, ...(focus ? ['--focus'] : [])],
+		}),
 	}),
 	defineTool({
 		name: 'space_send',

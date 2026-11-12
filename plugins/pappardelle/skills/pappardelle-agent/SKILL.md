@@ -32,7 +32,7 @@ If you don't have the tools, either the repo's config doesn't set `workspace_awa
 | `companion_*`                | `pappardelle companion run\|keys\|read\|resize\|close\|list\|width`      |
 | `spaces_list`                | `pappardelle spaces [--json]`                                            |
 | `space_read`                 | `pappardelle read KEY [--turns N] [--json]`                              |
-| `space_highlight`            | `pappardelle highlight KEY`                                              |
+| `space_highlight`            | `pappardelle highlight KEY [--focus]`                                    |
 | `space_send`                 | `pappardelle send KEY`, with the text on stdin                           |
 | `space_press_keys`           | `pappardelle send KEY --keys Escape`                                     |
 | `space_open`                 | `pappardelle [--resume\|--no-resume] [--wait] [--profile NAME] -- INPUT` |
