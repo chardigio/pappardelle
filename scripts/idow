@@ -823,7 +823,9 @@ STATE_ARGS=()
 # recorded before its sessions exist and held under this process until the
 # caller opens it. If that fails there is nothing to undo yet, and sessions
 # that belong to no space would be killed by the next Pappardelle to start.
+REGISTERING_SPACE=false
 if [[ -n "${PAPPARDELLE_REGISTER_SPACE:-}" ]]; then
+    REGISTERING_SPACE=true
     STATE_ARGS+=(--register --owner "$$")
 fi
 # For hook tracking (plan → description vs comment).
@@ -842,9 +844,18 @@ fi
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     STATE_ARGS+=(--fresh)
 fi
-if [[ ${#STATE_ARGS[@]} -gt 0 ]]; then
-    pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY" \
-        || error "Could not record workspace $ISSUE_KEY"
+if [[ ${#STATE_ARGS[@]} -gt 0 ]] \
+    && ! pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY"; then
+    if [[ "$REGISTERING_SPACE" == true ]]; then
+        error "Could not record workspace $ISSUE_KEY"
+    fi
+    # The rest is the profile the rail paints and the created-issue mark,
+    # which a run can go on without. A new issue must still never resume an
+    # earlier issue's conversation.
+    print_warning "Could not record workspace $ISSUE_KEY; continuing without its saved profile"
+    if [[ "$FRESH_WORKSPACE" == true ]]; then
+        rm -f "$AGENT_SESSIONS_FILE"
+    fi
 fi
 
 if [[ "$WORKTREE_CREATED" == true ]]; then
