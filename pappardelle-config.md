@@ -1149,17 +1149,29 @@ experimental?: {sqliteState?: boolean};
 ```
 
 - Set it in `~/.pappardelle/.pappardelle.yml` only. The database is shared by every repo, so config validation rejects the key in a project or local config
-- **On:** state is read from the database, and every write also updates the JSON file it replaces. Turning the flag off again loses nothing
-- **Off:** the database is never opened, and state is read from and written to the files
-- What it holds: the open spaces and watchlist reservations, Claude hook status, each space's saved profile, rail status, recap and PR links, issue meta, highlight requests, state colors, agent sessions, companion widths and layout requests, scheduled wake-ups and queued messages, program status, the TUI marker and the update check
+- **On:** state is read from the database, and every write also updates the JSON file it replaces. Turning the flag off again loses none of it. Claude hook status and program status are the exception: they are stored nowhere and go through the [status daemon](#status-daemon)
+- **Off:** the database is never opened, no status daemon is started, and state is read from and written to the files
+- What the database holds: the open spaces and watchlist reservations, each space's saved profile, rail status, recap and PR links, issue meta, highlight requests, state colors, agent sessions, companion widths and layout requests, scheduled wake-ups and queued messages, the TUI marker and the update check
 - A file changed while the flag was off is imported the next time it is read with the flag on
-- Restart Pappardelle after changing the flag. A TUI that is already running keeps the mode it started with
-- Agents pick the change up by themselves: the hooks and each agent pane's status monitor read the flag from `~/.pappardelle/state-flag.json`, which Pappardelle rewrites when it starts
-- An agent session that was started by a Pappardelle from before status monitors wrote to the database keeps writing files only. Its status is still read correctly, but reaches the rail on the 10 second refresh until that session restarts
-- The hooks need a Python whose SQLite is 3.37 or newer to write to the database. With an older one they keep writing files only, and statuses reach the rail on its 10 second refresh
-- A database that cannot be opened or read does not stop the TUI. The rail keeps running without the spaces and statuses it could not read, reports the failed reads in its error list, and reads the database again once it can, with no restart
+- Restart the TUI after changing the flag. A TUI that is already running keeps the mode it started with, and shows no status changes until it is restarted
+- Running agents need no restart. They follow within 5 seconds of that start: the hooks and each agent pane's status monitor read the flag from `~/.pappardelle/state-flag.json`, which Pappardelle rewrites when it starts
+- The hooks need a Python whose SQLite is 3.37 or newer to write to the database. With an older one they write files only, and each file is imported the next time it is read. Hook status does not use SQLite and is not affected
+- A database that cannot be opened or read does not stop the TUI. The rail keeps running without the spaces and other state it could not read, reports the failed reads in its error list, and reads the database again once it can, with no restart
 - Locks (`restart.lock`, `send-locks/`), the lease files in `program-status/`, `supervise.jsonl`, logs and config stay files in both modes
-- `PAPPARDELLE_SQLITE_STATE=1` or `0` overrides the config for one process and its children, and `PAPPARDELLE_STATE_DB` moves the database. Both exist for tests
+- `PAPPARDELLE_SQLITE_STATE=1` or `0` overrides the config for one process and its children, `PAPPARDELLE_STATE_DB` moves the database, and `PAPPARDELLE_STATUS_SOCKET` moves the status daemon's socket. All three exist for tests
+
+### Status daemon
+
+With the flag on, the hooks and the agent panes' status monitors send Claude hook status and program status to the status daemon. It is one process per user, for every repo. It keeps the statuses in memory and pushes each change to the rail.
+
+- It listens on `~/.pappardelle/status-1.sock`, beside the database
+- It writes no state to disk. Its warnings and errors go to the log files
+- The TUI and the status monitors start it when none is running. Hooks and CLI commands never start it
+- It exits 10 seconds after its last connection closes. Each status monitor keeps a connection open, so it runs for as long as a TUI or a monitored agent pane exists
+- A restarted daemon has no hook status for an agent until that agent's next hook event. Program status returns within a second, because each status monitor sends its latest snapshot again
+- A hook event fired while no daemon runs is dropped
+- After the flag is turned off, program status is written to files again within 5 seconds, and hook status is shown from each agent's next hook event
+- An agent session whose status monitor was started by a Pappardelle without the status daemon keeps writing snapshot files. Its status is still read, but reaches the rail on the 10 second refresh until that session restarts
 
 ## Issue Status Colors
 

@@ -2,7 +2,7 @@
 //
 // SQLite has no notification across processes. Every writer rewrites a bell
 // file next to the database after it commits, and a watcher sees that through
-// fs.watch, the way the status files were watched before they became rows.
+// fs.watch.
 
 import {Database, type Statement} from 'bun:sqlite';
 import {mkdirSync, watch, writeFileSync, type FSWatcher} from 'node:fs';
@@ -11,8 +11,8 @@ import path from 'node:path';
 // A watch can drop an event (a full inotify queue, a filesystem without
 // events), so the database is also looked at on a slow timer.
 const FALLBACK_POLL_MS = 2000;
-// Status monitors can ring hundreds of times a second between them.
-// Listeners run at most this often, on the first ring and after the last.
+// Every commit rings, in every process that writes. Listeners run at most
+// this often, on the first ring and after the last.
 const MIN_CHECK_INTERVAL_MS = 5;
 
 export function stateBellPath(dbPath: string): string {

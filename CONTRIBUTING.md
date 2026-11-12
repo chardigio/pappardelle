@@ -47,7 +47,7 @@ pip install pytest
 pytest plugins/pappardelle/hooks/ -v
 ```
 
-State can live in JSON files or, with `experimental.sqliteState`, in SQLite with the files kept beside it. CI runs every suite both ways. `PAPPARDELLE_SQLITE_STATE=1` selects the second for a run, and each test process then gets a database of its own, never yours:
+State can live in JSON files or, with `experimental.sqliteState`, in SQLite with the files kept beside it. With the flag on, hook status and program status are stored nowhere: they go through the status daemon, which keeps them in memory. CI runs every suite both ways. `PAPPARDELLE_SQLITE_STATE=1` selects the second for a run, and each test process then gets a database and a status socket of its own, never yours:
 
 ```bash
 PAPPARDELLE_SQLITE_STATE=1 bun --bun ava 'source/**/*.test.ts'

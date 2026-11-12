@@ -128,7 +128,7 @@ Sent to 696: "refactor the auth middleware"
 Heard, chef.
 ```
 
-If `space_send` fails with "No active session", reopen the space and send again without asking. Call `space_open` with the full issue key, `resume` and `wait`, since status files are named by the full key. Call `space_send` only if that succeeded.
+If `space_send` fails with "No active session", reopen the space and send again without asking. Call `space_open` with the full issue key, `resume` and `wait`, since status is recorded under the full key. Call `space_send` only if that succeeded.
 
 `wait` holds until the reopened agent starts, up to 60 seconds. Never drop it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
 
@@ -270,5 +270,5 @@ The tools detect the repo from the directory this session started in. The standa
 - **Agent session**: `agent-{repo-name}-{ISSUE-KEY}` on the `pappardelle_inner` tmux socket; relay to it with `space_send`
 - **Companion session**: `companion-{repo-name}-{ISSUE-KEY}` on the same socket; change it with the `companion_*` tools
 - **TUI session**: `pappardelle-{repo-name}` on the default tmux server
-- **Status dir**: `~/.pappardelle/claude-status/`
+- **Status dir**: `~/.pappardelle/claude-status/`. With `experimental.sqliteState` on no status is written there: the status daemon holds it in memory
 - **Open spaces**: `~/.pappardelle/repos/{repo-name}/open-spaces.json`
