@@ -170,8 +170,13 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	let keys: string[] | null;
 	try {
 		keys = deps.registry.openSpaces();
-	} catch {
-		keys = null;
+	} catch (error) {
+		// An agent reads this as the list of spaces. A registry that could not
+		// be read must not tell it there are none.
+		return {
+			error: `Could not read the open spaces: ${error instanceof Error ? error.message : String(error)}`,
+			spaces: [],
+		};
 	}
 
 	if (!keys) return {error: 'No open spaces file found', spaces: []};

@@ -772,7 +772,7 @@ export default function App({
 			readRegistry: firstFrom(early?.registry, async () => {
 				await registry
 					.settle({
-						closing: closingSpacesRef.current,
+						closing: closeTasks.current,
 						liveSessionKeys: () => liveSpaceSessionKeys(),
 					})
 					.catch((error: unknown) => {

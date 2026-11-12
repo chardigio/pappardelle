@@ -166,7 +166,7 @@ test('the first write to a space keeps what its file already held', async t => {
 test('a file that is not space state leaves the stored record in place', async t => {
 	const f = fixture(t);
 	await f.spaceState.write('STA-1', {profile: 'dev', pipeline: 'passing'});
-	fs.writeFileSync(f.file('STA-1'), JSON.stringify({pipeline: 'purple'}));
+	fs.writeFileSync(f.file('STA-1'), JSON.stringify(['passing']));
 	t.like(f.spaceState.read('STA-1'), {profile: 'dev', pipeline: 'passing'});
 
 	await f.spaceState.write('STA-1', {prNumber: 3});

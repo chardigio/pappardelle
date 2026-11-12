@@ -7,6 +7,7 @@ import {testState, type TestState} from '../test/helpers/state.ts';
 import {
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
+	parseSpaceState,
 	type SpaceState,
 	type SpacePrLink,
 } from './space-state.ts';
@@ -60,6 +61,78 @@ contractTest('a file that is not JSON reads as nothing recorded', (t, s) => {
 	fs.mkdirSync(path.dirname(stateFile(s, 'STA-100')), {recursive: true});
 	fs.writeFileSync(stateFile(s, 'STA-100'), 'not json{{{');
 	t.is(s.daos.spaceState.read('STA-100'), null);
+});
+
+// Another build, or a hand edit, can leave a value this build does not use.
+// The rail rewrites the file on its next poll, from what was read.
+contractTest(
+	'a file with a field that cannot be used keeps its other fields, through a rail write too',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		writeStateFile(s, 'STA-150', {
+			profile: 'codex',
+			prLinks: [link()],
+			pipeline: 'purple',
+			prNumber: null,
+			recap: {customTitle: 5, lastPrompt: 'Prompt'},
+		});
+		const expected = {
+			profile: 'codex',
+			prLinks: [link()],
+			recap: {lastPrompt: 'Prompt'},
+		};
+		t.like(spaceState.read('STA-150'), expected);
+
+		await spaceState.writeRailStatuses([
+			{key: 'STA-150', patch: {unresolvedCommentCount: 4}},
+		]);
+		t.like(spaceState.read('STA-150'), {
+			...expected,
+			unresolvedCommentCount: 4,
+		});
+		t.like(fileContent(s, 'STA-150'), {
+			...expected,
+			unresolvedCommentCount: 4,
+		});
+	},
+);
+
+test('parseSpaceState leaves out each value that is not what its field holds, and keeps the rest', t => {
+	const valid = {
+		prLinks: [link(), link({localBranch: 'STA-2', number: 2})],
+		pipeline: null,
+		unresolvedCommentCount: 2,
+		prNumber: 9,
+		hasConflict: true,
+		recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+		updatedAt: '2026-01-02T03:04:05.678Z',
+		profile: 'codex',
+	};
+	t.deepEqual(parseSpaceState(JSON.stringify(valid)), valid);
+
+	const {number: _number, ...incompleteLink} = link({localBranch: 'STA-3'});
+	t.deepEqual(
+		parseSpaceState(
+			JSON.stringify({
+				prLinks: [link(), incompleteLink, 'not a link'],
+				pipeline: 'purple',
+				unresolvedCommentCount: null,
+				prNumber: '9',
+				hasConflict: 'yes',
+				recap: {customTitle: 5, lastPrompt: 'Prompt', lastAssistantExcerpt: []},
+				updatedAt: 7,
+				profile: 'codex',
+			}),
+		),
+		{prLinks: [link()], recap: {lastPrompt: 'Prompt'}, profile: 'codex'},
+	);
+
+	t.deepEqual(
+		parseSpaceState(JSON.stringify({prLinks: 'none', recap: 'none'})),
+		{},
+	);
+	for (const content of ['[]', '"profile"', 'null'])
+		t.throws(() => parseSpaceState(content), {message: 'Not a space state'});
 });
 
 for (const sqlite of [false, true]) {

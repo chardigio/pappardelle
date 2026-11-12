@@ -51,7 +51,7 @@ export type ProtectedSpaces =
 /** What `settle` needs to finish closes and starts their process abandoned. */
 export type SettleDeps = {
 	/** Closes this process is still running. */
-	closing: ReadonlySet<string>;
+	closing: Pick<ReadonlySet<string>, 'has'>;
 	/** Space keys with a live tmux session, or null when tmux did not answer. */
 	liveSessionKeys: () => ReadonlySet<string> | null;
 };

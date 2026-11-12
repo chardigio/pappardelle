@@ -13,6 +13,7 @@ import {
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
 import {tearDownSpace} from './space-utils.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
+import {WorkspaceCloseTasks} from './workspace-close.ts';
 
 const run = promisify(execFile);
 const ME = 111;
@@ -171,6 +172,37 @@ test('this process finishes its own close once it is no longer running it', asyn
 	t.deepEqual(f.states(), {});
 });
 
+// The rail refreshes while a close waits for tmux, and the space being closed
+// has already left the rail's list by then.
+test('a close this process is still running is left alone while its sessions are alive', async t => {
+	const f = fixture(t);
+	const closes = new WorkspaceCloseTasks();
+	await f.mine.add('A');
+	let marked = () => {};
+	const closing = new Promise<void>(resolve => {
+		marked = resolve;
+	});
+	let sessionsKilled = () => {};
+	const close = closes.run('A', async () => {
+		await f.mine.markClosing('A');
+		marked();
+		await new Promise<void>(resolve => {
+			sessionsKilled = resolve;
+		});
+		await f.mine.remove('A');
+		return true;
+	});
+	await closing;
+	await f.mine.settle({
+		closing: closes,
+		liveSessionKeys: () => new Set(['A']),
+	});
+	t.deepEqual(f.states(), {A: 'closing'});
+	sessionsKilled();
+	await close;
+	t.deepEqual(f.states(), {});
+});
+
 test('nothing is settled when tmux cannot say which sessions are alive', async t => {
 	const f = fixture(t);
 	await f.mine.reserveStart('STARTED', DEAD);
@@ -202,12 +234,22 @@ test('the file decides which spaces are open, and says nothing about the rest', 
 	});
 });
 
-test('a registry file that cannot be read keeps the rows, and stops the reaper', async t => {
+test('a registry file that cannot be read is a failed read that keeps the rows, and stops the reaper', async t => {
 	const f = fixture(t);
 	await f.mine.add('A');
 	fs.writeFileSync(f.registryFile, '{');
-	t.deepEqual(f.mine.openSpaces(), ['A']);
+	t.throws(() => f.mine.openSpaces(), {message: /could not be imported/});
 	t.false(f.mine.protectedSpaces().ok);
+	t.true(f.mine.has('A'));
+	t.deepEqual(f.states(), {A: 'open'});
+});
+
+// The first read after the flag is turned on finds every open space in the
+// file and none in the rows.
+test('a registry file that has never been imported and cannot be read is not an empty registry', t => {
+	const f = fixture(t);
+	fs.writeFileSync(f.registryFile, '{');
+	t.throws(() => f.mine.openSpaces(), {message: /could not be imported/});
 });
 
 test('a registry file that vanished keeps the rows', async t => {
@@ -391,6 +433,27 @@ test('no other connection can change the registry while slots are being decided'
 	t.notThrows(addSpace);
 });
 
+test('a space settled away frees the watchlist slot it reserved', async t => {
+	const f = reservationFixture(t);
+	await f.mine.tryReserveWatchlistSlots('top-level', ['GONE', 'KEPT'], 2, {
+		pid: ME,
+		isPidAlive,
+	});
+	await f.mine.reserveStart('GONE', DEAD);
+	await f.mine.reserveStart('KEPT', DEAD);
+	await f.mine.settle(settle(['KEPT']));
+	t.deepEqual(f.states(), {KEPT: 'open'});
+	t.deepEqual(f.reservations(), {KEPT: `top-level:${ME}`});
+	t.deepEqual(f.sidecar(), {KEPT: {source: 'top-level', ownerPid: ME}});
+	t.deepEqual(
+		await f.mine.tryReserveWatchlistSlots('top-level', ['NEXT'], 2, {
+			pid: ME,
+			isPidAlive,
+		}),
+		{reserved: ['NEXT'], occupied: 1, claimedElsewhere: []},
+	);
+});
+
 test('a space whose reservation cannot be released stays registered', async t => {
 	const f = reservationFixture(t);
 	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
@@ -432,16 +495,18 @@ test('a database that cannot be opened is a failed read, never an empty registry
 	);
 });
 
-test('the reaper is stopped while the file is ahead of rows that cannot be updated', async t => {
+test('the registry is a failed read, and the reaper is stopped, while the file is ahead of rows that cannot be updated', async t => {
 	const f = fixture(t);
 	await f.mine.add('A');
 	fs.writeFileSync(f.registryFile, JSON.stringify(['A', 'B']));
 	const other = new Database(f.dbPath);
 	other.run('BEGIN IMMEDIATE');
 	t.false(f.mine.protectedSpaces().ok);
+	t.throws(() => f.mine.openSpaces(), {message: /could not be imported/});
 	other.run('COMMIT');
 	other.close();
 	t.deepEqual(f.mine.protectedSpaces(), {ok: true, keys: ['A', 'B']});
+	t.deepEqual(f.mine.openSpaces(), ['A', 'B']);
 });
 
 test('a removal that cannot be written leaves the space closing, and the next settle removes it', async t => {

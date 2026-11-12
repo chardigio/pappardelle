@@ -96,6 +96,25 @@ test('a repo with no open-spaces file reports the error', async t => {
 	);
 });
 
+test('a registry that cannot be read reports the failure and its cause, not that there are no spaces', async t => {
+	const home = tempHome(t);
+	writeJson(repoState(home, 'open-spaces.json'), '{"not": "a list"}');
+	const report = await gatherSpaces({
+		repoName: REPO,
+		...stores(home),
+		home,
+		fetchTitles: async () => new Map(),
+		gitSummary: async () => null,
+	});
+	t.deepEqual(report.spaces, []);
+	t.regex(
+		(report as {error: string}).error,
+		sqliteRun
+			? /^Could not read the open spaces: .*open-spaces\.json could not be imported \(malformed\)$/
+			: /^Could not read the open spaces: Invalid workspace registry$/,
+	);
+});
+
 test('status is what the hook last recorded, however old', async t => {
 	const home = tempHome(t);
 	const now = Date.now();

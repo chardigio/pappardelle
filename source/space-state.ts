@@ -100,25 +100,20 @@ export function renderSpaceState(state: SpaceState): string {
 	return JSON.stringify(state, null, 2) + '\n';
 }
 
-const isOptionalString = (value: unknown): value is string | undefined =>
-	value === undefined || typeof value === 'string';
-
-const isOptionalInteger = (value: unknown): value is number | undefined =>
-	value === undefined || Number.isInteger(value);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parseRecap(value: unknown): SpaceRecap {
-	if (!isRecord(value)) throw new Error('Not a recap');
-	const {customTitle, lastPrompt, lastAssistantExcerpt} = value;
-	if (
-		!isOptionalString(customTitle) ||
-		!isOptionalString(lastPrompt) ||
-		!isOptionalString(lastAssistantExcerpt)
-	)
-		throw new Error('Not a recap');
+const stringOrNothing = (value: unknown): string | undefined =>
+	typeof value === 'string' ? value : undefined;
+
+const integerOrNothing = (value: unknown): number | undefined =>
+	Number.isInteger(value) ? (value as number) : undefined;
+
+function parseRecap(value: Record<string, unknown>): SpaceRecap {
+	const customTitle = stringOrNothing(value['customTitle']);
+	const lastPrompt = stringOrNothing(value['lastPrompt']);
+	const lastAssistantExcerpt = stringOrNothing(value['lastAssistantExcerpt']);
 	return {
 		...(customTitle === undefined ? {} : {customTitle}),
 		...(lastPrompt === undefined ? {} : {lastPrompt}),
@@ -126,8 +121,8 @@ function parseRecap(value: unknown): SpaceRecap {
 	};
 }
 
-function parsePrLink(value: unknown): SpacePrLink {
-	if (!isRecord(value)) throw new Error('Not a PR link');
+function parsePrLink(value: unknown): SpacePrLink | undefined {
+	if (!isRecord(value)) return undefined;
 	const {host, project, localBranch, remoteBranch, url, number} = value;
 	if (
 		typeof host !== 'string' ||
@@ -137,7 +132,7 @@ function parsePrLink(value: unknown): SpacePrLink {
 		typeof url !== 'string' ||
 		!Number.isInteger(number)
 	)
-		throw new Error('Not a PR link');
+		return undefined;
 	return {
 		host,
 		project,
@@ -149,45 +144,36 @@ function parsePrLink(value: unknown): SpacePrLink {
 }
 
 /**
- * A space-state file as its writers leave it. Throws when `content` is
- * anything else. Fields no writer sets are left out.
+ * The fields of a space-state file that hold what their writers leave there.
+ * Throws when `content` is not a JSON object.
+ *
+ * The file has several writers, other builds and hand edits among them, and
+ * the next write rewrites it from what was read. A field this build cannot
+ * use is left out on its own, so it never costs the space its profile or its
+ * PR links.
  */
 export function parseSpaceState(content: string): SpaceState {
 	const record: unknown = JSON.parse(content);
 	if (!isRecord(record)) throw new Error('Not a space state');
-	const {
-		prLinks,
-		pipeline,
-		unresolvedCommentCount,
-		prNumber,
-		hasConflict,
-		recap,
-		updatedAt,
-		profile,
-	} = record;
-	if (
-		(prLinks !== undefined && !Array.isArray(prLinks)) ||
-		(pipeline !== undefined &&
-			pipeline !== null &&
-			!PIPELINE_STATUSES.includes(pipeline as PipelineStatus)) ||
-		!isOptionalInteger(unresolvedCommentCount) ||
-		!isOptionalInteger(prNumber) ||
-		(hasConflict !== undefined && typeof hasConflict !== 'boolean') ||
-		!isOptionalString(updatedAt) ||
-		!isOptionalString(profile)
-	)
-		throw new Error('Not a space state');
+	const {pipeline, hasConflict, prLinks, recap} = record;
+	const unresolvedCommentCount = integerOrNothing(
+		record['unresolvedCommentCount'],
+	);
+	const prNumber = integerOrNothing(record['prNumber']);
+	const updatedAt = stringOrNothing(record['updatedAt']);
+	const profile = stringOrNothing(record['profile']);
 	return {
-		...(prLinks === undefined
-			? {}
-			: {prLinks: (prLinks as unknown[]).map(link => parsePrLink(link))}),
-		...(pipeline === undefined
-			? {}
-			: {pipeline: pipeline as PipelineStatus | null}),
+		...(Array.isArray(prLinks)
+			? {prLinks: prLinks.flatMap(link => parsePrLink(link) ?? [])}
+			: {}),
+		...(pipeline === null ||
+		PIPELINE_STATUSES.includes(pipeline as PipelineStatus)
+			? {pipeline: pipeline as PipelineStatus | null}
+			: {}),
 		...(unresolvedCommentCount === undefined ? {} : {unresolvedCommentCount}),
 		...(prNumber === undefined ? {} : {prNumber}),
-		...(hasConflict === undefined ? {} : {hasConflict}),
-		...(recap === undefined ? {} : {recap: parseRecap(recap)}),
+		...(typeof hasConflict === 'boolean' ? {hasConflict} : {}),
+		...(isRecord(recap) ? {recap: parseRecap(recap)} : {}),
 		...(updatedAt === undefined ? {} : {updatedAt}),
 		...(profile === undefined ? {} : {profile}),
 	};

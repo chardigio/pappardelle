@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -56,7 +57,10 @@ def test_writes_the_file_its_rows_and_the_files_signature(notes_db: Path, tmp_pa
     assert Path(f"{notes_db}.bell").exists()
 
 
-def test_a_missing_database_is_not_created_and_the_file_is_still_written(tmp_path: Path):
+def test_a_missing_database_is_not_created_and_the_file_is_still_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
     db = tmp_path / "absent.db"
     file = tmp_path / "notes.json"
     write_note(db, file, "one")
@@ -86,6 +90,37 @@ def test_a_locked_database_costs_a_fraction_of_a_second_and_keeps_the_file(
     assert rows(notes_db, "SELECT * FROM notes") == []
     log = (tmp_path / ".pappardelle" / "logs" / "hook-events.log").read_text()
     assert "State database write failed" in log and str(file) in log
+
+
+def test_a_python_without_sqlite_still_writes_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # What `import sqlite3` meets in a Python built without the _sqlite3 module.
+    monkeypatch.setitem(sys.modules, "sqlite3", None)
+    file = tmp_path / "notes.json"
+    write_note(tmp_path / "state.db", file, "one")
+
+    assert json.loads(file.read_text()) == {"a": "one"}
+    log = (tmp_path / ".pappardelle" / "logs" / "hook-events.log").read_text()
+    assert "State database write failed" in log and str(file) in log
+
+
+def test_a_failure_that_repeats_is_logged_once_a_minute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    logs = tmp_path / ".pappardelle" / "logs"
+
+    def lines() -> list[str]:
+        return (logs / "hook-events.log").read_text().splitlines()
+
+    for body in ("one", "two", "three"):
+        write_note(tmp_path / "absent.db", tmp_path / "notes.json", body)
+    assert len(lines()) == 1
+
+    (stamp,) = [entry for entry in logs.iterdir() if entry.name != "hook-events.log"]
+    a_minute_ago = time.time() - state_db.LOG_INTERVAL_SECONDS - 1
+    os.utime(stamp, (a_minute_ago, a_minute_ago))
+    write_note(tmp_path / "absent.db", tmp_path / "notes.json", "four")
+    assert len(lines()) == 2
+    assert json.loads((tmp_path / "notes.json").read_text()) == {"a": "four"}
 
 
 def test_the_flag_comes_from_the_override_then_the_recorded_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
