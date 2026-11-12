@@ -4,10 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {existsSync, readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-	attachStatusMonitor,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 assert.ok(
@@ -178,7 +175,7 @@ try {
 		'/bin/bash',
 		'-l',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await harness.programStatus(repo).attach(key, session);
 	await harness.mount(repo, key, session);
 	await launch();
 	await turn(

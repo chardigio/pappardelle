@@ -11,12 +11,7 @@ import {
 	getSessionNames,
 	initTmuxState,
 } from '../source/tmux.ts';
-import {
-	attachStatusMonitor,
-	programStatusDir,
-	removeProgramSnapshots,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
@@ -205,7 +200,7 @@ try {
 	);
 	await Promise.all(
 		Array.from({length: 8}, async () =>
-			attachStatusMonitor(repo, key, session),
+			harness.programStatus(repo).attach(key, session),
 		),
 	);
 	await harness.fixture(session);
@@ -241,13 +236,18 @@ try {
 		{kind: 'permission'},
 		'!',
 	);
-	removeProgramSnapshots(shellRepo, shellKey);
+	await harness.programStatus(shellRepo).remove(shellKey);
 	await harness.tmux(['kill-session', '-t', `=${shellSession}`]);
 	await delay(500);
 	assert.equal(
-		readdirSync(programStatusDir(shellRepo)).length,
+		readdirSync(harness.statusDir(shellRepo)).length,
 		0,
 		'late monitor exit must not recreate deleted snapshots',
+	);
+	assert.equal(
+		harness.snapshotRows(shellRepo, shellKey),
+		0,
+		'late monitor exit must not recreate deleted rows',
 	);
 	harness.checks.push({
 		label: 'workspace removal prevents late snapshot recreation',
@@ -261,7 +261,7 @@ try {
 		`=${unrelated}:`,
 		`cat > ${shellQuoteStatus(path.join(harness.root, 'unrelated.log'))}`,
 	]);
-	const pane = await attachStatusMonitor('other', 'other', unrelated);
+	const pane = await harness.programStatus('other').attach('other', unrelated);
 	assert.equal(pane?.marker, '');
 	harness.checks.push({
 		label: 'unrelated pipe remains owned by its original command',

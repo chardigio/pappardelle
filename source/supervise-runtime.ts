@@ -7,8 +7,6 @@ import path from 'node:path';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
 import {hookStatusKey} from './claude-status.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
-import {waitForDirChange} from './file-watch.ts';
-import {programStatusDir} from './program-status-monitor.ts';
 import {selfLaunchArgs} from './runtime.ts';
 import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
 import {
@@ -133,7 +131,11 @@ const keyOutcome = (result: SendToSpaceAgentResult) =>
 
 export function defaultSuperviseDeps(
 	resolveKey: (raw: string) => string,
-	{claudeStatus, schedules}: Pick<StateDaos, 'claudeStatus' | 'schedules'>,
+	{
+		claudeStatus,
+		schedules,
+		programStatus,
+	}: Pick<StateDaos, 'claudeStatus' | 'schedules' | 'programStatus'>,
 ): SuperviseDeps {
 	return {
 		repo: getRepoName,
@@ -145,6 +147,7 @@ export function defaultSuperviseDeps(
 			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
 		},
 		readHook: async hookKey => claudeStatus.read(hookKey),
+		readSnapshot: (key, pane) => programStatus.read(key, pane),
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
 		now: () => new Date(),
@@ -156,7 +159,7 @@ export function defaultSuperviseDeps(
 		async waitForStatusChange(ms) {
 			await Promise.race([
 				claudeStatus.waitForChange(ms),
-				waitForDirChange([programStatusDir(getRepoName())], ms),
+				programStatus.waitForChange(ms),
 			]);
 		},
 		async send(key, text) {

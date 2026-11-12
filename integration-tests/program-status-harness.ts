@@ -10,17 +10,18 @@ import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
 import type {ClaudeStatus, ClaudeStatusDao} from '../source/claude-status.ts';
 import SpaceListItem from '../source/components/SpaceListItem.tsx';
-import {createStateDaos} from '../source/state-daos.ts';
-import {closeStateDb} from '../source/state-db.ts';
+import {stateDaosByRepo, type StateDaos} from '../source/state-daos.ts';
+import {closeStateDb, openStateDb} from '../source/state-db.ts';
 import {
 	WorkspaceStatuses,
 	applyStatusUpdates,
 } from '../source/workspace-status.ts';
 import {
+	programStatusDir,
 	statusTmuxArgs,
 	runStatusTmux,
 	shellQuoteStatus,
-	removeProgramSnapshots,
+	type ProgramStatusDao,
 } from '../source/program-status-monitor.ts';
 import type {ProgramStatusInfo} from '../source/program-status.ts';
 import type {SpaceData} from '../source/types.ts';
@@ -46,6 +47,7 @@ export class StatusHarness {
 	readonly root = mkdtempSync(path.join(tmpdir(), 'pappa-program-status-'));
 	readonly socket = `pappa_status_${process.pid}`;
 	readonly stateDir = path.join(this.root, 'state');
+	readonly sqlite = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
 	/** The hook statuses, as a Pappardelle run against this harness reads them. */
 	readonly claudeStatus: ClaudeStatusDao;
 	readonly checks: Array<{
@@ -54,6 +56,7 @@ export class StatusHarness {
 		frame?: string;
 	}> = [];
 
+	private readonly daosFor: (repo: string) => StateDaos;
 	private readonly previous = new Map<string, string | undefined>();
 	private stopWatch?: () => void;
 	private view?: Awaited<ReturnType<typeof render>>;
@@ -76,11 +79,32 @@ export class StatusHarness {
 			this.previous.set(name, process.env[name]);
 			process.env[name] = value;
 		}
-		this.claudeStatus = createStateDaos({
-			repo: 'status-harness',
+		this.daosFor = stateDaosByRepo({
 			stateDir: this.stateDir,
-			sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
-		}).claudeStatus;
+			sqlite: this.sqlite,
+		});
+		this.claudeStatus = this.daosFor('status-harness').claudeStatus;
+	}
+
+	/** A repo's status snapshots, as a Pappardelle run against this harness keeps them. */
+	programStatus(repo: string): ProgramStatusDao {
+		return this.daosFor(repo).programStatus;
+	}
+
+	/** Where a repo's snapshot and lease files are. */
+	statusDir(repo: string): string {
+		return programStatusDir(repo, this.stateDir);
+	}
+
+	/** How many snapshot rows a space has. A run without the database has none. */
+	snapshotRows(repo: string, key: string): number {
+		if (!this.sqlite) return 0;
+		return openStateDb(path.join(this.stateDir, 'state.db'))
+			.db.query<
+				{rows: number},
+				[string, string]
+			>('SELECT count(*) AS rows FROM program_status WHERE repo = ? AND key = ?')
+			.get(repo, key)!.rows;
 	}
 
 	async tmux(args: string[]) {
@@ -144,7 +168,7 @@ export class StatusHarness {
 	async mount(repo: string, key: string, session: string) {
 		this.unmount();
 		const statuses = new WorkspaceStatuses(
-			repo,
+			this.programStatus(repo),
 			() => session,
 			this.claudeStatus,
 		);
@@ -231,7 +255,7 @@ export class StatusHarness {
 		try {
 			await this.tmux(['kill-server']);
 		} catch {}
-		if (repo && key) removeProgramSnapshots(repo, key);
+		if (repo && key) await this.programStatus(repo).remove(key);
 		await delay(200);
 		for (const [name, value] of this.previous) {
 			if (value === undefined) Reflect.deleteProperty(process.env, name);

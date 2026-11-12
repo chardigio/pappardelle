@@ -19,7 +19,6 @@ import {
 	resetProviders,
 } from '../source/providers/index.ts';
 import {getSessionNames, initTmuxState} from '../source/tmux.ts';
-import {attachStatusMonitor} from '../source/program-status-monitor.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
 
@@ -81,7 +80,7 @@ try {
 		'/bin/bash',
 		'-l',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await daos.programStatus.attach(key, session);
 	await harness.fixture(session);
 	view = await render(
 		React.createElement(App, {

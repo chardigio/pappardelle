@@ -16,6 +16,8 @@ export type TestState = {
 	daos: StateDaos;
 	stateDir: string;
 	registryFile: string;
+	/** Whether these stores keep rows. */
+	sqlite: boolean;
 };
 
 /**
@@ -41,17 +43,18 @@ export function testState(
 	if (options.spaces)
 		fs.writeFileSync(registryFile, JSON.stringify(options.spaces));
 
+	const sqlite = options.sqlite ?? sqliteRun;
 	const daos = createStateDaos({
 		repo,
 		stateDir,
-		sqlite: options.sqlite ?? sqliteRun,
+		sqlite,
 		clock: options.clock,
 	});
 	t.teardown(() => {
 		closeStateDb(stateDbPath(stateDir));
 		fs.rmSync(stateDir, {recursive: true, force: true});
 	});
-	return {daos, stateDir, registryFile};
+	return {daos, stateDir, registryFile, sqlite};
 }
 
 /** `testState`, also handed to tmux.ts for the functions that read stores. */

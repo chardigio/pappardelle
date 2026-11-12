@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {
+	checkpoint,
+	checkpointOutsideWrites,
 	closeStateDb,
 	isBusyError,
 	openStateDb,
@@ -160,27 +162,23 @@ test('a write waits for another writer on a timer, without holding the event loo
 	const busy = t.throws(() => state.tryWrite(() => null));
 	t.true(isBusyError(busy));
 
-	let longestGap = 0;
-	let last = performance.now();
-	const ticker = setInterval(() => {
-		const now = performance.now();
-		longestGap = Math.max(longestGap, now - last);
-		last = now;
-	}, 5);
+	// The lock is released by a timer in this process. A write that waited
+	// inside the database would keep that timer from ever running, and would
+	// fail at its own deadline with the lock still held.
+	const events: string[] = [];
+	setTimeout(() => {
+		events.push('another timer ran');
+	}, 30);
 	setTimeout(() => {
 		other.run('COMMIT');
-	}, 800);
+		events.push('lock released');
+	}, 300);
 	await store.set('a', 'after the lock');
-	clearInterval(ticker);
+	events.push('write landed');
 	other.close();
 
+	t.deepEqual(events, ['another timer ran', 'lock released', 'write landed']);
 	t.deepEqual(store.rows(), {a: 'after the lock'});
-	// A write that waited inside the database would hold the loop for the
-	// whole 800 ms. The margin is for a loaded machine, not for the write.
-	t.true(
-		longestGap < 400,
-		`the loop was held for ${longestGap.toFixed(0)} ms of an 800 ms lock`,
-	);
 });
 
 test('a read that cannot take the lock serves the stored rows', async t => {
@@ -219,4 +217,33 @@ test('two processes opening a new database at once both end up with the schema',
 		t.true(opened.tables.includes('json_sync'));
 		t.is(opened.mode, 'wal');
 	}
+});
+
+/** Commit `commits` rows of about one page each, one transaction per row. */
+function fill(state: StateDb, commits: number): void {
+	const insert = state.db.query(
+		'INSERT INTO notes (file, name, body) VALUES (?, ?, ?)',
+	);
+	for (let index = 0; index < commits; index++)
+		insert.run('filler', String(index), 'x'.repeat(4000));
+}
+
+// SQLite checkpoints inside the commit that takes the log past 1000 pages,
+// which is two fsyncs on the thread that committed.
+test('a connection that checkpoints outside its writes never checkpoints in a commit', t => {
+	const deferred = fixture(t);
+	const standard = fixture(t);
+	checkpointOutsideWrites(deferred.state);
+	const size = (dbPath: string) => fs.statSync(dbPath).size;
+	const before = size(deferred.dbPath);
+
+	fill(deferred.state, 1500);
+	fill(standard.state, 1500);
+
+	t.is(size(deferred.dbPath), before);
+	t.true(size(standard.dbPath) > 1_000_000);
+	t.true(size(`${deferred.dbPath}-wal`) > 1500 * 4096);
+
+	checkpoint(deferred.state);
+	t.true(size(deferred.dbPath) > 1500 * 4000);
 });
