@@ -150,7 +150,8 @@ import {
 	resolveCursorRow,
 	type RailRow,
 } from './rail-groups.ts';
-import RailGroupHeader, {RailDivider} from './components/RailGroupHeader.tsx';
+import RailGroupHeader from './components/RailGroupHeader.tsx';
+import RailDivider from './components/RailDivider.tsx';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {
 	buildKillDoneConfirmContent,
@@ -2519,6 +2520,7 @@ export default function App({
 		allRows.map(row => railRowHeight(row, linesPerItem)),
 		allCursor,
 		termHeight,
+		bannerHeight,
 	);
 	const visibleRows = allRows.slice(scrollOffset, scrollOffset + visibleCount);
 	const visibleCursor = allCursor - scrollOffset;
@@ -2577,7 +2579,7 @@ export default function App({
 			<box flexDirection="column">
 				{visibleRows.map((row, index) =>
 					row.kind === 'divider' ? (
-						<RailDivider key="agents-divider" width={termDimensions.cols} />
+						<RailDivider key="agents-divider" isActive={isRailFocused} />
 					) : row.kind === 'header' ? (
 						<RailGroupHeader
 							key={`group-${row.group.id}`}
