@@ -26,16 +26,92 @@
 
 import fs from 'node:fs';
 import {readFile} from 'node:fs/promises';
-import {homedir} from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {isPidAlive as defaultIsPidAlive, withFileLock} from './file-lock.ts';
+import {DEFAULT_STATE_DIR} from './state-db.ts';
 
-const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
+export type WatchlistSlots = {
+	reserved: string[];
+	occupied: number;
+	claimedElsewhere: string[];
+};
 
-// Legacy path (pre-repo-namespacing) — used for migration
-function getLegacyRegistryPath(baseDir: string): string {
-	return path.join(baseDir, 'open-spaces.json');
+export type WatchlistReserveOptions = {
+	pid?: number;
+	isPidAlive?: (pid: number) => boolean;
+	signal?: AbortSignal;
+};
+
+/** What the reaper may rely on: every space whose sessions have an owner. */
+export type ProtectedSpaces =
+	| {ok: true; keys: string[]}
+	| {ok: false; error: unknown};
+
+/** What `settle` needs to finish closes and starts their process abandoned. */
+export type SettleDeps = {
+	/** Closes this process is still running. */
+	closing: ReadonlySet<string>;
+	/** Space keys with a live tmux session, or null when tmux did not answer. */
+	liveSessionKeys: () => ReadonlySet<string> | null;
+};
+
+/**
+ * The spaces a repo has open. One instance belongs to one repo.
+ *
+ * `starting` and `closing` spaces exist only where `keepsLifecycle` is true.
+ * They are not open, so they are not listed, but their sessions are theirs.
+ */
+export interface SpaceRegistryDao {
+	/**
+	 * Whether a space is recorded while it is being set up or torn down. Where
+	 * it is not, the lifecycle methods below do nothing.
+	 */
+	readonly keepsLifecycle: boolean;
+
+	/**
+	 * Open spaces, or null when no registry has been written yet. Throws when
+	 * the registry exists and cannot be read: that must never look empty.
+	 */
+	openSpaces(): string[] | null;
+	/** `openSpaces`, read off the event loop where the store allows it. */
+	openSpacesAsync(): Promise<string[] | null>;
+	protectedSpaces(): ProtectedSpaces;
+	/** Whether the space is open, being set up or being torn down. */
+	has(key: string): boolean;
+
+	add(key: string, signal?: AbortSignal): Promise<void>;
+	remove(key: string, signal?: AbortSignal): Promise<void>;
+
+	/**
+	 * Record a space before its sessions exist, owned by the process setting
+	 * it up, so a failure here stops setup instead of leaving sessions that
+	 * belong to nothing.
+	 */
+	reserveStart(key: string, ownerPid: number): Promise<void>;
+	/** Record that this process is tearing the space down. */
+	markClosing(key: string): Promise<void>;
+	/** Undo `markClosing` when the sessions could not be killed. */
+	reopen(key: string): Promise<void>;
+	/** Finish what a process started and did not see through. */
+	settle(deps: SettleDeps): Promise<void>;
+
+	tryReserveWatchlistSlots(
+		source: string,
+		candidateKeys: string[],
+		max: number,
+		options?: WatchlistReserveOptions,
+	): Promise<WatchlistSlots>;
+	releaseWatchlistReservation(key: string): Promise<void>;
+}
+
+/** Open spaces for a caller that treats an unreadable registry as none. */
+export function listOpenSpaces(registry: SpaceRegistryDao): string[] {
+	try {
+		return registry.openSpaces() ?? [];
+	} catch {
+		return [];
+	}
 }
 
 /**
@@ -44,83 +120,51 @@ function getLegacyRegistryPath(baseDir: string): string {
  */
 export function getRegistryPathForRepo(
 	repoName: string,
-	baseDir?: string,
+	baseDir = DEFAULT_STATE_DIR,
 ): string {
-	const base = baseDir ?? DEFAULT_BASE_DIR;
-	return path.join(base, 'repos', repoName, 'open-spaces.json');
+	return path.join(baseDir, 'repos', repoName, 'open-spaces.json');
 }
 
 /** Every repo with pappardelle state, by the name its sessions carry. */
-export function listKnownRepos(baseDir?: string): string[] {
+export function listKnownRepos(baseDir = DEFAULT_STATE_DIR): string[] {
 	try {
-		return fs.readdirSync(path.join(baseDir ?? DEFAULT_BASE_DIR, 'repos'));
+		return fs.readdirSync(path.join(baseDir, 'repos'));
 	} catch {
 		return [];
 	}
 }
 
-let registryPath = getLegacyRegistryPath(DEFAULT_BASE_DIR);
-
 /**
- * Initialize the registry for a specific repo.
- * Sets the registry path to the repo-namespaced location and
- * migrates legacy data if this is the first run with the new layout.
+ * Move the registry from its pre-repo-namespacing path, the first time a repo
+ * runs with the per-repo layout.
  */
-export function initForRepo(repoName: string, baseDir?: string): void {
-	const base = baseDir ?? DEFAULT_BASE_DIR;
-	const repoPath = getRegistryPathForRepo(repoName, base);
+export function migrateLegacyRegistry(
+	repoName: string,
+	baseDir = DEFAULT_STATE_DIR,
+): void {
+	const repoPath = getRegistryPathForRepo(repoName, baseDir);
 
 	// Migrate legacy global open-spaces.json — always clean it up if it exists.
 	// If the repo-specific file doesn't exist yet, move legacy data there.
 	// If it already exists, just delete the legacy file to complete migration.
-	const legacyPath = getLegacyRegistryPath(base);
+	const legacyPath = path.join(baseDir, 'open-spaces.json');
 	if (fs.existsSync(legacyPath)) {
 		try {
-			if (!fs.existsSync(repoPath)) {
+			if (fs.existsSync(repoPath)) {
+				fs.unlinkSync(legacyPath);
+			} else {
 				const dir = path.dirname(repoPath);
 				fs.mkdirSync(dir, {recursive: true});
 				fs.renameSync(legacyPath, repoPath);
-			} else {
-				fs.unlinkSync(legacyPath);
 			}
 		} catch {
 			// Non-critical — will retry on next startup
 		}
 	}
-
-	registryPath = repoPath;
 }
 
-/**
- * Override the registry file path (for testing).
- */
-export function setRegistryPath(p: string): void {
-	registryPath = p;
-}
-
-/**
- * Reset to default path (for testing cleanup).
- */
-export function resetRegistryPath(): void {
-	registryPath = getLegacyRegistryPath(DEFAULT_BASE_DIR);
-}
-
-/**
- * Read the registry array straight from disk, deduplicated and filtered to
- * strings. Returns [] when the file is missing or invalid. This is the single
- * source of truth — there is no in-memory cache to go stale behind a concurrent
- * writer (STA-1553).
- */
-function readFromDisk(p: string): string[] {
-	try {
-		return parseRegistry(fs.readFileSync(p, 'utf-8'));
-	} catch {
-		// File doesn't exist yet or is invalid — start with empty list
-		return [];
-	}
-}
-
-function parseRegistry(content: string): string[] {
+/** The keys in a registry file. Throws when it does not hold a list. */
+export function parseRegistry(content: string): string[] {
 	const parsed: unknown = JSON.parse(content);
 	if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
 	return [
@@ -128,74 +172,9 @@ function parseRegistry(content: string): string[] {
 	];
 }
 
-function readRegistryForMutation(p: string): string[] {
-	try {
-		return parseRegistry(fs.readFileSync(p, 'utf8'));
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-		throw err;
-	}
-}
-
-/**
- * Get all registered space keys (issue keys like "STA-123").
- * Returns a deduplicated array, read fresh from disk on every call.
- */
-export function getRegisteredSpaces(): string[] {
-	return readFromDisk(registryPath);
-}
-
-/** A failed refresh must not look like an empty registry and remove every row. */
-export async function getRegisteredSpacesAsync(): Promise<string[] | null> {
-	try {
-		return parseRegistry(await readFile(registryPath, 'utf-8'));
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-		throw err;
-	}
-}
-
-/**
- * Add a space to the registry. No-op if already present.
- */
-export async function addSpace(
-	issueKey: string,
-	signal?: AbortSignal,
-): Promise<void> {
-	await withRegistryLock(p => {
-		const keys = readRegistryForMutation(p);
-		if (keys.includes(issueKey)) return; // already present — skip no-op write
-		writeJsonAtomic(p, [...keys, issueKey]);
-	}, signal);
-}
-
-/**
- * Remove a space from the registry, and free the watchlist slot it held (if
- * any) so reopening the issue by hand later isn't counted against a watchlist.
- */
-export async function removeSpace(
-	issueKey: string,
-	signal?: AbortSignal,
-): Promise<void> {
-	await withRegistryLock(p => {
-		const keys = readRegistryForMutation(p);
-		if (keys.includes(issueKey)) {
-			writeJsonAtomic(
-				p,
-				keys.filter(k => k !== issueKey),
-			);
-		}
-
-		const reservations = readReservations(p);
-		if (reservations.delete(issueKey)) writeReservations(p, reservations);
-	}, signal);
-}
-
-/**
- * Check if a space is registered.
- */
-export function isSpaceRegistered(issueKey: string): boolean {
-	return getRegisteredSpaces().includes(issueKey);
+/** A registry file's content for these keys. */
+export function renderRegistry(keys: readonly string[]): string {
+	return JSON.stringify(keys, null, 2) + '\n';
 }
 
 /**
@@ -229,67 +208,34 @@ function writeJsonAtomic(p: string, data: unknown): void {
 
 type WatchlistReservation = {source: string; ownerPid: number};
 
-function getReservationsPath(p: string): string {
-	return path.join(path.dirname(p), 'watchlist-spawns.json');
-}
+/**
+ * The watchlist reservations beside a registry file. Every method must run
+ * while the registry's lock is held.
+ */
+export class WatchlistReservationFile {
+	private readonly file: string;
 
-function readReservations(p: string): Map<string, WatchlistReservation> {
-	const reservations = new Map<string, WatchlistReservation>();
-	try {
-		const parsed: unknown = JSON.parse(
-			fs.readFileSync(getReservationsPath(p), 'utf-8'),
-		);
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-			throw new Error('Invalid watchlist reservations');
-		for (const [key, value] of Object.entries(parsed)) {
-			const entry = value as Partial<WatchlistReservation> | null;
-			if (
-				typeof entry?.source === 'string' &&
-				typeof entry.ownerPid === 'number'
-			) {
-				reservations.set(key, {
-					source: entry.source,
-					ownerPid: entry.ownerPid,
-				});
-			}
-		}
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+	constructor(registryPath: string) {
+		this.file = path.join(path.dirname(registryPath), 'watchlist-spawns.json');
 	}
 
-	return reservations;
-}
-
-function writeReservations(
-	p: string,
-	reservations: Map<string, WatchlistReservation>,
-): void {
-	writeJsonAtomic(getReservationsPath(p), Object.fromEntries(reservations));
-}
-
-/**
- * Reserve up to `max` minus the slots `source` already holds, taking
- * `candidateKeys` in order. Keys that are already registered or reserved are
- * returned in `claimedElsewhere` instead: the caller should treat them as
- * spawned, since another instance or watchlist owns them. `occupied` is how
- * many slots `source` held before this call.
- */
-export async function tryReserveWatchlistSlots(
-	source: string,
-	candidateKeys: string[],
-	max: number,
-	opts: {
-		pid?: number;
-		isPidAlive?: (pid: number) => boolean;
-		signal?: AbortSignal;
-	} = {},
-): Promise<{reserved: string[]; occupied: number; claimedElsewhere: string[]}> {
-	const pid = opts.pid ?? process.pid;
-	const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
-
-	return withRegistryLock(p => {
-		const registered = new Set(readRegistryForMutation(p));
-		const reservations = readReservations(p);
+	/**
+	 * Reserve up to `max` minus the slots `source` already holds, taking
+	 * `candidateKeys` in order. Keys that are already registered or reserved are
+	 * returned in `claimedElsewhere` instead: the caller should treat them as
+	 * spawned, since another instance or watchlist owns them. `occupied` is how
+	 * many slots `source` held before this call.
+	 */
+	reserve(
+		registered: ReadonlySet<string>,
+		source: string,
+		candidateKeys: string[],
+		max: number,
+		options: WatchlistReserveOptions,
+	): WatchlistSlots {
+		const pid = options.pid ?? process.pid;
+		const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
+		const reservations = this.read();
 		let changed = false;
 
 		for (const [key, entry] of reservations) {
@@ -316,28 +262,161 @@ export async function tryReserveWatchlistSlots(
 			changed = true;
 		}
 
-		if (changed) writeReservations(p, reservations);
+		if (changed) this.write(reservations);
 		return {reserved, occupied, claimedElsewhere};
-	}, opts.signal);
+	}
+
+	/** Free the slot `key` holds, if any. */
+	drop(key: string): void {
+		const reservations = this.read();
+		if (reservations.delete(key)) this.write(reservations);
+	}
+
+	private read(): Map<string, WatchlistReservation> {
+		const reservations = new Map<string, WatchlistReservation>();
+		try {
+			const parsed: unknown = JSON.parse(fs.readFileSync(this.file, 'utf-8'));
+			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+				throw new Error('Invalid watchlist reservations');
+			for (const [key, value] of Object.entries(parsed)) {
+				const entry = value as Partial<WatchlistReservation> | null;
+				if (
+					typeof entry?.source === 'string' &&
+					typeof entry.ownerPid === 'number'
+				) {
+					reservations.set(key, {
+						source: entry.source,
+						ownerPid: entry.ownerPid,
+					});
+				}
+			}
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+		}
+
+		return reservations;
+	}
+
+	private write(reservations: Map<string, WatchlistReservation>): void {
+		writeJsonAtomic(this.file, Object.fromEntries(reservations));
+	}
 }
 
-/**
- * Give back a reservation whose idow run failed. A key that did get
- * registered keeps its entry, since that workspace still holds the slot.
- */
-export async function releaseWatchlistReservation(
-	issueKey: string,
-): Promise<void> {
-	await withRegistryLock(p => {
-		if (readRegistryForMutation(p).includes(issueKey)) return;
-		const reservations = readReservations(p);
-		if (reservations.delete(issueKey)) writeReservations(p, reservations);
-	});
-}
+/** The registry as one JSON file per repo, guarded by an advisory lock. */
+export class JsonSpaceRegistryDao implements SpaceRegistryDao {
+	get keepsLifecycle(): boolean {
+		return false;
+	}
 
-async function withRegistryLock<T>(
-	fn: (p: string) => T,
-	signal?: AbortSignal,
-): Promise<T> {
-	return withFileLock(registryPath, fn, signal);
+	readonly reservations: WatchlistReservationFile;
+
+	constructor(readonly file: string) {
+		this.reservations = new WatchlistReservationFile(file);
+	}
+
+	openSpaces(): string[] | null {
+		try {
+			return parseRegistry(fs.readFileSync(this.file, 'utf-8'));
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+			throw err;
+		}
+	}
+
+	/** A failed refresh must not look like an empty registry and remove every row. */
+	async openSpacesAsync(): Promise<string[] | null> {
+		try {
+			return parseRegistry(await readFile(this.file, 'utf-8'));
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+			throw err;
+		}
+	}
+
+	/**
+	 * The file is all this registry has, so the reaper is given whatever can
+	 * be read from it, as it always has been.
+	 */
+	protectedSpaces(): ProtectedSpaces {
+		return {ok: true, keys: listOpenSpaces(this)};
+	}
+
+	has(key: string): boolean {
+		return listOpenSpaces(this).includes(key);
+	}
+
+	/** Add a space to the registry. No-op if already present. */
+	async add(key: string, signal?: AbortSignal): Promise<void> {
+		await this.locked(() => {
+			const keys = this.readForMutation();
+			if (keys.includes(key)) return; // already present — skip no-op write
+			writeJsonAtomic(this.file, [...keys, key]);
+		}, signal);
+	}
+
+	/**
+	 * Remove a space from the registry, and free the watchlist slot it held (if
+	 * any) so reopening the issue by hand later isn't counted against a watchlist.
+	 */
+	async remove(key: string, signal?: AbortSignal): Promise<void> {
+		await this.locked(() => {
+			const keys = this.readForMutation();
+			if (keys.includes(key)) {
+				writeJsonAtomic(
+					this.file,
+					keys.filter(k => k !== key),
+				);
+			}
+
+			this.reservations.drop(key);
+		}, signal);
+	}
+
+	async reserveStart(): Promise<void> {}
+
+	async markClosing(): Promise<void> {}
+
+	async reopen(): Promise<void> {}
+
+	async settle(): Promise<void> {}
+
+	async tryReserveWatchlistSlots(
+		source: string,
+		candidateKeys: string[],
+		max: number,
+		options: WatchlistReserveOptions = {},
+	): Promise<WatchlistSlots> {
+		return this.locked(
+			() =>
+				this.reservations.reserve(
+					new Set(this.readForMutation()),
+					source,
+					candidateKeys,
+					max,
+					options,
+				),
+			options.signal,
+		);
+	}
+
+	/**
+	 * Give back a reservation whose idow run failed. A key that did get
+	 * registered keeps its entry, since that workspace still holds the slot.
+	 */
+	async releaseWatchlistReservation(key: string): Promise<void> {
+		await this.locked(() => {
+			if (this.readForMutation().includes(key)) return;
+			this.reservations.drop(key);
+		});
+	}
+
+	/** Run `fn` holding the lock every writer of this registry file takes. */
+	async locked<T>(fn: () => T, signal?: AbortSignal): Promise<T> {
+		return withFileLock(this.file, fn, signal);
+	}
+
+	/** The keys to change: none yet for a new registry, never a guess for a bad one. */
+	private readForMutation(): string[] {
+		return this.openSpaces() ?? [];
+	}
 }

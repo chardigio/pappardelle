@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {readableHookStatusKey} from './claude-status.ts';
+import type {SpaceRegistryDao} from './space-registry.ts';
 import {claudeProjectDir} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
@@ -54,6 +55,7 @@ export type SpacesReport =
 
 export interface SpacesDeps {
 	repoName: string;
+	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
 	home: string;
 	now?: number;
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
@@ -162,15 +164,14 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	const {repoName, home} = deps;
 	const now = deps.now ?? Date.now();
 	const repoState = path.join(home, '.pappardelle', 'repos', repoName);
-	let keys: string[];
+	let keys: string[] | null;
 	try {
-		const parsed = readJson(path.join(repoState, 'open-spaces.json'));
-		keys = Array.isArray(parsed)
-			? parsed.filter((key): key is string => typeof key === 'string')
-			: [];
+		keys = deps.registry.openSpaces();
 	} catch {
-		return {error: 'No open spaces file found', spaces: []};
+		keys = null;
 	}
+
+	if (!keys) return {error: 'No open spaces file found', spaces: []};
 
 	const sessions = sessionsByWorktree(home, repoName);
 	// bd alone can take several seconds on a busy machine; a title is worth the
@@ -375,12 +376,14 @@ export function formatSpaces(report: SpacesReport): string {
 
 export async function runSpacesCommand(options: {
 	repoName: string;
+	registry: SpacesDeps['registry'];
 	home: string;
 	json: boolean;
 	out: (text: string) => void;
 }): Promise<number> {
 	const report = await gatherSpaces({
 		repoName: options.repoName,
+		registry: options.registry,
 		home: options.home,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);

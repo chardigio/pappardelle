@@ -40,7 +40,27 @@ const MIGRATIONS: string[] = [
 		mtime_ns TEXT NOT NULL,
 		malformed INTEGER NOT NULL DEFAULT 0 CHECK (malformed IN (0, 1))
 	) STRICT`,
+	`CREATE TABLE spaces (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		state TEXT NOT NULL CHECK (state IN ('starting', 'open', 'closing')),
+		owner_pid INTEGER,
+		PRIMARY KEY (repo, key)
+	) STRICT`,
 ];
+
+let defaultPathForTests: string | undefined;
+
+/**
+ * Move the default database for this process only. A test process uses it so
+ * that nothing it runs reaches the developer's own database, while the CLIs
+ * it starts under a throwaway HOME still find theirs there.
+ */
+export function setDefaultStateDbPathForTests(
+	dbPath: string | undefined,
+): void {
+	defaultPathForTests = dbPath;
+}
 
 /**
  * Where the database lives. An explicit state directory (a test's temp
@@ -52,7 +72,9 @@ export function stateDbPath(
 ): string {
 	if (stateDir) return path.join(stateDir, 'state.db');
 	return (
-		env['PAPPARDELLE_STATE_DB'] ?? path.join(DEFAULT_STATE_DIR, 'state.db')
+		env['PAPPARDELLE_STATE_DB'] ??
+		defaultPathForTests ??
+		path.join(DEFAULT_STATE_DIR, 'state.db')
 	);
 }
 

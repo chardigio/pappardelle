@@ -54,6 +54,7 @@ function setup(t: ExecutionContext, realWorktree = false) {
 	for (const file of [
 		'idow',
 		'provider-helpers.sh',
+		'state-cli.sh',
 		'resolve-agent-config.sh',
 		'builtin-agents.json',
 		'resolve-terminal-app.sh',
@@ -1182,3 +1183,62 @@ test.serial(
 		t.true(output.includes('Block app opened (command)'), output);
 	},
 );
+
+// A Pappardelle that starts idow lists the space afterwards, so idow records
+// it before any session exists (source/space-registry-sqlite.ts).
+function stateCli(fixture: ReturnType<typeof setup>, exitCode: number) {
+	const calls = path.join(fixture.home, 'state-cli-calls');
+	const executable = path.join(fixture.bin, 'pappardelle-state-stub');
+	writeScript(
+		executable,
+		`test ! -f "$IDOW_TEST_LAUNCH_ARGS" || echo "after sessions" >> ${JSON.stringify(calls)}
+printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
+exit ${exitCode}`,
+	);
+	return {
+		calls: () => fs.readFileSync(calls, 'utf8').trim().split('\n'),
+		env: {
+			PAPPARDELLE_EXECUTABLE: executable,
+			PAPPARDELLE_REGISTER_SPACE: '1',
+		},
+	};
+}
+
+test.serial(
+	'idow started by Pappardelle records the space under its own pid before starting sessions',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 0);
+		await fixture.run({extraEnv: state.env});
+		const [call, ...rest] = state.calls();
+		t.deepEqual(rest, []);
+		t.regex(
+			call!,
+			new RegExp(
+				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --register --owner \\d+ test-abc$`,
+			),
+		);
+		t.true(fs.existsSync(fixture.launchArgs));
+	},
+);
+
+test.serial(
+	'idow stops before starting sessions when the space cannot be recorded',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 1);
+		const error = await t.throwsAsync(fixture.run({extraEnv: state.env}));
+		t.regex(String(error?.message), /Could not record workspace test-abc/);
+		t.false(fs.existsSync(fixture.launchArgs));
+	},
+);
+
+test.serial('idow run by hand records nothing', async t => {
+	const fixture = setup(t);
+	const state = stateCli(fixture, 0);
+	await fixture.run({
+		extraEnv: {PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE},
+	});
+	t.throws(() => state.calls(), {code: 'ENOENT'});
+	t.true(fs.existsSync(fixture.launchArgs));
+});

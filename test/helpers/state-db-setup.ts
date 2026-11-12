@@ -6,13 +6,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {setDefaultStateDbPathForTests} from '../../source/state-db.ts';
 
-if (process.env['PAPPARDELLE_SQLITE_STATE'] !== '1') {
-	process.env['PAPPARDELLE_SQLITE_STATE'] = '0';
-} else if (!process.env['PAPPARDELLE_STATE_DB']) {
+if (process.env['PAPPARDELLE_SQLITE_STATE'] === '1') {
+	// Not an environment variable: a CLI that a test starts under a throwaway
+	// HOME has to keep its database there, apart from every other test's.
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-test-state-'));
-	process.env['PAPPARDELLE_STATE_DB'] = path.join(directory, 'state.db');
+	setDefaultStateDbPathForTests(path.join(directory, 'state.db'));
 	process.on('exit', () => {
 		fs.rmSync(directory, {recursive: true, force: true});
 	});
+} else {
+	process.env['PAPPARDELLE_SQLITE_STATE'] = '0';
 }

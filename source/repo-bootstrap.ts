@@ -9,15 +9,16 @@ import {
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
-import {initForRepo} from './space-registry.ts';
+import {createStateDaos, type StateDaos} from './state-daos.ts';
 import {recordSqliteState} from './state-flag.ts';
+import {initTmuxState} from './tmux.ts';
 
 /**
  * Per-repo process setup shared by the TUI and its popup child. The popup is
  * a fresh Bun process, so anything the TUI set up at startup is missing
  * there until this runs again.
  */
-export function bootstrapRepo(): {repoName: string} {
+export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 	// Load $REPO_ROOT/.envrc (plain `export KEY=VAL` lines) into process.env so
 	// per-repo Linear credentials and similar reach the providers even when
 	// pappardelle was launched from a shell or tmux server that didn't have
@@ -30,7 +31,8 @@ export function bootstrapRepo(): {repoName: string} {
 	// Initialize per-repo state directories so state is kept separate
 	// from other repos that may also use pappardelle.
 	const repoName = getRepoName();
-	initForRepo(repoName);
+	const daos = createStateDaos({repo: repoName});
+	initTmuxState(daos);
 	initStateColorCacheDir(
 		path.join(homedir(), '.pappardelle', 'repos', repoName),
 	);
@@ -54,5 +56,5 @@ export function bootstrapRepo(): {repoName: string} {
 		// If loading fails the providers will fall back to defaults on first use.
 	}
 
-	return {repoName};
+	return {repoName, daos};
 }

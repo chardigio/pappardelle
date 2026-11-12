@@ -26,17 +26,21 @@ setTimeout(() => {
 		);
 	}
 	const tmuxUrl = new URL('tmux.ts', import.meta.url).href;
-	const registryUrl = new URL('space-registry.ts', import.meta.url).href;
+	const daosUrl = new URL('state-daos.ts', import.meta.url).href;
 	const utilsUrl = new URL('space-utils.ts', import.meta.url).href;
 	const simulatorUrl = new URL('qa-simulator.ts', import.meta.url).href;
 	const script = `
 import {killSpaceSessions, displayMessageInPaneAsync} from ${JSON.stringify(tmuxUrl)};
-import {setRegistryPath, addSpace, removeSpace, getRegisteredSpaces} from ${JSON.stringify(registryUrl)};
+import {createStateDaos} from ${JSON.stringify(daosUrl)};
 import {tearDownSpace} from ${JSON.stringify(utilsUrl)};
 import {QaSimulatorCleanup} from ${JSON.stringify(simulatorUrl)};
-setRegistryPath(process.env.CLOSE_REGISTRY);
-await addSpace('A');
-await addSpace('B');
+const {registry} = createStateDaos({
+  repo: 'fixture',
+  stateDir: process.env.CLOSE_STATE_DIR,
+  sqlite: process.env.PAPPARDELLE_SQLITE_STATE === '1',
+});
+await registry.add('A');
+await registry.add('B');
 let ticks = 0;
 const timer = setInterval(() => ticks++, 10);
 const cleanup = new QaSimulatorCleanup();
@@ -44,12 +48,14 @@ let cleanupJob;
 let cleaned = false;
 const started = performance.now();
 const closed = await tearDownSpace('A', {
+  markClosing: key => registry.markClosing(key),
+  reopen: key => registry.reopen(key),
   killSpaceSessions: key => killSpaceSessions(key, {repoName: 'fixture'}),
   cleanup: key => {
     cleanupJob = cleanup.delete(key).then(result => { cleaned = true; return result; });
     return cleanupJob;
   },
-  removeSpace,
+  removeSpace: key => registry.remove(key),
   onKillFailure: () => { throw new Error('kill failed'); },
 });
 const closeMs = performance.now() - started;
@@ -58,7 +64,7 @@ const cleanupPendingAtClose = !cleaned;
 await displayMessageInPaneAsync('%fixture', 'Session closed');
 const cleanupResult = await cleanupJob;
 clearInterval(timer);
-console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, cleanupResult, ticks, registered: getRegisteredSpaces()}));
+console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, cleanupResult, ticks, registered: registry.openSpaces()}));
 `;
 	const callsFile = path.join(dir, 'calls');
 	const {stdout} = await execFileAsync(
@@ -69,13 +75,13 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 				...process.env,
 				PATH: `${dir}${path.delimiter}${process.env['PATH'] ?? ''}`,
 				CLOSE_CALLS: callsFile,
-				CLOSE_REGISTRY: path.join(dir, 'registry.json'),
+				CLOSE_STATE_DIR: path.join(dir, 'state'),
 			},
 			timeout: 15_000,
 		},
 	);
 	const result = JSON.parse(stdout) as {
-		closed: boolean;
+		closed: {outcome: string};
 		closeMs: number;
 		closeTicks: number;
 		cleanupPendingAtClose: boolean;
@@ -83,7 +89,7 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 		ticks: number;
 		registered: string[];
 	};
-	t.true(result.closed);
+	t.is(result.closed.outcome, 'closed');
 	t.true(result.closeTicks >= 5);
 	t.true(result.cleanupPendingAtClose);
 	t.true(result.cleanupResult);

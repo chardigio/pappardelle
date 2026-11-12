@@ -14,12 +14,13 @@ import {
 	readProgramSnapshot,
 	statusTmuxArgs,
 } from '../source/program-status-monitor.ts';
+import {listOpenSpaces} from '../source/space-registry.ts';
+import {createStateDaos} from '../source/state-daos.ts';
 import {
-	addSpace,
-	getRegisteredSpaces,
-	setRegistryPath,
-} from '../source/space-registry.ts';
-import {cleanupOrphanedInnerSessions, getSessionNames} from '../source/tmux.ts';
+	cleanupOrphanedInnerSessions,
+	getSessionNames,
+	initTmuxState,
+} from '../source/tmux.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
@@ -28,7 +29,12 @@ const originalPath = process.env['PATH'];
 try {
 	execFileSync('git', ['init', '--quiet', harness.root]);
 	process.chdir(harness.root);
-	setRegistryPath(path.join(harness.root, 'open-spaces.json'));
+	const daos = createStateDaos({
+		repo: getRepoName(),
+		stateDir: path.join(harness.root, 'state'),
+		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+	});
+	initTmuxState(daos);
 	const bin = path.join(harness.root, 'bin');
 	mkdirSync(bin);
 	const xcrun = "#!/bin/sh\nprintf '%s\\n' '{\"devices\":{}}'\n";
@@ -74,9 +80,9 @@ try {
 				1,
 			);
 		} else {
-			await addSpace(key);
+			await daos.registry.add(key);
 			const deps = {
-				...defaultCloseCommandDeps(),
+				...defaultCloseCommandDeps(daos),
 				async getIssue() {
 					return null;
 				},
@@ -92,7 +98,7 @@ try {
 					: await runCloseTeardown(key, deps),
 				0,
 			);
-			assert.ok(!getRegisteredSpaces().includes(key));
+			assert.ok(!listOpenSpaces(daos.registry).includes(key));
 		}
 		// Revocation is synchronous. An already-running publisher can rename its
 		// snapshot afterwards, then remove it when its final lease check fails.

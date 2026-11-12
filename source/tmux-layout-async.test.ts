@@ -6,7 +6,7 @@ import path from 'node:path';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import test from 'ava';
 import {rebuildLayout, reconcilePaneLayout} from './tmux.ts';
-import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
 
 const exec = promisify(execFile);
 
@@ -87,14 +87,13 @@ test.serial(
 			});
 			return stdout;
 		};
-		setRegistryPath(path.join(dir, 'registry.json'));
+		const {registryFile} = testTmuxState(t);
 		t.teardown(async () => {
 			for (const target of [socket, inner]) {
 				try {
 					await exec('tmux', ['-S', target, 'kill-server']);
 				} catch {}
 			}
-			resetRegistryPath();
 			fs.rmSync(dir, {recursive: true, force: true});
 		});
 		await run([
@@ -195,7 +194,7 @@ test.serial(
 		t.is(layout.companionViewerPaneId, '');
 		t.is(await paneWidth(pane, run), 80);
 		fs.writeFileSync(
-			path.join(dir, 'registry.json'),
+			registryFile,
 			JSON.stringify(Array.from({length: 8}, (_, i) => `TEST-${i}`)),
 		);
 		await reconcilePaneLayout(layout, false, run);
@@ -242,13 +241,12 @@ test.serial(
 			return stdout;
 		};
 
-		setRegistryPath(path.join(dir, 'registry.json'));
+		testTmuxState(t);
 		t.teardown(async () => {
 			try {
 				await exec('tmux', ['-S', socket, 'kill-server']);
 			} catch {}
 
-			resetRegistryPath();
 			fs.rmSync(dir, {recursive: true, force: true});
 		});
 		await run([

@@ -70,6 +70,8 @@ test('tearDownSpace waits for an asynchronous kill before unregistering', async 
 	});
 	const removed: string[] = [];
 	const result = tearDownSpace('A', {
+		async markClosing() {},
+		async reopen() {},
 		async killSpaceSessions() {
 			return killed;
 		},
@@ -83,71 +85,93 @@ test('tearDownSpace waits for an asynchronous kill before unregistering', async 
 	await nextTurn();
 	t.deepEqual(removed, []);
 	finish(true);
-	t.true(await result);
+	t.deepEqual(await result, {outcome: 'closed'});
 	t.deepEqual(removed, ['A']);
 });
 
-type TearDownCalls = {
-	killed: string[];
-	removed: string[];
-	killFailures: string[];
-};
-
-function makeTearDownDeps(killReturns: boolean): {
-	deps: Parameters<typeof tearDownSpace>[1];
-	calls: TearDownCalls;
-} {
-	const calls: TearDownCalls = {killed: [], removed: [], killFailures: []};
-	const deps = {
-		async killSpaceSessions(key: string) {
-			calls.killed.push(key);
-			return killReturns;
-		},
-		removeSpace(key: string) {
-			calls.removed.push(key);
-		},
-		onKillFailure(key: string) {
-			calls.killFailures.push(key);
-		},
-	};
-	return {deps, calls};
-}
-
-test('tearDownSpace: kill succeeds → remove called, returns true', async t => {
-	const {deps, calls} = makeTearDownDeps(true);
-	const ok = await tearDownSpace('STA-100', deps);
-	t.true(ok);
-	t.deepEqual(calls.killed, ['STA-100']);
-	t.deepEqual(calls.removed, ['STA-100']);
-	t.deepEqual(calls.killFailures, []);
-});
-
-test('tearDownSpace: kill fails → remove NOT called, onKillFailure surfaced, returns false', async t => {
-	const {deps, calls} = makeTearDownDeps(false);
-	const ok = await tearDownSpace('STA-100', deps);
-	t.false(ok);
-	t.deepEqual(calls.killed, ['STA-100']);
-	t.deepEqual(calls.removed, []);
-	t.deepEqual(calls.killFailures, ['STA-100']);
-});
-
-test('tearDownSpace: kill runs BEFORE remove (order matters for STA-1420)', async t => {
-	// If remove ran first and kill then failed, the registry would advertise
-	// "closed" while the inner socket still has the session — exactly the bug
-	// STA-1420 fixes. Pin the order with a sequence tape.
+/** Teardown deps that record the order they were called in. */
+function recordingDeps(
+	fail: {mark?: Error; kill?: boolean; remove?: Error; reopen?: Error} = {},
+) {
 	const sequence: string[] = [];
-	const ok = await tearDownSpace('STA-7', {
-		async killSpaceSessions() {
-			sequence.push('kill');
+	const deps: Parameters<typeof tearDownSpace>[1] = {
+		async markClosing(key) {
+			sequence.push(`mark ${key}`);
+			if (fail.mark) throw fail.mark;
+		},
+		async reopen(key) {
+			sequence.push(`reopen ${key}`);
+			if (fail.reopen) throw fail.reopen;
+		},
+		async killSpaceSessions(key) {
+			sequence.push(`kill ${key}`);
+			return !fail.kill;
+		},
+		removeSpace(key) {
+			sequence.push(`remove ${key}`);
+			if (fail.remove) throw fail.remove;
+		},
+		onKillFailure(key) {
+			sequence.push(`kill-failure ${key}`);
+		},
+		async cleanup(key) {
+			sequence.push(`cleanup ${key}`);
 			return true;
 		},
-		removeSpace() {
-			sequence.push('remove');
-		},
-		onKillFailure() {
-			sequence.push('failure');
-		},
+	};
+	return {deps, sequence};
+}
+
+test('tearDownSpace records the close, kills, then unregisters (order matters for STA-1420)', async t => {
+	// If remove ran first and kill then failed, the registry would advertise
+	// "closed" while the inner socket still has the session — exactly the bug
+	// STA-1420 fixes.
+	const {deps, sequence} = recordingDeps();
+	t.deepEqual(await tearDownSpace('STA-7', deps), {outcome: 'closed'});
+	t.deepEqual(sequence, [
+		'mark STA-7',
+		'kill STA-7',
+		'remove STA-7',
+		'cleanup STA-7',
+	]);
+});
+
+test('tearDownSpace: a close that cannot be recorded kills nothing', async t => {
+	const error = new Error('database is locked');
+	const {deps, sequence} = recordingDeps({mark: error});
+	t.deepEqual(await tearDownSpace('STA-100', deps), {
+		outcome: 'mark-failed',
+		error,
 	});
-	t.true(ok);
-	t.deepEqual(sequence, ['kill', 'remove']);
+	t.deepEqual(sequence, ['mark STA-100']);
+});
+
+test('tearDownSpace: a failed kill reopens the space and leaves it registered', async t => {
+	const {deps, sequence} = recordingDeps({kill: true});
+	t.deepEqual(await tearDownSpace('STA-100', deps), {outcome: 'kill-failed'});
+	t.deepEqual(sequence, [
+		'mark STA-100',
+		'kill STA-100',
+		'reopen STA-100',
+		'kill-failure STA-100',
+	]);
+});
+
+test('tearDownSpace: a failed kill is still reported when the reopen fails too', async t => {
+	const {deps, sequence} = recordingDeps({
+		kill: true,
+		reopen: new Error('database is locked'),
+	});
+	t.deepEqual(await tearDownSpace('STA-100', deps), {outcome: 'kill-failed'});
+	t.is(sequence.at(-1), 'kill-failure STA-100');
+});
+
+test('tearDownSpace: a failed removal is an outcome, with the sessions gone and nothing cleaned up', async t => {
+	const error = new Error('database is locked');
+	const {deps, sequence} = recordingDeps({remove: error});
+	t.deepEqual(await tearDownSpace('STA-100', deps), {
+		outcome: 'unregister-failed',
+		error,
+	});
+	t.deepEqual(sequence, ['mark STA-100', 'kill STA-100', 'remove STA-100']);
 });

@@ -18,6 +18,8 @@ export function buildSpawnEnv(
 		PAPPARDELLE_BUN: bunForChildren(),
 		PAPPARDELLE_EXECUTABLE: isStandalone ? process.execPath : undefined,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
+		// This process lists the space idow sets up, so idow records it.
+		PAPPARDELLE_REGISTER_SPACE: '1',
 		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),
 	};
 }

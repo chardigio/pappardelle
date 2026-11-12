@@ -3,19 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {runOpenSpaceCommand} from './open-space-command.ts';
-import {
-	getRegisteredSpaces,
-	resetRegistryPath,
-	setRegistryPath,
-} from './space-registry.ts';
+import {testState} from '../test/helpers/state.ts';
 
 test.serial(
 	'an agent that is not confirmed exits 3 and leaves the space registered',
 	async t => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-wait-'));
-		setRegistryPath(path.join(dir, 'open-spaces.json'));
+		const {registry} = testState(t).daos;
 		t.teardown(() => {
-			resetRegistryPath();
 			fs.rmSync(dir, {recursive: true, force: true});
 		});
 		const idow = path.join(dir, 'idow');
@@ -31,13 +26,14 @@ test.serial(
 			resume: true,
 			cwd: dir,
 			env: process.env,
+			registry,
 			async waitForAgent(issueKey, since) {
 				asked.push([issueKey, since]);
 				return false;
 			},
 		});
 		t.is(status, 3);
-		t.deepEqual(getRegisteredSpaces(), ['STE-5']);
+		t.deepEqual(registry.openSpaces(), ['STE-5']);
 		t.is(asked.length, 1);
 		t.is(asked[0]![0], 'STE-5');
 		t.true(asked[0]![1] >= before && asked[0]![1] <= Date.now());

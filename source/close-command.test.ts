@@ -12,10 +12,28 @@ const ISSUE: TrackerIssue = {
 	state: {name: 'Done', type: 'completed', color: '#fff'},
 };
 
+function fakeRegistry(
+	open: string[],
+	events: string[] = [],
+): CloseCommandDeps['registry'] {
+	return {
+		has: key => open.includes(key),
+		async markClosing(key) {
+			events.push(`closing ${key}`);
+		},
+		async reopen(key) {
+			events.push(`reopen ${key}`);
+		},
+		async remove(key) {
+			events.push(`unregister ${key}`);
+		},
+	};
+}
+
 function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 	const events: string[] = [];
 	const deps: CloseCommandDeps = {
-		registeredSpaces: () => ['STA-1', 'STA-2'],
+		registry: fakeRegistry(['STA-1', 'STA-2'], events),
 		async getIssue() {
 			return ISSUE;
 		},
@@ -29,9 +47,6 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 		async killSpaceSessions(key) {
 			events.push(`kill ${key}`);
 			return true;
-		},
-		async removeSpace(key) {
-			events.push(`unregister ${key}`);
 		},
 		async cleanup(key) {
 			events.push(`cleanup ${key}`);
@@ -70,6 +85,7 @@ test('--yes runs hooks, then kills before unregistering', async t => {
 		'print Running pre_workspace_deinit hooks...',
 		'hooks STA-1 /wt/STA-1 STA-1',
 		'print Ending sessions...',
+		'closing STA-1',
 		'kill STA-1',
 		'unregister STA-1',
 		'cleanup STA-1',
@@ -79,7 +95,7 @@ test('--yes runs hooks, then kills before unregistering', async t => {
 test('an unregistered key or main closes nothing', async t => {
 	for (const key of ['STA-9', 'main']) {
 		const {deps, events} = fakeDeps({
-			registeredSpaces: () => ['STA-1', 'main'],
+			registry: fakeRegistry(['STA-1', 'main']),
 		});
 		t.is(await runCloseCommand({key, yes: true}, deps), 1);
 		t.deepEqual(events, [`print No open space ${key}`]);
@@ -188,19 +204,26 @@ test('teardown-only skips the prompt and hooks and logs failures', async t => {
 	});
 	t.is(await runCloseTeardown('STA-1', deps), 1);
 	t.deepEqual(events, [
+		'closing STA-1',
 		'kill STA-1',
+		'reopen STA-1',
 		'log Failed to end the tmux sessions for STA-1',
 	]);
 
 	const ok = fakeDeps();
 	t.is(await runCloseTeardown('STA-1', ok.deps), 0);
-	t.deepEqual(ok.events, ['kill STA-1', 'unregister STA-1', 'cleanup STA-1']);
+	t.deepEqual(ok.events, [
+		'closing STA-1',
+		'kill STA-1',
+		'unregister STA-1',
+		'cleanup STA-1',
+	]);
 });
 
 test('teardown-only refuses main and keys that are not open', async t => {
 	for (const key of ['main', 'STA-9']) {
 		const {deps, events} = fakeDeps({
-			registeredSpaces: () => ['STA-1', 'main'],
+			registry: fakeRegistry(['STA-1', 'main']),
 		});
 		t.is(await runCloseTeardown(key, deps), 1);
 		t.deepEqual(events, [`log No open space ${key}`]);

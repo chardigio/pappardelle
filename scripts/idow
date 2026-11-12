@@ -259,6 +259,8 @@ resolve_agent_launch_config() {
 # Source provider-agnostic helpers
 # shellcheck source=provider-helpers.sh
 source "$SCRIPT_DIR/provider-helpers.sh"
+# shellcheck source=scripts/state-cli.sh
+source "$SCRIPT_DIR/state-cli.sh"
 
 # From here on, read the merged config so home and local layers apply to
 # every field (profiles, team_prefix, providers, apps, links, hooks, ...),
@@ -877,6 +879,15 @@ if [[ "$WORKTREE_CREATED" == true ]]; then
     # post_worktree_init is the legacy name, used only when post_workspace_init is empty
     run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init 'post_workspace_init[%d]' || true
     run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" 'profile_post_init[%d]' || true
+fi
+
+# Record the space before its sessions exist, when a Pappardelle that will
+# list it started this run. If that fails there is nothing to undo yet, and
+# sessions that belong to no space would be killed by the next Pappardelle to
+# start. The space is held under this process until the caller opens it.
+if [[ -n "${PAPPARDELLE_REGISTER_SPACE:-}" ]]; then
+    pappardelle_state prepare-space --repo "$REPO_NAME" --register --owner "$$" "$ISSUE_KEY" \
+        || error "Could not record workspace $ISSUE_KEY"
 fi
 
 # PR URLs are only needed when opening configured apps and links.

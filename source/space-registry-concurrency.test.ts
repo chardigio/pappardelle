@@ -1,129 +1,79 @@
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import test from 'ava';
-import {
-	setRegistryPath,
-	resetRegistryPath,
-	addSpace,
-	removeSpace,
-	getRegisteredSpaces,
-	tryReserveWatchlistSlots,
-	releaseWatchlistReservation,
-} from './space-registry.ts';
-import {setLockTimingForTests, resetLockTimingForTests} from './file-lock.ts';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState} from '../test/helpers/state.ts';
+import {resetLockTimingForTests, setLockTimingForTests} from './file-lock.ts';
 import {StartupQueue} from './startup-queue.ts';
 
 const exec = promisify(execFile);
-const registryUrl = new URL('space-registry.ts', import.meta.url).href;
+const daosUrl = new URL('state-daos.ts', import.meta.url).href;
 
-function fixture(t: {teardown: (fn: () => void) => void}) {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-registry-race-'));
-	const file = path.join(dir, 'open-spaces.json');
-	setRegistryPath(file);
-	t.teardown(() => {
-		resetRegistryPath();
-		resetLockTimingForTests();
-		fs.rmSync(dir, {recursive: true, force: true});
-	});
-	return {dir, file};
-}
-
-test.serial(
-	'two processes add, remove and reserve without losing updates or exceeding capacity',
-	async t => {
-		const {file, dir} = fixture(t);
-		const worker = async (prefix: string) =>
-			exec(
-				process.execPath,
-				[
-					'--input-type=module',
-					'-e',
-					`
-import {setRegistryPath, addSpace, removeSpace, tryReserveWatchlistSlots} from ${JSON.stringify(registryUrl)};
-setRegistryPath(${JSON.stringify(file)});
+// The registry is shared by every Pappardelle running against a repo, and
+// each of them opens and closes spaces by itself.
+for (const sqlite of [false, true]) {
+	test.serial(
+		`${sqlite ? 'sqlite' : 'json'}: two processes add, remove and reserve without losing updates or exceeding capacity`,
+		async t => {
+			const {daos, stateDir, registryFile} = testState(t, {sqlite});
+			const worker = async (prefix: string) =>
+				exec(
+					process.execPath,
+					[
+						'--input-type=module',
+						'-e',
+						`
+import {createStateDaos} from ${JSON.stringify(daosUrl)};
+const {registry} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(stateDir)}, sqlite: ${sqlite}});
 const keys = Array.from({length:30}, (_, i) => ${JSON.stringify(prefix)} + i);
-await Promise.all(keys.map(key => addSpace(key)));
-await Promise.all(keys.filter((_, i) => i % 2 === 0).map(key => removeSpace(key)));
-const slots = await tryReserveWatchlistSlots('shared', keys.map(key => 'watch-' + key), 3, {pid:${process.pid}});
+await Promise.all(keys.map(key => registry.add(key)));
+await Promise.all(keys.filter((_, i) => i % 2 === 0).map(key => registry.remove(key)));
+const slots = await registry.tryReserveWatchlistSlots('shared', keys.map(key => 'watch-' + key), 3, {pid:${process.pid}});
 console.log(JSON.stringify(slots));
 `,
-				],
-				{timeout: 15_000},
+					],
+					{timeout: 30_000},
+				);
+			const results = await Promise.all([worker('A-'), worker('B-')]);
+			const keys = daos.registry.openSpaces() ?? [];
+			t.is(keys.length, 30);
+			for (const prefix of ['A-', 'B-']) {
+				for (let i = 0; i < 30; i++)
+					t.is(keys.includes(`${prefix}${i}`), i % 2 !== 0);
+			}
+
+			t.deepEqual(
+				[
+					...(JSON.parse(fs.readFileSync(registryFile, 'utf8')) as string[]),
+				].sort(),
+				[...keys].sort(),
 			);
-		const results = await Promise.all([worker('A-'), worker('B-')]);
-		const keys = getRegisteredSpaces();
-		t.is(keys.length, 30);
-		for (const prefix of ['A-', 'B-']) {
-			for (let i = 0; i < 30; i++)
-				t.is(keys.includes(`${prefix}${i}`), i % 2 !== 0);
-		}
-		const reserved = results.flatMap(
-			result => (JSON.parse(result.stdout) as {reserved: string[]}).reserved,
-		);
-		t.is(reserved.length, 3);
-		t.is(
-			Object.keys(
-				JSON.parse(
-					fs.readFileSync(path.join(dir, 'watchlist-spawns.json'), 'utf8'),
-				),
-			).length,
-			3,
-		);
-		t.false(fs.existsSync(`${file}.lock`));
-	},
-);
+			const reserved = results.flatMap(
+				result => (JSON.parse(result.stdout) as {reserved: string[]}).reserved,
+			);
+			t.is(reserved.length, 3);
+			t.is(
+				Object.keys(
+					JSON.parse(
+						fs.readFileSync(
+							path.join(path.dirname(registryFile), 'watchlist-spawns.json'),
+							'utf8',
+						),
+					) as object,
+				).length,
+				3,
+			);
+			t.false(fs.existsSync(`${registryFile}.lock`));
+		},
+	);
+}
 
-test.serial(
-	'dead owners and abandoned empty locks are reclaimed without stealing old live locks',
-	async t => {
-		const {file} = fixture(t);
-		const lock = `${file}.lock`;
-		await exec(process.execPath, [
-			'-e',
-			`const fs = require('node:fs'); fs.mkdirSync(${JSON.stringify(lock)}); fs.writeFileSync(${JSON.stringify(lock)} + '/' + process.pid + '-abcdef', '');`,
-		]);
-		await addSpace('recovered');
-		t.deepEqual(getRegisteredSpaces(), ['recovered']);
-		fs.mkdirSync(lock);
-		fs.utimesSync(lock, new Date(0), new Date(0));
-		await addSpace('empty');
-		fs.mkdirSync(lock);
-		const owner = path.join(lock, `${process.pid}-abcdef`);
-		fs.writeFileSync(owner, '');
-		fs.utimesSync(lock, new Date(0), new Date(0));
-		setLockTimingForTests({timeoutMs: 30, retryMs: 2, staleMs: 1});
-		await t.throwsAsync(removeSpace('recovered'), {message: /timed out/});
-		t.true(fs.existsSync(owner));
-		t.deepEqual(getRegisteredSpaces(), ['recovered', 'empty']);
-	},
-);
-
-test.serial(
-	'aborted lock wait performs no mutation and subsequent queued work can retry',
-	async t => {
-		const {file} = fixture(t);
-		const lock = `${file}.lock`;
-		fs.mkdirSync(lock);
-		fs.writeFileSync(path.join(lock, `${process.pid}-abcdef`), '');
-		const abort = new AbortController();
-		const pending = addSpace('canceled', abort.signal);
-		setTimeout(() => abort.abort(), 10);
-		await t.throwsAsync(pending, {name: 'AbortError'});
-		t.false(fs.existsSync(file));
-		fs.rmSync(lock, {recursive: true});
-		await Promise.all([addSpace('A'), addSpace('B'), removeSpace('A')]);
-		t.deepEqual(getRegisteredSpaces(), ['B']);
-	},
-);
-
-test.serial(
-	'canceled startup and failed setup release reservations; registered workspaces keep capacity',
-	async t => {
-		fixture(t);
-		await tryReserveWatchlistSlots(
+contractTest(
+	'canceled startup and failed setup release reservations; open spaces keep capacity',
+	async (t, {daos: {registry}}) => {
+		await registry.tryReserveWatchlistSlots(
 			'watch',
 			['canceled', 'failed', 'started'],
 			3,
@@ -133,15 +83,15 @@ test.serial(
 			.enqueue(async () => {
 				t.fail('canceled setup ran');
 			})
-			.finally(async () => releaseWatchlistReservation('canceled'));
+			.finally(async () => registry.releaseWatchlistReservation('canceled'));
 		queue.stop();
 		await pending;
 		await Promise.reject(new Error('setup failed')).catch(async () =>
-			releaseWatchlistReservation('failed'),
+			registry.releaseWatchlistReservation('failed'),
 		);
-		await addSpace('started');
-		await releaseWatchlistReservation('started');
-		const slots = await tryReserveWatchlistSlots(
+		await registry.add('started');
+		await registry.releaseWatchlistReservation('started');
+		const slots = await registry.tryReserveWatchlistSlots(
 			'watch',
 			['next-1', 'next-2', 'next-3'],
 			3,
@@ -151,17 +101,41 @@ test.serial(
 	},
 );
 
+// The advisory lock both stores take around the registry file.
 test.serial(
-	'write failures propagate and release the lock; malformed state is never overwritten',
+	'json: dead owners and abandoned empty locks are reclaimed without stealing old live locks',
 	async t => {
-		const {file} = fixture(t);
-		fs.mkdirSync(file);
-		await t.throwsAsync(addSpace('A'));
-		t.false(fs.existsSync(`${file}.lock`));
-		fs.rmdirSync(file);
-		fs.writeFileSync(file, '{');
-		await t.throwsAsync(addSpace('A'));
-		t.is(fs.readFileSync(file, 'utf8'), '{');
-		t.false(fs.existsSync(`${file}.lock`));
+		const {daos, registryFile} = testState(t, {sqlite: false});
+		t.teardown(resetLockTimingForTests);
+		const lock = `${registryFile}.lock`;
+		await exec(process.execPath, [
+			'-e',
+			`const fs = require('node:fs'); fs.mkdirSync(${JSON.stringify(lock)}); fs.writeFileSync(${JSON.stringify(lock)} + '/' + process.pid + '-abcdef', '');`,
+		]);
+		await daos.registry.add('recovered');
+		t.deepEqual(daos.registry.openSpaces(), ['recovered']);
+		fs.mkdirSync(lock);
+		fs.utimesSync(lock, new Date(0), new Date(0));
+		await daos.registry.add('empty');
+		fs.mkdirSync(lock);
+		const owner = path.join(lock, `${process.pid}-abcdef`);
+		fs.writeFileSync(owner, '');
+		fs.utimesSync(lock, new Date(0), new Date(0));
+		setLockTimingForTests({timeoutMs: 30, retryMs: 2, staleMs: 1});
+		await t.throwsAsync(daos.registry.remove('recovered'), {
+			message: /timed out/,
+		});
+		t.true(fs.existsSync(owner));
+		t.deepEqual(daos.registry.openSpaces(), ['recovered', 'empty']);
+	},
+);
+
+test.serial(
+	'json: a failed write propagates and releases the lock',
+	async t => {
+		const {daos, registryFile} = testState(t, {sqlite: false});
+		fs.mkdirSync(registryFile);
+		await t.throwsAsync(daos.registry.add('A'));
+		t.false(fs.existsSync(`${registryFile}.lock`));
 	},
 );

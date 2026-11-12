@@ -8,6 +8,9 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import test, {type ExecutionContext} from 'ava';
 import {gatherSpaces} from './spaces-command.ts';
+import {createStateDaos} from './state-daos.ts';
+import {closeStateDb, stateDbPath} from './state-db.ts';
+import {sqliteRun} from '../test/helpers/state.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
@@ -195,8 +198,14 @@ test.serial(
 		});
 		t.true(result.stdout.includes('Workspace STE-20 is ready!'));
 		t.true(result.stderr.includes('idow diagnostic'));
+		const stateDir = path.join(f.home, '.pappardelle');
+		t.teardown(() => {
+			closeStateDb(stateDbPath(stateDir));
+		});
 		const spaces = await gatherSpaces({
 			repoName: 'project',
+			registry: createStateDaos({repo: 'project', stateDir, sqlite: sqliteRun})
+				.registry,
 			home: f.home,
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,

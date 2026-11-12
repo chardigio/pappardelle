@@ -197,6 +197,7 @@ import {
 	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
 	killSpaceSessions,
+	liveSpaceSessionKeys,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
@@ -229,14 +230,8 @@ import {
 	searchKeyStep,
 	type RailSearch,
 } from './rail-search.ts';
-import {
-	getRegisteredSpaces,
-	getRegisteredSpacesAsync,
-	addSpace,
-	removeSpace,
-	tryReserveWatchlistSlots,
-	releaseWatchlistReservation,
-} from './space-registry.ts';
+import {listOpenSpaces} from './space-registry.ts';
+import type {StateDaos} from './state-daos.ts';
 import {
 	readSpaceState,
 	writeSpaceState,
@@ -301,9 +296,10 @@ export function quitTui(
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
+	daos: StateDaos;
 	/** Reads started before the renderer loaded, for the first list drawn. */
 	initialWorkspaces?: {
-		registry: ReturnType<typeof getRegisteredSpacesAsync>;
+		registry: Promise<string[] | null>;
 		mainWorktree: ReturnType<typeof getMainWorktreeInfo>;
 	};
 	firstRailPaint?: Promise<void>;
@@ -318,6 +314,7 @@ interface AppProps {
 }
 
 export default function App({
+	daos,
 	initialWorkspaces,
 	firstRailPaint,
 	onFirstRailPaint,
@@ -327,6 +324,7 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
+	const {registry} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
 
@@ -781,7 +779,20 @@ export default function App({
 		earlyWorkspaces.current = undefined;
 		const refresh = new WorkspaceRefresh({
 			detailReady: firstRailPaint,
-			readRegistry: firstFrom(early?.registry, getRegisteredSpacesAsync),
+			readRegistry: firstFrom(early?.registry, async () => {
+				await registry
+					.settle({
+						closing: closingSpacesRef.current,
+						liveSessionKeys: () => liveSpaceSessionKeys(),
+					})
+					.catch((error: unknown) => {
+						log.warn(
+							'Could not settle unfinished spaces',
+							error instanceof Error ? error : undefined,
+						);
+					});
+				return registry.openSpacesAsync();
+			}),
 			readStatus: async (key, sessionKey) =>
 				workspaceStatuses.read(key, sessionKey),
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
@@ -1202,7 +1213,7 @@ export default function App({
 			.run(async signal => {
 				queued?.();
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
-				const registered = await getRegisteredSpacesAsync().catch(() => null);
+				const registered = await registry.openSpacesAsync().catch(() => null);
 				if (signal.aborted) return;
 				if (
 					!shouldAttach(
@@ -2041,7 +2052,7 @@ export default function App({
 					const spaceKey =
 						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
 					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
-					if (spaceKey) await addSpace(spaceKey);
+					if (spaceKey) await registry.add(spaceKey);
 					if (
 						pending.agentProfileName &&
 						idowSkippedAgentOverride(result.stdout)
@@ -2060,14 +2071,14 @@ export default function App({
 					if (!pending.watchlistSource) return;
 					// A stale reservation only delays the next watchlist spawn; it must
 					// not report a workspace that did start as failed.
-					await releaseWatchlistReservation(pending.name).catch(
-						(err: unknown) => {
+					await registry
+						.releaseWatchlistReservation(pending.name)
+						.catch((err: unknown) => {
 							log.warn(
 								`Failed to release watchlist reservation for ${pending.name}`,
 								err instanceof Error ? err : undefined,
 							);
-						},
-					);
+						});
 				})
 				.catch((err: unknown) => {
 					setPendingSession(current => (current === pending ? null : current));
@@ -2102,7 +2113,7 @@ export default function App({
 				// Fetch the registered space set once per poll cycle; the
 				// per-issue spawn guard (watchlistSpawnedRef) handles dedup both
 				// across watchlists and across cycles.
-				const currentSpaceNames = getRegisteredSpaces();
+				const currentSpaceNames = listOpenSpaces(registry);
 
 				for (const {profileName, watchlist} of watchlists) {
 					const {
@@ -2160,7 +2171,7 @@ export default function App({
 						// Capacity is checked under the shared registry lock.
 						const sorted = sortIssuesByCreatedAt(unclaimed);
 						const {reserved, occupied, claimedElsewhere} =
-							await tryReserveWatchlistSlots(
+							await registry.tryReserveWatchlistSlots(
 								sourceId,
 								sorted.map(issue => issue.identifier),
 								max,
@@ -2168,7 +2179,9 @@ export default function App({
 							);
 						if (pollAbort.signal.aborted) {
 							await Promise.all(
-								reserved.map(async key => releaseWatchlistReservation(key)),
+								reserved.map(async key =>
+									registry.releaseWatchlistReservation(key),
+								),
 							);
 							return;
 						}
@@ -2278,10 +2291,12 @@ export default function App({
 					// so the user can retry — otherwise it advertises "closed" while
 					// the inner-socket session is still alive, and post-STA-1416 there
 					// is no `seedFromTmux` reaper to recover from that mismatch.
-					const tornDown = await tearDownSpace(space.name, {
+					const result = await tearDownSpace(space.name, {
+						markClosing: async key => registry.markClosing(key),
+						reopen: async key => registry.reopen(key),
 						killSpaceSessions,
 						async removeSpace(key) {
-							await removeSpace(key);
+							await registry.remove(key);
 							void workspaceRefresh.current?.refreshListOnly();
 						},
 						async cleanup(key) {
@@ -2294,12 +2309,39 @@ export default function App({
 								5000,
 							),
 					});
-					if (!tornDown) {
-						// Kill failed — the space stays open, so stop guarding it or its
+					if (result.outcome === 'mark-failed') {
+						setHeaderWithTimeout(
+							`Could not start closing ${space.name} — try again`,
+							5000,
+						);
+					}
+
+					if (
+						result.outcome === 'kill-failed' ||
+						result.outcome === 'mark-failed'
+					) {
+						// The space stays open, so stop guarding it or its
 						// legitimate reattach would be blocked forever.
 						closingSpacesRef.current.delete(space.name);
 						setAttachmentRevision(revision => revision + 1);
 						return false;
+					}
+
+					if (result.outcome === 'unregister-failed') {
+						// A registry with no record of the close still lists the
+						// space, so the failure is handled as it always was.
+						if (!registry.keepsLifecycle) throw result.error;
+						// The sessions are gone and the space is recorded as
+						// closing, which nothing reattaches to. The next refresh
+						// removes it.
+						log.error(
+							`Closed ${space.name}, but could not remove it from the registry`,
+							result.error instanceof Error ? result.error : undefined,
+						);
+						setHeaderWithTimeout(
+							`Closed ${space.name}; removing it from the registry will be retried`,
+							5000,
+						);
 					}
 
 					const layout = paneLayoutRef.current;
@@ -2341,6 +2383,7 @@ export default function App({
 			setSpaces,
 			repoName,
 			selectedSpaceNow,
+			registry,
 		],
 	);
 

@@ -1,22 +1,12 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
+import {testTmuxState} from '../test/helpers/state.ts';
 import {
 	getActiveSpaceCount,
 	calculateIdealListHeight,
 	calculateLayout,
 	setConfiguredListLines,
 } from './tmux.ts';
-import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
-
-let tempCounter = 0;
-function tempRegistryPath(): string {
-	return path.join(
-		os.tmpdir(),
-		`pappardelle-space-count-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
-	);
-}
 
 // The repository's own configuration must not decide these heights.
 test.beforeEach(() => {
@@ -24,7 +14,6 @@ test.beforeEach(() => {
 });
 
 test.afterEach(() => {
-	resetRegistryPath();
 	setConfiguredListLines(undefined);
 });
 
@@ -33,36 +22,29 @@ test.afterEach(() => {
 // ============================================================================
 
 test.serial('returns 0 when registry is empty', t => {
-	setRegistryPath(tempRegistryPath());
+	testTmuxState(t, {spaces: []});
 	t.is(getActiveSpaceCount(), 0);
 });
 
 test.serial('returns count of registered spaces', t => {
-	const p = tempRegistryPath();
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(p, JSON.stringify(['STA-100', 'STA-200', 'STA-300']));
-	setRegistryPath(p);
+	testTmuxState(t, {spaces: ['STA-100', 'STA-200', 'STA-300']});
 	t.is(getActiveSpaceCount(), 3);
 });
 
 test.serial('returns 1 for a single registered space', t => {
-	const p = tempRegistryPath();
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(p, JSON.stringify(['STA-100']));
-	setRegistryPath(p);
+	testTmuxState(t, {spaces: ['STA-100']});
 	t.is(getActiveSpaceCount(), 1);
 });
 
 test.serial('returns 0 when registry file does not exist', t => {
-	setRegistryPath(path.join(os.tmpdir(), `nonexistent-${Date.now()}.json`));
+	testTmuxState(t);
 	t.is(getActiveSpaceCount(), 0);
 });
 
 test.serial('returns correct count after registry file changes', t => {
-	const p = tempRegistryPath();
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(p, JSON.stringify(['STA-100', 'STA-200']));
-	setRegistryPath(p);
+	const {registryFile} = testTmuxState(t, {spaces: ['STA-100']});
+	t.is(getActiveSpaceCount(), 1);
+	fs.writeFileSync(registryFile, JSON.stringify(['STA-100', 'STA-200']));
 	t.is(getActiveSpaceCount(), 2);
 });
 
@@ -73,17 +55,14 @@ test.serial('returns correct count after registry file changes', t => {
 // reported by users with N>=1 worktrees).
 // ============================================================================
 
-function seedRegistry(spaces: string[]): void {
-	const p = tempRegistryPath();
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(p, JSON.stringify(spaces));
-	setRegistryPath(p);
+function seedRegistry(t: ExecutionContext, spaces: string[]): void {
+	testTmuxState(t, {spaces});
 }
 
 test.serial(
 	'calculateIdealListHeight: 0 registered spaces → height fits 1 row (main only)',
 	t => {
-		seedRegistry([]);
+		seedRegistry(t, []);
 		// 0 registered + 1 main = 1 visible row → ideal height 1+4 = 5
 		t.is(calculateIdealListHeight(), 5);
 	},
@@ -92,7 +71,7 @@ test.serial(
 test.serial(
 	'calculateIdealListHeight: 1 registered space → height fits 2 rows (main + 1)',
 	t => {
-		seedRegistry(['STA-100']);
+		seedRegistry(t, ['STA-100']);
 		// 1 registered + 1 main = 2 visible rows → ideal height 2+4 = 6
 		t.is(calculateIdealListHeight(), 6);
 	},
@@ -101,7 +80,7 @@ test.serial(
 test.serial(
 	'calculateIdealListHeight: 2 registered spaces → height fits 3 rows (main + 2)',
 	t => {
-		seedRegistry(['STA-100', 'STA-200']);
+		seedRegistry(t, ['STA-100', 'STA-200']);
 		// 2 registered + 1 main = 3 visible rows → ideal height 3+4 = 7
 		// Without the main-worktree adjustment this returned 6 and clipped the
 		// bottom row on narrow/mobile layouts — that was the bug.
@@ -112,7 +91,7 @@ test.serial(
 test.serial(
 	'calculateIdealListHeight: 5 registered spaces → height fits 6 rows (main + 5)',
 	t => {
-		seedRegistry(['STA-1', 'STA-2', 'STA-3', 'STA-4', 'STA-5']);
+		seedRegistry(t, ['STA-1', 'STA-2', 'STA-3', 'STA-4', 'STA-5']);
 		// 5 registered + 1 main = 6 visible rows → ideal height 6+4 = 10
 		t.is(calculateIdealListHeight(), 10);
 	},
@@ -121,7 +100,7 @@ test.serial(
 test.serial(
 	'calculateLayout vertical: 2 registered spaces → list pane fits 3 rows on narrow screens',
 	t => {
-		seedRegistry(['STA-100', 'STA-200']);
+		seedRegistry(t, ['STA-100', 'STA-200']);
 		// Narrow screen (40 cols), 30 rows tall — typical mobile terminal.
 		// 2 registered + 1 main = 3 visible rows → listHeight = 7 (3 + 4 chrome).
 		// The 25% proportional cap allows up to floor(29 * 0.25) = 7 rows here,
@@ -135,7 +114,7 @@ test.serial(
 test.serial(
 	'calculateLayout vertical: 0 registered spaces → list pane still fits the main row',
 	t => {
-		seedRegistry([]);
+		seedRegistry(t, []);
 		// 0 registered + 1 main = 1 visible row → listHeight = 5 (1 + 4 chrome)
 		const layout = calculateLayout(40, 30);
 		t.is(layout.direction, 'vertical');
@@ -146,7 +125,7 @@ test.serial(
 test.serial(
 	'calculateIdealListHeight: two-line rows take two terminal rows each',
 	t => {
-		seedRegistry(['STA-100', 'STA-200']);
+		seedRegistry(t, ['STA-100', 'STA-200']);
 		setConfiguredListLines(2);
 		// 2 registered + 1 main = 3 rows of 2 lines → ideal height 6+4 = 10
 		t.is(calculateIdealListHeight(), 10);

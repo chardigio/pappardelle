@@ -190,10 +190,11 @@ import {SendLockTimeout, withSendLock} from './send-lock.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
-	getRegisteredSpaces,
-	isSpaceRegistered,
 	listKnownRepos,
+	listOpenSpaces,
+	type SpaceRegistryDao,
 } from './space-registry.ts';
+import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
 import {
 	getAgentSessionsPath,
@@ -234,6 +235,22 @@ export {
 } from './layout-sizing.ts';
 
 const log = createLogger('tmux');
+
+let stateDaos: StateDaos | undefined;
+
+/**
+ * Give this module the stores its functions read. They are free functions
+ * with long call chains, so the stores are handed over once at startup
+ * instead of through every signature.
+ */
+export function initTmuxState(daos: StateDaos): void {
+	stateDaos = daos;
+}
+
+function registry(): SpaceRegistryDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.registry;
+}
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
 // `pappardelle-{repo}` session and its layout panes stay on the default
@@ -1385,6 +1402,69 @@ const FOCUS_EVENTS_ARGS = ['set-option', '-g', 'focus-events', 'on'];
  *
  * `runner` is exposed for tests only; production uses the spawnSync default.
  */
+/**
+ * This repo's space sessions on the inner socket, with the space each
+ * belongs to. Null when tmux did not answer, which is not the same as none.
+ */
+function innerSpaceSessions(
+	repoName: string | undefined,
+	runner: OuterTmuxRunner,
+	knownRepos: string[],
+): Array<{name: string; key: string}> | null {
+	const agentPrefix = getSessionPrefix('agent', repoName);
+	const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
+	const companionPrefix = getSessionPrefix('companion', repoName);
+	// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Reap that
+	// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
+	// git-UI sessions on the inner socket. Mirrors cleanupOrphanedOuterSessions.
+	const repo = repoName ?? getRepoName();
+	const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
+
+	const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
+
+	const result = runner(['list-sessions', '-F', '#{session_name}']);
+	if (result.error || result.status !== 0) {
+		return null;
+	}
+
+	const sessions: Array<{name: string; key: string}> = [];
+	for (const name of result.stdout.trim().split('\n')) {
+		if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
+		let key: string | null = null;
+		if (name.startsWith(agentPrefix)) {
+			key = fromSessionKey(name.slice(agentPrefix.length));
+		} else if (name.startsWith(legacyAgentPrefix)) {
+			key = fromSessionKey(name.slice(legacyAgentPrefix.length));
+		} else if (name.startsWith(companionPrefix)) {
+			key = fromSessionKey(
+				owningCompanionSession(name).slice(companionPrefix.length),
+			);
+		} else if (name.startsWith(legacyCompanionPrefix)) {
+			key = fromSessionKey(name.slice(legacyCompanionPrefix.length));
+		} else {
+			continue;
+		}
+		if (key === MAIN_WORKTREE_KEY) continue;
+		sessions.push({name, key});
+	}
+
+	return sessions;
+}
+
+/** The spaces of this repo that have a live inner-socket session. */
+export function liveSpaceSessionKeys(
+	repoName?: string,
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+	knownRepos: string[] = listKnownRepos(),
+): Set<string> | null {
+	try {
+		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
+		return sessions && new Set(sessions.map(session => session.key));
+	} catch {
+		return null;
+	}
+}
+
 export function cleanupOrphanedInnerSessions(
 	registeredKeys: Set<string>,
 	repoName?: string,
@@ -1392,43 +1472,12 @@ export function cleanupOrphanedInnerSessions(
 	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
-		const agentPrefix = getSessionPrefix('agent', repoName);
-		const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
-		const companionPrefix = getSessionPrefix('companion', repoName);
-		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Reap that
-		// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
-		// git-UI sessions on the inner socket. Mirrors cleanupOrphanedOuterSessions.
 		const repo = repoName ?? getRepoName();
-		const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
-
-		const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
-
-		const result = runner(['list-sessions', '-F', '#{session_name}']);
-		if (result.error || result.status !== 0) {
-			return 0;
-		}
-
-		const orphans: Array<{name: string; key: string}> = [];
-		for (const name of result.stdout.trim().split('\n')) {
-			if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
-			let key: string | null = null;
-			if (name.startsWith(agentPrefix)) {
-				key = fromSessionKey(name.slice(agentPrefix.length));
-			} else if (name.startsWith(legacyAgentPrefix)) {
-				key = fromSessionKey(name.slice(legacyAgentPrefix.length));
-			} else if (name.startsWith(companionPrefix)) {
-				key = fromSessionKey(
-					owningCompanionSession(name).slice(companionPrefix.length),
-				);
-			} else if (name.startsWith(legacyCompanionPrefix)) {
-				key = fromSessionKey(name.slice(legacyCompanionPrefix.length));
-			} else {
-				continue;
-			}
-			if (key === MAIN_WORKTREE_KEY) continue;
-			if (registeredKeys.has(key)) continue;
-			orphans.push({name, key});
-		}
+		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
+		if (!sessions) return 0;
+		const orphans = sessions.filter(
+			session => !registeredKeys.has(session.key),
+		);
 
 		let killed = 0;
 		const failedKeys = new Set<string>();
@@ -1451,7 +1500,7 @@ export function cleanupOrphanedInnerSessions(
 
 const simulatorCleanup = new QaSimulatorCleanup(
 	undefined,
-	key => !isSpaceRegistered(key),
+	key => !registry().has(key),
 );
 
 export async function deleteQaSimulator(issueKey: string): Promise<boolean> {
@@ -1924,7 +1973,7 @@ function readGeometrySync(paneId: string): WindowGeometry | null {
  * counts even when pappardelle starts after a tmux server kill/reboot.
  */
 export function getActiveSpaceCount(): number {
-	return getRegisteredSpaces().length;
+	return listOpenSpaces(registry()).length;
 }
 
 // ============================================================================

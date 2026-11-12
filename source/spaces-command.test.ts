@@ -11,16 +11,28 @@ import {
 	type SpaceEntry,
 	type SpacesDeps,
 } from './spaces-command.ts';
+import {createStateDaos} from './state-daos.ts';
+import {closeStateDb, stateDbPath} from './state-db.ts';
+import {sqliteRun} from '../test/helpers/state.ts';
 
 const REPO = 'test-repo';
 
 function tempHome(t: {teardown: (fn: () => void) => void}): string {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-spaces-'));
 	t.teardown(() => {
+		closeStateDb(stateDbPath(path.join(home, '.pappardelle')));
 		fs.rmSync(home, {recursive: true, force: true});
 	});
 	return home;
 }
+
+/** The stores a process run with this home directory would read. */
+const stores = (home: string) =>
+	createStateDaos({
+		repo: REPO,
+		stateDir: path.join(home, '.pappardelle'),
+		sqlite: sqliteRun,
+	});
 
 function writeJson(file: string, data: unknown): void {
 	fs.mkdirSync(path.dirname(file), {recursive: true});
@@ -46,6 +58,7 @@ async function gather(
 ): Promise<SpaceEntry[]> {
 	const report = await gatherSpaces({
 		repoName: REPO,
+		registry: stores(home).registry,
 		home,
 		fetchTitles: async () => new Map(),
 		gitSummary: async () => null,
@@ -60,6 +73,7 @@ test('a repo with no open-spaces file reports the error', async t => {
 	t.deepEqual(
 		await gatherSpaces({
 			repoName: REPO,
+			registry: stores(home).registry,
 			home,
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,
