@@ -1,7 +1,6 @@
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
-import {getMainRepoRoot, getRepoName} from './config.ts';
-import {removeProgramSnapshots} from './program-status-monitor.ts';
+import {getMainRepoRoot} from './config.ts';
 import {confirm} from './confirm.ts';
 import {runCloseHooks, type ClosingSpace} from './close-space.ts';
 import {createLogger} from './logger.ts';
@@ -164,7 +163,7 @@ export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {
 			return killSpaceSessions(key);
 		},
 		async cleanup(key) {
-			removeProgramSnapshots(getRepoName(), key);
+			await daos.programStatus.remove(key);
 			return deleteQaSimulator(key);
 		},
 		sessionNames: key => getSessionNames(key),

@@ -1,4 +1,3 @@
-import {existsSync, mkdirSync, watch} from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
 import {
 	mapClaudeStatus,
@@ -6,12 +5,8 @@ import {
 	type ClaudeStatusInfo,
 } from './claude-status.ts';
 import {
-	attachStatusMonitor,
-	programStatusDir,
-	programStatusPath,
-	readProgramSnapshot,
-	statusKeyFromFilename,
 	statusSocket,
+	type ProgramStatusDao,
 	type StatusTmuxRunner,
 	type StatusPane,
 	type ProgramStatusSnapshot,
@@ -78,7 +73,7 @@ export class WorkspaceStatuses {
 	>();
 
 	constructor(
-		private readonly repo: string,
+		private readonly programStatus: ProgramStatusDao,
 		private readonly sessionName: (key: string) => string,
 		private readonly claudeStatus: Pick<ClaudeStatusDao, 'read' | 'watch'>,
 		private readonly run?: StatusTmuxRunner,
@@ -92,13 +87,7 @@ export class WorkspaceStatuses {
 			socket,
 			sessionKey,
 			session,
-			pane: attachStatusMonitor(
-				this.repo,
-				sessionKey,
-				session,
-				socket,
-				this.run,
-			),
+			pane: this.programStatus.attach(sessionKey, session, socket, this.run),
 		};
 		this.panes.set(key, entry);
 		return this.readPane(key, sessionKey, await entry.pane);
@@ -116,16 +105,12 @@ export class WorkspaceStatuses {
 			return this.read(key, sessionKey);
 		const pane = await entry.pane;
 		if (this.panes.get(key) !== entry) return this.readKnown(key);
-		const snapshot = pane
-			? readProgramSnapshot(this.repo, sessionKey, pane)
-			: null;
+		const snapshot = pane ? this.programStatus.read(sessionKey, pane) : null;
 		if (
 			!pane ||
 			!snapshot ||
 			snapshot.exited ||
-			!existsSync(
-				`${programStatusPath(this.repo, sessionKey, pane.generation)}.lease`,
-			)
+			!this.programStatus.monitored(sessionKey, pane.generation)
 		)
 			return this.read(key, sessionKey);
 		const info = await this.readPane(key, sessionKey, pane);
@@ -139,7 +124,7 @@ export class WorkspaceStatuses {
 	): Promise<ProgramStatusInfo | null> {
 		return mergeProgramStatus(
 			await this.claudeStatus.read(key),
-			pane ? readProgramSnapshot(this.repo, sessionKey, pane) : null,
+			pane ? this.programStatus.read(sessionKey, pane) : null,
 			pane,
 		);
 	}
@@ -148,7 +133,6 @@ export class WorkspaceStatuses {
 		callback: (updates: ReadonlyMap<string, ProgramStatusInfo>) => void,
 		relevant: (key: string) => boolean,
 	): () => void {
-		mkdirSync(programStatusDir(this.repo), {recursive: true});
 		const pending = new Set<string>();
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let reading = false;
@@ -186,21 +170,16 @@ export class WorkspaceStatuses {
 			}
 		};
 		const stopHookWatch = this.claudeStatus.watch(queue);
-		const oscWatcher = watch(
-			programStatusDir(this.repo),
-			(_event, filename) => {
-				if (!filename) return;
-				const snapshotKey = statusKeyFromFilename(filename);
-				for (const [key, sessionKey] of this.sessionKeys)
-					if (sessionKey === snapshotKey) queue(key);
-			},
-		);
+		const stopSnapshotWatch = this.programStatus.watch(snapshotKey => {
+			for (const [key, sessionKey] of this.sessionKeys)
+				if (sessionKey === snapshotKey) queue(key);
+		});
 		return () => {
 			stopped = true;
 			clearTimeout(timer);
 			pending.clear();
 			stopHookWatch();
-			oscWatcher.close();
+			stopSnapshotWatch();
 		};
 	}
 }

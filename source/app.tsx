@@ -35,11 +35,7 @@ import {
 	installedLaunchCommand,
 	restartOwnTui,
 } from './tui-sessions.ts';
-import {
-	DEFAULT_REPO_STATE_ROOT,
-	clearDeadRestartLock,
-	writeTuiMarker,
-} from './tui-marker.ts';
+import {DEFAULT_REPO_STATE_ROOT, clearDeadRestartLock} from './tui-marker.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -84,7 +80,6 @@ import {
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {getSessionNames} from './tmux.ts';
-import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -316,6 +311,8 @@ export default function App({
 		agentSessions,
 		companionWidths,
 		companionRequests,
+		programStatus,
+		tuiMarker,
 	} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
@@ -362,11 +359,11 @@ export default function App({
 	const workspaceStatuses = useMemo(
 		() =>
 			new WorkspaceStatuses(
-				repoName,
+				programStatus,
 				key => getSessionNames(key, repoName).agent,
 				claudeStatus,
 			),
-		[repoName, claudeStatus],
+		[programStatus, repoName, claudeStatus],
 	);
 	statusKeysRef.current = useMemo(
 		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
@@ -694,22 +691,22 @@ export default function App({
 	useEffect(() => {
 		const paneId = process.env['TMUX_PANE'];
 		if (!initialPaneLayout || !paneId || !backgroundReady) return;
-		try {
-			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
-			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
+		clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
+		void tuiMarker
+			.write({
 				pid: process.pid,
 				cliPath: cliFilePath(),
 				sha: commitSha,
 				paneId,
 				startedAt: Date.now(),
+			})
+			.catch((error: unknown) => {
+				log.warn(
+					'Failed to write the TUI ready marker',
+					error instanceof Error ? error : undefined,
+				);
 			});
-		} catch (error) {
-			log.warn(
-				'Failed to write the TUI ready marker',
-				error instanceof Error ? error : undefined,
-			);
-		}
-	}, [initialPaneLayout, repoName, commitSha, backgroundReady]);
+	}, [initialPaneLayout, repoName, commitSha, backgroundReady, tuiMarker]);
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
@@ -2299,7 +2296,7 @@ export default function App({
 							void workspaceRefresh.current?.refreshListOnly();
 						},
 						async cleanup(key) {
-							removeProgramSnapshots(repoName, key);
+							await programStatus.remove(key);
 							return deleteQaSimulator(key);
 						},
 						onKillFailure: key =>

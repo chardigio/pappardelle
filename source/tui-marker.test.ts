@@ -1,16 +1,21 @@
+import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {promisify} from 'node:util';
 import test from 'ava';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState} from '../test/helpers/state.ts';
 import {
 	clearDeadRestartLock,
 	isTuiDead,
-	readTuiMarker,
 	restartLockPath,
 	tryRestartLock,
 	tuiMarkerPath,
-	writeTuiMarker,
 } from './tui-marker.ts';
+
+const exec = promisify(execFile);
+const daosUrl = new URL('state-daos.ts', import.meta.url).href;
 
 function root(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), 'tui-marker-test-'));
@@ -24,34 +29,104 @@ const marker = {
 	startedAt: 1_700_000_000_000,
 };
 
-test('a written marker reads back, creating the repo state dir', t => {
-	const dir = root();
+const markerFile = (stateDir: string) =>
+	tuiMarkerPath(path.join(stateDir, 'repos'), 'repo');
 
-	writeTuiMarker(dir, 'app', marker);
+contractTest(
+	'a written marker reads back, and the later of two replaces the first',
+	async (t, state) => {
+		const {tuiMarker} = state.daos;
+		t.is(tuiMarker.read(), null);
 
-	t.deepEqual(readTuiMarker(dir, 'app'), marker);
-	t.deepEqual(fs.readdirSync(path.join(dir, 'app')), ['tui.json']);
+		await tuiMarker.write(marker);
+		t.deepEqual(tuiMarker.read(), marker);
+
+		const restarted = {
+			...marker,
+			pid: 4343,
+			sha: 'def5678',
+			startedAt: 1_700_000_005_000,
+		};
+		await tuiMarker.write(restarted);
+		t.deepEqual(tuiMarker.read(), restarted);
+		t.deepEqual(fs.readdirSync(path.dirname(markerFile(state.stateDir))), [
+			'tui.json',
+		]);
+	},
+);
+
+contractTest(
+	'a TUI is dead once the pid in its marker has exited',
+	async (t, state) => {
+		const {tuiMarker} = state.daos;
+		t.false(isTuiDead(tuiMarker, () => false));
+
+		await tuiMarker.write(marker);
+		t.false(isTuiDead(tuiMarker, pid => pid === 4242));
+		t.true(isTuiDead(tuiMarker, () => false));
+	},
+);
+
+contractTest(
+	'a marker file written by hand is read, and a truncated, incomplete or removed one reads as none',
+	async (t, state) => {
+		const {tuiMarker} = state.daos;
+		const file = markerFile(state.stateDir);
+		await tuiMarker.write(marker);
+
+		const byHand = {...marker, pid: 77, paneId: '%9'};
+		fs.writeFileSync(file, JSON.stringify(byHand));
+		t.deepEqual(tuiMarker.read(), byHand);
+
+		fs.writeFileSync(file, '{"pid": 42');
+		t.is(tuiMarker.read(), null);
+
+		fs.writeFileSync(file, JSON.stringify({pid: 42}));
+		t.is(tuiMarker.read(), null);
+
+		fs.writeFileSync(file, JSON.stringify(byHand));
+		fs.rmSync(file);
+		t.is(tuiMarker.read(), null);
+	},
+);
+
+contractTest("one repo's marker is not another's", async (t, state) => {
+	await state.daos.tuiMarker.write(marker);
+	const other = testState(t, {repo: 'other', sqlite: state.sqlite});
+	t.is(other.daos.tuiMarker.read(), null);
 });
 
-test('a TUI is dead once the pid in its marker has exited', t => {
-	const dir = root();
-	t.false(isTuiDead(dir, 'app', () => false));
+// `pappardelle restart` waits in one process for the marker the TUI writes
+// in another.
+for (const sqlite of [false, true]) {
+	test(`${sqlite ? 'sqlite' : 'json'}: a marker written by another process is read here`, async t => {
+		const state = testState(t, {sqlite});
+		await exec(
+			process.execPath,
+			[
+				'--input-type=module',
+				'-e',
+				`
+import {createStateDaos} from ${JSON.stringify(daosUrl)};
+await createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}, sqlite: ${sqlite}}).tuiMarker.write(${JSON.stringify(marker)});
+`,
+			],
+			{timeout: 30_000},
+		);
+		t.deepEqual(state.daos.tuiMarker.read(), marker);
+	});
+}
 
-	writeTuiMarker(dir, 'app', marker);
-	t.false(isTuiDead(dir, 'app', pid => pid === 4242));
-	t.true(isTuiDead(dir, 'app', () => false));
-});
+test('the two stores leave the same marker file', async t => {
+	const files = [];
+	for (const sqlite of [false, true]) {
+		const state = testState(t, {sqlite});
+		await state.daos.tuiMarker.write(marker);
+		files.push(fs.readFileSync(markerFile(state.stateDir), 'utf8'));
+	}
 
-test('a missing, truncated or incomplete marker reads as none', t => {
-	const dir = root();
-	t.is(readTuiMarker(dir, 'app'), null);
-
-	fs.mkdirSync(path.join(dir, 'app'));
-	fs.writeFileSync(tuiMarkerPath(dir, 'app'), '{"pid": 42');
-	t.is(readTuiMarker(dir, 'app'), null);
-
-	fs.writeFileSync(tuiMarkerPath(dir, 'app'), JSON.stringify({pid: 42}));
-	t.is(readTuiMarker(dir, 'app'), null);
+	t.is(files[0], files[1]);
+	t.is(files[0], JSON.stringify(marker) + '\n');
 });
 
 test('the restart lock is exclusive until released', t => {

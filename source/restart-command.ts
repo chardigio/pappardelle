@@ -24,7 +24,8 @@ import {
 	tuiLaunchCommand,
 	tuiListPane,
 } from './tui-sessions.ts';
-import {DEFAULT_REPO_STATE_ROOT, readTuiMarker} from './tui-marker.ts';
+import {stateDaosByRepo} from './state-daos.ts';
+import {DEFAULT_REPO_STATE_ROOT, type TuiMarkerDao} from './tui-marker.ts';
 import {confirm} from './confirm.ts';
 
 // `pappardelle restart` reruns this repo's TUI in its pane, on the build that
@@ -37,6 +38,7 @@ export type RestartCommandDeps = {
 	tmux: OuterTmuxRunner;
 	innerTmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	tuiMarker: (repo: string) => Pick<TuiMarkerDao, 'read'>;
 	launchCommand: string;
 	cliPath: string;
 	timing?: Partial<RestartTiming>;
@@ -111,7 +113,7 @@ export async function hardRestart(
 			const pane = tuiListPane(
 				tui.session,
 				deps.tmux,
-				readTuiMarker(deps.repoStateRoot, tui.repo)?.paneId,
+				deps.tuiMarker(tui.repo).read()?.paneId,
 			);
 			if (pane.ok) {
 				restarts.push(restartTuiArgs(pane.paneId, deps.launchCommand));
@@ -137,10 +139,13 @@ export async function hardRestart(
 
 export function defaultRestartCommandDeps(): RestartCommandDeps {
 	const cliPath = cliFilePath();
+	// A hard restart reaches every repo's TUI, from any directory.
+	const daosFor = stateDaosByRepo();
 	return {
 		tmux: defaultServerTmuxRunner,
 		innerTmux: defaultInnerTmuxRunner,
 		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+		tuiMarker: repo => daosFor(repo).tuiMarker,
 		launchCommand: tuiLaunchCommand({
 			execPath: process.execPath,
 			cliPath,

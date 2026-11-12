@@ -36,6 +36,12 @@ import {
 } from './pr-link-stamp.ts';
 import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
 import {
+	JsonProgramStatusDao,
+	programStatusDir,
+	type ProgramStatusDao,
+} from './program-status-monitor.ts';
+import {SqliteProgramStatusDao} from './program-status-sqlite.ts';
+import {
 	getStateColorsPath,
 	JsonStateColorDao,
 	migrateLegacyStateColors,
@@ -64,8 +70,25 @@ import {
 	type SpaceStateDao,
 } from './space-state.ts';
 import {SqliteSpaceStateDao} from './space-state-sqlite.ts';
-import {DEFAULT_STATE_DIR, openStateDb, stateDbPath} from './state-db.ts';
+import {
+	checkpointOutsideWrites,
+	DEFAULT_STATE_DIR,
+	openStateDb,
+	stateDbPath,
+} from './state-db.ts';
 import {sqliteStateOverride} from './state-flag.ts';
+import {
+	JsonTuiMarkerDao,
+	tuiMarkerPath,
+	type TuiMarkerDao,
+} from './tui-marker.ts';
+import {SqliteTuiMarkerDao} from './tui-marker-sqlite.ts';
+import {
+	JsonUpdateCheckDao,
+	updateCheckPath,
+	type UpdateCheckDao,
+} from './update-check.ts';
+import {SqliteUpdateCheckDao} from './update-check-sqlite.ts';
 
 export type StateDaos = {
 	registry: SpaceRegistryDao;
@@ -79,6 +102,14 @@ export type StateDaos = {
 	companionRequests: CompanionRequestDao;
 	schedules: ScheduleDao;
 	prLinkStamp: PrLinkStampDao;
+	programStatus: ProgramStatusDao;
+	tuiMarker: TuiMarkerDao;
+	updateCheck: UpdateCheckDao;
+	/**
+	 * Keep checkpoints of the state database out of this process's writes.
+	 * For the process that renders the TUI.
+	 */
+	deferCheckpoints(): void;
 };
 
 export type StateDaoOptions = {
@@ -142,6 +173,14 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		prLinkStampPath(stateDir),
 		clock,
 	);
+	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
+	const jsonProgramStatus = new JsonProgramStatusDao(
+		repo,
+		programStatusDir(repo, stateDir),
+		dbPath,
+	);
+	const tuiMarkerFile = tuiMarkerPath(path.join(stateDir, 'repos'), repo);
+	const updateCheckFile = updateCheckPath(stateDir);
 	if (!(options.sqlite ?? sqliteStateEnabled())) {
 		return {
 			registry: jsonRegistry,
@@ -155,11 +194,21 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			companionRequests: jsonCompanionRequests,
 			schedules: jsonSchedules,
 			prLinkStamp: jsonPrLinkStamp,
+			programStatus: jsonProgramStatus,
+			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
+			updateCheck: new JsonUpdateCheckDao(updateCheckFile),
+			deferCheckpoints() {},
 		};
 	}
 
-	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
-	const openDb = () => openStateDb(dbPath);
+	// Applied when a store first opens the connection, so that asking for it
+	// does not open a database nothing has used yet.
+	let checkpointsDeferred = false;
+	const openDb = () => {
+		const state = openStateDb(dbPath);
+		if (checkpointsDeferred) checkpointOutsideWrites(state);
+		return state;
+	};
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
 		claudeStatus: new SqliteClaudeStatusDao(openDb, jsonClaudeStatus),
@@ -180,6 +229,12 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		),
 		schedules: new SqliteScheduleDao(openDb, repo, jsonSchedules),
 		prLinkStamp: new SqlitePrLinkStampDao(openDb, jsonPrLinkStamp, clock),
+		programStatus: new SqliteProgramStatusDao(openDb, jsonProgramStatus),
+		tuiMarker: new SqliteTuiMarkerDao(openDb, repo, tuiMarkerFile),
+		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckFile),
+		deferCheckpoints() {
+			checkpointsDeferred = true;
+		},
 	};
 }
 

@@ -12,7 +12,11 @@ import {
 } from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
 import type {PaneLayout} from './types.ts';
-import {readTuiMarker, tryRestartLock, type TuiMarker} from './tui-marker.ts';
+import {
+	tryRestartLock,
+	type TuiMarker,
+	type TuiMarkerDao,
+} from './tui-marker.ts';
 
 // The TUI session is created with the repo's own spelling, which tmux 3.6 and
 // older store as tmuxSessionRepo's.
@@ -180,6 +184,8 @@ const DEFAULT_RESTART_TIMING: RestartTiming = {
 export type RestartTuiDeps = {
 	tmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	/** The ready marker of a repo's TUI. */
+	tuiMarker: (repo: string) => Pick<TuiMarkerDao, 'read'>;
 	print: (line: string) => void;
 	timing?: Partial<RestartTiming>;
 };
@@ -196,7 +202,7 @@ async function waitForTuiMarker(
 ): Promise<Ready> {
 	const deadline = Date.now() + timing.readyTimeoutMs;
 	for (;;) {
-		const marker = readTuiMarker(deps.repoStateRoot, repo);
+		const marker = deps.tuiMarker(repo).read();
 		if (marker && marker.paneId === paneId && marker.startedAt >= since) {
 			return {status: 'ready', marker};
 		}
@@ -244,7 +250,7 @@ export async function restartAndVerifyTui(
 		const pane = tuiListPane(
 			tui.session,
 			deps.tmux,
-			readTuiMarker(deps.repoStateRoot, tui.repo)?.paneId,
+			deps.tuiMarker(tui.repo).read()?.paneId,
 		);
 		const restarted = pane.ok
 			? restartPane(pane.paneId, command, deps.tmux)
@@ -371,7 +377,7 @@ export type CloseLayoutDeps = {
 	splitPanes: () => string[];
 };
 
-export type RestartOwnTuiDeps = RestartTuiDeps &
+export type RestartOwnTuiDeps = Omit<RestartTuiDeps, 'tuiMarker'> &
 	CloseLayoutDeps & {
 		waitForKey: () => void;
 		sleep?: (ms: number) => void;

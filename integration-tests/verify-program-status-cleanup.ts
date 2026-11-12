@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
@@ -9,9 +10,7 @@ import {
 } from '../source/close-command.ts';
 import {getRepoName} from '../source/config.ts';
 import {
-	attachStatusMonitor,
 	programStatusPath,
-	readProgramSnapshot,
 	statusTmuxArgs,
 } from '../source/program-status-monitor.ts';
 import {listOpenSpaces} from '../source/space-registry.ts';
@@ -43,8 +42,16 @@ try {
 	process.env['PATH'] = `${bin}:${originalPath ?? ''}`;
 	const repo = getRepoName();
 	const sentinelFiles = [
-		programStatusPath(repo, 'qa-cleanup-normal-sibling', 'a'.repeat(32)),
-		programStatusPath(`${repo}-other`, 'qa-cleanup-normal', 'b'.repeat(32)),
+		programStatusPath(
+			harness.statusDir(repo),
+			'qa-cleanup-normal-sibling',
+			'a'.repeat(32),
+		),
+		programStatusPath(
+			harness.statusDir(`${repo}-other`),
+			'qa-cleanup-normal',
+			'b'.repeat(32),
+		),
 	];
 	for (const file of sentinelFiles) {
 		mkdirSync(path.dirname(file), {recursive: true});
@@ -64,15 +71,19 @@ try {
 			harness.root,
 			'/bin/bash',
 		]);
-		const pane = await attachStatusMonitor(repo, key, session);
+		const pane = await daos.programStatus.attach(key, session);
 		assert.ok(pane);
 		await harness.fixture(session);
 		await until(
-			() => readProgramSnapshot(repo, key, pane),
+			() => daos.programStatus.read(key, pane),
 			value => value?.info.status === 'idle',
 			`${mode} recorded idle report`,
 		);
-		const target = programStatusPath(repo, key, pane.generation);
+		const target = programStatusPath(
+			harness.statusDir(repo),
+			key,
+			pane.generation,
+		);
 		assert.ok(readFileSync(target, 'utf8').includes('fixture'));
 		if (mode === 'orphan') {
 			assert.equal(
@@ -108,7 +119,13 @@ try {
 			retained => !retained,
 			`${mode} in-flight publisher removes its snapshot`,
 		);
-		const retained = existsSync(target) || existsSync(`${target}.lease`);
+		// The publisher's rename and its removal are two steps, so its file can
+		// appear for a moment after it was first seen gone.
+		await delay(300);
+		const retained =
+			existsSync(target) ||
+			existsSync(`${target}.lease`) ||
+			harness.snapshotRows(repo, key) > 0;
 		if (retained) findings.push(mode);
 		console.log(
 			`${retained ? 'FAIL' : 'PASS'} ${mode} close removes snapshot and lease`,
@@ -126,15 +143,19 @@ try {
 	const sessions = getSessionNames(key, repo);
 	for (const session of [sessions.agent, sessions.companion])
 		await harness.tmux(['new-session', '-d', '-s', session, '/bin/bash']);
-	const pane = await attachStatusMonitor(repo, key, sessions.agent);
+	const pane = await daos.programStatus.attach(key, sessions.agent);
 	assert.ok(pane);
 	await harness.fixture(sessions.agent);
 	await until(
-		() => readProgramSnapshot(repo, key, pane),
+		() => daos.programStatus.read(key, pane),
 		value => value?.info.status === 'idle',
 		'failed close recorded idle report',
 	);
-	const target = programStatusPath(repo, key, pane.generation);
+	const target = programStatusPath(
+		harness.statusDir(repo),
+		key,
+		pane.generation,
+	);
 	assert.equal(
 		cleanupOrphanedInnerSessions(
 			new Set(),
@@ -164,7 +185,7 @@ try {
 	assert.equal(cleanupOrphanedInnerSessions(new Set(), repo, undefined, []), 1);
 	assert.ok(!existsSync(`${target}.lease`));
 	await until(
-		() => existsSync(target),
+		() => existsSync(target) || harness.snapshotRows(repo, key) > 0,
 		retained => !retained,
 		'retried orphan cleanup removes its snapshot',
 	);

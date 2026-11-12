@@ -1,8 +1,10 @@
-import test from 'ava';
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
+import test, {type ExecutionContext} from 'ava';
+import fs, {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir, homedir} from 'node:os';
 import path from 'node:path';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState} from '../test/helpers/state.ts';
 import {
 	parseSemver,
 	compareSemver,
@@ -10,12 +12,11 @@ import {
 	readInstalledVersionFromGit,
 	resolveInstalledVersion,
 	resolveDisplayVersion,
-	readCachedCheck,
-	writeCachedCheck,
 	isLocalMode,
 	checkForUpdate,
 	safeCheckForUpdate,
 	type CacheEntry,
+	type UpdateCheckDao,
 } from './update-check.ts';
 
 function initRepoWithTag(dir: string, tag: string | null): void {
@@ -328,61 +329,76 @@ test.serial(
 // Cache IO
 // ============================================================================
 
-test('writeCachedCheck then readCachedCheck round-trips', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
-	const cachePath = path.join(dir, 'update-check.json');
-	const entry: CacheEntry = {
+contractTest(
+	'a cached check reads back, and a later one replaces it',
+	async (t, state) => {
+		const {updateCheck} = state.daos;
+		t.is(updateCheck.read(), null);
+
+		const entry: CacheEntry = {
+			checkedAt: 1_700_000_000_000,
+			latestVersion: '0.2.0',
+		};
+		await updateCheck.write(entry);
+		t.deepEqual(updateCheck.read(), entry);
+
+		const later = {checkedAt: 1_700_000_100_000, latestVersion: '0.3.0'};
+		await updateCheck.write(later);
+		t.deepEqual(updateCheck.read(), later);
+	},
+);
+
+// The benchmarks and the compiled-binary tests write the file before they
+// start Pappardelle, so that it makes no network call.
+contractTest(
+	'a cache file written before Pappardelle starts is honored',
+	(t, state) => {
+		const seeded = {checkedAt: 1_700_000_000_000, latestVersion: 'v0.0.0'};
+		fs.writeFileSync(
+			path.join(state.stateDir, 'update-check.json'),
+			JSON.stringify(seeded),
+		);
+		t.deepEqual(state.daos.updateCheck.read(), seeded);
+	},
+);
+
+contractTest(
+	'a cache file that is malformed, incomplete or removed reads as nothing cached',
+	async (t, state) => {
+		const {updateCheck} = state.daos;
+		const file = path.join(state.stateDir, 'update-check.json');
+		await updateCheck.write({checkedAt: 1, latestVersion: '0.2.0'});
+
+		fs.writeFileSync(file, 'not json');
+		t.is(updateCheck.read(), null);
+
+		fs.writeFileSync(file, JSON.stringify({checkedAt: 123}));
+		t.is(updateCheck.read(), null);
+
+		await updateCheck.write({checkedAt: 2, latestVersion: '0.2.0'});
+		fs.rmSync(file);
+		t.is(updateCheck.read(), null);
+	},
+);
+
+test('the two stores leave the same cache file', async t => {
+	const files = [];
+	for (const sqlite of [false, true]) {
+		const state = testState(t, {sqlite});
+		await state.daos.updateCheck.write({
+			checkedAt: 1_700_000_000_000,
+			latestVersion: '0.2.0',
+		});
+		files.push(
+			fs.readFileSync(path.join(state.stateDir, 'update-check.json'), 'utf8'),
+		);
+	}
+
+	t.is(files[0], files[1]);
+	t.deepEqual(JSON.parse(files[0]!), {
 		checkedAt: 1_700_000_000_000,
 		latestVersion: '0.2.0',
-	};
-	try {
-		writeCachedCheck(cachePath, entry);
-		const read = readCachedCheck(cachePath);
-		t.deepEqual(read, entry);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
-});
-
-test('readCachedCheck returns null when file missing', t => {
-	t.is(readCachedCheck('/definitely/does/not/exist/cache.json'), null);
-});
-
-test('readCachedCheck returns null on malformed JSON', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
-	const cachePath = path.join(dir, 'update-check.json');
-	writeFileSync(cachePath, 'not json');
-	try {
-		t.is(readCachedCheck(cachePath), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
-});
-
-test('readCachedCheck returns null when fields missing', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
-	const cachePath = path.join(dir, 'update-check.json');
-	writeFileSync(cachePath, JSON.stringify({checkedAt: 123}));
-	try {
-		t.is(readCachedCheck(cachePath), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
-});
-
-test('writeCachedCheck creates parent directory if missing', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
-	const cachePath = path.join(dir, 'nested', 'dir', 'update-check.json');
-	const entry: CacheEntry = {
-		checkedAt: 1_700_000_000_000,
-		latestVersion: '0.2.0',
-	};
-	try {
-		writeCachedCheck(cachePath, entry);
-		t.deepEqual(readCachedCheck(cachePath), entry);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	});
 });
 
 // ============================================================================
@@ -410,9 +426,12 @@ test('isLocalMode: false for a subdir of the installed location', t => {
 // checkForUpdate orchestration (no network — uses a fresh cache to avoid it)
 // ============================================================================
 
-function setupFakeInstall(installed: string): {
+function setupFakeInstall(
+	t: ExecutionContext,
+	installed: string,
+): {
 	projectDir: string;
-	cachePath: string;
+	cache: UpdateCheckDao;
 	cleanup: () => void;
 } {
 	// Build a fake installed tree under ~/.pappardelle/repo/ so LOCAL_MODE
@@ -434,10 +453,9 @@ function setupFakeInstall(installed: string): {
 		path.join(dir, 'package.json'),
 		JSON.stringify({name: 'pappardelle', version: installed}),
 	);
-	const cachePath = path.join(dir, 'cache.json');
 	return {
 		projectDir: dir,
-		cachePath,
+		cache: testState(t).daos.updateCheck,
 		cleanup: () => rmSync(dir, {recursive: true, force: true}),
 	};
 }
@@ -451,7 +469,7 @@ test('checkForUpdate: returns null when LOCAL_MODE', async t => {
 	try {
 		const result = await checkForUpdate({
 			projectDir: dir,
-			cachePath: path.join(dir, 'cache.json'),
+			cache: testState(t).daos.updateCheck,
 		});
 		t.is(result, null);
 	} finally {
@@ -462,15 +480,15 @@ test('checkForUpdate: returns null when LOCAL_MODE', async t => {
 test.serial(
 	'checkForUpdate: returns null when cache says we are up to date',
 	async t => {
-		const fake = setupFakeInstall('0.1.0');
+		const fake = setupFakeInstall(t, '0.1.0');
 		try {
-			writeCachedCheck(fake.cachePath, {
+			await fake.cache.write({
 				checkedAt: Date.now(),
 				latestVersion: '0.1.0',
 			});
 			const result = await checkForUpdate({
 				projectDir: fake.projectDir,
-				cachePath: fake.cachePath,
+				cache: fake.cache,
 			});
 			t.is(result, null);
 		} finally {
@@ -482,15 +500,15 @@ test.serial(
 test.serial(
 	'checkForUpdate: surfaces update when cache shows a newer version',
 	async t => {
-		const fake = setupFakeInstall('0.1.0');
+		const fake = setupFakeInstall(t, '0.1.0');
 		try {
-			writeCachedCheck(fake.cachePath, {
+			await fake.cache.write({
 				checkedAt: Date.now(),
 				latestVersion: 'v0.2.0',
 			});
 			const result = await checkForUpdate({
 				projectDir: fake.projectDir,
-				cachePath: fake.cachePath,
+				cache: fake.cache,
 			});
 			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
 		} finally {
@@ -503,15 +521,15 @@ test.serial(
 	'checkForUpdate: returns null when installed version is newer than cached',
 	async t => {
 		// Can happen if you manually bump package.json locally.
-		const fake = setupFakeInstall('0.3.0');
+		const fake = setupFakeInstall(t, '0.3.0');
 		try {
-			writeCachedCheck(fake.cachePath, {
+			await fake.cache.write({
 				checkedAt: Date.now(),
 				latestVersion: '0.2.0',
 			});
 			const result = await checkForUpdate({
 				projectDir: fake.projectDir,
-				cachePath: fake.cachePath,
+				cache: fake.cache,
 			});
 			t.is(result, null);
 		} finally {
@@ -523,11 +541,11 @@ test.serial(
 test.serial(
 	'checkForUpdate: bypasses stale cache, calls fetchLatest, and rewrites the cache',
 	async t => {
-		const fake = setupFakeInstall('0.1.0');
+		const fake = setupFakeInstall(t, '0.1.0');
 		try {
 			const now = 1_800_000_000_000;
 			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-			writeCachedCheck(fake.cachePath, {
+			await fake.cache.write({
 				checkedAt: now - STALE_TTL_MS,
 				latestVersion: 'v0.1.0',
 			});
@@ -535,7 +553,7 @@ test.serial(
 			let fetchCalls = 0;
 			const result = await checkForUpdate({
 				projectDir: fake.projectDir,
-				cachePath: fake.cachePath,
+				cache: fake.cache,
 				now,
 				async fetchLatest() {
 					fetchCalls += 1;
@@ -546,7 +564,7 @@ test.serial(
 			t.is(fetchCalls, 1, 'stub should be called exactly once');
 			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
 
-			const refreshed = readCachedCheck(fake.cachePath);
+			const refreshed = fake.cache.read();
 			t.deepEqual(
 				refreshed,
 				{checkedAt: now, latestVersion: 'v0.5.0'},
@@ -561,7 +579,7 @@ test.serial(
 test.serial(
 	'checkForUpdate: stale cache + fetchLatest returning null does not corrupt the cache',
 	async t => {
-		const fake = setupFakeInstall('0.1.0');
+		const fake = setupFakeInstall(t, '0.1.0');
 		try {
 			const now = 1_800_000_000_000;
 			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
@@ -569,11 +587,11 @@ test.serial(
 				checkedAt: now - STALE_TTL_MS,
 				latestVersion: 'v0.1.0',
 			};
-			writeCachedCheck(fake.cachePath, staleEntry);
+			await fake.cache.write(staleEntry);
 
 			const result = await checkForUpdate({
 				projectDir: fake.projectDir,
-				cachePath: fake.cachePath,
+				cache: fake.cache,
 				now,
 				async fetchLatest() {
 					return null;
@@ -582,7 +600,7 @@ test.serial(
 
 			t.is(result, null);
 			t.deepEqual(
-				readCachedCheck(fake.cachePath),
+				fake.cache.read(),
 				staleEntry,
 				'cache must not be overwritten when fetchLatest yields null',
 			);
@@ -603,7 +621,10 @@ test('safeCheckForUpdate: resolves to null for LOCAL_MODE', async t => {
 		JSON.stringify({version: '0.1.0'}),
 	);
 	try {
-		const result = await safeCheckForUpdate({projectDir: dir});
+		const result = await safeCheckForUpdate({
+			projectDir: dir,
+			cache: testState(t).daos.updateCheck,
+		});
 		t.is(result, null);
 	} finally {
 		rmSync(dir, {recursive: true, force: true});
@@ -613,13 +634,13 @@ test('safeCheckForUpdate: resolves to null for LOCAL_MODE', async t => {
 test.serial(
 	'safeCheckForUpdate: swallows a throwing fetchLatest and resolves to null',
 	async t => {
-		const fake = setupFakeInstall('0.1.0');
+		const fake = setupFakeInstall(t, '0.1.0');
 		try {
 			const now = 1_800_000_000_000;
 			// No cache written — orchestrator will go straight to fetchLatest.
 			const result = await safeCheckForUpdate({
 				projectDir: fake.projectDir,
-				cachePath: fake.cachePath,
+				cache: fake.cache,
 				now,
 				async fetchLatest() {
 					throw new Error('boom');

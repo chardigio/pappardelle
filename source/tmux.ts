@@ -209,10 +209,9 @@ import {
 } from './layout-sizing.ts';
 import {nextSizeOverride, type WindowSize} from './pane-drag.ts';
 import {
-	attachStatusMonitor,
-	removeProgramSnapshots,
 	statusSocket,
 	statusTmuxArgs,
+	type ProgramStatusDao,
 } from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
@@ -255,6 +254,11 @@ function spaceState(): SpaceStateDao {
 function agentSessions(): AgentSessionsDao {
 	if (!stateDaos) throw new Error('initTmuxState() was not called');
 	return stateDaos.agentSessions;
+}
+
+function programStatus(): ProgramStatusDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.programStatus;
 }
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
@@ -1477,7 +1481,6 @@ export function cleanupOrphanedInnerSessions(
 	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
-		const repo = repoName ?? getRepoName();
 		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
 		if (!sessions) return 0;
 		const orphans = sessions.filter(
@@ -1496,7 +1499,7 @@ export function cleanupOrphanedInnerSessions(
 			}
 		}
 		for (const key of new Set(orphans.map(orphan => orphan.key)))
-			if (!failedKeys.has(key)) removeProgramSnapshots(repo, key);
+			if (!failedKeys.has(key)) void programStatus().remove(key);
 		return killed;
 	} catch {
 		return 0;
@@ -3814,8 +3817,7 @@ async function attachStartupMonitor(
 ): Promise<void> {
 	const done = startupTrace.current?.begin('monitor-ready');
 	try {
-		const pane = await attachStatusMonitor(
-			getRepoName(),
+		const pane = await programStatus().attach(
 			issueKey,
 			session,
 			statusSocket(),

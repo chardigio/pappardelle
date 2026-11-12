@@ -10,9 +10,9 @@ import {
 	readdirSync,
 	renameSync,
 	rmSync,
+	watch,
 	writeFileSync,
 } from 'node:fs';
-import {homedir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual, promisify} from 'node:util';
@@ -23,6 +23,7 @@ import {
 	type ProgramReport,
 	type ProgramStatusInfo,
 } from './program-status.ts';
+import {waitForDirChange} from './file-watch.ts';
 import {createLogger} from './logger.ts';
 
 const execute = promisify(execFile);
@@ -56,22 +57,23 @@ export function shellQuoteStatus(value: string): string {
 function segment(value: string): string {
 	return encodeURIComponent(value).replaceAll('.', '%2E');
 }
-export function programStatusDir(repo: string): string {
+/**
+ * Where a repo's snapshots and leases are kept.
+ * PAPPARDELLE_PROGRAM_STATUS_DIR moves them for a test or a timer service.
+ */
+export function programStatusDir(repo: string, stateDir: string): string {
 	return path.join(
 		process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'] ??
-			path.join(homedir(), '.pappardelle', 'program-status'),
+			path.join(stateDir, 'program-status'),
 		segment(repo),
 	);
 }
 export function programStatusPath(
-	repo: string,
+	dir: string,
 	key: string,
 	generation: string,
 ): string {
-	return path.join(
-		programStatusDir(repo),
-		`${segment(key)}--${generation}.json`,
-	);
+	return path.join(dir, `${segment(key)}--${generation}.json`);
 }
 export function statusKeyFromFilename(filename: string): string | undefined {
 	const match = /^(.*)--[a-f\d]{32}\.json$/.exec(filename);
@@ -124,15 +126,18 @@ export interface ProgramStatusSnapshot {
 	info: ProgramStatusInfo;
 }
 
-export function readProgramSnapshot(
+/**
+ * What `load` returns when it is a snapshot `pane`'s monitor could have
+ * written for this space, with the status a dead pane leaves behind.
+ */
+export function checkedProgramSnapshot(
+	load: () => ProgramStatusSnapshot,
 	repo: string,
 	key: string,
 	pane: StatusPane,
 ): ProgramStatusSnapshot | null {
 	try {
-		const value: ProgramStatusSnapshot = JSON.parse(
-			readFileSync(programStatusPath(repo, key, pane.generation), 'utf8'),
-		);
+		const value = load();
 		if (
 			value.version !== 1 ||
 			value.repo !== repo ||
@@ -189,13 +194,53 @@ function monitorEntry(): string[] {
 	return [process.execPath, ...bunIsolationArgs, entry];
 }
 
+/** The status snapshots of one repo's agent panes. */
+export interface ProgramStatusDao {
+	/**
+	 * Start the monitor of the session's status pane unless one is running,
+	 * and return that pane.
+	 */
+	attach(
+		key: string,
+		session: string,
+		socket?: string,
+		run?: StatusTmuxRunner,
+	): Promise<StatusPane | null>;
+	/** Whether the monitor of this pane generation may still publish. */
+	monitored(key: string, generation: string): boolean;
+	read(key: string, pane: StatusPane): ProgramStatusSnapshot | null;
+	/**
+	 * Revoke and delete the snapshots of a space, except `keepGeneration`'s.
+	 * The leases are gone when this returns, before it resolves.
+	 */
+	remove(key: string, keepGeneration?: string): Promise<void>;
+	/** Call `listener` with the space key of each snapshot that changes. */
+	watch(listener: (key: string) => void): () => void;
+	/** Resolve when a snapshot may have changed, or after `ms`. */
+	waitForChange(ms: number): Promise<void>;
+}
+
+/** What attaching a monitor needs from the store its snapshots go to. */
+type MonitorStore = {
+	repo: string;
+	dir: string;
+	/**
+	 * The state database. A monitor is told where it is whatever the flag
+	 * says, because it outlives a change of the flag and then starts or stops
+	 * writing rows by itself.
+	 */
+	dbPath: string;
+	remove(key: string, keepGeneration?: string): Promise<void>;
+};
+
 export async function attachStatusMonitor(
-	repo: string,
+	store: MonitorStore,
 	key: string,
 	session: string,
 	socket = statusSocket(),
 	run: StatusTmuxRunner = runStatusTmux,
 ): Promise<StatusPane | null> {
+	const {repo, dir} = store;
 	try {
 		const target = `=${session}:`;
 		// The pinned pane and the session's current pane in one call. They are
@@ -242,9 +287,8 @@ export async function attachStatusMonitor(
 		}
 		const marker = `${pane.pid}.${randomUUID()}`;
 		pane = parseStatusPane(`${pane.id}\t${pane.pid}\t0\t0\t${marker}`, socket)!;
-		const dir = programStatusDir(repo);
 		mkdirSync(dir, {recursive: true});
-		const lease = `${programStatusPath(repo, key, pane.generation)}.lease`;
+		const lease = `${programStatusPath(dir, key, pane.generation)}.lease`;
 		writeFileSync(lease, '');
 		const command = [
 			...monitorEntry(),
@@ -255,6 +299,9 @@ export async function attachStatusMonitor(
 			Buffer.from(JSON.stringify(pane)).toString('base64'),
 			dir,
 			process.env['PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR'] ?? '',
+			// pipe-pane starts the monitor with the tmux server's environment,
+			// which may name another database than this process uses.
+			store.dbPath,
 		]
 			.map(value => shellQuoteStatus(value))
 			.join(' ');
@@ -300,7 +347,7 @@ export async function attachStatusMonitor(
 		if (attached?.generation === pane.generation) {
 			// A session has one status pane, so earlier generations' files belong
 			// to panes that no longer exist.
-			removeProgramSnapshots(repo, key, pane.generation);
+			await store.remove(key, pane.generation);
 		} else {
 			rmSync(lease, {force: true});
 		}
@@ -312,27 +359,170 @@ export async function attachStatusMonitor(
 	}
 }
 
-export function removeProgramSnapshots(
-	repo: string,
-	key: string,
-	keepGeneration?: string,
-): void {
-	try {
-		const kept =
-			keepGeneration === undefined
-				? undefined
-				: path.basename(programStatusPath(repo, key, keepGeneration));
-		const files = readdirSync(programStatusDir(repo)).filter(
-			file =>
-				statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) ===
-					key &&
-				(kept === undefined || !file.startsWith(kept)),
+export class JsonProgramStatusDao implements ProgramStatusDao {
+	constructor(
+		readonly repo: string,
+		readonly dir: string,
+		readonly dbPath: string,
+	) {}
+
+	async attach(
+		key: string,
+		session: string,
+		socket?: string,
+		run?: StatusTmuxRunner,
+	): Promise<StatusPane | null> {
+		return attachStatusMonitor(this, key, session, socket, run);
+	}
+
+	monitored(key: string, generation: string): boolean {
+		return existsSync(`${programStatusPath(this.dir, key, generation)}.lease`);
+	}
+
+	read(key: string, pane: StatusPane): ProgramStatusSnapshot | null {
+		return checkedProgramSnapshot(
+			() =>
+				JSON.parse(
+					readFileSync(
+						programStatusPath(this.dir, key, pane.generation),
+						'utf8',
+					),
+				) as ProgramStatusSnapshot,
+			this.repo,
+			key,
+			pane,
 		);
-		for (const file of files.filter(file => file.endsWith('.lease')))
-			rmSync(path.join(programStatusDir(repo), file), {force: true});
-		for (const file of files.filter(file => !file.endsWith('.lease')))
-			rmSync(path.join(programStatusDir(repo), file), {force: true});
-	} catch {}
+	}
+
+	async remove(key: string, keepGeneration?: string): Promise<void> {
+		this.removeFiles(key, keepGeneration);
+	}
+
+	removeFiles(key: string, keepGeneration?: string): void {
+		try {
+			const kept =
+				keepGeneration === undefined
+					? undefined
+					: path.basename(programStatusPath(this.dir, key, keepGeneration));
+			const files = readdirSync(this.dir).filter(
+				file =>
+					statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) ===
+						key &&
+					(kept === undefined || !file.startsWith(kept)),
+			);
+			for (const file of files.filter(file => file.endsWith('.lease')))
+				rmSync(path.join(this.dir, file), {force: true});
+			for (const file of files.filter(file => !file.endsWith('.lease')))
+				rmSync(path.join(this.dir, file), {force: true});
+		} catch {}
+	}
+
+	watch(listener: (key: string) => void): () => void {
+		mkdirSync(this.dir, {recursive: true});
+		const watcher = watch(this.dir, (_event, filename) => {
+			const key = filename ? statusKeyFromFilename(filename) : undefined;
+			if (key !== undefined) listener(key);
+		});
+		return () => {
+			watcher.close();
+		};
+	}
+
+	async waitForChange(ms: number): Promise<void> {
+		await waitForDirChange([this.dir], ms);
+	}
+}
+
+/** The database's copy of the snapshots, for a publisher told to keep one. */
+export interface SnapshotRows {
+	/**
+	 * Keep the snapshot's row while `leased` holds and drop it otherwise,
+	 * deciding under the write lock. `busy` means another process held the
+	 * lock, and the same snapshot can be offered again.
+	 */
+	publish(
+		snapshot: ProgramStatusSnapshot,
+		leased: () => boolean,
+	): 'written' | 'busy' | 'failed';
+}
+
+/**
+ * Write a pane's snapshot for its readers. The lease is the pane's
+ * permission to publish: closing a space deletes it, and a publisher that
+ * was already writing then takes its own snapshot back. `retry` means the
+ * file is written and the database was busy.
+ */
+export function publishProgramSnapshot(
+	dir: string,
+	snapshot: ProgramStatusSnapshot,
+	rows?: SnapshotRows,
+): 'done' | 'retry' {
+	const target = programStatusPath(dir, snapshot.key, snapshot.pane.generation);
+	const temp = `${target}.tmp.${process.pid}`;
+	const leased = () => existsSync(`${target}.lease`);
+	if (!leased()) return 'done';
+	try {
+		writeFileSync(temp, JSON.stringify(snapshot));
+		renameSync(temp, target);
+		if (!leased()) rmSync(target, {force: true});
+	} catch {
+		try {
+			rmSync(temp, {force: true});
+		} catch {}
+	}
+
+	return rows?.publish(snapshot, leased) === 'busy' ? 'retry' : 'done';
+}
+
+const PUBLISH_WINDOW_MS = 50;
+
+type WindowTimers = {
+	now(): number;
+	after(ms: number, run: () => void): () => void;
+};
+
+const realTimers: WindowTimers = {
+	now: () => performance.now(),
+	after(ms, run) {
+		const timer = setTimeout(run, ms);
+		return () => {
+			clearTimeout(timer);
+		};
+	},
+};
+
+/**
+ * When a pane's status goes out. A change after a quiet period is published
+ * at once, so the rail follows the agent without a delay. Changes that come
+ * within the window after a publish wait for its end and go out together,
+ * which holds a chatty program to about 20 writes a second.
+ */
+export class PublishWindow {
+	private cancelPending: (() => void) | undefined;
+	private publishedAt = Number.NEGATIVE_INFINITY;
+
+	constructor(
+		private readonly publish: () => void,
+		private readonly timers: WindowTimers = realTimers,
+	) {}
+
+	request(): void {
+		if (this.cancelPending) return;
+		const wait = PUBLISH_WINDOW_MS - (this.timers.now() - this.publishedAt);
+		if (wait <= 0) this.run();
+		else this.cancelPending = this.timers.after(wait, () => this.run());
+	}
+
+	cancel(): void {
+		this.cancelPending?.();
+		this.cancelPending = undefined;
+	}
+
+	private run(): void {
+		this.cancelPending = undefined;
+		this.publishedAt = this.timers.now();
+		this.publish();
+	}
 }
 
 export function monitorPane(
@@ -342,41 +532,32 @@ export function monitorPane(
 	pane: StatusPane,
 	dir: string,
 	traceDir?: string,
+	rows: () => SnapshotRows | undefined = () => undefined,
 ): void {
 	const store = new ProgramStatusStore();
-	const target = path.join(dir, `${segment(key)}--${pane.generation}.json`);
-	const temp = `${target}.tmp.${process.pid}`;
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	let changed = false;
 	let exited = false;
 	let stopped = false;
 	let traceBytes = 0;
 	const publish = () => {
-		timer = undefined;
-		if (!existsSync(`${target}.lease`)) return;
-		const snapshot: ProgramStatusSnapshot = {
-			version: 1,
-			repo,
-			key,
-			pane,
-			authoritative: store.authoritative,
-			exited,
-			updatedAt: Date.now(),
-			records: store.records(),
-			info: store.status(),
-		};
-		try {
-			writeFileSync(temp, JSON.stringify(snapshot));
-			renameSync(temp, target);
-			if (!existsSync(`${target}.lease`)) rmSync(target, {force: true});
-		} catch {
-			try {
-				rmSync(temp, {force: true});
-			} catch {}
-		}
+		const result = publishProgramSnapshot(
+			dir,
+			{
+				version: 1,
+				repo,
+				key,
+				pane,
+				authoritative: store.authoritative,
+				exited,
+				updatedAt: Date.now(),
+				records: store.records(),
+				info: store.status(),
+			},
+			rows(),
+		);
+		if (result === 'retry') publishing.request();
 	};
-	const schedule = () => {
-		timer ??= setTimeout(publish, 50);
-	};
+	const publishing = new PublishWindow(publish);
 	const parser = new TerminalStatusParser(event => {
 		if (traceDir) {
 			try {
@@ -394,13 +575,13 @@ export function monitorPane(
 		if (event.type === 'report') store.apply(event.report);
 		else if (event.type === 'prompt') store.processExit();
 		else store.reset();
-		schedule();
+		changed = true;
 	});
 	const stop = () => {
 		if (stopped) return;
 		stopped = true;
 		exited = true;
-		clearTimeout(timer);
+		publishing.cancel();
 		clearInterval(liveness);
 		store.processExit();
 		publish();
@@ -426,10 +607,17 @@ export function monitorPane(
 				}
 			});
 	}, 5000);
-	process.stdin.on('data', (bytes: Buffer) => parser.feed(bytes));
+	process.stdin.on('data', (bytes: Buffer) => {
+		parser.feed(bytes);
+		// One read can hold several reports. Only the state after the last of
+		// them is worth a write.
+		if (!changed) return;
+		changed = false;
+		publishing.request();
+	});
 	process.stdin.on('end', stop);
 	process.stdin.on('error', stop);
 	process.once('SIGTERM', stop);
 	process.once('SIGHUP', stop);
-	if (!existsSync(target)) publish();
+	if (!existsSync(programStatusPath(dir, key, pane.generation))) publish();
 }

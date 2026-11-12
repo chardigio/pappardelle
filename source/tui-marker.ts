@@ -31,27 +31,19 @@ export function tuiMarkerPath(repoStateRoot: string, repo: string): string {
 	return path.join(repoStateRoot, repo, 'tui.json');
 }
 
-export function writeTuiMarker(
-	repoStateRoot: string,
-	repo: string,
-	marker: TuiMarker,
-): void {
-	const file = tuiMarkerPath(repoStateRoot, repo);
-	mkdirSync(path.dirname(file), {recursive: true});
-	// A reader polling mid-write must never see half a file.
-	const temporary = `${file}.${marker.pid}.tmp`;
-	writeFileSync(temporary, JSON.stringify(marker) + '\n');
-	renameSync(temporary, file);
+/** The marker of one repo's TUI. */
+export interface TuiMarkerDao {
+	read(): TuiMarker | null;
+	write(marker: TuiMarker): Promise<void>;
 }
 
-export function readTuiMarker(
-	repoStateRoot: string,
-	repo: string,
-): TuiMarker | null {
+export function renderTuiMarker(marker: TuiMarker): string {
+	return JSON.stringify(marker) + '\n';
+}
+
+export function parseTuiMarker(content: string): TuiMarker | null {
 	try {
-		const parsed: unknown = JSON.parse(
-			readFileSync(tuiMarkerPath(repoStateRoot, repo), 'utf8'),
-		);
+		const parsed: unknown = JSON.parse(content);
 		if (typeof parsed !== 'object' || parsed === null) return null;
 		const {pid, cliPath, sha, paneId, startedAt} = parsed as Record<
 			string,
@@ -73,14 +65,33 @@ export function readTuiMarker(
 	}
 }
 
+export class JsonTuiMarkerDao implements TuiMarkerDao {
+	constructor(readonly file: string) {}
+
+	read(): TuiMarker | null {
+		try {
+			return parseTuiMarker(readFileSync(this.file, 'utf8'));
+		} catch {
+			return null;
+		}
+	}
+
+	async write(marker: TuiMarker): Promise<void> {
+		mkdirSync(path.dirname(this.file), {recursive: true});
+		// A reader polling mid-write must never see half a file.
+		const temporary = `${this.file}.${marker.pid}.tmp`;
+		writeFileSync(temporary, renderTuiMarker(marker));
+		renameSync(temporary, this.file);
+	}
+}
+
 // A TUI killed outright (kill -9, a crash) leaves its session behind holding
 // only the viewer panes, and its marker behind naming a dead pid.
 export function isTuiDead(
-	repoStateRoot: string,
-	repo: string,
+	tuiMarker: Pick<TuiMarkerDao, 'read'>,
 	isAlive: (pid: number) => boolean = processIsAlive,
 ): boolean {
-	const marker = readTuiMarker(repoStateRoot, repo);
+	const marker = tuiMarker.read();
 	return marker !== null && !isAlive(marker.pid);
 }
 

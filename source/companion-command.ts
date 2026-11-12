@@ -22,19 +22,16 @@ import {
 } from './companion-width.ts';
 import {NoTargetSpaceError} from './space-target.ts';
 import type {StateDaos} from './state-daos.ts';
-import {
-	DEFAULT_REPO_STATE_ROOT,
-	processIsAlive,
-	readTuiMarker,
-} from './tui-marker.ts';
+import {processIsAlive, type TuiMarkerDao} from './tui-marker.ts';
 
 export interface CompanionCommandDeps {
 	/** Resolves --space (or $PAPPARDELLE_SPACE when undefined) to a key. */
 	resolveSpace: (flag: string | undefined) => string;
-	/** Needed only after parsing, so --help works outside a repo. */
-	repoName: () => string;
-	/** The repo's stores, for the same reason only built once they are used. */
-	daos: () => Pick<StateDaos, 'companionWidths' | 'companionRequests'>;
+	/** The repo's stores, built once they are used so --help works outside a repo. */
+	daos: () => Pick<
+		StateDaos,
+		'companionWidths' | 'companionRequests' | 'tuiMarker'
+	>;
 	readStdin?: () => string | undefined;
 	out?: (text: string) => void;
 	err?: (text: string) => void;
@@ -45,8 +42,8 @@ function defaultReadStdin(): string | undefined {
 	return readFileSync(0, 'utf8').replace(/\n$/, '');
 }
 
-function tuiIsRunning(repoName: string): boolean {
-	const marker = readTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName);
+function tuiIsRunning(tuiMarker: TuiMarkerDao): boolean {
+	const marker = tuiMarker.read();
 	return marker !== null && processIsAlive(marker.pid);
 }
 
@@ -144,19 +141,18 @@ async function execute(
 		}
 
 		case 'width': {
-			const repoName = deps.repoName();
 			const width = command.width === 'reset' ? null : command.width;
 			const label =
 				width === null
 					? `Reset ${space}'s companion width`
 					: `Stored ${space} companion width ${width}`;
-			const {companionWidths, companionRequests} = deps.daos();
+			const {companionWidths, companionRequests, tuiMarker} = deps.daos();
 			const result = await requestCompanionWidth({
 				widths: companionWidths,
 				requests: companionRequests,
 				space,
 				width,
-				tuiIsRunning: () => tuiIsRunning(repoName),
+				tuiIsRunning: () => tuiIsRunning(tuiMarker),
 			});
 			if (result.outcome === 'applied') {
 				deps.out(`Applied ${space} companion width: ${result.columns} columns`);
@@ -222,11 +218,11 @@ async function relayout(
 	label: string,
 	space: string,
 ): Promise<number> {
-	const repoName = deps.repoName();
+	const {companionRequests, tuiMarker} = deps.daos();
 	const result = await requestCompanionLayout({
-		requests: deps.daos().companionRequests,
+		requests: companionRequests,
 		space,
-		tuiIsRunning: () => tuiIsRunning(repoName),
+		tuiIsRunning: () => tuiIsRunning(tuiMarker),
 	});
 	return report(deps, label, 'shows', result, space);
 }

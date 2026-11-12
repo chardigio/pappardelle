@@ -7,19 +7,10 @@ import {
 	type FakeTuiBehavior,
 	REFUSAL,
 	fakeTuiTmux,
+	tuiStateRoot,
 	restarted,
 } from '../test/helpers/fake-tui-tmux.ts';
 import {runUpdateCommand, type UpdateCommandDeps} from './update-command.ts';
-
-let counter = 0;
-function temporaryDir(): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`update-command-test-${process.pid}-${Date.now()}-${counter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
 
 type Harness = {
 	deps: UpdateCommandDeps;
@@ -41,15 +32,12 @@ function harness(
 		confirmAnswer?: boolean;
 	} = {},
 ): Harness {
-	const repoStateRoot = temporaryDir();
-	for (const repo of options.repos ?? []) {
-		fs.mkdirSync(path.join(repoStateRoot, repo));
-	}
+	const {repoStateRoot, tuiMarker} = tuiStateRoot(options.repos ?? []);
 
 	const printed: string[] = [];
 	const confirmCalls: string[] = [];
 	const {tmux, calls: tmuxCalls} = fakeTuiTmux({
-		repoStateRoot,
+		tuiMarker,
 		sessions: options.sessions,
 		listFails: options.listFails,
 		behavior: options.behavior,
@@ -65,6 +53,7 @@ function harness(
 			runInstaller: () => options.installerStatus ?? 0,
 			tmux,
 			repoStateRoot,
+			tuiMarker,
 			launchCommand: () => SHIM,
 			timing: FAST,
 			currentSession: () => options.currentSession ?? null,

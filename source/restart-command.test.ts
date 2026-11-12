@@ -14,10 +14,9 @@ import {
 	type FakeTuiBehavior,
 	REFUSAL,
 	fakeTuiTmux,
+	tuiStateRoot,
 } from '../test/helpers/fake-tui-tmux.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
-
-let counter = 0;
 
 type Harness = {
 	deps: RestartCommandDeps;
@@ -42,14 +41,7 @@ function harness(
 		confirmAnswer?: boolean;
 	} = {},
 ): Harness {
-	const repoStateRoot = path.join(
-		os.tmpdir(),
-		`restart-command-test-${process.pid}-${Date.now()}-${counter++}`,
-	);
-	fs.mkdirSync(repoStateRoot, {recursive: true});
-	for (const repo of options.repos ?? []) {
-		fs.mkdirSync(path.join(repoStateRoot, repo));
-	}
+	const {repoStateRoot, tuiMarker} = tuiStateRoot(options.repos ?? []);
 
 	const h: Harness = {
 		calls: [],
@@ -60,7 +52,7 @@ function harness(
 		deps: undefined as unknown as RestartCommandDeps,
 	};
 	const outer = fakeTuiTmux({
-		repoStateRoot,
+		tuiMarker,
 		sessions: options.sessions,
 		behavior: options.behavior,
 	});
@@ -87,6 +79,7 @@ function harness(
 		tmux,
 		innerTmux,
 		repoStateRoot,
+		tuiMarker,
 		launchCommand: COMMAND,
 		cliPath: FAKE_CLI_PATH,
 		timing: FAST,

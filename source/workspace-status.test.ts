@@ -1,51 +1,43 @@
-import {
-	mkdirSync,
-	readFileSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-	renameSync,
-} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {spawn} from 'node:child_process';
+import {Buffer} from 'node:buffer';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {fileURLToPath} from 'node:url';
 import test, {type ExecutionContext} from 'ava';
+import {
+	publishSnapshot,
+	snapshotFile,
+	snapshotOf,
+} from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {
 	parseStatusPane,
-	programStatusPath,
 	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
+import {stateDbPath} from './state-db.ts';
 import {
 	mapClaudeStatus,
 	ACTIVE_STATUS_TIMEOUT,
 	type ClaudeStatus,
 } from './claude-status.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
-import {ProgramStatusStore} from './program-status.ts';
 
-function setup(t: ExecutionContext) {
-	const dir = mkdtempSync(path.join(tmpdir(), 'workspace-status-'));
-	const oldOsc = process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'];
+function setup(t: ExecutionContext, options: {sqlite?: boolean} = {}) {
 	const oldSocket = process.env['PAPPARDELLE_TMUX_SOCKET'];
-	process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'] = path.join(dir, 'osc');
 	process.env['PAPPARDELLE_TMUX_SOCKET'] = 'test-status';
-	const {claudeStatus} = testState(t).daos;
+	const state = testState(t, options);
+	const {claudeStatus, programStatus} = state.daos;
 	t.teardown(() => {
-		for (const [key, value] of [
-			['PAPPARDELLE_PROGRAM_STATUS_DIR', oldOsc],
-			['PAPPARDELLE_TMUX_SOCKET', oldSocket],
-		]) {
-			if (value === undefined) Reflect.deleteProperty(process.env, key!);
-			else process.env[key!] = value;
-		}
-		rmSync(dir, {recursive: true, force: true});
+		if (oldSocket === undefined)
+			Reflect.deleteProperty(process.env, 'PAPPARDELLE_TMUX_SOCKET');
+		else process.env['PAPPARDELLE_TMUX_SOCKET'] = oldSocket;
 	});
 	let paneOutput = '%1\t12\t0\t1\t12.owner';
 	let queries = 0;
 	const status = new WorkspaceStatuses(
-		'repo',
+		programStatus,
 		key => `claude-repo-${key}`,
 		claudeStatus,
 		async args => {
@@ -73,36 +65,30 @@ function setup(t: ExecutionContext) {
 			key?: string;
 			repo?: string;
 			age?: number;
+			/** Change what is published, as a writer other than the monitor could. */
+			tamper?: (snapshot: ProgramStatusSnapshot) => void;
 		} = {},
 	) => {
-		const pane = parseStatusPane(paneOutput, 'test-status')!;
-		const key = options.key ?? 'TASK-1';
-		const repo = options.repo ?? 'repo';
-		const file = programStatusPath(repo, key, pane.generation);
-		mkdirSync(path.dirname(file), {recursive: true});
-		const store = new ProgramStatusStore();
-		if (info.status !== 'unknown') {
-			const {status, ...details} = info;
-			store.apply({state: status, id: '', ...details});
-		}
-		const snapshot: ProgramStatusSnapshot = {
-			version: 1,
-			repo,
-			key,
-			pane,
-			authoritative: options.authoritative ?? true,
-			exited: false,
-			updatedAt: Date.now() - (options.age ?? 0),
-			records: store.records(),
-			info: store.status(),
-		};
-		writeFileSync(`${file}.tmp`, JSON.stringify(snapshot));
-		renameSync(`${file}.tmp`, file);
-		writeFileSync(`${file}.lease`, '');
-		return file;
+		const {status, ...details} = info;
+		const snapshot = snapshotOf(
+			{
+				repo: options.repo ?? 'repo',
+				key: options.key ?? 'TASK-1',
+				pane: parseStatusPane(paneOutput, 'test-status')!,
+			},
+			status === 'unknown' ? [] : [{state: status, id: '', ...details}],
+			{
+				authoritative: options.authoritative ?? true,
+				updatedAt: Date.now() - (options.age ?? 0),
+			},
+		);
+		options.tamper?.(snapshot);
+		return publishSnapshot(state, snapshot);
 	};
 	return {
+		state,
 		status,
+		pane: () => parseStatusPane(paneOutput, 'test-status')!,
 		writeHook,
 		writeOsc,
 		queries: () => queries,
@@ -162,12 +148,7 @@ test.serial(
 				snapshot.records[0]!.id = 'invalid//id';
 			},
 		]) {
-			const file = h.writeOsc({status: 'working', app: 'fixture'});
-			const snapshot = JSON.parse(
-				readFileSync(file, 'utf8'),
-			) as ProgramStatusSnapshot;
-			change(snapshot);
-			writeFileSync(file, JSON.stringify(snapshot));
+			h.writeOsc({status: 'working', app: 'fixture'}, {tamper: change});
 			t.like(await h.status.read('TASK-1'), {status: 'idle', source: 'hook'});
 		}
 	},
@@ -385,8 +366,71 @@ test.serial(
 	},
 );
 
-async function until(predicate: () => boolean) {
-	const deadline = Date.now() + 3000;
+const monitorCli = fileURLToPath(
+	new URL('program-status-monitor-cli.ts', import.meta.url),
+);
+
+// A pane's monitor is another process than the rail that shows its status.
+for (const sqlite of [false, true]) {
+	test.serial(
+		`${sqlite ? 'sqlite' : 'json'}: a status published by a pane's monitor reaches a watching rail`,
+		async t => {
+			const h = setup(t, {sqlite});
+			const pane = h.pane();
+			const file = snapshotFile(h.state, {repo: 'repo', key: 'TASK-1', pane});
+			mkdirSync(path.dirname(file), {recursive: true});
+			writeFileSync(`${file}.lease`, '');
+			const monitor = spawn(
+				process.execPath,
+				[
+					monitorCli,
+					'watch',
+					'repo',
+					'TASK-1',
+					'test-status',
+					Buffer.from(JSON.stringify(pane)).toString('base64'),
+					path.dirname(file),
+					'',
+					sqlite ? stateDbPath(h.state.stateDir) : '',
+				],
+				{
+					stdio: ['pipe', 'ignore', 'inherit'],
+					env: {
+						...process.env,
+						HOME: h.state.stateDir,
+						PAPPARDELLE_SQLITE_STATE: sqlite ? '1' : '0',
+					},
+				},
+			);
+			t.teardown(() => {
+				monitor.kill('SIGKILL');
+			});
+			await h.status.read('TASK-1');
+			const latest = new Map<string, ProgramStatusInfo>();
+			const stop = h.status.watch(
+				updates => {
+					for (const [key, info] of updates) latest.set(key, info);
+				},
+				key => key === 'TASK-1',
+			);
+			t.teardown(stop);
+			await delay(0);
+			monitor.stdin.write(
+				'\u001B]7501;state=blocked:app=fixture:kind=auth\u0007',
+			);
+			await until(() => latest.get('TASK-1')?.status === 'blocked', 10_000);
+			t.like(latest.get('TASK-1'), {
+				source: 'osc',
+				app: 'fixture',
+				kind: 'auth',
+			});
+			rmSync(`${file}.lease`);
+		},
+	);
+}
+
+async function until(predicate: () => boolean, timeout = 3000) {
+	const deadline = Date.now() + timeout;
 	while (!predicate()) {
 		if (Date.now() > deadline) throw new Error('Status update did not arrive');
 		await delay(5);

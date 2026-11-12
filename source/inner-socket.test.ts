@@ -11,6 +11,7 @@ import {readFileSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
+import {testTmuxState} from '../test/helpers/state.ts';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
@@ -22,6 +23,16 @@ import {
 	innerTmuxArgs,
 	type OuterTmuxRunner,
 } from './tmux.ts';
+
+// Reaping a space's sessions also removes its status snapshots, which the
+// stores place.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState({teardown: fn => stateTeardowns.push(fn)});
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');

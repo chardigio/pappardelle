@@ -77,7 +77,7 @@ import {
 	tmuxTooOldMessage,
 	tmuxVersionTooOld,
 } from './tmux-version.ts';
-import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
+import {isTuiDead} from './tui-marker.ts';
 import {SEND_LOCK_TIMEOUT_MS} from './send-lock.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
@@ -163,7 +163,6 @@ if (process.argv[2] === 'companion') {
 					resolve: resolveCliSpaceKey,
 				});
 			},
-			repoName: getRepoName,
 			daos: bootstrap,
 		}),
 	);
@@ -569,10 +568,7 @@ if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
 	const sessionName = outerSessionName(repoName);
 
-	if (
-		sessionExists(sessionName) &&
-		isTuiDead(DEFAULT_REPO_STATE_ROOT, repoName)
-	) {
+	if (sessionExists(sessionName) && isTuiDead(daos.tuiMarker)) {
 		spawnSync('tmux', ['kill-session', '-t', exactSessionTarget(sessionName)]);
 	}
 
@@ -707,6 +703,8 @@ function startWorkspaceReads() {
 	return {registry, mainWorktree: getMainWorktreeInfo()};
 }
 
+// From here this process renders the TUI. The CLI verbs above exit first.
+daos.deferCheckpoints();
 const initialWorkspaces = startWorkspaceReads();
 
 // tmux splits the panes while the renderer's modules load below.
@@ -796,7 +794,10 @@ function finishStartup() {
 	finishFirstRailPaint();
 	metadata = readDisplayMetadata();
 	rerender(app());
-	void safeCheckForUpdate({projectDir: pappardelleDir}).then(finishUpdate);
+	void safeCheckForUpdate({
+		projectDir: pappardelleDir,
+		cache: daos.updateCheck,
+	}).then(finishUpdate);
 	// Wake-ups lost to a reboot can wait; loading this while the first
 	// workspace attaches would hold that up.
 	setTimeout(() => {
