@@ -57,11 +57,10 @@ else:
 
 def send_status(path: str, state: dict[str, Any]) -> bool:
     """Send one hook event to the status daemon. True when it was sent."""
-    # Loaded here so a hook pays for the socket code only while
-    # experimental.sqliteState is on.
+    # A hook pays for the socket code only while experimental.sqliteState is on.
     spec = importlib.util.spec_from_file_location("status_socket", Path(__file__).parent / "status_socket.py")
     if not (spec and spec.loader):
-        return False
+        raise ImportError("Could not load status_socket")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.send_status(path, state)

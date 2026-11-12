@@ -122,9 +122,9 @@ function sessionState(
 const isOptionalString = (value: unknown): value is string | undefined =>
 	value === undefined || typeof value === 'string';
 
-/** A record as the hook writes it. Throws when `content` is anything else. */
-export function parseSessionState(content: string): ClaudeSessionState {
-	const record = JSON.parse(content) as Record<string, unknown> | null;
+/** A record as the hook writes it, or undefined when `value` is anything else. */
+export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
+	const record = value as Record<string, unknown> | null;
 	const {
 		sessionId,
 		workspaceName,
@@ -143,11 +143,32 @@ export function parseSessionState(content: string): ClaudeSessionState {
 		!isOptionalString(event) ||
 		!isOptionalString(cwd)
 	)
-		throw new Error('Not a Claude status record');
+		return undefined;
 	return sessionState(
 		{sessionId, workspaceName, status: status as ClaudeStatus, lastUpdate},
 		{currentTool, event, cwd},
 	);
+}
+
+/** Throws when `content` is not a record as the hook writes it. */
+export function parseSessionState(content: string): ClaudeSessionState {
+	const state = sessionStateOf(JSON.parse(content));
+	if (!state) throw new Error('Not a Claude status record');
+	return state;
+}
+
+/**
+ * The rule of `ClaudeStatusDao.readableKey`, for a store that says whether it
+ * holds a record under a status key.
+ */
+export async function readableStatusKey(
+	repoName: string,
+	name: string,
+	recorded: (statusKey: string) => boolean | Promise<boolean>,
+): Promise<string> {
+	const qualified = hookStatusKey(repoName, name);
+	if (await recorded(qualified)) return qualified;
+	return (await recorded(name)) ? name : qualified;
 }
 
 export class JsonClaudeStatusDao implements ClaudeStatusDao {
@@ -162,9 +183,9 @@ export class JsonClaudeStatusDao implements ClaudeStatusDao {
 	}
 
 	async readableKey(repoName: string, name: string): Promise<string> {
-		const qualified = hookStatusKey(repoName, name);
-		if (existsSync(this.file(qualified))) return qualified;
-		return existsSync(this.file(name)) ? name : qualified;
+		return readableStatusKey(repoName, name, statusKey =>
+			existsSync(this.file(statusKey)),
+		);
 	}
 
 	async read(statusKey: string): Promise<ClaudeStatusInfo | null> {

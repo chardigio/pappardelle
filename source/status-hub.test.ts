@@ -15,7 +15,7 @@ function stateOf(hub: StatusHub<string>, repo: string) {
 }
 
 test('a hook record replaces the one under its status key', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	hub.receive('hook', {type: 'hook', state: hookState('repo-A')});
 	hub.receive('hook', {type: 'hook', state: hookState('repo-B')});
 	const latest = hookState('repo-A', 'waiting_for_input');
@@ -25,7 +25,7 @@ test('a hook record replaces the one under its status key', t => {
 });
 
 test('a restored hook record fills a key the daemon holds nothing for, and never replaces one as recent', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	hub.receive('reader', {type: 'subscribe', repo: 'repo'});
 	const latest = {
 		...hookState('repo-A', 'waiting_for_approval'),
@@ -45,7 +45,7 @@ test('a restored hook record fills a key the daemon holds nothing for, and never
 });
 
 test('a snapshot is kept per repo, space and pane generation', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	for (const sent of [
 		snapshot('one', 'A', 'g1'),
 		snapshot('one', 'A', 'g2'),
@@ -65,7 +65,7 @@ test('a snapshot is kept per repo, space and pane generation', t => {
 });
 
 test('forget drops the snapshots of a space except the pane generation to keep', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	for (const sent of [
 		snapshot('one', 'A', 'g1'),
 		snapshot('one', 'A', 'g2'),
@@ -86,7 +86,7 @@ test('forget drops the snapshots of a space except the pane generation to keep',
 });
 
 test('a subscriber is pushed every hook record, and the snapshots and forgets of its repo only', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	hub.receive('rail-one', {type: 'subscribe', repo: 'one'});
 	hub.receive('rail-two', {type: 'subscribe', repo: 'two'});
 
@@ -121,7 +121,7 @@ test('a subscriber is pushed every hook record, and the snapshots and forgets of
 });
 
 test('the state sent on subscribing holds what arrived before, and goes to the subscriber alone', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	hub.receive('earlier', {type: 'subscribe', repo: 'one'});
 	hub.receive('hook', {type: 'hook', state: hookState('one-A')});
 	hub.receive('monitor', {
@@ -134,6 +134,7 @@ test('the state sent on subscribing holds what arrived before, and goes to the s
 			to: 'rail',
 			message: {
 				type: 'state',
+				daemon: 'daemon',
 				hooks: [hookState('one-A')],
 				snapshots: [snapshot('one', 'A', 'g1')],
 			},
@@ -142,7 +143,7 @@ test('the state sent on subscribing holds what arrived before, and goes to the s
 });
 
 test('a subscriber that disconnected is sent nothing more', t => {
-	const hub = new StatusHub<string>();
+	const hub = new StatusHub<string>('daemon');
 	hub.receive('rail', {type: 'subscribe', repo: 'one'});
 	hub.disconnect('rail');
 

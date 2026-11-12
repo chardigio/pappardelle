@@ -217,7 +217,7 @@ export class WorkspaceRefresh {
 			orderedNames.map(key => async () => {
 				if (this.stopped || generation !== this.listGeneration)
 					return undefined;
-				const statusKey = await this.deps.statusKey(key);
+				const statusKey = statusKeys.get(key)!;
 				const version = this.statusVersions.get(statusKey) ?? 0;
 				const [status, worktreePath] = await Promise.allSettled([
 					this.deps.readStatus(statusKey, key),

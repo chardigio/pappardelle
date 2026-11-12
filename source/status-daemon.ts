@@ -1,6 +1,7 @@
 // The status daemon: one process per user that holds every repo's hook status
 // and program status in memory and pushes each change to the rails.
 
+import {randomUUID} from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import {withFileLock} from './file-lock.ts';
@@ -80,7 +81,7 @@ export type StatusServer = {
 export function createStatusServer(
 	on: {opened?: () => void; closed?: () => void} = {},
 ): StatusServer {
-	const hub = new StatusHub<net.Socket>();
+	const hub = new StatusHub<net.Socket>(randomUUID());
 	const connections = new Set<net.Socket>();
 
 	const disconnect = (connection: net.Socket) => {
@@ -173,7 +174,7 @@ export async function serveStatusDaemon(
 		try {
 			await withFileLock(socketPath, () => {
 				// A connection that came and went while this waited for the lock
-				// has started the next ten seconds.
+				// has started the idle wait again.
 				if (connections.size === 0 && arrivals === seen) stop();
 			});
 		} catch (error) {

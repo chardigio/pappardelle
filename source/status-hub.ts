@@ -2,10 +2,9 @@
 // the daemon hands it what arrived and sends what it returns.
 
 import type {ClaudeSessionState} from './claude-status.ts';
-import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
+import {SnapshotIndex} from './snapshot-index.ts';
 import type {ClientMessage, DaemonMessage} from './status-protocol.ts';
 
-/** A message for one subscriber. */
 export type Delivery<Subscriber> = {to: Subscriber; message: DaemonMessage};
 
 /**
@@ -16,14 +15,14 @@ export type Delivery<Subscriber> = {to: Subscriber; message: DaemonMessage};
 export class StatusHub<Subscriber> {
 	/** By status key. Every repo's, because a status key names its repo. */
 	private readonly hooks = new Map<string, ClaudeSessionState>();
-	/** By repo, then space key, then pane generation. */
-	private readonly snapshots = new Map<
-		string,
-		Map<string, Map<string, ProgramStatusSnapshot>>
-	>();
+	private readonly snapshotsByRepo = new Map<string, SnapshotIndex>();
+	private readonly repoBySubscriber = new Map<Subscriber, string>();
 
-	/** The repo each subscriber asked for. */
-	private readonly subscribers = new Map<Subscriber, string>();
+	/**
+	 * `daemon` names this daemon in every state it sends, so a client that
+	 * reconnects can tell the daemon it was on from one that replaced it.
+	 */
+	constructor(private readonly daemon: string) {}
 
 	/**
 	 * Apply a message from `sender` and return what to send to whom. Only a
@@ -51,55 +50,48 @@ export class StatusHub<Subscriber> {
 			}
 
 			case 'snapshot': {
-				const {repo, key, pane} = message.snapshot;
-				const spaces = this.snapshots.get(repo) ?? new Map();
-				const generations = spaces.get(key) ?? new Map();
-				generations.set(pane.generation, message.snapshot);
-				spaces.set(key, generations);
-				this.snapshots.set(repo, spaces);
+				const {repo} = message.snapshot;
+				const snapshots = this.snapshotsByRepo.get(repo) ?? new SnapshotIndex();
+				snapshots.keep(message.snapshot);
+				this.snapshotsByRepo.set(repo, snapshots);
 				return this.toRepo(repo, message);
 			}
 
 			case 'forget': {
 				const {repo, key, keep} = message;
-				const generations = this.snapshots.get(repo)?.get(key);
-				for (const generation of generations?.keys() ?? []) {
-					if (generation !== keep) generations!.delete(generation);
-				}
-
+				this.snapshotsByRepo.get(repo)?.forget(key, keep);
 				return this.toRepo(repo, {...message, type: 'forgotten'});
 			}
 
 			case 'subscribe': {
-				this.subscribers.set(sender, message.repo);
+				this.repoBySubscriber.set(sender, message.repo);
 				return [{to: sender, message: this.state(message.repo)}];
 			}
 		}
 	}
 
 	disconnect(subscriber: Subscriber): void {
-		this.subscribers.delete(subscriber);
+		this.repoBySubscriber.delete(subscriber);
 	}
 
 	private state(repo: string): DaemonMessage {
 		return {
 			type: 'state',
+			daemon: this.daemon,
 			hooks: [...this.hooks.values()],
-			snapshots: [...(this.snapshots.get(repo)?.values() ?? [])].flatMap(
-				generations => [...generations.values()],
-			),
+			snapshots: this.snapshotsByRepo.get(repo)?.all() ?? [],
 		};
 	}
 
 	private toAll(message: DaemonMessage): Array<Delivery<Subscriber>> {
-		return [...this.subscribers.keys()].map(to => ({to, message}));
+		return [...this.repoBySubscriber.keys()].map(to => ({to, message}));
 	}
 
 	private toRepo(
 		repo: string,
 		message: DaemonMessage,
 	): Array<Delivery<Subscriber>> {
-		return [...this.subscribers]
+		return [...this.repoBySubscriber]
 			.filter(([, subscribed]) => subscribed === repo)
 			.map(([to]) => ({to, message}));
 	}

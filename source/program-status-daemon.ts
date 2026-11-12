@@ -8,12 +8,13 @@
 // Leases stay files, because a process with the flag off has to be able to
 // revoke one.
 
-import {existsSync, rmSync} from 'node:fs';
+import {rmSync} from 'node:fs';
 import {
 	attachStatusMonitor,
 	checkedProgramSnapshot,
 	JsonProgramStatusDao,
 	programStatusDir,
+	programStatusLeased,
 	programStatusPath,
 	publishProgramSnapshot,
 	type ProgramStatusDao,
@@ -161,6 +162,7 @@ export function followedPublisher(
 	let latest: ProgramStatusSnapshot | undefined;
 	let client: PublisherClient | undefined;
 	let lastSend: Promise<void> = Promise.resolve();
+	let unsettledSends = 0;
 	let readAt = Number.NEGATIVE_INFINITY;
 	// A file written before the flag turned on. Left in place, it would be
 	// shown as the pane's status when the flag is turned off again.
@@ -169,12 +171,14 @@ export function followedPublisher(
 	const send = (to: PublisherClient) => {
 		const snapshot = latest;
 		if (!snapshot) return;
-		const file = programStatusPath(dir, snapshot.key, snapshot.pane.generation);
-		if (!existsSync(`${file}.lease`)) return;
+		const {key, pane} = snapshot;
+		if (!programStatusLeased(dir, key, pane.generation)) return;
+		unsettledSends++;
 		lastSend = to.send({type: 'snapshot', snapshot}).then(result => {
+			unsettledSends--;
 			if (result !== 'sent' || client !== to || !fileRemains) return;
 			fileRemains = false;
-			rmSync(file, {force: true});
+			rmSync(programStatusPath(dir, key, pane.generation), {force: true});
 		});
 	};
 
@@ -183,8 +187,7 @@ export function followedPublisher(
 		else if (latest) publishProgramSnapshot(dir, latest);
 	};
 
-	/** Whether the snapshots go somewhere else from now on. */
-	const destinationChanged = (): boolean => {
+	const followDestination = (): boolean => {
 		if (now() - readAt < FLAG_MAX_AGE_MS) return false;
 		readAt = now();
 		const daemon = daemonMode();
@@ -194,9 +197,10 @@ export function followedPublisher(
 			client = opened;
 			fileRemains = true;
 			// A daemon that has just started holds nothing, and nothing was
-			// kept for it while it could not be reached.
+			// kept for it while it could not be reached. A send that was
+			// waiting for this connection is written to it, and is the latest.
 			opened.onConnect(() => {
-				send(opened);
+				if (unsettledSends === 0) send(opened);
 			});
 		} else {
 			client!.close();
@@ -209,11 +213,11 @@ export function followedPublisher(
 	return {
 		publish(snapshot) {
 			latest = snapshot;
-			destinationChanged();
+			followDestination();
 			write();
 		},
 		followFlag() {
-			if (destinationChanged()) write();
+			if (followDestination()) write();
 		},
 		async close() {
 			if (!client) return;

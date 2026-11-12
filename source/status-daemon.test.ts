@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
 import {snapshotOf} from '../test/helpers/program-status.ts';
 import {
 	connectRaw,
@@ -12,6 +12,7 @@ import {
 	subscribeRaw,
 	testPane,
 	testSocketPath,
+	type RawConnection,
 } from '../test/helpers/status-daemon.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 import {withFileLock} from './file-lock.ts';
@@ -24,6 +25,12 @@ import {encodeMessage, type DaemonMessage} from './status-protocol.ts';
 
 const isHook = (workspaceName: string) => (message: DaemonMessage) =>
 	message.type === 'hook' && message.state.workspaceName === workspaceName;
+
+/** The daemon held nothing when `rail` subscribed, and has sent no more. */
+function sentOnlyAnEmptyState(t: ExecutionContext, rail: RawConnection) {
+	t.is(rail.messages.length, 1);
+	t.like(rail.messages[0], {type: 'state', hooks: [], snapshots: []});
+}
 
 async function refused(socketPath: string): Promise<boolean> {
 	return new Promise(resolve => {
@@ -125,7 +132,7 @@ test('a second daemon started while the first is about to listen waits, then lea
 	const later = await second;
 	t.is(later.kind, 'already-served');
 	const rail = await subscribeRaw(t, socketPath, 'repo');
-	t.deepEqual(rail.messages, [{type: 'state', hooks: [], snapshots: []}]);
+	sentOnlyAnEmptyState(t, rail);
 });
 
 test('a socket file that a killed daemon left is replaced', async t => {
@@ -152,7 +159,7 @@ test('a socket file that a killed daemon left is replaced', async t => {
 	await serveTestDaemon(t, socketPath);
 
 	const rail = await subscribeRaw(t, socketPath, 'repo');
-	t.deepEqual(rail.messages, [{type: 'state', hooks: [], snapshots: []}]);
+	sentOnlyAnEmptyState(t, rail);
 });
 
 test('the socket is the user’s alone', async t => {
@@ -163,7 +170,7 @@ test('the socket is the user’s alone', async t => {
 	t.is(fs.statSync(socketPath).mode & 0o777, 0o600);
 });
 
-test('the daemon stops ten seconds after its last connection closes, and removes its socket', async t => {
+test('the daemon stops once the idle wait after its last connection closed is over, and removes its socket', async t => {
 	const socketPath = testSocketPath(t);
 	const clock = manualTimers();
 	const daemon = await serveTestDaemon(t, socketPath, {timers: clock.timers});
@@ -189,7 +196,7 @@ test('the daemon stops ten seconds after its last connection closes, and removes
 	t.true(await refused(socketPath));
 });
 
-test('a daemon that nothing connects to stops ten seconds after it started', async t => {
+test('a daemon that nothing connects to stops once the idle wait from its start is over', async t => {
 	const socketPath = testSocketPath(t);
 	const clock = manualTimers();
 	const daemon = await serveTestDaemon(t, socketPath, {timers: clock.timers});
@@ -224,7 +231,7 @@ test('a daemon about to stop stays for a connection that arrives before it has t
 	t.true(fs.existsSync(socketPath));
 });
 
-test('a daemon about to stop stays ten more seconds after a connection that came and went before it had the lock', async t => {
+test('a daemon about to stop starts the idle wait again after a connection that came and went before it had the lock', async t => {
 	const socketPath = testSocketPath(t);
 	const clock = manualTimers();
 	await serveTestDaemon(t, socketPath, {timers: clock.timers});
@@ -248,7 +255,7 @@ test('a daemon about to stop stays ten more seconds after a connection that came
 
 	t.deepEqual(clock.delays(), [IDLE_EXIT_MS]);
 	const rail = await subscribeRaw(t, socketPath, 'repo');
-	t.deepEqual(rail.messages, [{type: 'state', hooks: [], snapshots: []}]);
+	sentOnlyAnEmptyState(t, rail);
 });
 
 test('an invalid line is ignored, and the lines after it on that connection still apply', async t => {

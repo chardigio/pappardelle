@@ -31,7 +31,12 @@ test('every client message is read back as it was written', t => {
 
 test('every daemon message is read back as it was written', t => {
 	const messages: DaemonMessage[] = [
-		{type: 'state', hooks: [hookState('repo-A')], snapshots: [snapshot]},
+		{
+			type: 'state',
+			daemon: 'daemon',
+			hooks: [hookState('repo-A')],
+			snapshots: [snapshot],
+		},
 		{type: 'hook', state: hookState('repo-A')},
 		{type: 'snapshot', snapshot},
 		{type: 'forgotten', repo: 'repo', key: 'A', keep: 'g1'},
@@ -66,9 +71,10 @@ test('a line that is not a message is invalid, and reading it does not throw', t
 	for (const text of [
 		'not json',
 		line({type: 'subscribe', repo: 'repo'}),
-		line({type: 'state', hooks: [hookState('repo-A')]}),
-		line({type: 'state', hooks: [{}], snapshots: []}),
-		line({type: 'state', hooks: [], snapshots: [{}]}),
+		line({type: 'state', hooks: [], snapshots: []}),
+		line({type: 'state', daemon: 'daemon', hooks: [hookState('repo-A')]}),
+		line({type: 'state', daemon: 'daemon', hooks: [{}], snapshots: []}),
+		line({type: 'state', daemon: 'daemon', hooks: [], snapshots: [{}]}),
 	]) {
 		t.deepEqual(parseDaemonMessage(text), {kind: 'invalid'}, `line: ${text}`);
 	}

@@ -419,6 +419,20 @@ contractTest(
 	},
 );
 
+// With the flag on a status file is still read where the daemon holds no
+// record: the hook wrote it while the flag was off.
+contractTest(
+	'a status file that is not a status cannot be read, and is not reported as absent',
+	async (t, s) => {
+		mkdirSync(path.dirname(claudeStatusFile(s, 'STA-1')), {recursive: true});
+		writeFileSync(claudeStatusFile(s, 'STA-1'), '{');
+		t.is(await s.daos.claudeStatus.read('STA-1'), null);
+		t.deepEqual(await s.daos.claudeStatus.readState('STA-1'), {
+			kind: 'unreadable',
+		});
+	},
+);
+
 // ============================================================================
 // Status files (experimental.sqliteState off)
 // ============================================================================
@@ -432,16 +446,6 @@ test('a removed status file is unknown again, and the bare name is read again', 
 	t.deepEqual(await dao.read('repo-STA-1'), {status: 'unknown'});
 	t.deepEqual(await dao.readState('repo-STA-1'), {kind: 'none'});
 	t.is(await dao.readableKey('repo', 'STA-1'), 'STA-1');
-});
-
-test('a status file that is not a status cannot be read, and is not reported as absent', async t => {
-	const s = testState(t, {sqlite: false});
-	mkdirSync(path.dirname(claudeStatusFile(s, 'STA-1')), {recursive: true});
-	writeFileSync(claudeStatusFile(s, 'STA-1'), '{');
-	t.is(await s.daos.claudeStatus.read('STA-1'), null);
-	t.deepEqual(await s.daos.claudeStatus.readState('STA-1'), {
-		kind: 'unreadable',
-	});
 });
 
 // ============================================================================
@@ -477,6 +481,16 @@ test('with the flag on, the newer of the daemon’s record and a status file is 
 		kind: 'state',
 		state: {status: 'processing'},
 	});
+
+	await writeClaudeStatus(
+		files,
+		session('repo-STA-1', 'ended', {lastUpdate: at}),
+	);
+	t.like(
+		await s.daos.claudeStatus.readState('repo-STA-1'),
+		{kind: 'state', state: {status: 'ended'}},
+		'the status file is read when the two are as recent',
+	);
 });
 
 test('with the flag on, a status the daemon does not hold is read from its status file, under the bare key too', async t => {
