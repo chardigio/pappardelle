@@ -50,10 +50,18 @@ _state_db_spec = importlib.util.spec_from_file_location("state_db", _state_db_mo
 if _state_db_spec and _state_db_spec.loader:
     _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
     _state_db_spec.loader.exec_module(_state_db_mod)
-    state_db_path = _state_db_mod.state_db_path
-    write_through = _state_db_mod.write_through
+    status_socket_path = _state_db_mod.status_socket_path
 else:
     raise ImportError("Could not load state_db")
+
+_status_socket_module_path = Path(__file__).parent / "status_socket.py"
+_status_socket_spec = importlib.util.spec_from_file_location("status_socket", _status_socket_module_path)
+if _status_socket_spec and _status_socket_spec.loader:
+    _status_socket_mod = importlib.util.module_from_spec(_status_socket_spec)
+    _status_socket_spec.loader.exec_module(_status_socket_mod)
+    send_status = _status_socket_mod.send_status
+else:
+    raise ImportError("Could not load status_socket")
 
 # Debug mode - logs all hook events to a file
 # Set PAPPARDELLE_DEBUG=1 environment variable to enable logging
@@ -160,10 +168,7 @@ def update_status(
     cwd: Optional[str] = None,
 ) -> None:
     workspace = get_workspace_name(cwd)
-    status_dir = get_status_dir()
-    status_dir.mkdir(parents=True, exist_ok=True)
-
-    status_file = status_dir / f"{workspace}.json"
+    status_file = get_status_dir() / f"{workspace}.json"
 
     state: dict[str, Any] = {
         "sessionId": session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown"),
@@ -179,53 +184,33 @@ def update_status(
     if cwd:
         state["cwd"] = cwd
 
+    socket_path = status_socket_path()
+    if socket_path is None:
+        write_status_file(status_file, state)
+    elif send_status(socket_path, state):
+        # A file from before the flag was turned on. Left in place, it is
+        # what this space would show once the flag is turned off again.
+        status_file.unlink(missing_ok=True)
+
+
+def write_status_file(status_file: Path, state: dict[str, Any]) -> None:
+    status_file.parent.mkdir(parents=True, exist_ok=True)
     # Atomic write: write to a sibling temp file then rename. POSIX rename is
     # atomic, so a concurrent reader always sees either the previous complete
     # file or the new complete file — never a truncated one. If the write
     # raises (disk full, permission denied) before the rename, clean up the
     # orphan so the status dir doesn't accumulate junk across crashes.
-    def write_file() -> os.stat_result:
-        tmp_file = status_dir / f"{workspace}.json.tmp.{os.getpid()}"
+    tmp_file = status_file.parent / f"{status_file.name}.tmp.{os.getpid()}"
+    try:
+        with open(tmp_file, "w") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp_file, status_file)
+    except Exception:
         try:
-            with open(tmp_file, "w") as f:
-                json.dump(state, f, indent=2)
-            written = os.stat(tmp_file)
-            os.replace(tmp_file, status_file)
-            return written
-        except Exception:
-            try:
-                tmp_file.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
-
-    db_path = state_db_path()
-    if db_path is None:
-        write_file()
-        return
-    # The columns source/claude-status-sqlite.ts imports from the same file.
-    write_through(
-        db_path,
-        status_file,
-        write_file,
-        [
-            (
-                """INSERT OR REPLACE INTO claude_status (status_key, session_id,
-                    workspace_name, status, last_update, current_tool, event, cwd)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    workspace,
-                    state["sessionId"],
-                    workspace,
-                    status,
-                    state["lastUpdate"],
-                    state.get("currentTool"),
-                    state.get("event"),
-                    state.get("cwd"),
-                ),
-            )
-        ],
-    )
+            tmp_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def main() -> None:

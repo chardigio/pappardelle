@@ -139,11 +139,8 @@ async function turn(text: string, label: string) {
 async function leave() {
 	await prompt('/exit');
 	await until(
-		() =>
-			JSON.parse(
-				readFileSync(path.join(harness.root, 'hooks', `${key}.json`), 'utf8'),
-			) as {event?: string},
-		state => state.event === 'SessionEnd',
+		async () => harness.claudeStatus.readState(key),
+		stored => stored.kind === 'state' && stored.state.event === 'SessionEnd',
 		'SessionEnd hook records shell return',
 	);
 	await harness.expect(

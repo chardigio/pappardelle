@@ -66,26 +66,22 @@ async function answers(socketPath: string): Promise<boolean> {
 	});
 }
 
+export type StatusServer = {
+	server: net.Server;
+	connections: ReadonlySet<net.Socket>;
+	disconnectAll(): void;
+};
+
 /**
- * Serve status on `socketPath` unless a daemon already does. Every step that
- * creates or removes the socket file runs under the same file lock, which is
- * what keeps two daemons started together from each replacing the other's
- * socket.
+ * A server, not yet listening, that keeps one hub: each line a connection
+ * sends is applied to it, and what the hub returns is written to its
+ * subscribers.
  */
-export async function serveStatusDaemon(
-	socketPath: string,
-	options: StatusDaemonOptions = {},
-): Promise<StatusDaemonStart> {
-	const timers = options.timers ?? backgroundTimers;
+export function createStatusServer(
+	on: {opened?: () => void; closed?: () => void} = {},
+): StatusServer {
 	const hub = new StatusHub<net.Socket>();
 	const connections = new Set<net.Socket>();
-	let arrivals = 0;
-	let stopped = false;
-	let cancelIdleExit: (() => void) | undefined;
-	let markClosed!: () => void;
-	const closed = new Promise<void>(resolve => {
-		markClosed = resolve;
-	});
 
 	const disconnect = (connection: net.Socket) => {
 		hub.disconnect(connection);
@@ -105,13 +101,70 @@ export async function serveStatusDaemon(
 		}
 	};
 
+	const server = net.createServer(connection => {
+		connections.add(connection);
+		on.opened?.();
+		const reader = new LineReader();
+		let invalidLogged = false;
+		connection.setEncoding('utf8');
+		connection.on('data', (text: string) => {
+			for (const line of reader.feed(text)) {
+				const parsed = parseClientMessage(line);
+				if (parsed.kind === 'message') {
+					send(hub.receive(connection, parsed.message));
+				} else if (!invalidLogged) {
+					invalidLogged = true;
+					log.warn(
+						`Ignored a line that is not a status message: ${line.slice(0, LOGGED_LINE_LENGTH)}`,
+					);
+				}
+			}
+		});
+		connection.on('error', error => {
+			log.debug(`Connection failed: ${error.message}`);
+		});
+		connection.on('close', () => {
+			connections.delete(connection);
+			hub.disconnect(connection);
+			on.closed?.();
+		});
+	});
+
+	return {
+		server,
+		connections,
+		disconnectAll() {
+			for (const connection of connections) disconnect(connection);
+		},
+	};
+}
+
+/**
+ * Serve status on `socketPath` unless a daemon already does. Every step that
+ * creates or removes the socket file runs under the same file lock, which is
+ * what keeps two daemons started together from each replacing the other's
+ * socket.
+ */
+export async function serveStatusDaemon(
+	socketPath: string,
+	options: StatusDaemonOptions = {},
+): Promise<StatusDaemonStart> {
+	const timers = options.timers ?? backgroundTimers;
+	let arrivals = 0;
+	let stopped = false;
+	let cancelIdleExit: (() => void) | undefined;
+	let markClosed!: () => void;
+	const closed = new Promise<void>(resolve => {
+		markClosed = resolve;
+	});
+
 	const stop = () => {
 		if (stopped) return;
 		stopped = true;
 		cancelIdleExit?.();
 		server.close();
 		fs.rmSync(socketPath, {force: true});
-		for (const connection of connections) disconnect(connection);
+		disconnectAll();
 		markClosed();
 	};
 
@@ -135,34 +188,14 @@ export async function serveStatusDaemon(
 		});
 	};
 
-	const server = net.createServer(connection => {
-		connections.add(connection);
-		arrivals++;
-		cancelIdleExit?.();
-		const reader = new LineReader();
-		let invalidLogged = false;
-		connection.setEncoding('utf8');
-		connection.on('data', (text: string) => {
-			for (const line of reader.feed(text)) {
-				const parsed = parseClientMessage(line);
-				if (parsed.kind === 'message') {
-					send(hub.receive(connection, parsed.message));
-				} else if (!invalidLogged) {
-					invalidLogged = true;
-					log.warn(
-						`Ignored a line that is not a status message: ${line.slice(0, LOGGED_LINE_LENGTH)}`,
-					);
-				}
-			}
-		});
-		connection.on('error', error => {
-			log.debug(`Connection failed: ${error.message}`);
-		});
-		connection.on('close', () => {
-			connections.delete(connection);
-			hub.disconnect(connection);
+	const {server, connections, disconnectAll} = createStatusServer({
+		opened() {
+			arrivals++;
+			cancelIdleExit?.();
+		},
+		closed() {
 			if (connections.size === 0 && !stopped) armIdleExit();
-		});
+		},
 	});
 
 	const listen = async () =>

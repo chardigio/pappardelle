@@ -9,11 +9,15 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import test, {type ExecutionContext} from 'ava';
 import {gatherSpaces} from './spaces-command.ts';
 import {createStateDaos} from './state-daos.ts';
-import {closeStateDb, stateDbPath} from './state-db.ts';
+import {closeStateDb, stateDbPath, statusSocketPath} from './state-db.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
+import {sendHookEvent, serveTestDaemon} from '../test/helpers/status-daemon.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
+// Long enough for a CLI that has begun to wait for its agent to have tried
+// the status socket once and found nothing there.
+const FIRST_CONNECT_ATTEMPT_MS = 500;
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
 const useBuiltCli =
 	useStandalone || process.env['PAPPARDELLE_TEST_BUILT_CLI'] === '1';
@@ -202,12 +206,18 @@ test.serial(
 		t.true(result.stdout.includes('Workspace STE-20 is ready!'));
 		t.true(result.stderr.includes('idow diagnostic'));
 		const stateDir = path.join(f.home, '.pappardelle');
+		const daos = createStateDaos({
+			repo: 'project',
+			stateDir,
+			sqlite: sqliteRun,
+		});
 		t.teardown(() => {
+			daos.disconnectStatusDaemon();
 			closeStateDb(stateDbPath(stateDir));
 		});
 		const spaces = await gatherSpaces({
 			repoName: 'project',
-			...createStateDaos({repo: 'project', stateDir, sqlite: sqliteRun}),
+			...daos,
 			home: f.home,
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,
@@ -219,7 +229,9 @@ test.serial(
 	},
 );
 
-test.serial(
+// With the flag on the agent's hook reports to the status daemon, and a status
+// file is not read.
+(sqliteRun ? test.serial.skip : test.serial)(
 	'CLI --wait succeeds once the reopened space reports its agent started',
 	async t => {
 		const f = fixture(t);
@@ -231,6 +243,48 @@ test.serial(
 		t.is(result.code, 0, result.stderr);
 		t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
 		t.deepEqual(f.readRegistry(), ['STE-20']);
+	},
+);
+
+// A CLI verb never starts the daemon. The agent's pane monitor does, which
+// can be after `open --wait` has begun to wait.
+(sqliteRun ? test.serial : test.serial.skip)(
+	'CLI --wait begun before any status daemon runs succeeds once one starts and the agent reports to it',
+	async t => {
+		const f = fixture(t);
+		const socketPath = statusSocketPath(path.join(f.home, '.pappardelle'));
+		const child = f.start(['--resume', '--wait', 'STE-20']);
+		let stdout = '';
+		let stderr = '';
+		child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+			stdout += chunk;
+		});
+		child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+			stderr += chunk;
+		});
+		child.stdin.end('2\n');
+		const closed = once(child, 'close');
+		await waitUntil(
+			() => stdout.includes('Workspace STE-20 is ready!'),
+			'idow to finish',
+			20_000,
+		);
+		await delay(FIRST_CONNECT_ATTEMPT_MS);
+		t.is(child.exitCode, null, stderr);
+		t.false(fs.existsSync(socketPath));
+
+		await serveTestDaemon(t, socketPath);
+		await sendHookEvent(socketPath, {
+			sessionId: 'session',
+			workspaceName: 'project-STE-20',
+			status: 'waiting_for_input',
+			event: 'SessionStart',
+			cwd: path.join(f.home, '.worktrees', 'project', 'STE-20'),
+			lastUpdate: Date.now(),
+		});
+
+		const [code] = await closed;
+		t.is(code, 0, stderr);
 	},
 );
 
