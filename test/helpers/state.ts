@@ -25,7 +25,12 @@ export type TestState = {
  */
 export function testState(
 	t: Teardown,
-	options: {repo?: string; spaces?: string[]; sqlite?: boolean} = {},
+	options: {
+		repo?: string;
+		spaces?: string[];
+		sqlite?: boolean;
+		clock?: () => Date;
+	} = {},
 ): TestState {
 	const repo = options.repo ?? 'repo';
 	const stateDir = fs.realpathSync(
@@ -40,6 +45,7 @@ export function testState(
 		repo,
 		stateDir,
 		sqlite: options.sqlite ?? sqliteRun,
+		clock: options.clock,
 	});
 	t.teardown(() => {
 		closeStateDb(stateDbPath(stateDir));

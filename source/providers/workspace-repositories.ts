@@ -4,7 +4,7 @@ import path from 'node:path';
 import {promisify} from 'node:util';
 import {readRemoteUrls, remoteProjects} from '../git-remotes.ts';
 import {workspaceIdentity} from '../link-pr.ts';
-import {readSpaceState} from '../space-state.ts';
+import type {SpaceStateDao} from '../space-state.ts';
 
 const execFileAsync = promisify(execFile);
 export interface WorkspaceRepository {
@@ -14,8 +14,11 @@ export interface WorkspaceRepository {
 export type RepositoryDiscovery = (
 	directory: string,
 	host: string,
-	stateBaseDir?: string,
 ) => Promise<WorkspaceRepository[]>;
+/** The space-state store of the repo a workspace turns out to belong to. */
+export type SpaceStateLookup = (
+	repoName: string,
+) => Pick<SpaceStateDao, 'read'>;
 
 const EXCLUDED = new Set([
 	'node_modules',
@@ -27,11 +30,16 @@ const EXCLUDED = new Set([
 	'__pycache__',
 ]);
 
-export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
-	directory,
-	host,
-	stateBaseDir,
-) => {
+/**
+ * The repositories checked out in a workspace, each with the branch the rail
+ * should follow. With `spaceStateFor`, a checkout that `link-pr` recorded a
+ * PR for follows that PR's published branch instead of its local one.
+ */
+export async function discoverWorkspaceRepositories(
+	directory: string,
+	host: string,
+	spaceStateFor?: SpaceStateLookup,
+): Promise<WorkspaceRepository[]> {
 	const repositories: Array<WorkspaceRepository & {remotes: Set<string>}> = [];
 	let visited = 0;
 	const git = async (cwd: string, args: string[]) => {
@@ -87,11 +95,13 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 		}
 	}
 	await visit(directory, 0);
-	const identity = await workspaceIdentity(directory).catch(() => null);
-	const links = identity
-		? (readSpaceState(identity.repoName, identity.issueKey, stateBaseDir)
-				?.prLinks ?? [])
-		: [];
+	const identity = spaceStateFor
+		? await workspaceIdentity(directory).catch(() => null)
+		: null;
+	const links =
+		(identity &&
+			spaceStateFor?.(identity.repoName).read(identity.issueKey)?.prLinks) ??
+		[];
 	return repositories.map(({remotes, ...repository}) => {
 		const link = links.find(
 			item =>
@@ -103,4 +113,4 @@ export const discoverWorkspaceRepositories: RepositoryDiscovery = async (
 			? {project: link.project, branch: link.remoteBranch}
 			: repository;
 	});
-};
+}

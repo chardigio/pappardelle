@@ -35,6 +35,11 @@ class Fixture:
         for source in (repo / "scripts").iterdir():
             if source.is_file():
                 shutil.copy(source, scripts / source.name)
+        # idow records workspace state through the checkout's own binary, which
+        # scripts/state-cli.sh looks for beside the scripts directory.
+        for name in ("dist", "source"):
+            if (repo / name).is_dir():
+                (root / name).symlink_to(repo / name)
         write_script(bin_dir / "bd", "echo '{\"id\":\"bench-123\",\"title\":\"Benchmark\",\"description\":\"\"}'")
         write_script(bin_dir / "tmux", "exit 1")
         write_script(bin_dir / "gh", "echo https://example.test/pr/1")
