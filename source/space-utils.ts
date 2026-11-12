@@ -28,6 +28,15 @@ export function shouldShowLoadingTitle(space: SpaceData): boolean {
 	);
 }
 
+export type TearDownResult =
+	| {outcome: 'closed'}
+	/** Nothing was touched: the close could not be recorded as started. */
+	| {outcome: 'mark-failed'; error: unknown}
+	/** The sessions are still running and the space is still open. */
+	| {outcome: 'kill-failed'}
+	/** The sessions are gone and the registry still has the space. */
+	| {outcome: 'unregister-failed'; error: unknown};
+
 /**
  * Kill a space's tmux sessions, then unregister it. STA-1420: the order is
  * load-bearing — if the kill fails we must NOT touch the registry, otherwise
@@ -35,30 +44,53 @@ export function shouldShowLoadingTitle(space: SpaceData): boolean {
  * Post-STA-1416 there's no `seedFromTmux` reaper to recover from that
  * mistake; the orphan would linger until manually killed.
  *
- * Returns true if the space was fully torn down (kill succeeded and registry
- * was updated). On false, caller should leave selection state untouched so
- * the user can retry.
+ * A registry that records a close in progress is told before the kill, so a
+ * removal that then fails leaves a space known to be closing: one that
+ * nothing reattaches to or respawns.
+ *
+ * On anything but `closed`, the caller should leave selection state
+ * untouched so the user can retry.
  */
 export async function tearDownSpace(
 	issueKey: string,
 	deps: {
+		markClosing: (key: string) => Promise<void>;
+		reopen: (key: string) => Promise<void>;
 		killSpaceSessions: (key: string) => Promise<boolean>;
 		removeSpace: (key: string) => void | Promise<void>;
 		onKillFailure: (key: string) => void;
 		cleanup?: (key: string) => Promise<boolean>;
 	},
-): Promise<boolean> {
+): Promise<TearDownResult> {
+	try {
+		await deps.markClosing(issueKey);
+	} catch (error) {
+		return {outcome: 'mark-failed', error};
+	}
+
 	const killed = await deps.killSpaceSessions(issueKey);
 	if (!killed) {
+		await deps.reopen(issueKey).catch((error: unknown) => {
+			log.error(
+				`Failed to reopen ${issueKey} after its sessions could not be killed`,
+				error instanceof Error ? error : undefined,
+			);
+		});
 		deps.onKillFailure(issueKey);
-		return false;
+		return {outcome: 'kill-failed'};
 	}
-	await deps.removeSpace(issueKey);
+
+	try {
+		await deps.removeSpace(issueKey);
+	} catch (error) {
+		return {outcome: 'unregister-failed', error};
+	}
+
 	void deps.cleanup?.(issueKey).catch((err: unknown) => {
 		log.error(
 			`Failed to clean up simulator for ${issueKey}`,
 			err instanceof Error ? err : undefined,
 		);
 	});
-	return true;
+	return {outcome: 'closed'};
 }

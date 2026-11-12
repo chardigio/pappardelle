@@ -56,6 +56,8 @@ for (const error of [
 test('a failed session kill does not schedule simulator cleanup', async t => {
 	const calls: string[][] = [];
 	const result = await tearDownSpace('A', {
+		async markClosing() {},
+		async reopen() {},
 		async killSpaceSessions(key) {
 			return killSpaceSessions(key, {
 				repoName: 'fixture',
@@ -76,7 +78,7 @@ test('a failed session kill does not schedule simulator cleanup', async t => {
 			return true;
 		},
 	});
-	t.false(result);
+	t.is(result.outcome, 'kill-failed');
 	// The companion's splits are listed first, then the companion is killed.
 	t.is(calls.length, 2);
 	t.true(calls[0]!.includes('list-sessions'));
@@ -89,41 +91,43 @@ test('successful session close returns while simulator cleanup is still pending'
 		finish = resolve;
 	});
 	let started = false;
-	t.true(
-		await tearDownSpace('A', {
-			async killSpaceSessions() {
-				return true;
-			},
-			async removeSpace() {
-				await Promise.resolve();
-			},
-			onKillFailure() {
-				t.fail('kill should succeed');
-			},
-			async cleanup() {
-				started = true;
-				return cleaning;
-			},
-		}),
-	);
+	const result = await tearDownSpace('A', {
+		async markClosing() {},
+		async reopen() {},
+		async killSpaceSessions() {
+			return true;
+		},
+		async removeSpace() {
+			await Promise.resolve();
+		},
+		onKillFailure() {
+			t.fail('kill should succeed');
+		},
+		async cleanup() {
+			started = true;
+			return cleaning;
+		},
+	});
+	t.is(result.outcome, 'closed');
 	t.true(started);
 	finish(false);
 	await cleaning;
 });
 
 test('simulator cleanup rejection is nonfatal to session close', async t => {
-	t.true(
-		await tearDownSpace('A', {
-			async killSpaceSessions() {
-				return true;
-			},
-			removeSpace() {},
-			onKillFailure() {
-				t.fail('kill should succeed');
-			},
-			async cleanup() {
-				throw new Error('xcrun failed');
-			},
-		}),
-	);
+	const result = await tearDownSpace('A', {
+		async markClosing() {},
+		async reopen() {},
+		async killSpaceSessions() {
+			return true;
+		},
+		removeSpace() {},
+		onKillFailure() {
+			t.fail('kill should succeed');
+		},
+		async cleanup() {
+			throw new Error('xcrun failed');
+		},
+	});
+	t.is(result.outcome, 'closed');
 });

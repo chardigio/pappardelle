@@ -12,6 +12,7 @@ import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
 import {
 	cleanupOrphanedInnerSessions,
+	liveSpaceSessionKeys,
 	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
@@ -57,10 +58,6 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {
-	getRegisteredSpaces,
-	getRegisteredSpacesAsync,
-} from './space-registry.ts';
 import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
@@ -217,9 +214,9 @@ if (cli.input.length === 1 && cli.input[0] === 'update') {
 // is already resolved, and the worktree it was asked from may be gone.
 if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
 	if (cli.input.length !== 2) process.exit(1);
-	bootstrapRepo();
+	const {daos} = bootstrapRepo();
 	process.exit(
-		await runCloseTeardown(cli.input[1]!, defaultCloseCommandDeps()),
+		await runCloseTeardown(cli.input[1]!, defaultCloseCommandDeps(daos)),
 	);
 }
 
@@ -321,7 +318,7 @@ checkConfig();
 configurationDone?.();
 
 const bootstrapDone = startupTrace.current?.begin('repo-bootstrap');
-const {repoName} = bootstrapRepo();
+const {repoName, daos} = bootstrapRepo();
 bootstrapDone?.();
 
 if (isRestart) {
@@ -433,7 +430,7 @@ if (cli.input[0] === 'close') {
 	process.exit(
 		await runCloseCommand(
 			{key: issueKey, yes: cli.flags.yes ?? false},
-			defaultCloseCommandDeps(),
+			defaultCloseCommandDeps(daos),
 		),
 	);
 }
@@ -443,6 +440,7 @@ if (cli.input[0] === 'spaces') {
 	await exitAfterFlush(
 		await runSpacesCommand({
 			repoName,
+			registry: daos.registry,
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -511,6 +509,7 @@ if (cli.input.length > 0) {
 			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+		registry: daos.registry,
 		waitForAgent: cli.flags.wait
 			? async (issueKey, since) =>
 					waitForAgentStart({
@@ -599,7 +598,7 @@ if (!isInTmux() && cli.flags.layout) {
 // Set up tmux layout if in tmux and not disabled
 let paneLayout: PaneLayout | null = null;
 
-function maintainSessions() {
+async function maintainSessions() {
 	// On startup, kill any leftover claude-{repo}-* / companion-{repo}-* sessions
 	// on the default socket from a pre-STA-860 run. tmux can't migrate sessions
 	// between servers, so we drop them; idow / Pappardelle recreates them on
@@ -630,8 +629,33 @@ function maintainSessions() {
 	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const reapingDone = startupTrace.current?.begin('inner-reaping');
+	// A space left half-opened or half-closed by a process that died is
+	// settled by whether its sessions exist, before deciding what to reap.
+	await daos.registry
+		.settle({
+			closing: new Set(),
+			liveSessionKeys: () => liveSpaceSessionKeys(undefined, innerTmux),
+		})
+		.catch((error: unknown) => {
+			createLogger('cli').warn(
+				'Could not settle unfinished spaces at startup',
+				error instanceof Error ? error : undefined,
+			);
+		});
+	const owned = daos.registry.protectedSpaces();
+	if (!owned.ok) {
+		// An unreadable registry is not an empty one: reaping against it
+		// would kill every session of every open space.
+		reapingDone?.();
+		createLogger('cli').warn(
+			'Skipped the inner-socket reap: the space registry could not be read',
+			owned.error instanceof Error ? owned.error : undefined,
+		);
+		return;
+	}
+
 	const innerReaped = cleanupOrphanedInnerSessions(
-		new Set(getRegisteredSpaces()),
+		new Set(owned.keys),
 		undefined,
 		innerTmux,
 	);
@@ -650,7 +674,7 @@ const firstRailPaint = new Promise<void>(resolve => {
 // Read while tmux and the renderer are set up, for the first list the rail
 // draws.
 function startWorkspaceReads() {
-	const registry = getRegisteredSpacesAsync();
+	const registry = daos.registry.openSpacesAsync();
 	// App reports a failed read when it takes this over.
 	registry.catch(() => null);
 	return {registry, mainWorktree: getMainWorktreeInfo()};
@@ -661,7 +685,7 @@ const initialWorkspaces = startWorkspaceReads();
 // tmux splits the panes while the renderer's modules load below.
 let layoutSetup: ReturnType<typeof setupPappardellLayout> | undefined;
 if (isInTmux() && cli.flags.layout) {
-	maintainSessions();
+	await maintainSessions();
 	enableTmuxControlClients();
 	layoutSetup = setupPappardellLayout();
 }
@@ -756,6 +780,7 @@ function finishStartup() {
 }
 const app = () => (
 	<App
+		daos={daos}
 		paneLayout={paneLayout}
 		{...metadata}
 		updateCheckPromise={updateCheckPromise}
