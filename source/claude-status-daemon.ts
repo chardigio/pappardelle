@@ -8,7 +8,7 @@ import {
 	type ClaudeStatusInfo,
 	type StoredClaudeStatus,
 } from './claude-status.ts';
-import type {StatusClient} from './status-client.ts';
+import {firstChange, type StatusClient} from './status-client.ts';
 
 /**
  * With no daemon running every key reads as never reported. That is what the
@@ -44,14 +44,6 @@ export class DaemonClaudeStatusDao implements ClaudeStatusDao {
 	}
 
 	async waitForChange(ms: number): Promise<void> {
-		return new Promise(resolve => {
-			const timer = setTimeout(done, ms);
-			const stop = this.watch(done);
-			function done() {
-				clearTimeout(timer);
-				stop();
-				resolve();
-			}
-		});
+		return firstChange(listener => this.watch(listener), ms);
 	}
 }

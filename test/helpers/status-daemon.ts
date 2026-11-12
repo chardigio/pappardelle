@@ -107,6 +107,33 @@ export async function sendHookEvent(
 	});
 }
 
+/**
+ * Send one message on a connection of its own, and return once the daemon
+ * has applied it.
+ */
+export async function deliver(
+	socketPath: string,
+	message: ClientMessage,
+): Promise<void> {
+	const socket = net.connect(socketPath);
+	const reader = new LineReader();
+	try {
+		await new Promise<void>((resolve, reject) => {
+			socket.once('error', reject);
+			socket.setEncoding('utf8');
+			// The daemon answers a subscription after the lines before it.
+			socket.on('data', (text: string) => {
+				if (reader.feed(text).length > 0) resolve();
+			});
+			socket.write(
+				encodeMessage(message) + encodeMessage({type: 'subscribe', repo: ''}),
+			);
+		});
+	} finally {
+		socket.destroy();
+	}
+}
+
 export type RawConnection = {
 	socket: net.Socket;
 	/** What the daemon has sent, in order. */

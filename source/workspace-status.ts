@@ -105,7 +105,10 @@ export class WorkspaceStatuses {
 			return this.read(key, sessionKey);
 		const pane = await entry.pane;
 		if (this.panes.get(key) !== entry) return this.readKnown(key);
-		const snapshot = pane ? this.programStatus.read(sessionKey, pane) : null;
+		const snapshot = pane
+			? await this.programStatus.read(sessionKey, pane)
+			: null;
+		if (this.panes.get(key) !== entry) return this.readKnown(key);
 		if (
 			!pane ||
 			!snapshot ||
@@ -124,7 +127,7 @@ export class WorkspaceStatuses {
 	): Promise<ProgramStatusInfo | null> {
 		return mergeProgramStatus(
 			await this.claudeStatus.read(key),
-			pane ? this.programStatus.read(sessionKey, pane) : null,
+			pane ? await this.programStatus.read(sessionKey, pane) : null,
 			pane,
 		);
 	}

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
@@ -58,6 +64,14 @@ try {
 		writeFileSync(file, 'other workspace message');
 		writeFileSync(`${file}.lease`, '');
 	}
+	/**
+	 * Whether the pane's snapshot is where its monitor publishes it: its file,
+	 * or with the flag on the status daemon.
+	 */
+	const published = async (key: string, target: string) =>
+		harness.sqlite
+			? (await harness.heldSnapshots(repo, key)) > 0
+			: existsSync(target);
 	const findings: string[] = [];
 	for (const mode of ['normal', 'detached', 'orphan'] as const) {
 		const key = `qa-cleanup-${mode}`;
@@ -75,7 +89,7 @@ try {
 		assert.ok(pane);
 		await harness.fixture(session);
 		await until(
-			() => daos.programStatus.read(key, pane),
+			async () => daos.programStatus.read(key, pane),
 			value => value?.info.status === 'idle',
 			`${mode} recorded idle report`,
 		);
@@ -84,7 +98,8 @@ try {
 			key,
 			pane.generation,
 		);
-		assert.ok(readFileSync(target, 'utf8').includes('fixture'));
+		if (harness.sqlite) assert.ok(await published(key, target));
+		else assert.ok(readFileSync(target, 'utf8').includes('fixture'));
 		if (mode === 'orphan') {
 			assert.equal(
 				cleanupOrphanedInnerSessions(new Set(), repo, undefined, []),
@@ -125,7 +140,7 @@ try {
 		const retained =
 			existsSync(target) ||
 			existsSync(`${target}.lease`) ||
-			harness.snapshotRows(repo, key) > 0;
+			(await harness.heldSnapshots(repo, key)) > 0;
 		if (retained) findings.push(mode);
 		console.log(
 			`${retained ? 'FAIL' : 'PASS'} ${mode} close removes snapshot and lease`,
@@ -147,7 +162,7 @@ try {
 	assert.ok(pane);
 	await harness.fixture(sessions.agent);
 	await until(
-		() => daos.programStatus.read(key, pane),
+		async () => daos.programStatus.read(key, pane),
 		value => value?.info.status === 'idle',
 		'failed close recorded idle report',
 	);
@@ -180,15 +195,18 @@ try {
 		),
 		1,
 	);
-	assert.ok(existsSync(target));
+	assert.ok(await published(key, target));
 	assert.ok(existsSync(`${target}.lease`));
 	assert.equal(cleanupOrphanedInnerSessions(new Set(), repo, undefined, []), 1);
 	assert.ok(!existsSync(`${target}.lease`));
 	await until(
-		() => existsSync(target) || harness.snapshotRows(repo, key) > 0,
+		async () =>
+			existsSync(target) || (await harness.heldSnapshots(repo, key)) > 0,
 		retained => !retained,
 		'retried orphan cleanup removes its snapshot',
 	);
+	// What is left under the harness's root is checked when it is cleaned up.
+	for (const file of sentinelFiles) rmSync(file);
 	console.log(
 		'PASS partial orphan teardown preserves snapshots until retry succeeds',
 	);

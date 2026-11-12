@@ -708,6 +708,7 @@ function startWorkspaceReads() {
 
 // From here this process renders the TUI. The CLI verbs above exit first.
 daos.deferCheckpoints();
+daos.allowStatusDaemonStart();
 const initialWorkspaces = startWorkspaceReads();
 
 // tmux splits the panes while the renderer's modules load below.

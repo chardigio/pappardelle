@@ -238,21 +238,24 @@ test('with nothing listening and start off, ready() resolves with an empty repli
 	t.deepEqual(started, []);
 });
 
-test('with start on, each refused attempt starts a daemon, and the wait between attempts doubles up to a cap', async t => {
+test('with start on, the first refused attempt starts a daemon and later ones do at each doubling of their count, and the wait between attempts doubles up to a cap', async t => {
 	const socketPath = testSocketPath(t);
 	const {client, clock, started} = testClient(t, socketPath, {start: true});
 
 	await client.ready();
 	const waits: number[] = [];
+	const startedAfter: number[] = [];
 	for (let attempt = 1; attempt <= 8; attempt++) {
 		await waitUntil(
 			() => clock.delays().length === 1,
 			`attempt ${attempt} to be refused`,
 		);
-		t.is(started.length, attempt);
+		startedAfter.push(started.length);
 		waits.push(...clock.delays());
 		clock.fire();
 	}
+
+	t.deepEqual(startedAfter, [1, 2, 2, 3, 3, 3, 3, 4]);
 
 	t.deepEqual(waits, [300, 400, 600, 1000, 1800, 3400, 5200, 5200]);
 	t.deepEqual(new Set(started), new Set([socketPath]));

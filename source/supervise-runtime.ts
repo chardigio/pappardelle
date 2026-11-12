@@ -148,7 +148,7 @@ export function defaultSuperviseDeps(
 			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
 		},
 		readHook: async hookKey => claudeStatus.read(hookKey),
-		readSnapshot: (key, pane) => programStatus.read(key, pane),
+		readSnapshot: async (key, pane) => programStatus.read(key, pane),
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
 		now: () => new Date(),

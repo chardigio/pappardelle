@@ -1,10 +1,12 @@
-import {monitorPane, type StatusPane} from './program-status-monitor.ts';
+import {Buffer} from 'node:buffer';
 import {
 	createProgramStatusDao,
-	followedSnapshotRows,
-} from './program-status-sqlite.ts';
-import {DEFAULT_STATE_DIR, openStateDb, stateDbPath} from './state-db.ts';
+	followedPublisher,
+} from './program-status-daemon.ts';
+import {monitorPane, type StatusPane} from './program-status-monitor.ts';
+import {DEFAULT_STATE_DIR, statusSocketPath} from './state-db.ts';
 import {readResolvedSqliteState} from './state-flag.ts';
+import {StatusClient} from './status-client.ts';
 
 // This entry runs once per agent launch and stays up for the life of each
 // agent pane, so it reads the flag the CLI recorded and does not load the
@@ -18,18 +20,20 @@ const [
 	socketOrPane,
 	dir,
 	traceDir,
-	dbPath,
+	statusSocket,
 ] = process.argv.slice(2);
 if (!repo || !key || !sessionOrSocket) process.exitCode = 1;
-else if (command === 'attach')
+else if (command === 'attach') {
+	const socketPath = statusSocketPath();
 	await createProgramStatusDao({
-		sqlite: readResolvedSqliteState(),
 		repo,
 		stateDir: DEFAULT_STATE_DIR,
-		dbPath: stateDbPath(),
-		openDb: () => openStateDb(stateDbPath()),
+		socketPath,
+		statusClient: readResolvedSqliteState()
+			? new StatusClient(socketPath)
+			: undefined,
 	}).attach(key, sessionOrSocket, socketOrPane);
-else if (command === 'watch' && socketOrPane && dir)
+} else if (command === 'watch' && socketOrPane && dir && statusSocket)
 	monitorPane(
 		repo,
 		key,
@@ -38,13 +42,11 @@ else if (command === 'watch' && socketOrPane && dir)
 			Buffer.from(socketOrPane, 'base64').toString('utf8'),
 		) as StatusPane,
 		dir,
+		followedPublisher({
+			dir,
+			socketPath: statusSocket,
+			daemonMode: () => readResolvedSqliteState(),
+		}),
 		traceDir || undefined,
-		dbPath
-			? followedSnapshotRows(
-					() => openStateDb(dbPath),
-					() => readResolvedSqliteState(),
-				)
-			: undefined,
 	);
 else process.exitCode = 1;
-import {Buffer} from 'node:buffer';

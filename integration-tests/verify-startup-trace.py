@@ -21,8 +21,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     binary = args.binary.resolve()
-    fixture_directory = runpy.run_path(str(Path(__file__).resolve().parent.parent / 'scripts/benchmarks/workspace-ready.py'))['fixture_directory']
-    with fixture_directory() as tmp:
+    harness = runpy.run_path(str(Path(__file__).resolve().parent.parent / 'scripts/benchmarks/workspace-ready.py'))
+    with harness['fixture_directory']() as tmp:
         root = Path(tmp)
         home, repo, bin_dir = [root / part for part in ('home', 'repo', 'bin')]
         for directory in (home, repo, bin_dir):
@@ -31,6 +31,12 @@ def main():
                    PATH=str(bin_dir) + os.pathsep + os.environ['PATH'],
                    TMUX_TMPDIR=str(root), PAPPARDELLE_TMUX_SOCKET='trace-inner',
                    GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
+        # With the flag on the TUI starts a status daemon that outlives it. The
+        # fixture's teardown stops every process that carries this marker.
+        env[harness['FIXTURE_MARKER']] = tmp
+        # Beside the database under HOME, the socket's path is too long for
+        # macOS, whose temp directory is deep.
+        env['PAPPARDELLE_STATUS_SOCKET'] = str(root / 'status-1.sock')
         # The fixture's HOME has no config, so the state mode comes from the override.
         if 'PAPPARDELLE_SQLITE_STATE' in os.environ:
             env['PAPPARDELLE_SQLITE_STATE'] = os.environ['PAPPARDELLE_SQLITE_STATE']

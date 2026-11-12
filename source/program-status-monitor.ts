@@ -208,7 +208,7 @@ export interface ProgramStatusDao {
 	): Promise<StatusPane | null>;
 	/** Whether the monitor of this pane generation may still publish. */
 	monitored(key: string, generation: string): boolean;
-	read(key: string, pane: StatusPane): ProgramStatusSnapshot | null;
+	read(key: string, pane: StatusPane): Promise<ProgramStatusSnapshot | null>;
 	/**
 	 * Revoke and delete the snapshots of a space, except `keepGeneration`'s.
 	 * The leases are gone when this returns, before it resolves.
@@ -225,11 +225,11 @@ type MonitorStore = {
 	repo: string;
 	dir: string;
 	/**
-	 * The state database. A monitor is told where it is whatever the flag
-	 * says, because it outlives a change of the flag and then starts or stops
-	 * writing rows by itself.
+	 * The status daemon's socket. A monitor is told where it is whatever the
+	 * flag says, because it outlives a change of the flag and then starts or
+	 * stops sending to the daemon by itself.
 	 */
-	dbPath: string;
+	socketPath: string;
 	remove(key: string, keepGeneration?: string): Promise<void>;
 };
 
@@ -300,8 +300,8 @@ export async function attachStatusMonitor(
 			dir,
 			process.env['PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR'] ?? '',
 			// pipe-pane starts the monitor with the tmux server's environment,
-			// which may name another database than this process uses.
-			store.dbPath,
+			// which may name another socket than this process uses.
+			store.socketPath,
 		]
 			.map(value => shellQuoteStatus(value))
 			.join(' ');
@@ -363,7 +363,7 @@ export class JsonProgramStatusDao implements ProgramStatusDao {
 	constructor(
 		readonly repo: string,
 		readonly dir: string,
-		readonly dbPath: string,
+		readonly socketPath: string,
 	) {}
 
 	async attach(
@@ -379,7 +379,10 @@ export class JsonProgramStatusDao implements ProgramStatusDao {
 		return existsSync(`${programStatusPath(this.dir, key, generation)}.lease`);
 	}
 
-	read(key: string, pane: StatusPane): ProgramStatusSnapshot | null {
+	async read(
+		key: string,
+		pane: StatusPane,
+	): Promise<ProgramStatusSnapshot | null> {
 		return checkedProgramSnapshot(
 			() =>
 				JSON.parse(
@@ -433,34 +436,19 @@ export class JsonProgramStatusDao implements ProgramStatusDao {
 	}
 }
 
-/** The database's copy of the snapshots, for a publisher told to keep one. */
-export interface SnapshotRows {
-	/**
-	 * Keep the snapshot's row while `leased` holds and drop it otherwise,
-	 * deciding under the write lock. `busy` means another process held the
-	 * lock, and the same snapshot can be offered again.
-	 */
-	publish(
-		snapshot: ProgramStatusSnapshot,
-		leased: () => boolean,
-	): 'written' | 'busy' | 'failed';
-}
-
 /**
- * Write a pane's snapshot for its readers. The lease is the pane's
+ * Write a pane's snapshot file for its readers. The lease is the pane's
  * permission to publish: closing a space deletes it, and a publisher that
- * was already writing then takes its own snapshot back. `retry` means the
- * file is written and the database was busy.
+ * was already writing then takes its own snapshot back.
  */
 export function publishProgramSnapshot(
 	dir: string,
 	snapshot: ProgramStatusSnapshot,
-	rows?: SnapshotRows,
-): 'done' | 'retry' {
+): void {
 	const target = programStatusPath(dir, snapshot.key, snapshot.pane.generation);
 	const temp = `${target}.tmp.${process.pid}`;
 	const leased = () => existsSync(`${target}.lease`);
-	if (!leased()) return 'done';
+	if (!leased()) return;
 	try {
 		writeFileSync(temp, JSON.stringify(snapshot));
 		renameSync(temp, target);
@@ -470,11 +458,22 @@ export function publishProgramSnapshot(
 			rmSync(temp, {force: true});
 		} catch {}
 	}
+}
 
-	return rows?.publish(snapshot, leased) === 'busy' ? 'retry' : 'done';
+/** Where a pane's monitor sends its snapshots. */
+export interface SnapshotPublisher {
+	publish(snapshot: ProgramStatusSnapshot): void;
+	/**
+	 * Runs on the monitor's liveness check. An agent can sit idle for hours,
+	 * and its status still has to move when experimental.sqliteState changes.
+	 */
+	followFlag(): void;
+	/** Settles once the last snapshot has gone out, or cannot. */
+	close(): Promise<void>;
 }
 
 const PUBLISH_WINDOW_MS = 50;
+const LIVENESS_CHECK_MS = 5000;
 
 type WindowTimers = {
 	now(): number;
@@ -531,8 +530,8 @@ export function monitorPane(
 	socket: string,
 	pane: StatusPane,
 	dir: string,
+	publisher: SnapshotPublisher,
 	traceDir?: string,
-	rows: () => SnapshotRows | undefined = () => undefined,
 ): void {
 	const store = new ProgramStatusStore();
 	let changed = false;
@@ -540,22 +539,17 @@ export function monitorPane(
 	let stopped = false;
 	let traceBytes = 0;
 	const publish = () => {
-		const result = publishProgramSnapshot(
-			dir,
-			{
-				version: 1,
-				repo,
-				key,
-				pane,
-				authoritative: store.authoritative,
-				exited,
-				updatedAt: Date.now(),
-				records: store.records(),
-				info: store.status(),
-			},
-			rows(),
-		);
-		if (result === 'retry') publishing.request();
+		publisher.publish({
+			version: 1,
+			repo,
+			key,
+			pane,
+			authoritative: store.authoritative,
+			exited,
+			updatedAt: Date.now(),
+			records: store.records(),
+			info: store.status(),
+		});
 	};
 	const publishing = new PublishWindow(publish);
 	const parser = new TerminalStatusParser(event => {
@@ -585,10 +579,13 @@ export function monitorPane(
 		clearInterval(liveness);
 		store.processExit();
 		publish();
-		process.stdin.destroy();
+		void publisher.close().then(() => {
+			process.stdin.destroy();
+		});
 	};
 	// A closed socket may not deliver EOF on every tmux version.
 	const liveness = setInterval(() => {
+		publisher.followFlag();
 		void runStatusTmux(
 			statusTmuxArgs(
 				['display-message', '-p', '-t', pane.id, '#{pane_pid} #{pane_dead}'],
@@ -606,7 +603,7 @@ export function monitorPane(
 					if ((error as NodeJS.ErrnoException).code === 'ESRCH') stop();
 				}
 			});
-	}, 5000);
+	}, LIVENESS_CHECK_MS);
 	process.stdin.on('data', (bytes: Buffer) => {
 		parser.feed(bytes);
 		// One read can hold several reports. Only the state after the last of

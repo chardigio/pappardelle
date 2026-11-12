@@ -109,7 +109,10 @@ export type AgentStateDeps = {
 	/** The hook file's key: the space key, or `{repo}-{branch}` for main. */
 	hookKey: string;
 	readHook: (key: string) => Promise<ClaudeStatusInfo | null>;
-	readSnapshot: (key: string, pane: StatusPane) => ProgramStatusSnapshot | null;
+	readSnapshot: (
+		key: string,
+		pane: StatusPane,
+	) => Promise<ProgramStatusSnapshot | null>;
 };
 
 const SCREEN_TAIL_LINES = 40;
@@ -243,7 +246,7 @@ export async function readAgentState(
 		: null;
 	const status = mergeProgramStatus(
 		await deps.readHook(deps.hookKey),
-		pane ? deps.readSnapshot(key, pane) : null,
+		pane ? await deps.readSnapshot(key, pane) : null,
 		pane,
 	);
 	return {

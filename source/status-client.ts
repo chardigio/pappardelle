@@ -87,6 +87,22 @@ export function spawnStatusDaemon(
 	return daemon.pid;
 }
 
+/** Resolve at the first change `watch` reports, or after `ms`. */
+export async function firstChange(
+	watch: (listener: () => void) => () => void,
+	ms: number,
+): Promise<void> {
+	return new Promise(resolve => {
+		const timer = setTimeout(done, ms);
+		const stop = watch(done);
+		function done() {
+			clearTimeout(timer);
+			stop();
+			resolve();
+		}
+	});
+}
+
 const nobodyListens = (error: NodeJS.ErrnoException) =>
 	error.code === 'ECONNREFUSED' || error.code === 'ENOENT';
 
@@ -105,6 +121,8 @@ export class StatusClient {
 	private connecting: Promise<boolean> = Promise.resolve(false);
 	private firstAttempt: Promise<void> | undefined;
 	private failedAttempts = 0;
+	/** Refused attempts, while allowed to start a daemon, since a connection. */
+	private refusalsSinceConnected = 0;
 	private cancelRetry: (() => void) | undefined;
 	/** Calls in progress that the process must stay alive to finish. */
 	private inProgress = 0;
@@ -262,8 +280,13 @@ export class StatusClient {
 			settleConnecting(false);
 			settleAttempt();
 			if (this.link === 'closed') return;
-			if (connected) this.failedAttempts = 0;
-			else this.failedAttempts++;
+			if (connected) {
+				this.failedAttempts = 0;
+				this.refusalsSinceConnected = 0;
+			} else {
+				this.failedAttempts++;
+			}
+
 			this.retryLater();
 		};
 
@@ -300,11 +323,24 @@ export class StatusClient {
 		});
 		socket.on('error', (error: NodeJS.ErrnoException) => {
 			if (!connected && this.start && nobodyListens(error))
-				this.startDaemon(this.socketPath);
+				this.startDaemonIfDue();
 			end();
 		});
 		socket.on('close', end);
 		return attempt;
+	}
+
+	/**
+	 * A daemon that cannot listen (a directory it may not write to, a socket
+	 * path too long) exits each time it is started. Starting one on the first
+	 * refusal and then on every doubling of the count keeps 40 monitors from
+	 * starting one each every few seconds for as long as that lasts.
+	 */
+	private startDaemonIfDue(): void {
+		this.refusalsSinceConnected++;
+		const count = this.refusalsSinceConnected;
+		// eslint-disable-next-line no-bitwise
+		if ((count & (count - 1)) === 0) this.startDaemon(this.socketPath);
 	}
 
 	private retryLater(): void {

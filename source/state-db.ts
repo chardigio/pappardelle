@@ -171,23 +171,7 @@ const MIGRATIONS: string[] = [
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		touched_at INTEGER NOT NULL
 	) STRICT`,
-	`CREATE TABLE program_status (
-		repo TEXT NOT NULL,
-		key TEXT NOT NULL,
-		generation TEXT NOT NULL,
-		pane_id TEXT NOT NULL,
-		pane_pid TEXT NOT NULL,
-		pane_dead INTEGER NOT NULL CHECK (pane_dead IN (0, 1)),
-		pane_piped INTEGER NOT NULL CHECK (pane_piped IN (0, 1)),
-		marker TEXT NOT NULL,
-		authoritative INTEGER NOT NULL CHECK (authoritative IN (0, 1)),
-		exited INTEGER NOT NULL CHECK (exited IN (0, 1)),
-		updated_at INTEGER NOT NULL,
-		records TEXT NOT NULL,
-		info TEXT NOT NULL,
-		PRIMARY KEY (repo, key, generation)
-	) STRICT;
-	CREATE TABLE tui_markers (
+	`CREATE TABLE tui_markers (
 		repo TEXT PRIMARY KEY,
 		pid INTEGER NOT NULL,
 		cli_path TEXT NOT NULL,
@@ -385,17 +369,11 @@ export class StateDb {
 		return retryBusy(() => this.tryWrite(body));
 	}
 
-	/**
-	 * Rows changed without a mirrored file, attempted once: throws SQLITE_BUSY
-	 * when another process holds the write lock.
-	 */
-	tryWriteRows<T>(body: () => T): T {
-		return this.notifying(() => this.db.transaction(body).immediate());
-	}
-
 	/** Rows changed without a mirrored file, for stores that keep none. */
 	async writeRows<T>(body: () => T): Promise<T> {
-		return retryBusy(() => this.tryWriteRows(body));
+		return retryBusy(() =>
+			this.notifying(() => this.db.transaction(body).immediate()),
+		);
 	}
 
 	/** Ring the bell for watchers in other processes when rows changed. */

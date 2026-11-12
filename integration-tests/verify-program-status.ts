@@ -245,9 +245,9 @@ try {
 		'late monitor exit must not recreate deleted snapshots',
 	);
 	assert.equal(
-		harness.snapshotRows(shellRepo, shellKey),
+		await harness.heldSnapshots(shellRepo, shellKey),
 		0,
-		'late monitor exit must not recreate deleted rows',
+		'late monitor exit must not send a snapshot the daemon forgot',
 	);
 	harness.checks.push({
 		label: 'workspace removal prevents late snapshot recreation',

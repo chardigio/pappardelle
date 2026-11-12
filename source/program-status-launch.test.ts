@@ -14,6 +14,13 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 import test, {type ExecutionContext} from 'ava';
+import {killProcessesNaming} from '../test/helpers/processes.ts';
+import {sqliteRun} from '../test/helpers/state.ts';
+import {
+	serveTestHub,
+	subscribeRaw,
+	type RawConnection,
+} from '../test/helpers/status-daemon.ts';
 import {shellQuoteStatus} from './program-status-monitor.ts';
 import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
 
@@ -36,8 +43,20 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 	const repo = path.join(root, 'repo');
 	const home = path.join(root, 'home');
 	const socket = 'status-launch';
-	for (const dir of [bin, repo, home, path.join(root, 'tmux')])
+	const stateDir = path.join(root, 'state');
+	const statusSocket = path.join(stateDir, 'status-1.sock');
+	for (const dir of [bin, repo, home, stateDir, path.join(root, 'tmux')])
 		mkdirSync(dir, {mode: 0o700});
+	// With the flag on the monitors send to the status daemon. Its hub is
+	// served from here, so that none of them starts a daemon process.
+	let rail: RawConnection | undefined;
+	if (sqliteRun) {
+		serveTestHub(t, statusSocket);
+		void subscribeRaw(t, statusSocket, 'repo').then(connection => {
+			rail = connection;
+		});
+	}
+
 	for (const command of [
 		'tmux',
 		'dirname',
@@ -66,6 +85,8 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 		TMUX_TMPDIR: path.join(root, 'tmux'),
 		PAPPARDELLE_TMUX_SOCKET: socket,
 		PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(root, 'status'),
+		// The shell launcher's `attach` has no state directory to derive it from.
+		PAPPARDELLE_STATUS_SOCKET: statusSocket,
 		PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(root, 'claude-config.json'),
 		PAPPARDELLE_BUN: '/stale/inherited/bun',
 	};
@@ -93,6 +114,10 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 		while (panePids.some(pid => isAlive(pid)) && Date.now() < deadline) {
 			await delay(50);
 		}
+
+		// A monitor that outlived its pane would start a daemon once the hub
+		// served here is gone.
+		killProcessesNaming(statusSocket);
 		rmSync(root, {
 			recursive: true,
 			force: true,
@@ -125,7 +150,7 @@ import {ensureAgentSession, initTmuxState} from ${JSON.stringify(pathToFileURL(p
 import {createStateDaos} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/state-daos.js')).href)};
 import {buildSpawnEnv} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/spawn-env.js')).href)};
 const profile = ${JSON.stringify(profile)};
-initTmuxState(createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(path.join(root, 'state'))}}));
+initTmuxState(createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(stateDir)}}));
 if (${JSON.stringify(launcher)} === 'tui') {
   if (!await ensureAgentSession('TEST-1', process.cwd(), false, undefined, profile)) throw new Error('Launch failed');
 } else {
@@ -149,6 +174,16 @@ if (${JSON.stringify(launcher)} === 'tui') {
 			unknown
 		>;
 	const status = () => {
+		if (sqliteRun)
+			return rail?.messages
+				.flatMap(message =>
+					message.type === 'state'
+						? message.snapshots
+						: message.type === 'snapshot'
+							? [message.snapshot]
+							: [],
+				)
+				.findLast(value => value.key === 'TEST-1');
 		const dir = path.join(root, 'status', 'repo');
 		try {
 			return readdirSync(dir)

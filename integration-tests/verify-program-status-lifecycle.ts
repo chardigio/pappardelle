@@ -142,7 +142,8 @@ try {
 	writeFileSync(fail, '');
 	await until(() => existsSync(used), Boolean, 'failed liveness probe');
 	await delay(100);
-	assert.equal(programStatus.read(key, pane)?.exited, false);
+	const afterFailedProbe = await programStatus.read(key, pane);
+	assert.equal(afterFailedProbe?.exited, false);
 	const afterProbe = await statuses.read(key);
 	assert.equal(afterProbe?.status, 'working');
 	await harness.emit(session, 'state=blocked:app=fixture:kind=question');
@@ -195,10 +196,9 @@ const interceptedWrite = function(file, ...args) {
 };
 mock.module('node:fs', () => ({...fs, writeFileSync: interceptedWrite}));
 const {monitorPane} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))});
-const {SqliteSnapshotRows} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-sqlite.ts'))});
-const {openStateDb} = await import(${JSON.stringify(path.join(projectRoot, 'source/state-db.ts'))});
-const rows = ${JSON.stringify(harness.sqlite)} ? new SqliteSnapshotRows(() => openStateDb(${JSON.stringify(path.join(harness.stateDir, 'state.db'))})) : undefined;
-monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(harness.socket)}, ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))}, undefined, () => rows);
+const {followedPublisher} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-daemon.ts'))});
+const publisher = followedPublisher({dir: ${JSON.stringify(path.dirname(target))}, socketPath: ${JSON.stringify(harness.statusSocket)}, daemonMode: () => ${JSON.stringify(harness.sqlite)}});
+monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(harness.socket)}, ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))}, publisher);
 original(${JSON.stringify(ready)}, '');
 `,
 	);
@@ -209,19 +209,39 @@ original(${JSON.stringify(ready)}, '');
 	publisher.stdin?.write(
 		'\x1b]7501;state=idle:app=fixture:msg=cmVjb3JkZWQgbWVzc2FnZQ==\x07',
 	);
-	await until(
-		() => existsSync(paused),
-		Boolean,
-		'publication pauses after initial lease check',
-	);
-	await programStatus.remove('race');
-	writeFileSync(resume, '');
-	await until(() => existsSync(done), Boolean, 'publication resumes');
+	if (harness.sqlite) {
+		// With the flag on the publisher writes no file to pause in. What a
+		// revoked lease has to stop is its next send.
+		await until(
+			async () => harness.heldSnapshots(repo, 'race'),
+			held => held === 1,
+			'publisher sends its snapshot to the daemon',
+		);
+		await until(
+			() => existsSync(target),
+			retained => !retained,
+			'publisher removes the snapshot file it found',
+		);
+		await programStatus.remove('race');
+		publisher.stdin?.write('\x1b]7501;state=working:app=fixture\x07');
+		await delay(500);
+	} else {
+		await until(
+			() => existsSync(paused),
+			Boolean,
+			'publication pauses after initial lease check',
+		);
+		await programStatus.remove('race');
+		writeFileSync(resume, '');
+		await until(() => existsSync(done), Boolean, 'publication resumes');
+	}
+
 	assert.equal(existsSync(target), false);
 	assert.equal(existsSync(`${target}.lease`), false);
-	assert.equal(harness.snapshotRows(repo, 'race'), 0);
-	evidence['late-publication'] =
-		'revoked generation cannot recreate its snapshot after rename';
+	assert.equal(await harness.heldSnapshots(repo, 'race'), 0);
+	evidence['late-publication'] = harness.sqlite
+		? 'revoked generation sends no snapshot to the daemon'
+		: 'revoked generation cannot recreate its snapshot after rename';
 	console.log(
 		'PASS revoked lease prevents an in-flight publisher recreating a snapshot',
 	);
