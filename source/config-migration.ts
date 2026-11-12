@@ -10,7 +10,7 @@ import {
 	type Node,
 	type Pair,
 } from 'yaml';
-import type {SpaceStateDao} from './space-state.ts';
+import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildConfigFromLayers,
@@ -679,48 +679,19 @@ function agentProfileRenames(
  * moved to a new agent profile would relaunch without resuming its
  * conversation. Its id moves to the new name.
  */
-export function moveAgentSessions(
+export async function moveAgentSessions(
 	renames: AgentProfileRename[],
-	stateDir: string,
+	agentSessions: Pick<AgentSessionsDao, 'keys' | 'renameProfile'>,
 	spaceState: Pick<SpaceStateDao, 'read'>,
-): void {
+): Promise<void> {
 	if (renames.length === 0) return;
-	let files: string[];
-	try {
-		files = fs.readdirSync(stateDir);
-	} catch {
-		return;
-	}
-
-	for (const file of files) {
-		const key = file.endsWith('.agent-sessions.json')
-			? file.slice(0, -'.agent-sessions.json'.length)
-			: undefined;
-		if (!key) continue;
+	for (const key of agentSessions.keys()) {
 		const profileName = spaceState.read(key)?.profile;
 		// Only the main space launches without a profile. Another space without
 		// a saved one predates saving it, so its profile isn't known.
 		if (profileName === undefined && key !== MAIN_WORKTREE_KEY) continue;
 		const rename = renames.find(rename => rename.profileName === profileName);
-		if (rename) moveAgentSession(path.join(stateDir, file), rename);
-	}
-}
-
-function moveAgentSession(file: string, {from, to}: AgentProfileRename) {
-	try {
-		const sessions = asFields(JSON.parse(fs.readFileSync(file, 'utf8')));
-		if (!sessions || !(from in sessions) || to in sessions) return;
-		const moved = Object.fromEntries(
-			Object.entries(sessions).map(([name, entry]) => [
-				name === from ? to : name,
-				entry,
-			]),
-		);
-		const temporary = `${file}.tmp.${process.pid}`;
-		fs.writeFileSync(temporary, JSON.stringify(moved, null, 2) + '\n');
-		fs.renameSync(temporary, file);
-	} catch {
-		// The space relaunches with --continue instead.
+		if (rename) await agentSessions.renameProfile(key, rename.from, rename.to);
 	}
 }
 
@@ -770,12 +741,12 @@ export type ConfigMigrationOutcome =
  * plan would overwrite those edits, and a new plan may cover files the user
  * was never shown.
  */
-export function confirmConfigMigrations(
+export async function confirmConfigMigrations(
 	approved: ConfigMigration[],
-	stateDir: string,
+	agentSessions: Pick<AgentSessionsDao, 'keys' | 'renameProfile'>,
 	spaceState: Pick<SpaceStateDao, 'read'>,
 	paths: ConfigPaths = defaultConfigPaths(),
-): ConfigMigrationOutcome {
+): Promise<ConfigMigrationOutcome> {
 	const plan = planConfigMigrations(paths);
 	if (plan.kind === 'unsupported') return {kind: 'failed', reason: plan.reason};
 	const filesOf = (migrations: ConfigMigration[]) =>
@@ -787,7 +758,7 @@ export function confirmConfigMigrations(
 
 	try {
 		applyConfigMigrations(plan.migrations);
-		moveAgentSessions(plan.renames, stateDir, spaceState);
+		await moveAgentSessions(plan.renames, agentSessions, spaceState);
 		return {kind: 'rewritten'};
 	} catch (error) {
 		return {

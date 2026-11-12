@@ -813,11 +813,6 @@ else
 fi
 
 AGENT_SESSIONS_FILE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
-# A new issue's key can't own a conversation, so any recorded session belonged
-# to an earlier issue with the same key.
-if [[ "$FRESH_WORKSPACE" == true ]]; then
-    rm -f "$AGENT_SESSIONS_FILE"
-fi
 
 # What this run has to record about the space, in one call so the binary
 # starts once. It comes before post_workspace_init, which can run for minutes:
@@ -841,6 +836,11 @@ fi
 # a real pick.
 if [[ "$WORKTREE_CREATED" == true || -n "$FORCED_PROFILE" ]]; then
     STATE_ARGS+=(--profile "$SELECTED_PROFILE")
+fi
+# A new issue's key can't own a conversation, so any recorded session belonged
+# to an earlier issue with the same key.
+if [[ "$FRESH_WORKSPACE" == true ]]; then
+    STATE_ARGS+=(--fresh)
 fi
 if [[ ${#STATE_ARGS[@]} -gt 0 ]]; then
     pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY" \

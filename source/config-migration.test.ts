@@ -28,6 +28,7 @@ const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'config-migration-'));
 
 /** A repo where no space has saved a profile or recorded a session. */
 const noSpaces = {read: () => null};
+const noSessions = {keys: () => [], async renameProfile() {}};
 
 function writeConfig(dir: string, file: string, config: unknown) {
 	fs.mkdirSync(dir, {recursive: true});
@@ -497,17 +498,20 @@ test('warnings clear once the old keys are gone, even by hand', t => {
 	t.false(isWarning());
 });
 
-test('confirming rewrites the files the user was shown', t => {
+test('confirming rewrites the files the user was shown', async t => {
 	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 
-	t.deepEqual(confirmConfigMigrations(approved, root(), noSpaces, paths), {
-		kind: 'rewritten',
-	});
+	t.deepEqual(
+		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
+		{
+			kind: 'rewritten',
+		},
+	);
 	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
 });
 
-test('a space whose profile moves to a new agent profile keeps its session id', t => {
+test('a space whose profile moves to a new agent profile keeps its session id', async t => {
 	const paths = setup({
 		version: 1,
 		profiles: {
@@ -545,9 +549,9 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 	const main = space('main', undefined);
 
 	t.deepEqual(
-		confirmConfigMigrations(
+		await confirmConfigMigrations(
 			readyMigrations(paths),
-			stateDir,
+			state.daos.agentSessions,
 			state.daos.spaceState,
 			paths,
 		),
@@ -560,7 +564,7 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 	t.deepEqual(Object.keys(main()), ['claude']);
 });
 
-test('confirming keeps edits made while the dialog was open', t => {
+test('confirming keeps edits made while the dialog was open', async t => {
 	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 	writeConfig(paths.homeConfigDir, '.pappardelle.yml', {
@@ -569,13 +573,16 @@ test('confirming keeps edits made while the dialog was open', t => {
 		profiles: {added: {display_name: 'Added'}},
 	});
 
-	t.deepEqual(confirmConfigMigrations(approved, root(), noSpaces, paths), {
-		kind: 'rewritten',
-	});
+	t.deepEqual(
+		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
+		{
+			kind: 'rewritten',
+		},
+	);
 	t.truthy(loadConfigFromPaths(paths).profiles['added']);
 });
 
-test('confirming writes nothing once the rewrite covers files the user was not shown', t => {
+test('confirming writes nothing once the rewrite covers files the user was not shown', async t => {
 	const paths = setup(
 		{version: 1, profiles: {}},
 		{version: 1, profiles: {b: {display_name: 'B', claude: {effort: 'low'}}}},
@@ -589,18 +596,21 @@ test('confirming writes nothing once the rewrite covers files the user was not s
 	});
 	const edited = fs.readFileSync(homeFile, 'utf8');
 
-	t.deepEqual(confirmConfigMigrations(approved, root(), noSpaces, paths), {
-		kind: 'changed',
-	});
+	t.deepEqual(
+		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
+		{
+			kind: 'changed',
+		},
+	);
 	t.is(fs.readFileSync(homeFile, 'utf8'), edited);
 });
 
-test('confirming reports a failed write so it can be handed to Claude', t => {
+test('confirming reports a failed write so it can be handed to Claude', async t => {
 	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 	fs.chmodSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 0o444);
 
-	t.like(confirmConfigMigrations(approved, root(), noSpaces, paths), {
+	t.like(await confirmConfigMigrations(approved, noSessions, noSpaces, paths), {
 		kind: 'failed',
 	});
 });

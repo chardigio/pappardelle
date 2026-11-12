@@ -60,7 +60,7 @@ import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
-import {createStateDaos} from './state-daos.ts';
+import {createStateDaos, type StateDaos} from './state-daos.ts';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
@@ -147,11 +147,17 @@ function resolveCliSpaceKey(rawKey: string): string {
 if (process.argv[2] === 'companion') {
 	const companionArgv = process.argv.slice(3);
 	const {runCompanionCommand} = await import('./companion-command.ts');
+	let companionDaos: StateDaos | undefined;
+	const bootstrap = () => {
+		companionDaos ??= bootstrapRepo().daos;
+		return companionDaos;
+	};
+
 	await exitAfterFlush(
 		await runCompanionCommand(companionArgv, {
 			resolveSpace(flag) {
 				checkConfig();
-				bootstrapRepo();
+				bootstrap();
 				return resolveTargetSpace({
 					flag,
 					env: process.env,
@@ -159,6 +165,7 @@ if (process.argv[2] === 'companion') {
 				});
 			},
 			repoName: getRepoName,
+			daos: bootstrap,
 		}),
 	);
 }
@@ -298,7 +305,7 @@ if (cli.input[0] === 'link-pr') {
 			process.cwd(),
 			cli.flags.workspace ? path.resolve(cli.flags.workspace) : getRepoRoot(),
 			{
-				spaceStateFor: repo => createStateDaos({repo}).spaceState,
+				daosFor: repo => createStateDaos({repo}),
 				gitlabHost: loadProviderConfigs().vcs_host?.host,
 			},
 		);
@@ -780,8 +787,8 @@ function finishStartup() {
 	// Wake-ups lost to a reboot can wait; loading this while the first
 	// workspace attaches would hold that up.
 	setTimeout(() => {
-		void import('./supervise-runtime.ts').then(({rearmSchedules}) => {
-			rearmSchedules();
+		void import('./supervise-runtime.ts').then(async ({rearmSchedules}) => {
+			await rearmSchedules(daos.schedules);
 		});
 	}, REARM_SCHEDULES_DELAY_MS);
 }

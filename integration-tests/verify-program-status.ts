@@ -5,7 +5,12 @@ import {readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {getRepoName} from '../source/config.ts';
-import {ensureAgentSession, getSessionNames} from '../source/tmux.ts';
+import {createStateDaos} from '../source/state-daos.ts';
+import {
+	ensureAgentSession,
+	getSessionNames,
+	initTmuxState,
+} from '../source/tmux.ts';
 import {
 	attachStatusMonitor,
 	programStatusDir,
@@ -19,6 +24,14 @@ const repo = getRepoName();
 const key = 'STATUS-TS';
 const session = getSessionNames(key, repo).agent;
 const launchMarker = path.join(harness.root, 'launch-marker');
+// The launch names the space's agent-sessions file, which the stores place.
+initTmuxState(
+	createStateDaos({
+		repo,
+		stateDir: harness.stateDir,
+		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+	}),
+);
 
 try {
 	const launched = await ensureAgentSession(

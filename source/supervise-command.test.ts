@@ -11,6 +11,7 @@ import {
 import type {ApprovalVerdict} from './approve-policy.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+import {testState} from '../test/helpers/state.ts';
 
 const fixtures = path.join(
 	import.meta.dirname,
@@ -43,10 +44,7 @@ function harness(
 	screens: string[],
 	{ignoresKeys = false} = {},
 ) {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'supervise-'));
-	t.teardown(() => {
-		fs.rmSync(root, {recursive: true, force: true});
-	});
+	const {schedules} = testState(t).daos;
 	const pressed: string[][] = [];
 	const classified: string[] = [];
 	let classifierVerdict: ApprovalVerdict = {
@@ -108,7 +106,7 @@ function harness(
 			return classifierVerdict;
 		},
 		policy: {scratchRoots: ['/tmp/q-']},
-		store: () => ({root, repo: 'repo'}),
+		store: () => schedules,
 		timers: () => ({create() {}, remove() {}}),
 		caller: 'STA-9',
 		readStdin: () => undefined,

@@ -218,6 +218,8 @@ AGENT_SESSION_ENV=(
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
     -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
     -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
+    -e "PAPPARDELLE_AGENT_SESSIONS_REPO=$REPO_NAME"
+    -e "PAPPARDELLE_AGENT_SESSIONS_KEY=$ISSUE_KEY"
 )
 
 # Pre-trust the worktree directory for Claude Code (skipped for other agents:
