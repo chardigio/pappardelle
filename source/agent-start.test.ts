@@ -1,18 +1,19 @@
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
-import {testState} from '../test/helpers/state.ts';
+import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
 import {waitForAgentStart} from './agent-start.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 
 function fixture(t: ExecutionContext) {
-	const {daos, stateDir: dir} = testState(t);
+	const state = testState(t);
+	const {daos, stateDir: dir} = state;
 	const statusKey = 'test-repo-TEST-1';
 	const worktree = path.join(dir, '.worktrees', 'test-repo', 'TEST-1');
 	const since = Date.now();
 	const write = async (
 		status: Pick<ClaudeSessionState, 'event' | 'cwd' | 'lastUpdate'>,
 	) =>
-		daos.claudeStatus.write({
+		writeClaudeStatus(state, {
 			sessionId: 'session',
 			workspaceName: statusKey,
 			status: 'waiting_for_input',

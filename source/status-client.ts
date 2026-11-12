@@ -30,6 +30,12 @@ const RECONNECT_MAX_MS = 5000;
  * of each starting one.
  */
 const RECONNECT_SPREAD_MS = 400;
+/**
+ * How long `ready()` waits for the state of a daemon that accepted the
+ * connection. A daemon that is stopped accepts and never answers, and every
+ * CLI verb and the rail's first frame wait on `ready()`.
+ */
+export const STATE_WAIT_MS = 500;
 
 export type StatusChange =
 	| {kind: 'hook'; statusKey: string}
@@ -127,8 +133,9 @@ export class StatusClient {
 
 	/**
 	 * Settles once the first connection attempt is over: with the daemon's
-	 * state in the replica, or with an empty replica when nothing listens. It
-	 * never waits for a daemon to start.
+	 * state in the replica, or with an empty replica when nothing listens or
+	 * the daemon has not answered within STATE_WAIT_MS. It never waits for a
+	 * daemon to start. A state that arrives later is told to the listeners.
 	 */
 	async ready(): Promise<void> {
 		this.use();
@@ -224,7 +231,8 @@ export class StatusClient {
 
 	/**
 	 * Settles when the attempt is over: the replica holds the daemon's state
-	 * (a client with no repo: the socket is connected), or the attempt failed.
+	 * (a client with no repo: the socket is connected), the daemon has not
+	 * sent it in time, or the attempt failed.
 	 */
 	private async connect(): Promise<void> {
 		const socket = net.connect(this.socketPath);
@@ -238,10 +246,15 @@ export class StatusClient {
 		this.connecting = new Promise(resolve => {
 			settleConnecting = resolve;
 		});
-		let settleAttempt!: () => void;
+		let cancelStateWait: (() => void) | undefined;
+		let resolveAttempt!: () => void;
 		const attempt = new Promise<void>(resolve => {
-			settleAttempt = resolve;
+			resolveAttempt = resolve;
 		});
+		const settleAttempt = () => {
+			cancelStateWait?.();
+			resolveAttempt();
+		};
 
 		const end = () => {
 			if (over) return;
@@ -260,8 +273,13 @@ export class StatusClient {
 			this.link = 'connected';
 			this.keepAliveWhileInProgress();
 			settleConnecting(true);
-			if (this.repo === undefined) settleAttempt();
-			else socket.write(encodeMessage({type: 'subscribe', repo: this.repo}));
+			if (this.repo === undefined) {
+				settleAttempt();
+			} else {
+				socket.write(encodeMessage({type: 'subscribe', repo: this.repo}));
+				cancelStateWait = this.timers.after(STATE_WAIT_MS, settleAttempt);
+			}
+
 			for (const listener of this.connectListeners) listener();
 		});
 		// Also what notices a daemon that went away: a socket nobody reads

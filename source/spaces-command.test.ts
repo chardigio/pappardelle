@@ -12,28 +12,40 @@ import {
 	type SpaceEntry,
 	type SpacesDeps,
 } from './spaces-command.ts';
-import {createStateDaos} from './state-daos.ts';
-import {closeStateDb, stateDbPath} from './state-db.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
+import {
+	claudeStatusFile,
+	sqliteRun,
+	testState,
+	writeClaudeStatus,
+	type TestState,
+} from '../test/helpers/state.ts';
 
 const REPO = 'test-repo';
 
-function tempHome(t: {teardown: (fn: () => void) => void}): string {
+const states = new Map<string, TestState>();
+
+function tempHome(
+	t: {teardown: (fn: () => void) => void},
+	options: {sqlite?: boolean; clock?: () => Date} = {},
+): string {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-spaces-'));
 	t.teardown(() => {
-		closeStateDb(stateDbPath(path.join(home, '.pappardelle')));
+		states.delete(home);
 		fs.rmSync(home, {recursive: true, force: true});
 	});
+	states.set(
+		home,
+		testState(t, {
+			repo: REPO,
+			stateDir: path.join(home, '.pappardelle'),
+			...options,
+		}),
+	);
 	return home;
 }
 
 /** The stores a process run with this home directory would read. */
-const stores = (home: string) =>
-	createStateDaos({
-		repo: REPO,
-		stateDir: path.join(home, '.pappardelle'),
-		sqlite: sqliteRun,
-	});
+const stores = (home: string) => states.get(home)!.daos;
 
 function writeJson(file: string, data: unknown): void {
 	fs.mkdirSync(path.dirname(file), {recursive: true});
@@ -46,18 +58,18 @@ function writeJson(file: string, data: unknown): void {
 const repoState = (home: string, ...rest: string[]) =>
 	path.join(home, '.pappardelle', 'repos', REPO, ...rest);
 
-const statusFile = (home: string, key: string, repo = REPO) =>
-	path.join(home, '.pappardelle', 'claude-status', `${repo}-${key}.json`);
+const statusKey = (key: string, repo = REPO) => `${repo}-${key}`;
 
-/** A status file as the hook writes it. */
-function writeStatus(
-	file: string,
+/** A status as the hook reports it. */
+async function writeStatus(
+	home: string,
+	workspaceName: string,
 	state: Partial<ClaudeSessionState> &
 		Pick<ClaudeSessionState, 'status' | 'lastUpdate'>,
-): void {
-	writeJson(file, {
+): Promise<void> {
+	await writeClaudeStatus(states.get(home)!, {
 		sessionId: 'session',
-		workspaceName: path.basename(file, '.json'),
+		workspaceName,
 		...state,
 	});
 }
@@ -118,15 +130,14 @@ test('a registry that cannot be read reports the failure and its cause, not that
 test('status is what the hook last recorded, however old', async t => {
 	const home = tempHome(t);
 	const now = Date.now();
-	openSpaces(home, ['STA-100', 'STA-200', 'STA-700']);
-	writeStatus(statusFile(home, 'STA-100'), {
+	openSpaces(home, ['STA-100', 'STA-200']);
+	await writeStatus(home, statusKey('STA-100'), {
 		status: 'processing',
 		currentTool: 'Bash',
 		// Older than the TUI's active-status timeout; the board still sees it.
 		lastUpdate: now - 3 * 60 * 60_000,
 		sessionId: 'sess-abc',
 	});
-	writeJson(statusFile(home, 'STA-700'), 'not json{{{');
 	const spaces = await gather(home, {now});
 	const byName = new Map(spaces.map(space => [space.name, space]));
 	t.like(byName.get('STA-100'), {
@@ -136,19 +147,29 @@ test('status is what the hook last recorded, however old', async t => {
 		minutesAgo: 180,
 	});
 	t.is(byName.get('STA-200')?.status, 'no_status');
-	t.is(byName.get('STA-700')?.status, 'unknown');
+});
+
+test('a status file that cannot be read is unknown, not missing', async t => {
+	const home = tempHome(t, {sqlite: false});
+	openSpaces(home, ['STA-700']);
+	writeJson(
+		claudeStatusFile(states.get(home)!, statusKey('STA-700')),
+		'not json{{{',
+	);
+	const [space] = await gather(home);
+	t.is(space?.status, 'unknown');
 });
 
 test('another repo with a space of the same key does not supply its status', async t => {
 	const home = tempHome(t);
 	openSpaces(home, ['STA-1']);
-	writeStatus(statusFile(home, 'STA-1', 'other-repo'), {
+	await writeStatus(home, statusKey('STA-1', 'other-repo'), {
 		status: 'waiting_for_approval',
 		lastUpdate: Date.now(),
 	});
 	const before = await gather(home);
 	t.is(before[0]?.status, 'no_status');
-	writeStatus(statusFile(home, 'STA-1'), {
+	await writeStatus(home, statusKey('STA-1'), {
 		status: 'ended',
 		lastUpdate: Date.now(),
 	});
@@ -208,14 +229,9 @@ test('rail fields are absent without a readable space-state file', async t => {
 // may differ: the time of the last change, not of the last poll.
 test('the report is the same from files and from the database for the same history', async t => {
 	const report = async (sqlite: boolean) => {
-		const home = tempHome(t);
 		let now = '2026-04-21T05:00:00.000Z';
-		const daos = createStateDaos({
-			repo: REPO,
-			stateDir: path.join(home, '.pappardelle'),
-			sqlite,
-			clock: () => new Date(now),
-		});
+		const home = tempHome(t, {sqlite, clock: () => new Date(now)});
+		const daos = stores(home);
 		openSpaces(home, ['NEW-1', 'OLD-2', 'IDLE-3']);
 		await daos.issueMeta.markCreated('NEW-1');
 		await daos.spaceState.write('NEW-1', {profile: 'dev'});
@@ -253,7 +269,7 @@ test('the report is the same from files and from the database for the same histo
 		});
 		now = '2026-04-21T06:00:00.000Z';
 		await poll();
-		const spaces = await gather(home, {...daos, now: 0});
+		const spaces = await gather(home, {now: 0});
 		return {
 			updatedAt: Object.fromEntries(
 				spaces.map(space => [space.name, space.spaceStateUpdatedAt]),
@@ -334,13 +350,13 @@ test('spaces sort by last update and carry tmux session names', async t => {
 	const home = tempHome(t);
 	const now = Date.now();
 	openSpaces(home, ['STA-OLD', 'STA-NEW', 'a.b_c']);
-	const status = (key: string, ago: number) =>
-		writeStatus(statusFile(home, key), {
+	const status = async (key: string, ago: number) =>
+		writeStatus(home, statusKey(key), {
 			status: 'ended',
 			lastUpdate: now - ago,
 		});
-	status('STA-OLD', 60_000);
-	status('STA-NEW', 0);
+	await status('STA-OLD', 60_000);
+	await status('STA-NEW', 0);
 	const spaces = await gather(home, {now});
 	t.deepEqual(
 		spaces.map(s => s.name),
@@ -467,14 +483,16 @@ test('text output puts one space per line with its flags', t => {
 	);
 });
 
-test('an agent still writing the bare status name is read until the qualified file appears', async t => {
+test('an agent still reporting under the bare status name is read until it reports under the qualified one', async t => {
 	const home = tempHome(t);
 	openSpaces(home, ['STA-1']);
-	const bare = path.join(home, '.pappardelle', 'claude-status', 'STA-1.json');
-	writeStatus(bare, {status: 'processing', lastUpdate: Date.now()});
+	await writeStatus(home, 'STA-1', {
+		status: 'processing',
+		lastUpdate: Date.now(),
+	});
 	const before = await gather(home);
 	t.is(before[0]?.status, 'processing');
-	writeStatus(statusFile(home, 'STA-1'), {
+	await writeStatus(home, statusKey('STA-1'), {
 		status: 'ended',
 		lastUpdate: Date.now(),
 	});

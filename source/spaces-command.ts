@@ -194,8 +194,8 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 		keys.map(async (name): Promise<SpaceEntry> => {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
 
-			const stored = deps.claudeStatus.readState(
-				deps.claudeStatus.readableKey(repoName, name),
+			const stored = await deps.claudeStatus.readState(
+				await deps.claudeStatus.readableKey(repoName, name),
 			);
 			if (stored.kind === 'state') {
 				const {state} = stored;

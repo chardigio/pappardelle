@@ -1,16 +1,13 @@
-import {
-	mkdirSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from 'node:fs';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
-import {testState, type TestState} from '../test/helpers/state.ts';
+import {
+	claudeStatusFile,
+	testState,
+	writeClaudeStatus,
+} from '../test/helpers/state.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 import type {ClaudeStatus, ClaudeSessionState} from './claude-status.ts';
 import {
@@ -23,15 +20,11 @@ import {
 	hookStatusKey,
 	parseSessionState,
 } from './claude-status.ts';
+import {createStateDaos} from './state-daos.ts';
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-const statusDir = (s: TestState) => path.join(s.stateDir, 'claude-status');
-
-const statusFile = (s: TestState, key: string) =>
-	path.join(statusDir(s), `${key}.json`);
 
 const session = (
 	workspaceName: string,
@@ -44,15 +37,6 @@ const session = (
 	lastUpdate: Date.now(),
 	...rest,
 });
-
-/** A status file as an agent whose hook does not use the database leaves it. */
-function writeStatusFile(s: TestState, state: ClaudeSessionState): void {
-	mkdirSync(statusDir(s), {recursive: true});
-	writeFileSync(
-		statusFile(s, state.workspaceName),
-		JSON.stringify(state, null, 2),
-	);
-}
 
 // ============================================================================
 // STABLE_STATUSES Tests
@@ -295,94 +279,62 @@ test('a status record needs the fields the hook always writes, and a status it c
 });
 
 // ============================================================================
-// What every status store does, whichever way it is stored
+// What every status store does, wherever the hook reported to
 // ============================================================================
 
 contractTest('a key nobody reported under is unknown', async (t, s) => {
 	t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {status: 'unknown'});
-	t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'none'});
+	t.deepEqual(await s.daos.claudeStatus.readState('STA-1'), {kind: 'none'});
 });
 
-contractTest('a written status is read back, with its tool', async (t, s) => {
+contractTest('a reported status is read back, with its tool', async (t, s) => {
 	const state = session('STA-1', 'running_tool', {
 		currentTool: 'Bash',
 		event: 'PreToolUse',
 		cwd: '/work/STA-1',
 	});
-	await s.daos.claudeStatus.write(state);
+	await writeClaudeStatus(s, state);
 	t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
 		status: 'running_tool',
 		tool: 'Bash',
 	});
-	t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'state', state});
-	t.deepEqual(
-		JSON.parse(readFileSync(statusFile(s, 'STA-1'), 'utf8')) as unknown,
+	t.deepEqual(await s.daos.claudeStatus.readState('STA-1'), {
+		kind: 'state',
 		state,
-	);
+	});
 });
 
 contractTest(
-	'a later write replaces the record, including fields it no longer reports',
+	'a later report replaces the record, including fields it no longer reports',
 	async (t, s) => {
-		await s.daos.claudeStatus.write(
+		await writeClaudeStatus(
+			s,
 			session('STA-1', 'running_tool', {currentTool: 'Bash', cwd: '/work'}),
 		);
 		const state = session('STA-1', 'waiting_for_input');
-		await s.daos.claudeStatus.write(state);
+		await writeClaudeStatus(s, state);
 		t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
 			status: 'waiting_for_input',
 			tool: undefined,
 		});
-		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {
+		t.deepEqual(await s.daos.claudeStatus.readState('STA-1'), {
 			kind: 'state',
 			state,
 		});
 	},
 );
-
-contractTest(
-	'a status file written by a hook without the database is read',
-	async (t, s) => {
-		const state = session('STA-1', 'waiting_for_approval', {
-			currentTool: 'AskUserQuestion',
-		});
-		writeStatusFile(s, state);
-		t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
-			status: 'waiting_for_approval',
-			tool: 'AskUserQuestion',
-		});
-		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {
-			kind: 'state',
-			state,
-		});
-		const later = session('STA-1', 'ended');
-		writeStatusFile(s, later);
-		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {
-			kind: 'state',
-			state: later,
-		});
-	},
-);
-
-contractTest('a removed status file is unknown again', async (t, s) => {
-	await s.daos.claudeStatus.write(session('STA-1', 'ended'));
-	rmSync(statusFile(s, 'STA-1'));
-	t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {status: 'unknown'});
-	t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'none'});
-});
 
 contractTest(
 	'an active status goes unknown after ten minutes without a report, a stable one never does',
 	async (t, s) => {
 		const stale = Date.now() - ACTIVE_STATUS_TIMEOUT - 1;
 		for (const status of ACTIVE_STATUSES) {
-			await s.daos.claudeStatus.write(
-				session('STA-1', status, {lastUpdate: stale}),
-			);
+			await writeClaudeStatus(s, session('STA-1', status, {lastUpdate: stale}));
 			t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
 				status: 'unknown',
 			});
-			await s.daos.claudeStatus.write(
+			await writeClaudeStatus(
+				s,
 				session('STA-1', status, {lastUpdate: stale + 60_000}),
 			);
 			t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
@@ -391,7 +343,8 @@ contractTest(
 			});
 		}
 
-		await s.daos.claudeStatus.write(
+		await writeClaudeStatus(
+			s,
 			session('STA-1', 'waiting_for_input', {lastUpdate: 0}),
 		);
 		t.deepEqual(await s.daos.claudeStatus.read('STA-1'), {
@@ -399,104 +352,65 @@ contractTest(
 			tool: undefined,
 		});
 		// The record itself is not aged: `pappardelle spaces` reports it raw.
-		const stored = s.daos.claudeStatus.readState('STA-1');
+		const stored = await s.daos.claudeStatus.readState('STA-1');
 		t.is(stored.kind === 'state' && stored.state.lastUpdate, 0);
 	},
 );
 
 contractTest(
-	'a status file that is not a status cannot be read, and is not reported as absent',
-	async (t, s) => {
-		mkdirSync(statusDir(s), {recursive: true});
-		writeFileSync(statusFile(s, 'STA-1'), '{');
-		t.is(await s.daos.claudeStatus.read('STA-1'), null);
-		t.deepEqual(s.daos.claudeStatus.readState('STA-1'), {kind: 'unreadable'});
-	},
-);
-
-contractTest(
-	'the bare status name is read only while the qualified one is missing',
+	'the bare status name is read only while nothing is reported under the qualified one',
 	async (t, s) => {
 		const dao = s.daos.claudeStatus;
-		t.is(dao.readableKey('repo', 'STA-1'), 'repo-STA-1');
-		await dao.write(session('STA-1', 'processing'));
-		t.is(dao.readableKey('repo', 'STA-1'), 'STA-1');
-		await dao.write(session('repo-STA-1', 'processing'));
-		t.is(dao.readableKey('repo', 'STA-1'), 'repo-STA-1');
-		rmSync(statusFile(s, 'repo-STA-1'));
-		t.is(dao.readableKey('repo', 'STA-1'), 'STA-1');
-	},
-);
-
-contractTest('a slash in a branch name stays out of the path', async (t, s) => {
-	const key = hookStatusKey('repo', 'alice/STA-1');
-	await s.daos.claudeStatus.write(session(key, 'processing'));
-	t.is(s.daos.claudeStatus.readableKey('repo', 'alice/STA-1'), key);
-	t.deepEqual(readdirSync(statusDir(s)), ['repo-alice-STA-1.json']);
-});
-
-contractTest('writes leave nothing beside the status files', async (t, s) => {
-	await s.daos.claudeStatus.write(session('STA-1', 'processing'));
-	await s.daos.claudeStatus.write(session('STA-1', 'running_tool'));
-	await s.daos.claudeStatus.write(session('STA-2', 'ended'));
-	t.deepEqual(readdirSync(statusDir(s)).sort(), ['STA-1.json', 'STA-2.json']);
-});
-
-contractTest(
-	'a write replaces the file by rename, so a reader never sees half of it',
-	async (t, s) => {
-		await s.daos.claudeStatus.write(session('STA-1', 'processing'));
-		const before = statSync(statusFile(s, 'STA-1')).ino;
-		await s.daos.claudeStatus.write(session('STA-1', 'running_tool'));
-		// An in-place write would truncate and keep the inode.
-		t.not(statSync(statusFile(s, 'STA-1')).ino, before);
+		t.is(await dao.readableKey('repo', 'STA-1'), 'repo-STA-1');
+		await writeClaudeStatus(s, session('STA-1', 'processing'));
+		t.is(await dao.readableKey('repo', 'STA-1'), 'STA-1');
+		await writeClaudeStatus(s, session('repo-STA-1', 'processing'));
+		t.is(await dao.readableKey('repo', 'STA-1'), 'repo-STA-1');
 	},
 );
 
 contractTest(
-	'a write that cannot replace the file fails and leaves no temp file',
+	'a branch with a slash is read under its flattened key',
 	async (t, s) => {
-		// A rename onto a non-empty directory fails.
-		mkdirSync(path.join(statusFile(s, 'STA-1'), 'in-the-way'), {
-			recursive: true,
+		await writeClaudeStatus(s, session('repo-alice-STA-1', 'processing'));
+		const key = await s.daos.claudeStatus.readableKey('repo', 'alice/STA-1');
+		t.deepEqual(await s.daos.claudeStatus.read(key), {
+			status: 'processing',
+			tool: undefined,
 		});
-		await t.throwsAsync(
-			s.daos.claudeStatus.write(session('STA-1', 'processing')),
-		);
-		t.deepEqual(readdirSync(statusDir(s)), ['STA-1.json']);
 	},
 );
 
 contractTest('watch reports the key that changed', async (t, s) => {
 	const dao = s.daos.claudeStatus;
-	await dao.write(session('STA-1', 'processing'));
-	await dao.write(session('STA-2', 'processing'));
+	await writeClaudeStatus(s, session('STA-1', 'processing'));
+	await writeClaudeStatus(s, session('STA-2', 'processing'));
 	const reported: string[] = [];
 	const stop = dao.watch(key => reported.push(key));
 	t.teardown(stop);
 	// A write can otherwise precede filesystem watch registration.
 	await delay(0);
-	await dao.write(session('STA-2', 'waiting_for_input'));
+	await writeClaudeStatus(s, session('STA-2', 'waiting_for_input'));
 	await waitUntil(() => reported.includes('STA-2'), 'a status change');
-	await dao.write(session('STA-3', 'ended'));
+	await writeClaudeStatus(s, session('STA-3', 'ended'));
 	await waitUntil(() => reported.includes('STA-3'), 'a status change');
 	t.false(reported.includes('STA-1'));
 	stop();
 	const before = reported.length;
-	await dao.write(session('STA-1', 'ended'));
+	await writeClaudeStatus(s, session('STA-1', 'ended'));
 	await delay(100);
 	t.is(reported.length, before);
 });
 
 contractTest(
-	'waitForChange resolves on a write, and otherwise when its time is up',
+	'waitForChange resolves on a report, and otherwise when its time is up',
 	async (t, s) => {
 		const dao = s.daos.claudeStatus;
-		await dao.write(session('STA-1', 'processing'));
+		await writeClaudeStatus(s, session('STA-1', 'processing'));
 		const started = performance.now();
 		const waiting = dao.waitForChange(5000);
 		await delay(50);
-		await dao.write(session('STA-1', 'ended'));
+		await writeClaudeStatus(s, session('STA-1', 'ended'));
 		await waiting;
 		t.true(performance.now() - started < 2000);
 		const idle = performance.now();
@@ -505,37 +419,62 @@ contractTest(
 	},
 );
 
-test('the two stores leave the same status files for the same writes', async t => {
-	const history: ClaudeSessionState[] = [
-		session('repo-STA-1', 'running_tool', {
-			currentTool: 'Bash',
-			event: 'PreToolUse',
-			cwd: '/work/STA-1',
-			lastUpdate: 1000,
-		}),
-		session('repo-STA-2', 'waiting_for_approval', {
-			currentTool: 'AskUserQuestion',
-			lastUpdate: 2000,
-		}),
-		session('repo-STA-1', 'waiting_for_input', {
-			event: 'Stop',
-			lastUpdate: 3000,
-		}),
-	];
-	const files = async (sqlite: boolean) => {
-		const s = testState(t, {sqlite});
-		for (const state of history) await s.daos.claudeStatus.write(state);
-		return Object.fromEntries(
-			readdirSync(statusDir(s))
-				.sort()
-				.map(name => [
-					name,
-					readFileSync(path.join(statusDir(s), name), 'utf8'),
-				]),
-		);
-	};
+// ============================================================================
+// Status files (experimental.sqliteState off)
+// ============================================================================
 
-	const json = await files(false);
-	t.deepEqual(Object.keys(json), ['repo-STA-1.json', 'repo-STA-2.json']);
-	t.deepEqual(await files(true), json);
+test('a removed status file is unknown again, and the bare name is read again', async t => {
+	const s = testState(t, {sqlite: false});
+	const dao = s.daos.claudeStatus;
+	await writeClaudeStatus(s, session('STA-1', 'ended'));
+	await writeClaudeStatus(s, session('repo-STA-1', 'ended'));
+	rmSync(claudeStatusFile(s, 'repo-STA-1'));
+	t.deepEqual(await dao.read('repo-STA-1'), {status: 'unknown'});
+	t.deepEqual(await dao.readState('repo-STA-1'), {kind: 'none'});
+	t.is(await dao.readableKey('repo', 'STA-1'), 'STA-1');
+});
+
+test('a status file that is not a status cannot be read, and is not reported as absent', async t => {
+	const s = testState(t, {sqlite: false});
+	mkdirSync(path.dirname(claudeStatusFile(s, 'STA-1')), {recursive: true});
+	writeFileSync(claudeStatusFile(s, 'STA-1'), '{');
+	t.is(await s.daos.claudeStatus.read('STA-1'), null);
+	t.deepEqual(await s.daos.claudeStatus.readState('STA-1'), {
+		kind: 'unreadable',
+	});
+});
+
+// ============================================================================
+// The status daemon (experimental.sqliteState on)
+// ============================================================================
+
+test('with the flag on a status file is not read: status comes from the daemon alone', async t => {
+	const files = testState(t, {sqlite: false});
+	const s = testState(t, {sqlite: true, stateDir: files.stateDir});
+	await writeClaudeStatus(files, session('repo-STA-1', 'processing'));
+	t.like(await files.daos.claudeStatus.readState('repo-STA-1'), {
+		kind: 'state',
+	});
+	t.deepEqual(await s.daos.claudeStatus.readState('repo-STA-1'), {
+		kind: 'none',
+	});
+	t.deepEqual(await s.daos.claudeStatus.read('repo-STA-1'), {
+		status: 'unknown',
+	});
+});
+
+test('with the flag on and no daemon, every key reads as never reported and a wait for a change runs out its time', async t => {
+	const {stateDir} = testState(t, {sqlite: false});
+	const {claudeStatus, disconnectStatusDaemon} = createStateDaos({
+		repo: 'repo',
+		stateDir,
+		sqlite: true,
+	});
+	t.teardown(disconnectStatusDaemon);
+	t.deepEqual(await claudeStatus.readState('repo-STA-1'), {kind: 'none'});
+	t.deepEqual(await claudeStatus.read('repo-STA-1'), {status: 'unknown'});
+	t.is(await claudeStatus.readableKey('repo', 'STA-1'), 'repo-STA-1');
+	const started = performance.now();
+	await claudeStatus.waitForChange(100);
+	t.true(performance.now() - started >= 90);
 });

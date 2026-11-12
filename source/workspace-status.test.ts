@@ -10,7 +10,7 @@ import {
 	snapshotFile,
 	snapshotOf,
 } from '../test/helpers/program-status.ts';
-import {testState} from '../test/helpers/state.ts';
+import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {
@@ -52,7 +52,7 @@ function setup(t: ExecutionContext, options: {sqlite?: boolean} = {}) {
 		lastUpdate = Date.now(),
 		key = 'TASK-1',
 	) =>
-		claudeStatus.write({
+		writeClaudeStatus(state, {
 			sessionId: 'session',
 			workspaceName: key,
 			status,

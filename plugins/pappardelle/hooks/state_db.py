@@ -5,6 +5,9 @@ SQLite database, in one transaction, so readers of either see the same thing.
 The schema belongs to the TypeScript side (source/state-db.ts): nothing here
 creates the database or a table, and a hook that cannot use the database
 still writes its file.
+
+Status is the exception: with the flag on it goes to the status daemon
+(status_socket.py) and is stored nowhere.
 """
 
 import json
@@ -49,6 +52,23 @@ def state_db_path(environ: Mapping[str, str] = os.environ) -> Optional[str]:
         or recorded.get("db")
         or str(_state_dir() / "state.db")
     )
+
+
+# The number is the protocol's (STATUS_SOCKET_NAME in source/state-db.ts).
+STATUS_SOCKET_NAME = "status-1.sock"
+
+
+def status_socket_path(environ: Mapping[str, str] = os.environ) -> Optional[str]:
+    """The status daemon's socket, or None while the flag is off.
+
+    It is beside the database unless PAPPARDELLE_STATUS_SOCKET names another
+    place, so whatever moves the database moves the daemon with it, as in
+    statusSocketPath (source/state-db.ts).
+    """
+    db_path = state_db_path(environ)
+    if db_path is None:
+        return None
+    return environ.get("PAPPARDELLE_STATUS_SOCKET") or os.path.join(os.path.dirname(db_path), STATUS_SOCKET_NAME)
 
 
 def _log_failure(message: str) -> None:

@@ -8,6 +8,7 @@ import type {
 } from '../../source/claude-status.ts';
 import type {StatusPane} from '../../source/program-status-monitor.ts';
 import {
+	createStatusServer,
 	serveStatusDaemon,
 	type StatusDaemon,
 	type StatusDaemonOptions,
@@ -78,6 +79,32 @@ export async function serveTestDaemon(
 		throw new Error(`The test daemon did not start: ${start.kind}`);
 	t.teardown(async () => start.daemon.close());
 	return start.daemon;
+}
+
+/**
+ * The daemon's hub on `socketPath`, listening by the time this returns, so a
+ * client built right after it connects on its first attempt. Starting a
+ * whole daemon takes several turns of the event loop.
+ */
+export function serveTestHub(t: Teardown, socketPath: string): void {
+	const {server, disconnectAll} = createStatusServer();
+	server.listen(socketPath);
+	t.teardown(() => {
+		disconnectAll();
+		server.close();
+	});
+}
+
+/** Send one hook event the way the hook does: connect, write a line, close. */
+export async function sendHookEvent(
+	socketPath: string,
+	state: ClaudeSessionState,
+): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const socket = net.connect(socketPath);
+		socket.once('error', reject);
+		socket.end(encodeMessage({type: 'hook', state}), resolve);
+	});
 }
 
 export type RawConnection = {

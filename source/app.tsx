@@ -788,7 +788,7 @@ export default function App({
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			statusKey: name => claudeStatus.readableKey(repoName, name),
+			statusKey: async name => claudeStatus.readableKey(repoName, name),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {

@@ -12,13 +12,13 @@ type StatusReader = Pick<ClaudeStatusDao, 'readState'>;
  * alone, so the cwd tells this repo's space apart from another repo's with
  * the same key.
  */
-function agentStarted(
+async function agentStarted(
 	claudeStatus: StatusReader,
 	statusKey: string,
 	worktree: string,
 	since: number,
-): boolean {
-	const stored = claudeStatus.readState(statusKey);
+): Promise<boolean> {
+	const stored = await claudeStatus.readState(statusKey);
 	if (stored.kind !== 'state') return false;
 	const {event, cwd, lastUpdate} = stored.state;
 	return (
@@ -46,7 +46,7 @@ export async function waitForAgentStart(options: {
 	const deadline = Date.now() + options.timeoutMs;
 	for (;;) {
 		if (
-			agentStarted(
+			await agentStarted(
 				options.claudeStatus,
 				options.statusKey,
 				options.worktree,

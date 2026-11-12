@@ -10,15 +10,14 @@ Run with: uv run pytest plugins/pappardelle/hooks/test_update_status.py -v
 import importlib.util
 import json
 import os
-import sqlite3
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import patch
 
 import pytest
+from conftest import StatusSocket
 
 _module_path = Path(__file__).parent / "update-status.py"
 _spec = importlib.util.spec_from_file_location("update_status", _module_path)
@@ -160,8 +159,8 @@ class TestGetWorkspaceName:
         ):
             assert get_workspace_name() == "main"
 
-    def test_main_worktree_status_writes_to_repo_qualified_file(self, tmp_path):
-        """When in main worktree, status file should use repo-qualified name (e.g., stardust-labs-master.json)."""
+    def test_main_worktree_status_writes_to_repo_qualified_file(self, tmp_path, read_status):
+        """When in main worktree, status should use the repo-qualified name (e.g., stardust-labs-master)."""
         from io import StringIO
 
         import update_status as us
@@ -195,19 +194,16 @@ class TestGetWorkspaceName:
             finally:
                 sys.argv = original_argv
 
-        # Should write to stardust-labs-master.json (repo-qualified), NOT master.json
-        status_file = tmp_path / "stardust-labs-master.json"
-        assert status_file.exists(), "Status should be written to stardust-labs-master.json for main worktree"
-        result = json.loads(status_file.read_text())
+        # Should report under stardust-labs-master (repo-qualified), NOT master
+        result = read_status(tmp_path, "stardust-labs-master")
+        assert result is not None, "Status should be reported under stardust-labs-master for main worktree"
         assert result["workspaceName"] == "stardust-labs-master"
         assert result["status"] == "waiting_for_input"
 
-        # Should NOT write to bare branch name
-        bare_file = tmp_path / "master.json"
-        assert not bare_file.exists(), "Should NOT write to bare master.json (would collide across repos)"
+        # Should NOT report under the bare branch name
+        assert read_status(tmp_path, "master") is None, "Should NOT report under master (would collide across repos)"
 
-        unknown_file = tmp_path / "unknown.json"
-        assert not unknown_file.exists(), "Should NOT write to unknown.json when branch is detected"
+        assert read_status(tmp_path, "unknown") is None, "Should NOT report under unknown when branch is detected"
 
     def test_recovers_beads_key_from_a_worktree_with_no_config_of_its_own(self, tmp_path):
         """A beads worktree resolves its key through the main checkout's config.
@@ -260,6 +256,10 @@ class TestStatusDetermination:
     uniformly without tool-specific special-casing.
     """
 
+    @pytest.fixture(autouse=True)
+    def _read_status(self, read_status):
+        self.read_status = read_status
+
     def _create_hook_input(
         self,
         hook_event: str,
@@ -281,7 +281,7 @@ class TestStatusDetermination:
         return data
 
     def _run_hook_with_input(self, input_data: dict, temp_dir: Path) -> Optional[dict]:
-        """Run the hook logic and return the written status file contents."""
+        """Run the hook logic and return the status it reported."""
         from io import StringIO
 
         import update_status as us
@@ -307,11 +307,7 @@ class TestStatusDetermination:
             finally:
                 sys.argv = original_argv
 
-        # Read the status file
-        status_file = temp_dir / "STA-999.json"
-        if status_file.exists():
-            return json.loads(status_file.read_text())
-        return None
+        return self.read_status(temp_dir, "STA-999")
 
     # =========================================================================
     # Processing / Tool Use Tests
@@ -526,7 +522,7 @@ class TestStatusDetermination:
 class TestCommandLineArgs:
     """Tests for command line argument handling."""
 
-    def test_explicit_status_arg_overrides_hook_event(self, tmp_path):
+    def test_explicit_status_arg_overrides_hook_event(self, tmp_path, read_status):
         """Command line status arg should be used directly."""
         from io import StringIO
 
@@ -550,12 +546,11 @@ class TestCommandLineArgs:
             finally:
                 sys.argv = original_argv
 
-        status_file = tmp_path / "STA-999.json"
-        result = json.loads(status_file.read_text())
+        result = read_status(tmp_path, "STA-999")
         assert result["status"] == "waiting_for_input"
 
-    def test_tool_arg_is_stored(self, tmp_path):
-        """--tool argument should be stored in status file."""
+    def test_tool_arg_is_stored(self, tmp_path, read_status):
+        """--tool argument should be stored in the status."""
         from io import StringIO
 
         import update_status as us
@@ -578,8 +573,7 @@ class TestCommandLineArgs:
             finally:
                 sys.argv = original_argv
 
-        status_file = tmp_path / "STA-999.json"
-        result = json.loads(status_file.read_text())
+        result = read_status(tmp_path, "STA-999")
         assert result["status"] == "running_tool"
         assert result.get("currentTool") == "Bash"
 
@@ -593,6 +587,11 @@ class TestAtomicWrite:
     sibling ``*.tmp.<pid>`` file and ``os.replace``s it onto the target, so the
     target's directory entry always points at a complete file.
     """
+
+    @pytest.fixture(autouse=True)
+    def _status_files(self, monkeypatch):
+        # The hook writes a status file only while the flag is off.
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
 
     def test_rewrite_swaps_inode_via_atomic_rename(self, tmp_path):
         """Two sequential writes must land on distinct inodes.
@@ -760,137 +759,177 @@ class TestRepoEnvironment:
         ):
             assert get_workspace_name() == "repo-a-main"
 
-    def test_two_repos_with_the_same_space_key_write_separate_files(self, monkeypatch, tmp_path):
+    def test_two_repos_with_the_same_space_key_report_separately(self, monkeypatch, tmp_path, read_status):
         monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(tmp_path))
         monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-2")
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
         update_status_module.update_status("processing")
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo-b")
         update_status_module.update_status("waiting_for_approval")
-        assert json.loads((tmp_path / "repo-a-QA-2.json").read_text())["status"] == "processing"
-        assert json.loads((tmp_path / "repo-b-QA-2.json").read_text())["status"] == "waiting_for_approval"
+        assert read_status(tmp_path, "repo-a-QA-2")["status"] == "processing"
+        assert read_status(tmp_path, "repo-b-QA-2")["status"] == "waiting_for_approval"
 
 
 # ============================================================================
-# experimental.sqliteState: the status row beside the status file
+# experimental.sqliteState: status goes to the status daemon, not to a file
 # ============================================================================
 
-STATUS_COLUMNS = "status_key, session_id, workspace_name, status, last_update, current_tool, event, cwd"
+
+def _run_hook(event: dict[str, Any], env: dict[str, str]) -> subprocess.CompletedProcess:
+    """The hook as Claude runs it, and whether it loaded the modules that only
+    the flag-on paths need."""
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import runpy, sys\n"
+            "try:\n"
+            f"    runpy.run_path({str(_module_path)!r}, run_name='__main__')\n"
+            "except SystemExit as stop:\n"
+            "    code = stop.code\n"
+            "print(code, 'sqlite3' in sys.modules, 'socket' in sys.modules)",
+        ],
+        input=json.dumps(event),
+        # Nothing of the session these tests run in: its variables name
+        # the developer's own state files.
+        env={"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], **env},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
 
 
-def _rows(db: Path, sql: str) -> list[tuple]:
-    connection = sqlite3.connect(db)
-    try:
-        return connection.execute(sql).fetchall()
-    finally:
-        connection.close()
-
-
-class TestStateDatabase:
+class TestStatusDaemon:
     CWD = "/Users/charlie/.worktrees/stardust-labs/STA-9200"
 
     @pytest.fixture
     def status_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         status_dir = tmp_path / "status"
         monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(status_dir))
-        # A failed database write is logged under the home directory.
-        monkeypatch.setenv("HOME", str(tmp_path / "home"))
         return status_dir
 
-    def test_flag_on_writes_the_file_its_row_and_the_files_signature(self, state_db: Path, status_dir: Path):
+    @pytest.fixture
+    def flag_on(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "1")
+        monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(tmp_path / "state.db"))
+
+    def test_flag_on_sends_one_line_and_writes_no_file(self, flag_on: None, status_socket, status_dir: Path):
         update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
 
-        file = status_dir / "STA-9200.json"
-        written = json.loads(file.read_text())
-        assert _rows(state_db, f"SELECT {STATUS_COLUMNS} FROM claude_status") == [
-            ("STA-9200", "sess-1", "STA-9200", "running_tool", written["lastUpdate"], "Bash", "PreToolUse", self.CWD)
-        ]
-        stat = os.stat(file)
-        assert _rows(state_db, "SELECT path, ino, size, mtime_ns, malformed FROM json_sync") == [
-            (str(file), str(stat.st_ino), stat.st_size, str(stat.st_mtime_ns), 0)
-        ]
-        assert Path(f"{state_db}.bell").exists()
+        (message,) = status_socket.messages()
+        last_update = message["state"]["lastUpdate"]
+        assert isinstance(last_update, int)
+        assert message == {
+            "type": "hook",
+            "state": {
+                "sessionId": "sess-1",
+                "workspaceName": "STA-9200",
+                "status": "running_tool",
+                "lastUpdate": last_update,
+                "currentTool": "Bash",
+                "event": "PreToolUse",
+                "cwd": self.CWD,
+            },
+        }
+        assert not status_dir.exists()
 
-    def test_flag_on_a_later_event_replaces_the_row_and_clears_what_it_does_not_report(
-        self, state_db: Path, status_dir: Path, monkeypatch: pytest.MonkeyPatch
+    def test_flag_on_a_later_event_leaves_out_what_it_does_not_report(
+        self, flag_on: None, status_socket, monkeypatch: pytest.MonkeyPatch
     ):
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo")
         monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-1")
         update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
         update_status("waiting_for_input", session_id="sess-1")
 
-        written = json.loads((status_dir / "repo-QA-1.json").read_text())
-        assert _rows(state_db, f"SELECT {STATUS_COLUMNS} FROM claude_status") == [
-            ("repo-QA-1", "sess-1", "repo-QA-1", "waiting_for_input", written["lastUpdate"], None, None, None)
-        ]
+        later = status_socket.messages()[1]["state"]
+        assert later == {
+            "sessionId": "sess-1",
+            "workspaceName": "repo-QA-1",
+            "status": "waiting_for_input",
+            "lastUpdate": later["lastUpdate"],
+        }
 
-    def test_flag_off_writes_only_the_file(self, state_db: Path, status_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_flag_on_a_sent_status_removes_the_file_from_before_the_flag(
+        self, status_socket, status_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        update_status("processing", cwd=self.CWD)
+        update_status("processing", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9201")
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "1")
+        monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(tmp_path / "state.db"))
+
+        update_status("waiting_for_input", cwd=self.CWD)
+
+        assert [message["state"]["status"] for message in status_socket.messages()] == ["waiting_for_input"]
+        assert sorted(file.name for file in status_dir.iterdir()) == ["STA-9201.json"]
+
+    def test_flag_on_with_nothing_listening_the_event_is_dropped_and_the_file_stays(
+        self, status_socket, status_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        update_status("processing", cwd=self.CWD)
+        before = (status_dir / "STA-9200.json").read_text()
+        status_socket.close()
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = _run_hook(
+            {"hook_event_name": "Stop", "session_id": "sess-1", "cwd": self.CWD},
+            {
+                "HOME": str(home),
+                "PAPPARDELLE_STATUS_DIR": str(status_dir),
+                "PAPPARDELLE_SQLITE_STATE": "1",
+                "PAPPARDELLE_STATE_DB": str(tmp_path / "state.db"),
+                "PAPPARDELLE_STATUS_SOCKET": str(status_socket.path),
+            },
+        )
+
+        assert result.stdout.split()[0] == "0"
+        assert result.stderr == ""
+        assert (status_dir / "STA-9200.json").read_text() == before
+        assert [file.name for file in status_dir.iterdir()] == ["STA-9200.json"]
+        # Not logged either: no daemon runs whenever Pappardelle is closed.
+        assert list(home.iterdir()) == []
+
+    def test_flag_on_with_nothing_listening_and_no_file_nothing_is_written(
+        self, flag_on: None, status_dir: Path, short_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_STATUS_SOCKET", str(short_tmp_path / "status-1.sock"))
+
+        update_status("processing", cwd=self.CWD)
+
+        assert not status_dir.exists()
+        assert list(short_tmp_path.iterdir()) == []
+
+    def test_the_socket_is_beside_a_database_that_was_moved(
+        self, short_tmp_path: Path, status_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        beside_the_database = StatusSocket(short_tmp_path / "status-1.sock")
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "1")
+        monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(short_tmp_path / "state.db"))
+        try:
+            update_status("processing", cwd=self.CWD)
+
+            assert [message["state"]["workspaceName"] for message in beside_the_database.messages()] == ["STA-9200"]
+        finally:
+            beside_the_database.close()
+
+    def test_flag_off_writes_the_file_and_sends_nothing(
+        self, status_socket, status_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
         update_status("processing", cwd=self.CWD)
 
         assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "processing"
-        assert _rows(state_db, "SELECT * FROM claude_status") == []
-        assert _rows(state_db, "SELECT * FROM json_sync") == []
-        assert not Path(f"{state_db}.bell").exists()
+        assert status_socket.messages() == []
 
-    def test_flag_off_creates_no_database(self, status_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        db = tmp_path / "absent" / "state.db"
-        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
-        monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(db))
-        update_status("processing", cwd=self.CWD)
-
-        assert (status_dir / "STA-9200.json").exists()
-        assert not db.parent.exists()
-
-    def test_flag_off_never_loads_sqlite(self, status_dir: Path):
+    def test_flag_off_loads_neither_sqlite_nor_socket(self, status_dir: Path):
         """The hook runs on every agent event. With the flag off it must cost
-        what it did before the database existed."""
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "import runpy, sys\n"
-                "try:\n"
-                f"    runpy.run_path({str(_module_path)!r}, run_name='__main__')\n"
-                "except SystemExit:\n"
-                "    pass\n"
-                "print('sqlite3' in sys.modules)",
-            ],
-            input=json.dumps({"hook_event_name": "Stop", "session_id": "sess-1", "cwd": self.CWD}),
-            # Nothing of the session these tests run in: its variables name
-            # the developer's own state files.
-            env={
-                "PATH": os.environ["PATH"],
-                "HOME": os.environ["HOME"],
-                "PAPPARDELLE_STATUS_DIR": str(status_dir),
-                "PAPPARDELLE_SQLITE_STATE": "0",
-            },
-            capture_output=True,
-            text=True,
-            check=True,
+        what it did before the database and the daemon existed."""
+        result = _run_hook(
+            {"hook_event_name": "Stop", "session_id": "sess-1", "cwd": self.CWD},
+            {"PAPPARDELLE_STATUS_DIR": str(status_dir), "PAPPARDELLE_SQLITE_STATE": "0"},
         )
 
         assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "waiting_for_input"
-        assert result.stdout.strip() == "False"
-
-    def test_a_locked_database_still_gets_the_file_quickly_and_without_an_error(self, state_db: Path, status_dir: Path):
-        holder = sqlite3.connect(state_db, isolation_level=None)
-        holder.execute("BEGIN IMMEDIATE")
-        try:
-            started = time.monotonic()
-            update_status("processing", cwd=self.CWD)
-            elapsed = time.monotonic() - started
-        finally:
-            holder.execute("ROLLBACK")
-            holder.close()
-
-        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "processing"
-        assert elapsed < 1.0
-        assert _rows(state_db, "SELECT * FROM claude_status") == []
-
-    def test_a_status_the_schema_does_not_know_still_gets_its_file(self, state_db: Path, status_dir: Path):
-        update_status("made_up", cwd=self.CWD)
-
-        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "made_up"
-        assert _rows(state_db, "SELECT * FROM claude_status") == []
-        assert _rows(state_db, "SELECT * FROM json_sync") == []
+        assert result.stdout.split() == ["0", "False", "False"]

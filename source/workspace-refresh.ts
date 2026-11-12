@@ -45,7 +45,7 @@ export interface WorkspaceRefreshDeps {
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
 	/** Hook status key of a space key, or of the main checkout's branch. */
-	statusKey: (name: string) => string;
+	statusKey: (name: string) => Promise<string>;
 	getCachedIssue: (key: string) => TrackerIssue | null;
 	fetchIssues: (keys: string[]) => Promise<unknown>;
 	readEmoji: (
@@ -176,6 +176,14 @@ export class WorkspaceRefresh {
 			.filter(name => name !== MAIN_WORKTREE_KEY)
 			.sort(compareSpaceNames);
 		const orderedNames = this.names;
+		const statusKeys = new Map(
+			await Promise.all(
+				orderedNames.map(
+					async name => [name, await this.deps.statusKey(name)] as const,
+				),
+			),
+		);
+		if (this.stopped || generation !== this.listGeneration) return;
 		this.publish(previous => {
 			if (generation !== this.listGeneration) return previous;
 			const byName = new Map(previous.map(space => [space.name, space]));
@@ -187,7 +195,7 @@ export class WorkspaceRefresh {
 						? existing
 						: {
 								name,
-								statusKey: this.deps.statusKey(name),
+								statusKey: statusKeys.get(name),
 								worktreePath: null,
 								programStatus: {status: 'unknown'},
 								linearIssue: this.deps.getCachedIssue(name) ?? undefined,
@@ -209,7 +217,7 @@ export class WorkspaceRefresh {
 			orderedNames.map(key => async () => {
 				if (this.stopped || generation !== this.listGeneration)
 					return undefined;
-				const statusKey = this.deps.statusKey(key);
+				const statusKey = await this.deps.statusKey(key);
 				const version = this.statusVersions.get(statusKey) ?? 0;
 				const [status, worktreePath] = await Promise.allSettled([
 					this.deps.readStatus(statusKey, key),
@@ -318,7 +326,8 @@ export class WorkspaceRefresh {
 		);
 		const info = await this.deps.readMainWorktree();
 		if (!info || this.stopped) return;
-		const statusKey = this.deps.statusKey(info.branch);
+		const statusKey = await this.deps.statusKey(info.branch);
+		if (this.stopped) return;
 		this.publish(previous => {
 			const current = previous.find(space => space.isMainWorktree);
 			const base: SpaceData = current ?? {

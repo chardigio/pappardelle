@@ -1,13 +1,14 @@
 // The composition root for Pappardelle's stores.
 //
-// Each store is a DAO with a file-backed and a SQLite-backed implementation.
-// This is the one place that decides which a process gets, so nothing else
-// reads experimental.sqliteState, and removing the flag changes this file.
+// Each store is a DAO with a file-backed implementation and one for
+// experimental.sqliteState: SQLite-backed, or for hook status the status
+// daemon. This is the one place that decides which a process gets, so nothing
+// else reads the flag, and removing the flag changes this file.
 
 import path from 'node:path';
 import {SqliteAgentSessionsDao} from './agent-sessions-sqlite.ts';
 import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
-import {SqliteClaudeStatusDao} from './claude-status-sqlite.ts';
+import {DaemonClaudeStatusDao} from './claude-status-daemon.ts';
 import {
 	companionRequestsDir,
 	companionWidthsPath,
@@ -71,8 +72,10 @@ import {
 	DEFAULT_STATE_DIR,
 	openStateDb,
 	stateDbPath,
+	statusSocketPath,
 } from './state-db.ts';
 import {readStateEnv} from './state-env.ts';
+import {StatusClient} from './status-client.ts';
 import {
 	JsonTuiMarkerDao,
 	tuiMarkerPath,
@@ -106,6 +109,11 @@ export type StateDaos = {
 	 * For the process that renders the TUI.
 	 */
 	deferCheckpoints(): void;
+	/**
+	 * Close this process's connection to the status daemon. A process that
+	 * exits has no need to: the connection does not keep it alive.
+	 */
+	disconnectStatusDaemon(): void;
 };
 
 export type StateDaoOptions = {
@@ -202,12 +210,16 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
 			updateCheck: new JsonUpdateCheckDao(updateCheckFile),
 			deferCheckpoints() {},
+			disconnectStatusDaemon() {},
 		};
 	}
 
+	const statusClient = new StatusClient(statusSocketPath(options.stateDir), {
+		repo,
+	});
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
-		claudeStatus: new SqliteClaudeStatusDao(openDb, dbPath, jsonClaudeStatus),
+		claudeStatus: new DaemonClaudeStatusDao(statusClient),
 		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
 		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
 		highlight: new SqliteHighlightDao(
@@ -237,6 +249,9 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckFile),
 		deferCheckpoints() {
 			checkpointsDeferred = true;
+		},
+		disconnectStatusDaemon() {
+			statusClient.close();
 		},
 	};
 }

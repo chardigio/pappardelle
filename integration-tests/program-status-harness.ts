@@ -1,17 +1,38 @@
 import assert from 'node:assert/strict';
 import {Buffer} from 'node:buffer';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
+import {isDeepStrictEqual} from 'node:util';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
-import type {ClaudeStatus, ClaudeStatusDao} from '../source/claude-status.ts';
+import {sendHookEvent} from '../test/helpers/status-daemon.ts';
+import type {
+	ClaudeSessionState,
+	ClaudeStatus,
+	ClaudeStatusDao,
+} from '../source/claude-status.ts';
 import SpaceListItem from '../source/components/SpaceListItem.tsx';
 import {stateDaosByRepo, type StateDaos} from '../source/state-daos.ts';
-import {closeStateDb, openStateDb} from '../source/state-db.ts';
+import {
+	closeStateDb,
+	openStateDb,
+	statusSocketPath,
+} from '../source/state-db.ts';
+import {
+	createStatusServer,
+	type StatusServer,
+} from '../source/status-daemon.ts';
 import {
 	WorkspaceStatuses,
 	applyStatusUpdates,
@@ -48,6 +69,11 @@ export class StatusHarness {
 	readonly socket = `pappa_status_${process.pid}`;
 	readonly stateDir = path.join(this.root, 'state');
 	readonly sqlite = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
+	/**
+	 * Under the harness's own short root: a run may be given a database path
+	 * too long for a Unix socket beside it.
+	 */
+	readonly statusSocket = statusSocketPath(this.stateDir);
 	/** The hook statuses, as a Pappardelle run against this harness reads them. */
 	readonly claudeStatus: ClaudeStatusDao;
 	readonly checks: Array<{
@@ -57,6 +83,8 @@ export class StatusHarness {
 	}> = [];
 
 	private readonly daosFor: (repo: string) => StateDaos;
+	/** With the flag on, the status daemon's hub, served from this process. */
+	private readonly statusServer?: StatusServer;
 	private readonly previous = new Map<string, string | undefined>();
 	private stopWatch?: () => void;
 	private view?: Awaited<ReturnType<typeof render>>;
@@ -68,6 +96,7 @@ export class StatusHarness {
 			// Hooks run in the harness's panes write to its database, never to
 			// the developer's own.
 			PAPPARDELLE_STATE_DB: path.join(this.stateDir, 'state.db'),
+			PAPPARDELLE_STATUS_SOCKET: this.statusSocket,
 			PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(this.root, 'status'),
 			PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(this.root, 'trace'),
 			PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(
@@ -79,6 +108,12 @@ export class StatusHarness {
 			this.previous.set(name, process.env[name]);
 			process.env[name] = value;
 		}
+		if (this.sqlite) {
+			mkdirSync(this.stateDir, {recursive: true});
+			this.statusServer = createStatusServer();
+			this.statusServer.server.listen(this.statusSocket);
+		}
+
 		this.daosFor = stateDaosByRepo({
 			stateDir: this.stateDir,
 			sqlite: this.sqlite,
@@ -155,14 +190,31 @@ export class StatusHarness {
 		);
 	}
 
+	/** Report a hook status the way the hook does in this run's mode. */
 	async writeHook(key: string, status: ClaudeStatus, tool?: string) {
-		await this.claudeStatus.write({
+		const state: ClaudeSessionState = {
 			sessionId: 'harness',
 			workspaceName: key,
 			status,
-			currentTool: tool,
+			...(tool ? {currentTool: tool} : {}),
 			lastUpdate: Date.now(),
-		});
+		};
+		if (this.sqlite) {
+			await sendHookEvent(this.statusSocket, state);
+			await until(
+				async () => this.claudeStatus.readState(key),
+				stored =>
+					stored.kind === 'state' && isDeepStrictEqual(stored.state, state),
+				`hook status ${status} of ${key} reaches the stores`,
+			);
+			return;
+		}
+
+		const file = path.join(this.root, 'hooks', `${key}.json`);
+		const temporary = `${file}.tmp.${process.pid}`;
+		mkdirSync(path.dirname(file), {recursive: true});
+		writeFileSync(temporary, JSON.stringify(state, null, 2));
+		renameSync(temporary, file);
 	}
 
 	async mount(repo: string, key: string, session: string) {
@@ -262,6 +314,9 @@ export class StatusHarness {
 			else process.env[name] = value;
 		}
 		closeStateDb(path.join(this.stateDir, 'state.db'));
+		this.daosFor('status-harness').disconnectStatusDaemon();
+		this.statusServer?.disconnectAll();
+		this.statusServer?.server.close();
 		if (!process.argv.includes('--keep'))
 			rmSync(this.root, {recursive: true, force: true});
 	}

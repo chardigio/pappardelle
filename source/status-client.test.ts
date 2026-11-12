@@ -1,4 +1,5 @@
 import {execFile} from 'node:child_process';
+import net from 'node:net';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -16,12 +17,13 @@ import {
 import {waitUntil} from '../test/helpers/wait.ts';
 import {isPidAlive} from './file-lock.ts';
 import {
+	STATE_WAIT_MS,
 	StatusClient,
 	spawnStatusDaemon,
 	type StatusChange,
 	type StatusClientOptions,
 } from './status-client.ts';
-import type {ClientMessage} from './status-protocol.ts';
+import {encodeMessage, type ClientMessage} from './status-protocol.ts';
 
 const execute = promisify(execFile);
 const clientModule = fileURLToPath(
@@ -125,6 +127,45 @@ test('after ready() the replica holds what the daemon held, and each push after 
 	t.deepEqual(client.snapshot('B', 'g1'), snapshot('B', 'g1'));
 	t.is(client.snapshot('A', 'g1'), undefined);
 	t.deepEqual(client.snapshot('A', 'g2'), snapshot('A', 'g2'));
+});
+
+test('ready() gives up on a daemon that accepts and sends no state, stays connected, and a state that comes later is a change', async t => {
+	const socketPath = testSocketPath(t);
+	const accepted: net.Socket[] = [];
+	const silent = net.createServer(connection => accepted.push(connection));
+	silent.listen(socketPath);
+	t.teardown(() => {
+		for (const connection of accepted) connection.destroy();
+		silent.close();
+	});
+	const {client, clock, changes} = testClient(t, socketPath, {repo: 'repo'});
+	client.onChange(change => changes.push(change));
+	let ready = false;
+	const waiting = client.ready().then(() => {
+		ready = true;
+	});
+	await waitUntil(
+		() => accepted.length === 1 && clock.delays().length === 1,
+		'the client to wait for the state',
+	);
+	t.false(ready);
+	t.deepEqual(clock.delays(), [STATE_WAIT_MS]);
+
+	clock.fire();
+	await waiting;
+	t.is(client.hook('repo-A'), undefined);
+	t.deepEqual(clock.delays(), []);
+
+	accepted[0]!.write(
+		encodeMessage({
+			type: 'state',
+			hooks: [hookState('repo-A')],
+			snapshots: [],
+		}),
+	);
+	await waitUntil(() => changes.length === 1, 'the late state');
+	t.deepEqual(changes, [{kind: 'hook', statusKey: 'repo-A'}]);
+	t.deepEqual(client.hook('repo-A'), hookState('repo-A'));
 });
 
 test('after the daemon is replaced the client reconnects, resubscribes and tells listeners every key that either state held', async t => {

@@ -32,7 +32,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
 		readDirty: async () => false,
-		statusKey: name => `repo-${name}`,
+		statusKey: async name => `repo-${name}`,
 		getCachedIssue: issue,
 		async fetchIssues() {},
 		readEmoji: async () => '🍝',
@@ -217,7 +217,7 @@ test('a space moves to the qualified status key once its agent writes it', async
 	let bare = true;
 	const h = setup({
 		readRegistry: async () => ['STA-1'],
-		statusKey: name => (bare && name === 'STA-1' ? name : `repo-${name}`),
+		statusKey: async name => (bare && name === 'STA-1' ? name : `repo-${name}`),
 	});
 	await h.settle();
 	t.is(h.spaces[1]!.statusKey, 'STA-1');
