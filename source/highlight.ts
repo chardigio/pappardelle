@@ -5,20 +5,12 @@
 // watches for changes via fs.watch(). With `--focus` the line also carries
 // FOCUS_MARKER, and the rail moves focus to the space's agent pane.
 
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	unlinkSync,
-	writeFileSync,
-} from 'node:fs';
-import {homedir} from 'node:os';
+import {existsSync, mkdirSync, unlinkSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {shellQuote} from './shell-quote.ts';
 import type {SpaceData} from './types.ts';
 import {watchFileContent} from './file-watch.ts';
 
-const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 const FOCUS_MARKER = 'focus';
 
 export type HighlightRequest = {issueKey: string; focus: boolean};
@@ -27,7 +19,8 @@ function serializeRequest({issueKey, focus}: HighlightRequest): string {
 	return focus ? `${issueKey}\t${FOCUS_MARKER}` : issueKey;
 }
 
-function parseRequest(content: string): HighlightRequest | null {
+/** The request a highlight target file's content asks for, if any. */
+export function parseHighlightTarget(content: string): HighlightRequest | null {
 	const [issueKey, marker] = content.trim().split('\t');
 	if (!issueKey) return null;
 	return {issueKey, focus: marker === FOCUS_MARKER};
@@ -38,69 +31,80 @@ function parseRequest(content: string): HighlightRequest | null {
  */
 export function getHighlightFilePath(
 	repoName: string,
-	baseDir?: string,
+	baseDir: string,
 ): string {
-	const base = baseDir ?? DEFAULT_BASE_DIR;
-	return path.join(base, 'repos', repoName, 'highlight-target');
+	return path.join(baseDir, 'repos', repoName, 'highlight-target');
+}
+
+/** The highlight target file's content for `request`. */
+export function renderHighlightTarget(request: HighlightRequest): string {
+	return serializeRequest(request) + '\n';
 }
 
 /**
- * Write a highlight request to the highlight target file.
- * Called by `pappardelle highlight STA-XXX` from another terminal.
- */
-export function writeHighlightTarget(
-	repoName: string,
-	request: HighlightRequest,
-	baseDir?: string,
-): void {
-	const filePath = getHighlightFilePath(repoName, baseDir);
-	mkdirSync(path.dirname(filePath), {recursive: true});
-	writeFileSync(filePath, serializeRequest(request) + '\n');
-}
-
-/**
- * The shell form of writeHighlightTarget, for the sous-chef key binding to run
- * from tmux without starting Pappardelle. Its output and failures are dropped:
- * either would put the pane the key was pressed in into view mode.
+ * A shell line that writes `request` to the target file `file`, for the
+ * sous-chef key binding to run from tmux without starting Pappardelle. Its
+ * output and failures are dropped: either would put the pane the key was
+ * pressed in into view mode.
  */
 export function highlightWriteCommand(
-	repoName: string,
+	file: string,
 	request: HighlightRequest,
-	baseDir?: string,
 ): string {
 	const line = shellQuote(serializeRequest(request));
-	const file = shellQuote(getHighlightFilePath(repoName, baseDir));
-	return `printf '%s\\n' ${line} > ${file} 2>/dev/null || true`;
+	return `printf '%s\\n' ${line} > ${shellQuote(file)} 2>/dev/null || true`;
 }
 
-/**
- * Read the current highlight request.
- * Returns null if no file exists.
- */
-export function readHighlightTarget(
-	repoName: string,
-	baseDir?: string,
-): HighlightRequest | null {
-	const filePath = getHighlightFilePath(repoName, baseDir);
-	try {
-		if (!existsSync(filePath)) return null;
-		return parseRequest(readFileSync(filePath, 'utf-8'));
-	} catch {
-		return null;
+/** The space one repo's running TUI has been asked to select. */
+export interface HighlightDao {
+	/**
+	 * Ask the running TUI to select a space, and with `focus` to move focus to
+	 * its agent pane. Called by `pappardelle highlight STA-XXX` from another
+	 * terminal.
+	 */
+	request(request: HighlightRequest): Promise<void>;
+	/**
+	 * A shell line that makes `request` without starting Pappardelle. Whoever
+	 * watches is told of it as of any other request.
+	 */
+	shellRequest(request: HighlightRequest): string;
+	/**
+	 * Call `listener` with each request made from now on. A request made before
+	 * this call is not reported. Returns an unwatch function.
+	 */
+	watch(listener: (request: HighlightRequest) => void): () => void;
+	/** Forget the request, once it has been acted on. */
+	clear(): Promise<void>;
+}
+
+/** The request as a file holding the key, watched via fs.watch(). */
+export class JsonHighlightDao implements HighlightDao {
+	constructor(readonly file: string) {}
+
+	async request(request: HighlightRequest): Promise<void> {
+		mkdirSync(path.dirname(this.file), {recursive: true});
+		writeFileSync(this.file, renderHighlightTarget(request));
 	}
-}
 
-/**
- * Remove the highlight target file.
- */
-export function clearHighlightTarget(repoName: string, baseDir?: string): void {
-	const filePath = getHighlightFilePath(repoName, baseDir);
-	try {
-		if (existsSync(filePath)) {
-			unlinkSync(filePath);
+	shellRequest(request: HighlightRequest): string {
+		return highlightWriteCommand(this.file, request);
+	}
+
+	watch(listener: (request: HighlightRequest) => void): () => void {
+		return watchFileContent(this.file, content => {
+			const request = parseHighlightTarget(content);
+			if (request) listener(request);
+		});
+	}
+
+	async clear(): Promise<void> {
+		try {
+			if (existsSync(this.file)) {
+				unlinkSync(this.file);
+			}
+		} catch {
+			// Non-critical
 		}
-	} catch {
-		// Non-critical
 	}
 }
 
@@ -115,20 +119,4 @@ export function findSpaceIndexByIssueKey(
 ): number {
 	const key = issueKey.toUpperCase();
 	return spaces.findIndex(s => s.name.toUpperCase() === key);
-}
-
-/**
- * Watch the highlight target file for changes.
- * Calls the callback with the request whenever the file is written to.
- * Returns an unwatch function.
- */
-export function watchHighlightTarget(
-	repoName: string,
-	callback: (request: HighlightRequest) => void,
-	baseDir?: string,
-): () => void {
-	return watchFileContent(getHighlightFilePath(repoName, baseDir), content => {
-		const request = parseRequest(content);
-		if (request) callback(request);
-	});
 }

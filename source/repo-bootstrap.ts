@@ -1,5 +1,3 @@
-import path from 'node:path';
-import {homedir} from 'node:os';
 import {
 	getRepoName,
 	getRepoRoot,
@@ -10,9 +8,9 @@ import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
+	setStateColors,
 	setWorkspaceDiscovery,
 } from './providers/index.ts';
-import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 import {stateDaosByRepo, type StateDaos} from './state-daos.ts';
 import {recordSqliteState} from './state-flag.ts';
@@ -46,9 +44,7 @@ export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 			repo => daosByRepo(repo).spaceState,
 		),
 	);
-	initStateColorCacheDir(
-		path.join(homedir(), '.pappardelle', 'repos', repoName),
-	);
+	setStateColors(daos.stateColors);
 
 	try {
 		recordSqliteState(readHomeSqliteState());

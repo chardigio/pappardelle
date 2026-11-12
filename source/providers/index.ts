@@ -5,6 +5,7 @@ import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
 import {createDefaultLinearGraphQLClient} from './linear-graphql.ts';
 import {LinearProvider} from './linear-provider.ts';
+import {StateColorCache, type StateColorDao} from './state-color-cache.ts';
 import type {
 	IssueTrackerProvider,
 	TrackerProviderName,
@@ -40,6 +41,7 @@ let issueTrackerConfigKey: string | null = null;
 let vcsHostInstance: VcsHostProvider | null = null;
 let vcsHostConfigKey: string | null = null;
 let workspaceDiscovery: RepositoryDiscovery | undefined;
+let stateColors: StateColorDao | undefined;
 
 /**
  * How the VCS host finds the repositories in a workspace. The host is built
@@ -48,6 +50,15 @@ let workspaceDiscovery: RepositoryDiscovery | undefined;
  */
 export function setWorkspaceDiscovery(discover: RepositoryDiscovery): void {
 	workspaceDiscovery = discover;
+}
+
+/**
+ * Where the issue tracker keeps workflow state colors between runs. Like the
+ * discovery above, startup hands it over before the tracker is first built.
+ * Without it a tracker remembers colors only while the process lives.
+ */
+export function setStateColors(dao: StateColorDao): void {
+	stateColors = dao;
 }
 
 function trackerKey(config?: IssueTrackerConfig): string {
@@ -96,7 +107,7 @@ export function createIssueTracker(
 			issueTrackerInstance = new LinearProvider(
 				undefined,
 				undefined,
-				undefined,
+				new StateColorCache(stateColors),
 				createDefaultLinearGraphQLClient(),
 			);
 			break;
@@ -109,12 +120,21 @@ export function createIssueTracker(
 				);
 			}
 
-			issueTrackerInstance = new JiraProvider(config.base_url);
+			issueTrackerInstance = new JiraProvider(
+				config.base_url,
+				undefined,
+				undefined,
+				new StateColorCache(stateColors),
+			);
 			break;
 		}
 
 		case 'beads': {
-			issueTrackerInstance = new BeadsProvider();
+			issueTrackerInstance = new BeadsProvider(
+				undefined,
+				undefined,
+				new StateColorCache(stateColors),
+			);
 			break;
 		}
 
@@ -196,4 +216,5 @@ export function resetProviders(): void {
 	vcsHostInstance = null;
 	vcsHostConfigKey = null;
 	workspaceDiscovery = undefined;
+	stateColors = undefined;
 }

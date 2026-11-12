@@ -206,26 +206,98 @@ function writeJsonAtomic(p: string, data: unknown): void {
 // free capacity and spawning past the cap together.
 // ---------------------------------------------------------------------------
 
-type WatchlistReservation = {source: string; ownerPid: number};
+export type WatchlistReservation = {source: string; ownerPid: number};
+
+/** The reservations in a sidecar file. Throws when it does not hold any. */
+export function parseWatchlistReservations(
+	content: string,
+): Map<string, WatchlistReservation> {
+	const reservations = new Map<string, WatchlistReservation>();
+	const parsed: unknown = JSON.parse(content);
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+		throw new Error('Invalid watchlist reservations');
+	for (const [key, value] of Object.entries(parsed)) {
+		const entry = value as Partial<WatchlistReservation> | null;
+		if (
+			typeof entry?.source === 'string' &&
+			typeof entry.ownerPid === 'number'
+		) {
+			reservations.set(key, {
+				source: entry.source,
+				ownerPid: entry.ownerPid,
+			});
+		}
+	}
+
+	return reservations;
+}
+
+/** A sidecar file's content for these reservations. */
+export function renderWatchlistReservations(
+	reservations: ReadonlyMap<string, WatchlistReservation>,
+): string {
+	return JSON.stringify(Object.fromEntries(reservations), null, 2) + '\n';
+}
+
+/**
+ * Reserve up to `max` minus the slots `source` already holds, taking
+ * `candidateKeys` in order. Keys that are already registered or reserved are
+ * returned in `claimedElsewhere` instead: the caller should treat them as
+ * spawned, since another instance or watchlist owns them. `occupied` is how
+ * many slots `source` held before this call.
+ *
+ * `reservations` is changed in place, and `changed` says whether it was.
+ */
+export function reserveWatchlistSlots(
+	reservations: Map<string, WatchlistReservation>,
+	registered: ReadonlySet<string>,
+	source: string,
+	candidateKeys: string[],
+	max: number,
+	options: WatchlistReserveOptions,
+): {slots: WatchlistSlots; changed: boolean} {
+	const pid = options.pid ?? process.pid;
+	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
+	let changed = false;
+
+	for (const [key, entry] of reservations) {
+		if (!registered.has(key) && !isPidAlive(entry.ownerPid)) {
+			reservations.delete(key);
+			changed = true;
+		}
+	}
+
+	const occupied = [...reservations.values()].filter(
+		entry => entry.source === source,
+	).length;
+	const reserved: string[] = [];
+	const claimedElsewhere: string[] = [];
+	for (const key of candidateKeys) {
+		if (registered.has(key) || reservations.has(key)) {
+			claimedElsewhere.push(key);
+			continue;
+		}
+
+		if (occupied + reserved.length >= max) continue;
+		reservations.set(key, {source, ownerPid: pid});
+		reserved.push(key);
+		changed = true;
+	}
+
+	return {slots: {reserved, occupied, claimedElsewhere}, changed};
+}
 
 /**
  * The watchlist reservations beside a registry file. Every method must run
  * while the registry's lock is held.
  */
 export class WatchlistReservationFile {
-	private readonly file: string;
+	readonly file: string;
 
 	constructor(registryPath: string) {
 		this.file = path.join(path.dirname(registryPath), 'watchlist-spawns.json');
 	}
 
-	/**
-	 * Reserve up to `max` minus the slots `source` already holds, taking
-	 * `candidateKeys` in order. Keys that are already registered or reserved are
-	 * returned in `claimedElsewhere` instead: the caller should treat them as
-	 * spawned, since another instance or watchlist owns them. `occupied` is how
-	 * many slots `source` held before this call.
-	 */
 	reserve(
 		registered: ReadonlySet<string>,
 		source: string,
@@ -233,37 +305,17 @@ export class WatchlistReservationFile {
 		max: number,
 		options: WatchlistReserveOptions,
 	): WatchlistSlots {
-		const pid = options.pid ?? process.pid;
-		const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
 		const reservations = this.read();
-		let changed = false;
-
-		for (const [key, entry] of reservations) {
-			if (!registered.has(key) && !isPidAlive(entry.ownerPid)) {
-				reservations.delete(key);
-				changed = true;
-			}
-		}
-
-		const occupied = [...reservations.values()].filter(
-			entry => entry.source === source,
-		).length;
-		const reserved: string[] = [];
-		const claimedElsewhere: string[] = [];
-		for (const key of candidateKeys) {
-			if (registered.has(key) || reservations.has(key)) {
-				claimedElsewhere.push(key);
-				continue;
-			}
-
-			if (occupied + reserved.length >= max) continue;
-			reservations.set(key, {source, ownerPid: pid});
-			reserved.push(key);
-			changed = true;
-		}
-
+		const {slots, changed} = reserveWatchlistSlots(
+			reservations,
+			registered,
+			source,
+			candidateKeys,
+			max,
+			options,
+		);
 		if (changed) this.write(reservations);
-		return {reserved, occupied, claimedElsewhere};
+		return slots;
 	}
 
 	/** Free the slot `key` holds, if any. */
@@ -273,28 +325,12 @@ export class WatchlistReservationFile {
 	}
 
 	private read(): Map<string, WatchlistReservation> {
-		const reservations = new Map<string, WatchlistReservation>();
 		try {
-			const parsed: unknown = JSON.parse(fs.readFileSync(this.file, 'utf-8'));
-			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-				throw new Error('Invalid watchlist reservations');
-			for (const [key, value] of Object.entries(parsed)) {
-				const entry = value as Partial<WatchlistReservation> | null;
-				if (
-					typeof entry?.source === 'string' &&
-					typeof entry.ownerPid === 'number'
-				) {
-					reservations.set(key, {
-						source: entry.source,
-						ownerPid: entry.ownerPid,
-					});
-				}
-			}
+			return parseWatchlistReservations(fs.readFileSync(this.file, 'utf-8'));
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+			return new Map();
 		}
-
-		return reservations;
 	}
 
 	private write(reservations: Map<string, WatchlistReservation>): void {

@@ -3,7 +3,9 @@ import {
 	createIssueTracker,
 	createVcsHost,
 	resetProviders,
+	setStateColors,
 	setWorkspaceDiscovery,
+	type IssueTrackerConfig,
 } from './providers/index.ts';
 import {claimIssue} from './tracker.ts';
 
@@ -210,6 +212,28 @@ for (const provider of ['github', 'gitlab'] as const) {
 				new Map([['KEY-1', '/workspace']]),
 			);
 			t.deepEqual(asked, ['/workspace']);
+		},
+	);
+}
+
+// A tracker knows the color of a state no open issue is in only from the
+// colors kept between runs, which startup hands over the same way.
+for (const config of [
+	{provider: 'linear'},
+	{provider: 'jira', base_url: 'https://example.com'},
+	{provider: 'beads'},
+] satisfies IssueTrackerConfig[]) {
+	test.serial(
+		`the ${config.provider} tracker loads the state colors set at startup`,
+		t => {
+			setStateColors({
+				load: () => ({'Stored State': '#123456'}),
+				async set() {},
+			});
+			t.is(
+				createIssueTracker(config).getWorkflowStateColor('Stored State'),
+				'#123456',
+			);
 		},
 	);
 }
