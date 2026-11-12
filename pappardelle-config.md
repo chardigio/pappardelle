@@ -1076,7 +1076,7 @@ auto_remove_when_done?: boolean;
 
 ## Sous-chef key
 
-The top-level `sous_chef_key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s).
+The top-level `sous_chef_key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s). When the rail has focus, plain `s` does the same; it is an overridable default like `g`, so a custom `s` keybinding replaces it.
 
 ```yaml
 sous_chef_key: M-j # default: M-s; false turns it off
@@ -1539,7 +1539,7 @@ The following keys are reserved for built-in shortcuts and cannot be used for cu
 
 These keys have built-in defaults that a custom keybinding **may** override (the custom binding replaces the default action entirely, and `disabled: true` suppresses the default without adding a replacement):
 
-`g`, `i`, `d`, `o`, `e`, `p`, `K`
+`g`, `i`, `d`, `o`, `e`, `p`, `K`, `s`
 
 Additionally, `Enter` and `Delete` are reserved but use special key codes (not single characters).
 

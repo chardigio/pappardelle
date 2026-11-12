@@ -159,7 +159,7 @@ curl -fsSL https://raw.githubusercontent.com/chardigio/pappardelle/main/examples
 
 ### Jumping to the sous-chef
 
-Press `Option+s` (`M-s`) from any pane in the Pappardelle window (the rail, an agent pane or a companion pane) to select the `main` space and focus its agent, where the [sous-chef](#skills) runs. The terminal must send Option as Meta (an "Option as Meta" or "Option as Alt" setting). Pappardelle installs this as a tmux key binding, so in your other tmux windows `M-s` still reaches the program running there. Change or turn off the key with [`sous_chef_key`](pappardelle-config.md#sous-chef-key). From a script, `pappardelle highlight main --focus` does the same.
+Press `Option+s` (`M-s`) from any pane in the Pappardelle window (the rail, an agent pane or a companion pane) to select the `main` space and focus its agent, where the [sous-chef](#skills) runs. The terminal must send Option as Meta (an "Option as Meta" or "Option as Alt" setting). Pappardelle installs this as a tmux key binding, so in your other tmux windows `M-s` still reaches the program running there. Change or turn off the key with [`sous_chef_key`](pappardelle-config.md#sous-chef-key). When the rail has focus, plain `s` does the same. From a script, `pappardelle highlight main --focus` does.
 
 ### Exiting Pappardelle
 

@@ -39,6 +39,7 @@ const helpText = `
 	Controls
 	  j/k or arrows  Navigate between spaces
 	  Enter          Focus the agent pane
+	  s / Option+s   Jump to the sous-chef (main space's agent)
 	  n              New space (create worktree + issue)
 	  x / Del        Close space
 	  o              Open workspace (apps, links, etc.)

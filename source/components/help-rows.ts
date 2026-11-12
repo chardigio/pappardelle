@@ -11,6 +11,7 @@ const defaultKeyDescriptions: Record<string, string> = {
 	p: 'Git pull',
 	e: 'Show errors',
 	K: 'Close all done/canceled spaces',
+	s: 'Jump to the sous-chef (main agent)',
 };
 
 const fixedShortcuts: HelpRow[] = [

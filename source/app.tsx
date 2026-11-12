@@ -819,20 +819,16 @@ export default function App({
 	);
 
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
-	const handleFocusAgentRef = useRef(() => {});
+	const focusSpaceAgentRef = useRef((_issueKey: string) => {});
 	useEffect(() => {
 		const unwatch = watchHighlightTarget(repoName, ({issueKey, focus}) => {
-			revealSpace(issueKey);
 			clearHighlightTarget(repoName);
-			const {spaces, selectedIndex} = currentSelection();
-			// Before the rows load, or for an unknown key, the selection stays put
-			// and focusing would land on another space's agent.
-			if (focus && findSpaceIndexByIssueKey(spaces, issueKey) === selectedIndex)
-				handleFocusAgentRef.current();
+			if (focus) focusSpaceAgentRef.current(issueKey);
+			else revealSpace(issueKey);
 		});
 
 		return unwatch;
-	}, [repoName, revealSpace, currentSelection]);
+	}, [repoName, revealSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -1283,7 +1279,18 @@ export default function App({
 			}),
 		);
 	};
-	handleFocusAgentRef.current = handleFocusAgent;
+
+	// Selects a space and focuses its agent, as the sous-chef key and `s` do.
+	const focusSpaceAgent = (issueKey: string) => {
+		revealSpace(issueKey);
+		const {spaces, selectedIndex} = currentSelection();
+		// Before the rows load, or for an unknown key, the selection stays put
+		// and focusing would land on another space's agent.
+		if (findSpaceIndexByIssueKey(spaces, issueKey) === selectedIndex)
+			handleFocusAgent();
+	};
+
+	focusSpaceAgentRef.current = focusSpaceAgent;
 
 	// Git pull in the selected space's worktree
 	const handleGitPull = () => {
@@ -1789,6 +1796,11 @@ export default function App({
 				}
 				case 'p': {
 					handleGitPull();
+
+					break;
+				}
+				case 's': {
+					focusSpaceAgent(MAIN_WORKTREE_KEY);
 
 					break;
 				}

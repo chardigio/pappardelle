@@ -455,6 +455,7 @@ export const DEFAULT_KEYBINDING_KEYS = new Set([
 	'e',
 	'p',
 	'K',
+	's',
 ]);
 
 /**
