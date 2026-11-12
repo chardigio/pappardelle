@@ -34,8 +34,8 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 const log = createLogger('supervise');
 
 // Timer services start with a bare environment; these decide which tmux
-// server, status files and state database `pappardelle` reaches when one
-// fires.
+// server, status files, state database and status daemon `pappardelle`
+// reaches when one fires.
 const PASSED_TO_TIMERS = [
 	'PATH',
 	'TMUX_TMPDIR',
@@ -44,6 +44,7 @@ const PASSED_TO_TIMERS = [
 	'PAPPARDELLE_PROGRAM_STATUS_DIR',
 	'PAPPARDELLE_SQLITE_STATE',
 	'PAPPARDELLE_STATE_DB',
+	'PAPPARDELLE_STATUS_SOCKET',
 ];
 
 function timerBackend(): TimerBackend {
