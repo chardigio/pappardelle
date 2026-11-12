@@ -4,24 +4,38 @@
 // sessions exist, and `closing` from before its sessions are killed until its
 // row is gone. Neither is listed as open, and both keep the reaper away, so a
 // write that fails partway never leaves live sessions that belong to nothing.
+//
+// Watchlist reservations are rows too, changed in the same transaction as the
+// spaces they are counted against, with their sidecar file kept beside them.
 
 import fs from 'node:fs';
 import {isPidAlive as defaultIsPidAlive} from './file-lock.ts';
 import {
 	parseRegistry,
+	parseWatchlistReservations,
 	renderRegistry,
+	renderWatchlistReservations,
+	reserveWatchlistSlots,
 	type JsonSpaceRegistryDao,
 	type ProtectedSpaces,
 	type SettleDeps,
 	type SpaceRegistryDao,
+	type WatchlistReservation,
 	type WatchlistReserveOptions,
 	type WatchlistSlots,
 } from './space-registry.ts';
-import {retryBusy, type JsonMirror, type StateDb} from './state-db.ts';
+import {
+	retryBusy,
+	type JsonMirror,
+	type StateDb,
+	type WriteTx,
+} from './state-db.ts';
 
 type SpaceState = 'starting' | 'open' | 'closing';
 
 type SpaceRow = {key: string; state: SpaceState; owner_pid: number | null};
+
+type ReservationRow = {key: string; source: string; owner_pid: number};
 
 export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	get keepsLifecycle(): boolean {
@@ -29,6 +43,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	private readonly mirror: JsonMirror;
+	private readonly reservationMirror: JsonMirror;
 
 	/**
 	 * `openDb` is called on each use, so a database that cannot be opened is a
@@ -46,6 +61,14 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 			importRows: content => {
 				// A registry file that is gone says nothing about the rows.
 				if (content !== null) this.replaceOpen(parseRegistry(content));
+			},
+		};
+		this.reservationMirror = {
+			file: json.reservations.file,
+			importRows: content => {
+				// A sidecar that is gone says nothing about the rows either.
+				if (content !== null)
+					this.replaceReservations(parseWatchlistReservations(content));
 			},
 		};
 	}
@@ -98,9 +121,9 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	async remove(key: string, signal?: AbortSignal): Promise<void> {
-		await this.change(() => {
+		await this.change(tx => {
 			this.delete(key);
-			this.json.reservations.drop(key);
+			this.dropReservation(tx, key);
 		}, signal);
 	}
 
@@ -160,23 +183,25 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		max: number,
 		options: WatchlistReserveOptions = {},
 	): Promise<WatchlistSlots> {
-		return this.json.locked(() => {
-			this.openDb().sync(this.mirror);
-			return this.json.reservations.reserve(
+		return this.change(tx => {
+			const reservations = this.reservations(tx);
+			const {slots, changed} = reserveWatchlistSlots(
+				reservations,
 				new Set(this.rows().map(row => row.key)),
 				source,
 				candidateKeys,
 				max,
 				options,
 			);
+			if (changed) this.storeReservations(tx, reservations);
+			return slots;
 		}, options.signal);
 	}
 
 	async releaseWatchlistReservation(key: string): Promise<void> {
-		await this.json.locked(() => {
-			this.openDb().sync(this.mirror);
+		await this.change(tx => {
 			if (this.row(key)?.state === 'open') return;
-			this.json.reservations.drop(key);
+			this.dropReservation(tx, key);
 		});
 	}
 
@@ -185,23 +210,59 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	 * taken as well: a process running without the database still relies on
 	 * it, and holding both keeps the two kinds of writer from interleaving.
 	 */
-	private async change(body: () => void, signal?: AbortSignal): Promise<void> {
-		await retryBusy(async () =>
-			this.json.locked(() => {
-				this.openDb().tryWrite(tx => {
-					// A registry file that cannot be read may list spaces these
-					// rows have never seen. Rewriting it from them would drop
-					// those spaces for every process still reading the file.
-					if (tx.sync(this.mirror) === 'malformed')
-						throw new Error('Invalid workspace registry');
-					const before = this.keysIn('open');
-					body();
-					const after = this.keysIn('open');
-					if (before.join('\n') !== after.join('\n'))
-						tx.mirror(this.json.file, renderRegistry(after));
-				});
-			}, signal),
+	private async change<T>(
+		body: (tx: WriteTx) => T,
+		signal?: AbortSignal,
+	): Promise<T> {
+		return retryBusy(async () =>
+			this.json.locked(
+				() =>
+					this.openDb().tryWrite(tx => {
+						// A registry file that cannot be read may list spaces these
+						// rows have never seen. Rewriting it from them would drop
+						// those spaces for every process still reading the file.
+						if (tx.sync(this.mirror) === 'malformed')
+							throw new Error('Invalid workspace registry');
+						const before = this.keysIn('open');
+						const result = body(tx);
+						const after = this.keysIn('open');
+						if (before.join('\n') !== after.join('\n'))
+							tx.mirror(this.json.file, renderRegistry(after));
+						return result;
+					}),
+				signal,
+			),
 		);
+	}
+
+	/** The reservations to change, inside `change`. */
+	private reservations(tx: WriteTx): Map<string, WatchlistReservation> {
+		tx.sync(this.reservationMirror);
+		return new Map(
+			this.openDb()
+				.db.query<ReservationRow, [string]>(
+					`SELECT key, source, owner_pid FROM watchlist_reservations
+					WHERE repo = ? ORDER BY rowid`,
+				)
+				.all(this.repo)
+				.map(row => [row.key, {source: row.source, ownerPid: row.owner_pid}]),
+		);
+	}
+
+	private storeReservations(
+		tx: WriteTx,
+		reservations: ReadonlyMap<string, WatchlistReservation>,
+	): void {
+		this.replaceReservations(reservations);
+		tx.mirror(
+			this.reservationMirror.file,
+			renderWatchlistReservations(reservations),
+		);
+	}
+
+	private dropReservation(tx: WriteTx, key: string): void {
+		const reservations = this.reservations(tx);
+		if (reservations.delete(key)) this.storeReservations(tx, reservations);
 	}
 
 	private rows(): SpaceRow[] {
@@ -257,5 +318,20 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		}
 
 		for (const key of keys) this.setOpen(key);
+	}
+
+	private replaceReservations(
+		reservations: ReadonlyMap<string, WatchlistReservation>,
+	): void {
+		const {db} = this.openDb();
+		db.query('DELETE FROM watchlist_reservations WHERE repo = ?').run(
+			this.repo,
+		);
+		const insert = db.query(
+			`INSERT INTO watchlist_reservations (repo, key, source, owner_pid)
+			VALUES (?, ?, ?, ?)`,
+		);
+		for (const [key, entry] of reservations)
+			insert.run(this.repo, key, entry.source, entry.ownerPid);
 	}
 }

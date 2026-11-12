@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import test from 'ava';
 import {
 	BeadsProvider,
@@ -28,16 +26,9 @@ function makeEnoentError(): Error & {code: string} {
 // No-op sleep so tests don't wait
 const noopSleep: SleepFn = async () => {};
 
-let tempCounter = 0;
-function tempCachePath(): string {
-	return path.join(
-		os.tmpdir(),
-		`pappardelle-beads-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
-	);
-}
-
+/** A cache that keeps colors for the test only, never the real ~/.pappardelle. */
 function tempCache(): StateColorCache {
-	return new StateColorCache(tempCachePath());
+	return new StateColorCache();
 }
 
 const REPO_ROOT = '/tmp/pappardelle-beads-test-repo';

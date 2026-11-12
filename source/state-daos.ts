@@ -8,8 +8,21 @@ import path from 'node:path';
 import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
 import {SqliteClaudeStatusDao} from './claude-status-sqlite.ts';
 import {readHomeSqliteState} from './config.ts';
+import {
+	getHighlightFilePath,
+	JsonHighlightDao,
+	type HighlightDao,
+} from './highlight.ts';
+import {SqliteHighlightDao} from './highlight-sqlite.ts';
 import {JsonIssueMetaDao, type IssueMetaDao} from './issue-meta.ts';
 import {SqliteIssueMetaDao} from './issue-meta-sqlite.ts';
+import {
+	getStateColorsPath,
+	JsonStateColorDao,
+	migrateLegacyStateColors,
+	type StateColorDao,
+} from './providers/state-color-cache.ts';
+import {SqliteStateColorDao} from './providers/state-color-cache-sqlite.ts';
 import {
 	getRegistryPathForRepo,
 	JsonSpaceRegistryDao,
@@ -31,6 +44,8 @@ export type StateDaos = {
 	claudeStatus: ClaudeStatusDao;
 	spaceState: SpaceStateDao;
 	issueMeta: IssueMetaDao;
+	highlight: HighlightDao;
+	stateColors: StateColorDao;
 };
 
 export type StateDaoOptions = {
@@ -56,6 +71,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	const {repo} = options;
 	const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
 	migrateLegacyRegistry(repo, stateDir);
+	migrateLegacyStateColors(repo, stateDir);
 	const jsonRegistry = new JsonSpaceRegistryDao(
 		getRegistryPathForRepo(repo, stateDir),
 	);
@@ -74,12 +90,16 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		path.join(stateDir, 'repos', repo, 'issue-meta'),
 		clock,
 	);
+	const highlightFile = getHighlightFilePath(repo, stateDir);
+	const stateColorsFile = getStateColorsPath(repo, stateDir);
 	if (!(options.sqlite ?? sqliteStateEnabled())) {
 		return {
 			registry: jsonRegistry,
 			claudeStatus: jsonClaudeStatus,
 			spaceState: jsonSpaceState,
 			issueMeta: jsonIssueMeta,
+			highlight: new JsonHighlightDao(highlightFile),
+			stateColors: new JsonStateColorDao(stateColorsFile),
 		};
 	}
 
@@ -90,6 +110,8 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		claudeStatus: new SqliteClaudeStatusDao(openDb, jsonClaudeStatus),
 		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
 		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
+		highlight: new SqliteHighlightDao(openDb, repo, highlightFile, clock),
+		stateColors: new SqliteStateColorDao(openDb, repo, stateColorsFile),
 	};
 }
 

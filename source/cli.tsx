@@ -57,7 +57,6 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
 import {createStateDaos} from './state-daos.ts';
@@ -328,7 +327,7 @@ if (isRestart) {
 	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
 }
 
-// Handle `pappardelle highlight STA-XXX` — write target file and exit
+// Handle `pappardelle highlight STA-XXX` — record the request and exit
 if (cli.input[0] === 'highlight') {
 	const issueKey = cli.input[1];
 	if (!issueKey) {
@@ -336,7 +335,7 @@ if (cli.input[0] === 'highlight') {
 		process.exit(1);
 	}
 
-	writeHighlightTarget(repoName, {
+	await daos.highlight.request({
 		issueKey,
 		focus: cli.flags.focus === true,
 	});

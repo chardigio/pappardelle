@@ -750,3 +750,32 @@ test.serial('CLI help documents --resume', async t => {
 	t.true(result.stdout.includes('--resume'));
 	t.false(fs.existsSync(f.record));
 });
+
+test.serial(
+	'CLI highlight asks a running Pappardelle to select the space',
+	async t => {
+		const f = fixture(t);
+		const stateDir = path.join(f.home, '.pappardelle');
+		t.teardown(() => {
+			closeStateDb(stateDbPath(stateDir));
+		});
+		const {highlight} = createStateDaos({
+			repo: 'project',
+			stateDir,
+			sqlite: sqliteRun,
+		});
+		const selected: string[] = [];
+		t.teardown(highlight.watch(key => selected.push(key)));
+
+		const result = await f.run(['highlight', 'STE-7']);
+		t.is(result.code, 0);
+		const deadline = Date.now() + 5000;
+		while (selected.length === 0 && Date.now() < deadline) {
+			// eslint-disable-next-line no-await-in-loop -- Polling for the watcher.
+			await delay(5);
+		}
+
+		t.is(selected[0], 'STE-7');
+		t.false(fs.existsSync(f.record));
+	},
+);

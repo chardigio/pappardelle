@@ -236,6 +236,182 @@ test('a process with the database and one without both keep the space they add',
 });
 
 // ============================================================================
+// Watchlist reservations: rows, changed with the spaces they count against
+// ============================================================================
+
+const isPidAlive = (pid: number) => pid !== DEAD;
+
+function reservationFixture(t: ExecutionContext) {
+	const f = fixture(t);
+	const sidecarFile = path.join(
+		path.dirname(f.registryFile),
+		'watchlist-spawns.json',
+	);
+	return {
+		...f,
+		sidecarFile,
+		sidecar: () => JSON.parse(fs.readFileSync(sidecarFile, 'utf8')) as unknown,
+		reservations: () =>
+			Object.fromEntries(
+				openStateDb(f.dbPath)
+					.db.query<{key: string; source: string; owner_pid: number}, []>(
+						`SELECT key, source, owner_pid FROM watchlist_reservations
+						WHERE repo = 'repo' ORDER BY rowid`,
+					)
+					.all()
+					.map(row => [row.key, `${row.source}:${row.owner_pid}`]),
+			),
+	};
+}
+
+test('a reservation is a row, and the sidecar is the file a process without the database writes', async t => {
+	const f = reservationFixture(t);
+	const history = async (
+		registry: SqliteSpaceRegistryDao | JsonSpaceRegistryDao,
+	) => {
+		await registry.tryReserveWatchlistSlots(
+			'top-level',
+			['STE-1', 'STE-2'],
+			5,
+			{
+				pid: ME,
+				isPidAlive,
+			},
+		);
+		await registry.tryReserveWatchlistSlots('profile:chaz', ['CHAZ-1'], 5, {
+			pid: ALIVE,
+			isPidAlive,
+		});
+		await registry.releaseWatchlistReservation('STE-1');
+	};
+
+	await history(f.mine);
+	t.deepEqual(f.reservations(), {
+		'STE-2': `top-level:${ME}`,
+		'CHAZ-1': `profile:chaz:${ALIVE}`,
+	});
+
+	const withoutDatabase = testState(t, {sqlite: false});
+	await history(new JsonSpaceRegistryDao(withoutDatabase.registryFile));
+	t.is(
+		fs.readFileSync(f.sidecarFile, 'utf8'),
+		fs.readFileSync(
+			path.join(
+				path.dirname(withoutDatabase.registryFile),
+				'watchlist-spawns.json',
+			),
+			'utf8',
+		),
+	);
+});
+
+test('a sidecar edited without the database is imported before slots are reserved', async t => {
+	const f = reservationFixture(t);
+	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-0'], 2, {
+		pid: ME,
+		isPidAlive,
+	});
+	fs.writeFileSync(
+		f.sidecarFile,
+		JSON.stringify({'STE-1': {source: 'top-level', ownerPid: ALIVE}}),
+	);
+	t.deepEqual(
+		await f.mine.tryReserveWatchlistSlots(
+			'top-level',
+			['STE-1', 'STE-2', 'STE-3'],
+			2,
+			{pid: ME, isPidAlive},
+		),
+		{reserved: ['STE-2'], occupied: 1, claimedElsewhere: ['STE-1']},
+	);
+	t.deepEqual(f.reservations(), {
+		'STE-1': `top-level:${ALIVE}`,
+		'STE-2': `top-level:${ME}`,
+	});
+	t.deepEqual(f.sidecar(), {
+		'STE-1': {source: 'top-level', ownerPid: ALIVE},
+		'STE-2': {source: 'top-level', ownerPid: ME},
+	});
+});
+
+test('a sidecar that vanished keeps the reservations', async t => {
+	const f = reservationFixture(t);
+	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+		pid: ME,
+		isPidAlive,
+	});
+	fs.rmSync(f.sidecarFile);
+	t.deepEqual(
+		await f.mine.tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
+			pid: ME,
+			isPidAlive,
+		}),
+		{reserved: [], occupied: 1, claimedElsewhere: []},
+	);
+});
+
+// Slots are counted against the spaces that exist. If a space could be added
+// between the count and the reservation, two instances could pass the cap.
+test('no other connection can change the registry while slots are being decided', async t => {
+	const f = reservationFixture(t);
+	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+		pid: DEAD,
+		isPidAlive,
+	});
+	const other = new Database(f.dbPath);
+	t.teardown(() => {
+		other.close();
+	});
+	other.run('PRAGMA busy_timeout = 0');
+	const addSpace = () =>
+		other.run(
+			"INSERT INTO spaces (repo, key, state) VALUES ('repo', 'STE-1', 'open')",
+		);
+	let refused: unknown;
+	const slots = await f.mine.tryReserveWatchlistSlots(
+		'top-level',
+		['STE-2'],
+		1,
+		{
+			pid: ME,
+			// Asked about STE-1's owner after the spaces were read and before
+			// the reservations are written.
+			isPidAlive(pid) {
+				refused = t.throws(addSpace);
+				return isPidAlive(pid);
+			},
+		},
+	);
+	t.like(refused, {code: 'SQLITE_BUSY'});
+	t.deepEqual(slots, {
+		reserved: ['STE-2'],
+		occupied: 0,
+		claimedElsewhere: [],
+	});
+	t.notThrows(addSpace);
+});
+
+test('a space whose reservation cannot be released stays registered', async t => {
+	const f = reservationFixture(t);
+	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
+		pid: ME,
+		isPidAlive,
+	});
+	await f.mine.add('STE-1');
+	openStateDb(f.dbPath).db.run(
+		`CREATE TRIGGER reservations_are_stuck BEFORE DELETE ON watchlist_reservations
+		BEGIN SELECT RAISE(ABORT, 'reservations are stuck'); END`,
+	);
+	await t.throwsAsync(f.mine.remove('STE-1'), {
+		message: /reservations are stuck/,
+	});
+	t.deepEqual(f.states(), {'STE-1': 'open'});
+	t.deepEqual(f.file(), ['STE-1']);
+	t.deepEqual(f.reservations(), {'STE-1': `top-level:${ME}`});
+	t.deepEqual(f.sidecar(), {'STE-1': {source: 'top-level', ownerPid: ME}});
+});
+
+// ============================================================================
 // When the database cannot be used
 // ============================================================================
 

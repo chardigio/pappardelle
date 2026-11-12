@@ -1,176 +1,173 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState, type TestState} from '../test/helpers/state.ts';
 import {
 	StateColorCache,
-	initStateColorCacheDir,
-	resetStateColorCacheDir,
+	getStateColorsPath,
 } from './providers/state-color-cache.ts';
+import {createStateDaos} from './state-daos.ts';
 
-let tempCounter = 0;
-function tempCachePath(): string {
-	return path.join(
-		os.tmpdir(),
-		`pappardelle-scc-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
-	);
-}
+const colorsFile = (s: TestState) => getStateColorsPath('repo', s.stateDir);
 
-function tempDir(): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`pappardelle-scc-dir-test-${process.pid}-${Date.now()}-${tempCounter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
+const readFile = (file: string) =>
+	JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
 
 test('get returns null for unknown state', t => {
-	const cache = new StateColorCache(tempCachePath());
+	const cache = new StateColorCache();
 	t.is(cache.get('Unknown'), null);
 });
 
 test('update stores color in memory', t => {
-	const cache = new StateColorCache(tempCachePath());
+	const cache = new StateColorCache();
 	cache.update('Done', '#74d09f');
 	t.is(cache.get('Done'), '#74d09f');
 });
 
-test('update persists to disk', t => {
-	const p = tempCachePath();
-	const cache = new StateColorCache(p);
-	cache.update('In Progress', '#f2c94c');
+// ============================================================================
+// What every color store does, whichever way it is stored
+// ============================================================================
 
-	t.true(fs.existsSync(p));
-	const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
-	t.is(data['In Progress'], '#f2c94c');
+contractTest('update persists to disk', (t, s) => {
+	t.is(
+		colorsFile(s),
+		path.join(s.stateDir, 'repos', 'repo', 'state-colors.json'),
+	);
+	const cache = new StateColorCache(s.daos.stateColors);
+	cache.update('In Progress', '#f2c94c');
+	t.deepEqual(readFile(colorsFile(s)), {'In Progress': '#f2c94c'});
 });
 
-test('constructor loads persisted colors from disk', t => {
-	const p = tempCachePath();
-	fs.writeFileSync(p, JSON.stringify({Done: '#aaa', Todo: '#bbb'}) + '\n');
+contractTest('a new cache loads the colors an earlier one stored', (t, s) => {
+	const first = new StateColorCache(s.daos.stateColors);
+	first.update('Done', '#aaa');
+	first.update('Todo', '#bbb');
 
-	const cache = new StateColorCache(p);
+	const second = new StateColorCache(s.daos.stateColors);
+	t.is(second.get('Done'), '#aaa');
+	t.is(second.get('Todo'), '#bbb');
+});
+
+contractTest('a cache loads a file left by another process', (t, s) => {
+	fs.writeFileSync(
+		colorsFile(s),
+		JSON.stringify({Done: '#aaa', Todo: '#bbb', Broken: 7}) + '\n',
+	);
+
+	const cache = new StateColorCache(s.daos.stateColors);
 	t.is(cache.get('Done'), '#aaa');
 	t.is(cache.get('Todo'), '#bbb');
+	t.is(cache.get('Broken'), null);
 });
 
-test('update does not write when color is unchanged', t => {
-	const p = tempCachePath();
-	const cache = new StateColorCache(p);
+contractTest('update does not write when color is unchanged', (t, s) => {
+	const cache = new StateColorCache(s.daos.stateColors);
 	cache.update('Done', '#74d09f');
 
-	const stat1 = fs.statSync(p);
+	const stat1 = fs.statSync(colorsFile(s), {bigint: true});
 	cache.update('Done', '#74d09f');
-	const stat2 = fs.statSync(p);
+	const stat2 = fs.statSync(colorsFile(s), {bigint: true});
 
-	t.is(stat1.mtimeMs, stat2.mtimeMs);
+	t.is(stat1.mtimeNs, stat2.mtimeNs);
+	t.is(stat1.ino, stat2.ino);
 });
 
-test('invalid JSON on disk is silently ignored', t => {
-	const p = tempCachePath();
-	fs.writeFileSync(p, '{{not json');
+contractTest(
+	'invalid JSON on disk is ignored, and replaced by the next update',
+	(t, s) => {
+		fs.writeFileSync(colorsFile(s), '{{not json');
 
-	const cache = new StateColorCache(p);
+		const cache = new StateColorCache(s.daos.stateColors);
+		t.is(cache.get('Done'), null);
+		cache.update('Done', '#74d09f');
+		t.deepEqual(readFile(colorsFile(s)), {Done: '#74d09f'});
+	},
+);
+
+contractTest('missing file on disk is silently ignored', (t, s) => {
+	const cache = new StateColorCache(s.daos.stateColors);
 	t.is(cache.get('Done'), null);
 });
 
-test('missing file on disk is silently ignored', t => {
-	const cache = new StateColorCache(tempCachePath());
-	t.is(cache.get('Done'), null);
-});
-
-test('multiple updates accumulate in the persisted file', t => {
-	const p = tempCachePath();
-	const cache = new StateColorCache(p);
+contractTest('multiple updates accumulate in the persisted file', (t, s) => {
+	const cache = new StateColorCache(s.daos.stateColors);
 	cache.update('Done', '#aaa');
 	cache.update('In Progress', '#bbb');
 	cache.update('Todo', '#ccc');
+	cache.update('Done', '#ddd');
 
-	const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
-	t.is(data.Done, '#aaa');
-	t.is(data['In Progress'], '#bbb');
-	t.is(data.Todo, '#ccc');
+	t.deepEqual(readFile(colorsFile(s)), {
+		Done: '#ddd',
+		'In Progress': '#bbb',
+		Todo: '#ccc',
+	});
+});
+
+test('the two stores leave the same file for the same updates', t => {
+	const files = [];
+	for (const sqlite of [false, true]) {
+		const s = testState(t, {sqlite});
+		fs.writeFileSync(colorsFile(s), JSON.stringify({Backlog: '#111'}) + '\n');
+		const cache = new StateColorCache(s.daos.stateColors);
+		cache.update('Done', '#aaa');
+		cache.update('In Progress', '#bbb');
+		cache.update('Backlog', '#222');
+		cache.update('Done', '#ccc');
+		files.push(fs.readFileSync(colorsFile(s), 'utf8'));
+	}
+
+	t.is(files[0], files[1]);
+	t.is(files[0], '{"Backlog":"#222","Done":"#ccc","In Progress":"#bbb"}\n');
 });
 
 // ============================================================================
 // Repo-namespaced state color cache
 // ============================================================================
 
-test.serial(
-	'initStateColorCacheDir sets default path for new StateColorCache instances',
-	t => {
-		const baseDir = tempDir();
-		const repoDir = path.join(baseDir, 'repos', 'my-repo');
-		fs.mkdirSync(repoDir, {recursive: true});
+for (const sqlite of [false, true]) {
+	const name = sqlite ? 'sqlite' : 'json';
 
-		initStateColorCacheDir(repoDir);
+	test(`${name}: each repo has colors of its own`, t => {
+		const {stateDir} = testState(t, {sqlite});
+		const repoA = createStateDaos({repo: 'repo-a', stateDir, sqlite});
+		const repoB = createStateDaos({repo: 'repo-b', stateDir, sqlite});
+		new StateColorCache(repoA.stateColors).update('Done', '#aaa');
+		new StateColorCache(repoB.stateColors).update('Done', '#bbb');
 
-		const cache = new StateColorCache();
-		cache.update('Done', '#74d09f');
+		t.is(new StateColorCache(repoA.stateColors).get('Done'), '#aaa');
+		t.deepEqual(readFile(getStateColorsPath('repo-b', stateDir)), {
+			Done: '#bbb',
+		});
+	});
 
-		const expectedPath = path.join(repoDir, 'state-colors.json');
-		t.true(fs.existsSync(expectedPath));
-
-		resetStateColorCacheDir();
-	},
-);
-
-test.serial(
-	'initStateColorCacheDir migrates legacy state-colors.json by moving it',
-	t => {
-		const baseDir = tempDir();
-		const repoDir = path.join(baseDir, 'repos', 'my-repo');
-
-		// Create legacy file
-		const legacyPath = path.join(baseDir, 'state-colors.json');
+	// Before state was kept per repo there was one color file for all of them.
+	test(`${name}: the pre-repo color file moves to the first repo that starts`, t => {
+		const {stateDir} = testState(t, {sqlite});
+		const legacyPath = path.join(stateDir, 'state-colors.json');
 		fs.writeFileSync(
 			legacyPath,
 			JSON.stringify({Done: '#aaa', Todo: '#bbb'}) + '\n',
 		);
 
-		initStateColorCacheDir(repoDir, baseDir);
-
-		// New cache should have migrated data
-		const cache = new StateColorCache();
+		const {stateColors} = createStateDaos({repo: 'my-repo', stateDir, sqlite});
+		const cache = new StateColorCache(stateColors);
 		t.is(cache.get('Done'), '#aaa');
 		t.is(cache.get('Todo'), '#bbb');
-
-		// Legacy file should be gone
 		t.false(fs.existsSync(legacyPath));
+		t.true(fs.existsSync(getStateColorsPath('my-repo', stateDir)));
+	});
 
-		// Repo-specific file should exist
-		const repoPath = path.join(repoDir, 'state-colors.json');
-		t.true(fs.existsSync(repoPath));
-
-		resetStateColorCacheDir();
-	},
-);
-
-test.serial(
-	'initStateColorCacheDir deletes legacy file even if repo file already exists',
-	t => {
-		const baseDir = tempDir();
-		const repoDir = path.join(baseDir, 'repos', 'my-repo');
-		fs.mkdirSync(repoDir, {recursive: true});
-
-		// Create legacy file
-		const legacyPath = path.join(baseDir, 'state-colors.json');
+	test(`${name}: a repo that already has colors keeps them, and the pre-repo file is dropped`, t => {
+		const {stateDir} = testState(t, {sqlite});
+		const legacyPath = path.join(stateDir, 'state-colors.json');
 		fs.writeFileSync(legacyPath, JSON.stringify({Done: '#old'}) + '\n');
-
-		// Create repo-specific file
-		const repoPath = path.join(repoDir, 'state-colors.json');
+		const repoPath = getStateColorsPath('my-repo', stateDir);
+		fs.mkdirSync(path.dirname(repoPath), {recursive: true});
 		fs.writeFileSync(repoPath, JSON.stringify({Done: '#new'}) + '\n');
 
-		initStateColorCacheDir(repoDir, baseDir);
-
-		// Legacy file should be deleted
+		const {stateColors} = createStateDaos({repo: 'my-repo', stateDir, sqlite});
 		t.false(fs.existsSync(legacyPath));
-
-		// Repo file should be preserved
-		const cache = new StateColorCache();
-		t.is(cache.get('Done'), '#new');
-
-		resetStateColorCacheDir();
-	},
-);
+		t.is(new StateColorCache(stateColors).get('Done'), '#new');
+	});
+}

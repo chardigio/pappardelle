@@ -1,7 +1,6 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
+import {testState} from '../test/helpers/state.ts';
 import {
 	JiraProvider,
 	MAX_RETRIES,
@@ -9,7 +8,10 @@ import {
 	type CliExecutor,
 	type SleepFn,
 } from './providers/jira-provider.ts';
-import {StateColorCache} from './providers/state-color-cache.ts';
+import {
+	StateColorCache,
+	getStateColorsPath,
+} from './providers/state-color-cache.ts';
 
 function makeEnoentError(): Error & {code: string} {
 	const err = new Error('spawn acli ENOENT') as Error & {code: string};
@@ -20,17 +22,18 @@ function makeEnoentError(): Error & {code: string} {
 // No-op sleep so tests don't wait
 const noopSleep: SleepFn = async () => {};
 
-// Generate a unique temp cache path for each test
-let tempCounter = 0;
-function tempCachePath(): string {
-	return path.join(
-		os.tmpdir(),
-		`pappardelle-jira-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
-	);
+/** A cache that keeps colors for the test only, never the real ~/.pappardelle. */
+function tempCache(): StateColorCache {
+	return new StateColorCache();
 }
 
-function tempCache(): StateColorCache {
-	return new StateColorCache(tempCachePath());
+/** A color store on a temp directory, and the file it keeps. */
+function colorStore(t: ExecutionContext) {
+	const {daos, stateDir} = testState(t);
+	return {
+		dao: daos.stateColors,
+		cachePath: getStateColorsPath('repo', stateDir),
+	};
 }
 
 // ============================================================================
@@ -620,7 +623,7 @@ test('createComment with ENOENT — fails immediately, no retry', async t => {
 // ============================================================================
 
 test('getIssue persists state colors to disk via shared cache', async t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 	const exec: CliExecutor = async () =>
 		makeJiraResponse('CHEX-800', 'Persist test', 'In Progress', 'In Progress');
 
@@ -628,7 +631,7 @@ test('getIssue persists state colors to disk via shared cache', async t => {
 		'https://example.com',
 		exec,
 		noopSleep,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	await provider.getIssue('CHEX-800');
 
@@ -1234,7 +1237,7 @@ test('searchAssignedIssues returns empty array on CLI error', async t => {
 });
 
 test('new Jira provider loads persisted state colors from disk', t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 	fs.writeFileSync(
 		cachePath,
 		JSON.stringify({Done: '#custom00', 'In Progress': '#custom11'}) + '\n',
@@ -1244,7 +1247,7 @@ test('new Jira provider loads persisted state colors from disk', t => {
 		'https://example.com',
 		undefined,
 		undefined,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	// Persisted cache should take priority over STATUS_CATEGORY_COLORS
 	t.is(provider.getWorkflowStateColor('Done'), '#custom00');

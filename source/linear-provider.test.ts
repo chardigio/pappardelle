@@ -1,7 +1,6 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
+import {testState} from '../test/helpers/state.ts';
 import {
 	LinearProvider,
 	MAX_RETRIES,
@@ -10,7 +9,10 @@ import {
 	type SleepFn,
 } from './providers/linear-provider.ts';
 import type {TrackerIssue} from './providers/types.ts';
-import {StateColorCache} from './providers/state-color-cache.ts';
+import {
+	StateColorCache,
+	getStateColorsPath,
+} from './providers/state-color-cache.ts';
 
 // ============================================================================
 // Helper: build a fake issue JSON string
@@ -43,18 +45,18 @@ function makeEnoentError(): Error & {code: string} {
 // No-op sleep so tests don't wait
 const noopSleep: SleepFn = async () => {};
 
-// Generate a unique temp cache path for each test (avoids cross-test pollution
-// and prevents tests from reading the real ~/.pappardelle/state-colors.json)
-let tempCounter = 0;
-function tempCachePath(): string {
-	return path.join(
-		os.tmpdir(),
-		`pappardelle-test-${process.pid}-${Date.now()}-${tempCounter++}.json`,
-	);
+/** A cache that keeps colors for the test only, never the real ~/.pappardelle. */
+function tempCache(): StateColorCache {
+	return new StateColorCache();
 }
 
-function tempCache(): StateColorCache {
-	return new StateColorCache(tempCachePath());
+/** A color store on a temp directory, and the file it keeps. */
+function colorStore(t: ExecutionContext) {
+	const {daos, stateDir} = testState(t);
+	return {
+		dao: daos.stateColors,
+		cachePath: getStateColorsPath('repo', stateDir),
+	};
 }
 
 // ============================================================================
@@ -379,14 +381,14 @@ test('createComment with ENOENT — fails immediately, no retry', async t => {
 // ============================================================================
 
 test('getIssue persists state colors to disk', async t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-900', 'Persist test', 'In Progress', '#f2c94c');
 
 	const provider = new LinearProvider(
 		exec,
 		noopSleep,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	await provider.getIssue('STA-900');
 
@@ -397,7 +399,7 @@ test('getIssue persists state colors to disk', async t => {
 });
 
 test('new provider loads persisted state colors from disk', t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 
 	// Seed the cache file with state colors
 	fs.writeFileSync(
@@ -409,7 +411,7 @@ test('new provider loads persisted state colors from disk', t => {
 	const provider = new LinearProvider(
 		undefined,
 		undefined,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	t.is(
 		provider.getWorkflowStateColor('Done'),
@@ -424,7 +426,7 @@ test('new provider loads persisted state colors from disk', t => {
 });
 
 test('persisted colors survive across provider instances', async t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-910', 'Cross-instance', 'Done', '#74d09f');
 
@@ -432,7 +434,7 @@ test('persisted colors survive across provider instances', async t => {
 	const provider1 = new LinearProvider(
 		exec,
 		noopSleep,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	await provider1.getIssue('STA-910');
 	t.is(provider1.getWorkflowStateColor('Done'), '#74d09f');
@@ -441,7 +443,7 @@ test('persisted colors survive across provider instances', async t => {
 	const provider2 = new LinearProvider(
 		undefined,
 		undefined,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	t.is(
 		provider2.getWorkflowStateColor('Done'),
@@ -451,7 +453,7 @@ test('persisted colors survive across provider instances', async t => {
 });
 
 test('state color update overwrites previous persisted value', async t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 
 	// Seed with old color
 	fs.writeFileSync(
@@ -465,7 +467,7 @@ test('state color update overwrites previous persisted value', async t => {
 	const provider = new LinearProvider(
 		exec,
 		noopSleep,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	// Verify old color was loaded
 	t.is(provider.getWorkflowStateColor('In Progress'), '#old0000');
@@ -480,14 +482,14 @@ test('state color update overwrites previous persisted value', async t => {
 });
 
 test('persisted cache with invalid JSON is silently ignored', t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 	fs.writeFileSync(cachePath, 'not valid json!!!');
 
 	// Should not throw — just start with empty map
 	const provider = new LinearProvider(
 		undefined,
 		undefined,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	t.is(provider.getWorkflowStateColor('Done'), null);
 });
@@ -973,14 +975,14 @@ test('getIssues GraphQL path skips entirely when all keys are cache-fresh', asyn
 });
 
 test('persistence does not write when color unchanged', async t => {
-	const cachePath = tempCachePath();
+	const {dao, cachePath} = colorStore(t);
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-930', 'No-op', 'In Progress', '#f2c94c');
 
 	const provider = new LinearProvider(
 		exec,
 		noopSleep,
-		new StateColorCache(cachePath),
+		new StateColorCache(dao),
 	);
 	await provider.getIssue('STA-930');
 

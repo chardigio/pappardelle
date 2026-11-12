@@ -239,12 +239,7 @@ import {
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
-import {
-	watchHighlightTarget,
-	clearHighlightTarget,
-	findSpaceIndexByIssueKey,
-	highlightWriteCommand,
-} from './highlight.ts';
+import {findSpaceIndexByIssueKey} from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
@@ -319,7 +314,7 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
-	const {registry, claudeStatus, spaceState} = daos;
+	const {registry, claudeStatus, spaceState, highlight} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
 
@@ -845,14 +840,19 @@ export default function App({
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
 	const focusSpaceAgentRef = useRef((_issueKey: string) => {});
 	useEffect(() => {
-		const unwatch = watchHighlightTarget(repoName, ({issueKey, focus}) => {
-			clearHighlightTarget(repoName);
+		const unwatch = highlight.watch(({issueKey, focus}) => {
+			highlight.clear().catch((error: unknown) => {
+				log.warn(
+					'Could not clear the highlight request',
+					error instanceof Error ? error : undefined,
+				);
+			});
 			if (focus) focusSpaceAgentRef.current(issueKey);
 			else revealSpace(issueKey);
 		});
 
 		return unwatch;
-	}, [repoName, revealSpace]);
+	}, [highlight, revealSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -891,12 +891,12 @@ export default function App({
 		void installSousChefKey(
 			listPaneId,
 			getSousChefKey(configMemo),
-			highlightWriteCommand(repoName, {
+			highlight.shellRequest({
 				issueKey: MAIN_WORKTREE_KEY,
 				focus: true,
 			}),
 		);
-	}, [listPaneId, configMemo, repoName]);
+	}, [listPaneId, configMemo, highlight]);
 
 	// Not undone on unmount: quitting unmounts App, and a signal arriving during
 	// that teardown must still find a listener.

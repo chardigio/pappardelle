@@ -96,6 +96,25 @@ const MIGRATIONS: string[] = [
 		created_at TEXT NOT NULL,
 		PRIMARY KEY (repo, key)
 	) STRICT`,
+	`CREATE TABLE highlight_targets (
+		repo TEXT PRIMARY KEY,
+		key TEXT NOT NULL,
+		focus INTEGER NOT NULL CHECK (focus IN (0, 1)),
+		requested_at INTEGER NOT NULL
+	) STRICT;
+	CREATE TABLE state_colors (
+		repo TEXT NOT NULL,
+		name TEXT NOT NULL,
+		color TEXT NOT NULL,
+		PRIMARY KEY (repo, name)
+	) STRICT;
+	CREATE TABLE watchlist_reservations (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		source TEXT NOT NULL,
+		owner_pid INTEGER NOT NULL,
+		PRIMARY KEY (repo, key)
+	) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;
