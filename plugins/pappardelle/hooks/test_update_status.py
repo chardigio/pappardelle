@@ -9,7 +9,11 @@ Run with: uv run pytest plugins/pappardelle/hooks/test_update_status.py -v
 # Import the module under test (has hyphen in filename, so use importlib)
 import importlib.util
 import json
+import os
+import sqlite3
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import patch
@@ -765,3 +769,128 @@ class TestRepoEnvironment:
         update_status_module.update_status("waiting_for_approval")
         assert json.loads((tmp_path / "repo-a-QA-2.json").read_text())["status"] == "processing"
         assert json.loads((tmp_path / "repo-b-QA-2.json").read_text())["status"] == "waiting_for_approval"
+
+
+# ============================================================================
+# experimental.sqliteState: the status row beside the status file
+# ============================================================================
+
+STATUS_COLUMNS = "status_key, session_id, workspace_name, status, last_update, current_tool, event, cwd"
+
+
+def _rows(db: Path, sql: str) -> list[tuple]:
+    connection = sqlite3.connect(db)
+    try:
+        return connection.execute(sql).fetchall()
+    finally:
+        connection.close()
+
+
+class TestStateDatabase:
+    CWD = "/Users/charlie/.worktrees/stardust-labs/STA-9200"
+
+    @pytest.fixture
+    def status_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        status_dir = tmp_path / "status"
+        monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(status_dir))
+        # A failed database write is logged under the home directory.
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        return status_dir
+
+    def test_flag_on_writes_the_file_its_row_and_the_files_signature(self, state_db: Path, status_dir: Path):
+        update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
+
+        file = status_dir / "STA-9200.json"
+        written = json.loads(file.read_text())
+        assert _rows(state_db, f"SELECT {STATUS_COLUMNS} FROM claude_status") == [
+            ("STA-9200", "sess-1", "STA-9200", "running_tool", written["lastUpdate"], "Bash", "PreToolUse", self.CWD)
+        ]
+        stat = os.stat(file)
+        assert _rows(state_db, "SELECT path, ino, size, mtime_ns, malformed FROM json_sync") == [
+            (str(file), str(stat.st_ino), stat.st_size, str(stat.st_mtime_ns), 0)
+        ]
+        assert Path(f"{state_db}.bell").exists()
+
+    def test_flag_on_a_later_event_replaces_the_row_and_clears_what_it_does_not_report(
+        self, state_db: Path, status_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo")
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-1")
+        update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
+        update_status("waiting_for_input", session_id="sess-1")
+
+        written = json.loads((status_dir / "repo-QA-1.json").read_text())
+        assert _rows(state_db, f"SELECT {STATUS_COLUMNS} FROM claude_status") == [
+            ("repo-QA-1", "sess-1", "repo-QA-1", "waiting_for_input", written["lastUpdate"], None, None, None)
+        ]
+
+    def test_flag_off_writes_only_the_file(self, state_db: Path, status_dir: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        update_status("processing", cwd=self.CWD)
+
+        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "processing"
+        assert _rows(state_db, "SELECT * FROM claude_status") == []
+        assert _rows(state_db, "SELECT * FROM json_sync") == []
+        assert not Path(f"{state_db}.bell").exists()
+
+    def test_flag_off_creates_no_database(self, status_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        db = tmp_path / "absent" / "state.db"
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(db))
+        update_status("processing", cwd=self.CWD)
+
+        assert (status_dir / "STA-9200.json").exists()
+        assert not db.parent.exists()
+
+    def test_flag_off_never_loads_sqlite(self, status_dir: Path):
+        """The hook runs on every agent event. With the flag off it must cost
+        what it did before the database existed."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import runpy, sys\n"
+                "try:\n"
+                f"    runpy.run_path({str(_module_path)!r}, run_name='__main__')\n"
+                "except SystemExit:\n"
+                "    pass\n"
+                "print('sqlite3' in sys.modules)",
+            ],
+            input=json.dumps({"hook_event_name": "Stop", "session_id": "sess-1", "cwd": self.CWD}),
+            # Nothing of the session these tests run in: its variables name
+            # the developer's own state files.
+            env={
+                "PATH": os.environ["PATH"],
+                "HOME": os.environ["HOME"],
+                "PAPPARDELLE_STATUS_DIR": str(status_dir),
+                "PAPPARDELLE_SQLITE_STATE": "0",
+            },
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "waiting_for_input"
+        assert result.stdout.strip() == "False"
+
+    def test_a_locked_database_still_gets_the_file_quickly_and_without_an_error(self, state_db: Path, status_dir: Path):
+        holder = sqlite3.connect(state_db, isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        try:
+            started = time.monotonic()
+            update_status("processing", cwd=self.CWD)
+            elapsed = time.monotonic() - started
+        finally:
+            holder.execute("ROLLBACK")
+            holder.close()
+
+        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "processing"
+        assert elapsed < 1.0
+        assert _rows(state_db, "SELECT * FROM claude_status") == []
+
+    def test_a_status_the_schema_does_not_know_still_gets_its_file(self, state_db: Path, status_dir: Path):
+        update_status("made_up", cwd=self.CWD)
+
+        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "made_up"
+        assert _rows(state_db, "SELECT * FROM claude_status") == []
+        assert _rows(state_db, "SELECT * FROM json_sync") == []

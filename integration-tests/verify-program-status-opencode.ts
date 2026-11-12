@@ -153,7 +153,7 @@ try {
 		'●',
 		120000,
 	);
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(250);
 	await harness.expect(
 		'idle',

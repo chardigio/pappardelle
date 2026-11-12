@@ -7,7 +7,7 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {readableHookStatusKey} from './claude-status.ts';
+import type {ClaudeStatusDao} from './claude-status.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import {claudeProjectDir} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
@@ -56,6 +56,7 @@ export type SpacesReport =
 export interface SpacesDeps {
 	repoName: string;
 	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
+	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'readState'>;
 	home: string;
 	now?: number;
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
@@ -186,27 +187,19 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 		keys.map(async (name): Promise<SpaceEntry> => {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
 
-			const statusDir = path.join(home, '.pappardelle', 'claude-status');
-			const statusFile = path.join(
-				statusDir,
-				`${readableHookStatusKey(repoName, name, statusDir)}.json`,
+			const stored = deps.claudeStatus.readState(
+				deps.claudeStatus.readableKey(repoName, name),
 			);
-			if (fs.existsSync(statusFile)) {
-				try {
-					const status = readJson(statusFile);
-					const record = isRecord(status) ? status : {};
-					entry.status =
-						typeof record['status'] === 'string' ? record['status'] : 'unknown';
-					entry.currentTool = (record['currentTool'] as string) ?? null;
-					entry.lastUpdate = (record['lastUpdate'] as number) ?? null;
-					if (entry.lastUpdate)
-						entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
-					entry.sessionId = (record['sessionId'] as string) ?? null;
-				} catch {
-					entry.status = 'unknown';
-				}
+			if (stored.kind === 'state') {
+				const {state} = stored;
+				entry.status = state.status;
+				entry.currentTool = state.currentTool ?? null;
+				entry.lastUpdate = state.lastUpdate;
+				if (entry.lastUpdate)
+					entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
+				entry.sessionId = state.sessionId;
 			} else {
-				entry.status = 'no_status';
+				entry.status = stored.kind === 'unreadable' ? 'unknown' : 'no_status';
 			}
 
 			try {
@@ -377,6 +370,7 @@ export function formatSpaces(report: SpacesReport): string {
 export async function runSpacesCommand(options: {
 	repoName: string;
 	registry: SpacesDeps['registry'];
+	claudeStatus: SpacesDeps['claudeStatus'];
 	home: string;
 	json: boolean;
 	out: (text: string) => void;
@@ -384,6 +378,7 @@ export async function runSpacesCommand(options: {
 	const report = await gatherSpaces({
 		repoName: options.repoName,
 		registry: options.registry,
+		claudeStatus: options.claudeStatus,
 		home: options.home,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);
