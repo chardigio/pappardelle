@@ -14,7 +14,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         # experimental.sqliteState off and on: the files alone, then the
-        # database with the files kept beside it.
+        # database with the files kept beside it and status through the
+        # status daemon.
         sqlite_state: ['0', '1']
     runs-on: ${{ matrix.os }}
     env:

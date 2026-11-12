@@ -605,11 +605,11 @@ export function checkpoint(state: StateDb): void {
  * Stop this connection checkpointing inside its commits, and checkpoint on a
  * timer instead. For the TUI, which renders on the thread that commits.
  *
- * While other processes write without a pause (status monitors under load),
- * the log stays past the size that triggers a checkpoint, so every commit on
- * a connection with the default setting attempts one. A checkpoint is two
- * fsyncs, 4 to 7 ms measured. Hooks, CLI verbs and status monitors keep the
- * default and do most of the checkpointing.
+ * While other processes write without a pause, the log stays past the size
+ * that triggers a checkpoint, so every commit on a connection with the
+ * default setting attempts one. A checkpoint is two fsyncs, 4 to 7 ms
+ * measured. Hooks and CLI verbs keep the default and do most of the
+ * checkpointing.
  */
 export function checkpointOutsideWrites(state: StateDb): void {
 	if (checkpointTimers.has(state)) return;
