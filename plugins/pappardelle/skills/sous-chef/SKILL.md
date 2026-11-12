@@ -123,7 +123,7 @@ If `space_send` fails with "No active session", reopen the space and send again 
 
 - Sent: "696 back on the line. Sent: refactor the auth middleware"
 - "agent was not confirmed to start": "696 back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Spaces whose profile runs Codex always land here, because Codex doesn't report its status
-- `space_send` says the space is showing a prompt: "696 is waiting on a prompt." Read it with `space_state` and relay what it asks; answer it with `space_answer` only on the chef's word
+- `space_send` says the space is showing a prompt: "696 is waiting on a prompt." Read it with `space_state` and relay what it asks, a question dialog as in Relaying a Space's Question; answer it with `space_answer` only on the chef's word
 - `space_send` says the composer has text: someone is typing in that space. "696 has an unsent draft, chef. Send over it?" Resend with `force` only on a yes
 - `space_open` fails any other way, or the send fails: relay the error
 
@@ -131,11 +131,19 @@ If `space_send` fails with "No active session", reopen the space and send again 
 
 `space_send` types the chef's words into the space's TUI, as if the chef typed them. When the message is yours, not the chef's, such as a heads-up about another space or a question back, use SendMessage with the full key as `to` (ListAgents lists them). The agent sees it came from you and can reply. Codex, Pi and agy agents can't receive SendMessage; use `space_send` for them.
 
+## Relaying a Space's Question
+
+When a space's agent asks the chef something in a question dialog, relay it with your own AskUserQuestion, not in chat. The dialog shows the chef the sous-chef needs them, and the Claude app sends a push notification.
+
+1. Read the questions: every tab with `space_question_tabs` for a dialog of several, otherwise the question `space_watch` or `space_state` returned
+2. Ask them in one AskUserQuestion call. Start each question with the space number ("696: ...") and use the number as its header. Copy the space's options, labels and descriptions as they are, in the same order and with the same multi-select setting. Leave out the space's own free-text row, since AskUserQuestion adds Other
+3. Answer with `space_answer`: the chosen option's number in the space's dialog, `options` for a multi-select, `text` for an Other answer. For several questions, one call per question in order, then option 1 on the review step
+
 ## Watching the Line
 
 When the chef says "watch the line", "keep it moving" or "babysit 696", loop on `space_watch` with `until: [blocked]`, plus the keys if the chef named spaces. Each return lists the spaces waiting on a person, with the prompt or question.
 
-1. Call out each one: "698 wants to run git push. Approve?" For a multi-question dialog, read every tab with `space_question_tabs` first
+1. Call out each one: "698 wants to run git push. Approve?" Relay a question dialog as in Relaying a Space's Question
 2. Answer with `space_answer` on the chef's word. If the chef said to approve what's safe, approve Bash prompts without asking; `space_answer` refuses anything risky and says why, so bring each refusal to the chef and don't retry it another way
 3. At `usage_limit`, set `space_schedule` with `after_limit` and say so: "699 at the limit, continue set for 4:10pm"
 4. Call `space_watch` again with the `cursor` it returned. `result: timed_out` means nothing changed; call again with the same cursor and say nothing
