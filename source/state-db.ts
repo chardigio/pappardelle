@@ -451,8 +451,8 @@ export class StateDb {
 
 		if (read) this.record(mirror.file, read.signature, false);
 		else this.db.query('DELETE FROM json_sync WHERE path = ?').run(mirror.file);
-		// r29.6 deletes the JSON code once nothing writes around the database,
-		// so each of these is a writer it still has to account for.
+		// Each import means some writer still bypasses the database, which has
+		// to stop before the files can go.
 		log.info(`Imported ${mirror.file}, written outside the state database`);
 		return 'imported';
 	}
