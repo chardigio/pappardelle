@@ -41,6 +41,15 @@ export class StatusHub<Subscriber> {
 				return this.toAll(message);
 			}
 
+			case 'restore': {
+				// From a client that knew this before the daemon was replaced.
+				// An agent's own event since then is the newer of the two.
+				const held = this.hooks.get(message.state.workspaceName);
+				if (held && held.lastUpdate >= message.state.lastUpdate) return [];
+				this.hooks.set(message.state.workspaceName, message.state);
+				return this.toAll({type: 'hook', state: message.state});
+			}
+
 			case 'snapshot': {
 				const {repo, key, pane} = message.snapshot;
 				const spaces = this.snapshots.get(repo) ?? new Map();

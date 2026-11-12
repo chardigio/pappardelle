@@ -1168,7 +1168,7 @@ With the flag on, the hooks and the agent panes' status monitors send Claude hoo
 - It writes no state to disk. Its warnings and errors go to the log files
 - The TUI and the status monitors start it when none is running. Hooks and CLI commands never start it
 - It exits 10 seconds after its last connection closes. Each status monitor keeps a connection open, so it runs for as long as a TUI or a monitored agent pane exists
-- A restarted daemon has no hook status for an agent until that agent's next hook event. Program status returns within a second, because each status monitor sends its latest snapshot again
+- A restarted daemon gets program status back within a second, because each status monitor sends its latest snapshot again. It gets hook status back from a running TUI, which sends what it knew. With no TUI running, it has no hook status for an agent until that agent's next hook event
 - A hook event fired while no daemon runs is dropped
 - After the flag is turned off, program status is written to files again within 5 seconds, and hook status is shown from each agent's next hook event
 - An agent session whose status monitor was started by a Pappardelle without the status daemon keeps writing snapshot files. Its status is still read, but reaches the rail on the 10 second refresh until that session restarts

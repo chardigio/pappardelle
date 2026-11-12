@@ -1,5 +1,10 @@
 // Claude hook statuses as the status daemon holds them: in memory only. The
 // hook sends each event to the daemon, and this reads this process's copy.
+//
+// A status file can still be there beside it: the hook writes one while the
+// flag is off, and deletes it once the daemon has an event of its own. A
+// reader takes whichever of the two is newer, so a daemon that outlived an
+// off period does not answer with what it held before it.
 
 import {
 	hookStatusKey,
@@ -10,18 +15,25 @@ import {
 } from './claude-status.ts';
 import {firstChange, type StatusClient} from './status-client.ts';
 
+type StatusFiles = Pick<ClaudeStatusDao, 'readState'>;
+
 /**
- * With no daemon running every key reads as never reported. That is what the
- * daemon itself would answer after a restart, until each agent's next event.
+ * With no daemon running a key reads as its status file says, and as never
+ * reported when it has none. That is what the daemon itself would answer after
+ * a restart, until each agent's next event.
  */
 export class DaemonClaudeStatusDao implements ClaudeStatusDao {
-	constructor(private readonly client: StatusClient) {}
+	constructor(
+		private readonly client: StatusClient,
+		private readonly files: StatusFiles,
+	) {}
 
 	async readableKey(repoName: string, name: string): Promise<string> {
-		await this.client.ready();
 		const qualified = hookStatusKey(repoName, name);
-		if (this.client.hook(qualified)) return qualified;
-		return this.client.hook(name) ? name : qualified;
+		const underQualified = await this.readState(qualified);
+		if (underQualified.kind !== 'none') return qualified;
+		const underName = await this.readState(name);
+		return underName.kind === 'none' ? qualified : name;
 	}
 
 	async read(statusKey: string): Promise<ClaudeStatusInfo> {
@@ -33,8 +45,12 @@ export class DaemonClaudeStatusDao implements ClaudeStatusDao {
 
 	async readState(statusKey: string): Promise<StoredClaudeStatus> {
 		await this.client.ready();
-		const state = this.client.hook(statusKey);
-		return state ? {kind: 'state', state} : {kind: 'none'};
+		const held = this.client.hook(statusKey);
+		const file = await this.files.readState(statusKey);
+		if (!held) return file;
+		return file.kind === 'state' && file.state.lastUpdate > held.lastUpdate
+			? file
+			: {kind: 'state', state: held};
 	}
 
 	watch(listener: (statusKey: string) => void): () => void {

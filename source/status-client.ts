@@ -170,8 +170,8 @@ export class StatusClient {
 
 	/**
 	 * Call `listener` for each record the daemon pushes. After a reconnect
-	 * that is every key the replica held before or holds now, since anything
-	 * may have changed while the connection was down.
+	 * that is every key the replica holds, since anything may have changed
+	 * while the connection was down.
 	 */
 	onChange(listener: (change: StatusChange) => void): () => void {
 		this.use();
@@ -363,23 +363,40 @@ export class StatusClient {
 	private apply(message: DaemonMessage): void {
 		switch (message.type) {
 			case 'state': {
-				const statusKeys = new Set(this.hooks.keys());
-				const keys = new Set(this.snapshots.keys());
+				const known = {hooks: this.hooks, snapshots: this.snapshots};
 				this.hooks = new Map();
 				this.snapshots = new Map();
-				for (const state of message.hooks) {
+				for (const state of message.hooks)
 					this.hooks.set(state.workspaceName, state);
-					statusKeys.add(state.workspaceName);
+				for (const snapshot of message.snapshots) this.keep(snapshot);
+
+				// A daemon that replaced another holds nothing. Each monitor
+				// sends its snapshot again within a second, but an agent's hook
+				// status would be unknown until its next event, and an agent
+				// waiting for approval has none until a person acts. So what
+				// this process knew stays, and the daemon is sent the hook
+				// records it lacks.
+				const unknownToDaemon: ClaudeSessionState[] = [];
+				for (const [statusKey, state] of known.hooks) {
+					const held = this.hooks.get(statusKey);
+					if (held && held.lastUpdate >= state.lastUpdate) continue;
+					this.hooks.set(statusKey, state);
+					unknownToDaemon.push(state);
 				}
 
-				for (const snapshot of message.snapshots) {
-					this.keep(snapshot);
-					keys.add(snapshot.key);
+				for (const generations of known.snapshots.values()) {
+					for (const snapshot of generations.values()) {
+						if (!this.snapshot(snapshot.key, snapshot.pane.generation))
+							this.keep(snapshot);
+					}
 				}
 
-				for (const statusKey of statusKeys)
+				for (const statusKey of this.hooks.keys())
 					this.tell({kind: 'hook', statusKey});
-				for (const key of keys) this.tell({kind: 'snapshot', key});
+				for (const key of this.snapshots.keys())
+					this.tell({kind: 'snapshot', key});
+				for (const state of unknownToDaemon)
+					this.socket?.write(encodeMessage({type: 'restore', state}));
 				break;
 			}
 

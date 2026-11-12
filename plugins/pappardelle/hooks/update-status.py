@@ -54,14 +54,18 @@ if _state_db_spec and _state_db_spec.loader:
 else:
     raise ImportError("Could not load state_db")
 
-_status_socket_module_path = Path(__file__).parent / "status_socket.py"
-_status_socket_spec = importlib.util.spec_from_file_location("status_socket", _status_socket_module_path)
-if _status_socket_spec and _status_socket_spec.loader:
-    _status_socket_mod = importlib.util.module_from_spec(_status_socket_spec)
-    _status_socket_spec.loader.exec_module(_status_socket_mod)
-    send_status = _status_socket_mod.send_status
-else:
-    raise ImportError("Could not load status_socket")
+
+def send_status(path: str, state: dict[str, Any]) -> bool:
+    """Send one hook event to the status daemon. True when it was sent."""
+    # Loaded here so a hook pays for the socket code only while
+    # experimental.sqliteState is on.
+    spec = importlib.util.spec_from_file_location("status_socket", Path(__file__).parent / "status_socket.py")
+    if not (spec and spec.loader):
+        return False
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.send_status(path, state)
+
 
 # Debug mode - logs all hook events to a file
 # Set PAPPARDELLE_DEBUG=1 environment variable to enable logging

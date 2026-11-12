@@ -448,18 +448,44 @@ test('a status file that is not a status cannot be read, and is not reported as 
 // The status daemon (experimental.sqliteState on)
 // ============================================================================
 
-test('with the flag on a status file is not read: status comes from the daemon alone', async t => {
+test('with the flag on, the newer of the daemon’s record and a status file is read', async t => {
 	const files = testState(t, {sqlite: false});
 	const s = testState(t, {sqlite: true, stateDir: files.stateDir});
-	await writeClaudeStatus(files, session('repo-STA-1', 'processing'));
-	t.like(await files.daos.claudeStatus.readState('repo-STA-1'), {
+	const at = Date.now();
+
+	// Written while the flag was off, after the daemon's last event.
+	await writeClaudeStatus(
+		s,
+		session('repo-STA-1', 'running_tool', {lastUpdate: at - 2000}),
+	);
+	await writeClaudeStatus(
+		files,
+		session('repo-STA-1', 'waiting_for_input', {lastUpdate: at - 1000}),
+	);
+	t.like(await s.daos.claudeStatus.readState('repo-STA-1'), {
 		kind: 'state',
+		state: {status: 'waiting_for_input'},
 	});
-	t.deepEqual(await s.daos.claudeStatus.readState('repo-STA-1'), {
-		kind: 'none',
+
+	// The file is now the older of the two: the hook reached the daemon and
+	// has not deleted it yet.
+	await writeClaudeStatus(
+		s,
+		session('repo-STA-1', 'processing', {lastUpdate: at}),
+	);
+	t.like(await s.daos.claudeStatus.readState('repo-STA-1'), {
+		kind: 'state',
+		state: {status: 'processing'},
 	});
-	t.deepEqual(await s.daos.claudeStatus.read('repo-STA-1'), {
-		status: 'unknown',
+});
+
+test('with the flag on, a status the daemon does not hold is read from its status file, under the bare key too', async t => {
+	const files = testState(t, {sqlite: false});
+	const s = testState(t, {sqlite: true, stateDir: files.stateDir});
+	await writeClaudeStatus(files, session('STA-2', 'waiting_for_input'));
+	t.is(await s.daos.claudeStatus.readableKey('repo', 'STA-2'), 'STA-2');
+	t.like(await s.daos.claudeStatus.read('STA-2'), {
+		status: 'waiting_for_input',
 	});
 });
 

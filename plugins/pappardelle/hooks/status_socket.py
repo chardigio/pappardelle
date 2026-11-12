@@ -6,6 +6,7 @@ disk.
 """
 
 import json
+import socket
 from typing import Any
 
 # A hook runs inside the agent's turn. A daemon that is there accepts at once,
@@ -21,15 +22,12 @@ def send_status(path: str, state: dict[str, Any]) -> bool:
     """
     connection = None
     try:
-        # Imported here so a hook pays for it only while the flag is on.
-        import socket
-
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         connection.settimeout(CONNECT_TIMEOUT_SECONDS)
         connection.connect(path)
         connection.sendall((json.dumps({"type": "hook", "state": state}) + "\n").encode())
         return True
-    except (ImportError, OSError, ValueError):
+    except (OSError, ValueError):
         return False
     finally:
         if connection is not None:
