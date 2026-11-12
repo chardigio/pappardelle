@@ -1280,9 +1280,18 @@ export default function App({
 		);
 	};
 
+	// While a dialog or prompt is open, the rail owns the keyboard.
+	const railInputBlockedNow = () =>
+		dialogOpenRef.current ||
+		popupOpening.current ||
+		inlineDialogOpening.current;
+
 	// Selects a space and focuses its agent, as the sous-chef key and `s` do.
 	const focusSpaceAgent = (issueKey: string) => {
 		revealSpace(issueKey);
+		// Moving focus away would leave the dialog open with the user's next
+		// keys going to the agent.
+		if (railInputBlockedNow()) return;
 		const {spaces, selectedIndex} = currentSelection();
 		// Before the rows load, or for an unknown key, the selection stays put
 		// and focusing would land on another space's agent.
@@ -1607,8 +1616,7 @@ export default function App({
 	// Handle keyboard input
 	useKeyboard(event => {
 		if (handleSearchKey(event)) return;
-		if (railInputBlocked || popupOpening.current || inlineDialogOpening.current)
-			return;
+		if (railInputBlockedNow()) return;
 		const {input, key} = shortcutKey(event);
 
 		// Check custom keybindings first — they can override default keys
