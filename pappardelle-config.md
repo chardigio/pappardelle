@@ -1135,6 +1135,27 @@ sous_chef?: boolean;
 - Put your own instructions for the sous-chef in `SOUS-CHEF.md` at the main checkout's root, such as which spaces to prioritize, what it may approve without asking, or how to report. `/sous-chef` reads it first and follows it over its own routine, and the MCP instructions point the sous-chef at it so it still applies after the conversation is compacted. Commit it to share it, or leave it untracked to keep it to yourself
 - A main checkout running Codex or another non-Claude agent gets the instructions and the rail label, but no rename or `/sous-chef` prompt
 
+## Experimental: SQLite State
+
+`experimental.sqliteState` keeps Pappardelle's state in one SQLite database, `~/.pappardelle/state.db`, shared by every repo. Off by default.
+
+```yaml
+experimental:
+  sqliteState: true # default: false
+```
+
+```typescript
+experimental?: {sqliteState?: boolean};
+```
+
+- Set it in `~/.pappardelle/.pappardelle.yml` only. The database is shared by every repo, so config validation rejects the key in a project or local config
+- **On:** state is read from the database, and every write also updates the JSON file it replaces. Turning the flag off again loses nothing
+- **Off:** the database is never opened, and state is read from and written to the files
+- A file changed while the flag was off is imported the next time it is read with the flag on
+- Restart Pappardelle after changing the flag. A TUI that is already running keeps the mode it started with
+- Agents pick the change up by themselves: the hooks read the flag from `~/.pappardelle/state-flag.json`, which Pappardelle rewrites when it starts
+- `PAPPARDELLE_SQLITE_STATE=1` or `0` overrides the config for one process and its children, and `PAPPARDELLE_STATE_DB` moves the database. Both exist for tests
+
 ## Issue Status Colors
 
 The ticket rail paints an issue key with the exact color the tracker reports for that issue's status. The top-level `state_colors` map replaces that color for the statuses it lists. This matters most on Jira, where one color often covers several statuses ("In Progress" and "In Review" are the usual pair) and the rail cannot tell them apart.

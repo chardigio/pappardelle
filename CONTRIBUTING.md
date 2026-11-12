@@ -47,6 +47,15 @@ pip install pytest
 pytest plugins/pappardelle/hooks/ -v
 ```
 
+State can live in JSON files or, with `experimental.sqliteState`, in SQLite with the files kept beside it. CI runs every suite both ways. `PAPPARDELLE_SQLITE_STATE=1` selects the second for a run, and each test process then gets a database of its own, never yours:
+
+```bash
+PAPPARDELLE_SQLITE_STATE=1 bun --bun ava 'source/**/*.test.ts'
+PAPPARDELLE_SQLITE_STATE=1 pytest plugins/pappardelle/hooks/ -v
+```
+
+The hook tests need `bun` on `PATH` for that run: the CLI creates the database they write to.
+
 ## Code style
 
 - TypeScript source lives in `source/`

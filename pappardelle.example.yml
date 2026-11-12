@@ -96,6 +96,14 @@ team_prefix: ENG
 # for it in SOUS-CHEF.md at the repo root.
 # sous_chef: true
 
+# Keep state in one SQLite database (~/.pappardelle/state.db) instead of JSON
+# files. Home config only (~/.pappardelle/.pappardelle.yml): every repo shares
+# the database, so this key is rejected in a project or local config. The
+# files are still written while it is on, so turning it off loses nothing.
+# Off by default.
+# experimental:
+#   sqliteState: true
+
 # Override the ticket-rail color for named issue statuses. Names match
 # case-insensitively; values are hex (#rgb / #rrggbb) or an ANSI color name
 # (red, cyan, blueBright, ...). Any status you leave out keeps the color the

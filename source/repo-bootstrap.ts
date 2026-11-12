@@ -1,10 +1,16 @@
 import path from 'node:path';
 import {homedir} from 'node:os';
-import {getRepoName, getRepoRoot, loadProviderConfigs} from './config.ts';
+import {
+	getRepoName,
+	getRepoRoot,
+	loadProviderConfigs,
+	readHomeSqliteState,
+} from './config.ts';
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {initStateColorCacheDir} from './providers/state-color-cache.ts';
 import {initForRepo} from './space-registry.ts';
+import {recordSqliteState} from './state-flag.ts';
 
 /**
  * Per-repo process setup shared by the TUI and its popup child. The popup is
@@ -28,6 +34,12 @@ export function bootstrapRepo(): {repoName: string} {
 	initStateColorCacheDir(
 		path.join(homedir(), '.pappardelle', 'repos', repoName),
 	);
+
+	try {
+		recordSqliteState(readHomeSqliteState());
+	} catch {
+		// The hooks keep the mode they last read.
+	}
 
 	// Initialize provider singletons from config so that all subsequent
 	// no-arg calls (e.g. from tracker.ts facade) use the correct provider.
