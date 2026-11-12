@@ -1,9 +1,11 @@
-import type {BoxRenderable, OptimizedBuffer} from '@opentui/core';
+import type {BorderStyle, BoxRenderable, OptimizedBuffer} from '@opentui/core';
 import {useMemo, type ReactNode} from 'react';
 import {paintFrame} from './frame-paint.ts';
 
 /** Rows and columns the frame's border takes from the pane. */
 export const PANE_FRAME_SIZE = 2;
+
+export const PANE_FRAME_STYLE: BorderStyle = 'rounded';
 
 /**
  * The rounded, titled frame around a whole pane, matching the frames the
@@ -23,7 +25,7 @@ export default function PaneFrame({
 			function (this: BoxRenderable, buffer: OptimizedBuffer) {
 				paintFrame(this, buffer, {
 					title,
-					style: 'rounded',
+					style: PANE_FRAME_STYLE,
 					isDim: !isActive,
 					inset: 1,
 				});
@@ -36,7 +38,7 @@ export default function PaneFrame({
 			width="100%"
 			height="100%"
 			border
-			borderStyle="rounded"
+			borderStyle={PANE_FRAME_STYLE}
 			renderAfter={renderAfter}
 		>
 			{children}
