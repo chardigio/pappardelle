@@ -12,18 +12,25 @@ const row: Extract<RailRow, {kind: 'header'}> = {
 		categories: [],
 	},
 	count: 12,
-	collapsed: true,
-	attention: null,
 };
 
-test('a header that fits shows chevron, name and count', t => {
-	t.is(railGroupHeaderText(row, 40, 'unicode'), '▸ In Progress (12)');
+test('a header that fits shows name and count apart', t => {
+	t.deepEqual(railGroupHeaderText(row, 40, 'unicode'), {
+		name: 'In Progress',
+		count: ' (12)',
+	});
 });
 
 test('a narrow header shortens the name before dropping the count', t => {
-	t.is(railGroupHeaderText(row, 12, 'unicode'), '▸ In P… (12)');
+	t.deepEqual(railGroupHeaderText(row, 10, 'unicode'), {
+		name: 'In P…',
+		count: ' (12)',
+	});
 });
 
 test('a header too narrow for the count is cut with an ellipsis', t => {
-	t.is(railGroupHeaderText(row, 6, 'unicode'), '▸ In …');
+	t.deepEqual(railGroupHeaderText(row, 5, 'unicode'), {
+		name: 'In P…',
+		count: '',
+	});
 });

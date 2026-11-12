@@ -1182,7 +1182,7 @@ list_view:
 **How it works:**
 
 - **Off by default.** Without `group_by`, the rail is one flat list: agent spaces on top, one line each, a divider, then every workspace newest first.
-- **Agent spaces stay above the groups.** Spaces with no issue behind them (the main worktree, where the sous-chef runs) aren't in any group. They sit at the top above the divider and can't be collapsed away.
+- **Agent spaces stay above the groups.** Spaces with no issue behind them (the main worktree, where the sous-chef runs) aren't in any group. They sit at the top above the divider.
 - **`groups` lists the rest, in rail order.** Leave it out for the defaults above. A layer that sets `groups` replaces the whole list, it doesn't merge item by item.
 - **Placing a space:** a status named in some group's `statuses` goes to that group (names match case-insensitively). Otherwise the first group whose `categories` include the status's category takes it, and anything still unplaced, including an issue that hasn't loaded yet, goes to the first group.
 - **Categories** are tracker-neutral: `todo` (Jira To Do, Linear Backlog/Todo/Triage, beads `open`), `done` (completed or canceled on any tracker, beads `closed`) and `in_progress` (everything else, including beads `in_progress` and `blocked`).
@@ -1190,7 +1190,7 @@ list_view:
 - **Group colors are used on the header only.** Issue keys keep their tracker or `state_colors` color, so a To Do key stays gray inside In Progress.
 - **Order inside a group** is the usual newest-first order.
 - **A new space** that's still starting shows at the top of the first group.
-- **Search** (`/`) shows the flat list with no headers and finds spaces in collapsed groups too.
+- **Search** (`/`) shows the flat list with no headers.
 
 Example: pull beads `blocked` issues into their own group.
 
@@ -1209,14 +1209,10 @@ list_view:
       categories: [done]
 ```
 
-**Collapsing:**
+**Navigation:**
 
-- `j`/`k` stop on group headers. Enter, Space or a click on a header collapses or expands it, and `z` toggles the group of whatever row is selected
-- Actions that work on a space (`x`, `g`, `i`, `d`, `o`, `p`, custom keybindings) do nothing while a header is selected. The agent and companion panes keep showing the last space
-- A collapsed group whose space is blocked on a question or an approval blinks its header like a blocked row
-- Selecting a space in a collapsed group (search, `pappardelle highlight`) expands the group
-- Collapsed groups are saved in `~/.pappardelle/repos/<repo>/rail-groups.json` and restored at startup
-- A custom keybinding on `z` takes priority over the built-in toggle, as custom bindings do for other keys
+- Group headers are labels with the group's space count. `j`/`k` and the arrow keys skip them and the divider, moving between spaces in rail order
+- The narrow layout (under 100 columns, rail on top) hides the headers to save rows. Spaces keep the group order
 - Config is read at startup, so a change to `list_view.groups` shows after a restart
 
 ## Pane Widths

@@ -29,13 +29,7 @@ export interface RailGroup {
 export type RailAttention = 'approval' | 'question';
 
 export type RailRow =
-	| {
-			kind: 'header';
-			group: RailGroup;
-			count: number;
-			collapsed: boolean;
-			attention: RailAttention | null;
-	  }
+	| {kind: 'header'; group: RailGroup; count: number}
 	| {kind: 'space'; space: SpaceData}
 	| {kind: 'pending'; space: SpaceData}
 	| {kind: 'divider'};
@@ -112,13 +106,6 @@ export function spaceAttention(space: SpaceData): RailAttention | null {
 	return space.programStatus.kind === 'question' ? 'question' : 'approval';
 }
 
-/** A question outranks an approval, matching the colors a blocked row blinks. */
-function attentionOf(spaces: readonly SpaceData[]): RailAttention | null {
-	const attentions = new Set(spaces.map(space => spaceAttention(space)));
-	if (attentions.has('question')) return 'question';
-	return attentions.has('approval') ? 'approval' : null;
-}
-
 function agentRowsWithDivider(
 	agents: readonly SpaceData[],
 	hasWorkspaces: boolean,
@@ -152,15 +139,16 @@ export function searchRailRows(matches: readonly SpaceData[]): RailRow[] {
 /**
  * The grouped rail. Spaces keep their incoming order inside each group, so the
  * newest-first order holds whatever their status history. A starting session
- * has no status yet; it shows at the top of the first group, even when that
- * group is collapsed, so the user sees it come up.
+ * has no status yet; it shows at the top of the first group. The narrow layout
+ * has too few rows to spare for headers, so it keeps the group order without
+ * them.
  */
 export function buildRailRows(options: {
 	displaySpaces: readonly SpaceData[];
 	groups: readonly RailGroup[];
-	collapsed: ReadonlySet<string>;
+	headers?: boolean;
 }): RailRow[] {
-	const {displaySpaces, groups, collapsed} = options;
+	const {displaySpaces, groups, headers = true} = options;
 	const agents: SpaceData[] = [];
 	const pending: SpaceData[] = [];
 	const members = new Map<string, SpaceData[]>();
@@ -187,18 +175,9 @@ export function buildRailRows(options: {
 		const starting = group === groups[0] ? pending : [];
 		if (spaces.length === 0 && starting.length === 0) continue;
 
-		const isCollapsed = collapsed.has(group.id);
-		groupRows.push({
-			kind: 'header',
-			group,
-			count: spaces.length,
-			collapsed: isCollapsed,
-			attention: isCollapsed ? attentionOf(spaces) : null,
-		});
+		if (headers) groupRows.push({kind: 'header', group, count: spaces.length});
 		for (const space of starting) groupRows.push({kind: 'pending', space});
-		if (!isCollapsed) {
-			for (const space of spaces) groupRows.push({kind: 'space', space});
-		}
+		for (const space of spaces) groupRows.push({kind: 'space', space});
 	}
 
 	return [...agentRowsWithDivider(agents, groupRows.length > 0), ...groupRows];
@@ -210,9 +189,9 @@ export function isSpaceRow(row: RailRow | undefined): row is SpaceRow {
 	return row?.kind === 'space' || row?.kind === 'pending';
 }
 
-/** Rows j/k and clicks can land on. */
+/** Rows j/k and clicks can land on. Headers are labels, not stops. */
 export function isSelectableRow(row: RailRow | undefined): boolean {
-	return row?.kind === 'space' || row?.kind === 'header';
+	return row?.kind === 'space';
 }
 
 /** Terminal lines a row takes. Agent spaces have no title line to show. */
@@ -237,50 +216,19 @@ export function nextSelectableRow(
 	return -1;
 }
 
-function lastSelectableRow(rows: readonly RailRow[]): number {
-	const last = nextSelectableRow(rows, rows.length, -1);
-	return last === -1 ? rows.length - 1 : last;
-}
-
-export interface RailCursor {
-	/** The selected space, which may sit inside a collapsed group. */
-	space: SpaceData | undefined;
-	/** Group id when a header is selected; wins over `space`. */
-	headerId: string | null;
-}
-
 /**
- * The row the cursor sits on. A selected header that no longer has a row (its
- * last space changed status or closed) falls to the next group that still
- * does. A selected space hidden inside a collapsed group resolves to that
- * group's header.
+ * The row the selected space sits on. Before the first refresh places it, the
+ * cursor rests on the first row j/k can land on.
  */
 export function resolveCursorRow(
 	rows: readonly RailRow[],
-	cursor: RailCursor,
-	groups: readonly RailGroup[],
+	space: SpaceData | undefined,
 ): number {
-	if (rows.length === 0) return -1;
-	const headerRow = (id: string) =>
-		rows.findIndex(row => row.kind === 'header' && row.group.id === id);
-
-	if (cursor.headerId !== null) {
-		const exact = headerRow(cursor.headerId);
-		if (exact !== -1) return exact;
-		const order = groups.map(group => group.id);
-		const after = order.indexOf(cursor.headerId);
-		const next = rows.findIndex(
-			row => row.kind === 'header' && order.indexOf(row.group.id) > after,
-		);
-		return next === -1 ? lastSelectableRow(rows) : next;
-	}
-
-	const {space} = cursor;
-	if (!space) return 0;
-	const spaceRow = rows.findIndex(
-		row => row.kind === 'space' && row.space.name === space.name,
-	);
+	const spaceRow = space
+		? rows.findIndex(
+				row => row.kind === 'space' && row.space.name === space.name,
+			)
+		: -1;
 	if (spaceRow !== -1) return spaceRow;
-	const group = railGroupOf(space, groups);
-	return group ? Math.max(0, headerRow(group.id)) : 0;
+	return Math.max(0, nextSelectableRow(rows, -1, 1));
 }

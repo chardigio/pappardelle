@@ -2832,7 +2832,12 @@ export async function reconcilePaneLayout(
 	layout: PaneLayout,
 	zoomed: boolean,
 	run: AsyncTmuxRunner = runTmux,
-): Promise<{layout: PaneLayout; dimensions: {rows: number; cols: number}}> {
+): Promise<{
+	layout: PaneLayout;
+	dimensions: {rows: number; cols: number};
+	/** The narrow layout: rail across the top, agent below, no companion. */
+	stacked: boolean;
+}> {
 	let geometry = parseWindowGeometry(
 		await run(paneGeometryArgs(layout.listPaneId)),
 	);
@@ -2867,7 +2872,11 @@ export async function reconcilePaneLayout(
 			geometry = measured;
 		}
 	}
-	return {layout, dimensions: paneGeometry(geometry, layout.listPaneId)};
+	return {
+		layout,
+		dimensions: paneGeometry(geometry, layout.listPaneId),
+		stacked: geometry.window.width < NARROW_SCREEN_THRESHOLD,
+	};
 }
 
 /**
