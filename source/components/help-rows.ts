@@ -26,23 +26,11 @@ const fixedShortcuts: HelpRow[] = [
 	{key: '?', description: 'Show this help', isCustom: false},
 ];
 
-const groupedRailShortcuts: HelpRow[] = [
-	{key: 'z', description: 'Collapse / expand group', isCustom: false},
-	{
-		key: 'Enter / Space',
-		description: 'On a group header: collapse / expand',
-		isCustom: false,
-	},
-];
-
 function describe(kb: KeybindingConfig): string {
 	return kb.name + (kb.send_to_claude || kb.send_skill ? ' → agent' : '');
 }
 
-export function buildHelpRows(
-	customKeybindings: KeybindingConfig[] = [],
-	railGrouped = false,
-): {
+export function buildHelpRows(customKeybindings: KeybindingConfig[] = []): {
 	fixed: HelpRow[];
 	overridable: HelpRow[];
 	extraCustom: HelpRow[];
@@ -67,18 +55,13 @@ export function buildHelpRows(
 		.filter(kb => !kb.disabled && !(kb.key in defaultKeyDescriptions))
 		.map(kb => ({key: kb.key, description: describe(kb), isCustom: true}));
 
-	// A custom binding on `z` replaces the built-in group toggle.
-	const fixed = railGrouped
-		? [
-				...fixedShortcuts,
-				...groupedRailShortcuts.filter(row => !customByKey.has(row.key)),
-			]
-		: fixedShortcuts;
 	const maxKeyLength = Math.max(
-		...[...fixed, ...overridable, ...extraCustom].map(row => row.key.length),
+		...[...fixedShortcuts, ...overridable, ...extraCustom].map(
+			row => row.key.length,
+		),
 	);
 
-	return {fixed, overridable, extraCustom, maxKeyLength};
+	return {fixed: fixedShortcuts, overridable, extraCustom, maxKeyLength};
 }
 
 export type HelpLine =

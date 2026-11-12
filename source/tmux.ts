@@ -2832,7 +2832,12 @@ export async function reconcilePaneLayout(
 	layout: PaneLayout,
 	zoomed: boolean,
 	run: AsyncTmuxRunner = runTmux,
-): Promise<{layout: PaneLayout; dimensions: {rows: number; cols: number}}> {
+): Promise<{
+	layout: PaneLayout;
+	dimensions: {rows: number; cols: number};
+	/** The narrow layout: rail across the top, agent below, no companion. */
+	stacked: boolean;
+}> {
 	let geometry = parseWindowGeometry(
 		await run(paneGeometryArgs(layout.listPaneId)),
 	);
@@ -2842,11 +2847,11 @@ export async function reconcilePaneLayout(
 			await run(paneGeometryArgs(layout.listPaneId)),
 		);
 	}
+	const stacked = geometry.window.width < NARROW_SCREEN_THRESHOLD;
 	if (!zoomed) {
 		const vertical =
 			paneGeometry(geometry, layout.listPaneId).cols === geometry.window.width;
-		const desiredVertical = geometry.window.width < NARROW_SCREEN_THRESHOLD;
-		if (vertical !== desiredVertical) {
+		if (vertical !== stacked) {
 			const rebuilt = await rebuildLayout(
 				layout.listPaneId,
 				layout.agentViewerPaneId,
@@ -2867,7 +2872,11 @@ export async function reconcilePaneLayout(
 			geometry = measured;
 		}
 	}
-	return {layout, dimensions: paneGeometry(geometry, layout.listPaneId)};
+	return {
+		layout,
+		dimensions: paneGeometry(geometry, layout.listPaneId),
+		stacked,
+	};
 }
 
 /**

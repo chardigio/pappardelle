@@ -56,6 +56,7 @@ test('zoom reconciliation waits for geometry without blocking other work or togg
 	release();
 	const result = await reconciling;
 	t.deepEqual(result.dimensions, {cols: 160, rows: 50});
+	t.false(result.stacked);
 	await reconcilePaneLayout(layout, true, run);
 	t.deepEqual(mutations, [['resize-pane', '-Z', '-t', '%fixture']]);
 });
@@ -189,7 +190,9 @@ test.serial(
 			`env -u TMUX tmux -S '${inner}' attach-session -t work`,
 		]);
 		await run(['resize-window', '-x', '80', '-y', '40']);
-		({layout} = await reconcilePaneLayout(layout, false, run));
+		let stacked: boolean;
+		({layout, stacked} = await reconcilePaneLayout(layout, false, run));
+		t.true(stacked);
 		t.truthy(layout);
 		if (!layout) return;
 		t.is(layout.companionViewerPaneId, '');

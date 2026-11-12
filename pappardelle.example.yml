@@ -100,7 +100,7 @@ team_prefix: ENG
 # list_view:
 #   layout: two_line        # 'single_line' | 'two_line'
 
-# Group the rail by issue status, under collapsible headers. Agent spaces
+# Group the rail by issue status, under status headers. Agent spaces
 # (no issue, like main) stay on top above a divider. `groups` is optional;
 # this is the default list. A status named in `statuses` beats a `categories` match
 # (todo / in_progress / done).

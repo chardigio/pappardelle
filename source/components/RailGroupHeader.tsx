@@ -1,99 +1,62 @@
 import {memo} from 'react';
-import type {MouseEvent, WidthMethod} from '@opentui/core';
+import type {WidthMethod} from '@opentui/core';
 import type {RailRow} from '../rail-groups.ts';
-import {useAttentionFrame} from '../animation-clock.ts';
-import {dimText} from '../tui-style.ts';
+import {dimText, terminalColor, textAttributes} from '../tui-style.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import {displayWidth} from '../text-measure.ts';
 import {useWidthMethod} from './use-width-method.ts';
-import {resolveRowHighlight} from './row-highlight.ts';
 import {ROW_PADDING_CELLS} from './SpaceListItem.tsx';
 
 type HeaderRow = Extract<RailRow, {kind: 'header'}>;
 
 interface Props {
 	row: HeaderRow;
-	isSelected: boolean;
 	width: number;
-	onToggle: (groupId: string, collapse: boolean) => void;
 }
 
 /**
  * The header label, fitted to `maxCells`. The name gives way before the count,
- * so a narrow rail still shows how many spaces a collapsed group holds.
+ * so a narrow rail still shows how many spaces a group holds.
  */
 export function railGroupHeaderText(
 	row: HeaderRow,
 	maxCells: number,
 	widthMethod: WidthMethod,
-): string {
-	const chevron = row.collapsed ? '▸ ' : '▾ ';
+): {name: string; count: string} {
 	const count = ` (${row.count})`;
-	const nameCells =
-		maxCells -
-		displayWidth(chevron, widthMethod) -
-		displayWidth(count, widthMethod);
+	const nameCells = maxCells - displayWidth(count, widthMethod);
 	if (nameCells < 1) {
-		return truncateToWidth(
-			`${chevron}${row.group.name}${count}`,
-			maxCells,
-			widthMethod,
-		);
+		return {
+			name: truncateToWidth(`${row.group.name}${count}`, maxCells, widthMethod),
+			count: '',
+		};
 	}
 
-	return `${chevron}${truncateToWidth(row.group.name, nameCells, widthMethod)}${count}`;
+	return {
+		name: truncateToWidth(row.group.name, nameCells, widthMethod),
+		count,
+	};
 }
 
-function RailGroupHeader({row, isSelected, width, onToggle}: Props) {
-	const needsAttention = row.attention !== null;
-	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
-	const {paint} = resolveRowHighlight({
-		isSelected,
-		needsAttention,
-		blinkOn,
-		isQuestion: row.attention === 'question',
-	});
-	const gap = paint({});
+function RailGroupHeader({row, width}: Props) {
 	const widthMethod = useWidthMethod();
 	const contentWidth = Math.max(0, width - 2 * ROW_PADDING_CELLS);
-
-	const handleClick = (event: MouseEvent) => {
-		if (event.button !== 0) return;
-		event.stopPropagation();
-		onToggle(row.group.id, !row.collapsed);
-	};
+	const {name, count} = railGroupHeaderText(row, contentWidth, widthMethod);
 
 	return (
-		<box
-			flexDirection="row"
-			overflow="hidden"
-			height={1}
-			onMouseDown={handleClick}
-		>
-			<text flexShrink={0} {...gap}>
-				{' '.repeat(ROW_PADDING_CELLS)}
-			</text>
+		<box flexDirection="row" overflow="hidden" height={1}>
+			<text flexShrink={0}>{' '.repeat(ROW_PADDING_CELLS)}</text>
 			<text
 				flexShrink={1}
 				wrapMode="none"
 				height={1}
-				{...paint({fg: row.group.color, bold: true})}
+				fg={terminalColor(row.group.color)}
+				attributes={textAttributes({bold: true})}
 			>
-				{railGroupHeaderText(row, contentWidth, widthMethod)}
+				{name}
 			</text>
-			<text
-				flexGrow={1}
-				flexShrink={1}
-				flexBasis={0}
-				minWidth={0}
-				wrapMode="none"
-				height={1}
-				{...gap}
-			>
-				{' '.repeat(width)}
-			</text>
-			<text flexShrink={0} {...gap}>
-				{' '.repeat(ROW_PADDING_CELLS)}
+			<text {...dimText()} flexShrink={0} wrapMode="none" height={1}>
+				{count}
 			</text>
 		</box>
 	);

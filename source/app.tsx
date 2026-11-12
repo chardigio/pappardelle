@@ -147,11 +147,9 @@ import {
 	isSpaceRow,
 	nextSelectableRow,
 	railRowHeight,
-	railGroupOf,
 	resolveCursorRow,
 	type RailRow,
 } from './rail-groups.ts';
-import {readCollapsedGroups, writeCollapsedGroups} from './rail-group-state.ts';
 import RailGroupHeader, {RailDivider} from './components/RailGroupHeader.tsx';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {
@@ -340,13 +338,9 @@ export default function App({
 		selectedIndex,
 		setSelectedIndex,
 		selectSpace,
-		selectHeader,
-		selectedHeader,
 		current: currentSelection,
 	} = useSpaceSelection();
-	// The space the agent and companion panes show. It stays put while the
-	// cursor sits on a group header.
-	const attachedSpaceNow = useCallback(() => {
+	const selectedSpaceNow = useCallback(() => {
 		const {spaces, selectedIndex} = currentSelection();
 		return spaces[selectedIndex];
 	}, [currentSelection]);
@@ -491,82 +485,24 @@ export default function App({
 	}, []);
 
 	const railGrouped = isRailGroupedByStatus(configMemo);
+	const [stackedLayout, setStackedLayout] = useState(false);
 	const railGroups = useMemo(() => getRailGroups(configMemo), [configMemo]);
-	const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
-		() =>
-			readCollapsedGroups(
-				repoName,
-				railGroups.map(group => group.id),
-			),
-	);
-	const collapsedGroupsRef = useRef(collapsedGroups);
-	const setGroupCollapsed = useCallback(
-		(groupId: string, collapse: boolean) => {
-			const group = railGroups.find(candidate => candidate.id === groupId);
-			if (!group) return;
-			const previous = collapsedGroupsRef.current;
-			if (previous.has(groupId) === collapse) return;
-			const next = new Set(previous);
-			if (collapse) next.add(groupId);
-			else next.delete(groupId);
-			collapsedGroupsRef.current = next;
-			setCollapsedGroups(next);
-			writeCollapsedGroups(repoName, next);
-			const {spaces, selectedIndex} = currentSelection();
-			const selected = spaces[selectedIndex];
-			if (
-				collapse &&
-				selected &&
-				railGroupOf(selected, railGroups)?.id === groupId
-			) {
-				selectHeader(groupId);
-			}
-		},
-		[railGroups, repoName, currentSelection, selectHeader],
-	);
-	// Selecting a space by key (search, `pappardelle highlight`) opens its group
-	// so the selection is never hidden.
-	const revealSpace = useCallback(
-		(name: string) => {
-			const {spaces} = currentSelection();
-			const space = spaces[findSpaceIndexByIssueKey(spaces, name)];
-			if (railGrouped && space) {
-				const group = railGroupOf(space, railGroups);
-				if (group) setGroupCollapsed(group.id, false);
-			}
-
-			selectSpace(name);
-		},
-		[railGrouped, railGroups, currentSelection, setGroupCollapsed, selectSpace],
-	);
-	// Grouped rows and cursor from the live selection and collapse state, not
-	// the last render: one input write can carry several keys, and each must
-	// see what the previous one did.
+	// Grouped rows and cursor from the live selection, not the last render: one
+	// input write can carry several keys, and each must see what the previous
+	// one did.
 	const railNow = useCallback(() => {
 		if (!railGrouped || searchNow.current) return null;
-		const {spaces, selectedIndex, selectedHeader} = currentSelection();
+		const {spaces, selectedIndex} = currentSelection();
 		const rows = buildRailRows({
 			displaySpaces: [
 				...spaces,
 				...displaySpacesRef.current.filter(space => space.isPending),
 			],
 			groups: railGroups,
-			collapsed: collapsedGroupsRef.current,
+			headers: !stackedLayout,
 		});
-		const cursor = resolveCursorRow(
-			rows,
-			{space: spaces[selectedIndex], headerId: selectedHeader},
-			railGroups,
-		);
-		return {rows, cursor};
-	}, [railGrouped, railGroups, currentSelection]);
-	// Nothing acts on a space while the cursor sits on a group header, including
-	// a selected space that a collapse hid behind its header.
-	const selectedSpaceNow = useCallback(() => {
-		const rail = railNow();
-		if (rail && rail.rows[rail.cursor]?.kind === 'header') return undefined;
-		return attachedSpaceNow();
-	}, [railNow, attachedSpaceNow]);
+		return {rows, cursor: resolveCursorRow(rows, spaces[selectedIndex])};
+	}, [railGrouped, railGroups, stackedLayout, currentSelection]);
 
 	// Install the user's issue-status color overrides before anything renders,
 	// so the ticket rail's first paint already uses them (STA-2070). A useMemo
@@ -824,11 +760,11 @@ export default function App({
 		const unwatch = watchHighlightTarget(repoName, ({issueKey, focus}) => {
 			clearHighlightTarget(repoName);
 			if (focus) focusSpaceAgentRef.current(issueKey);
-			else revealSpace(issueKey);
+			else selectSpace(issueKey);
 		});
 
 		return unwatch;
-	}, [repoName, revealSpace]);
+	}, [repoName, selectSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -930,6 +866,7 @@ export default function App({
 		};
 	}, [loading, isZooming, backgroundReady, onFirstRailPaint, renderer]);
 	const syncingTerminalSize = useRef(false);
+	const stackedLayoutRef = useRef(false);
 	const layoutTasks = useMemo(
 		() =>
 			new PaneLayoutTask({
@@ -939,6 +876,7 @@ export default function App({
 					if (!layout)
 						return {rows: stdout?.rows ?? 40, cols: stdout?.columns ?? 80};
 					const reconciled = await reconcilePaneLayout(layout, zoomed);
+					stackedLayoutRef.current = reconciled.stacked;
 					if (reconciled.layout !== layout) {
 						paneLayoutRef.current = reconciled.layout;
 						setPaneLayout(reconciled.layout);
@@ -955,6 +893,7 @@ export default function App({
 						syncingTerminalSize.current = false;
 					}
 					setPaneDimensions(dimensions);
+					setStackedLayout(stackedLayoutRef.current);
 					setSettledRevision(revision);
 				},
 				onError(error, revision) {
@@ -1291,7 +1230,7 @@ export default function App({
 		// Moving focus away would leave the dialog open with the user's next
 		// keys going to the agent.
 		if (railInputBlockedNow()) return;
-		revealSpace(issueKey);
+		selectSpace(issueKey);
 		const {spaces, selectedIndex} = currentSelection();
 		// Before the rows load, or for an unknown key, the selection stays put
 		// and focusing would land on another space's agent.
@@ -1608,7 +1547,7 @@ export default function App({
 			shortcutKey(event),
 			searchInputDrawn.current,
 		);
-		if (step.select) revealSpace(step.select);
+		if (step.select) selectSpace(step.select);
 		updateSearch(step.search);
 		return true;
 	};
@@ -1631,7 +1570,6 @@ export default function App({
 		const rail = railNow();
 		if (rail && rail.rows.length > 0) {
 			const {rows, cursor} = rail;
-			const cursorRow = rows[cursor];
 			const step =
 				key.upArrow || input === 'k'
 					? -1
@@ -1640,29 +1578,7 @@ export default function App({
 						: 0;
 			if (step !== 0) {
 				const row = rows[nextSelectableRow(rows, cursor, step)];
-				if (row?.kind === 'header') selectHeader(row.group.id);
-				else if (row?.kind === 'space') selectSpace(row.space.name);
-				return;
-			}
-
-			if (cursorRow?.kind === 'header' && (key.return || input === ' ')) {
-				setGroupCollapsed(cursorRow.group.id, !cursorRow.collapsed);
-				return;
-			}
-
-			const zGroup =
-				input === 'z'
-					? cursorRow?.kind === 'header'
-						? cursorRow.group
-						: isSpaceRow(cursorRow)
-							? railGroupOf(cursorRow.space, railGroups)
-							: null
-					: null;
-			if (zGroup) {
-				setGroupCollapsed(
-					zGroup.id,
-					!collapsedGroupsRef.current.has(zGroup.id),
-				);
+				if (row?.kind === 'space') selectSpace(row.space.name);
 				return;
 			}
 		}
@@ -1753,7 +1669,6 @@ export default function App({
 								commitSha,
 								installedVersion,
 								isDevBuild,
-								isRailGrouped: railGrouped,
 							},
 						},
 						{},
@@ -2106,7 +2021,7 @@ export default function App({
 
 			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
-			if (attachedSpaceNow()?.name === space.name) attachmentTask.cancel();
+			if (selectedSpaceNow()?.name === space.name) attachmentTask.cancel();
 			return attachmentTask
 				.exclusive(async () => {
 					// STA-1420: kill tmux first, then update the registry. If the kill
@@ -2139,7 +2054,7 @@ export default function App({
 					}
 
 					const layout = paneLayoutRef.current;
-					if (layout && attachedSpaceNow()?.name === space.name) {
+					if (layout && selectedSpaceNow()?.name === space.name) {
 						await Promise.all([
 							displayMessageInPaneAsync(
 								layout.agentViewerPaneId,
@@ -2583,32 +2498,14 @@ export default function App({
 				? buildRailRows({
 						displaySpaces,
 						groups: railGroups,
-						collapsed: collapsedGroups,
+						headers: !stackedLayout,
 					})
 				: null,
-		[railGrouped, isSearching, displaySpaces, railGroups, collapsedGroups],
+		[railGrouped, isSearching, displaySpaces, railGroups, stackedLayout],
 	);
 	const cursorRow = railRows
-		? resolveCursorRow(
-				railRows,
-				{space: spaces[selectedIndex], headerId: selectedHeader},
-				railGroups,
-			)
+		? resolveCursorRow(railRows, spaces[selectedIndex])
 		: -1;
-	// A selected header loses its row when its last space changes status or
-	// closes. Move the stored cursor onto the row the rail now draws, so the
-	// panes and actions follow what the user sees.
-	const drawnRow = railRows?.[cursorRow];
-	useEffect(() => {
-		if (selectedHeader === null || !drawnRow) return;
-		if (drawnRow.kind === 'header') {
-			if (drawnRow.group.id !== selectedHeader) selectHeader(drawnRow.group.id);
-			return;
-		}
-
-		if (drawnRow.kind === 'space') selectSpace(drawnRow.space.name);
-	}, [selectedHeader, drawnRow, selectHeader, selectSpace]);
-
 	const allRows =
 		railRows ??
 		(isSearching ? searchRailRows(activeSpaces) : flatRailRows(activeSpaces));
@@ -2654,14 +2551,6 @@ export default function App({
 		[railInputBlocked, filteredDisplaySpaces, selectSpace, updateSearch],
 	);
 
-	const toggleRow = useCallback(
-		(groupId: string, collapse: boolean) => {
-			if (railInputBlocked) return;
-			setGroupCollapsed(groupId, collapse);
-		},
-		[railInputBlocked, setGroupCollapsed],
-	);
-
 	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
 	const spaceCount = getSpaceCount(spaces);
 
@@ -2693,9 +2582,7 @@ export default function App({
 						<RailGroupHeader
 							key={`group-${row.group.id}`}
 							row={row}
-							isSelected={index === visibleCursor}
 							width={termDimensions.cols}
-							onToggle={toggleRow}
 						/>
 					) : (
 						<SpaceListItem
@@ -2873,7 +2760,6 @@ export default function App({
 							installedVersion={installedVersion}
 							isDevBuild={isDevBuild}
 							availableHeight={dialogHeight}
-							isRailGrouped={railGrouped}
 						/>
 					) : showErrorDialog ? (
 						<ErrorDialog
