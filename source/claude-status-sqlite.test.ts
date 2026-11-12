@@ -149,9 +149,13 @@ test('writing the status a key already has rewrites nothing', async t => {
 
 test('a database that cannot be opened is a status that cannot be read, not a missing one', async t => {
 	const f = fixture(t);
-	const dao = new SqliteClaudeStatusDao(() => {
-		throw new Error('unable to open database file');
-	}, new JsonClaudeStatusDao(f.statusDir));
+	const dao = new SqliteClaudeStatusDao(
+		() => {
+			throw new Error('unable to open database file');
+		},
+		f.dbPath,
+		new JsonClaudeStatusDao(f.statusDir),
+	);
 	clearRecentErrors();
 	t.is(await dao.read('repo-STA-1'), null);
 	t.deepEqual(dao.readState('repo-STA-1'), {kind: 'unreadable'});

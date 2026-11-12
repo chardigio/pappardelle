@@ -4,7 +4,7 @@
 // file next to the database after it commits, and a watcher sees that through
 // fs.watch, the way the status files were watched before they became rows.
 
-import {Database} from 'bun:sqlite';
+import {Database, type Statement} from 'bun:sqlite';
 import {mkdirSync, watch, writeFileSync, type FSWatcher} from 'node:fs';
 import path from 'node:path';
 
@@ -32,27 +32,58 @@ type Watch = {
 	close(): void;
 };
 
+type Source = {
+	connection: Database;
+	version: Statement<{data_version: number}, []>;
+	seen: number;
+};
+
 const watches = new Map<string, Watch>();
+
+function openSource(dbPath: string): Source | undefined {
+	let connection: Database | undefined;
+	try {
+		// data_version only moves for commits made on other connections, so this
+		// one is kept apart from the connection the process writes with.
+		connection = new Database(dbPath, {readonly: true});
+		const version = connection.query<{data_version: number}, []>(
+			'PRAGMA data_version',
+		);
+		return {connection, version, seen: version.get()!.data_version};
+	} catch {
+		connection?.close();
+		return undefined;
+	}
+}
 
 function startWatch(dbPath: string): Watch {
 	const listeners = new Set<() => void>();
-	// data_version only moves for commits made on other connections, so this
-	// one is kept apart from the connection the process writes with.
-	const connection = new Database(dbPath, {readonly: true});
-	const version = connection.query<{data_version: number}, []>(
-		'PRAGMA data_version',
-	);
-	let seen = version.get()!.data_version;
+	let source = openSource(dbPath);
 	let checkedAt = 0;
 	let trailing: ReturnType<typeof setTimeout> | undefined;
+
+	const notify = () => {
+		for (const listener of listeners) listener();
+	};
 
 	const check = () => {
 		trailing = undefined;
 		checkedAt = performance.now();
-		const current = version.get()!.data_version;
-		if (current === seen) return;
-		seen = current;
-		for (const listener of listeners) listener();
+		if (!source) return;
+		let current: number;
+		try {
+			current = source.version.get()!.data_version;
+		} catch {
+			// The file was replaced or damaged under this connection. The poll
+			// opens it again when it can be read.
+			source.connection.close();
+			source = undefined;
+			return;
+		}
+
+		if (current === source.seen) return;
+		source.seen = current;
+		notify();
 	};
 
 	const rung = () => {
@@ -73,7 +104,17 @@ function startWatch(dbPath: string): Watch {
 		// Without a watch the poll below is the only signal.
 	}
 
-	const poll = setInterval(check, FALLBACK_POLL_MS);
+	const poll = setInterval(() => {
+		if (source) {
+			check();
+			return;
+		}
+
+		source = openSource(dbPath);
+		// Nothing was seen of the commits made while the database could not be
+		// opened, so what the listeners last read may be out of date.
+		if (source) notify();
+	}, FALLBACK_POLL_MS);
 	poll.unref();
 
 	return {
@@ -82,7 +123,7 @@ function startWatch(dbPath: string): Watch {
 			clearInterval(poll);
 			clearTimeout(trailing);
 			watcher?.close();
-			connection.close();
+			source?.connection.close();
 		},
 	};
 }
@@ -90,6 +131,9 @@ function startWatch(dbPath: string): Watch {
 /**
  * Call `listener` after any process commits a change to the database at
  * `dbPath`. It is not told what changed; it reads its own rows again.
+ *
+ * A database that cannot be opened is tried again on the poll, and the
+ * listeners are called once when it opens.
  */
 export function onStateDbChange(
 	dbPath: string,

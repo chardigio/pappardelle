@@ -17,7 +17,12 @@ import {
 } from './companion-width.ts';
 import type {PaneWidth} from './layout-sizing.ts';
 import {createLogger} from './logger.ts';
-import {retryBusy, type JsonMirror, type StateDb} from './state-db.ts';
+import {
+	GuardedReads,
+	retryBusy,
+	type JsonMirror,
+	type StateDb,
+} from './state-db.ts';
 import {onStateDbChange} from './state-db-watch.ts';
 
 const log = createLogger('companion-width');
@@ -34,6 +39,7 @@ function toWidth(row: WidthRow): PaneWidth {
 
 export class SqliteCompanionWidthDao implements CompanionWidthDao {
 	private readonly mirror: JsonMirror;
+	private readonly reads = new GuardedReads(log, 'companion widths');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -57,17 +63,11 @@ export class SqliteCompanionWidthDao implements CompanionWidthDao {
 	}
 
 	all(): Record<string, PaneWidth> {
-		try {
+		// The companion takes its configured width until this can be read.
+		return this.reads.or({}, () => {
 			this.openDb().sync(this.mirror);
 			return this.stored();
-		} catch (error) {
-			// The companion takes its configured width until this can be read.
-			log.warn(
-				'Could not read companion widths from the state database',
-				error instanceof Error ? error : undefined,
-			);
-			return {};
-		}
+		});
 	}
 
 	get(spaceKey: string): PaneWidth | null {
@@ -131,8 +131,11 @@ type AckRow = {
 };
 
 export class SqliteCompanionRequestDao implements CompanionRequestDao {
+	private readonly reads = new GuardedReads(log, 'companion requests');
+
 	constructor(
 		private readonly openDb: () => StateDb,
+		private readonly dbPath: string,
 		private readonly repo: string,
 		private readonly json: JsonCompanionRequestDao,
 	) {}
@@ -153,12 +156,14 @@ export class SqliteCompanionRequestDao implements CompanionRequestDao {
 	}
 
 	answerTo(id: string): LayoutAck | null {
-		const row = this.openDb()
-			.db.query<AckRow, [string, string]>(
-				`SELECT ack_result, ack_columns FROM companion_requests
-				WHERE repo = ? AND id = ?`,
-			)
-			.get(this.repo, id);
+		const row = this.reads.or(null, () =>
+			this.openDb()
+				.db.query<AckRow, [string, string]>(
+					`SELECT ack_result, ack_columns FROM companion_requests
+					WHERE repo = ? AND id = ?`,
+				)
+				.get(this.repo, id),
+		);
 		if (!row?.ack_result) return null;
 		return {
 			id,
@@ -177,20 +182,31 @@ export class SqliteCompanionRequestDao implements CompanionRequestDao {
 	}
 
 	watch(onRequest: (request: LayoutRequest) => void): () => void {
-		const unanswered = this.openDb().db.query<RequestRow, [string]>(
-			`SELECT id, space, kind, asked FROM companion_requests
-			WHERE repo = ? AND ack_result IS NULL`,
-		);
 		const timesAsked = () =>
-			new Map(unanswered.all(this.repo).map(row => [row.id, row]));
+			this.reads.or(
+				undefined,
+				() =>
+					new Map(
+						this.openDb()
+							.db.query<RequestRow, [string]>(
+								`SELECT id, space, kind, asked FROM companion_requests
+								WHERE repo = ? AND ack_result IS NULL`,
+							)
+							.all(this.repo)
+							.map(row => [row.id, row]),
+					),
+			);
 		// A request is reported each time it is asked. One that was already
-		// waiting when the watch began was left by a CLI that has stopped
-		// waiting, unless it asks again.
+		// waiting at the first read that worked was left by a CLI that has
+		// stopped waiting, unless it asks again.
 		let reported = timesAsked();
-		return onStateDbChange(this.openDb().path, () => {
+		return onStateDbChange(this.dbPath, () => {
 			const current = timesAsked();
-			for (const {asked, ...request} of current.values()) {
-				if (reported.get(request.id)?.asked !== asked) onRequest(request);
+			if (!current) return;
+			if (reported) {
+				for (const {asked, ...request} of current.values()) {
+					if (reported.get(request.id)?.asked !== asked) onRequest(request);
+				}
 			}
 
 			reported = current;

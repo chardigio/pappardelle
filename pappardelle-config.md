@@ -1156,6 +1156,7 @@ experimental?: {sqliteState?: boolean};
 - Restart Pappardelle after changing the flag. A TUI that is already running keeps the mode it started with
 - Agents pick the change up by themselves: the hooks and each agent pane's status monitor read the flag from `~/.pappardelle/state-flag.json`, which Pappardelle rewrites when it starts
 - An agent session that was started by a Pappardelle from before status monitors wrote to the database keeps writing files only. Its status is still read correctly, but reaches the rail on the 10 second refresh until that session restarts
+- A database that cannot be opened or read does not stop the TUI. The rail keeps running without the spaces and statuses it could not read, reports the failed reads in its error list, and reads the database again once it can, with no restart
 - Locks (`restart.lock`, `send-locks/`), the lease files in `program-status/`, `supervise.jsonl`, logs and config stay files in both modes
 - `PAPPARDELLE_SQLITE_STATE=1` or `0` overrides the config for one process and its children, and `PAPPARDELLE_STATE_DB` moves the database. Both exist for tests
 

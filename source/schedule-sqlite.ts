@@ -14,7 +14,7 @@ import {
 	type JsonScheduleDao,
 	type ScheduleDao,
 } from './schedule.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
 const log = createLogger('schedule');
 
@@ -59,7 +59,7 @@ function toJob(row: JobRow): Job {
 }
 
 export class SqliteScheduleDao implements ScheduleDao {
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'scheduled jobs');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -78,17 +78,14 @@ export class SqliteScheduleDao implements ScheduleDao {
 	}
 
 	load(id: string): Job | null {
-		try {
+		return this.reads.or(null, () => {
 			this.openDb().sync(this.jobMirror(id));
 			return this.row(id);
-		} catch (error) {
-			this.reportUnreadable(error);
-			return null;
-		}
+		});
 	}
 
 	list(): Job[] {
-		try {
+		return this.reads.or([], () => {
 			// A process without the database leaves a job file with no row yet,
 			// and removes one without touching its row.
 			for (const id of new Set([...this.json.ids(), ...this.storedIds()]))
@@ -99,10 +96,7 @@ export class SqliteScheduleDao implements ScheduleDao {
 				)
 				.all(this.repo)
 				.map(row => toJob(row));
-		} catch (error) {
-			this.reportUnreadable(error);
-			return [];
-		}
+		});
 	}
 
 	async delete(id: string): Promise<void> {
@@ -122,7 +116,7 @@ export class SqliteScheduleDao implements ScheduleDao {
 	}
 
 	queued(key: string): string | null {
-		try {
+		return this.reads.or(null, () => {
 			this.openDb().sync(this.queueMirror(key));
 			return (
 				this.openDb()
@@ -132,10 +126,7 @@ export class SqliteScheduleDao implements ScheduleDao {
 					>('SELECT text FROM queued_messages WHERE repo = ? AND key = ?')
 					.get(this.repo, key)?.text ?? null
 			);
-		} catch (error) {
-			this.reportUnreadable(error);
-			return null;
-		}
+		});
 	}
 
 	async clearQueued(key: string): Promise<void> {
@@ -144,15 +135,6 @@ export class SqliteScheduleDao implements ScheduleDao {
 			this.deleteQueued(key);
 			tx.mirror(mirror.file, null);
 		});
-	}
-
-	private reportUnreadable(error: unknown): void {
-		if (this.reportedUnreadable) return;
-		this.reportedUnreadable = true;
-		log.warn(
-			'Could not read scheduled jobs from the state database',
-			error instanceof Error ? error : undefined,
-		);
 	}
 
 	private jobMirror(id: string): JsonMirror {

@@ -6,7 +6,7 @@
 // way is imported when it is read.
 
 import {createLogger} from './logger.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 import {
 	parseCachedCheck,
 	renderCachedCheck,
@@ -18,6 +18,7 @@ const log = createLogger('update-check');
 
 export class SqliteUpdateCheckDao implements UpdateCheckDao {
 	private readonly mirror: JsonMirror;
+	private readonly reads = new GuardedReads(log, 'the update check');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -36,7 +37,7 @@ export class SqliteUpdateCheckDao implements UpdateCheckDao {
 	}
 
 	read(): CacheEntry | null {
-		try {
+		return this.reads.or(null, () => {
 			this.openDb().sync(this.mirror);
 			const row = this.openDb()
 				.db.query<
@@ -47,13 +48,7 @@ export class SqliteUpdateCheckDao implements UpdateCheckDao {
 			return (
 				row && {checkedAt: row.checked_at, latestVersion: row.latest_version}
 			);
-		} catch (error) {
-			log.warn(
-				'Could not read the update check from the state database',
-				error instanceof Error ? error : undefined,
-			);
-			return null;
-		}
+		});
 	}
 
 	async write(entry: CacheEntry): Promise<void> {

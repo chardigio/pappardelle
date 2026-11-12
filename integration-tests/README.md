@@ -22,6 +22,14 @@ The lifecycle check covers pinned agent panes across window/split selection, eve
 
 `source/program-status-launch.test.ts` adds ten account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. With Python installed, both launchers also verify Pi's forced reporting environment and normal SIGPIPE behavior in shell pipelines. Build first; these checks run with the normal AVA suite when tmux is installed.
 
+## Unreadable state database
+
+```bash
+bun integration-tests/verify-unreadable-state-app.ts
+```
+
+Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
+
 ## Popups
 
 ```bash

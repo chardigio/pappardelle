@@ -25,7 +25,10 @@ import type {DeinitResult} from './workspace-deinit.ts';
 const log = createLogger('close-command');
 
 export type CloseCommandDeps = {
-	registry: Pick<SpaceRegistryDao, 'has' | 'markClosing' | 'reopen' | 'remove'>;
+	registry: Pick<
+		SpaceRegistryDao,
+		'keepsLifecycle' | 'has' | 'markClosing' | 'reopen' | 'remove'
+	>;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
 	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
@@ -144,11 +147,20 @@ async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
 	});
 	await cleanup?.catch(() => false);
 	if (
-		result.outcome === 'mark-failed' ||
-		result.outcome === 'unregister-failed'
+		result.outcome !== 'mark-failed' &&
+		result.outcome !== 'unregister-failed'
 	)
-		throw result.error;
-	return result.outcome === 'closed';
+		return result.outcome === 'closed';
+	// A registry with no record of the close fails as it always has.
+	if (!deps.registry.keepsLifecycle) throw result.error;
+	const cause =
+		result.error instanceof Error ? result.error.message : String(result.error);
+	deps.print(
+		result.outcome === 'mark-failed'
+			? `Could not start closing ${key}: ${cause}. Its sessions were not ended and it is still open`
+			: `Ended the sessions of ${key}, but could not remove it from the registry: ${cause}. Run close again to finish`,
+	);
+	return false;
 }
 
 export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {

@@ -19,7 +19,7 @@ import {
 	type SpaceStateDao,
 	type SpaceStatePatch,
 } from './space-state.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
 const log = createLogger('space-state');
 
@@ -138,7 +138,7 @@ function toState(row: Row | null, links: SpacePrLink[]): SpaceState | null {
 }
 
 export class SqliteSpaceStateDao implements SpaceStateDao {
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'space state');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -152,20 +152,10 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	}
 
 	read(key: string): SpaceState | null {
-		try {
+		return this.reads.or(null, () => {
 			this.openDb().sync(this.mirror(key));
 			return this.stored(key);
-		} catch (error) {
-			if (!this.reportedUnreadable) {
-				this.reportedUnreadable = true;
-				log.warn(
-					'Could not read space state from the state database',
-					error instanceof Error ? error : undefined,
-				);
-			}
-
-			return null;
-		}
+		});
 	}
 
 	async write(key: string, patch: SpaceStatePatch): Promise<void> {

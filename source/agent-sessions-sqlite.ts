@@ -14,7 +14,7 @@ import {
 	type AgentSessionsDao,
 	type JsonAgentSessionsDao,
 } from './space-state.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
 const log = createLogger('agent-sessions');
 
@@ -26,7 +26,7 @@ type SessionRow = {
 };
 
 export class SqliteAgentSessionsDao implements AgentSessionsDao {
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'agent sessions');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -50,16 +50,13 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	}
 
 	keys(): string[] {
-		try {
+		return this.reads.or([], () => {
 			// A hook without the database leaves a file with no rows yet, and a
 			// process that reads the files removes one without touching its rows.
 			for (const key of new Set([...this.json.keys(), ...this.storedKeys()]))
 				this.openDb().sync(this.mirror(key));
 			return this.storedKeys();
-		} catch (error) {
-			this.reportUnreadable(error);
-			return [];
-		}
+		});
 	}
 
 	async renameProfile(key: string, from: string, to: string): Promise<void> {
@@ -95,22 +92,10 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	}
 
 	private sessions(key: string): SessionRow[] {
-		try {
+		return this.reads.or([], () => {
 			this.openDb().sync(this.mirror(key));
 			return this.rows(key);
-		} catch (error) {
-			this.reportUnreadable(error);
-			return [];
-		}
-	}
-
-	private reportUnreadable(error: unknown): void {
-		if (this.reportedUnreadable) return;
-		this.reportedUnreadable = true;
-		log.warn(
-			'Could not read agent sessions from the state database',
-			error instanceof Error ? error : undefined,
-		);
+		});
 	}
 
 	private mirror(key: string): JsonMirror {

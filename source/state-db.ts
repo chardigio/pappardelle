@@ -479,6 +479,38 @@ export class StateDb {
 	}
 }
 
+/**
+ * One store's reads while the database cannot be opened or read. The rail
+ * reads while it renders, where a throw replaces the whole view, so a read
+ * answers what it answers for a record that is not there, and the failure is
+ * logged once: the rail reads every space again on each refresh.
+ */
+export class GuardedReads {
+	private reported = false;
+
+	constructor(
+		private readonly log: Pick<ReturnType<typeof createLogger>, 'warn'>,
+		private readonly what: string,
+	) {}
+
+	/** What `read` returns, or `unknown` when it throws. */
+	or<T, U>(unknown: U, read: () => T): T | U {
+		try {
+			return read();
+		} catch (error) {
+			if (!this.reported) {
+				this.reported = true;
+				this.log.warn(
+					`Could not read ${this.what} from the state database`,
+					error instanceof Error ? error : undefined,
+				);
+			}
+
+			return unknown;
+		}
+	}
+}
+
 /** The file's content with the signature of the bytes that were read. */
 function readWithSignature(
 	file: string,
@@ -517,21 +549,53 @@ function migrate(db: Database): void {
 	}).immediate();
 }
 
+/**
+ * Put a new database into write-ahead mode. While another process is doing
+ * the same to the same new file, SQLite refuses at once instead of waiting
+ * out busy_timeout, so this asks again until that process is done.
+ */
+function enableWal(db: Database): void {
+	const deadline = performance.now() + OPEN_BUSY_TIMEOUT_MS;
+	for (;;) {
+		const mode = db
+			.query<{journal_mode: string}, []>('PRAGMA journal_mode')
+			.get();
+		if (mode?.journal_mode === 'wal') return;
+		try {
+			db.run('PRAGMA journal_mode = WAL');
+			return;
+		} catch (error) {
+			if (!isBusyError(error) || performance.now() >= deadline) throw error;
+			Atomics.wait(
+				new Int32Array(new SharedArrayBuffer(4)),
+				0,
+				0,
+				BUSY_RETRY_MS,
+			);
+		}
+	}
+}
+
 /** The process's connection to the database at `dbPath`, opened on first use. */
 export function openStateDb(dbPath: string): StateDb {
 	const existing = connections.get(dbPath);
 	if (existing) return existing;
 	fs.mkdirSync(path.dirname(dbPath), {recursive: true});
 	const db = new Database(dbPath, {create: true, strict: true});
-	db.run(`PRAGMA busy_timeout = ${OPEN_BUSY_TIMEOUT_MS}`);
-	const mode = db
-		.query<{journal_mode: string}, []>('PRAGMA journal_mode')
-		.get();
-	if (mode?.journal_mode !== 'wal') db.run('PRAGMA journal_mode = WAL');
-	db.run('PRAGMA synchronous = NORMAL');
-	db.run('PRAGMA foreign_keys = ON');
-	migrate(db);
-	db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+	try {
+		db.run(`PRAGMA busy_timeout = ${OPEN_BUSY_TIMEOUT_MS}`);
+		enableWal(db);
+		db.run('PRAGMA synchronous = NORMAL');
+		db.run('PRAGMA foreign_keys = ON');
+		migrate(db);
+		db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+	} catch (error) {
+		// Every read tries again while the file cannot be used, and each
+		// attempt would otherwise leave a file handle open.
+		db.close();
+		throw error;
+	}
+
 	const state = new StateDb(db, dbPath);
 	connections.set(dbPath, state);
 	return state;

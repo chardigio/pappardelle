@@ -6,12 +6,12 @@
 
 import {createLogger} from './logger.ts';
 import type {JsonPrLinkStampDao, PrLinkStampDao} from './pr-link-stamp.ts';
-import type {StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('pr-link-stamp');
 
 export class SqlitePrLinkStampDao implements PrLinkStampDao {
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'the pr-link stamp');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -32,25 +32,15 @@ export class SqlitePrLinkStampDao implements PrLinkStampDao {
 	}
 
 	read(): number {
-		try {
-			return (
+		return this.reads.or(
+			0,
+			() =>
 				this.openDb()
 					.db.query<
 						{touched_at: number},
 						[]
 					>('SELECT touched_at FROM pr_link_stamp WHERE id = 1')
-					.get()?.touched_at ?? 0
-			);
-		} catch (error) {
-			if (!this.reportedUnreadable) {
-				this.reportedUnreadable = true;
-				log.warn(
-					'Could not read the pr-link stamp from the state database',
-					error instanceof Error ? error : undefined,
-				);
-			}
-
-			return 0;
-		}
+					.get()?.touched_at ?? 0,
+		);
 	}
 }

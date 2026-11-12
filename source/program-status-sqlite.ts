@@ -19,7 +19,7 @@ import {
 	type StatusPane,
 	type StatusTmuxRunner,
 } from './program-status-monitor.ts';
-import {isBusyError, type StateDb} from './state-db.ts';
+import {GuardedReads, isBusyError, type StateDb} from './state-db.ts';
 import {onStateDbChange, waitForStateDbChange} from './state-db-watch.ts';
 
 const log = createLogger('program-status');
@@ -39,6 +39,8 @@ type SnapshotRow = {
 	records: string;
 	info: string;
 };
+
+type SnapshotVersion = {key: string; content: string};
 
 const COLUMNS =
 	'repo, key, generation, pane_id, pane_pid, pane_dead, pane_piped, marker, authoritative, exited, updated_at, records, info';
@@ -135,7 +137,7 @@ export class SqliteProgramStatusDao implements ProgramStatusDao {
 	readonly repo: string;
 	readonly dir: string;
 	readonly dbPath: string;
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'program statuses');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -188,9 +190,12 @@ export class SqliteProgramStatusDao implements ProgramStatusDao {
 	}
 
 	watch(listener: (key: string) => void): () => void {
-		let known = this.versions();
+		let known = this.reads.or(new Map<string, SnapshotVersion>(), () =>
+			this.versions(),
+		);
 		return onStateDbChange(this.dbPath, () => {
-			const current = this.versions();
+			const current = this.reads.or(null, () => this.versions());
+			if (!current) return;
 			const changed = new Set<string>();
 			for (const id of new Set([...known.keys(), ...current.keys()])) {
 				const [before, after] = [known.get(id), current.get(id)];
@@ -208,33 +213,21 @@ export class SqliteProgramStatusDao implements ProgramStatusDao {
 	}
 
 	private readRow(key: string, pane: StatusPane): ProgramStatusSnapshot | null {
-		let row: SnapshotRow | null;
-		try {
-			row = this.openDb()
+		const row = this.reads.or(null, () =>
+			this.openDb()
 				.db.query<SnapshotRow, [string, string, string]>(
 					`SELECT ${COLUMNS} FROM program_status
 					WHERE repo = ? AND key = ? AND generation = ?`,
 				)
-				.get(this.repo, key, pane.generation);
-		} catch (error) {
-			if (!this.reportedUnreadable) {
-				this.reportedUnreadable = true;
-				log.warn(
-					'Could not read program statuses from the state database',
-					error instanceof Error ? error : undefined,
-				);
-			}
-
-			return null;
-		}
-
+				.get(this.repo, key, pane.generation),
+		);
 		return row
 			? checkedProgramSnapshot(() => toSnapshot(row), this.repo, key, pane)
 			: null;
 	}
 
 	/** Every snapshot row of the repo, each as one comparable string. */
-	private versions(): Map<string, {key: string; content: string}> {
+	private versions(): Map<string, SnapshotVersion> {
 		const rows = this.openDb()
 			.db.query<
 				SnapshotRow,
