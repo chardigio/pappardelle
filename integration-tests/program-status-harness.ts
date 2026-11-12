@@ -4,6 +4,7 @@ import {execFileSync} from 'node:child_process';
 import {
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
@@ -16,7 +17,7 @@ import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual} from 'node:util';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
-import {sendHookEvent} from '../test/helpers/status-daemon.ts';
+import {sendHookEvent, subscribeRaw} from '../test/helpers/status-daemon.ts';
 import type {
 	ClaudeSessionState,
 	ClaudeStatus,
@@ -24,11 +25,7 @@ import type {
 } from '../source/claude-status.ts';
 import SpaceListItem from '../source/components/SpaceListItem.tsx';
 import {stateDaosByRepo, type StateDaos} from '../source/state-daos.ts';
-import {
-	closeStateDb,
-	openStateDb,
-	statusSocketPath,
-} from '../source/state-db.ts';
+import {closeStateDb, statusSocketPath} from '../source/state-db.ts';
 import {
 	createStatusServer,
 	type StatusServer,
@@ -64,6 +61,20 @@ export async function until<T>(
 	throw new Error(`Timed out: ${label}`);
 }
 
+function entriesIn(directory: string): string[] {
+	try {
+		return readdirSync(directory);
+	} catch {
+		return [];
+	}
+}
+
+function jsonFilesIn(directory: string): string[] {
+	return entriesIn(directory)
+		.filter(file => file.endsWith('.json'))
+		.map(file => path.join(directory, file));
+}
+
 export class StatusHarness {
 	readonly root = mkdtempSync(path.join(tmpdir(), 'pappa-program-status-'));
 	readonly socket = `pappa_status_${process.pid}`;
@@ -83,7 +94,10 @@ export class StatusHarness {
 	}> = [];
 
 	private readonly daosFor: (repo: string) => StateDaos;
-	/** With the flag on, the status daemon's hub, served from this process. */
+	/**
+	 * With the flag on, the status daemon's hub, served from this process, so
+	 * that the monitors in the harness's panes start no daemon.
+	 */
 	private readonly statusServer?: StatusServer;
 	private readonly previous = new Map<string, string | undefined>();
 	private stopWatch?: () => void;
@@ -131,15 +145,41 @@ export class StatusHarness {
 		return programStatusDir(repo, this.stateDir);
 	}
 
-	/** How many snapshot rows a space has. A run without the database has none. */
-	snapshotRows(repo: string, key: string): number {
+	/**
+	 * How many snapshots of a space the status daemon holds. A run with the
+	 * flag off has no daemon.
+	 */
+	async heldSnapshots(repo: string, key: string): Promise<number> {
 		if (!this.sqlite) return 0;
-		return openStateDb(path.join(this.stateDir, 'state.db'))
-			.db.query<
-				{rows: number},
-				[string, string]
-			>('SELECT count(*) AS rows FROM program_status WHERE repo = ? AND key = ?')
-			.get(repo, key)!.rows;
+		const closers: Array<() => void | Promise<void>> = [];
+		try {
+			const rail = await subscribeRaw(
+				{teardown: close => closers.push(close)},
+				this.statusSocket,
+				repo,
+			);
+			return rail.messages
+				.flatMap(message => (message.type === 'state' ? message.snapshots : []))
+				.filter(snapshot => snapshot.key === key).length;
+		} finally {
+			for (const close of closers) await close();
+		}
+	}
+
+	/**
+	 * The status files under the harness's root. With the flag on every
+	 * status goes to the daemon, so there are none.
+	 */
+	private statusFiles(): string[] {
+		const hookFiles = [
+			path.join(this.root, 'hooks'),
+			path.join(this.stateDir, 'claude-status'),
+		].flatMap(directory => jsonFilesIn(directory));
+		const snapshotRoot = path.join(this.root, 'status');
+		const snapshotFiles = entriesIn(snapshotRoot).flatMap(repo =>
+			jsonFilesIn(path.join(snapshotRoot, repo)),
+		);
+		return [...hookFiles, ...snapshotFiles];
 	}
 
 	async tmux(args: string[]) {
@@ -309,6 +349,14 @@ export class StatusHarness {
 		} catch {}
 		if (repo && key) await this.programStatus(repo).remove(key);
 		await delay(200);
+		const left = this.sqlite ? this.statusFiles() : [];
+		if (left.length > 0) {
+			console.error(
+				`FAIL status files left with the flag on: ${left.join(', ')}`,
+			);
+			process.exitCode = 1;
+		}
+
 		for (const [name, value] of this.previous) {
 			if (value === undefined) Reflect.deleteProperty(process.env, name);
 			else process.env[name] = value;

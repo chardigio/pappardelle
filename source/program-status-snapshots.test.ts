@@ -1,24 +1,47 @@
-import {readdirSync} from 'node:fs';
+import {existsSync, readdirSync} from 'node:fs';
 import path from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {
 	publishSnapshot,
+	readStatus,
 	snapshotFile,
 	snapshotOf,
 } from '../test/helpers/program-status.ts';
+import type {TestState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {
 	parseStatusPane,
 	programStatusDir,
 	PublishWindow,
+	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
-import {stateDbPath} from './state-db.ts';
+import {statusSocketPath} from './state-db.ts';
 
 const pane = (marker: string) =>
 	parseStatusPane(`%1\t12\t0\t1\t${marker}`, 'test-status')!;
 const old = pane('12.old');
 const current = pane('12.current');
 const working = [{state: 'working', id: '', app: 'fixture'}] as const;
+
+/** The pane's snapshot once its store reads it as `expected`. */
+async function eventually(
+	read: () => Promise<ProgramStatusSnapshot | null>,
+	expected: (snapshot: ProgramStatusSnapshot | null) => boolean,
+): Promise<ProgramStatusSnapshot | null> {
+	const deadline = Date.now() + 5000;
+	for (;;) {
+		const snapshot = await read();
+		if (expected(snapshot) || Date.now() > deadline) return snapshot;
+		await delay(5);
+	}
+}
+
+const leases = (state: TestState) =>
+	readdirSync(programStatusDir('repo', state.stateDir))
+		.filter(file => file.endsWith('.lease'))
+		.sort();
 
 contractTest(
 	'a new generation prunes only its own key’s earlier generations',
@@ -34,21 +57,30 @@ contractTest(
 			]),
 		};
 		for (const snapshot of Object.values(snapshots))
-			publishSnapshot(state, snapshot);
+			await publishSnapshot(state, snapshot);
 
 		await store.remove('STA-1', current.generation);
 
-		t.deepEqual(readdirSync(programStatusDir('repo', state.stateDir)).sort(), [
-			path.basename(snapshotFile(state, snapshots.current)),
-			`${path.basename(snapshotFile(state, snapshots.current))}.lease`,
-			path.basename(snapshotFile(state, snapshots.sibling)),
-			`${path.basename(snapshotFile(state, snapshots.sibling))}.lease`,
-		]);
-		t.is(store.read('STA-1', old), null);
+		t.deepEqual(
+			leases(state),
+			[snapshots.current, snapshots.sibling]
+				.map(
+					snapshot => `${path.basename(snapshotFile(state, snapshot))}.lease`,
+				)
+				.sort(),
+		);
+		t.false(existsSync(snapshotFile(state, snapshots.old)));
+		t.is(
+			await eventually(
+				async () => store.read('STA-1', old),
+				snapshot => snapshot === null,
+			),
+			null,
+		);
 		t.false(store.monitored('STA-1', old.generation));
-		t.is(store.read('STA-1', current)?.info.status, 'working');
+		t.is(await readStatus(state, 'STA-1', current), 'working');
 		t.true(store.monitored('STA-1', current.generation));
-		t.is(store.read('STA-2', old)?.info.status, 'working');
+		t.is(await readStatus(state, 'STA-2', old), 'working');
 	},
 );
 
@@ -61,48 +93,125 @@ contractTest(
 			['STA-1', current],
 			['STA-2', old],
 		] as const)
-			publishSnapshot(
+			await publishSnapshot(
 				state,
 				snapshotOf({repo: 'repo', key, pane: generation}, [...working]),
 			);
 
 		await store.remove('STA-1');
 
-		t.is(store.read('STA-1', old), null);
-		t.is(store.read('STA-1', current), null);
-		t.is(store.read('STA-2', old)?.info.status, 'working');
+		for (const generation of [old, current]) {
+			t.is(
+				await eventually(
+					async () => store.read('STA-1', generation),
+					snapshot => snapshot === null,
+				),
+				null,
+			);
+			t.false(store.monitored('STA-1', generation.generation));
+		}
+
+		t.is(await readStatus(state, 'STA-2', old), 'working');
 	},
 );
 
 contractTest(
 	'a snapshot is read only for the pane and the repo it was published for',
-	(t, state) => {
+	async (t, state) => {
 		const store = state.daos.programStatus;
-		publishSnapshot(
+		await publishSnapshot(
 			state,
 			snapshotOf({repo: 'repo', key: 'STA-1', pane: current}, [...working]),
 		);
-		publishSnapshot(
+		await publishSnapshot(
 			state,
 			snapshotOf({repo: 'other', key: 'STA-3', pane: current}, [...working]),
 		);
 
-		t.like(store.read('STA-1', current), {
+		t.like(await store.read('STA-1', current), {
 			repo: 'repo',
 			key: 'STA-1',
 			authoritative: true,
 			exited: false,
 			info: {status: 'working', app: 'fixture'},
 		});
-		t.is(store.read('STA-1', old), null);
-		t.is(store.read('STA-3', current), null);
+		t.is(await store.read('STA-1', old), null);
+		t.is(await store.read('STA-3', current), null);
+	},
+);
+
+// A reader checks a snapshot against the pane as tmux reports it now, which
+// can have died since its monitor last published.
+contractTest(
+	'a working status is not read from a pane that has died, on any read, and a finished one is',
+	async (t, state) => {
+		const store = state.daos.programStatus;
+		const dead = {...current, dead: true};
+		await publishSnapshot(
+			state,
+			snapshotOf({repo: 'repo', key: 'STA-1', pane: current}, [...working]),
+		);
+
+		for (let read = 0; read < 2; read++) {
+			t.is(await readStatus(state, 'STA-1', dead), 'unknown');
+			t.is(await readStatus(state, 'STA-1', current), 'working');
+		}
+
+		await publishSnapshot(
+			state,
+			snapshotOf({repo: 'repo', key: 'STA-1', pane: current}, [
+				{state: 'done', id: '', app: 'fixture'},
+			]),
+		);
+		t.is(await readStatus(state, 'STA-1', dead), 'done');
+	},
+);
+
+contractTest(
+	'a snapshot its monitor published on exit reads as exited, with no working status',
+	async (t, state) => {
+		const store = state.daos.programStatus;
+		await publishSnapshot(
+			state,
+			snapshotOf({repo: 'repo', key: 'STA-1', pane: current}, [...working], {
+				exited: true,
+			}),
+		);
+
+		t.like(await store.read('STA-1', current), {
+			exited: true,
+			info: {status: 'unknown'},
+		});
+	},
+);
+
+contractTest(
+	'a published snapshot reaches a watch with its space key, and ends a wait for a change',
+	async (t, state) => {
+		const store = state.daos.programStatus;
+		const seen: string[] = [];
+		t.teardown(store.watch(key => seen.push(key)));
+		// A file watch that has just begun can miss a write made right after.
+		await delay(50);
+		const started = performance.now();
+		const waiting = store.waitForChange(5000);
+
+		await publishSnapshot(
+			state,
+			snapshotOf({repo: 'repo', key: 'STA-1', pane: current}, [...working]),
+		);
+		await waiting;
+
+		t.true(performance.now() - started < 4000);
+		await waitUntil(() => seen.includes('STA-1'), 'the watch to be told');
+		t.deepEqual([...new Set(seen)], ['STA-1']);
 	},
 );
 
 // A monitor outlives a change of experimental.sqliteState, so it is told
-// where the database is even while the flag is off.
+// where the status daemon listens even while the flag is off.
 contractTest(
-	'a monitor is started with the snapshot directory and the database path',
+	'a monitor is started with the snapshot directory and the status socket',
 	async (t, state) => {
 		const commands: string[] = [];
 		const pane = await state.daos.programStatus.attach(
@@ -118,7 +227,7 @@ contractTest(
 		t.is(pane, null);
 		const launch = commands.find(command => command.includes('pipe-pane'));
 		t.true(launch?.includes(programStatusDir('repo', state.stateDir)));
-		t.true(launch?.includes(stateDbPath(state.stateDir)));
+		t.true(launch?.includes(statusSocketPath(state.stateDir)));
 		t.deepEqual(readdirSync(programStatusDir('repo', state.stateDir)), []);
 	},
 );

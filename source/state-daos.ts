@@ -1,9 +1,9 @@
 // The composition root for Pappardelle's stores.
 //
 // Each store is a DAO with a file-backed implementation and one for
-// experimental.sqliteState: SQLite-backed, or for hook status the status
-// daemon. This is the one place that decides which a process gets, so nothing
-// else reads the flag, and removing the flag changes this file.
+// experimental.sqliteState: SQLite-backed, or for the two status signals the
+// status daemon. This is the one place that decides which a process gets, so
+// nothing else reads the flag, and removing the flag changes this file.
 
 import path from 'node:path';
 import {SqliteAgentSessionsDao} from './agent-sessions-sqlite.ts';
@@ -36,8 +36,8 @@ import {
 	type PrLinkStampDao,
 } from './pr-link-stamp.ts';
 import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
+import {createProgramStatusDao} from './program-status-daemon.ts';
 import type {ProgramStatusDao} from './program-status-monitor.ts';
-import {createProgramStatusDao} from './program-status-sqlite.ts';
 import {
 	getStateColorsPath,
 	JsonStateColorDao,
@@ -109,6 +109,12 @@ export type StateDaos = {
 	 * For the process that renders the TUI.
 	 */
 	deferCheckpoints(): void;
+	/**
+	 * From now on this process starts the status daemon when none runs. For
+	 * the process that renders the TUI: a CLI verb reads what a running daemon
+	 * holds and never starts one.
+	 */
+	allowStatusDaemonStart(): void;
 	/**
 	 * Close this process's connection to the status daemon. A process that
 	 * exits has no need to: the connection does not keep it alive.
@@ -184,16 +190,19 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		if (checkpointsDeferred) checkpointOutsideWrites(state);
 		return state;
 	};
+	const socketPath = statusSocketPath(options.stateDir);
+	const statusClient = sqlite
+		? new StatusClient(socketPath, {repo})
+		: undefined;
 	const programStatus = createProgramStatusDao({
-		sqlite,
 		repo,
 		stateDir,
-		dbPath,
-		openDb,
+		socketPath,
+		statusClient,
 	});
 	const tuiMarkerFile = tuiMarkerPath(path.join(stateDir, 'repos'), repo);
 	const updateCheckFile = updateCheckPath(stateDir);
-	if (!sqlite) {
+	if (!statusClient) {
 		return {
 			registry: jsonRegistry,
 			claudeStatus: jsonClaudeStatus,
@@ -210,13 +219,11 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
 			updateCheck: new JsonUpdateCheckDao(updateCheckFile),
 			deferCheckpoints() {},
+			allowStatusDaemonStart() {},
 			disconnectStatusDaemon() {},
 		};
 	}
 
-	const statusClient = new StatusClient(statusSocketPath(options.stateDir), {
-		repo,
-	});
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
 		claudeStatus: new DaemonClaudeStatusDao(statusClient),
@@ -249,6 +256,9 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckFile),
 		deferCheckpoints() {
 			checkpointsDeferred = true;
+		},
+		allowStatusDaemonStart() {
+			statusClient.allowStart();
 		},
 		disconnectStatusDaemon() {
 			statusClient.close();

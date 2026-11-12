@@ -30,7 +30,7 @@ test.serial(
 			)) < 2000,
 		);
 		t.true(
-			(await waited(3000, () => {
+			(await waited(3000, async () =>
 				publishSnapshot(
 					state,
 					snapshotOf(
@@ -41,8 +41,8 @@ test.serial(
 						},
 						[{state: 'working', id: ''}],
 					),
-				);
-			})) < 2000,
+				),
+			)) < 2000,
 		);
 		t.true((await waited(200)) >= 190);
 	},

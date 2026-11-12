@@ -1,14 +1,11 @@
 import fs from 'node:fs';
 import test, {type ExecutionContext} from 'ava';
-import {publishSnapshot, snapshotOf} from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 import {clearRecentErrors, subscribeToErrors} from './logger.ts';
-import {parseStatusPane} from './program-status-monitor.ts';
 import {stateDbPath} from './state-db.ts';
+import {onStateDbChange} from './state-db-watch.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
-
-const pane = parseStatusPane('%1\t12\t0\t1\t12.owner', 'test-status')!;
 
 /** Stores with the flag on, over a state.db that SQLite refuses to open. */
 function unreadable(t: ExecutionContext) {
@@ -46,7 +43,6 @@ test.serial(
 			t.deepEqual(daos.schedules.list(), []);
 			t.is(daos.schedules.queued('STA-1'), null);
 			t.is(daos.prLinkStamp.read(), 0);
-			t.is(daos.programStatus.read('STA-1', pane), null);
 			t.is(daos.tuiMarker.read(), null);
 			t.is(daos.updateCheck.read(), null);
 		}
@@ -59,7 +55,6 @@ test.serial(
 				'companion-width: Could not read companion widths from the state database',
 				'issue-meta: Could not read issue metadata from the state database',
 				'pr-link-stamp: Could not read the pr-link stamp from the state database',
-				'program-status: Could not read program statuses from the state database',
 				'schedule: Could not read scheduled jobs from the state database',
 				'space-state: Could not read space state from the state database',
 				'state-colors: Could not read workflow state colors from the state database',
@@ -78,18 +73,9 @@ test('the registry reports a database that cannot be read as a failed read, not 
 	t.true(daos.registry.has('STA-1'));
 });
 
-test('waiting for a change over a database that cannot be read runs out its time', async t => {
-	const {daos} = unreadable(t);
-	const started = performance.now();
-	await daos.programStatus.waitForChange(60);
-	t.true(performance.now() - started >= 50);
-});
-
 test('watches begun over a database that cannot be read deliver its changes once it can', async t => {
-	const state = unreadable(t);
-	const {daos, dbPath} = state;
+	const {daos, dbPath} = unreadable(t);
 	const seen = {
-		program: [] as string[],
 		highlight: [] as string[],
 		requests: [] as string[],
 	};
@@ -99,7 +85,6 @@ test('watches begun over a database that cannot be read deliver its changes once
 	});
 	t.notThrows(() => {
 		stops.push(
-			daos.programStatus.watch(key => seen.program.push(key)),
 			daos.highlight.watch(key => seen.highlight.push(key)),
 			daos.companionRequests.watch(request => seen.requests.push(request.id)),
 			// The rail's own subscription, which the app makes in an effect. No
@@ -117,6 +102,9 @@ test('watches begun over a database that cannot be read deliver its changes once
 			),
 		);
 	});
+	// Told of a change after the watches above, which began first.
+	let told = 0;
+	stops.push(onStateDbChange(dbPath, () => told++));
 
 	fs.rmSync(dbPath);
 	// Requests already in the database a watch comes to read were made for
@@ -127,15 +115,9 @@ test('watches begun over a database that cannot be read deliver its changes once
 		space: 'STA-1',
 		kind: 'width',
 	});
-	publishSnapshot(
-		state,
-		snapshotOf({repo: 'repo', key: 'STA-1', pane}, [
-			{state: 'working', id: ''},
-		]),
-	);
 	await waitUntil(
-		() => seen.program.includes('STA-1'),
-		'what was written while the watches could not read',
+		() => told > 0,
+		'the watches to read what was written while they could not',
 	);
 
 	await daos.highlight.request('STA-2');
@@ -149,7 +131,6 @@ test('watches begun over a database that cannot be read deliver its changes once
 		'a change made after the watches could read',
 	);
 	t.deepEqual(seen, {
-		program: ['STA-1'],
 		highlight: ['STA-2'],
 		requests: ['request-1'],
 	});
