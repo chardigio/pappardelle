@@ -3,7 +3,8 @@ import {Glob} from 'bun';
 import {mkdir, rm, chmod, rename} from 'node:fs/promises';
 
 // Keep entry points and shared chunks directly under dist where application
-// helpers resolve scripts/, package.json and the status-monitor entry point.
+// helpers resolve scripts/, package.json and the status-monitor and
+// status-daemon entry points.
 const finalOutdir =
 	process.argv
 		.find(arg => arg.startsWith('--outdir='))

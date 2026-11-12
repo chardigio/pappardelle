@@ -2,6 +2,7 @@
 const internalEntries: Record<string, () => Promise<unknown>> = {
 	'--internal-status-monitor': async () =>
 		import('./program-status-monitor-cli.ts'),
+	'--internal-status-daemon': async () => import('./status-daemon-cli.ts'),
 	'--internal-pane-frame': async () => import('./pane-frame-cli.ts'),
 	'--internal-state': async () => import('./state-cli.ts'),
 };

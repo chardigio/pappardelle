@@ -65,8 +65,10 @@ fi
 SQLITE_STATE="${PAPPARDELLE_SQLITE_STATE:-}"
 for name in $(compgen -e | grep '^PAPPARDELLE_'); do unset "$name"; done
 # The run keeps its state mode. This test runs under the real $HOME, so the
-# database is one of its own, and the timer it starts is handed both.
+# database and the status daemon's socket are its own, and the timer it starts
+# is handed all three.
 export PAPPARDELLE_STATE_DB="$ROOT/state.db"
+export PAPPARDELLE_STATUS_SOCKET="$ROOT/status-1.sock"
 if [[ -n "$SQLITE_STATE" ]]; then
     export PAPPARDELLE_SQLITE_STATE="$SQLITE_STATE"
 fi

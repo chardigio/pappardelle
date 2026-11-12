@@ -11,9 +11,13 @@ import {
 	closeStateDb,
 	isBusyError,
 	openStateDb,
+	stateDbPath,
+	statusSocketPath,
+	DEFAULT_STATE_DIR,
 	type JsonMirror,
 	type StateDb,
 } from './state-db.ts';
+import {sqliteRun} from '../test/helpers/state.ts';
 
 const run = promisify(execFile);
 
@@ -247,3 +251,22 @@ test('a connection that checkpoints outside its writes never checkpoints in a co
 	checkpoint(deferred.state);
 	t.true(size(deferred.dbPath) > 1500 * 4000);
 });
+
+test('the status socket is beside the database, unless the variable or a state directory names another place', t => {
+	const moved = {PAPPARDELLE_STATE_DB: '/moved/state.db'};
+	const named = {...moved, PAPPARDELLE_STATUS_SOCKET: '/named/daemon.sock'};
+
+	t.is(statusSocketPath(undefined, moved), '/moved/status-1.sock');
+	t.is(statusSocketPath(undefined, named), '/named/daemon.sock');
+	t.is(statusSocketPath('/explicit', named), '/explicit/status-1.sock');
+});
+
+(sqliteRun ? test : test.skip)(
+	'a test run with the database on has its status socket with its database, outside the user’s state directory',
+	t => {
+		const directory = path.dirname(statusSocketPath(undefined, {}));
+
+		t.is(directory, path.dirname(stateDbPath(undefined, {})));
+		t.not(directory, DEFAULT_STATE_DIR);
+	},
+);

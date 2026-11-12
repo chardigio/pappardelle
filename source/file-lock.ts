@@ -53,12 +53,13 @@ const mutationQueues = new Map<string, Promise<unknown>>();
 
 /**
  * Run `fn` while holding the advisory lock `${p}.lock`, shared with every
- * other process that locks the same path. Calls in this process queue behind
- * each other. Times out instead of running `fn` when the lock stays held.
+ * other process that locks the same path, until `fn` has returned and what it
+ * returned has settled. Calls in this process queue behind each other. Times
+ * out instead of running `fn` when the lock stays held.
  */
 export async function withFileLock<T>(
 	p: string,
-	fn: (p: string) => T,
+	fn: (p: string) => T | Promise<T>,
 	signal?: AbortSignal,
 ): Promise<T> {
 	const previous = mutationQueues.get(p) ?? Promise.resolve();
@@ -102,7 +103,7 @@ export async function withFileLock<T>(
 				if (acquired) {
 					try {
 						signal?.throwIfAborted();
-						return fn(p);
+						return await fn(p);
 					} finally {
 						fs.rmSync(marker, {force: true});
 						removeEmptyLock(lockPath);
