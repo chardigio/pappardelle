@@ -1,12 +1,10 @@
-import {useMemo} from 'react';
+import {memo, useMemo} from 'react';
 import type {BoxRenderable, OptimizedBuffer} from '@opentui/core';
 import {paintFrameRule} from './frame-paint.ts';
 
-/**
- * The rule between agent spaces (main) and the workspaces below them, joined
- * to the rail's frame on both sides.
- */
-export default function RailDivider({isActive}: {isActive: boolean}) {
+// Paints over the rail frame's sides on its row, which works because a
+// child's renderAfter runs after its ancestors' have drawn the frame.
+function RailDivider({isActive}: {isActive: boolean}) {
 	const renderAfter = useMemo(
 		() =>
 			function (this: BoxRenderable, buffer: OptimizedBuffer) {
@@ -16,3 +14,5 @@ export default function RailDivider({isActive}: {isActive: boolean}) {
 	);
 	return <box height={1} renderAfter={renderAfter} />;
 }
+
+export default memo(RailDivider);

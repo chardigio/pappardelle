@@ -20,11 +20,9 @@ export type FrameSpec = {
 	inset?: number;
 };
 
-type RuleSpec = Pick<FrameSpec, 'borderColor' | 'style' | 'isDim'>;
-
 function ruleDrawer(
 	buffer: OptimizedBuffer,
-	{borderColor, isDim}: Pick<RuleSpec, 'borderColor' | 'isDim'>,
+	{borderColor, isDim}: Pick<FrameSpec, 'borderColor' | 'isDim'>,
 ) {
 	const color = parseColor(terminalColor(borderColor));
 	const attributes = textAttributes({dim: isDim});
@@ -40,10 +38,10 @@ function ruleDrawer(
 export function paintFrameRule(
 	row: Pick<BoxRenderable, 'x' | 'y' | 'width'>,
 	buffer: OptimizedBuffer,
-	{borderColor, style, isDim}: RuleSpec,
+	{style, isDim}: Pick<FrameSpec, 'style' | 'isDim'>,
 ) {
 	const chars = BorderChars[style];
-	ruleDrawer(buffer, {borderColor, isDim})(
+	ruleDrawer(buffer, {isDim})(
 		chars.leftT + chars.horizontal.repeat(row.width) + chars.rightT,
 		row.x - 1,
 		row.y,
