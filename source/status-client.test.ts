@@ -2,7 +2,7 @@ import {execFile} from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {promisify} from 'node:util';
+import {isDeepStrictEqual, promisify} from 'node:util';
 import test, {type ExecutionContext} from 'ava';
 import {snapshotOf} from '../test/helpers/program-status.ts';
 import {
@@ -168,11 +168,12 @@ test('ready() gives up on a daemon that accepts and sends no state, stays connec
 	t.deepEqual(client.hook('repo-A'), hookState('repo-A'));
 });
 
-test('after the daemon is replaced the client reconnects, resubscribes and tells listeners every key that either state held', async t => {
+test('after the daemon is replaced the client reconnects, keeps what it knew, sends the new daemon the hook records it lacks, and tells listeners every key', async t => {
 	const socketPath = testSocketPath(t);
 	const first = await serveTestDaemon(t, socketPath);
 	await seed(t, socketPath, [
-		{type: 'hook', state: hookState('repo-A')},
+		{type: 'hook', state: hookState('repo-A', 'waiting_for_approval')},
+		{type: 'hook', state: hookState('repo-B')},
 		{type: 'snapshot', snapshot: snapshot('A', 'g1')},
 	]);
 	const {client, clock, changes} = testClient(t, socketPath, {repo: 'repo'});
@@ -185,25 +186,40 @@ test('after the daemon is replaced the client reconnects, resubscribes and tells
 		'the client to see that the daemon went away',
 	);
 	t.deepEqual(clock.delays(), [200]);
-	t.deepEqual(client.hook('repo-A'), hookState('repo-A'));
 
+	// The new daemon has heard from repo-B's agent since, and from nobody else.
 	await serveTestDaemon(t, socketPath);
-	const sender = await seed(t, socketPath, [
-		{type: 'hook', state: hookState('repo-B')},
-	]);
+	const newer = {...hookState('repo-B', 'waiting_for_input'), lastUpdate: 2000};
+	const sender = await seed(t, socketPath, [{type: 'hook', state: newer}]);
 	clock.fire();
-	await waitUntil(
-		() => client.hook('repo-B') !== undefined,
-		'the new daemon’s state',
-	);
 
-	t.is(client.hook('repo-A'), undefined);
-	t.is(client.snapshot('A', 'g1'), undefined);
-	t.deepEqual(changes, [
+	await sender.received(
+		message =>
+			message.type === 'hook' && message.state.workspaceName === 'repo-A',
+		'the hook record the new daemon lacked',
+	);
+	t.deepEqual(
+		client.hook('repo-A'),
+		hookState('repo-A', 'waiting_for_approval'),
+	);
+	t.deepEqual(client.hook('repo-B'), newer);
+	t.deepEqual(client.snapshot('A', 'g1'), snapshot('A', 'g1'));
+	for (const change of [
 		{kind: 'hook', statusKey: 'repo-A'},
 		{kind: 'hook', statusKey: 'repo-B'},
 		{kind: 'snapshot', key: 'A'},
-	]);
+	] as const) {
+		t.true(
+			changes.some(told => isDeepStrictEqual(told, change)),
+			`listeners were told of ${JSON.stringify(change)}`,
+		);
+	}
+
+	const reader = await subscribeRaw(t, socketPath, 'repo');
+	t.like(
+		reader.messages.find(message => message.type === 'state'),
+		{hooks: [newer, hookState('repo-A', 'waiting_for_approval')]},
+	);
 
 	sender.send({type: 'hook', state: hookState('repo-C')});
 	await waitUntil(

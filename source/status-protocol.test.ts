@@ -16,6 +16,7 @@ const line = (value: unknown) => JSON.stringify(value);
 test('every client message is read back as it was written', t => {
 	const messages: ClientMessage[] = [
 		{type: 'hook', state: {...hookState('repo-A'), currentTool: 'Bash'}},
+		{type: 'restore', state: hookState('repo-A')},
 		{type: 'snapshot', snapshot},
 		{type: 'forget', repo: 'repo', key: 'A', keep: 'g1'},
 		{type: 'forget', repo: 'repo', key: 'A'},

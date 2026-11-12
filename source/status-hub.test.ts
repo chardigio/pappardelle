@@ -24,6 +24,26 @@ test('a hook record replaces the one under its status key', t => {
 	t.deepEqual(stateOf(hub, 'repo').hooks, [latest, hookState('repo-B')]);
 });
 
+test('a restored hook record fills a key the daemon holds nothing for, and never replaces one as recent', t => {
+	const hub = new StatusHub<string>();
+	hub.receive('reader', {type: 'subscribe', repo: 'repo'});
+	const latest = {
+		...hookState('repo-A', 'waiting_for_approval'),
+		lastUpdate: 2000,
+	};
+	hub.receive('hook', {type: 'hook', state: latest});
+
+	t.deepEqual(
+		hub.receive('rail', {type: 'restore', state: hookState('repo-A')}),
+		[],
+	);
+	t.deepEqual(
+		hub.receive('rail', {type: 'restore', state: hookState('repo-B')}),
+		[{to: 'reader', message: {type: 'hook', state: hookState('repo-B')}}],
+	);
+	t.deepEqual(stateOf(hub, 'repo').hooks, [latest, hookState('repo-B')]);
+});
+
 test('a snapshot is kept per repo, space and pane generation', t => {
 	const hub = new StatusHub<string>();
 	for (const sent of [
