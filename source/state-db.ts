@@ -244,6 +244,26 @@ export function stateDbPath(
 	);
 }
 
+// The number is the protocol's. A daemon that an update left running keeps
+// its old file name, so a newer client never speaks to it.
+const STATUS_SOCKET_NAME = 'status-1.sock';
+
+/**
+ * Where the status daemon listens: beside the database, so whatever moves the
+ * database (a test's temp directory, PAPPARDELLE_STATE_DB) moves the daemon
+ * with it. PAPPARDELLE_STATUS_SOCKET names another place.
+ */
+export function statusSocketPath(
+	stateDir?: string,
+	env: NodeJS.ProcessEnv = process.env,
+): string {
+	if (stateDir) return path.join(stateDir, STATUS_SOCKET_NAME);
+	return (
+		readStateEnv(env).statusSocket ??
+		path.join(path.dirname(stateDbPath(undefined, env)), STATUS_SOCKET_NAME)
+	);
+}
+
 export function isBusyError(error: unknown): boolean {
 	const code = (error as {code?: unknown} | null)?.code;
 	return typeof code === 'string' && code.startsWith('SQLITE_BUSY');

@@ -10,7 +10,8 @@ import {setDefaultStateDbPathForTests} from '../../source/state-db.ts';
 
 if (process.env['PAPPARDELLE_SQLITE_STATE'] === '1') {
 	// Not an environment variable: a CLI that a test starts under a throwaway
-	// HOME has to keep its database there, apart from every other test's.
+	// HOME has to keep its database there, apart from every other test's. The
+	// status daemon's socket is beside the database, so this moves it too.
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-test-state-'));
 	setDefaultStateDbPathForTests(path.join(directory, 'state.db'));
 	process.on('exit', () => {
