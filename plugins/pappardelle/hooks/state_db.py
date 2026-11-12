@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence, Union
 # A hook runs inside the agent's turn, so it gives up on a busy database
 # quickly. The file it still writes is imported by the next reader.
 BUSY_TIMEOUT_SECONDS = 0.1
+LOG_INTERVAL_SECONDS = 60
 
 Statements = Sequence[tuple[str, Sequence[Any]]]
 
@@ -51,9 +52,22 @@ def state_db_path(environ: Mapping[str, str] = os.environ) -> Optional[str]:
 
 
 def _log_failure(message: str) -> None:
+    """Log a failed database write, at most once a minute across all hooks.
+
+    Some failures last until the user changes something (a Python whose
+    SQLite cannot read the schema, a database that was removed), and every
+    hook event of every agent meets them.
+    """
     try:
         log_dir = _state_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = log_dir / "state-db-failure.stamp"
+        try:
+            if time.time() - stamp.stat().st_mtime < LOG_INTERVAL_SECONDS:
+                return
+        except FileNotFoundError:
+            pass
+        stamp.touch()
         with open(log_dir / "hook-events.log", "a") as f:
             f.write(f"[{datetime.now().isoformat()}] {message}\n")
     except OSError:
@@ -78,8 +92,14 @@ def write_through(
     that depend on what was written. If the database cannot be used, the file
     is written alone.
     """
-    # Imported here so a hook pays for it only while the flag is on.
-    import sqlite3
+    try:
+        # Imported here so a hook pays for it only while the flag is on.
+        import sqlite3
+    except ImportError as error:
+        # Python can be built without SQLite.
+        _log_failure(f"State database write failed for {file_path}: {error}")
+        write_file()
+        return
 
     wrote = False
     connection = None

@@ -74,8 +74,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	openSpaces(): string[] | null {
-		this.openDb().sync(this.mirror);
-		const rows = this.rows();
+		const rows = this.importedRows();
 		// The same answer the file gives a process without the database.
 		if (rows.length === 0 && !fs.existsSync(this.json.file)) return null;
 		return rows.filter(row => row.state === 'open').map(row => row.key);
@@ -87,17 +86,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 
 	protectedSpaces(): ProtectedSpaces {
 		try {
-			const synced = this.openDb().sync(this.mirror);
-			// Rows that may be behind the file could leave out a space another
-			// process just opened.
-			if (synced === 'malformed' || synced === 'busy')
-				return {
-					ok: false,
-					error: new Error(
-						`${this.json.file} could not be imported (${synced})`,
-					),
-				};
-			return {ok: true, keys: this.rows().map(row => row.key)};
+			return {ok: true, keys: this.importedRows().map(row => row.key)};
 		} catch (error) {
 			return {ok: false, error};
 		}
@@ -168,11 +157,15 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		if (unsettled().length === 0) return;
 		const live = deps.liveSessionKeys();
 		if (!live) return;
-		await this.change(() => {
+		await this.change(tx => {
 			for (const row of unsettled()) {
 				// What the owner meant to do no longer matters; what exists does.
-				if (live.has(row.key)) this.setOpen(row.key);
-				else this.delete(row.key);
+				if (live.has(row.key)) {
+					this.setOpen(row.key);
+				} else {
+					this.delete(row.key);
+					this.dropReservation(tx, row.key);
+				}
 			}
 		});
 	}
@@ -263,6 +256,19 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	private dropReservation(tx: WriteTx, key: string): void {
 		const reservations = this.reservations(tx);
 		if (reservations.delete(key)) this.storeReservations(tx, reservations);
+	}
+
+	/**
+	 * The rows, once the registry file has been imported into them. Rows that
+	 * may be behind the file are not the registry: the first time the database
+	 * is used they are empty while the file lists every open space, and later
+	 * they could leave out a space another process just opened.
+	 */
+	private importedRows(): SpaceRow[] {
+		const synced = this.openDb().sync(this.mirror);
+		if (synced === 'malformed' || synced === 'busy')
+			throw new Error(`${this.json.file} could not be imported (${synced})`);
+		return this.rows();
 	}
 
 	private rows(): SpaceRow[] {
