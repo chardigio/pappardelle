@@ -43,10 +43,13 @@ profiles:
 		);
 	}
 
-	// This suite may itself run inside a space.
+	// This suite may itself run inside a space. The run's state mode is kept:
+	// the children's database is under their throwaway HOME.
 	const inherited = Object.fromEntries(
 		Object.entries(process.env).filter(
-			([name]) => !/^(TMUX|PAPPARDELLE_)/.test(name),
+			([name]) =>
+				name === 'PAPPARDELLE_SQLITE_STATE' ||
+				!/^(TMUX|PAPPARDELLE_)/.test(name),
 		),
 	) as Record<string, string>;
 	const env: Record<string, string> = {

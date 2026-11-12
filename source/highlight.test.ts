@@ -6,6 +6,7 @@ import {promisify} from 'node:util';
 import test, {type ExecutionContext} from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {
 	findSpaceIndexByIssueKey,
 	getHighlightFilePath,
@@ -25,14 +26,6 @@ function watching(t: ExecutionContext, s: TestState): string[] {
 		s.daos.highlight.watch(request => selected.push(request.issueKey)),
 	);
 	return selected;
-}
-
-async function until(predicate: () => boolean) {
-	const deadline = Date.now() + 5000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error('No highlight request arrived');
-		await delay(5);
-	}
 }
 
 /** Long enough for a request that was going to be reported to have been. */
@@ -60,7 +53,7 @@ contractTest(
 		t.teardown(s.daos.highlight.watch(request => requests.push(request)));
 		await s.daos.highlight.request({issueKey: 'main', focus: true});
 		t.is(fs.readFileSync(targetFile(s), 'utf8'), 'main\tfocus\n');
-		await until(() => requests.length > 0);
+		await waitUntil(() => requests.length > 0, 'a highlight request');
 		t.deepEqual(requests[0], {issueKey: 'main', focus: true});
 	},
 );
@@ -75,7 +68,7 @@ contractTest(
 			'-c',
 			s.daos.highlight.shellRequest({issueKey: 'main', focus: true}),
 		]);
-		await until(() => requests.length > 0);
+		await waitUntil(() => requests.length > 0, 'a highlight request');
 		t.deepEqual(requests[0], {issueKey: 'main', focus: true});
 	},
 );
@@ -83,7 +76,7 @@ contractTest(
 contractTest('a request reaches a watching listener', async (t, s) => {
 	const selected = watching(t, s);
 	await s.daos.highlight.request({issueKey: 'STA-500', focus: false});
-	await until(() => selected.length > 0);
+	await waitUntil(() => selected.length > 0, 'a highlight request');
 	t.is(selected[0], 'STA-500');
 });
 
@@ -91,11 +84,11 @@ contractTest('a request reaches a watching listener', async (t, s) => {
 contractTest('asking for the same key twice selects it twice', async (t, s) => {
 	const selected = watching(t, s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => selected.length > 0);
+	await waitUntil(() => selected.length > 0, 'a highlight request');
 	await settle();
 	const first = selected.length;
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => selected.length > first);
+	await waitUntil(() => selected.length > first, 'a highlight request');
 	t.deepEqual([...new Set(selected)], ['STA-1']);
 });
 
@@ -110,7 +103,7 @@ contractTest(
 		await settle();
 		t.deepEqual(selected, []);
 		await s.daos.highlight.request({issueKey: 'NEW-1', focus: false});
-		await until(() => selected.length > 0);
+		await waitUntil(() => selected.length > 0, 'a highlight request');
 		t.deepEqual([...new Set(selected)], ['NEW-1']);
 	},
 );
@@ -125,12 +118,12 @@ contractTest('clearing removes the target file', async (t, s) => {
 contractTest('a request after a clear is reported', async (t, s) => {
 	const selected = watching(t, s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => selected.length > 0);
+	await waitUntil(() => selected.length > 0, 'a highlight request');
 	await s.daos.highlight.clear();
 	await settle();
 	const first = selected.length;
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => selected.length > first);
+	await waitUntil(() => selected.length > first, 'a highlight request');
 	t.is(selected.at(-1), 'STA-1');
 });
 
@@ -163,7 +156,7 @@ await highlight.request({issueKey: 'STA-700', focus: false});
 			],
 			{timeout: 30_000},
 		);
-		await until(() => selected.length > 0);
+		await waitUntil(() => selected.length > 0, 'a highlight request');
 		t.is(selected[0], 'STA-700');
 	});
 }

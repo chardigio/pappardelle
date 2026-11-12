@@ -6,19 +6,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import {DEFAULT_STATE_DIR, stateDbPath} from './state-db.ts';
+import {DEFAULT_STATE_DIR, stateDbPath, writeFileAtomic} from './state-db.ts';
+import {readStateEnv} from './state-env.ts';
 
 type ResolvedFlag = {sqliteState: boolean; db: string};
-
-/** PAPPARDELLE_SQLITE_STATE, which lets a test run choose the mode. */
-export function sqliteStateOverride(
-	env: NodeJS.ProcessEnv = process.env,
-): boolean | undefined {
-	const value = env['PAPPARDELLE_SQLITE_STATE'];
-	if (value === '1') return true;
-	if (value === '0') return false;
-	return undefined;
-}
 
 function resolvedFlagPath(stateDir: string): string {
 	return path.join(stateDir, 'state-flag.json');
@@ -47,7 +38,9 @@ export function readResolvedSqliteState(
 	env: NodeJS.ProcessEnv = process.env,
 ): boolean {
 	return (
-		sqliteStateOverride(env) ?? readResolvedFlag(stateDir)?.sqliteState ?? false
+		readStateEnv(env).sqliteState ??
+		readResolvedFlag(stateDir)?.sqliteState ??
+		false
 	);
 }
 
@@ -62,15 +55,11 @@ export function recordSqliteState(
 ): void {
 	const recorded = readResolvedFlag(stateDir);
 	if (recorded ? recorded.sqliteState === configured : !configured) return;
-	fs.mkdirSync(stateDir, {recursive: true});
-	const file = resolvedFlagPath(stateDir);
-	const temporary = `${file}.tmp.${process.pid}`;
-	fs.writeFileSync(
-		temporary,
+	writeFileAtomic(
+		resolvedFlagPath(stateDir),
 		JSON.stringify({
 			sqliteState: configured,
 			db: stateDbPath(stateDir),
 		} satisfies ResolvedFlag) + '\n',
 	);
-	fs.renameSync(temporary, file);
 }

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
 import {publishSnapshot, snapshotOf} from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 import {clearRecentErrors, subscribeToErrors} from './logger.ts';
 import {parseStatusPane} from './program-status-monitor.ts';
@@ -25,14 +25,6 @@ const session = (workspaceName: string): ClaudeSessionState => ({
 	status: 'processing',
 	lastUpdate: Date.now(),
 });
-
-async function until(predicate: () => boolean, what: string) {
-	const deadline = Date.now() + 6000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error(`${what} did not arrive`);
-		await delay(10);
-	}
-}
 
 // Serial: the warnings are counted in the process's one list of them.
 test.serial(
@@ -159,7 +151,7 @@ test('watches begun over a database that cannot be read deliver its changes once
 			{state: 'working', id: ''},
 		]),
 	);
-	await until(
+	await waitUntil(
 		() => seen.claude.includes('repo-STA-1') && seen.program.includes('STA-1'),
 		'what was written while the watches could not read',
 	);
@@ -171,7 +163,7 @@ test('watches begun over a database that cannot be read deliver its changes once
 		space: 'STA-2',
 		kind: 'width',
 	});
-	await until(
+	await waitUntil(
 		() =>
 			seen.claude.includes('repo-STA-2') &&
 			seen.highlight.length > 0 &&
