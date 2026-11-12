@@ -1288,10 +1288,10 @@ export default function App({
 
 	// Selects a space and focuses its agent, as the sous-chef key and `s` do.
 	const focusSpaceAgent = (issueKey: string) => {
-		revealSpace(issueKey);
 		// Moving focus away would leave the dialog open with the user's next
 		// keys going to the agent.
 		if (railInputBlockedNow()) return;
+		revealSpace(issueKey);
 		const {spaces, selectedIndex} = currentSelection();
 		// Before the rows load, or for an unknown key, the selection stays put
 		// and focusing would land on another space's agent.
