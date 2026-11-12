@@ -8,12 +8,17 @@ on:
 
 jobs:
   bun-tests:
-    name: Bun Tests (${{ matrix.os }})
+    name: Bun Tests (${{ matrix.os }}, sqliteState ${{ matrix.sqlite_state }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # experimental.sqliteState off and on: the files alone, then the
+        # database with the files kept beside it.
+        sqlite_state: ['0', '1']
     runs-on: ${{ matrix.os }}
+    env:
+      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
 
     steps:
       - name: Checkout repository
@@ -138,12 +143,27 @@ jobs:
         run: ./scripts/test-workspace-launchers.sh
 
   python-tests:
-    name: Python Tests
+    name: Python Tests (sqliteState ${{ matrix.sqlite_state }})
+    strategy:
+      fail-fast: false
+      matrix:
+        sqlite_state: ['0', '1']
     runs-on: ubuntu-latest
+    env:
+      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # The hook tests ask the CLI to create the state database they write to.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Setup Python
         uses: actions/setup-python@v5
