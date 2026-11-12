@@ -5,7 +5,7 @@
 // state, each writes only the color it learned.
 
 import {createLogger} from '../logger.ts';
-import type {JsonMirror, StateDb} from '../state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from '../state-db.ts';
 import {
 	parseStateColors,
 	renderStateColors,
@@ -18,6 +18,7 @@ type ColorRow = {name: string; color: string};
 
 export class SqliteStateColorDao implements StateColorDao {
 	private readonly mirror: JsonMirror;
+	private readonly reads = new GuardedReads(log, 'workflow state colors');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -34,17 +35,11 @@ export class SqliteStateColorDao implements StateColorDao {
 	}
 
 	load(): Record<string, string> {
-		try {
+		// Colors that cannot be read are re-discovered on the next issue fetch.
+		return this.reads.or({}, () => {
 			this.openDb().sync(this.mirror);
 			return Object.fromEntries(this.colors());
-		} catch (error) {
-			// Colors are re-discovered on the next issue fetch.
-			log.warn(
-				'Could not read workflow state colors from the state database',
-				error instanceof Error ? error : undefined,
-			);
-			return {};
-		}
+		});
 	}
 
 	async set(name: string, color: string): Promise<void> {

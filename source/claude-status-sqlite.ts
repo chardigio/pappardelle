@@ -19,7 +19,7 @@ import {
 	type StoredClaudeStatus,
 } from './claude-status.ts';
 import {createLogger} from './logger.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 import {onStateDbChange, waitForStateDbChange} from './state-db-watch.ts';
 
 const log = createLogger('claude-status');
@@ -68,10 +68,11 @@ function toState(row: StatusRow): ClaudeSessionState {
 }
 
 export class SqliteClaudeStatusDao implements ClaudeStatusDao {
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'Claude statuses');
 
 	constructor(
 		private readonly openDb: () => StateDb,
+		private readonly dbPath: string,
 		private readonly json: JsonClaudeStatusDao,
 	) {}
 
@@ -90,22 +91,12 @@ export class SqliteClaudeStatusDao implements ClaudeStatusDao {
 	}
 
 	readState(statusKey: string): StoredClaudeStatus {
-		try {
+		return this.reads.or({kind: 'unreadable'}, () => {
 			const synced = this.openDb().sync(this.mirror(statusKey));
 			const row = this.row(statusKey);
 			if (row) return {kind: 'state', state: toState(row)};
 			return synced === 'malformed' ? {kind: 'unreadable'} : {kind: 'none'};
-		} catch (error) {
-			if (!this.reportedUnreadable) {
-				this.reportedUnreadable = true;
-				log.warn(
-					'Could not read Claude statuses from the state database',
-					error instanceof Error ? error : undefined,
-				);
-			}
-
-			return {kind: 'unreadable'};
-		}
+		});
 	}
 
 	async write(state: ClaudeSessionState): Promise<void> {
@@ -121,9 +112,10 @@ export class SqliteClaudeStatusDao implements ClaudeStatusDao {
 	}
 
 	watch(listener: (statusKey: string) => void): () => void {
-		let known = this.snapshot();
-		return onStateDbChange(this.openDb().path, () => {
-			const current = this.snapshot();
+		let known = this.reads.or(new Map<string, string>(), () => this.snapshot());
+		return onStateDbChange(this.dbPath, () => {
+			const current = this.reads.or(null, () => this.snapshot());
+			if (!current) return;
 			for (const statusKey of new Set([...known.keys(), ...current.keys()])) {
 				if (known.get(statusKey) !== current.get(statusKey))
 					listener(statusKey);
@@ -134,7 +126,10 @@ export class SqliteClaudeStatusDao implements ClaudeStatusDao {
 	}
 
 	async waitForChange(ms: number): Promise<void> {
-		await waitForStateDbChange(this.openDb().path, ms);
+		// Only a database that exists can be followed, and a wait may be the
+		// first use of this one.
+		this.reads.or(undefined, () => this.openDb());
+		await waitForStateDbChange(this.dbPath, ms);
 	}
 
 	private mirror(statusKey: string): JsonMirror {

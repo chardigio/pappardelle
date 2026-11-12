@@ -9,14 +9,14 @@ import {
 	type IssueMetaDao,
 	type JsonIssueMetaDao,
 } from './issue-meta.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
 const log = createLogger('issue-meta');
 
 type MetaRow = {created_by_pappardelle: 0 | 1; created_at: string};
 
 export class SqliteIssueMetaDao implements IssueMetaDao {
-	private reportedUnreadable = false;
+	private readonly reads = new GuardedReads(log, 'issue metadata');
 
 	constructor(
 		private readonly openDb: () => StateDb,
@@ -26,7 +26,7 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 	) {}
 
 	read(key: string): IssueMeta | null {
-		try {
+		return this.reads.or(null, () => {
 			this.openDb().sync(this.mirror(key));
 			const row = this.openDb()
 				.db.query<MetaRow, [string, string]>(
@@ -40,17 +40,7 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 						createdAt: row.created_at,
 					}
 				: null;
-		} catch (error) {
-			if (!this.reportedUnreadable) {
-				this.reportedUnreadable = true;
-				log.warn(
-					'Could not read issue metadata from the state database',
-					error instanceof Error ? error : undefined,
-				);
-			}
-
-			return null;
-		}
+		});
 	}
 
 	async markCreated(key: string): Promise<void> {

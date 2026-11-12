@@ -87,6 +87,9 @@ jobs:
           bun integration-tests/verify-program-status-cleanup.ts
           bun integration-tests/verify-program-status-app.ts
 
+      - name: Verify the rail over a state database that cannot be read
+        run: bun integration-tests/verify-unreadable-state-app.ts
+
       - name: Verify tmux popups close and release their pty
         run: bun integration-tests/verify-popup-close.ts
 
