@@ -3,24 +3,27 @@ import {buildSessionEnvArgs, buildSpawnEnv} from './spawn-env.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 test('buildSpawnEnv includes PAPPARDELLE_PROJECT_ROOT', t => {
-	const env = buildSpawnEnv('/tmp/fake-project');
+	const env = buildSpawnEnv('/tmp/fake-project', {registerSpace: false});
 	t.is(env['PAPPARDELLE_PROJECT_ROOT'], '/tmp/fake-project');
 });
 
 test('buildSpawnEnv preserves existing env vars', t => {
-	const env = buildSpawnEnv('/tmp/fake-project');
+	const env = buildSpawnEnv('/tmp/fake-project', {registerSpace: false});
 	// Should still have PATH from process.env
 	t.truthy(env['PATH']);
 });
 
 test('buildSpawnEnv does not mutate process.env', t => {
 	const before = process.env['PAPPARDELLE_PROJECT_ROOT'];
-	buildSpawnEnv('/tmp/fake-project');
+	buildSpawnEnv('/tmp/fake-project', {registerSpace: false});
 	t.is(process.env['PAPPARDELLE_PROJECT_ROOT'], before);
 });
 
 test('buildSpawnEnv passes the main repo root when given one', t => {
-	const env = buildSpawnEnv('/tmp/fake-project', '/tmp/fake-main');
+	const env = buildSpawnEnv('/tmp/fake-project', {
+		mainRepoRoot: '/tmp/fake-main',
+		registerSpace: false,
+	});
 	t.is(env['PAPPARDELLE_MAIN_REPO_ROOT'], '/tmp/fake-main');
 });
 
@@ -28,12 +31,44 @@ test.serial('buildSpawnEnv omits the main repo root when there is none', t => {
 	const before = process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
 	delete process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
 	try {
-		t.false('PAPPARDELLE_MAIN_REPO_ROOT' in buildSpawnEnv('/tmp/fake-project'));
+		t.false(
+			'PAPPARDELLE_MAIN_REPO_ROOT' in
+				buildSpawnEnv('/tmp/fake-project', {registerSpace: false}),
+		);
 	} finally {
 		if (before !== undefined)
 			process.env['PAPPARDELLE_MAIN_REPO_ROOT'] = before;
 	}
 });
+
+// idow starts the binary to record the space only when it is told to. A
+// registry that keeps no lifecycle has nothing to record.
+test.serial(
+	'buildSpawnEnv tells idow to record the space only for a registry that records spaces being set up',
+	t => {
+		const before = process.env['PAPPARDELLE_REGISTER_SPACE'];
+		// What a Pappardelle started from inside another one's session inherits.
+		process.env['PAPPARDELLE_REGISTER_SPACE'] = '1';
+		try {
+			t.is(
+				buildSpawnEnv('/tmp/fake-project', {registerSpace: true})[
+					'PAPPARDELLE_REGISTER_SPACE'
+				],
+				'1',
+			);
+			t.is(
+				buildSpawnEnv('/tmp/fake-project', {registerSpace: false})[
+					'PAPPARDELLE_REGISTER_SPACE'
+				],
+				undefined,
+			);
+		} finally {
+			if (before === undefined)
+				delete process.env['PAPPARDELLE_REGISTER_SPACE'];
+			else process.env['PAPPARDELLE_REGISTER_SPACE'] = before;
+		}
+	},
+);
 
 test('buildSessionEnvArgs names the space and its repo for an issue space', t => {
 	t.deepEqual(buildSessionEnvArgs('STA-42', 'repo'), [

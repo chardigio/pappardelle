@@ -1300,6 +1300,35 @@ test.serial(
 	},
 );
 
+// Without registration the state CLI only saves what the rail paints, which a
+// run by hand has always gone on without. scripts/state-cli.sh fails this way
+// when it finds no binary and no Bun.
+test.serial(
+	'idow that is not registering the space goes on when it cannot record it, and a new issue still drops the sessions under its key',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 127);
+		const sessionsPath = path.join(
+			fixture.home,
+			'.pappardelle/repos/main checkout/space-state/test-abc.agent-sessions.json',
+		);
+		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
+		fs.writeFileSync(
+			sessionsPath,
+			JSON.stringify({claude: {session_id: 'earlier', pid: 1, started: null}}),
+		);
+		const output = await fixture.run({
+			input: 'Make workspace startup faster',
+			extraEnv: {PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE},
+		});
+		t.regex(output, /Could not record workspace test-abc/);
+		t.regex(state.calls().join('\n'), /prepare-space .* --fresh test-abc/);
+		t.false(fs.existsSync(sessionsPath));
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		t.is(args[args.indexOf('--agent-resume-args') + 1], '');
+	},
+);
+
 // idow used to write both files itself. They now come from the same writer
 // as the TUI's, in whichever mode the run is in.
 test('a new issue is recorded as created by Pappardelle, with its profile, before post_workspace_init', async t => {

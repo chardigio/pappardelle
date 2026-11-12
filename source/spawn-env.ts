@@ -8,18 +8,22 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
  * PAPPARDELLE_MAIN_REPO_ROOT so nothing downstream re-derives it — idow hands
  * it on to the workspace's tmux sessions, where the Claude Code hooks read it
  * instead of resolving the main checkout on every tool use.
+ *
+ * `registerSpace` is whether the caller's registry records a space while it
+ * is being set up (`SpaceRegistryDao.keepsLifecycle`). Where it does, idow
+ * records the space before it starts any session.
  */
 export function buildSpawnEnv(
 	repoRoot: string,
-	mainRepoRoot?: string,
+	options: {mainRepoRoot?: string; registerSpace: boolean},
 ): NodeJS.ProcessEnv {
+	const {mainRepoRoot, registerSpace} = options;
 	return {
 		...process.env,
 		PAPPARDELLE_BUN: bunForChildren(),
 		PAPPARDELLE_EXECUTABLE: isStandalone ? process.execPath : undefined,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
-		// This process lists the space idow sets up, so idow records it.
-		PAPPARDELLE_REGISTER_SPACE: '1',
+		PAPPARDELLE_REGISTER_SPACE: registerSpace ? '1' : undefined,
 		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),
 	};
 }

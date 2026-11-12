@@ -519,7 +519,10 @@ if (cli.input.length > 0) {
 			cli.flags.resume ??
 			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
 		cwd: getRepoRoot(),
-		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+		env: buildSpawnEnv(getRepoRoot(), {
+			mainRepoRoot: getMainRepoRoot(),
+			registerSpace: daos.registry.keepsLifecycle,
+		}),
 		registry: daos.registry,
 		waitForAgent: cli.flags.wait
 			? async (issueKey, since) =>
