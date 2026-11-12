@@ -1,7 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {publishSnapshot, snapshotOf} from '../test/helpers/program-status.ts';
-import {testState} from '../test/helpers/state.ts';
+import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
 import {parseStatusPane} from './program-status-monitor.ts';
 import {defaultSuperviseDeps} from './supervise-runtime.ts';
 
@@ -21,7 +21,7 @@ test.serial(
 
 		t.true(
 			(await waited(3000, async () =>
-				state.daos.claudeStatus.write({
+				writeClaudeStatus(state, {
 					sessionId: 'session',
 					workspaceName: 'repo-STA-1',
 					status: 'waiting_for_approval',
