@@ -297,10 +297,13 @@ tmuxTest(
 		const panes = await outerPanes();
 		t.true(panes.includes(layout.agentViewerPaneId));
 		t.true(panes.includes(layout.companionViewerPaneId));
-		t.deepEqual(await clientSessions(), [
-			session(a, 'logs'),
-			session(a, 'tests'),
-		]);
+		// Each frame publishes its tty just before its client attaches.
+		const rebuiltClients = [session(a, 'logs'), session(a, 'tests')];
+		await waitFor(async () => {
+			const clients = await clientSessions();
+			return clients.join(' ') === rebuiltClients.join(' ');
+		});
+		t.deepEqual(await clientSessions(), rebuiltClients);
 
 		// An open dialog zooms the rail; splitting would unzoom it.
 		t.true(
