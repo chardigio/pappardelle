@@ -11,6 +11,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import type {ClaudeStatus, ClaudeSessionState} from './claude-status.ts';
 import {
 	STABLE_STATUSES,
@@ -476,9 +477,9 @@ contractTest('watch reports the key that changed', async (t, s) => {
 	// A write can otherwise precede filesystem watch registration.
 	await delay(0);
 	await dao.write(session('STA-2', 'waiting_for_input'));
-	await until(() => reported.includes('STA-2'));
+	await waitUntil(() => reported.includes('STA-2'), 'a status change');
 	await dao.write(session('STA-3', 'ended'));
-	await until(() => reported.includes('STA-3'));
+	await waitUntil(() => reported.includes('STA-3'), 'a status change');
 	t.false(reported.includes('STA-1'));
 	stop();
 	const before = reported.length;
@@ -538,11 +539,3 @@ test('the two stores leave the same status files for the same writes', async t =
 	t.deepEqual(Object.keys(json), ['repo-STA-1.json', 'repo-STA-2.json']);
 	t.deepEqual(await files(true), json);
 });
-
-async function until(predicate: () => boolean) {
-	const deadline = Date.now() + 3000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error('Status change did not arrive');
-		await delay(5);
-	}
-}

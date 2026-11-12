@@ -35,12 +35,8 @@ import {
 	type PrLinkStampDao,
 } from './pr-link-stamp.ts';
 import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
-import {
-	JsonProgramStatusDao,
-	programStatusDir,
-	type ProgramStatusDao,
-} from './program-status-monitor.ts';
-import {SqliteProgramStatusDao} from './program-status-sqlite.ts';
+import type {ProgramStatusDao} from './program-status-monitor.ts';
+import {createProgramStatusDao} from './program-status-sqlite.ts';
 import {
 	getStateColorsPath,
 	JsonStateColorDao,
@@ -76,7 +72,7 @@ import {
 	openStateDb,
 	stateDbPath,
 } from './state-db.ts';
-import {sqliteStateOverride} from './state-flag.ts';
+import {readStateEnv} from './state-env.ts';
 import {
 	JsonTuiMarkerDao,
 	tuiMarkerPath,
@@ -127,7 +123,7 @@ let configured: boolean | undefined;
 
 /** experimental.sqliteState for this process: the override, then the home config. */
 export function sqliteStateEnabled(): boolean {
-	configured ??= sqliteStateOverride() ?? readHomeSqliteState();
+	configured ??= readStateEnv().sqliteState ?? readHomeSqliteState();
 	return configured;
 }
 
@@ -139,11 +135,8 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	const jsonRegistry = new JsonSpaceRegistryDao(
 		getRegistryPathForRepo(repo, stateDir),
 	);
-	// The hook reads the same variable, so a test or a timer service moves the
-	// files for the writer and the readers at once.
 	const jsonClaudeStatus = new JsonClaudeStatusDao(
-		process.env['PAPPARDELLE_STATUS_DIR'] ??
-			path.join(stateDir, 'claude-status'),
+		readStateEnv().claudeStatusDir ?? path.join(stateDir, 'claude-status'),
 	);
 	const clock = options.clock ?? (() => new Date());
 	const jsonSpaceState = new JsonSpaceStateDao(
@@ -174,14 +167,25 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		clock,
 	);
 	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
-	const jsonProgramStatus = new JsonProgramStatusDao(
+	const sqlite = options.sqlite ?? sqliteStateEnabled();
+	// Applied when a store first opens the connection, so that asking for it
+	// does not open a database nothing has used yet.
+	let checkpointsDeferred = false;
+	const openDb = () => {
+		const state = openStateDb(dbPath);
+		if (checkpointsDeferred) checkpointOutsideWrites(state);
+		return state;
+	};
+	const programStatus = createProgramStatusDao({
+		sqlite,
 		repo,
-		programStatusDir(repo, stateDir),
+		stateDir,
 		dbPath,
-	);
+		openDb,
+	});
 	const tuiMarkerFile = tuiMarkerPath(path.join(stateDir, 'repos'), repo);
 	const updateCheckFile = updateCheckPath(stateDir);
-	if (!(options.sqlite ?? sqliteStateEnabled())) {
+	if (!sqlite) {
 		return {
 			registry: jsonRegistry,
 			claudeStatus: jsonClaudeStatus,
@@ -194,21 +198,13 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			companionRequests: jsonCompanionRequests,
 			schedules: jsonSchedules,
 			prLinkStamp: jsonPrLinkStamp,
-			programStatus: jsonProgramStatus,
+			programStatus,
 			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
 			updateCheck: new JsonUpdateCheckDao(updateCheckFile),
 			deferCheckpoints() {},
 		};
 	}
 
-	// Applied when a store first opens the connection, so that asking for it
-	// does not open a database nothing has used yet.
-	let checkpointsDeferred = false;
-	const openDb = () => {
-		const state = openStateDb(dbPath);
-		if (checkpointsDeferred) checkpointOutsideWrites(state);
-		return state;
-	};
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
 		claudeStatus: new SqliteClaudeStatusDao(openDb, dbPath, jsonClaudeStatus),
@@ -236,7 +232,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		),
 		schedules: new SqliteScheduleDao(openDb, repo, jsonSchedules),
 		prLinkStamp: new SqlitePrLinkStampDao(openDb, jsonPrLinkStamp, clock),
-		programStatus: new SqliteProgramStatusDao(openDb, jsonProgramStatus),
+		programStatus,
 		tuiMarker: new SqliteTuiMarkerDao(openDb, repo, tuiMarkerFile),
 		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckFile),
 		deferCheckpoints() {

@@ -333,7 +333,7 @@ if (isRestart) {
 	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
 }
 
-// Handle `pappardelle highlight STA-XXX` — record the request and exit
+// Handle `pappardelle highlight STA-XXX`: record the request and exit
 if (cli.input[0] === 'highlight') {
 	const issueKey = cli.input[1];
 	if (!issueKey) {

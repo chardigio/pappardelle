@@ -1,7 +1,7 @@
 import fs from 'node:fs';
-import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
 import {testState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {getHighlightFilePath} from './highlight.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
@@ -36,14 +36,6 @@ function fixture(t: ExecutionContext) {
 	};
 }
 
-async function until(predicate: () => boolean) {
-	const deadline = Date.now() + 5000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error('No highlight request arrived');
-		await delay(5);
-	}
-}
-
 test('a request is one row per repo, stamped by the clock', async t => {
 	const f = fixture(t);
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
@@ -56,13 +48,13 @@ test('a request is newer than the one it replaces when the clock has not moved',
 	const f = fixture(t);
 	f.watch();
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => f.selected.length === 1);
+	await waitUntil(() => f.selected.length === 1, 'a highlight request');
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => f.selected.length === 2);
+	await waitUntil(() => f.selected.length === 2, 'a highlight request');
 	t.deepEqual(f.rows(), [{key: 'STA-1', requested_at: 1001}]);
 	f.clock.now = 500;
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
-	await until(() => f.selected.length === 3);
+	await waitUntil(() => f.selected.length === 3, 'a highlight request');
 	t.deepEqual(f.rows(), [{key: 'STA-1', requested_at: 1002}]);
 });
 
@@ -81,7 +73,7 @@ test('a target file written without the database is reported as a request', asyn
 	f.watch();
 	fs.writeFileSync(f.file, 'STA-9\n');
 	await f.stateColors.set('Done', '#74d09f');
-	await until(() => f.selected.length > 0);
+	await waitUntil(() => f.selected.length > 0, 'a highlight request');
 	t.deepEqual(f.selected, ['STA-9']);
 	t.deepEqual(f.rows(), [{key: 'STA-9', requested_at: 1000}]);
 });

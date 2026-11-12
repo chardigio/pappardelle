@@ -1715,7 +1715,7 @@ profiles:
 });
 
 // ============================================================================
-// experimental.sqliteState — home layer only
+// experimental.sqliteState: home layer only
 // ============================================================================
 
 const minimalConfig = `version: 1
@@ -1775,6 +1775,30 @@ test('the home flag is false when the home config leaves it out or is missing', 
 		t.true(readHomeSqliteState(path.join(dir, 'home')));
 		t.false(readHomeSqliteState(path.join(dir, 'bare')));
 		t.false(readHomeSqliteState(path.join(dir, 'missing')));
+		t.deepEqual(
+			getRecentErrors().filter(entry =>
+				entry.message.includes(path.join(dir, 'missing')),
+			),
+			[],
+		);
+	} finally {
+		cleanup();
+	}
+});
+
+test('a home config that does not parse leaves the flag off and says so', t => {
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': 'experimental: {sqliteState: true',
+	});
+	try {
+		t.false(readHomeSqliteState(path.join(dir, 'home')));
+		const warnings = getRecentErrors().filter(entry =>
+			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
+		);
+		t.like(warnings, [{level: 'warn'}]);
+		t.is(warnings.length, 1);
+		t.regex(warnings[0]!.message, /Could not read experimental\.sqliteState/);
+		t.truthy(warnings[0]!.error);
 	} finally {
 		cleanup();
 	}

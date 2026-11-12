@@ -850,13 +850,20 @@ function sqliteStateOf(layer: Record<string, unknown> | null): unknown {
 export function readHomeSqliteState(
 	homeConfigDir = getDefaultHomeConfigDir(),
 ): boolean {
+	const file = path.join(homeConfigDir, '.pappardelle.yml');
 	try {
-		const content = fs.readFileSync(
-			path.join(homeConfigDir, '.pappardelle.yml'),
-			'utf8',
-		);
+		const content = fs.readFileSync(file, 'utf8');
 		return sqliteStateOf(parseConfigLayer(HOME_CONFIG_LABEL, content)) === true;
-	} catch {
+	} catch (error) {
+		// A home config that cannot be read would otherwise move all state
+		// back to the files without a word.
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+			logger.warn(
+				`Could not read experimental.sqliteState from ${file}, so state is kept in files`,
+				error instanceof Error ? error : undefined,
+			);
+		}
+
 		return false;
 	}
 }

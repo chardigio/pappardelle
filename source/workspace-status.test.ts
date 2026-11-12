@@ -11,6 +11,7 @@ import {
 	snapshotOf,
 } from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {
 	parseStatusPane,
@@ -281,7 +282,10 @@ test.serial(
 		await delay(0);
 		const before = h.queries();
 		h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
-		await until(() => latest.get('TASK-1')?.status === 'blocked');
+		await waitUntil(
+			() => latest.get('TASK-1')?.status === 'blocked',
+			'a status update',
+		);
 		await h.writeHook('processing');
 		await delay(100);
 		t.is(h.queries(), before);
@@ -291,7 +295,10 @@ test.serial(
 		h.writeOsc({status: 'done', app: 'replacement'});
 		await h.status.read('TASK-1');
 		await h.writeHook('error');
-		await until(() => latest.get('TASK-1')?.app === 'replacement');
+		await waitUntil(
+			() => latest.get('TASK-1')?.app === 'replacement',
+			'a status update',
+		);
 		t.not(latest.get('TASK-1')?.generation, oldGeneration);
 		t.true(h.queries() > before);
 	},
@@ -323,10 +330,11 @@ test.serial(
 				Date.now(),
 				`ours-${i}`,
 			);
-		await until(
+		await waitUntil(
 			() =>
 				latest.size === 8 &&
 				[...latest.values()].every(info => info.status === 'blocked'),
+			'a status update',
 		);
 		for (const [key, info] of latest) {
 			t.true(key.startsWith('ours-'));
@@ -357,12 +365,15 @@ test.serial(
 		await delay(0);
 		const before = h.queries();
 		h.writeOsc({status: 'done'}, {key: 'main'});
-		await until(() => latest.get('repo-main')?.status === 'done');
+		await waitUntil(
+			() => latest.get('repo-main')?.status === 'done',
+			'a status update',
+		);
 		t.is(h.queries(), before);
 		t.false(latest.has('main'));
 		rmSync(`${file}.lease`);
 		await h.writeHook('processing', undefined, Date.now(), 'repo-main');
-		await until(() => h.queries() > before);
+		await waitUntil(() => h.queries() > before, 'a status update');
 	},
 );
 
@@ -418,7 +429,11 @@ for (const sqlite of [false, true]) {
 			monitor.stdin.write(
 				'\u001B]7501;state=blocked:app=fixture:kind=auth\u0007',
 			);
-			await until(() => latest.get('TASK-1')?.status === 'blocked', 10_000);
+			await waitUntil(
+				() => latest.get('TASK-1')?.status === 'blocked',
+				'a status update',
+				10_000,
+			);
 			t.like(latest.get('TASK-1'), {
 				source: 'osc',
 				app: 'fixture',
@@ -427,14 +442,6 @@ for (const sqlite of [false, true]) {
 			rmSync(`${file}.lease`);
 		},
 	);
-}
-
-async function until(predicate: () => boolean, timeout = 3000) {
-	const deadline = Date.now() + timeout;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error('Status update did not arrive');
-		await delay(5);
-	}
 }
 
 async function readField(

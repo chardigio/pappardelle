@@ -2310,7 +2310,7 @@ export default function App({
 					});
 					if (result.outcome === 'mark-failed') {
 						setHeaderWithTimeout(
-							`Could not start closing ${space.name} — try again`,
+							`Could not start closing ${space.name}. Try again`,
 							5000,
 						);
 					}

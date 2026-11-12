@@ -205,18 +205,29 @@ contractTest(
 contractTest(
 	'a TUI that never answers ends in no-ack after the retries',
 	async (t, state) => {
-		const started = Date.now();
+		const {companionRequests} = state.daos;
+		let made = 0;
 		const result = await requestCompanionWidth({
-			...requestOptions(state),
+			widths: state.daos.companionWidths,
+			requests: {
+				async send(request) {
+					made++;
+					await companionRequests.send(request);
+				},
+				answerTo: id => companionRequests.answerTo(id),
+				withdraw: async id => companionRequests.withdraw(id),
+				watch: onRequest => companionRequests.watch(onRequest),
+				answer: async ack => companionRequests.answer(ack),
+			},
 			space: 'A',
 			width: 50,
 			tuiIsRunning: () => true,
-			attemptMs: 60,
+			attemptMs: 20,
 			attempts: 3,
-			pollMs: 10,
+			pollMs: 5,
 		});
 		t.deepEqual(result, {outcome: 'no-ack'});
-		t.true(Date.now() - started >= 180);
+		t.is(made, 3);
 		t.is(state.daos.companionWidths.get('A'), 50);
 	},
 );

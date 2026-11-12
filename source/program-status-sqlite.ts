@@ -12,7 +12,8 @@ import {createLogger} from './logger.ts';
 import {
 	attachStatusMonitor,
 	checkedProgramSnapshot,
-	type JsonProgramStatusDao,
+	JsonProgramStatusDao,
+	programStatusDir,
 	type ProgramStatusDao,
 	type ProgramStatusSnapshot,
 	type SnapshotRows,
@@ -241,4 +242,51 @@ export class SqliteProgramStatusDao implements ProgramStatusDao {
 			]),
 		);
 	}
+}
+
+/**
+ * A repo's program-status store. Status monitors build theirs without
+ * loading the config, so the choice between the two stores is made here for
+ * them and for `createStateDaos` alike.
+ */
+export function createProgramStatusDao(options: {
+	sqlite: boolean;
+	repo: string;
+	stateDir: string;
+	dbPath: string;
+	openDb: () => StateDb;
+}): ProgramStatusDao {
+	const json = new JsonProgramStatusDao(
+		options.repo,
+		programStatusDir(options.repo, options.stateDir),
+		options.dbPath,
+	);
+	return options.sqlite
+		? new SqliteProgramStatusDao(options.openDb, json)
+		: json;
+}
+
+const FLAG_MAX_AGE_MS = 1000;
+
+/**
+ * The rows a monitor writes, while experimental.sqliteState is on. A monitor
+ * outlives a change of the flag, so it asks `sqliteEnabled` again once what
+ * it was last told is a second old.
+ */
+export function followedSnapshotRows(
+	openDb: () => StateDb,
+	sqliteEnabled: () => boolean,
+	now: () => number = () => performance.now(),
+): () => SnapshotRows | undefined {
+	const rows = new SqliteSnapshotRows(openDb);
+	let enabled = false;
+	let readAt = Number.NEGATIVE_INFINITY;
+	return () => {
+		if (now() - readAt >= FLAG_MAX_AGE_MS) {
+			enabled = sqliteEnabled();
+			readAt = now();
+		}
+
+		return enabled ? rows : undefined;
+	};
 }

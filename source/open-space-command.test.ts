@@ -11,6 +11,7 @@ import {gatherSpaces} from './spaces-command.ts';
 import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath} from './state-db.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
@@ -769,12 +770,7 @@ test.serial(
 
 		const result = await f.run(['highlight', 'STE-7']);
 		t.is(result.code, 0);
-		const deadline = Date.now() + 5000;
-		while (selected.length === 0 && Date.now() < deadline) {
-			// eslint-disable-next-line no-await-in-loop -- Polling for the watcher.
-			await delay(5);
-		}
-
+		await waitUntil(() => selected.length > 0, 'a highlight request');
 		t.is(selected[0], 'STE-7');
 		t.false(fs.existsSync(f.record));
 	},

@@ -3,7 +3,6 @@ import {spawn} from 'node:child_process';
 import {Buffer} from 'node:buffer';
 import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
 import {
@@ -15,12 +14,14 @@ import {
 	snapshotRows,
 } from '../test/helpers/program-status.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {
 	parseStatusPane,
 	programStatusDir,
 	publishProgramSnapshot,
 	type SnapshotRows,
 } from './program-status-monitor.ts';
+import {followedSnapshotRows} from './program-status-sqlite.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
 const pane = parseStatusPane('%1\t12\t0\t1\t12.owner', 'test-status')!;
@@ -156,75 +157,94 @@ const monitorCli = fileURLToPath(
 	new URL('program-status-monitor-cli.ts', import.meta.url),
 );
 
-async function until(predicate: () => boolean, label: string) {
-	const deadline = Date.now() + 10_000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error(`Timed out: ${label}`);
-		await delay(10);
-	}
-}
-
 // A monitor lives as long as its agent pane, which can be days, and the flag
 // can change in that time.
-test('a running monitor starts and stops writing rows when the flag changes', async t => {
+test('a monitor asks for the flag again once its answer is a second old', t => {
 	const state = testState(t, {sqlite: true});
-	const store = state.daos.programStatus;
-	const home = path.join(state.stateDir, 'home');
-	const flagFile = path.join(home, '.pappardelle', 'state-flag.json');
-	const dbPath = stateDbPath(state.stateDir);
-	const setFlag = (sqliteState: boolean) => {
-		writeFileSync(flagFile, JSON.stringify({sqliteState, db: dbPath}));
-	};
-
-	mkdirSync(path.dirname(flagFile), {recursive: true});
-	setFlag(false);
-	const file = snapshotFile(state, target);
-	grantLease(state, target);
-	const env = {...process.env, HOME: home};
-	Reflect.deleteProperty(env, 'PAPPARDELLE_SQLITE_STATE');
-	const monitor = spawn(
-		process.execPath,
-		[
-			monitorCli,
-			'watch',
-			'repo',
-			'STA-1',
-			'test-status',
-			Buffer.from(JSON.stringify(pane)).toString('base64'),
-			path.dirname(file),
-			'',
-			dbPath,
-		],
-		{stdio: ['pipe', 'ignore', 'inherit'], env},
+	let now = 5000;
+	let enabled = false;
+	let asked = 0;
+	const rows = followedSnapshotRows(
+		() => openStateDb(stateDbPath(state.stateDir)),
+		() => {
+			asked++;
+			return enabled;
+		},
+		() => now,
 	);
-	t.teardown(() => {
-		monitor.kill('SIGKILL');
-	});
-	const report = (status: string) => {
-		monitor.stdin.write(`\u001B]7501;state=${status}:app=fixture\u0007`);
+	const publish = (status: string) => {
+		const snapshot = snapshotOf(target, [{state: status, id: ''}]);
+		grantLease(state, snapshot);
+		publishProgramSnapshot(
+			programStatusDir('repo', state.stateDir),
+			snapshot,
+			rows(),
+		);
 	};
 
-	const fileShows = async (status: string) =>
-		until(
-			() => store.read('STA-1', pane)?.info.status === status,
-			`file showing ${status}`,
-		);
-
-	report('working');
-	await fileShows('working');
+	publish('working');
 	t.deepEqual(rowStatuses(state), []);
 
-	setFlag(true);
-	await delay(1200);
-	report('blocked');
-	await until(
-		() => rowStatuses(state)[0] === 'blocked',
-		'row with the flag on',
-	);
-
-	setFlag(false);
-	await delay(1200);
-	report('done');
-	await fileShows('done');
+	enabled = true;
+	now += 999;
+	publish('working');
+	t.deepEqual(rowStatuses(state), []);
+	now += 1;
+	publish('blocked');
 	t.deepEqual(rowStatuses(state), ['blocked']);
+
+	enabled = false;
+	now += 999;
+	publish('working');
+	t.deepEqual(rowStatuses(state), ['working']);
+	now += 1;
+	publish('done');
+	t.deepEqual(rowStatuses(state), ['working']);
+	t.is(asked, 3);
 });
+
+for (const sqliteState of [false, true]) {
+	test(`a monitor process ${sqliteState ? 'writes rows' : 'writes only files'} when the recorded flag is ${sqliteState ? 'on' : 'off'}`, async t => {
+		const state = testState(t, {sqlite: true});
+		const store = state.daos.programStatus;
+		const home = path.join(state.stateDir, 'home');
+		const flagFile = path.join(home, '.pappardelle', 'state-flag.json');
+		const dbPath = stateDbPath(state.stateDir);
+		mkdirSync(path.dirname(flagFile), {recursive: true});
+		writeFileSync(flagFile, JSON.stringify({sqliteState, db: dbPath}));
+		const file = snapshotFile(state, target);
+		grantLease(state, target);
+		const env = {...process.env, HOME: home};
+		Reflect.deleteProperty(env, 'PAPPARDELLE_SQLITE_STATE');
+		const monitor = spawn(
+			process.execPath,
+			[
+				monitorCli,
+				'watch',
+				'repo',
+				'STA-1',
+				'test-status',
+				Buffer.from(JSON.stringify(pane)).toString('base64'),
+				path.dirname(file),
+				'',
+				dbPath,
+			],
+			{stdio: ['pipe', 'ignore', 'inherit'], env},
+		);
+		t.teardown(() => {
+			monitor.kill('SIGKILL');
+		});
+
+		monitor.stdin.write('\u001B]7501;state=working:app=fixture\u0007');
+		await waitUntil(
+			() => store.read('STA-1', pane)?.info.status === 'working',
+			'the monitor publishing',
+		);
+		if (sqliteState)
+			await waitUntil(
+				() => rowStatuses(state).length > 0,
+				'row with the flag on',
+			);
+		t.deepEqual(rowStatuses(state), sqliteState ? ['working'] : []);
+	});
+}
