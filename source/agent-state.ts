@@ -3,10 +3,7 @@
 // screen adds what the agent is blocked on and the states only the screen
 // shows: a Codex usage limit and a draft in its composer.
 
-import {
-	getClaudeStatusInfoAsync,
-	type ClaudeStatusInfo,
-} from './claude-status.ts';
+import type {ClaudeStatusInfo} from './claude-status.ts';
 import {
 	parseAgentScreen,
 	type AgentScreen,
@@ -112,7 +109,7 @@ export type AgentStateDeps = {
 	sleep: (ms: number) => Promise<void>;
 	/** The hook file's key: the space key, or `{repo}-{branch}` for main. */
 	hookKey: string;
-	readHook?: (key: string) => Promise<ClaudeStatusInfo | null>;
+	readHook: (key: string) => Promise<ClaudeStatusInfo | null>;
 	readSnapshot?: (
 		repo: string,
 		key: string,
@@ -250,7 +247,7 @@ export async function readAgentState(
 		? pinnedStatusPane(getSessionNames(key, repo).agent, runner)
 		: null;
 	const status = mergeProgramStatus(
-		await (deps.readHook ?? getClaudeStatusInfoAsync)(deps.hookKey),
+		await deps.readHook(deps.hookKey),
 		pane ? (deps.readSnapshot ?? readProgramSnapshot)(repo, key, pane) : null,
 		pane,
 	);

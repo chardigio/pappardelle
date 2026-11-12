@@ -64,6 +64,7 @@ try {
 	const statuses = new WorkspaceStatuses(
 		repo,
 		() => session,
+		harness.claudeStatus,
 		async args => {
 			queries++;
 			return runStatusTmux(args);

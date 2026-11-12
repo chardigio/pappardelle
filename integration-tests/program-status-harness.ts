@@ -1,20 +1,17 @@
 import assert from 'node:assert/strict';
 import {Buffer} from 'node:buffer';
 import {execFileSync} from 'node:child_process';
-import {
-	mkdtempSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
+import type {ClaudeStatus, ClaudeStatusDao} from '../source/claude-status.ts';
 import SpaceListItem from '../source/components/SpaceListItem.tsx';
+import {createStateDaos} from '../source/state-daos.ts';
+import {closeStateDb} from '../source/state-db.ts';
 import {
 	WorkspaceStatuses,
 	applyStatusUpdates,
@@ -48,6 +45,9 @@ export async function until<T>(
 export class StatusHarness {
 	readonly root = mkdtempSync(path.join(tmpdir(), 'pappa-program-status-'));
 	readonly socket = `pappa_status_${process.pid}`;
+	readonly stateDir = path.join(this.root, 'state');
+	/** The hook statuses, as a Pappardelle run against this harness reads them. */
+	readonly claudeStatus: ClaudeStatusDao;
 	readonly checks: Array<{
 		label: string;
 		info?: ProgramStatusInfo;
@@ -62,6 +62,9 @@ export class StatusHarness {
 		for (const [name, value] of Object.entries({
 			PAPPARDELLE_TMUX_SOCKET: this.socket,
 			PAPPARDELLE_STATUS_DIR: path.join(this.root, 'hooks'),
+			// Hooks run in the harness's panes write to its database, never to
+			// the developer's own.
+			PAPPARDELLE_STATE_DB: path.join(this.stateDir, 'state.db'),
 			PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(this.root, 'status'),
 			PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(this.root, 'trace'),
 			PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(
@@ -73,7 +76,11 @@ export class StatusHarness {
 			this.previous.set(name, process.env[name]);
 			process.env[name] = value;
 		}
-		mkdirSync(path.join(this.root, 'hooks'));
+		this.claudeStatus = createStateDaos({
+			repo: 'status-harness',
+			stateDir: this.stateDir,
+			sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+		}).claudeStatus;
 	}
 
 	async tmux(args: string[]) {
@@ -124,16 +131,23 @@ export class StatusHarness {
 		);
 	}
 
-	writeHook(key: string, status: string, tool?: string) {
-		writeFileSync(
-			path.join(this.root, 'hooks', `${key}.json`),
-			JSON.stringify({status, currentTool: tool, lastUpdate: Date.now()}),
-		);
+	async writeHook(key: string, status: ClaudeStatus, tool?: string) {
+		await this.claudeStatus.write({
+			sessionId: 'harness',
+			workspaceName: key,
+			status,
+			currentTool: tool,
+			lastUpdate: Date.now(),
+		});
 	}
 
 	async mount(repo: string, key: string, session: string) {
 		this.unmount();
-		const statuses = new WorkspaceStatuses(repo, () => session);
+		const statuses = new WorkspaceStatuses(
+			repo,
+			() => session,
+			this.claudeStatus,
+		);
 		this.spaces = [
 			{
 				name: key,
@@ -223,6 +237,7 @@ export class StatusHarness {
 			if (value === undefined) Reflect.deleteProperty(process.env, name);
 			else process.env[name] = value;
 		}
+		closeStateDb(path.join(this.stateDir, 'state.db'));
 		if (!process.argv.includes('--keep'))
 			rmSync(this.root, {recursive: true, force: true});
 	}

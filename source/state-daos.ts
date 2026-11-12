@@ -4,6 +4,9 @@
 // This is the one place that decides which a process gets, so nothing else
 // reads experimental.sqliteState, and removing the flag changes this file.
 
+import path from 'node:path';
+import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
+import {SqliteClaudeStatusDao} from './claude-status-sqlite.ts';
 import {readHomeSqliteState} from './config.ts';
 import {
 	getRegistryPathForRepo,
@@ -17,6 +20,7 @@ import {sqliteStateOverride} from './state-flag.ts';
 
 export type StateDaos = {
 	registry: SpaceRegistryDao;
+	claudeStatus: ClaudeStatusDao;
 };
 
 export type StateDaoOptions = {
@@ -43,13 +47,20 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	const jsonRegistry = new JsonSpaceRegistryDao(
 		getRegistryPathForRepo(repo, stateDir),
 	);
+	// The hook reads the same variable, so a test or a timer service moves the
+	// files for the writer and the readers at once.
+	const jsonClaudeStatus = new JsonClaudeStatusDao(
+		process.env['PAPPARDELLE_STATUS_DIR'] ??
+			path.join(stateDir, 'claude-status'),
+	);
 	if (!(options.sqlite ?? sqliteStateEnabled())) {
-		return {registry: jsonRegistry};
+		return {registry: jsonRegistry, claudeStatus: jsonClaudeStatus};
 	}
 
 	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
 	const openDb = () => openStateDb(dbPath);
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
+		claudeStatus: new SqliteClaudeStatusDao(openDb, jsonClaudeStatus),
 	};
 }

@@ -5,11 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
-import {
-	getHookStatusDir,
-	hookStatusKey,
-	readableHookStatusKey,
-} from './claude-status.ts';
+import {hookStatusKey} from './claude-status.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
 import {waitForDirChange} from './file-watch.ts';
 import {programStatusDir} from './program-status-monitor.ts';
@@ -21,6 +17,7 @@ import {
 	type TimerBackend,
 	type TimerContext,
 } from './schedule-timers.ts';
+import type {StateDaos} from './state-daos.ts';
 import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
@@ -39,13 +36,16 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 const log = createLogger('supervise');
 
 // Timer services start with a bare environment; these decide which tmux
-// server and status files `pappardelle` reaches when one fires.
+// server, status files and state database `pappardelle` reaches when one
+// fires.
 const PASSED_TO_TIMERS = [
 	'PATH',
 	'TMUX_TMPDIR',
 	'PAPPARDELLE_TMUX_SOCKET',
 	'PAPPARDELLE_STATUS_DIR',
 	'PAPPARDELLE_PROGRAM_STATUS_DIR',
+	'PAPPARDELLE_SQLITE_STATE',
+	'PAPPARDELLE_STATE_DB',
 ];
 
 function timerBackend(): TimerBackend {
@@ -129,16 +129,18 @@ const keyOutcome = (result: SendToSpaceAgentResult) =>
 
 export function defaultSuperviseDeps(
 	resolveKey: (raw: string) => string,
+	{claudeStatus}: Pick<StateDaos, 'claudeStatus'>,
 ): SuperviseDeps {
 	return {
 		repo: getRepoName,
 		resolveKey,
 		async hookKey(key) {
 			if (key !== MAIN_WORKTREE_KEY)
-				return readableHookStatusKey(getRepoName(), key);
+				return claudeStatus.readableKey(getRepoName(), key);
 			const main = await getMainWorktreeInfo();
 			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
 		},
+		readHook: async hookKey => claudeStatus.read(hookKey),
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
 		now: () => new Date(),
@@ -148,10 +150,10 @@ export function defaultSuperviseDeps(
 			});
 		},
 		async waitForStatusChange(ms) {
-			await waitForDirChange(
-				[getHookStatusDir(), programStatusDir(getRepoName())],
-				ms,
-			);
+			await Promise.race([
+				claudeStatus.waitForChange(ms),
+				waitForDirChange([programStatusDir(getRepoName())], ms),
+			]);
 		},
 		async send(key, text) {
 			return sendToSpaceAgent(key, text);

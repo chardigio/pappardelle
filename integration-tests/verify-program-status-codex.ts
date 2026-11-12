@@ -141,7 +141,7 @@ try {
 		'Reply with exactly: native Codex status verified. Do not use tools.',
 		'simple turn',
 	);
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(250);
 	await expectCompletion(
 		'native Codex status overrides conflicting Claude hook',

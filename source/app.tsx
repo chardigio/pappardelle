@@ -83,7 +83,6 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
-import {readableHookStatusKey} from './claude-status.ts';
 import {getSessionNames} from './tmux.ts';
 import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
@@ -324,7 +323,7 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
-	const {registry} = daos;
+	const {registry, claudeStatus} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
 
@@ -372,8 +371,9 @@ export default function App({
 			new WorkspaceStatuses(
 				repoName,
 				key => getSessionNames(key, repoName).agent,
+				claudeStatus,
 			),
-		[repoName],
+		[repoName, claudeStatus],
 	);
 	statusKeysRef.current = useMemo(
 		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
@@ -798,7 +798,7 @@ export default function App({
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			statusKey: name => readableHookStatusKey(repoName, name),
+			statusKey: name => claudeStatus.readableKey(repoName, name),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {

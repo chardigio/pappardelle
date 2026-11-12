@@ -70,7 +70,7 @@ import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {isSuperviseVerb} from './supervise-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {waitForAgentStart} from './agent-start.ts';
-import {hookStatusFile, hookStatusKey} from './claude-status.ts';
+import {hookStatusKey} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
@@ -166,7 +166,7 @@ if (process.argv[2] === 'companion') {
 // (--keys, --message) would otherwise be read as Pappardelle's own.
 if (isSuperviseVerb(process.argv[2])) {
 	checkConfig();
-	bootstrapRepo();
+	const {daos} = bootstrapRepo();
 	const [{runSuperviseCommand}, {defaultSuperviseDeps}] = await Promise.all([
 		import('./supervise-command.ts'),
 		import('./supervise-runtime.ts'),
@@ -174,7 +174,7 @@ if (isSuperviseVerb(process.argv[2])) {
 	await exitAfterFlush(
 		await runSuperviseCommand(
 			process.argv.slice(2),
-			defaultSuperviseDeps(resolveCliSpaceKey),
+			defaultSuperviseDeps(resolveCliSpaceKey, daos),
 		),
 	);
 }
@@ -440,6 +440,7 @@ if (cli.input[0] === 'spaces') {
 		await runSpacesCommand({
 			repoName,
 			registry: daos.registry,
+			claudeStatus: daos.claudeStatus,
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -512,7 +513,8 @@ if (cli.input.length > 0) {
 		waitForAgent: cli.flags.wait
 			? async (issueKey, since) =>
 					waitForAgentStart({
-						statusFile: hookStatusFile(hookStatusKey(getRepoName(), issueKey)),
+						claudeStatus: daos.claudeStatus,
+						statusKey: hookStatusKey(getRepoName(), issueKey),
 						worktree: path.join(
 							homedir(),
 							'.worktrees',

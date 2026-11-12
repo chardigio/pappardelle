@@ -1,26 +1,29 @@
 // Claude Code status tracking
 import {
 	existsSync,
-	readFileSync,
 	mkdirSync,
-	writeFileSync,
+	readFileSync,
 	renameSync,
 	rmSync,
+	watch,
+	writeFileSync,
 } from 'node:fs';
-import {homedir} from 'node:os';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {waitForDirChange} from './file-watch.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 
-export type ClaudeStatus =
-	| 'processing'
-	| 'running_tool'
-	| 'waiting_for_input'
-	| 'waiting_for_approval'
-	| 'compacting'
-	| 'ended'
-	| 'error'
-	| 'unknown';
+const CLAUDE_STATUSES = [
+	'processing',
+	'running_tool',
+	'waiting_for_input',
+	'waiting_for_approval',
+	'compacting',
+	'ended',
+	'error',
+	'unknown',
+] as const;
+export type ClaudeStatus = (typeof CLAUDE_STATUSES)[number];
 export interface ClaudeSessionState {
 	sessionId: string;
 	workspaceName: string;
@@ -42,26 +45,6 @@ export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
 	'compacting',
 ]);
 export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
-import {createLogger} from './logger.ts';
-
-const log = createLogger('claude-status');
-
-// Status file location: ~/.pappardelle/claude-status/<workspace>.json.
-// Resolved at call time so tests (and the Python hook) can override via
-// PAPPARDELLE_STATUS_DIR.
-export function getHookStatusDir(): string {
-	return (
-		process.env['PAPPARDELLE_STATUS_DIR'] ??
-		path.join(homedir(), '.pappardelle', 'claude-status')
-	);
-}
-
-export function ensureStatusDir(): void {
-	const dir = getHookStatusDir();
-	if (!existsSync(dir)) {
-		mkdirSync(dir, {recursive: true});
-	}
-}
 
 /**
  * The name of a space's hook status file: the space key, or the main
@@ -74,107 +57,204 @@ export function hookStatusKey(repoName: string, name: string): string {
 	return `${repoName}-${name}`.replaceAll('/', '-');
 }
 
-export function hookStatusFile(statusKey: string): string {
-	return path.join(getHookStatusDir(), `${statusKey}.json`);
-}
-
-/**
- * The status key to read a space under. An agent started before status files
- * were qualified by repo still writes under the bare name until it restarts,
- * so that file is read when only it exists. It can belong to another repo's
- * space with the same key, the collision the qualified name fixes.
- */
-export function readableHookStatusKey(
-	repoName: string,
-	name: string,
-	dir = getHookStatusDir(),
-): string {
-	const qualified = hookStatusKey(repoName, name);
-	if (existsSync(path.join(dir, `${qualified}.json`))) return qualified;
-	return existsSync(path.join(dir, `${name}.json`)) ? name : qualified;
-}
-
 export interface ClaudeStatusInfo {
 	status: ClaudeStatus;
 	tool?: string;
 }
 
-function parseStatus(content: string): ClaudeStatusInfo {
-	const state: ClaudeSessionState = JSON.parse(content);
+/** What is stored under a status key, as the hook wrote it. */
+export type StoredClaudeStatus =
+	| {kind: 'none'}
+	| {kind: 'unreadable'}
+	| {kind: 'state'; state: ClaudeSessionState};
+
+/**
+ * The status each Claude session last reported through its hook, one record
+ * per status key. The hook (plugins/pappardelle/hooks/update-status.py) is
+ * the writer in production.
+ */
+export interface ClaudeStatusDao {
+	/**
+	 * The status key to read a space under. An agent started before status
+	 * keys were qualified by repo still writes under the bare name until it
+	 * restarts, so that record is read when only it exists. It can belong to
+	 * another repo's space with the same key, the collision the qualified name
+	 * fixes.
+	 */
+	readableKey(repoName: string, name: string): string;
+	/** `unknown` when nothing is recorded, null when the record cannot be read. */
+	read(statusKey: string): Promise<ClaudeStatusInfo | null>;
+	readState(statusKey: string): StoredClaudeStatus;
+	write(state: ClaudeSessionState): Promise<void>;
+	/** Call `listener` with the status key of each record that changes. */
+	watch(listener: (statusKey: string) => void): () => void;
+	/** Resolve when a record changes, or after `ms`, whichever is first. */
+	waitForChange(ms: number): Promise<void>;
+}
+
+export function statusInfo(state: ClaudeSessionState): ClaudeStatusInfo {
 	if (
 		ACTIVE_STATUSES.has(state.status) &&
 		Date.now() - state.lastUpdate > ACTIVE_STATUS_TIMEOUT
 	) {
 		return {status: 'unknown'};
 	}
+
 	return {status: state.status, tool: state.currentTool};
 }
 
-export function getClaudeStatusInfo(workspaceName: string): ClaudeStatusInfo {
-	try {
-		const filePath = hookStatusFile(workspaceName);
-		if (!existsSync(filePath)) {
-			return {status: 'unknown'};
-		}
-
-		return parseStatus(readFileSync(filePath, 'utf-8'));
-	} catch (err) {
-		// Parse failures here are almost always a transient read/write race on
-		// the status JSON file (writer truncates before rewriting). Atomic
-		// writes make this rare, but a stray partial file shouldn't surface as
-		// a UI-visible warning — fall back to 'unknown' and move on.
-		log.debug(
-			`Failed to read status for workspace ${workspaceName}: ${
-				err instanceof Error ? err.message : String(err)
-			}`,
-		);
-		return {status: 'unknown'};
-	}
+function parseStatus(content: string): ClaudeStatusInfo {
+	return statusInfo(JSON.parse(content) as ClaudeSessionState);
 }
 
-export async function getClaudeStatusInfoAsync(
-	workspaceName: string,
-): Promise<ClaudeStatusInfo | null> {
-	try {
-		return parseStatus(await readFile(hookStatusFile(workspaceName), 'utf-8'));
-	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === 'ENOENT'
-			? {status: 'unknown'}
-			: null;
-	}
+/** A record holding only the optional fields that were reported. */
+export function sessionState(
+	required: Pick<
+		ClaudeSessionState,
+		'sessionId' | 'workspaceName' | 'status' | 'lastUpdate'
+	>,
+	reported: {
+		currentTool: string | undefined;
+		event: string | undefined;
+		cwd: string | undefined;
+	},
+): ClaudeSessionState {
+	const {currentTool, event, cwd} = reported;
+	return {
+		...required,
+		...(currentTool === undefined ? {} : {currentTool}),
+		...(event === undefined ? {} : {event}),
+		...(cwd === undefined ? {} : {cwd}),
+	};
 }
 
-export function setClaudeStatus(
-	workspaceName: string,
-	status: ClaudeStatus,
-	sessionId?: string,
-	currentTool?: string,
-): void {
-	ensureStatusDir();
-	const filePath = hookStatusFile(workspaceName);
-	const state: ClaudeSessionState = {
-		sessionId: sessionId ?? 'unknown',
+const isOptionalString = (value: unknown): value is string | undefined =>
+	value === undefined || typeof value === 'string';
+
+/** A record as the hook writes it. Throws when `content` is anything else. */
+export function parseSessionState(content: string): ClaudeSessionState {
+	const record = JSON.parse(content) as Record<string, unknown> | null;
+	const {
+		sessionId,
 		workspaceName,
 		status,
-		lastUpdate: Date.now(),
+		lastUpdate,
 		currentTool,
-	};
-	// Atomic write: write to a sibling temp file then rename. POSIX rename is
-	// atomic, so concurrent readers (and our own fs.watch) always observe
-	// either the previous complete file or the new complete file. If the
-	// write throws (disk full, permission denied) before the rename, clean
-	// up the orphan so the status dir doesn't accumulate junk across crashes.
-	const tmpPath = `${filePath}.tmp.${process.pid}`;
-	try {
-		writeFileSync(tmpPath, JSON.stringify(state, null, 2));
-		renameSync(tmpPath, filePath);
-	} catch (err) {
+		event,
+		cwd,
+	} = record ?? {};
+	if (
+		typeof sessionId !== 'string' ||
+		typeof workspaceName !== 'string' ||
+		!CLAUDE_STATUSES.includes(status as ClaudeStatus) ||
+		typeof lastUpdate !== 'number' ||
+		!isOptionalString(currentTool) ||
+		!isOptionalString(event) ||
+		!isOptionalString(cwd)
+	)
+		throw new Error('Not a Claude status record');
+	return sessionState(
+		{sessionId, workspaceName, status: status as ClaudeStatus, lastUpdate},
+		{currentTool, event, cwd},
+	);
+}
+
+export function renderSessionState(state: ClaudeSessionState): string {
+	const {
+		sessionId,
+		workspaceName,
+		status,
+		lastUpdate,
+		currentTool,
+		event,
+		cwd,
+	} = state;
+	return JSON.stringify(
+		{sessionId, workspaceName, status, lastUpdate, currentTool, event, cwd},
+		null,
+		2,
+	);
+}
+
+export class JsonClaudeStatusDao implements ClaudeStatusDao {
+	private readonly dir: string;
+
+	constructor(dir: string) {
+		// The hook records the same absolute path for a file's rows.
+		this.dir = path.resolve(dir);
+	}
+
+	file(statusKey: string): string {
+		return path.join(this.dir, `${statusKey}.json`);
+	}
+
+	readableKey(repoName: string, name: string): string {
+		const qualified = hookStatusKey(repoName, name);
+		if (existsSync(this.file(qualified))) return qualified;
+		return existsSync(this.file(name)) ? name : qualified;
+	}
+
+	async read(statusKey: string): Promise<ClaudeStatusInfo | null> {
 		try {
-			rmSync(tmpPath, {force: true});
-		} catch {
-			// swallow — original error is what we want to surface
+			return parseStatus(await readFile(this.file(statusKey), 'utf-8'));
+		} catch (err) {
+			return (err as NodeJS.ErrnoException).code === 'ENOENT'
+				? {status: 'unknown'}
+				: null;
 		}
-		throw err;
+	}
+
+	readState(statusKey: string): StoredClaudeStatus {
+		let content: string;
+		try {
+			content = readFileSync(this.file(statusKey), 'utf8');
+		} catch (error) {
+			return (error as NodeJS.ErrnoException).code === 'ENOENT'
+				? {kind: 'none'}
+				: {kind: 'unreadable'};
+		}
+
+		try {
+			return {kind: 'state', state: parseSessionState(content)};
+		} catch {
+			return {kind: 'unreadable'};
+		}
+	}
+
+	async write(state: ClaudeSessionState): Promise<void> {
+		mkdirSync(this.dir, {recursive: true});
+		const filePath = this.file(state.workspaceName);
+		// Atomic write: write to a sibling temp file then rename. POSIX rename is
+		// atomic, so concurrent readers (and our own fs.watch) always observe
+		// either the previous complete file or the new complete file. If the
+		// write throws (disk full, permission denied) before the rename, clean
+		// up the orphan so the status dir doesn't accumulate junk across crashes.
+		const tmpPath = `${filePath}.tmp.${process.pid}`;
+		try {
+			writeFileSync(tmpPath, renderSessionState(state));
+			renameSync(tmpPath, filePath);
+		} catch (err) {
+			try {
+				rmSync(tmpPath, {force: true});
+			} catch {
+				// swallow — original error is what we want to surface
+			}
+			throw err;
+		}
+	}
+
+	watch(listener: (statusKey: string) => void): () => void {
+		mkdirSync(this.dir, {recursive: true});
+		const watcher = watch(this.dir, (_event, filename) => {
+			if (filename?.endsWith('.json')) listener(filename.slice(0, -5));
+		});
+		return () => {
+			watcher.close();
+		};
+	}
+
+	async waitForChange(ms: number): Promise<void> {
+		await waitForDirChange([this.dir], ms);
 	}
 }
 

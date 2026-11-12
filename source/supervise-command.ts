@@ -68,6 +68,7 @@ export type SuperviseDeps = {
 	resolveKey: (raw: string) => string;
 	/** The hook file's key for a space: `{repo}-{branch}` for main. */
 	hookKey: (key: string) => Promise<string>;
+	readHook: AgentStateDeps['readHook'];
 	runner: OuterTmuxRunner;
 	serverRunner: OuterTmuxRunner;
 	now: () => Date;
@@ -102,6 +103,7 @@ async function readState(key: string, deps: SuperviseDeps) {
 		now: deps.now,
 		sleep: deps.sleep,
 		hookKey: await deps.hookKey(key),
+		readHook: deps.readHook,
 	};
 	return readAgentState(key, stateDeps);
 }

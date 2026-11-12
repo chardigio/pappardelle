@@ -45,6 +45,16 @@ if _agent_session_spec and _agent_session_spec.loader:
 else:
     raise ImportError("Could not load agent_session")
 
+_state_db_module_path = Path(__file__).parent / "state_db.py"
+_state_db_spec = importlib.util.spec_from_file_location("state_db", _state_db_module_path)
+if _state_db_spec and _state_db_spec.loader:
+    _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
+    _state_db_spec.loader.exec_module(_state_db_mod)
+    state_db_path = _state_db_mod.state_db_path
+    write_through = _state_db_mod.write_through
+else:
+    raise ImportError("Could not load state_db")
+
 # Debug mode - logs all hook events to a file
 # Set PAPPARDELLE_DEBUG=1 environment variable to enable logging
 DEBUG = os.environ.get("PAPPARDELLE_DEBUG", "0") == "1"
@@ -174,17 +184,48 @@ def update_status(
     # file or the new complete file — never a truncated one. If the write
     # raises (disk full, permission denied) before the rename, clean up the
     # orphan so the status dir doesn't accumulate junk across crashes.
-    tmp_file = status_dir / f"{workspace}.json.tmp.{os.getpid()}"
-    try:
-        with open(tmp_file, "w") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp_file, status_file)
-    except Exception:
+    def write_file() -> os.stat_result:
+        tmp_file = status_dir / f"{workspace}.json.tmp.{os.getpid()}"
         try:
-            tmp_file.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+            with open(tmp_file, "w") as f:
+                json.dump(state, f, indent=2)
+            written = os.stat(tmp_file)
+            os.replace(tmp_file, status_file)
+            return written
+        except Exception:
+            try:
+                tmp_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+
+    db_path = state_db_path()
+    if db_path is None:
+        write_file()
+        return
+    # The columns source/claude-status-sqlite.ts imports from the same file.
+    write_through(
+        db_path,
+        status_file,
+        write_file,
+        [
+            (
+                """INSERT OR REPLACE INTO claude_status (status_key, session_id,
+                    workspace_name, status, last_update, current_tool, event, cwd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    workspace,
+                    state["sessionId"],
+                    workspace,
+                    status,
+                    state["lastUpdate"],
+                    state.get("currentTool"),
+                    state.get("event"),
+                    state.get("cwd"),
+                ),
+            )
+        ],
+    )
 
 
 def main() -> None:

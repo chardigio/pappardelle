@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
+import type {ClaudeSessionState} from './claude-status.ts';
 import {
 	formatSpaces,
 	gatherSpaces,
@@ -48,6 +49,19 @@ const repoState = (home: string, ...rest: string[]) =>
 const statusFile = (home: string, key: string, repo = REPO) =>
 	path.join(home, '.pappardelle', 'claude-status', `${repo}-${key}.json`);
 
+/** A status file as the hook writes it. */
+function writeStatus(
+	file: string,
+	state: Partial<ClaudeSessionState> &
+		Pick<ClaudeSessionState, 'status' | 'lastUpdate'>,
+): void {
+	writeJson(file, {
+		sessionId: 'session',
+		workspaceName: path.basename(file, '.json'),
+		...state,
+	});
+}
+
 function openSpaces(home: string, keys: string[]): void {
 	writeJson(repoState(home, 'open-spaces.json'), keys);
 }
@@ -58,7 +72,7 @@ async function gather(
 ): Promise<SpaceEntry[]> {
 	const report = await gatherSpaces({
 		repoName: REPO,
-		registry: stores(home).registry,
+		...stores(home),
 		home,
 		fetchTitles: async () => new Map(),
 		gitSummary: async () => null,
@@ -73,7 +87,7 @@ test('a repo with no open-spaces file reports the error', async t => {
 	t.deepEqual(
 		await gatherSpaces({
 			repoName: REPO,
-			registry: stores(home).registry,
+			...stores(home),
 			home,
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,
@@ -82,11 +96,11 @@ test('a repo with no open-spaces file reports the error', async t => {
 	);
 });
 
-test('status comes from the claude-status file, raw', async t => {
+test('status is what the hook last recorded, however old', async t => {
 	const home = tempHome(t);
 	const now = Date.now();
 	openSpaces(home, ['STA-100', 'STA-200', 'STA-700']);
-	writeJson(statusFile(home, 'STA-100'), {
+	writeStatus(statusFile(home, 'STA-100'), {
 		status: 'processing',
 		currentTool: 'Bash',
 		// Older than the TUI's active-status timeout; the board still sees it.
@@ -109,13 +123,13 @@ test('status comes from the claude-status file, raw', async t => {
 test('another repo with a space of the same key does not supply its status', async t => {
 	const home = tempHome(t);
 	openSpaces(home, ['STA-1']);
-	writeJson(statusFile(home, 'STA-1', 'other-repo'), {
+	writeStatus(statusFile(home, 'STA-1', 'other-repo'), {
 		status: 'waiting_for_approval',
 		lastUpdate: Date.now(),
 	});
 	const before = await gather(home);
 	t.is(before[0]?.status, 'no_status');
-	writeJson(statusFile(home, 'STA-1'), {
+	writeStatus(statusFile(home, 'STA-1'), {
 		status: 'ended',
 		lastUpdate: Date.now(),
 	});
@@ -206,7 +220,7 @@ test('spaces sort by last update and carry tmux session names', async t => {
 	const now = Date.now();
 	openSpaces(home, ['STA-OLD', 'STA-NEW', 'a.b_c']);
 	const status = (key: string, ago: number) =>
-		writeJson(statusFile(home, key), {
+		writeStatus(statusFile(home, key), {
 			status: 'ended',
 			lastUpdate: now - ago,
 		});
@@ -342,10 +356,10 @@ test('an agent still writing the bare status name is read until the qualified fi
 	const home = tempHome(t);
 	openSpaces(home, ['STA-1']);
 	const bare = path.join(home, '.pappardelle', 'claude-status', 'STA-1.json');
-	writeJson(bare, {status: 'working', lastUpdate: Date.now()});
+	writeStatus(bare, {status: 'processing', lastUpdate: Date.now()});
 	const before = await gather(home);
-	t.is(before[0]?.status, 'working');
-	writeJson(statusFile(home, 'STA-1'), {
+	t.is(before[0]?.status, 'processing');
+	writeStatus(statusFile(home, 'STA-1'), {
 		status: 'ended',
 		lastUpdate: Date.now(),
 	});

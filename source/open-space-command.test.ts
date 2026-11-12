@@ -78,6 +78,8 @@ if (process.env.IDOW_TEST_STATUS_DIR) {
   const key = process.argv.at(-1);
   fs.mkdirSync(process.env.IDOW_TEST_STATUS_DIR, {recursive: true});
   fs.writeFileSync(process.env.IDOW_TEST_STATUS_DIR + '/project-' + key + '.json', JSON.stringify({
+    sessionId: 'session',
+    workspaceName: 'project-' + key,
     status: 'waiting_for_input',
     event: 'SessionStart',
     cwd: process.env.HOME + '/.worktrees/project/' + key,
@@ -204,8 +206,7 @@ test.serial(
 		});
 		const spaces = await gatherSpaces({
 			repoName: 'project',
-			registry: createStateDaos({repo: 'project', stateDir, sqlite: sqliteRun})
-				.registry,
+			...createStateDaos({repo: 'project', stateDir, sqlite: sqliteRun}),
 			home: f.home,
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,

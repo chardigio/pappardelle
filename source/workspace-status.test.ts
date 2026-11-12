@@ -10,28 +10,30 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
+import {testState} from '../test/helpers/state.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {
 	parseStatusPane,
 	programStatusPath,
 	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
-import {mapClaudeStatus, ACTIVE_STATUS_TIMEOUT} from './claude-status.ts';
+import {
+	mapClaudeStatus,
+	ACTIVE_STATUS_TIMEOUT,
+	type ClaudeStatus,
+} from './claude-status.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import {ProgramStatusStore} from './program-status.ts';
 
 function setup(t: ExecutionContext) {
 	const dir = mkdtempSync(path.join(tmpdir(), 'workspace-status-'));
-	const oldHook = process.env['PAPPARDELLE_STATUS_DIR'];
 	const oldOsc = process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'];
 	const oldSocket = process.env['PAPPARDELLE_TMUX_SOCKET'];
-	process.env['PAPPARDELLE_STATUS_DIR'] = path.join(dir, 'hooks');
 	process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'] = path.join(dir, 'osc');
 	process.env['PAPPARDELLE_TMUX_SOCKET'] = 'test-status';
-	mkdirSync(path.join(dir, 'hooks'));
+	const {claudeStatus} = testState(t).daos;
 	t.teardown(() => {
 		for (const [key, value] of [
-			['PAPPARDELLE_STATUS_DIR', oldHook],
 			['PAPPARDELLE_PROGRAM_STATUS_DIR', oldOsc],
 			['PAPPARDELLE_TMUX_SOCKET', oldSocket],
 		]) {
@@ -45,22 +47,25 @@ function setup(t: ExecutionContext) {
 	const status = new WorkspaceStatuses(
 		'repo',
 		key => `claude-repo-${key}`,
+		claudeStatus,
 		async args => {
 			queries++;
 			return `%1\t${paneOutput}`;
 		},
 	);
-	const writeHook = (
-		status: string,
+	const writeHook = async (
+		status: ClaudeStatus,
 		currentTool?: string,
 		lastUpdate = Date.now(),
 		key = 'TASK-1',
-	) => {
-		writeFileSync(
-			path.join(dir, 'hooks', `${key}.json`),
-			JSON.stringify({status, currentTool, lastUpdate}),
-		);
-	};
+	) =>
+		claudeStatus.write({
+			sessionId: 'session',
+			workspaceName: key,
+			status,
+			currentTool,
+			lastUpdate,
+		});
 	const writeOsc = (
 		info: ProgramStatusInfo,
 		options: {
@@ -130,7 +135,7 @@ test.serial(
 	'dead panes remove active records immediately while retaining done and error',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input');
+		await h.writeHook('waiting_for_input');
 		h.writeOsc({status: 'working', app: 'fixture'});
 		h.exitPane();
 		t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
@@ -145,7 +150,7 @@ test.serial(
 	'persisted status cannot inject invalid fields or contradict its records',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input');
+		await h.writeHook('waiting_for_input');
 		for (const change of [
 			(snapshot: ProgramStatusSnapshot) => {
 				snapshot.info.status = 'blocked';
@@ -172,13 +177,13 @@ test.serial(
 	'native records remain authoritative past ten minutes and through conflicting hook writes and clear',
 	async t => {
 		const h = setup(t);
-		h.writeHook('processing');
+		await h.writeHook('processing');
 		t.is(await readField(h.status, 'TASK-1', 'source'), 'hook');
 		h.writeOsc(
 			{status: 'blocked', kind: 'auth', app: 'codex'},
 			{age: ACTIVE_STATUS_TIMEOUT * 2},
 		);
-		h.writeHook('waiting_for_input');
+		await h.writeHook('waiting_for_input');
 		t.like(await h.status.read('TASK-1'), {
 			status: 'blocked',
 			kind: 'auth',
@@ -194,7 +199,7 @@ test.serial(
 	'query alone leaves hooks active and matching hook details do not cross app, record or state',
 	async t => {
 		const h = setup(t);
-		h.writeHook('running_tool', 'Bash');
+		await h.writeHook('running_tool', 'Bash');
 		h.writeOsc({status: 'unknown'}, {authoritative: false});
 		t.like(await h.status.read('TASK-1'), {
 			status: 'working',
@@ -218,7 +223,7 @@ test.serial(
 	'new pane identities reject late old snapshots and same keys in other repositories',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input');
+		await h.writeHook('waiting_for_input');
 		h.writeOsc({status: 'error'});
 		h.replacePane();
 		t.like(await h.status.read('TASK-1'), {status: 'idle', source: 'hook'});
@@ -231,7 +236,7 @@ test.serial(
 	'main workspace OSC uses its stable session key while the hook follows its branch',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input', undefined, Date.now(), 'repo-main');
+		await h.writeHook('waiting_for_input', undefined, Date.now(), 'repo-main');
 		h.writeOsc({status: 'working', app: 'claude-code'}, {key: 'main'});
 		t.like(await h.status.read('repo-main', 'main'), {
 			status: 'working',
@@ -263,7 +268,7 @@ test.serial(
 		// The first fixture write can otherwise precede filesystem watch registration.
 		await delay(0);
 		const hookPublished = nextPublication();
-		h.writeHook('processing');
+		await h.writeHook('processing');
 		await hookPublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.source, 'hook');
 		const donePublished = nextPublication();
@@ -271,7 +276,7 @@ test.serial(
 		await donePublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.status, 'done');
 		const before = batches.length;
-		h.writeHook('error');
+		await h.writeHook('error');
 		stop();
 		await delay(100);
 		t.is(batches.length, before);
@@ -296,7 +301,7 @@ test.serial(
 		const before = h.queries();
 		h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
 		await until(() => latest.get('TASK-1')?.status === 'blocked');
-		h.writeHook('processing');
+		await h.writeHook('processing');
 		await delay(100);
 		t.is(h.queries(), before);
 		t.is(latest.get('TASK-1')?.status, 'blocked');
@@ -304,7 +309,7 @@ test.serial(
 		h.replacePane();
 		h.writeOsc({status: 'done', app: 'replacement'});
 		await h.status.read('TASK-1');
-		h.writeHook('error');
+		await h.writeHook('error');
 		await until(() => latest.get('TASK-1')?.app === 'replacement');
 		t.not(latest.get('TASK-1')?.generation, oldGeneration);
 		t.true(h.queries() > before);
@@ -326,12 +331,12 @@ test.serial(
 		await delay(0);
 		for (let burst = 0; burst < 3; burst++) {
 			for (let i = 0; i < 8; i++) {
-				h.writeHook('running_tool', 'Bash', Date.now(), `ours-${i}`);
-				h.writeHook('processing', undefined, Date.now(), `other-${i}`);
+				await h.writeHook('running_tool', 'Bash', Date.now(), `ours-${i}`);
+				await h.writeHook('processing', undefined, Date.now(), `other-${i}`);
 			}
 		}
 		for (let i = 0; i < 8; i++)
-			h.writeHook(
+			await h.writeHook(
 				'waiting_for_approval',
 				'AskUserQuestion',
 				Date.now(),
@@ -375,7 +380,7 @@ test.serial(
 		t.is(h.queries(), before);
 		t.false(latest.has('main'));
 		rmSync(`${file}.lease`);
-		h.writeHook('processing', undefined, Date.now(), 'repo-main');
+		await h.writeHook('processing', undefined, Date.now(), 'repo-main');
 		await until(() => h.queries() > before);
 	},
 );
