@@ -21,6 +21,8 @@ import {
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
 	getListLayout,
+	getRailGroups,
+	isRailGroupedByStatus,
 	getPaneWidths,
 	getCompanionCommand,
 	getIdeCommand,
@@ -6198,4 +6200,85 @@ test('an undefined YAML alias in a config file is reported with the file', t => 
 		{instanceOf: ConfigValidationError},
 	);
 	t.regex(error!.errors[0]!, /^\.pappardelle\.yml: .*nope/);
+});
+
+// ============================================================================
+// list_view.group_by / list_view.groups
+// ============================================================================
+
+function validateListView(listView: Record<string, unknown>): string {
+	try {
+		validateConfig({
+			version: 1,
+			profiles: {test: {display_name: 'Test'}},
+			list_view: listView,
+		});
+		return '';
+	} catch (error) {
+		return (error as Error).message;
+	}
+}
+
+test('grouping is off unless list_view.group_by is status', t => {
+	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	t.false(isRailGroupedByStatus(config));
+	config.list_view = {group_by: 'status'};
+	t.true(isRailGroupedByStatus(config));
+	t.true(
+		validateListView({group_by: 'priority'}).includes(
+			'list_view.group_by: must be "status"',
+		),
+	);
+});
+
+test('getRailGroups falls back to the default groups', t => {
+	t.deepEqual(
+		getRailGroups(null).map(group => group.name),
+		['In Progress', 'In Review', 'Done'],
+	);
+});
+
+test('validateConfig accepts custom groups by status and category', t => {
+	t.is(
+		validateListView({
+			group_by: 'status',
+			groups: [
+				{name: 'Doing', color: 'blue', categories: ['todo', 'in_progress']},
+				{name: 'QA', color: '#a78bfa', statuses: ['In Review', 'QA']},
+				{name: 'Done', color: 'green', categories: ['done']},
+			],
+		}),
+		'',
+	);
+});
+
+test('validateConfig rejects groups that the rail could not place', t => {
+	const message = validateListView({
+		groups: [
+			{name: 'Doing', color: 'blue', categories: ['todo']},
+			{name: 'Review', color: 'chartreuse', statuses: ['In Review']},
+			{name: 'review', color: 'blue', statuses: ['in review']},
+			{name: 'Empty', color: 'blue'},
+			{name: 'Odd', color: 'blue', categories: ['started']},
+		],
+	});
+	t.true(message.includes('list_view.groups[1].color:'));
+	t.true(
+		message.includes('list_view.groups[2].name: duplicate group "review"'),
+	);
+	t.true(
+		message.includes(
+			'list_view.groups[2].statuses: "in review" is already in list_view.groups[1]',
+		),
+	);
+	t.true(
+		message.includes('list_view.groups[3]: needs statuses, categories or both'),
+	);
+	t.true(message.includes('list_view.groups[4].categories:'));
+	t.true(validateListView({groups: []}).includes('must be a non-empty list'));
+	t.true(
+		validateListView({
+			groups: [{name: 'Nothing', color: 'blue', statuses: [], categories: []}],
+		}).includes('list_view.groups[0]: needs statuses, categories or both'),
+	);
 });

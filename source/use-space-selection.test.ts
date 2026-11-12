@@ -164,3 +164,45 @@ test.serial(
 		t.is(spaces[selectedIndex]?.name, 'STA-1');
 	},
 );
+
+test('a header cursor keeps the space selection behind it for the panes', async t => {
+	const ctx = await setup(t);
+	await ctx.update(() => {
+		ctx.selection.selectHeader('done');
+	});
+	t.is(ctx.selection.current().selectedHeader, 'done');
+	t.is(ctx.selection.current().selectedIndex, 2);
+	t.deepEqual(ctx.attachments, []);
+});
+
+test('selecting a space by index or by key clears a header cursor', async t => {
+	const ctx = await setup(t);
+	await ctx.update(() => {
+		ctx.selection.selectHeader('done');
+	});
+	await ctx.update(() => {
+		ctx.selection.setSelectedIndex(1);
+	});
+	t.is(ctx.selection.current().selectedHeader, null);
+	t.is(ctx.view.lastFrame(), 'STA-4');
+
+	await ctx.update(() => {
+		ctx.selection.selectHeader('done');
+	});
+	await ctx.update(() => {
+		ctx.selection.selectSpace('sta-1');
+	});
+	t.is(ctx.selection.current().selectedHeader, null);
+	t.is(ctx.view.lastFrame(), 'STA-1');
+});
+
+test('a refresh keeps a header cursor in place', async t => {
+	const ctx = await setup(t);
+	await ctx.update(() => {
+		ctx.selection.selectHeader('in review');
+	});
+	await ctx.update(() => {
+		ctx.selection.setSpaces(spaces(['main', 'STA-5', 'STA-4', 'STA-3']));
+	});
+	t.is(ctx.selection.current().selectedHeader, 'in review');
+});

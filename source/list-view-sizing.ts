@@ -92,16 +92,59 @@ export function calculateVisibleWindow(
 	visibleCount: number;
 	adjustedSelectedIndex: number;
 } {
-	const maxVisible = calculateMaxVisibleItems(termHeight, linesPerItem);
-	const scrollOffset = calculateScrollOffset(
+	const {scrollOffset, visibleCount} = calculateRowWindow(
+		Array.from({length: totalItems}, () => linesPerItem),
 		selectedIndex,
-		totalItems,
-		maxVisible,
+		termHeight,
 	);
-	const visibleCount = Math.min(maxVisible, totalItems - scrollOffset);
 	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
 	return {scrollOffset, visibleCount, adjustedSelectedIndex};
+}
+
+/**
+ * The visible window over rows of different heights: the grouped rail mixes
+ * one-line group headers with two-line spaces. Keeps the cursor row near the
+ * middle like `calculateVisibleWindow`, measured in terminal lines.
+ */
+export function calculateRowWindow(
+	heights: readonly number[],
+	cursorRow: number,
+	termHeight: number,
+): {scrollOffset: number; visibleCount: number} {
+	const count = heights.length;
+	if (count === 0) return {scrollOffset: 0, visibleCount: 0};
+	const cursor = Math.min(Math.max(cursorRow, 0), count - 1);
+	const budget = Math.max(heights[cursor]!, termHeight - LIST_CHROME_ROWS);
+	const total = heights.reduce((sum, height) => sum + height, 0);
+	if (total <= budget) return {scrollOffset: 0, visibleCount: count};
+
+	const linesAbove = Math.min(
+		Math.floor(budget / 2),
+		budget - heights[cursor]!,
+	);
+	let start = cursor;
+	let used = heights[cursor]!;
+	while (
+		start > 0 &&
+		used - heights[cursor]! + heights[start - 1]! <= linesAbove
+	) {
+		start--;
+		used += heights[start]!;
+	}
+
+	let end = cursor + 1;
+	while (end < count && used + heights[end]! <= budget) {
+		used += heights[end]!;
+		end++;
+	}
+
+	while (start > 0 && used + heights[start - 1]! <= budget) {
+		start--;
+		used += heights[start]!;
+	}
+
+	return {scrollOffset: start, visibleCount: end - start};
 }
 
 // ============================================================================

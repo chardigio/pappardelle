@@ -5,12 +5,18 @@ import type {SpaceData} from './types.ts';
 type Selection = {
 	spaces: SpaceData[];
 	selectedIndex: number;
+	/**
+	 * Group id when the cursor is on a grouped-rail header. `selectedIndex`
+	 * keeps the last space so the panes stay on it, but nothing acts on it.
+	 */
+	selectedHeader: string | null;
 };
 
 export function useSpaceSelection() {
 	const [state, setState] = useState<Selection>({
 		spaces: [],
 		selectedIndex: 0,
+		selectedHeader: null,
 	});
 	// One input write can carry several keys (pasted or scripted sequences),
 	// and their handlers all run before the next render. Each key must act on
@@ -40,7 +46,7 @@ export function useSpaceSelection() {
 					preservedIndex !== -1
 						? preservedIndex
 						: Math.max(0, Math.min(prev.selectedIndex, spaces.length - 1));
-				return {spaces, selectedIndex};
+				return {spaces, selectedIndex, selectedHeader: prev.selectedHeader};
 			});
 		},
 		[update],
@@ -49,7 +55,9 @@ export function useSpaceSelection() {
 	const setSelectedIndex = useCallback(
 		(selectedIndex: number) => {
 			update(prev =>
-				prev.selectedIndex === selectedIndex ? prev : {...prev, selectedIndex},
+				prev.selectedIndex === selectedIndex && prev.selectedHeader === null
+					? prev
+					: {...prev, selectedIndex, selectedHeader: null},
 			);
 		},
 		[update],
@@ -59,13 +67,33 @@ export function useSpaceSelection() {
 		(name: string) => {
 			update(prev => {
 				const selectedIndex = findSpaceIndexByIssueKey(prev.spaces, name);
-				return selectedIndex < 0 || selectedIndex === prev.selectedIndex
+				if (selectedIndex < 0) return prev;
+				return selectedIndex === prev.selectedIndex &&
+					prev.selectedHeader === null
 					? prev
-					: {...prev, selectedIndex};
+					: {...prev, selectedIndex, selectedHeader: null};
 			});
 		},
 		[update],
 	);
 
-	return {...state, current, setSpaces, setSelectedIndex, selectSpace};
+	const selectHeader = useCallback(
+		(groupId: string) => {
+			update(prev =>
+				prev.selectedHeader === groupId
+					? prev
+					: {...prev, selectedHeader: groupId},
+			);
+		},
+		[update],
+	);
+
+	return {
+		...state,
+		current,
+		setSpaces,
+		setSelectedIndex,
+		selectSpace,
+		selectHeader,
+	};
 }

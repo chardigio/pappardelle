@@ -100,6 +100,23 @@ team_prefix: ENG
 # list_view:
 #   layout: two_line        # 'single_line' | 'two_line'
 
+# Group the rail by issue status, under collapsible headers. Agent spaces
+# (no issue, like main) stay on top above a divider. `groups` is optional;
+# this is the default list. A status named in `statuses` beats a `categories` match
+# (todo / in_progress / done).
+# list_view:
+#   group_by: status
+#   groups:
+#     - name: In Progress
+#       color: '#4b9fea'
+#       categories: [todo, in_progress]
+#     - name: In Review
+#       color: '#a78bfa'
+#       statuses: [In Review]
+#     - name: Done
+#       color: '#4caf50'
+#       categories: [done]
+
 # Starting widths of the three panes in the wide (100+ column) layout, as
 # columns or a percentage of the width the panes share. Leave any of them out
 # to keep the default for that pane. Claude takes whatever the rail and

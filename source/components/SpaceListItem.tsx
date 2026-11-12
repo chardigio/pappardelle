@@ -7,6 +7,7 @@ import {programStatusDisplay} from '../program-status-display.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {resolveStateColor} from '../state-color-override.ts';
+import {spaceAttention} from '../rail-groups.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
 import {
 	clipIssueKey,
@@ -66,9 +67,8 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		isPending: space.isPending,
 	});
 	const statusInfo = programStatusDisplay(space.programStatus);
-	const isQuestion =
-		space.programStatus?.status === 'blocked' &&
-		space.programStatus.kind === 'question';
+	const attention = spaceAttention(space);
+	const isQuestion = attention === 'question';
 
 	// Pending rows always show the animation spinner
 	const isWorking =
@@ -76,9 +76,8 @@ function SpaceListItem({space, isSelected, width, layout, onSelect}: Props) {
 		(space.programStatus?.status === 'working' &&
 			space.programStatus.activity !== 'compacting');
 
-	// Determine if row needs attention (blinking background)
 	// Both approval requests and questions blink, but with different colors
-	const needsAttention = space.programStatus?.status === 'blocked';
+	const needsAttention = attention !== null;
 
 	const blinkOn = useAttentionFrame(needsAttention) % 2 === 0;
 	const skinToneWide = useTmuxSkinToneWide();

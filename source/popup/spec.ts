@@ -22,6 +22,7 @@ export type HelpPopupProps = {
 	commitSha: string;
 	installedVersion?: string | null;
 	isDevBuild?: boolean;
+	isRailGrouped?: boolean;
 };
 
 export type ErrorsPopupProps = {errors: LogEntry[]};
