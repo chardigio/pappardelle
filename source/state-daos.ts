@@ -226,7 +226,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 
 	return {
 		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
-		claudeStatus: new DaemonClaudeStatusDao(statusClient),
+		claudeStatus: new DaemonClaudeStatusDao(statusClient, jsonClaudeStatus),
 		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
 		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
 		highlight: new SqliteHighlightDao(

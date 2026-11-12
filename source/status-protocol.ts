@@ -8,6 +8,11 @@ import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
 export type ClientMessage =
 	/** A Claude hook event. Replaces the record under `state.workspaceName`. */
 	| {type: 'hook'; state: ClaudeSessionState}
+	/**
+	 * A hook record a client held when its daemon was replaced. Kept only
+	 * where the daemon holds none as recent under `state.workspaceName`.
+	 */
+	| {type: 'restore'; state: ClaudeSessionState}
 	/** A pane monitor's snapshot. Replaces the one of its pane generation. */
 	| {type: 'snapshot'; snapshot: ProgramStatusSnapshot}
 	/** Drop the snapshots of a space, except pane generation `keep`'s. */
@@ -86,10 +91,11 @@ function listOf<Item>(
 export function parseClientMessage(line: string): Parsed<ClientMessage> {
 	const fields = record(line);
 	switch (fields?.['type']) {
-		case 'hook': {
+		case 'hook':
+		case 'restore': {
 			const state = hookState(fields['state']);
 			return state
-				? {kind: 'message', message: {type: 'hook', state}}
+				? {kind: 'message', message: {type: fields['type'], state}}
 				: INVALID;
 		}
 
