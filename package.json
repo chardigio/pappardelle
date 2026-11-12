@@ -50,6 +50,9 @@
 			"ts": "module",
 			"tsx": "module"
 		},
+		"require": [
+			"./test/helpers/state-db-setup.ts"
+		],
 		"workerThreads": false,
 		"timeout": "2m"
 	},

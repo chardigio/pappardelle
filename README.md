@@ -529,16 +529,17 @@ pappardelle plugin install  # installs the plugin (skills, hooks and MCP tools) 
 
 **Directories created by the installer:**
 
-| Directory / File                                   | Purpose                                                              |
-| -------------------------------------------------- | -------------------------------------------------------------------- |
-| `~/.pappardelle/`                                  | Config, logs, and program status files                               |
-| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                           |
-| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)            |
-| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                          |
-| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks                        |
-| `~/.pappardelle/program-status/{repo}/`            | Native program snapshots, separated by workspace and pane generation |
-| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                                    |
-| `~/.worktrees/`                                    | Git worktrees for all your workspaces                                |
+| Directory / File                                   | Purpose                                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `~/.pappardelle/`                                  | Config, logs, and program status files                                                                |
+| `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                                                            |
+| `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)                                             |
+| `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                                                           |
+| `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks                                                         |
+| `~/.pappardelle/program-status/{repo}/`            | Native program snapshots, separated by workspace and pane generation                                  |
+| `~/.pappardelle/state.db`                          | State database, with [`experimental.sqliteState`](pappardelle-config.md#experimental-sqlite-state) on |
+| `~/.pappardelle/logs/`                             | Daily log files (7-day retention)                                                                     |
+| `~/.worktrees/`                                    | Git worktrees for all your workspaces                                                                 |
 
 > **Multi-repo support:** State is namespaced per repository under `~/.pappardelle/repos/{repoName}/`.
 > Running pappardelle in two different repos keeps their workspace registries completely separate.
