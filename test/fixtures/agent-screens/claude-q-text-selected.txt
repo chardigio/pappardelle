@@ -1,0 +1,45 @@
+
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.321
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mSonnet 5.5 · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/q-a/qa-prompts-repo · [0m[92m]8;id=qjy2cg;https://claude.ai/code/session_x?from=cli\/rc[39m]8;;\            
+
+
+[37m[100m❯ [97mUse the AskUserQuestion tool once with a single multiSelect question: which pizza toppings I want, options Cheese, [39m   
+  [97mOlives, Peppers, Onions.[39m                                                                                              
+
+[37m[49m● [39mUser answered Claude's questions:                                                                                     
+[2m[37m  ⎿  [0m[37m· Which pizza toppings do you want? → Peppers, Cheese
+
+[97m●[39m You picked Peppers and Cheese.
+               
+[2m[37m✻[0m [2m[37mSautéed for 7s · done 9:39 PM[0m     
+                    
+[37m[100m❯ [97mUse AskUserQuestion once with two questions in one call: first a multiSelect question for pizza toppings (Cheese, [39m    
+  [97mOlives, Peppers, Onions), second a single-select question for crust (Thin, Thick, Stuffed).[39m                           
+
+[37m[49m● [39mUser answered Claude's questions:                                                                                     
+[2m[37m  ⎿  [0m[37m· Which pizza toppings do you want? → Olives, Onions
+[39m     [37m· Which crust do you want? → Thick
+
+[97m●[39m Olives and Onions on a Thick crust.
+                                    
+[2m[37m✻[0m [2m[37mSautéed for 27s · done 9:40 PM
+[0m                           
+[37m[100m❯ [97mUse AskUserQuestion once with a single single-select question: which drink I want, options Water, Juice, Soda.[39m        
+[37m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[30m[104m ☐ Drink 
+
+[1m[97m[49mWhich drink do you want?
+[0m           
+  [2m[37m1.[0m Water
+     [2m[37mWater[0m          
+  [2m[37m2.[0m Juice
+     [2m[37mJuice
+[0m  [2m[37m3.[0m Soda      
+     [2m[37mSoda[0m                                                                                         
+[94m❯[39m [2m[37m4. [39mType something.[0m                                                                                                    
+[37m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  5. Chat about this                                                                                            
+
+[2m[37m-- INSERT -- · Enter to select · ↑/↓ to navigate · ctrl+g to edit in Nvim[0m                                             
+                               

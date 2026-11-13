@@ -23,7 +23,15 @@ import {
 	issueKeyTeamPrefix,
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
-import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
+import {isPaneWidth, type PaneWidth, type PaneWidths} from './layout-sizing.ts';
+import {
+	DEFAULT_SPLIT,
+	isPaneName,
+	isSplitDirection,
+	MAIN_PANE,
+	PANE_NAME_RULE,
+	type SplitDirection,
+} from './companion-splits.ts';
 import {BUILTIN_AGENTS, type BuiltinAgentDefaults} from './builtin-agents.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
@@ -291,6 +299,11 @@ export interface Profile {
 	 */
 	companion_command?: string;
 	/**
+	 * Companion splits started with this profile's spaces. Replaces the
+	 * top-level `companion_splits`.
+	 */
+	companion_splits?: CompanionSplitConfig[];
+	/**
 	 * Command the `d` key runs for spaces matched to this profile. Overrides the
 	 * top-level `ide_command`. An empty string means "do nothing", which is how
 	 * a profile opts out of the key. When unset, falls back to the top-level
@@ -316,6 +329,19 @@ export interface Profile {
 	 */
 	issue_watchlist?: IssueWatchlistConfig;
 }
+
+export interface CompanionSplitConfig {
+	name: string;
+	command: string;
+	/** Which way it is split off the companion's main pane. Defaults to down. */
+	split?: SplitDirection;
+	/** Cells or a percentage of the companion column, along the split. */
+	size?: PaneWidth;
+}
+
+export type ResolvedCompanionSplit = CompanionSplitConfig & {
+	split: SplitDirection;
+};
 
 export interface PappardelleConfig {
 	version: number;
@@ -359,6 +385,16 @@ export interface PappardelleConfig {
 	 */
 	sous_chef_key?: string | false;
 	/**
+	 * When true, an agent session in the repo but outside any space (the
+	 * main checkout's) is told it coordinates the other spaces. Off by default.
+	 */
+	sous_chef?: boolean;
+	/**
+	 * When true, agents in the repo get the pappardelle MCP server's tools and
+	 * instructions, and the companion rules at launch. Off by default.
+	 */
+	workspace_aware_agents?: boolean;
+	/**
 	 * Optional per-status color overrides for the ticket rail, keyed by issue
 	 * status name (case-insensitive, surrounding space ignored). A listed status
 	 * is painted with this color instead of the color the tracker reports, which
@@ -381,6 +417,12 @@ export interface PappardelleConfig {
 	 * lazygit is restorable with `companion_command: lazygit`.
 	 */
 	companion_command?: string;
+	/**
+	 * Panes started beside the companion when a space first shows in the TUI,
+	 * each in a framed pane of its own. One the user closes stays closed. A
+	 * profile's own `companion_splits` replaces this list.
+	 */
+	companion_splits?: CompanionSplitConfig[];
 	/**
 	 * Command the `d` key runs to open an editor on the selected worktree.
 	 * Defaults to Cursor. A profile's own `ide_command` overrides this value,
@@ -614,16 +656,6 @@ export function getRepoName(): string {
 	} catch {
 		throw new Error('Not in a git repository');
 	}
-}
-
-/**
- * Qualify a main-worktree branch name with the repo name to avoid
- * collisions across repos (e.g. "stardust-labs-master" instead of "master").
- */
-export function qualifyMainBranch(repoName: string, branch: string): string {
-	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
-	// same way so the status file name stays a single path segment.
-	return `${repoName}-${branch}`.replaceAll('/', '-');
 }
 
 /**
@@ -1444,6 +1476,23 @@ export function validateConfig(
 	) {
 		errors.push('sous_chef_key: must be a tmux key name or false');
 	}
+	if (cfg['sous_chef'] !== undefined && typeof cfg['sous_chef'] !== 'boolean') {
+		errors.push('sous_chef: must be a boolean');
+	} else if (
+		cfg['sous_chef'] === true &&
+		cfg['workspace_aware_agents'] !== true
+	) {
+		errors.push(
+			'sous_chef: needs workspace_aware_agents: true, since the sous-chef works through its tools',
+		);
+	}
+
+	if (
+		cfg['workspace_aware_agents'] !== undefined &&
+		typeof cfg['workspace_aware_agents'] !== 'boolean'
+	) {
+		errors.push('workspace_aware_agents: must be a boolean');
+	}
 
 	// Check list_view (optional; an absent layout defers to the tracker default)
 	if (cfg['list_view'] !== undefined) {
@@ -1497,6 +1546,8 @@ export function validateConfig(
 	) {
 		errors.push('companion_command: must be a string');
 	}
+
+	validateCompanionSplits(cfg['companion_splits'], 'companion_splits', errors);
 
 	// Check ide_command (optional, free-form shell command). Any string is
 	// accepted — including the empty string, which disables the `d` key.
@@ -1898,6 +1949,45 @@ function validateAgentProfileReference(
 	return [];
 }
 
+function validateCompanionSplits(
+	value: unknown,
+	path: string,
+	errors: string[],
+): void {
+	if (value === undefined) return;
+	if (!Array.isArray(value)) {
+		errors.push(`${path}: must be a list of splits`);
+		return;
+	}
+
+	const names = new Set<string>();
+	for (const [index, entry] of value.entries()) {
+		const at = `${path}[${index}]`;
+		if (typeof entry !== 'object' || entry === null) {
+			errors.push(`${at}: must be an object with name and command`);
+			continue;
+		}
+
+		const split = entry as Record<string, unknown>;
+		if (!isPaneName(split['name']) || split['name'] === MAIN_PANE) {
+			errors.push(`${at}.name: must be ${PANE_NAME_RULE}, and not main`);
+		} else if (names.has(split['name'])) {
+			errors.push(`${at}.name: ${split['name']} is listed twice`);
+		} else {
+			names.add(split['name']);
+		}
+
+		if (typeof split['command'] !== 'string')
+			errors.push(`${at}.command: must be a string`);
+		if (split['split'] !== undefined && !isSplitDirection(split['split']))
+			errors.push(`${at}.split: must be right or down`);
+		if (split['size'] !== undefined && !isPaneWidth(split['size']))
+			errors.push(
+				`${at}.size: must be a positive whole number of cells or a percentage like "30%"`,
+			);
+	}
+}
+
 function validateProfile(
 	name: string,
 	profile: unknown,
@@ -1958,6 +2048,12 @@ function validateProfile(
 	) {
 		errors.push(`${prefix}.companion_command: must be a string`);
 	}
+
+	validateCompanionSplits(
+		p['companion_splits'],
+		`${prefix}.companion_splits`,
+		errors,
+	);
 
 	// Optional per-profile ide_command override (any string, incl. empty)
 	if (p['ide_command'] !== undefined && typeof p['ide_command'] !== 'string') {
@@ -2805,6 +2901,38 @@ export function getInitializationCommand(config: PappardelleConfig): string {
  * Get the Claude dangerously_skip_permissions flag from config.
  * Returns false if not configured (safe default).
  */
+export const SOUS_CHEF_NAME = 'sous-chef';
+
+/** The user's own instructions for the sous-chef, at the main checkout's root. */
+export const SOUS_CHEF_FILE = 'SOUS-CHEF.md';
+
+export type SousChefLaunch = {name: string; prompt: string};
+
+/** How the TUI launches a space's agent, beyond its agent profile. */
+export type AgentLaunch = Partial<SousChefLaunch> & {
+	/** Pass the companion rules to the agents that take them at launch. */
+	rules: boolean;
+};
+
+export function workspaceAwareAgents(
+	config: PappardelleConfig | null,
+): boolean {
+	return config?.workspace_aware_agents === true;
+}
+
+/**
+ * How the main checkout's agent launches in sous-chef mode: under the
+ * coordinator's name, which other agents address with SendMessage, and with
+ * the skill as its first prompt, so every launch opens on the board.
+ */
+export function sousChefLaunch(
+	config: PappardelleConfig | null,
+): SousChefLaunch | undefined {
+	return config?.sous_chef === true
+		? {name: SOUS_CHEF_NAME, prompt: `/${SOUS_CHEF_NAME}`}
+		: undefined;
+}
+
 export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
 ): boolean {
@@ -3082,7 +3210,7 @@ function isClaudeAgentProfile(
 	return definition.is_claude ?? isClaudeCommand(definition.command);
 }
 
-function commandBasename(command: string): string {
+export function commandBasename(command: string): string {
 	const firstToken = command.trim().split(/\s+/)[0] ?? '';
 	return path.basename(firstToken);
 }
@@ -3390,15 +3518,6 @@ export function getSousChefKey(
 	return key ?? DEFAULT_SOUS_CHEF_KEY;
 }
 
-function isPaneWidth(value: unknown): value is PaneWidth {
-	if (typeof value === 'number') return Number.isInteger(value) && value > 0;
-	if (typeof value !== 'string') return false;
-	const match = /^(\d+(?:\.\d+)?)%$/.exec(value);
-	if (!match) return false;
-	const percent = Number(match[1]);
-	return percent > 0 && percent <= 100;
-}
-
 export function getPaneWidths(config: PappardelleConfig | null): PaneWidths {
 	const layout = config?.layout;
 	return {
@@ -3529,6 +3648,21 @@ export function getCompanionCommand(
 		return profile.companion_command;
 	}
 	return config.companion_command ?? DEFAULT_COMPANION_COMMAND;
+}
+
+/**
+ * The splits a space's companion starts with: the matched profile's
+ * `companion_splits`, else the top-level list, chosen the same way as
+ * `getCompanionCommand`.
+ */
+export function getCompanionSplits(
+	config: PappardelleConfig,
+	issueTitle?: string,
+	profileName?: string,
+): ResolvedCompanionSplit[] {
+	const profile = selectProfile(config, issueTitle, profileName);
+	const splits = profile?.companion_splits ?? config.companion_splits ?? [];
+	return splits.map(split => ({...split, split: split.split ?? DEFAULT_SPLIT}));
 }
 
 // eslint-disable-next-line no-template-curly-in-string

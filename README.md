@@ -198,6 +198,28 @@ Use `--profile <name>` to select a profile configured in `.pappardelle.yml`
 instead of automatic selection. It also works with `--resume`. Bare issue numbers
 use the selected profile's team prefix when one is configured.
 
+### Agents in a workspace
+
+Agents can see and change their workspace. In Claude Code, the plugin gives them [MCP tools](#mcp-tools) for this. Everything else, you included, uses the same commands from the command line:
+
+```bash
+pappardelle companion hunk diff --watch            # replace this space's companion command
+pappardelle companion run --pane app --split right -- npm run dev
+pappardelle companion resize app --size 40%        # along the way it was split
+pappardelle companion read --pane app              # last lines of a pane
+pappardelle companion width 40%                    # this space's companion width in the TUI
+pappardelle spaces --json                          # every space: status, title, PR, branch summary
+pappardelle read STE-20 --turns 3                  # recent turns of another space's conversation
+pappardelle send STE-20 --keys Escape              # press a key in another space's Claude
+pappardelle state STE-20                           # working, at a prompt (and its command), limited, idle...
+pappardelle wait STE-20 --until ready              # return once it stops working
+pappardelle answer STE-20 --option 1               # approve a QA-cleanup command; anything else needs a person
+pappardelle schedule STE-20 --after-limit          # send continue when its Codex usage limit resets
+pappardelle schedule STE-20 --keep-going --every 10m --nudge 'keep going'
+```
+
+Each companion pane other than `main` runs in a tmux session of its own, and the TUI shows it in a framed pane of its own in the companion column. The terminal launchers attach only `main`, so splits show only in the TUI. Run `pappardelle companion --help` for every companion verb.
+
 ### From the TUI
 
 Press `n` in the workspace list to open the prompt dialog.
@@ -298,6 +320,8 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues. Filter by status, labels, or `key_prefixes` (e.g. watch `STA-*` but not `WAB-*` when one account spans multiple workspaces), and cap how many workspaces a watchlist keeps open with `max_workspaces`. A profile can also declare its own `issue_watchlist`, polled _in addition_ to the top-level one and auto-scoped to that profile's `team_prefix` — so you can watch one status everywhere and a bespoke status (e.g. "For Pappardelle") for a single project.
 - **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched. Leave the flag off and press `K` instead to clear the finished spaces on demand, behind a confirm dialog.
+- **Workspace-aware agents** — Opt-in flag (`workspace_aware_agents: true`) that gives agents the pappardelle MCP tools and the rules for keeping the companion showing their work. Off, the MCP server serves nothing in the repo.
+- **Sous-chef mode** — Opt-in flag (`sous_chef: true`, needs `workspace_aware_agents`) that runs the main checkout's agent as the sous-chef: it launches as `sous-chef` with `/sous-chef` as its first prompt, the rail shows it as sous-chef, and it watches the other spaces and brings their prompts and questions to you. Give it house rules in a `SOUS-CHEF.md` at the repo root.
 - **Issue status colors** — Optional `state_colors:` map that overrides the ticket-rail color for named issue statuses (hex or an ANSI color name). Off by default, so the rail keeps the tracker's own colors. Most useful on Jira, where one color often covers both "In Progress" and "In Review". In Review is purple by default on every tracker.
 - **Status groups** — Optional `list_view.group_by: status` groups the rail under status headers below the agent spaces: In Progress, In Review and Done, or groups of your own from `list_view.groups`.
 - **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
@@ -500,7 +524,7 @@ cd pappardelle
 bun install --frozen-lockfile
 bun run build           # production bundle + native executable with bytecode
 bun link                # makes `pappardelle` available globally
-pappardelle plugin install  # installs the plugin (skills and hooks) into Claude Code, Codex and agy
+pappardelle plugin install  # installs the plugin (skills, hooks and MCP tools) into Claude Code, Codex and agy
 ```
 
 **Directories created by the installer:**
@@ -524,12 +548,12 @@ pappardelle plugin install  # installs the plugin (skills and hooks) into Claude
 
 The Pappardelle plugin ships the hooks that connect agent sessions to the TUI: [Claude Code's](plugins/pappardelle/hooks/hooks.json) and [agy's](plugins/pappardelle/hooks.json) hooks files, and the session hook `pappardelle plugin install` adds to `~/.codex/hooks.json` for Codex:
 
-| Hook                           | Trigger                                                                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update-status.py`             | Every Claude session and tool event                                           | Writes session status to `~/.pappardelle/claude-status/<space>.json` for live TUI updates. The space comes from `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>`. On `SessionStart` and `UserPromptSubmit` it also records Claude's session id for resume |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)                                               | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                                                                                                                   |
-| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`                                             | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                                                                                                          |
-| `record-agent-session.py`      | Codex `SessionStart`, `UserPromptSubmit`; agy `SessionStart`, `PreInvocation` | Records the agent's session id for its space so a relaunch resumes the space's own conversation. See [Session resume](pappardelle-config.md#session-resume)                                                                                                                                                                                                                                                                             |
+| Hook                           | Trigger                                                                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update-status.py`             | Every Claude session and tool event                                           | Writes session status to `~/.pappardelle/claude-status/<repo>-<space>.json` for live TUI updates. The repo and space come from `PAPPARDELLE_REPO` and `PAPPARDELLE_SPACE`, set on the tmux session at launch, so a Claude you restart or `--resume` by hand in the pane keeps updating its space. Outside a pappardelle pane it falls back to the worktree path or `<repo>-<branch>`. On `SessionStart` and `UserPromptSubmit` it also records Claude's session id for resume |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)                                               | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `zap-notification.py`          | `PreToolUse`, `PermissionRequest`                                             | Sends push notifications via ntfy when Claude needs user input                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `record-agent-session.py`      | Codex `SessionStart`, `UserPromptSubmit`; agy `SessionStart`, `PreInvocation` | Records the agent's session id for its space so a relaunch resumes the space's own conversation. See [Session resume](pappardelle-config.md#session-resume)                                                                                                                                                                                                                                                                                                                   |
 
 ### Versioning and updates
 
@@ -641,13 +665,51 @@ See [`integration-tests/README.md`](integration-tests/README.md) for env vars an
 
 Pappardelle ships these skills in [`plugins/pappardelle/skills`](plugins/pappardelle/skills):
 
-| Skill                    | Description                                                                                                                                                                                                                                           | Model-invocable |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                                                                                                                   | No              |
-| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                                                                                                                | No              |
-| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                                                                                                    | Yes             |
-| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, relay instructions to running Claude sessions via `pappardelle send`, open or reopen spaces with `pappardelle`, close spaces with `pappardelle close` | No              |
-| `/link-pr`               | Records a verified PR/MR for the current workspace with `pappardelle link-pr`                                                                                                                                                                         | Yes             |
+| Skill                    | Description                                                                                                                                                                                       | Model-invocable |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `/init-pappardelle`      | Interactive setup wizard — installs Pappardelle, checks prerequisites, generates `.pappardelle.yml`                                                                                               | No              |
+| `/update-pappardelle`    | Re-runs the install script to update Pappardelle to the latest version                                                                                                                            | No              |
+| `/configure-pappardelle` | Interactive config editor for `.pappardelle.yml` and `.pappardelle.local.yml` — profiles, keybindings, hooks, watchlists, and more                                                                | Yes             |
+| `/sous-chef`             | Kitchen-style coordinator — quick overview of active spaces, drill into any space for a sitrep, watch the line and answer prompts on your word, relay instructions, open, reopen and close spaces | No              |
+| `/link-pr`               | Records a verified PR/MR for the current workspace with `pappardelle link-pr`                                                                                                                     | Yes             |
+| `pappardelle-agent`      | Workspace layout, the CLI behind the MCP tools, and how to update or restart Pappardelle                                                                                                          | Yes             |
+
+### MCP tools
+
+`pappardelle mcp` is an MCP server that gives agents explicit tools instead of shell commands to quote. Each tool runs the matching `pappardelle` command. It serves nothing unless the repo's config sets `workspace_aware_agents: true`.
+
+Claude Code gets the server from the plugin. `install.sh` runs `pappardelle mcp install`, which adds it to each of Codex, OpenCode, Antigravity and Pi that is installed. Run that yourself if you install one of them later. It edits their global config through their own `mcp add`, so a symlinked or commented config keeps its link and comments.
+
+| Tools                                                                                                                                | Do                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `companion_run`, `companion_type`, `companion_press_keys`, `companion_read`, `companion_resize`, `companion_close`, `companion_list` | Run, drive, read and arrange named panes in a companion                            |
+| `companion_width`                                                                                                                    | Set a space's companion column width in the TUI                                    |
+| `spaces_list`, `space_read`, `space_highlight`                                                                                       | See open spaces and their conversations                                            |
+| `space_send`, `space_press_keys`                                                                                                     | Prompt or press keys in a space's agent TUI                                        |
+| `space_open`, `space_close`, `tui_restart`                                                                                           | Open or close spaces, restart the TUI                                              |
+| `link_pr`                                                                                                                            | Record a PR/MR for the workspace                                                   |
+| `space_screen`, `space_state`, `space_question_tabs`, `space_wait`, `space_watch`                                                    | Watch other spaces' agents                                                         |
+| `space_answer`                                                                                                                       | Answer its permission prompt or question, including multi-select and typed answers |
+| `space_queue`, `space_schedule`, `space_schedules`, `space_unschedule`                                                               | Wake it later with an OS timer                                                     |
+| `tui_panes`, `tui_focus_log`                                                                                                         | Diagnostics for the TUIs' panes                                                    |
+
+The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run` and `companion_type`, which can run commands. So are `space_send` and the supervision tools, since watching other spaces means calling them in a loop. Two checks hold without a prompt, and no tool can override them:
+
+- `space_answer` approves a Bash command once in two steps. Hard refusals come first: `git push`, PR changes, `--force`, `reset --hard`, `rm` outside QA scratch (`/tmp/q-*` or a Claude scratchpad), and `kill-server` outside an isolated socket. Then Haiku, run through `claude -p` with no tools or settings, checks that the command publishes nothing, deletes or overwrites nothing outside the worktree or scratch, and sends no secrets off the machine. A no, an error or a timeout leaves it for a person, and the reason is logged. Edits, writes and every "Yes, and don't ask again" come back with the command for a person. `pappardelle answer --force` on the command line is the override
+- Sends refuse while a permission prompt or question is on screen, so they can't answer one around that check. They also refuse over text sitting in the agent's input box unless forced, since a send clears the line first
+
+In Claude Code the approval is a plugin hook, and it also applies in plan mode. The other tools ask first wherever the agent normally asks. Every send, answer, schedule and change `space_watch` reports is logged to `~/.pappardelle/repos/<repo>/supervise.jsonl`.
+
+`space_schedule` uses an OS user timer that runs `pappardelle schedule fire` even when no agent or TUI is running: a transient `systemd-run --user` timer on Linux, a launchd agent in `~/Library/LaunchAgents` on macOS.
+
+An agent in a space is told to keep the companion showing its work, from `scripts/companion-rules.txt`. How that reaches the model depends on the agent:
+
+| Agent                 | How the rules reach it                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| Claude Code, OpenCode | The MCP server's instructions                                                                  |
+| Codex                 | `-c developer_instructions=...` at launch, which replaces any you set in your own Codex config |
+| Pi                    | `--append-system-prompt` at launch                                                             |
+| Antigravity           | `.agents/rules/pappardelle.md`, written into the worktree at launch and git-excluded           |
 
 They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the checkout it installed into each agent it finds:
 

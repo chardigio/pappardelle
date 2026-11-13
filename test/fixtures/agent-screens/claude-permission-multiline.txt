@@ -1,0 +1,40 @@
+
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.322
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mHaiku 5.5 · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/q-sasrepro2/work · [0m[92m]8;id=1twbhk2;https://claude.ai/code/session_FIXTURE?from=cli\/rc[39m]8;;\            
+
+
+[37m[100m❯ [97mRun the following as a single Bash tool call, character for character, without changing or [39m       
+  [97msplitting it:[39m                                                                                     
+                                                                                                    
+  [97mSP=/tmp/q-sasrepro2/scratch[39m                                                                       
+  [97mrm -rf "$SP/old"[39m                                                                                  
+  [97mecho done[39m                                                                                         
+
+[2m[37m[49m●[0m Removing old scratch directory and printing done
+[2m[37m  ⎿  $ SP=/tmp/q-sasrepro2/scratch
+[0m     [2m[37mrm -rf "$SP/old"
+[0m     [2m[37mecho done
+
+[0m[94m────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[94mBash command
+[0m [1mTip: auto mode handles these prompts for you — choose "switch to auto mode" below
+[0m [2m[37mRemove old scratch directory and print done
+[0m[37m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m [2m│[0m SP=/tmp/q-sasrepro2/scratch
+ [2m│[0m rm -rf "$SP/old"
+ [2m│[0m echo done
+[37m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m This command requires approval
+
+ Do you want to proceed?
+ [94m❯[39m [2m[37m1. [0m[94mYes
+[39m   [2m[37m2. [0mYes, and switch to auto mode[2m[37m · auto mode handles these prompts for you
+[0m   [2m[37m3. [0mNo
+
+ [2m[37mEsc to cancel · Tab to amend
+[0m                                                                                                  
+
+
+
+                                              

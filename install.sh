@@ -16,7 +16,9 @@
 # 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
 # 7. Installs the Pappardelle plugin (skills and hooks) from this checkout
-#    into Claude Code, Codex and agy (`pappardelle plugin install`)
+#    into Claude Code, Codex and agy (`pappardelle plugin install`), and adds
+#    the MCP server to the agents that don't get it from the plugin
+#    (`pappardelle mcp install`)
 
 set -e
 
@@ -172,6 +174,26 @@ local_clone_dir() {
     dir="$(cd "$(dirname "$script")" && pwd)" || return 1
     grep -q '"name".*"pappardelle"' "$dir/package.json" 2>/dev/null || return 1
     printf '%s\n' "$dir"
+}
+
+# Copies each skill's scripts/ to $PAPPARDELLE_DIR/scripts/<skill>/, where the
+# skills run them from, replacing what an earlier install left there. Scripts
+# a skill stopped shipping, such as sous-chef's after it moved onto the
+# pappardelle CLI, would otherwise stay behind and keep getting run.
+install_skill_scripts() {
+    local dest="$PAPPARDELLE_DIR/scripts" src skill script
+    rm -rf "$dest"
+    for src in "$REPO_DIR"/plugins/pappardelle/skills/*/scripts; do
+        [[ -d "$src" ]] || continue
+        skill="$(basename "$(dirname "$src")")"
+        mkdir -p "$dest/$skill"
+        for script in "$src"/*.sh; do
+            [[ -f "$script" ]] || continue
+            cp "$script" "$dest/$skill/"
+            chmod +x "$dest/$skill/$(basename "$script")"
+        done
+        print_status "Installed $skill scripts to $dest/$skill/"
+    done
 }
 
 # Tests source this file to call the functions above without running the
@@ -370,36 +392,22 @@ print_status "Created directories (~/.pappardelle/, ~/.worktrees/)"
 # Install Skill Scripts
 # ============================================================================
 
-install_skill_scripts() {
-    local skill="$1"
-    local src="$REPO_DIR/plugins/pappardelle/skills/$skill/scripts"
-
-    if [[ ! -d "$src" ]]; then
-        print_warning "$skill scripts not found at $src — /$skill skill will be non-functional"
-        return
-    fi
-
-    mkdir -p "$PAPPARDELLE_DIR/scripts/$skill"
-    for script in "$src"/*.sh; do
-        [[ -f "$script" ]] || continue
-        cp "$script" "$PAPPARDELLE_DIR/scripts/$skill/"
-        chmod +x "$PAPPARDELLE_DIR/scripts/$skill/$(basename "$script")"
-    done
-    print_status "Installed $skill scripts to $PAPPARDELLE_DIR/scripts/$skill/"
-}
-
-install_skill_scripts sous-chef
-install_skill_scripts init-pappardelle
+install_skill_scripts
 
 # ============================================================================
 # Install the Plugin
 # ============================================================================
 
-# Through the shim, so the cwd's .env and bunfig.toml (the TUI runs this from
-# a workspace) cannot redirect which agent configs it edits.
+# Through the shim, so the cwd's .env and bunfig.toml (the TUI runs these
+# from a workspace) cannot redirect which agent configs they edit.
 if ! "$LOCAL_BIN/pappardelle" plugin install; then
-    print_warning "Could not install the Pappardelle plugin (skills and hooks) for every agent"
+    print_warning "Could not install the Pappardelle plugin (skills, hooks and MCP tools) for every agent"
     print_info "Retry with: pappardelle plugin install"
+fi
+
+if ! "$LOCAL_BIN/pappardelle" mcp install; then
+    print_warning "Could not add the Pappardelle MCP server to every agent"
+    print_info "Retry with: pappardelle mcp install"
 fi
 
 # ============================================================================

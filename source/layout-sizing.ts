@@ -31,6 +31,12 @@ const PANE_FRAME_ROWS = 2;
 export const MAX_LIST_HEIGHT_RATIO = 0.25;
 
 /**
+ * The spaces a stacked rail shows however short the screen, such as a phone's:
+ * three one-line rows, or one two-line row.
+ */
+export const MIN_STACKED_SPACES = {1: 3, 2: 1} as const;
+
+/**
  * Narrowest rail a hand-drag may produce.
  *
  * `MIN_LIST_WIDTH` (15) is the floor for the *derived* width, where a readable
@@ -59,6 +65,21 @@ export interface PaneWidths {
 	rail?: PaneWidth | null;
 	claude?: PaneWidth | null;
 	companion?: PaneWidth | null;
+}
+
+export function isPaneWidth(value: unknown): value is PaneWidth {
+	if (typeof value === 'number') return Number.isInteger(value) && value > 0;
+	if (typeof value !== 'string') return false;
+	const match = /^(\d+(?:\.\d+)?)%$/.exec(value);
+	if (!match) return false;
+	const percent = Number(match[1]);
+	return percent > 0 && percent <= 100;
+}
+
+/** Read a width as typed, `30` or `30%`, or null when it isn't one. */
+export function parsePaneWidth(text: string): PaneWidth | null {
+	const value: unknown = /^\d+$/.test(text) ? Number(text) : text;
+	return isPaneWidth(value) ? value : null;
 }
 
 export function resolvePaneWidth(
@@ -180,9 +201,17 @@ export function calculateLayoutForSize(
 			3,
 			Math.floor(usableHeight * MAX_LIST_HEIGHT_RATIO),
 		);
-		const listHeight = Math.min(
-			calculateIdealListHeightForCount(sessionCount, linesPerItem),
-			maxListForScreen,
+		const fewestRows =
+			Math.min(Math.max(1, sessionCount), MIN_STACKED_SPACES[linesPerItem]) *
+				linesPerItem +
+			LIST_CHROME_ROWS +
+			PANE_FRAME_ROWS;
+		const listHeight = Math.max(
+			fewestRows,
+			Math.min(
+				calculateIdealListHeightForCount(sessionCount, linesPerItem),
+				maxListForScreen,
+			),
 		);
 		const agentHeight = usableHeight - listHeight;
 

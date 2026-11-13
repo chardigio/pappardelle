@@ -1,0 +1,24 @@
+ [2m│[0m creates them.                                                                
+ [2m│[0m                                                                              
+ [2m│[0m ## Cleanup                                                                   
+ [2m│[0m Killed the inner server (via -S), stub sleeps killed, temp homes and copies  
+ [2m│[0m removed. Kept: this file and transcripts in scratch.                         
+ [2m│[0m                                                                              
+ [2m│[0m ## Notes                                                                     
+ [2m│[0m - one                                                                        
+ [2m│[0m - two                                                                        
+ [2m│[0m - three                                                                      
+ [2m│[0m EOF                                                                          
+[37m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m [2m│[0m Dangerous rm operation on possibly-empty variable path: "$SP"/*.log in `rm   
+ [2m│[0m -rf /tmp/q-sasrepro/old "$SP/home" "$SP/testhome" "$SP/base" "$SP"/*.log     
+ [2m│[0m "$SP"/so "$SP"/se` (rewrite it as "${SP:?}"/*.log or use a literal path)     
+ [93m⚠ Claude Code will automatically block this request in 1:16, to avoid holding 
+[39m [93mup an unattended session[39m                                                       
+
+
+ Do you want to proceed?                                                      
+ [94m❯[39m [2m[37m1. [0m[94mYes[39m                                                                       
+   [2m[37m2. [0mNo
+
+ [2m[37mEsc to cancel · Tab to amend[0m                                     

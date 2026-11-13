@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {Client} from '@modelcontextprotocol/sdk/client/index.js';
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import test, {type ExecutionContext} from 'ava';
+import {gatherSpaces} from './spaces-command.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
@@ -43,6 +46,7 @@ function fixture(t: ExecutionContext, provider = 'jira') {
 	fs.writeFileSync(
 		path.join(repo, '.pappardelle.yml'),
 		`version: 1
+workspace_aware_agents: true
 team_prefix: STE
 issue_tracker:
   provider: ${provider}
@@ -67,6 +71,16 @@ fs.writeFileSync(process.env.IDOW_TEST_RECORD, JSON.stringify({
   stdin: fs.readFileSync(0, 'utf8'),
   stdinIsTTY: process.stdin.isTTY ?? false,
 }));
+if (process.env.IDOW_TEST_STATUS_DIR) {
+  const key = process.argv.at(-1);
+  fs.mkdirSync(process.env.IDOW_TEST_STATUS_DIR, {recursive: true});
+  fs.writeFileSync(process.env.IDOW_TEST_STATUS_DIR + '/project-' + key + '.json', JSON.stringify({
+    status: 'waiting_for_input',
+    event: 'SessionStart',
+    cwd: process.env.HOME + '/.worktrees/project/' + key,
+    lastUpdate: Date.now(),
+  }));
+}
 if (process.env.IDOW_TEST_PID_FILE) fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 if (process.env.IDOW_TEST_KEEP_ALIVE) setTimeout(() => {}, 30000);
 process.stderr.write('idow diagnostic\\n');
@@ -151,6 +165,8 @@ setTimeout(() => {
 		repo,
 		home,
 		install,
+		directory,
+		env,
 		idow,
 		record,
 		registry,
@@ -179,23 +195,75 @@ test.serial(
 		});
 		t.true(result.stdout.includes('Workspace STE-20 is ready!'));
 		t.true(result.stderr.includes('idow diagnostic'));
-		const spaces = JSON.parse(
-			execFileSync(
-				'bash',
-				[
-					path.join(
-						projectRoot,
-						'plugins/pappardelle/skills/sous-chef/scripts/gather-spaces.sh',
-					),
-					'project',
-				],
-				{env: {...process.env, HOME: f.home}, encoding: 'utf8'},
-			),
-		) as {spaces: Array<{name: string}>};
+		const spaces = await gatherSpaces({
+			repoName: 'project',
+			home: f.home,
+			fetchTitles: async () => new Map(),
+			gitSummary: async () => null,
+		});
 		t.deepEqual(
-			spaces.spaces.map(space => space.name),
+			'error' in spaces ? spaces.error : spaces.spaces.map(space => space.name),
 			['STE-20'],
 		);
+	},
+);
+
+test.serial(
+	'CLI --wait succeeds once the reopened space reports its agent started',
+	async t => {
+		const f = fixture(t);
+		const statusDir = path.join(f.root, 'status');
+		const result = await f.run(['--resume', '--wait', 'STE-20'], {
+			PAPPARDELLE_STATUS_DIR: statusDir,
+			IDOW_TEST_STATUS_DIR: statusDir,
+		});
+		t.is(result.code, 0, result.stderr);
+		t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
+	},
+);
+
+test.serial(
+	"space_open over MCP keeps idow's output off the protocol channel",
+	async t => {
+		const f = fixture(t);
+		const client = new Client({name: 'test', version: '1'});
+		// This suite may itself run inside a space.
+		const env = Object.fromEntries(
+			Object.entries(f.env).filter(
+				(entry): entry is [string, string] =>
+					entry[1] !== undefined && entry[0] !== 'PAPPARDELLE_SPACE',
+			),
+		);
+		await client.connect(
+			new StdioClientTransport({
+				command: process.execPath,
+				args: [
+					path.join(
+						f.install,
+						f.directory,
+						useBuiltCli ? 'mcp-cli.js' : 'mcp-cli.ts',
+					),
+				],
+				cwd: f.repo,
+				env: {...env, IDOW_TEST_BYTES: '200000'},
+				stderr: 'ignore',
+			}),
+		);
+		t.teardown(async () => client.close());
+
+		const result = await client.callTool({
+			name: 'space_open',
+			arguments: {input: 'STE-20'},
+		});
+
+		t.falsy(result.isError);
+		const [output] = result.content as Array<{text: string}>;
+		t.true(output!.text.endsWith('Workspace STE-20 is ready!'));
+		t.deepEqual(f.readRecord().args, ['STE-20']);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
+		const {tools} = await client.listTools();
+		t.true(tools.length > 0);
 	},
 );
 

@@ -38,13 +38,14 @@ export interface WorkspaceRefreshDeps {
 	detailReady?: Promise<void>;
 	readRegistry: () => Promise<string[] | null>;
 	readStatus: (
-		key: string,
-		sessionKey?: string,
+		statusKey: string,
+		sessionKey: string,
 	) => Promise<ProgramStatusInfo | null>;
 	readWorktreePath: (key: string) => Promise<string | null>;
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
-	mainStatusKey: (branch: string) => string;
+	/** Hook status key of a space key, or of the main checkout's branch. */
+	statusKey: (name: string) => string;
 	getCachedIssue: (key: string) => TrackerIssue | null;
 	fetchIssues: (keys: string[]) => Promise<unknown>;
 	readEmoji: (
@@ -186,6 +187,7 @@ export class WorkspaceRefresh {
 						? existing
 						: {
 								name,
+								statusKey: this.deps.statusKey(name),
 								worktreePath: null,
 								programStatus: {status: 'unknown'},
 								linearIssue: this.deps.getCachedIssue(name) ?? undefined,
@@ -207,13 +209,14 @@ export class WorkspaceRefresh {
 			orderedNames.map(key => async () => {
 				if (this.stopped || generation !== this.listGeneration)
 					return undefined;
-				const version = this.statusVersions.get(key) ?? 0;
+				const statusKey = this.deps.statusKey(key);
+				const version = this.statusVersions.get(statusKey) ?? 0;
 				const [status, worktreePath] = await Promise.allSettled([
-					this.deps.readStatus(key),
+					this.deps.readStatus(statusKey, key),
 					this.deps.readWorktreePath(key),
 				]);
 				await nextTurn();
-				return {key, version, status, worktreePath};
+				return {key, statusKey, version, status, worktreePath};
 			}),
 			4,
 		);
@@ -229,13 +232,15 @@ export class WorkspaceRefresh {
 				previous.map(space => {
 					const detail = byName.get(space.name);
 					if (!detail || space.isPending || space.isMainWorktree) return space;
-					const patch: Partial<SpaceData> = {};
+					// An agent restarted since the space was listed moves from the
+					// bare status file to the qualified one.
+					const patch: Partial<SpaceData> = {statusKey: detail.statusKey};
 					if (detail.worktreePath.status === 'fulfilled')
 						patch.worktreePath = detail.worktreePath.value;
 					if (
 						detail.status.status === 'fulfilled' &&
 						detail.status.value &&
-						detail.version === (this.statusVersions.get(space.name) ?? 0)
+						detail.version === (this.statusVersions.get(detail.statusKey) ?? 0)
 					) {
 						patch.programStatus = detail.status.value;
 					}
@@ -313,7 +318,7 @@ export class WorkspaceRefresh {
 		);
 		const info = await this.deps.readMainWorktree();
 		if (!info || this.stopped) return;
-		const statusKey = this.deps.mainStatusKey(info.branch);
+		const statusKey = this.deps.statusKey(info.branch);
 		this.publish(previous => {
 			const current = previous.find(space => space.isMainWorktree);
 			const base: SpaceData = current ?? {

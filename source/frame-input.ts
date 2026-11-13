@@ -1,3 +1,5 @@
+import {isFrameGraphicsReply} from './pane-frame-graphics.ts';
+
 const ESC = 0x1b;
 const BEL = 0x07;
 const BACKSLASH = 0x5c;
@@ -41,6 +43,7 @@ export class FrameInputRouter {
 	private carriedSince = 0;
 	private now = 0;
 	private pasteEndMatched = 0;
+	private carriedTo: InputSegment['to'] = 'renderer';
 	private held: Uint8Array | undefined;
 
 	/** Whether the last read ended in bytes held for the next one. */
@@ -96,8 +99,9 @@ export class FrameInputRouter {
 		return segments;
 	}
 
-	private begin(carry: Carry): void {
+	private begin(carry: Carry, to: InputSegment['to'] = 'renderer'): void {
 		this.carry = carry;
+		this.carriedTo = to;
 		this.carriedSince = this.now;
 	}
 
@@ -135,13 +139,13 @@ export class FrameInputRouter {
 		while (index < chunk.length && !this.endsCarried(chunk[index]!)) index++;
 
 		if (index === chunk.length) {
-			emit('renderer', from, index);
+			emit(this.carriedTo, from, index);
 			return index;
 		}
 
 		this.carry = 'none';
 		this.pasteEndMatched = 0;
-		emit('renderer', from, index + 1);
+		emit(this.carriedTo, from, index + 1);
 		return index + 1;
 	}
 
@@ -196,7 +200,10 @@ export class FrameInputRouter {
 		}
 
 		if (this.startsReply(chunk, from)) {
-			this.begin('string');
+			this.begin(
+				'string',
+				this.isProgramGraphicsReply(chunk, from) ? 'program' : 'renderer',
+			);
 			return this.continued(chunk, from, emit);
 		}
 
@@ -232,6 +239,17 @@ export class FrameInputRouter {
 		if (introducer === code('P'))
 			return isDigit(next) || '>$!'.includes(String.fromCodePoint(next));
 		return introducer === code('_') && next === code('G');
+	}
+
+	/**
+	 * Whether a graphics reply answers a command the program sent through to
+	 * the terminal, rather than the frame's own queries.
+	 */
+	private isProgramGraphicsReply(chunk: Uint8Array, from: number): boolean {
+		if (chunk[from + 1] !== code('_')) return false;
+		const keys = String.fromCodePoint(...chunk.subarray(from + 3, from + 16));
+		const id = /^i=(\d+)[;,]/.exec(keys)?.[1];
+		return id !== undefined && !isFrameGraphicsReply(Number(id));
 	}
 
 	private csi(
