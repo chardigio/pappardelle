@@ -8,6 +8,9 @@ const RENDERER_QUERY_ID = 31_337;
 const FIRST_PROBE_ID = 31_340;
 const MAX_PROBED_DEPTH = 3;
 const PROBE_TIMEOUT_MS = 1000;
+// tmux drops a passthrough sequence longer than its input buffer, 1 MiB by
+// default.
+const MAX_PASSTHROUGH = 512 * 1024;
 
 /** Whether a graphics reply with this image ID answers the frame, not the program. */
 export function isFrameGraphicsReply(id: number): boolean {
@@ -40,16 +43,34 @@ export class GraphicsForwarder {
 		/** Returns false when the output is full and the sequence was not taken. */
 		private readonly write: (sequence: string) => boolean,
 		private readonly isInTmux: boolean,
+		private readonly maxWrite = MAX_PASSTHROUGH,
 	) {
 		this.depth = isInTmux ? undefined : 0;
 	}
 
-	/** Returns false when the command could not be taken yet. */
-	forward(command: string): boolean {
-		if (this.depth !== undefined)
-			return this.write(wrapForTmux(command, this.depth));
-		this.pending.push(command);
-		return true;
+	/**
+	 * Sends commands in as few writes as fit. tmux passes on each passthrough
+	 * sequence whole, so the chunks of an upload sent in one cannot be mixed
+	 * with another pane's, which would leave both images broken. Returns false
+	 * when the commands could not be taken yet.
+	 */
+	forward(...commands: string[]): boolean {
+		if (this.depth === undefined) {
+			this.pending.push(...commands);
+			return true;
+		}
+
+		let batch = '';
+		for (const command of commands) {
+			if (batch && batch.length + command.length > this.maxWrite) {
+				if (!this.write(wrapForTmux(batch, this.depth))) return false;
+				batch = '';
+			}
+
+			batch += command;
+		}
+
+		return !batch || this.write(wrapForTmux(batch, this.depth));
 	}
 
 	/** Asks again, as tmux drops what a pane it is not showing passes through. */
@@ -89,7 +110,7 @@ export class GraphicsForwarder {
 		this.depth = depth;
 		const {pending} = this;
 		this.pending = [];
-		for (const command of pending) this.write(wrapForTmux(command, depth));
+		this.forward(...pending);
 	}
 }
 
@@ -99,8 +120,14 @@ type Held = {piece: Piece; startsFrame: boolean};
 
 export type FramedOutputDependencies = {
 	writeScreen(bytes: Uint8Array): void;
-	/** Queues a command ahead of the renderer's next frame; false when the output is full. */
-	writeGraphics(command: string): boolean;
+	/**
+	 * Queues an image frame's commands ahead of the renderer's next frame, each
+	 * with what the program wrote after it in the frame; false when the output
+	 * is full.
+	 */
+	writeGraphics(
+		commands: Array<{command: string; laterScreen: Uint8Array[]}>,
+	): boolean;
 	requestFrame(): void;
 	schedule(callback: () => void, ms: number): () => void;
 };
@@ -110,6 +137,8 @@ export type FramedOutputDependencies = {
 const FRAME_QUIET_MS = 4;
 // A program that never pauses still has its output shown this often.
 const MAX_FRAME_HOLD_MS = 50;
+// An upload whose last chunk has not come by then is not waited for.
+const MAX_UPLOAD_MS = 1000;
 
 /**
  * Keeps a program's image frames whole. A program that animates an image
@@ -126,6 +155,9 @@ export class FramedOutput {
 	// How many leading pieces are whole frames ready for the renderer.
 	private readyCount = 0;
 	private isUploading = false;
+	// Where the upload whose last chunk has not come yet starts in `held`.
+	private uploadStart: number | undefined;
+	private cancelUpload: (() => void) | undefined;
 	private cancelQuiet: (() => void) | undefined;
 	private cancelHold: (() => void) | undefined;
 
@@ -142,7 +174,7 @@ export class FramedOutput {
 			// The chunks of one upload belong to one frame, whatever comes between.
 			const startsFrame = !this.isUploading && this.endsInScreen();
 			if (startsFrame) this.markReady();
-			this.isUploading = continuesUpload(piece.graphics);
+			this.trackUpload(continuesUpload(piece.graphics));
 			this.held.push({piece, startsFrame});
 			this.cancelHold ??= this.dependencies.schedule(() => {
 				this.markReady(true);
@@ -158,22 +190,54 @@ export class FramedOutput {
 
 	/** Gives the renderer's coming frame the first whole image frame. */
 	flushFrame(): void {
-		let index = 0;
-		while (index < this.readyCount) {
-			const {piece, startsFrame} = this.held[index]!;
-			if (startsFrame && index > 0) break;
-			if ('graphics' in piece) {
-				if (!this.dependencies.writeGraphics(piece.graphics)) break;
-			} else {
-				this.dependencies.writeScreen(piece.screen);
-			}
+		if (this.readyCount === 0) return;
+		let end = 1;
+		while (end < this.readyCount && !this.held[end]!.startsFrame) end++;
+		const frame = this.held.slice(0, end).map(({piece}) => piece);
 
-			index++;
+		const commands = frame.flatMap((piece, index) =>
+			'graphics' in piece
+				? [
+						{
+							command: piece.graphics,
+							laterScreen: frame
+								.slice(index + 1)
+								.flatMap(later => ('screen' in later ? [later.screen] : [])),
+						},
+					]
+				: [],
+		);
+		if (commands.length > 0 && !this.dependencies.writeGraphics(commands)) {
+			this.dependencies.requestFrame();
+			return;
 		}
 
-		this.held.splice(0, index);
-		this.readyCount -= index;
+		for (const piece of frame)
+			if ('screen' in piece) this.dependencies.writeScreen(piece.screen);
+		this.held.splice(0, end);
+		this.readyCount -= end;
+		if (this.uploadStart !== undefined) this.uploadStart -= end;
 		if (this.readyCount > 0) this.dependencies.requestFrame();
+	}
+
+	/**
+	 * An upload is sent whole, in one passthrough sequence, so its first
+	 * chunks are not given to the renderer until its last has come.
+	 */
+	private trackUpload(continues: boolean): void {
+		if (continues && !this.isUploading) {
+			this.uploadStart = this.held.length;
+			this.cancelUpload = this.dependencies.schedule(() => {
+				this.trackUpload(false);
+				this.markReady(true);
+			}, MAX_UPLOAD_MS);
+		} else if (!continues && this.isUploading) {
+			this.uploadStart = undefined;
+			this.cancelUpload?.();
+			this.cancelUpload = undefined;
+		}
+
+		this.isUploading = continues;
 	}
 
 	private endsInScreen(): boolean {
@@ -189,7 +253,7 @@ export class FramedOutput {
 
 		this.cancelHold?.();
 		this.cancelHold = undefined;
-		this.readyCount = this.held.length;
+		this.readyCount = this.uploadStart ?? this.held.length;
 		if (this.readyCount > 0) this.dependencies.requestFrame();
 	}
 }

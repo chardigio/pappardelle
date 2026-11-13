@@ -12,6 +12,7 @@ import {routeDrops} from './drop-routing.ts';
 import {FrameInputRouter} from './frame-input.ts';
 import {interceptInput} from './lone-escape.ts';
 import {FramedOutput, GraphicsForwarder} from './pane-frame-graphics.ts';
+import {ImageIds} from './pane-frame-image-ids.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
 import {
@@ -109,19 +110,38 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 // The renderer's own output queue keeps graphics in order with its frames,
 // which go out in the same queue.
 const rendererOutput = (
-	renderer as unknown as {nativeSession?: {write(bytes: Uint8Array): boolean}}
+	renderer as unknown as {
+		nativeSession?: {
+			write(bytes: Uint8Array): boolean;
+			maxAtomicWriteBytes: bigint;
+		};
+	}
 ).nativeSession;
 const encoder = new TextEncoder();
-const graphics = new GraphicsForwarder(sequence => {
-	if (rendererOutput) return rendererOutput.write(encoder.encode(sequence));
-	process.stdout.write(sequence);
-	return true;
-}, Boolean(outerSocket));
+const graphics = new GraphicsForwarder(
+	sequence => {
+		if (rendererOutput) return rendererOutput.write(encoder.encode(sequence));
+		process.stdout.write(sequence);
+		return true;
+	},
+	Boolean(outerSocket),
+	// Room is left for the passthrough wrapping and its doubled escapes.
+	rendererOutput
+		? Math.min(512 * 1024, Number(rendererOutput.maxAtomicWriteBytes) - 4096)
+		: undefined,
+);
+// eslint-disable-next-line no-bitwise
+const imageIds = new ImageIds(Math.imul(process.pid, 0x9e_37_79_b1) >>> 8);
 const framedOutput = new FramedOutput({
 	writeScreen(bytes) {
-		terminal.write(bytes);
+		terminal.write(imageIds.rewriteCells(bytes));
 	},
-	writeGraphics: command => graphics.forward(command),
+	writeGraphics: commands =>
+		graphics.forward(
+			...commands.flatMap(({command, laterScreen}) =>
+				imageIds.translate(command, laterScreen),
+			),
+		),
 	requestFrame() {
 		renderer.requestRender();
 	},
@@ -151,7 +171,8 @@ interceptInput(renderer, process.stdin, (chunk, parse) => {
 
 	clearTimeout(heldInput);
 	for (const segment of inputRouter.route(chunk)) {
-		if (segment.to === 'program') childPty.current.write(segment.bytes);
+		if (segment.to === 'program')
+			childPty.current.write(programGraphicsReplies(segment.bytes));
 		else parse(Buffer.from(segment.bytes));
 	}
 
@@ -233,6 +254,20 @@ function sizeReply(query: SizeQuery): string {
 
 // The program's keypad mode was passed on to this pane, and a program that is
 // killed does not take it back.
+// The terminal answers about the IDs the frame gave the program's images.
+function programGraphicsReplies(bytes: Uint8Array): Uint8Array {
+	const text = Buffer.from(bytes).toString('latin1');
+	if (!text.includes('\u001B_Gi=')) return bytes;
+	return Buffer.from(
+		text.replaceAll(
+			// eslint-disable-next-line no-control-regex
+			/\u001B_Gi=(\d+)/g,
+			(_, id: string) => `\u001B_Gi=${imageIds.programId(Number(id))}`,
+		),
+		'latin1',
+	);
+}
+
 function leaveKeypadMode(): void {
 	process.stdout.write('\u001B>');
 }
@@ -311,5 +346,6 @@ for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
 
 childPty.current = child.terminal;
 process.exitCode = await child.exited;
+graphics.forward(...imageIds.deleteAll());
 leaveKeypadMode();
 renderer.destroy();

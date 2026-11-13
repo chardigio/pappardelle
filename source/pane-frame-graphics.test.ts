@@ -63,8 +63,10 @@ function framedOutput() {
 		writeScreen(bytes) {
 			written.push(new TextDecoder().decode(bytes));
 		},
-		writeGraphics(command) {
-			written.push(`<${command.slice(3).split(';')[0]!}>`);
+		writeGraphics(commands) {
+			written.push(
+				...commands.map(({command}) => `<${command.slice(3).split(';')[0]!}>`),
+			);
 			return true;
 		},
 		requestFrame() {
@@ -117,8 +119,8 @@ test('an image frame arriving over several reads reaches one renderer frame whol
 	framed.output.flushFrame();
 	t.deepEqual(framed.written, [
 		'<a=T,i=1,m=1>',
-		'\u001B[1;1H',
 		'<m=0>',
+		'\u001B[1;1H',
 		'row 1 ',
 		'row 2',
 	]);
@@ -156,9 +158,9 @@ test('a command the output has no room for waits for the next frame', t => {
 		writeScreen(bytes) {
 			written.push(new TextDecoder().decode(bytes));
 		},
-		writeGraphics(command) {
+		writeGraphics(commands) {
 			if (isFull) return false;
-			written.push(command);
+			written.push(...commands.map(({command}) => command));
 			return true;
 		},
 		requestFrame() {},
@@ -174,4 +176,49 @@ test('a command the output has no room for waits for the next frame', t => {
 	output.flushFrame();
 	t.is(written.length, 2);
 	t.is(written[1], 'cells');
+});
+
+test("an upload's chunks go out in one passthrough sequence, split only past the size limit", t => {
+	const written: string[] = [];
+	const forwarder = new GraphicsForwarder(
+		sequence => {
+			written.push(sequence);
+			return true;
+		},
+		true,
+		120,
+	);
+	forwarder.probe();
+	written.length = 0;
+	forwarder.readReplies(`${ESC}_Gi=31341;OK${ESC}\\`);
+	const first = `${ESC}_Ga=T,i=7,m=1;${'A'.repeat(40)}${ESC}\\`;
+	const last = `${ESC}_Gm=0;${'A'.repeat(40)}${ESC}\\`;
+	forwarder.forward(first, last);
+	t.deepEqual(written, [wrapForTmux(first + last, 1)]);
+
+	written.length = 0;
+	forwarder.forward(first, first, last);
+	t.deepEqual(written, [wrapForTmux(first + first, 1), wrapForTmux(last, 1)]);
+	forwarder.dispose();
+});
+
+test('an upload slower than the hold is not given to the renderer until its last chunk', t => {
+	const framed = framedOutput();
+	framed.output.receive([screen('before'), graphics('a=T,i=1,m=1')]);
+	framed.advance(60);
+	framed.output.flushFrame();
+	t.deepEqual(framed.written, ['before']);
+
+	framed.output.receive([graphics('m=0'), screen('cells')]);
+	framed.advance(4);
+	framed.output.flushFrame();
+	t.deepEqual(framed.written, ['before', '<a=T,i=1,m=1>', '<m=0>', 'cells']);
+});
+
+test('an upload whose last chunk never comes stops holding the output after a second', t => {
+	const framed = framedOutput();
+	framed.output.receive([graphics('a=T,i=1,m=1'), screen('text')]);
+	framed.advance(1000);
+	framed.output.flushFrame();
+	t.deepEqual(framed.written, ['<a=T,i=1,m=1>', 'text']);
 });
