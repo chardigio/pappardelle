@@ -30,6 +30,19 @@ import {
 	type StartupRecord,
 } from './startup-trace.ts';
 
+// attachToSpace reads the .pappardelle.yml of the repository it runs in. The
+// monorepo's config sets `companion_command: ""`, which starts no companion
+// command, so the launch tests failed there and passed upstream (STA-3087).
+// An empty repository gives every checkout the default config. A space sets
+// PAPPARDELLE_MAIN_REPO_ROOT, which would point the lookup back at its repo.
+const emptyRepository = mkdtempSync(join(tmpdir(), 'pappa-attach-repo-'));
+spawnSync('git', ['init', '-q', emptyRepository]);
+process.chdir(emptyRepository);
+delete process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
+test.after.always(() => {
+	rmSync(emptyRepository, {recursive: true, force: true});
+});
+
 test.serial(
 	'background monitor discovery does not consume the selected startup trace',
 	async t => {

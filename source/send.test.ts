@@ -8,6 +8,7 @@ import test from 'ava';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {
 	CLEAR_COMPOSER_ROUNDS,
+	CLEAR_COMPOSER_ROUNDS_PER_CALL,
 	resolveInnerSessionTarget,
 	sendToSpaceAgent,
 	type SendTmuxRunner,
@@ -78,22 +79,43 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 	);
 	t.deepEqual(calls, [
 		['copy-mode', '-q', '-t', '=agent-r-agc_17:'],
-		[
-			'send-keys',
-			'-t',
-			'=agent-r-agc_17:',
-			...Array.from({length: CLEAR_COMPOSER_ROUNDS}, () => [
-				'C-e',
-				'C-k',
-				'C-u',
-				'BSpace',
-			]).flat(),
-		],
+		...Array.from(
+			{length: CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL},
+			() => [
+				'send-keys',
+				'-t',
+				'=agent-r-agc_17:',
+				...Array.from({length: CLEAR_COMPOSER_ROUNDS_PER_CALL}, () => [
+					'C-e',
+					'C-k',
+					'C-u',
+					'BSpace',
+				]).flat(),
+			],
+		),
 		['load-buffer', '-b', buffer, '-'],
 		['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', '=agent-r-agc_17:'],
 		['send-keys', '-t', '=agent-r-agc_17:', 'Enter'],
 	]);
-	t.deepEqual(inputs, [undefined, undefined, text, undefined, undefined]);
+	t.is(inputs.filter(input => input !== undefined).length, 1);
+	t.is(inputs[calls.findIndex(args => args[0] === 'load-buffer')], text);
+});
+
+// STA-3087: Claude Code reads one large chunk of keys as a paste. In that paste
+// C-k becomes a newline and the prompt then does not submit. 8 rounds (32 keys)
+// in one call submitted and 16 rounds failed, so each call stays well under.
+test('sendToSpaceAgent sends at most 16 clear keys in each send-keys call, so the agent does not read the clear as a paste', async t => {
+	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
+	await sendToSpaceAgent('STA-1', '/context', {repoName: 'r', runner, lockDir});
+	const clears = calls.filter(
+		args => args[0] === 'send-keys' && args.at(-1) !== 'Enter',
+	);
+	t.true(clears.length > 1);
+	for (const args of clears) t.true(args.length - 3 <= 16);
+	t.is(
+		clears.reduce((sum, args) => sum + args.length - 3, 0),
+		CLEAR_COMPOSER_ROUNDS * 4,
+	);
 });
 
 test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer fails', async t => {
@@ -281,7 +303,9 @@ function composer(lines: string[], row: number, col: number) {
 test('the keys sent before a prompt empty a multi-line draft wherever the cursor is', async t => {
 	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
 	await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir});
-	const clearKeys = calls[1]!.slice(3);
+	const clearKeys = calls
+		.filter(args => args[0] === 'send-keys' && args.at(-1) !== 'Enter')
+		.flatMap(args => args.slice(3));
 	const draft = Array.from({length: 150}, (_, index) => `draft line ${index}`);
 	for (const [row, col] of [
 		[0, 0],

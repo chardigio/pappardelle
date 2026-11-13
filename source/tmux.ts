@@ -1558,13 +1558,20 @@ const defaultInnerSendRunner = spawnTmuxRunnerAsync(innerTmuxArgs);
 // round on an empty composer does nothing. Rounds bound the draft that can be
 // cleared; 200 lines send in a few milliseconds, and Claude Code collapses a
 // longer paste into one placeholder that a single round removes.
+//
+// The rounds go out in many small calls, not one. Claude Code reads a large
+// chunk of input as a paste: C-k then becomes a newline before the prompt, and
+// the prompt does not submit (STA-3087). 8 rounds in one write submitted and 16
+// failed, so 4 rounds per call keeps a margin. Each call is a separate write,
+// and the chunks stayed apart also while the agent streamed output.
 export const CLEAR_COMPOSER_ROUNDS = 200;
-const CLEAR_COMPOSER_KEYS = Array.from({length: CLEAR_COMPOSER_ROUNDS}, () => [
-	'C-e',
-	'C-k',
-	'C-u',
-	'BSpace',
-]).flat();
+export const CLEAR_COMPOSER_ROUNDS_PER_CALL = 4;
+const CLEAR_COMPOSER_CHUNK = Array.from(
+	{length: CLEAR_COMPOSER_ROUNDS_PER_CALL},
+	() => ['C-e', 'C-k', 'C-u', 'BSpace'],
+).flat();
+const CLEAR_COMPOSER_CALLS =
+	CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL;
 
 /**
  * Leave any pane mode, empty the composer, paste `text`, then press Enter.
@@ -1592,7 +1599,9 @@ export async function pasteThenEnter(
 	const buffer = `pappardelle-send-${process.pid}`;
 	const steps: Array<{args: string[]; input?: string}> = [
 		{args: ['copy-mode', '-q', '-t', target]},
-		{args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_KEYS]},
+		...Array.from({length: CLEAR_COMPOSER_CALLS}, () => ({
+			args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_CHUNK],
+		})),
 		{args: ['load-buffer', '-b', buffer, '-'], input: text},
 		{args: ['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', target]},
 		{args: ['send-keys', '-t', target, 'Enter']},
