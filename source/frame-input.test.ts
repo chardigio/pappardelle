@@ -78,7 +78,7 @@ test('mouse reports, focus reports and the terminal’s replies go to the render
 		`${ESC}]11;rgb:0000/2b2b/3636${ESC}\\`,
 		`${ESC}]4;1;rgb:dcdc/3232/2f2f\u0007`,
 		`${ESC}P>|tmux 3.8${ESC}\\`,
-		`${ESC}_Gi=1;OK${ESC}\\`,
+		`${ESC}_Gi=31337;OK${ESC}\\`,
 	]) {
 		t.deepEqual(routed(report), [`renderer:${report}`]);
 	}
@@ -168,4 +168,14 @@ test('held bytes that nothing follows are the program’s', t => {
 	t.is(decoder.decode(router.release()), ESC);
 	t.false(router.isHolding);
 	t.is(router.release(), undefined);
+});
+
+test("a graphics reply to the program's own command goes to the program", t => {
+	t.deepEqual(routed(`${ESC}_Gi=65537;OK${ESC}\\`), [
+		`program:${ESC}_Gi=65537;OK${ESC}\\`,
+	]);
+	t.deepEqual(routed(`${ESC}_Gi=7;ENOENT:`, `no such file${ESC}\\a`), [
+		`program:${ESC}_Gi=7;ENOENT:`,
+		`program:no such file${ESC}\\a`,
+	]);
 });

@@ -11,6 +11,11 @@ export type InputSegment = {to: 'program' | 'renderer'; bytes: Uint8Array};
 
 type Carry = 'none' | 'string' | 'string-escape' | 'csi' | 'paste';
 
+// The image ID of the renderer's own Kitty graphics query. Every other
+// graphics reply answers the program, which sent its command through to the
+// terminal.
+const RENDERER_GRAPHICS_REPLY = 'i=31337';
+
 // An OSC, DCS or APC string still unfinished after this long was not a reply:
 // Alt+] and a digit typed with it, say. The time between two reads includes
 // the handling of the first, which in a burst of input takes tens of
@@ -41,6 +46,7 @@ export class FrameInputRouter {
 	private carriedSince = 0;
 	private now = 0;
 	private pasteEndMatched = 0;
+	private carriedTo: InputSegment['to'] = 'renderer';
 	private held: Uint8Array | undefined;
 
 	/** Whether the last read ended in bytes held for the next one. */
@@ -96,8 +102,9 @@ export class FrameInputRouter {
 		return segments;
 	}
 
-	private begin(carry: Carry): void {
+	private begin(carry: Carry, to: InputSegment['to'] = 'renderer'): void {
 		this.carry = carry;
+		this.carriedTo = to;
 		this.carriedSince = this.now;
 	}
 
@@ -135,13 +142,13 @@ export class FrameInputRouter {
 		while (index < chunk.length && !this.endsCarried(chunk[index]!)) index++;
 
 		if (index === chunk.length) {
-			emit('renderer', from, index);
+			emit(this.carriedTo, from, index);
 			return index;
 		}
 
 		this.carry = 'none';
 		this.pasteEndMatched = 0;
-		emit('renderer', from, index + 1);
+		emit(this.carriedTo, from, index + 1);
 		return index + 1;
 	}
 
@@ -196,7 +203,10 @@ export class FrameInputRouter {
 		}
 
 		if (this.startsReply(chunk, from)) {
-			this.begin('string');
+			this.begin(
+				'string',
+				this.isProgramGraphicsReply(chunk, from) ? 'program' : 'renderer',
+			);
 			return this.continued(chunk, from, emit);
 		}
 
@@ -232,6 +242,17 @@ export class FrameInputRouter {
 		if (introducer === code('P'))
 			return isDigit(next) || '>$!'.includes(String.fromCodePoint(next));
 		return introducer === code('_') && next === code('G');
+	}
+
+	private isProgramGraphicsReply(chunk: Uint8Array, from: number): boolean {
+		if (chunk[from + 1] !== code('_')) return false;
+		const keys = String.fromCodePoint(
+			...chunk.subarray(
+				from + 3,
+				from + 3 + RENDERER_GRAPHICS_REPLY.length + 1,
+			),
+		);
+		return !`${RENDERER_GRAPHICS_REPLY};`.startsWith(keys);
 	}
 
 	private csi(

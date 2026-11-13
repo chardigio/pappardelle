@@ -255,7 +255,7 @@ const child = Bun.spawn(
 					process.stdout.write(sequence);
 				for (const query of events.sizeQueries)
 					childTerminal.write(sizeReply(query));
-				terminal.write(data);
+				terminal.write(events.screen);
 			},
 		},
 	},

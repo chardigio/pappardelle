@@ -42,7 +42,8 @@ test('other sequences and plain escapes are ignored', t => {
 			'\u001B[1;31mred\u001B[0m\u001B]8;;https://x\u001B\\link\u001B]1;icon\u0007',
 		),
 	);
-	t.deepEqual(events, {passthrough: [], sizeQueries: []});
+	t.deepEqual(events.passthrough, []);
+	t.deepEqual(events.sizeQueries, []);
 });
 
 test('an unterminated title abandoned by a new escape is dropped', t => {
@@ -81,4 +82,45 @@ test('the keypad mode passes through, even split across reads', t => {
 	const scanner = new OscScanner();
 	t.deepEqual(scanner.feed(bytes('a\u001B=b\u001B')).passthrough, ['\u001B=']);
 	t.deepEqual(scanner.feed(bytes('>c')).passthrough, ['\u001B>']);
+});
+
+const text = (screen: Uint8Array) => new TextDecoder().decode(screen);
+
+test('a Kitty graphics command goes to the real terminal and not the screen', t => {
+	const scanner = new OscScanner();
+	const command = '\u001B_Ga=T,U=1,i=7,f=24,t=t;L3RtcA==\u001B\\';
+	const events = scanner.feed(bytes(`a${command}b`));
+	t.deepEqual(events.passthrough, [command]);
+	t.is(text(events.screen), 'ab');
+});
+
+test('a Kitty graphics command split across reads is passed through whole', t => {
+	const scanner = new OscScanner();
+	const reads = ['x\u001B', '_', 'Ga=d,d=I,i=7', ',q=2\u001B', '\\y'].map(
+		read => scanner.feed(bytes(read)),
+	);
+	t.deepEqual(
+		reads.flatMap(events => events.passthrough),
+		['\u001B_Ga=d,d=I,i=7,q=2\u001B\\'],
+	);
+	t.is(reads.map(events => text(events.screen)).join(''), 'xy');
+});
+
+test('an escape held at the end of a read reaches the screen with the next', t => {
+	const scanner = new OscScanner();
+	t.is(text(scanner.feed(bytes('a\u001B')).screen), 'a');
+	t.is(text(scanner.feed(bytes('[1mb')).screen), '\u001B[1mb');
+});
+
+test('other APC strings stay on the screen', t => {
+	const scanner = new OscScanner();
+	const events = scanner.feed(bytes('\u001B_ladybird;reload\u001B\\'));
+	t.deepEqual(events.passthrough, []);
+	t.is(text(events.screen), '\u001B_ladybird;reload\u001B\\');
+});
+
+test('Unicode placeholder cells reach the screen untouched', t => {
+	const scanner = new OscScanner();
+	const cells = '\u001B[38;2;0;1;77m\u{10EEEE}\u0305\u0305\u{10EEEE}\u001B[39m';
+	t.is(text(scanner.feed(bytes(cells)).screen), cells);
 });
