@@ -179,3 +179,9 @@ test("a graphics reply to the program's own command goes to the program", t => {
 		`program:no such file${ESC}\\a`,
 	]);
 });
+
+test("the frame's own depth probe answers go to the renderer", t => {
+	t.deepEqual(routed(`${ESC}_Gi=31342;OK${ESC}\\`), [
+		`renderer:${ESC}_Gi=31342;OK${ESC}\\`,
+	]);
+});

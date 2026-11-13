@@ -11,6 +11,7 @@ import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
 import {FrameInputRouter} from './frame-input.ts';
 import {interceptInput} from './lone-escape.ts';
+import {GraphicsForwarder} from './pane-frame-graphics.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
 import {
@@ -105,12 +106,18 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 		childPty.current?.resize(cols, rows);
 	},
 });
+const graphics = new GraphicsForwarder(sequence => {
+	process.stdout.write(sequence);
+}, Boolean(outerSocket));
 // Keys go to the program as the bytes tmux wrote, without passing through
 // the renderer's input parser; see FrameInputRouter. Until the program has
 // started, everything read is the terminal answering the renderer.
 const inputRouter = new FrameInputRouter();
 let heldInput: ReturnType<typeof setTimeout> | undefined;
 interceptInput(renderer, process.stdin, (chunk, parse) => {
+	graphics.readReplies(
+		typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('latin1'),
+	);
 	if (!childPty.current || typeof chunk === 'string') {
 		parse(chunk);
 		return;
@@ -149,6 +156,7 @@ frame.add(terminal);
 terminal.focus();
 
 renderer.on('focus', () => {
+	graphics.probe();
 	isActive = true;
 	renderer.requestRender();
 });
@@ -158,6 +166,8 @@ renderer.on('blur', () => {
 });
 if (outerSocket && paneId)
 	routeDrops(renderer, {socket: outerSocket, paneId, isFocused: isActive});
+
+graphics.probe();
 
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.
@@ -252,7 +262,8 @@ const child = Bun.spawn(
 				}
 
 				for (const sequence of events.passthrough)
-					process.stdout.write(sequence);
+					if (sequence.startsWith('\u001B_G')) graphics.forward(sequence);
+					else process.stdout.write(sequence);
 				for (const query of events.sizeQueries)
 					childTerminal.write(sizeReply(query));
 				terminal.write(events.screen);

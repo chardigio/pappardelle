@@ -1,3 +1,5 @@
+import {isFrameGraphicsReply} from './pane-frame-graphics.ts';
+
 const ESC = 0x1b;
 const BEL = 0x07;
 const BACKSLASH = 0x5c;
@@ -10,11 +12,6 @@ const isDigit = (byte: number | undefined) =>
 export type InputSegment = {to: 'program' | 'renderer'; bytes: Uint8Array};
 
 type Carry = 'none' | 'string' | 'string-escape' | 'csi' | 'paste';
-
-// The image ID of the renderer's own Kitty graphics query. Every other
-// graphics reply answers the program, which sent its command through to the
-// terminal.
-const RENDERER_GRAPHICS_REPLY = 'i=31337';
 
 // An OSC, DCS or APC string still unfinished after this long was not a reply:
 // Alt+] and a digit typed with it, say. The time between two reads includes
@@ -244,15 +241,15 @@ export class FrameInputRouter {
 		return introducer === code('_') && next === code('G');
 	}
 
+	/**
+	 * Whether a graphics reply answers a command the program sent through to
+	 * the terminal, rather than the frame's own queries.
+	 */
 	private isProgramGraphicsReply(chunk: Uint8Array, from: number): boolean {
 		if (chunk[from + 1] !== code('_')) return false;
-		const keys = String.fromCodePoint(
-			...chunk.subarray(
-				from + 3,
-				from + 3 + RENDERER_GRAPHICS_REPLY.length + 1,
-			),
-		);
-		return !`${RENDERER_GRAPHICS_REPLY};`.startsWith(keys);
+		const keys = String.fromCodePoint(...chunk.subarray(from + 3, from + 16));
+		const id = /^i=(\d+)[;,]/.exec(keys)?.[1];
+		return id !== undefined && !isFrameGraphicsReply(Number(id));
 	}
 
 	private csi(
