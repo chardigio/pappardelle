@@ -19,9 +19,14 @@ export type OscEvents = {
 	passthrough: string[];
 	/** Window size queries (`CSI 18 t`, `CSI 14 t`) the frame must answer. */
 	sizeQueries: SizeQuery[];
-	/** The chunk without its Kitty graphics commands, for the embedded terminal. */
-	screen: Uint8Array;
+	/**
+	 * The chunk in order: the bytes for the embedded terminal, and the Kitty
+	 * graphics commands taken out from between them for the real terminal.
+	 */
+	output: OutputPiece[];
 };
+
+export type OutputPiece = {screen: Uint8Array} | {graphics: string};
 
 export type SizeQuery = 'cells' | 'pixels';
 
@@ -63,9 +68,11 @@ export class OscScanner {
 		const events: OscEvents = {
 			passthrough: [],
 			sizeQueries: [],
-			screen: new Uint8Array(),
+			output: [],
 		};
-		const screen: Uint8Array[] = [];
+		const screen = (bytes: Uint8Array) => {
+			if (bytes.length > 0) events.output.push({screen: bytes});
+		};
 		let screenFrom = 0;
 		let escapeAt = 0;
 		for (let index = 0; index < chunk.length; index++) {
@@ -87,7 +94,7 @@ export class OscScanner {
 						this.state = 'graphics';
 						this.graphicsCommand = [ESC, APC_INTRODUCER, GRAPHICS_COMMAND];
 						this.overflowed = false;
-						screen.push(chunk.subarray(screenFrom, escapeAt));
+						screen(chunk.subarray(screenFrom, escapeAt));
 					} else {
 						this.state = byte === ESC ? 'escape' : 'text';
 						escapeAt = index;
@@ -109,9 +116,11 @@ export class OscScanner {
 					screenFrom = index + 1;
 					if (byte === STRING_TERMINATOR && !this.overflowed) {
 						this.graphicsCommand.push(ESC, STRING_TERMINATOR);
-						events.passthrough.push(
-							this.decoder.decode(Uint8Array.from(this.graphicsCommand)),
-						);
+						events.output.push({
+							graphics: this.decoder.decode(
+								Uint8Array.from(this.graphicsCommand),
+							),
+						});
 					}
 
 					this.graphicsCommand = [];
@@ -194,12 +203,11 @@ export class OscScanner {
 		} else if (this.state === 'escape' || this.state === 'apc') {
 			this.heldEscape = chunk.slice(escapeAt);
 			this.state = 'text';
-			screen.push(chunk.subarray(screenFrom, escapeAt));
+			screen(chunk.subarray(screenFrom, escapeAt));
 			screenFrom = chunk.length;
 		}
 
-		screen.push(chunk.subarray(screenFrom));
-		events.screen = concat(screen);
+		screen(chunk.subarray(screenFrom));
 		return events;
 	}
 

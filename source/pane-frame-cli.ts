@@ -11,7 +11,7 @@ import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
 import {FrameInputRouter} from './frame-input.ts';
 import {interceptInput} from './lone-escape.ts';
-import {GraphicsForwarder} from './pane-frame-graphics.ts';
+import {FramedOutput, GraphicsForwarder} from './pane-frame-graphics.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
 import {
@@ -106,9 +106,35 @@ const terminal = new EmbeddedTerminalRenderable(renderer, {
 		childPty.current?.resize(cols, rows);
 	},
 });
+// The renderer's own output queue keeps graphics in order with its frames,
+// which go out in the same queue.
+const rendererOutput = (
+	renderer as unknown as {nativeSession?: {write(bytes: Uint8Array): boolean}}
+).nativeSession;
+const encoder = new TextEncoder();
 const graphics = new GraphicsForwarder(sequence => {
+	if (rendererOutput) return rendererOutput.write(encoder.encode(sequence));
 	process.stdout.write(sequence);
+	return true;
 }, Boolean(outerSocket));
+const framedOutput = new FramedOutput({
+	writeScreen(bytes) {
+		terminal.write(bytes);
+	},
+	writeGraphics: command => graphics.forward(command),
+	requestFrame() {
+		renderer.requestRender();
+	},
+	schedule(callback, ms) {
+		const timer = setTimeout(callback, ms);
+		return () => {
+			clearTimeout(timer);
+		};
+	},
+});
+renderer.setFrameCallback(async () => {
+	framedOutput.flushFrame();
+});
 // Keys go to the program as the bytes tmux wrote, without passing through
 // the renderer's input parser; see FrameInputRouter. Until the program has
 // started, everything read is the terminal answering the renderer.
@@ -262,11 +288,10 @@ const child = Bun.spawn(
 				}
 
 				for (const sequence of events.passthrough)
-					if (sequence.startsWith('\u001B_G')) graphics.forward(sequence);
-					else process.stdout.write(sequence);
+					process.stdout.write(sequence);
 				for (const query of events.sizeQueries)
 					childTerminal.write(sizeReply(query));
-				terminal.write(events.screen);
+				framedOutput.receive(events.output);
 			},
 		},
 	},

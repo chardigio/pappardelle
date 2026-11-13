@@ -37,15 +37,19 @@ export class GraphicsForwarder {
 	private probeTimer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
-		private readonly write: (sequence: string) => void,
+		/** Returns false when the output is full and the sequence was not taken. */
+		private readonly write: (sequence: string) => boolean,
 		private readonly isInTmux: boolean,
 	) {
 		this.depth = isInTmux ? undefined : 0;
 	}
 
-	forward(command: string): void {
-		if (this.depth === undefined) this.pending.push(command);
-		else this.write(wrapForTmux(command, this.depth));
+	/** Returns false when the command could not be taken yet. */
+	forward(command: string): boolean {
+		if (this.depth !== undefined)
+			return this.write(wrapForTmux(command, this.depth));
+		this.pending.push(command);
+		return true;
 	}
 
 	/** Asks again, as tmux drops what a pane it is not showing passes through. */
@@ -87,4 +91,111 @@ export class GraphicsForwarder {
 		this.pending = [];
 		for (const command of pending) this.write(wrapForTmux(command, depth));
 	}
+}
+
+type Piece = {screen: Uint8Array} | {graphics: string};
+// A held piece, and whether it begins the program's next image frame.
+type Held = {piece: Piece; startsFrame: boolean};
+
+export type FramedOutputDependencies = {
+	writeScreen(bytes: Uint8Array): void;
+	/** Queues a command ahead of the renderer's next frame; false when the output is full. */
+	writeGraphics(command: string): boolean;
+	requestFrame(): void;
+	schedule(callback: () => void, ms: number): () => void;
+};
+
+// The rest of an image's frame follows its upload within a read or two, so
+// output that stops for this long has finished the frame.
+const FRAME_QUIET_MS = 4;
+// A program that never pauses still has its output shown this often.
+const MAX_FRAME_HOLD_MS = 50;
+
+/**
+ * Keeps a program's image frames whole. A program that animates an image
+ * uploads each frame and then rewrites the placeholder cells to show it, and
+ * the renderer would otherwise draw whatever part of the cells had arrived,
+ * showing rows of two frames at once. Once a graphics command arrives, the
+ * output after it is held until the program pauses or starts the next image
+ * frame, and the commands and cells are then given to one renderer frame,
+ * the commands first, so the terminal has the image before the cells that
+ * show it. Output with no graphics before it is not held.
+ */
+export class FramedOutput {
+	private readonly held: Held[] = [];
+	// How many leading pieces are whole frames ready for the renderer.
+	private readyCount = 0;
+	private isUploading = false;
+	private cancelQuiet: (() => void) | undefined;
+	private cancelHold: (() => void) | undefined;
+
+	constructor(private readonly dependencies: FramedOutputDependencies) {}
+
+	receive(output: Piece[]): void {
+		for (const piece of output) {
+			if ('screen' in piece) {
+				if (this.held.length === 0) this.dependencies.writeScreen(piece.screen);
+				else this.held.push({piece, startsFrame: false});
+				continue;
+			}
+
+			// The chunks of one upload belong to one frame, whatever comes between.
+			const startsFrame = !this.isUploading && this.endsInScreen();
+			if (startsFrame) this.markReady();
+			this.isUploading = continuesUpload(piece.graphics);
+			this.held.push({piece, startsFrame});
+			this.cancelHold ??= this.dependencies.schedule(() => {
+				this.markReady(true);
+			}, MAX_FRAME_HOLD_MS);
+		}
+
+		if (this.held.length === 0) return;
+		this.cancelQuiet?.();
+		this.cancelQuiet = this.dependencies.schedule(() => {
+			this.markReady(true);
+		}, FRAME_QUIET_MS);
+	}
+
+	/** Gives the renderer's coming frame the first whole image frame. */
+	flushFrame(): void {
+		let index = 0;
+		while (index < this.readyCount) {
+			const {piece, startsFrame} = this.held[index]!;
+			if (startsFrame && index > 0) break;
+			if ('graphics' in piece) {
+				if (!this.dependencies.writeGraphics(piece.graphics)) break;
+			} else {
+				this.dependencies.writeScreen(piece.screen);
+			}
+
+			index++;
+		}
+
+		this.held.splice(0, index);
+		this.readyCount -= index;
+		if (this.readyCount > 0) this.dependencies.requestFrame();
+	}
+
+	private endsInScreen(): boolean {
+		const last = this.held.at(-1);
+		return last !== undefined && 'screen' in last.piece;
+	}
+
+	private markReady(everything = false): void {
+		if (everything) {
+			this.cancelQuiet?.();
+			this.cancelQuiet = undefined;
+		}
+
+		this.cancelHold?.();
+		this.cancelHold = undefined;
+		this.readyCount = this.held.length;
+		if (this.readyCount > 0) this.dependencies.requestFrame();
+	}
+}
+
+/** Whether a command is a chunk of an upload that more chunks follow. */
+function continuesUpload(command: string): boolean {
+	const keys = command.slice('\u001B_G'.length).split(';', 1)[0] ?? '';
+	return keys.split(',').includes('m=1');
 }
