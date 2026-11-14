@@ -199,6 +199,14 @@ test('the input box is empty under its dim placeholder and holds a typed draft',
 	t.is(screen('claude-draft').composer, 'a draft I have not sent yet');
 });
 
+test("Claude's suggested prompt is no draft and is left out of the screen text", t => {
+	const {composer, lines} = screen('claude-suggestion');
+	t.is(composer, '');
+	t.true(lines.some(line => line.trimEnd() === '❯'));
+	t.false(lines.some(line => line.trimEnd() === '❯ fix it'));
+	t.true(screen('claude-draft').lines.some(line => line.includes('a draft')));
+});
+
 test("a Codex dialog holds the keyboard, so there's no composer to read", t => {
 	const wide = screen('codex-limit-wide');
 	t.like(wide.codexDialog, {

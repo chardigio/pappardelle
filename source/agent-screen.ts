@@ -83,6 +83,7 @@ export type AgentScreen = {
 	composer: string | null;
 	/** Codex's own dialogs (folder trust, model switch) that take the keyboard. */
 	codexDialog: CodexDialog | null;
+	/** The screen as text, with the input box's dim placeholder left out. */
 	lines: string[];
 };
 
@@ -453,6 +454,15 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const raw = capture.replace(/\n+$/, '').split('\n');
 	const lines = raw.map(line => stripVTControlCharacters(line));
 	const codexDialog = parseCodexDialog(raw, lines);
+	const composer = codexDialog ? null : parseComposer(raw, lines);
+	// Claude Code shows a suggested next prompt as the placeholder. In plain
+	// text it reads as typed, so a supervisor would take it for a draft.
+	const input = composer === '' ? composerLine(lines) : null;
+	if (input) {
+		const line = lines[input.at]!;
+		lines[input.at] = line.slice(0, line.indexOf(input.glyph) + 1);
+	}
+
 	return {
 		spinner: lines.some(
 			line => CLAUDE_SPINNER.test(line) || CODEX_SPINNER.test(line),
@@ -460,7 +470,7 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 		permission: parsePermission(lines),
 		question: parseQuestion(lines),
 		usageLimit: parseUsageLimit(lines, now),
-		composer: codexDialog ? null : parseComposer(raw, lines),
+		composer,
 		codexDialog,
 		lines,
 	};

@@ -992,9 +992,11 @@ async function execute(
 				return 1;
 			}
 
-			const lines = stripVTControlCharacters(text)
-				.split('\n')
-				.map(line => line.trimEnd());
+			const lines = (
+				command.companion
+					? stripVTControlCharacters(text).split('\n')
+					: parseAgentScreen(text, deps.now()).lines
+			).map(line => line.trimEnd());
 			const shown = lines.slice(-command.lines).join('\n').trim();
 			deps.out(paneText(shown));
 			return 0;
