@@ -10,7 +10,7 @@
 // ============================================================================
 
 /** Layout threshold: screens narrower than this use vertical stacking */
-export const NARROW_SCREEN_THRESHOLD = 100;
+export const NARROW_SCREEN_THRESHOLD = 90;
 
 /** Minimum pane widths (in characters) for horizontal layout */
 export const MIN_LIST_WIDTH = 15;
@@ -160,8 +160,8 @@ export function calculateIdealListHeightForCount(
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
- * - Narrow screens (< 100 chars): Vertical layout with list on top, agent below, no companion
- * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
+ * - Narrow screens (< 90 chars): Vertical layout with list on top, agent below, no companion
+ * - Wide screens (>= 90 chars): Horizontal layout [list] [claude] [companion]
  */
 export function calculateLayoutForSize(
 	totalWidth: number,

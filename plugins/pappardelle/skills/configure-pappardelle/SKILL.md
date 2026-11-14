@@ -399,7 +399,7 @@ companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GI
 
 ## Configuring Pane Widths
 
-`layout` sets the starting widths of the three panes in the wide (100+ column) layout, as columns or percentage strings. Any key left out keeps the default for that pane.
+`layout` sets the starting widths of the three panes in the wide (90+ column) layout, as columns or percentage strings. Any key left out keeps the default for that pane.
 
 ```yaml
 layout:

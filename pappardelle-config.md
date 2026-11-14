@@ -1217,7 +1217,7 @@ list_view:
 
 ## Pane Widths
 
-In the wide layout (terminals 100 columns and up) the rail, Claude and companion panes default to roughly 24/38/38, with the rail kept between 15 and 40 columns and the companion capped at 86. `layout` replaces those defaults.
+In the wide layout (terminals 90 columns and up) the rail, Claude and companion panes default to roughly 24/38/38, with the rail kept between 15 and 40 columns and the companion capped at 86. `layout` replaces those defaults.
 
 ```yaml
 layout:

@@ -256,8 +256,8 @@ test('the override is ignored in vertical layout', t => {
 });
 
 test('the override is honored at the narrowest horizontal terminal', t => {
-	// 100 is NARROW_SCREEN_THRESHOLD, the first width that gets three columns.
-	const cramped = calculateLayoutForSize(100, 50, 5, {rail: 12});
+	// 90 is NARROW_SCREEN_THRESHOLD, the first width that gets three columns.
+	const cramped = calculateLayoutForSize(90, 50, 5, {rail: 12});
 	t.is(cramped.direction, 'horizontal');
 	t.is(cramped.listWidth, 12);
 	t.true((cramped.agentWidth ?? 0) >= MIN_CLAUDE_WIDTH);
@@ -265,10 +265,10 @@ test('the override is honored at the narrowest horizontal terminal', t => {
 });
 
 test('an oversized override on a narrow terminal falls back to the widest fit', t => {
-	const cramped = calculateLayoutForSize(100, 50, 5, {rail: 500});
+	const cramped = calculateLayoutForSize(90, 50, 5, {rail: 500});
 	t.is(
 		cramped.listWidth,
-		98 - (cramped.companionWidth ?? 0) - MIN_CLAUDE_WIDTH,
+		88 - (cramped.companionWidth ?? 0) - MIN_CLAUDE_WIDTH,
 	);
 	t.is(cramped.agentWidth, MIN_CLAUDE_WIDTH);
 });

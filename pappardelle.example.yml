@@ -117,7 +117,7 @@ team_prefix: ENG
 #       color: '#4caf50'
 #       categories: [done]
 
-# Starting widths of the three panes in the wide (100+ column) layout, as
+# Starting widths of the three panes in the wide (90+ column) layout, as
 # columns or a percentage of the width the panes share. Leave any of them out
 # to keep the default for that pane. Claude takes whatever the rail and
 # companion leave, so claude_width only matters when one of them is unset.

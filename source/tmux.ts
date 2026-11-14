@@ -1798,8 +1798,8 @@ function currentPaneWidths(): PaneWidths {
  * Returns pane IDs for [list, agentViewer, companionViewer]
  *
  * Layout depends on screen width:
- * - Narrow screens (< 100 chars): Vertical layout [list on top] [agent below], no companion
- * - Wide screens (>= 100 chars): Horizontal layout [list] [claude] [companion]
+ * - Narrow screens (< 90 chars): Vertical layout [list on top] [agent below], no companion
+ * - Wide screens (>= 90 chars): Horizontal layout [list] [claude] [companion]
  *
  * Asynchronous so the caller can load the renderer while tmux works.
  */
