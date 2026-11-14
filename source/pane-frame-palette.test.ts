@@ -53,6 +53,73 @@ test.serial(
 	},
 );
 
+const RESET_DEFAULTS = '\u001B]110\u001B\\\u001B]111\u001B\\';
+
+function defaults(
+	defaultForeground: string | null,
+	defaultBackground: string | null,
+): TerminalColors {
+	return {
+		...colors(),
+		defaultForeground,
+		defaultBackground,
+	} as unknown as TerminalColors;
+}
+
+test.serial(
+	'a black-on-black refresh after a switch to light mode leaves the text legible',
+	async t => {
+		const setup = await createTestRenderer({width: 20, height: 2});
+		t.teardown(async () => setup.dispose());
+		const terminal = new EmbeddedTerminalRenderable(setup.renderer, {
+			width: 20,
+			height: 2,
+		});
+		setup.renderer.root.add(terminal);
+
+		terminal.write(paletteSequences(colors()));
+		// What tmux reported to the frame once macOS switched to light mode
+		// while Ghostty, with no theme, stayed dark.
+		terminal.write(paletteSequences(defaults('#000000', '#000000')));
+		terminal.write('\u001B[36mcyan\u001B[0m plain');
+		await setup.renderOnce();
+
+		const {spans} = setup.captureSpans().lines[0]!;
+		const cyan = spans.find(span => span.text.startsWith('cyan'))!;
+		const plain = spans.find(span => span.text.includes('plain'))!;
+		t.is(hex(cyan.fg), SOLARIZED_CYAN);
+		t.is(hex(plain.fg), '#ffffff');
+		t.is(hex(plain.bg), '#000000');
+	},
+);
+
+test('default colors too close to read are reset, not copied', t => {
+	const sequences = paletteSequences(defaults('#1a1a1a', '#000000'));
+	t.true(sequences.endsWith(RESET_DEFAULTS));
+	t.false(sequences.includes('\u001B]10;'));
+	t.false(sequences.includes('\u001B]11;'));
+});
+
+test('a foreground too dark for the built-in background is reset', t => {
+	t.true(paletteSequences(defaults('#000000', null)).endsWith(RESET_DEFAULTS));
+	t.true(paletteSequences(defaults(null, '#ffffff')).endsWith(RESET_DEFAULTS));
+});
+
+test('a real light theme still copies its dark-on-light defaults', t => {
+	const sequences = paletteSequences(defaults('#000000', '#ffffff'));
+	t.true(sequences.includes('\u001B]10;rgb:00/00/00\u001B\\'));
+	t.true(sequences.includes('\u001B]11;rgb:ff/ff/ff\u001B\\'));
+});
+
+test('an unreported default color resets the stale one in the embedded terminal', t => {
+	const sequences = paletteSequences(defaults('#839496', null));
+	t.true(sequences.includes('\u001B]10;rgb:83/94/96\u001B\\'));
+	t.true(sequences.endsWith('\u001B]111\u001B\\'));
+	t.true(
+		paletteSequences(defaults(null, '#002b36')).includes('\u001B]110\u001B\\'),
+	);
+});
+
 function fakeTerminal() {
 	let osc = (_sequence: string) => {};
 	let handlers: Array<(sequence: string) => boolean> = [];
@@ -108,7 +175,7 @@ test('a terminal that reports no colors still ends the query at once', async t =
 	fake.input('\u001B[0n');
 	const colors = await query;
 	t.true(colors.palette.every(color => color === null));
-	t.is(paletteSequences(colors), '');
+	t.is(paletteSequences(colors), RESET_DEFAULTS);
 });
 
 test('a palette query without a status reply gives up with what arrived', async t => {

@@ -85,19 +85,66 @@ function oscColor(hex: string): string {
 	return `rgb:${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 6)}`;
 }
 
+// What the embedded terminal paints for a default color that is not set.
+const BUILT_IN_FOREGROUND = '#ffffff';
+const BUILT_IN_BACKGROUND = '#000000';
+// WCAG's floor for large text: the least a pane of prose can get by with.
+const MIN_DEFAULT_CONTRAST = 3;
+
+function luminance(hex: string): number {
+	const digits = hex.replace(/^#/, '');
+	const [r, g, b] = [0, 2, 4].map(offset => {
+		const value = Number.parseInt(digits.slice(offset, offset + 2), 16) / 255;
+		return value <= 0.039_28 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+	});
+	return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+function contrast(first: string, second: string): number {
+	const [light, dark] = [luminance(first), luminance(second)].sort(
+		(a, b) => b - a,
+	);
+	return (light! + 0.05) / (dark! + 0.05);
+}
+
 /**
  * The embedded terminal resolves palette colors to its own built-in RGB
  * values, which would repaint the user's theme in the agent and companion
  * panes. Setting its palette and default colors to the outer terminal's keeps
  * them looking as they do everywhere else.
+ *
+ * A color the outer terminal does not report is reset rather than left out,
+ * so a refresh cannot keep a stale value from an earlier theme.
+ *
+ * The default pair is not trusted blindly. After a macOS light/dark switch,
+ * tmux reported black for both the foreground and the background while
+ * Ghostty, with no theme set, still drew dark, and copying that pair made
+ * every line written in the default color invisible (STA-3102). A pair that
+ * would be unreadable falls back to the built-in white on black.
  */
 export function paletteSequences(colors: FrameColors): string {
 	const sequences = colors.palette.flatMap((hex, index) =>
 		hex ? [`\u001B]4;${index};${oscColor(hex)}\u001B\\`] : [],
 	);
-	if (colors.defaultForeground)
-		sequences.push(`\u001B]10;${oscColor(colors.defaultForeground)}\u001B\\`);
-	if (colors.defaultBackground)
-		sequences.push(`\u001B]11;${oscColor(colors.defaultBackground)}\u001B\\`);
+	let foreground = colors.defaultForeground;
+	let background = colors.defaultBackground;
+	if (
+		contrast(
+			foreground ?? BUILT_IN_FOREGROUND,
+			background ?? BUILT_IN_BACKGROUND,
+		) < MIN_DEFAULT_CONTRAST
+	) {
+		foreground = null;
+		background = null;
+	}
+
+	sequences.push(
+		foreground
+			? `\u001B]10;${oscColor(foreground)}\u001B\\`
+			: '\u001B]110\u001B\\',
+		background
+			? `\u001B]11;${oscColor(background)}\u001B\\`
+			: '\u001B]111\u001B\\',
+	);
 	return sequences.join('');
 }
