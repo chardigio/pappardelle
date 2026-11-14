@@ -20,6 +20,8 @@ import {
 	findSpaceByStatusKey,
 	getClaudeStatusInfo,
 	getClaudeStatusInfoAsync,
+	hookStatusKey,
+	readableHookStatusKey,
 	setClaudeStatus,
 } from './claude-status.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
@@ -271,6 +273,12 @@ function withStatusDir(t: ExecutionContext): string {
 	return dir;
 }
 
+test('hookStatusKey qualifies a space key or main branch by repo, flattening slashes', t => {
+	t.is(hookStatusKey('stardust-labs', 'STA-1'), 'stardust-labs-STA-1');
+	t.is(hookStatusKey('stardust-labs', 'master'), 'stardust-labs-master');
+	t.is(hookStatusKey('repo', 'alice/STA-1'), 'repo-alice-STA-1');
+});
+
 test.serial(
 	'async status resync distinguishes failed reads, removed files and expired active state',
 	async t => {
@@ -408,3 +416,15 @@ test('getClaudeStatusInfo parse failures do NOT surface a warn-level log to the 
 		'parse failures must stay at debug level (file logs only, no TUI noise)',
 	);
 });
+
+test.serial(
+	'the bare status name is read only while the qualified one is missing',
+	t => {
+		const dir = withStatusDir(t);
+		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
+		writeFileSync(path.join(dir, 'STA-1.json'), '{}');
+		t.is(readableHookStatusKey('repo', 'STA-1'), 'STA-1');
+		writeFileSync(path.join(dir, 'repo-STA-1.json'), '{}');
+		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
+	},
+);

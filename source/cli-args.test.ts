@@ -116,23 +116,49 @@ test('send takes everything after the key as the text, flags included', t => {
 	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hi', '-x', 'there']), {
 		key: 'STE-1',
 		text: 'hi -x there',
+		keys: [],
+		force: false,
 	});
 	t.deepEqual(parseSendArgs(['send', 'STE-1', '--help']), {
 		key: 'STE-1',
 		text: '--help',
+		keys: [],
+		force: false,
 	});
 	t.deepEqual(parseSendArgs(['send', 'STE-1', '-x']), {
 		key: 'STE-1',
 		text: '-x',
+		keys: [],
+		force: false,
 	});
 	t.deepEqual(parseSendArgs(['--no-layout', 'send', 'STE-1', '--yes']), {
 		key: 'STE-1',
 		text: '--yes',
+		keys: [],
+		force: false,
+	});
+});
+
+test('send takes --keys and --force only right after the key', t => {
+	t.deepEqual(
+		parseSendArgs(['send', 'STE-1', '--keys', 'Escape', '--keys=S-Tab']),
+		{key: 'STE-1', text: '', keys: ['Escape', 'S-Tab'], force: false},
+	);
+	t.deepEqual(parseSendArgs(['send', 'STE-1', 'use', '--keys', 'Escape']), {
+		key: 'STE-1',
+		text: 'use --keys Escape',
+		keys: [],
+		force: false,
 	});
 });
 
 test('send without text leaves it empty so stdin is read', t => {
-	t.deepEqual(parseSendArgs(['send', 'STE-1']), {key: 'STE-1', text: ''});
+	t.deepEqual(parseSendArgs(['send', 'STE-1']), {
+		key: 'STE-1',
+		text: '',
+		keys: [],
+		force: false,
+	});
 });
 
 test('send with a flag where the key goes has no key, so usage is printed', t => {
@@ -184,4 +210,28 @@ test("send's text never reaches the top-level flag checks", t => {
 	const cli = parseCli(['send', 'STA-1', 'run with', '--profile']);
 	t.is(cli.flags.profile, undefined);
 	t.deepEqual(cli.input, ['send']);
+});
+
+test('mcp answers --help and rejects flags it does not know', t => {
+	t.is(subcommandGate(['mcp']).action, 'run');
+	t.is(subcommandGate(['mcp', '--help']).action, 'help');
+	t.is(subcommandGate(['mcp', '--nope']).action, 'reject');
+	t.is(subcommandGate(['mcp', 'install']).action, 'run');
+	t.is(subcommandGate(['mcp', 'nope']).action, 'reject');
+});
+
+test('a --force after the text is the flag, not part of the message', t => {
+	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hello', 'there', '--force']), {
+		key: 'STE-1',
+		text: 'hello there',
+		keys: [],
+		force: true,
+	});
+});
+
+test('a --force inside the message stays text', t => {
+	t.like(parseSendArgs(['send', 'STE-1', 'why', '--force', 'is', 'risky']), {
+		text: 'why --force is risky',
+		force: false,
+	});
 });

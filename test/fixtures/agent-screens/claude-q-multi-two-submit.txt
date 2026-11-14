@@ -1,0 +1,45 @@
+
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.321
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mSonnet 5.5 · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/q-a/qa-prompts-repo · [0m[92m]8;id=qjy2cg;https://claude.ai/code/session_x?from=cli\/rc[39m]8;;\            
+
+
+[37m[100m❯ [97mUse the AskUserQuestion tool once with a single multiSelect question: which pizza toppings I want, options Cheese, [39m   
+  [97mOlives, Peppers, Onions.[39m                                                                                              
+
+[37m[49m● [39mUser answered Claude's questions:                                                                                     
+[2m[37m  ⎿  [0m[37m· Which pizza toppings do you want? → Peppers, Cheese
+
+[97m●[39m You picked Peppers and Cheese.
+               
+[2m[37m✻[0m [2m[37mSautéed for 7s · done 9:39 PM[0m     
+                    
+[37m[100m❯ [97mUse AskUserQuestion once with two questions in one call: first a multiSelect question for pizza toppings (Cheese, [39m    
+  [97mOlives, Peppers, Onions), second a single-select question for crust (Thin, Thick, Stuffed).[39m                           
+
+[37m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m←  ☒ Toppings  ☒ Crust [30m[104m ✔ Submit [37m[49m →
+
+[1m[97mReview your answers
+
+[0m ● Which pizza toppings do you want?
+   [92m→ Olives, Onions
+[39m ● Which crust do you want?
+   [92m→ Thick[39m      
+                        
+[37mReady to submit your answers?
+
+[94m❯[39m [2m[37m1. [0m[94mSubmit answers[39m    
+  [2m[37m2. [0mCancel
+
+                    
+
+
+
+
+                                                                                                                        
+
+
+
+                                                                                                                      
+                               

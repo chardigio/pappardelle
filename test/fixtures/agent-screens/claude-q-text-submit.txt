@@ -1,0 +1,45 @@
+[37m● [39mUser answered Claude's questions: 
+[2m[37m  ⎿  [0m[37m· Which pizza toppings do you want? → Peppers, Cheese
+
+[97m●[39m You picked Peppers and Cheese.
+
+[2m[37m✻[0m [2m[37mSautéed for 7s · done 9:39 PM[0m                                                                                         
+
+[37m[100m❯ [97mUse AskUserQuestion once with two questions in one call: first a multiSelect question for pizza toppings (Cheese, [39m    
+  [97mOlives, Peppers, Onions), second a single-select question for crust (Thin, Thick, Stuffed).[39m                           
+
+[37m[49m● [39mUser answered Claude's questions:                       
+[2m[37m  ⎿  [0m[37m· Which pizza toppings do you want? → Olives, Onions
+[39m     [37m· Which crust do you want? → Thick
+[39m               
+[97m●[39m Olives and Onions on a Thick crust.                                                                                   
+
+[2m[37m✻[0m [2m[37mSautéed for 27s · done 9:40 PM
+
+[0m[37m[100m❯ [97mUse AskUserQuestion once with a single single-select question: which drink I want, options Water, Juice, Soda.[39m        
+[49m                                                                                                                        
+[37m● [39mUser answered Claude's questions:
+[2m[37m  ⎿  [0m[37m· Which drink do you want? → hello there
+
+[97m●[39m You answered "hello there" instead of picking Water, Juice, or Soda. Which drink do you want?
+                                    
+[2m[37m✻[0m [2m[37mBaked for 4s · done 9:41 PM[0m                                                                                           
+                           
+[37m[100m❯ [97mUse AskUserQuestion once with two single-select questions in one call: drink (Water, Juice, Soda) and dessert (Cake, [39m 
+  [97mPie, Fruit).[39m                                                                                                          
+
+[37m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m←  ☒ Drink  ☒ Dessert [30m[104m ✔ Submit [37m[49m →
+
+[1m[97mReview your answers
+
+[0m ● Which drink do you want?                                                                                             
+   [92m→ hello there
+[39m ● Which dessert do you want? 
+   [92m→ Pie[39m                                                                                                              
+                                                                                                                        
+[37mReady to submit your answers?[39m                                                                                           
+
+[94m❯[39m [2m[37m1. [0m[94mSubmit answers[39m                                                                                                     
+  [2m[37m2. [0mCancel                                                                                                           
+

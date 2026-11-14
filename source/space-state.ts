@@ -48,6 +48,18 @@ export interface SpaceState {
 	profile?: string;
 }
 
+/** Claude Code's transcript directory for a worktree. */
+export function claudeProjectDir(
+	worktreePath: string,
+	projectsDir?: string,
+): string {
+	const base = projectsDir ?? path.join(homedir(), '.claude', 'projects');
+	return path.join(
+		base,
+		worktreePath.replaceAll('/', '-').replaceAll('.', '-'),
+	);
+}
+
 /**
  * Locate the most recently modified Claude Code session jsonl for a worktree.
  *
@@ -64,9 +76,7 @@ export async function findLatestSessionJsonl(
 	worktreePath: string,
 	projectsDir?: string,
 ): Promise<string | null> {
-	const base = projectsDir ?? path.join(homedir(), '.claude', 'projects');
-	const encoded = worktreePath.replaceAll('/', '-').replaceAll('.', '-');
-	const projectDir = path.join(base, encoded);
+	const projectDir = claudeProjectDir(worktreePath, projectsDir);
 	let entries: fs.Dirent[];
 	try {
 		entries = await fs.promises.readdir(projectDir, {withFileTypes: true});
@@ -339,7 +349,7 @@ function applyRecapLine(recap: SpaceRecap, line: string): void {
 	}
 }
 
-function extractAssistantText(entry: any): string | undefined {
+export function extractAssistantText(entry: any): string | undefined {
 	const msg = entry.message;
 	if (!msg) return undefined;
 	const {content} = msg;

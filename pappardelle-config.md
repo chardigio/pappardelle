@@ -480,6 +480,7 @@ interface PappardelleConfig {
 		companion_width?: number | string;
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
+	companion_splits?: CompanionSplit[]; // Panes started beside the companion, each framed. Per-profile overridable. See "Companion splits".
 	ide_command?: string; // Command the `d` key runs to open an editor (default: cursor). Per-profile overridable. "" = disable `d`.
 	initialization_command?: string; // Skill the agent runs on new sessions, without its prefix (e.g. "idow"). Agent-agnostic; replaces claude.initialization_command.
 	agent_profiles?: Record<string, AgentProfileConfig>; // Named agent profiles for the agent pane. Built-in "claude" always exists.
@@ -525,6 +526,7 @@ interface Profile {
 		extra_args?: string[]; // DEPRECATED: select an agent profile that sets args. Replaces the global claude.extra_args; [] clears it.
 	};
 	companion_command?: string; // Override the top-level companion-pane command for this profile (e.g. a dev server). "" = plain shell.
+	companion_splits?: CompanionSplit[]; // Replaces the top-level companion_splits for this profile.
 	ide_command?: string; // Override the top-level `d`-key editor command for this profile. "" = disable `d` for this profile.
 	vars?: Record<string, string>; // Generic template variables
 	vcs?: {
@@ -1094,6 +1096,45 @@ sous_chef_key?: string | false;
 - If Pappardelle is killed without a clean exit while running inside a window of your own tmux session, the key stays bound in that window until Pappardelle runs there again or the window closes
 - `pappardelle highlight main --focus` does the same from a script
 
+## Workspace-Aware Agents
+
+The top-level `workspace_aware_agents` flag lets agents in the repo see and change their workspace. Off by default.
+
+```yaml
+workspace_aware_agents: true # default: false
+```
+
+```typescript
+workspace_aware_agents?: boolean;
+```
+
+- **On:**
+  - the pappardelle MCP server serves its tools (`companion_*`, `space_*`, `spaces_list`, `link_pr` and the rest) in this repo
+  - the server's instructions tell each agent which space it's in, to keep the companion showing its work, and how to message other spaces
+  - Codex and Pi get the same companion rules at launch, and agy gets them in a rule file in its worktree
+- **Off:** the server serves nothing in this repo, as if it weren't a Pappardelle repo, and agents launch without the rules. The `pappardelle` CLI verbs work either way
+- The MCP server reads the flag when an agent starts, and the rules go in at launch, so a running agent keeps what it started with
+
+## Sous-Chef Mode
+
+The top-level `sous_chef` flag tells the agent in the main checkout that it coordinates the repo's spaces. Off by default. It needs `workspace_aware_agents: true`, since the sous-chef works through the MCP tools; config validation rejects it without.
+
+```yaml
+sous_chef: true # default: false
+```
+
+```typescript
+sous_chef?: boolean;
+```
+
+- The main checkout's Claude agent launches as `sous-chef` with `/sous-chef` as its first prompt, so it opens on the board. A resumed conversation gets the prompt too
+- The rail and the agent pane's frame show the main space as `sous-chef`. The CLI and MCP tools still take the key `main`
+- The pappardelle MCP server tells a session in the repo but outside any space to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
+- It tells agents inside a space they can reach the coordinator with SendMessage to `sous-chef`
+- The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
+- Put your own instructions for the sous-chef in `SOUS-CHEF.md` at the main checkout's root, such as which spaces to prioritize, what it may approve without asking, or how to report. `/sous-chef` reads it first and follows it over its own routine, and the MCP instructions point the sous-chef at it so it still applies after the conversation is compacted. Commit it to share it, or leave it untracked to keep it to yourself
+- A main checkout running Codex or another non-Claude agent gets the instructions and the rail label, but no rename or `/sous-chef` prompt
+
 ## Issue Status Colors
 
 The ticket rail paints an issue key with the exact color the tracker reports for that issue's status. The top-level `state_colors` map replaces that color for the statuses it lists. This matters most on Jira, where one color often covers several statuses ("In Progress" and "In Review" are the usual pair) and the rail cannot tell them apart.
@@ -1264,26 +1305,46 @@ companion_command?: string; // top-level and per-profile
 - **Honored on every launch path** — the Pappardelle TUI, `idow`/`start-agent-session.sh`, and the terminal launchers all resolve the same value, so a session launched from any of them runs the same companion command.
 - **Default change (STA-1464):** the default companion tool changed from `lazygit` to `gitui`. Restore the old behavior with `companion_command: lazygit`.
 
-### Recipe: split the pane into two tools
+### Companion splits
 
-`companion_command` is just a shell command, so you can compose several tools in one pane by having the command split itself with `tmux split-window` before launching its main process. This recipe runs **gitui on top (focused) and a plain shell on the bottom**, 70/30 — gitui gets the larger share:
+`companion_splits` starts panes beside the companion command when a space first shows in the TUI. Each split runs in a tmux session of its own, which the TUI shows in a framed pane of its own in the companion column, with the same rounded, titled border as the rail, agent and companion panes:
 
 ```yaml
-companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GIT_OPTIONAL_LOCKS=0 gitui'
+companion_splits:
+  - name: tests
+    command: bun test --watch
+    split: down # below the companion; right puts it beside. Default: down
+    size: 30% # cells, or a share of the companion column, along the split
+
+profiles:
+  backend:
+    display_name: Backend
+    keywords: [backend, api]
+    # A profile's list replaces the top-level one.
+    companion_splits:
+      - name: api
+        command: make run
+        split: right
+        size: 60
 ```
 
-The `split-window` flags:
+```typescript
+companion_splits?: Array<{
+	name: string; // lowercase letters, digits and dashes; not "main"
+	command: string; // "" = plain shell
+	split?: 'right' | 'down'; // default: down
+	size?: number | string; // cells (30) or a share of the companion column ("30%"), frame included
+}>; // top-level and per-profile
+```
 
-- `-v` — stack the new pane **below** (a horizontal divider).
-- `-d` — keep focus on the original (top) pane, so gitui stays focused once it launches.
-- `-l 30%` — size the new bottom pane to 30% of the height, leaving the top gitui pane the other 70%.
-- `-c "#{pane_current_path}"` — open the bottom shell in the same worktree dir as the companion pane.
+**How it works:**
 
-After the split returns, `gitui` launches in the top pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the built-in default — custom commands don't get it for free, and gitui's read-only git calls would otherwise contend with Claude's concurrent git. The bottom shell needs no such guard.
+- **Started once per space.** The TUI starts the splits the first time it shows a space, and marks the space's companion session so they aren't started again. A split you close stays closed.
+- **Arranged in the order they're listed.** Each split comes off the companion's main pane, the same as `pappardelle companion run --pane NAME --split right|down`.
+- **Sizes follow drags.** Dragging the border of a split keeps its new size for that space. `pappardelle companion resize NAME --size N|N%` sets it too.
+- **TUI only.** The terminal launchers (`open-*-agent.sh`) attach the companion's main session only, so splits show only in the TUI. A space opened with `idow` and never shown in the TUI has none yet. `pappardelle companion list`, `read` and `keys` reach splits from anywhere.
 
-**Why it's safe:** the companion runs in its own tmux session whose sole pane executes this command (see `ensureCompanionSession` in `source/tmux.ts`), so `tmux split-window` only carves _that_ pane in two — it never touches the Claude pane, which lives in a separate session.
-
-**Caveat — only new workspaces re-split:** a companion session is created once and reused (`ensureCompanionSession` early-returns when the session already exists), so editing `companion_command` won't re-split a workspace whose companion session is already running. The split shows up on **newly-created** workspaces; to apply it to an existing one, remove and recreate the workspace (or kill its companion session so it gets rebuilt).
+Run splits through `companion_splits` rather than a `tmux split-window` inside `companion_command`: a split made inside the companion's session draws tmux's own divider inside the companion's frame.
 
 ## IDE Command
 

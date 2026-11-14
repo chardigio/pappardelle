@@ -387,15 +387,19 @@ profiles:
 
 **Resolution order** (first defined wins): the matched profile's `companion_command` → the top-level `companion_command` → the built-in default `GIT_OPTIONAL_LOCKS=0 gitui`. An explicit empty string (`""`) means "leave a plain shell" and stops the fallthrough; an absent key falls through to the next level. The command runs verbatim — any tool works (a different git UI, a dev server, a log tailer).
 
-**Compose multiple tools** by having the command split its own pane first. E.g. gitui on top (focused) + a plain shell on the bottom, 70/30 (gitui bigger):
+**Run more than one tool** with `companion_splits`, which starts panes beside the companion, each framed like the other panes. E.g. gitui in the companion with a plain shell below it taking 30%:
 
 ```yaml
-companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GIT_OPTIONAL_LOCKS=0 gitui'
+companion_splits:
+  - name: shell
+    command: ''
+    split: down
+    size: 30%
 ```
 
-`-v` stacks the new pane below, `-d` keeps focus on the top (gitui) pane, `-l 30%` sizes the bottom shell (gitui keeps the other 70%), `-c "#{pane_current_path}"` opens it in the worktree dir. The split runs inside the companion's own tmux session, so it never touches the Claude pane. Carry `GIT_OPTIONAL_LOCKS=0` over from the default — custom commands don't get it for free. Only newly-created workspaces pick up a changed `companion_command` (existing companion sessions persist).
+`split` is `right` or `down` (default `down`), `size` is cells or a share of the companion column, and names are lowercase letters, digits and dashes. A profile's `companion_splits` replaces the top-level list. The TUI starts them the first time it shows a space, and one the user closes stays closed. Don't use `tmux split-window` in `companion_command` for this: a split inside the companion's session draws tmux's plain divider inside the companion's frame.
 
-**When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), a split pane (recipe above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
+**When _not_ to prompt:** don't raise this unless the user asks. gitui is a sensible default; most setups never touch it. Reach for it only when the user explicitly wants a different git UI, the old `lazygit` back (`companion_command: lazygit`), splits beside the companion (`companion_splits` above), or a non-git process (server/log) in that pane — and offer the per-profile override when their need is project-specific rather than global.
 
 ## Configuring Pane Widths
 
@@ -445,6 +449,12 @@ Available in all command templates, link URLs, and app paths:
 | `${VCS_PROVIDER}`     | VCS host                     | `github` or `gitlab`       |
 
 Profile `vars` keys also become template variables (e.g., `vars: { APP_DIR: "src" }` → `${APP_DIR}`).
+
+## Configuring Workspace-Aware Agents and Sous-Chef Mode
+
+`workspace_aware_agents: true` (top level, off by default) gives agents in the repo the pappardelle MCP tools and instructions, and the companion rules at launch. Off, the MCP server serves nothing there. Running agents keep what they started with.
+
+`sous_chef: true` (top level, off by default, needs `workspace_aware_agents: true`) runs the main checkout's agent as the sous-chef: it launches as `sous-chef` with `/sous-chef` as its first prompt, the rail and the agent pane's frame show the main space as `sous-chef`, and its instructions say it coordinates the repo's spaces. It applies when the TUI next starts the main checkout's agent session, so a running one needs ending first. The user's own instructions for the sous-chef go in `SOUS-CHEF.md` at the main checkout's root, not in the config. Set it only when the user asks for sous-chef mode or a main session that watches the other spaces.
 
 ## Important Rules
 

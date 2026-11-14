@@ -1,0 +1,45 @@
+
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.321
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mSonnet 5.5 · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/q-a/qa-prompts-repo · [0m[92m]8;id=qjy2cg;https://claude.ai/code/session_x?from=cli\/rc[39m]8;;\            
+
+
+[37m[100m❯ [97mUse the AskUserQuestion tool once with a single multiSelect question: which pizza toppings I want, options Cheese, [39m   
+  [97mOlives, Peppers, Onions.[39m                                                                                              
+[37m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+← [30m[104m ☒ Toppings [39m[49m ✔ Submit  →
+
+[1m[97mWhich pizza toppings do you want?
+
+[0m[94m❯[39m [2m[37m1.[0m [92m[✔][39m [94mCheese
+[39m         [37mCheese topping
+[39m  [2m[37m2.[0m [ ] Olives
+         [37mOlives topping
+[39m  [2m[37m3.[0m [92m[✔][39m Peppers
+         [37mPeppers topping
+[39m  [2m[37m4.[0m [ ] Onions
+         [37mOnions topping
+[39m  [2m[37m5. [0m[ ] [37mType something
+[39m     [1mSubmit
+[0m[37m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  6. Chat about this
+
+[2m[37mEnter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+[0m                                                                                                                        
+
+
+
+                                                                                                                      
+                               

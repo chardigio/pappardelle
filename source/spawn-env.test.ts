@@ -35,15 +35,19 @@ test.serial('buildSpawnEnv omits the main repo root when there is none', t => {
 	}
 });
 
-test('buildSessionEnvArgs names the space for an issue space', t => {
-	t.deepEqual(buildSessionEnvArgs('STA-42'), [
+test('buildSessionEnvArgs names the space and its repo for an issue space', t => {
+	t.deepEqual(buildSessionEnvArgs('STA-42', 'repo'), [
+		'-e',
+		'PAPPARDELLE_REPO=repo',
 		'-e',
 		'PAPPARDELLE_SPACE=STA-42',
 	]);
 });
 
 test('buildSessionEnvArgs adds the main repo root when given one', t => {
-	t.deepEqual(buildSessionEnvArgs('STA-42', '/tmp/fake-main'), [
+	t.deepEqual(buildSessionEnvArgs('STA-42', 'repo', '/tmp/fake-main'), [
+		'-e',
+		'PAPPARDELLE_REPO=repo',
 		'-e',
 		'PAPPARDELLE_SPACE=STA-42',
 		'-e',
@@ -54,9 +58,17 @@ test('buildSessionEnvArgs adds the main repo root when given one', t => {
 test('buildSessionEnvArgs does not name the main space', t => {
 	// The main checkout can change branch while its session lives on, so a
 	// fixed space name would go stale. The hook's cwd logic follows the branch.
-	t.deepEqual(buildSessionEnvArgs(MAIN_WORKTREE_KEY, '/tmp/fake-main'), [
+	t.deepEqual(
+		buildSessionEnvArgs(MAIN_WORKTREE_KEY, 'repo', '/tmp/fake-main'),
+		[
+			'-e',
+			'PAPPARDELLE_REPO=repo',
+			'-e',
+			'PAPPARDELLE_MAIN_REPO_ROOT=/tmp/fake-main',
+		],
+	);
+	t.deepEqual(buildSessionEnvArgs(MAIN_WORKTREE_KEY, 'repo'), [
 		'-e',
-		'PAPPARDELLE_MAIN_REPO_ROOT=/tmp/fake-main',
+		'PAPPARDELLE_REPO=repo',
 	]);
-	t.deepEqual(buildSessionEnvArgs(MAIN_WORKTREE_KEY), []);
 });
