@@ -1,5 +1,5 @@
 import test from 'ava';
-import {OscScanner} from './pane-frame-osc.ts';
+import {OscScanner, type OutputPiece} from './pane-frame-osc.ts';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -42,7 +42,8 @@ test('other sequences and plain escapes are ignored', t => {
 			'\u001B[1;31mred\u001B[0m\u001B]8;;https://x\u001B\\link\u001B]1;icon\u0007',
 		),
 	);
-	t.deepEqual(events, {passthrough: [], sizeQueries: []});
+	t.deepEqual(events.passthrough, []);
+	t.deepEqual(events.sizeQueries, []);
 });
 
 test('an unterminated title abandoned by a new escape is dropped', t => {
@@ -81,4 +82,65 @@ test('the keypad mode passes through, even split across reads', t => {
 	const scanner = new OscScanner();
 	t.deepEqual(scanner.feed(bytes('a\u001B=b\u001B')).passthrough, ['\u001B=']);
 	t.deepEqual(scanner.feed(bytes('>c')).passthrough, ['\u001B>']);
+});
+
+const decoder = new TextDecoder();
+// The output as text, with each graphics command shown as <keys>.
+const shown = (output: OutputPiece[]) =>
+	output
+		.map(piece =>
+			'screen' in piece
+				? decoder.decode(piece.screen)
+				: `<${piece.graphics.slice(3).split(';')[0]!.replace('\u001B\\', '')}>`,
+		)
+		.join('');
+
+test('a Kitty graphics command is taken out of the screen, in its place', t => {
+	const scanner = new OscScanner();
+	const command = '\u001B_Ga=T,U=1,i=7,f=24,t=t;L3RtcA==\u001B\\';
+	const events = scanner.feed(bytes(`a${command}b`));
+	t.deepEqual(events.output, [
+		{screen: bytes('a')},
+		{graphics: command},
+		{screen: bytes('b')},
+	]);
+	t.deepEqual(events.passthrough, []);
+});
+
+test('a Kitty graphics command split across reads comes out whole', t => {
+	const scanner = new OscScanner();
+	const reads = ['x\u001B', '_', 'Ga=d,d=I,i=7', ',q=2\u001B', '\\y'].map(
+		read => scanner.feed(bytes(read)),
+	);
+	t.is(
+		reads.map(events => shown(events.output)).join(''),
+		'x<a=d,d=I,i=7,q=2>y',
+	);
+	t.deepEqual(
+		reads.flatMap(events =>
+			events.output.flatMap(piece =>
+				'graphics' in piece ? [piece.graphics] : [],
+			),
+		),
+		['\u001B_Ga=d,d=I,i=7,q=2\u001B\\'],
+	);
+});
+
+test('an escape held at the end of a read reaches the screen with the next', t => {
+	const scanner = new OscScanner();
+	t.is(shown(scanner.feed(bytes('a\u001B')).output), 'a');
+	t.is(shown(scanner.feed(bytes('[1mb')).output), '\u001B[1mb');
+});
+
+test('other APC strings stay on the screen', t => {
+	const scanner = new OscScanner();
+	const events = scanner.feed(bytes('\u001B_ladybird;reload\u001B\\'));
+	t.deepEqual(events.passthrough, []);
+	t.is(shown(events.output), '\u001B_ladybird;reload\u001B\\');
+});
+
+test('Unicode placeholder cells reach the screen untouched', t => {
+	const scanner = new OscScanner();
+	const cells = '\u001B[38;2;0;1;77m\u{10EEEE}\u0305\u0305\u{10EEEE}\u001B[39m';
+	t.is(shown(scanner.feed(bytes(cells)).output), cells);
 });

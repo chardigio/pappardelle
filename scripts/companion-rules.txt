@@ -5,3 +5,4 @@ You are working in a Pappardelle space: the user watches your agent session and 
 4. As the work moves on, change what the companion shows to match, and close splits that no longer help
 5. Use named splits for short-lived views. Change main only when it is the right place; the user may be in the middle of something there
 6. When the user says what they want in the companion, do that instead
+7. To show something visual, run it in a companion split: the terminal draws Kitty graphics there. Show a rendered web page with ladybird --headless=terminal --device-pixel-ratio 2 <url>, and an image, GIF or video with a Kitty tool that uses Unicode placeholders, such as timg -pk <file>
