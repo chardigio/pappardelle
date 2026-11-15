@@ -235,3 +235,9 @@ test('a --force inside the message stays text', t => {
 		force: false,
 	});
 });
+
+test('agents accepts --json and rejects other flags', t => {
+	t.deepEqual(subcommandGate(['agents', '--json']), {action: 'run'});
+	t.is(subcommandGate(['agents', '--bogus']).action, 'reject');
+	t.is(subcommandGate(['agents', '--help']).action, 'help');
+});

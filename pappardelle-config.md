@@ -1076,6 +1076,39 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Partner agents
+
+The top-level `agents:` map adds partner agents: permanent rows under the main agent (the sous-chef) in the top section of the rail. A partner has no issue and no worktree. It is for an agent that coordinates rather than codes, such as a review queue or a chat bot.
+
+```yaml
+agents:
+  reviewer:
+    emoji: '🔍'
+    agent_profile: codex # default: the top-level agent_profile
+    initialization_command: review-queue # first launch only
+  trotbot:
+    emoji: '🐴'
+    attach: {socket: trotbot, session: trotbot}
+```
+
+```typescript
+agents?: Record<string, {
+	emoji?: string;
+	agent_profile?: string;
+	initialization_command?: string;
+	attach?: {socket: string; session: string};
+}>;
+```
+
+- The key is the row name. It must be lowercase letters, digits, `-` or `_`, start with a letter, and not be `main`, so it can never collide with an issue key
+- Rows show in config order. Absent `agents:` keeps the rail identical to before
+- A **launched** partner (no `attach`) starts when you first select its row, in the main repo root. Its first launch is fresh, never claude's `--continue`, because `--continue` in the main repo root would resume the sous-chef's conversation. Later launches resume its own recorded session
+- An **attach** partner shows a session that runs on its own tmux server: `socket` is a `-L` name, or a path for `-S`. Pappardelle never starts or kills it. When the session is down, the pane says so and attaches again within 5 seconds of its return. `agent_profile` and `initialization_command` are rejected on an attach partner, since nothing is launched
+- The status hook files a partner's status under `<repo>-agent-<name>`. Pappardelle sets `PAPPARDELLE_SPACE` to that value for a launched partner. An attached process must export it itself, or its dot stays `?` (and, in the main repo root, lands on the main row)
+- `x` refuses to close a partner, and `o` and `i` do nothing. Remove it from `agents:` to remove the row; the startup reaper then ends its sessions
+- `emoji` falls back to the top-level `default_emoji`
+- `pappardelle agents --json` lists the partners with their kind, status and tmux session, and the sous-chef's `gather-spaces.sh` includes them as `agents`. `pappardelle send <name>` reaches a launched partner
+
 ## Sous-chef key
 
 The top-level `sous_chef_key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s). When the rail has focus, plain `s` does the same; it is an overridable default like `g`, so a custom `s` keybinding replaces it.

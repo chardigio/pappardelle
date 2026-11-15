@@ -42,6 +42,7 @@ import {
 	getProfileTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
+	type PappardelleConfig,
 } from './config.ts';
 import {
 	captureStderr,
@@ -56,6 +57,12 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
+import {
+	describePartnerAgents,
+	findPartnerAgent,
+	keptSessionKeys,
+} from './partner-agents.ts';
+import {getClaudeStatusInfo} from './claude-status.ts';
 import {
 	getRegisteredSpaces,
 	getRegisteredSpacesAsync,
@@ -136,6 +143,8 @@ function resolveCliSpaceKey(rawKey: string): string {
 		config = null;
 	}
 
+	// A partner agent's name is its session key as typed.
+	if (findPartnerAgent(config, rawKey)) return rawKey;
 	return resolveSpaceKey(
 		rawKey,
 		config ? getTeamPrefix(config) : 'STA',
@@ -287,6 +296,35 @@ function checkConfig(): void {
 			process.exit(1);
 		}
 	}
+}
+
+if (cli.input[0] === 'agents') {
+	try {
+		const config = loadConfig();
+		const described = describePartnerAgents(config, getRepoName(), {
+			innerSocket: INNER_SOCKET,
+			agentSessionName: name => getSessionNames(name).agent,
+			readStatus: key => getClaudeStatusInfo(key).status,
+			sessionExists: (socket, session) =>
+				spawnSync(
+					'tmux',
+					[
+						socket.startsWith('/') ? '-S' : '-L',
+						socket,
+						'has-session',
+						'-t',
+						`=${session}`,
+					],
+					{stdio: 'ignore'},
+				).status === 0,
+		});
+		console.log(JSON.stringify({agents: described}, null, 2));
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(1);
+	}
+
+	process.exit(0);
 }
 
 if (cli.input[0] === 'link-pr') {
@@ -643,8 +681,14 @@ function maintainSessions() {
 	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const reapingDone = startupTrace.current?.begin('inner-reaping');
+	let reaperConfig: PappardelleConfig | null = null;
+	try {
+		reaperConfig = loadConfig();
+	} catch {
+		// A broken config keeps only the registered spaces, as before.
+	}
 	const innerReaped = cleanupOrphanedInnerSessions(
-		new Set(getRegisteredSpaces()),
+		keptSessionKeys(getRegisteredSpaces(), reaperConfig),
 		undefined,
 		innerTmux,
 	);

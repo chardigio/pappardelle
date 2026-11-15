@@ -33,6 +33,8 @@ export interface SpaceData {
 	programStatus?: ProgramStatusInfo;
 	worktreePath: string | null;
 	isMainWorktree?: boolean; // True for the main (master/main) worktree — cannot be deleted
+	/** A partner agent from `agents:` in the config: a permanent row beside main, with no issue or worktree of its own. */
+	isPartnerAgent?: boolean;
 	isDirty?: boolean; // True if worktree has uncommitted changes (used for main worktree color)
 	isPending?: boolean; // True for placeholder rows shown while a new session is starting
 	pendingTitle?: string; // Title text for pending rows (e.g., "Opening..." or "Starting new session...")

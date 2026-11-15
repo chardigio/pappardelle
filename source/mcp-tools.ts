@@ -238,6 +238,14 @@ export const MCP_TOOLS: readonly McpTool[] = [
 		toCli: () => ({args: ['spaces', '--json']}),
 	}),
 	defineTool({
+		name: 'agents_list',
+		description:
+			'List the partner agents (agents: in the config): permanent rows beside the sous-chef with no issue or worktree, so not spaces. Each has its kind (launched by Pappardelle, or attached to a session on its own tmux server), status, whether its session is running, and the tmux socket and session it runs in',
+		readOnly: true,
+		inputSchema: {},
+		toCli: () => ({args: ['agents', '--json']}),
+	}),
+	defineTool({
 		name: 'space_read',
 		description:
 			"Read the last turns of a space's conversation. A turn is a user prompt and the assistant text that answered it",

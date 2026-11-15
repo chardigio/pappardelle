@@ -45,6 +45,20 @@ team_prefix: ENG
 # claude.model / claude.effort are deprecated: set model/effort on an agent
 # profile below instead.
 
+# Partner agents (optional): permanent rows under the main agent in the top of
+# the rail, with no issue and no worktree. A launched partner runs in the main
+# repo root; an attach partner shows a session on its own tmux server, which
+# Pappardelle never starts or kills. See "Partner agents" in
+# pappardelle-config.md.
+# agents:
+#   reviewer:
+#     emoji: "🔍"
+#     agent_profile: codex                  # Default: the top-level agent_profile
+#     initialization_command: review-queue  # First launch only
+#   chatbot:
+#     emoji: "🤖"
+#     attach: {socket: chatbot, session: chatbot}
+
 # Agent profiles for the agent pane (optional). The built-in `claude` agent
 # profile is the default; define others here and reference them by name via
 # `agent_profile:`

@@ -31,6 +31,7 @@ If you don't have the tools, either the repo's config doesn't set `workspace_awa
 | ---------------------------- | ------------------------------------------------------------------------ |
 | `companion_*`                | `pappardelle companion run\|keys\|read\|resize\|close\|list\|width`      |
 | `spaces_list`                | `pappardelle spaces [--json]`                                            |
+| `agents_list`                | `pappardelle agents --json` (partner agents, which are not spaces)       |
 | `space_read`                 | `pappardelle read KEY [--turns N] [--json]`                              |
 | `space_highlight`            | `pappardelle highlight KEY [--focus]`                                    |
 | `space_send`                 | `pappardelle send KEY`, with the text on stdin                           |

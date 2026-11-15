@@ -122,6 +122,10 @@ test('spaces_list and space_read ask for JSON', t => {
 	});
 });
 
+test('agents_list asks the CLI for the partner agents as JSON', t => {
+	t.like(cli('agents_list', {}), {positional: ['agents'], flags: {json: true}});
+});
+
 test('space_highlight passes focus on only when asked', t => {
 	t.like(cli('space_highlight', {key: 'STA-1', focus: true}), {
 		positional: ['highlight', 'STA-1'],
@@ -210,6 +214,7 @@ test('link_pr runs from the source repository and passes the workspace on', t =>
 // a check it can't override: space_answer's approval policy, and send's
 // refusal to type into a prompt.
 const ASKS_FIRST = new Set([
+	'agents_list',
 	'spaces_list',
 	'space_read',
 	'space_highlight',

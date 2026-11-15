@@ -6401,3 +6401,44 @@ test('getSousChefKey returns the configured key, and null when turned off', t =>
 	t.is(getSousChefKey({...base, sous_chef_key: 'M-j'}), 'M-j');
 	t.is(getSousChefKey({...base, sous_chef_key: false}), null);
 });
+
+// ============================================================================
+// agents (partner agents)
+// ============================================================================
+
+const withAgents = (agents: unknown, extra: Record<string, unknown> = {}) => ({
+	version: 1,
+	profiles: {test: {display_name: 'Test'}},
+	agents,
+	...extra,
+});
+
+test('validateConfig accepts partner agents, both launched and attached', t => {
+	t.notThrows(() =>
+		validateConfig(
+			withAgents(
+				{
+					trotbot: {
+						emoji: '🐴',
+						attach: {socket: 'trotbot', session: 'trotbot'},
+					},
+					reviewer: {agent_profile: 'codex', initialization_command: 'review'},
+				},
+				{agent_profiles: {codex: {command: 'codex'}}},
+			),
+		),
+	);
+});
+
+test('validateConfig rejects a partner agent named main or with an unknown agent profile', t => {
+	const error = t.throws(
+		() => validateConfig(withAgents({main: {}, x: {agent_profile: 'nope'}})),
+		{instanceOf: ConfigValidationError},
+	);
+	t.true(error?.message.includes('agents.main:'));
+	t.true(
+		error?.message.includes(
+			'agents.x.agent_profile: agent profile "nope" not found in agent_profiles',
+		),
+	);
+});

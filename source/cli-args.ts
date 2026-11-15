@@ -12,6 +12,7 @@ const helpText = `
 	  $ pappardelle spaces [--json]
 	  $ pappardelle read <issue-key> [--turns N] [--json]
 	  $ pappardelle companion <command...>
+	  $ pappardelle agents [--json]
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
 	  $ pappardelle plugin install
@@ -55,6 +56,8 @@ const helpText = `
 	                   start this
 	  mcp install      Add that server to Codex, OpenCode, Antigravity and Pi.
 	                   install.sh runs this
+	  agents           List the partner agents (agents: in the config) as
+	                   JSON: kind, status, and the tmux session each runs in
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
@@ -152,6 +155,21 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 }
 
 const subcommands = {
+	agents: {
+		usage: 'pappardelle agents [--json]',
+		flags: ['--json'],
+		help: `
+	Usage
+	  $ pappardelle agents [--json]
+
+	Prints the partner agents from agents: in the config as JSON, in rail
+	order. Each entry has its kind (launched by Pappardelle, or attached to
+	a session that runs on its own tmux server), its status, and the tmux
+	socket and session where the agent runs. Use it to tell partner agents
+	from workspaces. The output is always JSON; --json is accepted for
+	clarity.
+`,
+	},
 	close: {
 		usage: 'pappardelle close <issue-key> [--yes]',
 		// --teardown-only is internal: a self-close hands the session kill to a
