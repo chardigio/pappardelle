@@ -214,6 +214,10 @@ profiles:
       - name: 'Setup QA simulator'
         run: '${SCRIPT_DIR}/setup-qa-simulator.sh --worktree ${WORKTREE_PATH} --issue-key ${ISSUE_KEY} --ios-app-dir ${IOS_APP_DIR} --bundle-id ${BUNDLE_ID}'
         background: true # Run in background, don't wait
+        # Optional: add `--pre-boot-hook <cmd>` to change the clone before its first
+        # boot. The script runs `<cmd> --udid <udid> --bundle-id <id>` after the clone;
+        # a failed hook is only a warning. For example, a hook can run simslim
+        # (github.com/MobAI-App/simslim) to turn off background daemons.
 
   king-bee:
     keywords:

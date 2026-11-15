@@ -3,6 +3,12 @@
 # setup-qa-simulator.sh - Clone and boot a QA simulator for an issue
 #
 # Usage: setup-qa-simulator.sh --worktree <path> --issue-key <STA-XXX> --ios-app-dir <dir> --bundle-id <id>
+#                              [--pre-boot-hook <cmd>]
+#
+# --pre-boot-hook runs `<cmd> --udid <udid> --bundle-id <id>` after the clone and
+# before the first boot. A repo uses it to change the simulator while it is
+# still shut down (for example, to slim it with simslim), because a change there
+# costs no extra boot. A failed hook is a warning: the QA run continues.
 #
 # Creates an isolated simulator clone (QA-STA-XXX) with the app built and installed.
 # Copies app data from the base simulator to preserve login state.
@@ -29,6 +35,7 @@ WORKTREE=""
 ISSUE_KEY=""
 IOS_APP_DIR=""
 BUNDLE_ID=""
+PRE_BOOT_HOOK=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -48,8 +55,12 @@ while [[ $# -gt 0 ]]; do
             BUNDLE_ID="$2"
             shift 2
             ;;
+        --pre-boot-hook)
+            PRE_BOOT_HOOK="$2"
+            shift 2
+            ;;
         --help|-h)
-            echo "Usage: setup-qa-simulator.sh --worktree <path> --issue-key <STA-XXX> --ios-app-dir <dir> --bundle-id <id>"
+            echo "Usage: setup-qa-simulator.sh --worktree <path> --issue-key <STA-XXX> --ios-app-dir <dir> --bundle-id <id> [--pre-boot-hook <cmd>]"
             echo ""
             echo "Clones and boots a QA simulator with the app installed."
             exit 0
@@ -144,6 +155,12 @@ else
     log "Cloning simulator: $BASE_SIMULATOR -> $SIM_NAME"
     SIM_UDID=$(xcrun simctl clone "$BASE_SIM_UDID" "$SIM_NAME")
     log "Created simulator: $SIM_UDID"
+fi
+
+if [[ -n "$PRE_BOOT_HOOK" ]]; then
+    log "Running pre-boot hook: $PRE_BOOT_HOOK"
+    "$PRE_BOOT_HOOK" --udid "$SIM_UDID" --bundle-id "$BUNDLE_ID" >&2 \
+        || log "Warning: pre-boot hook failed; continuing"
 fi
 
 # Find xcodeproj (may be renamed with issue key)
