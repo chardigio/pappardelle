@@ -42,6 +42,7 @@ import {
 	getProfileTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
+	type PappardelleConfig,
 } from './config.ts';
 import {
 	captureStderr,
@@ -56,6 +57,7 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
+import {findPartnerAgent, keptSessionKeys} from './partner-agents.ts';
 import {
 	getRegisteredSpaces,
 	getRegisteredSpacesAsync,
@@ -136,6 +138,8 @@ function resolveCliSpaceKey(rawKey: string): string {
 		config = null;
 	}
 
+	// A partner agent's name is its session key as typed.
+	if (findPartnerAgent(config, rawKey)) return rawKey;
 	return resolveSpaceKey(
 		rawKey,
 		config ? getTeamPrefix(config) : 'STA',
@@ -643,8 +647,14 @@ function maintainSessions() {
 	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const reapingDone = startupTrace.current?.begin('inner-reaping');
+	let reaperConfig: PappardelleConfig | null = null;
+	try {
+		reaperConfig = loadConfig();
+	} catch {
+		// A broken config keeps only the registered spaces, as before.
+	}
 	const innerReaped = cleanupOrphanedInnerSessions(
-		new Set(getRegisteredSpaces()),
+		keptSessionKeys(getRegisteredSpaces(), reaperConfig),
 		undefined,
 		innerTmux,
 	);

@@ -33,6 +33,7 @@ Options:
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions
 - **Configure agent profiles** — run codex or another CLI in the agent pane, or set model and effort
+- **Add partner agents** — permanent rows beside the sous-chef (`agents:`)
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
@@ -371,6 +372,15 @@ Rules to apply when editing:
 - `args` is where skip-permissions equivalents for non-claude agents go (codex: `--yolo`) — `claude.dangerously_skip_permissions` only applies to claude
 - Claude-only behavior (`--name`, the `--model`/`--effort` templates, `~/.claude.json` pre-trust, `--resume {session_id}` default) is gated on the command's basename being `claude` or an explicit `is_claude: true`
 - Warn the user that non-claude agents show an `unknown` status icon in the rail — status hooks are Claude Code-only
+
+## Configuring Partner Agents
+
+`agents:` is a top-level map of permanent rows under the sous-chef. Each key is the row name (lowercase, starts with a letter, not `main`). Ask which kind:
+
+- **Launched**: `agent_profile` (optional, falls back to the top-level `agent_profile`) and `initialization_command` (optional, first launch only). It runs in the main repo root on first select.
+- **Attach**: `attach: {socket, session}` for a session that something else keeps running on its own tmux server. Tell the user that process must export `PAPPARDELLE_SPACE=<repo>-agent-<name>`, or its status dot stays `?`.
+
+Offer an `emoji` for each. Do not prompt about partner agents during unrelated edits, and never suggest one for a task that needs its own branch: that is a workspace.
 
 ## Configuring the Companion Pane Command
 

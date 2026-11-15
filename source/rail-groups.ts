@@ -64,12 +64,12 @@ export function railGroupsFromConfig(
 }
 
 /**
- * A space with no issue behind it. Today that is only the main worktree, where
- * the sous-chef runs. Agent spaces lead the rail above a divider, outside any
- * status group, and never take a title line.
+ * A space with no issue behind it: the main worktree, where the sous-chef
+ * runs, and the partner agents from `agents:`. Agent spaces lead the rail
+ * above a divider, outside any status group, and never take a title line.
  */
 export function isAgentSpace(space: SpaceData): boolean {
-	return space.isMainWorktree === true;
+	return space.isMainWorktree === true || space.isPartnerAgent === true;
 }
 
 export function statusCategoryOf(stateType: string): StatusCategory {

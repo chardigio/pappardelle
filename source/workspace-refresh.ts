@@ -34,6 +34,13 @@ class RefreshLoop {
 
 type MainWorktree = {path: string; branch: string};
 
+export type PartnerAgentRow = {
+	name: string;
+	statusKey: string;
+	worktreePath: string | null;
+	emoji?: string;
+};
+
 export interface WorkspaceRefreshDeps {
 	detailReady?: Promise<void>;
 	readRegistry: () => Promise<string[] | null>;
@@ -46,6 +53,8 @@ export interface WorkspaceRefreshDeps {
 	readDirty: (path: string) => Promise<boolean | null>;
 	/** Hook status key of a space key, or of the main checkout's branch. */
 	statusKey: (name: string) => string;
+	/** The configured partner agents, in rail order. Absent ⇒ none. */
+	readPartnerAgents?: () => PartnerAgentRow[];
 	getCachedIssue: (key: string) => TrackerIssue | null;
 	fetchIssues: (keys: string[]) => Promise<unknown>;
 	readEmoji: (
@@ -100,6 +109,7 @@ export class WorkspaceRefresh {
 	private readonly statusVersions = new Map<string, number>();
 	private readonly list: RefreshLoop;
 	private readonly main: RefreshLoop;
+	private readonly partners: RefreshLoop;
 	private readonly issues: RefreshLoop;
 
 	constructor(private readonly deps: WorkspaceRefreshDeps) {
@@ -119,6 +129,13 @@ export class WorkspaceRefresh {
 				this.report(err);
 			}
 		});
+		this.partners = new RefreshLoop(async () => {
+			try {
+				await this.refreshPartners();
+			} catch (err) {
+				this.report(err);
+			}
+		});
 		this.issues = new RefreshLoop(async () => {
 			try {
 				await this.refreshIssues();
@@ -131,6 +148,7 @@ export class WorkspaceRefresh {
 	async refresh(): Promise<void> {
 		if (this.stopped) return;
 		void this.main.request();
+		void this.partners.request();
 		await this.refreshListOnly();
 	}
 
@@ -155,7 +173,11 @@ export class WorkspaceRefresh {
 
 	async idle(): Promise<void> {
 		await this.list.idle();
-		await Promise.all([this.main.idle(), this.issues.idle()]);
+		await Promise.all([
+			this.main.idle(),
+			this.partners.idle(),
+			this.issues.idle(),
+		]);
 	}
 
 	private report(err: unknown): void {
@@ -172,14 +194,19 @@ export class WorkspaceRefresh {
 		const generation = this.listGeneration;
 		const names = await this.deps.readRegistry();
 		if (this.stopped || generation !== this.listGeneration || !names) return;
+		const partnerNames = new Set(
+			(this.deps.readPartnerAgents?.() ?? []).map(agent => agent.name),
+		);
 		this.names = [...new Set(names)]
-			.filter(name => name !== MAIN_WORKTREE_KEY)
+			.filter(name => name !== MAIN_WORKTREE_KEY && !partnerNames.has(name))
 			.sort(compareSpaceNames);
 		const orderedNames = this.names;
 		this.publish(previous => {
 			if (generation !== this.listGeneration) return previous;
 			const byName = new Map(previous.map(space => [space.name, space]));
-			const next = previous.filter(space => space.isMainWorktree);
+			const next = previous.filter(
+				space => space.isMainWorktree || space.isPartnerAgent,
+			);
 			for (const name of orderedNames) {
 				const existing = byName.get(name);
 				next.push(
@@ -231,7 +258,13 @@ export class WorkspaceRefresh {
 				previous,
 				previous.map(space => {
 					const detail = byName.get(space.name);
-					if (!detail || space.isPending || space.isMainWorktree) return space;
+					if (
+						!detail ||
+						space.isPending ||
+						space.isMainWorktree ||
+						space.isPartnerAgent
+					)
+						return space;
 					// An agent restarted since the space was listed moves from the
 					// bare status file to the qualified one.
 					const patch: Partial<SpaceData> = {statusKey: detail.statusKey};
@@ -283,7 +316,13 @@ export class WorkspaceRefresh {
 				previous,
 				previous.map(space => {
 					const result = byName.get(space.name);
-					if (!result || space.isPending || space.isMainWorktree) return space;
+					if (
+						!result ||
+						space.isPending ||
+						space.isMainWorktree ||
+						space.isPartnerAgent
+					)
+						return space;
 					const patch: Partial<SpaceData> = {};
 					if (result.issue) {
 						const current = space.trackerIssue ?? space.linearIssue;
@@ -298,6 +337,65 @@ export class WorkspaceRefresh {
 					return patchSpace(space, patch);
 				}),
 			),
+		);
+	}
+
+	/**
+	 * Partner rows sit right under main, in config order. They come from the
+	 * config, not the registry, so a refresh of the list never drops them.
+	 */
+	private async refreshPartners(): Promise<void> {
+		if (this.stopped) return;
+		const agents = this.deps.readPartnerAgents?.() ?? [];
+		this.publish(previous => {
+			const byName = new Map(
+				previous
+					.filter(space => space.isPartnerAgent)
+					.map(space => [space.name, space]),
+			);
+			const partners = agents.map(agent =>
+				patchSpace(
+					byName.get(agent.name) ?? {
+						name: agent.name,
+						worktreePath: agent.worktreePath,
+						isPartnerAgent: true,
+						programStatus: {status: 'unknown'},
+					},
+					{
+						worktreePath: agent.worktreePath,
+						statusKey: agent.statusKey,
+						profileEmoji: agent.emoji,
+					},
+				),
+			);
+			return reuseArray(previous, [
+				...previous.filter(space => space.isMainWorktree),
+				...partners,
+				...previous.filter(
+					space => !space.isMainWorktree && !space.isPartnerAgent,
+				),
+			]);
+		});
+		await Promise.allSettled(
+			agents.map(async agent => {
+				const version = this.statusVersions.get(agent.statusKey) ?? 0;
+				const status = await this.deps.readStatus(agent.statusKey, agent.name);
+				if (
+					!status ||
+					version !== (this.statusVersions.get(agent.statusKey) ?? 0)
+				)
+					return;
+				this.publish(previous =>
+					reuseArray(
+						previous,
+						previous.map(space =>
+							space.isPartnerAgent && space.name === agent.name
+								? patchSpace(space, {programStatus: status})
+								: space,
+						),
+					),
+				);
+			}),
 		);
 	}
 

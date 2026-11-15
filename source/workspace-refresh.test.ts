@@ -359,3 +359,58 @@ test('spaces list newest number first, and beads hash keys keep one order whatev
 	const keys = ['fl-ec0', 'fl-1a2', 'fl-zz9', 'fl-x3'];
 	t.deepEqual(await order(keys), await order([...keys].reverse()));
 });
+
+test('no partner agents leaves the rail as main plus workspaces', async t => {
+	const h = setup();
+	await h.settle();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'STA-2', 'STA-1'],
+	);
+	t.false(h.spaces.some(space => space.isPartnerAgent));
+});
+
+test('partner agents sit under main in config order and survive list refreshes', async t => {
+	const statuses: Array<[string, string | undefined]> = [];
+	const h = setup({
+		readRegistry: async () => ['STA-1', 'trotbot'],
+		readPartnerAgents: () => [
+			{
+				name: 'trotbot',
+				statusKey: 'repo-agent-trotbot',
+				worktreePath: '/repo',
+				emoji: '🐴',
+			},
+			{name: 'starbot', statusKey: 'repo-agent-starbot', worktreePath: '/repo'},
+		],
+		async readStatus(key, sessionKey) {
+			statuses.push([key, sessionKey]);
+			return key === 'repo-agent-trotbot'
+				? {status: 'working'}
+				: {status: 'idle'};
+		},
+	});
+	await h.settle();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'trotbot', 'starbot', 'STA-1'],
+	);
+	const trotbot = h.spaces[1]!;
+	t.true(trotbot.isPartnerAgent);
+	t.is(trotbot.statusKey, 'repo-agent-trotbot');
+	t.is(trotbot.profileEmoji, '🐴');
+	t.is(trotbot.programStatus?.status, 'working');
+	t.true(
+		statuses.some(
+			([key, session]) => key === 'repo-agent-trotbot' && session === 'trotbot',
+		),
+	);
+	t.is(h.spaces[1]!.linearIssue, undefined);
+
+	h.deps.readRegistry = async () => ['STA-4', 'STA-1'];
+	await h.refresh.refreshListOnly();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'trotbot', 'starbot', 'STA-4', 'STA-1'],
+	);
+});

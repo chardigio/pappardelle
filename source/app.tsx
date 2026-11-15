@@ -222,6 +222,7 @@ import {
 	statusLineFits,
 } from './list-view-sizing.ts';
 import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
+import {partnerAgentRows} from './partner-agents.ts';
 import {
 	filterSpaces,
 	highlightedIndex,
@@ -725,6 +726,8 @@ export default function App({
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
 			statusKey: name => readableHookStatusKey(repoName, name),
+			readPartnerAgents: () =>
+				partnerAgentRows(configMemo, repoName, getMainRepoRoot()),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {
@@ -1149,6 +1152,7 @@ export default function App({
 						{
 							name: selectedSpaceName,
 							isMainWorktree: selectedSpace?.isMainWorktree,
+							isPartnerAgent: selectedSpace?.isPartnerAgent,
 							isPending: selectedSpace?.isPending,
 						},
 						registered,
@@ -1191,6 +1195,7 @@ export default function App({
 		selectedSpaceName,
 		selectedWorktreePath,
 		selectedSpace?.isMainWorktree,
+		selectedSpace?.isPartnerAgent,
 		selectedSpace?.isPending,
 		selectedIssueTitle,
 		mainLabel,
@@ -1286,9 +1291,16 @@ export default function App({
 	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
 		const space = selectedSpaceNow();
-		if (!space || space.isPending || space.isMainWorktree) {
+		if (
+			!space ||
+			space.isPending ||
+			space.isMainWorktree ||
+			space.isPartnerAgent
+		) {
 			if (space?.isMainWorktree)
 				setHeaderWithTimeout('No issue for main worktree', 2000);
+			else if (space?.isPartnerAgent)
+				setHeaderWithTimeout(`No issue for agent ${space.name}`, 2000);
 			return;
 		}
 
@@ -1776,6 +1788,11 @@ export default function App({
 			const space = selectedSpaceNow();
 			if (space?.isMainWorktree) {
 				setHeaderWithTimeout('Cannot close main worktree', 2000);
+			} else if (space?.isPartnerAgent) {
+				setHeaderWithTimeout(
+					`Cannot close agent ${space.name}; remove it from agents: in the config`,
+					3000,
+				);
 			} else if (space) {
 				showDialog(
 					{
@@ -2327,12 +2344,20 @@ export default function App({
 
 	const vcs = useMemo(() => createVcsHost(), []);
 	const hasRailTargets = spaces.some(
-		s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+		s =>
+			!s.isMainWorktree &&
+			!s.isPartnerAgent &&
+			!s.isPending &&
+			s.name.length > 0,
 	);
 	useRailStatusPolling(hasRailTargets && backgroundReady, async () => {
 		try {
 			const targets = spacesRef.current.filter(
-				s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+				s =>
+					!s.isMainWorktree &&
+					!s.isPartnerAgent &&
+					!s.isPending &&
+					s.name.length > 0,
 			);
 			log.debug(
 				`Rail status poll: ${targets.length} target(s) (${targets.map(t => t.name).join(', ')})`,
@@ -2414,6 +2439,11 @@ export default function App({
 		if (space.isPending) return;
 		if (space.isMainWorktree) {
 			setHeaderWithTimeout('Cannot open main worktree', 2000);
+			return;
+		}
+
+		if (space.isPartnerAgent) {
+			setHeaderWithTimeout(`Cannot open agent ${space.name}`, 2000);
 			return;
 		}
 
@@ -2613,9 +2643,8 @@ export default function App({
 			return {displaySpaces: result, pendingInsertIndex: insertIdx};
 		}
 
-		// Description route: insert right after main/master (position 1)
-		const mainIdx = spaces.findIndex(s => s.isMainWorktree);
-		const insertIdx = mainIdx + 1;
+		// Description route: insert right after main and the partner agents
+		const insertIdx = spaces.filter(s => isAgentSpace(s)).length;
 		const result = [...spaces];
 		result.splice(insertIdx, 0, pendingRow);
 		return {displaySpaces: result, pendingInsertIndex: insertIdx};

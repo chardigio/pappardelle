@@ -24,6 +24,7 @@ export function shouldShowLoadingTitle(space: SpaceData): boolean {
 		!space.pendingTitle &&
 		!space.linearIssue?.title &&
 		!space.isMainWorktree &&
+		!space.isPartnerAgent &&
 		space.name.length > 0
 	);
 }

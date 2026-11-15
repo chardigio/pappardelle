@@ -36,6 +36,10 @@ import {BUILTIN_AGENTS, type BuiltinAgentDefaults} from './builtin-agents.ts';
 import {dismissRecentErrors, logger} from './logger.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
 import {shellQuote} from './shell-quote.ts';
+import {
+	validatePartnerAgents,
+	type PartnerAgentConfig,
+} from './partner-agents.ts';
 
 // ============================================================================
 // Types
@@ -362,6 +366,13 @@ export interface PappardelleConfig {
 	agent_profiles?: Record<string, AgentProfileConfig>;
 	/** Default agent profile for all profiles — a name from `agent_profiles:` (or `claude`). */
 	agent_profile?: string;
+	/**
+	 * Partner agents: permanent rows under the main agent in the top section
+	 * of the rail, keyed by name. They have no issue and no worktree; each runs
+	 * in the main repo root, or shows an external tmux session (`attach`).
+	 * Absent ⇒ only the main row, identical to master. See partner-agents.ts.
+	 */
+	agents?: Record<string, PartnerAgentConfig>;
 	/**
 	 * Initial prompt sent to the agent on first launch (positional argument,
 	 * agent-agnostic). Replaces the deprecated `claude.initialization_command`,
@@ -1434,6 +1445,8 @@ export function validateConfig(
 			}
 		}
 	}
+
+	errors.push(...validatePartnerAgents(cfg['agents'], agentProfileNames));
 
 	// Check agent_profile (optional reference into the agent_profiles map;
 	// 'claude' is built in)

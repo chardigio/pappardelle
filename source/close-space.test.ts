@@ -112,6 +112,8 @@ test('a row the registry no longer lists is not attached', t => {
 
 test('registered, main, and pending rows attach, as does an unreadable registry', t => {
 	t.true(shouldAttach({name: 'STA-1'}, ['STA-1']));
+	// Partner agents are never in the registry.
+	t.true(shouldAttach({name: 'trotbot', isPartnerAgent: true}, ['STA-1']));
 	t.true(shouldAttach({name: 'main', isMainWorktree: true}, []));
 	t.true(shouldAttach({name: 'STA-3', isPending: true}, []));
 	t.true(shouldAttach({name: 'STA-1'}, null));

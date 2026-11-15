@@ -44,6 +44,18 @@ agent_profiles:
 # Commands to run after a git worktree is created.
 # Template variables: ${REPO_ROOT}, ${WORKTREE_PATH}, ${ISSUE_KEY},
 #                     ${ISSUE_NUMBER}, ${ISSUE_TITLE}
+
+# Partner agents sit under the sous-chef in the top of the rail. These are
+# chat bots that launchd runs on their own tmux sockets, so Pappardelle only
+# attaches to them. Each bot exports PAPPARDELLE_SPACE=<repo>-agent-<name>.
+agents:
+  trotbot:
+    emoji: '🐴'
+    attach: {socket: trotbot, session: trotbot}
+  starbot:
+    emoji: '⭐'
+    attach: {socket: starbot, session: starbot}
+
 post_workspace_init:
   - name: 'Copy .env'
     run: 'cp -n ${REPO_ROOT}/.env ${WORKTREE_PATH}/.env 2>/dev/null || true'

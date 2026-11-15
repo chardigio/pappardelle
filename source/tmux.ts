@@ -203,6 +203,10 @@ import {
 } from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
+	resolvePartnerSessionLaunch,
+	type PartnerSessionLaunch,
+} from './partner-agents.ts';
+import {
 	calculateIdealListHeightForCount,
 	calculateLayoutForSize,
 	MIN_COMPANION_WIDTH,
@@ -2474,18 +2478,31 @@ async function attachViewers(
 	let sessionId: string | undefined;
 	let launch: AgentLaunch = {rules: false};
 	let splitListing: string | undefined;
+	let partnerLaunch: PartnerSessionLaunch | undefined;
 	try {
 		const config = loadConfig();
 		launch = {
 			rules: workspaceAwareAgents(config),
 			...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
 		};
-		const profileName = savedSpaceProfile(issueKey);
 		skipPermissions = getDangerouslySkipPermissions(config);
-		companionCommand = getCompanionCommand(config, issueTitle, profileName);
-		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
-		agentProfile = getAgentProfile(config, issueTitle, profileName);
-		sessionId = readAgentSession(getRepoName(), issueKey, agentProfile.name);
+		partnerLaunch = resolvePartnerSessionLaunch(
+			config,
+			issueKey,
+			skipPermissions,
+		);
+		if (partnerLaunch) {
+			mainWorktreePath ??= partnerLaunch.worktreePath;
+			companionCommand = getCompanionCommand(config);
+			configuredSplits = getCompanionSplits(config);
+			agentProfile = partnerLaunch.agentProfile;
+		} else {
+			const profileName = savedSpaceProfile(issueKey);
+			companionCommand = getCompanionCommand(config, issueTitle, profileName);
+			configuredSplits = getCompanionSplits(config, issueTitle, profileName);
+			agentProfile = getAgentProfile(config, issueTitle, profileName);
+			sessionId = readAgentSession(getRepoName(), issueKey, agentProfile.name);
+		}
 	} catch {
 		// Config load failed — use safe defaults.
 	}
@@ -2502,6 +2519,7 @@ async function attachViewers(
 				agentProfile,
 				sessionId,
 				launch,
+				partnerLaunch,
 			),
 			companionViewerPaneId
 				? ensureCompanionSession(
@@ -3837,6 +3855,7 @@ export async function ensureAgentSession(
 	agentProfile: ResolvedAgentProfile = DEFAULT_RESOLVED_AGENT_PROFILE,
 	sessionId?: string,
 	launch?: AgentLaunch,
+	partner?: Pick<PartnerSessionLaunch, 'command'>,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('agent-session');
 	const sessions = getSessionNames(issueKey);
@@ -3892,13 +3911,14 @@ export async function ensureAgentSession(
 		...innerTmuxArgs([]),
 		gate,
 		...buildShellLaunchArgs(
-			buildAgentResumeCommand(
-				issueKey,
-				skipPermissions,
-				agentProfile,
-				sessionId,
-				launch,
-			),
+			partner?.command ??
+				buildAgentResumeCommand(
+					issueKey,
+					skipPermissions,
+					agentProfile,
+					sessionId,
+					launch,
+				),
 			true,
 		),
 	];
