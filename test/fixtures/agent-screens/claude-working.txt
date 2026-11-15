@@ -1,0 +1,45 @@
+
+ ▐▛███▛█   Claude Code v2.1.319
+▝▜██████▀  Sonnet 5.5 · Claude Ultra
+ ▝▝   ▝▝   /tmp/repo · /rc
+
+
+❯ Write a 400 word essay about tmux, in chat only, no tools.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* Caramelizing… (5s · thinking)
+                  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tracking
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  tmp/repo  󰘬 main                                                   󰯉 sonnet5.5 · medium  ───── 0% · 0 
+  -- INSERT -- ⏸ plan mode on (shift+tab to cycle)

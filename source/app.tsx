@@ -1,3 +1,4 @@
+import {recordSupervision} from './supervise-log.ts';
 import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
@@ -82,6 +83,7 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
+import {readableHookStatusKey} from './claude-status.ts';
 import {getSessionNames} from './tmux.ts';
 import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
@@ -114,6 +116,7 @@ import {
 import {
 	getDefaultHomeConfigDir,
 	loadConfig,
+	sousChefLaunch,
 	getStateColors,
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
@@ -122,7 +125,6 @@ import {
 	getMainRepoRoot,
 	getSousChefKey,
 	getRepoName,
-	qualifyMainBranch,
 	getKeybindings,
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
@@ -199,7 +201,20 @@ import {
 	reconcilePaneLayout,
 	runningAgentProfile,
 	installSousChefKey,
+	measureCompanionColumnWidth,
+	setSpaceCompanionWidth,
+	setSpaceCompanionDragHandler,
+	syncCompanionSplits,
+	takePendingSplitSync,
+	closeCompanionSplitPanes,
+	companionSplitPaneIds,
 } from './tmux.ts';
+import {
+	getCompanionWidth,
+	setCompanionWidth,
+	watchLayoutRequests,
+	writeLayoutAck,
+} from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {
 	calculateRowWindow,
@@ -207,6 +222,7 @@ import {
 	statusLineFits,
 } from './list-view-sizing.ts';
 import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
+import {partnerAgentRows} from './partner-agents.ts';
 import {
 	filterSpaces,
 	highlightedIndex,
@@ -266,6 +282,7 @@ const closeLayoutDeps = {
 	currentSession: () => currentDefaultServerSession(process.env),
 	killSession,
 	layoutTmux: defaultOuterTmuxRunner,
+	splitPanes: companionSplitPaneIds,
 };
 
 /**
@@ -504,6 +521,7 @@ export default function App({
 		});
 		return {rows, cursor: resolveCursorRow(rows, spaces[selectedIndex])};
 	}, [railGrouped, railGroups, stackedLayout, currentSelection]);
+	const mainLabel = sousChefLaunch(configMemo)?.name;
 
 	// Install the user's issue-status color overrides before anything renders,
 	// so the ticket rail's first paint already uses them (STA-2070). A useMemo
@@ -707,7 +725,9 @@ export default function App({
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			mainStatusKey: branch => qualifyMainBranch(repoName, branch),
+			statusKey: name => readableHookStatusKey(repoName, name),
+			readPartnerAgents: () =>
+				partnerAgentRows(configMemo, repoName, getMainRepoRoot()),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {
@@ -868,6 +888,9 @@ export default function App({
 	}, [loading, isZooming, backgroundReady, onFirstRailPaint, renderer]);
 	const syncingTerminalSize = useRef(false);
 	const stackedLayoutRef = useRef(false);
+	// Whether the most recent pane layout went through, for the ack a
+	// `companion width` request waits on.
+	const layoutSucceeded = useRef(true);
 	const layoutTasks = useMemo(
 		() =>
 			new PaneLayoutTask({
@@ -882,10 +905,17 @@ export default function App({
 						paneLayoutRef.current = reconciled.layout;
 						setPaneLayout(reconciled.layout);
 						panesInitialized.current = false;
+						// The new layout attaches the space again, splits included.
+						takePendingSplitSync();
+					} else if (!zoomed) {
+						const viewing = getCurrentlyViewingSpace();
+						if (takePendingSplitSync() && viewing)
+							await syncCompanionSplits(layout, viewing);
 					}
 					return reconciled.dimensions;
 				},
 				onReady(_zoomed, dimensions, revision) {
+					layoutSucceeded.current = true;
 					syncingTerminalSize.current = true;
 					try {
 						if (stdout) syncTerminalDimensions(stdout, dimensions);
@@ -898,6 +928,7 @@ export default function App({
 					setSettledRevision(revision);
 				},
 				onError(error, revision) {
+					layoutSucceeded.current = false;
 					log.error(
 						'Failed to update pane layout',
 						error instanceof Error ? error : undefined,
@@ -969,11 +1000,137 @@ export default function App({
 
 	const selectedSpace = spaces[selectedIndex];
 	const selectedSpaceName = selectedSpace?.name;
+	// Read by the companion-width callbacks, which outlive the render they were
+	// registered in.
+	const selectedSpaceNameRef = useRef(selectedSpaceName);
+	selectedSpaceNameRef.current = selectedSpaceName;
 	const selectedWorktreePath = selectedSpace?.isMainWorktree
 		? (selectedSpace.worktreePath ?? undefined)
 		: undefined;
 	const selectedIssueTitle =
 		selectedSpace?.trackerIssue?.title ?? selectedSpace?.linearIssue?.title;
+
+	// A space's own companion width applies only while that space is selected.
+	const appliedSpaceWidth = useRef<string | null>(null);
+	useEffect(() => {
+		if (!selectedSpaceName) return;
+		const width = getCompanionWidth(repoName, selectedSpaceName);
+		const signature = width === null ? null : `${selectedSpaceName}=${width}`;
+		setSpaceCompanionWidth(
+			width === null ? null : {key: selectedSpaceName, width},
+		);
+		if (signature === appliedSpaceWidth.current) return;
+		appliedSpaceWidth.current = signature;
+		if (paneLayoutRef.current)
+			void layoutTasks.request(
+				dialogOpenRef.current,
+				dialogRequest.current.revision,
+			);
+	}, [repoName, selectedSpaceName, layoutTasks]);
+
+	useEffect(() => {
+		setSpaceCompanionDragHandler((key, columns) => {
+			if (key === selectedSpaceNameRef.current)
+				appliedSpaceWidth.current = `${key}=${columns}`;
+			setCompanionWidth(repoName, key, columns).catch((error: unknown) =>
+				log.warn(
+					`Failed to store the companion width for ${key}`,
+					error instanceof Error ? error : undefined,
+				),
+			);
+		});
+		return () => setSpaceCompanionDragHandler(null);
+	}, [repoName]);
+
+	// Requests from `pappardelle companion width`. The CLI has already stored
+	// the width; this applies it when the space is showing and says whether
+	// the pane really took it.
+	useEffect(() => {
+		const handled = new Set<string>();
+		const ack = (ackValue: Parameters<typeof writeLayoutAck>[1]) => {
+			try {
+				writeLayoutAck(repoName, ackValue);
+			} catch (error) {
+				log.warn(
+					'Failed to answer a companion width request',
+					error instanceof Error ? error : undefined,
+				);
+			}
+		};
+
+		return watchLayoutRequests(repoName, request => {
+			if (handled.has(request.id)) return;
+			handled.add(request.id);
+			if (request.space !== selectedSpaceNameRef.current) {
+				ack({id: request.id, result: 'stored'});
+				return;
+			}
+
+			if (request.kind === 'layout') {
+				void attachmentTask.exclusive(async () => {
+					const layout = paneLayoutRef.current;
+					if (!layout?.companionViewerPaneId) {
+						ack({id: request.id, result: 'no-pane'});
+						return;
+					}
+
+					try {
+						const result = await syncCompanionSplits(layout, request.space);
+						ack({id: request.id, result});
+					} catch (error) {
+						log.warn(
+							`Failed to show the companion splits of ${request.space}`,
+							error instanceof Error ? error : undefined,
+						);
+						ack({id: request.id, result: 'failed'});
+					}
+				});
+				return;
+			}
+
+			// Set even when nothing can show it yet, so the next layout of this
+			// space (a wider window, a closed dialog) uses the new width.
+			const width = getCompanionWidth(repoName, request.space);
+			setSpaceCompanionWidth(
+				width === null ? null : {key: request.space, width},
+			);
+			appliedSpaceWidth.current =
+				width === null ? null : `${request.space}=${width}`;
+			if (!paneLayoutRef.current?.companionViewerPaneId) {
+				ack({id: request.id, result: 'no-pane'});
+				return;
+			}
+
+			// An open dialog zooms the rail, and the layout under it waits until
+			// the dialog closes.
+			if (dialogOpenRef.current) {
+				ack({id: request.id, result: 'deferred'});
+				return;
+			}
+
+			void (async () => {
+				await layoutTasks.request(
+					dialogOpenRef.current,
+					dialogRequest.current.revision,
+				);
+				// The layout may have been rebuilt with new pane ids.
+				const layout = paneLayoutRef.current;
+				if (!layout?.companionViewerPaneId) {
+					ack({id: request.id, result: 'no-pane'});
+					return;
+				}
+
+				const columns = layoutSucceeded.current
+					? await measureCompanionColumnWidth(layout).catch(() => null)
+					: null;
+				ack(
+					columns === null
+						? {id: request.id, result: 'failed'}
+						: {id: request.id, result: 'applied', columns},
+				);
+			})();
+		});
+	}, [repoName, layoutTasks, attachmentTask]);
 
 	useEffect(() => {
 		if (
@@ -995,6 +1152,7 @@ export default function App({
 						{
 							name: selectedSpaceName,
 							isMainWorktree: selectedSpace?.isMainWorktree,
+							isPartnerAgent: selectedSpace?.isPartnerAgent,
 							isPending: selectedSpace?.isPending,
 						},
 						registered,
@@ -1013,7 +1171,10 @@ export default function App({
 					layout.listPaneId,
 					selectedWorktreePath,
 					selectedIssueTitle,
-					{signal},
+					{
+						signal,
+						label: selectedSpace?.isMainWorktree ? mainLabel : undefined,
+					},
 				);
 				if (success && !signal.aborted) {
 					panesInitialized.current = true;
@@ -1034,8 +1195,10 @@ export default function App({
 		selectedSpaceName,
 		selectedWorktreePath,
 		selectedSpace?.isMainWorktree,
+		selectedSpace?.isPartnerAgent,
 		selectedSpace?.isPending,
 		selectedIssueTitle,
+		mainLabel,
 		paneLayout,
 		attachmentTask,
 		attachmentRevision,
@@ -1128,9 +1291,16 @@ export default function App({
 	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
 		const space = selectedSpaceNow();
-		if (!space || space.isPending || space.isMainWorktree) {
+		if (
+			!space ||
+			space.isPending ||
+			space.isMainWorktree ||
+			space.isPartnerAgent
+		) {
 			if (space?.isMainWorktree)
 				setHeaderWithTimeout('No issue for main worktree', 2000);
+			else if (space?.isPartnerAgent)
+				setHeaderWithTimeout(`No issue for agent ${space.name}`, 2000);
 			return;
 		}
 
@@ -1309,6 +1479,12 @@ export default function App({
 					// paste briefly while plain keys pass, so Enter would arrive first.
 					async send() {
 						const result = await sendToSpaceAgent(targetSpace, text);
+						recordSupervision(
+							repoName,
+							'tui',
+							{action: 'send', key: targetSpace, sent: text, detail: result},
+							new Date(),
+						);
 						if (result !== 'sent') {
 							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
 						}
@@ -1612,6 +1788,11 @@ export default function App({
 			const space = selectedSpaceNow();
 			if (space?.isMainWorktree) {
 				setHeaderWithTimeout('Cannot close main worktree', 2000);
+			} else if (space?.isPartnerAgent) {
+				setHeaderWithTimeout(
+					`Cannot close agent ${space.name}; remove it from agents: in the config`,
+					3000,
+				);
 			} else if (space) {
 				showDialog(
 					{
@@ -2056,6 +2237,7 @@ export default function App({
 
 					const layout = paneLayoutRef.current;
 					if (layout && selectedSpaceNow()?.name === space.name) {
+						await closeCompanionSplitPanes();
 						await Promise.all([
 							displayMessageInPaneAsync(
 								layout.agentViewerPaneId,
@@ -2162,12 +2344,20 @@ export default function App({
 
 	const vcs = useMemo(() => createVcsHost(), []);
 	const hasRailTargets = spaces.some(
-		s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+		s =>
+			!s.isMainWorktree &&
+			!s.isPartnerAgent &&
+			!s.isPending &&
+			s.name.length > 0,
 	);
 	useRailStatusPolling(hasRailTargets && backgroundReady, async () => {
 		try {
 			const targets = spacesRef.current.filter(
-				s => !s.isMainWorktree && !s.isPending && s.name.length > 0,
+				s =>
+					!s.isMainWorktree &&
+					!s.isPartnerAgent &&
+					!s.isPending &&
+					s.name.length > 0,
 			);
 			log.debug(
 				`Rail status poll: ${targets.length} target(s) (${targets.map(t => t.name).join(', ')})`,
@@ -2249,6 +2439,11 @@ export default function App({
 		if (space.isPending) return;
 		if (space.isMainWorktree) {
 			setHeaderWithTimeout('Cannot open main worktree', 2000);
+			return;
+		}
+
+		if (space.isPartnerAgent) {
+			setHeaderWithTimeout(`Cannot open agent ${space.name}`, 2000);
 			return;
 		}
 
@@ -2448,9 +2643,8 @@ export default function App({
 			return {displaySpaces: result, pendingInsertIndex: insertIdx};
 		}
 
-		// Description route: insert right after main/master (position 1)
-		const mainIdx = spaces.findIndex(s => s.isMainWorktree);
-		const insertIdx = mainIdx + 1;
+		// Description route: insert right after main and the partner agents
+		const insertIdx = spaces.filter(s => isAgentSpace(s)).length;
 		const result = [...spaces];
 		result.splice(insertIdx, 0, pendingRow);
 		return {displaySpaces: result, pendingInsertIndex: insertIdx};
@@ -2598,6 +2792,7 @@ export default function App({
 							isSelected={index === visibleCursor}
 							width={termDimensions.cols}
 							layout={isAgentSpace(row.space) ? 'single_line' : listLayout}
+							label={row.space.isMainWorktree ? mainLabel : undefined}
 						/>
 					),
 				)}
@@ -2845,6 +3040,14 @@ function sendResultMessage(
 
 		case 'no-session': {
 			return `✗ Not sent: ${targetSpace} has no agent session`;
+		}
+
+		case 'prompt': {
+			return `✗ Not sent: ${targetSpace} is waiting on a prompt; answer it there`;
+		}
+
+		case 'draft': {
+			return `✗ Not sent: ${targetSpace}'s composer has text that would be cleared`;
 		}
 
 		case 'failed': {

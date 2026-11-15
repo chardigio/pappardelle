@@ -21,13 +21,15 @@
 		"dist"
 	],
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.32.2",
 		"@opentui/core": "0.8.3",
 		"@opentui/react": "0.8.3",
 		"meow": "^11.0.0",
 		"react": "^19.3.0",
 		"sonic-boom": "^5.0.1",
 		"wrap-ansi": "^10.0.2",
-		"yaml": "^2.9.1"
+		"yaml": "^2.9.1",
+		"zod": "^4.6.7"
 	},
 	"devDependencies": {
 		"@sindresorhus/tsconfig": "^3.0.1",

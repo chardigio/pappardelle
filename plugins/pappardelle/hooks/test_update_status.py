@@ -678,6 +678,7 @@ if __name__ == "__main__":
 def _no_space_env(monkeypatch):
     """The developer's own shell may run inside a pappardelle pane."""
     monkeypatch.delenv("PAPPARDELLE_SPACE", raising=False)
+    monkeypatch.delenv("PAPPARDELLE_REPO", raising=False)
 
 
 class TestSpaceEnvironment:
@@ -719,3 +720,48 @@ class TestSpaceEnvironment:
             patch("subprocess.run", side_effect=mock_run),
         ):
             assert get_workspace_name() == "myrepo-alice-STA-1"
+
+
+class TestRepoEnvironment:
+    """Two repos can have spaces with the same key, and all repos write to one
+    status directory, so the session's repo qualifies the file name."""
+
+    def test_repo_qualifies_the_space(self, monkeypatch):
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-2")
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
+        assert get_workspace_name() == "repo-a-QA-2"
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo-b")
+        assert get_workspace_name() == "repo-b-QA-2"
+
+    def test_repo_qualifies_an_issue_key_from_the_worktree_path(self, monkeypatch):
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
+        with patch("os.getcwd", return_value="/Users/x/.worktrees/repo-a/STA-7"):
+            assert get_workspace_name() == "repo-a-STA-7"
+
+    def test_repo_qualifies_the_main_branch_over_the_toplevel_name(self, monkeypatch):
+        """The TUI names the repo after the main checkout's git dir, which the
+        session env carries; the toplevel basename can differ."""
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
+
+        def mock_run(cmd, **kwargs):
+            if "--abbrev-ref" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "main\n"})()
+            if "--show-toplevel" in cmd:
+                return type("Result", (), {"returncode": 0, "stdout": "/Users/x/cs/checkout\n"})()
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+
+        with (
+            patch("os.getcwd", return_value="/Users/x/cs/checkout"),
+            patch("subprocess.run", side_effect=mock_run),
+        ):
+            assert get_workspace_name() == "repo-a-main"
+
+    def test_two_repos_with_the_same_space_key_write_separate_files(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(tmp_path))
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-2")
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
+        update_status_module.update_status("processing")
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo-b")
+        update_status_module.update_status("waiting_for_approval")
+        assert json.loads((tmp_path / "repo-a-QA-2.json").read_text())["status"] == "processing"
+        assert json.loads((tmp_path / "repo-b-QA-2.json").read_text())["status"] == "waiting_for_approval"

@@ -271,6 +271,10 @@ for (const delayed of ['%1', '%2']) {
 		);
 	}
 }
+// The listing that finds a space's companion splits rides the attach's own
+// tmux call.
+const isSplitListing = (command: string[] | undefined) =>
+	command?.[0] === 'list-sessions' && command[2]!.includes('@pappa_split');
 
 const isSwitchBatch = (args: string[]) =>
 	args.includes('switch-client') && args.includes(';');
@@ -589,6 +593,25 @@ test.serial(
 	},
 );
 
+test.serial('a label titles the agent frame in place of the key', async t => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	t.true(
+		await attachToSpace('%1', '%2', 'main', '%0', undefined, undefined, {
+			run: fake.run,
+			label: 'sous-chef',
+		}),
+	);
+	const titles = splitBatch(fake.calls[0]!.slice(2))
+		.filter(command => command[3] === 'set-titles-string')
+		.map(command => command[4]);
+	t.deepEqual(titles, ['agent · sous-chef', 'companion']);
+	t.deepEqual(fake.calls[1], titleAndFocus('sous-chef'));
+});
+
 test.serial(
 	'warm switches move both viewers in one request without setup probes',
 	async t => {
@@ -606,6 +629,7 @@ test.serial(
 		const batch = fake.calls[0]!;
 		t.deepEqual(batch.slice(0, 2), ['-L', 'pappardelle_inner']);
 		const commands = splitBatch(batch.slice(2));
+		t.true(isSplitListing(commands.at(-1)));
 		const target = (prefix: string) =>
 			commands.find(
 				command =>
@@ -631,6 +655,37 @@ test.serial(
 			.map(command => command[4]);
 		t.deepEqual(titles, ['agent · TEST-B', 'companion']);
 		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
+	},
+);
+
+test.serial(
+	"a warm switch finds the space's splits in its own request's listing",
+	async t => {
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		const run: AsyncTmuxRunner = async args => {
+			const output = await fake.run(args);
+			if (!isSwitchBatch(args)) return output;
+			const companion = args
+				.find(arg => arg.startsWith('=companion-'))!
+				.slice(1, -1);
+			return [
+				`${companion}\t\t\t\t%8\tsh\t80\t24\t1\t1\t`,
+				`${companion}~logs\tdown\t\t1\t%9\tsh\t80\t24\t0\t\t`,
+			].join('\n');
+		};
+
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+				run,
+			}),
+		);
+		// The split it found sends it on to measure the window.
+		t.deepEqual(fake.calls[2]?.slice(0, 3), ['list-panes', '-t', '%1']);
+		t.false(fake.calls.some(args => args[2] === 'list-sessions'));
 	},
 );
 
@@ -951,8 +1006,15 @@ test.serial(
 		t.true(await ensureCompanionSession('TEST-NEW', '/tmp', 'custom-ui', run));
 		t.deepEqual(
 			calls.map(args => args[2]),
-			['has-session', 'new-session'],
+			['has-session', 'new-session', 'set-option'],
 		);
+		t.deepEqual(calls[2]!.slice(3), [
+			'-p',
+			'-t',
+			`=${calls[1]![calls[1]!.indexOf('-s') + 1]}:`,
+			'@pappa_pane',
+			'main',
+		]);
 		t.true(
 			calls.every(args => args[0] === '-L' && args[1] === 'pappardelle_inner'),
 		);

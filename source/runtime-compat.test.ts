@@ -26,8 +26,12 @@ test('Bun runtime floor agrees across package, installer and documentation', t =
 			.startsWith('#!/usr/bin/env bun'),
 	);
 });
+// Packages that only export subpaths are imported by the one Pappardelle uses.
+const entryPoints: Record<string, string> = {
+	'@modelcontextprotocol/sdk': '@modelcontextprotocol/sdk/server/mcp.js',
+};
 for (const dep of Object.keys(pkg.dependencies)) {
 	test(`runtime dependency ${dep} loads under Bun`, async t => {
-		t.truthy(await import(dep));
+		t.truthy(await import(entryPoints[dep] ?? dep));
 	});
 }

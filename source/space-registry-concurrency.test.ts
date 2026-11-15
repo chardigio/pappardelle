@@ -12,9 +12,8 @@ import {
 	getRegisteredSpaces,
 	tryReserveWatchlistSlots,
 	releaseWatchlistReservation,
-	setLockTimingForTests,
-	resetLockTimingForTests,
 } from './space-registry.ts';
+import {setLockTimingForTests, resetLockTimingForTests} from './file-lock.ts';
 import {StartupQueue} from './startup-queue.ts';
 
 const exec = promisify(execFile);

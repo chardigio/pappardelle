@@ -479,3 +479,44 @@ test('an install script run from a pappardelle checkout installs from that check
 	t.is(result.status, 0);
 	t.is(result.stdout.trim(), checkout);
 });
+
+// ============================================================================
+// install_skill_scripts
+// ============================================================================
+
+test('install_skill_scripts replaces the installed scripts with the checkout ones', t => {
+	const home = temporaryDir();
+	const repo = temporaryDir();
+	const shipped = path.join(
+		repo,
+		'plugins/pappardelle/skills/init-pappardelle/scripts',
+	);
+	fs.mkdirSync(shipped, {recursive: true});
+	fs.writeFileSync(path.join(shipped, 'detect.sh'), 'echo new\n');
+	fs.mkdirSync(path.join(repo, 'plugins/pappardelle/skills/sous-chef'));
+	const installed = path.join(home, '.pappardelle', 'scripts');
+	for (const file of [
+		'sous-chef/gather-spaces.sh',
+		'init-pappardelle/detect.sh',
+		'init-pappardelle/retired.sh',
+	]) {
+		fs.mkdirSync(path.dirname(path.join(installed, file)), {recursive: true});
+		fs.writeFileSync(path.join(installed, file), 'echo old\n');
+	}
+
+	const result = runInstallFunction(
+		`REPO_DIR=${JSON.stringify(repo)}; install_skill_scripts`,
+		{HOME: home, PATH: process.env['PATH'] ?? ''},
+	);
+
+	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	t.deepEqual(fs.readdirSync(installed), ['init-pappardelle']);
+	t.deepEqual(fs.readdirSync(path.join(installed, 'init-pappardelle')), [
+		'detect.sh',
+	]);
+	const script = path.join(installed, 'init-pappardelle', 'detect.sh');
+	t.is(fs.readFileSync(script, 'utf8'), 'echo new\n');
+	t.notThrows(() => {
+		fs.accessSync(script, fs.constants.X_OK);
+	});
+});

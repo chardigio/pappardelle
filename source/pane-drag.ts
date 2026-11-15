@@ -28,8 +28,9 @@ export interface WindowSize {
 }
 
 /**
- * One side pane's observations for a relayout, gathered just before the panes
- * move.
+ * One pane's observations for a relayout, gathered just before the panes
+ * move. The size is along the axis its border moves on: a side pane's width,
+ * or a companion split's width or height.
  *
  * `previous*` values come from the end of the last relayout, and are measured
  * values rather than the widths we asked for, so tmux rounding never reads as a
@@ -38,8 +39,8 @@ export interface WindowSize {
 export interface PaneResizeSample {
 	previousWindow: WindowSize | null;
 	currentWindow: WindowSize | null;
-	previousWidth: number | null;
-	currentWidth: number | null;
+	previousSize: number | null;
+	currentSize: number | null;
 	currentOverride: number | null;
 }
 
@@ -50,12 +51,12 @@ export interface PaneResizeSample {
  * override otherwise. An established override survives window resizes so the
  * pane keeps the width the user chose.
  */
-export function nextWidthOverride(sample: PaneResizeSample): number | null {
+export function nextSizeOverride(sample: PaneResizeSample): number | null {
 	const {
 		previousWindow,
 		currentWindow,
-		previousWidth,
-		currentWidth,
+		previousSize,
+		currentSize,
 		currentOverride,
 	} = sample;
 
@@ -70,12 +71,12 @@ export function nextWidthOverride(sample: PaneResizeSample): number | null {
 		return currentOverride;
 	}
 
-	if (previousWidth === null || currentWidth === null) {
+	if (previousSize === null || currentSize === null) {
 		return currentOverride;
 	}
 
-	// Same window, different width: the user moved the border.
-	if (previousWidth !== currentWidth) return currentWidth;
+	// Same window, different size: the user moved the border.
+	if (previousSize !== currentSize) return currentSize;
 
 	return currentOverride;
 }

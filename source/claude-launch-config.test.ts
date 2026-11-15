@@ -247,6 +247,19 @@ test('buildAgentResumeCommand: no model/effort → byte-identical to master', t 
 	);
 });
 
+test('buildAgentResumeCommand: a launch renames the agent and starts both branches on its prompt', t => {
+	t.is(
+		buildAgentResumeCommand(
+			'main',
+			false,
+			DEFAULT_RESOLVED_AGENT_PROFILE,
+			'sess-1',
+			{name: 'sous-chef', prompt: '/sous-chef'},
+		),
+		"claude --name sous-chef --resume sess-1 '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || claude --name sous-chef '/sous-chef'",
+	);
+});
+
 test('buildAgentResumeCommand: skip-permissions only is unchanged', t => {
 	const expected =
 		"claude --dangerously-skip-permissions --name STA-1 --resume sess-1 || { printf '\\033[A\\033[2K'; false; } || claude --dangerously-skip-permissions --name STA-1";

@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"pappardelle": {
+			"command": "pappardelle",
+			"args": ["mcp"]
+		}
+	}
+}

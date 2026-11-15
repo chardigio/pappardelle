@@ -53,10 +53,21 @@ export function resolveDeinitCommands(
  * read failure can't blank the viewer panes.
  */
 export function shouldAttach(
-	space: {name: string; isMainWorktree?: boolean; isPending?: boolean},
+	space: {
+		name: string;
+		isMainWorktree?: boolean;
+		isPartnerAgent?: boolean;
+		isPending?: boolean;
+	},
 	registered: readonly string[] | null,
 ): boolean {
-	if (space.isMainWorktree || space.isPending || registered === null) {
+	// Partner agents come from the config, so the registry never lists them.
+	if (
+		space.isMainWorktree ||
+		space.isPartnerAgent ||
+		space.isPending ||
+		registered === null
+	) {
 		return true;
 	}
 

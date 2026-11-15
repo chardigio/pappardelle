@@ -203,7 +203,9 @@ STARTUP_GATE_OPTION="@pappardelle_startup_gate"
 # PAPPARDELLE_SPACE names the space the pane belongs to, so a Claude started
 # later in the pane by hand (a restart, `claude --resume` from another
 # directory) still reports its status under this space, not under its cwd.
-SESSION_ENV=(-e "PAPPARDELLE_SPACE=$ISSUE_KEY")
+# PAPPARDELLE_REPO qualifies the status file name: spaces of two repos can
+# share a key, and every repo writes to the same status directory.
+SESSION_ENV=(-e "PAPPARDELLE_REPO=$REPO_NAME" -e "PAPPARDELLE_SPACE=$ISSUE_KEY")
 if [[ -n "${PAPPARDELLE_MAIN_REPO_ROOT:-}" ]]; then
     SESSION_ENV+=(-e "PAPPARDELLE_MAIN_REPO_ROOT=$PAPPARDELLE_MAIN_REPO_ROOT")
 fi
@@ -376,4 +378,6 @@ if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$COMPANION_SESSION:" 2>/dev/
     else
         new_inner_session "$COMPANION_SESSION"
     fi
+    # `pappardelle companion` addresses panes by name; the first one is main.
+    tmux "${TMUX_SOCKET_ARGS[@]}" set-option -p -t "=$COMPANION_SESSION:" @pappa_pane main 2>/dev/null || true
 fi

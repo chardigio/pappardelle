@@ -125,6 +125,10 @@ jobs:
       - name: companion_command resolution
         run: ./scripts/test-companion-command.sh
 
+      # Skips where the runner has no systemd user manager.
+      - name: Scheduled wake-ups on systemd
+        run: ./scripts/test-schedule-systemd.sh
+
       # Detection is pointed at a fake Ghostty bundle, so this runs without macOS.
       - name: Terminal launcher resolution
         run: ./scripts/test-terminal-launcher.sh

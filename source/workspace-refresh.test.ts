@@ -32,7 +32,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
 		readDirty: async () => false,
-		mainStatusKey: branch => `repo-${branch}`,
+		statusKey: name => `repo-${name}`,
 		getCachedIssue: issue,
 		async fetchIssues() {},
 		readEmoji: async () => '🍝',
@@ -177,7 +177,7 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	await nextTurn();
 	h.refresh.applyStatusUpdates(
 		new Map([
-			['STA-1', {status: 'working', tool: 'AskUserQuestion'}],
+			['repo-STA-1', {status: 'working', tool: 'AskUserQuestion'}],
 			['repo-master', {status: 'working'}],
 		]),
 	);
@@ -192,6 +192,41 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	await h.settle();
 	t.is(h.spaces[2]!.programStatus?.status, 'unknown');
 	t.is(h.spaces[2]!.programStatus?.tool, undefined);
+});
+
+test('a space reads and takes hook updates under its repo-qualified key', async t => {
+	const reads = new Map<string, string>();
+	const h = setup({
+		readRegistry: async () => ['STA-1'],
+		async readStatus(key, sessionKey) {
+			reads.set(key, sessionKey);
+			return {status: 'idle'};
+		},
+	});
+	await h.settle();
+	t.is(reads.get('repo-STA-1'), 'STA-1');
+	t.is(reads.get('repo-master'), 'main');
+	t.is(reads.size, 2);
+	h.refresh.applyStatusUpdates(new Map([['other-STA-1', {status: 'error'}]]));
+	t.is(h.spaces[1]!.programStatus?.status, 'idle');
+	h.refresh.applyStatusUpdates(new Map([['repo-STA-1', {status: 'error'}]]));
+	t.is(h.spaces[1]!.programStatus?.status, 'error');
+});
+
+test('a space moves to the qualified status key once its agent writes it', async t => {
+	let bare = true;
+	const h = setup({
+		readRegistry: async () => ['STA-1'],
+		statusKey: name => (bare && name === 'STA-1' ? name : `repo-${name}`),
+	});
+	await h.settle();
+	t.is(h.spaces[1]!.statusKey, 'STA-1');
+	bare = false;
+	await h.refresh.refresh();
+	await h.refresh.idle();
+	t.is(h.spaces[1]!.statusKey, 'repo-STA-1');
+	h.refresh.applyStatusUpdates(new Map([['repo-STA-1', {status: 'error'}]]));
+	t.is(h.spaces[1]!.programStatus?.status, 'error');
 });
 
 test('coalesces overlapping requests and discards a registry snapshot predating a local close', async t => {
@@ -302,7 +337,7 @@ test('stop suppresses late disk, tracker and hook publications', async t => {
 	h.refresh.stop();
 	const before = h.spaces;
 	gate.resolve(['STA-99']);
-	h.refresh.applyStatusUpdates(new Map([['STA-1', {status: 'error'}]]));
+	h.refresh.applyStatusUpdates(new Map([['repo-STA-1', {status: 'error'}]]));
 	await pending;
 	await h.refresh.idle();
 	t.is(h.spaces, before);
@@ -323,4 +358,59 @@ test('spaces list newest number first, and beads hash keys keep one order whatev
 	]);
 	const keys = ['fl-ec0', 'fl-1a2', 'fl-zz9', 'fl-x3'];
 	t.deepEqual(await order(keys), await order([...keys].reverse()));
+});
+
+test('no partner agents leaves the rail as main plus workspaces', async t => {
+	const h = setup();
+	await h.settle();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'STA-2', 'STA-1'],
+	);
+	t.false(h.spaces.some(space => space.isPartnerAgent));
+});
+
+test('partner agents sit under main in config order and survive list refreshes', async t => {
+	const statuses: Array<[string, string | undefined]> = [];
+	const h = setup({
+		readRegistry: async () => ['STA-1', 'trotbot'],
+		readPartnerAgents: () => [
+			{
+				name: 'trotbot',
+				statusKey: 'repo-agent-trotbot',
+				worktreePath: '/repo',
+				emoji: '🐴',
+			},
+			{name: 'starbot', statusKey: 'repo-agent-starbot', worktreePath: '/repo'},
+		],
+		async readStatus(key, sessionKey) {
+			statuses.push([key, sessionKey]);
+			return key === 'repo-agent-trotbot'
+				? {status: 'working'}
+				: {status: 'idle'};
+		},
+	});
+	await h.settle();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'trotbot', 'starbot', 'STA-1'],
+	);
+	const trotbot = h.spaces[1]!;
+	t.true(trotbot.isPartnerAgent);
+	t.is(trotbot.statusKey, 'repo-agent-trotbot');
+	t.is(trotbot.profileEmoji, '🐴');
+	t.is(trotbot.programStatus?.status, 'working');
+	t.true(
+		statuses.some(
+			([key, session]) => key === 'repo-agent-trotbot' && session === 'trotbot',
+		),
+	);
+	t.is(h.spaces[1]!.linearIssue, undefined);
+
+	h.deps.readRegistry = async () => ['STA-4', 'STA-1'];
+	await h.refresh.refreshListOnly();
+	t.deepEqual(
+		h.spaces.map(space => space.name),
+		['main', 'trotbot', 'starbot', 'STA-4', 'STA-1'],
+	);
 });

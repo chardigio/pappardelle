@@ -23,6 +23,7 @@ function makeRunner(options: {
 	sessions?: string[];
 	listFails?: boolean;
 	failOn?: (args: readonly string[]) => boolean;
+	screen?: string;
 }): {
 	runner: SendTmuxRunner;
 	calls: string[][];
@@ -37,6 +38,10 @@ function makeRunner(options: {
 			}
 
 			return {status: 0, stdout: (options.sessions ?? []).join('\n') + '\n'};
+		}
+
+		if (args[0] === 'capture-pane') {
+			return {status: 0, stdout: options.screen ?? ''};
 		}
 
 		calls.push([...args]);
@@ -115,6 +120,67 @@ test('sendToSpaceAgent sends at most 16 clear keys in each send-keys call, so th
 	t.is(
 		clears.reduce((sum, args) => sum + args.length - 3, 0),
 		CLEAR_COMPOSER_ROUNDS * 4,
+	);
+});
+
+test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced', async t => {
+	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: draft,
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
+		'draft',
+	);
+	t.deepEqual(calls, []);
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			repoName: 'r',
+			runner,
+			lockDir,
+			force: true,
+		}),
+		'sent',
+	);
+});
+
+test('sendToSpaceAgent never types into a permission prompt, even forced', async t => {
+	const prompt = [
+		'────────',
+		' Bash command',
+		' git push',
+		' Do you want to proceed?',
+		' ❯ 1. Yes',
+		'   2. No',
+	].join('\n');
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: prompt,
+	});
+	for (const force of [false, true]) {
+		t.is(
+			await sendToSpaceAgent('STA-1', '1', {
+				repoName: 'r',
+				runner,
+				lockDir,
+				force,
+			}),
+			'prompt',
+		);
+	}
+
+	t.deepEqual(calls, []);
+});
+
+test('a dim placeholder in the Codex composer is not a draft', async t => {
+	const {runner} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: '\u001B[1m›\u001B[0m \u001B[2mAsk Codex to do anything\u001B[0m\n',
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
+		'sent',
 	);
 });
 
