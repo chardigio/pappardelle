@@ -48,7 +48,7 @@ If you don't have the tools, either the repo's config doesn't set `workspace_awa
 | `tui_restart`                | `pappardelle restart`                                                    |
 | `link_pr`                    | `pappardelle link-pr URL [--workspace ROOT]`, from the source repository |
 
-Keep the companion showing your work there too: what a decision depends on before you ask, what to review before you ask for a review, and the app or a test watcher in a split instead of a background task.
+Keep the companion showing your work there too: what a decision depends on before you ask, what to review before you ask for a review, and the app or a test watcher in a split instead of a background task. The companion is an open terminal sandbox: a quick script that shows what you're building, kitty graphics, a process's output, the terminal app itself to try, or a login or a typed command waiting for the user.
 
 ## Supervising another space
 

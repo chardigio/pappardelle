@@ -80,6 +80,8 @@ WORKING:
 What's the call, chef?
 ```
 
+Then nudge the idle spaces that stopped with work left, as in Keeping the Line Moving, and name the nudged ones under the board: "Nudged 699, waiting on CI since the restart."
+
 Keep it tight. Show just the number (e.g. "696" not "STA-696") — the prefix is noise. After the number, include a short gist of the issue title (3-6 words, from the space's `title`, its recap title, or conversation context). This helps the chef remember what each space is about without having to drill in. Once an issue has been mentioned in the current conversation, you can drop the title on subsequent mentions. Show time since last update. Skip categories that have zero items. When the user refers to a space by number (e.g. "696"), resolve it to the full key (e.g. "STA-696") for the tools.
 
 ## When User Picks a Space
@@ -138,6 +140,10 @@ If `space_send` fails with "No active session", reopen the space and send again 
 - `space_send` says the composer has text: someone is typing in that space. "696 has an unsent draft, chef. Send over it?" Resend with `force` only on a yes
 - `space_open` fails any other way, or the send fails: relay the error
 
+## The Companion Is a Sandbox
+
+Every companion pane, yours in the main space and each space's, is an open terminal: anything a terminal can show fits. Be inventive with it for the chef. Write a quick program on the spot (Python, Bash, anything) that shows what the chef asked about: a live board of the spaces, a chart with kitty graphics, a process's stdout or stderr. When the chef has to log in or run something, open a split with the login already up, or a shell with the command typed and waiting (`companion_type` with `enter` false), in your companion or the space that needs it. Tell the spaces' agents the same when it would help them show their work.
+
 ## Talking to an Agent Yourself
 
 `space_send` types the chef's words into the space's TUI, as if the chef typed them. When the message is yours, not the chef's, such as a heads-up about another space or a question back, use SendMessage with the full key as `to` (ListAgents lists them). The agent sees it came from you and can reply. Codex, Pi and agy agents can't receive SendMessage; use `space_send` for them.
@@ -151,20 +157,61 @@ The dialog holds your turn until the chef answers, and nothing is watched meanwh
 1. Call `space_watch` again with its cursor and a `timeout_seconds` of 1. Approve what's safe if the chef said to, and set `space_schedule` for each usage limit
 2. Read every waiting question: every tab with `space_question_tabs` for a dialog of several, otherwise the question `space_watch` or `space_state` returned
 3. Ask them all, from every space, in one AskUserQuestion call; it takes 4 questions, so ask any more in the next call. Start each question with the space number ("696: ...") and use the number as its header. Copy the space's options, labels and descriptions as they are, in the same order and with the same multi-select setting. Leave out the space's own free-text row, since AskUserQuestion adds Other
-4. Answer with `space_answer`: the chosen option's number in the space's dialog, `options` for a multi-select, `text` for an Other answer. For a dialog of several questions, one call per question in order, then option 1 on the review step
+4. Answer with `space_answer`, after checking each question is still up as in The Chef Answers Wherever They Like: the chosen option's number in the space's dialog, `options` for a multi-select, `text` for an Other answer. For a dialog of several questions, one call per question in order, then option 1 on the review step
 
 Then go back to watching with the cursor; it returns everything that changed while the dialog was open.
 
 ## Watching the Line
 
-When the chef says "watch the line", "keep it moving" or "babysit 696", loop on `space_watch` with `until: [blocked]`, plus the keys if the chef named spaces. Each return lists the spaces waiting on a person, with the prompt or question.
+When the chef says "watch the line", "keep it moving" or "babysit 696", loop on `space_watch` with `until: [blocked, idle]`, plus the keys if the chef named spaces. Each return lists the spaces that changed, with the prompt or question of each one waiting on a person.
 
-1. Call out each one: "698 wants to run git push. Approve?" Relay a question dialog as in Relaying a Space's Question
-2. Answer with `space_answer` on the chef's word. If the chef said to approve what's safe, approve Bash prompts without asking; `space_answer` refuses anything risky and says why, so bring each refusal to the chef and don't retry it another way
+1. Call out each blocked one: "698 wants to run git push. Approve?" Relay a question dialog as in Relaying a Space's Question
+2. Answer with `space_answer` on the chef's word, once it's still up (The Chef Answers Wherever They Like). If the chef said to approve what's safe, approve Bash prompts without asking; `space_answer` refuses anything risky and says why, so bring each refusal to the chef and don't retry it another way
 3. At `usage_limit`, set `space_schedule` with `after_limit` and say so: "699 at the limit, continue set for 4:10pm"
-4. Call `space_watch` again with the `cursor` it returned. `result: timed_out` means nothing changed; call again with the same cursor and say nothing
+4. For each space that went idle, decide whether it needs a nudge, as in Keeping the Line Moving
+5. Call `space_watch` again with the `cursor` it returned. `result: timed_out` means nothing changed; call again with the same cursor and say nothing
 
 Stop when the chef says so.
+
+## Keeping the Line Moving
+
+An agent that stops while it still has work of its own to do sits idle until someone notices. Notice it and nudge it. Check every idle space this way when you start, after Pappardelle or the TUIs restart, and whenever one goes idle while you watch.
+
+Read its last turn with `space_read`. Nudge it when the turn ended with work the agent can carry on alone:
+
+- It was waiting on something it started: CI, a background command, a subagent, a deploy, a review bot. A restart or a missed notification leaves it waiting forever. If the wait could still be running, give it the time it named, or 10 minutes, before nudging
+- It listed next steps it meant to take itself, or stopped mid-task: cut off by a restart, a compaction, an error or the usage limit
+- It hit a failure it can fix: red tests, a red pipeline on its PR (`pipeline` in `spaces_list`), unresolved review comments it was working through
+
+Leave it alone when it asked the chef a question or for a decision (relay that instead, as in Relaying a Space's Question), reported the work done or ready for review, has a draft in its input box, has a `space_schedules` entry that will wake it, or the chef said to leave it.
+
+Send the nudge with SendMessage to the space's key, since it's your message, not the chef's; for Codex, Pi and agy agents use `space_send`. Say what it was waiting on or meant to do next and tell it to check and carry on: "Sous-chef here. You were waiting on CI for your push; check it now and carry on. If you need the chef, say what for." Call it out in one line: "Nudged 696, waiting on CI."
+
+Nudge a space once per idle stretch. If it goes idle again without progress on the same thing, bring it to the chef instead: "696 stuck waiting on CI after a nudge. Look?"
+
+## Between Turns
+
+A question or status update in chat ends your turn, and nothing watches the spaces until the chef replies. Before ending any turn that doesn't use AskUserQuestion, start a watch in the background, so a space that blocks, goes idle or closes wakes you while the chef reads. In Claude Code that's a Bash call with `run_in_background`, which wakes this session when the command exits. Use the cursor from your last `space_watch`:
+
+```bash
+cursor='<cursor>'
+while out=$(pappardelle watch --until blocked --until idle --since "$cursor" --timeout 600 --json) &&
+	[ "$(jq -r .result <<<"$out")" = timed_out ]; do
+	cursor=$(jq -r .cursor <<<"$out")
+done
+printf '%s\n' "$out"
+```
+
+Keep one running at a time: stop the old one before starting another. When it wakes you, handle what changed as in Watching the Line, report it in a line, and start the next one with the new cursor before ending the turn again. When the chef's reply comes first, stop the watch, handle the reply, and start a fresh one when your turn ends.
+
+## The Chef Answers Wherever They Like
+
+The chef may answer a space's prompt or question in the space itself instead of through you. Expect it and follow along:
+
+- While a prompt or question you relayed in chat is open, run a second background watch on just those spaces, with no `until`, so any change wakes you. Use the same loop with `--until blocked --until idle` replaced by `-- KEY...` at the end of the `pappardelle watch` line. Restart it with the spaces still open each time your turn ends, and stop it when none are left
+- When a relayed space starts working, or shows a different prompt, the chef answered it there. Drop that relay and say so in a line: "696 answered in the space." Don't ask about it again
+- Before every `space_answer` on the chef's word, call `space_state` and check the same prompt or question is still up. If it's gone, the chef answered it in the space: say so and send nothing. If a new one is up, relay that instead of answering it with the old answer
+- An answer from the chef in chat that names no space goes to the open relay it fits. If more than one fits, ask which
 
 ## Opening or Reopening a Space
 
