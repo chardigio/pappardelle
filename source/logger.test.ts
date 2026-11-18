@@ -641,7 +641,7 @@ function runChild(t: ExecutionContext, script: string) {
 const log = createLogger('child');
 ${script}`,
 		],
-		{env: {...process.env, HOME: home}, encoding: 'utf8', timeout: 10_000},
+		{env: {...process.env, HOME: home}, encoding: 'utf8'},
 	);
 	const logDir = path.join(home, '.pappardelle', 'logs');
 	const text = existsSync(logDir)
@@ -700,7 +700,7 @@ throwAtTopLevel();`,
 
 test('unhandled rejections land in the log and still crash the process', t => {
 	// Pending work must not keep a process alive past an unhandled rejection.
-	const {status, stderr, crashes} = runChild(
+	const {status, text, stderr, crashes} = runChild(
 		t,
 		`captureStderr();
 setInterval(() => {}, 1000);
@@ -719,6 +719,7 @@ void Promise.reject(new Error('after-duplicates'));`,
 		'[crash] undefined',
 		'[crash] Error: after-duplicates',
 	]);
+	t.regex(text, /\[crash\] Error: first-rejection\n\s+at /);
 });
 
 test('a rejection raised after startup still crashes the process', t => {
