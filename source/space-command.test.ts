@@ -676,11 +676,19 @@ test("main's status is read under its branch without the database, and under its
 			status: 'processing',
 			lastUpdate: Date.now(),
 		});
+		const branchesRead: string[] = [];
 		const result = await run(
 			['get', 'main', '--field', 'status.status'],
-			deps(state),
+			deps(state, {
+				async gitBranch(directory) {
+					branchesRead.push(directory);
+					return 'master';
+				},
+			}),
 		);
 		t.deepEqual(result, {code: 0, stdout: 'working', stderr: ''}, reportedAs);
+		// Only a status keyed by branch needs git.
+		t.is(branchesRead.length, sqlite ? 0 : 1, reportedAs);
 	}
 });
 
