@@ -180,24 +180,39 @@ export function followedPublisher(
 	// shown as the pane's status when the flag is turned off again.
 	let fileRemains = false;
 
+	// Generations whose drop the daemon has taken, or is being sent.
+	const dropped = new Set<string>();
+
+	// A space's close can come between a lease check and the send after it,
+	// and its forget then reach the daemon before the snapshot does. A close
+	// by a process with the flag off sends no forget at all.
+	const drop = async (to: PublisherClient, snapshot: ProgramStatusSnapshot) => {
+		const {repo, key, pane} = snapshot;
+		if (dropped.has(pane.generation)) return;
+		dropped.add(pane.generation);
+		lastSend = to
+			.send({type: 'drop', repo, key, generation: pane.generation})
+			.then(result => {
+				if (result !== 'sent') dropped.delete(pane.generation);
+			});
+		return lastSend;
+	};
+
 	const send = (to: PublisherClient) => {
 		const snapshot = latest;
 		if (!snapshot) return;
 		const {key, pane} = snapshot;
-		if (!programStatusLeased(dir, key, pane.generation)) return;
+		if (!programStatusLeased(dir, key, pane.generation)) {
+			void drop(to, snapshot);
+			return;
+		}
+
 		unsettledSends++;
 		lastSend = to.send({type: 'snapshot', snapshot}).then(async result => {
 			unsettledSends--;
 			if (result !== 'sent') return;
-			// The space can be closed between the lease check and the send, and
-			// its forget can reach the daemon before the snapshot does.
 			if (!programStatusLeased(dir, key, pane.generation)) {
-				await to.send({
-					type: 'drop',
-					repo: snapshot.repo,
-					key,
-					generation: pane.generation,
-				});
+				await drop(to, snapshot);
 				return;
 			}
 
