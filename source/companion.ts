@@ -109,11 +109,25 @@ export function companionSessionTarget(
 }
 
 /**
- * List the session's panes, first naming the session's original pane `main`
- * if nothing carries that name yet. Sessions made before panes had names, or
- * by idow's bash, start untagged. tmux pane ids only grow and respawn-pane
- * keeps the id, so the lowest id is the pane the session started with.
+ * The companion's `main` pane: the pane named so, else the session's original
+ * pane. Sessions made before panes had names, or by idow's bash, start
+ * untagged. tmux pane ids only grow and respawn-pane keeps the id, so the
+ * lowest id is the pane the session started with.
  */
+export function companionMainPane<
+	Pane extends {paneId: string; name: string | null},
+>(panes: Pane[]): Pane | undefined {
+	const named = panes.find(pane => pane.name === MAIN_PANE);
+	if (named) return named;
+	let original = panes[0];
+	for (const pane of panes) {
+		if (paneNumber(pane.paneId) < paneNumber(original!.paneId)) original = pane;
+	}
+
+	return original;
+}
+
+/** List the session's panes, naming the `main` pane if nothing carries the name yet. */
 export function listCompanionPanes(
 	target: string,
 	runner: OuterTmuxRunner,
@@ -121,22 +135,17 @@ export function listCompanionPanes(
 	const panes = parsePaneList(
 		tmux(runner, ['list-panes', '-s', '-t', target, '-F', PANE_FORMAT]),
 	);
-	if (panes.length === 0 || panes.some(pane => pane.name === MAIN_PANE))
-		return panes;
-	let original = panes[0]!;
-	for (const pane of panes) {
-		if (paneNumber(pane.paneId) < paneNumber(original.paneId)) original = pane;
-	}
-
+	const main = companionMainPane(panes);
+	if (!main || main.name === MAIN_PANE) return panes;
 	tmux(runner, [
 		'set-option',
 		'-p',
 		'-t',
-		original.paneId,
+		main.paneId,
 		'@pappa_pane',
 		MAIN_PANE,
 	]);
-	original.name = MAIN_PANE;
+	main.name = MAIN_PANE;
 	return panes;
 }
 

@@ -165,6 +165,7 @@ import {
 	type ConfigMigration,
 } from './config-migration.ts';
 import {runCloseHooks, shouldAttach} from './close-space.ts';
+import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {AttachmentGate} from './attachment-gate.ts';
@@ -713,7 +714,8 @@ export default function App({
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			statusKey: async name => claudeStatus.readableKey(repoName, name),
+			statusKey: async (key, mainBranch) =>
+				spaceStatusKey(claudeStatus, repoName, key, async () => mainBranch),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {

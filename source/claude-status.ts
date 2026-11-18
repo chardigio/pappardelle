@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {waitForDirChange} from './file-watch.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 const CLAUDE_STATUSES = [
 	'processing',
@@ -47,6 +48,23 @@ export function hookStatusKey(repoName: string, name: string): string {
 	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
 	// same way so the status file name stays a single path segment.
 	return `${repoName}-${name}`.replaceAll('/', '-');
+}
+
+/**
+ * The status key to read a space's hook status under. The main checkout's
+ * hook reports under its branch, which is looked up only for main.
+ */
+export async function spaceStatusKey(
+	claudeStatus: Pick<ClaudeStatusDao, 'readableKey'>,
+	repoName: string,
+	key: string,
+	mainBranch: () => Promise<string | undefined>,
+): Promise<string> {
+	const name =
+		key === MAIN_WORKTREE_KEY
+			? ((await mainBranch()) ?? MAIN_WORKTREE_KEY)
+			: key;
+	return claudeStatus.readableKey(repoName, name);
 }
 
 export interface ClaudeStatusInfo {

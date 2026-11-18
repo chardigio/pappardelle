@@ -123,6 +123,32 @@ function tmuxOut(runner: OuterTmuxRunner, args: string[]): string | null {
 }
 
 /**
+ * A `list-panes` format for picking a session's status pane with
+ * `statusPaneOf`: whether the pane is the session's current one, the pane
+ * the session pinned, and the pane's status fields.
+ */
+export const AGENT_PANE_FORMAT = `#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
+
+/**
+ * The pane the TUI's status monitor pinned, else the session's current pane,
+ * from one session's `AGENT_PANE_FORMAT` lines.
+ */
+export function statusPaneOf(
+	lines: string[],
+	socket: string,
+): StatusPane | null {
+	const rows = lines.map(line => {
+		const [active = '', pinned = '', ...pane] = line.split('\t');
+		return {current: active === '11', pinned, pane: pane.join('\t')};
+	});
+	const pinned = rows.find(row => row.pinned)?.pinned;
+	const row = pinned
+		? rows.find(each => each.pane.startsWith(`${pinned}\t`))
+		: rows.find(each => each.current);
+	return row ? parseStatusPane(row.pane, socket) : null;
+}
+
+/**
  * The pane the TUI's status monitor pinned, read without attaching one: that
  * stays the TUI's job, and attaching from here would race it.
  */
@@ -130,22 +156,33 @@ function pinnedStatusPane(
 	session: string,
 	runner: OuterTmuxRunner,
 ): StatusPane | null {
-	const target = exactSessionTarget(session);
-	const pinned = tmuxOut(runner, [
-		'show-option',
-		'-qv',
+	const listing = tmuxOut(runner, [
+		'list-panes',
+		'-s',
 		'-t',
-		target,
-		STATUS_PANE_OPTION,
-	])?.trim();
-	const pane = tmuxOut(runner, [
-		'display-message',
-		'-p',
-		'-t',
-		pinned || target,
-		STATUS_PANE_FORMAT,
+		exactSessionTarget(session),
+		'-F',
+		AGENT_PANE_FORMAT,
 	]);
-	return pane ? parseStatusPane(pane, statusSocket()) : null;
+	return listing
+		? statusPaneOf(listing.split('\n').filter(Boolean), statusSocket())
+		: null;
+}
+
+/**
+ * A space's status as the rail shows it: the hook's record merged with what
+ * the agent reported on its pane, when the pane is known.
+ */
+export async function readAgentStatus(
+	key: string,
+	pane: StatusPane | null,
+	deps: Pick<AgentStateDeps, 'hookKey' | 'readHook' | 'readSnapshot'>,
+): Promise<ProgramStatusInfo | null> {
+	return mergeProgramStatus(
+		await deps.readHook(deps.hookKey),
+		pane ? await deps.readSnapshot(key, pane) : null,
+		pane,
+	);
 }
 
 /** The keys of every space in `repo` with an agent session. */
@@ -244,11 +281,7 @@ export async function readAgentState(
 	const pane = screen
 		? pinnedStatusPane(getSessionNames(key, repo).agent, runner)
 		: null;
-	const status = mergeProgramStatus(
-		await deps.readHook(deps.hookKey),
-		pane ? await deps.readSnapshot(key, pane) : null,
-		pane,
-	);
+	const status = await readAgentStatus(key, pane, deps);
 	return {
 		key,
 		state: classifyAgent(status, screen),

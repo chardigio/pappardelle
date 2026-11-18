@@ -1,4 +1,7 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import {sameFile} from './same-file.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 export class NoTargetSpaceError extends Error {
 	constructor() {
@@ -24,22 +27,51 @@ export function resolveTargetSpace(options: {
 	return own;
 }
 
-/**
- * The space a directory belongs to, from where Pappardelle puts worktrees.
- * Codex starts MCP servers with a filtered environment and OpenCode from a
- * shared service, so PAPPARDELLE_SPACE doesn't reach them, but both start the
- * server in the session's directory.
- */
-export function spaceFromWorktreePath(
-	directory: string,
+/** Where Pappardelle puts a repo's worktrees, one per space. */
+export function worktreesDir(home: string, repoName: string): string {
+	return path.join(home, '.worktrees', repoName);
+}
+
+export function worktreePathFor(
 	home: string,
 	repoName: string,
-): string | undefined {
-	const relative = path.relative(
-		path.join(home, '.worktrees', repoName),
-		directory,
-	);
-	if (!relative || relative.startsWith('..') || path.isAbsolute(relative))
+	key: string,
+): string {
+	return path.join(worktreesDir(home, repoName), key);
+}
+
+/**
+ * The space the caller is in: PAPPARDELLE_SPACE, else the checkout that
+ * holds `cwd`. Codex starts MCP servers with a filtered environment and
+ * OpenCode from a shared service, so PAPPARDELLE_SPACE doesn't reach them,
+ * and an agent started by hand in a worktree never had it; all of them run
+ * in the space's directory. Paths are compared by file identity, so a
+ * directory reached through a symlink belongs to the same space.
+ */
+export function callerSpace(options: {
+	env: NodeJS.ProcessEnv;
+	cwd: string;
+	home: string;
+	/** Unknown outside a git checkout, where only PAPPARDELLE_SPACE names a space. */
+	checkout: {repoName: string; mainRoot: string} | undefined;
+}): string | undefined {
+	const own = options.env['PAPPARDELLE_SPACE']?.trim();
+	if (own) return own;
+	if (!options.checkout) return undefined;
+	const {repoName, mainRoot} = options.checkout;
+	const worktrees = worktreesDir(options.home, repoName);
+	let directory: string;
+	try {
+		directory = fs.realpathSync(options.cwd);
+	} catch {
 		return undefined;
-	return relative.split(path.sep)[0];
+	}
+
+	for (;;) {
+		if (sameFile(directory, mainRoot)) return MAIN_WORKTREE_KEY;
+		const parent = path.dirname(directory);
+		if (parent === directory) return undefined;
+		if (sameFile(parent, worktrees)) return path.basename(directory);
+		directory = parent;
+	}
 }

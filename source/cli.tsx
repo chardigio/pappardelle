@@ -86,7 +86,7 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {resolveTargetSpace} from './space-target.ts';
+import {resolveTargetSpace, worktreePathFor} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {exitAfterFlush} from './exit-after-flush.ts';
 
@@ -530,12 +530,7 @@ if (cli.input.length > 0) {
 					waitForAgentStart({
 						claudeStatus: daos.claudeStatus,
 						statusKey: hookStatusKey(getRepoName(), issueKey),
-						worktree: path.join(
-							homedir(),
-							'.worktrees',
-							getRepoName(),
-							issueKey,
-						),
+						worktree: worktreePathFor(homedir(), getRepoName(), issueKey),
 						since,
 						timeoutMs: 60_000,
 					})

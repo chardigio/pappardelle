@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
-import {hookStatusKey} from './claude-status.ts';
+import {spaceStatusKey} from './claude-status.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
 import {selfLaunchArgs} from './runtime.ts';
 import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
@@ -29,7 +29,6 @@ import {
 	supervisedInnerTmuxRunner,
 	supervisedServerTmuxRunner,
 } from './tmux.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 const log = createLogger('supervise');
 
@@ -141,12 +140,11 @@ export function defaultSuperviseDeps(
 	return {
 		repo: getRepoName,
 		resolveKey,
-		async hookKey(key) {
-			if (key !== MAIN_WORKTREE_KEY)
-				return claudeStatus.readableKey(getRepoName(), key);
-			const main = await getMainWorktreeInfo();
-			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
-		},
+		hookKey: async key =>
+			spaceStatusKey(claudeStatus, getRepoName(), key, async () => {
+				const main = await getMainWorktreeInfo();
+				return main?.branch;
+			}),
 		readHook: async hookKey => claudeStatus.read(hookKey),
 		readSnapshot: async (key, pane) => programStatus.read(key, pane),
 		runner: supervisedInnerTmuxRunner,
