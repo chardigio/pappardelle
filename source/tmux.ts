@@ -1505,21 +1505,22 @@ export function cleanupOrphanedInnerSessions(
 		);
 
 		let killed = 0;
-		const failedOwners = new Set<string>();
-		for (const {name, owner} of orphans) {
+		const reapedKeys = new Set<string>();
+		const failedKeys = new Set<string>();
+		for (const {name} of orphans) {
+			const key = sessionSpace(name, runner);
 			const k = runner(['kill-session', '-t', exactSessionTarget(name)]);
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned inner-socket session: ${name}`);
-			} else {
-				failedOwners.add(owner);
+				if (key) reapedKeys.add(key);
+			} else if (key) {
+				failedKeys.add(key);
 			}
 		}
 
-		forgetProgramStatus(
-			new Set(orphans.map(orphan => orphan.owner)),
-			failedOwners,
-		);
+		for (const key of reapedKeys)
+			if (!failedKeys.has(key)) void programStatus().remove(key);
 		return killed;
 	} catch {
 		return 0;
@@ -1527,27 +1528,20 @@ export function cleanupOrphanedInnerSessions(
 }
 
 /**
- * Drop the program status of the spaces whose sessions were reaped, unless
- * one of a space's sessions survived its kill. Closed identities are kept, so
- * a reaped session is named by one unless its space was closed before
- * identities were stored.
+ * The space a session was started for, from the PAPPARDELLE_SPACE its
+ * creator set on it, or null when it has none. An orphan's space may have no
+ * stored identity left to name it.
  */
-function forgetProgramStatus(
-	reaped: ReadonlySet<string>,
-	failed: ReadonlySet<string>,
-): void {
-	if (reaped.size === 0) return;
-	const listed = spaceIdentities().list();
-	if (listed.kind === 'unreadable') return;
-	for (const identity of listed.identities) {
-		const {agentSession, companionSession} = identity.tmux;
-		if (
-			(reaped.has(agentSession) || reaped.has(companionSession)) &&
-			!failed.has(agentSession) &&
-			!failed.has(companionSession)
-		)
-			void programStatus().remove(identity.key);
-	}
+function sessionSpace(name: string, runner: OuterTmuxRunner): string | null {
+	const result = runner([
+		'show-environment',
+		'-t',
+		exactSessionTarget(name),
+		'PAPPARDELLE_SPACE',
+	]);
+	if (result.error || result.status !== 0) return null;
+	const match = /^PAPPARDELLE_SPACE=(.+)$/m.exec(result.stdout);
+	return match?.[1]?.trim() || null;
 }
 
 const simulatorCleanup = new QaSimulatorCleanup(

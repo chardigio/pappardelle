@@ -74,8 +74,7 @@ try {
 	for (const mode of ['normal', 'detached', 'orphan'] as const) {
 		const key = `qa-cleanup-${mode}`;
 		const session = sessionNamesFor(key, repo).agent;
-		// As idow records it. The reaper names a reaped session's space from
-		// these, so without the database an orphan's status stays behind.
+		// As idow records it: close finds the space's sessions by these names.
 		await daos.spaceIdentities.record(
 			newSpaceIdentity({
 				repo,
@@ -84,6 +83,8 @@ try {
 				socket: statusSocket(),
 			}),
 		);
+		// Every creator sets the space on its sessions, which is how the reaper
+		// knows whose status an orphan leaves behind.
 		await harness.tmux([
 			'new-session',
 			'-d',
@@ -91,6 +92,8 @@ try {
 			session,
 			'-c',
 			harness.root,
+			'-e',
+			`PAPPARDELLE_SPACE=${key}`,
 			'/bin/bash',
 		]);
 		const pane = await daos.programStatus.attach(key, session);
@@ -173,7 +176,15 @@ try {
 		}),
 	);
 	for (const session of [sessions.agent, sessions.companion])
-		await harness.tmux(['new-session', '-d', '-s', session, '/bin/bash']);
+		await harness.tmux([
+			'new-session',
+			'-d',
+			'-s',
+			session,
+			'-e',
+			`PAPPARDELLE_SPACE=${key}`,
+			'/bin/bash',
+		]);
 	const pane = await daos.programStatus.attach(key, sessions.agent);
 	assert.ok(pane);
 	await harness.fixture(sessions.agent);
