@@ -171,6 +171,15 @@ setTimeout(() => {
 		fs.mkdirSync(path.dirname(registry), {recursive: true});
 		fs.writeFileSync(registry, '["STE-1"]\n');
 	};
+	/**
+	 * A worktree on disk with no stored identity, as a space closed before
+	 * identities were stored has it.
+	 */
+	const worktreeOnly = (key: string) => {
+		fs.mkdirSync(path.join(home, '.worktrees', 'project', key), {
+			recursive: true,
+		});
+	};
 	/** A worktree an earlier idow run created and recorded. */
 	const existingWorktree = async (key: string) => {
 		const worktreePath = path.join(home, '.worktrees', 'project', key);
@@ -210,6 +219,7 @@ setTimeout(() => {
 		readRecord,
 		seed,
 		existingWorktree,
+		worktreeOnly,
 	};
 }
 
@@ -399,7 +409,7 @@ test.serial(
 	'CLI orders resume before the forced profile for an existing worktree',
 	async t => {
 		const f = fixture(t);
-		await f.existingWorktree('STE-20');
+		f.worktreeOnly('STE-20');
 		for (const args of [
 			['--profile', 'test', 'STE-20'],
 			['--resume', '--profile', 'test', 'STE-20'],
@@ -454,7 +464,7 @@ test.serial(
 	'CLI automatically resumes an existing worktree even when it is not registered',
 	async t => {
 		const f = fixture(t);
-		await f.existingWorktree('STE-20');
+		f.worktreeOnly('STE-20');
 		for (const input of ['20', 'ste-20']) {
 			const result = await f.run([input]);
 			t.is(result.code, 0);
@@ -468,7 +478,7 @@ test.serial(
 	'CLI --no-resume overrides automatic resume for an existing worktree',
 	async t => {
 		const f = fixture(t);
-		await f.existingWorktree('STE-20');
+		f.worktreeOnly('STE-20');
 		const result = await f.run(['STE-20', '--no-resume']);
 		t.is(result.code, 0);
 		t.deepEqual(f.readRecord().args, ['STE-20']);
