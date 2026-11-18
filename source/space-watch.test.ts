@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {idowIdentities} from '../test/helpers/state.ts';
 import test from 'ava';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {
@@ -9,7 +10,6 @@ import {
 } from './supervise-command.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import {decodeCursor, encodeCursor} from './space-watch.ts';
-import {newSpaceIdentity} from './space-identity.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 const fixture = (name: string) =>
@@ -40,24 +40,6 @@ const permission = (command: string) =>
 		'   2. No',
 		' Esc to cancel · Tab to amend',
 	].join('\n');
-
-/** Identities of these keys in repo `repo`, named as idow names them. */
-function identitiesOf(keys: () => string[]) {
-	return {
-		list: () =>
-			({
-				kind: 'identities',
-				identities: keys().map(key =>
-					newSpaceIdentity({
-						repo: 'repo',
-						key,
-						worktreePath: `/w/${key}`,
-						socket: 'pappardelle_inner',
-					}),
-				),
-			}) as const,
-	};
-}
 
 /**
  * Agent sessions in repo `repo`, keyed by space, each showing its screen.
@@ -97,7 +79,10 @@ function spaces(
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
-		identities: identitiesOf(() => identified ?? Object.keys(screens)),
+		identities: idowIdentities(
+			'repo',
+			() => identified ?? Object.keys(screens),
+		),
 		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
 		hookKey: async key => key,
 		readHook: async () => ({status: 'unknown'}),

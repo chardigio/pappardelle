@@ -5,6 +5,12 @@ import {
 	runCloseTeardown,
 } from './close-command.ts';
 import type {TrackerIssue} from './providers/types.ts';
+import {
+	killSpaceSessions,
+	spaceSessionNames,
+	type AsyncTmuxRunner,
+} from './tmux.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
 
 const ISSUE: TrackerIssue = {
 	identifier: 'STA-1',
@@ -306,4 +312,41 @@ test('a registry without a lifecycle still fails a close with the error it threw
 			t.false(events.some(event => event.includes('database is locked')));
 		}
 	}
+});
+
+test('close kills the sessions stored for the space, and knows its own session by them', async t => {
+	const state = testTmuxState(t, {sqlite: true});
+	await state.daos.spaceIdentities.record({
+		repo: state.repo,
+		key: 'STA-1',
+		worktreePath: '/wt/STA-1',
+		tmux: {
+			socket: 'pappardelle_inner',
+			agentSession: 'agent-hand-named',
+			companionSession: 'companion-hand-named',
+		},
+	});
+	const killed: string[] = [];
+	const run: AsyncTmuxRunner = async args => {
+		if (args.includes('kill-session')) killed.push(args.at(-1)!);
+		return '';
+	};
+
+	const {deps} = fakeDeps({
+		killSpaceSessions: async key => killSpaceSessions(key, {run}),
+		sessionNames: spaceSessionNames,
+	});
+	t.is(await runCloseTeardown('STA-1', deps), 0);
+	t.deepEqual(killed, [
+		'=companion-hand-named:',
+		'=agent-hand-named:',
+		'=claude-hand-named:',
+	]);
+
+	const inside = fakeDeps({
+		sessionNames: spaceSessionNames,
+		currentInnerSession: () => 'agent-hand-named',
+	});
+	t.is(await runCloseCommand({key: 'STA-1', yes: true}, inside.deps), 0);
+	t.true(inside.events.includes('spawn STA-1 /repo'));
 });

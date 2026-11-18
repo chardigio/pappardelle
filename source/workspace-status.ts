@@ -74,14 +74,15 @@ export class WorkspaceStatuses {
 		{
 			socket: string;
 			sessionKey: string;
-			session: string;
+			session: string | null;
 			pane: Promise<StatusPane | null>;
 		}
 	>();
 
 	constructor(
 		private readonly programStatus: ProgramStatusDao,
-		private readonly sessionName: (key: string) => string,
+		/** Null for a space with no stored session names, which has no pane. */
+		private readonly sessionName: (key: string) => string | null,
 		private readonly claudeStatus: Pick<ClaudeStatusDao, 'read' | 'watch'>,
 		private readonly run?: StatusTmuxRunner,
 	) {}
@@ -92,20 +93,23 @@ export class WorkspaceStatuses {
 		return async (key, sessionKey) => {
 			this.sessionKeys.set(key, sessionKey);
 			const session = this.sessionName(sessionKey);
-			listing ??= listStatusPanes(socket, this.run);
+			if (session) listing ??= listStatusPanes(socket, this.run);
 			const entry = {
 				socket,
 				sessionKey,
 				session,
-				pane: listing.then(async panes =>
-					this.programStatus.monitor(
-						sessionKey,
-						session,
-						panes.get(session),
-						socket,
-						this.run,
-					),
-				),
+				pane:
+					session && listing
+						? listing.then(async panes =>
+								this.programStatus.monitor(
+									sessionKey,
+									session,
+									panes.get(session),
+									socket,
+									this.run,
+								),
+							)
+						: Promise.resolve(null),
 			};
 			this.panes.set(key, entry);
 			return this.readPane(key, sessionKey, await entry.pane);

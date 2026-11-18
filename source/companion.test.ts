@@ -7,15 +7,21 @@ import {
 	resizeCompanionPane,
 	runInCompanion,
 	sendCompanionKeys,
+	companionSessionTarget,
 } from './companion.ts';
-import type {OuterTmuxRunner} from './tmux.ts';
-import {testTmuxState} from '../test/helpers/state.ts';
+import {initTmuxState, type OuterTmuxRunner} from './tmux.ts';
+import {
+	testState,
+	testTmuxState,
+	type TestState,
+} from '../test/helpers/state.ts';
 
 // tmux.ts names a space's sessions from the stores. Without the database they
 // are the names idow gives a space, which is all this file needs.
 const stateTeardowns: Array<() => void> = [];
+let derived: TestState;
 test.before(() => {
-	testTmuxState(
+	derived = testTmuxState(
 		{teardown: fn => stateTeardowns.push(fn)},
 		{repo: 'repo', sqlite: false},
 	);
@@ -155,7 +161,7 @@ function fakeTmux(
 	return {runner, calls, panes, splits};
 }
 
-const deps = (runner: OuterTmuxRunner) => ({runner, repoName: 'repo'});
+const deps = (runner: OuterTmuxRunner) => ({runner});
 
 test('an untagged session names its lowest pane main', t => {
 	const tmux = fakeTmux([{id: '%7'}, {id: '%3'}]);
@@ -379,3 +385,32 @@ test('read returns only the last N lines of what tmux captured', t => {
 		'line 28\nline 29\nline 30',
 	);
 });
+
+test.serial(
+	'the companion verbs target the companion session stored for the space',
+	async t => {
+		const stored = testState(t, {repo: 'repo', sqlite: true});
+		await stored.daos.spaceIdentities.record({
+			repo: 'repo',
+			key: 'STA-1',
+			worktreePath: '/work/tree',
+			tmux: {
+				socket: 'pappardelle_inner',
+				agentSession: 'hand-named-agent',
+				companionSession: 'hand-named-companion',
+			},
+		});
+		initTmuxState(stored.daos);
+		t.teardown(() => {
+			initTmuxState(derived.daos);
+		});
+		const runner: OuterTmuxRunner = args => ({
+			status: 0,
+			stdout:
+				args[0] === 'list-sessions'
+					? 'companion-repo-STA-1\nhand-named-companion\n'
+					: '',
+		});
+		t.is(companionSessionTarget('STA-1', {runner}), '=hand-named-companion:');
+	},
+);

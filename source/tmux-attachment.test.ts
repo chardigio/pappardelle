@@ -3,6 +3,7 @@ import {setImmediate as nextTurn} from 'node:timers/promises';
 import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {sessionNamesFor} from './space-identity.ts';
 import test, {type ExecutionContext} from 'ava';
 import {LatestTask} from './latest-task.ts';
 import {
@@ -11,7 +12,6 @@ import {
 	getCurrentlyViewingSpace,
 	ensureAgentSession,
 	ensureCompanionSession,
-	getSessionNames,
 	initTmuxState,
 	killSpaceSessions,
 	registerAwaitingFrame,
@@ -871,7 +871,7 @@ test.serial(
 	'a missing companion session says the companion, not the agent, is not running',
 	async t => {
 		const fake = fakeTmux();
-		const {companion} = getSessionNames('TEST-C');
+		const {companion} = sessionNamesFor('TEST-C', getRepoName());
 		const run: AsyncTmuxRunner = async args => {
 			if (
 				(args.includes('has-session') || args.includes('new-session')) &&
@@ -1159,7 +1159,11 @@ test.serial(
 		t.true(await attach('TEST-WARM'));
 		const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
 		const program = handed[handed.indexOf(FRAME_COMMAND_OPTION) + 1]!;
-		t.true(program.includes(`=${getSessionNames('TEST-WARM').agent}:`));
+		t.true(
+			program.includes(
+				`=${sessionNamesFor('TEST-WARM', getRepoName()).agent}:`,
+			),
+		);
 		t.true(program.includes('agent · TEST-WARM'));
 		t.deepEqual(handed.slice(-3), ['wait-for', '-S', frameReadyChannel('%7')]);
 		t.false(calls.some(args => args.includes('respawn-pane')));

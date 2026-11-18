@@ -11,8 +11,7 @@ import type {ClaudeStatusDao} from './claude-status.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
-import {worktreePathFor, worktreesDir} from './space-identity.ts';
-import {getSessionNames} from './tmux.ts';
+import {worktreesDir, type SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
 
 const execFileAsync = promisify(execFile);
@@ -45,7 +44,8 @@ export type SpaceEntry = {
 	conversationLog?: string;
 	logModified?: number;
 	logMinutesAgo?: number;
-	tmuxSession: string;
+	/** Null for a space with no stored session names. */
+	tmuxSession: string | null;
 	title: string | null;
 	prUrl: string | null;
 	git: GitSummary | null;
@@ -58,6 +58,7 @@ export type SpacesReport =
 export interface SpacesDeps {
 	repoName: string;
 	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
+	spaceIdentities: Pick<SpaceIdentityDao, 'get'>;
 	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'readState'>;
 	spaceState: Pick<SpaceStateDao, 'read'>;
 	issueMeta: Pick<IssueMetaDao, 'read'>;
@@ -240,21 +241,26 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				entry.worktreePath = session['cwd'];
 			}
 
-			const worktree = worktreePathFor(home, repoName, name);
-			const log = newestJsonl(
-				claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
-			);
+			const lookup = deps.spaceIdentities.get(name);
+			const identity = lookup.kind === 'identity' ? lookup.identity : null;
+			const worktree = identity?.worktreePath ?? null;
+			const log =
+				worktree &&
+				newestJsonl(
+					claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
+				);
 			if (log) {
 				entry.conversationLog = log.file;
 				entry.logModified = log.mtimeMs / 1000;
 				entry.logMinutesAgo = roundTenth((now - log.mtimeMs) / 60_000);
 			}
 
-			entry.tmuxSession = getSessionNames(name, repoName).agent;
+			entry.tmuxSession = identity?.tmux.agentSession ?? null;
 			entry.prUrl = prUrl;
-			entry.git = fs.existsSync(worktree)
-				? await deps.gitSummary(worktree).catch(() => null)
-				: null;
+			entry.git =
+				worktree && fs.existsSync(worktree)
+					? await deps.gitSummary(worktree).catch(() => null)
+					: null;
 			const titleMap = await titles;
 			entry.title = titleMap.get(name) ?? null;
 			return entry as SpaceEntry;
@@ -366,6 +372,7 @@ export function formatSpaces(report: SpacesReport): string {
 export async function runSpacesCommand(options: {
 	repoName: string;
 	registry: SpacesDeps['registry'];
+	spaceIdentities: SpacesDeps['spaceIdentities'];
 	claudeStatus: SpacesDeps['claudeStatus'];
 	spaceState: SpacesDeps['spaceState'];
 	issueMeta: SpacesDeps['issueMeta'];
@@ -376,6 +383,7 @@ export async function runSpacesCommand(options: {
 	const report = await gatherSpaces({
 		repoName: options.repoName,
 		registry: options.registry,
+		spaceIdentities: options.spaceIdentities,
 		claudeStatus: options.claudeStatus,
 		spaceState: options.spaceState,
 		issueMeta: options.issueMeta,

@@ -12,7 +12,7 @@ import {
 	createCompanionSplit,
 	defaultInnerTmuxRunner,
 	exactSessionTarget,
-	getSessionNames,
+	spaceSessionNames,
 	INNER_SOCKET,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
@@ -39,7 +39,6 @@ export interface CompanionPane {
 
 export interface CompanionDeps {
 	runner?: OuterTmuxRunner;
-	repoName?: string;
 }
 
 const PANE_FORMAT = [
@@ -97,7 +96,11 @@ export function companionSessionTarget(
 	deps: CompanionDeps = {},
 ): string {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const session = getSessionNames(spaceKey, deps.repoName).companion;
+	const session = spaceSessionNames(spaceKey)?.companion;
+	if (!session)
+		throw new CompanionError(
+			`No companion session for ${spaceKey}: it has no stored session names. Open the space with Pappardelle to record them.`,
+		);
 	const target = resolveInnerSessionTargetSync(session, runner);
 	if (!target) {
 		throw new CompanionError(
@@ -151,8 +154,8 @@ export function listCompanionPanes(
 
 function loadSpace(spaceKey: string, deps: CompanionDeps) {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const session = getSessionNames(spaceKey, deps.repoName).companion;
 	const target = companionSessionTarget(spaceKey, {...deps, runner});
+	const session = target.slice(1, -1);
 	const main = listCompanionPanes(target, runner).find(
 		pane => pane.name === MAIN_PANE,
 	)!;

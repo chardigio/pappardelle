@@ -61,7 +61,7 @@ export const POLICY_REFUSED_EXIT = 3;
 
 export type SuperviseDeps = {
 	repo: () => string;
-	identities: Pick<SpaceIdentityDao, 'list'>;
+	identities: Pick<SpaceIdentityDao, 'list' | 'get'>;
 	resolveKey: (raw: string) => string;
 	/** The hook file's key for a space: `{repo}-{branch}` for main. */
 	hookKey: (key: string) => Promise<string>;
@@ -96,7 +96,7 @@ const TAB_SETTLE_MS = 300;
 
 async function readState(key: string, deps: SuperviseDeps) {
 	const stateDeps: AgentStateDeps = {
-		repo: deps.repo(),
+		identities: deps.identities,
 		runner: deps.runner,
 		now: deps.now,
 		sleep: deps.sleep,
@@ -204,7 +204,7 @@ async function readQuestionTabs(
 
 	const current = async () => {
 		const capture = await captureAgentScreen(key, 60, {
-			repo: deps.repo(),
+			identities: deps.identities,
 			runner: deps.runner,
 			sleep: deps.sleep,
 		});
@@ -982,10 +982,10 @@ async function execute(
 				? readCompanionPane(
 						key,
 						{pane: command.pane, lines: command.lines},
-						{runner: deps.runner, repoName: deps.repo()},
+						{runner: deps.runner},
 					)
 				: await captureAgentScreen(key, command.lines, {
-						repo: deps.repo(),
+						identities: deps.identities,
 						runner: deps.runner,
 						sleep: deps.sleep,
 					});

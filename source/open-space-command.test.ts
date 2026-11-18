@@ -260,6 +260,7 @@ test.serial(
 	'CLI --wait succeeds once the reopened space reports its agent started',
 	async t => {
 		const f = fixture(t);
+		await f.existingWorktree('STE-20');
 		const statusDir = path.join(f.root, 'status');
 		const result = await f.run(['--resume', '--wait', 'STE-20'], {
 			PAPPARDELLE_STATUS_DIR: statusDir,
@@ -277,6 +278,7 @@ test.serial(
 	'CLI --wait begun before any status daemon runs succeeds once one starts and the agent reports to it',
 	async t => {
 		const f = fixture(t);
+		await f.existingWorktree('STE-20');
 		const socketPath = statusSocketPath(path.join(f.home, '.pappardelle'));
 		const child = f.start(['--resume', '--wait', 'STE-20']);
 		let stdout = '';

@@ -38,6 +38,7 @@ function tempHome(
 		testState(t, {
 			repo: REPO,
 			stateDir: path.join(home, '.pappardelle'),
+			home,
 			...options,
 		}),
 	);

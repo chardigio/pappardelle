@@ -6,6 +6,7 @@ import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
 import {captureAgentScreen, READ_WINDOW} from './agent-state.ts';
+import {idowIdentities} from '../test/helpers/state.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 const tmuxTest =
@@ -33,7 +34,11 @@ const on =
 	};
 
 const runner = on(inner);
-const deps = {repo: 'itest', runner, sleep: delay};
+const deps = {
+	identities: idowIdentities('itest', () => ['KEY-1']),
+	runner,
+	sleep: delay,
+};
 const AGENT = 'agent-itest-KEY-1';
 const sizeOf = () =>
 	runner([

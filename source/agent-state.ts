@@ -23,7 +23,6 @@ import {
 import type {ProgramStatusInfo} from './program-status.ts';
 import {
 	exactSessionTarget,
-	getSessionNames,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -101,7 +100,7 @@ export function classifyAgent(
 }
 
 export type AgentStateDeps = {
-	repo: string;
+	identities: Pick<SpaceIdentityDao, 'get'>;
 	runner: OuterTmuxRunner;
 	now: () => Date;
 	sleep: (ms: number) => Promise<void>;
@@ -254,15 +253,21 @@ async function growUnviewedWindow(
 	if (!resized.error && resized.status === 0) await deps.sleep(REDRAW_MS);
 }
 
+function agentSessionOf(
+	key: string,
+	deps: Pick<AgentStateDeps, 'identities'>,
+): string | null {
+	const lookup = deps.identities.get(key);
+	return lookup.kind === 'identity' ? lookup.identity.tmux.agentSession : null;
+}
+
 export async function captureAgentScreen(
 	key: string,
 	lines: number,
-	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'sleep'>,
+	deps: Pick<AgentStateDeps, 'identities' | 'runner' | 'sleep'>,
 ): Promise<string | null> {
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(key, deps.repo).agent,
-		deps.runner,
-	);
+	const session = agentSessionOf(key, deps);
+	const target = session && resolveInnerSessionTargetSync(session, deps.runner);
 	if (!target) return null;
 	await growUnviewedWindow(target, deps);
 	return tmuxOut(deps.runner, [
@@ -281,13 +286,12 @@ export async function readAgentState(
 	key: string,
 	deps: AgentStateDeps,
 ): Promise<AgentStateReport> {
-	const {repo, runner} = deps;
+	const {runner} = deps;
 	const capture = await captureAgentScreen(key, SCREEN_TAIL_LINES, deps);
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
-	const pane = screen
-		? pinnedStatusPane(getSessionNames(key, repo).agent, runner)
-		: null;
+	const session = agentSessionOf(key, deps);
+	const pane = screen && session ? pinnedStatusPane(session, runner) : null;
 	const status = await readAgentStatus(key, pane, deps);
 	return {
 		key,
