@@ -518,18 +518,19 @@ export function captureStderr(): void {
 	// listener: Bun may call it at loop shutdown, when nothing it schedules runs.
 	// The listener stays until a re-rejection comes back, so every rejection of
 	// the same tick reaches the log first.
-	const rejected = new Set<unknown>();
-	const onUnhandledRejection = (reason: unknown) => {
+	const reRejections = new WeakSet<Promise<unknown>>();
+	const onUnhandledRejection = (reason: unknown, promise: Promise<unknown>) => {
 		if (process.listenerCount('unhandledRejection') > 1) return;
-		if (rejected.has(reason)) {
+		if (reRejections.has(promise)) {
 			process.off('unhandledRejection', onUnhandledRejection);
-		} else {
-			crashLog.error(format(reason));
-			rejected.add(reason);
+			// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+			void Promise.reject(reason);
+			return;
 		}
 
+		crashLog.error(format(reason));
 		// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
-		void Promise.reject(reason);
+		reRejections.add(Promise.reject(reason));
 	};
 
 	process.on('unhandledRejection', onUnhandledRejection);

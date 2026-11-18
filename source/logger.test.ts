@@ -705,12 +705,17 @@ test('unhandled rejections land in the log and still crash the process', t => {
 		`captureStderr();
 setInterval(() => {}, 1000);
 void Promise.reject(new Error('first-rejection'));
-void Promise.reject(new Error('second-rejection'));`,
+void Promise.reject(new Error('second-rejection'));
+void Promise.reject();
+void Promise.reject();
+void Promise.reject(new Error('after-duplicates'));`,
 	);
 	t.is(status, 1);
 	t.true(stderr.includes('first-rejection'));
 	t.is(text.match(/\[crash\] Error: first-rejection/g)?.length, 1);
 	t.is(text.match(/\[crash\] Error: second-rejection/g)?.length, 1);
+	t.is(text.match(/\[crash\] undefined/g)?.length, 2);
+	t.is(text.match(/\[crash\] Error: after-duplicates/g)?.length, 1);
 });
 
 test('a rejection raised after startup still crashes the process', t => {
