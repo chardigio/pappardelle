@@ -841,6 +841,28 @@ class TestStoredSpace:
         update_status("processing", cwd=str(main / "src"))
         assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-main"]
 
+    def test_a_checkout_nested_in_main_is_not_main(self, tmp_path: Path, state_db: Path, status_socket):
+        main = tmp_path / "main"
+        nested = main / ".claude" / "worktrees" / "agent-x"
+        (nested / "src").mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: elsewhere\n")
+        record_space(state_db, "repo", "main", str(main))
+        update_status("processing", cwd=str(nested / "src"))
+        assert status_socket.messages() == []
+
+    def test_a_closed_space_holds_no_caller(self, tmp_path: Path, state_db: Path, status_socket):
+        import sqlite3
+
+        worktree = tmp_path / "closed"
+        worktree.mkdir()
+        record_space(state_db, "repo", "STA-6", str(worktree))
+        connection = sqlite3.connect(state_db)
+        connection.execute("DELETE FROM spaces WHERE key = 'STA-6'")
+        connection.commit()
+        connection.close()
+        update_status("processing", cwd=str(worktree))
+        assert status_socket.messages() == []
+
     def test_a_cwd_in_no_stored_space_reports_nothing(
         self, worktree: Path, tmp_path: Path, status_socket, monkeypatch: pytest.MonkeyPatch
     ):

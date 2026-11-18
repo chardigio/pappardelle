@@ -256,3 +256,34 @@ test('a space keeps the names it was first given', async t => {
 		identity: first,
 	});
 });
+
+contractTest(
+	'a path in a checkout nested in a worktree belongs to no space',
+	async (t, state) => {
+		const f = contractFixture(t, state);
+		await f.open('main');
+		const nested = path.join(f.mainRoot, '.claude', 'worktrees', 'agent-x');
+		fs.mkdirSync(path.join(nested, 'src'), {recursive: true});
+		fs.writeFileSync(path.join(nested, '.git'), 'gitdir: elsewhere\n');
+		t.deepEqual(f.state.daos.spaceIdentities.atPath(path.join(nested, 'src')), {
+			kind: 'unknown',
+		});
+		t.is(
+			(
+				f.state.daos.spaceIdentities.atPath(path.join(f.mainRoot, 'src')) as {
+					identity: SpaceIdentity;
+				}
+			).identity.key,
+			'main',
+		);
+	},
+);
+
+test('a closed space holds no path', async t => {
+	const f = fixture(t, true);
+	const opened = await f.open('STA-1');
+	await f.state.daos.registry.remove('STA-1');
+	t.deepEqual(f.state.daos.spaceIdentities.atPath(opened.worktreePath), {
+		kind: 'unknown',
+	});
+});

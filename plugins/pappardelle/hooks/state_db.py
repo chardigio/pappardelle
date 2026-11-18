@@ -193,11 +193,13 @@ class SpaceRow(NamedTuple):
 
 
 def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
-    """The space whose stored worktree is cwd or its nearest ancestor.
+    """The open space or main whose stored worktree is cwd or its nearest
+    ancestor, as identityAt in source/space-identity.ts.
 
     Both sides go through realpath, so a directory reached through a symlink
-    belongs to the same space. None when no space holds cwd, or when the
-    database cannot be read.
+    belongs to the same space. A path inside a git checkout nested in that
+    worktree (an agent's worktree under the main checkout) belongs to none.
+    None when no space holds cwd, or when the database cannot be read.
     """
     try:
         import sqlite3
@@ -210,19 +212,27 @@ def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
             timeout=BUSY_TIMEOUT_SECONDS,
         )
         try:
+            # Closed rows are kept forever, and a closed space holds no caller.
             rows = connection.execute(
-                "SELECT repo, key, worktree_path, agent_session FROM space_identities"
+                """SELECT i.repo, i.key, i.worktree_path, i.agent_session
+                FROM space_identities i
+                WHERE i.key = 'main' OR EXISTS (
+                    SELECT 1 FROM spaces s WHERE s.repo = i.repo AND s.key = i.key)"""
             ).fetchall()
         finally:
             connection.close()
     except sqlite3.Error:
         return None
-    target = os.path.realpath(cwd)
-    found: Optional[tuple[int, SpaceRow]] = None
+    roots: dict[str, SpaceRow] = {}
     for row in rows:
-        root = os.path.realpath(row[2])
-        if target != root and not target.startswith(root.rstrip(os.sep) + os.sep):
-            continue
-        if found is None or len(root) > found[0]:
-            found = (len(root), SpaceRow(*row))
-    return found[1] if found else None
+        roots.setdefault(os.path.realpath(row[2]), SpaceRow(*row))
+    directory = os.path.realpath(cwd)
+    while True:
+        if directory in roots:
+            return roots[directory]
+        if os.path.lexists(os.path.join(directory, ".git")):
+            return None
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return None
+        directory = parent

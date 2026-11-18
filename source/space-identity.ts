@@ -29,7 +29,11 @@ export interface SpaceIdentityDao {
 	get(key: string): SpaceIdentityLookup;
 	/** Every identity of this repo, open or closed, main included. */
 	list(): SpaceIdentityList;
-	/** The space whose worktree holds `path`, compared by file identity (`sameFile`). */
+	/**
+	 * The open space or main whose worktree holds `path`, compared by file
+	 * identity (`sameFile`). A path inside a checkout nested in that worktree
+	 * belongs to no space.
+	 */
 	atPath(path: string): SpaceIdentityLookup;
 	/**
 	 * Store a new space's identity. A key that has one keeps it: its sessions
@@ -186,6 +190,7 @@ export class JsonSpaceIdentityDao implements SpaceIdentityDao {
 			if (parent === directory) return {kind: 'unknown'};
 			if (sameFile(parent, worktrees))
 				return this.get(path.basename(directory));
+			if (isCheckoutRoot(directory)) return {kind: 'unknown'};
 			directory = parent;
 		}
 	}
@@ -219,10 +224,20 @@ export function identityAt(
 		const id = fileId(directory);
 		const found = id ? byFile.get(id) : undefined;
 		if (found) return found;
+		if (isCheckoutRoot(directory)) return undefined;
 		const parent = path.dirname(directory);
 		if (parent === directory) return undefined;
 		directory = parent;
 	}
+}
+
+/**
+ * Whether a git checkout or worktree starts here. A path inside one that is
+ * nested in a space's worktree (an agent's worktree under the main checkout)
+ * is that checkout's, not the space's.
+ */
+function isCheckoutRoot(directory: string): boolean {
+	return fs.existsSync(path.join(directory, '.git'));
 }
 
 function fileId(file: string): string | undefined {
