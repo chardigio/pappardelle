@@ -29,6 +29,7 @@ import {
 	getWorktreePath,
 	getMainWorktreeInfo,
 	INNER_SOCKET,
+	supervisedInnerTmuxRunner,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -139,6 +140,28 @@ function resolveCliSpaceKey(rawKey: string): string {
 		config ? getTeamPrefix(config) : 'STA',
 		createIssueTracker().name,
 		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+}
+
+// Dispatched before meow so that `--field x` and `--field=x` both parse, and
+// so that a mistyped verb exits instead of being read as a prompt.
+if (process.argv[2] === 'space') {
+	const [{runSpaceCommand, defaultSpaceCommandDeps}, {stateDaosByRepo}] =
+		await Promise.all([
+			import('./space-command.ts'),
+			import('./state-daos.ts'),
+		]);
+	await exitAfterFlush(
+		await runSpaceCommand(
+			process.argv.slice(3),
+			defaultSpaceCommandDeps({
+				repo: getRepoName,
+				mainRoot: getMainRepoRoot,
+				daos: stateDaosByRepo(),
+				resolveKey: resolveCliSpaceKey,
+				runner: supervisedInnerTmuxRunner,
+			}),
+		),
 	);
 }
 

@@ -64,12 +64,20 @@ export type SpaceStatePatch = Omit<SpaceState, 'prLinks' | 'updatedAt'>;
 /** What the rail poll learns about a space. It never chooses the profile. */
 export type RailStatusPatch = Omit<SpaceStatePatch, 'profile' | 'issueTitle'>;
 
+/** What is recorded for one space. */
+export type SpaceStateLookup =
+	| {kind: 'state'; state: SpaceState}
+	| {kind: 'none'}
+	| Unreadable;
+
 /** One repo's per-space state, a record per space key. */
 export interface SpaceStateDao {
 	/** The file that holds a space's record, for messages that name it. */
 	file(key: string): string;
 	/** Null when nothing is recorded, or the record cannot be read. */
 	read(key: string): SpaceState | null;
+	/** `read` for a caller that must not take an unreadable record for none. */
+	lookup(key: string): SpaceStateLookup;
 	write(key: string, patch: SpaceStatePatch): Promise<void>;
 	/** Several spaces' patches at once, such as one rail poll's results. */
 	writeMany(
@@ -469,6 +477,23 @@ export class JsonSpaceStateDao implements SpaceStateDao {
 		}
 
 		return null;
+	}
+
+	lookup(key: string): SpaceStateLookup {
+		let content: string;
+		try {
+			content = fs.readFileSync(this.file(key), 'utf8');
+		} catch (error) {
+			return (error as NodeJS.ErrnoException).code === 'ENOENT'
+				? {kind: 'none'}
+				: {kind: 'unreadable', error};
+		}
+
+		try {
+			return {kind: 'state', state: parseSpaceState(content)};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
 	}
 
 	/**

@@ -57,6 +57,34 @@ const verbs: Record<string, Verb> = {
 		return 0;
 	},
 
+	/** `space get` and `space list` for idow, in the repo `--repo <name>` names. */
+	async space(args) {
+		const at = args.indexOf('--repo');
+		const repo = at === -1 ? undefined : args[at + 1];
+		if (!repo) return usage('space needs --repo <name>');
+		const rest = args.filter((_, index) => index !== at && index !== at + 1);
+		const [
+			{defaultSpaceCommandDeps, runSpaceCommand},
+			{getMainRepoRoot},
+			{supervisedInnerTmuxRunner},
+		] = await Promise.all([
+			import('./space-command.ts'),
+			import('./config.ts'),
+			import('./tmux.ts'),
+		]);
+		const daos = createStateDaos({repo});
+		return runSpaceCommand(
+			rest,
+			defaultSpaceCommandDeps({
+				repo: () => repo,
+				mainRoot: getMainRepoRoot,
+				daos: () => daos,
+				resolveKey: key => key,
+				runner: supervisedInnerTmuxRunner,
+			}),
+		);
+	},
+
 	/** Create or upgrade the database at a path, for the hooks' tests. */
 	migrate([dbPath]) {
 		if (!dbPath) return usage('migrate needs a database path');
