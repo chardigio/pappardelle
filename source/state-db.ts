@@ -48,7 +48,18 @@ const MIGRATIONS: string[] = [
 		state TEXT NOT NULL CHECK (state IN ('starting', 'open', 'closing')),
 		owner_pid INTEGER,
 		PRIMARY KEY (repo, key)
-	) STRICT`,
+	) STRICT;
+	CREATE TABLE space_identities (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		worktree_path TEXT NOT NULL,
+		tmux_socket TEXT NOT NULL,
+		agent_session TEXT NOT NULL,
+		companion_session TEXT NOT NULL,
+		PRIMARY KEY (repo, key)
+	) STRICT;
+	CREATE UNIQUE INDEX space_identities_agent
+		ON space_identities (agent_session, tmux_socket)`,
 	`CREATE TABLE space_state (
 		repo TEXT NOT NULL,
 		key TEXT NOT NULL,

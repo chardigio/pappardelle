@@ -11,7 +11,7 @@ import type {ClaudeStatusDao} from './claude-status.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
-import {worktreePathFor, worktreesDir} from './space-target.ts';
+import {worktreePathFor, worktreesDir} from './space-identity.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
 

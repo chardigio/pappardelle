@@ -29,6 +29,7 @@ function fixture(t: ExecutionContext) {
 			() => openStateDb(dbPath),
 			'repo',
 			new JsonSpaceRegistryDao(registryFile),
+			{fillMissing() {}},
 			pid,
 			owner => owner !== DEAD,
 		);
@@ -141,6 +142,7 @@ test('a start or close whose owner died follows its sessions: alive is open, gon
 		() => openStateDb(f.dbPath),
 		'repo',
 		new JsonSpaceRegistryDao(f.registryFile),
+		{fillMissing() {}},
 		DEAD,
 	);
 	await dead.markClosing('KILLED');
@@ -486,6 +488,7 @@ test('a database that cannot be opened is a failed read, never an empty registry
 		() => openStateDb(dbPath),
 		'repo',
 		new JsonSpaceRegistryDao(getRegistryPathForRepo('repo', stateDir)),
+		{fillMissing() {}},
 	);
 	t.false(registry.protectedSpaces().ok);
 	t.throws(() => registry.openSpaces());

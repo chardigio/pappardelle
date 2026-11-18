@@ -20,10 +20,10 @@ import type {ProgramStatusInfo} from './program-status.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import type {SpacePhase} from './space-registry.ts';
 import type {SpaceState} from './space-state.ts';
+import {worktreePathFor} from './space-identity.ts';
 import {
 	callerSpace,
 	readCheckout,
-	worktreePathFor,
 	type CheckoutLookup,
 } from './space-target.ts';
 import {compareSpaceNames, MAIN_WORKTREE_KEY} from './space-utils.ts';

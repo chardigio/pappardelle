@@ -2,6 +2,9 @@
 // so that scripts never write state files or SQL themselves.
 
 import {parseArgs} from 'node:util';
+import {statusSocket} from './program-status-monitor.ts';
+import {newSpaceIdentity} from './space-identity.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
 
@@ -15,6 +18,8 @@ function usage(message: string): number {
 const verbs: Record<string, Verb> = {
 	/**
 	 * What idow records about a space before it starts the space's sessions.
+	 * `--worktree <path>` is the space's worktree and `--main-root <path>` the
+	 * main checkout's, recorded with the session names the space is created with.
 	 * `--register --owner <pid>` holds the space for the process setting it up,
 	 * `--created-issue` says this run created the space's issue,
 	 * `--profile <name>` is the profile the space was created or reopened with,
@@ -27,6 +32,8 @@ const verbs: Record<string, Verb> = {
 			allowPositionals: true,
 			options: {
 				repo: {type: 'string'},
+				worktree: {type: 'string'},
+				'main-root': {type: 'string'},
 				register: {type: 'boolean'},
 				owner: {type: 'string'},
 				'created-issue': {type: 'boolean'},
@@ -39,6 +46,27 @@ const verbs: Record<string, Verb> = {
 		if (!values.repo || !key || positionals.length !== 1)
 			return usage('prepare-space needs --repo <name> and one space key');
 		const daos = createStateDaos({repo: values.repo});
+		if (values.worktree && values['main-root']) {
+			const socket = statusSocket();
+			// A registered key must always have an identity, so it is written first.
+			await daos.spaceIdentities.record(
+				newSpaceIdentity({
+					repo: values.repo,
+					key,
+					worktreePath: values.worktree,
+					socket,
+				}),
+			);
+			await daos.spaceIdentities.record(
+				newSpaceIdentity({
+					repo: values.repo,
+					key: MAIN_WORKTREE_KEY,
+					worktreePath: values['main-root'],
+					socket,
+				}),
+			);
+		}
+
 		if (values.register) {
 			const owner = Number(values.owner);
 			if (!Number.isInteger(owner) || owner <= 0)

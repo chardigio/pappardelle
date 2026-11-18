@@ -198,7 +198,12 @@ import {
 import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
 import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
-import {worktreePathFor} from './space-target.ts';
+import {
+	sessionNamesFor,
+	sessionPrefix,
+	tmuxSessionRepo,
+	worktreePathFor,
+} from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -284,15 +289,6 @@ export function innerTmuxArgs(args: readonly string[]): string[] {
 // Sessions are repo-qualified: agent-{repoName}-{key}, e.g. agent-pappa-chex-CHEX-313
 
 /**
- * tmux 3.6 and older store `.` and `:` in a session name as `_`, so the repo
- * part of a session name is spelled this way to read back the same on every
- * release.
- */
-export function tmuxSessionRepo(repoName: string): string {
-	return repoName.replaceAll(/[.:]/g, '_');
-}
-
-/**
  * Get the session prefix for a given type and repo name.
  * e.g. getSessionPrefix('agent', 'pappa-chex') → 'agent-pappa-chex-'
  */
@@ -300,8 +296,7 @@ export function getSessionPrefix(
 	type: 'agent' | 'companion',
 	repoName?: string,
 ): string {
-	const repo = repoName ?? getRepoName();
-	return `${type}-${tmuxSessionRepo(repo)}-`;
+	return sessionPrefix(type, repoName ?? getRepoName());
 }
 
 /**
@@ -312,8 +307,7 @@ export function getSessionPrefix(
  * sweep it alongside the current prefixes.
  */
 export function getLegacyAgentSessionPrefix(repoName?: string): string {
-	const repo = repoName ?? getRepoName();
-	return `claude-${tmuxSessionRepo(repo)}-`;
+	return sessionPrefix('claude', repoName ?? getRepoName());
 }
 
 /**
@@ -487,34 +481,16 @@ export function innerSessionExists(sessionName: string): boolean {
 	}
 }
 
-export function toSessionKey(issueKey: string): string {
-	return issueKey.replaceAll('_', '__').replaceAll('.', '_');
-}
-
 export function fromSessionKey(sessionKey: string): string {
 	return sessionKey.replaceAll(/__|_/g, match => (match === '__' ? '_' : '.'));
 }
 
-/**
- * Get session names for a space.
- * Optional repoName parameter for testing; defaults to getRepoName().
- */
+/** Session names for a space in this repo, or in `repoName`. */
 export function getSessionNames(
 	issueKey: string,
 	repoName?: string,
-): {
-	agent: string;
-	companion: string;
-	legacyAgent: string;
-} {
-	const agentPrefix = getSessionPrefix('agent', repoName);
-	const companionPrefix = getSessionPrefix('companion', repoName);
-	const key = toSessionKey(issueKey);
-	return {
-		agent: `${agentPrefix}${key}`,
-		companion: `${companionPrefix}${key}`,
-		legacyAgent: `${getLegacyAgentSessionPrefix(repoName)}${key}`,
-	};
+): ReturnType<typeof sessionNamesFor> {
+	return sessionNamesFor(issueKey, repoName ?? getRepoName());
 }
 
 /**
