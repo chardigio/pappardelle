@@ -113,7 +113,7 @@ if [[ -n "$PROFILE_LAUNCH_FLAGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${PROFILE_LAUNCH_FLAGS}"
 fi
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
-    NAME_FLAG=" --name ${ISSUE_KEY}"
+    NAME_FLAG=" --name $(quoted_form "$ISSUE_KEY")"
 else
     NAME_FLAG=""
 fi
@@ -145,12 +145,12 @@ fi
 
 TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 
-# $AGENT_CMD, $AGENT_FLAGS and $AGENT_RESUME stay literal here: the pane shell
-# expands them after the values have crossed this script unparsed, the same
-# two-layer scheme the AppleScript launchers use.
+# $AGENT_CMD, $AGENT_FLAGS, $AGENT_NAME and $AGENT_RESUME stay literal here: the
+# pane shell expands them after the values have crossed this script unparsed,
+# the same two-layer scheme the AppleScript launchers use.
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
-AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
-FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
+AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS$AGENT_NAME'
+FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); AGENT_NAME=$(quoted_form "$NAME_FLAG"); "
 PROMPT_SEG=""
 if [[ -n "$PROMPT_WORDS" ]]; then
     FLAGS_ASSIGN="${FLAGS_ASSIGN}AGENT_PROMPT_WORDS=$(quoted_form "$PROMPT_WORDS"); "

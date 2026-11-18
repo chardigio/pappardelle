@@ -87,29 +87,48 @@ done
 
 # Runs anywhere: both default-terminal pane lines, executed with tmux swapped
 # for a shim, cd into a worktree whose path holds quotes and a $(), title the
-# pane with the key and name the session after a repo with a quote, without
-# running any of the path.
-echo -e "${BOLD}Test: worktree path and repo name survive the pane shell${RESET}"
+# pane with the key and name the sessions after a repo and key with quotes, and
+# claude gets the key as one --name word, without running any of the inputs.
+echo -e "${BOLD}Test: worktree path, repo name and key survive the pane shell${RESET}"
 PATH_TMP=$(mktemp -d)
 mkdir -p "$PATH_TMP/bin"
 PATH_WT="$PATH_TMP/o'brien \$(touch $PATH_TMP/pwned) it's \"wt\""
 mkdir -p "$PATH_WT"
+# shellcheck disable=SC2016 # the $ signs are the key's own text
+PATH_KEY='QA-%s '"'"'x'"'"' $(touch pwned) "q"'
 cat > "$PATH_TMP/bin/tmux" <<SHIM
 #!/bin/bash
 printf '%s\n' "\$PWD" >> "$PATH_TMP/pwd"
 printf '%s\n' "\$6" >> "$PATH_TMP/session"
+(( \$# > 6 )) && printf '%s' "\${@: -1}" > "$PATH_TMP/agent-command"
+exit 0
 SHIM
-chmod +x "$PATH_TMP/bin/tmux"
+cat > "$PATH_TMP/bin/claude" <<SHIM
+#!/bin/bash
+printf '<%s>' "\$@" >> "$PATH_TMP/argv"
+printf '\n' >> "$PATH_TMP/argv"
+[[ "\$*" == *--continue* ]] && exit 1
+exit 0
+SHIM
+chmod +x "$PATH_TMP/bin/tmux" "$PATH_TMP/bin/claude"
 { read -r AGENT_PANE_LINE; read -r COMPANION_PANE_LINE; } < <("$SCRIPT_DIR/open-default-terminal-agent.sh" \
-    --worktree "$PATH_WT" --issue-key QA-1 --repo-name "bob's dad's app" --companion-command "" --prompt "" --print-command)
-assert_eq "agent pane is titled with the key" "$(printf '\033]0;QA-1\007')" \
+    --worktree "$PATH_WT" --issue-key "$PATH_KEY" --repo-name "bob's dad's app" --companion-command "" \
+    --prompt "" --print-command)
+PATH_TITLE=$(printf '\033]0;%s\007' "$PATH_KEY")
+assert_eq "agent pane is titled with the key" "$PATH_TITLE" \
     "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$AGENT_PANE_LINE" 2>&1)"
-assert_eq "companion pane is titled with the key" "$(printf '\033]0;QA-1\007')" \
+assert_eq "companion pane is titled with the key" "$PATH_TITLE" \
     "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$COMPANION_PANE_LINE" 2>&1)"
 assert_eq "both panes start in the worktree" "$PATH_WT"$'\n'"$PATH_WT" "$(cat "$PATH_TMP/pwd" 2>/dev/null)"
-assert_eq "sessions are named after the repo" "agent-bob's dad's app-QA-1"$'\n'"companion-bob's dad's app-QA-1" \
+assert_eq "sessions are named after the repo and key" \
+    "agent-bob's dad's app-$PATH_KEY"$'\n'"companion-bob's dad's app-$PATH_KEY" \
     "$(cat "$PATH_TMP/session" 2>/dev/null)"
-assert_eq "nothing in the path ran" "no" "$([[ -e "$PATH_TMP/pwned" ]] && echo yes || echo no)"
+# tmux runs the session command through sh -c in the worktree.
+(cd "$PATH_WT" && PATH="$PATH_TMP/bin:$PATH" sh -c "$(cat "$PATH_TMP/agent-command" 2>/dev/null)" >/dev/null 2>&1) || true
+assert_eq "claude gets the key as one --name word" \
+    "<--name><$PATH_KEY><--continue>"$'\n'"<--name><$PATH_KEY>" "$(cat "$PATH_TMP/argv" 2>/dev/null)"
+assert_eq "nothing in the inputs ran" "no" \
+    "$([[ -e "$PATH_TMP/pwned" || -e "$PATH_WT/pwned" ]] && echo yes || echo no)"
 rm -rf "$PATH_TMP"
 
 if ! command -v osascript >/dev/null 2>&1; then
@@ -249,12 +268,13 @@ assert_eq "companion command containing a single quote (default)" \
     "$(iterm --prompt "" --companion-command "DESTDIR='/tmp' make" --print-command)" \
     "$(default_term --prompt "" --companion-command "DESTDIR='/tmp' make" --print-command)"
 
-assert_eq "worktree path and repo name containing quotes" \
-    "$(iterm --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)" \
-    "$(ghostty --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)"
-assert_eq "worktree path and repo name containing quotes (default)" \
-    "$(iterm --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)" \
-    "$(default_term --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)"
+QUOTED_ARGS=(--worktree "/tmp/o'brien wt" --repo-name "bob's-app" --issue-key "QA-%s 'x'" --prompt "")
+assert_eq "worktree path, repo name and key containing quotes" \
+    "$(iterm "${QUOTED_ARGS[@]}" --print-command)" \
+    "$(ghostty "${QUOTED_ARGS[@]}" --print-command)"
+assert_eq "worktree path, repo name and key containing quotes (default)" \
+    "$(iterm "${QUOTED_ARGS[@]}" --print-command)" \
+    "$(default_term "${QUOTED_ARGS[@]}" --print-command)"
 
 # --window-id only steers which Ghostty window receives the tab; it must not
 # leak into the shell the panes run.

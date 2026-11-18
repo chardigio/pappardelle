@@ -269,26 +269,28 @@ on run argv
     --   normal mode: agent with the skill prompt
     -- An empty resumeArgs (non-claude agent with no resume_args) launches
     -- directly with no fallback chain.
-    -- nameFlag carries the issue key unquoted, which is safe only because
-    -- keys are always PROJECT-NUMBER format.
     --
-    -- agentCommand, launchFlags, and resumeArgs are NOT interpolated into the
+    -- agentCommand, launchFlags, the name flag and resumeArgs are NOT interpolated into the
     -- double-quoted tmux argument — a quote or space in a config value would
     -- break the string apart. Instead they're assigned to shell variables via
     -- `quoted form of` (the same pattern the companion command uses) and
-    -- referenced as $AGENT_CMD / $AGENT_FLAGS / $AGENT_RESUME. The outer shell
+    -- referenced as $AGENT_CMD / $AGENT_FLAGS / $AGENT_NAME / $AGENT_RESUME. The outer shell
     -- expands them *after* quote processing, so only the inner `sh -c` ever
     -- parses the values — and the caller already quoted each flag value for
     -- exactly that parse. Empty flags leave the command word
     -- unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
+    set nameWords to ""
+    if nameFlag is not equal to "" then
+        set nameWords to " --name " & quoted form of issueKey
+    end if
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; AGENT_NAME=" & quoted form of nameWords & "; "
     set promptSeg to ""
     if promptWords is not equal to "" then
         set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
         set promptSeg to " $AGENT_PROMPT_WORDS"
     end if
     set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
-    set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
+    set agentCmd to "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"
     set resumeChain to ""
     if resumeArgs is not equal to "" then
         set resumeAttempt to "$AGENT_RESUME"
