@@ -323,6 +323,34 @@ contractTest(
 	},
 );
 
+contractTest(
+	'space list prints the spaces it could read and names the one it could not',
+	async (t, state) => {
+		await state.daos.registry.add('STA-1');
+		await state.daos.registry.add('STA-2');
+		await state.daos.spaceState.write('STA-1', {profile: 'dev'});
+		fs.mkdirSync(state.daos.spaceState.file('STA-2'), {recursive: true});
+
+		const json = await run(['list', '--json'], deps(state));
+		t.is(json.code, 3);
+		t.deepEqual(
+			(JSON.parse(json.stdout) as Array<{key: string}>).map(
+				record => record.key,
+			),
+			['main', 'STA-1'],
+		);
+		t.regex(json.stderr, /^Could not read the state of STA-2: [^\n]+$/);
+
+		const plain = await run(['list'], deps(state));
+		t.is(plain.code, 3);
+		t.deepEqual(
+			plain.stdout.split('\n').map(line => line.split(' ')[0]),
+			['KEY', 'main', 'STA-1'],
+		);
+		t.is(plain.stderr, json.stderr);
+	},
+);
+
 test('a space named by PAPPARDELLE_SPACE belongs to PAPPARDELLE_REPO, not the nested checkout', async t => {
 	const outer = testState(t, {repo: 'repo'});
 	const nested = testState(t, {repo: 'nested'});

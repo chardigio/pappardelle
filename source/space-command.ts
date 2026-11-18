@@ -565,19 +565,18 @@ async function runList(
 		),
 	);
 	const records: SpaceRecord[] = [];
+	const unreadable: string[] = [];
 	for (const [index, lookup] of lookups.entries()) {
-		if (lookup.kind === 'unreadable') {
-			deps.err(
+		if (lookup.kind === 'unreadable')
+			unreadable.push(
 				`Could not read the state of ${keys[index]!}: ${errorMessage(lookup.error)}`,
 			);
-			return 3;
-		}
-
-		if (lookup.kind === 'space') records.push(lookup.record);
+		else if (lookup.kind === 'space') records.push(lookup.record);
 	}
 
 	deps.out(json ? JSON.stringify(records, null, 2) : table(records));
-	return 0;
+	for (const line of unreadable) deps.err(line);
+	return unreadable.length > 0 ? 3 : 0;
 }
 
 /** Exit codes: 0, 1 for no such space, 2 for usage, 3 when a store cannot be read. */
