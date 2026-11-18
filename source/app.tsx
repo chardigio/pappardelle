@@ -708,8 +708,7 @@ export default function App({
 		const refresh = new WorkspaceRefresh({
 			detailReady: firstRailPaint,
 			readRegistry: firstFrom(early?.registry, getRegisteredSpacesAsync),
-			readStatus: async (key, sessionKey) =>
-				workspaceStatuses.read(key, sessionKey),
+			statusReader: () => workspaceStatuses.reader(),
 			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,

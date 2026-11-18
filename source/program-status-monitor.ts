@@ -190,6 +190,59 @@ function monitorEntry(): string[] {
 	return [process.execPath, ...bunIsolationArgs, entry];
 }
 
+/** A session's status pane: the pinned pane once pinned, else its current one. */
+export interface LocatedStatusPane {
+	pinned: string;
+	pane: StatusPane | null;
+}
+
+export const STATUS_LISTING_FORMAT = `#{session_name}\t#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
+
+export function parseStatusListing(
+	output: string,
+	socket: string,
+): Map<string, LocatedStatusPane> {
+	const panes = new Map<string, StatusPane>();
+	const sessions = new Map<string, {pinned: string; current?: StatusPane}>();
+	for (const line of output.split('\n')) {
+		const [session, active, pinned = '', ...fields] = line.split('\t');
+		if (!session) continue;
+		const pane = parseStatusPane(fields.join('\t'), socket);
+		if (pane) panes.set(pane.id, pane);
+		const entry = sessions.get(session) ?? {pinned};
+		// The active pane of the active window, which `=session:` targets.
+		if (active === '11' && pane) entry.current = pane;
+		sessions.set(session, entry);
+	}
+	return new Map(
+		[...sessions].map(([session, {pinned, current}]) => [
+			session,
+			{pinned, pane: (pinned ? panes.get(pinned) : current) ?? null},
+		]),
+	);
+}
+
+/** Every session's status pane in one call; none when tmux can't answer. */
+export async function listStatusPanes(
+	socket = statusSocket(),
+	run: StatusTmuxRunner = runStatusTmux,
+): Promise<Map<string, LocatedStatusPane>> {
+	try {
+		return parseStatusListing(
+			await run(
+				statusTmuxArgs(
+					['list-panes', '-a', '-F', STATUS_LISTING_FORMAT],
+					socket,
+				),
+			),
+			socket,
+		);
+	} catch (error) {
+		log.debug(`Cannot list status panes: ${String(error)}`);
+		return new Map();
+	}
+}
+
 export async function attachStatusMonitor(
 	repo: string,
 	key: string,
@@ -197,37 +250,25 @@ export async function attachStatusMonitor(
 	socket = statusSocket(),
 	run: StatusTmuxRunner = runStatusTmux,
 ): Promise<StatusPane | null> {
+	const panes = await listStatusPanes(socket, run);
+	return monitorStatusPane(repo, key, session, panes.get(session), socket, run);
+}
+
+/** Pins and pipes a located pane that has no monitor yet. */
+export async function monitorStatusPane(
+	repo: string,
+	key: string,
+	session: string,
+	located: LocatedStatusPane | undefined,
+	socket = statusSocket(),
+	run: StatusTmuxRunner = runStatusTmux,
+): Promise<StatusPane | null> {
+	let lease: string | undefined;
 	try {
+		if (!located?.pane) return null;
 		const target = `=${session}:`;
-		// The pinned pane and the session's current pane in one call. They are
-		// the same pane unless the session has grown a second one.
-		const located = await run(
-			statusTmuxArgs(
-				[
-					'display-message',
-					'-p',
-					'-t',
-					target,
-					`#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`,
-				],
-				socket,
-			),
-		);
-		const [pinned = '', ...current] = (located.split('\n')[0] ?? '').split(
-			'\t',
-		);
-		let pane = parseStatusPane(current.join('\t'), socket);
-		if (pinned && pinned !== pane?.id)
-			pane = parseStatusPane(
-				await run(
-					statusTmuxArgs(
-						['display-message', '-p', '-t', pinned, STATUS_PANE_FORMAT],
-						socket,
-					),
-				),
-				socket,
-			);
-		if (!pane) return null;
+		const {pinned} = located;
+		let {pane} = located;
 		const pin = pinned
 			? []
 			: ['set-option', '-t', target, STATUS_PANE_OPTION, pane.id];
@@ -245,7 +286,7 @@ export async function attachStatusMonitor(
 		pane = parseStatusPane(`${pane.id}\t${pane.pid}\t0\t0\t${marker}`, socket)!;
 		const dir = programStatusDir(repo);
 		mkdirSync(dir, {recursive: true});
-		const lease = `${programStatusPath(repo, key, pane.generation)}.lease`;
+		lease = `${programStatusPath(repo, key, pane.generation)}.lease`;
 		writeFileSync(lease, '');
 		const command = [
 			...monitorEntry(),
@@ -260,6 +301,7 @@ export async function attachStatusMonitor(
 			.map(value => shellQuoteStatus(value))
 			.join(' ');
 		const commands = [
+			...(pin.length > 0 ? [pin] : []),
 			['set-option', '-p', '-t', pane.id, STATUS_MONITOR_OPTION, marker],
 			[
 				'pipe-pane',
@@ -271,20 +313,19 @@ export async function attachStatusMonitor(
 		]
 			.map(args => args.map(value => shellQuoteStatus(value)).join(' '))
 			.join(' ; ');
-		// The tmux command queue keeps the marker and pipe owned by the same
-		// attachment, and the read that follows sees what it left.
+		// The tmux command queue keeps the pin, marker and pipe owned by the
+		// same attachment, and the read that follows sees what it left. tmux
+		// resolves a closed pane's id without error, so the condition checks
+		// the pane still exists before pinning the session to it.
 		const attached = parseStatusPane(
 			await run(
 				statusTmuxArgs(
 					[
-						...pin,
-						...(pin.length > 0 ? [';'] : []),
 						'if-shell',
 						'-F',
 						'-t',
 						pane.id,
-						'#{pane_pipe}',
-						'',
+						'#{&&:#{pane_id},#{!:#{pane_pipe}}}',
 						commands,
 						';',
 						'display-message',
@@ -309,6 +350,7 @@ export async function attachStatusMonitor(
 		return attached;
 	} catch (error) {
 		log.debug(`Cannot monitor ${session}: ${String(error)}`);
+		if (lease) rmSync(lease, {force: true});
 		return null;
 	}
 }

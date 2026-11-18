@@ -9,6 +9,8 @@ import {fileURLToPath} from 'node:url';
 import {WorkspaceStatuses} from '../source/workspace-status.ts';
 import {
 	attachStatusMonitor,
+	listStatusPanes,
+	monitorStatusPane,
 	parseStatusPane,
 	programStatusPath,
 	readProgramSnapshot,
@@ -119,6 +121,53 @@ try {
 	evidence['pane-selection'] =
 		'new windows and inserted splits preserve the agent generation; unrelated panes remain unpiped';
 	console.log('PASS window and split selection preserve agent ownership');
+
+	const probe = 'lifecycle-probe';
+	const shell = ['/bin/bash', '--noprofile', '--norc'];
+	await harness.tmux(['new-session', '-d', '-s', probe, ...shell]);
+	const middle = await harness.tmux([
+		'new-window',
+		'-P',
+		'-F',
+		'#{window_id}',
+		'-t',
+		`=${probe}:`,
+		...shell,
+	]);
+	await harness.tmux(['split-window', '-h', '-t', middle.trim(), ...shell]);
+	await harness.tmux(['new-window', '-t', `=${probe}:`, ...shell]);
+	await harness.tmux(['select-window', '-t', middle.trim()]);
+	await harness.tmux(['select-pane', '-t', `${middle.trim()}.0`]);
+	const current = await harness.tmux([
+		'display-message',
+		'-p',
+		'-t',
+		`=${probe}:`,
+		'#{pane_id}',
+	]);
+	const located = (await listStatusPanes(harness.socket)).get(probe);
+	assert.equal(located?.pane?.id, current.trim());
+	assert.equal(located?.pinned, '');
+	evidence['current-pane'] =
+		'an unpinned session locates the same pane as display-message -t =session:';
+	console.log('PASS listing locates the current pane of an unpinned session');
+	await harness.tmux(['kill-pane', '-t', current.trim()]);
+	assert.equal(
+		await monitorStatusPane(repo, 'probe', probe, located, harness.socket),
+		null,
+	);
+	const pin = await harness.tmux([
+		'show-options',
+		'-qv',
+		'-t',
+		`=${probe}:`,
+		'@pappardelle_status_pane',
+	]);
+	assert.equal(pin.trim(), '');
+	await harness.tmux(['kill-session', '-t', `=${probe}`]);
+	evidence['stale-listing'] =
+		'a pane closed after the listing is neither piped nor pinned';
+	console.log('PASS a pane closed after the listing is not pinned');
 
 	let delivered = 0;
 	const deliveredCount = () => delivered;

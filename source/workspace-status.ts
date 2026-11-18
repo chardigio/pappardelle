@@ -8,7 +8,8 @@ import {
 	type ClaudeStatusInfo,
 } from './claude-status.ts';
 import {
-	attachStatusMonitor,
+	listStatusPanes,
+	monitorStatusPane,
 	programStatusDir,
 	programStatusPath,
 	readProgramSnapshot,
@@ -67,6 +68,12 @@ export function mergeProgramStatus(
 	return hook ? mapClaudeStatus(hook) : null;
 }
 
+/** Reads statuses against one tmux listing, taken on the first read. */
+export type StatusReader = (
+	key: string,
+	sessionKey?: string,
+) => Promise<ProgramStatusInfo | null>;
+
 export class WorkspaceStatuses {
 	private readonly sessionKeys = new Map<string, string>();
 	private readonly panes = new Map<
@@ -85,24 +92,35 @@ export class WorkspaceStatuses {
 		private readonly run?: StatusTmuxRunner,
 	) {}
 
-	async read(key: string, sessionKey = key): Promise<ProgramStatusInfo | null> {
-		this.sessionKeys.set(key, sessionKey);
+	reader(): StatusReader {
 		const socket = statusSocket();
-		const session = this.sessionName(sessionKey);
-		const entry = {
-			socket,
-			sessionKey,
-			session,
-			pane: attachStatusMonitor(
-				this.repo,
+		let listing: ReturnType<typeof listStatusPanes> | undefined;
+		return async (key, sessionKey = key) => {
+			this.sessionKeys.set(key, sessionKey);
+			const session = this.sessionName(sessionKey);
+			listing ??= listStatusPanes(socket, this.run);
+			const entry = {
+				socket,
 				sessionKey,
 				session,
-				socket,
-				this.run,
-			),
+				pane: listing.then(async panes =>
+					monitorStatusPane(
+						this.repo,
+						sessionKey,
+						session,
+						panes.get(session),
+						socket,
+						this.run,
+					),
+				),
+			};
+			this.panes.set(key, entry);
+			return this.readPane(key, sessionKey, await entry.pane);
 		};
-		this.panes.set(key, entry);
-		return this.readPane(key, sessionKey, await entry.pane);
+	}
+
+	async read(key: string, sessionKey = key): Promise<ProgramStatusInfo | null> {
+		return this.reader()(key, sessionKey);
 	}
 
 	private async readKnown(key: string): Promise<ProgramStatusInfo | null> {

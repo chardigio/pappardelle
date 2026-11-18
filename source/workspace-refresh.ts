@@ -1,7 +1,7 @@
 import type {ProgramStatusInfo} from './program-status.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import {applyStatusUpdates} from './workspace-status.ts';
+import {applyStatusUpdates, type StatusReader} from './workspace-status.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {pLimit} from './providers/concurrency.ts';
 import type {SpaceData, TrackerIssue} from './types.ts';
@@ -37,10 +37,8 @@ type MainWorktree = {path: string; branch: string};
 export interface WorkspaceRefreshDeps {
 	detailReady?: Promise<void>;
 	readRegistry: () => Promise<string[] | null>;
-	readStatus: (
-		statusKey: string,
-		sessionKey: string,
-	) => Promise<ProgramStatusInfo | null>;
+	/** A reader whose reads share one tmux listing. */
+	statusReader: () => StatusReader;
 	readWorktreePath: (key: string) => Promise<string | null>;
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
@@ -98,11 +96,13 @@ export class WorkspaceRefresh {
 	private listGeneration = 0;
 	private names: string[] = [];
 	private readonly statusVersions = new Map<string, number>();
+	private readStatus: StatusReader;
 	private readonly list: RefreshLoop;
 	private readonly main: RefreshLoop;
 	private readonly issues: RefreshLoop;
 
 	constructor(private readonly deps: WorkspaceRefreshDeps) {
+		this.readStatus = deps.statusReader();
 		this.list = new RefreshLoop(async () => {
 			try {
 				await this.refreshList();
@@ -130,14 +130,18 @@ export class WorkspaceRefresh {
 
 	async refresh(): Promise<void> {
 		if (this.stopped) return;
+		const list = this.refreshListOnly();
 		void this.main.request();
-		await this.refreshListOnly();
+		await list;
 	}
 
 	/** Invalidate a snapshot taken before a local registry mutation. */
 	async refreshListOnly(): Promise<void> {
 		if (this.stopped) return;
 		this.listGeneration++;
+		// The listing is lazy, so a rerun the loops coalesce reads panes from
+		// after the latest request.
+		this.readStatus = this.deps.statusReader();
 		await this.list.request();
 	}
 
@@ -212,7 +216,7 @@ export class WorkspaceRefresh {
 				const statusKey = this.deps.statusKey(key);
 				const version = this.statusVersions.get(statusKey) ?? 0;
 				const [status, worktreePath] = await Promise.allSettled([
-					this.deps.readStatus(statusKey, key),
+					this.readStatus(statusKey, key),
 					this.deps.readWorktreePath(key),
 				]);
 				await nextTurn();
@@ -350,7 +354,7 @@ export class WorkspaceRefresh {
 			);
 		};
 		await Promise.allSettled([
-			this.deps.readStatus(statusKey, MAIN_WORKTREE_KEY).then(status => {
+			this.readStatus(statusKey, MAIN_WORKTREE_KEY).then(status => {
 				if (status)
 					update(
 						{programStatus: status},

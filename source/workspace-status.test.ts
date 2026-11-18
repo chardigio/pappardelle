@@ -12,6 +12,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
 import {until} from '../test/helpers/render.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
+import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {
 	parseStatusPane,
 	programStatusPath,
@@ -19,6 +20,7 @@ import {
 } from './program-status-monitor.ts';
 import {mapClaudeStatus, ACTIVE_STATUS_TIMEOUT} from './claude-status.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
+import type {SpaceData} from './types.ts';
 import {ProgramStatusStore} from './program-status.ts';
 
 function setup(t: ExecutionContext) {
@@ -46,9 +48,11 @@ function setup(t: ExecutionContext) {
 	const status = new WorkspaceStatuses(
 		'repo',
 		key => `claude-repo-${key}`,
-		async args => {
+		async () => {
 			queries++;
-			return `%1\t${paneOutput}`;
+			return ['claude-repo-TASK-1', 'claude-repo-main']
+				.map(session => `${session}\t11\t%1\t${paneOutput}`)
+				.join('\n');
 		},
 	);
 	const writeHook = (
@@ -378,6 +382,77 @@ test.serial(
 		rmSync(`${file}.lease`);
 		h.writeHook('processing', undefined, Date.now(), 'repo-main');
 		await until(() => h.queries() > before);
+	},
+);
+
+test.serial(
+	'a refresh locates every space with one tmux call and pipes only unmonitored live panes',
+	async t => {
+		setup(t);
+		const keys = Array.from({length: 11}, (_, i) => `TASK-${i + 1}`);
+		const piped = new Set([...keys.slice(1), 'main']);
+		const calls: string[][] = [];
+		const listing = () =>
+			[...keys, 'main']
+				.map((key, i) => {
+					const pane = `%${i + 1}`;
+					const pid = String(100 + i);
+					const pipe = piped.has(key) ? '1' : '0';
+					const dead = key === 'TASK-11' ? '1' : '0';
+					const pinned = piped.has(key) ? pane : '';
+					return `agent-${key}\t11\t${pinned}\t${pane}\t${pid}\t${dead}\t${pipe}\t`;
+				})
+				.join('\n');
+		const statuses = new WorkspaceStatuses(
+			'repo',
+			key => `agent-${key}`,
+			async args => {
+				calls.push(args);
+				return args.includes('list-panes') ? listing() : '';
+			},
+		);
+		let spaces: SpaceData[] = [];
+		const refresh = new WorkspaceRefresh({
+			readRegistry: async () => keys,
+			statusReader: () => statuses.reader(),
+			readWorktreePath: async () => null,
+			readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
+			readDirty: async () => null,
+			statusKey: name => name,
+			getCachedIssue: () => null,
+			async fetchIssues() {},
+			readEmoji: async () => undefined,
+			setSpaces(update) {
+				spaces = update(spaces);
+			},
+			onLoaded() {},
+			onError(error) {
+				throw error;
+			},
+		});
+		t.teardown(() => refresh.stop());
+		const commands = () => calls.map(args => args[2]);
+
+		await refresh.refresh();
+		await refresh.idle();
+		// The first space's pane is pinned and piped in one call.
+		t.deepEqual(commands(), ['list-panes', 'if-shell']);
+		t.true(calls[1]!.some(arg => arg.includes("'=agent-TASK-1:'")));
+		t.is(spaces.length, 12);
+
+		piped.add('TASK-1');
+		for (const _ of [1, 2]) {
+			calls.length = 0;
+			await refresh.refresh();
+			await refresh.idle();
+			t.deepEqual(commands(), ['list-panes']);
+		}
+
+		calls.length = 0;
+		await Promise.all(Array.from({length: 20}, async () => refresh.refresh()));
+		await refresh.idle();
+		t.true(commands().length <= 2);
+		t.true(commands().every(command => command === 'list-panes'));
 	},
 );
 
