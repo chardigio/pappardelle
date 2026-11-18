@@ -8,6 +8,7 @@ import {
 	railGroupsFromConfig,
 	resolveCursorRow,
 	searchRailRows,
+	splitAgentRows,
 	type RailRow,
 } from './rail-groups.ts';
 import type {SpaceData} from './types.ts';
@@ -41,11 +42,9 @@ function shape(rows: readonly RailRow[]): string[] {
 	return rows.map(row =>
 		row.kind === 'header'
 			? `# ${row.group.name} (${row.count})`
-			: row.kind === 'divider'
-				? '---'
-				: row.kind === 'pending'
-					? `~ ${row.space.name}`
-					: `  ${row.space.name}`,
+			: row.kind === 'pending'
+				? `~ ${row.space.name}`
+				: `  ${row.space.name}`,
 	);
 }
 
@@ -131,7 +130,6 @@ test('groups follow config order and keep the incoming order inside a group', t 
 		),
 		[
 			'  main',
-			'---',
 			'# In Progress (2)',
 			'  STE-20',
 			'  STE-10',
@@ -155,7 +153,7 @@ test('an issue moving into a group lands by number, not at the end', t => {
 			groups: defaults,
 		}),
 	);
-	t.deepEqual(rows.slice(2, 6), [
+	t.deepEqual(rows.slice(1, 5), [
 		'# In Progress (3)',
 		'  STE-20',
 		'  STE-15',
@@ -176,7 +174,7 @@ test('a starting session shows at the top of the first group and counts toward i
 			groups: defaults,
 		}),
 	);
-	t.deepEqual(rows.slice(2, 4), ['# In Progress (3)', '~ STE-30']);
+	t.deepEqual(rows.slice(1, 3), ['# In Progress (3)', '~ STE-30']);
 });
 
 test('the narrow layout keeps the group order without headers', t => {
@@ -184,7 +182,7 @@ test('the narrow layout keeps the group order without headers', t => {
 		shape(
 			buildRailRows({displaySpaces: spaces, groups: defaults, headers: false}),
 		),
-		['  main', '---', '  STE-20', '  STE-10', '  STE-15', '  STE-5'],
+		['  main', '  STE-20', '  STE-10', '  STE-15', '  STE-5'],
 	);
 });
 
@@ -196,24 +194,18 @@ test('flat rows are the display list with pending rows marked', t => {
 	};
 	t.deepEqual(shape(flatRailRows([main, pending, spaces[1]!])), [
 		'  main',
-		'---',
 		'~ STE-30',
 		'  STE-20',
 	]);
 });
 
-test('no divider without both agent spaces and workspaces', t => {
-	t.deepEqual(shape(flatRailRows([main])), ['  main']);
-	t.deepEqual(shape(flatRailRows([spaces[1]!])), ['  STE-20']);
-	t.deepEqual(
-		shape(
-			buildRailRows({
-				displaySpaces: [main],
-				groups: defaults,
-			}),
-		),
-		['  main'],
-	);
+test('the workspace box takes the leading agent rows and the rail box the rest', t => {
+	const rows = buildRailRows({displaySpaces: spaces, groups: defaults});
+	const {agents, spaces: rest} = splitAgentRows(rows);
+	t.deepEqual(shape(agents), ['  main']);
+	t.deepEqual(shape(rest).slice(0, 2), ['# In Progress (2)', '  STE-20']);
+	t.deepEqual(splitAgentRows(flatRailRows([main])).spaces, []);
+	t.deepEqual(splitAgentRows(flatRailRows([spaces[1]!])).agents, []);
 });
 
 // ============================================================================
@@ -238,7 +230,7 @@ test('the cursor sits on the selected space, or the first space before one is se
 // row helpers
 // ============================================================================
 
-test('j/k skip headers, the divider and pending rows and stop at either end', t => {
+test('j/k cross from the agents into the groups, skipping headers and pending rows and stop at either end', t => {
 	const pending: SpaceData = {
 		name: 'STE-30',
 		worktreePath: null,
@@ -249,7 +241,7 @@ test('j/k skip headers, the divider and pending rows and stop at either end', t 
 		groups: defaults,
 	});
 	const at = (name: string) => shape(rows).indexOf(name);
-	// main, divider, # In Progress, ~ STE-30, STE-20, STE-10, # In Review, ...
+	// main, # In Progress, ~ STE-30, STE-20, STE-10, # In Review, ...
 	t.is(shape(rows)[nextSelectableRow(rows, 0, 1)], '  STE-20');
 	t.is(shape(rows)[nextSelectableRow(rows, at('  STE-20'), -1)], '  main');
 	t.is(shape(rows)[nextSelectableRow(rows, at('  STE-10'), 1)], '  STE-15');
@@ -258,18 +250,18 @@ test('j/k skip headers, the divider and pending rows and stop at either end', t 
 	t.is(nextSelectableRow(rows, rows.length - 1, 1), -1);
 });
 
-test('agent rows, headers and the divider are one line in a two-line rail', t => {
+test('agent rows and headers are one line in a two-line rail', t => {
 	const rows = buildRailRows({
 		displaySpaces: spaces,
 		groups: defaults,
 	});
 	t.deepEqual(
 		rows.map(row => railRowHeight(row, 2)),
-		[1, 1, 1, 2, 2, 1, 2, 1, 2],
+		[1, 1, 2, 2, 1, 2, 1, 2],
 	);
 });
 
-test('search results have no divider', t => {
+test('search results are one flat list of agents and spaces', t => {
 	t.deepEqual(shape(searchRailRows([main, spaces[1]!])), [
 		'  main',
 		'  STE-20',

@@ -6,12 +6,20 @@ import {
 	type BoxRenderable,
 	type OptimizedBuffer,
 } from '@opentui/core';
-import {terminalColor, textAttributes} from '../tui-style.ts';
+import {
+	combineAttributes,
+	terminalColor,
+	textAttributes,
+} from '../tui-style.ts';
 import {displayWidth} from '../text-measure.ts';
-import {truncateToWidth} from '../truncate-to-width.ts';
+import {truncateRunsToWidth} from '../truncate-to-width.ts';
+import type {Run} from './TruncatedLine.tsx';
 
 export type FrameSpec = {
-	title: string;
+	/** A plain title is bold in `titleColor`; runs keep their own styles. */
+	title: string | readonly Run[];
+	/** Dim text at the right end of the top rule, dropped first when narrow. */
+	trailing?: string;
 	borderColor?: string;
 	titleColor?: string;
 	style: BorderStyle;
@@ -19,6 +27,12 @@ export type FrameSpec = {
 	/** Rule cells between the corner and the title. */
 	inset?: number;
 };
+
+// The narrowest a title gets before the frame drops it, or drops the trailing
+// label to keep it.
+const MIN_TITLE_CELLS = 4;
+// The spaces either side of a title, and the rule cell after it.
+const LABEL_PADDING_CELLS = 3;
 
 function ruleDrawer(
 	buffer: OptimizedBuffer,
@@ -31,57 +45,107 @@ function ruleDrawer(
 	};
 }
 
-/**
- * A horizontal rule across a frame's content row, teed into the frame's
- * sides: `row` is the content box, one cell inside each side.
- */
-export function paintFrameRule(
-	row: Pick<BoxRenderable, 'x' | 'y' | 'width'>,
-	buffer: OptimizedBuffer,
-	{style, isDim}: Pick<FrameSpec, 'style' | 'isDim'>,
-) {
-	const chars = BorderChars[style];
-	ruleDrawer(buffer, {isDim})(
-		chars.leftT + chars.horizontal.repeat(row.width) + chars.rightT,
-		row.x - 1,
-		row.y,
-	);
-}
-
 export function paintFrame(
 	box: Pick<BoxRenderable, 'x' | 'y' | 'width' | 'height'>,
 	buffer: OptimizedBuffer,
-	{title, borderColor, titleColor, style, isDim, inset = 0}: FrameSpec,
+	{
+		title,
+		trailing,
+		borderColor,
+		titleColor,
+		style,
+		isDim,
+		inset = 0,
+	}: FrameSpec,
 ) {
 	const chars = BorderChars[style];
 	const rule = ruleDrawer(buffer, {borderColor, isDim});
+	const {widthMethod} = buffer;
 
 	const inner = Math.max(0, box.width - 2);
 	const right = box.x + box.width - 1;
 	const bottom = box.y + box.height - 1;
-	const lead = Math.min(inset, Math.max(0, inner - 4));
+	const lead = Math.min(inset, Math.max(0, inner - MIN_TITLE_CELLS));
+	const runs: readonly Run[] =
+		typeof title === 'string'
+			? [
+					{
+						text: title,
+						fg: terminalColor(titleColor),
+						attributes: textAttributes({bold: true}),
+					},
+				]
+			: title;
+	const titleCells = runs.reduce(
+		(sum, run) => sum + displayWidth(run.text, widthMethod),
+		0,
+	);
+
+	// The trailing label and the rule cell after it, kept only while the title
+	// still shows at least a few cells beside it.
+	const trailingLabel = trailing ? ` ${trailing} ` : '';
+	const trailingCells = trailingLabel
+		? displayWidth(trailingLabel, widthMethod) + 1
+		: 0;
+	const keepsTrailing =
+		trailingCells > 0 &&
+		inner - lead - trailingCells - LABEL_PADDING_CELLS >=
+			Math.min(titleCells, MIN_TITLE_CELLS);
+	const titleSpace = inner - lead - (keepsTrailing ? trailingCells : 0);
+
 	// A trailing cell of rule keeps a full-width title reading as a frame.
-	const label =
-		inner - lead >= 4 && title.length > 0
-			? ` ${truncateToWidth(title, inner - lead - 3, buffer.widthMethod)} `
-			: '';
-	const labelWidth = displayWidth(label, buffer.widthMethod);
+	const shown =
+		titleSpace >= MIN_TITLE_CELLS && titleCells > 0
+			? truncateRunsToWidth(
+					[...runs],
+					titleSpace - LABEL_PADDING_CELLS,
+					widthMethod,
+				)
+			: [];
+	const labelWidth =
+		shown.length > 0
+			? shown.reduce((sum, run) => sum + displayWidth(run.text, widthMethod), 2)
+			: 0;
 
 	rule(chars.topLeft + chars.horizontal.repeat(lead), box.x, box.y);
-	buffer.drawText(
-		label,
-		box.x + 1 + lead,
-		box.y,
-		parseColor(terminalColor(titleColor)),
+	if (shown.length > 0) {
+		const frameAttributes = textAttributes({dim: isDim});
 		// A transparent space would leave the native rule showing through.
-		RGBA.defaultBackground(),
-		textAttributes({bold: true, dim: isDim}),
-	);
-	rule(
-		chars.horizontal.repeat(inner - lead - labelWidth) + chars.topRight,
-		box.x + 1 + lead + labelWidth,
-		box.y,
-	);
+		const background = RGBA.defaultBackground();
+		let x = box.x + 1 + lead;
+		const drawLabelText = (text: string, run?: Run) => {
+			buffer.drawText(
+				text,
+				x,
+				box.y,
+				parseColor(run?.fg ?? terminalColor(titleColor)),
+				background,
+				combineAttributes(frameAttributes, run?.attributes),
+			);
+			x += displayWidth(text, widthMethod);
+		};
+
+		drawLabelText(' ');
+		for (const run of shown) drawLabelText(run.text, run);
+		drawLabelText(' ');
+	}
+
+	const fill = inner - lead - labelWidth - (keepsTrailing ? trailingCells : 0);
+	rule(chars.horizontal.repeat(fill), box.x + 1 + lead + labelWidth, box.y);
+	if (keepsTrailing) {
+		const trailingX = right - trailingCells;
+		buffer.drawText(
+			trailingLabel,
+			trailingX,
+			box.y,
+			parseColor(terminalColor()),
+			RGBA.defaultBackground(),
+			textAttributes({dim: true}),
+		);
+		rule(chars.horizontal, right - 1, box.y);
+	}
+
+	rule(chars.topRight, right, box.y);
 	for (let y = box.y + 1; y < bottom; y++) {
 		rule(chars.vertical, box.x, y);
 		rule(chars.vertical, right, y);

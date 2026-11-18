@@ -10,12 +10,6 @@
 // Constants
 // ============================================================================
 
-/** Rows consumed by header (1 line) + status message line (1 line) = 2 */
-export const HEADER_ROWS = 2;
-
-/** Total non-item chrome (header only, no footer) */
-export const LIST_CHROME_ROWS = HEADER_ROWS;
-
 /** Fixed-width characters per row (excluding issue key): icon(1) + space(1) + space(1) = 3 */
 export const ROW_FIXED_OVERHEAD = 3;
 
@@ -25,34 +19,125 @@ export type LinesPerItem = 1 | 2;
 // Scrolling / visibility
 // ============================================================================
 
+/** Rows a rail box's frame takes: its top and bottom borders. */
+export const BOX_FRAME_ROWS = 2;
+
+/** The status row, or the search row while searching. */
+export const STATUS_ROWS = 1;
+
 /**
- * Calculate how many list items can be displayed given the terminal height.
- *
- * @param termHeight - Height of the list pane in rows
- * @param linesPerItem - Terminal rows each item occupies (2 in two-line layout)
- * @returns Maximum number of items that fit
+ * Whether the workspace box keeps its status row. In a pane too short for both
+ * boxes, the agent rows and one space, the status row gives up its row so the
+ * selected space stays on screen.
  */
-export function calculateMaxVisibleItems(
-	termHeight: number,
+export function statusLineFits(
+	paneRows: number,
+	bannerHeight: number,
+	agentRows: number,
 	linesPerItem: LinesPerItem = 1,
-): number {
-	return Math.max(
-		1,
-		Math.floor((termHeight - LIST_CHROME_ROWS) / linesPerItem),
+): boolean {
+	return (
+		paneRows - bannerHeight >=
+		2 * BOX_FRAME_ROWS + STATUS_ROWS + agentRows + linesPerItem
 	);
 }
 
 /**
- * Whether the status message line gets its row. In a pane too short for the
- * header, the status line and one item, the line gives up its row so the
- * selected item stays on screen.
+ * Rows left for the rows that scroll. Split, the workspace box holds the
+ * banner, status row and agent rows above the rail box. Merged (search and
+ * the stacked rail), one box holds the banner, the status or search row and
+ * every row.
  */
-export function statusLineFits(
-	termHeight: number,
-	bannerHeight: number,
-	linesPerItem: LinesPerItem = 1,
-): boolean {
-	return termHeight - bannerHeight >= HEADER_ROWS + linesPerItem;
+export function railListRows(
+	layout:
+		| {
+				merged: false;
+				paneRows: number;
+				bannerHeight: number;
+				statusRows: number;
+				agentRows: number;
+		  }
+		| {merged: true; paneRows: number; bannerHeight: number},
+): number {
+	return layout.merged
+		? layout.paneRows - BOX_FRAME_ROWS - layout.bannerHeight - STATUS_ROWS
+		: layout.paneRows -
+				2 * BOX_FRAME_ROWS -
+				layout.bannerHeight -
+				layout.statusRows -
+				layout.agentRows;
+}
+
+/**
+ * The window over the rows that scroll, and whether the status row keeps its
+ * row. Merged (search and the stacked rail), the status or search row always
+ * shows. Split, it gives way when the pane is too short for it (see
+ * `statusLineFits`) or when keeping it would leave the rail box without a
+ * space, such as a group header taking the only row.
+ */
+export function railWindow(layout: {
+	merged: boolean;
+	rows: ReadonlyArray<{height: number; isSpace: boolean}>;
+	cursorRow: number;
+	paneRows: number;
+	bannerHeight: number;
+	agentRows: number;
+	linesPerItem: LinesPerItem;
+}): {
+	statusFits: boolean;
+	listRows: number;
+	scrollOffset: number;
+	visibleCount: number;
+} {
+	const {rows, cursorRow, paneRows, bannerHeight, agentRows} = layout;
+	const heights = rows.map(row => row.height);
+	const windowFor = (statusFits: boolean, listRows: number) => ({
+		statusFits,
+		listRows,
+		...calculateRowWindow(heights, cursorRow, listRows),
+	});
+	const splitWindow = (statusFits: boolean) =>
+		windowFor(
+			statusFits,
+			railListRows({
+				merged: false,
+				paneRows,
+				bannerHeight,
+				statusRows: statusFits ? STATUS_ROWS : 0,
+				agentRows,
+			}),
+		);
+
+	if (layout.merged)
+		return windowFor(
+			true,
+			railListRows({merged: true, paneRows, bannerHeight}),
+		);
+	if (!statusLineFits(paneRows, bannerHeight, agentRows, layout.linesPerItem))
+		return splitWindow(false);
+	const kept = splitWindow(true);
+	const showsSpace = rows
+		.slice(kept.scrollOffset, kept.scrollOffset + kept.visibleCount)
+		.some(row => row.isSpace);
+	return showsSpace || !rows.some(row => row.isSpace)
+		? kept
+		: splitWindow(false);
+}
+
+/**
+ * The rail's count of the spaces it lists: `12 spaces`, or `4-9 of 12` while
+ * only some are on screen. Nothing when there are none.
+ */
+export function spaceCountLabel(
+	firstShown: number,
+	shown: number,
+	total: number,
+): string | undefined {
+	if (total === 0) return undefined;
+	if (shown === 0 || shown === total)
+		return `${total} space${total === 1 ? '' : 's'}`;
+	if (shown === 1) return `${firstShown} of ${total}`;
+	return `${firstShown}-${firstShown + shown - 1} of ${total}`;
 }
 
 /**
@@ -78,49 +163,19 @@ export function calculateScrollOffset(
 }
 
 /**
- * Determine the visible window of items and the adjusted selection index.
- *
- * @returns Object with visibleRange [start, end), adjustedSelectedIndex
- */
-export function calculateVisibleWindow(
-	selectedIndex: number,
-	totalItems: number,
-	termHeight: number,
-	linesPerItem: LinesPerItem = 1,
-): {
-	scrollOffset: number;
-	visibleCount: number;
-	adjustedSelectedIndex: number;
-} {
-	const {scrollOffset, visibleCount} = calculateRowWindow(
-		Array.from({length: totalItems}, () => linesPerItem),
-		selectedIndex,
-		termHeight,
-		0,
-	);
-	const adjustedSelectedIndex = selectedIndex - scrollOffset;
-
-	return {scrollOffset, visibleCount, adjustedSelectedIndex};
-}
-
-/**
  * The visible window over rows of different heights: the grouped rail mixes
  * one-line group headers with two-line spaces. Keeps the cursor row near the
- * middle like `calculateVisibleWindow`, measured in terminal lines.
+ * middle, measured in terminal lines.
  */
 export function calculateRowWindow(
 	heights: readonly number[],
 	cursorRow: number,
-	termHeight: number,
-	bannerHeight: number,
+	listRows: number,
 ): {scrollOffset: number; visibleCount: number} {
 	const count = heights.length;
 	if (count === 0) return {scrollOffset: 0, visibleCount: 0};
 	const cursor = Math.min(Math.max(cursorRow, 0), count - 1);
-	const budget = Math.max(
-		heights[cursor]!,
-		termHeight - bannerHeight - LIST_CHROME_ROWS,
-	);
+	const budget = Math.max(heights[cursor]!, listRows);
 	const total = heights.reduce((sum, height) => sum + height, 0);
 	if (total <= budget) return {scrollOffset: 0, visibleCount: count};
 
@@ -355,50 +410,4 @@ export function renderListRow(
 
 	const emojiPrefix = prefix?.emoji ? `${prefix.emoji} ` : '';
 	return `${emojiPrefix}${icon} ${issueKey} ${truncated}${suffix}`;
-}
-
-/**
- * Render a complete list view as ASCII art.
- * Shows which items are visible, which is selected, and how they fit.
- *
- * Selected rows are marked with `*` prefix (in the real UI, selection
- * is shown via inverse background — we use `*` as a visual indicator
- * in test output).
- *
- * @param items - Array of {issueKey, icon, title} for all items
- * @param selectedIndex - Currently selected item (0-based, in full list)
- * @param termHeight - Terminal height available for the list pane
- * @param width - Width of the list pane
- * @param hasStatusMessage - Whether a status message is shown
- * @returns Multi-line ASCII string of the visible list
- */
-export function renderListView(
-	items: Array<{
-		issueKey: string;
-		icon: string;
-		title: string;
-		pipelineIcon?: string;
-		commentCount?: number;
-	}>,
-	selectedIndex: number,
-	termHeight: number,
-	width: number,
-): string {
-	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
-		calculateVisibleWindow(selectedIndex, items.length, termHeight);
-
-	const visibleItems = items.slice(scrollOffset, scrollOffset + visibleCount);
-	const rows: string[] = [];
-
-	for (let i = 0; i < visibleItems.length; i++) {
-		const item = visibleItems[i]!;
-		const row = renderListRow(item.issueKey, item.icon, item.title, width, {
-			pipelineIcon: item.pipelineIcon,
-			commentCount: item.commentCount,
-		});
-		const prefix = i === adjustedSelectedIndex ? '*' : ' ';
-		rows.push(`${prefix}${row}`);
-	}
-
-	return rows.join('\n');
 }
