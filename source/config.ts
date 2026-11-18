@@ -3237,6 +3237,8 @@ export interface ResolvedAgentProfile {
 	/** The deprecated `claude.extra_args`, rendered after model/effort. */
 	extraArgs: string[];
 	skillPrefix: string;
+	/** How the agent takes the companion rules at launch; see agentRulesFlags. */
+	rulesArgs: string[];
 }
 
 /**
@@ -3266,6 +3268,7 @@ function resolveAgentProfile(
 		effortArgs: definition.effort_args ?? builtin.effort_args,
 		extraArgs: [],
 		skillPrefix: definition.skill_prefix ?? builtin.skill_prefix ?? '/',
+		rulesArgs: builtin.rules_args ?? [],
 	};
 }
 

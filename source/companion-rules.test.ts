@@ -9,7 +9,7 @@ import {
 	installAgentRules,
 } from './companion-rules.ts';
 import {buildAgentResumeCommand} from './tmux.ts';
-import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
+import {getNamedAgentProfile} from './config.ts';
 
 /** What a shell hands the agent for a launch-flag string. */
 function argv(flags: string): string[] {
@@ -19,6 +19,13 @@ function argv(flags: string): string[] {
 	return stdout.split('\0').slice(0, -1);
 }
 
+function rulesFlagsFor(command: string, isClaude?: boolean): string {
+	const definition = {command, is_claude: isClaude};
+	return agentRulesFlags(
+		getNamedAgentProfile({agent_profiles: {a: definition}}, 'a').rulesArgs,
+	);
+}
+
 test('the rules survive any shell and a TOML string as they are', t => {
 	// Launch lines run in the user's own shell, Nushell and fish included, whose
 	// quoting differs for everything except a plain single-quoted string.
@@ -26,7 +33,7 @@ test('the rules survive any shell and a TOML string as they are', t => {
 });
 
 test('Codex gets the rules as one -c developer_instructions value', t => {
-	const [flag, value, ...rest] = argv(agentRulesFlags('codex'));
+	const [flag, value, ...rest] = argv(rulesFlagsFor('codex'));
 	t.is(flag, '-c');
 	t.deepEqual(rest, []);
 	t.regex(
@@ -36,7 +43,7 @@ test('Codex gets the rules as one -c developer_instructions value', t => {
 });
 
 test('Pi gets the rules as one --append-system-prompt value', t => {
-	const [flag, value, ...rest] = argv(agentRulesFlags('/opt/bin/pi'));
+	const [flag, value, ...rest] = argv(rulesFlagsFor('/opt/bin/pi'));
 	t.is(flag, '--append-system-prompt');
 	t.deepEqual(rest, []);
 	t.notRegex(value!, /\n/);
@@ -45,17 +52,18 @@ test('Pi gets the rules as one --append-system-prompt value', t => {
 
 test('agents that get the rules another way get no flags', t => {
 	for (const command of ['claude', 'opencode', 'agy', 'aider']) {
-		t.is(agentRulesFlags(command), '');
+		t.is(rulesFlagsFor(command), '');
 	}
 });
 
-const codexProfile = {
-	...DEFAULT_RESOLVED_AGENT_PROFILE,
-	name: 'codex',
-	command: 'codex',
-	isClaude: false,
-	resumeArgs: 'resume --last',
-};
+test('an agent gated as claude takes no rules flag, whatever its command', t => {
+	t.is(rulesFlagsFor('codex', true), '');
+});
+
+const codexProfile = getNamedAgentProfile(
+	{agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}}},
+	'codex',
+);
 
 test("Codex's rules come before the resume subcommand, on both launch paths", t => {
 	const command = buildAgentResumeCommand(
@@ -65,7 +73,8 @@ test("Codex's rules come before the resume subcommand, on both launch paths", t 
 		undefined,
 		{rules: true},
 	);
-	const rules = agentRulesFlags('codex');
+	const rules = rulesFlagsFor('codex');
+	t.not(rules, '');
 	t.is(
 		command,
 		`codex${rules} resume --last || { printf '\\033[A\\033[2K'; false; } || codex${rules}`,
