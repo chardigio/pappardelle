@@ -30,12 +30,7 @@ type Stage =
 	| 'finished';
 
 type Outcome =
-	| 'ok'
-	| 'failed'
-	| 'cancelled'
-	| 'unavailable'
-	| 'incomplete'
-	| 'delegated';
+	'ok' | 'failed' | 'cancelled' | 'unavailable' | 'incomplete' | 'delegated';
 export type LayoutTraceInputs = {
 	cause?: 'state' | 'resize';
 	loading?: boolean;

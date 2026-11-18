@@ -25,8 +25,7 @@ function parseLinearIssue(raw: Record<string, unknown>): TrackerIssue {
 	const issue = raw as unknown as TrackerIssue;
 	// Extract label names from Linear's labels.nodes structure
 	const labelsObj = raw['labels'] as
-		| {nodes?: Array<{name?: string}>}
-		| undefined;
+		{nodes?: Array<{name?: string}>} | undefined;
 	if (labelsObj?.nodes && Array.isArray(labelsObj.nodes)) {
 		issue.labels = labelsObj.nodes
 			.map(n => n.name)

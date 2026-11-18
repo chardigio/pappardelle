@@ -424,26 +424,25 @@ async function readCandidates(
 	limit: Limit,
 ): Promise<SkillEntry[]> {
 	const entries = await Promise.all(
-		candidates.map(
-			async (candidate): Promise<SkillEntry | undefined> =>
-				limit(async () => {
-					if (candidate.kind === 'skill') {
-						try {
-							await fs.access(candidate.file);
-						} catch {
-							return undefined;
-						}
+		candidates.map(async (candidate): Promise<SkillEntry | undefined> =>
+			limit(async () => {
+				if (candidate.kind === 'skill') {
+					try {
+						await fs.access(candidate.file);
+					} catch {
+						return undefined;
 					}
+				}
 
-					const frontmatter = await readFrontmatter(candidate.file);
-					if (!frontmatter.userInvocable) return undefined;
-					return {
-						name: candidate.name,
-						description: frontmatter.description,
-						source,
-						kind: candidate.kind,
-					};
-				}),
+				const frontmatter = await readFrontmatter(candidate.file);
+				if (!frontmatter.userInvocable) return undefined;
+				return {
+					name: candidate.name,
+					description: frontmatter.description,
+					source,
+					kind: candidate.kind,
+				};
+			}),
 		),
 	);
 	return entries

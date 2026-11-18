@@ -256,8 +256,7 @@ export function makeLinearGraphQLClient(
  * client directly via `makeLinearGraphQLClient` instead.
  */
 export function createDefaultLinearGraphQLClient():
-	| LinearGraphQLClient
-	| undefined {
+	LinearGraphQLClient | undefined {
 	const apiKey = resolveApiKey();
 	if (!apiKey) {
 		log.debug(

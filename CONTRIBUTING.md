@@ -51,7 +51,7 @@ pytest plugins/pappardelle/hooks/ -v
 
 - TypeScript source lives in `source/`
 - Python hooks live in `plugins/pappardelle/hooks/`
-- Prettier handles formatting (see `.prettierignore`)
+- `bun fmt` handles formatting (config in `bunfig.toml`); run it before committing
 - Keep changes focused — one logical change per PR
 
 ## Adding a built-in agent

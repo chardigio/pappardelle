@@ -62,10 +62,7 @@ export interface PRLink {
  * - progressing_dirty: one or more checks still running, at least one already failed
  */
 export type PipelineStatus =
-	| 'passing'
-	| 'failing'
-	| 'progressing_clean'
-	| 'progressing_dirty';
+	'passing' | 'failing' | 'progressing_clean' | 'progressing_dirty';
 
 /**
  * Per-row data fetched from the VCS host for the ticket rail's status column.

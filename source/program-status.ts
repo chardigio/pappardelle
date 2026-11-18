@@ -198,12 +198,8 @@ export type TerminalStatusEvent =
 
 export class TerminalStatusParser {
 	private mode:
-		| 'text'
-		| 'escape'
-		| 'osc'
-		| 'osc-escape'
-		| 'string'
-		| 'string-escape' = 'text';
+		'text' | 'escape' | 'osc' | 'osc-escape' | 'string' | 'string-escape' =
+		'text';
 
 	private body: number[] = [];
 	private oversized = false;

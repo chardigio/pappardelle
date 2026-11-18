@@ -1104,8 +1104,7 @@ export function findTrailingPromptFlags(
 	return Object.entries(profiles as Record<string, unknown>).flatMap(
 		([name, value]) => {
 			const definition = agentProfiles[name] as
-				| Partial<AgentProfileConfig>
-				| undefined;
+				Partial<AgentProfileConfig> | undefined;
 			if (typeof definition?.command !== 'string') return [];
 			const flag = builtinPromptFlag(definition as AgentProfileConfig);
 			if (!flag) return [];

@@ -61,8 +61,8 @@ jobs:
       # (and did, in #5) land a prettier violation straight onto a red master
       # with every check green here. These steps have to mirror the monorepo's
       # .github/workflows/pappardelle.yml or that hole reopens.
-      - name: Check formatting (prettier)
-        run: bun --bun prettier --check .
+      - name: Check formatting (bun fmt)
+        run: bun fmt --check
 
       - name: Lint (xo)
         run: bun --bun xo

@@ -5,11 +5,7 @@ import {writeTuiMarker} from '../../source/tui-marker.ts';
 // marker, come up on some other cli.js, never report, exit during startup, or
 // have tmux refuse the restart outright.
 export type FakeTuiBehavior =
-	| 'ready'
-	| {cliPath: string}
-	| 'silent'
-	| 'exits'
-	| 'refused';
+	'ready' | {cliPath: string} | 'silent' | 'exits' | 'refused';
 
 export const FAKE_CLI_PATH = '/build/dist/cli.js';
 export const FAKE_SHA = 'abc1234';

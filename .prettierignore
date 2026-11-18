@@ -1,5 +1,0 @@
-dist
-
-.beads
-.pytest_cache
-.claude/settings.local.json

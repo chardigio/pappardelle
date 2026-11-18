@@ -13,7 +13,7 @@
 		"build": "bun scripts/build.ts",
 		"dev": "bun --watch source/cli.tsx",
 		"start": "./dist/pappardelle",
-		"test": "bun --bun prettier --check . && bun --bun xo && bun run test:unit",
+		"test": "bun fmt --check && bun --bun xo && bun run test:unit",
 		"typecheck": "bun --bun tsc --noEmit",
 		"test:unit": "bun --bun ava"
 	},
@@ -35,7 +35,6 @@
 		"@types/semver": "^7.5.0",
 		"@xterm/headless": "^6.0.0",
 		"ava": "^5.2.0",
-		"prettier": "^3.0.0",
 		"semver": "^7.5.0",
 		"string-width": "^8.3.0",
 		"typescript": "^5.0.3",
@@ -54,7 +53,7 @@
 	"xo": [
 		{
 			"react": true,
-			"prettier": true,
+			"prettier": "compat",
 			"semicolon": true,
 			"rules": {
 				"react/prop-types": "off",
@@ -115,7 +114,9 @@
 				"unicorn/prefer-includes": "off",
 				"no-negated-condition": "off",
 				"react/react-in-jsx-scope": "off",
-				"react/no-unknown-property": "off"
+				"react/no-unknown-property": "off",
+				"arrow-body-style": "off",
+				"prefer-arrow-callback": "off"
 			}
 		},
 		{
