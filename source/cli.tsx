@@ -87,7 +87,11 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {resolveTargetSpace, worktreePathFor} from './space-target.ts';
+import {
+	readCheckout,
+	resolveTargetSpace,
+	worktreePathFor,
+} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {exitAfterFlush} from './exit-after-flush.ts';
 
@@ -155,8 +159,8 @@ if (process.argv[2] === 'space') {
 		await runSpaceCommand(
 			process.argv.slice(3),
 			defaultSpaceCommandDeps({
-				repo: getRepoName,
-				mainRoot: getMainRepoRoot,
+				checkout: () =>
+					readCheckout({repoName: getRepoName, mainRoot: getMainRepoRoot}),
 				daos: stateDaosByRepo(),
 				resolveKey: resolveCliSpaceKey,
 				runner: supervisedInnerTmuxRunner,

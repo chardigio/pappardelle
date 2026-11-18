@@ -40,29 +40,65 @@ export function worktreePathFor(
 	return path.join(worktreesDir(home, repoName), key);
 }
 
+/** A git checkout: the repo it belongs to and the root of its main checkout. */
+export type Checkout = {repoName: string; mainRoot: string};
+
+export type CheckoutLookup =
+	| {kind: 'checkout'; checkout: Checkout}
+	| {kind: 'not-in-a-repo'};
+
+/** The checkout the process runs in, from readers that throw outside one. */
+export function readCheckout(read: {
+	repoName: () => string;
+	mainRoot: () => string;
+}): CheckoutLookup {
+	try {
+		return {
+			kind: 'checkout',
+			checkout: {repoName: read.repoName(), mainRoot: read.mainRoot()},
+		};
+	} catch {
+		return {kind: 'not-in-a-repo'};
+	}
+}
+
+export type CallerSpace =
+	| {kind: 'env'; key: string}
+	| {kind: 'cwd'; key: string; checkout: Checkout}
+	| {kind: 'none'};
+
 /**
  * The space the caller is in: PAPPARDELLE_SPACE, else the checkout that
  * holds `cwd`. Codex starts MCP servers with a filtered environment and
  * OpenCode from a shared service, so PAPPARDELLE_SPACE doesn't reach them,
  * and an agent started by hand in a worktree never had it; all of them run
  * in the space's directory. Paths are compared by file identity, so a
- * directory reached through a symlink belongs to the same space.
+ * directory reached through a symlink belongs to the same space. Outside a
+ * git checkout only PAPPARDELLE_SPACE names a space.
  */
 export function callerSpace(options: {
 	env: NodeJS.ProcessEnv;
 	cwd: string;
 	home: string;
-	/** Unknown outside a git checkout, where only PAPPARDELLE_SPACE names a space. */
-	checkout: {repoName: string; mainRoot: string} | undefined;
-}): string | undefined {
+	checkout: CheckoutLookup;
+}): CallerSpace {
 	const own = options.env['PAPPARDELLE_SPACE']?.trim();
-	if (own) return own;
-	if (!options.checkout) return undefined;
-	const {repoName, mainRoot} = options.checkout;
-	const worktrees = worktreesDir(options.home, repoName);
+	if (own) return {kind: 'env', key: own};
+	if (options.checkout.kind === 'not-in-a-repo') return {kind: 'none'};
+	const {checkout} = options.checkout;
+	const key = keyAt(options.cwd, options.home, checkout);
+	return key === undefined ? {kind: 'none'} : {kind: 'cwd', key, checkout};
+}
+
+function keyAt(
+	cwd: string,
+	home: string,
+	{repoName, mainRoot}: Checkout,
+): string | undefined {
+	const worktrees = worktreesDir(home, repoName);
 	let directory: string;
 	try {
-		directory = fs.realpathSync(options.cwd);
+		directory = fs.realpathSync(cwd);
 	} catch {
 		return undefined;
 	}

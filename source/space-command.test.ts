@@ -84,8 +84,10 @@ function deps(
 	const out: string[] = [];
 	const err: string[] = [];
 	return {
-		repo: () => state.repo,
-		mainRoot: () => MAIN_ROOT,
+		checkout: () => ({
+			kind: 'checkout',
+			checkout: {repoName: state.repo, mainRoot: MAIN_ROOT},
+		}),
 		daos: () => state.daos,
 		home: HOME,
 		env: {},
@@ -329,7 +331,10 @@ test('a space named by PAPPARDELLE_SPACE belongs to PAPPARDELLE_REPO, not the ne
 	const result = await run(
 		['get', '--field', 'repo', '--field', 'profile', '--field', 'worktreePath'],
 		deps(outer, {
-			repo: () => 'nested',
+			checkout: () => ({
+				kind: 'checkout',
+				checkout: {repoName: 'nested', mainRoot: MAIN_ROOT},
+			}),
 			daos: repo => (repo === 'repo' ? outer.daos : nested.daos),
 			env: {PAPPARDELLE_SPACE: 'STA-1', PAPPARDELLE_REPO: 'repo'},
 		}),
@@ -364,11 +369,7 @@ test('with no key and no PAPPARDELLE_SPACE, the space is the worktree the caller
 test('outside a git checkout, get with a key or PAPPARDELLE_SPACE and list exit 1 with one line', async t => {
 	const state = testState(t);
 	await state.daos.registry.add('STA-1');
-	const outside = {
-		repo() {
-			throw new Error('Not in a git repository');
-		},
-	};
+	const outside = {checkout: () => ({kind: 'not-in-a-repo'}) as const};
 	const expected = {
 		code: 1,
 		stdout: '',
