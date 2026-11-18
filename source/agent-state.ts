@@ -23,12 +23,11 @@ import {
 import type {ProgramStatusInfo} from './program-status.ts';
 import {
 	exactSessionTarget,
-	fromSessionKey,
 	getSessionNames,
-	getSessionPrefix,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
+import type {SpaceIdentityDao} from './space-identity.ts';
 import {mergeProgramStatus} from './workspace-status.ts';
 
 export const AGENT_STATES = [
@@ -185,13 +184,21 @@ export async function readAgentStatus(
 	);
 }
 
-/** The keys of every space in `repo` with an agent session. */
-export function listAgentKeys(repo: string, runner: OuterTmuxRunner): string[] {
-	const prefix = getSessionPrefix('agent', repo);
-	return (tmuxOut(runner, ['list-sessions', '-F', '#{session_name}']) ?? '')
-		.split('\n')
-		.filter(name => name.startsWith(prefix))
-		.map(name => fromSessionKey(name.slice(prefix.length)));
+/** The keys of every space whose stored agent session is live. */
+export function listAgentKeys(
+	identities: Pick<SpaceIdentityDao, 'list'>,
+	runner: OuterTmuxRunner,
+): string[] {
+	const listed = identities.list();
+	if (listed.kind === 'unreadable') return [];
+	const live = new Set(
+		(tmuxOut(runner, ['list-sessions', '-F', '#{session_name}']) ?? '').split(
+			'\n',
+		),
+	);
+	return listed.identities
+		.filter(identity => live.has(identity.tmux.agentSession))
+		.map(identity => identity.key);
 }
 
 // A window nobody is viewing keeps the size of whatever last showed it: a

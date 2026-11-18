@@ -13,6 +13,7 @@ import {
 	type AgentStateDeps,
 	type AgentStateReport,
 } from './agent-state.ts';
+import type {SpaceIdentityDao} from './space-identity.ts';
 import {
 	changesSince,
 	encodeCursor,
@@ -60,6 +61,7 @@ export const POLICY_REFUSED_EXIT = 3;
 
 export type SuperviseDeps = {
 	repo: () => string;
+	identities: Pick<SpaceIdentityDao, 'list'>;
 	resolveKey: (raw: string) => string;
 	/** The hook file's key for a space: `{repo}-{branch}` for main. */
 	hookKey: (key: string) => Promise<string>;
@@ -320,7 +322,7 @@ async function watchSpaces(
 		if (named.length > 0) return named;
 		// A space in the cursor that has since closed still reports, as no_session.
 		const all = new Set([
-			...listAgentKeys(deps.repo(), deps.runner),
+			...listAgentKeys(deps.identities, deps.runner),
 			...Object.keys(command.since ?? {}),
 		]);
 		if (own) all.delete(own);

@@ -17,8 +17,10 @@ import {
 import {getRepoName} from '../source/config.ts';
 import {
 	programStatusPath,
+	statusSocket,
 	statusTmuxArgs,
 } from '../source/program-status-monitor.ts';
+import {newSpaceIdentity} from '../source/space-identity.ts';
 import {listOpenSpaces} from '../source/space-registry.ts';
 import {createStateDaos} from '../source/state-daos.ts';
 import {
@@ -76,6 +78,16 @@ try {
 	for (const mode of ['normal', 'detached', 'orphan'] as const) {
 		const key = `qa-cleanup-${mode}`;
 		const session = getSessionNames(key, repo).agent;
+		// As idow records it. The reaper names a reaped session's space from
+		// these, so without the database an orphan's status stays behind.
+		await daos.spaceIdentities.record(
+			newSpaceIdentity({
+				repo,
+				key,
+				worktreePath: harness.root,
+				socket: statusSocket(),
+			}),
+		);
 		await harness.tmux([
 			'new-session',
 			'-d',
@@ -156,6 +168,14 @@ try {
 	);
 	const key = 'qa-cleanup-failed';
 	const sessions = getSessionNames(key, repo);
+	await daos.spaceIdentities.record(
+		newSpaceIdentity({
+			repo,
+			key,
+			worktreePath: harness.root,
+			socket: statusSocket(),
+		}),
+	);
 	for (const session of [sessions.agent, sessions.companion])
 		await harness.tmux(['new-session', '-d', '-s', session, '/bin/bash']);
 	const pane = await daos.programStatus.attach(key, sessions.agent);

@@ -12,7 +12,7 @@ import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
 import {
 	cleanupOrphanedInnerSessions,
-	liveSpaceSessionKeys,
+	liveInnerSessions,
 	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
@@ -86,7 +86,11 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {newSpaceIdentity, worktreePathFor} from './space-identity.ts';
+import {
+	newSpaceIdentity,
+	protectedSessionNames,
+	worktreePathFor,
+} from './space-identity.ts';
 import {statusSocket} from './program-status-monitor.ts';
 import {resolveTargetSpace} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -674,7 +678,7 @@ async function maintainSessions() {
 	await daos.registry
 		.settle({
 			closing: new Set(),
-			liveSessionKeys: () => liveSpaceSessionKeys(undefined, innerTmux),
+			liveSessions: () => liveInnerSessions(innerTmux),
 		})
 		.catch((error: unknown) => {
 			createLogger('cli').warn(
@@ -682,20 +686,28 @@ async function maintainSessions() {
 				error instanceof Error ? error : undefined,
 			);
 		});
-	const owned = daos.registry.protectedSpaces();
-	if (!owned.ok) {
+	const owned = protectedSessionNames(daos.registry, daos.spaceIdentities);
+	if (owned.kind === 'unreadable') {
 		// An unreadable registry is not an empty one: reaping against it
 		// would kill every session of every open space.
 		reapingDone?.();
 		createLogger('cli').warn(
-			'Skipped the inner-socket reap: the space registry could not be read',
+			'Skipped the inner-socket reap: the spaces or their names could not be read',
 			owned.error instanceof Error ? owned.error : undefined,
 		);
 		return;
 	}
 
+	if (owned.kind === 'missing') {
+		reapingDone?.();
+		createLogger('cli').warn(
+			`Skipped the inner-socket reap: no stored session names for ${owned.keys.join(', ')}`,
+		);
+		return;
+	}
+
 	const innerReaped = cleanupOrphanedInnerSessions(
-		new Set(owned.keys),
+		owned.names,
 		undefined,
 		innerTmux,
 	);

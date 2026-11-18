@@ -9,7 +9,16 @@ import test, {type ExecutionContext} from 'ava';
 import {parse, stringify} from 'yaml';
 import {agentRulesFlags} from './companion-rules.ts';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
+import {repoNameFromGitCommonDir} from './config.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
+import {protectedSessionNames} from './space-identity.ts';
+import {createStateDaos} from './state-daos.ts';
+import {closeStateDb, stateDbPath} from './state-db.ts';
+import {
+	cleanupOrphanedInnerSessions,
+	initTmuxState,
+	type OuterTmuxRunner,
+} from './tmux.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
@@ -399,6 +408,72 @@ test('idow names a space the same from a linked worktree as from the main checko
 		},
 	]);
 });
+
+if (sqliteRun) {
+	test.serial(
+		'a space idow opened from a linked worktree survives the reap of a TUI started from another',
+		async t => {
+			const fixture = setup(t);
+			await fixture.run({
+				projectRoot: false,
+				cwd: fixture.linked,
+				extraEnv: {PAPPARDELLE_REGISTER_SPACE: '1'},
+			});
+			const other = path.join(path.dirname(fixture.main), 'other linked');
+			execFileSync('git', [
+				'-C',
+				fixture.main,
+				'worktree',
+				'add',
+				'-b',
+				'other',
+				other,
+			]);
+			const repo = repoNameFromGitCommonDir(
+				execFileSync(
+					'git',
+					['rev-parse', '--path-format=absolute', '--git-common-dir'],
+					{cwd: other, encoding: 'utf8'},
+				).trim(),
+			);
+			const stateDir = path.join(fixture.home, '.pappardelle');
+			const daos = createStateDaos({
+				repo,
+				stateDir,
+				sqlite: true,
+				home: fixture.home,
+				mainRoot: () => fixture.main,
+			});
+			t.teardown(() => {
+				daos.disconnectStatusDaemon();
+				closeStateDb(stateDbPath(stateDir));
+			});
+			initTmuxState(daos);
+			const owned = protectedSessionNames(daos.registry, daos.spaceIdentities);
+			if (owned.kind !== 'names') {
+				t.fail(`the reap would be skipped: ${JSON.stringify(owned)}`);
+				return;
+			}
+
+			const live = [
+				'agent-main checkout-test-abc',
+				'companion-main checkout-test-abc',
+				'agent-main checkout-main',
+				'agent-main checkout-gone-1',
+			];
+			const killed: string[] = [];
+			const runner: OuterTmuxRunner = args => {
+				if (args[0] === 'kill-session') killed.push(args[2]!);
+				return {
+					status: 0,
+					stdout: args[0] === 'list-sessions' ? live.join('\n') : '',
+				};
+			};
+			t.is(cleanupOrphanedInnerSessions(owned.names, repo, runner, [repo]), 1);
+			t.deepEqual(killed, ['=agent-main checkout-gone-1:']);
+		},
+	);
+}
 
 test('idow prefers a worktree project config while falling back for local config', async t => {
 	const fixture = setup(t);

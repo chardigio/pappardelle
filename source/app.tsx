@@ -190,7 +190,7 @@ import {
 	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
 	killSpaceSessions,
-	liveSpaceSessionKeys,
+	liveInnerSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
@@ -704,7 +704,7 @@ export default function App({
 				await registry
 					.settle({
 						closing: closeTasks.current,
-						liveSessionKeys: () => liveSpaceSessionKeys(),
+						liveSessions: () => liveInnerSessions(),
 					})
 					.catch((error: unknown) => {
 						log.warn(

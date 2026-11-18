@@ -203,6 +203,7 @@ import {
 	sessionPrefix,
 	tmuxSessionRepo,
 	worktreePathFor,
+	type SpaceIdentityDao,
 } from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
@@ -263,6 +264,11 @@ function agentSessions(): AgentSessionsDao {
 	return stateDaos.agentSessions;
 }
 
+function spaceIdentities(): SpaceIdentityDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.spaceIdentities;
+}
+
 function programStatus(): ProgramStatusDao {
 	if (!stateDaos) throw new Error('initTmuxState() was not called');
 	return stateDaos.programStatus;
@@ -308,20 +314,6 @@ export function getSessionPrefix(
  */
 export function getLegacyAgentSessionPrefix(repoName?: string): string {
 	return sessionPrefix('claude', repoName ?? getRepoName());
-}
-
-/**
- * Extract the space key from a repo-qualified session name.
- * e.g. extractIssueKeyFromSession('agent-pappa-chex-CHEX-313', 'pappa-chex') → 'CHEX-313'
- * Returns null if the session doesn't match the expected prefix.
- */
-export function extractIssueKeyFromSession(
-	sessionName: string,
-	repoName?: string,
-): string | null {
-	const prefix = getSessionPrefix('agent', repoName);
-	if (!sessionName.startsWith(prefix)) return null;
-	return fromSessionKey(sessionName.slice(prefix.length));
 }
 
 // Track which space is currently being viewed
@@ -479,10 +471,6 @@ export function innerSessionExists(sessionName: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-export function fromSessionKey(sessionKey: string): string {
-	return sessionKey.replaceAll(/__|_/g, match => (match === '__' ? '_' : '.'));
 }
 
 /** Session names for a space in this repo, or in `repoName`. */
@@ -1409,42 +1397,24 @@ export async function enableInnerSynchronizedOutput(
 const FOCUS_EVENTS_ARGS = ['set-option', '-g', 'focus-events', 'on'];
 
 /**
- * STA-1420 layer 2: reap orphaned `agent-{repo}-*` / `companion-{repo}-*`
- * (and legacy `claude-{repo}-*` / `lazygit-{repo}-*`) sessions on the inner socket whose key is
- * neither in the registry nor the
- * main worktree (`'main'`). Symmetric to `cleanupOrphanedOuterSessions` but
- * for inner-socket leftovers — these accumulate when Pappardelle is hard-quit
- * (SIGKILL, terminal close, Ctrl-C during a slow `pre_workspace_deinit`)
- * between unregistering and killing. STA-1416 removed the `seedFromTmux`
- * resurrection helper that used to mop these up as a side effect, so without
- * this reaper they'd linger forever on the inner socket.
- *
- * Conservative on purpose: only kills sessions whose key is missing from the
- * registry AND isn't `MAIN_WORKTREE_KEY`. The main worktree row in app.tsx
- * uses the same constant, so its sessions (`agent-{repo}-main`,
- * `companion-{repo}-main`) are legitimate but never appear in the registry —
- * the constant keeps the "never reap main" coupling explicit on both sides.
- *
- * `runner` is exposed for tests only; production uses the spawnSync default.
- */
-/**
- * This repo's space sessions on the inner socket, with the space each
- * belongs to. Null when tmux did not answer, which is not the same as none.
+ * This repo's space sessions on the inner socket, each with the session that
+ * owns it: a split's companion, and for a legacy name the session it was
+ * renamed to. Null when tmux did not answer, which is not the same as none.
  */
 function innerSpaceSessions(
 	repoName: string | undefined,
 	runner: OuterTmuxRunner,
 	knownRepos: string[],
-): Array<{name: string; key: string}> | null {
-	const agentPrefix = getSessionPrefix('agent', repoName);
-	const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
-	const companionPrefix = getSessionPrefix('companion', repoName);
-	// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Reap that
-	// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
-	// git-UI sessions on the inner socket. Mirrors cleanupOrphanedOuterSessions.
+): Array<{name: string; owner: string}> | null {
 	const repo = repoName ?? getRepoName();
-	const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
-
+	const agentPrefix = sessionPrefix('agent', repo);
+	const companionPrefix = sessionPrefix('companion', repo);
+	// Before the agent- and companion- names the panes were claude- and, before
+	// STA-1464, lazygit-. A hard-quit straddling an upgrade leaves those behind.
+	const renamed = [
+		{from: sessionPrefix('claude', repo), to: agentPrefix},
+		{from: `lazygit-${tmuxSessionRepo(repo)}-`, to: companionPrefix},
+	];
 	const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
 	const result = runner(['list-sessions', '-F', '#{session_name}']);
@@ -1452,46 +1422,55 @@ function innerSpaceSessions(
 		return null;
 	}
 
-	const sessions: Array<{name: string; key: string}> = [];
+	const sessions: Array<{name: string; owner: string}> = [];
 	for (const name of result.stdout.trim().split('\n')) {
 		if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
-		let key: string | null = null;
 		if (name.startsWith(agentPrefix)) {
-			key = fromSessionKey(name.slice(agentPrefix.length));
-		} else if (name.startsWith(legacyAgentPrefix)) {
-			key = fromSessionKey(name.slice(legacyAgentPrefix.length));
+			sessions.push({name, owner: name});
 		} else if (name.startsWith(companionPrefix)) {
-			key = fromSessionKey(
-				owningCompanionSession(name).slice(companionPrefix.length),
-			);
-		} else if (name.startsWith(legacyCompanionPrefix)) {
-			key = fromSessionKey(name.slice(legacyCompanionPrefix.length));
+			sessions.push({name, owner: owningCompanionSession(name)});
 		} else {
-			continue;
+			const legacy = renamed.find(({from}) => name.startsWith(from));
+			if (legacy)
+				sessions.push({
+					name,
+					owner: legacy.to + name.slice(legacy.from.length),
+				});
 		}
-		if (key === MAIN_WORKTREE_KEY) continue;
-		sessions.push({name, key});
 	}
 
 	return sessions;
 }
 
-/** The spaces of this repo that have a live inner-socket session. */
-export function liveSpaceSessionKeys(
-	repoName?: string,
+/** Every session on the inner socket, or null when tmux did not answer. */
+export function liveInnerSessions(
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
-	knownRepos: string[] = listKnownRepos(),
 ): Set<string> | null {
 	try {
-		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
-		return sessions && new Set(sessions.map(session => session.key));
+		const result = runner(['list-sessions', '-F', '#{session_name}']);
+		if (result.error || result.status !== 0) return null;
+		return new Set(result.stdout.trim().split('\n').filter(Boolean));
 	} catch {
 		return null;
 	}
 }
 
+/**
+ * STA-1420 layer 2: reap this repo's sessions on the inner socket that no
+ * protected space owns. They accumulate when Pappardelle is hard-quit
+ * (SIGKILL, terminal close, Ctrl-C during a slow `pre_workspace_deinit`)
+ * between unregistering and killing. Symmetric to
+ * `cleanupOrphanedOuterSessions`.
+ *
+ * `protectedNames` are the stored session names of the spaces whose sessions
+ * have an owner, main's included (`protectedSessionNames`). A session is kept
+ * when the session that owns it is one of them; nothing is parsed back into a
+ * key.
+ *
+ * `runner` is exposed for tests only; production uses the spawnSync default.
+ */
 export function cleanupOrphanedInnerSessions(
-	registeredKeys: Set<string>,
+	protectedNames: ReadonlySet<string>,
 	repoName?: string,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
 	knownRepos: string[] = listKnownRepos(),
@@ -1500,25 +1479,49 @@ export function cleanupOrphanedInnerSessions(
 		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
 		if (!sessions) return 0;
 		const orphans = sessions.filter(
-			session => !registeredKeys.has(session.key),
+			session => !protectedNames.has(session.owner),
 		);
 
 		let killed = 0;
-		const failedKeys = new Set<string>();
-		for (const {name, key} of orphans) {
+		const failedOwners = new Set<string>();
+		for (const {name, owner} of orphans) {
 			const k = runner(['kill-session', '-t', exactSessionTarget(name)]);
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned inner-socket session: ${name}`);
 			} else {
-				failedKeys.add(key);
+				failedOwners.add(owner);
 			}
 		}
-		for (const key of new Set(orphans.map(orphan => orphan.key)))
-			if (!failedKeys.has(key)) void programStatus().remove(key);
+
+		forgetProgramStatus(
+			new Set(
+				orphans
+					.map(orphan => orphan.owner)
+					.filter(owner => !failedOwners.has(owner)),
+			),
+		);
 		return killed;
 	} catch {
 		return 0;
+	}
+}
+
+/**
+ * Drop the program status of the spaces whose sessions were reaped. Closed
+ * identities are kept, so a reaped session is named by one unless its space
+ * was closed before identities were stored.
+ */
+function forgetProgramStatus(owners: ReadonlySet<string>): void {
+	if (owners.size === 0) return;
+	const listed = spaceIdentities().list();
+	if (listed.kind === 'unreadable') return;
+	for (const identity of listed.identities) {
+		if (
+			owners.has(identity.tmux.agentSession) ||
+			owners.has(identity.tmux.companionSession)
+		)
+			void programStatus().remove(identity.key);
 	}
 }
 

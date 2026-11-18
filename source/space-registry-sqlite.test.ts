@@ -11,11 +11,27 @@ import {
 	type SettleDeps,
 } from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
+import {newSpaceIdentity} from './space-identity.ts';
 import {tearDownSpace} from './space-utils.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 
 const run = promisify(execFile);
+
+/** Identities for registries built by hand: every key named as idow names it. */
+const named = {
+	fillMissing() {},
+	get: (key: string) =>
+		({
+			kind: 'identity',
+			identity: newSpaceIdentity({
+				repo: 'repo',
+				key,
+				worktreePath: `/w/${key}`,
+				socket: 'pappardelle_inner',
+			}),
+		}) as const,
+};
 const ME = 111;
 const ALIVE = 222;
 const DEAD = 333;
@@ -29,7 +45,7 @@ function fixture(t: ExecutionContext) {
 			() => openStateDb(dbPath),
 			'repo',
 			new JsonSpaceRegistryDao(registryFile),
-			{fillMissing() {}},
+			named,
 			pid,
 			owner => owner !== DEAD,
 		);
@@ -62,9 +78,12 @@ const settle = (
 	const deps = {
 		asked: 0,
 		closing: new Set(closing),
-		liveSessionKeys() {
+		liveSessions() {
 			deps.asked++;
-			return live && new Set(live);
+			return (
+				live &&
+				new Set(live.map(key => named.get(key).identity.tmux.agentSession))
+			);
 		},
 	};
 	return deps;
@@ -142,7 +161,7 @@ test('a start or close whose owner died follows its sessions: alive is open, gon
 		() => openStateDb(f.dbPath),
 		'repo',
 		new JsonSpaceRegistryDao(f.registryFile),
-		{fillMissing() {}},
+		named,
 		DEAD,
 	);
 	await dead.markClosing('KILLED');
@@ -197,12 +216,40 @@ test('a close this process is still running is left alone while its sessions are
 	await closing;
 	await f.mine.settle({
 		closing: closes,
-		liveSessionKeys: () => new Set(['A']),
+		liveSessions: () => new Set([named.get('A').identity.tmux.agentSession]),
 	});
 	t.deepEqual(f.states(), {A: 'closing'});
 	sessionsKilled();
 	await close;
 	t.deepEqual(f.states(), {});
+});
+
+test('settle opens a starting space whose stored session is live and drops one whose sessions are gone', async t => {
+	const state = testState(t, {sqlite: true});
+	const {registry, spaceIdentities} = state.daos;
+	for (const key of ['LIVE-1', 'GONE-1']) {
+		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
+		await spaceIdentities.record({
+			repo: 'repo',
+			key,
+			worktreePath: `/w/${key}`,
+			tmux: {
+				socket: 'pappardelle_inner',
+				agentSession: `hand-named-${key}`,
+				companionSession: `hand-named-companion-${key}`,
+			},
+		});
+		// Above any pid_max, so no process has it.
+		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
+		await registry.reserveStart(key, 99_999_999);
+	}
+
+	await registry.settle({
+		closing: new Set(),
+		liveSessions: () => new Set(['hand-named-LIVE-1', 'agent-repo-GONE-1']),
+	});
+	t.deepEqual(registry.phase('LIVE-1'), {kind: 'phase', phase: 'open'});
+	t.deepEqual(registry.phase('GONE-1'), {kind: 'unknown'});
 });
 
 test('nothing is settled when tmux cannot say which sessions are alive', async t => {
@@ -488,7 +535,7 @@ test('a database that cannot be opened is a failed read, never an empty registry
 		() => openStateDb(dbPath),
 		'repo',
 		new JsonSpaceRegistryDao(getRegistryPathForRepo('repo', stateDir)),
-		{fillMissing() {}},
+		named,
 	);
 	t.false(registry.protectedSpaces().ok);
 	t.throws(() => registry.openSpaces());

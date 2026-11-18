@@ -8,6 +8,7 @@ import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {
 	newSpaceIdentity,
+	protectedSessionNames,
 	worktreePathFor,
 	type SpaceIdentity,
 } from './space-identity.ts';
@@ -195,4 +196,49 @@ test('two keys cannot share an agent session', async t => {
 	await t.throwsAsync(f.state.daos.spaceIdentities.record(clash), {
 		message: /UNIQUE/,
 	});
+});
+
+test('the reaper keeps the stored names of main and every protected space', async t => {
+	const f = fixture(t, true);
+	await f.open('main');
+	await f.state.daos.spaceIdentities.record({
+		...f.identity('STA-1'),
+		tmux: {
+			socket: SOCKET,
+			agentSession: 'hand-named-agent',
+			companionSession: 'hand-named-companion',
+		},
+	});
+	await f.state.daos.registry.reserveStart('STA-1', process.pid);
+	const owned = protectedSessionNames(
+		f.state.daos.registry,
+		f.state.daos.spaceIdentities,
+	);
+	t.deepEqual(owned.kind === 'names' ? [...owned.names].sort() : owned, [
+		'agent-repo-main',
+		'companion-repo-main',
+		'hand-named-agent',
+		'hand-named-companion',
+	]);
+});
+
+test('a protected space without stored names stops the reap', async t => {
+	const f = fixture(t, true);
+	await f.open('main');
+	await f.state.daos.registry.add('STA-1');
+	t.deepEqual(
+		protectedSessionNames(f.state.daos.registry, f.state.daos.spaceIdentities),
+		{kind: 'missing', keys: ['STA-1']},
+	);
+});
+
+test('identities that cannot be read stop the reap', t => {
+	const f = fixture(t, true);
+	const error = new Error('locked');
+	t.deepEqual(
+		protectedSessionNames(f.state.daos.registry, {
+			list: () => ({kind: 'unreadable', error}),
+		}),
+		{kind: 'unreadable', error},
+	);
 });

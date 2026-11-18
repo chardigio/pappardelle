@@ -135,10 +135,15 @@ export function defaultSuperviseDeps(
 		claudeStatus,
 		schedules,
 		programStatus,
-	}: Pick<StateDaos, 'claudeStatus' | 'schedules' | 'programStatus'>,
+		spaceIdentities,
+	}: Pick<
+		StateDaos,
+		'claudeStatus' | 'schedules' | 'programStatus' | 'spaceIdentities'
+	>,
 ): SuperviseDeps {
 	return {
 		repo: getRepoName,
+		identities: spaceIdentities,
 		resolveKey,
 		hookKey: async key =>
 			spaceStatusKey(claudeStatus, getRepoName(), key, async () => {

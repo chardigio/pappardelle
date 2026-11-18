@@ -224,3 +224,41 @@ function fileId(file: string): string | undefined {
 		return undefined;
 	}
 }
+
+export type ProtectedSessionNames =
+	| {kind: 'names'; names: ReadonlySet<string>}
+	| {kind: 'missing'; keys: string[]}
+	| Unreadable;
+
+/**
+ * The session names the reaper keeps: those of every space the registry
+ * protects, and main's. A protected space without an identity is `missing`,
+ * since reaping without its names would kill its sessions.
+ */
+export function protectedSessionNames(
+	registry: Pick<SpaceRegistryDao, 'protectedSpaces'>,
+	identities: Pick<SpaceIdentityDao, 'list'>,
+): ProtectedSessionNames {
+	const owned = registry.protectedSpaces();
+	if (!owned.ok) return {kind: 'unreadable', error: owned.error};
+	const listed = identities.list();
+	if (listed.kind === 'unreadable') return listed;
+	const byKey = new Map(
+		listed.identities.map(identity => [identity.key, identity]),
+	);
+	const names = new Set<string>();
+	const missing: string[] = [];
+	for (const key of [MAIN_WORKTREE_KEY, ...owned.keys]) {
+		const identity = byKey.get(key);
+		if (identity) {
+			names.add(identity.tmux.agentSession);
+			names.add(identity.tmux.companionSession);
+		} else {
+			missing.push(key);
+		}
+	}
+
+	return missing.length > 0
+		? {kind: 'missing', keys: missing}
+		: {kind: 'names', names};
+}
