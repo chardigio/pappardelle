@@ -421,6 +421,12 @@ export class StatusClient {
 				this.tell({kind: 'snapshot', key: message.key});
 				break;
 			}
+
+			case 'dropped': {
+				this.snapshots.drop(message.key, message.generation);
+				this.tell({kind: 'snapshot', key: message.key});
+				break;
+			}
 		}
 	}
 

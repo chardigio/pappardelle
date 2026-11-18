@@ -20,6 +20,7 @@ test('every client message is read back as it was written', t => {
 		{type: 'snapshot', snapshot},
 		{type: 'forget', repo: 'repo', key: 'A', keep: 'g1'},
 		{type: 'forget', repo: 'repo', key: 'A'},
+		{type: 'drop', repo: 'repo', key: 'A', generation: 'g1'},
 		{type: 'subscribe', repo: 'repo'},
 	];
 	for (const message of messages)
@@ -40,6 +41,7 @@ test('every daemon message is read back as it was written', t => {
 		{type: 'hook', state: hookState('repo-A')},
 		{type: 'snapshot', snapshot},
 		{type: 'forgotten', repo: 'repo', key: 'A', keep: 'g1'},
+		{type: 'dropped', repo: 'repo', key: 'A', generation: 'g1'},
 	];
 	for (const message of messages)
 		t.deepEqual(parseDaemonMessage(encodeMessage(message).trimEnd()), {

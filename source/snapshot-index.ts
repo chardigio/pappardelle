@@ -29,6 +29,10 @@ export class SnapshotIndex {
 		}
 	}
 
+	drop(key: string, generation: string): void {
+		this.spaces.get(key)?.delete(generation);
+	}
+
 	keys(): string[] {
 		return [...this.spaces.keys()];
 	}

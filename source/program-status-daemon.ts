@@ -186,9 +186,22 @@ export function followedPublisher(
 		const {key, pane} = snapshot;
 		if (!programStatusLeased(dir, key, pane.generation)) return;
 		unsettledSends++;
-		lastSend = to.send({type: 'snapshot', snapshot}).then(result => {
+		lastSend = to.send({type: 'snapshot', snapshot}).then(async result => {
 			unsettledSends--;
-			if (result !== 'sent' || client !== to || !fileRemains) return;
+			if (result !== 'sent') return;
+			// The space can be closed between the lease check and the send, and
+			// its forget can reach the daemon before the snapshot does.
+			if (!programStatusLeased(dir, key, pane.generation)) {
+				await to.send({
+					type: 'drop',
+					repo: snapshot.repo,
+					key,
+					generation: pane.generation,
+				});
+				return;
+			}
+
+			if (client !== to || !fileRemains) return;
 			fileRemains = false;
 			rmSync(programStatusPath(dir, key, pane.generation), {force: true});
 		});
