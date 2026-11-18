@@ -25,8 +25,15 @@ export async function until(
 ) {
 	const deadline = Date.now() + 5000;
 	while (!check()) {
-		if (Date.now() > deadline)
-			throw new Error(`condition never held\n${String(frame?.())}`);
+		if (Date.now() > deadline) {
+			const dump = frame?.();
+			throw new Error(
+				dump === undefined
+					? 'condition never held'
+					: `condition never held\n${dump}`,
+			);
+		}
+
 		await delay(10);
 	}
 }
