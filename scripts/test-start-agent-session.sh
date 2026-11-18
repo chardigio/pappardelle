@@ -55,6 +55,11 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Cases kill the last sessions on the shared server and then create the next
+# one straight away. A new-session that reaches the server while it is exiting
+# over its last session fails with "server exited unexpectedly".
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" start-server \; set-option -s exit-empty off
+
 assert_eq() {
     local test_name="$1"
     local expected="$2"
