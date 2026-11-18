@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {testState} from '../test/helpers/state.ts';
 
 const helper = fileURLToPath(
 	new URL('../scripts/state-cli.sh', import.meta.url),
@@ -43,4 +44,36 @@ test('an unknown verb fails without starting anything else', t => {
 	t.is(result.status, 2);
 	t.regex(result.stderr, /unknown verb open-a-space/);
 	t.deepEqual(fs.readdirSync(home), []);
+});
+
+test('prepare-space stores an issue title that starts with a dash', t => {
+	const home = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
+	);
+	t.teardown(() => {
+		fs.rmSync(home, {recursive: true, force: true});
+	});
+	const stateDir = path.join(home, '.pappardelle');
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+			'prepare-space',
+			'--repo',
+			'repo',
+			'--title=-x',
+			'STA-1',
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				HOME: home,
+				PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+			},
+		},
+	);
+	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	const {spaceState} = testState(t, {stateDir}).daos;
+	t.is(spaceState.read('STA-1')?.issueTitle, '-x');
 });

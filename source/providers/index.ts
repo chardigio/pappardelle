@@ -5,10 +5,13 @@ import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
 import {createDefaultLinearGraphQLClient} from './linear-graphql.ts';
 import {LinearProvider} from './linear-provider.ts';
+import {createLogger} from '../logger.ts';
 import type {PrLinkStampDao} from '../pr-link-stamp.ts';
+import type {SpaceStateDao} from '../space-state.ts';
 import {StateColorCache, type StateColorDao} from './state-color-cache.ts';
 import type {
 	IssueTrackerProvider,
+	TrackerIssue,
 	TrackerProviderName,
 	VcsHostProvider,
 	VcsProviderName,
@@ -44,6 +47,9 @@ let vcsHostConfigKey: string | null = null;
 let workspaceDiscovery: RepositoryDiscovery | undefined;
 let stateColors: StateColorDao | undefined;
 let prLinkStamp: PrLinkStampDao | undefined;
+let issueTitles: SpaceStateDao | undefined;
+
+const log = createLogger('providers');
 
 /**
  * How the VCS host finds the repositories in a workspace. The host is built
@@ -70,6 +76,41 @@ export function setStateColors(dao: StateColorDao): void {
  */
 export function setPrLinkStamp(dao: PrLinkStampDao): void {
 	prLinkStamp = dao;
+}
+
+/**
+ * Where each space's issue title is kept, so that `pappardelle space get`
+ * answers with it without calling the tracker. Handed over at startup like
+ * the stores above. Without it titles are not kept.
+ */
+export function setIssueTitles(dao: SpaceStateDao): void {
+	issueTitles = dao;
+}
+
+/**
+ * Keep the titles of issues just read from the tracker, by space key. Only
+ * titles that changed are written, since the rail reads every space's issue
+ * on each refresh. A failed read (null) leaves the stored title alone.
+ */
+export async function recordIssueTitles(
+	issues: Iterable<[key: string, issue: TrackerIssue | null]>,
+): Promise<void> {
+	const dao = issueTitles;
+	if (!dao) return;
+	const changed = [...issues].flatMap(([key, issue]) =>
+		issue && dao.read(key)?.issueTitle !== issue.title
+			? [{key, patch: {issueTitle: issue.title}}]
+			: [],
+	);
+	if (changed.length === 0) return;
+	try {
+		await dao.writeMany(changed);
+	} catch (error) {
+		log.warn(
+			'Could not store issue titles',
+			error instanceof Error ? error : undefined,
+		);
+	}
 }
 
 function trackerKey(config?: IssueTrackerConfig): string {
@@ -231,4 +272,5 @@ export function resetProviders(): void {
 	workspaceDiscovery = undefined;
 	stateColors = undefined;
 	prLinkStamp = undefined;
+	issueTitles = undefined;
 }

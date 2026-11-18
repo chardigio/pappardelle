@@ -12,6 +12,7 @@ import {
 	renderAgentSessions,
 	type AgentSession,
 	type AgentSessionsDao,
+	type AgentSessionsLookup,
 	type JsonAgentSessionsDao,
 } from './space-state.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
@@ -39,13 +40,27 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	}
 
 	read(key: string, agentProfile: string): string | undefined {
-		return this.sessions(key).find(row => row.agent_profile === agentProfile)
+		return this.guardedRows(key).find(row => row.agent_profile === agentProfile)
 			?.session_id;
+	}
+
+	sessions(key: string): AgentSessionsLookup {
+		try {
+			this.openDb().sync(this.mirror(key));
+			return {
+				kind: 'sessions',
+				sessions: Object.fromEntries(
+					this.rows(key).map(row => [row.agent_profile, row.session_id]),
+				),
+			};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
 	}
 
 	latestProfile(key: string): string | undefined {
 		return latestStarted(
-			this.sessions(key).map(row => [row.agent_profile, row.started]),
+			this.guardedRows(key).map(row => [row.agent_profile, row.started]),
 		);
 	}
 
@@ -91,7 +106,7 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 		});
 	}
 
-	private sessions(key: string): SessionRow[] {
+	private guardedRows(key: string): SessionRow[] {
 		return this.reads.or([], () => {
 			this.openDb().sync(this.mirror(key));
 			return this.rows(key);

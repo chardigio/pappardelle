@@ -14,7 +14,6 @@ import {
 	withPrLink,
 	type JsonSpaceStateDao,
 	type SpacePrLink,
-	type RailStatusPatch,
 	type SpaceState,
 	type SpaceStateDao,
 	type SpaceStatePatch,
@@ -32,6 +31,7 @@ const NO_PIPELINE = 'none';
 
 type Columns = {
 	profile: string | null;
+	issue_title: string | null;
 	pipeline: PipelineStatus | typeof NO_PIPELINE | null;
 	unresolved_comment_count: number | null;
 	pr_number: number | null;
@@ -54,6 +54,7 @@ type LinkRow = {
 
 const EMPTY: Columns = {
 	profile: null,
+	issue_title: null,
 	pipeline: null,
 	unresolved_comment_count: null,
 	pr_number: null,
@@ -74,6 +75,7 @@ function conflictColumn(hasConflict: boolean | undefined): 0 | 1 | null {
 function columnsOf(patch: SpaceStatePatch): Partial<Columns> {
 	const columns: Partial<Columns> = {};
 	if ('profile' in patch) columns.profile = patch.profile ?? null;
+	if ('issueTitle' in patch) columns.issue_title = patch.issueTitle ?? null;
 	if ('pipeline' in patch) {
 		columns.pipeline =
 			patch.pipeline === undefined ? null : (patch.pipeline ?? NO_PIPELINE);
@@ -134,6 +136,7 @@ function toState(row: Row | null, links: SpacePrLink[]): SpaceState | null {
 		...(Object.keys(recap).length > 0 ? {recap} : {}),
 		...(stored.updated_at === null ? {} : {updatedAt: stored.updated_at}),
 		...(stored.profile === null ? {} : {profile: stored.profile}),
+		...(stored.issue_title === null ? {} : {issueTitle: stored.issue_title}),
 	};
 }
 
@@ -159,13 +162,7 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	}
 
 	async write(key: string, patch: SpaceStatePatch): Promise<void> {
-		await this.writeAll([{key, patch}]);
-	}
-
-	async writeRailStatuses(
-		entries: Array<{key: string; patch: RailStatusPatch}>,
-	): Promise<void> {
-		await this.writeAll(entries);
+		await this.writeMany([{key, patch}]);
 	}
 
 	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
@@ -179,7 +176,7 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 		});
 	}
 
-	private async writeAll(
+	async writeMany(
 		entries: Array<{key: string; patch: SpaceStatePatch}>,
 	): Promise<void> {
 		const updatedAt = this.clock().toISOString();

@@ -53,6 +53,7 @@ const MIGRATIONS: string[] = [
 		repo TEXT NOT NULL,
 		key TEXT NOT NULL,
 		profile TEXT,
+		issue_title TEXT,
 		pipeline TEXT CHECK (pipeline IN (
 			'passing', 'failing', 'progressing_clean', 'progressing_dirty', 'none'
 		)),
@@ -294,6 +295,9 @@ export function writeFileAtomic(file: string, content: string): FileSignature {
 		fs.rmSync(temporary, {force: true});
 	}
 }
+
+/** A lookup in a store that could not be read, which must never look empty. */
+export type Unreadable = {kind: 'unreadable'; error: unknown};
 
 /** A JSON file that mirrors some rows. */
 export type JsonMirror = {

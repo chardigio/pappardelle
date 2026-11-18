@@ -1285,7 +1285,7 @@ test.serial(
 		t.regex(
 			call!,
 			new RegExp(
-				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --register --owner \\d+ --profile dev test-abc$`,
+				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --title=Test issue --register --owner \\d+ --profile dev test-abc$`,
 			),
 		);
 		t.true(fs.existsSync(fixture.launchArgs));
@@ -1304,18 +1304,18 @@ test.serial(
 );
 
 test.serial(
-	'idow run by hand saves the profile of a new workspace without registering the space, and records nothing on a reopen',
+	'idow run by hand saves the profile of a new workspace without registering the space, and only the title on a reopen',
 	async t => {
 		const fixture = setup(t);
 		const state = stateCli(fixture, 0);
 		const extraEnv = {
 			PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE,
 		};
+		const repo = path.basename(fixture.main);
 		await fixture.run({extraEnv});
-		const recorded = [
-			`--internal-state prepare-space --repo ${path.basename(fixture.main)} --profile dev test-abc`,
-		];
-		t.deepEqual(state.calls(), recorded);
+		t.deepEqual(state.calls(), [
+			`--internal-state prepare-space --repo ${repo} --title=Test issue --profile dev test-abc`,
+		]);
 		t.true(fs.existsSync(fixture.launchArgs));
 
 		// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
@@ -1324,7 +1324,10 @@ test.serial(
 			recursive: true,
 		});
 		await fixture.run({extraEnv});
-		t.deepEqual(state.calls(), recorded);
+		t.is(
+			state.calls().at(-1),
+			`--internal-state prepare-space --repo ${repo} --title=Test issue test-abc`,
+		);
 	},
 );
 
