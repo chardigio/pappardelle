@@ -187,6 +187,7 @@ import {
 } from './tmux-geometry.ts';
 import {sameFile} from './same-file.ts';
 import {SendLockTimeout, withSendLock} from './send-lock.ts';
+import {tmuxFormatLiteral} from './tmux-format.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
@@ -1142,12 +1143,6 @@ export const OUTER_SESSION_PREFIX = 'pappardelle-';
 
 export function outerSessionName(repoName: string): string {
 	return `${OUTER_SESSION_PREFIX}${repoName}`;
-}
-
-// tmux expands formats in new-session's -s and in set-titles-string, so a
-// repo named `pasta#S` would otherwise be stored or shown as something else.
-export function tmuxFormatLiteral(text: string): string {
-	return text.replaceAll('#', '##');
 }
 
 // The rail's header already names the repo, so the user's status bar would

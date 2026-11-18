@@ -1,4 +1,5 @@
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {tmuxFormatLiteral} from './tmux-format.ts';
 import {Buffer} from 'node:buffer';
 import {execFile} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
@@ -265,7 +266,7 @@ export async function attachStatusMonitor(
 				'-Oo',
 				'-t',
 				pane.id,
-				command.replaceAll('%', '%%').replaceAll('#', '##'),
+				tmuxFormatLiteral(command.replaceAll('%', '%%')),
 			],
 		]
 			.map(args => args.map(value => shellQuoteStatus(value)).join(' '))
