@@ -13,6 +13,7 @@ import {
 import {spaceStatusKey} from './claude-status.ts';
 import {SPACE_HELP, SPACE_USAGE} from './cli-args.ts';
 import {companionMainPane} from './companion.ts';
+import {getMainRepoRoot, getRepoName} from './config.ts';
 import {readCurrentBranch} from './git-status.ts';
 import {statusSocket, statusSocketFlag} from './program-status-monitor.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
@@ -21,15 +22,17 @@ import type {SpacePhase} from './space-registry.ts';
 import type {SpaceState} from './space-state.ts';
 import {
 	callerSpace,
+	readCheckout,
 	worktreePathFor,
 	type CheckoutLookup,
 } from './space-target.ts';
 import {compareSpaceNames, MAIN_WORKTREE_KEY} from './space-utils.ts';
-import type {StateDaos} from './state-daos.ts';
+import {stateDaosByRepo, type StateDaos} from './state-daos.ts';
 import type {Unreadable} from './state-db.ts';
 import {
 	exactSessionTarget,
 	getSessionNames,
+	supervisedInnerTmuxRunner,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 
@@ -610,11 +613,21 @@ export async function gitBranch(directory: string): Promise<string | null> {
 	}
 }
 
-export function defaultSpaceCommandDeps(
-	deps: Pick<SpaceCommandDeps, 'checkout' | 'daos' | 'resolveKey' | 'runner'>,
-): SpaceCommandDeps {
+export function defaultSpaceCommandDeps(options: {
+	/** The repo to answer for, in place of the one the checkout names. */
+	repo?: string;
+	resolveKey: (raw: string) => string;
+}): SpaceCommandDeps {
+	const {repo, resolveKey} = options;
 	return {
-		...deps,
+		checkout: () =>
+			readCheckout({
+				repoName: repo === undefined ? getRepoName : () => repo,
+				mainRoot: getMainRepoRoot,
+			}),
+		daos: stateDaosByRepo(),
+		resolveKey,
+		runner: supervisedInnerTmuxRunner,
 		home: homedir(),
 		env: process.env,
 		cwd: process.cwd(),
