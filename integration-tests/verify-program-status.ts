@@ -1,4 +1,3 @@
-import {sessionNamesFor} from '../source/space-identity.ts';
 import assert from 'node:assert/strict';
 import {Buffer} from 'node:buffer';
 import {execFileSync} from 'node:child_process';
@@ -8,7 +7,11 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {getRepoName} from '../source/config.ts';
 import {createStateDaos} from '../source/state-daos.ts';
 import {ensureAgentSession, initTmuxState} from '../source/tmux.ts';
-import {shellQuoteStatus} from '../source/program-status-monitor.ts';
+import {
+	shellQuoteStatus,
+	statusSocket,
+} from '../source/program-status-monitor.ts';
+import {newSpaceIdentity, sessionNamesFor} from '../source/space-identity.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
@@ -17,11 +20,19 @@ const key = 'STATUS-TS';
 const session = sessionNamesFor(key, repo).agent;
 const launchMarker = path.join(harness.root, 'launch-marker');
 // The launch names the space's agent-sessions file, which the stores place.
-initTmuxState(
-	createStateDaos({
+const daos = createStateDaos({
+	repo,
+	stateDir: harness.stateDir,
+	sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+});
+initTmuxState(daos);
+// As idow records the space before it starts the space's sessions.
+await daos.spaceIdentities.record(
+	newSpaceIdentity({
 		repo,
-		stateDir: harness.stateDir,
-		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+		key,
+		worktreePath: harness.root,
+		socket: statusSocket(),
 	}),
 );
 
