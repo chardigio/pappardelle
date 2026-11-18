@@ -22,7 +22,7 @@ import {
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
-import {callerSpace} from './space-target.ts';
+import {callerSpace, readCheckout} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 export type CliResult = {code: number | null; stdout: string; stderr: string};
@@ -191,13 +191,10 @@ function findSousChefFile(): string | undefined {
 
 /** Resolves when the client closes the connection. */
 export async function runMcpServer(): Promise<void> {
-	let checkout: {repoName: string; mainRoot: string} | undefined;
-	try {
-		checkout = {repoName: getRepoName(), mainRoot: getMainRepoRoot()};
-	} catch {
-		// A key in the environment is enough to name the space.
-	}
-
+	const checkout = readCheckout({
+		repoName: getRepoName,
+		mainRoot: getMainRepoRoot,
+	});
 	const caller = callerSpace({
 		env: process.env,
 		cwd: process.cwd(),
@@ -206,8 +203,12 @@ export async function runMcpServer(): Promise<void> {
 	});
 	// The main checkout's session gets the instructions for a session in no
 	// space, which are where the sous-chef's routine is given.
-	const space = caller === MAIN_WORKTREE_KEY ? undefined : caller;
-	const repoName = checkout?.repoName;
+	const space =
+		caller.kind === 'none' || caller.key === MAIN_WORKTREE_KEY
+			? undefined
+			: caller.key;
+	const repoName =
+		checkout.kind === 'checkout' ? checkout.checkout.repoName : undefined;
 	const config = loadRepoConfig();
 	const enabled = workspaceAwareAgents(config);
 	const sousChef = enabled && sousChefLaunch(config) !== undefined;

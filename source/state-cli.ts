@@ -67,17 +67,19 @@ const verbs: Record<string, Verb> = {
 			{defaultSpaceCommandDeps, runSpaceCommand},
 			{getMainRepoRoot},
 			{supervisedInnerTmuxRunner},
+			{readCheckout},
 		] = await Promise.all([
 			import('./space-command.ts'),
 			import('./config.ts'),
 			import('./tmux.ts'),
+			import('./space-target.ts'),
 		]);
 		const daos = createStateDaos({repo});
 		return runSpaceCommand(
 			rest,
 			defaultSpaceCommandDeps({
-				repo: () => repo,
-				mainRoot: getMainRepoRoot,
+				checkout: () =>
+					readCheckout({repoName: () => repo, mainRoot: getMainRepoRoot}),
 				daos: () => daos,
 				resolveKey: key => key,
 				runner: supervisedInnerTmuxRunner,

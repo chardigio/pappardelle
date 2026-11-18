@@ -18,7 +18,11 @@ import type {ProgramStatusInfo} from './program-status.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import type {SpacePhase} from './space-registry.ts';
 import type {SpaceState} from './space-state.ts';
-import {callerSpace, worktreePathFor} from './space-target.ts';
+import {
+	callerSpace,
+	worktreePathFor,
+	type CheckoutLookup,
+} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {StateDaos} from './state-daos.ts';
 import type {Unreadable} from './state-db.ts';
@@ -96,10 +100,8 @@ export type SpaceDaos = Pick<
 >;
 
 export type SpaceCommandDeps = {
-	/** The repo of the checkout the command runs in. Throws outside one. */
-	repo: () => string;
-	/** The main checkout's root. Throws outside a git checkout. */
-	mainRoot: () => string;
+	/** The checkout the command runs in. */
+	checkout: () => CheckoutLookup;
 	daos: (repo: string) => SpaceDaos;
 	home: string;
 	env: NodeJS.ProcessEnv;
@@ -183,9 +185,15 @@ function statusOf(info: ProgramStatusInfo | null): SpaceStatus | null {
 	return status as SpaceStatus;
 }
 
+/**
+ * Where a space's record is read: its repo, and the main checkout's root,
+ * unknown only for a space the environment names from outside any checkout,
+ * which is never the main space.
+ */
+type SpaceAt = {key: string; repo: string; mainRoot: string | undefined};
+
 export async function spaceRecord(
-	key: string,
-	repo: string,
+	{key, repo, mainRoot}: SpaceAt,
 	deps: SpaceCommandDeps,
 	groups: ReadonlySet<SpaceGroup>,
 	listing = new PaneListing(deps.runner),
@@ -203,8 +211,8 @@ export async function spaceRecord(
 	if (agentSessions.kind === 'unreadable') return agentSessions;
 
 	const worktreePath =
-		key === MAIN_WORKTREE_KEY
-			? deps.mainRoot()
+		key === MAIN_WORKTREE_KEY && mainRoot !== undefined
+			? mainRoot
 			: worktreePathFor(deps.home, repo, key);
 	const branch =
 		groups.has('branch') || (groups.has('status') && key === MAIN_WORKTREE_KEY)
@@ -401,54 +409,49 @@ function usage(deps: SpaceCommandDeps, message?: string): number {
 const NOT_IN_A_REPO =
 	"Not in a git repository; run it from a checkout of the space's repo";
 
-/** The repo of the checkout the command runs in, if it runs in one. */
-function checkoutRepo(deps: SpaceCommandDeps): string | undefined {
-	try {
-		return deps.repo();
-	} catch {
-		return undefined;
-	}
-}
-
 type Target =
-	| {kind: 'space'; key: string; repo: string; typed: boolean}
+	| ({kind: 'space'; typed: boolean} & SpaceAt)
 	| {kind: 'not-in-a-space'}
 	| {kind: 'not-in-a-repo'};
 
-function named(key: string, repo: string | undefined, typed: boolean): Target {
-	return repo === undefined
-		? {kind: 'not-in-a-repo'}
-		: {kind: 'space', key, repo, typed};
-}
-
 /** The space to answer for, and the repo it belongs to. */
 function target(raw: string | undefined, deps: SpaceCommandDeps): Target {
-	if (raw !== undefined) return named(raw, checkoutRepo(deps), true);
-	const own = deps.env['PAPPARDELLE_SPACE']?.trim();
-	// A session started in a nested repo has a git dir that names that repo,
-	// so its own space's repo comes from its environment.
-	if (own)
-		return named(
-			own,
-			deps.env['PAPPARDELLE_REPO']?.trim() || checkoutRepo(deps),
-			false,
-		);
-	let checkout: {repoName: string; mainRoot: string};
-	try {
-		checkout = {repoName: deps.repo(), mainRoot: deps.mainRoot()};
-	} catch {
-		return {kind: 'not-in-a-space'};
-	}
-
-	const key = callerSpace({
-		env: {},
+	const checkout = deps.checkout();
+	const mainRoot =
+		checkout.kind === 'checkout' ? checkout.checkout.mainRoot : undefined;
+	if (raw !== undefined)
+		return checkout.kind === 'checkout'
+			? {
+					kind: 'space',
+					key: raw,
+					repo: checkout.checkout.repoName,
+					mainRoot,
+					typed: true,
+				}
+			: {kind: 'not-in-a-repo'};
+	const caller = callerSpace({
+		env: deps.env,
 		cwd: deps.cwd,
 		home: deps.home,
 		checkout,
 	});
-	return key === undefined
-		? {kind: 'not-in-a-space'}
-		: {kind: 'space', key, repo: checkout.repoName, typed: false};
+	if (caller.kind === 'none') return {kind: 'not-in-a-space'};
+	if (caller.kind === 'cwd')
+		return {
+			kind: 'space',
+			key: caller.key,
+			repo: caller.checkout.repoName,
+			mainRoot,
+			typed: false,
+		};
+	// A session started in a nested repo has a git dir that names that repo,
+	// so its own space's repo comes from its environment.
+	const repo =
+		deps.env['PAPPARDELLE_REPO']?.trim() ||
+		(checkout.kind === 'checkout' ? checkout.checkout.repoName : undefined);
+	return repo === undefined
+		? {kind: 'not-in-a-repo'}
+		: {kind: 'space', key: caller.key, repo, mainRoot, typed: false};
 }
 
 async function runGet(args: string[], deps: SpaceCommandDeps): Promise<number> {
@@ -488,11 +491,11 @@ async function runGet(args: string[], deps: SpaceCommandDeps): Promise<number> {
 		return 1;
 	}
 
-	let lookup = await spaceRecord(space.key, space.repo, deps, wanted);
+	let lookup = await spaceRecord(space, deps, wanted);
 	if (lookup.kind === 'unknown' && space.typed) {
 		const resolved = deps.resolveKey(space.key);
 		if (resolved !== space.key)
-			lookup = await spaceRecord(resolved, space.repo, deps, wanted);
+			lookup = await spaceRecord({...space, key: resolved}, deps, wanted);
 	}
 
 	if (lookup.kind === 'unknown') {
@@ -535,11 +538,13 @@ async function runList(
 		return usage(deps, errorMessage(error));
 	}
 
-	const repo = checkoutRepo(deps);
-	if (repo === undefined) {
+	const checkout = deps.checkout();
+	if (checkout.kind === 'not-in-a-repo') {
 		deps.err(NOT_IN_A_REPO);
 		return 1;
 	}
+
+	const {repoName: repo, mainRoot} = checkout.checkout;
 
 	let open: string[];
 	try {
@@ -552,7 +557,9 @@ async function runList(
 	const listing = new PaneListing(deps.runner);
 	const keys = [MAIN_WORKTREE_KEY, ...open.sort(compareSpaceNames)];
 	const lookups = await Promise.all(
-		keys.map(async key => spaceRecord(key, repo, deps, ALL_GROUPS, listing)),
+		keys.map(async key =>
+			spaceRecord({key, repo, mainRoot}, deps, ALL_GROUPS, listing),
+		),
 	);
 	const records: SpaceRecord[] = [];
 	for (const [index, lookup] of lookups.entries()) {
@@ -602,10 +609,7 @@ export async function gitBranch(directory: string): Promise<string | null> {
 }
 
 export function defaultSpaceCommandDeps(
-	deps: Pick<
-		SpaceCommandDeps,
-		'repo' | 'mainRoot' | 'daos' | 'resolveKey' | 'runner'
-	>,
+	deps: Pick<SpaceCommandDeps, 'checkout' | 'daos' | 'resolveKey' | 'runner'>,
 ): SpaceCommandDeps {
 	return {
 		...deps,

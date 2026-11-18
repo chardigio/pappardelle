@@ -133,8 +133,10 @@ test('space_get maps onto space get, and all onto space list', async t => {
 	const run = async (input: Record<string, unknown>) => {
 		const [, ...argv] = call('space_get', input).args;
 		return runSpaceCommand(argv, {
-			repo: () => state.repo,
-			mainRoot: () => '/repo',
+			checkout: () => ({
+				kind: 'checkout',
+				checkout: {repoName: state.repo, mainRoot: '/repo'},
+			}),
 			daos: () => state.daos,
 			home: '/home/u',
 			env: {PAPPARDELLE_SPACE: 'STA-1'},

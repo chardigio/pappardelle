@@ -41,6 +41,7 @@ function layout() {
 	const home = fs.mkdtempSync(path.join(tmpdir(), 'space-target-'));
 	const mainRoot = path.join(home, 'workspace', 'repo');
 	const worktrees = path.join(home, '.worktrees', 'repo');
+	const checkout = {repoName: 'repo', mainRoot};
 	for (const directory of [
 		path.join(mainRoot, 'src'),
 		path.join(worktrees, 'STA-1', 'packages', 'app'),
@@ -49,33 +50,40 @@ function layout() {
 	])
 		fs.mkdirSync(directory, {recursive: true});
 	const caller = (cwd: string, env: NodeJS.ProcessEnv = {}) =>
-		callerSpace({env, cwd, home, checkout: {repoName: 'repo', mainRoot}});
-	return {home, mainRoot, worktrees, caller};
+		callerSpace({env, cwd, home, checkout: {kind: 'checkout', checkout}});
+	const inSpace = (key: string) => ({kind: 'cwd', key, checkout});
+	return {home, mainRoot, worktrees, caller, inSpace};
 }
 
 test('PAPPARDELLE_SPACE names the space wherever the caller runs', t => {
 	const {mainRoot, caller} = layout();
-	t.is(caller(mainRoot, {PAPPARDELLE_SPACE: 'STA-9'}), 'STA-9');
+	t.deepEqual(caller(mainRoot, {PAPPARDELLE_SPACE: 'STA-9'}), {
+		kind: 'env',
+		key: 'STA-9',
+	});
 });
 
 test('a directory in a worktree belongs to that space', t => {
-	const {worktrees, caller} = layout();
-	t.is(caller(path.join(worktrees, 'STA-1')), 'STA-1');
-	t.is(caller(path.join(worktrees, 'STA-1', 'packages', 'app')), 'STA-1');
-	t.is(caller(path.join(worktrees, 'a.b_c')), 'a.b_c');
+	const {worktrees, caller, inSpace} = layout();
+	t.deepEqual(caller(path.join(worktrees, 'STA-1')), inSpace('STA-1'));
+	t.deepEqual(
+		caller(path.join(worktrees, 'STA-1', 'packages', 'app')),
+		inSpace('STA-1'),
+	);
+	t.deepEqual(caller(path.join(worktrees, 'a.b_c')), inSpace('a.b_c'));
 });
 
 test('a symlink to a worktree belongs to that space', t => {
-	const {home, worktrees, caller} = layout();
+	const {home, worktrees, caller, inSpace} = layout();
 	const link = path.join(home, 'link');
 	fs.symlinkSync(path.join(worktrees, 'STA-1', 'packages'), link);
-	t.is(caller(path.join(link, 'app')), 'STA-1');
+	t.deepEqual(caller(path.join(link, 'app')), inSpace('STA-1'));
 });
 
 test('the main checkout and its subdirectories are the main space', t => {
-	const {mainRoot, caller} = layout();
-	t.is(caller(mainRoot), 'main');
-	t.is(caller(path.join(mainRoot, 'src')), 'main');
+	const {mainRoot, caller, inSpace} = layout();
+	t.deepEqual(caller(mainRoot), inSpace('main'));
+	t.deepEqual(caller(path.join(mainRoot, 'src')), inSpace('main'));
 });
 
 test('a directory outside the checkouts belongs to no space', t => {
@@ -85,20 +93,23 @@ test('a directory outside the checkouts belongs to no space', t => {
 		path.join(home, '.worktrees', 'repo-other', 'STA-2'),
 		path.join(home, 'workspace'),
 	]) {
-		t.is(caller(directory), undefined);
+		t.deepEqual(caller(directory), {kind: 'none'});
 	}
 });
 
 test('outside a git checkout only PAPPARDELLE_SPACE names a space', t => {
 	const {worktrees} = layout();
 	const options = {cwd: path.join(worktrees, 'STA-1'), home: '/nowhere'};
-	t.is(callerSpace({...options, env: {}, checkout: undefined}), undefined);
-	t.is(
+	const outside = {kind: 'not-in-a-repo'} as const;
+	t.deepEqual(callerSpace({...options, env: {}, checkout: outside}), {
+		kind: 'none',
+	});
+	t.deepEqual(
 		callerSpace({
 			...options,
 			env: {PAPPARDELLE_SPACE: 'STA-1'},
-			checkout: undefined,
+			checkout: outside,
 		}),
-		'STA-1',
+		{kind: 'env', key: 'STA-1'},
 	);
 });
