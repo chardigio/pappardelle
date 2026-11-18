@@ -11,6 +11,7 @@ import type {ClaudeStatusDao} from './claude-status.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
+import {worktreePathFor, worktreesDir} from './space-target.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
 
@@ -90,7 +91,7 @@ function sessionsByWorktree(
 ): Map<string, Record<string, unknown>> {
 	const map = new Map<string, Record<string, unknown>>();
 	const dir = path.join(home, '.claude', 'sessions');
-	const prefix = path.join(home, '.worktrees', repoName) + '/';
+	const prefix = worktreesDir(home, repoName) + '/';
 	let files: string[];
 	try {
 		files = fs.readdirSync(dir).filter(file => file.endsWith('.json'));
@@ -239,7 +240,7 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				entry.worktreePath = session['cwd'];
 			}
 
-			const worktree = path.join(home, '.worktrees', repoName, name);
+			const worktree = worktreePathFor(home, repoName, name);
 			const log = newestJsonl(
 				claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
 			);

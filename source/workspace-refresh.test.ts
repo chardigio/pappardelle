@@ -32,7 +32,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
 		readDirty: async () => false,
-		statusKey: async name => `repo-${name}`,
+		statusKey: async (key, mainBranch) => `repo-${mainBranch ?? key}`,
 		getCachedIssue: issue,
 		async fetchIssues() {},
 		readEmoji: async () => '🍝',

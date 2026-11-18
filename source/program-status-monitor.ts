@@ -42,13 +42,16 @@ export const runStatusTmux: StatusTmuxRunner = async args => {
 export function statusSocket(env: NodeJS.ProcessEnv = process.env): string {
 	return env['PAPPARDELLE_TMUX_SOCKET'] ?? 'pappardelle_inner';
 }
+/** tmux's flag for a socket: a path, or a name under tmux's own directory. */
+export function statusSocketFlag(socket: string): '-S' | '-L' {
+	return socket.startsWith('/') ? '-S' : '-L';
+}
+
 export function statusTmuxArgs(
 	args: string[],
 	socket = statusSocket(),
 ): string[] {
-	return socket.startsWith('/')
-		? ['-S', socket, ...args]
-		: ['-L', socket, ...args];
+	return [statusSocketFlag(socket), socket, ...args];
 }
 export function shellQuoteStatus(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;

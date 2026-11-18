@@ -198,6 +198,7 @@ import {
 import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
 import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
+import {worktreePathFor} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -3683,9 +3684,11 @@ export async function reconcilePaneLayout(
  */
 export function getWorktreePath(issueKey: string): string | null {
 	try {
-		const homeDir = process.env['HOME'] ?? '';
-		const repoName = getRepoName();
-		const worktreePath = `${homeDir}/.worktrees/${repoName}/${issueKey}`;
+		const worktreePath = worktreePathFor(
+			process.env['HOME'] ?? '',
+			getRepoName(),
+			issueKey,
+		);
 
 		return existsSync(worktreePath) && statSync(worktreePath).isDirectory()
 			? worktreePath
@@ -3699,9 +3702,8 @@ export async function getWorktreePathAsync(
 	issueKey: string,
 	repoName: string,
 ): Promise<string | null> {
-	const worktreePath = join(
+	const worktreePath = worktreePathFor(
 		process.env['HOME'] ?? '',
-		'.worktrees',
 		repoName,
 		issueKey,
 	);
