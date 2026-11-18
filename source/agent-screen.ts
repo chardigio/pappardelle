@@ -90,6 +90,9 @@ export type AgentScreen = {
 // The escape that starts an SGR style sequence in a `capture-pane -e` line.
 const ESC = String.fromCodePoint(0x1b);
 const RULE = /^\s*[─━]{8,}\s*$/;
+// Claude names the session inside the rule over its input box:
+// `──────── pappardelle-061n ─`.
+const INPUT_RULE = /^\s*[─━]{8,}/;
 const DASHED_RULE = /^\s*╌{8,}\s*$/;
 const PROMPT_QUESTION = /^\s*(?:Do you want to|Would you like to) .+\?\s*$/;
 const OPTION = /^\s*(❯\s*)?(\d+)\.\s+(.+?)\s*$/;
@@ -385,7 +388,8 @@ function composerLine(lines: string[]): {at: number; glyph: string} | null {
 	const codex = lastIndex(lines, line => line.startsWith('› ') || line === '›');
 	const claude = lastIndex(
 		lines,
-		(line, index) => line.startsWith('❯') && RULE.test(lines[index - 1] ?? ''),
+		(line, index) =>
+			line.startsWith('❯') && INPUT_RULE.test(lines[index - 1] ?? ''),
 	);
 	if (codex === -1 && claude === -1) return null;
 	return codex > claude ? {at: codex, glyph: '›'} : {at: claude, glyph: '❯'};
