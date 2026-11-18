@@ -2,7 +2,7 @@ import type {ProgramStatusInfo} from './program-status.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {applyStatusUpdates, type StatusReader} from './workspace-status.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {compareSpaceNames, MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {pLimit} from './providers/concurrency.ts';
 import type {SpaceData, TrackerIssue} from './types.ts';
 
@@ -70,24 +70,6 @@ function reuseArray(previous: SpaceData[], next: SpaceData[]): SpaceData[] {
 		next.every((space, index) => space === previous[index])
 		? previous
 		: next;
-}
-
-/**
- * Rail order: newest first by issue number, whatever the team prefix (ABC-50
- * above STA-12). Beads hash keys have no order of their own, but must keep one
- * place across refreshes.
- */
-export function compareSpaceNames(a: string, b: string): number {
-	const numberA = issueNumber(a);
-	const numberB = issueNumber(b);
-	if (numberA !== undefined && numberB !== undefined && numberA !== numberB)
-		return numberB - numberA;
-	return b.localeCompare(a, 'en', {numeric: true});
-}
-
-function issueNumber(name: string): number | undefined {
-	const match = /-(\d+)$/.exec(name);
-	return match ? Number(match[1]) : undefined;
 }
 
 /** Polling repairs missed hook events without replacing newer hook or rail state. */

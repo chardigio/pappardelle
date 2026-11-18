@@ -14,7 +14,7 @@ import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
-import {WorkspaceRefresh, compareSpaceNames} from './workspace-refresh.ts';
+import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {scriptsDir, cliFilePath} from './runtime.ts';
 import fs from 'node:fs';
@@ -207,7 +207,11 @@ import {
 import type {LayoutAck} from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {railWindow, spaceCountLabel} from './list-view-sizing.ts';
-import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
+import {
+	compareSpaceNames,
+	MAIN_WORKTREE_KEY,
+	tearDownSpace,
+} from './space-utils.ts';
 import {
 	filterSpaces,
 	highlightedIndex,
