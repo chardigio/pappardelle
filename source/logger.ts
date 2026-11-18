@@ -513,22 +513,23 @@ export function captureStderr(): void {
 		crashLog.error(format(error));
 	});
 	// Bun reports a bare unhandled rejection without firing the monitor, and any
-	// listener here replaces its default crash. Rejecting again once the
-	// listener is gone restores that crash with the original stacks and exit
-	// status. Rejections from the same tick all arrive before setImmediate runs.
-	const rejections: unknown[] = [];
+	// listener here replaces its default crash. Rejecting again restores that
+	// crash with the original stack and exit status. It has to happen inside the
+	// listener: Bun may call it at loop shutdown, when nothing it schedules runs.
+	// The listener stays until a re-rejection comes back, so every rejection of
+	// the same tick reaches the log first.
+	const rejected = new Set<unknown>();
 	const onUnhandledRejection = (reason: unknown) => {
 		if (process.listenerCount('unhandledRejection') > 1) return;
-		crashLog.error(format(reason));
-		rejections.push(reason);
-		if (rejections.length > 1) return;
-		setImmediate(() => {
+		if (rejected.has(reason)) {
 			process.off('unhandledRejection', onUnhandledRejection);
-			for (const reason of rejections) {
-				// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
-				void Promise.reject(reason);
-			}
-		});
+		} else {
+			crashLog.error(format(reason));
+			rejected.add(reason);
+		}
+
+		// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+		void Promise.reject(reason);
 	};
 
 	process.on('unhandledRejection', onUnhandledRejection);

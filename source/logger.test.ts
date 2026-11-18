@@ -713,6 +713,19 @@ void Promise.reject(new Error('second-rejection'));`,
 	t.is(text.match(/\[crash\] Error: second-rejection/g)?.length, 1);
 });
 
+test('a rejection raised after startup still crashes the process', t => {
+	for (const script of [
+		`setTimeout(() => { void Promise.reject(new Error('late-boom')); }, 0);`,
+		`async function main() { await Bun.sleep(1); throw new Error('late-boom'); }
+void main();`,
+	]) {
+		const {status, text, stderr} = runChild(t, `captureStderr();\n${script}`);
+		t.is(status, 1, script);
+		t.true(stderr.includes('late-boom'), script);
+		t.is(text.match(/\[crash\] Error: late-boom/g)?.length, 1, script);
+	}
+});
+
 test('errors another listener handles are not logged as crashes', t => {
 	const {status, text} = runChild(
 		t,
