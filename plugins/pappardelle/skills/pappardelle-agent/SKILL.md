@@ -14,10 +14,11 @@ Pappardelle gives each issue a git worktree, an agent session (Claude, or the ag
 ## Where you are
 
 - `PAPPARDELLE_SPACE` is the key of your space, such as `STA-696` or `pappardelle-dq9`. The main checkout's session has no `PAPPARDELLE_SPACE`; its key is `main`
-- `PAPPARDELLE_MAIN_REPO_ROOT` is the main checkout. Worktrees live in `~/.worktrees/{repo}/{KEY}`
-- Each space has two tmux sessions on the `pappardelle_inner` socket: `agent-{repo}-{key}` (the agent) and `companion-{repo}-{key}` (the companion). In the key, `_` becomes `__` and `.` becomes `_`, because tmux rejects `.` in session names
-- Each companion split is a session of its own, `companion-{repo}-{key}~{name}`, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
+- `PAPPARDELLE_MAIN_REPO_ROOT` is the main checkout
+- Each space has a worktree and two tmux sessions on Pappardelle's inner socket: the agent's and the companion's. Each companion split is a session of its own, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
 - The TUI runs in the session `pappardelle-{repo}` on the default tmux server
+
+Get a space's worktree path, branch, profile, tmux socket, session names and targets, pane ids, PR and status from `space_get`, or `pappardelle space get [KEY] [--json] [--field NAME]...` without the tools. Never build them from the key: `pappardelle space get STA-696 --field worktreePath` prints the path. With no key it answers for the space it runs in. It exits 1 for an unknown space and 3 when a state store can't be read. `pappardelle space list [--json]` lists the main space and every open space.
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
 
