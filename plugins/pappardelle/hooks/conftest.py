@@ -40,7 +40,7 @@ def migrated_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def record_space(db: Path, repo: str, key: str, worktree_path: str, agent_session: str = "") -> None:
-    """A space's identity as prepare-space records it (source/space-identity-sqlite.ts)."""
+    """An open space's identity as prepare-space records it (source/space-identity-sqlite.ts)."""
     import sqlite3
 
     connection = sqlite3.connect(db)
@@ -51,6 +51,8 @@ def record_space(db: Path, repo: str, key: str, worktree_path: str, agent_sessio
             VALUES (?, ?, ?, 'pappardelle_inner', ?, ?)""",
             (repo, key, worktree_path, agent_session or f"agent-{repo}-{key}", f"companion-{repo}-{key}"),
         )
+        if key != "main":
+            connection.execute("INSERT INTO spaces (repo, key, state) VALUES (?, ?, 'open')", (repo, key))
         connection.commit()
     finally:
         connection.close()

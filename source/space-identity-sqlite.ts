@@ -60,9 +60,22 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 	}
 
 	atPath(at: string): SpaceIdentityLookup {
-		const listed = this.list();
-		if (listed.kind === 'unreadable') return listed;
-		const identity = identityAt(at, listed.identities);
+		let identities: SpaceIdentity[];
+		try {
+			// Closed rows are kept forever, and a closed space holds no caller.
+			identities = this.synced()
+				.db.query<IdentityRow, [string]>(
+					`SELECT ${COLUMNS} FROM space_identities i
+					WHERE i.repo = ?1 AND (i.key = 'main' OR EXISTS (
+						SELECT 1 FROM spaces s WHERE s.repo = i.repo AND s.key = i.key))`,
+				)
+				.all(this.defaults.repo)
+				.map(row => this.identity(row));
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
+
+		const identity = identityAt(at, identities);
 		return identity ? {kind: 'identity', identity} : {kind: 'unknown'};
 	}
 
