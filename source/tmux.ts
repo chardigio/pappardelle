@@ -291,18 +291,24 @@ function storedIdentity(issueKey: string): SpaceIdentity | null {
 	return null;
 }
 
+function sessionNamesOf(identity: SpaceIdentity): {
+	agent: string;
+	companion: string;
+	legacyAgent: string;
+} {
+	return {
+		agent: identity.tmux.agentSession,
+		companion: identity.tmux.companionSession,
+		legacyAgent: legacyAgentSession(identity.tmux.agentSession),
+	};
+}
+
 /** A space's stored session names, or null when it has none. */
 export function spaceSessionNames(
 	issueKey: string,
-): {agent: string; companion: string; legacyAgent: string} | null {
+): ReturnType<typeof sessionNamesOf> | null {
 	const identity = storedIdentity(issueKey);
-	return (
-		identity && {
-			agent: identity.tmux.agentSession,
-			companion: identity.tmux.companionSession,
-			legacyAgent: legacyAgentSession(identity.tmux.agentSession),
-		}
-	);
+	return identity && sessionNamesOf(identity);
 }
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
@@ -1562,8 +1568,23 @@ export async function killSpaceSessions(
 		run?: AsyncTmuxRunner;
 	},
 ): Promise<boolean> {
-	const sessions = spaceSessionNames(issueKey);
-	if (!sessions) return false;
+	const lookup = spaceIdentities().get(issueKey);
+	if (lookup.kind === 'unreadable') {
+		log.warn(
+			`Could not read the stored identity of ${issueKey}`,
+			lookup.error instanceof Error ? lookup.error : undefined,
+		);
+		return false;
+	}
+
+	if (lookup.kind === 'unknown') {
+		// Any sessions it has are owned by no stored space, so the reaper
+		// removes them at the next start.
+		log.warn(`${issueKey} has no stored session names; no sessions to end`);
+		return true;
+	}
+
+	const sessions = sessionNamesOf(lookup.identity);
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
 	const run = options?.run ?? runTmux;
