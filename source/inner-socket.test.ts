@@ -11,11 +11,12 @@ import {readFileSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
-import {testTmuxState} from '../test/helpers/state.ts';
+import {testTmuxState, type TestState} from '../test/helpers/state.ts';
 import {sessionNamesFor} from './space-identity.ts';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
+	initTmuxState,
 	migrateLegacyAgentSessions,
 	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
@@ -28,8 +29,9 @@ import {
 // Reaping a space's sessions also removes its status snapshots, which the
 // stores place.
 const stateTeardowns: Array<() => void> = [];
+let state: TestState;
 test.before(() => {
-	testTmuxState({teardown: fn => stateTeardowns.push(fn)});
+	state = testTmuxState({teardown: fn => stateTeardowns.push(fn)});
 });
 test.after.always(() => {
 	for (const teardown of stateTeardowns) teardown();
@@ -287,6 +289,8 @@ function makeFakeRunner(options: {
 	listSessionsStatus?: number;
 	listSessionsError?: Error;
 	killStatus?: (name: string) => number;
+	/** Each session's PAPPARDELLE_SPACE. */
+	spaces?: Record<string, string>;
 }): {runner: OuterTmuxRunner; calls: string[][]} {
 	const calls: string[][] = [];
 	const runner: OuterTmuxRunner = args => {
@@ -304,6 +308,12 @@ function makeFakeRunner(options: {
 				status: options.killStatus ? options.killStatus(name) : 0,
 				stdout: '',
 			};
+		}
+		if (args[0] === 'show-environment') {
+			const space = options.spaces?.[(args[2] ?? '').slice(1, -1)];
+			return space === undefined
+				? {status: 1, stdout: ''}
+				: {status: 0, stdout: `PAPPARDELLE_SPACE=${space}\n`};
 		}
 		return {status: 0, stdout: ''};
 	};
@@ -407,6 +417,44 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 // `'main'` is the hardcoded key for the main worktree row (see app.tsx) — its
 // sessions are legitimate and must never be reaped.
 // ============================================================================
+
+test.serial(
+	"reaping a space's sessions clears its program status unless one of them survived",
+	t => {
+		const removed: string[] = [];
+		initTmuxState({
+			...state.daos,
+			programStatus: {
+				...state.daos.programStatus,
+				async remove(key) {
+					removed.push(key);
+				},
+			},
+		});
+		t.teardown(() => {
+			initTmuxState(state.daos);
+		});
+		const {runner} = makeFakeRunner({
+			listSessionsStdout: [
+				'agent-repo-gone',
+				'companion-repo-gone~tests',
+				'agent-repo-stuck',
+				'companion-repo-stuck',
+				'agent-repo-unnamed',
+			].join('\n'),
+			// No stored identity names these spaces: their own sessions do.
+			spaces: {
+				'agent-repo-gone': 'GONE-1',
+				'companion-repo-gone~tests': 'GONE-1',
+				'agent-repo-stuck': 'STUCK-1',
+				'companion-repo-stuck': 'STUCK-1',
+			},
+			killStatus: name => (name === '=companion-repo-stuck:' ? 1 : 0),
+		});
+		t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 4);
+		t.deepEqual(removed, ['GONE-1']);
+	},
+);
 
 test('cleanupOrphanedInnerSessions returns 0 when no sessions match', t => {
 	const {runner, calls} = makeFakeRunner({
