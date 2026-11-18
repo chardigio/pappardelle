@@ -507,17 +507,23 @@ export function captureStderr(): void {
 	// up, OpenTUI's own uncaughtException and unhandledRejection listeners
 	// console.error the error and keep the process alive, so nothing crashed
 	// and the error is already logged.
+	// Reading an error's stack before Bun prints it changes Bun's report (frames,
+	// source preview), so crashes are formatted on exit, after it has printed.
+	const crashes: unknown[] = [];
 	const crashLog = createLogger('crash');
+	process.on('exit', () => {
+		for (const crash of crashes) crashLog.error(format(crash));
+	});
 	process.on('uncaughtExceptionMonitor', error => {
 		if (process.listenerCount('uncaughtException') > 0) return;
-		crashLog.error(format(error));
+		crashes.push(error);
 	});
 	// Bun reports a bare unhandled rejection without firing the monitor, and any
 	// listener here replaces its default crash. Rejecting again restores that
-	// crash with the original stack and exit status. It has to happen inside the
-	// listener: Bun may call it at loop shutdown, when nothing it schedules runs.
-	// The listener stays until a re-rejection comes back, so every rejection of
-	// the same tick reaches the log first.
+	// crash and its exit status. It has to happen inside the listener: Bun may
+	// call it at loop shutdown, when nothing it schedules runs. The listener
+	// stays until a re-rejection comes back, so every rejection of the same tick
+	// is recorded.
 	const reRejections = new WeakSet<Promise<unknown>>();
 	const onUnhandledRejection = (reason: unknown, promise: Promise<unknown>) => {
 		if (process.listenerCount('unhandledRejection') > 1) return;
@@ -528,7 +534,7 @@ export function captureStderr(): void {
 			return;
 		}
 
-		crashLog.error(format(reason));
+		crashes.push(reason);
 		// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
 		reRejections.add(Promise.reject(reason));
 	};

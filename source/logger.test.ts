@@ -738,6 +738,22 @@ void main();`,
 	}
 });
 
+test("Bun's crash report is unchanged by crash logging", t => {
+	for (const script of [
+		`await Promise.resolve();
+function throwAtTopLevel() { throw new Error('report-boom'); }
+throwAtTopLevel();`,
+		`setTimeout(() => { void Promise.reject(new Error('report-boom')); }, 0);`,
+	]) {
+		// Bun's report quotes the lines above the throw; keep the call out of it.
+		const padding = '\n'.repeat(6);
+		const plain = runChild(t, `${padding}${script}`);
+		const logged = runChild(t, `captureStderr();${padding}${script}`);
+		t.deepEqual(logged.crashes, ['[crash] Error: report-boom'], script);
+		t.is(logged.stderr, plain.stderr, script);
+	}
+});
+
 test('errors another listener handles are not logged as crashes', t => {
 	const {status, crashes} = runChild(
 		t,
