@@ -147,25 +147,30 @@ class PaneListing {
 	}
 }
 
+type PhaseLookup =
+	| {kind: 'phase'; phase: SpaceRecord['phase']}
+	| {kind: 'unknown'}
+	| Unreadable;
+
 function storedPhase(
 	key: string,
 	daos: SpaceDaos,
 	agentSession: string,
 	runner: OuterTmuxRunner,
 	state: SpaceState | null,
-): SpaceRecord['phase'] | {kind: 'unknown'} | Unreadable {
-	if (key === MAIN_WORKTREE_KEY) return 'open';
+): PhaseLookup {
+	if (key === MAIN_WORKTREE_KEY) return {kind: 'phase', phase: 'open'};
 	const lookup = daos.registry.phase(key);
-	if (lookup.kind === 'unreadable') return lookup;
-	if (lookup.kind === 'phase') return lookup.phase;
-	// Without lifecycle records the registry learns of a space only once idow
-	// has finished setting it up, so a live session it lacks is one starting.
+	if (lookup.kind !== 'unknown') return lookup;
+	// The registry lacks a space idow is still setting up wherever idow does
+	// not register it as it starts: without lifecycle records it is added only
+	// once idow finishes, and idow run by hand never registers it. A live
+	// agent session is what shows such a space exists.
 	if (
-		!daos.registry.keepsLifecycle &&
 		runner(['has-session', '-t', exactSessionTarget(agentSession)]).status === 0
 	)
-		return 'starting';
-	return state ? 'closed' : {kind: 'unknown'};
+		return {kind: 'phase', phase: 'starting'};
+	return state ? {kind: 'phase', phase: 'closed'} : {kind: 'unknown'};
 }
 
 function statusOf(info: ProgramStatusInfo | null): SpaceStatus | null {
@@ -191,7 +196,7 @@ export async function spaceRecord(
 	const state = stateLookup.kind === 'state' ? stateLookup.state : null;
 	const sessions = getSessionNames(key, repo);
 	const phase = storedPhase(key, daos, sessions.agent, deps.runner, state);
-	if (typeof phase !== 'string') return phase;
+	if (phase.kind !== 'phase') return phase;
 	const agentSessions = groups.has('agentSessions')
 		? daos.agentSessions.sessions(key)
 		: {kind: 'sessions' as const, sessions: {}};
@@ -235,7 +240,7 @@ export async function spaceRecord(
 		record: {
 			repo,
 			key,
-			phase,
+			phase: phase.phase,
 			title: state?.issueTitle ?? null,
 			worktreePath,
 			branch,
