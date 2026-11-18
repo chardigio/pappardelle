@@ -49,3 +49,14 @@ export function wrappedLineCount(
 export function displayWidth(text: string, widthMethod: WidthMethod): number {
 	return measure(text, widthMethod, null).lineInfo.lineWidthColsMax;
 }
+
+/**
+ * Cells each of `lines` takes, from one layout. A line must not contain a line
+ * break, or every width after it shifts.
+ */
+export function lineWidths(
+	lines: string[],
+	widthMethod: WidthMethod,
+): number[] {
+	return measure(lines.join('\n'), widthMethod, null).lineInfo.lineWidthCols;
+}

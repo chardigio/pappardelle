@@ -8,6 +8,7 @@
  * tripped the old slice.
  */
 import test from 'ava';
+import {TextBuffer, type WidthMethod} from '@opentui/core';
 import widestLine from 'widest-line';
 import {displayWidth} from './text-measure.ts';
 import {truncateRunsToWidth, truncateToWidth} from './truncate-to-width.ts';
@@ -142,4 +143,73 @@ test('a run that ends exactly at the budget still shows that more was cut', t =>
 		'unicode',
 	);
 	t.is(runsText(out), 'abc…');
+});
+
+const pinnedCuts: Array<[WidthMethod, string, number, string]> = [
+	['unicode', '👨‍👩‍👧 family dinner', 8, '👨‍👩‍👧 fami…'],
+	['wcwidth', '👨‍👩‍👧 family dinner', 8, '👨‍👩‍👧 …'],
+	['unicode', '👍🏽 ship it now', 6, '👍🏽 sh…'],
+	['wcwidth', '👍🏽 ship it now', 6, '👍🏽 …'],
+	['unicode', '👍🏽👨‍👩‍👧 ship it', 8, '👍🏽👨‍👩‍👧 sh…'],
+	['wcwidth', '👍🏽👨‍👩‍👧 ship it', 8, '👍🏽…'],
+	['unicode', 'x​y zero width', 6, 'x​y ze…'],
+	['unicode', 'ab\ncdefgh', 4, 'ab\nc…'],
+	['wcwidth', 'abc\r\ndefgh', 4, 'abc\r\n…'],
+];
+
+for (const [widthMethod, title, budget, expected] of pinnedCuts) {
+	test(`${widthMethod} cuts ${JSON.stringify(title)} at ${budget} cells`, t => {
+		t.is(truncateToWidth(title, budget, widthMethod), expected);
+	});
+}
+
+function countSetText(run: () => void): number {
+	const original = TextBuffer.prototype.setText;
+	let calls = 0;
+	TextBuffer.prototype.setText = function (this: TextBuffer, text: string) {
+		calls++;
+		original.call(this, text);
+	};
+
+	try {
+		run();
+	} finally {
+		TextBuffer.prototype.setText = original;
+	}
+
+	return calls;
+}
+
+test('a cut title costs the same native layouts however much of it is kept', t => {
+	const short = countSetText(() =>
+		truncateToWidth('✨ Migrate the VPC and RDS now', 6, 'unicode'),
+	);
+	const long = countSetText(() =>
+		truncateToWidth('✨ Migrate the VPC and RDS now', 24, 'unicode'),
+	);
+	t.is(short, 2);
+	t.is(long, 2);
+});
+
+test('a title that fits costs one native layout', t => {
+	t.is(
+		countSetText(() => truncateToWidth('✨ Migrate the VPC', 40, 'unicode')),
+		1,
+	);
+});
+
+test('styled runs cost one native layout to fit and two to cut', t => {
+	const runs = [
+		{text: 'g   '},
+		{text: 'Open PR / MR in browser'},
+		{text: ' (x)'},
+	];
+	t.is(
+		countSetText(() => truncateRunsToWidth(runs, 40, 'unicode')),
+		1,
+	);
+	t.is(
+		countSetText(() => truncateRunsToWidth(runs, 20, 'unicode')),
+		2,
+	);
 });
