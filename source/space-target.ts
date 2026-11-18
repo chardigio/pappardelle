@@ -1,8 +1,4 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import {sameFile} from './same-file.ts';
-import {worktreesDir} from './space-identity.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import type {SpaceIdentityDao} from './space-identity.ts';
 
 export class NoTargetSpaceError extends Error {
 	constructor() {
@@ -56,46 +52,26 @@ export type CallerSpace =
 	| {kind: 'none'};
 
 /**
- * The space the caller is in: PAPPARDELLE_SPACE, else the checkout that
- * holds `cwd`. Codex starts MCP servers with a filtered environment and
- * OpenCode from a shared service, so PAPPARDELLE_SPACE doesn't reach them,
- * and an agent started by hand in a worktree never had it; all of them run
- * in the space's directory. Paths are compared by file identity, so a
- * directory reached through a symlink belongs to the same space. Outside a
- * git checkout only PAPPARDELLE_SPACE names a space.
+ * The space the caller is in: PAPPARDELLE_SPACE, else the space whose
+ * worktree holds `cwd`. Codex starts MCP servers with a filtered environment
+ * and OpenCode from a shared service, so PAPPARDELLE_SPACE doesn't reach them,
+ * and an agent started by hand in a worktree never had it; all of them run in
+ * the space's directory. Outside a git checkout only PAPPARDELLE_SPACE names
+ * a space.
  */
 export function callerSpace(options: {
 	env: NodeJS.ProcessEnv;
 	cwd: string;
-	home: string;
 	checkout: CheckoutLookup;
+	/** The identities of a repo's spaces. */
+	identities: (repo: string) => Pick<SpaceIdentityDao, 'atPath'>;
 }): CallerSpace {
 	const own = options.env['PAPPARDELLE_SPACE']?.trim();
 	if (own) return {kind: 'env', key: own};
 	if (options.checkout.kind === 'not-in-a-repo') return {kind: 'none'};
 	const {checkout} = options.checkout;
-	const key = keyAt(options.cwd, options.home, checkout);
-	return key === undefined ? {kind: 'none'} : {kind: 'cwd', key, checkout};
-}
-
-function keyAt(
-	cwd: string,
-	home: string,
-	{repoName, mainRoot}: Checkout,
-): string | undefined {
-	const worktrees = worktreesDir(home, repoName);
-	let directory: string;
-	try {
-		directory = fs.realpathSync(cwd);
-	} catch {
-		return undefined;
-	}
-
-	for (;;) {
-		if (sameFile(directory, mainRoot)) return MAIN_WORKTREE_KEY;
-		const parent = path.dirname(directory);
-		if (parent === directory) return undefined;
-		if (sameFile(parent, worktrees)) return path.basename(directory);
-		directory = parent;
-	}
+	const found = options.identities(checkout.repoName).atPath(options.cwd);
+	return found.kind === 'identity'
+		? {kind: 'cwd', key: found.identity.key, checkout}
+		: {kind: 'none'};
 }
