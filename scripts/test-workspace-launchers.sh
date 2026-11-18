@@ -42,6 +42,9 @@ assert_eq() {
     fi
 }
 
+# idow exports the space's socket from `pappardelle space get`.
+export PAPPARDELLE_TMUX_SOCKET=pappardelle_inner
+
 summarize() {
     echo ""
     local total=$((PASS + FAIL))
@@ -72,7 +75,8 @@ SHIM
     chmod +x "$PROMPT_TMP/bin/agy"
     PROMPT_TEXT=${PROMPT_RAW//PWNED/$PROMPT_TMP/pwned}
     PROMPT_LINE=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree "$PROMPT_TMP" --issue-key QA-1 \
-        --repo-name testrepo --companion-command "" --prompt "$PROMPT_TEXT" --agent-command agy \
+        --repo-name testrepo --agent-session agent-testrepo-QA-1 --companion-session companion-testrepo-QA-1 \
+        --companion-command "" --prompt "$PROMPT_TEXT" --agent-command agy \
         --agent-is-claude false --agent-launch-flags "--model m1" --agent-resume-args "--conversation RESUME_FAIL" \
         --agent-prompt-args "$prompt_args" --print-command | head -1)
     # shellcheck disable=SC2001 # a regex replace over one line
@@ -87,7 +91,7 @@ done
 
 # Runs anywhere: both default-terminal pane lines, executed with tmux swapped
 # for a shim, cd into a worktree whose path holds quotes and a $(), title the
-# pane with the key and name the sessions after a repo and key with quotes, and
+# pane with the key and name the sessions it is given, quotes and all, and
 # claude gets the key as one --name word, without running any of the inputs.
 echo -e "${BOLD}Test: worktree path, repo name and key survive the pane shell${RESET}"
 PATH_TMP=$(mktemp -d)
@@ -112,8 +116,9 @@ exit 0
 SHIM
 chmod +x "$PATH_TMP/bin/tmux" "$PATH_TMP/bin/claude"
 { read -r AGENT_PANE_LINE; read -r COMPANION_PANE_LINE; } < <("$SCRIPT_DIR/open-default-terminal-agent.sh" \
-    --worktree "$PATH_WT" --issue-key "$PATH_KEY" --repo-name "bob's dad's app" --companion-command "" \
-    --prompt "" --print-command)
+    --worktree "$PATH_WT" --issue-key "$PATH_KEY" --repo-name "bob's dad's app" \
+    --agent-session "agent-bob's dad's app-$PATH_KEY" --companion-session "companion-bob's dad's app-$PATH_KEY" \
+    --companion-command "" --prompt "" --print-command)
 PATH_TITLE=$(printf '\033]0;%s\007' "$PATH_KEY")
 # Run from $PATH_TMP so anything that runs before the line's cd lands where the
 # last check looks, not in the checkout.
@@ -122,7 +127,7 @@ assert_eq "agent pane is titled with the key" "$PATH_TITLE" \
 assert_eq "companion pane is titled with the key" "$PATH_TITLE" \
     "$(cd "$PATH_TMP" && PATH="$PATH_TMP/bin:$PATH" bash -c "$COMPANION_PANE_LINE" 2>&1)"
 assert_eq "both panes start in the worktree" "$PATH_WT"$'\n'"$PATH_WT" "$(cat "$PATH_TMP/pwd" 2>/dev/null)"
-assert_eq "sessions are named after the repo and key" \
+assert_eq "sessions get the names they are given" \
     "agent-bob's dad's app-$PATH_KEY"$'\n'"companion-bob's dad's app-$PATH_KEY" \
     "$(cat "$PATH_TMP/session" 2>/dev/null)"
 # tmux runs the session command through sh -c in the worktree.
@@ -133,14 +138,29 @@ assert_eq "nothing in the inputs ran" "no" \
     "$([[ -e "$PATH_TMP/pwned" || -e "$PATH_WT/pwned" ]] && echo yes || echo no)"
 rm -rf "$PATH_TMP"
 
+# The names come from the space's stored identity, so a launcher attaches to
+# what it is given, even a name that agent-<repo>-<key> would never spell.
+echo -e "\n${BOLD}Test: the default-terminal launcher attaches to the names it is given${RESET}"
+NAMED_LINES=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree /tmp/wt --issue-key QA-1 \
+    --repo-name testrepo --agent-session hand.named_agent --companion-session hand-named_companion \
+    --prompt "" --print-command)
+assert_eq "agent pane" "1" "$(sed -n 1p <<< "$NAMED_LINES" | grep -c "new-session -A -s 'hand.named_agent'" || true)"
+assert_eq "companion pane" "1" "$(sed -n 2p <<< "$NAMED_LINES" | grep -c "new-session -A -s 'hand-named_companion'" || true)"
+
 if ! command -v osascript >/dev/null 2>&1; then
     echo "SKIP (no osascript — macOS only)"
     summarize
 fi
 
-# Reassigned by the session-name tests below; every helper reads it live.
+# KEY and the session names are reassigned by the session-name tests below;
+# every helper reads them live.
 KEY="QA-1"
-base_args() { printf '%s\n' --worktree /tmp/wt --issue-key "$KEY" --repo-name testrepo; }
+AGENT_NAME="agent-testrepo-QA-1"
+COMPANION_NAME="companion-testrepo-QA-1"
+base_args() {
+    printf '%s\n' --worktree /tmp/wt --issue-key "$KEY" --repo-name testrepo \
+        --agent-session "$AGENT_NAME" --companion-session "$COMPANION_NAME"
+}
 
 iterm() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-iterm-agent.sh" "${a[@]}" "$@" 2>/dev/null; }
 ghostty() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0'); "$SCRIPT_DIR/open-ghostty-agent.sh" "${a[@]}" "$@" 2>/dev/null; }
@@ -220,20 +240,25 @@ case "$LINE" in
     *) assert_eq "new-session sets the hook's env" "...new-session -A -s 'agent-testrepo-$KEY'$HOOK_ENV..." "$LINE" ;;
 esac
 
-# Session names encode '.' as '_' and '_' as '__' (see start-agent-session.sh).
-# QA-1 has neither, so a launcher that skipped the encoding would still pass
-# every assertion above while attaching `o` to a session nothing else uses.
-echo -e "\n${BOLD}Test: session-key encoding is identical across launchers${RESET}"
-for key in "bd-a1b2.1" "my_svc-a1b2" "a_b-c.1.2" "STA-123"; do
-    KEY="$key"
-    assert_eq "key [$key] ghostty" \
+# The names are passed in, so a launcher that rebuilt one from the key would
+# still pass every assertion above for QA-1 while attaching to a session
+# nothing else uses.
+echo -e "\n${BOLD}Test: the given session names are attached by every launcher${RESET}"
+for names in "bd-a1b2.1|agent-testrepo-bd-a1b2_1|companion-testrepo-bd-a1b2_1" \
+    "my_svc-a1b2|hand.named_agent|hand-named_companion"; do
+    IFS='|' read -r KEY AGENT_NAME COMPANION_NAME <<< "$names"
+    assert_eq "key [$KEY] ghostty" \
         "$(iterm --prompt "" --print-command)" \
         "$(ghostty --prompt "" --print-command)"
-    assert_eq "key [$key] default" \
+    assert_eq "key [$KEY] default" \
         "$(iterm --prompt "" --print-command)" \
         "$(default_term --prompt "" --print-command)"
+    assert_eq "key [$KEY] companion" "1" \
+        "$(iterm --prompt "" --print-command | tail -1 | grep -c "new-session -A -s '$COMPANION_NAME'" || true)"
 done
 KEY="QA-1"
+AGENT_NAME="agent-testrepo-QA-1"
+COMPANION_NAME="companion-testrepo-QA-1"
 
 # The prompt branch and the companion command are the other two inputs that
 # change the assembled bytes.

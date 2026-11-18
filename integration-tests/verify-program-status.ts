@@ -212,7 +212,8 @@ try {
 	);
 	const shellKey = 'STATUS-SHELL';
 	const shellRepo = 'second-repo';
-	const shellSession = getSessionNames(shellKey, shellRepo).agent;
+	const shellSessions = getSessionNames(shellKey, shellRepo);
+	const shellSession = shellSessions.agent;
 	execFileSync(
 		'bash',
 		[
@@ -223,6 +224,10 @@ try {
 			shellRepo,
 			'--worktree',
 			harness.root,
+			'--agent-session',
+			shellSession,
+			'--companion-session',
+			shellSessions.companion,
 			'--no-agent',
 		],
 		{env: process.env, timeout: 10000},

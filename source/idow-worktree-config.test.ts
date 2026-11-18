@@ -201,9 +201,12 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 			profile,
 			agentProfile,
 			input,
+			cwd,
 		}: {
 			open?: boolean;
 			projectRoot?: boolean;
+			/** Where idow runs, in place of the one projectRoot picks. */
+			cwd?: string;
 			onExit?: () => void;
 			extraEnv?: Record<string, string>;
 			profile?: string;
@@ -232,7 +235,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 							: ['--issue-key', 'test-abc']),
 					],
 					{
-						cwd: projectRoot ? root : linked,
+						cwd: cwd ?? (projectRoot ? root : linked),
 						encoding: 'utf8',
 						timeout: 30_000,
 						env: {
@@ -337,6 +340,64 @@ test('idow opens from a linked checkout and expands both repository roots', asyn
 		fs.readFileSync(path.join(fixture.workspace, 'roots'), 'utf8'),
 		`${fixture.main}\n${fixture.linked}\n`,
 	);
+});
+
+test('idow names a space the same from a linked worktree as from the main checkout', async t => {
+	const named = [];
+	for (const from of ['main', 'linked'] as const) {
+		const fixture = setup(t);
+		await fixture.run({projectRoot: false, cwd: fixture[from]});
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		const after = (flag: string) => args[args.indexOf(flag) + 1];
+		named.push({
+			repo: after('--repo-name'),
+			agent: after('--agent-session'),
+			companion: after('--companion-session'),
+		});
+		if (sqliteRun) {
+			const db = new Database(
+				path.join(fixture.home, '.pappardelle', 'state.db'),
+				{readonly: true},
+			);
+			t.teardown(() => {
+				db.close();
+			});
+			t.deepEqual(
+				db
+					.query(
+						'SELECT repo, key, agent_session, companion_session FROM space_identities ORDER BY key',
+					)
+					.all(),
+				[
+					{
+						repo: 'main checkout',
+						key: 'main',
+						agent_session: 'agent-main checkout-main',
+						companion_session: 'companion-main checkout-main',
+					},
+					{
+						repo: 'main checkout',
+						key: 'test-abc',
+						agent_session: 'agent-main checkout-test-abc',
+						companion_session: 'companion-main checkout-test-abc',
+					},
+				],
+			);
+		}
+	}
+
+	t.deepEqual(named, [
+		{
+			repo: 'main checkout',
+			agent: 'agent-main checkout-test-abc',
+			companion: 'companion-main checkout-test-abc',
+		},
+		{
+			repo: 'main checkout',
+			agent: 'agent-main checkout-test-abc',
+			companion: 'companion-main checkout-test-abc',
+		},
+	]);
 });
 
 test('idow prefers a worktree project config while falling back for local config', async t => {
@@ -1285,6 +1346,9 @@ test.serial(
 // A Pappardelle that starts idow lists the space afterwards, so idow records
 // it before any session exists (source/space-registry-sqlite.ts). Lookups are
 // not recorded, and a CLI that works answers them from what it recorded.
+const escapeRegExp = (text: string) =>
+	text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 function stateCli(fixture: ReturnType<typeof setup>, exitCode: number) {
 	const calls = path.join(fixture.home, 'state-cli-calls');
 	const executable = path.join(fixture.bin, 'pappardelle-state-stub');
@@ -1316,7 +1380,7 @@ test.serial(
 		t.regex(
 			call!,
 			new RegExp(
-				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --title=Test issue --register --owner \\d+ --profile dev test-abc$`,
+				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --title=Test issue --worktree ${escapeRegExp(fixture.workspace)} --main-root ${escapeRegExp(fixture.main)} --register --owner \\d+ --profile dev test-abc$`,
 			),
 		);
 		t.true(fs.existsSync(fixture.launchArgs));
@@ -1345,7 +1409,7 @@ test.serial(
 		const repo = path.basename(fixture.main);
 		await fixture.run({extraEnv});
 		t.deepEqual(state.calls(), [
-			`--internal-state prepare-space --repo ${repo} --title=Test issue --profile dev test-abc`,
+			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${fixture.workspace} --main-root ${fixture.main} --profile dev test-abc`,
 		]);
 		t.true(fs.existsSync(fixture.launchArgs));
 
@@ -1357,7 +1421,7 @@ test.serial(
 		await fixture.run({extraEnv});
 		t.is(
 			state.calls().at(-1),
-			`--internal-state prepare-space --repo ${repo} --title=Test issue test-abc`,
+			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${path.join(fixture.home, '.worktrees/main checkout/test-abc')} --main-root ${fixture.main} test-abc`,
 		);
 	},
 );

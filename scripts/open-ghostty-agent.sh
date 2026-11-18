@@ -2,7 +2,7 @@
 
 # open-ghostty-agent.sh - Open a Ghostty tab with tmux, the configured agent, and the companion pane
 #
-# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # The Ghostty counterpart to open-iterm-agent.sh. Instead of a new window it
 # opens a new tab in the window the Pappardelle TUI is running in, split into:
@@ -28,6 +28,8 @@ set -e
 # Parse arguments
 WORKTREE=""
 ISSUE_KEY=""
+TMUX_SESSION=""
+COMPANION_SESSION=""
 REPO_NAME=""
 PROMPT=""
 WINDOW_ID=""
@@ -56,6 +58,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --issue-key)
             ISSUE_KEY="$2"
+            shift 2
+            ;;
+        --agent-session)
+            TMUX_SESSION="$2"
+            shift 2
+            ;;
+        --companion-session)
+            COMPANION_SESSION="$2"
             shift 2
             ;;
         --repo-name)
@@ -126,7 +136,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
+            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens Ghostty."
@@ -156,6 +166,16 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
+if [[ -z "$TMUX_SESSION" || -z "$COMPANION_SESSION" ]]; then
+    echo "Error: --agent-session and --companion-session are required" >&2
+    exit 1
+fi
+
+if [[ -z "${PAPPARDELLE_TMUX_SOCKET:-}" ]]; then
+    echo "Error: PAPPARDELLE_TMUX_SOCKET is required: idow exports the space's socket from pappardelle space get" >&2
+    exit 1
+fi
+
 if [[ -z "$AGENT_COMMAND" ]]; then
     AGENT_COMMAND="claude"
     AGENT_IS_CLAUDE="true"
@@ -164,17 +184,6 @@ elif [[ "$AGENT_IS_CLAUDE" != "true" && "$AGENT_IS_CLAUDE" != "false" ]]; then
     echo "Error: --agent-command requires --agent-is-claude true|false" >&2
     exit 1
 fi
-
-# Create the tmux session name based on repo and issue key. The '.' → '_'
-# encoding matches start-agent-session.sh; see the comment there.
-SESSION_KEY="${ISSUE_KEY//_/__}"
-SESSION_KEY="${SESSION_KEY//./_}"
-SESSION_REPO="${REPO_NAME//[.:]/_}"
-TMUX_SESSION="agent-${SESSION_REPO}-${SESSION_KEY}"
-
-# Per-issue agent/companion sessions live on a dedicated tmux socket so the
-# nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
-PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 
 # The prompt is passed directly - the caller should include the skill prefix (e.g., /idow)
 # If empty, the agent will start without any prompt (resume mode)
@@ -273,6 +282,7 @@ on run argv
     -- The prompt, already quoted for the inner shell and wrapped in any
     -- prompt_args template (see PROMPT_WORDS). Empty when the prompt is.
     set promptWords to item 18 of argv
+    set companionSession to item 19 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -330,7 +340,6 @@ on run argv
     -- so route it through a shell variable via `quoted form of` rather than
     -- embedding it in a single-quoted string; that way an embedded single quote
     -- (e.g. DESTDIR='/tmp') can't break out.
-    set companionSession to "companion-" & (text ((length of "agent-") + 1) thru -1 of tmuxSession)
     set companionAssign to ""
     set companionStart to tmuxL & " new-session -A -s " & quoted form of companionSession
     if companionCommand is not equal to "" then
@@ -398,7 +407,7 @@ APPLESCRIPT_END
 # Run the AppleScript with arguments. Argument 9 is the print-only switch: when
 # true the script returns the assembled command lines and never touches Ghostty.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE" "$PROMPT_WORDS")
+OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE" "$PROMPT_WORDS" "$COMPANION_SESSION")
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     printf '%s\n' "$OSA_OUTPUT"

@@ -43,29 +43,25 @@ const verbs: Record<string, Verb> = {
 			},
 		});
 		const [key] = positionals;
-		if (!values.repo || !key || positionals.length !== 1)
-			return usage('prepare-space needs --repo <name> and one space key');
-		const daos = createStateDaos({repo: values.repo});
-		if (values.worktree && values['main-root']) {
-			const socket = statusSocket();
-			// A registered key must always have an identity, so it is written first.
-			await daos.spaceIdentities.record(
-				newSpaceIdentity({
-					repo: values.repo,
-					key,
-					worktreePath: values.worktree,
-					socket,
-				}),
+		const {repo, worktree, 'main-root': mainRoot} = values;
+		if (!repo || !worktree || !mainRoot || !key || positionals.length !== 1)
+			return usage(
+				'prepare-space needs --repo <name>, --worktree <path>, --main-root <path> and one space key',
 			);
-			await daos.spaceIdentities.record(
-				newSpaceIdentity({
-					repo: values.repo,
-					key: MAIN_WORKTREE_KEY,
-					worktreePath: values['main-root'],
-					socket,
-				}),
-			);
-		}
+		const daos = createStateDaos({repo});
+		const socket = statusSocket();
+		// A registered key must always have an identity, so it is written first.
+		await daos.spaceIdentities.record(
+			newSpaceIdentity({repo, key, worktreePath: worktree, socket}),
+		);
+		await daos.spaceIdentities.record(
+			newSpaceIdentity({
+				repo,
+				key: MAIN_WORKTREE_KEY,
+				worktreePath: mainRoot,
+				socket,
+			}),
+		);
 
 		if (values.register) {
 			const owner = Number(values.owner);
