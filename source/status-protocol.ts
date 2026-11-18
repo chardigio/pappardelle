@@ -17,6 +17,8 @@ export type ClientMessage =
 	| {type: 'snapshot'; snapshot: ProgramStatusSnapshot}
 	/** Drop the snapshots of a space, except pane generation `keep`'s. */
 	| {type: 'forget'; repo: string; key: string; keep?: string}
+	/** Drop the snapshot of one pane generation of a space. */
+	| {type: 'drop'; repo: string; key: string; generation: string}
 	/** Send the current state, then every change. Snapshots of `repo` only. */
 	| {type: 'subscribe'; repo: string};
 
@@ -34,7 +36,8 @@ export type DaemonMessage =
 	  }
 	| {type: 'hook'; state: ClaudeSessionState}
 	| {type: 'snapshot'; snapshot: ProgramStatusSnapshot}
-	| {type: 'forgotten'; repo: string; key: string; keep?: string};
+	| {type: 'forgotten'; repo: string; key: string; keep?: string}
+	| {type: 'dropped'; repo: string; key: string; generation: string};
 
 export type Parsed<Message> =
 	| {kind: 'message'; message: Message}
@@ -63,6 +66,17 @@ function forgetFields(
 	if (typeof repo !== 'string' || typeof key !== 'string') return undefined;
 	if (keep === undefined) return {repo, key};
 	return typeof keep === 'string' ? {repo, key, keep} : undefined;
+}
+
+function dropFields(
+	record: Record<string, unknown>,
+): {repo: string; key: string; generation: string} | undefined {
+	const {repo, key, generation} = record;
+	return typeof repo === 'string' &&
+		typeof key === 'string' &&
+		typeof generation === 'string'
+		? {repo, key, generation}
+		: undefined;
 }
 
 function record(line: string): Record<string, unknown> | undefined {
@@ -108,6 +122,13 @@ export function parseClientMessage(line: string): Parsed<ClientMessage> {
 			const forget = forgetFields(fields);
 			return forget
 				? {kind: 'message', message: {type: 'forget', ...forget}}
+				: INVALID;
+		}
+
+		case 'drop': {
+			const drop = dropFields(fields);
+			return drop
+				? {kind: 'message', message: {type: 'drop', ...drop}}
 				: INVALID;
 		}
 
@@ -158,6 +179,13 @@ export function parseDaemonMessage(line: string): Parsed<DaemonMessage> {
 			const forgotten = forgetFields(fields);
 			return forgotten
 				? {kind: 'message', message: {type: 'forgotten', ...forgotten}}
+				: INVALID;
+		}
+
+		case 'dropped': {
+			const dropped = dropFields(fields);
+			return dropped
+				? {kind: 'message', message: {type: 'dropped', ...dropped}}
 				: INVALID;
 		}
 

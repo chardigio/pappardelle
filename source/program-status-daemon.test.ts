@@ -38,6 +38,7 @@ import {
 import type {ProgramReport} from './program-status.ts';
 import {statusSocketPath} from './state-db.ts';
 import {StatusClient, type SendResult} from './status-client.ts';
+import type {ClientMessage} from './status-protocol.ts';
 
 const execute = promisify(execFile);
 const pane = parseStatusPane('%1\t12\t0\t1\t12.owner', 'test-status')!;
@@ -49,7 +50,11 @@ const report = (state: string): ProgramReport[] => [{state, id: ''}];
 function testPublisher(
 	t: ExecutionContext,
 	socketPath: string,
-	options: {daemonMode: boolean},
+	options: {
+		daemonMode: boolean;
+		/** Runs after the publisher has checked its lease, before its send. */
+		beforeSend?: (message: ClientMessage) => Promise<void>;
+	},
 ) {
 	const dir = path.join(path.dirname(socketPath), 'program-status', 'repo');
 	mkdirSync(dir, {recursive: true});
@@ -72,7 +77,16 @@ function testPublisher(
 				startDaemon() {},
 			});
 			clients.push(client);
-			return client;
+			const {beforeSend} = options;
+			if (!beforeSend) return client;
+			return {
+				async send(message) {
+					await beforeSend(message);
+					return client.send(message);
+				},
+				onConnect: client.onConnect.bind(client),
+				close: client.close.bind(client),
+			};
 		},
 	});
 	t.teardown(() => {
@@ -313,6 +327,35 @@ test('a snapshot published after the lease was revoked is not sent', async t => 
 	t.deepEqual([...new Set(sentStatuses(rail))], ['working']);
 	t.true(rail.messages.some(message => message.type === 'forgotten'));
 	t.false(existsSync(h.file));
+});
+
+test('a snapshot that reaches the daemon after its space was forgotten is dropped', async t => {
+	const state = testState(t, {sqlite: true});
+	const socketPath = statusSocketPath(state.stateDir);
+	const rail = await subscribeRaw(t, socketPath, 'repo');
+	let closed = false;
+	const h = testPublisher(t, socketPath, {
+		daemonMode: true,
+		async beforeSend(message) {
+			if (message.type !== 'snapshot' || closed) return;
+			closed = true;
+			await state.daos.programStatus.remove('STA-1');
+		},
+	});
+	h.grantLease();
+	h.publisher.publish(snapshotOf(target, report('working')));
+
+	await rail.received(
+		message => message.type === 'dropped',
+		'the snapshot dropped',
+	);
+	t.deepEqual(
+		rail.messages.slice(1).map(message => message.type),
+		['forgotten', 'snapshot', 'dropped'],
+	);
+	const after = await subscribeRaw(t, socketPath, 'repo');
+	const [held] = after.messages;
+	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
 });
 
 // An agent can sit idle for hours. Its monitor publishes nothing in that
