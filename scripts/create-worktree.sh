@@ -2,10 +2,10 @@
 
 # create-worktree.sh - Create a git worktree for an issue
 #
-# Usage: create-worktree.sh --issue-key <STA-XXX> --project-key <project-key>
+# Usage: create-worktree.sh --issue-key <STA-XXX> --project-key <project-key> --worktree <path>
 #
-# Creates a git worktree at ~/.worktrees/<repo-name>/<issue-key>
-# from the repository root.
+# Creates a git worktree at --worktree, the path idow got from
+# `pappardelle --internal-state worktree-path`, from the repository root.
 #
 # Post-creation setup (file copying, env overrides, dependency installation)
 # is handled by `post_workspace_init` commands in .pappardelle.yml, executed by idow.
@@ -17,11 +17,11 @@ set -e
 
 # Configuration (overridable via env vars for testing)
 MAIN_REPO="${MAIN_REPO:-${PAPPARDELLE_MAIN_REPO_ROOT:-${PAPPARDELLE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}}}"
-WORKTREES_ROOT="${WORKTREES_ROOT:-$HOME/.worktrees}"
 
 # Parse arguments
 ISSUE_KEY=""
 PROJECT_KEY=""
+WORKTREE_PATH=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,10 +33,14 @@ while [[ $# -gt 0 ]]; do
             PROJECT_KEY="$2"
             shift 2
             ;;
+        --worktree)
+            WORKTREE_PATH="$2"
+            shift 2
+            ;;
         --help|-h)
-            echo "Usage: create-worktree.sh --issue-key <STA-XXX> --project-key <project-key>"
+            echo "Usage: create-worktree.sh --issue-key <STA-XXX> --project-key <project-key> --worktree <path>"
             echo ""
-            echo "Creates a git worktree at ~/.worktrees/<repo-name>/<issue-key>"
+            echo "Creates a git worktree at <path>"
             exit 0
             ;;
         *)
@@ -56,9 +60,10 @@ if [[ -z "$PROJECT_KEY" ]]; then
     exit 1
 fi
 
-# Build worktree path using repository name (not project key)
-REPO_NAME=$(basename "$MAIN_REPO")
-WORKTREE_PATH="$WORKTREES_ROOT/$REPO_NAME/$ISSUE_KEY"
+if [[ -z "$WORKTREE_PATH" ]]; then
+    echo "Error: --worktree is required" >&2
+    exit 1
+fi
 
 # Create parent directory if needed
 mkdir -p "$(dirname "$WORKTREE_PATH")"

@@ -14,7 +14,7 @@
 #   1. Parses input (issue key, URL, or description)
 #   2. Creates/fetches issue as needed
 #   3. Selects project profile from .pappardelle.yml
-#   4. Creates a git worktree at ~/.worktrees/<project>/<issue-key>
+#   4. Creates the space's git worktree, at ~/.worktrees/<repo>/<issue-key> for a new space
 #   5. Creates PR/MR (if new)
 #   6. Opens terminal with the agent (if --open)
 #   7. Opens profile-configured apps, links, and commands (if --open)
@@ -819,7 +819,8 @@ var_is_set() {
 
 # Step 5: Create or find worktree
 print_step 5 "Setting up git worktree..."
-WORKTREE_PATH="$HOME/.worktrees/$REPO_NAME/$ISSUE_KEY"
+WORKTREE_PATH=$(pappardelle_state worktree-path --repo "$REPO_NAME" "$ISSUE_KEY" 2>"$STATE_CLI_ERRORS") ||
+    error "Could not look up the worktree of $ISSUE_KEY: $(cat "$STATE_CLI_ERRORS")"
 FRESH_WORKSPACE=false
 
 WORKTREE_CREATED=false
@@ -827,7 +828,7 @@ if [[ -d "$WORKTREE_PATH" ]]; then
     print_success "Worktree exists: $WORKTREE_PATH"
 else
     WORKTREE_CREATED=true
-    CREATE_WORKTREE_ARGS=(--issue-key "$ISSUE_KEY" --project-key "$PROJECT_KEY")
+    CREATE_WORKTREE_ARGS=(--issue-key "$ISSUE_KEY" --project-key "$PROJECT_KEY" --worktree "$WORKTREE_PATH")
     WORKTREE_JSON=$("$SCRIPT_DIR/create-worktree.sh" "${CREATE_WORKTREE_ARGS[@]}") || error "Failed to create worktree"
     WORKTREE_PATH=$(echo "$WORKTREE_JSON" | jq -r '.worktree_path')
     print_success "Created worktree: $WORKTREE_PATH"
