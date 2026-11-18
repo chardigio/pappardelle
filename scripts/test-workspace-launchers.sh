@@ -101,13 +101,13 @@ printf '%s\n' "\$6" >> "$PATH_TMP/session"
 SHIM
 chmod +x "$PATH_TMP/bin/tmux"
 { read -r AGENT_PANE_LINE; read -r COMPANION_PANE_LINE; } < <("$SCRIPT_DIR/open-default-terminal-agent.sh" \
-    --worktree "$PATH_WT" --issue-key QA-1 --repo-name "bob's-app" --companion-command "" --prompt "" --print-command)
+    --worktree "$PATH_WT" --issue-key QA-1 --repo-name "bob's dad's app" --companion-command "" --prompt "" --print-command)
 assert_eq "agent pane is titled with the key" "$(printf '\033]0;QA-1\007')" \
     "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$AGENT_PANE_LINE" 2>&1)"
 assert_eq "companion pane is titled with the key" "$(printf '\033]0;QA-1\007')" \
     "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$COMPANION_PANE_LINE" 2>&1)"
 assert_eq "both panes start in the worktree" "$PATH_WT"$'\n'"$PATH_WT" "$(cat "$PATH_TMP/pwd" 2>/dev/null)"
-assert_eq "sessions are named after the repo" "agent-bob's-app-QA-1"$'\n'"companion-bob's-app-QA-1" \
+assert_eq "sessions are named after the repo" "agent-bob's dad's app-QA-1"$'\n'"companion-bob's dad's app-QA-1" \
     "$(cat "$PATH_TMP/session" 2>/dev/null)"
 assert_eq "nothing in the path ran" "no" "$([[ -e "$PATH_TMP/pwned" ]] && echo yes || echo no)"
 rm -rf "$PATH_TMP"
