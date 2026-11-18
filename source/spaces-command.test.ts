@@ -307,6 +307,28 @@ test('the report is the same from files and from the database for the same histo
 	});
 });
 
+test('a session belongs to the space whose stored worktree holds it', async t => {
+	const home = tempHome(t, {sqlite: true});
+	const worktree = path.join(home, 'checkouts', 'login');
+	await stores(home).spaceIdentities.record({
+		repo: REPO,
+		key: 'STA-410',
+		worktreePath: worktree,
+		tmux: {
+			socket: 'pappardelle_inner',
+			agentSession: `agent-${REPO}-STA-410`,
+			companionSession: `companion-${REPO}-STA-410`,
+		},
+	});
+	openSpaces(home, ['STA-410']);
+	writeJson(path.join(home, '.claude', 'sessions', 'login.json'), {
+		pid: 33_333,
+		cwd: `${worktree}/src`,
+	});
+	const [space] = await gather(home);
+	t.is(space!.pid, 33_333);
+});
+
 test('sessions match on the full worktree prefix and the newest wins', async t => {
 	const home = tempHome(t);
 	openSpaces(home, ['STA-400', 'STA-500']);

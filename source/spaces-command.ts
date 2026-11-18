@@ -11,7 +11,7 @@ import type {ClaudeStatusDao} from './claude-status.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
-import {worktreesDir, type SpaceIdentityDao} from './space-identity.ts';
+import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
 
 const execFileAsync = promisify(execFile);
@@ -82,17 +82,16 @@ function roundTenth(value: number): number {
 }
 
 /**
- * Claude Code's session file for each worktree of this repo, newest first
- * when one worktree has several. The prefix ends in `/` so `repo-api` never
- * matches `repo`.
+ * Claude Code's newest session file in each space's stored worktree, by
+ * space. A session in a subdirectory counts for the space whose worktree is
+ * its nearest ancestor.
  */
-function sessionsByWorktree(
+function sessionsBySpace(
 	home: string,
-	repoName: string,
+	worktrees: ReadonlyMap<string, string>,
 ): Map<string, Record<string, unknown>> {
 	const map = new Map<string, Record<string, unknown>>();
 	const dir = path.join(home, '.claude', 'sessions');
-	const prefix = worktreesDir(home, repoName) + '/';
 	let files: string[];
 	try {
 		files = fs.readdirSync(dir).filter(file => file.endsWith('.json'));
@@ -109,8 +108,7 @@ function sessionsByWorktree(
 		}
 
 		if (!isRecord(session) || typeof session['cwd'] !== 'string') continue;
-		if (!session['cwd'].startsWith(prefix)) continue;
-		const key = session['cwd'].slice(prefix.length).split('/')[0];
+		const key = spaceHolding(session['cwd'], worktrees);
 		if (!key) continue;
 		const existing = map.get(key);
 		const started = String(session['startedAt'] ?? '');
@@ -119,6 +117,20 @@ function sessionsByWorktree(
 	}
 
 	return map;
+}
+
+function spaceHolding(
+	cwd: string,
+	worktrees: ReadonlyMap<string, string>,
+): string | undefined {
+	let found: {key: string; depth: number} | undefined;
+	for (const [key, worktree] of worktrees) {
+		if (cwd !== worktree && !cwd.startsWith(worktree + '/')) continue;
+		if (!found || worktree.length > found.depth)
+			found = {key, depth: worktree.length};
+	}
+
+	return found?.key;
 }
 
 function newestJsonl(
@@ -183,7 +195,18 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 
 	if (!keys) return {error: 'No open spaces file found', spaces: []};
 
-	const sessions = sessionsByWorktree(home, repoName);
+	const identities = new Map<string, SpaceIdentity>();
+	for (const key of keys) {
+		const lookup = deps.spaceIdentities.get(key);
+		if (lookup.kind === 'identity') identities.set(key, lookup.identity);
+	}
+
+	const sessions = sessionsBySpace(
+		home,
+		new Map(
+			[...identities].map(([key, identity]) => [key, identity.worktreePath]),
+		),
+	);
 	// bd alone can take several seconds on a busy machine; a title is worth the
 	// wait for the board, but a hung tracker must not hold it forever.
 	const titles = withTimeout(
@@ -241,8 +264,7 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				entry.worktreePath = session['cwd'];
 			}
 
-			const lookup = deps.spaceIdentities.get(name);
-			const identity = lookup.kind === 'identity' ? lookup.identity : null;
+			const identity = identities.get(name);
 			const worktree = identity?.worktreePath ?? null;
 			const log =
 				worktree &&
