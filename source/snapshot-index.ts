@@ -31,7 +31,10 @@ export class SnapshotIndex {
 
 	/** Whether there was a snapshot to drop. */
 	drop(key: string, generation: string): boolean {
-		return this.spaces.get(key)?.delete(generation) ?? false;
+		const generations = this.spaces.get(key);
+		if (!generations?.delete(generation)) return false;
+		if (generations.size === 0) this.spaces.delete(key);
+		return true;
 	}
 
 	keys(): string[] {
