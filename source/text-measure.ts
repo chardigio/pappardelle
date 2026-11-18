@@ -50,13 +50,21 @@ export function displayWidth(text: string, widthMethod: WidthMethod): number {
 	return measure(text, widthMethod, null).lineInfo.lineWidthColsMax;
 }
 
-/**
- * Cells each of `lines` takes, from one layout. A line must not contain a line
- * break, or every width after it shifts.
- */
-export function lineWidths(
-	lines: string[],
+// OpenTUI starts a new line at each of these.
+const lineBreak = /\r\n|\r|\n/;
+
+/** `displayWidth` of each of `texts`, from one layout. */
+export function displayWidths(
+	texts: string[],
 	widthMethod: WidthMethod,
 ): number[] {
-	return measure(lines.join('\n'), widthMethod, null).lineInfo.lineWidthCols;
+	const textLines = texts.map(text => text.split(lineBreak));
+	const lineCells = measure(textLines.flat().join('\n'), widthMethod, null)
+		.lineInfo.lineWidthCols;
+	let start = 0;
+	return textLines.map(({length}) => {
+		const cells = lineCells.slice(start, start + length);
+		start += length;
+		return Math.max(...cells);
+	});
 }
