@@ -252,6 +252,30 @@ test('settle opens a starting space whose stored session is live and drops one w
 	t.deepEqual(registry.phase('GONE-1'), {kind: 'unknown'});
 });
 
+test('nothing is settled while a space being set up or torn down has no stored names', async t => {
+	const state = testState(t, {sqlite: true});
+	const {registry, spaceIdentities} = state.daos;
+	await spaceIdentities.record({
+		repo: 'repo',
+		key: 'NAMED-1',
+		worktreePath: '/w/NAMED-1',
+		tmux: {
+			socket: 'pappardelle_inner',
+			agentSession: 'agent-repo-NAMED-1',
+			companionSession: 'companion-repo-NAMED-1',
+		},
+	});
+	// Above any pid_max, so no process has it.
+	await registry.reserveStart('NAMED-1', 99_999_999);
+	await registry.reserveStart('UNNAMED-1', 99_999_999);
+	await registry.settle({closing: new Set(), liveSessions: () => new Set()});
+	t.deepEqual(registry.phase('NAMED-1'), {kind: 'phase', phase: 'starting'});
+	t.deepEqual(registry.phase('UNNAMED-1'), {
+		kind: 'phase',
+		phase: 'starting',
+	});
+});
+
 test('nothing is settled when tmux cannot say which sessions are alive', async t => {
 	const f = fixture(t);
 	await f.mine.reserveStart('STARTED', DEAD);
