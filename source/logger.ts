@@ -387,7 +387,8 @@ export function getLogDir(): string {
 	return LOG_DIR;
 }
 
-// Intercept stderr writes so React and OpenTUI rendering errors land in the log file.
+// Route everything that reaches stderr into the log file: stderr writes, React
+// and OpenTUI errors sent to console.error, and crashes Bun reports itself.
 // Call once at startup (idempotent).
 let stderrCaptured = false;
 
@@ -501,6 +502,53 @@ export function captureStderr(): void {
 	// TUI and never reach the log.
 	console.error = makeConsoleError(text => process.stderr.write(text));
 	console.warn = console.error;
+
+	// Bun prints a crash report straight to fd 2 as well. While the renderer is
+	// up, OpenTUI's own uncaughtException and unhandledRejection listeners
+	// console.error the error and keep the process alive, so nothing crashed
+	// and the error is already logged.
+	// Reading an error's stack before Bun prints it changes Bun's report (frames,
+	// source preview), so crashes are formatted on exit, after it has printed.
+	// Exit listeners registered later can still crash, and nothing runs after
+	// them to write a queued entry.
+	const crashes: unknown[] = [];
+	let exiting = false;
+	const crashLog = createLogger('crash');
+	const recordCrash = (crash: unknown) => {
+		if (exiting) crashLog.error(format(crash));
+		else crashes.push(crash);
+	};
+
+	process.on('exit', () => {
+		exiting = true;
+		for (const crash of crashes) crashLog.error(format(crash));
+	});
+	process.on('uncaughtExceptionMonitor', error => {
+		if (process.listenerCount('uncaughtException') > 0) return;
+		recordCrash(error);
+	});
+	// Bun reports a bare unhandled rejection without firing the monitor, and any
+	// listener here replaces its default crash. Rejecting again restores that
+	// crash and its exit status. It has to happen inside the listener: Bun may
+	// call it at loop shutdown, when nothing it schedules runs. The listener
+	// stays until a re-rejection comes back, so every rejection of the same tick
+	// is recorded.
+	const reRejections = new WeakSet<Promise<unknown>>();
+	const onUnhandledRejection = (reason: unknown, promise: Promise<unknown>) => {
+		if (process.listenerCount('unhandledRejection') > 1) return;
+		if (reRejections.has(promise)) {
+			process.off('unhandledRejection', onUnhandledRejection);
+			// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+			void Promise.reject(reason);
+			return;
+		}
+
+		recordCrash(reason);
+		// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+		reRejections.add(Promise.reject(reason));
+	};
+
+	process.on('unhandledRejection', onUnhandledRejection);
 }
 
 // Export a default logger for general use
