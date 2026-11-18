@@ -358,6 +358,39 @@ test('a snapshot that reaches the daemon after its space was forgotten is droppe
 	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
 });
 
+test('a monitor whose lease a process with the flag off revoked drops its snapshot from the daemon, once', async t => {
+	const socketPath = testSocketPath(t);
+	await serveTestDaemon(t, socketPath);
+	const rail = await subscribeRaw(t, socketPath, 'repo');
+	const drops: ClientMessage[] = [];
+	const h = testPublisher(t, socketPath, {
+		daemonMode: true,
+		async beforeSend(message) {
+			if (message.type === 'drop') drops.push(message);
+		},
+	});
+	h.grantLease();
+	h.publisher.publish(snapshotOf(target, report('working')));
+	await rail.received(
+		message => message.type === 'snapshot',
+		'the snapshot sent under the lease',
+	);
+
+	h.revokeLease();
+	h.publisher.publish(snapshotOf(target, report('blocked')));
+	h.publisher.publish(snapshotOf(target, report('idle')));
+	await rail.received(
+		message => message.type === 'dropped',
+		'the snapshot dropped',
+	);
+	await sentSoFar(h.clients[0]!, rail);
+
+	t.is(drops.length, 1);
+	const after = await subscribeRaw(t, socketPath, 'repo');
+	const [held] = after.messages;
+	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
+});
+
 // An agent can sit idle for hours. Its monitor publishes nothing in that
 // time, so only the liveness check can move its status.
 test('an idle monitor moves its snapshot to the daemon on the liveness check after the flag turns on, and back to its file after it turns off', async t => {
