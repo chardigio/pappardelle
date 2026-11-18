@@ -215,12 +215,7 @@ import {
 	writeLayoutAck,
 } from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
-import {
-	calculateRowWindow,
-	railListRows,
-	spaceCountLabel,
-	splitRailWindow,
-} from './list-view-sizing.ts';
+import {railWindow, spaceCountLabel} from './list-view-sizing.ts';
 import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	filterSpaces,
@@ -435,8 +430,7 @@ export default function App({
 	// Measured footprint of the update banner (outer Box height + its
 	// marginBottom). Reported by UpdateBanner via onMeasure — the content
 	// wraps at narrow pane widths so a fixed constant is wrong. Stays at 0
-	// when the banner is hidden so the mouse hit-test falls back to plain
-	// HEADER_ROWS math.
+	// when the banner is hidden.
 	const [bannerHeight, setBannerHeight] = useState(0);
 	const headerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(
@@ -671,7 +665,6 @@ export default function App({
 		rows: stdout?.rows ?? 40,
 		cols: stdout?.columns ?? 80,
 	});
-	// Rows lay out inside the rail's frames, which take a column each side.
 	const termDimensions = {
 		cols: Math.max(1, paneDimensions.cols - PANE_FRAME_SIZE),
 	};
@@ -2689,25 +2682,15 @@ export default function App({
 		isSpace: isSpaceRow(row),
 	}));
 	const listCursor = allCursor - agentRowCount;
-	const mergedListRows = railListRows({merged: true, paneRows, bannerHeight});
-	const {statusFits, listRows, scrollOffset, visibleCount} = isMerged
-		? {
-				statusFits: true,
-				listRows: mergedListRows,
-				...calculateRowWindow(
-					spaceHeights.map(row => row.height),
-					listCursor,
-					mergedListRows,
-				),
-			}
-		: splitRailWindow({
-				rows: spaceHeights,
-				cursorRow: listCursor,
-				paneRows,
-				bannerHeight,
-				agentRows: agentRowCount,
-				linesPerItem,
-			});
+	const {statusFits, listRows, scrollOffset, visibleCount} = railWindow({
+		merged: isMerged,
+		rows: spaceHeights,
+		cursorRow: listCursor,
+		paneRows,
+		bannerHeight,
+		agentRows: agentRowCount,
+		linesPerItem,
+	});
 	const visibleRows = split.spaces.slice(
 		scrollOffset,
 		scrollOffset + visibleCount,
@@ -2728,16 +2711,13 @@ export default function App({
 	const matchCount = filteredDisplaySpaces.length;
 	// A dialog takes the list's place, so its count would describe rows nobody sees.
 	const isListShown = !railInputBlocked && !isZooming;
-	const trailingLabel = !isListShown
-		? undefined
-		: isSearching
-			? // With none, the body's "No matches." says it.
-				matchCount === 0
-				? undefined
-				: `${matchCount} match${matchCount === 1 ? '' : 'es'}`
-			: stackedLayout
-				? workspaceCountLabel
-				: undefined;
+	const mergedTrailingLabel = () => {
+		if (!isListShown) return undefined;
+		if (!isSearching) return stackedLayout ? workspaceCountLabel : undefined;
+		// With none, the body's "No matches." says it.
+		if (matchCount === 0) return undefined;
+		return `${matchCount} match${matchCount === 1 ? '' : 'es'}`;
+	};
 
 	// OpenTUI hit-tests the actual row, including wrapping banners and two-line
 	// layouts. Select by identity so filtering and pending rows cannot shift clicks.
@@ -2778,7 +2758,6 @@ export default function App({
 			/>
 		);
 
-	// The rows that scroll: the rail box's spaces, or every row when merged.
 	const renderList = () => {
 		if (visibleRows.length === 0) {
 			return (
@@ -2945,7 +2924,7 @@ export default function App({
 			<PaneFrame
 				isGrowing
 				title={workspaceTitle}
-				trailing={trailingLabel}
+				trailing={mergedTrailingLabel()}
 				isActive={isRailFocused}
 			>
 				{banner}

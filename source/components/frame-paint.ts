@@ -28,6 +28,12 @@ export type FrameSpec = {
 	inset?: number;
 };
 
+// The narrowest a title gets before the frame drops it, or drops the trailing
+// label to keep it.
+const MIN_TITLE_CELLS = 4;
+// The spaces either side of a title, and the rule cell after it.
+const LABEL_PADDING_CELLS = 3;
+
 function ruleDrawer(
 	buffer: OptimizedBuffer,
 	{borderColor, isDim}: Pick<FrameSpec, 'borderColor' | 'isDim'>,
@@ -59,7 +65,7 @@ export function paintFrame(
 	const inner = Math.max(0, box.width - 2);
 	const right = box.x + box.width - 1;
 	const bottom = box.y + box.height - 1;
-	const lead = Math.min(inset, Math.max(0, inner - 4));
+	const lead = Math.min(inset, Math.max(0, inner - MIN_TITLE_CELLS));
 	const runs: readonly Run[] =
 		typeof title === 'string'
 			? [
@@ -83,13 +89,18 @@ export function paintFrame(
 		: 0;
 	const keepsTrailing =
 		trailingCells > 0 &&
-		inner - lead - trailingCells - 3 >= Math.min(titleCells, 4);
+		inner - lead - trailingCells - LABEL_PADDING_CELLS >=
+			Math.min(titleCells, MIN_TITLE_CELLS);
 	const titleSpace = inner - lead - (keepsTrailing ? trailingCells : 0);
 
 	// A trailing cell of rule keeps a full-width title reading as a frame.
 	const shown =
-		titleSpace >= 4 && titleCells > 0
-			? truncateRunsToWidth([...runs], titleSpace - 3, widthMethod)
+		titleSpace >= MIN_TITLE_CELLS && titleCells > 0
+			? truncateRunsToWidth(
+					[...runs],
+					titleSpace - LABEL_PADDING_CELLS,
+					widthMethod,
+				)
 			: [];
 	const labelWidth =
 		shown.length > 0

@@ -5,6 +5,8 @@
  * making them easy to unit test.
  */
 
+import {BOX_FRAME_ROWS, STATUS_ROWS} from './list-view-sizing.ts';
+
 // ============================================================================
 // Layout Constants
 // ============================================================================
@@ -22,10 +24,9 @@ export const MAX_COMPANION_WIDTH = 86; // 85 is the supposed breakpoint, but rou
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 14;
 export const DEFAULT_MIN_LIST_HEIGHT = 8;
-// The stacked rail is one box: the top and bottom of its frame, and its status
-// row. The workspace name sits in the frame's border.
-const LIST_CHROME_ROWS = 1;
-const PANE_FRAME_ROWS = 2;
+// The stacked rail is one box: its frame and its status row. The workspace name
+// sits in the frame's border.
+const STACKED_CHROME_ROWS = BOX_FRAME_ROWS + STATUS_ROWS;
 
 /** Max fraction of usable height the list pane can take in vertical layout */
 export const MAX_LIST_HEIGHT_RATIO = 0.25;
@@ -168,8 +169,7 @@ export function calculateIdealListHeightForCount(
 	const idealHeight =
 		pinnedRows +
 		sessionRows(sessionCount, pinnedRows) * linesPerItem +
-		LIST_CHROME_ROWS +
-		PANE_FRAME_ROWS;
+		STACKED_CHROME_ROWS;
 
 	// Minimum is the smaller of ideal or default (don't force default num rows if we only need 4)
 	const minHeight = Math.min(idealHeight, DEFAULT_MIN_LIST_HEIGHT);
@@ -220,8 +220,7 @@ export function calculateLayoutForSize(
 				MIN_STACKED_SPACES[linesPerItem],
 			) *
 				linesPerItem +
-			LIST_CHROME_ROWS +
-			PANE_FRAME_ROWS;
+			STACKED_CHROME_ROWS;
 		const listHeight = Math.max(
 			fewestRows,
 			Math.min(

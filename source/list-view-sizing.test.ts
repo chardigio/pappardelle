@@ -18,7 +18,7 @@ import {
 	ROW_ICON_CELLS,
 	clipIssueKey,
 	railListRows,
-	splitRailWindow,
+	railWindow,
 	spaceCountLabel,
 	statusLineFits,
 } from './list-view-sizing.ts';
@@ -1446,16 +1446,22 @@ test('the status row gives way when a group header would take the only list row'
 		{height: 1, isSpace: false},
 		...Array.from({length: 10}, () => ({height: 2, isSpace: true})),
 	];
-	const layout = {rows, paneRows: 8, bannerHeight: 0, agentRows: 1};
+	const layout = {
+		merged: false,
+		rows,
+		paneRows: 8,
+		bannerHeight: 0,
+		agentRows: 1,
+	};
 	// Cursor on the sous-chef: the window starts at the header.
-	const atTop = splitRailWindow({...layout, cursorRow: -1, linesPerItem: 2});
+	const atTop = railWindow({...layout, cursorRow: -1, linesPerItem: 2});
 	t.false(atTop.statusFits);
 	t.deepEqual(
 		rows.slice(atTop.scrollOffset, atTop.scrollOffset + atTop.visibleCount),
 		[rows[0], rows[1]],
 	);
 	// Cursor deep in the list: the header has scrolled out, so the status row stays.
-	const deep = splitRailWindow({...layout, cursorRow: 6, linesPerItem: 2});
+	const deep = railWindow({...layout, cursorRow: 6, linesPerItem: 2});
 	t.true(deep.statusFits);
 	t.is(deep.listRows, 2);
 	t.is(deep.scrollOffset, 6);

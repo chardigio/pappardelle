@@ -45,6 +45,9 @@ export function calculateMaxVisibleItems(
 /** Rows a rail box's frame takes: its top and bottom borders. */
 export const BOX_FRAME_ROWS = 2;
 
+/** The status row, or the search row while searching. */
+export const STATUS_ROWS = 1;
+
 /**
  * Whether the workspace box keeps its status row. In a pane too short for both
  * boxes, the agent rows and one space, the status row gives up its row so the
@@ -57,7 +60,8 @@ export function statusLineFits(
 	linesPerItem: LinesPerItem = 1,
 ): boolean {
 	return (
-		paneRows - bannerHeight >= 2 * BOX_FRAME_ROWS + 1 + agentRows + linesPerItem
+		paneRows - bannerHeight >=
+		2 * BOX_FRAME_ROWS + STATUS_ROWS + agentRows + linesPerItem
 	);
 }
 
@@ -79,7 +83,7 @@ export function railListRows(
 		| {merged: true; paneRows: number; bannerHeight: number},
 ): number {
 	return layout.merged
-		? layout.paneRows - BOX_FRAME_ROWS - layout.bannerHeight - 1
+		? layout.paneRows - BOX_FRAME_ROWS - layout.bannerHeight - STATUS_ROWS
 		: layout.paneRows -
 				2 * BOX_FRAME_ROWS -
 				layout.bannerHeight -
@@ -88,12 +92,14 @@ export function railListRows(
 }
 
 /**
- * The split rail's window over the rail box's rows, and whether the workspace
- * box keeps its status row. Besides `statusLineFits`, the status row gives way
- * when keeping it would leave the window without a space, such as a group
- * header taking the only row.
+ * The window over the rows that scroll, and whether the status row keeps its
+ * row. Merged (search and the stacked rail), the status or search row always
+ * shows. Split, it gives way when the pane is too short for it (see
+ * `statusLineFits`) or when keeping it would leave the rail box without a
+ * space, such as a group header taking the only row.
  */
-export function splitRailWindow(layout: {
+export function railWindow(layout: {
+	merged: boolean;
 	rows: ReadonlyArray<{height: number; isSpace: boolean}>;
 	cursorRow: number;
 	paneRows: number;
@@ -108,30 +114,37 @@ export function splitRailWindow(layout: {
 } {
 	const {rows, cursorRow, paneRows, bannerHeight, agentRows} = layout;
 	const heights = rows.map(row => row.height);
-	const windowWith = (statusFits: boolean) => {
-		const listRows = railListRows({
-			merged: false,
-			paneRows,
-			bannerHeight,
-			statusRows: statusFits ? 1 : 0,
-			agentRows,
-		});
-		return {
+	const windowFor = (statusFits: boolean, listRows: number) => ({
+		statusFits,
+		listRows,
+		...calculateRowWindow(heights, cursorRow, listRows),
+	});
+	const splitWindow = (statusFits: boolean) =>
+		windowFor(
 			statusFits,
-			listRows,
-			...calculateRowWindow(heights, cursorRow, listRows),
-		};
-	};
+			railListRows({
+				merged: false,
+				paneRows,
+				bannerHeight,
+				statusRows: statusFits ? STATUS_ROWS : 0,
+				agentRows,
+			}),
+		);
 
+	if (layout.merged)
+		return windowFor(
+			true,
+			railListRows({merged: true, paneRows, bannerHeight}),
+		);
 	if (!statusLineFits(paneRows, bannerHeight, agentRows, layout.linesPerItem))
-		return windowWith(false);
-	const kept = windowWith(true);
+		return splitWindow(false);
+	const kept = splitWindow(true);
 	const showsSpace = rows
 		.slice(kept.scrollOffset, kept.scrollOffset + kept.visibleCount)
 		.some(row => row.isSpace);
 	return showsSpace || !rows.some(row => row.isSpace)
 		? kept
-		: windowWith(false);
+		: splitWindow(false);
 }
 
 /**
