@@ -12,7 +12,7 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
 import {testTmuxState, type TestState} from '../test/helpers/state.ts';
-import {sessionNamesFor} from './space-identity.ts';
+import {sessionNamesFor, type ProtectedSessions} from './space-identity.ts';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
@@ -37,15 +37,21 @@ test.after.always(() => {
 	for (const teardown of stateTeardowns) teardown();
 });
 
-/** The stored session names of these spaces and main, as idow names them. */
-function stored(keys: string[] = [], repo = 'repo'): Set<string> {
-	return new Set(
-		['main', ...keys].flatMap(key => {
-			const names = sessionNamesFor(key, repo);
-			return [names.agent, names.companion];
-		}),
-	);
+/** These spaces and main, protected under the names idow gives them. */
+function stored(keys: string[] = [], repo = 'repo'): ProtectedSessions {
+	const owned = ['main', ...keys];
+	return {
+		keys: new Set(owned),
+		names: new Set(
+			owned.flatMap(key => {
+				const names = sessionNamesFor(key, repo);
+				return [names.agent, names.companion];
+			}),
+		),
+	};
 }
+
+const NOTHING: ProtectedSessions = {names: new Set(), keys: new Set()};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');
@@ -441,6 +447,7 @@ test.serial(
 				'agent-repo-stuck',
 				'companion-repo-stuck',
 				'agent-repo-unnamed',
+				'agent-repo-stray',
 			].join('\n'),
 			// No stored identity names these spaces: their own sessions do.
 			spaces: {
@@ -448,10 +455,12 @@ test.serial(
 				'companion-repo-gone~tests': 'GONE-1',
 				'agent-repo-stuck': 'STUCK-1',
 				'companion-repo-stuck': 'STUCK-1',
+				// A session of STA-1, which is open, under a name not stored for it.
+				'agent-repo-stray': 'STA-1',
 			},
 			killStatus: name => (name === '=companion-repo-stuck:' ? 1 : 0),
 		});
-		t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 4);
+		t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 5);
 		t.deepEqual(removed, ['GONE-1']);
 	},
 );
@@ -573,7 +582,10 @@ test('cleanupOrphanedInnerSessions keeps a stored session whatever its name, and
 	});
 	t.is(
 		cleanupOrphanedInnerSessions(
-			new Set(['agent-repo-hand.named', 'companion-repo-other']),
+			{
+				names: new Set(['agent-repo-hand.named', 'companion-repo-other']),
+				keys: new Set(),
+			},
 			'repo',
 			runner,
 		),
@@ -588,7 +600,7 @@ test('cleanupOrphanedInnerSessions reaps main once main is not among the stored 
 	const {runner} = makeFakeRunner({
 		listSessionsStdout: ['agent-repo-main', 'companion-repo-main'].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
+	t.is(cleanupOrphanedInnerSessions(NOTHING, 'repo', runner), 2);
 });
 
 test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {

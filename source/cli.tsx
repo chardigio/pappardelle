@@ -707,11 +707,7 @@ async function maintainSessions() {
 		return;
 	}
 
-	const innerReaped = cleanupOrphanedInnerSessions(
-		owned.names,
-		undefined,
-		innerTmux,
-	);
+	const innerReaped = cleanupOrphanedInnerSessions(owned, undefined, innerTmux);
 	reapingDone?.();
 	if (innerReaped > 0) {
 		console.error(

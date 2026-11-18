@@ -202,6 +202,7 @@ import {
 	legacyAgentSession,
 	sessionPrefix,
 	tmuxSessionRepo,
+	type ProtectedSessions,
 	type SpaceIdentity,
 	type SpaceIdentityDao,
 } from './space-identity.ts';
@@ -1484,15 +1485,15 @@ export function liveInnerSessions(
  * between unregistering and killing. Symmetric to
  * `cleanupOrphanedOuterSessions`.
  *
- * `protectedNames` are the stored session names of the spaces whose sessions
- * have an owner, main's included (`protectedSessionNames`). A session is kept
+ * `owned` names the spaces whose sessions have an owner, main's included, and
+ * their stored session names (`protectedSessionNames`). A session is kept
  * when the session that owns it is one of them; nothing is parsed back into a
  * key.
  *
  * `runner` is exposed for tests only; production uses the spawnSync default.
  */
 export function cleanupOrphanedInnerSessions(
-	protectedNames: ReadonlySet<string>,
+	owned: ProtectedSessions,
 	repoName?: string,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
 	knownRepos: string[] = listKnownRepos(),
@@ -1500,9 +1501,7 @@ export function cleanupOrphanedInnerSessions(
 	try {
 		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
 		if (!sessions) return 0;
-		const orphans = sessions.filter(
-			session => !protectedNames.has(session.owner),
-		);
+		const orphans = sessions.filter(session => !owned.names.has(session.owner));
 
 		let killed = 0;
 		const reapedKeys = new Set<string>();
@@ -1519,8 +1518,11 @@ export function cleanupOrphanedInnerSessions(
 			}
 		}
 
+		// A stray session of a space that is still open is reaped, but the
+		// status it reports is the space's own.
 		for (const key of reapedKeys)
-			if (!failedKeys.has(key)) void programStatus().remove(key);
+			if (!failedKeys.has(key) && !owned.keys.has(key))
+				void programStatus().remove(key);
 		return killed;
 	} catch {
 		return 0;

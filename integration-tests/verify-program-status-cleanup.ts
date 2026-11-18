@@ -70,6 +70,8 @@ try {
 		harness.sqlite
 			? (await harness.heldSnapshots(repo, key)) > 0
 			: existsSync(target);
+	// No space is open, and none of these sessions is main's.
+	const nothing = {names: new Set<string>(), keys: new Set<string>()};
 	const findings: string[] = [];
 	for (const mode of ['normal', 'detached', 'orphan'] as const) {
 		const key = `qa-cleanup-${mode}`;
@@ -113,7 +115,7 @@ try {
 		else assert.ok(readFileSync(target, 'utf8').includes('fixture'));
 		if (mode === 'orphan') {
 			assert.equal(
-				cleanupOrphanedInnerSessions(new Set(), repo, undefined, []),
+				cleanupOrphanedInnerSessions(nothing, repo, undefined, []),
 				1,
 			);
 		} else {
@@ -200,7 +202,7 @@ try {
 	);
 	assert.equal(
 		cleanupOrphanedInnerSessions(
-			new Set(),
+			nothing,
 			repo,
 			args => {
 				if (
@@ -224,7 +226,7 @@ try {
 	);
 	assert.ok(await published(key, target));
 	assert.ok(existsSync(`${target}.lease`));
-	assert.equal(cleanupOrphanedInnerSessions(new Set(), repo, undefined, []), 1);
+	assert.equal(cleanupOrphanedInnerSessions(nothing, repo, undefined, []), 1);
 	assert.ok(!existsSync(`${target}.lease`));
 	await until(
 		async () =>
