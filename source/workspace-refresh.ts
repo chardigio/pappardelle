@@ -139,8 +139,7 @@ export class WorkspaceRefresh {
 	async refreshListOnly(): Promise<void> {
 		if (this.stopped) return;
 		this.listGeneration++;
-		// The listing is lazy, so a rerun the loops coalesce reads panes from
-		// after the latest request.
+		// A coalesced rerun lists panes after the latest request, not before it.
 		this.readStatus = this.deps.statusReader();
 		await this.list.request();
 	}

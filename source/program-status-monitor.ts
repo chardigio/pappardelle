@@ -196,7 +196,7 @@ export interface LocatedStatusPane {
 	pane: StatusPane | null;
 }
 
-export const STATUS_LISTING_FORMAT = `#{session_name}\t#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
+const STATUS_LISTING_FORMAT = `#{session_name}\t#{&&:#{window_active},#{pane_active}}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
 
 export function parseStatusListing(
 	output: string,
@@ -205,13 +205,13 @@ export function parseStatusListing(
 	const panes = new Map<string, StatusPane>();
 	const sessions = new Map<string, {pinned: string; current?: StatusPane}>();
 	for (const line of output.split('\n')) {
-		const [session, active, pinned = '', ...fields] = line.split('\t');
+		const [session, current, pinned = '', ...fields] = line.split('\t');
 		if (!session) continue;
 		const pane = parseStatusPane(fields.join('\t'), socket);
 		if (pane) panes.set(pane.id, pane);
 		const entry = sessions.get(session) ?? {pinned};
 		// The active pane of the active window, which `=session:` targets.
-		if (active === '11' && pane) entry.current = pane;
+		if (current === '1' && pane) entry.current = pane;
 		sessions.set(session, entry);
 	}
 	return new Map(
@@ -263,7 +263,6 @@ export async function monitorStatusPane(
 	socket = statusSocket(),
 	run: StatusTmuxRunner = runStatusTmux,
 ): Promise<StatusPane | null> {
-	let lease: string | undefined;
 	try {
 		if (!located?.pane) return null;
 		const target = `=${session}:`;
@@ -286,7 +285,7 @@ export async function monitorStatusPane(
 		pane = parseStatusPane(`${pane.id}\t${pane.pid}\t0\t0\t${marker}`, socket)!;
 		const dir = programStatusDir(repo);
 		mkdirSync(dir, {recursive: true});
-		lease = `${programStatusPath(repo, key, pane.generation)}.lease`;
+		const lease = `${programStatusPath(repo, key, pane.generation)}.lease`;
 		writeFileSync(lease, '');
 		const command = [
 			...monitorEntry(),
@@ -316,7 +315,8 @@ export async function monitorStatusPane(
 		// The tmux command queue keeps the pin, marker and pipe owned by the
 		// same attachment, and the read that follows sees what it left. tmux
 		// resolves a closed pane's id without error, so the condition checks
-		// the pane still exists before pinning the session to it.
+		// the pane still exists before pinning the session to it. `!:` needs
+		// tmux 3.6, so the unpiped check is spelled with `==:`.
 		const attached = parseStatusPane(
 			await run(
 				statusTmuxArgs(
@@ -325,7 +325,7 @@ export async function monitorStatusPane(
 						'-F',
 						'-t',
 						pane.id,
-						'#{&&:#{pane_id},#{!:#{pane_pipe}}}',
+						'#{&&:#{pane_id},#{==:#{pane_pipe},0}}',
 						commands,
 						';',
 						'display-message',
@@ -350,7 +350,6 @@ export async function monitorStatusPane(
 		return attached;
 	} catch (error) {
 		log.debug(`Cannot monitor ${session}: ${String(error)}`);
-		if (lease) rmSync(lease, {force: true});
 		return null;
 	}
 }

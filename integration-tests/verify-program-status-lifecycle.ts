@@ -125,33 +125,32 @@ try {
 	const probe = 'lifecycle-probe';
 	const shell = ['/bin/bash', '--noprofile', '--norc'];
 	await harness.tmux(['new-session', '-d', '-s', probe, ...shell]);
-	const middle = await harness.tmux([
-		'new-window',
-		'-P',
-		'-F',
-		'#{window_id}',
-		'-t',
-		`=${probe}:`,
-		...shell,
-	]);
-	await harness.tmux(['split-window', '-h', '-t', middle.trim(), ...shell]);
+	const middle = await harness
+		.tmux([
+			'new-window',
+			'-P',
+			'-F',
+			'#{window_id}',
+			'-t',
+			`=${probe}:`,
+			...shell,
+		])
+		.then(output => output.trim());
+	await harness.tmux(['split-window', '-h', '-t', middle, ...shell]);
 	await harness.tmux(['new-window', '-t', `=${probe}:`, ...shell]);
-	await harness.tmux(['select-window', '-t', middle.trim()]);
-	await harness.tmux(['select-pane', '-t', `${middle.trim()}.0`]);
-	const current = await harness.tmux([
-		'display-message',
-		'-p',
-		'-t',
-		`=${probe}:`,
-		'#{pane_id}',
-	]);
-	const located = (await listStatusPanes(harness.socket)).get(probe);
-	assert.equal(located?.pane?.id, current.trim());
+	await harness.tmux(['select-window', '-t', middle]);
+	await harness.tmux(['select-pane', '-t', `${middle}.0`]);
+	const current = await harness
+		.tmux(['display-message', '-p', '-t', `=${probe}:`, '#{pane_id}'])
+		.then(output => output.trim());
+	const panes = await listStatusPanes(harness.socket);
+	const located = panes.get(probe);
+	assert.equal(located?.pane?.id, current);
 	assert.equal(located?.pinned, '');
 	evidence['current-pane'] =
 		'an unpinned session locates the same pane as display-message -t =session:';
 	console.log('PASS listing locates the current pane of an unpinned session');
-	await harness.tmux(['kill-pane', '-t', current.trim()]);
+	await harness.tmux(['kill-pane', '-t', current]);
 	assert.equal(
 		await monitorStatusPane(repo, 'probe', probe, located, harness.socket),
 		null,

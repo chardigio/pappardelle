@@ -51,7 +51,7 @@ function setup(t: ExecutionContext) {
 		async () => {
 			queries++;
 			return ['claude-repo-TASK-1', 'claude-repo-main']
-				.map(session => `${session}\t11\t%1\t${paneOutput}`)
+				.map(session => `${session}\t1\t%1\t${paneOutput}`)
 				.join('\n');
 		},
 	);
@@ -400,7 +400,7 @@ test.serial(
 					const pipe = piped.has(key) ? '1' : '0';
 					const dead = key === 'TASK-11' ? '1' : '0';
 					const pinned = piped.has(key) ? pane : '';
-					return `agent-${key}\t11\t${pinned}\t${pane}\t${pid}\t${dead}\t${pipe}\t`;
+					return `agent-${key}\t1\t${pinned}\t${pane}\t${pid}\t${dead}\t${pipe}\t`;
 				})
 				.join('\n');
 		const statuses = new WorkspaceStatuses(

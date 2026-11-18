@@ -199,7 +199,7 @@ test('a space reads and takes hook updates under its repo-qualified key', async 
 	const h = setup({
 		readRegistry: async () => ['STA-1'],
 		statusReader: () => async (key, sessionKey) => {
-			reads.set(key, sessionKey!);
+			reads.set(key, sessionKey);
 			return {status: 'idle'};
 		},
 	});

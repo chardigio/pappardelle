@@ -71,7 +71,7 @@ export function mergeProgramStatus(
 /** Reads statuses against one tmux listing, taken on the first read. */
 export type StatusReader = (
 	key: string,
-	sessionKey?: string,
+	sessionKey: string,
 ) => Promise<ProgramStatusInfo | null>;
 
 export class WorkspaceStatuses {
@@ -95,7 +95,7 @@ export class WorkspaceStatuses {
 	reader(): StatusReader {
 		const socket = statusSocket();
 		let listing: ReturnType<typeof listStatusPanes> | undefined;
-		return async (key, sessionKey = key) => {
+		return async (key, sessionKey) => {
 			this.sessionKeys.set(key, sessionKey);
 			const session = this.sessionName(sessionKey);
 			listing ??= listStatusPanes(socket, this.run);
