@@ -10,12 +10,13 @@ test('the subprocess runner keeps UI timers running while tmux is slow', async t
 	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	fs.writeFileSync(
 		path.join(dir, 'tmux'),
-		`#!/usr/bin/env bun
-const args = process.argv.slice(2);
-setTimeout(() => {
-  if (args.includes('display-message')) process.stdout.write(args.includes('%1') ? '/dev/claude' : '/dev/companion');
-  if (args.includes('list-clients')) process.stdout.write('/dev/claude\\n/dev/companion\\n');
-}, 60);
+		`#!/bin/sh
+sleep 0.06
+case " $* " in
+*" display-message "*" %1 "*) printf /dev/claude ;;
+*" display-message "*) printf /dev/companion ;;
+*" list-clients "*) printf '/dev/claude\\n/dev/companion\\n' ;;
+esac
 `,
 		{mode: 0o755},
 	);
