@@ -10,12 +10,6 @@
 // Constants
 // ============================================================================
 
-/** Rows consumed by header (1 line) + status message line (1 line) = 2 */
-export const HEADER_ROWS = 2;
-
-/** Total non-item chrome (header only, no footer) */
-export const LIST_CHROME_ROWS = HEADER_ROWS;
-
 /** Fixed-width characters per row (excluding issue key): icon(1) + space(1) + space(1) = 3 */
 export const ROW_FIXED_OVERHEAD = 3;
 
@@ -24,23 +18,6 @@ export type LinesPerItem = 1 | 2;
 // ============================================================================
 // Scrolling / visibility
 // ============================================================================
-
-/**
- * Calculate how many list items can be displayed given the terminal height.
- *
- * @param termHeight - Height of the list pane in rows
- * @param linesPerItem - Terminal rows each item occupies (2 in two-line layout)
- * @returns Maximum number of items that fit
- */
-export function calculateMaxVisibleItems(
-	termHeight: number,
-	linesPerItem: LinesPerItem = 1,
-): number {
-	return Math.max(
-		1,
-		Math.floor((termHeight - LIST_CHROME_ROWS) / linesPerItem),
-	);
-}
 
 /** Rows a rail box's frame takes: its top and bottom borders. */
 export const BOX_FRAME_ROWS = 2;
@@ -186,34 +163,9 @@ export function calculateScrollOffset(
 }
 
 /**
- * Determine the visible window of items and the adjusted selection index.
- *
- * @returns Object with visibleRange [start, end), adjustedSelectedIndex
- */
-export function calculateVisibleWindow(
-	selectedIndex: number,
-	totalItems: number,
-	termHeight: number,
-	linesPerItem: LinesPerItem = 1,
-): {
-	scrollOffset: number;
-	visibleCount: number;
-	adjustedSelectedIndex: number;
-} {
-	const {scrollOffset, visibleCount} = calculateRowWindow(
-		Array.from({length: totalItems}, () => linesPerItem),
-		selectedIndex,
-		termHeight - LIST_CHROME_ROWS,
-	);
-	const adjustedSelectedIndex = selectedIndex - scrollOffset;
-
-	return {scrollOffset, visibleCount, adjustedSelectedIndex};
-}
-
-/**
  * The visible window over rows of different heights: the grouped rail mixes
  * one-line group headers with two-line spaces. Keeps the cursor row near the
- * middle like `calculateVisibleWindow`, measured in terminal lines.
+ * middle, measured in terminal lines.
  */
 export function calculateRowWindow(
 	heights: readonly number[],
@@ -458,50 +410,4 @@ export function renderListRow(
 
 	const emojiPrefix = prefix?.emoji ? `${prefix.emoji} ` : '';
 	return `${emojiPrefix}${icon} ${issueKey} ${truncated}${suffix}`;
-}
-
-/**
- * Render a complete list view as ASCII art.
- * Shows which items are visible, which is selected, and how they fit.
- *
- * Selected rows are marked with `*` prefix (in the real UI, selection
- * is shown via inverse background — we use `*` as a visual indicator
- * in test output).
- *
- * @param items - Array of {issueKey, icon, title} for all items
- * @param selectedIndex - Currently selected item (0-based, in full list)
- * @param termHeight - Terminal height available for the list pane
- * @param width - Width of the list pane
- * @param hasStatusMessage - Whether a status message is shown
- * @returns Multi-line ASCII string of the visible list
- */
-export function renderListView(
-	items: Array<{
-		issueKey: string;
-		icon: string;
-		title: string;
-		pipelineIcon?: string;
-		commentCount?: number;
-	}>,
-	selectedIndex: number,
-	termHeight: number,
-	width: number,
-): string {
-	const {scrollOffset, visibleCount, adjustedSelectedIndex} =
-		calculateVisibleWindow(selectedIndex, items.length, termHeight);
-
-	const visibleItems = items.slice(scrollOffset, scrollOffset + visibleCount);
-	const rows: string[] = [];
-
-	for (let i = 0; i < visibleItems.length; i++) {
-		const item = visibleItems[i]!;
-		const row = renderListRow(item.issueKey, item.icon, item.title, width, {
-			pipelineIcon: item.pipelineIcon,
-			commentCount: item.commentCount,
-		});
-		const prefix = i === adjustedSelectedIndex ? '*' : ' ';
-		rows.push(`${prefix}${row}`);
-	}
-
-	return rows.join('\n');
 }
