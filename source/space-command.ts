@@ -13,6 +13,7 @@ import {
 import {spaceStatusKey} from './claude-status.ts';
 import {SPACE_HELP, SPACE_USAGE} from './cli-args.ts';
 import {companionMainPane} from './companion.ts';
+import {readCurrentBranch} from './git-status.ts';
 import {statusSocket, statusSocketFlag} from './program-status-monitor.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {PipelineStatus} from './providers/types.ts';
@@ -597,12 +598,14 @@ const exec = promisify(execFile);
 
 export async function gitBranch(directory: string): Promise<string | null> {
 	try {
-		const {stdout} = await exec(
-			'git',
-			['symbolic-ref', '--quiet', '--short', 'HEAD'],
-			{cwd: directory, encoding: 'utf8', timeout: 5000},
-		);
-		return stdout.trim() || null;
+		return await readCurrentBranch(async args => {
+			const {stdout} = await exec('git', args, {
+				cwd: directory,
+				encoding: 'utf8',
+				timeout: 5000,
+			});
+			return stdout.trim();
+		});
 	} catch {
 		return null;
 	}

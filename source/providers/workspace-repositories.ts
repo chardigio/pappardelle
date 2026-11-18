@@ -3,6 +3,7 @@ import {readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {readRemoteUrls, remoteProjects} from '../git-remotes.ts';
+import {readCurrentBranch} from '../git-status.ts';
 import {workspaceIdentity} from '../link-pr.ts';
 import type {SpaceStateDao} from '../space-state.ts';
 
@@ -64,12 +65,9 @@ export async function discoverWorkspaceRepositories(
 			);
 			const project = remotes.get('origin');
 			if (project) {
-				const branch = await git(current, [
-					'symbolic-ref',
-					'--quiet',
-					'--short',
-					'HEAD',
-				]).catch((error: unknown) => {
+				const branch = await readCurrentBranch(async args =>
+					git(current, args),
+				).catch((error: unknown) => {
 					if ((error as {code?: number}).code === 1) return '';
 					throw error;
 				});
