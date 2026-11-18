@@ -51,6 +51,8 @@ if _state_db_spec and _state_db_spec.loader:
     _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
     _state_db_spec.loader.exec_module(_state_db_mod)
     status_socket_path = _state_db_mod.status_socket_path
+    state_db_path = _state_db_mod.state_db_path
+    space_at_path = _state_db_mod.space_at_path
 else:
     raise ImportError("Could not load state_db")
 
@@ -91,11 +93,16 @@ def _qualify(repo_name: str, name: str) -> str:
     return f"{repo_name}-{name}".replace("/", "-")
 
 
-def get_workspace_name(cwd: Optional[str] = None) -> str:
+def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
     """The status file name: the space key, or the main checkout's branch,
     qualified by repo. Two repos can have spaces with the same key, and all of
     them write to one status directory. Mirrors hookStatusKey() in
-    source/claude-status.ts."""
+    source/claude-status.ts.
+
+    With experimental.sqliteState on, the space is the stored one whose
+    worktree holds cwd, and main reports under its key like any space. None
+    when no stored space holds cwd: nothing reads a status from outside one.
+    """
     # The session's repo, set by start-agent-session.sh and the TUI. It is the
     # name the TUI reads under, which the cwd-derived name can differ from.
     repo = os.environ.get("PAPPARDELLE_REPO", "").strip()
@@ -110,6 +117,10 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
             cwd = os.getcwd()
         except OSError:
             return "unknown"
+    db_path = state_db_path()
+    if db_path is not None:
+        row = space_at_path(db_path, cwd)
+        return _qualify(row.repo, row.key) if row else None
     # Expected path: ~/.worktrees/stardust-labs/STA-123/...
     issue_key = find_issue_key(cwd)
     if issue_key:
@@ -171,6 +182,8 @@ def update_status(
     cwd: Optional[str] = None,
 ) -> None:
     workspace = get_workspace_name(cwd)
+    if workspace is None:
+        return
     status_file = get_status_dir() / f"{workspace}.json"
 
     state: dict[str, Any] = {

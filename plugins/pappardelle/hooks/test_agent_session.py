@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from conftest import record_space
 
 _spec = importlib.util.spec_from_file_location(
     "agent_session", Path(__file__).parent / "agent_session.py"
@@ -665,7 +666,11 @@ def tmux_server(monkeypatch: pytest.MonkeyPatch):
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def test_the_session_env_comes_from_the_agent_session_holding_the_cwd(tmp_path: Path, tmux_server):
+def test_the_session_env_comes_from_the_agent_session_holding_the_cwd(
+    tmp_path: Path, tmux_server, monkeypatch: pytest.MonkeyPatch
+):
+    # Without the database the space is the agent session started nearest cwd.
+    monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
     for key in ("STA-1", "STA-12"):
         worktree = tmp_path / key
         (worktree / "sub").mkdir(parents=True)
@@ -691,6 +696,31 @@ def test_the_session_env_comes_from_the_agent_session_holding_the_cwd(tmp_path: 
     }
     shell = subprocess.run(["ps", "-o", "args=", "-p", str(pane.pid)], capture_output=True, text=True).stdout
     assert shell.strip()
+    assert agent_session.tmux_agent_pane(str(tmp_path)) is None
+
+
+def test_the_session_env_comes_from_the_stored_space_holding_the_cwd(
+    tmp_path: Path, tmux_server, state_db: Path, monkeypatch: pytest.MonkeyPatch
+):
+    worktree = tmp_path / "STA-1"
+    (worktree / "sub").mkdir(parents=True)
+    tmux_server(
+        "new-session", "-d", "-s", "hand-named-agent", "-c", str(tmp_path),
+        "-e", "PAPPARDELLE_AGENT_SESSIONS_KEY=STA-1",
+    )  # fmt: skip
+    record_space(state_db, "repo", "STA-1", str(worktree), "hand-named-agent")
+    asked: list[list[str]] = []
+    real_run = subprocess.run
+
+    def recording_run(args, *rest, **kwargs):
+        asked.append(list(args))
+        return real_run(args, *rest, **kwargs)
+
+    monkeypatch.setattr(agent_session.subprocess, "run", recording_run)
+    pane = agent_session.tmux_agent_pane(str(worktree / "sub"))
+    assert pane is not None
+    assert pane.env == {"PAPPARDELLE_AGENT_SESSIONS_KEY": "STA-1"}
+    assert not any("list-sessions" in args for args in asked)
     assert agent_session.tmux_agent_pane(str(tmp_path)) is None
 
 

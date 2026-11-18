@@ -662,20 +662,25 @@ test('without a session there are no panes and only the hook status', async t =>
 	t.deepEqual(snapshotPanes, []);
 });
 
-test("main's status is read under its branch", async t => {
-	const state = stateOf(t, {repo: 'repo'});
-	await openSpace(state, 'main');
-	await writeClaudeStatus(state, {
-		sessionId: 's',
-		workspaceName: 'repo-master',
-		status: 'processing',
-		lastUpdate: Date.now(),
-	});
-	const result = await run(
-		['get', 'main', '--field', 'status.status'],
-		deps(state),
-	);
-	t.deepEqual(result, {code: 0, stdout: 'working', stderr: ''});
+test("main's status is read under its branch without the database, and under its key with it", async t => {
+	for (const [sqlite, reportedAs] of [
+		[false, 'repo-master'],
+		[true, 'repo-main'],
+	] as const) {
+		const state = stateOf(t, {repo: 'repo', sqlite});
+		await openSpace(state, 'main');
+		await writeClaudeStatus(state, {
+			sessionId: 's',
+			workspaceName: reportedAs,
+			status: 'processing',
+			lastUpdate: Date.now(),
+		});
+		const result = await run(
+			['get', 'main', '--field', 'status.status'],
+			deps(state),
+		);
+		t.deepEqual(result, {code: 0, stdout: 'working', stderr: ''}, reportedAs);
+	}
 });
 
 function cli(t: ExecutionContext) {

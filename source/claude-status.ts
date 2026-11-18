@@ -51,17 +51,18 @@ export function hookStatusKey(repoName: string, name: string): string {
 }
 
 /**
- * The status key to read a space's hook status under. The main checkout's
- * hook reports under its branch, which is looked up only for main.
+ * The status key to read a space's hook status under. Where the main
+ * checkout's hook reports under its branch, the branch is looked up only for
+ * main.
  */
 export async function spaceStatusKey(
-	claudeStatus: Pick<ClaudeStatusDao, 'readableKey'>,
+	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'mainKeyedByBranch'>,
 	repoName: string,
 	key: string,
 	mainBranch: () => Promise<string | undefined>,
 ): Promise<string> {
 	const name =
-		key === MAIN_WORKTREE_KEY
+		key === MAIN_WORKTREE_KEY && claudeStatus.mainKeyedByBranch
 			? ((await mainBranch()) ?? MAIN_WORKTREE_KEY)
 			: key;
 	return claudeStatus.readableKey(repoName, name);
@@ -84,6 +85,12 @@ export type StoredClaudeStatus =
  * the only writer.
  */
 export interface ClaudeStatusDao {
+	/**
+	 * Whether the main checkout's hook reports under its branch. Without the
+	 * database the hook names its space from the path, and main's path names
+	 * no space; with it, main is a stored space reported under its key.
+	 */
+	readonly mainKeyedByBranch: boolean;
 	/**
 	 * The status key to read a space under. An agent started before status
 	 * keys were qualified by repo still writes under the bare name until it
@@ -190,6 +197,10 @@ export async function readableStatusKey(
 }
 
 export class JsonClaudeStatusDao implements ClaudeStatusDao {
+	get mainKeyedByBranch(): boolean {
+		return true;
+	}
+
 	private readonly dir: string;
 
 	constructor(dir: string) {
