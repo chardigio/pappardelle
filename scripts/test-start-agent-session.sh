@@ -811,9 +811,6 @@ mkdir -p "$WORKTREE_PATH12"
 LEGACY_SESSION="claude-${TEST_REPO}-${ISSUE_KEY12}"
 RENAMED_SESSION="agent-${TEST_REPO}-${ISSUE_KEY12}"
 
-# Holds the server up between these tests: one that kills its last session
-# can leave it exiting as the next one connects.
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "keepalive-$$"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORKTREE_PATH12"
 
 start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
@@ -865,7 +862,6 @@ else
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=keepalive-$$:" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}:" 2>/dev/null || true
 
 # ==========================================================================
