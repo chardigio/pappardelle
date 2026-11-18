@@ -24,7 +24,7 @@ import {
 	worktreePathFor,
 	type CheckoutLookup,
 } from './space-target.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {compareSpaceNames, MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {StateDaos} from './state-daos.ts';
 import type {Unreadable} from './state-db.ts';
 import {
@@ -32,7 +32,6 @@ import {
 	getSessionNames,
 	type OuterTmuxRunner,
 } from './tmux.ts';
-import {compareSpaceNames} from './workspace-refresh.ts';
 
 const STATUS_FIELDS = [
 	'status',

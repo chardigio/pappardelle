@@ -14,6 +14,24 @@ const log = createLogger('space-utils');
 export const MAIN_WORKTREE_KEY = 'main';
 
 /**
+ * Rail order: newest first by issue number, whatever the team prefix (ABC-50
+ * above STA-12). Beads hash keys have no order of their own, but must keep one
+ * place across refreshes.
+ */
+export function compareSpaceNames(a: string, b: string): number {
+	const numberA = issueNumber(a);
+	const numberB = issueNumber(b);
+	if (numberA !== undefined && numberB !== undefined && numberA !== numberB)
+		return numberB - numberA;
+	return b.localeCompare(a, 'en', {numeric: true});
+}
+
+function issueNumber(name: string): number | undefined {
+	const match = /-(\d+)$/.exec(name);
+	return match ? Number(match[1]) : undefined;
+}
+
+/**
  * Whether the space list item should show "Loading…" as its title.
  *
  * Returns true when the Linear issue title hasn't been fetched yet
