@@ -264,6 +264,14 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$NAMED_COMPANION:" 2>/dev/n
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: the socket is required${RESET}"
+OUTPUT=$(env -u PAPPARDELLE_TMUX_SOCKET "$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" \
+    --worktree "/tmp" --agent-session agent-x --companion-session companion-x --legacy-agent-session claude-x 2>&1 || true)
+assert_eq "errors without PAPPARDELLE_TMUX_SOCKET" \
+    "Error: PAPPARDELLE_TMUX_SOCKET is required: idow exports the space's socket from pappardelle space get" "$OUTPUT"
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: the session names are required${RESET}"
 OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" --worktree "/tmp" 2>&1 || true)
 if echo "$OUTPUT" | grep -q -- "--agent-session, --companion-session and --legacy-agent-session are required"; then

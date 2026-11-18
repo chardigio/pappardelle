@@ -200,9 +200,12 @@ fi
 # Per-issue agent/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=` (which would
 # otherwise defeat $TMUX propagation to subprocesses like Claude Code's
-# Agent Teams feature). See STA-860 for the full rationale and the matching
-# INNER_SOCKET constant in pappardelle/source/tmux.ts.
-PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
+# Agent Teams feature). See STA-860. idow exports the space's socket from
+# `pappardelle space get`.
+if [[ -z "${PAPPARDELLE_TMUX_SOCKET:-}" ]]; then
+    echo "Error: PAPPARDELLE_TMUX_SOCKET is required: idow exports the space's socket from pappardelle space get" >&2
+    exit 1
+fi
 TMUX_SOCKET_ARGS=(-L "$PAPPARDELLE_TMUX_SOCKET")
 if [[ "$PAPPARDELLE_TMUX_SOCKET" == /* ]]; then
     TMUX_SOCKET_ARGS=(-S "$PAPPARDELLE_TMUX_SOCKET")
