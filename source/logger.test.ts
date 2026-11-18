@@ -754,6 +754,20 @@ throwAtTopLevel();`,
 	}
 });
 
+test('a crash in a later exit listener lands in the log', t => {
+	const {status, crashes} = runChild(
+		t,
+		`captureStderr();
+process.on('exit', () => { throw new Error('exit-boom'); });
+throw new Error('first-boom');`,
+	);
+	t.is(status, 1);
+	t.deepEqual(crashes, [
+		'[crash] Error: first-boom',
+		'[crash] Error: exit-boom',
+	]);
+});
+
 test('errors another listener handles are not logged as crashes', t => {
 	const {status, crashes} = runChild(
 		t,

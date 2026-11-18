@@ -509,14 +509,23 @@ export function captureStderr(): void {
 	// and the error is already logged.
 	// Reading an error's stack before Bun prints it changes Bun's report (frames,
 	// source preview), so crashes are formatted on exit, after it has printed.
+	// Exit listeners registered later can still crash, and nothing runs after
+	// them to write a queued entry.
 	const crashes: unknown[] = [];
+	let exiting = false;
 	const crashLog = createLogger('crash');
+	const recordCrash = (crash: unknown) => {
+		if (exiting) crashLog.error(format(crash));
+		else crashes.push(crash);
+	};
+
 	process.on('exit', () => {
+		exiting = true;
 		for (const crash of crashes) crashLog.error(format(crash));
 	});
 	process.on('uncaughtExceptionMonitor', error => {
 		if (process.listenerCount('uncaughtException') > 0) return;
-		crashes.push(error);
+		recordCrash(error);
 	});
 	// Bun reports a bare unhandled rejection without firing the monitor, and any
 	// listener here replaces its default crash. Rejecting again restores that
@@ -534,7 +543,7 @@ export function captureStderr(): void {
 			return;
 		}
 
-		crashes.push(reason);
+		recordCrash(reason);
 		// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
 		reRejections.add(Promise.reject(reason));
 	};
