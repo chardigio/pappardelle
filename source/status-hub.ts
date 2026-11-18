@@ -65,8 +65,9 @@ export class StatusHub<Subscriber> {
 
 			case 'drop': {
 				const {repo, key, generation} = message;
-				this.snapshotsByRepo.get(repo)?.drop(key, generation);
-				return this.toRepo(repo, {...message, type: 'dropped'});
+				return this.snapshotsByRepo.get(repo)?.drop(key, generation)
+					? this.toRepo(repo, {...message, type: 'dropped'})
+					: [];
 			}
 
 			case 'subscribe': {

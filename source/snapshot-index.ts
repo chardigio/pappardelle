@@ -29,8 +29,9 @@ export class SnapshotIndex {
 		}
 	}
 
-	drop(key: string, generation: string): void {
-		this.spaces.get(key)?.delete(generation);
+	/** Whether there was a snapshot to drop. */
+	drop(key: string, generation: string): boolean {
+		return this.spaces.get(key)?.delete(generation) ?? false;
 	}
 
 	keys(): string[] {

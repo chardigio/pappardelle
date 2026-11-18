@@ -85,6 +85,20 @@ test('forget drops the snapshots of a space except the pane generation to keep',
 	t.deepEqual(stateOf(hub, 'two').snapshots, [snapshot('two', 'A', 'g1')]);
 });
 
+test('drop removes one pane generation of a space, and pushes nothing when there was none to remove', t => {
+	const hub = new StatusHub<string>('daemon');
+	hub.receive('rail', {type: 'subscribe', repo: 'one'});
+	for (const sent of [snapshot('one', 'A', 'g1'), snapshot('one', 'A', 'g2')])
+		hub.receive('monitor', {type: 'snapshot', snapshot: sent});
+	const drop = {type: 'drop', repo: 'one', key: 'A', generation: 'g1'} as const;
+
+	t.deepEqual(hub.receive('monitor', drop), [
+		{to: 'rail', message: {...drop, type: 'dropped'}},
+	]);
+	t.deepEqual(stateOf(hub, 'one').snapshots, [snapshot('one', 'A', 'g2')]);
+	t.deepEqual(hub.receive('monitor', drop), []);
+});
+
 test('a subscriber is pushed every hook record, and the snapshots and forgets of its repo only', t => {
 	const hub = new StatusHub<string>('daemon');
 	hub.receive('rail-one', {type: 'subscribe', repo: 'one'});
