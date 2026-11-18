@@ -339,6 +339,31 @@ test('with no key and no PAPPARDELLE_SPACE, the space is the worktree the caller
 	});
 });
 
+test('outside a git checkout, get with a key or PAPPARDELLE_SPACE and list exit 1 with one line', async t => {
+	const state = testState(t);
+	await state.daos.registry.add('STA-1');
+	const outside = {
+		repo() {
+			throw new Error('Not in a git repository');
+		},
+	};
+	const expected = {
+		code: 1,
+		stdout: '',
+		stderr:
+			"Not in a git repository; run it from a checkout of the space's repo",
+	};
+	t.deepEqual(await run(['get', 'STA-1'], deps(state, outside)), expected);
+	t.deepEqual(
+		await run(
+			['get'],
+			deps(state, {...outside, env: {PAPPARDELLE_SPACE: 'STA-1'}}),
+		),
+		expected,
+	);
+	t.deepEqual(await run(['list'], deps(state, outside)), expected);
+});
+
 test('--field prints strings bare, objects as JSON and null as an empty line', async t => {
 	const state = testState(t);
 	await state.daos.registry.add('STA-1');

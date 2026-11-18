@@ -385,26 +385,46 @@ function usage(deps: SpaceCommandDeps, message?: string): number {
 	return 2;
 }
 
+const NOT_IN_A_REPO =
+	"Not in a git repository; run it from a checkout of the space's repo";
+
+/** The repo of the checkout the command runs in, if it runs in one. */
+function checkoutRepo(deps: SpaceCommandDeps): string | undefined {
+	try {
+		return deps.repo();
+	} catch {
+		return undefined;
+	}
+}
+
+type Target =
+	| {kind: 'space'; key: string; repo: string; typed: boolean}
+	| {kind: 'not-in-a-space'}
+	| {kind: 'not-in-a-repo'};
+
+function named(key: string, repo: string | undefined, typed: boolean): Target {
+	return repo === undefined
+		? {kind: 'not-in-a-repo'}
+		: {kind: 'space', key, repo, typed};
+}
+
 /** The space to answer for, and the repo it belongs to. */
-function target(
-	raw: string | undefined,
-	deps: SpaceCommandDeps,
-): {key: string; repo: string; typed: boolean} | undefined {
-	if (raw !== undefined) return {key: raw, repo: deps.repo(), typed: true};
+function target(raw: string | undefined, deps: SpaceCommandDeps): Target {
+	if (raw !== undefined) return named(raw, checkoutRepo(deps), true);
 	const own = deps.env['PAPPARDELLE_SPACE']?.trim();
 	// A session started in a nested repo has a git dir that names that repo,
 	// so its own space's repo comes from its environment.
 	if (own)
-		return {
-			key: own,
-			repo: deps.env['PAPPARDELLE_REPO']?.trim() || deps.repo(),
-			typed: false,
-		};
-	let checkout: {repoName: string; mainRoot: string} | undefined;
+		return named(
+			own,
+			deps.env['PAPPARDELLE_REPO']?.trim() || checkoutRepo(deps),
+			false,
+		);
+	let checkout: {repoName: string; mainRoot: string};
 	try {
 		checkout = {repoName: deps.repo(), mainRoot: deps.mainRoot()};
 	} catch {
-		return undefined;
+		return {kind: 'not-in-a-space'};
 	}
 
 	const key = callerSpace({
@@ -414,8 +434,8 @@ function target(
 		checkout,
 	});
 	return key === undefined
-		? undefined
-		: {key, repo: checkout.repoName, typed: false};
+		? {kind: 'not-in-a-space'}
+		: {kind: 'space', key, repo: checkout.repoName, typed: false};
 }
 
 async function runGet(args: string[], deps: SpaceCommandDeps): Promise<number> {
@@ -445,7 +465,12 @@ async function runGet(args: string[], deps: SpaceCommandDeps): Promise<number> {
 
 	const wanted = fields.length > 0 ? groups : ALL_GROUPS;
 	const space = target(positionals[0], deps);
-	if (!space) {
+	if (space.kind === 'not-in-a-repo') {
+		deps.err(NOT_IN_A_REPO);
+		return 1;
+	}
+
+	if (space.kind === 'not-in-a-space') {
 		deps.err('Not in a Pappardelle space; pass a KEY');
 		return 1;
 	}
@@ -497,7 +522,12 @@ async function runList(
 		return usage(deps, errorMessage(error));
 	}
 
-	const repo = deps.repo();
+	const repo = checkoutRepo(deps);
+	if (repo === undefined) {
+		deps.err(NOT_IN_A_REPO);
+		return 1;
+	}
+
 	let open: string[];
 	try {
 		open = deps.daos(repo).registry.openSpaces() ?? [];
