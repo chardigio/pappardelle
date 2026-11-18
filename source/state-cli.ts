@@ -4,8 +4,11 @@
 import {homedir} from 'node:os';
 import {parseArgs} from 'node:util';
 import {statusSocket} from './program-status-monitor.ts';
-import {newSpaceIdentity, spaceWorktreePath} from './space-identity.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {
+	newSpaceIdentity,
+	recordMainIdentity,
+	spaceWorktreePath,
+} from './space-identity.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
 
@@ -50,19 +53,20 @@ const verbs: Record<string, Verb> = {
 				'prepare-space needs --repo <name>, --worktree <path>, --main-root <path> and one space key',
 			);
 		const daos = createStateDaos({repo});
-		const socket = statusSocket();
 		// A registered key must always have an identity, so it is written first.
-		await daos.spaceIdentities.record(
-			newSpaceIdentity({repo, key, worktreePath: worktree, socket}),
-		);
 		await daos.spaceIdentities.record(
 			newSpaceIdentity({
 				repo,
-				key: MAIN_WORKTREE_KEY,
-				worktreePath: mainRoot,
-				socket,
+				key,
+				worktreePath: worktree,
+				socket: statusSocket(process.env),
 			}),
 		);
+		await recordMainIdentity(daos.spaceIdentities, {
+			repo,
+			mainRoot,
+			env: process.env,
+		});
 
 		if (values.register) {
 			const owner = Number(values.owner);

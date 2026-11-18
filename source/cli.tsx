@@ -87,13 +87,11 @@ import {
 	restartRepo,
 } from './restart-command.ts';
 import {
-	newSpaceIdentity,
 	protectedSessionNames,
+	recordMainIdentity,
 	spaceWorktreePath,
 } from './space-identity.ts';
-import {statusSocket} from './program-status-monitor.ts';
 import {resolveTargetSpace} from './space-target.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {exitAfterFlush} from './exit-after-flush.ts';
 
 const SCRIPTS_DIR = scriptsDir;
@@ -672,23 +670,17 @@ async function maintainSessions() {
 	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const reapingDone = startupTrace.current?.begin('inner-reaping');
-	// Main has no idow run of its own to record it, and the reap below keeps
-	// only the sessions of spaces with an identity.
-	await daos.spaceIdentities
-		.record(
-			newSpaceIdentity({
-				repo: repoName,
-				key: MAIN_WORKTREE_KEY,
-				worktreePath: getMainRepoRoot(),
-				socket: statusSocket(),
-			}),
-		)
-		.catch((error: unknown) => {
-			createLogger('cli').warn(
-				"Could not record the main space's identity",
-				error instanceof Error ? error : undefined,
-			);
-		});
+	// The reap below keeps only the sessions of spaces with an identity.
+	await recordMainIdentity(daos.spaceIdentities, {
+		repo: repoName,
+		mainRoot: getMainRepoRoot(),
+		env: process.env,
+	}).catch((error: unknown) => {
+		createLogger('cli').warn(
+			"Could not record the main space's identity",
+			error instanceof Error ? error : undefined,
+		);
+	});
 	// A space left half-opened or half-closed by a process that died is
 	// settled by whether its sessions exist, before deciding what to reap.
 	await daos.registry

@@ -1,26 +1,22 @@
 import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {sessionNamesFor} from './space-identity.ts';
+import {sessionNamesFor, sessionPrefix} from './space-identity.ts';
 import test from 'ava';
-import {
-	getSessionPrefix,
-	pretrustDirectoryForClaude,
-	buildAgentResumeCommand,
-} from './tmux.ts';
+import {pretrustDirectoryForClaude, buildAgentResumeCommand} from './tmux.ts';
 import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
 } from './config.ts';
 
-// getSessionPrefix: returns repo-qualified prefix
-test('getSessionPrefix includes repo name for agent', t => {
-	const prefix = getSessionPrefix('agent', 'pappa-chex');
+// sessionPrefix: returns repo-qualified prefix
+test('sessionPrefix includes repo name for agent', t => {
+	const prefix = sessionPrefix('agent', 'pappa-chex');
 	t.is(prefix, 'agent-pappa-chex-');
 });
 
-test('getSessionPrefix includes repo name for companion', t => {
-	const prefix = getSessionPrefix('companion', 'pappa-chex');
+test('sessionPrefix includes repo name for companion', t => {
+	const prefix = sessionPrefix('companion', 'pappa-chex');
 	t.is(prefix, 'companion-pappa-chex-');
 });
 

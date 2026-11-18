@@ -203,8 +203,10 @@ import {
 	sessionPrefix,
 	tmuxSessionRepo,
 	type ProtectedSessions,
+	SESSION_KINDS,
 	type SpaceIdentity,
 	type SpaceIdentityDao,
+	type SpaceSessionNames,
 } from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
@@ -297,22 +299,15 @@ export function storedIdentity(issueKey: string): SpaceIdentity | null {
 	return null;
 }
 
-function sessionNamesOf(identity: SpaceIdentity): {
-	agent: string;
-	companion: string;
-	legacyAgent: string;
-} {
+function sessionNamesOf(identity: SpaceIdentity): SpaceSessionNames {
 	return {
 		agent: identity.tmux.agentSession,
 		companion: identity.tmux.companionSession,
-		legacyAgent: legacyAgentSession(identity.tmux.agentSession),
 	};
 }
 
 /** A space's stored session names, or null when it has none. */
-export function spaceSessionNames(
-	issueKey: string,
-): ReturnType<typeof sessionNamesOf> | null {
+export function spaceSessionNames(issueKey: string): SpaceSessionNames | null {
 	const identity = storedIdentity(issueKey);
 	return identity && sessionNamesOf(identity);
 }
@@ -332,31 +327,6 @@ export const INNER_SOCKET = 'pappardelle_inner';
  */
 export function innerTmuxArgs(args: readonly string[]): string[] {
 	return statusTmuxArgs([...args]);
-}
-
-// Session naming convention (matches idow)
-// Sessions are repo-qualified: agent-{repoName}-{key}, e.g. agent-pappa-chex-CHEX-313
-
-/**
- * Get the session prefix for a given type and repo name.
- * e.g. getSessionPrefix('agent', 'pappa-chex') → 'agent-pappa-chex-'
- */
-export function getSessionPrefix(
-	type: 'agent' | 'companion',
-	repoName?: string,
-): string {
-	return sessionPrefix(type, repoName ?? getRepoName());
-}
-
-/**
- * Session prefix used for the agent pane before it was renamed to `agent-`.
- * Live sessions carrying this prefix are renamed in place when the TUI starts,
- * before `pappardelle send`, and when idow opens the space (see
- * `migrateLegacyAgentSessions` and start-agent-session.sh). The orphan reapers
- * sweep it alongside the current prefixes.
- */
-export function getLegacyAgentSessionPrefix(repoName?: string): string {
-	return sessionPrefix('claude', repoName ?? getRepoName());
 }
 
 // Track which space is currently being viewed
@@ -1299,13 +1269,13 @@ export function cleanupOrphanedOuterSessions(
 	runner: OuterTmuxRunner = defaultOuterTmuxRunner,
 ): number {
 	try {
-		const agentPrefix = getSessionPrefix('agent', repoName);
-		const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
-		const companionPrefix = getSessionPrefix('companion', repoName);
+		const repo = repoName ?? getRepoName();
+		const agentPrefix = sessionPrefix('agent', repo);
+		const legacyAgentPrefix = sessionPrefix('claude', repo);
+		const companionPrefix = sessionPrefix('companion', repo);
 		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Sweep that
 		// legacy prefix too so an upgrade doesn't strand old git-UI sessions.
-		const repo = repoName ?? getRepoName();
-		const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
+		const legacyCompanionPrefix = sessionPrefix('lazygit', repo);
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -1447,7 +1417,7 @@ function innerSpaceSessions(
 	// Before the agent- and companion- names the panes were claude- and, before
 	// STA-1464, lazygit-. A hard-quit straddling an upgrade leaves those behind.
 	const legacyAgentPrefix = sessionPrefix('claude', repo);
-	const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
+	const legacyCompanionPrefix = sessionPrefix('lazygit', repo);
 	const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
 	const result = runner(['list-sessions', '-F', '#{session_name}']);
@@ -1603,7 +1573,7 @@ export async function killSpaceSessions(
 	// migrated yet would otherwise survive its own teardown (innerKillSession
 	// returns true for missing sessions, so the agent-name kill "succeeds").
 	const legacyKilled = await innerKillSession(
-		sessions.legacyAgent,
+		legacyAgentSession(sessions.agent),
 		options?.run,
 	);
 	if (currentlyViewingSpace === issueKey) {
@@ -1645,11 +1615,7 @@ function siblingRepoPrefixes(repo: string, knownRepos: string[]): string[] {
 	return knownRepos
 		.map(other => tmuxSessionRepo(other))
 		.filter(other => other.startsWith(own))
-		.flatMap(other =>
-			['agent', 'claude', 'companion', 'lazygit'].map(
-				kind => `${kind}-${other}-`,
-			),
-		);
+		.flatMap(other => SESSION_KINDS.map(kind => `${kind}-${other}-`));
 }
 
 export async function focusPane(
@@ -1704,12 +1670,10 @@ export function migrateLegacyAgentSessions(
 	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
-		const agentPrefix = getSessionPrefix('agent', repoName);
-		const legacyPrefix = getLegacyAgentSessionPrefix(repoName);
-		const siblingPrefixes = siblingRepoPrefixes(
-			repoName ?? getRepoName(),
-			knownRepos,
-		);
+		const repo = repoName ?? getRepoName();
+		const agentPrefix = sessionPrefix('agent', repo);
+		const legacyPrefix = sessionPrefix('claude', repo);
+		const siblingPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {

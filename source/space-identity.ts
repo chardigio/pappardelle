@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import {statusSocket} from './program-status-monitor.ts';
 import {sameFile} from './same-file.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
@@ -51,7 +52,20 @@ export function tmuxSessionRepo(repoName: string): string {
 	return repoName.replaceAll(/[.:]/g, '_');
 }
 
-export type SessionKind = 'agent' | 'companion' | 'claude';
+/**
+ * The kinds of session a space has. `claude` and `lazygit` are what the agent
+ * and the companion were called before; the reapers still sweep them.
+ */
+export const SESSION_KINDS = [
+	'agent',
+	'companion',
+	'claude',
+	'lazygit',
+] as const;
+export type SessionKind = (typeof SESSION_KINDS)[number];
+
+/** A space's agent and companion session names. */
+export type SpaceSessionNames = {agent: string; companion: string};
 
 /**
  * The start of every session name of this kind in a repo. `claude` is the
@@ -69,7 +83,7 @@ export function sessionPrefix(kind: SessionKind, repoName: string): string {
 export function sessionNamesFor(
 	issueKey: string,
 	repoName: string,
-): {agent: string; companion: string} {
+): SpaceSessionNames {
 	const key = issueKey.replaceAll('_', '__').replaceAll('.', '_');
 	return {
 		agent: `${sessionPrefix('agent', repoName)}${key}`,
@@ -315,4 +329,22 @@ export function protectedSessionNames(
 	return missing.length > 0
 		? {kind: 'missing', keys: missing}
 		: {kind: 'names', names, keys};
+}
+
+/**
+ * Record the main space's identity. Main has no idow run of its own: it is
+ * recorded by every run that opens a space, and by the TUI when it starts.
+ */
+export async function recordMainIdentity(
+	identities: Pick<SpaceIdentityDao, 'record'>,
+	main: {repo: string; mainRoot: string; env: NodeJS.ProcessEnv},
+): Promise<void> {
+	await identities.record(
+		newSpaceIdentity({
+			repo: main.repo,
+			key: MAIN_WORKTREE_KEY,
+			worktreePath: main.mainRoot,
+			socket: statusSocket(main.env),
+		}),
+	);
 }
