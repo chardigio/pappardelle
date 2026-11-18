@@ -53,7 +53,8 @@
 # {session_id} unfilled; idow fills it from the space's agent-sessions file.
 # agent_prompt_args is the template the launch prompt goes through, or empty
 # for a bare prompt. agent_skill_prefix is what goes before a skill name, "/"
-# when nothing sets it.
+# when nothing sets it. agent_rules_flags renders the entry's rules_args, which
+# no profile sets, when workspace_aware_agents is on.
 #
 # model and effort are the agent profile's own values, else (claude agent
 # profiles only) the deprecated claude.model / claude.effort. They are rendered
@@ -273,10 +274,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         workspace_aware: (.workspace_aware_agents == true),
         # Mirrors agentRulesFlags() in source/companion-rules.ts.
         agent_rules_flags: if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
-            | ($def_resolved.command | basename) as $agent
-            | if $agent == "codex" then "-c " + ("developer_instructions=\"\($rules)\"" | @sh)
-              elif $agent == "pi" then "--append-system-prompt " + ($rules | @sh)
-              else "" end) end,
+            | $builtin_agent.rules_args // [] | map(split("{rules}") | join($rules) | quote_value) | join(" ")) end,
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors

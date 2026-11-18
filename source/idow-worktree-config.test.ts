@@ -7,6 +7,7 @@ import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
 import {parse, stringify} from 'yaml';
 import {agentRulesFlags} from './companion-rules.ts';
+import {BUILTIN_AGENTS} from './builtin-agents.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
@@ -586,7 +587,10 @@ test('idow launches Codex with the companion rules and writes agy its rule file'
 	};
 
 	await fixture.run({profile: 'cx'});
-	t.is(launchFlags(), `-m gpt-5.5${agentRulesFlags('codex')}`);
+	t.is(
+		launchFlags(),
+		`-m gpt-5.5${agentRulesFlags(BUILTIN_AGENTS['codex']!.rules_args!)}`,
+	);
 	t.false(fs.existsSync(path.join(worktree, '.agents')));
 
 	await fixture.run({profile: 'ag'});

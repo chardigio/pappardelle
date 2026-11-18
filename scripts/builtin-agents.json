@@ -9,7 +9,8 @@
 		"model_args": "-m {model}",
 		"effort_args": "-c model_reasoning_effort={effort}",
 		"resume_args": "resume {session_id}",
-		"skill_prefix": "$"
+		"skill_prefix": "$",
+		"rules_args": ["-c", "developer_instructions=\"{rules}\""]
 	},
 	"agy": {
 		"model_args": "--model {model}",
@@ -17,5 +18,8 @@
 		"prompt_args": "-i {prompt}",
 		"resume_args": "--conversation {session_id}",
 		"skill_prefix": "/"
+	},
+	"pi": {
+		"rules_args": ["--append-system-prompt", "{rules}"]
 	}
 }

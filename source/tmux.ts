@@ -875,7 +875,7 @@ export function buildAgentResumeCommand(
 ): string {
 	let base: string;
 	let prompt = '';
-	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${launch?.rules ? agentRulesFlags(agentProfile.command) : ''}`;
+	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${launch?.rules ? agentRulesFlags(agentProfile.rulesArgs) : ''}`;
 	if (agentProfile.isClaude) {
 		const safeKey = quoteLaunchValue(launch?.name ?? issueKey);
 		if (launch?.prompt) prompt = ` ${quoteLaunchValue(launch.prompt)}`;

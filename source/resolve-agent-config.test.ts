@@ -611,13 +611,37 @@ profiles:
 `,
 		);
 		try {
+			const agentProfile = getAgentProfile(
+				loadConfigFromPaths({projectDir: path.dirname(configPath)}),
+			);
 			t.is(
 				runResolver(configPath, localConfigPath).agent_rules_flags,
-				agentRulesFlags(command).trim(),
+				agentRulesFlags(agentProfile.rulesArgs).trim(),
 			);
 		} finally {
 			cleanup();
 		}
+	}
+});
+
+maybeMacro('renders no rule flags for a codex profile gated as claude', t => {
+	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
+		`version: 1
+workspace_aware_agents: true
+agent_profiles:
+  a:
+    command: codex
+    is_claude: true
+agent_profile: a
+profiles:
+  test:
+    display_name: Test
+`,
+	);
+	try {
+		t.is(runResolver(configPath, localConfigPath).agent_rules_flags, '');
+	} finally {
+		cleanup();
 	}
 });
 
@@ -1159,7 +1183,11 @@ const AGENT_DEFAULTS_CASES: Record<string, AgentDefaultsCase> = {
 		Object.entries(BUILTIN_AGENTS).map(([name, builtin]) => [
 			`${name}-minimal`,
 			{
-				definition: {command: name, model: 'm1', effort: 'e1'},
+				definition: {
+					command: name,
+					...(builtin.model_args && {model: 'm1'}),
+					...(builtin.effort_args && {effort: 'e1'}),
+				},
 				launchFlags: [
 					builtin.model_args?.replace('{model}', 'm1'),
 					builtin.effort_args?.replace('{effort}', 'e1'),

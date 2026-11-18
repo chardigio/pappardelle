@@ -5876,6 +5876,7 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 		effortArgs: '--effort {effort}',
 		extraArgs: [],
 		skillPrefix: '/',
+		rulesArgs: [],
 	});
 });
 

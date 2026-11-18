@@ -205,6 +205,7 @@ test('buildAgentResumeCommand without a recorded session launches other agents d
 		effort: '',
 		extraArgs: [],
 		skillPrefix: '$',
+		rulesArgs: [],
 	};
 	t.is(buildAgentResumeCommand('STA-806', false, codex), `codex`);
 });
@@ -317,6 +318,7 @@ const codexAgentProfile: ResolvedAgentProfile = {
 	effort: '',
 	extraArgs: [],
 	skillPrefix: '$',
+	rulesArgs: [],
 };
 
 test('non-claude agent with resume args gets the fallback chain', t => {
@@ -401,6 +403,7 @@ test('claude agent profile passed explicitly matches the default output', t => {
 		effort: '',
 		extraArgs: [],
 		skillPrefix: '/',
+		rulesArgs: [],
 	};
 	t.is(
 		buildAgentResumeCommand('STA-806', false, claudeAgentProfile),

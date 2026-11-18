@@ -108,10 +108,10 @@ export interface ClaudeConfig {
  * level) select one by name via `agent_profile:`.
  *
  * `args` and `resume_args` are free-form strings appended verbatim — codex's
- * `--yolo` goes in `args`. The agents in scripts/builtin-agents.json get their
- * flag templates, resume args and skill prefix from there unless the profile
- * sets them. When the agent is claude, pappardelle additionally injects its
- * claude-specific flags (see `getAgentProfile`).
+ * `--yolo` goes in `args`. The agents in scripts/builtin-agents.json get
+ * whichever flag templates, resume args and skill prefix their entry has,
+ * unless the profile sets them. When the agent is claude, pappardelle
+ * additionally injects its claude-specific flags (see `getAgentProfile`).
  */
 export interface AgentProfileConfig {
 	/** Base binary or command (required), e.g. `codex` or `/usr/local/bin/claude`. */
@@ -123,9 +123,10 @@ export interface AgentProfileConfig {
 	 * `{session_id}` is replaced with the session id the agent's hook recorded
 	 * for the space (see plugins/pappardelle/hooks/agent_session.py); with none recorded, the
 	 * resume attempt is skipped (claude falls back to `--continue`). Built in
-	 * for the agents in scripts/builtin-agents.json; any other agent defaults
-	 * to none, which skips the resume attempt entirely (a made-up resume flag
-	 * would error confusingly on unknown CLIs). `''` opts out.
+	 * where the agent's entry in scripts/builtin-agents.json has one; any
+	 * other agent defaults to none, which skips the resume attempt entirely
+	 * (a made-up resume flag would error confusingly on unknown CLIs). `''`
+	 * opts out.
 	 */
 	resume_args?: string;
 	/**
@@ -146,13 +147,13 @@ export interface AgentProfileConfig {
 	effort?: string;
 	/**
 	 * How `model` reaches the CLI, with `{model}` standing in for the value.
-	 * Built in for the agents in scripts/builtin-agents.json; any other CLI
-	 * needs it set before `model` can be used.
+	 * Built in where the agent's entry in scripts/builtin-agents.json has one;
+	 * any other CLI needs it set before `model` can be used.
 	 */
 	model_args?: string;
 	/**
 	 * How `effort` reaches the CLI, with `{effort}` standing in for the value.
-	 * Built in for the agents in scripts/builtin-agents.json.
+	 * Built in where the agent's entry in scripts/builtin-agents.json has one.
 	 */
 	effort_args?: string;
 	/**
@@ -3237,6 +3238,8 @@ export interface ResolvedAgentProfile {
 	/** The deprecated `claude.extra_args`, rendered after model/effort. */
 	extraArgs: string[];
 	skillPrefix: string;
+	/** How the agent takes the companion rules at launch; see agentRulesFlags. */
+	rulesArgs: string[];
 }
 
 /**
@@ -3266,6 +3269,7 @@ function resolveAgentProfile(
 		effortArgs: definition.effort_args ?? builtin.effort_args,
 		extraArgs: [],
 		skillPrefix: definition.skill_prefix ?? builtin.skill_prefix ?? '/',
+		rulesArgs: builtin.rules_args ?? [],
 	};
 }
 

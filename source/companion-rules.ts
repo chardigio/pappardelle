@@ -7,12 +7,12 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {commandBasename} from './config.ts';
+import {commandBasename, quoteLaunchValue} from './config.ts';
 import {scriptsDir} from './runtime.ts';
-import {shellQuote} from './shell-quote.ts';
 
 const execFileAsync = promisify(execFile);
 const SCRIPTS_DIR = scriptsDir;
+const RULES_PLACEHOLDER = '{rules}';
 
 export function companionRules(): string {
 	return fs
@@ -21,17 +21,19 @@ export function companionRules(): string {
 }
 
 /**
- * Flags for the agents that don't show the model a server's instructions but
- * can add to their prompt at launch, with a leading space, or '' for the rest.
- * The rules go on one line so a launch command stays one line in any shell.
+ * The rules flags from an agent's `rules_args`, with a leading space, or ''
+ * for an agent that doesn't take the rules at launch. The rules go on one line
+ * so a launch command stays one line in any shell.
  */
-export function agentRulesFlags(command: string): string {
-	const agent = commandBasename(command);
-	if (agent !== 'codex' && agent !== 'pi') return '';
+export function agentRulesFlags(rulesArgs: readonly string[]): string {
+	if (rulesArgs.length === 0) return '';
 	const rules = companionRules().replaceAll(/\s*\n\s*/g, ' ');
-	return agent === 'codex'
-		? ` -c ${shellQuote(`developer_instructions="${rules}"`)}`
-		: ` --append-system-prompt ${shellQuote(rules)}`;
+	return rulesArgs
+		.map(
+			word =>
+				` ${quoteLaunchValue(word.replaceAll(RULES_PLACEHOLDER, () => rules))}`,
+		)
+		.join('');
 }
 
 export async function installAgentRules(
