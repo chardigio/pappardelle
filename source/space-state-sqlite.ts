@@ -16,6 +16,7 @@ import {
 	type SpacePrLink,
 	type SpaceState,
 	type SpaceStateDao,
+	type SpaceStateLookup,
 	type SpaceStatePatch,
 } from './space-state.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
@@ -159,6 +160,16 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 			this.openDb().sync(this.mirror(key));
 			return this.stored(key);
 		});
+	}
+
+	lookup(key: string): SpaceStateLookup {
+		try {
+			this.openDb().sync(this.mirror(key));
+			const state = this.stored(key);
+			return state ? {kind: 'state', state} : {kind: 'none'};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
 	}
 
 	async write(key: string, patch: SpaceStatePatch): Promise<void> {

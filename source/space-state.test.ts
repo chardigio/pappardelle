@@ -63,6 +63,25 @@ contractTest('a file that is not JSON reads as nothing recorded', (t, s) => {
 	t.is(s.daos.spaceState.read('STA-100'), null);
 });
 
+contractTest(
+	'a lookup tells a recorded space from one with nothing recorded',
+	async (t, s) => {
+		t.deepEqual(s.daos.spaceState.lookup('STA-1'), {kind: 'none'});
+		await s.daos.spaceState.write('STA-1', {profile: 'dev'});
+		const lookup = s.daos.spaceState.lookup('STA-1');
+		t.is(lookup.kind === 'state' ? lookup.state.profile : undefined, 'dev');
+	},
+);
+
+test('json: a lookup of a file that cannot be read is unreadable, not nothing recorded', t => {
+	const s = testState(t, {sqlite: false});
+	writeStateFile(s, 'STA-1', {});
+	fs.writeFileSync(stateFile(s, 'STA-1'), 'not json{{{');
+	fs.mkdirSync(stateFile(s, 'STA-2'), {recursive: true});
+	t.is(s.daos.spaceState.lookup('STA-1').kind, 'unreadable');
+	t.is(s.daos.spaceState.lookup('STA-2').kind, 'unreadable');
+});
+
 // Another build, or a hand edit, can leave a value this build does not use.
 // The rail rewrites the file on its next poll, from what was read.
 contractTest(
