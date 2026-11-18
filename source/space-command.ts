@@ -73,12 +73,16 @@ export type SpaceRecord = {
 	status: SpaceStatus | null;
 };
 
-/** The parts of a record that each start a process. Everything else is read from the stores. */
-export type SpaceGroup = 'panes' | 'branch' | 'status';
+/**
+ * The parts of a record read only when asked for: each starts a process, or
+ * reads a store whose failure must not fail lookups that don't need it.
+ */
+export type SpaceGroup = 'panes' | 'branch' | 'status' | 'agentSessions';
 const ALL_GROUPS: ReadonlySet<SpaceGroup> = new Set([
 	'panes',
 	'branch',
 	'status',
+	'agentSessions',
 ]);
 
 export type SpaceLookup =
@@ -188,7 +192,9 @@ export async function spaceRecord(
 	const sessions = getSessionNames(key, repo);
 	const phase = storedPhase(key, daos, sessions.agent, deps.runner, state);
 	if (typeof phase !== 'string') return phase;
-	const agentSessions = daos.agentSessions.sessions(key);
+	const agentSessions = groups.has('agentSessions')
+		? daos.agentSessions.sessions(key)
+		: {kind: 'sessions' as const, sessions: {}};
 	if (agentSessions.kind === 'unreadable') return agentSessions;
 
 	const worktreePath =
@@ -298,7 +304,8 @@ const SCHEMA: SchemaNode = {
 };
 
 function leafGroups(node: SchemaNode): SpaceGroup[] {
-	if (node === STORED || node === ANY_KEY) return [];
+	if (node === STORED) return [];
+	if (node === ANY_KEY) return ['agentSessions'];
 	if (typeof node === 'string') return [node];
 	return Object.values(node).flatMap(inner => leafGroups(inner));
 }
@@ -308,7 +315,8 @@ function groupsOf(path: string): SpaceGroup[] | null {
 	const parts = path.split('.');
 	let node = SCHEMA;
 	for (const [index, part] of parts.entries()) {
-		if (node === ANY_KEY) return index === parts.length - 1 && part ? [] : null;
+		if (node === ANY_KEY)
+			return index === parts.length - 1 && part ? leafGroups(node) : null;
 		if (typeof node === 'string' || !Object.hasOwn(node, part)) return null;
 		node = node[part]!;
 	}
