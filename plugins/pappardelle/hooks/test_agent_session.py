@@ -570,9 +570,33 @@ def test_the_codex_daemon_records_into_the_space_holding_the_cwd_not_its_starter
         HOOK_PID,
         lambda: {**daemon, **AGENT_PANE},
         lambda _cwd: AgentPane(env_for(space), AGENT_PANE_PID),
-        lambda _env: False,
     )
     assert entries(space)["codex"]["pid"] == 52
+    assert not starter.exists()
+
+
+@pytest.mark.parametrize(
+    "spawned",
+    [
+        # codex runs some shell-tool commands straight from argv.
+        {100: (99, "python3 record-agent-session.py"), 99: (98, "codex exec review")},
+        {
+            100: (99, "python3 record-agent-session.py"),
+            99: (90, "codex exec review"),
+            90: (98, "/bin/bash -c codex exec review"),
+        },
+    ],
+)
+def test_an_agent_the_daemon_runs_under_its_starters_pane_is_not_recorded(tmp_path: Path, spawned):
+    starter = tmp_path / "STA-1.agent-sessions.json"
+    assert not record_agent_session(
+        payload(cwd="/home/me/.worktrees/repo/STA-1"),
+        False,
+        env_for(starter),
+        HOOK_PID,
+        lambda: {**CODEX_DAEMON_UNDER_ITS_STARTER, **spawned},
+        no_session,
+    )
     assert not starter.exists()
 
 

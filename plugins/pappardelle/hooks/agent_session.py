@@ -299,14 +299,15 @@ def record_agent_session(
     table = process_table()
     chain, in_tmux = ancestors(hook_pid or os.getpid(), table)
     hook_agent = hook_agent_pid(chain)
-    from_daemon = hook_agent is not None and _is_managed_daemon(table[hook_agent][1])
+    daemons = {pid for pid, args in chain if _is_managed_daemon(args)}
+    from_daemon = hook_agent in daemons
     session_env: Optional[Mapping[str, str]]
     if from_daemon:
         cwd = payload.get("cwd")
         pane = agent_pane_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
         session_env = pane.env if pane else None
         agent_pid = pane_agent_pid(pane.pid, table) if pane else None
-    elif in_tmux:
+    elif in_tmux and not daemons:
         if sole_agent_run(chain) is None or split_pane(env):
             return False
         session_env = env
