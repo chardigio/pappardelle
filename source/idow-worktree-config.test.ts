@@ -782,22 +782,6 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 	t.true(idowSkippedAgentOverride(stdout));
 });
 
-// start-agent-session.sh renames a pre-upgrade claude-* session rather than
-// starting the picked agent profile.
-test('--agent-profile on a space still running under its legacy session name says it was not applied', async t => {
-	const fixture = setup(t);
-	fs.writeFileSync(
-		path.join(fixture.main, '.pappardelle.local.yml'),
-		stringify({agent_profiles: {codex: {command: 'codex'}}}),
-	);
-	writeScript(
-		path.join(fixture.bin, 'tmux'),
-		'[[ "$*" != *"has-session"* || "$*" == *"=claude-"* ]]',
-	);
-
-	t.true(idowSkippedAgentOverride(await fixture.run({agentProfile: 'codex'})));
-});
-
 test('an unknown --agent-profile stops idow before any setup', async t => {
 	const fixture = setup(t);
 	const error = await t.throwsAsync(fixture.run({agentProfile: 'codx'}));
@@ -872,6 +856,50 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	t.is(launchArg('--agent-resume-args'), '--resume thread-2');
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
+});
+
+// The JSON files only mirror the database while the flag exists, so a
+// reopen must read the profile from the stores, not from the file.
+if (sqliteRun) {
+	test('a reopen picks the profile the database holds when no state file mirrors it', async t => {
+		const fixture = setup(t);
+		fs.writeFileSync(
+			path.join(fixture.main, '.pappardelle.local.yml'),
+			stringify({profiles: {other: {display_name: 'Other'}}}),
+		);
+		const stateFile = path.join(
+			fixture.home,
+			'.pappardelle/repos/main checkout/space-state/test-abc.json',
+		);
+		await fixture.run({profile: 'other'});
+		fs.rmSync(stateFile);
+		const db = new Database(path.join(fixture.home, '.pappardelle/state.db'));
+		db.query('DELETE FROM json_sync WHERE path = ?').run(stateFile);
+		db.close();
+		fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+			recursive: true,
+		});
+
+		const output = await fixture.run();
+		t.true(output.includes('Profile:   Other'), output);
+	});
+}
+
+// Taking an unreadable store for a space with no saved profile would launch
+// the default agent in a space created with another.
+test('a state store that cannot be read stops idow before any session starts', async t => {
+	const fixture = setup(t);
+	fs.mkdirSync(
+		path.join(
+			fixture.home,
+			'.pappardelle/repos/main checkout/space-state/test-abc.json',
+		),
+		{recursive: true},
+	);
+
+	const error = await t.throwsAsync(fixture.run());
+	t.regex(String(error), /Could not look up workspace test-abc/);
+	t.false(fs.existsSync(fixture.launchArgs));
 });
 
 test('a reopened claude space with no recorded session continues its conversation', async t => {
@@ -1255,15 +1283,18 @@ test.serial(
 );
 
 // A Pappardelle that starts idow lists the space afterwards, so idow records
-// it before any session exists (source/space-registry-sqlite.ts).
+// it before any session exists (source/space-registry-sqlite.ts). Lookups are
+// not recorded, and a CLI that works answers them from what it recorded.
 function stateCli(fixture: ReturnType<typeof setup>, exitCode: number) {
 	const calls = path.join(fixture.home, 'state-cli-calls');
 	const executable = path.join(fixture.bin, 'pappardelle-state-stub');
 	writeScript(
 		executable,
-		`test ! -f "$IDOW_TEST_LAUNCH_ARGS" || echo "after sessions" >> ${JSON.stringify(calls)}
-printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
-exit ${exitCode}`,
+		`if [[ "$2" != space ]]; then
+    test ! -f "$IDOW_TEST_LAUNCH_ARGS" || echo "after sessions" >> ${JSON.stringify(calls)}
+    printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
+fi
+${exitCode === 0 ? `exec ${JSON.stringify(path.join(fixture.bin, 'pappardelle-state'))} "$@"` : `echo "no state for you" >&2\nexit ${exitCode}`}`,
 	);
 	return {
 		calls: () => fs.readFileSync(calls, 'utf8').trim().split('\n'),
@@ -1331,32 +1362,25 @@ test.serial(
 	},
 );
 
-// Without registration the state CLI only saves what the rail paints, which a
-// run by hand has always gone on without. scripts/state-cli.sh fails this way
-// when it finds no binary and no Bun.
+// A run by hand records no registration, but its sessions are still named
+// and found through the stores. scripts/state-cli.sh fails this way when it
+// finds no binary and no Bun.
 test.serial(
-	'idow that is not registering the space goes on when it cannot record it, and a new issue still drops the sessions under its key',
+	'idow run by hand stops before starting sessions when the space cannot be recorded',
 	async t => {
 		const fixture = setup(t);
 		const state = stateCli(fixture, 127);
-		const sessionsPath = path.join(
-			fixture.home,
-			'.pappardelle/repos/main checkout/space-state/test-abc.agent-sessions.json',
+		const error = await t.throwsAsync(
+			fixture.run({
+				input: 'Make workspace startup faster',
+				extraEnv: {PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE},
+			}),
 		);
-		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
-		fs.writeFileSync(
-			sessionsPath,
-			JSON.stringify({claude: {session_id: 'earlier', pid: 1, started: null}}),
+		t.regex(
+			String(error?.message),
+			/Could not record workspace test-abc: no state for you/,
 		);
-		const output = await fixture.run({
-			input: 'Make workspace startup faster',
-			extraEnv: {PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE},
-		});
-		t.regex(output, /Could not record workspace test-abc/);
-		t.regex(state.calls().join('\n'), /prepare-space .* --fresh test-abc/);
-		t.false(fs.existsSync(sessionsPath));
-		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
-		t.is(args[args.indexOf('--agent-resume-args') + 1], '');
+		t.false(fs.existsSync(fixture.launchArgs));
 	},
 );
 

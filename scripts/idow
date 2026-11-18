@@ -268,12 +268,27 @@ source "$SCRIPT_DIR/provider-helpers.sh"
 # shellcheck source=scripts/state-cli.sh
 source "$SCRIPT_DIR/state-cli.sh"
 
+# space_get <flags...>: sets SPACE_GET to what `pappardelle space get` reports
+# for the issue's space. Returns 1 for a space Pappardelle has never recorded.
+# Any other failure stops idow: a store it cannot read (exit 3) must not be
+# taken for a space with no saved profile and launch the default agent.
+space_get() {
+    local status=0
+    SPACE_GET=$(pappardelle_state space get --repo "$REPO_NAME" "$@" "$ISSUE_KEY" 2>"$STATE_CLI_ERRORS") || status=$?
+    case "$status" in
+        0) ;;
+        1) return 1 ;;
+        *) error "Could not look up workspace $ISSUE_KEY: $(cat "$STATE_CLI_ERRORS")" ;;
+    esac
+}
+
 # From here on, read the merged config so home and local layers apply to
 # every field (profiles, team_prefix, providers, apps, links, hooks, ...),
 # not only the Claude settings that resolve-agent-config.sh layers itself.
 MERGED_CONFIG_PATH=$(mktemp -t pappardelle-config.XXXXXX)
 CONFIG_RECORDS_PATH=$(mktemp -t pappardelle-records.XXXXXX)
-trap 'rm -f "$MERGED_CONFIG_PATH" "$CONFIG_RECORDS_PATH"' EXIT
+STATE_CLI_ERRORS=$(mktemp -t pappardelle-state-cli.XXXXXX)
+trap 'rm -f "$MERGED_CONFIG_PATH" "$CONFIG_RECORDS_PATH" "$STATE_CLI_ERRORS"' EXIT
 merge_config_layers "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH" > "$MERGED_CONFIG_PATH"
 CONFIG_PATH="$MERGED_CONFIG_PATH"
 TERMINAL_OPEN_FAILED=false
@@ -627,7 +642,10 @@ else
     # An existing space keeps the profile it was created or last picked with,
     # so reopening it can't relaunch a different agent. The TUI's
     # attachToSpace() reads the same field.
-    PERSISTED_PROFILE=$(jq -r '.profile // ""' "$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.json" 2>/dev/null || true)
+    PERSISTED_PROFILE=""
+    if space_get --field profile; then
+        PERSISTED_PROFILE="$SPACE_GET"
+    fi
     if [[ -n "$PERSISTED_PROFILE" && "$(PROFILE="$PERSISTED_PROFILE" yq -r '.profiles | has(strenv(PROFILE))' "$CONFIG_PATH")" == "true" ]]; then
         SELECTED_PROFILE="$PERSISTED_PROFILE"
         print_success "Using the space's profile: $(get_profile_display_name "$SELECTED_PROFILE")"
@@ -818,8 +836,6 @@ else
     FRESH_WORKSPACE="$IS_NEW_ISSUE"
 fi
 
-AGENT_SESSIONS_FILE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
-
 # What this run has to record about the space, in one call so the binary
 # starts once. It comes before post_workspace_init, which can run for minutes:
 # the TUI renders the ticket-rail emoji from the saved profile on first paint
@@ -828,11 +844,8 @@ AGENT_SESSIONS_FILE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.
 STATE_ARGS=(--title="$TITLE")
 # A Pappardelle that will list the space started this run, so the space is
 # recorded before its sessions exist and held under this process until the
-# caller opens it. If that fails there is nothing to undo yet, and sessions
-# that belong to no space would be killed by the next Pappardelle to start.
-REGISTERING_SPACE=false
+# caller opens it.
 if [[ -n "${PAPPARDELLE_REGISTER_SPACE:-}" ]]; then
-    REGISTERING_SPACE=true
     STATE_ARGS+=(--register --owner "$$")
 fi
 # For hook tracking (plan → description vs comment).
@@ -851,18 +864,10 @@ fi
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     STATE_ARGS+=(--fresh)
 fi
-if ! pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY"; then
-    if [[ "$REGISTERING_SPACE" == true ]]; then
-        error "Could not record workspace $ISSUE_KEY"
-    fi
-    # The rest is the profile the rail paints and the created-issue mark,
-    # which a run can go on without. A new issue must still never resume an
-    # earlier issue's conversation.
-    print_warning "Could not record workspace $ISSUE_KEY; continuing without its saved profile"
-    if [[ "$FRESH_WORKSPACE" == true ]]; then
-        rm -f "$AGENT_SESSIONS_FILE"
-    fi
-fi
+# The sessions are named and found through the stores, so a space they don't
+# know can't be started. There is nothing to undo yet.
+pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY" 2>"$STATE_CLI_ERRORS" ||
+    error "Could not record workspace $ISSUE_KEY: $(cat "$STATE_CLI_ERRORS")"
 
 if [[ "$WORKTREE_CREATED" == true ]]; then
     # Copy .pappardelle.local.yml to the new worktree (gitignored personal overrides)
@@ -891,6 +896,17 @@ cd "$WORKTREE_PATH"
 
 # Step 6: Ensure agent and companion tmux sessions exist (always, regardless of --open)
 print_step 6 "Starting agent tmux session..."
+space_get --field tmux --field agentSessions || error "Workspace $ISSUE_KEY was not recorded"
+{
+    IFS= read -r -d '' AGENT_SESSION_NAME
+    IFS= read -r -d '' AGENT_SESSION_TARGET
+    IFS= read -r -d '' PAPPARDELLE_TMUX_SOCKET
+    IFS= read -r -d '' TMUX_SOCKET_FLAG
+    IFS= read -r -d '' RECORDED_SESSION_ID
+} < <(jq -j --arg profile "$AGENT_PROFILE" '[.tmux.agentSession, .tmux.agentTarget, .tmux.socket, .tmux.socketFlag,
+    (.agentSessions[$profile] // "")][] + "\u0000"' <<< "$SPACE_GET")
+# start-agent-session.sh starts the sessions on the same socket.
+export PAPPARDELLE_TMUX_SOCKET
 # A new issue has no conversation of its own to resume. An existing issue keeps
 # its conversation even when its worktree was deleted and recreated:
 # {session_id} is the id the agent's hook recorded for this space under the
@@ -902,9 +918,6 @@ print_step 6 "Starting agent tmux session..."
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     AGENT_RESUME_ARGS=""
 elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then
-    RECORDED_SESSION_ID=$(jq -r --arg profile "$AGENT_PROFILE" \
-        '.[$profile].session_id? | strings' \
-        "$AGENT_SESSIONS_FILE" 2>/dev/null || true)
     if [[ "$RECORDED_SESSION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
         AGENT_RESUME_ARGS="${AGENT_RESUME_ARGS//\{session_id\}/$RECORDED_SESSION_ID}"
     elif [[ "$AGENT_IS_CLAUDE" == true ]]; then
@@ -942,30 +955,16 @@ fi
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     AGENT_SESSION_ARGS+=(--skip-permissions)
 fi
-# Matches the '.' → '_' encoding in start-agent-session.sh and
-# getSessionNames(); see the comment there.
-SESSION_KEY="${ISSUE_KEY//_/__}"
-SESSION_KEY="${SESSION_KEY//./_}"
-SESSION_REPO="${REPO_NAME//[.:]/_}"
 AGENT_SESSION_ARGS+=("${AGENT_FLAG_ARGS[@]}")
-AGENT_SESSION_NAME="agent-${SESSION_REPO}-${SESSION_KEY}"
-LEGACY_AGENT_SESSION_NAME="claude-${SESSION_REPO}-${SESSION_KEY}"
-# Per-issue agent/companion sessions live on a dedicated tmux socket so the
-# Pappardelle viewer pane can attach without TMUX=. See STA-860.
-PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
-export PAPPARDELLE_TMUX_SOCKET
-# start-agent-session.sh leaves a running agent alone, and renames a
-# pre-upgrade claude-* one instead of starting the picked agent profile.
-if [[ -n "$FORCED_AGENT_PROFILE" ]] && {
-    tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null ||
-        tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_AGENT_SESSION_NAME:" 2>/dev/null
-}; then
+# start-agent-session.sh leaves a running agent alone.
+if [[ -n "$FORCED_AGENT_PROFILE" ]] &&
+    tmux "$TMUX_SOCKET_FLAG" "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$AGENT_SESSION_TARGET" 2>/dev/null; then
     print_warning "Agent session already running, so the agent profile override was not applied"
     # Read by idowSkippedAgentOverride() in source/session-routing.ts.
     echo "PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped"
 fi
 "$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
+if tmux "$TMUX_SOCKET_FLAG" "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$AGENT_SESSION_TARGET" 2>/dev/null; then
     print_success "Agent session: $AGENT_SESSION_NAME"
 else
     print_warning "Agent session not created (is tmux running?)"
@@ -1184,7 +1183,7 @@ if [[ -n "$PR_URL" ]]; then
 fi
 echo "Worktree:  $WORKTREE_PATH"
 echo ""
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
+if tmux "$TMUX_SOCKET_FLAG" "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$AGENT_SESSION_TARGET" 2>/dev/null; then
     if [[ "$RESUME_MODE" == true ]]; then
         echo "Agent session ready (resume mode)."
     elif [[ -n "$INIT_CMD" ]]; then
