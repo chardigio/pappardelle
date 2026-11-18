@@ -2,16 +2,17 @@
 
 # start-agent-session.sh - Ensure agent and companion tmux sessions exist for an issue
 #
-# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> --agent-session <NAME> --companion-session <NAME> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> --agent-session <NAME> --companion-session <NAME> --legacy-agent-session <NAME> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
 #
 # Creates detached tmux sessions with the names `pappardelle space get` reports
 # for the space:
 #   --agent-session      — runs the configured agent (default: Claude Code)
 #   --companion-session  — runs the companion command (default: gitui; see --companion-command)
 #
-# Idempotent: if sessions already exist, does nothing. A live legacy session,
-# the agent name with claude- in place of agent-, is renamed to the agent name
-# instead of being duplicated, preserving its running conversation.
+# Idempotent: if sessions already exist, does nothing. A live
+# --legacy-agent-session, the agent's name before it was renamed to agent-, is
+# renamed to the agent name instead of being duplicated, preserving its
+# running conversation.
 # --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
 # --no-agent: create sessions but don't launch the agent/companion command (for testing)
@@ -63,6 +64,7 @@ REPO_NAME=""
 WORKTREE_PATH=""
 AGENT_SESSION=""
 COMPANION_SESSION=""
+LEGACY_AGENT_SESSION=""
 INIT_CMD=""
 NO_AGENT=false
 SKIP_PERMISSIONS=false
@@ -100,6 +102,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --companion-session)
             COMPANION_SESSION="$2"
+            shift 2
+            ;;
+        --legacy-agent-session)
+            LEGACY_AGENT_SESSION="$2"
             shift 2
             ;;
         --init-cmd)
@@ -173,8 +179,8 @@ if [[ -z "$WORKTREE_PATH" ]]; then
     exit 1
 fi
 
-if [[ -z "$AGENT_SESSION" || -z "$COMPANION_SESSION" ]]; then
-    echo "Error: --agent-session and --companion-session are required" >&2
+if [[ -z "$AGENT_SESSION" || -z "$COMPANION_SESSION" || -z "$LEGACY_AGENT_SESSION" ]]; then
+    echo "Error: --agent-session, --companion-session and --legacy-agent-session are required" >&2
     exit 1
 fi
 
@@ -187,7 +193,6 @@ elif [[ "$AGENT_IS_CLAUDE" != "true" && "$AGENT_IS_CLAUDE" != "false" ]]; then
     exit 1
 fi
 
-LEGACY_AGENT_SESSION="claude-${AGENT_SESSION#agent-}"
 # Session lookups use `=NAME` targets: a bare name falls back to prefix
 # matching when no session has it exactly, so STA-1's checks would find (and
 # the legacy rename would take) STA-12's sessions.

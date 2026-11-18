@@ -19,7 +19,7 @@ import type {ProgramStatusInfo} from './program-status.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import type {SpacePhase} from './space-registry.ts';
 import type {SpaceState} from './space-state.ts';
-import type {SpaceIdentity} from './space-identity.ts';
+import {legacyAgentSession, type SpaceIdentity} from './space-identity.ts';
 import {
 	callerSpace,
 	readCheckout,
@@ -68,6 +68,8 @@ export type SpaceRecord = {
 		socketFlag: '-S' | '-L';
 		agentSession: string;
 		companionSession: string;
+		/** What the agent session was called before it was renamed to agent-. */
+		legacyAgentSession: string;
 		agentTarget: string;
 		companionTarget: string;
 	} | null;
@@ -266,6 +268,7 @@ export async function spaceRecord(
 			tmux: tmux
 				? {
 						...tmux,
+						legacyAgentSession: legacyAgentSession(tmux.agentSession),
 						socketFlag: statusSocketFlag(tmux.socket),
 						agentTarget: exactSessionTarget(tmux.agentSession),
 						companionTarget: exactSessionTarget(tmux.companionSession),
@@ -312,6 +315,7 @@ const SCHEMA: SchemaNode = {
 		socketFlag: STORED,
 		agentSession: STORED,
 		companionSession: STORED,
+		legacyAgentSession: STORED,
 		agentTarget: STORED,
 		companionTarget: STORED,
 	},

@@ -70,6 +70,8 @@ fi
 				'agent-test-TEST-123',
 				'--companion-session',
 				'companion-test-TEST-123',
+				'--legacy-agent-session',
+				'claude-test-TEST-123',
 				'--companion-command',
 				'',
 				'--init-cmd',

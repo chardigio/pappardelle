@@ -69,12 +69,11 @@ export function sessionPrefix(kind: SessionKind, repoName: string): string {
 export function sessionNamesFor(
 	issueKey: string,
 	repoName: string,
-): {agent: string; companion: string; legacyAgent: string} {
+): {agent: string; companion: string} {
 	const key = issueKey.replaceAll('_', '__').replaceAll('.', '_');
 	return {
 		agent: `${sessionPrefix('agent', repoName)}${key}`,
 		companion: `${sessionPrefix('companion', repoName)}${key}`,
-		legacyAgent: `${sessionPrefix('claude', repoName)}${key}`,
 	};
 }
 

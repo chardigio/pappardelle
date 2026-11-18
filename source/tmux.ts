@@ -1440,10 +1440,8 @@ function innerSpaceSessions(
 	const companionPrefix = sessionPrefix('companion', repo);
 	// Before the agent- and companion- names the panes were claude- and, before
 	// STA-1464, lazygit-. A hard-quit straddling an upgrade leaves those behind.
-	const renamed = [
-		{from: sessionPrefix('claude', repo), to: agentPrefix},
-		{from: `lazygit-${tmuxSessionRepo(repo)}-`, to: companionPrefix},
-	];
+	const legacyAgentPrefix = sessionPrefix('claude', repo);
+	const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
 	const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
 	const result = runner(['list-sessions', '-F', '#{session_name}']);
@@ -1454,17 +1452,15 @@ function innerSpaceSessions(
 	const sessions: Array<{name: string; owner: string}> = [];
 	for (const name of result.stdout.trim().split('\n')) {
 		if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
-		if (name.startsWith(agentPrefix)) {
+		if (name.startsWith(agentPrefix) || name.startsWith(legacyAgentPrefix)) {
 			sessions.push({name, owner: name});
 		} else if (name.startsWith(companionPrefix)) {
 			sessions.push({name, owner: owningCompanionSession(name)});
-		} else {
-			const legacy = renamed.find(({from}) => name.startsWith(from));
-			if (legacy)
-				sessions.push({
-					name,
-					owner: legacy.to + name.slice(legacy.from.length),
-				});
+		} else if (name.startsWith(legacyCompanionPrefix)) {
+			sessions.push({
+				name,
+				owner: companionPrefix + name.slice(legacyCompanionPrefix.length),
+			});
 		}
 	}
 
@@ -1507,7 +1503,11 @@ export function cleanupOrphanedInnerSessions(
 	try {
 		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
 		if (!sessions) return 0;
-		const orphans = sessions.filter(session => !owned.names.has(session.owner));
+		const kept = new Set([
+			...owned.names,
+			...[...owned.names].map(name => legacyAgentSession(name)),
+		]);
+		const orphans = sessions.filter(session => !kept.has(session.owner));
 
 		let killed = 0;
 		const reapedKeys = new Set<string>();

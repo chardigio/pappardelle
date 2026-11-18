@@ -101,7 +101,8 @@ start_session() {
         esac
     done
     if [[ "$named" == false && -n "$key" && -n "$repo" ]]; then
-        args+=(--agent-session "agent-$repo-$key" --companion-session "companion-$repo-$key")
+        args+=(--agent-session "agent-$repo-$key" --companion-session "companion-$repo-$key"
+            --legacy-agent-session "claude-$repo-$key")
     fi
     "$SCRIPT_DIR/start-agent-session.sh" "${args[@]}"
 }
@@ -252,7 +253,8 @@ NAMED_KEY="${TEST_PREFIX}-260"
 NAMED_AGENT="hand_named-agent-$$"
 NAMED_COMPANION="hand-named-companion-$$"
 start_session --issue-key "$NAMED_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" \
-    --agent-session "$NAMED_AGENT" --companion-session "$NAMED_COMPANION" --no-agent 2>/dev/null
+    --agent-session "$NAMED_AGENT" --companion-session "$NAMED_COMPANION" \
+    --legacy-agent-session "hand_named-legacy-$$" --no-agent 2>/dev/null
 NAMED_SESSIONS=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null |
     grep -- "^hand\|${NAMED_KEY}$" | sort | tr '\n' ' ')
 EXPECTED_SESSIONS=$(printf '%s\n' "$NAMED_AGENT" "$NAMED_COMPANION" | sort | tr '\n' ' ')
@@ -264,7 +266,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$NAMED_COMPANION:" 2>/dev/n
 
 echo -e "\n${BOLD}Test: the session names are required${RESET}"
 OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" --worktree "/tmp" 2>&1 || true)
-if echo "$OUTPUT" | grep -q -- "--agent-session and --companion-session are required"; then
+if echo "$OUTPUT" | grep -q -- "--agent-session, --companion-session and --legacy-agent-session are required"; then
     echo -e "  ${GREEN}PASS${RESET} errors when the session names are missing"
     PASS=$((PASS + 1))
 else
@@ -814,6 +816,17 @@ fi
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$RENAMED_SESSION" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
 
+echo -e "\n${BOLD}Test: the legacy name renamed is the one passed${RESET}"
+HAND_LEGACY="hand-legacy-${ISSUE_KEY12}"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$HAND_LEGACY" -c "$WORKTREE_PATH12"
+start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" \
+    --agent-session "$RENAMED_SESSION" --companion-session "companion-${TEST_REPO}-${ISSUE_KEY12}" \
+    --legacy-agent-session "$HAND_LEGACY" --no-agent 2>/dev/null
+assert_eq "the passed legacy session is renamed to the agent name" "$RENAMED_SESSION" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -x -- "$RENAMED_SESSION\|$HAND_LEGACY")"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}:" 2>/dev/null || true
+
 # With both names live, the agent- session is the one pappardelle attaches, so
 # the legacy one would run unseen.
 echo -e "\n${BOLD}Test: a legacy session beside its agent- session is killed${RESET}"
@@ -1072,6 +1085,7 @@ printf 'set -g destroy-unattached on\nset -g exit-unattached on\n' > "$KEEP_HOME
 env -u XDG_CONFIG_HOME HOME="$KEEP_HOME" PAPPARDELLE_TMUX_SOCKET="$KEEP_SOCKET" \
     "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$KEEP_KEY" --repo-name "$TEST_REPO" \
     --agent-session "agent-$TEST_REPO-$KEEP_KEY" --companion-session "companion-$TEST_REPO-$KEEP_KEY" \
+    --legacy-agent-session "claude-$TEST_REPO-$KEEP_KEY" \
     --worktree "$TMPDIR_ROOT/keep-worktree" --no-agent --companion-command '' 2>/dev/null || true
 assert_eq "agent and companion sessions outlive the script" \
     "$(printf 'agent-%s-%s\ncompanion-%s-%s' "$TEST_REPO" "$KEEP_KEY" "$TEST_REPO" "$KEEP_KEY")" \
