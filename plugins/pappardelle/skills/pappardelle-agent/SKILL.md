@@ -18,7 +18,7 @@ Pappardelle gives each issue a git worktree, an agent session (Claude, or the ag
 - Each space has a worktree and two tmux sessions on Pappardelle's inner socket: the agent's and the companion's. Each companion split is a session of its own, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
 - The TUI runs in the session `pappardelle-{repo}` on the default tmux server
 
-Get a space's worktree path, branch, profile, tmux socket, session names and targets, pane ids, PR and status from `space_get`, or `pappardelle space get [KEY] [--json] [--field NAME]...` without the tools. Never build them from the key: `pappardelle space get STA-696 --field worktreePath` prints the path. With no key it answers for the space it runs in. It exits 1 for an unknown space and 3 when a state store can't be read. `pappardelle space list [--json]` lists the main space and every open space.
+Get a space's worktree path, branch, profile, tmux socket, session names and targets, pane ids, PR, pipeline and status from the `space_get` tool. Never build them from the key. `space` picks the space and defaults to yours, `field` returns one value such as `worktreePath` or `tmux.agentTarget`, and `all` lists the main space and every open space.
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
 
