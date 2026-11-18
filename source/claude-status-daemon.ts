@@ -23,6 +23,10 @@ type StatusFiles = Pick<ClaudeStatusDao, 'readState'>;
  * a restart, until each agent's next event.
  */
 export class DaemonClaudeStatusDao implements ClaudeStatusDao {
+	get mainKeyedByBranch(): boolean {
+		return false;
+	}
+
 	constructor(
 		private readonly client: StatusClient,
 		private readonly files: StatusFiles,

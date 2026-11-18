@@ -190,7 +190,7 @@ def process_start(pid: int) -> Optional[str]:
 
 
 def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
-    """The agent session whose directory holds cwd."""
+    """The agent session of the space whose directory holds cwd."""
     tmux = shutil.which("tmux")
     if not tmux:
         return None
@@ -202,6 +202,33 @@ def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
         )
         return result.stdout if result.returncode == 0 else None
 
+    state_db = _load_state_db()
+    db_path = state_db.state_db_path() if state_db else None
+    if db_path is not None:
+        row = state_db.space_at_path(db_path, cwd)
+        if row is None:
+            return None
+        session = row.agent_session
+    else:
+        session = _agent_session_holding(cwd, run)
+        if session is None:
+            return None
+
+    target_session = f"={session}:"
+    output = run("show-environment", "-t", target_session)
+    panes = run("list-panes", "-s", "-t", target_session, "-F", "#{pane_pid}")
+    if output is None or not panes or not panes.split()[0].isdigit():
+        return None
+    env: dict[str, str] = {}
+    for line in output.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key in SESSION_VARIABLES:
+            env[key] = value
+    return AgentPane(env, int(panes.split()[0]))
+
+
+def _agent_session_holding(cwd: str, run: Callable[..., Optional[str]]) -> Optional[str]:
+    """The agent session whose start directory is cwd's nearest ancestor."""
     sessions = run("list-sessions", "-F", "#{session_name}\t#{session_path}")
     if sessions is None:
         return None
@@ -219,18 +246,7 @@ def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
     matches.sort(reverse=True)
     if len(matches) > 1 and matches[0][0] == matches[1][0]:
         return None
-
-    target_session = f"={matches[0][1]}:"
-    output = run("show-environment", "-t", target_session)
-    panes = run("list-panes", "-s", "-t", target_session, "-F", "#{pane_pid}")
-    if output is None or not panes or not panes.split()[0].isdigit():
-        return None
-    env: dict[str, str] = {}
-    for line in output.splitlines():
-        key, sep, value = line.partition("=")
-        if sep and key in SESSION_VARIABLES:
-            env[key] = value
-    return AgentPane(env, int(panes.split()[0]))
+    return matches[0][1]
 
 
 def in_split_pane(environ: Mapping[str, str]) -> bool:

@@ -15,7 +15,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Sequence, Union
+from typing import Any, Callable, Mapping, NamedTuple, Optional, Sequence, Union
 
 # A hook runs inside the agent's turn, so it gives up on a busy database
 # quickly. The file it still writes is imported by the next reader.
@@ -181,3 +181,48 @@ def _ring_bell(db_path: str) -> None:
             f.write(f"{int(time.time() * 1000)}\n")
     except OSError:
         pass
+
+
+class SpaceRow(NamedTuple):
+    """A space's stored identity (space_identities in source/state-db.ts)."""
+
+    repo: str
+    key: str
+    worktree_path: str
+    agent_session: str
+
+
+def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
+    """The space whose stored worktree is cwd or its nearest ancestor.
+
+    Both sides go through realpath, so a directory reached through a symlink
+    belongs to the same space. None when no space holds cwd, or when the
+    database cannot be read.
+    """
+    try:
+        import sqlite3
+    except ImportError:
+        return None
+    try:
+        connection = sqlite3.connect(
+            f"file:{_uri_path(db_path)}?mode=ro",
+            uri=True,
+            timeout=BUSY_TIMEOUT_SECONDS,
+        )
+        try:
+            rows = connection.execute(
+                "SELECT repo, key, worktree_path, agent_session FROM space_identities"
+            ).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return None
+    target = os.path.realpath(cwd)
+    found: Optional[tuple[int, SpaceRow]] = None
+    for row in rows:
+        root = os.path.realpath(row[2])
+        if target != root and not target.startswith(root.rstrip(os.sep) + os.sep):
+            continue
+        if found is None or len(root) > found[0]:
+            found = (len(root), SpaceRow(*row))
+    return found[1] if found else None

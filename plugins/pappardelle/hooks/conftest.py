@@ -39,6 +39,23 @@ def migrated_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return db
 
 
+def record_space(db: Path, repo: str, key: str, worktree_path: str, agent_session: str = "") -> None:
+    """A space's identity as prepare-space records it (source/space-identity-sqlite.ts)."""
+    import sqlite3
+
+    connection = sqlite3.connect(db)
+    try:
+        connection.execute(
+            """INSERT INTO space_identities
+            (repo, key, worktree_path, tmux_socket, agent_session, companion_session)
+            VALUES (?, ?, ?, 'pappardelle_inner', ?, ?)""",
+            (repo, key, worktree_path, agent_session or f"agent-{repo}-{key}", f"companion-{repo}-{key}"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 @pytest.fixture
 def state_db(migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A fresh database that the hooks under test write to."""
