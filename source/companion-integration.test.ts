@@ -15,6 +15,7 @@ import {
 	sendCompanionKeys,
 } from './companion.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
 
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
@@ -76,6 +77,19 @@ test.before(() => {
 		'cat',
 	);
 	tmux('new-session', '-d', '-s', AGENT, '-c', dir, 'sleep 600');
+});
+
+// tmux.ts names a space's sessions from the stores. Without the database they
+// are the names idow gives a space, which is all this file needs.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState(
+		{teardown: fn => stateTeardowns.push(fn)},
+		{repo: 'itest', sqlite: false},
+	);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
 });
 
 test.after.always(() => {

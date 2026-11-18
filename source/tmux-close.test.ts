@@ -1,6 +1,20 @@
 import test from 'ava';
 import {tearDownSpace} from './space-utils.ts';
 import {innerKillSession, killSpaceSessions, innerTmuxArgs} from './tmux.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
+
+// tmux.ts names a space's sessions from the stores. Without the database they
+// are the names idow gives a space, which is all this file needs.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState(
+		{teardown: fn => stateTeardowns.push(fn)},
+		{repo: 'fixture', sqlite: false},
+	);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 test('kill targets exact inner sessions without probing first', async t => {
 	const calls: string[][] = [];
@@ -60,7 +74,6 @@ test('a failed session kill does not schedule simulator cleanup', async t => {
 		async reopen() {},
 		async killSpaceSessions(key) {
 			return killSpaceSessions(key, {
-				repoName: 'fixture',
 				async run(args) {
 					calls.push(args);
 					if (args.includes('=companion-fixture-A:'))

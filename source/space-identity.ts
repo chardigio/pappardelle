@@ -70,6 +70,11 @@ export function sessionNamesFor(
 	};
 }
 
+/** The name a space's agent session had before it was renamed to agent-. */
+export function legacyAgentSession(agentSession: string): string {
+	return agentSession.replace(/^agent-/, 'claude-');
+}
+
 /** The names a space gets when it is created. */
 export function newSpaceIdentity(input: {
 	repo: string;

@@ -149,8 +149,12 @@ import {execFileSync} from 'node:child_process';
 import {ensureAgentSession, initTmuxState} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/tmux.js')).href)};
 import {createStateDaos} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/state-daos.js')).href)};
 import {buildSpawnEnv} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/spawn-env.js')).href)};
+import {newSpaceIdentity} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/space-identity.js')).href)};
+import {statusSocket} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/program-status-monitor.js')).href)};
 const profile = ${JSON.stringify(profile)};
-initTmuxState(createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(stateDir)}}));
+const daos = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(stateDir)}});
+initTmuxState(daos);
+await daos.spaceIdentities.record(newSpaceIdentity({repo: 'repo', key: 'TEST-1', worktreePath: process.cwd(), socket: statusSocket()}));
 if (${JSON.stringify(launcher)} === 'tui') {
   if (!await ensureAgentSession('TEST-1', process.cwd(), false, undefined, profile)) throw new Error('Launch failed');
 } else {

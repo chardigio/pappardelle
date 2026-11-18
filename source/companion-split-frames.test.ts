@@ -8,6 +8,7 @@ import {promisify} from 'node:util';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
+import {getRepoName} from './config.ts';
 import {
 	companionSplitPaneIds,
 	createCompanionSplit,
@@ -115,7 +116,8 @@ test.after.always(() => {
 tmuxTest(
 	'splits show in framed panes of their own, move between spaces and keep a dragged size',
 	async t => {
-		testTmuxState(t);
+		// Without the database a space's sessions get the names idow gives them.
+		testTmuxState(t, {repo: getRepoName(), sqlite: false});
 		await run([
 			'-f',
 			'/dev/null',

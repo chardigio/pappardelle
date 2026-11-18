@@ -30,15 +30,20 @@ setTimeout(() => {
 	const utilsUrl = new URL('space-utils.ts', import.meta.url).href;
 	const simulatorUrl = new URL('qa-simulator.ts', import.meta.url).href;
 	const script = `
-import {killSpaceSessions, displayMessageInPaneAsync} from ${JSON.stringify(tmuxUrl)};
+import {killSpaceSessions, displayMessageInPaneAsync, initTmuxState} from ${JSON.stringify(tmuxUrl)};
 import {createStateDaos} from ${JSON.stringify(daosUrl)};
+import {newSpaceIdentity} from ${JSON.stringify(new URL('space-identity.ts', import.meta.url).href)};
 import {tearDownSpace} from ${JSON.stringify(utilsUrl)};
 import {QaSimulatorCleanup} from ${JSON.stringify(simulatorUrl)};
-const {registry} = createStateDaos({
+const daos = createStateDaos({
   repo: 'fixture',
   stateDir: process.env.CLOSE_STATE_DIR,
   sqlite: process.env.PAPPARDELLE_SQLITE_STATE === '1',
 });
+const {registry} = daos;
+initTmuxState(daos);
+for (const key of ['A', 'B'])
+  await daos.spaceIdentities.record(newSpaceIdentity({repo: 'fixture', key, worktreePath: '/w/' + key, socket: 'pappardelle_inner'}));
 await registry.add('A');
 await registry.add('B');
 let ticks = 0;
@@ -50,7 +55,7 @@ const started = performance.now();
 const closed = await tearDownSpace('A', {
   markClosing: key => registry.markClosing(key),
   reopen: key => registry.reopen(key),
-  killSpaceSessions: key => killSpaceSessions(key, {repoName: 'fixture'}),
+  killSpaceSessions: key => killSpaceSessions(key),
   cleanup: key => {
     cleanupJob = cleanup.delete(key).then(result => { cleaned = true; return result; });
     return cleanupJob;

@@ -1,5 +1,17 @@
 import test from 'ava';
+import {testTmuxSpaces} from '../test/helpers/state.ts';
 import {sendKeysToSpaceAgent, type OuterTmuxRunner} from './tmux.ts';
+
+// tmux.ts names a space's sessions from the stores, as idow recorded them.
+const stateTeardowns: Array<() => void> = [];
+test.before(async () => {
+	await testTmuxSpaces({teardown: fn => stateTeardowns.push(fn)}, 'repo', [
+		'STA-1',
+	]);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 function recorder(sessions: string[], failOn?: string, screen = '') {
 	const calls: string[][] = [];
@@ -18,7 +30,6 @@ test('--keys presses each key name in order with no C-u, -l or Enter', t => {
 	const {runner, calls} = recorder(['agent-repo-STA-1']);
 	t.is(
 		sendKeysToSpaceAgent('STA-1', ['Escape', 'S-Tab'], {
-			repoName: 'repo',
 			runner,
 		}),
 		'sent',
@@ -33,7 +44,6 @@ test('--keys reports a missing session and stops at a failed key', t => {
 	const missing = recorder(['agent-repo-STA-12']);
 	t.is(
 		sendKeysToSpaceAgent('STA-1', ['Escape'], {
-			repoName: 'repo',
 			runner: missing.runner,
 		}),
 		'no-session',
@@ -41,7 +51,6 @@ test('--keys reports a missing session and stops at a failed key', t => {
 	const failing = recorder(['agent-repo-STA-1'], 'S-Tab');
 	t.is(
 		sendKeysToSpaceAgent('STA-1', ['S-Tab', 'Enter'], {
-			repoName: 'repo',
 			runner: failing.runner,
 		}),
 		'failed',
@@ -60,7 +69,7 @@ test('--keys never answers a prompt; Escape still declines it', t => {
 	].join('\n');
 	const {runner, calls} = recorder(['agent-repo-STA-1'], undefined, prompt);
 	const press = (keys: string[], answering = false) =>
-		sendKeysToSpaceAgent('STA-1', keys, {repoName: 'repo', runner, answering});
+		sendKeysToSpaceAgent('STA-1', keys, {runner, answering});
 	t.is(press(['1']), 'prompt');
 	t.is(press(['Enter']), 'prompt');
 	t.is(press(['Escape']), 'sent');
@@ -79,8 +88,5 @@ test('--keys never touches a Codex dialog, where Escape can quit Codex', t => {
 		'  enter continue · esc quit',
 	].join('\n');
 	const {runner} = recorder(['agent-repo-STA-1'], undefined, trust);
-	t.is(
-		sendKeysToSpaceAgent('STA-1', ['Escape'], {repoName: 'repo', runner}),
-		'prompt',
-	);
+	t.is(sendKeysToSpaceAgent('STA-1', ['Escape'], {runner}), 'prompt');
 });

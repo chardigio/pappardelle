@@ -63,6 +63,31 @@ profiles:
 	return {root, repo, home, tmuxDir, env};
 }
 
+/** Record a space as idow does before it starts the space's sessions. */
+function prepareSpace(
+	t: ExecutionContext,
+	f: ReturnType<typeof fixture>,
+	key: string,
+	worktree = f.repo,
+) {
+	const recorded = spawnSync(
+		process.execPath,
+		[
+			path.join(import.meta.dirname, 'state-cli.ts'),
+			'prepare-space',
+			'--repo',
+			'project',
+			'--worktree',
+			worktree,
+			'--main-root',
+			f.repo,
+			key,
+		],
+		{env: f.env, encoding: 'utf8'},
+	);
+	t.is(recorded.status, 0, recorded.stderr);
+}
+
 async function connect(
 	t: ExecutionContext,
 	f: ReturnType<typeof fixture>,
@@ -141,22 +166,7 @@ test.serial(
 		git('commit', '--quiet', '--allow-empty', '-m', 'init');
 		const tree = path.join(f.home, '.worktrees', 'project', 'KEY-9');
 		git('worktree', 'add', '--quiet', tree, '-b', 'KEY-9');
-		const recorded = spawnSync(
-			process.execPath,
-			[
-				path.join(import.meta.dirname, 'state-cli.ts'),
-				'prepare-space',
-				'--repo',
-				'project',
-				'--worktree',
-				tree,
-				'--main-root',
-				f.repo,
-				'KEY-9',
-			],
-			{env: f.env, encoding: 'utf8'},
-		);
-		t.is(recorded.status, 0, recorded.stderr);
+		prepareSpace(t, f, 'KEY-9', tree);
 		const client = await connect(t, {...f, repo: tree});
 		t.regex(client.getInstructions() ?? '', /space KEY-9 \(repo project\)/);
 		const result = await client.callTool({
@@ -279,6 +289,7 @@ tmuxTest(
 		}
 
 		tmux('new-session', '-d', '-s', 'agent-project-KEY-1', '-x', '200', 'cat');
+		prepareSpace(t, f, 'KEY-1');
 		const client = await connect(t, f, {PAPPARDELLE_SPACE: 'KEY-1'});
 		t.regex(client.getInstructions() ?? '', /space KEY-1 \(repo project\)/);
 
@@ -388,6 +399,7 @@ tmuxTest(
 					'',
 				].join('\n'),
 			);
+			prepareSpace(t, f, key);
 			const answered = path.join(f.root, `${key}.answer`);
 			tmux('new-session', '-d', '-s', `agent-project-${key}`, '-x', '120', `bash -c 'cat ${prompt}; read -rn1 k; echo "$k" > ${answered}; printf "\\033[H\\033[2J\\033[3J"; echo "❯ "; sleep 600'`); // prettier-ignore
 			return answered;

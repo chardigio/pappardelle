@@ -9,6 +9,20 @@ import {
 	sendCompanionKeys,
 } from './companion.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
+
+// tmux.ts names a space's sessions from the stores. Without the database they
+// are the names idow gives a space, which is all this file needs.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState(
+		{teardown: fn => stateTeardowns.push(fn)},
+		{repo: 'repo', sqlite: false},
+	);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 type Pane = {
 	id: string;
