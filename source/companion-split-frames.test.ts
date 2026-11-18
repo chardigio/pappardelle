@@ -13,6 +13,7 @@ import {getRepoName} from './config.ts';
 import {
 	companionSplitPaneIds,
 	createCompanionSplit,
+	storedIdentity,
 	measureCompanionColumnWidth,
 	rebuildLayout,
 	reconcilePaneLayout,
@@ -98,7 +99,10 @@ async function startSpace(
 	const {companion} = sessionNamesFor(key, getRepoName());
 	await innerTmux('new-session', '-d', '-s', companion, '-c', dir, 'sleep 600');
 	for (const split of splits) {
-		const created = createCompanionSplit(key, {...split, command: 'sleep 600'});
+		const created = createCompanionSplit(storedIdentity(key)!, {
+			...split,
+			command: 'sleep 600',
+		});
 		if (!created.ok) throw new Error(created.reason);
 		// Creation order is by the millisecond.
 		await delay(5);
@@ -313,7 +317,7 @@ tmuxTest(
 
 		// An open dialog zooms the rail; splitting would unzoom it.
 		t.true(
-			createCompanionSplit(a, {
+			createCompanionSplit(storedIdentity(a)!, {
 				name: 'dev',
 				split: 'down',
 				command: 'sleep 600',

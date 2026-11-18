@@ -279,7 +279,7 @@ function programStatus(): ProgramStatusDao {
  * A space's stored identity, or null after logging why it has none. Callers
  * then fail the way they do when the space's session is missing.
  */
-function storedIdentity(issueKey: string): SpaceIdentity | null {
+export function storedIdentity(issueKey: string): SpaceIdentity | null {
 	const lookup = spaceIdentities().get(issueKey);
 	if (lookup.kind === 'identity') return lookup.identity;
 	if (lookup.kind === 'unknown') log.warn(`No stored identity for ${issueKey}`);
@@ -2981,7 +2981,7 @@ async function listCompanion(
  * start is tried again at the next attach. Returns whether it started any.
  */
 async function seedCompanionSplits(
-	issueKey: string,
+	identity: SpaceIdentity,
 	splits: CompanionSplit[],
 	configured: ResolvedCompanionSplit[],
 	run: AsyncTmuxRunner,
@@ -2991,7 +2991,7 @@ async function seedCompanionSplits(
 	let started = false;
 	for (const [index, split] of configured.entries()) {
 		if (splits.some(existing => existing.name === split.name)) continue;
-		const result = createCompanionSplit(issueKey, {
+		const result = createCompanionSplit(identity, {
 			...split,
 			order: order + index,
 		});
@@ -3000,14 +3000,17 @@ async function seedCompanionSplits(
 		} else {
 			failed = true;
 			log.warn(
-				`Failed to start companion split ${split.name} for ${issueKey}: ${result.reason}`,
+				`Failed to start companion split ${split.name} for ${identity.key}: ${result.reason}`,
 			);
 		}
 	}
 
-	const companion = spaceSessionNames(issueKey)?.companion;
-	if (!failed && companion) {
-		await run(innerTmuxArgs(splitOptionArgs(companion, 'seeded', 1)));
+	if (!failed) {
+		await run(
+			innerTmuxArgs(
+				splitOptionArgs(identity.tmux.companionSession, 'seeded', 1),
+			),
+		);
 	}
 
 	return started;
@@ -3034,8 +3037,9 @@ export async function syncCompanionSplits(
 	} = {},
 ): Promise<SplitSyncOutcome> {
 	const run = options.run ?? runTmux;
-	const companionSession = spaceSessionNames(issueKey)?.companion;
-	if (!companionSession) return 'no-pane';
+	const identity = storedIdentity(issueKey);
+	if (!identity) return 'no-pane';
+	const {companionSession} = identity.tmux;
 	const listing = parseCompanionListing(
 		options.listing ?? (await listCompanionSessions(run)),
 		companionSession,
@@ -3045,7 +3049,7 @@ export async function syncCompanionSplits(
 		options.seed &&
 		listing.companion &&
 		!listing.companion.seeded &&
-		(await seedCompanionSplits(issueKey, splits, options.seed(), run))
+		(await seedCompanionSplits(identity, splits, options.seed(), run))
 	)
 		({splits} = await listCompanion(companionSession, run));
 
@@ -4117,7 +4121,7 @@ export type CreateSplitResult =
  * the main checkout. `order` places it among the splits, and defaults to now.
  */
 export function createCompanionSplit(
-	issueKey: string,
+	identity: SpaceIdentity,
 	split: {
 		name: string;
 		command: string;
@@ -4130,9 +4134,6 @@ export function createCompanionSplit(
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const failure = (args: string[], result: ReturnType<OuterTmuxRunner>) =>
 		`tmux ${args[0]} failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`;
-	const identity = storedIdentity(issueKey);
-	if (!identity)
-		return {ok: false, reason: `${issueKey} has no stored session names`};
 	const main = identity.tmux.companionSession;
 	const pathArgs = [
 		'display-message',
@@ -4147,7 +4148,7 @@ export function createCompanionSplit(
 	const session = splitSessionName(main, split.name);
 	const createArgs = [
 		...companionSessionArgs(
-			issueKey,
+			identity.key,
 			session,
 			cwd.stdout.trim(),
 			split.command,
