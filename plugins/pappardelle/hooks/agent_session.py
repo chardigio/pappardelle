@@ -31,16 +31,20 @@ hook, and only that process may replace it while it lives. The pane's agent
 records first, at SessionStart; it keeps its pid across `/clear` or a new
 chat, and a relaunch ends it.
 
-codex 0.159+ runs hooks in its shared app-server daemon, which is not under
-tmux and carries the env of whichever pane started it. For a hook outside tmux
-the variables come from the agent session whose directory holds the payload's
-cwd instead, and only that managed daemon may record: an agent in another
-terminal, or the app-server the Claude codex plugin runs, can share the
-worktree without being the pane's agent. Every codex conversation sends its
-hooks through the same daemon, so one run by hand in the companion pane looks
-just like the pane's own. The id is recorded under the pid of the agent
-running in the agent session's first pane instead, and is never replaced
-while that agent lives: its first conversation keeps it until the agent exits.
+codex 0.159+ runs hooks in its shared app-server daemon. The daemon carries the
+env of whichever codex started it, which may be no agent at all, and sits under
+that codex's tmux pane until it exits. Neither says which conversation fired a
+hook, so for a hook the daemon runs, the variables come from the agent session
+whose directory holds the payload's cwd instead. Only the daemon itself may
+record this way: it also runs codex's shell commands, so `codex exec` or
+`claude -p` run through one sits under the daemon with hooks of its own, and
+an agent in another terminal, or the app-server the Claude codex plugin runs,
+can share the worktree without being the pane's agent. Every codex
+conversation sends its hooks through the same daemon, and the payload names no
+client, so one run by hand in the companion pane looks just like the pane's
+own. The id is recorded under the pid of the agent running in the agent
+session's first pane instead, and is never replaced while that agent lives:
+its first conversation keeps it until the agent exits.
 
 agy's subagents fire hooks from the agy process itself, each with its own
 conversation id, so an agy id is never replaced while its process lives either:
@@ -294,19 +298,21 @@ def record_agent_session(
 
     table = process_table()
     chain, in_tmux = ancestors(hook_pid or os.getpid(), table)
+    hook_agent = hook_agent_pid(chain)
+    from_daemon = hook_agent is not None and _is_managed_daemon(table[hook_agent][1])
     session_env: Optional[Mapping[str, str]]
-    if in_tmux:
-        if sole_agent_run(chain) is None or split_pane(env):
-            return False
-        session_env = env
-        agent_pid = hook_agent_pid(chain)
-    else:
+    if from_daemon:
         cwd = payload.get("cwd")
-        if not any(_is_managed_daemon(args) for _pid, args in chain):
-            return False
         pane = agent_pane_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
         session_env = pane.env if pane else None
         agent_pid = pane_agent_pid(pane.pid, table) if pane else None
+    elif in_tmux:
+        if sole_agent_run(chain) is None or split_pane(env):
+            return False
+        session_env = env
+        agent_pid = hook_agent
+    else:
+        return False
     if session_env is None or agent_pid is None:
         return False
 
@@ -323,7 +329,7 @@ def record_agent_session(
         return False
     entry = sessions.get(agent_profile)
     owner = entry.get("pid") if isinstance(entry, dict) else None
-    if (owner != agent_pid or not in_tmux or is_agy) and owner_alive(entry, started):
+    if (owner != agent_pid or from_daemon or is_agy) and owner_alive(entry, started):
         return False
     recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
     if entry == recording:

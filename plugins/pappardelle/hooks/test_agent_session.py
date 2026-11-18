@@ -504,6 +504,78 @@ def test_the_codex_daemon_does_not_record_into_a_claude_space(sessions_file: Pat
     assert not sessions_file.exists()
 
 
+# The daemon runs codex's shell commands, so an agent the pane's codex runs
+# through its shell tool sits under the daemon with its own hooks.
+CODEX_EXEC_UNDER_DAEMON = {
+    100: (99, "python3 /Users/me/.pappardelle/hooks/record-agent-session.py"),
+    99: (98, "sh -c python3 record-agent-session.py"),
+    98: (97, "/opt/homebrew/lib/node_modules/@openai/codex/vendor/codex exec review"),
+    97: (96, "node /opt/homebrew/bin/codex exec review"),
+    96: (95, "/bin/bash -c codex exec review"),
+    95: (1, "/Users/me/.codex/packages/app-server-daemon/bin/codex app-server --managed-daemon"),
+}
+
+CLAUDE_UNDER_DAEMON = {
+    100: (99, "python3 /Users/me/.pappardelle/hooks/update-status.py"),
+    99: (98, "/bin/sh -c python3 ~/.pappardelle/hooks/update-status.py"),
+    98: (96, "claude -p summarize"),
+    96: (95, "/bin/bash -c claude -p summarize"),
+    95: (1, "/Users/me/.codex/packages/app-server-daemon/bin/codex app-server --managed-daemon"),
+}
+
+
+@pytest.mark.parametrize(
+    ("is_claude", "table"), [(False, CODEX_EXEC_UNDER_DAEMON), (True, CLAUDE_UNDER_DAEMON)]
+)
+def test_an_agent_run_by_the_daemons_shell_tool_is_not_recorded(sessions_file: Path, is_claude, table):
+    space_env = env_for(sessions_file, "claude" if is_claude else "codex", is_claude)
+    assert not record_agent_session(
+        payload(cwd="/Users/me/.worktrees/repo/STA-1"),
+        is_claude,
+        space_env,
+        HOOK_PID,
+        lambda: {**table, **AGENT_PANE},
+        lambda _cwd: AgentPane(space_env, AGENT_PANE_PID),
+    )
+    assert not sessions_file.exists()
+
+
+# As seen on Linux with codex 0.169: the hook runs straight under the daemon,
+# which a pid-update-loop restarts on auto-update.
+CODEX_DAEMON_UNDER_UPDATER = {
+    100: (98, "python3 /home/me/.pappardelle/hooks/record-agent-session.py"),
+    98: (97, "/home/me/.codex/packages/app-server-daemon/releases/0.169.1/bin/codex app-server --listen unix:// --managed-daemon"),
+    97: (1, "/home/me/.codex/packages/app-server-daemon/releases/0.169.1/bin/codex app-server daemon pid-update-loop"),
+}
+
+# Until the codex that started the daemon exits, the daemon is its child, under
+# that codex's tmux pane, with that pane's env.
+CODEX_DAEMON_UNDER_ITS_STARTER = {
+    **CODEX_DAEMON_UNDER_UPDATER,
+    97: (60, "/home/me/.codex/packages/app-server-daemon/releases/0.169.1/bin/codex app-server daemon pid-update-loop"),
+    60: (59, "/home/me/.local/share/mise/installs/codex/latest/bin/codex --yolo"),
+    59: (58, "zsh -ic codex --yolo"),
+    58: (1, "/usr/bin/tmux -L pappardelle_inner new-session"),
+}
+
+
+@pytest.mark.parametrize("daemon", [CODEX_DAEMON_UNDER_UPDATER, CODEX_DAEMON_UNDER_ITS_STARTER])
+def test_the_codex_daemon_records_into_the_space_holding_the_cwd_not_its_starters(tmp_path: Path, daemon):
+    starter = tmp_path / "STA-1.agent-sessions.json"
+    space = tmp_path / "STA-2.agent-sessions.json"
+    assert record_agent_session(
+        payload(cwd="/home/me/.worktrees/repo/STA-2"),
+        False,
+        env_for(starter),
+        HOOK_PID,
+        lambda: {**daemon, **AGENT_PANE},
+        lambda _cwd: AgentPane(env_for(space), AGENT_PANE_PID),
+        lambda _env: False,
+    )
+    assert entries(space)["codex"]["pid"] == 52
+    assert not starter.exists()
+
+
 @pytest.mark.parametrize(
     ("is_claude_hook", "table"),
     [
