@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {sameFile} from './same-file.ts';
+import {worktreesDir} from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 export class NoTargetSpaceError extends Error {
@@ -25,19 +26,6 @@ export function resolveTargetSpace(options: {
 	const own = options.env['PAPPARDELLE_SPACE']?.trim();
 	if (!own) throw new NoTargetSpaceError();
 	return own;
-}
-
-/** Where Pappardelle puts a repo's worktrees, one per space. */
-export function worktreesDir(home: string, repoName: string): string {
-	return path.join(home, '.worktrees', repoName);
-}
-
-export function worktreePathFor(
-	home: string,
-	repoName: string,
-	key: string,
-): string {
-	return path.join(worktreesDir(home, repoName), key);
 }
 
 /** A git checkout: the repo it belongs to and the root of its main checkout. */

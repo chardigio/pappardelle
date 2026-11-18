@@ -8,8 +8,8 @@ import {
 	defaultServerTmuxRunner,
 	outerSessionName,
 	type OuterTmuxRunner,
-	tmuxSessionRepo,
 } from './tmux.ts';
+import {tmuxSessionRepo} from './space-identity.ts';
 import {shellQuote} from './shell-quote.ts';
 import type {PaneLayout} from './types.ts';
 import {

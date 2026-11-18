@@ -26,6 +26,7 @@ import {
 	type WatchlistReserveOptions,
 	type WatchlistSlots,
 } from './space-registry.ts';
+import type {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import {
 	retryBusy,
 	type JsonMirror,
@@ -42,7 +43,8 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		return true;
 	}
 
-	private readonly mirror: JsonMirror;
+	/** The registry file, imported into these rows when another writer changed it. */
+	readonly mirror: JsonMirror;
 	private readonly reservationMirror: JsonMirror;
 
 	/**
@@ -53,6 +55,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
 		private readonly json: JsonSpaceRegistryDao,
+		private readonly identities: Pick<SqliteSpaceIdentityDao, 'fillMissing'>,
 		private readonly pid = process.pid,
 		private readonly isPidAlive = defaultIsPidAlive,
 	) {
@@ -333,6 +336,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		}
 
 		for (const key of keys) this.setOpen(key);
+		this.identities.fillMissing(keys);
 	}
 
 	private replaceReservations(

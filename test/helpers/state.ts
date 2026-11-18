@@ -45,6 +45,9 @@ export function testState(
 		spaces?: string[];
 		sqlite?: boolean;
 		clock?: () => Date;
+		home?: string;
+		env?: NodeJS.ProcessEnv;
+		mainRoot?: () => string;
 	} = {},
 ): TestState {
 	const repo = options.repo ?? 'repo';
@@ -63,6 +66,9 @@ export function testState(
 		stateDir,
 		sqlite,
 		clock: options.clock,
+		home: options.home,
+		env: options.env,
+		mainRoot: options.mainRoot,
 	});
 	t.teardown(() => {
 		daos.disconnectStatusDaemon();

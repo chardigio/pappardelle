@@ -5,6 +5,7 @@
 // status daemon. This is the one place that decides which a process gets, so
 // nothing else reads the flag, and removing the flag changes this file.
 
+import {homedir} from 'node:os';
 import path from 'node:path';
 import {SqliteAgentSessionsDao} from './agent-sessions-sqlite.ts';
 import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
@@ -21,7 +22,7 @@ import {
 	SqliteCompanionRequestDao,
 	SqliteCompanionWidthDao,
 } from './companion-width-sqlite.ts';
-import {readHomeSqliteState} from './config.ts';
+import {getMainRepoRoot, readHomeSqliteState} from './config.ts';
 import {
 	getHighlightFilePath,
 	JsonHighlightDao,
@@ -37,7 +38,7 @@ import {
 } from './pr-link-stamp.ts';
 import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
 import {createProgramStatusDao} from './program-status-daemon.ts';
-import type {ProgramStatusDao} from './program-status-monitor.ts';
+import {statusSocket, type ProgramStatusDao} from './program-status-monitor.ts';
 import {
 	getStateColorsPath,
 	JsonStateColorDao,
@@ -52,6 +53,12 @@ import {
 	type ScheduleDao,
 } from './schedule.ts';
 import {SqliteScheduleDao} from './schedule-sqlite.ts';
+import {
+	JsonSpaceIdentityDao,
+	type IdentityDefaults,
+	type SpaceIdentityDao,
+} from './space-identity.ts';
+import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import {
 	getRegistryPathForRepo,
 	JsonSpaceRegistryDao,
@@ -72,6 +79,7 @@ import {
 	DEFAULT_STATE_DIR,
 	openStateDb,
 	stateDbPath,
+	type JsonMirror,
 	statusSocketPath,
 } from './state-db.ts';
 import {readStateEnv} from './state-env.ts';
@@ -91,6 +99,7 @@ import {SqliteUpdateCheckDao} from './update-check-sqlite.ts';
 
 export type StateDaos = {
 	registry: SpaceRegistryDao;
+	spaceIdentities: SpaceIdentityDao;
 	claudeStatus: ClaudeStatusDao;
 	spaceState: SpaceStateDao;
 	issueMeta: IssueMetaDao;
@@ -131,6 +140,12 @@ export type StateDaoOptions = {
 	sqlite?: boolean;
 	/** The time recorded on a write. */
 	clock?: () => Date;
+	/** The home whose `~/.worktrees` holds the spaces idow creates. */
+	home?: string;
+	/** The environment that names the inner tmux socket. */
+	env?: NodeJS.ProcessEnv;
+	/** The main checkout's root. Throws outside a git checkout. */
+	mainRoot?: () => string;
 };
 
 let configured: boolean | undefined;
@@ -149,6 +164,12 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	const jsonRegistry = new JsonSpaceRegistryDao(
 		getRegistryPathForRepo(repo, stateDir),
 	);
+	const identityDefaults: IdentityDefaults = {
+		repo,
+		home: options.home ?? homedir(),
+		socket: statusSocket(options.env),
+		mainRoot: options.mainRoot ?? getMainRepoRoot,
+	};
 	const jsonClaudeStatus = new JsonClaudeStatusDao(
 		readStateEnv().claudeStatusDir ?? path.join(stateDir, 'claude-status'),
 	);
@@ -205,6 +226,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 	if (!statusClient) {
 		return {
 			registry: jsonRegistry,
+			spaceIdentities: new JsonSpaceIdentityDao(identityDefaults, jsonRegistry),
 			claudeStatus: jsonClaudeStatus,
 			spaceState: jsonSpaceState,
 			issueMeta: jsonIssueMeta,
@@ -224,8 +246,20 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		};
 	}
 
+	const spaceIdentities = new SqliteSpaceIdentityDao(
+		openDb,
+		identityDefaults,
+		(): JsonMirror => registry.mirror,
+	);
+	const registry = new SqliteSpaceRegistryDao(
+		openDb,
+		repo,
+		jsonRegistry,
+		spaceIdentities,
+	);
 	return {
-		registry: new SqliteSpaceRegistryDao(openDb, repo, jsonRegistry),
+		registry,
+		spaceIdentities,
 		claudeStatus: new DaemonClaudeStatusDao(statusClient, jsonClaudeStatus),
 		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
 		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
