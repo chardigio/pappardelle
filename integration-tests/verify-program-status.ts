@@ -11,7 +11,11 @@ import {
 	shellQuoteStatus,
 	statusSocket,
 } from '../source/program-status-monitor.ts';
-import {newSpaceIdentity, sessionNamesFor} from '../source/space-identity.ts';
+import {
+	legacyAgentSession,
+	newSpaceIdentity,
+	sessionNamesFor,
+} from '../source/space-identity.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
