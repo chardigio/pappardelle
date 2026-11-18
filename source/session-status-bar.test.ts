@@ -1,8 +1,9 @@
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import path from 'node:path';
+import {sessionNamesFor} from './space-identity.ts';
 import test from 'ava';
-import {ensureCompanionSession, getSessionNames} from './tmux.ts';
+import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {getRepoName} from './config.ts';
 
@@ -54,7 +55,7 @@ runtimeTest(
 
 		t.true(await ensureCompanionSession('BAR-1', root, ''));
 
-		const session = getSessionNames('BAR-1').companion;
+		const session = sessionNamesFor('BAR-1', getRepoName()).companion;
 		const status = spawnSync(
 			'tmux',
 			['-S', socket, 'show-options', '-t', `=${session}:`, '-v', 'status'],

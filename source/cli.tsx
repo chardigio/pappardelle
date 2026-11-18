@@ -25,8 +25,8 @@ import {
 	sessionExists,
 	setupPappardellLayout,
 	enableTmuxControlClients,
-	getSessionNames,
 	getWorktreePath,
+	spaceSessionNames,
 	getMainWorktreeInfo,
 	INNER_SOCKET,
 } from './tmux.ts';
@@ -86,11 +86,7 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {
-	newSpaceIdentity,
-	protectedSessionNames,
-	worktreePathFor,
-} from './space-identity.ts';
+import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
 import {statusSocket} from './program-status-monitor.ts';
 import {resolveTargetSpace} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -425,9 +421,11 @@ if (cli.input[0] === 'send') {
 	}
 
 	if (result === 'no-session') {
-		const session = getSessionNames(issueKey).agent;
+		const session = spaceSessionNames(issueKey)?.agent;
 		console.error(
-			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
+			session
+				? `No active session for ${issueKey} (${session} on ${INNER_SOCKET})`
+				: `No active session for ${issueKey}: it has no stored session names`,
 		);
 		process.exit(1);
 	}
@@ -469,6 +467,7 @@ if (cli.input[0] === 'spaces') {
 		await runSpacesCommand({
 			repoName,
 			registry: daos.registry,
+			spaceIdentities: daos.spaceIdentities,
 			claudeStatus: daos.claudeStatus,
 			spaceState: daos.spaceState,
 			issueMeta: daos.issueMeta,
@@ -491,10 +490,7 @@ if (cli.input[0] === 'read') {
 	await exitAfterFlush(
 		await runReadCommand({
 			issueKey,
-			worktree:
-				issueKey === MAIN_WORKTREE_KEY
-					? getMainRepoRoot()
-					: getWorktreePath(issueKey),
+			worktree: getWorktreePath(issueKey),
 			turns: cli.flags.turns,
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -545,14 +541,19 @@ if (cli.input.length > 0) {
 		}),
 		registry: daos.registry,
 		waitForAgent: cli.flags.wait
-			? async (issueKey, since) =>
-					waitForAgentStart({
-						claudeStatus: daos.claudeStatus,
-						statusKey: hookStatusKey(getRepoName(), issueKey),
-						worktree: worktreePathFor(homedir(), getRepoName(), issueKey),
-						since,
-						timeoutMs: 60_000,
-					})
+			? async (issueKey, since) => {
+					const worktree = getWorktreePath(issueKey);
+					return (
+						worktree !== null &&
+						waitForAgentStart({
+							claudeStatus: daos.claudeStatus,
+							statusKey: hookStatusKey(getRepoName(), issueKey),
+							worktree,
+							since,
+							timeoutMs: 60_000,
+						})
+					);
+				}
 			: undefined,
 	});
 

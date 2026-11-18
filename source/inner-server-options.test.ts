@@ -1,8 +1,9 @@
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
+import {sessionNamesFor} from './space-identity.ts';
 import test from 'ava';
-import {ensureCompanionSession, getSessionNames} from './tmux.ts';
+import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {getRepoName} from './config.ts';
 
@@ -58,8 +59,8 @@ runtimeTest(
 			{encoding: 'utf8'},
 		);
 		t.deepEqual(sessions.stdout.trim().split('\n').sort(), [
-			getSessionNames('KEEP-1').companion,
-			getSessionNames('KEEP-2').companion,
+			sessionNamesFor('KEEP-1', getRepoName()).companion,
+			sessionNamesFor('KEEP-2', getRepoName()).companion,
 		]);
 	},
 );

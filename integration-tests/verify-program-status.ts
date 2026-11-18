@@ -1,3 +1,4 @@
+import {sessionNamesFor} from '../source/space-identity.ts';
 import assert from 'node:assert/strict';
 import {Buffer} from 'node:buffer';
 import {execFileSync} from 'node:child_process';
@@ -6,18 +7,14 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {getRepoName} from '../source/config.ts';
 import {createStateDaos} from '../source/state-daos.ts';
-import {
-	ensureAgentSession,
-	getSessionNames,
-	initTmuxState,
-} from '../source/tmux.ts';
+import {ensureAgentSession, initTmuxState} from '../source/tmux.ts';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const repo = getRepoName();
 const key = 'STATUS-TS';
-const session = getSessionNames(key, repo).agent;
+const session = sessionNamesFor(key, repo).agent;
 const launchMarker = path.join(harness.root, 'launch-marker');
 // The launch names the space's agent-sessions file, which the stores place.
 initTmuxState(
@@ -212,7 +209,7 @@ try {
 	);
 	const shellKey = 'STATUS-SHELL';
 	const shellRepo = 'second-repo';
-	const shellSessions = getSessionNames(shellKey, shellRepo);
+	const shellSessions = sessionNamesFor(shellKey, shellRepo);
 	const shellSession = shellSessions.agent;
 	execFileSync(
 		'bash',

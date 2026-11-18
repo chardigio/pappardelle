@@ -5,6 +5,7 @@ import {execFile, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
+import {sessionNamesFor} from './space-identity.ts';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
@@ -12,7 +13,6 @@ import {getRepoName} from './config.ts';
 import {
 	companionSplitPaneIds,
 	createCompanionSplit,
-	getSessionNames,
 	measureCompanionColumnWidth,
 	rebuildLayout,
 	reconcilePaneLayout,
@@ -95,7 +95,7 @@ async function startSpace(
 	key: string,
 	splits: Array<{name: string; split: 'right' | 'down'; size?: `${number}%`}>,
 ) {
-	const {companion} = getSessionNames(key);
+	const {companion} = sessionNamesFor(key, getRepoName());
 	await innerTmux('new-session', '-d', '-s', companion, '-c', dir, 'sleep 600');
 	for (const split of splits) {
 		const created = createCompanionSplit(key, {...split, command: 'sleep 600'});
@@ -165,7 +165,7 @@ tmuxTest(
 		]);
 		await startSpace(c, []);
 		const session = (key: string, name: string) =>
-			`${getSessionNames(key).companion}~${name}`;
+			`${sessionNamesFor(key, getRepoName()).companion}~${name}`;
 
 		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
 		const splitPanes = companionSplitPaneIds();

@@ -11,8 +11,8 @@ import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	currentInnerServerSession,
 	deleteQaSimulator,
-	getSessionNames,
 	getWorktreePath,
+	spaceSessionNames,
 	killSpaceSessions,
 } from './tmux.ts';
 import {getIssue} from './tracker.ts';
@@ -34,11 +34,12 @@ export type CloseCommandDeps = {
 	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
 	killSpaceSessions: (key: string) => Promise<boolean>;
 	cleanup: (key: string) => Promise<boolean>;
+	/** Null for a space with no stored session names. */
 	sessionNames: (key: string) => {
 		agent: string;
 		companion: string;
 		legacyAgent: string;
-	};
+	} | null;
 	currentInnerSession: () => string | null;
 	// The detached teardown starts here: a hook may have deleted the worktree
 	// the close was run from.
@@ -97,6 +98,7 @@ export async function runCloseCommand(
 	const current = deps.currentInnerSession();
 	if (
 		current !== null &&
+		sessions !== null &&
 		[sessions.agent, sessions.companion, sessions.legacyAgent].includes(current)
 	) {
 		deps.print('Ending this session; teardown finishes in the background');
@@ -178,7 +180,7 @@ export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {
 			await daos.programStatus.remove(key);
 			return deleteQaSimulator(key);
 		},
-		sessionNames: key => getSessionNames(key),
+		sessionNames: spaceSessionNames,
 		currentInnerSession: () => currentInnerServerSession(process.env),
 		mainRepoRoot: getMainRepoRoot(),
 		spawnTeardown(key, cwd) {

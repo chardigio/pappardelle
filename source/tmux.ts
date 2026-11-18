@@ -200,7 +200,6 @@ import {QaSimulatorCleanup} from './qa-simulator.ts';
 import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
 import {
 	legacyAgentSession,
-	sessionNamesFor,
 	sessionPrefix,
 	tmuxSessionRepo,
 	type SpaceIdentity,
@@ -292,7 +291,7 @@ function storedIdentity(issueKey: string): SpaceIdentity | null {
 }
 
 /** A space's stored session names, or null when it has none. */
-function storedSessions(
+export function spaceSessionNames(
 	issueKey: string,
 ): {agent: string; companion: string; legacyAgent: string} | null {
 	const identity = storedIdentity(issueKey);
@@ -502,14 +501,6 @@ export function innerSessionExists(sessionName: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-/** Session names for a space in this repo, or in `repoName`. */
-export function getSessionNames(
-	issueKey: string,
-	repoName?: string,
-): ReturnType<typeof sessionNamesFor> {
-	return sessionNamesFor(issueKey, repoName ?? getRepoName());
 }
 
 /**
@@ -1572,7 +1563,7 @@ export async function killSpaceSessions(
 		run?: AsyncTmuxRunner;
 	},
 ): Promise<boolean> {
-	const sessions = storedSessions(issueKey);
+	const sessions = spaceSessionNames(issueKey);
 	if (!sessions) return false;
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
@@ -1899,7 +1890,7 @@ export async function sendToSpaceAgent(
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
-	const session = storedSessions(issueKey)?.agent;
+	const session = spaceSessionNames(issueKey)?.agent;
 	if (!session) return 'no-session';
 	const target = await resolveInnerSessionTarget(session, runner);
 	if (!target) return 'no-session';
@@ -1943,7 +1934,7 @@ export function sendKeysToSpaceAgent(
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const session = storedSessions(issueKey)?.agent;
+	const session = spaceSessionNames(issueKey)?.agent;
 	const target = session && resolveInnerSessionTargetSync(session, runner);
 	if (!target) return 'no-session';
 	// A key such as 1 or Enter answers a prompt, which only `answer` may do
@@ -2488,7 +2479,7 @@ async function attachViewers(
 	// An interrupted switch may have moved only one pane. Never let the
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
-	const sessions = storedSessions(issueKey);
+	const sessions = spaceSessionNames(issueKey);
 	if (!sessions) {
 		traceDone?.('failed');
 		return false;
@@ -2917,7 +2908,7 @@ async function keepSplitDrags(
 	const measured =
 		snapshot ??
 		parseWindowGeometry(await run(paneGeometryArgs(layout.listPaneId)));
-	const companion = storedSessions(shownSplitsSpace)?.companion;
+	const companion = spaceSessionNames(shownSplitsSpace)?.companion;
 	if (!companion) return;
 	const {splits} = await listCompanion(companion, run);
 	await rememberSplitDrags(
@@ -2994,7 +2985,7 @@ async function seedCompanionSplits(
 		}
 	}
 
-	const companion = storedSessions(issueKey)?.companion;
+	const companion = spaceSessionNames(issueKey)?.companion;
 	if (!failed && companion) {
 		await run(innerTmuxArgs(splitOptionArgs(companion, 'seeded', 1)));
 	}
@@ -3023,7 +3014,7 @@ export async function syncCompanionSplits(
 	} = {},
 ): Promise<SplitSyncOutcome> {
 	const run = options.run ?? runTmux;
-	const companionSession = storedSessions(issueKey)?.companion;
+	const companionSession = spaceSessionNames(issueKey)?.companion;
 	if (!companionSession) return 'no-pane';
 	const listing = parseCompanionListing(
 		options.listing ?? (await listCompanionSessions(run)),

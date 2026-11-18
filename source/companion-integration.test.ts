@@ -43,7 +43,7 @@ function tmux(...args: string[]): string {
 	return r.stdout.trim();
 }
 
-const deps = {runner, repoName: 'itest'};
+const deps = {runner};
 const COMPANION = 'companion-itest-KEY-1';
 const AGENT = 'agent-itest-KEY-1';
 

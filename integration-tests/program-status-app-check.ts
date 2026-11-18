@@ -18,7 +18,8 @@ import {
 	createVcsHost,
 	resetProviders,
 } from '../source/providers/index.ts';
-import {getSessionNames, initTmuxState} from '../source/tmux.ts';
+import {sessionNamesFor} from '../source/space-identity.ts';
+import {initTmuxState} from '../source/tmux.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
 
@@ -69,7 +70,7 @@ try {
 		);
 	const vcs = createVcsHost();
 	vcs.getBulkRailStatus = async () => new Map();
-	const session = getSessionNames(key, repo).agent;
+	const session = sessionNamesFor(key, repo).agent;
 	await harness.tmux([
 		'new-session',
 		'-d',

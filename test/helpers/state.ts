@@ -8,6 +8,7 @@ import {statusSocket} from '../../source/program-status-monitor.ts';
 import {
 	newSpaceIdentity,
 	worktreePathFor,
+	type SpaceIdentityDao,
 } from '../../source/space-identity.ts';
 import {getRegistryPathForRepo} from '../../source/space-registry.ts';
 import {createStateDaos, type StateDaos} from '../../source/state-daos.ts';
@@ -146,7 +147,6 @@ export async function recordIdentities(
 	home = os.homedir(),
 ): Promise<void> {
 	for (const key of keys) {
-		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
 		await state.daos.spaceIdentities.record(
 			newSpaceIdentity({
 				repo: state.repo,
@@ -170,4 +170,32 @@ export async function testTmuxSpaces(
 	const state = testTmuxState(t, {repo});
 	await recordIdentities(state, keys);
 	return state;
+}
+
+/**
+ * An identity store holding `keys` as idow names them, for code that takes
+ * the store as a dependency. `keys` is read on each call, so a test can add
+ * spaces as it goes.
+ */
+export function idowIdentities(
+	repo: string,
+	keys: () => readonly string[],
+): Pick<SpaceIdentityDao, 'get' | 'list'> {
+	const identity = (key: string) =>
+		newSpaceIdentity({
+			repo,
+			key,
+			worktreePath: `/w/${key}`,
+			socket: 'pappardelle_inner',
+		});
+	return {
+		get: key =>
+			keys().includes(key)
+				? {kind: 'identity', identity: identity(key)}
+				: {kind: 'unknown'},
+		list: () => ({
+			kind: 'identities',
+			identities: keys().map(key => identity(key)),
+		}),
+	};
 }

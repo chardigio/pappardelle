@@ -21,7 +21,7 @@ import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
 	getMainWorktreeInfo,
-	getSessionNames,
+	spaceSessionNames,
 	resolveInnerSessionTargetSync,
 	sendKeysToSpaceAgent,
 	type SendToSpaceAgentResult,
@@ -75,10 +75,10 @@ function timerBackend(): TimerBackend {
 }
 
 function agentCwd(key: string): string | null {
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(key).agent,
-		supervisedInnerTmuxRunner,
-	);
+	const session = spaceSessionNames(key)?.agent;
+	const target =
+		session &&
+		resolveInnerSessionTargetSync(session, supervisedInnerTmuxRunner);
 	if (!target) return null;
 	const result = supervisedInnerTmuxRunner([
 		'display-message',

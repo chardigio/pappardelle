@@ -79,7 +79,7 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
-import {getSessionNames} from './tmux.ts';
+import {spaceSessionNames} from './tmux.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -355,10 +355,10 @@ export default function App({
 		() =>
 			new WorkspaceStatuses(
 				programStatus,
-				key => getSessionNames(key, repoName).agent,
+				key => spaceSessionNames(key)?.agent ?? null,
 				claudeStatus,
 			),
-		[programStatus, repoName, claudeStatus],
+		[programStatus, claudeStatus],
 	);
 	statusKeysRef.current = useMemo(
 		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
