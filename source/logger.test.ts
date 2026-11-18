@@ -637,7 +637,7 @@ function runChild(t: ExecutionContext, script: string) {
 		process.execPath,
 		[
 			'-e',
-			`const {createLogger} = await import(${JSON.stringify(loggerUrl)});
+			`const {createLogger, captureStderr} = await import(${JSON.stringify(loggerUrl)});
 const log = createLogger('child');
 ${script}`,
 		],
@@ -652,6 +652,7 @@ ${script}`,
 	return {
 		status: child.status,
 		signal: child.signal,
+		stderr: child.stderr,
 		text,
 		lines: text.match(/\[child\] \S+/g) ?? [],
 	};
@@ -681,6 +682,48 @@ setTimeout(() => { throw new Error('boom'); }, 0);`,
 	);
 	t.not(status, 0);
 	t.deepEqual(lines, ['[child] before-crash']);
+});
+
+test('an uncaught top-level error lands in the log with its stack', t => {
+	const {status, text, stderr} = runChild(
+		t,
+		`captureStderr();
+function writeTarget() { throw new Error('top-level-boom'); }
+writeTarget();`,
+	);
+	t.is(status, 1);
+	t.true(stderr.includes('top-level-boom'));
+	const crashes = text.match(
+		/\[crash\] Error: top-level-boom\n\s+at writeTarget/g,
+	);
+	t.is(crashes?.length, 1);
+});
+
+test('unhandled rejections land in the log and still crash the process', t => {
+	const {status, text, stderr} = runChild(
+		t,
+		`captureStderr();
+setInterval(() => {}, 1000);
+void Promise.reject(new Error('first-rejection'));
+void Promise.reject(new Error('second-rejection'));`,
+	);
+	t.is(status, 1);
+	t.true(stderr.includes('first-rejection'));
+	t.is(text.match(/\[crash\] Error: first-rejection/g)?.length, 1);
+	t.is(text.match(/\[crash\] Error: second-rejection/g)?.length, 1);
+});
+
+test('errors another listener handles are not logged as crashes', t => {
+	const {status, text} = runChild(
+		t,
+		`process.on('uncaughtException', () => {});
+process.on('unhandledRejection', () => {});
+captureStderr();
+setTimeout(() => { throw new Error('handled-throw'); }, 0);
+void Promise.reject(new Error('handled-rejection'));`,
+	);
+	t.is(status, 0);
+	t.false(text.includes('[crash]'));
 });
 
 test('a line logged by a later exit handler still lands in the file', t => {

@@ -387,7 +387,8 @@ export function getLogDir(): string {
 	return LOG_DIR;
 }
 
-// Intercept stderr writes so React and OpenTUI rendering errors land in the log file.
+// Route everything that reaches stderr into the log file: stderr writes, React
+// and OpenTUI errors sent to console.error, and crashes Bun reports itself.
 // Call once at startup (idempotent).
 let stderrCaptured = false;
 
@@ -501,6 +502,36 @@ export function captureStderr(): void {
 	// TUI and never reach the log.
 	console.error = makeConsoleError(text => process.stderr.write(text));
 	console.warn = console.error;
+
+	// Bun prints a crash report straight to fd 2 as well. While the renderer is
+	// up, OpenTUI's own uncaughtException and unhandledRejection listeners
+	// console.error the error and keep the process alive, so nothing crashed
+	// and the error is already logged.
+	const crashLog = createLogger('crash');
+	process.on('uncaughtExceptionMonitor', error => {
+		if (process.listenerCount('uncaughtException') > 0) return;
+		crashLog.error(format(error));
+	});
+	// Bun reports a bare unhandled rejection without firing the monitor, and any
+	// listener here replaces its default crash. Rejecting again once the
+	// listener is gone restores that crash with the original stacks and exit
+	// status. Rejections from the same tick all arrive before setImmediate runs.
+	const rejections: unknown[] = [];
+	const onUnhandledRejection = (reason: unknown) => {
+		if (process.listenerCount('unhandledRejection') > 1) return;
+		crashLog.error(format(reason));
+		rejections.push(reason);
+		if (rejections.length > 1) return;
+		setImmediate(() => {
+			process.off('unhandledRejection', onUnhandledRejection);
+			for (const reason of rejections) {
+				// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+				void Promise.reject(reason);
+			}
+		});
+	};
+
+	process.on('unhandledRejection', onUnhandledRejection);
 }
 
 // Export a default logger for general use
