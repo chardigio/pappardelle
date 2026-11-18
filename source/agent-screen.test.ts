@@ -3,7 +3,7 @@ import path from 'node:path';
 import test from 'ava';
 import {parseAgentScreen, parseResetTime} from './agent-screen.ts';
 
-// Captured from real Claude Code 2.1.319 and 2.1.327 and Codex 0.166 sessions.
+// Captured from real Claude Code (2.1.319, 2.1.327) and Codex (0.166) sessions.
 const fixtures = path.join(
 	import.meta.dirname,
 	'..',
