@@ -26,6 +26,7 @@ import {
 	type WatchlistReserveOptions,
 	type WatchlistSlots,
 } from './space-registry.ts';
+import type {SpaceIdentity} from './space-identity.ts';
 import type {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import {
 	retryBusy,
@@ -172,12 +173,21 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		if (unsettled().length === 0) return;
 		const live = deps.liveSessions();
 		if (!live) return;
+		const names = new Map<string, SpaceIdentity>();
+		for (const row of unsettled()) {
+			const lookup = this.identities.get(row.key);
+			// Without its names a space's sessions can't be told apart from
+			// none, and dropping its row would hand them to the reaper.
+			if (lookup.kind !== 'identity') return;
+			names.set(row.key, lookup.identity);
+		}
+
 		const running = (key: string) => {
-			const lookup = this.identities.get(key);
+			const identity = names.get(key);
 			return (
-				lookup.kind === 'identity' &&
-				(live.has(lookup.identity.tmux.agentSession) ||
-					live.has(lookup.identity.tmux.companionSession))
+				identity !== undefined &&
+				(live.has(identity.tmux.agentSession) ||
+					live.has(identity.tmux.companionSession))
 			);
 		};
 		await this.change(tx => {
