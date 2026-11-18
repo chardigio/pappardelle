@@ -986,7 +986,7 @@ profiles:
         - Bash,Read,Write,Edit,Glob,Grep,Agent,Skill,Monitor
 ```
 
-When the TUI creates a space's session again (after a crash, or after the agent exits), it uses the profile that `idow` saved for the space in `~/.pappardelle/repos/<repo>/space-state/<KEY>.json`. Only a space with no saved profile (or a saved name that no profile has now) falls back to the issue title's keywords. So still give a restricted profile a keyword that its issue titles always contain, and put it above any profile that shares a keyword with it, because file order wins a tie. The same order applies to `agent_profile` and `companion_command`.
+When the TUI creates a space's session again (after a crash, or after the agent exits), it uses the profile that `idow` saved for the space in `~/.pappardelle/repos/<repo>/space-state/<KEY>.json` (or in the database, with [`experimental.sqliteState`](#experimental-sqlite-state) on). `pappardelle space get KEY --field profile` prints it. Only a space with no saved profile (or a saved name that no profile has now) falls back to the issue title's keywords. So still give a restricted profile a keyword that its issue titles always contain, and put it above any profile that shares a keyword with it, because file order wins a tie. The same order applies to `agent_profile` and `companion_command`.
 
 Omitting `model`, `effort` and `extra_args` everywhere leaves the launch command byte-identical to a config that predates them; nothing is passed to the CLI unless you ask for it.
 
@@ -1158,8 +1158,10 @@ experimental?: {sqliteState?: boolean};
 - Set it in `~/.pappardelle/.pappardelle.yml` only. The database is shared by every repo, so config validation rejects the key in a project or local config
 - **On:** state is read from the database, and every write also updates the JSON file it replaces. Turning the flag off again loses none of it. Claude hook status and program status are the exception: they are stored nowhere and go through the [status daemon](#status-daemon)
 - **Off:** the database is never opened, no status daemon is started, and state is read from and written to the files
-- What the database holds: the open spaces and watchlist reservations, each space's saved profile, rail status, recap and PR links, issue meta, highlight requests, state colors, agent sessions, companion widths and layout requests, scheduled wake-ups and queued messages, the TUI marker and the update check
+- What the database holds: the open spaces and watchlist reservations, each space's saved profile, issue title, rail status, recap and PR links, issue meta, highlight requests, state colors, agent sessions, companion widths and layout requests, scheduled wake-ups and queued messages, the TUI marker and the update check
 - A file changed while the flag was off is imported the next time it is read with the flag on
+- The issue title is stored each time Pappardelle reads the issue from the tracker, and when `idow` opens the space. In the space's state file it is the `issueTitle` field
+- `pappardelle space get` reads a space's stored values the same way in both modes. Scripts and hooks should use it rather than reading the database or the JSON files
 - Restart the TUI after changing the flag. A TUI that is already running keeps the mode it started with, and shows no status changes until it is restarted
 - Running agents need no restart. They follow within 5 seconds of that start: the hooks and each agent pane's status monitor read the flag from `~/.pappardelle/state-flag.json`, which Pappardelle rewrites when it starts
 - The hooks need a Python whose SQLite is 3.37 or newer to write to the database. With an older one they write files only, and each file is imported the next time it is read. Hook status does not use SQLite and is not affected
