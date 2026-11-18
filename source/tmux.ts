@@ -709,7 +709,7 @@ function viewerSessionArgs(sessionName: string, title: string): string[] {
 		'-t',
 		target,
 		'set-titles-string',
-		title.replaceAll('#', '##'),
+		tmuxFormatLiteral(title),
 	];
 }
 
@@ -1142,6 +1142,50 @@ export const OUTER_SESSION_PREFIX = 'pappardelle-';
 
 export function outerSessionName(repoName: string): string {
 	return `${OUTER_SESSION_PREFIX}${repoName}`;
+}
+
+// tmux expands formats in new-session's -s and in set-titles-string, so a
+// repo named `pasta#S` would otherwise be stored or shown as something else.
+export function tmuxFormatLiteral(text: string): string {
+	return text.replaceAll('#', '##');
+}
+
+// The rail's header already names the repo, so the user's status bar would
+// only repeat it. Terminal tabs (Ghostty, iTerm2) show only title text, so the
+// 🍝 there stands in for an app icon, whatever the user's own set-titles
+// setting is.
+export function newOuterSessionArgs(
+	repoName: string,
+	sessionEnvArgs: string[],
+	command: string,
+): string[] {
+	const sessionName = outerSessionName(repoName);
+	const target = exactSessionTarget(sessionName);
+	return [
+		'new-session',
+		'-s',
+		tmuxFormatLiteral(sessionName),
+		...sessionEnvArgs,
+		command,
+		';',
+		'set-option',
+		'-t',
+		target,
+		'status',
+		'off',
+		';',
+		'set-option',
+		'-t',
+		target,
+		'set-titles',
+		'on',
+		';',
+		'set-option',
+		'-t',
+		target,
+		'set-titles-string',
+		tmuxFormatLiteral(`🍝 ${repoName}`),
+	];
 }
 
 // Bare tmux talks to whichever server $TMUX names. From a claude pane that is
