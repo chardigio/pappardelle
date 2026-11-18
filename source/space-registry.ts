@@ -29,19 +29,9 @@ import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {setTimeout as delay} from 'node:timers/promises';
+import {isPidAlive as defaultIsPidAlive, withFileLock} from './file-lock.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
-
-// Live owners keep their lock regardless of age. Empty abandoned lock
-// directories can be removed after this grace period. Contention times out
-// without running the mutation; callers can retry safely.
-const DEFAULT_LOCK_TIMEOUT_MS = 5000;
-const DEFAULT_LOCK_STALE_MS = 10_000;
-const DEFAULT_LOCK_RETRY_MS = 25;
-let lockTimeoutMs = DEFAULT_LOCK_TIMEOUT_MS;
-let lockStaleMs = DEFAULT_LOCK_STALE_MS;
-let lockRetryMs = DEFAULT_LOCK_RETRY_MS;
 
 // Legacy path (pre-repo-namespacing) — used for migration
 function getLegacyRegistryPath(baseDir: string): string {
@@ -113,28 +103,6 @@ export function setRegistryPath(p: string): void {
  */
 export function resetRegistryPath(): void {
 	registryPath = getLegacyRegistryPath(DEFAULT_BASE_DIR);
-}
-
-/**
- * Override advisory-lock timings for contention tests.
- */
-export function setLockTimingForTests(opts: {
-	timeoutMs?: number;
-	staleMs?: number;
-	retryMs?: number;
-}): void {
-	if (opts.timeoutMs !== undefined) lockTimeoutMs = opts.timeoutMs;
-	if (opts.staleMs !== undefined) lockStaleMs = opts.staleMs;
-	if (opts.retryMs !== undefined) lockRetryMs = opts.retryMs;
-}
-
-/**
- * Restore default advisory-lock timings (for testing cleanup).
- */
-export function resetLockTimingForTests(): void {
-	lockTimeoutMs = DEFAULT_LOCK_TIMEOUT_MS;
-	lockStaleMs = DEFAULT_LOCK_STALE_MS;
-	lockRetryMs = DEFAULT_LOCK_RETRY_MS;
 }
 
 /**
@@ -299,16 +267,6 @@ function writeReservations(
 	writeJsonAtomic(getReservationsPath(p), Object.fromEntries(reservations));
 }
 
-function defaultIsPidAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		// EPERM: the process exists but belongs to another user
-		return (error as NodeJS.ErrnoException).code === 'EPERM';
-	}
-}
-
 /**
  * Reserve up to `max` minus the slots `source` already holds, taking
  * `candidateKeys` in order. Keys that are already registered or reserved are
@@ -377,108 +335,9 @@ export async function releaseWatchlistReservation(
 	});
 }
 
-const mutationQueues = new Map<string, Promise<unknown>>();
-
 async function withRegistryLock<T>(
 	fn: (p: string) => T,
 	signal?: AbortSignal,
 ): Promise<T> {
-	const p = registryPath;
-	const previous = mutationQueues.get(p) ?? Promise.resolve();
-	const task = previous
-		.catch(() => {})
-		.then(async () => {
-			signal?.throwIfAborted();
-			const lockPath = `${p}.lock`;
-			fs.mkdirSync(path.dirname(lockPath), {recursive: true});
-			const owner = `${process.pid}-${randomUUID()}`;
-			const marker = path.join(lockPath, owner);
-			const deadline = Date.now() + lockTimeoutMs;
-			for (;;) {
-				signal?.throwIfAborted();
-				let acquired = false;
-				try {
-					fs.mkdirSync(lockPath);
-					try {
-						fs.writeFileSync(marker, '', {flag: 'wx'});
-						// A dead-owner reaper may remove an empty directory while its creator
-						// is descheduled. Only the sole marker owner may enter the critical section.
-						const entries = fs.readdirSync(lockPath);
-						if (entries.length === 1 && entries[0] === owner) {
-							acquired = true;
-						}
-					} finally {
-						if (!acquired) {
-							fs.rmSync(marker, {force: true});
-							removeEmptyLock(lockPath);
-						}
-					}
-				} catch (err) {
-					if (
-						!['EEXIST', 'ENOENT'].includes(
-							(err as NodeJS.ErrnoException).code ?? '',
-						)
-					)
-						throw err;
-					reapDeadOwners(lockPath);
-				}
-				if (acquired) {
-					try {
-						signal?.throwIfAborted();
-						return fn(p);
-					} finally {
-						fs.rmSync(marker, {force: true});
-						removeEmptyLock(lockPath);
-					}
-				}
-				if (Date.now() >= deadline)
-					throw new Error(
-						`Registry lock timed out after ${lockTimeoutMs}ms: ${p}`,
-					);
-				await delay(lockRetryMs, undefined, {signal});
-			}
-		});
-	mutationQueues.set(p, task);
-	try {
-		return await task;
-	} finally {
-		if (mutationQueues.get(p) === task) mutationQueues.delete(p);
-	}
-}
-
-function removeEmptyLock(lockPath: string): void {
-	try {
-		fs.rmdirSync(lockPath);
-	} catch (err) {
-		if (
-			!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(
-				(err as NodeJS.ErrnoException).code ?? '',
-			)
-		)
-			throw err;
-	}
-}
-
-function reapDeadOwners(lockPath: string): void {
-	try {
-		const entries = fs.readdirSync(lockPath);
-		let removed = false;
-		for (const entry of entries) {
-			const match = /^(\d+)-[\da-f-]+$/.exec(entry);
-			if (match && !defaultIsPidAlive(Number(match[1]))) {
-				// A unique filename prevents a concurrent reaper from deleting a new
-				// holder's marker after the dead owner's directory has been replaced.
-				fs.rmSync(path.join(lockPath, entry), {force: true});
-				removed = true;
-			}
-		}
-		if (
-			removed ||
-			(entries.length === 0 &&
-				Date.now() - fs.statSync(lockPath).mtimeMs > lockStaleMs)
-		)
-			removeEmptyLock(lockPath);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-	}
+	return withFileLock(registryPath, fn, signal);
 }

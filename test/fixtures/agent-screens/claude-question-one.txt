@@ -1,0 +1,45 @@
+
+ ▐▛███▛█   Claude Code v2.1.319
+▝▜██████▀  Sonnet 5.5 · Claude Max
+ ▝▝   ▝▝   /tmp/repo · /rc
+
+
+❯ Use the AskUserQuestion tool to ask me one question: my favorite color (red, blue, green).
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Planning: ~/.claude/plans/use-the-askuserquestion-tool-ethereal-pretzel.md
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Color
+
+What is your favorite color?
+
+❯ 1. Red
+     Red
+  2. Blue
+     Blue
+  3. Green
+     Green
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

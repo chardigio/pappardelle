@@ -1,0 +1,45 @@
+▝▜██████▀  Sonnet 5.5 · Claude Ultra
+ ▝▝   ▝▝   /tmp/repo · /rc
+
+
+❯ Write a 400 word essay about tmux, in chat only, no tools.
+
+  Thought for 14s
+
+● tmux
+
+  tmux is a terminal multiplexer. It lets you run several terminal sessions inside one window, detach from them, and
+  reattach later from the same machine or a different one. Nicholas Marriott released it in 2007 as a more maintainable
+  alternative to GNU Screen. It is now installed by default, or one package away, on nearly every Unix-like system.
+
+  It has three levels. A session holds one or more windows, and each window can be split into panes, each running its
+  own shell or program. A tmux server process owns all of this, which is why everything keeps running when your terminal
+  closes. You control it with a prefix key, Ctrl-b by default, followed by a command key. The prefix then % splits a
+  pane, and the prefix then d detaches.
+
+  Persistence is the main reason people use it. If you work over SSH and the connection drops, a plain shell dies and
+  takes your running job with it. Inside tmux, the job keeps running on the server. You reconnect, run tmux attach, and
+  find everything as you left it. That makes it useful for long builds, database migrations, and any process you want to
+  check on later without keeping a laptop open.
+
+  It also organizes local work. Many developers keep one session per project, with windows for an editor, a test runner,
+  and logs. Named sessions make switching quick. Because tmux is scriptable, a short shell script using new-session and
+  split-window, or a tool like tmuxinator or tmuxp, can rebuild a whole workspace in one command.
+
+  Configuration lives in ~/.tmux.conf. Common changes include remapping the prefix to Ctrl-a, enabling mouse support,
+  starting window numbering at 1, and customizing the status line. Plugins managed through TPM add features such as
+  saving and restoring sessions across reboots.
+
+  tmux has costs. The prefix model takes a few days to learn, copy mode has its own keybindings, and clipboard
+  integration and true color often need extra configuration. Modern terminal emulators with built-in tabs and splits
+  cover some of the same ground for local use. None of them match detach and reattach on a remote server.
+
+  For anyone who works on remote machines or juggles many terminal tasks, tmux is still worth learning.
+
+✻ Cogitated for 17s · done 7:32 AM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  tmp/repo  󰘬 main                  󰯉 sonnet5.5 · medium  ───── 6% · 60.5K  5h ───── 0% · 7d ───── 2% 
+  -- INSERT -- ⏸ plan mode on (shift+tab to cycle)

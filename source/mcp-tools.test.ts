@@ -1,0 +1,323 @@
+// Tool inputs against the real CLI parsers, so a flag renamed on one side
+// fails here instead of at an agent's first call.
+import {spawnSync} from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'ava';
+import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
+import {parseCompanionArgs} from './companion-args.ts';
+import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
+import {encodeCursor} from './space-watch.ts';
+import {parseSuperviseArgs} from './supervise-args.ts';
+
+function call(name: string, input: Record<string, unknown>): CliCall {
+	const tool = MCP_TOOLS.find(candidate => candidate.name === name);
+	if (!tool) throw new Error(`No tool ${name}`);
+	return tool.toCli(input);
+}
+
+const companion = (name: string, input: Record<string, unknown>) => {
+	const {args} = call(name, input);
+	return {verb: args[0], command: parseCompanionArgs(args.slice(1))};
+};
+
+test('companion_run passes a shell line through as one command', t => {
+	t.like(
+		companion('companion_run', {
+			command: 'npm run dev | less -R',
+			pane: 'app',
+			split: 'right',
+			size: '30%',
+			space: 'STA-1',
+		}),
+		{
+			verb: 'companion',
+			command: {
+				verb: 'run',
+				command: 'npm run dev | less -R',
+				pane: 'app',
+				split: 'right',
+				size: '30%',
+				space: 'STA-1',
+			},
+		},
+	);
+});
+
+test('companion_run keeps a command that starts with a dash as the command', t => {
+	t.like(companion('companion_run', {command: '--help'}).command, {
+		verb: 'run',
+		command: '--help',
+		pane: 'main',
+	});
+});
+
+test('companion_type sends its text on stdin, leaving no text in argv', t => {
+	const {args, stdin} = call('companion_type', {
+		text: '-rf "quoted"',
+		enter: false,
+		pane: 'side',
+	});
+	t.is(stdin, '-rf "quoted"');
+	t.deepEqual(parseCompanionArgs(args.slice(1)), {
+		verb: 'keys',
+		space: undefined,
+		pane: 'side',
+		enter: false,
+		keys: [],
+		text: undefined,
+	});
+});
+
+test('companion_press_keys presses names in order', t => {
+	t.like(
+		companion('companion_press_keys', {keys: ['q', 'Escape'], space: 'STA-1'})
+			.command,
+		{verb: 'keys', keys: ['q', 'Escape'], space: 'STA-1', pane: 'main'},
+	);
+});
+
+test('companion_read, resize, close, list and width reach their verbs', t => {
+	t.like(companion('companion_read', {lines: 5, pane: 'a'}).command, {
+		verb: 'read',
+		lines: 5,
+		pane: 'a',
+	});
+	t.like(companion('companion_resize', {pane: 'a', size: '40%'}).command, {
+		verb: 'resize',
+		pane: 'a',
+		size: '40%',
+	});
+	t.like(companion('companion_resize', {pane: 'a', size: '12'}).command, {
+		size: 12,
+	});
+	t.like(companion('companion_close', {pane: 'a', space: 'S'}).command, {
+		verb: 'close',
+		pane: 'a',
+		space: 'S',
+	});
+	t.like(companion('companion_list', {}).command, {verb: 'list', json: true});
+	t.like(companion('companion_width', {width: 'reset'}).command, {
+		verb: 'width',
+		width: 'reset',
+	});
+});
+
+const cli = (name: string, input: Record<string, unknown>) => {
+	const {args, stdin} = call(name, input);
+	const gate = subcommandGate(args);
+	if (gate.action !== 'run') throw new Error(`gate: ${JSON.stringify(gate)}`);
+	const {input: positional, flags} = parseCli(args);
+	return {positional, flags, stdin};
+};
+
+test('spaces_list and space_read ask for JSON', t => {
+	t.like(cli('spaces_list', {}), {
+		positional: ['spaces'],
+		flags: {json: true},
+	});
+	t.like(cli('space_read', {key: 'STA-1', turns: 3}), {
+		positional: ['read', 'STA-1'],
+		flags: {json: true, turns: 3},
+	});
+});
+
+test('space_highlight passes focus on only when asked', t => {
+	t.like(cli('space_highlight', {key: 'STA-1', focus: true}), {
+		positional: ['highlight', 'STA-1'],
+		flags: {focus: true},
+	});
+	t.falsy(cli('space_highlight', {key: 'STA-1'}).flags.focus);
+});
+
+test('space_send sends its text on stdin', t => {
+	const {args, stdin} = call('space_send', {key: 'STA-1', text: "don't -x"});
+	t.deepEqual(parseSendArgs(args), {
+		key: 'STA-1',
+		text: '',
+		keys: [],
+		force: false,
+	});
+	t.is(stdin, "don't -x");
+});
+
+test('space_press_keys sends repeated --keys', t => {
+	const {args} = call('space_press_keys', {
+		key: 'STA-1',
+		keys: ['Escape', 'S-Tab'],
+	});
+	t.deepEqual(parseSendArgs(args), {
+		key: 'STA-1',
+		text: '',
+		keys: ['Escape', 'S-Tab'],
+		force: false,
+	});
+});
+
+test('space_open keeps a description that starts with a dash as the input', t => {
+	const {positional, flags} = cli('space_open', {
+		input: '-fix the login',
+		profile: 'mobile',
+	});
+	t.deepEqual(positional, ['-fix the login']);
+	t.is(flags.profile, 'mobile');
+	t.is(flags.resume, undefined);
+	t.is(flags.wait, undefined);
+});
+
+test('space_open maps resume both ways and wait', t => {
+	t.like(cli('space_open', {input: 'STA-1', resume: true, wait: true}), {
+		positional: ['STA-1'],
+		flags: {resume: true, wait: true},
+	});
+	t.like(cli('space_open', {input: 'STA-1', resume: false}), {
+		flags: {resume: false},
+	});
+});
+
+test('space_close confirms for the agent, which has no terminal', t => {
+	t.like(cli('space_close', {key: 'STA-1'}), {
+		positional: ['close', 'STA-1'],
+		flags: {yes: true},
+	});
+});
+
+test('tui_restart is the soft restart', t => {
+	const {positional, flags} = cli('tui_restart', {});
+	t.deepEqual(positional, ['restart']);
+	t.falsy(flags.hard);
+});
+
+test('no tool can end every session or update Pappardelle', t => {
+	const names = MCP_TOOLS.map(tool => tool.name);
+	t.false(names.some(name => /update|hard/.test(name)));
+});
+
+test('link_pr runs from the source repository and passes the workspace on', t => {
+	const {args, cwd} = call('link_pr', {
+		url: 'https://github.com/o/r/pull/7',
+		repository: '/work/child',
+		workspace: '/work',
+	});
+	t.is(cwd, '/work/child');
+	const {input, flags} = parseCli(args);
+	t.deepEqual(input, ['link-pr', 'https://github.com/o/r/pull/7']);
+	t.is(flags.workspace, '/work');
+	t.is(call('link_pr', {url: 'https://x'}).cwd, undefined);
+});
+
+// Everything an agent changes in another space through these goes through
+// a check it can't override: space_answer's approval policy, and send's
+// refusal to type into a prompt.
+const ASKS_FIRST = new Set([
+	'spaces_list',
+	'space_read',
+	'space_highlight',
+	'space_press_keys',
+	'space_open',
+	'space_close',
+	'link_pr',
+	'tui_restart',
+]);
+
+test('every tool but the ones that ask first is auto-approved', t => {
+	t.deepEqual(
+		[...AUTO_APPROVED_TOOLS].sort(),
+		MCP_TOOLS.map(tool => tool.name)
+			.filter(name => !ASKS_FIRST.has(name))
+			.sort(),
+	);
+});
+
+test('space_answer has no way past the approval policy', t => {
+	const answer = MCP_TOOLS.find(tool => tool.name === 'space_answer')!;
+	t.false('force' in answer.inputSchema);
+	t.false(
+		call('space_answer', {key: 'STA-1', option: 1}).args.includes('--force'),
+	);
+});
+
+const pluginHooks = path.join(
+	import.meta.dirname,
+	'..',
+	'plugins',
+	'pappardelle',
+	'hooks',
+);
+
+test("Claude Code's approval hook matches the auto-approved tools and no others", t => {
+	const {hooks} = JSON.parse(
+		fs.readFileSync(path.join(pluginHooks, 'hooks.json'), 'utf8'),
+	) as {
+		hooks: {
+			PreToolUse: Array<{matcher: string; hooks: Array<{command: string}>}>;
+		};
+	};
+	const entry = hooks.PreToolUse.find(({hooks}) =>
+		hooks.some(({command}) => command.includes('approve-pappardelle-tool')),
+	);
+	const matcher = new RegExp(`^(${entry!.matcher})$`);
+	const names = MCP_TOOLS.map(tool => tool.name);
+	t.deepEqual(
+		names.filter(name =>
+			matcher.test(`mcp__plugin_pappardelle_pappardelle__${name}`),
+		),
+		[...AUTO_APPROVED_TOOLS],
+	);
+});
+
+test('the approval hook answers allow', t => {
+	const {stdout, status} = spawnSync(
+		path.join(pluginHooks, 'approve-pappardelle-tool.sh'),
+		{encoding: 'utf8'},
+	);
+	t.is(status, 0);
+	t.like(JSON.parse(stdout), {
+		hookSpecificOutput: {
+			hookEventName: 'PreToolUse',
+			permissionDecision: 'allow',
+		},
+	});
+});
+
+test('space_watch passes its spaces, states and cursor to watch', t => {
+	const cursor = encodeCursor({'STA-1': 'idle'});
+	t.deepEqual(
+		parseSuperviseArgs(
+			call('space_watch', {
+				keys: ['STA-1', 'STA-2'],
+				until: ['blocked', 'idle'],
+				since: cursor,
+				timeout_seconds: 30,
+			}).args,
+		),
+		{
+			verb: 'watch',
+			keys: ['STA-1', 'STA-2'],
+			until: ['blocked', 'idle'],
+			since: {'STA-1': 'idle'},
+			timeoutSeconds: 30,
+			json: true,
+		},
+	);
+	t.like(parseSuperviseArgs(call('space_watch', {}).args), {
+		keys: [],
+		until: [],
+		timeoutSeconds: 50,
+	});
+});
+
+test('space_answer passes several options and typed text to answer', t => {
+	t.like(
+		parseSuperviseArgs(
+			call('space_answer', {key: 'STA-1', options: [1, 3]}).args,
+		),
+		{verb: 'answer', options: [1, 3], keys: []},
+	);
+	t.like(
+		parseSuperviseArgs(
+			call('space_answer', {key: 'STA-1', text: '-- no, the other one'}).args,
+		),
+		{verb: 'answer', options: [], text: '-- no, the other one'},
+	);
+});

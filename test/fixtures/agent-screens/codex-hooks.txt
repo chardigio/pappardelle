@@ -1,0 +1,40 @@
+[2m╭───────────────────────────────────────────────────────────────╮
+│ [0;1m[38;2;99;168;248m✨ Update available![0m [1m0.166.0 -> 0.167.0[0;2m                       │
+│ [0mSee [4m[38;2;99;168;248m]8;;https://github.com/openai/codex\https://github.com/openai/codex[0m]8;;\ for installation options.[2m │
+│                                                               │
+│ [0mSee full release notes:[2m                                       │
+│ [0;4m[38;2;99;168;248m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest[0;2m]8;;\               │
+╰───────────────────────────────────────────────────────────────╯[0m                                                       
+                           
+                                                
+  [38;2;99;168;248m>_ [1m[39mOpenAI Codex[0;2m (v0.166.0)
+[0m     [2m/tmp/q-a/uhooks[0m                                                                                               
+                                                             
+                                                                      
+                                                                        
+                                                                         
+                                                                          
+                                                                          
+                                                                           
+                                                                            
+                                                                            
+                                                                             
+                                                                            
+  [1mHooks[0m                                                                     
+  [2mLifecycle hooks from config and enabled plugins.[0m                         
+                                                                         
+  [38;5;3m⚠ 2 hooks need review before they can run.[39m                          
+                                                                     
+  Event                 Installed   Active      Review      Description
+ 
+[1;7m› PreToolUse            1           0           1           Before a tool executes                                      
+[0m  PermissionRequest     [2m0           0           0           When permission is requested
+[0m  PostToolUse           [2m0           0           0           After a tool executes
+[0m  PreCompact            [2m0           0           0           Before context compaction
+[0m  PostCompact           [2m0           0           0           After context compaction
+[0m  SessionStart          [2m1           0           [0m[38;5;3m1           [2m[39mWhen a new session starts
+[0m  SessionEnd            [2m0           0           0           Right before a session ends
+[0m  UserPromptSubmit      [2m0           0           0           When the user submits a prompt
+[0m[38;2;99;168;248m↓
+[39m 
+  [1mt[0;2m trust all · [0;1menter[0;2m review · [0;1mesc[0;2m close                                                                                

@@ -84,6 +84,18 @@ team_prefix: ENG
 # Off by default.
 # auto_remove_when_done: true
 
+# Give agents in this repo the pappardelle MCP tools (companion panes, other
+# spaces) and the rules for keeping the companion showing their work.
+# Off by default.
+# workspace_aware_agents: true
+
+# Run the main checkout's agent as the sous-chef: it launches as `sous-chef`
+# with /sous-chef as its first prompt, the rail shows it as sous-chef, and it
+# is told to watch the other spaces and bring their prompts to you.
+# Off by default, and needs workspace_aware_agents. Put your own instructions
+# for it in SOUS-CHEF.md at the repo root.
+# sous_chef: true
+
 # Override the ticket-rail color for named issue statuses. Names match
 # case-insensitively; values are hex (#rgb / #rrggbb) or an ANSI color name
 # (red, cyan, blueBright, ...). Any status you leave out keeps the color the
@@ -146,13 +158,16 @@ team_prefix: ENG
 # server, a log tailer, etc. — or "" to leave a plain shell. A profile can
 # override this (see profiles below). Restore the old default with `lazygit`.
 # companion_command: gitui
-#
-# Compose two tools in one pane by splitting it first — e.g. gitui on top
-# (focused) + a plain shell below, 70/30 (gitui bigger). The split runs in the
-# companion's own tmux session, so it never touches the Claude pane. `-v` stacks
-# below, `-d` keeps gitui focused, `-l 30%` sizes the bottom shell (gitui keeps
-# 70%), `-c "#{pane_current_path}"` opens it in the worktree dir:
-# companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}"; GIT_OPTIONAL_LOCKS=0 gitui'
+
+# Panes started beside the companion when a space first shows in the TUI, each
+# in a framed pane of its own. split is right or down (default down); size is
+# cells or a share of the companion column. A profile's own companion_splits
+# replaces this list. A split you close stays closed.
+# companion_splits:
+#   - name: shell
+#     command: ""
+#     split: down
+#     size: 30%
 
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.

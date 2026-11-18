@@ -65,14 +65,25 @@ def log_debug(message: str, data: Any = None) -> None:
             f.write(f"  Data: {json.dumps(data, indent=2)}\n")
 
 
-# Get workspace name from cwd (assumes worktree naming convention)
+def _qualify(repo_name: str, name: str) -> str:
+    # branch names may carry a slash (user/TICKET-1); keep the status file flat
+    return f"{repo_name}-{name}".replace("/", "-")
+
+
 def get_workspace_name(cwd: Optional[str] = None) -> str:
+    """The status file name: the space key, or the main checkout's branch,
+    qualified by repo. Two repos can have spaces with the same key, and all of
+    them write to one status directory. Mirrors hookStatusKey() in
+    source/claude-status.ts."""
+    # The session's repo, set by start-agent-session.sh and the TUI. It is the
+    # name the TUI reads under, which the cwd-derived name can differ from.
+    repo = os.environ.get("PAPPARDELLE_REPO", "").strip()
     # The space this pane belongs to, set on the tmux session by
     # start-agent-session.sh. It wins over the cwd: a Claude resumed from
     # another directory inside the pane still reports under the space shown.
     space = os.environ.get("PAPPARDELLE_SPACE", "").strip()
     if space:
-        return space
+        return _qualify(repo, space) if repo else space
     if cwd is None:
         try:
             cwd = os.getcwd()
@@ -81,11 +92,10 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
     # Expected path: ~/.worktrees/stardust-labs/STA-123/...
     issue_key = find_issue_key(cwd)
     if issue_key:
-        return issue_key
+        return _qualify(repo, issue_key) if repo else issue_key
 
     # No issue key found — likely the main worktree. Detect branch name via git
-    # and qualify with repo name to avoid collisions across repos
-    # (e.g. "stardust-labs-master" instead of just "master").
+    # and qualify with repo name (e.g. "stardust-labs-master").
     try:
         branch_result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -97,7 +107,8 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
         if branch_result.returncode == 0:
             branch = branch_result.stdout.strip()
             if branch:
-                # Try to get repo name from git toplevel
+                if repo:
+                    return _qualify(repo, branch)
                 try:
                     toplevel_result = subprocess.run(
                         ["git", "rev-parse", "--show-toplevel"],
@@ -109,9 +120,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
                     if toplevel_result.returncode == 0:
                         repo_name = os.path.basename(toplevel_result.stdout.strip())
                         if repo_name:
-                            # branch names may carry a slash (user/TICKET-1);
-                            # keep the status file flat
-                            return f"{repo_name}-{branch}".replace("/", "-")
+                            return _qualify(repo_name, branch)
                 except Exception:
                     pass
                 # Fall back to branch only if we can't determine repo name

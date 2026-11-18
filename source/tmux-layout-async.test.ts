@@ -39,7 +39,7 @@ test('zoom reconciliation waits for geometry without blocking other work or togg
 			zoomed = !zoomed;
 			mutations.push(args);
 		}
-		return `%fixture ${zoomed ? 160 : 30} 50 160 50 ${Number(zoomed)}`;
+		return `%fixture ${zoomed ? 160 : 30} 50 160 50 ${Number(zoomed)} ${zoomed ? 159 : 29}`;
 	};
 	const layout = {
 		listPaneId: '%fixture',

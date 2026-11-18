@@ -8,6 +8,10 @@ const helpText = `
 	  $ pappardelle highlight <issue-key> [--focus]
 	  $ pappardelle send <issue-key> [text]
 	  $ pappardelle close <issue-key> [--yes]
+	  $ pappardelle send <issue-key> --keys <key>...
+	  $ pappardelle spaces [--json]
+	  $ pappardelle read <issue-key> [--turns N] [--json]
+	  $ pappardelle companion <command...>
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
 	  $ pappardelle restart [--hard [--yes]]
 	  $ pappardelle plugin install
@@ -30,11 +34,32 @@ const helpText = `
 	                   Everything after the key is sent as is, flags
 	                   included. Reads stdin when no text is given
 	  close <key>      Close a space, same as x in the TUI
+	  send <key> --keys <key>
+	                   Press tmux key names (Escape, S-Tab, C-c) in the space's
+	                   agent session, in order, without submitting anything.
+	                   Repeat --keys for several
+	  spaces           List open spaces with status, title, PR and branch
+	                   summary (--json for the full record)
+	  read <key>       Print the last turns of a space's conversation
+	                   (--turns N, default 5; --json)
+	  screen|state|wait|answer <key>
+	                   Watch another space's agent and answer its prompts.
+	                   See pappardelle state --help
+	  queue|schedule|schedules|unschedule
+	                   Wake another space's agent later with an OS timer
+	  tui panes|focus-log
+	                   Diagnostics for the running TUIs' panes
+	  companion        Run, type into, read, resize and close panes in a
+	                   space's companion. See pappardelle companion --help
+	  mcp              Serve these commands as MCP tools over stdio. Agents
+	                   start this
+	  mcp install      Add that server to Codex, OpenCode, Antigravity and Pi.
+	                   install.sh runs this
 	  update           Update Pappardelle to the latest release (same as U)
 	  restart          Restart this repo's TUI in place
 	  restart --hard   End every agent session, then restart every TUI
-	  plugin install   Install the plugin (skills and hooks) from this checkout
-	                   into Claude Code, Codex and agy. install.sh runs this
+	  plugin install   Install the plugin (skills, hooks and MCP tools) from this
+	                   checkout into Claude Code, Codex and agy. install.sh runs this
 
 	Controls
 	  j/k or arrows  Navigate between spaces
@@ -53,6 +78,8 @@ const helpText = `
 	  --profile <name>    Use a configured profile instead of automatic selection
 	  --resume            Skip the initialization prompt when opening a space
 	  --no-resume         Enable the initialization prompt for an existing space
+	  --wait              After opening a space, wait up to 60s for its agent to
+	                      start; exit 3 if it isn't confirmed
 	  --no-layout         Don't set up tmux pane layout (run standalone)
 	  --workspace         Outer workspace root when linking a nested repository
 	  --restart-tuis      After update, restart running TUIs without asking
@@ -65,10 +92,13 @@ const helpText = `
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
+	  $ pappardelle --resume --wait STA-313  # Reopen, then wait for its agent
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle highlight main --focus  # Jump to the sous-chef's agent pane
 	  $ pappardelle send 313 "fix the failing tests"  # Prompt STA-313's agent
+	  $ pappardelle send 313 --keys Escape  # Interrupt STA-313's agent
 	  $ pappardelle close STA-313 --yes  # Close STA-313 without asking
+	  $ pappardelle companion hunk diff --watch  # Show a diff in this space's companion
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
 	  $ pappardelle restart --hard  # End agent sessions, restart every TUI
@@ -86,6 +116,7 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 		flags: {
 			profile: {type: 'string'},
 			resume: {type: 'boolean'},
+			wait: {type: 'boolean'},
 			workspace: {type: 'string'},
 			layout: {
 				type: 'boolean',
@@ -105,6 +136,16 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 			},
 			focus: {
 				type: 'boolean',
+			},
+			keys: {
+				type: 'string',
+				isMultiple: true,
+			},
+			json: {
+				type: 'boolean',
+			},
+			turns: {
+				type: 'number',
 			},
 		},
 	});
@@ -162,6 +203,23 @@ const subcommands = {
 	  --no-restart-tuis   Leave running TUIs alone and print a hint
 `,
 	},
+	mcp: {
+		usage: 'pappardelle mcp [install]',
+		flags: [],
+		help: `
+	Usage
+	  $ pappardelle mcp
+	  $ pappardelle mcp install
+
+	mcp serves Pappardelle's commands as MCP tools over stdio, for the session
+	that started it. Agents start this, so you shouldn't need to. Outside a repo
+	with a .pappardelle.yml it serves no tools.
+
+	mcp install adds that server to each of Codex, OpenCode, Antigravity and Pi
+	that is installed, and auto-approves its companion tools where the agent asks
+	first. install.sh runs this. Claude Code gets both from the plugin.
+`,
+	},
 	'plugin install': {
 		usage: 'pappardelle plugin install',
 		flags: [],
@@ -169,8 +227,8 @@ const subcommands = {
 	Usage
 	  $ pappardelle plugin install
 
-	Installs the Pappardelle plugin (skills and hooks) from this checkout into
-	Claude Code, Codex and agy, skipping any that isn't installed.
+	Installs the Pappardelle plugin (skills, hooks and MCP tools) from this
+	checkout into Claude Code, Codex and agy, skipping any that isn't installed.
 	  Claude Code: points pappardelle-marketplace at the checkout; it loads the
 	    plugin in place, so edits take effect after /reload-plugins. Removes
 	    the hooks older installs merged into ~/.claude/settings.json.
@@ -184,13 +242,41 @@ const subcommands = {
 
 // The prompt is read from raw argv because meow would pull anything
 // flag-shaped out of it.
+// Only --keys and --force right after the key are flags, so a prompt that
+// mentions them later on is still sent as text.
 export function parseSendArgs(argv: readonly string[]): {
 	key?: string;
 	text: string;
+	keys: string[];
+	force: boolean;
 } {
-	const [key, ...text] = argv.slice(argv.indexOf('send') + 1);
-	if (key === undefined || key.startsWith('-')) return {text: ''};
-	return {key, text: text.join(' ')};
+	const [key, ...rest] = argv.slice(argv.indexOf('send') + 1);
+	if (key === undefined || key.startsWith('-'))
+		return {text: '', keys: [], force: false};
+	const keys: string[] = [];
+	let force = false;
+	for (;;) {
+		if (rest[0] === '--force') {
+			rest.shift();
+			force = true;
+		} else if (rest[0] === '--keys' || rest[0]?.startsWith('--keys=')) {
+			const flag = rest.shift()!;
+			const value = flag === '--keys' ? rest.shift() : flag.slice(7);
+			if (value) keys.push(value);
+		} else {
+			break;
+		}
+	}
+
+	// A --force typed after the text is still the flag; text that really ends
+	// in --force goes on stdin. One inside the text is text.
+	const trailing = rest.length > 1 && rest.at(-1) === '--force';
+	return {
+		key,
+		text: (trailing ? rest.slice(0, -1) : rest).join(' '),
+		keys,
+		force: force || trailing,
+	};
 }
 
 export type SubcommandGate =
@@ -219,6 +305,18 @@ export function subcommandGate(argv: readonly string[]): SubcommandGate {
 	if (
 		name === 'plugin install' &&
 		argv.filter(arg => !arg.startsWith('-')).join(' ') !== 'plugin install'
+	) {
+		return {
+			action: 'reject',
+			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: ${usage}`,
+		};
+	}
+
+	if (
+		name === 'mcp' &&
+		!['mcp', 'mcp install'].includes(
+			argv.filter(arg => !arg.startsWith('-')).join(' '),
+		)
 	) {
 		return {
 			action: 'reject',

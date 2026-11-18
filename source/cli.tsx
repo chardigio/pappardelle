@@ -18,6 +18,7 @@ import {
 	exactSessionTarget,
 	isInTmux,
 	outerSessionName,
+	sendKeysToSpaceAgent,
 	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
@@ -67,9 +68,12 @@ import {
 	runCloseCommand,
 	runCloseTeardown,
 } from './close-command.ts';
-import {defaultPluginInstallDeps, installPlugin} from './plugin-install.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
+import {callerFromEnv, recordSupervision} from './supervise-log.ts';
+import {isSuperviseVerb} from './supervise-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
+import {waitForAgentStart} from './agent-start.ts';
+import {hookStatusFile, hookStatusKey} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
@@ -84,8 +88,12 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
+import {resolveTargetSpace} from './space-target.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {exitAfterFlush} from './exit-after-flush.ts';
 
 const SCRIPTS_DIR = scriptsDir;
+const REARM_SCHEDULES_DELAY_MS = 5000;
 
 const gate = subcommandGate(process.argv.slice(2));
 if (gate.action === 'help') {
@@ -98,6 +106,18 @@ if (gate.action === 'reject') {
 	process.exit(2);
 }
 
+// A subcommand's modules load when it runs, so starting the TUI doesn't pay
+// for them.
+if (process.argv[2] === 'mcp' && process.argv[3] === 'install') {
+	const {defaultMcpInstallDeps, installMcpServer} =
+		await import('./mcp-install.ts');
+	process.exit(installMcpServer(defaultMcpInstallDeps()));
+}
+
+if (process.argv[2] === 'mcp') {
+	await import('./mcp-cli.ts');
+}
+
 // Hooks and config resolve from the repo root the way they do in the TUI,
 // which runs from the main checkout, not from the worktree being closed.
 if (process.argv[2] === 'close') {
@@ -106,6 +126,60 @@ if (process.argv[2] === 'close') {
 	} catch {
 		// Outside a git repo; checkConfig reports it.
 	}
+}
+
+function resolveCliSpaceKey(rawKey: string): string {
+	let config;
+	try {
+		config = loadConfig();
+	} catch {
+		config = null;
+	}
+
+	return resolveSpaceKey(
+		rawKey,
+		config ? getTeamPrefix(config) : 'STA',
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+	);
+}
+
+// Dispatched before meow, which would read the wrapped command's flags
+// (including --help) as Pappardelle's own.
+if (process.argv[2] === 'companion') {
+	const companionArgv = process.argv.slice(3);
+	const {runCompanionCommand} = await import('./companion-command.ts');
+	await exitAfterFlush(
+		await runCompanionCommand(companionArgv, {
+			resolveSpace(flag) {
+				checkConfig();
+				bootstrapRepo();
+				return resolveTargetSpace({
+					flag,
+					env: process.env,
+					resolve: resolveCliSpaceKey,
+				});
+			},
+			repoName: getRepoName,
+		}),
+	);
+}
+
+// Dispatched before meow for the same reason as `companion`: their flags
+// (--keys, --message) would otherwise be read as Pappardelle's own.
+if (isSuperviseVerb(process.argv[2])) {
+	checkConfig();
+	bootstrapRepo();
+	const [{runSuperviseCommand}, {defaultSuperviseDeps}] = await Promise.all([
+		import('./supervise-command.ts'),
+		import('./supervise-runtime.ts'),
+	]);
+	await exitAfterFlush(
+		await runSuperviseCommand(
+			process.argv.slice(2),
+			defaultSuperviseDeps(resolveCliSpaceKey),
+		),
+	);
 }
 
 const cli = parseCli();
@@ -149,6 +223,8 @@ if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
 }
 
 if (process.argv[2] === 'plugin') {
+	const {defaultPluginInstallDeps, installPlugin} =
+		await import('./plugin-install.ts');
 	process.exit(installPlugin(defaultPluginInstallDeps(pappardelleDir)));
 }
 
@@ -266,40 +342,62 @@ if (cli.input[0] === 'highlight') {
 	process.exit(0);
 }
 
-function resolveCliSpaceKey(rawKey: string): string {
-	let config;
-	try {
-		config = loadConfig();
-	} catch {
-		config = null;
-	}
-
-	return resolveSpaceKey(
-		rawKey,
-		config ? getTeamPrefix(config) : 'STA',
-		createIssueTracker().name,
-		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
-	);
-}
-
 // Handle `pappardelle send STA-XXX text` — submit a prompt to a space's agent
 if (cli.input[0] === 'send') {
-	const {key: rawKey, text: argText} = parseSendArgs(process.argv.slice(2));
+	const {
+		key: rawKey,
+		text: argText,
+		keys,
+		force,
+	} = parseSendArgs(process.argv.slice(2));
 	let text = argText;
-	if (!text && !process.stdin.isTTY) {
+	if (keys.length > 0 && text) {
+		console.error('Pass text or --keys, not both');
+		process.exit(1);
+	}
+
+	if (!text && keys.length === 0 && !process.stdin.isTTY) {
 		text = readFileSync(0, 'utf8').replace(/\n$/, '');
 	}
 
-	if (!rawKey || !text) {
+	if (!rawKey || (!text && keys.length === 0)) {
 		console.error(
-			'Usage: pappardelle send <issue-key> [text]  (or text on stdin)',
+			'Usage: pappardelle send <issue-key> [--force] [text]  (or text on stdin)\n       pappardelle send <issue-key> --keys <key> [--keys <key>]...',
 		);
 		process.exit(1);
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
 	migrateLegacyAgentSessions();
-	const result = await sendToSpaceAgent(issueKey, text);
+	const result =
+		keys.length > 0
+			? sendKeysToSpaceAgent(issueKey, keys)
+			: await sendToSpaceAgent(issueKey, text, {force});
+	recordSupervision(
+		getRepoName(),
+		callerFromEnv(process.env),
+		{
+			action: 'send',
+			key: issueKey,
+			sent: keys.join(' ') || text,
+			detail: result,
+		},
+		new Date(),
+	);
+	if (result === 'prompt') {
+		console.error(
+			`Not sent: ${issueKey} is showing a permission prompt, a question or a Codex dialog. Answer it with \`pappardelle answer ${issueKey}\`; Escape can still be pressed on a prompt or question`,
+		);
+		process.exit(1);
+	}
+
+	if (result === 'draft') {
+		console.error(
+			`Not sent: ${issueKey}'s input box has text that sending would clear. Check it with \`pappardelle screen ${issueKey}\`, or pass --force`,
+		);
+		process.exit(1);
+	}
+
 	if (result === 'no-session') {
 		const session = getSessionNames(issueKey).agent;
 		console.error(
@@ -336,6 +434,42 @@ if (cli.input[0] === 'close') {
 			{key: issueKey, yes: cli.flags.yes ?? false},
 			defaultCloseCommandDeps(),
 		),
+	);
+}
+
+if (cli.input[0] === 'spaces') {
+	const {runSpacesCommand} = await import('./spaces-command.ts');
+	await exitAfterFlush(
+		await runSpacesCommand({
+			repoName,
+			home: homedir(),
+			json: cli.flags.json ?? false,
+			out: text => console.log(text),
+		}),
+	);
+}
+
+if (cli.input[0] === 'read') {
+	const rawKey = cli.input[1];
+	if (!rawKey || cli.input.length > 2) {
+		console.error('Usage: pappardelle read <issue-key> [--turns N] [--json]');
+		process.exit(1);
+	}
+
+	const issueKey = resolveCliSpaceKey(rawKey);
+	const {runReadCommand} = await import('./read-command.ts');
+	await exitAfterFlush(
+		await runReadCommand({
+			issueKey,
+			worktree:
+				issueKey === MAIN_WORKTREE_KEY
+					? getMainRepoRoot()
+					: getWorktreePath(issueKey),
+			turns: cli.flags.turns,
+			json: cli.flags.json ?? false,
+			out: text => console.log(text),
+			err: text => console.error(text),
+		}),
 	);
 }
 
@@ -376,6 +510,20 @@ if (cli.input.length > 0) {
 			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+		waitForAgent: cli.flags.wait
+			? async (issueKey, since) =>
+					waitForAgentStart({
+						statusFile: hookStatusFile(hookStatusKey(getRepoName(), issueKey)),
+						worktree: path.join(
+							homedir(),
+							'.worktrees',
+							getRepoName(),
+							issueKey,
+						),
+						since,
+						timeoutMs: 60_000,
+					})
+			: undefined,
 	});
 
 	process.exit(status);
@@ -611,6 +759,13 @@ function finishStartup() {
 	metadata = readDisplayMetadata();
 	rerender(app());
 	void safeCheckForUpdate({projectDir: pappardelleDir}).then(finishUpdate);
+	// Wake-ups lost to a reboot can wait; loading this while the first
+	// workspace attaches would hold that up.
+	setTimeout(() => {
+		void import('./supervise-runtime.ts').then(({rearmSchedules}) => {
+			rearmSchedules();
+		});
+	}, REARM_SCHEDULES_DELAY_MS);
 }
 const app = () => (
 	<App

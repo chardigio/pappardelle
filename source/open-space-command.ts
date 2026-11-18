@@ -16,6 +16,8 @@ export interface OpenSpaceCommandOptions {
 	profileName?: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
+	/** Resolves false when the space's agent didn't start after `since`. */
+	waitForAgent?: (issueKey: string, since: number) => Promise<boolean>;
 }
 
 async function writeOutput(
@@ -33,6 +35,7 @@ async function writeOutput(
 export async function runOpenSpaceCommand(
 	options: OpenSpaceCommandOptions,
 ): Promise<number> {
+	const since = Date.now();
 	let stdout = '';
 	let code: number | null;
 	let signal: NodeJS.Signals | null;
@@ -134,7 +137,6 @@ export async function runOpenSpaceCommand(
 
 	try {
 		await addSpace(issueKey);
-		return 0;
 	} catch (error) {
 		await writeOutput(
 			process.stderr,
@@ -142,4 +144,14 @@ export async function runOpenSpaceCommand(
 		);
 		return 1;
 	}
+
+	if (options.waitForAgent && !(await options.waitForAgent(issueKey, since))) {
+		await writeOutput(
+			process.stderr,
+			`${issueKey} is open, but its agent was not confirmed to start\n`,
+		);
+		return 3;
+	}
+
+	return 0;
 }
