@@ -138,7 +138,8 @@ export const SPACE_HELP = `
 	  0  Printed
 	  1  No such space, or not in a space and no key given
 	  2  Usage
-	  3  A state store could not be read
+	  3  A state store could not be read. space list still prints the
+	     spaces it could read and names each one it could not
 `;
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
