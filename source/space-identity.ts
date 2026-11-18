@@ -116,6 +116,30 @@ export function worktreePathFor(
 	return path.join(worktreesDir(home, repoName), key);
 }
 
+export type WorktreePathLookup = {kind: 'path'; path: string} | Unreadable;
+
+/**
+ * Where a space's worktree is: the one stored for it, else where a new space
+ * gets its worktree. idow creates it there, and a space closed before its
+ * identity was stored has it there.
+ */
+export function spaceWorktreePath(
+	identities: Pick<SpaceIdentityDao, 'get'>,
+	home: string,
+	repo: string,
+	key: string,
+): WorktreePathLookup {
+	const lookup = identities.get(key);
+	if (lookup.kind === 'unreadable') return lookup;
+	return {
+		kind: 'path',
+		path:
+			lookup.kind === 'identity'
+				? lookup.identity.worktreePath
+				: worktreePathFor(home, repo, key),
+	};
+}
+
 /** What a space created by idow with today's defaults is called. */
 export type IdentityDefaults = {
 	repo: string;

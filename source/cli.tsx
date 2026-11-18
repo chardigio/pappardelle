@@ -6,7 +6,7 @@ import {
 	startupSessionEnvArgs,
 } from './startup-trace.ts';
 import {execSync, spawnSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
+import {existsSync, readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
@@ -86,7 +86,11 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
+import {
+	newSpaceIdentity,
+	protectedSessionNames,
+	spaceWorktreePath,
+} from './space-identity.ts';
 import {statusSocket} from './program-status-monitor.ts';
 import {resolveTargetSpace} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -526,14 +530,25 @@ if (cli.input.length > 0) {
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
 
+	// A space reopened by key resumes its conversation. Its worktree may have
+	// no stored identity: it closed before identities were stored.
+	const worktreeOnDisk = (key: string | null) => {
+		if (!key) return false;
+		const found = spaceWorktreePath(
+			daos.spaceIdentities,
+			homedir(),
+			getRepoName(),
+			key,
+		);
+		return found.kind === 'path' && existsSync(found.path);
+	};
+
 	const status = await runOpenSpaceCommand({
 		command: path.join(SCRIPTS_DIR, 'idow'),
 		prompt: finalPrompt,
 		issueKey: normalizedIssueKey,
 		profileName: cli.flags.profile,
-		resume:
-			cli.flags.resume ??
-			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
+		resume: cli.flags.resume ?? worktreeOnDisk(normalizedIssueKey),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), {
 			mainRepoRoot: getMainRepoRoot(),

@@ -4,7 +4,7 @@
 import {homedir} from 'node:os';
 import {parseArgs} from 'node:util';
 import {statusSocket} from './program-status-monitor.ts';
-import {newSpaceIdentity, worktreePathFor} from './space-identity.ts';
+import {newSpaceIdentity, spaceWorktreePath} from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
@@ -96,13 +96,14 @@ const verbs: Record<string, Verb> = {
 		const {repo} = values;
 		if (!repo || !key || positionals.length !== 1)
 			return usage('worktree-path needs --repo <name> and one space key');
-		const lookup = createStateDaos({repo}).spaceIdentities.get(key);
-		if (lookup.kind === 'unreadable') throw lookup.error;
-		console.log(
-			lookup.kind === 'identity'
-				? lookup.identity.worktreePath
-				: worktreePathFor(homedir(), repo, key),
+		const lookup = spaceWorktreePath(
+			createStateDaos({repo}).spaceIdentities,
+			homedir(),
+			repo,
+			key,
 		);
+		if (lookup.kind === 'unreadable') throw lookup.error;
+		console.log(lookup.path);
 		return 0;
 	},
 
