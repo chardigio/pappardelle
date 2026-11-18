@@ -31,6 +31,10 @@ export interface SpaceIdentityDao {
 	list(): SpaceIdentityList;
 	/** The space whose worktree holds `path`, compared by file identity (`sameFile`). */
 	atPath(path: string): SpaceIdentityLookup;
+	/**
+	 * Store a new space's identity. A key that has one keeps it: its sessions
+	 * may still run under those names.
+	 */
 	record(identity: SpaceIdentity): Promise<void>;
 }
 
