@@ -4,9 +4,11 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
+import {testState} from '../test/helpers/state.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {parseCompanionArgs} from './companion-args.ts';
 import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
+import {runSpaceCommand} from './space-command.ts';
 import {encodeCursor} from './space-watch.ts';
 import {parseSuperviseArgs} from './supervise-args.ts';
 
@@ -120,6 +122,47 @@ test('spaces_list and space_read ask for JSON', t => {
 		positional: ['read', 'STA-1'],
 		flags: {json: true, turns: 3},
 	});
+});
+
+test('space_get maps onto space get, and all onto space list', async t => {
+	const outputs: string[] = [];
+	const errors: string[] = [];
+	const state = testState(t);
+	await state.daos.registry.add('STA-1');
+	await state.daos.spaceState.write('STA-1', {profile: 'dev'});
+	const run = async (input: Record<string, unknown>) => {
+		const [, ...argv] = call('space_get', input).args;
+		return runSpaceCommand(argv, {
+			repo: () => state.repo,
+			mainRoot: () => '/repo',
+			daos: () => state.daos,
+			home: '/home/u',
+			env: {PAPPARDELLE_SPACE: 'STA-1'},
+			cwd: '/',
+			runner: () => ({status: 1, stdout: ''}),
+			gitBranch: async () => null,
+			resolveKey: raw => raw,
+			out: text => outputs.push(text),
+			err: text => errors.push(text),
+		});
+	};
+
+	t.is(await run({field: 'profile'}), 0);
+	t.is(await run({space: 'STA-1', field: 'tmux.agentTarget'}), 0);
+	t.is(await run({}), 0);
+	t.is(await run({all: true}), 0);
+	t.deepEqual(outputs.slice(0, 2), ['dev', '=agent-repo-STA-1:']);
+	t.like(JSON.parse(outputs[2]!), {key: 'STA-1', profile: 'dev'});
+	t.deepEqual(
+		(JSON.parse(outputs[3]!) as Array<{key: string}>).map(each => each.key),
+		['main', 'STA-1'],
+	);
+	t.deepEqual(errors, []);
+});
+
+test('space_get refuses all together with a space or a field', t => {
+	t.throws(() => call('space_get', {all: true, space: 'STA-1'}));
+	t.throws(() => call('space_get', {all: true, field: 'profile'}));
 });
 
 test('space_highlight passes focus on only when asked', t => {

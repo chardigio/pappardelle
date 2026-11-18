@@ -87,6 +87,7 @@ export const AUTO_APPROVED_TOOLS = [
 	'companion_close',
 	'companion_list',
 	'companion_width',
+	'space_get',
 	'space_send',
 	'space_screen',
 	'space_state',
@@ -238,6 +239,44 @@ export const MCP_TOOLS: readonly McpTool[] = [
 		readOnly: true,
 		inputSchema: {},
 		toCli: () => ({args: ['spaces', '--json']}),
+	}),
+	defineTool({
+		name: 'space_get',
+		description:
+			'What Pappardelle knows about a space: phase, issue title, worktree path, branch, profile, recorded agent session ids, tmux socket, session names and targets, pane ids, PR, pipeline and status. Use it rather than building session names or paths from the key. all lists the main space and every open space',
+		readOnly: true,
+		inputSchema: {
+			space,
+			field: z
+				.string()
+				.optional()
+				.describe(
+					'One field to return, such as profile, tmux.agentTarget or status.status',
+				),
+			all: z
+				.boolean()
+				.optional()
+				.describe('Every space instead of one. Takes no space or field'),
+		},
+		toCli({space, field, all}) {
+			if (all) {
+				if (space !== undefined || field !== undefined)
+					throw new Error(
+						'all lists every space, so it takes no space or field',
+					);
+				return {args: ['space', 'list', '--json']};
+			}
+
+			return {
+				args: [
+					'space',
+					'get',
+					...(space === undefined ? [] : [space]),
+					'--json',
+					...(field === undefined ? [] : [`--field=${field}`]),
+				],
+			};
+		},
 	}),
 	defineTool({
 		name: 'space_read',
