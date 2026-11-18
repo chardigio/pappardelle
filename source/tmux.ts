@@ -1517,11 +1517,8 @@ export function cleanupOrphanedInnerSessions(
 		}
 
 		forgetProgramStatus(
-			new Set(
-				orphans
-					.map(orphan => orphan.owner)
-					.filter(owner => !failedOwners.has(owner)),
-			),
+			new Set(orphans.map(orphan => orphan.owner)),
+			failedOwners,
 		);
 		return killed;
 	} catch {
@@ -1530,18 +1527,24 @@ export function cleanupOrphanedInnerSessions(
 }
 
 /**
- * Drop the program status of the spaces whose sessions were reaped. Closed
- * identities are kept, so a reaped session is named by one unless its space
- * was closed before identities were stored.
+ * Drop the program status of the spaces whose sessions were reaped, unless
+ * one of a space's sessions survived its kill. Closed identities are kept, so
+ * a reaped session is named by one unless its space was closed before
+ * identities were stored.
  */
-function forgetProgramStatus(owners: ReadonlySet<string>): void {
-	if (owners.size === 0) return;
+function forgetProgramStatus(
+	reaped: ReadonlySet<string>,
+	failed: ReadonlySet<string>,
+): void {
+	if (reaped.size === 0) return;
 	const listed = spaceIdentities().list();
 	if (listed.kind === 'unreadable') return;
 	for (const identity of listed.identities) {
+		const {agentSession, companionSession} = identity.tmux;
 		if (
-			owners.has(identity.tmux.agentSession) ||
-			owners.has(identity.tmux.companionSession)
+			(reaped.has(agentSession) || reaped.has(companionSession)) &&
+			!failed.has(agentSession) &&
+			!failed.has(companionSession)
 		)
 			void programStatus().remove(identity.key);
 	}
