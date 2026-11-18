@@ -111,6 +111,7 @@ function harness(dialog: Dialog) {
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
+		identities: {list: () => ({kind: 'identities', identities: []})},
 		resolveKey: raw => raw,
 		hookKey: async key => key,
 		readHook: async () => ({status: 'unknown'}),

@@ -4,7 +4,6 @@ import {join} from 'node:path';
 import test from 'ava';
 import {
 	getSessionNames,
-	extractIssueKeyFromSession,
 	getSessionPrefix,
 	pretrustDirectoryForClaude,
 	buildAgentResumeCommand,
@@ -42,39 +41,6 @@ test('getSessionNames works with different repo names', t => {
 	const names = getSessionNames('STA-100', 'stardust-labs');
 	t.is(names.agent, 'agent-stardust-labs-STA-100');
 	t.is(names.companion, 'companion-stardust-labs-STA-100');
-});
-
-// extractIssueKeyFromSession: strips repo-qualified prefix
-test('extractIssueKeyFromSession strips repo prefix from agent session', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-pappa-chex-CHEX-313', 'pappa-chex'),
-		'CHEX-313',
-	);
-});
-
-test('extractIssueKeyFromSession strips repo prefix from main session', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-pappa-chex-main', 'pappa-chex'),
-		'main',
-	);
-});
-
-test('extractIssueKeyFromSession returns null for non-matching session', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-other-repo-STA-100', 'pappa-chex'),
-		null,
-	);
-});
-
-test('extractIssueKeyFromSession returns null for bare agent prefix', t => {
-	t.is(extractIssueKeyFromSession('agent-CHEX-313', 'pappa-chex'), null);
-});
-
-test('extractIssueKeyFromSession returns null for legacy claude prefix', t => {
-	t.is(
-		extractIssueKeyFromSession('claude-pappa-chex-CHEX-313', 'pappa-chex'),
-		null,
-	);
 });
 
 // pretrustDirectoryForClaude: workspace trust management
@@ -277,33 +243,28 @@ test('getSessionNames encodes the dot in a beads child ID', t => {
 	t.is(names.companion, 'companion-pappa-bd-a3f8e9_1');
 });
 
-test('extractIssueKeyFromSession decodes a beads child ID', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-pappa-bd-a3f8e9_1', 'pappa'),
-		'bd-a3f8e9.1',
-	);
-});
-
 test('session-name encoding survives an underscore in the key', t => {
 	// A beads prefix defaults to the repo directory name, so my_service-a1b2 is
 	// an ordinary ID. Decoding every '_' to '.' would hand back my.service-a1b2.
 	const {agent} = getSessionNames('my_service-a1b2', 'pappa');
 	t.is(agent, 'agent-pappa-my__service-a1b2');
-	t.is(extractIssueKeyFromSession(agent, 'pappa'), 'my_service-a1b2');
 });
 
-test('session-name encoding round-trips every tracker key shape', t => {
-	for (const key of [
+test('every tracker key shape gets a session name of its own', t => {
+	// Two spaces sharing a name would share their sessions, and the identity
+	// store refuses the second.
+	const keys = [
 		'STA-123',
 		'bd-a1b2',
 		'bd-a3f8e9.1',
+		'bd-a3f8e9_1',
 		'bd-a3f8e9.1.2',
 		'my_service-a1b2',
+		'my.service-a1b2',
 		'my_service-a3f8e9.1',
-	]) {
-		const {agent} = getSessionNames(key, 'pappa');
-		t.is(extractIssueKeyFromSession(agent, 'pappa'), key);
-	}
+	];
+	const names = new Set(keys.map(key => getSessionNames(key, 'pappa').agent));
+	t.is(names.size, keys.length);
 });
 
 // buildAgentResumeCommand: non-claude agents

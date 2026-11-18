@@ -12,6 +12,7 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
 import {testTmuxState} from '../test/helpers/state.ts';
+import {sessionNamesFor} from './space-identity.ts';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
@@ -33,6 +34,16 @@ test.before(() => {
 test.after.always(() => {
 	for (const teardown of stateTeardowns) teardown();
 });
+
+/** The stored session names of these spaces and main, as idow names them. */
+function stored(keys: string[] = [], repo = 'repo'): Set<string> {
+	return new Set(
+		['main', ...keys].flatMap(key => {
+			const names = sessionNamesFor(key, repo);
+			return [names.agent, names.companion];
+		}),
+	);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');
@@ -401,7 +412,7 @@ test('cleanupOrphanedInnerSessions returns 0 when no sessions match', t => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: 'pappardelle-repo\nsome-other-session\n',
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
 	t.is(calls.length, 1);
 	t.deepEqual(calls[0], ['list-sessions', '-F', '#{session_name}']);
 });
@@ -411,7 +422,7 @@ test('cleanupOrphanedInnerSessions returns 0 when list-sessions errors', t => {
 		listSessionsStatus: 1,
 		listSessionsStdout: '',
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
 	t.is(calls.length, 1);
 });
 
@@ -419,7 +430,7 @@ test('cleanupOrphanedInnerSessions returns 0 when list-sessions throws', t => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsError: new Error('tmux not found'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
 	t.is(calls.length, 1);
 });
 
@@ -431,7 +442,7 @@ test('cleanupOrphanedInnerSessions keeps the splits of a registered space and re
 			'companion-repo-main~logs',
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 1);
+	t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 1);
 	t.deepEqual(
 		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
 		['=companion-repo-STA-999~tests:'],
@@ -451,7 +462,7 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 			'pappardelle-repo', // outer root → keep
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 2);
+	t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 2);
 
 	const killed = calls
 		.filter(c => c[0] === 'kill-session')
@@ -469,7 +480,10 @@ test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as 
 		].join('\n'),
 	});
 	t.is(
-		cleanupOrphanedInnerSessions(new Set(), 'proj', runner, ['proj', 'proj-x']),
+		cleanupOrphanedInnerSessions(stored([], 'proj'), 'proj', runner, [
+			'proj',
+			'proj-x',
+		]),
 		1,
 	);
 	t.deepEqual(
@@ -486,7 +500,10 @@ test('cleanupOrphanedInnerSessions knows a sibling repo by its tmux spelling', t
 		].join('\n'),
 	});
 	t.is(
-		cleanupOrphanedInnerSessions(new Set(), 'a.b', runner, ['a.b', 'a_b-c']),
+		cleanupOrphanedInnerSessions(stored([], 'a.b'), 'a.b', runner, [
+			'a.b',
+			'a_b-c',
+		]),
 		1,
 	);
 	t.deepEqual(
@@ -495,20 +512,20 @@ test('cleanupOrphanedInnerSessions knows a sibling repo by its tmux spelling', t
 	);
 });
 
-test('cleanupOrphanedInnerSessions decodes encoded keys before matching the registry', t => {
-	// Session names carry the '.'/'_' encoding; the registry holds keys as the
-	// tracker spells them. Comparing raw reaped every beads child issue and every
-	// underscored prefix out from under its live worktree on startup.
+test('cleanupOrphanedInnerSessions keeps a stored session whatever its name, and what it owns', t => {
+	// The names are stored when a space is created, so a kept session is found
+	// by its name, never by a key read back out of it.
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
-			'claude-repo-bd-a3f8e9_1', // registered as bd-a3f8e9.1 → keep
-			'companion-repo-my__service-a1b2', // registered as my_service-a1b2 → keep
-			'claude-repo-bd-dead_9', // orphan → kill
+			'agent-repo-hand.named', // stored → keep
+			'claude-repo-hand.named', // its legacy name → keep
+			'companion-repo-other~tests', // a split of a stored companion → keep
+			'agent-repo-bd-a3f8e9_1', // the encoding of a key no row names → kill
 		].join('\n'),
 	});
 	t.is(
 		cleanupOrphanedInnerSessions(
-			new Set(['bd-a3f8e9.1', 'my_service-a1b2']),
+			new Set(['agent-repo-hand.named', 'companion-repo-other']),
 			'repo',
 			runner,
 		),
@@ -516,7 +533,14 @@ test('cleanupOrphanedInnerSessions decodes encoded keys before matching the regi
 	);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['=claude-repo-bd-dead_9:']);
+	t.deepEqual(killed, ['=agent-repo-bd-a3f8e9_1:']);
+});
+
+test('cleanupOrphanedInnerSessions reaps main once main is not among the stored names', t => {
+	const {runner} = makeFakeRunner({
+		listSessionsStdout: ['agent-repo-main', 'companion-repo-main'].join('\n'),
+	});
+	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
 });
 
 test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {
@@ -533,7 +557,7 @@ test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1
 			'pappardelle-repo', // outer root → keep
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', runner), 1);
+	t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 1);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
 	t.deepEqual(killed, ['=lazygit-repo-STA-999:']);
@@ -544,7 +568,7 @@ test('cleanupOrphanedInnerSessions never touches main-worktree sessions', t => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: ['claude-repo-main', 'companion-repo-main'].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 0);
+	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
 	const killAttempts = calls.filter(c => c[0] === 'kill-session');
 	t.is(killAttempts.length, 0);
 });
@@ -559,7 +583,7 @@ test('cleanupOrphanedInnerSessions counts only successful kills', t => {
 		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 orphans (empty registry), 1 kill fails → return 2.
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 2);
+	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 2);
 });
 
 test('cleanupOrphanedInnerSessions handles a partial pair (only claude or companion)', t => {
@@ -568,7 +592,7 @@ test('cleanupOrphanedInnerSessions handles a partial pair (only claude or compan
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: ['claude-repo-STA-999'].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(new Set(), 'repo', runner), 1);
+	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 1);
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
 	t.deepEqual(killed, ['=claude-repo-STA-999:']);
 });
@@ -678,7 +702,7 @@ test('startup maintenance lists the inner sessions once when the migration chang
 
 	t.is(migrateLegacyAgentSessions('repo', shared, ['repo']), 0);
 	t.is(
-		cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', shared, ['repo']),
+		cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', shared, ['repo']),
 		1,
 	);
 
@@ -695,7 +719,7 @@ test('the reaping pass sees a session the migration just renamed', t => {
 	t.is(migrateLegacyAgentSessions('repo', shared, ['repo']), 1);
 	t.deepEqual(server.sessions(), ['agent-repo-STA-9', 'agent-repo-STA-1']);
 	t.is(
-		cleanupOrphanedInnerSessions(new Set(['STA-1']), 'repo', shared, ['repo']),
+		cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', shared, ['repo']),
 		1,
 	);
 

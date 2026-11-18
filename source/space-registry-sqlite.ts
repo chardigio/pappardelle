@@ -55,7 +55,10 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
 		private readonly json: JsonSpaceRegistryDao,
-		private readonly identities: Pick<SqliteSpaceIdentityDao, 'fillMissing'>,
+		private readonly identities: Pick<
+			SqliteSpaceIdentityDao,
+			'fillMissing' | 'get'
+		>,
 		private readonly pid = process.pid,
 		private readonly isPidAlive = defaultIsPidAlive,
 	) {
@@ -167,12 +170,20 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 				return row.owner_pid === null || !this.isPidAlive(row.owner_pid);
 			});
 		if (unsettled().length === 0) return;
-		const live = deps.liveSessionKeys();
+		const live = deps.liveSessions();
 		if (!live) return;
+		const running = (key: string) => {
+			const lookup = this.identities.get(key);
+			return (
+				lookup.kind === 'identity' &&
+				(live.has(lookup.identity.tmux.agentSession) ||
+					live.has(lookup.identity.tmux.companionSession))
+			);
+		};
 		await this.change(tx => {
 			for (const row of unsettled()) {
 				// What the owner meant to do no longer matters; what exists does.
-				if (live.has(row.key)) {
+				if (running(row.key)) {
 					this.setOpen(row.key);
 				} else {
 					this.delete(row.key);

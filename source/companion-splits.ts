@@ -29,7 +29,8 @@ export function isSplitDirection(value: unknown): value is SplitDirection {
 	return value === 'right' || value === 'down';
 }
 
-// toSessionKey never produces `~`, so the space key always parses back.
+// No session name Pappardelle creates has a `~`, so a split's owner is
+// everything before the first one.
 const SEPARATOR = '~';
 
 export function splitSessionName(

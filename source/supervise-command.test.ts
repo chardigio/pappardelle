@@ -11,6 +11,7 @@ import {
 import type {ApprovalVerdict} from './approve-policy.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+import {newSpaceIdentity} from './space-identity.ts';
 import {testState} from '../test/helpers/state.ts';
 
 const fixtures = path.join(
@@ -37,6 +38,24 @@ const permission = (command: string) =>
 		'   3. No',
 		' Esc to cancel · Tab to amend',
 	].join('\n');
+
+/** Identities of these keys in repo `repo`, named as idow names them. */
+function identitiesOf(keys: () => string[]) {
+	return {
+		list: () =>
+			({
+				kind: 'identities',
+				identities: keys().map(key =>
+					newSpaceIdentity({
+						repo: 'repo',
+						key,
+						worktreePath: `/w/${key}`,
+						socket: 'pappardelle_inner',
+					}),
+				),
+			}) as const,
+	};
+}
 
 /** An agent session showing each of `screens` in turn, the last one after. */
 function harness(
@@ -80,6 +99,7 @@ function harness(
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
+		identities: identitiesOf(() => ['STA-1']),
 		resolveKey: raw => raw,
 		hookKey: async key => key,
 		readHook: async () => ({status: 'unknown'}),

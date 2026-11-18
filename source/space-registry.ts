@@ -60,8 +60,8 @@ export type ProtectedSpaces =
 export type SettleDeps = {
 	/** Closes this process is still running. */
 	closing: Pick<ReadonlySet<string>, 'has'>;
-	/** Space keys with a live tmux session, or null when tmux did not answer. */
-	liveSessionKeys: () => ReadonlySet<string> | null;
+	/** Every live inner tmux session, or null when tmux did not answer. */
+	liveSessions: () => ReadonlySet<string> | null;
 };
 
 /**
