@@ -19,6 +19,7 @@ import {
 	isInTmux,
 	outerSessionName,
 	sendKeysToSpaceAgent,
+	newOuterSessionArgs,
 	sendToSpaceAgent,
 	sessionExists,
 	setupPappardellLayout,
@@ -584,21 +585,7 @@ if (!isInTmux() && cli.flags.layout) {
 		home: homedir(),
 	});
 
-	// The rail's header already names the repo, so the user's status bar would
-	// only repeat it.
-	const tmuxArgs = [
-		'new-session',
-		'-s',
-		sessionName,
-		...startupSessionEnvArgs(),
-		cmd,
-		';',
-		'set-option',
-		'-t',
-		exactSessionTarget(sessionName),
-		'status',
-		'off',
-	];
+	const tmuxArgs = newOuterSessionArgs(repoName, startupSessionEnvArgs(), cmd);
 	outerDone?.();
 	startupTrace.current?.finish('delegated');
 	exitWithTmux(

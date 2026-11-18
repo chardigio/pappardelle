@@ -1,9 +1,15 @@
 import {execFileSync, spawnSync} from 'node:child_process';
-import {mkdtempSync, rmSync} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'ava';
-import {killSession, sessionExists} from './tmux.ts';
+import {
+	exactSessionTarget,
+	killSession,
+	newOuterSessionArgs,
+	outerSessionName,
+	sessionExists,
+} from './tmux.ts';
 
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
@@ -34,3 +40,38 @@ tmuxTest('outer session lookups ignore a longer session name', t => {
 	killSession('pappardelle-view');
 	t.true(sessionExists(viewer));
 });
+
+tmuxTest(
+	'a repo whose name reads as a tmux format still gets its own outer session, titled 🍝 <repo> even when the user turned titles off',
+	t => {
+		const dir = mkdtempSync(join(tmpdir(), 'pappardelle-tmux-'));
+		const conf = join(dir, 'tmux.conf');
+		writeFileSync(
+			conf,
+			'set -g set-titles off\nset -g set-titles-string "#h:#W"\n',
+		);
+		const tmux = (...args: string[]) =>
+			spawnSync('tmux', ['-S', join(dir, 's'), '-f', conf, ...args], {
+				encoding: 'utf8',
+			});
+		t.teardown(() => {
+			tmux('kill-server');
+			rmSync(dir, {recursive: true, force: true});
+		});
+
+		const repo = 'pasta#S';
+		// Detached, since the test has no terminal for the client.
+		const [command, ...rest] = newOuterSessionArgs(repo, [], 'sleep 30');
+		const created = tmux(command!, '-d', ...rest);
+		t.is(created.status, 0, created.stderr);
+
+		const shown = tmux(
+			'display-message',
+			'-p',
+			'-t',
+			exactSessionTarget(outerSessionName(repo)),
+			'#{session_name}|#{set-titles}|#{T:set-titles-string}',
+		);
+		t.is(shown.stdout.trim(), 'pappardelle-pasta#S|1|🍝 pasta#S');
+	},
+);
