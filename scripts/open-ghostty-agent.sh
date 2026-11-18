@@ -288,10 +288,8 @@ on run argv
     --   normal mode: agent with the skill prompt
     -- An empty resumeArgs (non-claude agent with no resume_args) launches
     -- directly with no fallback chain.
-    -- issueKey is always PROJECT-NUMBER format (safe for direct interpolation).
-    -- The TS helper and start-agent-session.sh shell-quote for defense-in-depth;
-    -- AppleScript string assembly makes quoting awkward, so we rely on caller
-    -- validation here instead.
+    -- nameFlag carries the issue key unquoted, which is safe only because
+    -- keys are always PROJECT-NUMBER format.
     --
     -- agentCommand, launchFlags, and resumeArgs are NOT interpolated into the
     -- double-quoted tmux argument — a quote or space in a config value would
@@ -318,7 +316,7 @@ on run argv
         end if
         set resumeChain to resumeAttempt & " || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
-    set agentPrefix to flagsAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "'" & agentEnv & " \"" & agentCmd & resumeChain
+    set agentPrefix to flagsAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & tmuxL & " new-session -A -s " & quoted form of tmuxSession & agentEnv & " \"" & agentCmd & resumeChain
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
@@ -336,12 +334,12 @@ on run argv
     -- (e.g. DESTDIR='/tmp') can't break out.
     set companionSession to "companion-" & (text ((length of "agent-") + 1) thru -1 of tmuxSession)
     set companionAssign to ""
-    set companionStart to tmuxL & " new-session -A -s '" & companionSession & "'"
+    set companionStart to tmuxL & " new-session -A -s " & quoted form of companionSession
     if companionCommand is not equal to "" then
         set companionAssign to "COMPANION_CMD=" & quoted form of companionCommand & "; "
         set companionStart to companionStart & " /bin/sh -c '\"$1\" -ic \"$2$(printf \"\\n:\")\"; exec \"$1\" -l' sh \"${SHELL:-/bin/sh}\" \"$COMPANION_CMD\""
     end if
-    set companionLine to companionAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & companionStart
+    set companionLine to companionAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & companionStart
 
     if printOnly is equal to "true" then
         return agentLine & linefeed & companionLine

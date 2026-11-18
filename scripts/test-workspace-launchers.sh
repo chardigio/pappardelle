@@ -11,7 +11,7 @@
 #
 # The AppleScript pair assemble inside osascript, so --print-command runs the
 # real thing rather than a bash-side reimplementation. osascript is macOS-only,
-# so CI runs only the portable prompt test that precedes it.
+# so CI runs only the portable prompt and worktree path tests that precede it.
 #
 # Usage: ./test-workspace-launchers.sh
 
@@ -84,6 +84,33 @@ SHIM
     assert_eq "nothing in the prompt ran" "no" "$([[ -e "$PROMPT_TMP/pwned" ]] && echo yes || echo no)"
     rm -rf "$PROMPT_TMP"
 done
+
+# Runs anywhere: both default-terminal pane lines, executed with tmux swapped
+# for a shim, cd into a worktree whose path holds quotes and a $(), title the
+# pane with the key and name the session after a repo with a quote, without
+# running any of the path.
+echo -e "${BOLD}Test: worktree path and repo name survive the pane shell${RESET}"
+PATH_TMP=$(mktemp -d)
+mkdir -p "$PATH_TMP/bin"
+PATH_WT="$PATH_TMP/o'brien \$(touch $PATH_TMP/pwned) it's \"wt\""
+mkdir -p "$PATH_WT"
+cat > "$PATH_TMP/bin/tmux" <<SHIM
+#!/bin/bash
+printf '%s\n' "\$PWD" >> "$PATH_TMP/pwd"
+printf '%s\n' "\$6" >> "$PATH_TMP/session"
+SHIM
+chmod +x "$PATH_TMP/bin/tmux"
+{ read -r AGENT_PANE_LINE; read -r COMPANION_PANE_LINE; } < <("$SCRIPT_DIR/open-default-terminal-agent.sh" \
+    --worktree "$PATH_WT" --issue-key QA-1 --repo-name "bob's-app" --companion-command "" --prompt "" --print-command)
+assert_eq "agent pane is titled with the key" "$(printf '\033]0;QA-1\007')" \
+    "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$AGENT_PANE_LINE" 2>&1)"
+assert_eq "companion pane is titled with the key" "$(printf '\033]0;QA-1\007')" \
+    "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$COMPANION_PANE_LINE" 2>&1)"
+assert_eq "both panes start in the worktree" "$PATH_WT"$'\n'"$PATH_WT" "$(cat "$PATH_TMP/pwd" 2>/dev/null)"
+assert_eq "sessions are named after the repo" "agent-bob's-app-QA-1"$'\n'"companion-bob's-app-QA-1" \
+    "$(cat "$PATH_TMP/session" 2>/dev/null)"
+assert_eq "nothing in the path ran" "no" "$([[ -e "$PATH_TMP/pwned" ]] && echo yes || echo no)"
+rm -rf "$PATH_TMP"
 
 if ! command -v osascript >/dev/null 2>&1; then
     echo "SKIP (no osascript — macOS only)"
@@ -221,6 +248,13 @@ assert_eq "companion command containing a single quote" \
 assert_eq "companion command containing a single quote (default)" \
     "$(iterm --prompt "" --companion-command "DESTDIR='/tmp' make" --print-command)" \
     "$(default_term --prompt "" --companion-command "DESTDIR='/tmp' make" --print-command)"
+
+assert_eq "worktree path and repo name containing quotes" \
+    "$(iterm --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)" \
+    "$(ghostty --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)"
+assert_eq "worktree path and repo name containing quotes (default)" \
+    "$(iterm --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)" \
+    "$(default_term --worktree "/tmp/o'brien wt" --repo-name "bob's-app" --prompt "" --print-command)"
 
 # --window-id only steers which Ghostty window receives the tab; it must not
 # leak into the shell the panes run.
