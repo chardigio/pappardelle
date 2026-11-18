@@ -10,7 +10,7 @@
 // which counts each emoji code point. No JS width table matches both.
 
 import type {WidthMethod} from '@opentui/core';
-import {displayWidth} from './text-measure.ts';
+import {displayWidth, displayWidths} from './text-measure.ts';
 
 // Grapheme stepping so a VS16 / ZWJ emoji (⚙️ = U+2699 U+FE0F, 👨‍👩‍👧) is measured
 // and cut as one unit rather than split mid-cluster.
@@ -38,10 +38,15 @@ function cutToWidth(
 	maxCells: number,
 	widthMethod: WidthMethod,
 ): string {
+	const graphemes = Array.from(
+		graphemeSegmenter.segment(text),
+		({segment}) => segment,
+	);
+	const widths = displayWidths(graphemes, widthMethod);
 	let result = '';
 	let width = 0;
-	for (const {segment} of graphemeSegmenter.segment(text)) {
-		const segmentWidth = displayWidth(segment, widthMethod);
+	for (const [index, segment] of graphemes.entries()) {
+		const segmentWidth = widths[index]!;
 		if (width + segmentWidth > maxCells) break;
 		result += segment;
 		width += segmentWidth;
@@ -61,7 +66,10 @@ export function truncateRunsToWidth<Run extends {text: string}>(
 	widthMethod: WidthMethod,
 ): Run[] {
 	if (maxCells <= 0) return [];
-	const widths = runs.map(run => displayWidth(run.text, widthMethod));
+	const widths = displayWidths(
+		runs.map(run => run.text),
+		widthMethod,
+	);
 	const total = widths.reduce((sum, width) => sum + width, 0);
 	if (total <= maxCells) return runs;
 

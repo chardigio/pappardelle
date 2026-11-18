@@ -49,3 +49,22 @@ export function wrappedLineCount(
 export function displayWidth(text: string, widthMethod: WidthMethod): number {
 	return measure(text, widthMethod, null).lineInfo.lineWidthColsMax;
 }
+
+// OpenTUI starts a new line at each of these.
+const lineBreak = /\r\n|\r|\n/;
+
+/** `displayWidth` of each of `texts`, from one layout. */
+export function displayWidths(
+	texts: string[],
+	widthMethod: WidthMethod,
+): number[] {
+	const textLines = texts.map(text => text.split(lineBreak));
+	const lineCells = measure(textLines.flat().join('\n'), widthMethod, null)
+		.lineInfo.lineWidthCols;
+	let start = 0;
+	return textLines.map(({length}) => {
+		const cells = lineCells.slice(start, start + length);
+		start += length;
+		return Math.max(...cells);
+	});
+}
