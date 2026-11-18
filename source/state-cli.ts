@@ -59,31 +59,31 @@ const verbs: Record<string, Verb> = {
 
 	/** `space get` and `space list` for idow, in the repo `--repo <name>` names. */
 	async space(args) {
-		const at = args.indexOf('--repo');
-		const repo = at === -1 ? undefined : args[at + 1];
-		if (!repo) return usage('space needs --repo <name>');
-		const rest = args.filter((_, index) => index !== at && index !== at + 1);
-		const [
-			{defaultSpaceCommandDeps, runSpaceCommand},
-			{getMainRepoRoot},
-			{supervisedInnerTmuxRunner},
-			{readCheckout},
-		] = await Promise.all([
-			import('./space-command.ts'),
-			import('./config.ts'),
-			import('./tmux.ts'),
-			import('./space-target.ts'),
-		]);
-		const daos = createStateDaos({repo});
+		// Every other argument is the space command's own, passed on in order.
+		const {values, tokens} = parseArgs({
+			args,
+			options: {repo: {type: 'string'}},
+			strict: false,
+			allowPositionals: true,
+			tokens: true,
+		});
+		const {repo} = values;
+		if (typeof repo !== 'string' || !repo)
+			return usage('space needs --repo <name>');
+		const repoArgs = new Set(
+			tokens.flatMap(token =>
+				token.kind === 'option' && token.name === 'repo'
+					? token.inlineValue
+						? [token.index]
+						: [token.index, token.index + 1]
+					: [],
+			),
+		);
+		const {defaultSpaceCommandDeps, runSpaceCommand} =
+			await import('./space-command.ts');
 		return runSpaceCommand(
-			rest,
-			defaultSpaceCommandDeps({
-				checkout: () =>
-					readCheckout({repoName: () => repo, mainRoot: getMainRepoRoot}),
-				daos: () => daos,
-				resolveKey: key => key,
-				runner: supervisedInnerTmuxRunner,
-			}),
+			args.filter((_, index) => !repoArgs.has(index)),
+			defaultSpaceCommandDeps({repo, resolveKey: key => key}),
 		);
 	},
 

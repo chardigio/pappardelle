@@ -29,7 +29,6 @@ import {
 	getWorktreePath,
 	getMainWorktreeInfo,
 	INNER_SOCKET,
-	supervisedInnerTmuxRunner,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -87,11 +86,7 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
-import {
-	readCheckout,
-	resolveTargetSpace,
-	worktreePathFor,
-} from './space-target.ts';
+import {resolveTargetSpace, worktreePathFor} from './space-target.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {exitAfterFlush} from './exit-after-flush.ts';
 
@@ -150,21 +145,12 @@ function resolveCliSpaceKey(rawKey: string): string {
 // Dispatched before meow so that `--field x` and `--field=x` both parse, and
 // so that a mistyped verb exits instead of being read as a prompt.
 if (process.argv[2] === 'space') {
-	const [{runSpaceCommand, defaultSpaceCommandDeps}, {stateDaosByRepo}] =
-		await Promise.all([
-			import('./space-command.ts'),
-			import('./state-daos.ts'),
-		]);
+	const {runSpaceCommand, defaultSpaceCommandDeps} =
+		await import('./space-command.ts');
 	await exitAfterFlush(
 		await runSpaceCommand(
 			process.argv.slice(3),
-			defaultSpaceCommandDeps({
-				checkout: () =>
-					readCheckout({repoName: getRepoName, mainRoot: getMainRepoRoot}),
-				daos: stateDaosByRepo(),
-				resolveKey: resolveCliSpaceKey,
-				runner: supervisedInnerTmuxRunner,
-			}),
+			defaultSpaceCommandDeps({resolveKey: resolveCliSpaceKey}),
 		),
 	);
 }
