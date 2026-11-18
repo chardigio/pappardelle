@@ -1,0 +1,190 @@
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {homedir} from 'node:os';
+import {rmSync, writeFileSync} from 'node:fs';
+import path from 'node:path';
+import React from 'react';
+import {render} from '../test/helpers/opentui-render.ts';
+import App from '../source/app.tsx';
+import {getRepoName} from '../source/config.ts';
+import {setRegistryPath, resetRegistryPath} from '../source/space-registry.ts';
+import {
+	createIssueTracker,
+	createVcsHost,
+	resetProviders,
+} from '../source/providers/index.ts';
+import type {TrackerIssue} from '../source/providers/types.ts';
+import {StatusHarness, until} from './program-status-harness.ts';
+
+const harness = new StatusHarness();
+const originalDirectory = process.cwd();
+const registry = path.join(harness.root, 'open-spaces.json');
+const frames: Array<{scenario: string; frame: string}> = [];
+let view: Awaited<ReturnType<typeof render>> | undefined;
+let repo: string | undefined;
+
+const issues = new Map<string, TrackerIssue>();
+function seed(count: number, reviewEvery = 0) {
+	issues.clear();
+	const keys = Array.from(
+		{length: count},
+		(_, index) => `fixture-${index + 1}`,
+	);
+	for (const [index, key] of keys.entries()) {
+		const inReview = reviewEvery > 0 && index % reviewEvery === 0;
+		issues.set(key, {
+			identifier: key,
+			title: `Rail fixture ${index + 1}`,
+			state: inReview
+				? {name: 'In Review', type: 'started', color: 'magenta'}
+				: {name: 'In Progress', type: 'started', color: 'blue'},
+		});
+	}
+
+	writeFileSync(registry, JSON.stringify(keys));
+}
+
+// App sizes the rail from stdout, which is 80x40 when it is not a terminal.
+async function mount(width = 80, height = 40) {
+	view?.unmount();
+	view = await render(
+		React.createElement(App, {
+			paneLayout: null,
+			commitSha: 'fixture',
+			installedVersion: null,
+		}),
+		{width, height},
+	);
+	return view;
+}
+
+async function expectFrame(
+	scenario: string,
+	check: (lines: string[]) => boolean,
+) {
+	const frame = await until(
+		() => view?.lastFrame() ?? '',
+		current => check(current.split('\n')),
+		scenario,
+	);
+	frames.push({scenario, frame});
+	console.log(`PASS rail boxes: ${scenario}`);
+	return frame.split('\n');
+}
+
+const topBorder = (lines: string[], title: string) =>
+	lines.findIndex(line => line.startsWith(`╭─ ${title}`));
+
+try {
+	execFileSync('git', ['init', '--quiet', harness.root]);
+	process.chdir(harness.root);
+	repo = getRepoName();
+	writeFileSync(
+		path.join(harness.root, '.pappardelle.yml'),
+		'version: 1\ndefault_profile: fixture\nlist_view:\n  group_by: status\nprofiles:\n  fixture:\n    display_name: Fixture\n    keywords: []\n',
+	);
+	setRegistryPath(registry);
+	const tracker = createIssueTracker({provider: 'beads'});
+	tracker.getIssue = async key => issues.get(key) ?? null;
+	tracker.getIssueCached = key => issues.get(key) ?? null;
+	tracker.getIssues = async keys =>
+		new Map(keys.map(key => [key, issues.get(key) ?? null]));
+	const vcs = createVcsHost();
+	vcs.getBulkRailStatus = async () => new Map();
+
+	seed(3, 3);
+	await mount();
+	const split = await expectFrame(
+		'two boxes: the workspace in the top border, spaces counted in the rail border',
+		lines =>
+			topBorder(lines, `🍝 ${repo}`) === 0 &&
+			lines.some(
+				line => line.startsWith('╭─ rail') && line.endsWith(' 3 spaces ─╮'),
+			) &&
+			lines.some(line => line.includes('fixture-3')),
+	);
+	// Frame, status row, then the sous-chef row.
+	assert.match(split[1]!, /^│\s+│$/, 'status row is reserved above the agents');
+	assert.match(split[2]!, /main/, 'agent row follows the status row');
+	assert.match(split[3]!, /^╰─+╯$/, 'workspace box closes after the agents');
+	assert.equal(topBorder(split, 'rail'), 4, 'rail box sits right below');
+	assert.ok(
+		split.some(line => line.includes('In Progress (2)')),
+		'rail box keeps the group headers',
+	);
+	assert.ok(!split.some(line => line.startsWith('├')), 'no divider');
+
+	await view!.stdin.write('/');
+	await view!.stdin.write('fixture-2');
+	const search = await expectFrame(
+		'search merges the boxes into one flat list with the match count',
+		lines =>
+			lines[0]!.endsWith(' 1 match ─╮') &&
+			topBorder(lines, 'rail') === -1 &&
+			lines.some(line => line.includes('fixture-2')),
+	);
+	assert.ok(
+		!search.some(line => line.includes('In Progress (')),
+		'search has no group headers',
+	);
+	assert.match(search[1]!, /\/ fixture-2/, 'search row leads the box');
+	await view!.stdin.write('zzz');
+	await expectFrame(
+		'no matches: the body says so and the border has no count',
+		lines =>
+			lines.some(line => line.includes('No matches.')) &&
+			/^╭─ 🍝 [^─]*─+╮$/.test(lines[0]!),
+	);
+	await view!.stdin.write('\u001B');
+	await expectFrame(
+		'escape restores both boxes',
+		lines => topBorder(lines, 'rail') > 0,
+	);
+
+	seed(60);
+	await mount();
+	await expectFrame('a long list shows its range in the rail border', lines =>
+		lines.some(line => /^╭─ rail.* 1-\d+ of 60 ─╮$/.test(line)),
+	);
+	for (let step = 0; step < 50; step++) await view!.stdin.write('j');
+	const scrolled = await expectFrame(
+		'scrolling moves the range and keeps the agent rows in view',
+		lines =>
+			lines.some(line => /^╭─ rail.* (?!1-)\d+-\d+ of 60 ─╮$/.test(line)),
+	);
+	assert.match(scrolled[2]!, /main/, 'sous-chef row stays put while scrolling');
+
+	seed(0);
+	await mount();
+	const empty = await expectFrame(
+		'no workspaces: no count in the rail border',
+		lines => lines.some(line => line.includes('No spaces found')),
+	);
+	assert.match(
+		empty[topBorder(empty, 'rail')]!,
+		/^╭─ rail ─+╮$/,
+		'rail border has no count',
+	);
+
+	writeFileSync(
+		path.join(harness.root, 'rail-boxes.json'),
+		JSON.stringify({frames}, null, 2),
+	);
+	console.log(
+		`Rail evidence ${harness.root}/rail-boxes.json (--keep preserves it)`,
+	);
+} catch (error) {
+	console.error(view?.lastFrame());
+	throw error;
+} finally {
+	view?.unmount();
+	resetRegistryPath();
+	resetProviders();
+	process.chdir(originalDirectory);
+	await harness.cleanup();
+	if (repo)
+		rmSync(path.join(homedir(), '.pappardelle', 'repos', repo), {
+			recursive: true,
+			force: true,
+		});
+}

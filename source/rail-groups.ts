@@ -31,8 +31,7 @@ export type RailAttention = 'approval' | 'question';
 export type RailRow =
 	| {kind: 'header'; group: RailGroup; count: number}
 	| {kind: 'space'; space: SpaceData}
-	| {kind: 'pending'; space: SpaceData}
-	| {kind: 'divider'};
+	| {kind: 'pending'; space: SpaceData};
 
 export const DEFAULT_RAIL_GROUPS: readonly RailGroupConfig[] = [
 	{name: 'In Progress', color: '#4b9fea', categories: ['todo', 'in_progress']},
@@ -65,8 +64,8 @@ export function railGroupsFromConfig(
 
 /**
  * A space with no issue behind it. Today that is only the main worktree, where
- * the sous-chef runs. Agent spaces lead the rail above a divider, outside any
- * status group, and never take a title line.
+ * the sous-chef runs. Agent spaces lead the rail in the workspace box, outside
+ * any status group, and never take a title line.
  */
 export function isAgentSpace(space: SpaceData): boolean {
 	return space.isMainWorktree === true;
@@ -106,13 +105,8 @@ export function spaceAttention(space: SpaceData): RailAttention | null {
 	return space.programStatus.kind === 'question' ? 'question' : 'approval';
 }
 
-function agentRowsWithDivider(
-	agents: readonly SpaceData[],
-	hasWorkspaces: boolean,
-): RailRow[] {
-	const rows: RailRow[] = agents.map(space => ({kind: 'space', space}));
-	if (agents.length > 0 && hasWorkspaces) rows.push({kind: 'divider'});
-	return rows;
+function agentRows(agents: readonly SpaceData[]): RailRow[] {
+	return agents.map(space => ({kind: 'space', space}));
 }
 
 function spaceRows(spaces: readonly SpaceData[]): RailRow[] {
@@ -121,17 +115,14 @@ function spaceRows(spaces: readonly SpaceData[]): RailRow[] {
 	);
 }
 
-/** The ungrouped rail: the display list, with the divider under agent spaces. */
+/** The ungrouped rail: agent spaces, then the display list. */
 export function flatRailRows(displaySpaces: readonly SpaceData[]): RailRow[] {
 	const agents = displaySpaces.filter(space => isAgentSpace(space));
 	const workspaces = displaySpaces.filter(space => !isAgentSpace(space));
-	return [
-		...agentRowsWithDivider(agents, workspaces.length > 0),
-		...spaceRows(workspaces),
-	];
+	return [...agentRows(agents), ...spaceRows(workspaces)];
 }
 
-/** Search results: the matches as they are, with no headers or divider. */
+/** Search results: the matches as they are, with no headers. */
 export function searchRailRows(matches: readonly SpaceData[]): RailRow[] {
 	return spaceRows(matches);
 }
@@ -185,7 +176,22 @@ export function buildRailRows(options: {
 		for (const space of spaces) groupRows.push({kind: 'space', space});
 	}
 
-	return [...agentRowsWithDivider(agents, groupRows.length > 0), ...groupRows];
+	return [...agentRows(agents), ...groupRows];
+}
+
+/**
+ * The leading agent rows, which the workspace box draws, and the rows after
+ * them, which the rail box draws. Navigation keeps walking the rows as one list.
+ */
+export function splitAgentRows(rows: readonly RailRow[]): {
+	agents: RailRow[];
+	spaces: RailRow[];
+} {
+	const firstSpace = rows.findIndex(
+		row => !(isSpaceRow(row) && isAgentSpace(row.space)),
+	);
+	const split = firstSpace === -1 ? rows.length : firstSpace;
+	return {agents: rows.slice(0, split), spaces: rows.slice(split)};
 }
 
 type SpaceRow = Extract<RailRow, {kind: 'space' | 'pending'}>;

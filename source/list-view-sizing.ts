@@ -42,17 +42,112 @@ export function calculateMaxVisibleItems(
 	);
 }
 
+/** Rows a rail box's frame takes: its top and bottom borders. */
+export const BOX_FRAME_ROWS = 2;
+
 /**
- * Whether the status message line gets its row. In a pane too short for the
- * header, the status line and one item, the line gives up its row so the
- * selected item stays on screen.
+ * Whether the workspace box keeps its status row. In a pane too short for both
+ * boxes, the agent rows and one space, the status row gives up its row so the
+ * selected space stays on screen.
  */
 export function statusLineFits(
-	termHeight: number,
+	paneRows: number,
 	bannerHeight: number,
+	agentRows: number,
 	linesPerItem: LinesPerItem = 1,
 ): boolean {
-	return termHeight - bannerHeight >= HEADER_ROWS + linesPerItem;
+	return (
+		paneRows - bannerHeight >= 2 * BOX_FRAME_ROWS + 1 + agentRows + linesPerItem
+	);
+}
+
+/**
+ * Rows left for the rows that scroll. Split, the workspace box holds the
+ * banner, status row and agent rows above the rail box. Merged (search and
+ * the stacked rail), one box holds the banner, the status or search row and
+ * every row.
+ */
+export function railListRows(
+	layout:
+		| {
+				merged: false;
+				paneRows: number;
+				bannerHeight: number;
+				statusRows: number;
+				agentRows: number;
+		  }
+		| {merged: true; paneRows: number; bannerHeight: number},
+): number {
+	return layout.merged
+		? layout.paneRows - BOX_FRAME_ROWS - layout.bannerHeight - 1
+		: layout.paneRows -
+				2 * BOX_FRAME_ROWS -
+				layout.bannerHeight -
+				layout.statusRows -
+				layout.agentRows;
+}
+
+/**
+ * The split rail's window over the rail box's rows, and whether the workspace
+ * box keeps its status row. Besides `statusLineFits`, the status row gives way
+ * when keeping it would leave the window without a space, such as a group
+ * header taking the only row.
+ */
+export function splitRailWindow(layout: {
+	rows: ReadonlyArray<{height: number; isSpace: boolean}>;
+	cursorRow: number;
+	paneRows: number;
+	bannerHeight: number;
+	agentRows: number;
+	linesPerItem: LinesPerItem;
+}): {
+	statusFits: boolean;
+	listRows: number;
+	scrollOffset: number;
+	visibleCount: number;
+} {
+	const {rows, cursorRow, paneRows, bannerHeight, agentRows} = layout;
+	const heights = rows.map(row => row.height);
+	const windowWith = (statusFits: boolean) => {
+		const listRows = railListRows({
+			merged: false,
+			paneRows,
+			bannerHeight,
+			statusRows: statusFits ? 1 : 0,
+			agentRows,
+		});
+		return {
+			statusFits,
+			listRows,
+			...calculateRowWindow(heights, cursorRow, listRows),
+		};
+	};
+
+	if (!statusLineFits(paneRows, bannerHeight, agentRows, layout.linesPerItem))
+		return windowWith(false);
+	const kept = windowWith(true);
+	const showsSpace = rows
+		.slice(kept.scrollOffset, kept.scrollOffset + kept.visibleCount)
+		.some(row => row.isSpace);
+	return showsSpace || !rows.some(row => row.isSpace)
+		? kept
+		: windowWith(false);
+}
+
+/**
+ * The rail's count of the spaces it lists: `12 spaces`, or `4-9 of 12` while
+ * only some are on screen. Nothing when there are none.
+ */
+export function spaceCountLabel(
+	firstShown: number,
+	shown: number,
+	total: number,
+): string | undefined {
+	if (total === 0) return undefined;
+	if (shown === 0 || shown === total)
+		return `${total} space${total === 1 ? '' : 's'}`;
+	if (shown === 1) return `${firstShown} of ${total}`;
+	return `${firstShown}-${firstShown + shown - 1} of ${total}`;
 }
 
 /**
@@ -95,8 +190,7 @@ export function calculateVisibleWindow(
 	const {scrollOffset, visibleCount} = calculateRowWindow(
 		Array.from({length: totalItems}, () => linesPerItem),
 		selectedIndex,
-		termHeight,
-		0,
+		termHeight - LIST_CHROME_ROWS,
 	);
 	const adjustedSelectedIndex = selectedIndex - scrollOffset;
 
@@ -111,16 +205,12 @@ export function calculateVisibleWindow(
 export function calculateRowWindow(
 	heights: readonly number[],
 	cursorRow: number,
-	termHeight: number,
-	bannerHeight: number,
+	listRows: number,
 ): {scrollOffset: number; visibleCount: number} {
 	const count = heights.length;
 	if (count === 0) return {scrollOffset: 0, visibleCount: 0};
 	const cursor = Math.min(Math.max(cursorRow, 0), count - 1);
-	const budget = Math.max(
-		heights[cursor]!,
-		termHeight - bannerHeight - LIST_CHROME_ROWS,
-	);
+	const budget = Math.max(heights[cursor]!, listRows);
 	const total = heights.reduce((sum, height) => sum + height, 0);
 	if (total <= budget) return {scrollOffset: 0, visibleCount: count};
 

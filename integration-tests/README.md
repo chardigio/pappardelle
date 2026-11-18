@@ -20,6 +20,14 @@ The lifecycle check covers pinned agent panes across window/split selection, eve
 
 `source/program-status-launch.test.ts` adds ten account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. With Python installed, both launchers also verify Pi's forced reporting environment and normal SIGPIPE behavior in shell pipelines. Build first; these checks run with the normal AVA suite when tmux is installed.
 
+## Rail boxes
+
+```bash
+bun integration-tests/verify-rail-boxes.ts
+```
+
+Mounts the real `App` with fixture issues and checks the rail's two boxes: the workspace name in the top border with the status row above the agents, the space count or range in the rail box's border (left out with no spaces), agent rows staying put while the list scrolls, and search merging both boxes into one flat list. Runs under a throwaway HOME like the app check.
+
 ## Popups
 
 ```bash

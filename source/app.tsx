@@ -106,7 +106,6 @@ import {shellQuote} from './shell-quote.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
-	getSpaceCount,
 	buildNewSessionArgs,
 	buildOpenWorkspaceArgs,
 	extractIssueKeyFromIdowOutput,
@@ -150,10 +149,10 @@ import {
 	nextSelectableRow,
 	railRowHeight,
 	resolveCursorRow,
+	splitAgentRows,
 	type RailRow,
 } from './rail-groups.ts';
 import RailGroupHeader from './components/RailGroupHeader.tsx';
-import RailDivider from './components/RailDivider.tsx';
 import {findSpacesToAutoRemove} from './auto-remove.ts';
 import {
 	buildKillDoneConfirmContent,
@@ -218,8 +217,9 @@ import {
 import {isWorktreeDirty} from './git-status.ts';
 import {
 	calculateRowWindow,
-	HEADER_ROWS,
-	statusLineFits,
+	railListRows,
+	spaceCountLabel,
+	splitRailWindow,
 } from './list-view-sizing.ts';
 import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
@@ -671,9 +671,8 @@ export default function App({
 		rows: stdout?.rows ?? 40,
 		cols: stdout?.columns ?? 80,
 	});
-	// Everything inside the rail's frame lays out in the space it leaves.
+	// Rows lay out inside the rail's frames, which take a column each side.
 	const termDimensions = {
-		rows: Math.max(1, paneDimensions.rows - PANE_FRAME_SIZE),
 		cols: Math.max(1, paneDimensions.cols - PANE_FRAME_SIZE),
 	};
 	const [isRailFocused, setIsRailFocused] = useState(true);
@@ -704,9 +703,6 @@ export default function App({
 		showConfigMigration: configMigrations !== null,
 	};
 	const railInputBlocked = isRailInputBlocked(railDialogState);
-
-	// Calculate dimensions
-	const termHeight = termDimensions.rows;
 
 	const loadSpaces = useCallback(async () => {
 		await workspaceRefresh.current?.refresh();
@@ -2680,25 +2676,68 @@ export default function App({
 		? cursorRow
 		: allRows.findIndex(row => isSpaceRow(row) && row.space === activeSpace);
 
-	// Calculate scroll offset for large lists
-	const {scrollOffset, visibleCount} = calculateRowWindow(
-		allRows.map(row => railRowHeight(row, linesPerItem)),
-		allCursor,
-		termHeight,
-		bannerHeight,
+	// Search and the stacked rail draw one box with every row; otherwise the
+	// workspace box holds the agent rows, which never scroll, above the rail box.
+	const isMerged = isSearching || stackedLayout;
+	const split = isMerged
+		? {agents: [], spaces: allRows}
+		: splitAgentRows(allRows);
+	const agentRowCount = split.agents.length;
+	const paneRows = paneDimensions.rows;
+	const spaceHeights = split.spaces.map(row => ({
+		height: railRowHeight(row, linesPerItem),
+		isSpace: isSpaceRow(row),
+	}));
+	const listCursor = allCursor - agentRowCount;
+	const mergedListRows = railListRows({merged: true, paneRows, bannerHeight});
+	const {statusFits, listRows, scrollOffset, visibleCount} = isMerged
+		? {
+				statusFits: true,
+				listRows: mergedListRows,
+				...calculateRowWindow(
+					spaceHeights.map(row => row.height),
+					listCursor,
+					mergedListRows,
+				),
+			}
+		: splitRailWindow({
+				rows: spaceHeights,
+				cursorRow: listCursor,
+				paneRows,
+				bannerHeight,
+				agentRows: agentRowCount,
+				linesPerItem,
+			});
+	const visibleRows = split.spaces.slice(
+		scrollOffset,
+		scrollOffset + visibleCount,
 	);
-	const visibleRows = allRows.slice(scrollOffset, scrollOffset + visibleCount);
-	const visibleCursor = allCursor - scrollOffset;
-	// "(a-b of n)" counts spaces, not headers or the divider.
-	const spaceRowCount = (rows: readonly RailRow[]) =>
-		rows.filter(row => isSpaceRow(row)).length;
-	const shownSpaces = spaceRowCount(visibleRows);
-	const totalShownSpaces = spaceRowCount(allRows);
-	const firstShownSpace = spaceRowCount(allRows.slice(0, scrollOffset)) + 1;
-	const railRange =
-		shownSpaces < totalShownSpaces
-			? ` (${firstShownSpace}-${firstShownSpace + shownSpaces - 1} of ${totalShownSpaces})`
-			: '';
+	const visibleCursor = allCursor - agentRowCount - scrollOffset;
+	const workspaceRowCount = (rows: readonly RailRow[]) =>
+		rows.filter(row => isSpaceRow(row) && !isAgentSpace(row.space)).length;
+	const shownWorkspaces = workspaceRowCount(visibleRows);
+	const totalWorkspaces = workspaceRowCount(split.spaces);
+	const firstShownWorkspace =
+		workspaceRowCount(split.spaces.slice(0, scrollOffset)) + 1;
+	const workspaceCountLabel = spaceCountLabel(
+		firstShownWorkspace,
+		shownWorkspaces,
+		totalWorkspaces,
+	);
+	const agentCount = spaces.filter(space => isAgentSpace(space)).length;
+	const matchCount = filteredDisplaySpaces.length;
+	// A dialog takes the list's place, so its count would describe rows nobody sees.
+	const isListShown = !railInputBlocked && !isZooming;
+	const trailingLabel = !isListShown
+		? undefined
+		: isSearching
+			? // With none, the body's "No matches." says it.
+				matchCount === 0
+				? undefined
+				: `${matchCount} match${matchCount === 1 ? '' : 'es'}`
+			: stackedLayout
+				? workspaceCountLabel
+				: undefined;
 
 	// OpenTUI hit-tests the actual row, including wrapping banners and two-line
 	// layouts. Select by identity so filtering and pending rows cannot shift clicks.
@@ -2718,12 +2757,30 @@ export default function App({
 		[railInputBlocked, filteredDisplaySpaces, selectSpace, updateSearch],
 	);
 
-	// Space count includes all real spaces (main worktree + issue worktrees), excludes pending rows
-	const spaceCount = getSpaceCount(spaces);
+	const renderRow = (row: RailRow, isSelected: boolean) =>
+		row.kind === 'header' ? (
+			<RailGroupHeader
+				key={`group-${row.group.id}`}
+				row={row}
+				width={termDimensions.cols}
+			/>
+		) : (
+			<SpaceListItem
+				key={
+					row.kind === 'pending' ? `pending-${row.space.name}` : row.space.name
+				}
+				space={row.space}
+				onSelect={selectRow}
+				isSelected={isSelected}
+				width={termDimensions.cols}
+				layout={isAgentSpace(row.space) ? 'single_line' : listLayout}
+				label={row.space.isMainWorktree ? mainLabel : undefined}
+			/>
+		);
 
-	// Render the space list
+	// The rows that scroll: the rail box's spaces, or every row when merged.
 	const renderList = () => {
-		if (activeSpaces.length === 0) {
+		if (visibleRows.length === 0) {
 			return (
 				<box
 					flexDirection="column"
@@ -2743,29 +2800,7 @@ export default function App({
 		return (
 			<box flexDirection="column">
 				{visibleRows.map((row, index) =>
-					row.kind === 'divider' ? (
-						<RailDivider key="agents-divider" isActive={isRailFocused} />
-					) : row.kind === 'header' ? (
-						<RailGroupHeader
-							key={`group-${row.group.id}`}
-							row={row}
-							width={termDimensions.cols}
-						/>
-					) : (
-						<SpaceListItem
-							key={
-								row.kind === 'pending'
-									? `pending-${row.space.name}`
-									: row.space.name
-							}
-							space={row.space}
-							onSelect={selectRow}
-							isSelected={index === visibleCursor}
-							width={termDimensions.cols}
-							layout={isAgentSpace(row.space) ? 'single_line' : listLayout}
-							label={row.space.isMainWorktree ? mainLabel : undefined}
-						/>
-					),
+					renderRow(row, index === visibleCursor),
 				)}
 			</box>
 		);
@@ -2773,11 +2808,11 @@ export default function App({
 
 	// Check if running in tmux
 	const inTmux = isInTmux();
-	const dialogHeight = termHeight - HEADER_ROWS - bannerHeight;
+	const dialogHeight = listRows;
 
 	if (loading && spaces.length === 0) {
 		return (
-			<PaneFrame title="rail" isActive={isRailFocused}>
+			<PaneFrame isGrowing title="rail" isActive={isRailFocused}>
 				<box flexDirection="column" padding={1}>
 					<text fg={terminalColor()} flexShrink={1}>
 						Loading spaces...
@@ -2787,10 +2822,8 @@ export default function App({
 		);
 	}
 
-	const statusFits = statusLineFits(termHeight, bannerHeight, linesPerItem);
-	const searchInHeader = !statusFits && isSearching;
 	const searchRow = (
-		/* Keep the slash and match count at their natural widths;
+		/* Keep the slash at its natural width;
 	   the native input scrolls its text within the remaining space. */
 		<box flexDirection="row" width="100%">
 			<box flexDirection="row" flexShrink={0}>
@@ -2800,7 +2833,7 @@ export default function App({
 					wrapMode="none"
 					height={1}
 				>
-					/
+					{'/ '}
 				</text>
 			</box>
 			<box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={1}>
@@ -2811,152 +2844,148 @@ export default function App({
 					placeholder="filter by key or title..."
 				/>
 			</box>
-			{filteredDisplaySpaces.length !== displaySpaces.length && (
-				<box flexDirection="row" flexShrink={0}>
-					<text {...dimText()} wrapMode="none" height={1}>
-						{' '}
-						({filteredDisplaySpaces.length} match
-						{filteredDisplaySpaces.length !== 1 ? 'es' : ''})
-					</text>
-				</box>
+		</box>
+	);
+	const workspaceTitle = workspaceTitleRuns({repoName, inTmux, errorCount});
+	const banner = updateInfo && (
+		<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
+	);
+	// One row, so list height calculations stay valid when a pane narrows.
+	const statusRow = (
+		<box
+			flexDirection="row"
+			height={1}
+			overflow="hidden"
+			paddingLeft={ROW_PADDING_CELLS}
+			paddingRight={ROW_PADDING_CELLS}
+		>
+			{isSearching ? (
+				searchRow
+			) : (
+				<TruncatedLine
+					runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
+				/>
+			)}
+		</box>
+	);
+	const body = (
+		<box flexDirection="column">
+			{isZooming ? null : showUpdateConfirm ? (
+				<ConfirmDialog
+					title={updateConfirmContent.title}
+					message={updateConfirmContent.message}
+					detail={updateConfirmContent.detail}
+					isDestructive={updateConfirmContent.isDestructive}
+					onConfirm={handleUpdateConfirmed}
+					onCancel={() => setShowUpdateConfirm(false)}
+				/>
+			) : configMigrations ? (
+				<ConfirmDialog
+					{...buildConfigMigrationConfirmContent(configMigrations)}
+					onConfirm={() => {
+						handleConfigMigration(configMigrations);
+						setConfigMigrations(null);
+					}}
+					onCancel={() => setConfigMigrations(null)}
+				/>
+			) : showPromptDialog ? (
+				<PromptDialog
+					onSubmit={handleNewSession}
+					onCancel={() => setShowPromptDialog(false)}
+					savedProfileFor={savedProfileFor}
+					availableWidth={termDimensions.cols}
+					availableHeight={dialogHeight}
+					isInTmux={inTmux}
+				/>
+			) : killDoneTargets !== null ? (
+				<ConfirmDialog
+					title={killDoneConfirmContent.title}
+					message={killDoneConfirmContent.message}
+					detail={killDoneConfirmContent.detail}
+					processingMessage={killDoneConfirmContent.processingMessage}
+					isDestructive={killDoneConfirmContent.isDestructive}
+					onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
+					onCancel={() => setKillDoneTargets(null)}
+				/>
+			) : deleteTarget ? (
+				<CloseSpaceDialog
+					spaceName={deleteTarget.name}
+					currentIssue={
+						deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
+					}
+					onConfirm={async choice => handleDeleteSpace(deleteTarget, choice)}
+					onCancel={() => setDeleteTarget(null)}
+				/>
+			) : showHelp ? (
+				<HelpOverlay
+					onClose={() => setShowHelp(false)}
+					customKeybindings={keybindings}
+					commitSha={commitSha}
+					installedVersion={installedVersion}
+					isDevBuild={isDevBuild}
+					availableHeight={dialogHeight}
+				/>
+			) : showErrorDialog ? (
+				<ErrorDialog
+					errors={recentErrors}
+					onClose={() => setShowErrorDialog(false)}
+					onClear={() => {
+						clearRecentErrors();
+						setShowErrorDialog(false);
+					}}
+				/>
+			) : (
+				renderList()
 			)}
 		</box>
 	);
 
+	if (isMerged) {
+		return (
+			<PaneFrame
+				isGrowing
+				title={workspaceTitle}
+				trailing={trailingLabel}
+				isActive={isRailFocused}
+			>
+				{banner}
+				{statusRow}
+				{body}
+			</PaneFrame>
+		);
+	}
+
 	return (
-		<PaneFrame title="rail" isActive={isRailFocused}>
-			{/* Keep blank rows in the frame so filtering clears old results.
-		    OpenTUI retains and updates only the cells that change. */}
-			<box flexDirection="column" height={termHeight}>
-				{/* Update banner (only shown if an update is available and not dismissed) */}
-				{updateInfo && (
-					<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
-				)}
-
-				{/* One row, so list height calculations stay valid when a pane narrows.
-				    A pane too short for the status row searches in this one instead. */}
-				<box flexDirection="row" height={1} paddingLeft={ROW_PADDING_CELLS}>
-					{searchInHeader ? (
-						searchRow
-					) : (
-						<TruncatedLine
-							runs={railHeaderRuns({
-								repoName,
-								inTmux,
-								spaceCount,
-								range: railRange,
-								errorCount,
-							})}
-						/>
-					)}
-				</box>
-
-				{/* Status message line (occupies the row between header and list).
-			    Clipped for the same reason as the header above. */}
-				{statusFits && (
-					<box
-						flexDirection="row"
-						height={1}
-						overflow="hidden"
-						paddingLeft={ROW_PADDING_CELLS}
-					>
-						{isSearching ? (
-							searchRow
-						) : (
-							<TruncatedLine
-								runs={[{text: headerMessage, fg: terminalColor('yellow')}]}
-							/>
-						)}
-					</box>
-				)}
-
-				{/* Main content */}
-				<box flexDirection="column">
-					{isZooming ? null : showUpdateConfirm ? (
-						<ConfirmDialog
-							title={updateConfirmContent.title}
-							message={updateConfirmContent.message}
-							detail={updateConfirmContent.detail}
-							isDestructive={updateConfirmContent.isDestructive}
-							onConfirm={handleUpdateConfirmed}
-							onCancel={() => setShowUpdateConfirm(false)}
-						/>
-					) : configMigrations ? (
-						<ConfirmDialog
-							{...buildConfigMigrationConfirmContent(configMigrations)}
-							onConfirm={() => {
-								handleConfigMigration(configMigrations);
-								setConfigMigrations(null);
-							}}
-							onCancel={() => setConfigMigrations(null)}
-						/>
-					) : showPromptDialog ? (
-						<PromptDialog
-							onSubmit={handleNewSession}
-							onCancel={() => setShowPromptDialog(false)}
-							savedProfileFor={savedProfileFor}
-							availableWidth={termDimensions.cols}
-							availableHeight={dialogHeight}
-							isInTmux={inTmux}
-						/>
-					) : killDoneTargets !== null ? (
-						<ConfirmDialog
-							title={killDoneConfirmContent.title}
-							message={killDoneConfirmContent.message}
-							detail={killDoneConfirmContent.detail}
-							processingMessage={killDoneConfirmContent.processingMessage}
-							isDestructive={killDoneConfirmContent.isDestructive}
-							onConfirm={async () => handleKillDoneSpaces(killDoneTargets)}
-							onCancel={() => setKillDoneTargets(null)}
-						/>
-					) : deleteTarget ? (
-						<CloseSpaceDialog
-							spaceName={deleteTarget.name}
-							currentIssue={
-								deleteTarget.trackerIssue ?? deleteTarget.linearIssue ?? null
-							}
-							onConfirm={async choice =>
-								handleDeleteSpace(deleteTarget, choice)
-							}
-							onCancel={() => setDeleteTarget(null)}
-						/>
-					) : showHelp ? (
-						<HelpOverlay
-							onClose={() => setShowHelp(false)}
-							customKeybindings={keybindings}
-							commitSha={commitSha}
-							installedVersion={installedVersion}
-							isDevBuild={isDevBuild}
-							availableHeight={dialogHeight}
-						/>
-					) : showErrorDialog ? (
-						<ErrorDialog
-							errors={recentErrors}
-							onClose={() => setShowErrorDialog(false)}
-							onClear={() => {
-								clearRecentErrors();
-								setShowErrorDialog(false);
-							}}
-						/>
-					) : (
-						renderList()
-					)}
-				</box>
-			</box>
-		</PaneFrame>
+		<box flexDirection="column" width="100%" height="100%">
+			<PaneFrame
+				title={workspaceTitle}
+				trailing={agentCount > 1 ? `${agentCount} agents` : undefined}
+				isActive={isRailFocused}
+			>
+				{banner}
+				{statusFits && statusRow}
+				{split.agents.map((row, index) => renderRow(row, index === allCursor))}
+			</PaneFrame>
+			<PaneFrame
+				isGrowing
+				title="rail"
+				trailing={isListShown ? workspaceCountLabel : undefined}
+				isActive={isRailFocused}
+			>
+				{body}
+			</PaneFrame>
+		</box>
 	);
 }
 
-function railHeaderRuns(header: {
+/** The workspace box's title: the repo, then anything wrong with the TUI. */
+function workspaceTitleRuns(header: {
 	repoName: string;
 	inTmux: boolean;
-	spaceCount: number;
-	range: string;
 	errorCount: number;
 }): Run[] {
-	const {fg, attributes} = dimText();
-	const dim = {fg, attributes};
-	const separator = {text: ' | ', ...dim};
+	const dim = {attributes: textAttributes({dim: true})};
+	const separator = {text: ' · ', ...dim};
 	return [
 		{
 			text: `🍝 ${header.repoName}`,
@@ -2966,11 +2995,6 @@ function railHeaderRuns(header: {
 		...(header.inTmux
 			? []
 			: [separator, {text: 'Not in tmux', fg: terminalColor('yellow')}]),
-		separator,
-		{
-			text: `${header.spaceCount} space${header.spaceCount === 1 ? '' : 's'}${header.range}`,
-			...dim,
-		},
 		...(header.errorCount > 0
 			? [
 					separator,

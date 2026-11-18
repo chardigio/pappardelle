@@ -22,9 +22,9 @@ export const MAX_COMPANION_WIDTH = 86; // 85 is the supposed breakpoint, but rou
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 14;
 export const DEFAULT_MIN_LIST_HEIGHT = 8;
-// The rail's header and status rows.
-const LIST_CHROME_ROWS = 2;
-// The top and bottom of the rail's frame (PaneFrame).
+// The stacked rail is one box: the top and bottom of its frame, and its status
+// row. The workspace name sits in the frame's border.
+const LIST_CHROME_ROWS = 1;
 const PANE_FRAME_ROWS = 2;
 
 /** Max fraction of usable height the list pane can take in vertical layout */
@@ -136,15 +136,23 @@ export interface LayoutConfig {
 // Pure Layout Calculation Functions
 // ============================================================================
 
+// With no agent rows above them, an empty list still keeps a row for its
+// empty state.
+function sessionRows(sessionCount: number, pinnedRows: number): number {
+	return pinnedRows > 0 ? sessionCount : Math.max(1, sessionCount);
+}
+
 /**
  * Calculate the ideal list pane height based on session count.
  * This is a pure function for testability.
  *
  * @param sessionCount - Number of active Claude sessions
  * @param linesPerItem - Terminal rows each session takes (2 in two-line layout)
+ * @param pinnedRows - Agent rows above the sessions, one line each whatever
+ *   the layout
  * @returns Ideal height in rows for the list pane
  *
- * The pane holds every session plus the header and status rows, all
+ * The pane holds the status row, the agent rows and every session, all
  * inside the rail's frame, then is clamped between min(ideal,
  * DEFAULT_MIN_LIST_HEIGHT) and MAX_LIST_HEIGHT.
  *
@@ -155,9 +163,11 @@ export interface LayoutConfig {
 export function calculateIdealListHeightForCount(
 	sessionCount: number,
 	linesPerItem: 1 | 2 = 1,
+	pinnedRows = 0,
 ): number {
 	const idealHeight =
-		Math.max(1, sessionCount) * linesPerItem +
+		pinnedRows +
+		sessionRows(sessionCount, pinnedRows) * linesPerItem +
 		LIST_CHROME_ROWS +
 		PANE_FRAME_ROWS;
 
@@ -178,6 +188,7 @@ export function calculateIdealListHeightForCount(
  * @param widths - Pane widths from config or a hand-drag that replace the
  *   derived ones. Only meaningful in horizontal layout.
  * @param linesPerItem - Terminal rows each session takes in the list
+ * @param pinnedRows - Agent rows above the sessions, one line each
  * @returns LayoutConfig with direction and pane dimensions
  *
  * Layout modes:
@@ -190,6 +201,7 @@ export function calculateLayoutForSize(
 	sessionCount: number,
 	widths: PaneWidths = {},
 	linesPerItem: 1 | 2 = 1,
+	pinnedRows = 0,
 ): LayoutConfig {
 	// Narrow screen: use vertical layout
 	if (totalWidth < NARROW_SCREEN_THRESHOLD) {
@@ -202,14 +214,22 @@ export function calculateLayoutForSize(
 			Math.floor(usableHeight * MAX_LIST_HEIGHT_RATIO),
 		);
 		const fewestRows =
-			Math.min(Math.max(1, sessionCount), MIN_STACKED_SPACES[linesPerItem]) *
+			pinnedRows +
+			Math.min(
+				sessionRows(sessionCount, pinnedRows),
+				MIN_STACKED_SPACES[linesPerItem],
+			) *
 				linesPerItem +
 			LIST_CHROME_ROWS +
 			PANE_FRAME_ROWS;
 		const listHeight = Math.max(
 			fewestRows,
 			Math.min(
-				calculateIdealListHeightForCount(sessionCount, linesPerItem),
+				calculateIdealListHeightForCount(
+					sessionCount,
+					linesPerItem,
+					pinnedRows,
+				),
 				maxListForScreen,
 			),
 		);

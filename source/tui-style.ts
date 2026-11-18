@@ -22,6 +22,12 @@ export function textAttributes(style: {
 	/* eslint-enable no-bitwise */
 }
 
+/** Attributes of both, such as a run's own dim under a bold title. */
+export function combineAttributes(base: number, extra = 0): number {
+	// eslint-disable-next-line no-bitwise
+	return base | extra;
+}
+
 // Preserve users' ANSI terminal palettes, including bright names used by status
 // providers. Hex colors from issue trackers remain exact RGB colors.
 const ansiNames = [

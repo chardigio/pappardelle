@@ -17,6 +17,9 @@ import {
 	ROW_FIXED_OVERHEAD,
 	ROW_ICON_CELLS,
 	clipIssueKey,
+	railListRows,
+	splitRailWindow,
+	spaceCountLabel,
 	statusLineFits,
 } from './list-view-sizing.ts';
 
@@ -1347,38 +1350,60 @@ test('titleSharesKeyLine: two-line pending rows keep the text on the key line', 
 	t.true(titleSharesKeyLine({isTwoLine: true, isPending: true}));
 });
 
-test('the header, status line and visible items never outgrow a short pane', t => {
+test('the split rail never outgrows a short pane', t => {
 	for (const linesPerItem of [1, 2] as const) {
 		for (const bannerHeight of [0, 4]) {
-			for (
-				let termHeight = bannerHeight + 1 + linesPerItem;
-				termHeight <= bannerHeight + 8;
-				termHeight++
-			) {
-				const statusRows = statusLineFits(
-					termHeight,
-					bannerHeight,
-					linesPerItem,
-				)
-					? 1
-					: 0;
-				const items = Math.min(
-					calculateMaxVisibleItems(termHeight - bannerHeight, linesPerItem),
-					20,
-				);
-				t.true(
-					1 + statusRows + items * linesPerItem <= termHeight - bannerHeight,
-					`${termHeight} rows, banner ${bannerHeight}, ${linesPerItem} lines per item`,
-				);
+			for (const agentRows of [1, 3]) {
+				for (
+					let paneRows = bannerHeight + 4 + agentRows + linesPerItem;
+					paneRows <= bannerHeight + 14;
+					paneRows++
+				) {
+					const statusRows = statusLineFits(
+						paneRows,
+						bannerHeight,
+						agentRows,
+						linesPerItem,
+					)
+						? 1
+						: 0;
+					const listRows = railListRows({
+						merged: false,
+						paneRows,
+						bannerHeight,
+						statusRows,
+						agentRows,
+					});
+					t.true(
+						listRows >= linesPerItem,
+						`${paneRows} rows, banner ${bannerHeight}, ${agentRows} agents: ${listRows} list rows`,
+					);
+				}
 			}
 		}
 	}
 });
 
-test('a pane with room for the status line keeps it', t => {
-	t.true(statusLineFits(3, 0, 1));
-	t.true(statusLineFits(4, 0, 2));
-	t.true(statusLineFits(7, 4, 1));
+test('the status row gives way before the last space row', t => {
+	// Two frames (4) + sous-chef (1) + one space (1) + status (1).
+	t.true(statusLineFits(7, 0, 1, 1));
+	t.false(statusLineFits(6, 0, 1, 1));
+	t.false(statusLineFits(7, 0, 1, 2));
+});
+
+test('the merged rail has one frame and one status or search row', t => {
+	t.is(railListRows({merged: true, paneRows: 20, bannerHeight: 0}), 17);
+	t.is(railListRows({merged: true, paneRows: 20, bannerHeight: 3}), 14);
+	t.is(
+		railListRows({
+			merged: false,
+			paneRows: 20,
+			bannerHeight: 0,
+			statusRows: 1,
+			agentRows: 1,
+		}),
+		14,
+	);
 });
 
 // ============================================================================
@@ -1388,14 +1413,8 @@ test('a pane with room for the status line keeps it', t => {
 test('calculateRowWindow fits mixed heights within the pane', t => {
 	// header, space, space, header, space, space, header, space (two-line layout)
 	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
-	const termHeight = 2 + 7; // chrome + 7 lines
 	for (let cursor = 0; cursor < heights.length; cursor++) {
-		const {scrollOffset, visibleCount} = calculateRowWindow(
-			heights,
-			cursor,
-			termHeight,
-			0,
-		);
+		const {scrollOffset, visibleCount} = calculateRowWindow(heights, cursor, 7);
 		const lines = heights
 			.slice(scrollOffset, scrollOffset + visibleCount)
 			.reduce((sum, height) => sum + height, 0);
@@ -1404,19 +1423,40 @@ test('calculateRowWindow fits mixed heights within the pane', t => {
 	}
 });
 
-test('calculateRowWindow leaves the update banner its rows', t => {
-	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
-	const {scrollOffset, visibleCount} = calculateRowWindow(heights, 7, 2 + 7, 2);
-	const lines = heights
-		.slice(scrollOffset, scrollOffset + visibleCount)
-		.reduce((sum, height) => sum + height, 0);
-	t.true(lines <= 5, `${lines} lines under a 2-line banner`);
-});
-
 test('calculateRowWindow fills the pane at the end of the list', t => {
 	const heights = [1, 2, 2, 1, 2, 2, 1, 2];
-	t.deepEqual(calculateRowWindow(heights, 7, 2 + 7, 0), {
+	t.deepEqual(calculateRowWindow(heights, 7, 7), {
 		scrollOffset: 4,
 		visibleCount: 4,
 	});
+});
+
+test('the space count shows a range only while some spaces are off screen', t => {
+	t.is(spaceCountLabel(1, 12, 12), '12 spaces');
+	t.is(spaceCountLabel(1, 1, 1), '1 space');
+	t.is(spaceCountLabel(4, 6, 12), '4-9 of 12');
+	t.is(spaceCountLabel(6, 1, 6), '6 of 6');
+	t.is(spaceCountLabel(1, 0, 35), '35 spaces');
+	t.is(spaceCountLabel(1, 0, 0), undefined);
+});
+
+test('the status row gives way when a group header would take the only list row', t => {
+	// In Progress header, then two-line spaces; the sous-chef row sits above.
+	const rows = [
+		{height: 1, isSpace: false},
+		...Array.from({length: 10}, () => ({height: 2, isSpace: true})),
+	];
+	const layout = {rows, paneRows: 8, bannerHeight: 0, agentRows: 1};
+	// Cursor on the sous-chef: the window starts at the header.
+	const atTop = splitRailWindow({...layout, cursorRow: -1, linesPerItem: 2});
+	t.false(atTop.statusFits);
+	t.deepEqual(
+		rows.slice(atTop.scrollOffset, atTop.scrollOffset + atTop.visibleCount),
+		[rows[0], rows[1]],
+	);
+	// Cursor deep in the list: the header has scrolled out, so the status row stays.
+	const deep = splitRailWindow({...layout, cursorRow: 6, linesPerItem: 2});
+	t.true(deep.statusFits);
+	t.is(deep.listRows, 2);
+	t.is(deep.scrollOffset, 6);
 });

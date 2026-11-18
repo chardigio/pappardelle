@@ -1993,15 +1993,16 @@ const PINNED_LIST_ROWS = 1;
  */
 export function calculateIdealListHeight(): number {
 	return calculateIdealListHeightForCount(
-		getActiveSpaceCount() + PINNED_LIST_ROWS,
+		getActiveSpaceCount(),
 		getConfiguredListLines(),
+		PINNED_LIST_ROWS,
 	);
 }
 
 /**
  * Calculate pane layout based on terminal dimensions.
- * Reads space count from the persisted registry and adds the pinned
- * main-worktree row to the visible item count.
+ * Reads space count from the persisted registry and reserves a line for the
+ * pinned main-worktree row.
  */
 export function calculateLayout(
 	totalWidth: number,
@@ -2010,9 +2011,10 @@ export function calculateLayout(
 	return calculateLayoutForSize(
 		totalWidth,
 		totalHeight,
-		getActiveSpaceCount() + PINNED_LIST_ROWS,
+		getActiveSpaceCount(),
 		currentPaneWidths(),
 		getConfiguredListLines(),
+		PINNED_LIST_ROWS,
 	);
 }
 
