@@ -20,6 +20,7 @@ Pappardelle gives each issue a git worktree, an agent session (Claude, or the ag
 - The TUI runs in the session `pappardelle-{repo}` on the default tmux server
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
+
 To talk to the agent in another space, use Claude Code's SendMessage and ListAgents. Sessions are named by space key, so the recipient is the key (`SendMessage({to: "STA-696", message: "..."})`; with `sous_chef: true` the main checkout's agent is `sous-chef`), and the message carries who sent it and can be answered. `space_send` types into that agent's TUI as if the user did; use it when the user asks for it.
 
 ## Without the MCP tools
