@@ -72,11 +72,7 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 				.db.query(
 					`INSERT INTO space_identities (repo, ${COLUMNS})
 					VALUES (?, ?, ?, ?, ?, ?)
-					ON CONFLICT (repo, key) DO UPDATE SET
-						worktree_path = excluded.worktree_path,
-						tmux_socket = excluded.tmux_socket,
-						agent_session = excluded.agent_session,
-						companion_session = excluded.companion_session`,
+					ON CONFLICT (repo, key) DO NOTHING`,
 				)
 				.run(...this.values(identity));
 		});

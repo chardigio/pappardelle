@@ -242,3 +242,17 @@ test('identities that cannot be read stop the reap', t => {
 		{kind: 'unreadable', error},
 	);
 });
+
+test('a space keeps the names it was first given', async t => {
+	const f = fixture(t, true);
+	const first = await f.open('STA-1');
+	await f.state.daos.spaceIdentities.record({
+		...first,
+		worktreePath: '/elsewhere',
+		tmux: {...first.tmux, socket: 'another-socket'},
+	});
+	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+		kind: 'identity',
+		identity: first,
+	});
+});
