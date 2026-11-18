@@ -40,9 +40,10 @@ export function buildSpawnEnv(
  * PAPPARDELLE_REPO qualifies the hook's status file name, since spaces of two
  * repos can share a key and all repos write to one status directory.
  *
- * The main space gets no PAPPARDELLE_SPACE. Its checkout can change branch
- * while the session lives on, and the rail keys its dot by the branch, so a
- * fixed value would go stale. The hook's cwd logic already follows the branch.
+ * The main space gets no PAPPARDELLE_SPACE. Without the database the rail
+ * keys its dot by the branch, which changes while the session lives on, and
+ * the hook's cwd logic follows it. With the database the hook finds main from
+ * its stored worktree.
  */
 export function buildSessionEnvArgs(
 	spaceKey: string,
