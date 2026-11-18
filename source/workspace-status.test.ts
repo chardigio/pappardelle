@@ -591,3 +591,23 @@ async function readField(
 	const info = await status.read(key);
 	return info?.[field];
 }
+
+test("a space's session name is looked up once, however often its status is read", async t => {
+	const state = testState(t);
+	let lookups = 0;
+	const statuses = new WorkspaceStatuses(
+		state.daos.programStatus,
+		key => {
+			lookups++;
+			return `agent-repo-${key}`;
+		},
+		state.daos.claudeStatus,
+		async () => '',
+	);
+	for (let read = 0; read < 3; read++) {
+		// eslint-disable-next-line no-await-in-loop -- Reads in turn, as refreshes do.
+		await statuses.read('TASK-1');
+	}
+
+	t.is(lookups, 1);
+});

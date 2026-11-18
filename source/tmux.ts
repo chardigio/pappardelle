@@ -275,6 +275,8 @@ function programStatus(): ProgramStatusDao {
 	return stateDaos.programStatus;
 }
 
+const reportedUnknown = new Set<string>();
+
 /**
  * A space's stored identity, or null after logging why it has none. Callers
  * then fail the way they do when the space's session is missing.
@@ -282,8 +284,12 @@ function programStatus(): ProgramStatusDao {
 export function storedIdentity(issueKey: string): SpaceIdentity | null {
 	const lookup = spaceIdentities().get(issueKey);
 	if (lookup.kind === 'identity') return lookup.identity;
-	if (lookup.kind === 'unknown') log.warn(`No stored identity for ${issueKey}`);
-	else
+	if (lookup.kind === 'unknown') {
+		// The rail asks again on every refresh.
+		if (!reportedUnknown.has(issueKey))
+			log.warn(`No stored identity for ${issueKey}`);
+		reportedUnknown.add(issueKey);
+	} else
 		log.warn(
 			`Could not read the stored identity of ${issueKey}`,
 			lookup.error instanceof Error ? lookup.error : undefined,

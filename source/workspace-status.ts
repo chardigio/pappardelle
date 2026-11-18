@@ -69,6 +69,8 @@ export type StatusReader = (
 
 export class WorkspaceStatuses {
 	private readonly sessionKeys = new Map<string, string>();
+	/** A space's names never change once stored, so each is looked up once. */
+	private readonly sessionNames = new Map<string, string>();
 	private readonly panes = new Map<
 		string,
 		{
@@ -92,7 +94,7 @@ export class WorkspaceStatuses {
 		let listing: ReturnType<typeof listStatusPanes> | undefined;
 		return async (key, sessionKey) => {
 			this.sessionKeys.set(key, sessionKey);
-			const session = this.sessionName(sessionKey);
+			const session = this.storedSession(sessionKey);
 			if (session) listing ??= listStatusPanes(socket, this.run);
 			const entry = {
 				socket,
@@ -127,7 +129,7 @@ export class WorkspaceStatuses {
 			!entry ||
 			entry.socket !== statusSocket() ||
 			entry.sessionKey !== sessionKey ||
-			entry.session !== this.sessionName(sessionKey)
+			entry.session !== this.storedSession(sessionKey)
 		)
 			return this.read(key, sessionKey);
 		const pane = await entry.pane;
@@ -145,6 +147,14 @@ export class WorkspaceStatuses {
 			return this.read(key, sessionKey);
 		const info = await this.readPane(key, sessionKey, pane);
 		return this.panes.get(key) === entry ? info : this.readKnown(key);
+	}
+
+	private storedSession(sessionKey: string): string | null {
+		const known = this.sessionNames.get(sessionKey);
+		if (known) return known;
+		const session = this.sessionName(sessionKey);
+		if (session) this.sessionNames.set(sessionKey, session);
+		return session;
 	}
 
 	private async readPane(
