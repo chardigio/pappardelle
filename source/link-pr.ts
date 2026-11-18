@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import path from 'node:path';
 import type {StateDaos} from './state-daos.ts';
 import {readRemoteUrls, remoteProjects} from './git-remotes.ts';
+import {readCurrentBranch} from './git-status.ts';
 
 const exec = promisify(execFile);
 export type LinkExecutor = (
@@ -25,10 +26,8 @@ export async function workspaceIdentity(directory: string, run = execute) {
 		['rev-parse', '--path-format=absolute', '--git-common-dir'],
 		directory,
 	);
-	const branch = await run(
-		'git',
-		['symbolic-ref', '--quiet', '--short', 'HEAD'],
-		directory,
+	const branch = await readCurrentBranch(async args =>
+		run('git', args, directory),
 	);
 	return {repoName: path.basename(path.dirname(common)), issueKey: branch};
 }
@@ -134,10 +133,8 @@ export async function linkPr(
 		throw new Error(
 			`Run link-pr from the source repository (${url.host}/${project})`,
 		);
-	const localBranch = await run(
-		'git',
-		['symbolic-ref', '--quiet', '--short', 'HEAD'],
-		directory,
+	const localBranch = await readCurrentBranch(async args =>
+		run('git', args, directory),
 	);
 	const {repoName, issueKey} = await workspaceIdentity(workspace, run);
 	const link = {
