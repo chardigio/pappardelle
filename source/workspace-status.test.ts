@@ -10,6 +10,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
+import {until} from '../test/helpers/render.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {
 	parseStatusPane,
@@ -379,14 +380,6 @@ test.serial(
 		await until(() => h.queries() > before);
 	},
 );
-
-async function until(predicate: () => boolean) {
-	const deadline = Date.now() + 3000;
-	while (!predicate()) {
-		if (Date.now() > deadline) throw new Error('Status update did not arrive');
-		await delay(5);
-	}
-}
 
 async function readField(
 	status: WorkspaceStatuses,

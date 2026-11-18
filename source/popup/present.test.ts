@@ -1,6 +1,6 @@
 import {PassThrough} from 'node:stream';
-import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {until} from '../../test/helpers/render.ts';
 import {presentPopup} from './present.tsx';
 import type {PopupActions, PopupSpec} from './spec.ts';
 import type {PopupTerminal} from './terminal.ts';
@@ -74,14 +74,6 @@ function fakeActions() {
 		async clearErrors() {},
 	};
 	return {actions, cancels: () => cancels};
-}
-
-async function until(check: () => boolean) {
-	const deadline = Date.now() + 2000;
-	while (!check()) {
-		if (Date.now() > deadline) throw new Error('condition never held');
-		await delay(10);
-	}
 }
 
 test('Ctrl+C in the popup cancels and closes its terminal', async t => {

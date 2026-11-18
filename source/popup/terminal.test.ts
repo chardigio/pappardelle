@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {until} from '../../test/helpers/render.ts';
 import {buildDisplayPopupArgs, popupClient} from './terminal.ts';
 
 /**
@@ -31,14 +32,6 @@ function runPopupCommand(
 	});
 	const exited = once(shell, 'exit');
 	return {shell, exited, readyPath};
-}
-
-async function until(check: () => boolean) {
-	const deadline = Date.now() + 2000;
-	while (!check()) {
-		if (Date.now() > deadline) throw new Error('condition never held');
-		await delay(10);
-	}
 }
 
 function isRunning(shell: ChildProcess) {
