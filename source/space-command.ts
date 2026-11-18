@@ -3,7 +3,6 @@
 // worktree paths and state file locations from the issue key themselves.
 
 import {execFile} from 'node:child_process';
-import {homedir} from 'node:os';
 import {parseArgs, promisify} from 'node:util';
 import {
 	AGENT_PANE_FORMAT,
@@ -15,12 +14,12 @@ import {SPACE_HELP, SPACE_USAGE} from './cli-args.ts';
 import {companionMainPane} from './companion.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
 import {readCurrentBranch} from './git-status.ts';
-import {statusSocket, statusSocketFlag} from './program-status-monitor.ts';
+import {statusSocketFlag} from './program-status-monitor.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import type {SpacePhase} from './space-registry.ts';
 import type {SpaceState} from './space-state.ts';
-import {worktreePathFor} from './space-identity.ts';
+import type {SpaceIdentity} from './space-identity.ts';
 import {
 	callerSpace,
 	readCheckout,
@@ -31,7 +30,6 @@ import {stateDaosByRepo, type StateDaos} from './state-daos.ts';
 import type {Unreadable} from './state-db.ts';
 import {
 	exactSessionTarget,
-	getSessionNames,
 	supervisedInnerTmuxRunner,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -59,7 +57,8 @@ export type SpaceRecord = {
 	/** `closed` when the space is not open but its state is still stored. */
 	phase: SpacePhase | 'closed';
 	title: string | null;
-	worktreePath: string;
+	/** Null, as `tmux` is, for a space closed before identities were stored. */
+	worktreePath: string | null;
 	branch: string | null;
 	profile: string | null;
 	/** Agent profile to its recorded session id. */
@@ -71,7 +70,7 @@ export type SpaceRecord = {
 		companionSession: string;
 		agentTarget: string;
 		companionTarget: string;
-	};
+	} | null;
 	panes: {agent: string | null; companion: string | null};
 	prNumber: number | null;
 	prLinks: Array<{url: string; number: number; remoteBranch: string}>;
@@ -99,14 +98,18 @@ export type SpaceLookup =
 
 export type SpaceDaos = Pick<
 	StateDaos,
-	'registry' | 'spaceState' | 'agentSessions' | 'claudeStatus' | 'programStatus'
+	| 'registry'
+	| 'spaceIdentities'
+	| 'spaceState'
+	| 'agentSessions'
+	| 'claudeStatus'
+	| 'programStatus'
 >;
 
 export type SpaceCommandDeps = {
 	/** The checkout the command runs in. */
 	checkout: () => CheckoutLookup;
 	daos: (repo: string) => SpaceDaos;
-	home: string;
 	env: NodeJS.ProcessEnv;
 	cwd: string;
 	/** The inner tmux server, read only. */
@@ -160,7 +163,7 @@ type PhaseLookup =
 function storedPhase(
 	key: string,
 	daos: SpaceDaos,
-	agentSession: string,
+	identity: SpaceIdentity | null,
 	runner: OuterTmuxRunner,
 	state: SpaceState | null,
 ): PhaseLookup {
@@ -172,7 +175,12 @@ function storedPhase(
 	// once idow finishes, and idow run by hand never registers it. A live
 	// agent session is what shows such a space exists.
 	if (
-		runner(['has-session', '-t', exactSessionTarget(agentSession)]).status === 0
+		identity &&
+		runner([
+			'has-session',
+			'-t',
+			exactSessionTarget(identity.tmux.agentSession),
+		]).status === 0
 	)
 		return {kind: 'phase', phase: 'starting'};
 	return state ? {kind: 'phase', phase: 'closed'} : {kind: 'unknown'};
@@ -188,15 +196,11 @@ function statusOf(info: ProgramStatusInfo | null): SpaceStatus | null {
 	return status as SpaceStatus;
 }
 
-/**
- * Where a space's record is read: its repo, and the main checkout's root,
- * unknown only for a space the environment names from outside any checkout,
- * which is never the main space.
- */
-type SpaceAt = {key: string; repo: string; mainRoot: string | undefined};
+/** Where a space's record is read: its key, in its repo. */
+type SpaceAt = {key: string; repo: string};
 
 export async function spaceRecord(
-	{key, repo, mainRoot}: SpaceAt,
+	{key, repo}: SpaceAt,
 	deps: SpaceCommandDeps,
 	groups: ReadonlySet<SpaceGroup>,
 	listing = new PaneListing(deps.runner),
@@ -205,33 +209,35 @@ export async function spaceRecord(
 	const stateLookup = daos.spaceState.lookup(key);
 	if (stateLookup.kind === 'unreadable') return stateLookup;
 	const state = stateLookup.kind === 'state' ? stateLookup.state : null;
-	const sessions = getSessionNames(key, repo);
-	const phase = storedPhase(key, daos, sessions.agent, deps.runner, state);
+	const identityLookup = daos.spaceIdentities.get(key);
+	if (identityLookup.kind === 'unreadable') return identityLookup;
+	const identity =
+		identityLookup.kind === 'identity' ? identityLookup.identity : null;
+	const phase = storedPhase(key, daos, identity, deps.runner, state);
 	if (phase.kind !== 'phase') return phase;
 	const agentSessions = groups.has('agentSessions')
 		? daos.agentSessions.sessions(key)
 		: {kind: 'sessions' as const, sessions: {}};
 	if (agentSessions.kind === 'unreadable') return agentSessions;
 
-	const worktreePath =
-		key === MAIN_WORKTREE_KEY && mainRoot !== undefined
-			? mainRoot
-			: worktreePathFor(deps.home, repo, key);
+	const tmux = identity?.tmux;
 	const branch =
-		groups.has('branch') || (groups.has('status') && key === MAIN_WORKTREE_KEY)
-			? await deps.gitBranch(worktreePath)
+		identity &&
+		(groups.has('branch') ||
+			(groups.has('status') && key === MAIN_WORKTREE_KEY))
+			? await deps.gitBranch(identity.worktreePath)
 			: null;
-	const socket = statusSocket(deps.env);
 	const agentPane =
-		groups.has('panes') || groups.has('status')
+		tmux && (groups.has('panes') || groups.has('status'))
 			? statusPaneOf(
-					listing.rows(sessions.agent).map(row => row.agentLine),
-					socket,
+					listing.rows(tmux.agentSession).map(row => row.agentLine),
+					tmux.socket,
 				)
 			: null;
-	const companionPane = groups.has('panes')
-		? companionMainPane(listing.rows(sessions.companion))
-		: undefined;
+	const companionPane =
+		tmux && groups.has('panes')
+			? companionMainPane(listing.rows(tmux.companionSession))
+			: undefined;
 	const status = groups.has('status')
 		? await readAgentStatus(key, agentPane, {
 				hookKey: await spaceStatusKey(
@@ -253,18 +259,18 @@ export async function spaceRecord(
 			key,
 			phase: phase.phase,
 			title: state?.issueTitle ?? null,
-			worktreePath,
+			worktreePath: identity?.worktreePath ?? null,
 			branch,
 			profile: state?.profile ?? null,
 			agentSessions: agentSessions.sessions,
-			tmux: {
-				socket,
-				socketFlag: statusSocketFlag(socket),
-				agentSession: sessions.agent,
-				companionSession: sessions.companion,
-				agentTarget: exactSessionTarget(sessions.agent),
-				companionTarget: exactSessionTarget(sessions.companion),
-			},
+			tmux: tmux
+				? {
+						...tmux,
+						socketFlag: statusSocketFlag(tmux.socket),
+						agentTarget: exactSessionTarget(tmux.agentSession),
+						companionTarget: exactSessionTarget(tmux.companionSession),
+					}
+				: null,
 			panes: {
 				agent: agentPane?.id ?? null,
 				companion: companionPane?.paneId ?? null,
@@ -420,23 +426,20 @@ type Target =
 /** The space to answer for, and the repo it belongs to. */
 function target(raw: string | undefined, deps: SpaceCommandDeps): Target {
 	const checkout = deps.checkout();
-	const mainRoot =
-		checkout.kind === 'checkout' ? checkout.checkout.mainRoot : undefined;
 	if (raw !== undefined)
 		return checkout.kind === 'checkout'
 			? {
 					kind: 'space',
 					key: raw,
 					repo: checkout.checkout.repoName,
-					mainRoot,
 					typed: true,
 				}
 			: {kind: 'not-in-a-repo'};
 	const caller = callerSpace({
 		env: deps.env,
 		cwd: deps.cwd,
-		home: deps.home,
 		checkout,
+		identities: repo => deps.daos(repo).spaceIdentities,
 	});
 	if (caller.kind === 'none') return {kind: 'not-in-a-space'};
 	if (caller.kind === 'cwd')
@@ -444,7 +447,6 @@ function target(raw: string | undefined, deps: SpaceCommandDeps): Target {
 			kind: 'space',
 			key: caller.key,
 			repo: caller.checkout.repoName,
-			mainRoot,
 			typed: false,
 		};
 	// A session started in a nested repo has a git dir that names that repo,
@@ -454,7 +456,7 @@ function target(raw: string | undefined, deps: SpaceCommandDeps): Target {
 		(checkout.kind === 'checkout' ? checkout.checkout.repoName : undefined);
 	return repo === undefined
 		? {kind: 'not-in-a-repo'}
-		: {kind: 'space', key: caller.key, repo, mainRoot, typed: false};
+		: {kind: 'space', key: caller.key, repo, typed: false};
 }
 
 async function runGet(args: string[], deps: SpaceCommandDeps): Promise<number> {
@@ -547,7 +549,7 @@ async function runList(
 		return 1;
 	}
 
-	const {repoName: repo, mainRoot} = checkout.checkout;
+	const {repoName: repo} = checkout.checkout;
 
 	let open: string[];
 	try {
@@ -560,9 +562,7 @@ async function runList(
 	const listing = new PaneListing(deps.runner);
 	const keys = [MAIN_WORKTREE_KEY, ...open.sort(compareSpaceNames)];
 	const lookups = await Promise.all(
-		keys.map(async key =>
-			spaceRecord({key, repo, mainRoot}, deps, ALL_GROUPS, listing),
-		),
+		keys.map(async key => spaceRecord({key, repo}, deps, ALL_GROUPS, listing)),
 	);
 	const records: SpaceRecord[] = [];
 	const unreadable: string[] = [];
@@ -627,7 +627,6 @@ export function defaultSpaceCommandDeps(options: {
 		daos: stateDaosByRepo(),
 		resolveKey,
 		runner: supervisedInnerTmuxRunner,
-		home: homedir(),
 		env: process.env,
 		cwd: process.cwd(),
 		gitBranch,

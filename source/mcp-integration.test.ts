@@ -141,6 +141,22 @@ test.serial(
 		git('commit', '--quiet', '--allow-empty', '-m', 'init');
 		const tree = path.join(f.home, '.worktrees', 'project', 'KEY-9');
 		git('worktree', 'add', '--quiet', tree, '-b', 'KEY-9');
+		const recorded = spawnSync(
+			process.execPath,
+			[
+				path.join(import.meta.dirname, 'state-cli.ts'),
+				'prepare-space',
+				'--repo',
+				'project',
+				'--worktree',
+				tree,
+				'--main-root',
+				f.repo,
+				'KEY-9',
+			],
+			{env: f.env, encoding: 'utf8'},
+		);
+		t.is(recorded.status, 0, recorded.stderr);
 		const client = await connect(t, {...f, repo: tree});
 		t.regex(client.getInstructions() ?? '', /space KEY-9 \(repo project\)/);
 		const result = await client.callTool({

@@ -9,6 +9,7 @@ import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {parseCompanionArgs} from './companion-args.ts';
 import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {runSpaceCommand} from './space-command.ts';
+import {newSpaceIdentity} from './space-identity.ts';
 import {encodeCursor} from './space-watch.ts';
 import {parseSuperviseArgs} from './supervise-args.ts';
 
@@ -128,6 +129,14 @@ test('space_get maps onto space get, and all onto space list', async t => {
 	const outputs: string[] = [];
 	const errors: string[] = [];
 	const state = testState(t);
+	await state.daos.spaceIdentities.record(
+		newSpaceIdentity({
+			repo: state.repo,
+			key: 'STA-1',
+			worktreePath: '/home/u/.worktrees/repo/STA-1',
+			socket: 'pappardelle_inner',
+		}),
+	);
 	await state.daos.registry.add('STA-1');
 	await state.daos.spaceState.write('STA-1', {profile: 'dev'});
 	const run = async (input: Record<string, unknown>) => {
@@ -138,7 +147,6 @@ test('space_get maps onto space get, and all onto space list', async t => {
 				checkout: {repoName: state.repo, mainRoot: '/repo'},
 			}),
 			daos: () => state.daos,
-			home: '/home/u',
 			env: {PAPPARDELLE_SPACE: 'STA-1'},
 			cwd: '/',
 			runner: () => ({status: 1, stdout: ''}),
