@@ -1,9 +1,10 @@
 // `--internal-state <verb>`: state changes that bash asks the binary to make,
 // so that scripts never write state files or SQL themselves.
 
+import {homedir} from 'node:os';
 import {parseArgs} from 'node:util';
 import {statusSocket} from './program-status-monitor.ts';
-import {newSpaceIdentity} from './space-identity.ts';
+import {newSpaceIdentity, worktreePathFor} from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
@@ -78,6 +79,30 @@ const verbs: Record<string, Verb> = {
 		};
 		if (Object.keys(patch).length > 0) await daos.spaceState.write(key, patch);
 
+		return 0;
+	},
+
+	/**
+	 * Where the space's worktree is: the one stored for it, else where a new
+	 * space's goes. idow creates it there.
+	 */
+	'worktree-path'(args) {
+		const {values, positionals} = parseArgs({
+			args,
+			allowPositionals: true,
+			options: {repo: {type: 'string'}},
+		});
+		const [key] = positionals;
+		const {repo} = values;
+		if (!repo || !key || positionals.length !== 1)
+			return usage('worktree-path needs --repo <name> and one space key');
+		const lookup = createStateDaos({repo}).spaceIdentities.get(key);
+		if (lookup.kind === 'unreadable') throw lookup.error;
+		console.log(
+			lookup.kind === 'identity'
+				? lookup.identity.worktreePath
+				: worktreePathFor(homedir(), repo, key),
+		);
 		return 0;
 	},
 

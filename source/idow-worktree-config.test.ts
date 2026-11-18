@@ -11,7 +11,7 @@ import {agentRulesFlags} from './companion-rules.ts';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
 import {repoNameFromGitCommonDir} from './config.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
-import {protectedSessionNames} from './space-identity.ts';
+import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
 import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath} from './state-db.ts';
 import {
@@ -39,9 +39,12 @@ function setup(t: ExecutionContext, realWorktree = false) {
 	const scripts = path.join(root, 'scripts');
 	const bin = path.join(root, 'bin');
 	const home = path.join(root, 'home');
-	const workspace = realWorktree
-		? path.join(home, '.worktrees', path.basename(main), 'test-abc')
-		: path.join(root, 'new workspace');
+	const workspace = path.join(
+		home,
+		'.worktrees',
+		path.basename(main),
+		'test-abc',
+	);
 	const launchArgs = path.join(root, 'launch-args');
 	const vcsCalls = path.join(root, 'vcs-calls');
 	const configCalls = path.join(root, 'config-calls');
@@ -129,8 +132,9 @@ exec "$IDOW_TEST_YQ" "$@"`,
 	);
 	writeScript(
 		path.join(scripts, 'create-worktree.sh'),
-		`mkdir -p "$IDOW_TEST_WORKSPACE"
-jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path}'`,
+		`while [[ "$1" != --worktree ]]; do shift; done
+mkdir -p "$2"
+jq -n --arg worktree_path "$2" '{worktree_path: $worktree_path}'`,
 	);
 	if (realWorktree) {
 		fs.copyFileSync(
@@ -473,6 +477,37 @@ if (sqliteRun) {
 			t.deepEqual(killed, ['=agent-main checkout-gone-1:']);
 		},
 	);
+}
+
+if (sqliteRun) {
+	test.serial('idow opens a space in the worktree the stores name', async t => {
+		const fixture = setup(t);
+		const stateDir = path.join(fixture.home, '.pappardelle');
+		const daos = createStateDaos({
+			repo: path.basename(fixture.main),
+			stateDir,
+			sqlite: true,
+			home: fixture.home,
+			mainRoot: () => fixture.main,
+		});
+		t.teardown(() => {
+			daos.disconnectStatusDaemon();
+			closeStateDb(stateDbPath(stateDir));
+		});
+		const stored = path.join(fixture.home, 'elsewhere', 'login');
+		await daos.spaceIdentities.record(
+			newSpaceIdentity({
+				repo: path.basename(fixture.main),
+				key: 'test-abc',
+				worktreePath: stored,
+				socket: 'pappardelle_inner',
+			}),
+		);
+		await fixture.run();
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		t.is(args[args.indexOf('--worktree') + 1], stored);
+		t.true(fs.existsSync(stored));
+	});
 }
 
 test('idow prefers a worktree project config while falling back for local config', async t => {
@@ -1405,11 +1440,11 @@ function stateCli(fixture: ReturnType<typeof setup>, exitCode: number) {
 	const executable = path.join(fixture.bin, 'pappardelle-state-stub');
 	writeScript(
 		executable,
-		`if [[ "$2" != space ]]; then
+		`if [[ "$2" != space && "$2" != worktree-path ]]; then
     test ! -f "$IDOW_TEST_LAUNCH_ARGS" || echo "after sessions" >> ${JSON.stringify(calls)}
     printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
 fi
-${exitCode === 0 ? `exec ${JSON.stringify(path.join(fixture.bin, 'pappardelle-state'))} "$@"` : `echo "no state for you" >&2\nexit ${exitCode}`}`,
+${exitCode === 0 ? '' : `if [[ "$2" != space && "$2" != worktree-path ]]; then\n    echo "no state for you" >&2\n    exit ${exitCode}\nfi\n`}exec ${JSON.stringify(path.join(fixture.bin, 'pappardelle-state'))} "$@"`,
 	);
 	return {
 		calls: () => fs.readFileSync(calls, 'utf8').trim().split('\n'),
@@ -1464,15 +1499,10 @@ test.serial(
 		]);
 		t.true(fs.existsSync(fixture.launchArgs));
 
-		// create-worktree.sh is stubbed to build the workspace elsewhere, so idow
-		// only sees an existing worktree once its own path exists.
-		fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
-			recursive: true,
-		});
 		await fixture.run({extraEnv});
 		t.is(
 			state.calls().at(-1),
-			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${path.join(fixture.home, '.worktrees/main checkout/test-abc')} --main-root ${fixture.main} test-abc`,
+			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${fixture.workspace} --main-root ${fixture.main} test-abc`,
 		);
 	},
 );
