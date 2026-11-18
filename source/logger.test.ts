@@ -641,7 +641,7 @@ function runChild(t: ExecutionContext, script: string) {
 const log = createLogger('child');
 ${script}`,
 		],
-		{env: {...process.env, HOME: home}, encoding: 'utf8'},
+		{env: {...process.env, HOME: home}, encoding: 'utf8', timeout: 10_000},
 	);
 	const logDir = path.join(home, '.pappardelle', 'logs');
 	const text = existsSync(logDir)
@@ -655,6 +655,7 @@ ${script}`,
 		stderr: child.stderr,
 		text,
 		lines: text.match(/\[child\] \S+/g) ?? [],
+		crashes: text.match(/\[crash\] .*/g) ?? [],
 	};
 }
 
@@ -685,22 +686,21 @@ setTimeout(() => { throw new Error('boom'); }, 0);`,
 });
 
 test('an uncaught top-level error lands in the log with its stack', t => {
-	const {status, text, stderr} = runChild(
+	const {status, text, stderr, crashes} = runChild(
 		t,
 		`captureStderr();
-function writeTarget() { throw new Error('top-level-boom'); }
-writeTarget();`,
+function throwAtTopLevel() { throw new Error('top-level-boom'); }
+throwAtTopLevel();`,
 	);
 	t.is(status, 1);
 	t.true(stderr.includes('top-level-boom'));
-	const crashes = text.match(
-		/\[crash\] Error: top-level-boom\n\s+at writeTarget/g,
-	);
-	t.is(crashes?.length, 1);
+	t.deepEqual(crashes, ['[crash] Error: top-level-boom']);
+	t.regex(text, /\[crash\] Error: top-level-boom\n\s+at throwAtTopLevel/);
 });
 
 test('unhandled rejections land in the log and still crash the process', t => {
-	const {status, text, stderr} = runChild(
+	// Pending work must not keep a process alive past an unhandled rejection.
+	const {status, stderr, crashes} = runChild(
 		t,
 		`captureStderr();
 setInterval(() => {}, 1000);
@@ -712,10 +712,13 @@ void Promise.reject(new Error('after-duplicates'));`,
 	);
 	t.is(status, 1);
 	t.true(stderr.includes('first-rejection'));
-	t.is(text.match(/\[crash\] Error: first-rejection/g)?.length, 1);
-	t.is(text.match(/\[crash\] Error: second-rejection/g)?.length, 1);
-	t.is(text.match(/\[crash\] undefined/g)?.length, 2);
-	t.is(text.match(/\[crash\] Error: after-duplicates/g)?.length, 1);
+	t.deepEqual(crashes, [
+		'[crash] Error: first-rejection',
+		'[crash] Error: second-rejection',
+		'[crash] undefined',
+		'[crash] undefined',
+		'[crash] Error: after-duplicates',
+	]);
 });
 
 test('a rejection raised after startup still crashes the process', t => {
@@ -724,15 +727,18 @@ test('a rejection raised after startup still crashes the process', t => {
 		`async function main() { await Bun.sleep(1); throw new Error('late-boom'); }
 void main();`,
 	]) {
-		const {status, text, stderr} = runChild(t, `captureStderr();\n${script}`);
+		const {status, stderr, crashes} = runChild(
+			t,
+			`captureStderr();\n${script}`,
+		);
 		t.is(status, 1, script);
 		t.true(stderr.includes('late-boom'), script);
-		t.is(text.match(/\[crash\] Error: late-boom/g)?.length, 1, script);
+		t.deepEqual(crashes, ['[crash] Error: late-boom'], script);
 	}
 });
 
 test('errors another listener handles are not logged as crashes', t => {
-	const {status, text} = runChild(
+	const {status, crashes} = runChild(
 		t,
 		`process.on('uncaughtException', () => {});
 process.on('unhandledRejection', () => {});
@@ -741,7 +747,7 @@ setTimeout(() => { throw new Error('handled-throw'); }, 0);
 void Promise.reject(new Error('handled-rejection'));`,
 	);
 	t.is(status, 0);
-	t.false(text.includes('[crash]'));
+	t.deepEqual(crashes, []);
 });
 
 test('a line logged by a later exit handler still lands in the file', t => {
