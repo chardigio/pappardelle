@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'ava';
 import {testState} from '../test/helpers/state.ts';
 import {
@@ -279,6 +281,22 @@ test.serial(
 			issueTitle: 'Renamed',
 			updatedAt: new Date(1000).toISOString(),
 		});
+	},
+);
+
+test.serial(
+	'a title is not written over a state file that cannot be read',
+	async t => {
+		const {spaceState} = testState(t, {sqlite: false}).daos;
+		setIssueTitles(spaceState);
+		const file = spaceState.file('STA-1');
+		fs.mkdirSync(path.dirname(file), {recursive: true});
+		const halfWritten = '{"profile": "dev", "prLinks": [';
+		fs.writeFileSync(file, halfWritten);
+
+		await recordIssueTitles([['STA-1', issue('First')]]);
+
+		t.is(fs.readFileSync(file, 'utf8'), halfWritten);
 	},
 );
 

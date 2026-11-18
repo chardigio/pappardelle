@@ -97,11 +97,16 @@ export async function recordIssueTitles(
 ): Promise<void> {
 	const dao = issueTitles;
 	if (!dao) return;
-	const changed = [...issues].flatMap(([key, issue]) =>
-		issue && dao.read(key)?.issueTitle !== issue.title
-			? [{key, patch: {issueTitle: issue.title}}]
-			: [],
-	);
+	const changed = [...issues].flatMap(([key, issue]) => {
+		if (!issue) return [];
+		// A record that cannot be read is not overwritten: the write would
+		// replace it with the title alone and lose the space's profile and PR links.
+		const stored = dao.lookup(key);
+		if (stored.kind === 'unreadable') return [];
+		if (stored.kind === 'state' && stored.state.issueTitle === issue.title)
+			return [];
+		return [{key, patch: {issueTitle: issue.title}}];
+	});
 	if (changed.length === 0) return;
 	try {
 		await dao.writeMany(changed);
