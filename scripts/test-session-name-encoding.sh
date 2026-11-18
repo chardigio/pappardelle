@@ -1,17 +1,14 @@
 #!/bin/bash
 
-# Test: the agent and companion tmux session names carry the same encoded key
+# Test: open-iterm-agent.sh attaches to the companion session it is given
 #
-# start-agent-session.sh creates both sessions from an encoded key ('_' -> '__',
-# then '.' -> '_') so beads IDs survive tmux's target grammar. open-iterm-agent.sh
-# has to attach to those exact names. It used to rebuild the companion name from
-# the raw issue key, which diverged for every key carrying a '_' or a '.' —
-# silently, because `new-session -d -s` just creates whatever name it is handed,
-# orphaning the companion session that already existed.
-#
-# tmux 3.6 and older store '.' in a session name as '_', but newer releases
-# keep it: `new-session -s 'bd-a3f8e9.1'` reports back 'bd-a3f8e9.1' on tmux
-# 3.7b, so beads child issues diverged too.
+# The session names are stored when the space is created and handed to the
+# launchers by idow. open-iterm-agent.sh used to rebuild the companion name
+# from the agent's, which diverged from the stored name for any space whose
+# names do not follow agent-<repo>-<key> — silently, because `new-session -A
+# -s` just creates whatever name it is handed, orphaning the companion session
+# that already existed. The encoding of a key into a name is covered by
+# getSessionNames in source/tmux-sessions.test.ts.
 #
 # The command lines are assembled inside open-iterm-agent.sh's AppleScript, so
 # this runs that AppleScript directly. Its `tell application "iTerm"` block is
@@ -61,30 +58,17 @@ if ! grep -q '^end run$' "$HARNESS"; then
     exit 1
 fi
 
-# The encoding under test, mirroring start-agent-session.sh.
-encode_key() {
-    local key="${1//_/__}"
-    printf '%s' "${key//./_}"
-}
-
 # Pull the session name out of a `tmux ... -s 'NAME'` or `-t 'NAME'` command line.
 session_from() {
     sed -E "s/.*$1 '([^']*)'.*/\1/" <<< "$2"
 }
 
 assert_sessions() {
-    local test_name="$1"
-    local issue_key="$2"
-    local repo_name="testrepo"
-
-    local session_key expected_agent expected_companion
-    session_key=$(encode_key "$issue_key")
-    expected_agent="agent-${repo_name}-${session_key}"
-    expected_companion="companion-${repo_name}-${session_key}"
+    local test_name="$1" expected_agent="$2" expected_companion="$3"
 
     local out agent_line companion_line actual_agent actual_companion
     out=$(osascript "$HARNESS" \
-        "$issue_key" /tmp/wt "$expected_agent" '' "$repo_name" '' sock 'gitui' true /bin/zsh claude '' ' --continue' claude /tmp/state.json true)
+        QA-1 /tmp/wt "$expected_agent" '' testrepo '' sock 'gitui' true /bin/zsh claude '' ' --continue' claude /tmp/state.json true '' "$expected_companion")
     agent_line=$(sed -n '1p' <<< "$out")
     companion_line=$(sed -n '2p' <<< "$out")
     actual_agent=$(session_from '-s' "$agent_line")
@@ -101,14 +85,11 @@ assert_sessions() {
     fi
 }
 
-echo -e "\n${BOLD}Test: agent and companion sessions share the encoded key${RESET}"
+echo -e "\n${BOLD}Test: the launcher attaches to the session names it is given${RESET}"
 
-assert_sessions "beads prefix carrying an underscore" "my_svc-a1b2"
-assert_sessions "beads child issue" "bd-a3f8e9.1"
-assert_sessions "beads child issue, three segments" "a_b-c.1.2"
-assert_sessions "beads prefix carrying hyphens" "seatgeek-ticket-management-cli-bqm"
-assert_sessions "Linear key is unchanged by the encoding" "STA-123"
-assert_sessions "Jira key carrying digits" "A1B-234"
+assert_sessions "names idow gives a beads child issue" "agent-testrepo-bd-a3f8e9_1" "companion-testrepo-bd-a3f8e9_1"
+assert_sessions "a companion name that is not the agent's with another prefix" "agent-testrepo-STA-1" "hand-named_companion"
+assert_sessions "names in no Pappardelle spelling" "hand.named_agent" "other-companion"
 
 echo ""
 TOTAL=$((PASS + FAIL))
