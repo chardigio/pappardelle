@@ -36,6 +36,30 @@ contractTest('add opens a space and writes the registry file', async (t, s) => {
 	t.false(s.daos.registry.has('STA-999'));
 });
 
+contractTest('an open space is in the open phase', async (t, s) => {
+	t.deepEqual(s.daos.registry.phase('STA-100'), {kind: 'unknown'});
+	await s.daos.registry.add('STA-100');
+	t.deepEqual(s.daos.registry.phase('STA-100'), {kind: 'phase', phase: 'open'});
+	t.deepEqual(s.daos.registry.phase('STA-200'), {kind: 'unknown'});
+});
+
+contractTest(
+	'a registry that cannot be read never makes a space unknown',
+	(t, s) => {
+		fs.writeFileSync(s.registryFile, 'not json{');
+		t.is(s.daos.registry.phase('STA-100').kind, 'unreadable');
+	},
+);
+
+test('sqlite: a space being set up or torn down is in that phase', async t => {
+	const {registry} = testState(t, {sqlite: true}).daos;
+	await registry.reserveStart('STA-1', process.pid);
+	await registry.add('STA-2');
+	await registry.markClosing('STA-2');
+	t.deepEqual(registry.phase('STA-1'), {kind: 'phase', phase: 'starting'});
+	t.deepEqual(registry.phase('STA-2'), {kind: 'phase', phase: 'closing'});
+});
+
 contractTest('adding a space twice lists it once', async (t, s) => {
 	await s.daos.registry.add('STA-100');
 	await s.daos.registry.add('STA-100');

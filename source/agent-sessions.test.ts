@@ -111,6 +111,17 @@ contractTest(
 	},
 );
 
+contractTest("a space's sessions are listed by agent profile", (t, state) => {
+	const f = fixture(state);
+	t.deepEqual(f.dao.sessions('STA-1'), {kind: 'sessions', sessions: {}});
+	f.record('STA-1', {claude: entry('a'), codex: entry('b', null)});
+	f.record('STA-2', {claude: entry('c')});
+	t.deepEqual(f.dao.sessions('STA-1'), {
+		kind: 'sessions',
+		sessions: {claude: 'a', codex: 'b'},
+	});
+});
+
 contractTest('the spaces with sessions are listed', (t, state) => {
 	const f = fixture(state);
 	t.deepEqual(f.dao.keys(), []);

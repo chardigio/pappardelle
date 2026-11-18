@@ -19,6 +19,8 @@ import {
 	type JsonSpaceRegistryDao,
 	type ProtectedSpaces,
 	type SettleDeps,
+	type SpacePhase,
+	type SpacePhaseLookup,
 	type SpaceRegistryDao,
 	type WatchlistReservation,
 	type WatchlistReserveOptions,
@@ -31,9 +33,7 @@ import {
 	type WriteTx,
 } from './state-db.ts';
 
-type SpaceState = 'starting' | 'open' | 'closing';
-
-type SpaceRow = {key: string; state: SpaceState; owner_pid: number | null};
+type SpaceRow = {key: string; state: SpacePhase; owner_pid: number | null};
 
 type ReservationRow = {key: string; source: string; owner_pid: number};
 
@@ -100,6 +100,15 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 			// Callers clean up after spaces that are gone. One that cannot be
 			// looked up has to be assumed still there.
 			return true;
+		}
+	}
+
+	phase(key: string): SpacePhaseLookup {
+		try {
+			const row = this.importedRows().find(row => row.key === key);
+			return row ? {kind: 'phase', phase: row.state} : {kind: 'unknown'};
+		} catch (error) {
+			return {kind: 'unreadable', error};
 		}
 	}
 
@@ -289,7 +298,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 			.get(this.repo, key);
 	}
 
-	private keysIn(state: SpaceState): string[] {
+	private keysIn(state: SpacePhase): string[] {
 		return this.rows()
 			.filter(row => row.state === state)
 			.map(row => row.key);

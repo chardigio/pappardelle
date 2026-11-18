@@ -83,7 +83,7 @@ contractTest(
 		};
 		t.like(spaceState.read('STA-150'), expected);
 
-		await spaceState.writeRailStatuses([
+		await spaceState.writeMany([
 			{key: 'STA-150', patch: {unresolvedCommentCount: 4}},
 		]);
 		t.like(spaceState.read('STA-150'), {
@@ -107,6 +107,7 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 		recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
 		updatedAt: '2026-01-02T03:04:05.678Z',
 		profile: 'codex',
+		issueTitle: 'Fix the rail',
 	};
 	t.deepEqual(parseSpaceState(JSON.stringify(valid)), valid);
 
@@ -122,6 +123,7 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 				recap: {customTitle: 5, lastPrompt: 'Prompt', lastAssistantExcerpt: []},
 				updatedAt: 7,
 				profile: 'codex',
+				issueTitle: 12,
 			}),
 		),
 		{prLinks: [link()], recap: {lastPrompt: 'Prompt'}, profile: 'codex'},
@@ -173,6 +175,24 @@ contractTest(
 		t.is(state?.pipeline, 'passing');
 		t.is(state?.unresolvedCommentCount, 0);
 		t.deepEqual(state?.recap, {customTitle: 'Initial title'});
+	},
+);
+
+contractTest(
+	'the issue title is read back, and kept through a profile write and a rail poll',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-320', {issueTitle: 'Fix the rail'});
+		await spaceState.write('STA-320', {profile: 'dev'});
+		await spaceState.writeMany([
+			{key: 'STA-320', patch: {pipeline: 'passing'}},
+		]);
+		for (const state of [spaceState.read('STA-320'), fileContent(s, 'STA-320')])
+			t.like(state, {
+				issueTitle: 'Fix the rail',
+				profile: 'dev',
+				pipeline: 'passing',
+			});
 	},
 );
 
@@ -235,7 +255,7 @@ contractTest(
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-1', {profile: 'stardust_jams'});
 		await spaceState.addPrLink('STA-1', link());
-		await spaceState.writeRailStatuses([
+		await spaceState.writeMany([
 			{
 				key: 'STA-1',
 				patch: {
@@ -251,7 +271,7 @@ contractTest(
 				patch: {pipeline: null, unresolvedCommentCount: 0, hasConflict: false},
 			},
 		]);
-		await spaceState.writeRailStatuses([
+		await spaceState.writeMany([
 			{
 				key: 'STA-1',
 				patch: {
@@ -301,6 +321,7 @@ contractTest(
 		await spaceState.write('STA-1', {profile: 'dev', prNumber: 4});
 		const edited = {
 			profile: 'other',
+			issueTitle: 'Renamed by hand',
 			pipeline: null,
 			unresolvedCommentCount: 2,
 			hasConflict: true,
@@ -341,7 +362,7 @@ test('both stores leave the same files for the same writes', async t => {
 		const s = testState(t, {sqlite});
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-1', {profile: 'dev'});
-		await spaceState.writeRailStatuses([
+		await spaceState.writeMany([
 			{
 				key: 'STA-1',
 				patch: {
@@ -365,7 +386,7 @@ test('both stores leave the same files for the same writes', async t => {
 		await spaceState.addPrLink('STA-1', link());
 		await spaceState.addPrLink('STA-1', link({remoteBranch: 'again'}));
 		await spaceState.addPrLink('STA-3', link({localBranch: 'STA-3'}));
-		await spaceState.writeRailStatuses([
+		await spaceState.writeMany([
 			{
 				key: 'STA-1',
 				patch: {

@@ -29,7 +29,15 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {isPidAlive as defaultIsPidAlive, withFileLock} from './file-lock.ts';
-import {DEFAULT_STATE_DIR} from './state-db.ts';
+import {DEFAULT_STATE_DIR, type Unreadable} from './state-db.ts';
+
+export type SpacePhase = 'starting' | 'open' | 'closing';
+
+/** What a registry records about one space. */
+export type SpacePhaseLookup =
+	| {kind: 'phase'; phase: SpacePhase}
+	| {kind: 'unknown'}
+	| Unreadable;
 
 export type WatchlistSlots = {
 	reserved: string[];
@@ -79,6 +87,7 @@ export interface SpaceRegistryDao {
 	protectedSpaces(): ProtectedSpaces;
 	/** Whether the space is open, being set up or being torn down. */
 	has(key: string): boolean;
+	phase(key: string): SpacePhaseLookup;
 
 	add(key: string, signal?: AbortSignal): Promise<void>;
 	remove(key: string, signal?: AbortSignal): Promise<void>;
@@ -379,6 +388,16 @@ export class JsonSpaceRegistryDao implements SpaceRegistryDao {
 
 	has(key: string): boolean {
 		return listOpenSpaces(this).includes(key);
+	}
+
+	phase(key: string): SpacePhaseLookup {
+		try {
+			return this.openSpaces()?.includes(key)
+				? {kind: 'phase', phase: 'open'}
+				: {kind: 'unknown'};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
 	}
 
 	/** Add a space to the registry. No-op if already present. */

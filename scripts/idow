@@ -817,8 +817,9 @@ AGENT_SESSIONS_FILE="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.
 # What this run has to record about the space, in one call so the binary
 # starts once. It comes before post_workspace_init, which can run for minutes:
 # the TUI renders the ticket-rail emoji from the saved profile on first paint
-# (STA-930) and launches the space's agent from it.
-STATE_ARGS=()
+# (STA-930) and launches the space's agent from it. The title is passed with
+# `=` because a title can start with `-`.
+STATE_ARGS=(--title="$TITLE")
 # A Pappardelle that will list the space started this run, so the space is
 # recorded before its sessions exist and held under this process until the
 # caller opens it. If that fails there is nothing to undo yet, and sessions
@@ -844,8 +845,7 @@ fi
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     STATE_ARGS+=(--fresh)
 fi
-if [[ ${#STATE_ARGS[@]} -gt 0 ]] \
-    && ! pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY"; then
+if ! pappardelle_state prepare-space --repo "$REPO_NAME" "${STATE_ARGS[@]}" "$ISSUE_KEY"; then
     if [[ "$REGISTERING_SPACE" == true ]]; then
         error "Could not record workspace $ISSUE_KEY"
     fi

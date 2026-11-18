@@ -2433,7 +2433,7 @@ export default function App({
 				});
 			}
 
-			await spaceState.writeRailStatuses(entries);
+			await spaceState.writeMany(entries);
 		} catch (err) {
 			log.warn(
 				'Rail status poll failed',

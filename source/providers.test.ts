@@ -1,11 +1,15 @@
 import test from 'ava';
+import {testState} from '../test/helpers/state.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
+	recordIssueTitles,
 	resetProviders,
+	setIssueTitles,
 	setStateColors,
 	setWorkspaceDiscovery,
 	type IssueTrackerConfig,
+	type TrackerIssue,
 } from './providers/index.ts';
 import {claimIssue} from './tracker.ts';
 
@@ -237,6 +241,46 @@ for (const config of [
 		},
 	);
 }
+
+// ============================================================================
+// Issue titles
+// ============================================================================
+
+const issue = (title: string): TrackerIssue => ({
+	identifier: 'STA-1',
+	title,
+	state: {name: 'Todo', type: 'unstarted', color: '#000000'},
+});
+
+// The rail reads every space's issue on each refresh, so an unchanged title
+// must not rewrite the space's state.
+test.serial(
+	'a title read from the tracker is stored when it changed, and a failed read stores nothing',
+	async t => {
+		let now = 0;
+		const {spaceState} = testState(t, {clock: () => new Date(now)}).daos;
+		setIssueTitles(spaceState);
+
+		await recordIssueTitles([
+			['STA-1', issue('First')],
+			['STA-2', null],
+		]);
+		const first = spaceState.read('STA-1');
+		t.is(first?.issueTitle, 'First');
+		t.is(spaceState.read('STA-2'), null);
+
+		now = 1000;
+		await recordIssueTitles([['STA-1', issue('First')]]);
+		await recordIssueTitles([['STA-1', null]]);
+		t.deepEqual(spaceState.read('STA-1'), first);
+
+		await recordIssueTitles([['STA-1', issue('Renamed')]]);
+		t.like(spaceState.read('STA-1'), {
+			issueTitle: 'Renamed',
+			updatedAt: new Date(1000).toISOString(),
+		});
+	},
+);
 
 // ============================================================================
 // resetProviders

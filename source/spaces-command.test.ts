@@ -237,7 +237,7 @@ test('the report is the same from files and from the database for the same histo
 		await daos.spaceState.write('NEW-1', {profile: 'dev'});
 		await daos.spaceState.write('IDLE-3', {profile: 'dev'});
 		const poll = async () =>
-			daos.spaceState.writeRailStatuses([
+			daos.spaceState.writeMany([
 				{
 					key: 'NEW-1',
 					patch: {

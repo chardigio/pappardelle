@@ -16,6 +16,7 @@ import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {PIPELINE_STATUSES, type PipelineStatus} from './providers/types.ts';
+import type {Unreadable} from './state-db.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 
@@ -50,6 +51,8 @@ export interface SpaceState {
 	 * Written once per workspace creation; never updated by the rail-status poller.
 	 */
 	profile?: string;
+	/** The issue's title as the tracker last gave it to Pappardelle. */
+	issueTitle?: string;
 }
 
 /**
@@ -59,7 +62,7 @@ export interface SpaceState {
 export type SpaceStatePatch = Omit<SpaceState, 'prLinks' | 'updatedAt'>;
 
 /** What the rail poll learns about a space. It never chooses the profile. */
-export type RailStatusPatch = Omit<SpaceStatePatch, 'profile'>;
+export type RailStatusPatch = Omit<SpaceStatePatch, 'profile' | 'issueTitle'>;
 
 /** One repo's per-space state, a record per space key. */
 export interface SpaceStateDao {
@@ -68,9 +71,9 @@ export interface SpaceStateDao {
 	/** Null when nothing is recorded, or the record cannot be read. */
 	read(key: string): SpaceState | null;
 	write(key: string, patch: SpaceStatePatch): Promise<void>;
-	/** The result of one rail poll, for every space it covered. */
-	writeRailStatuses(
-		entries: Array<{key: string; patch: RailStatusPatch}>,
+	/** Several spaces' patches at once, such as one rail poll's results. */
+	writeMany(
+		entries: Array<{key: string; patch: SpaceStatePatch}>,
 	): Promise<void>;
 	/**
 	 * Record `link` as the space's newest. A checkout (host, project and local
@@ -162,6 +165,7 @@ export function parseSpaceState(content: string): SpaceState {
 	const prNumber = integerOrNothing(record['prNumber']);
 	const updatedAt = stringOrNothing(record['updatedAt']);
 	const profile = stringOrNothing(record['profile']);
+	const issueTitle = stringOrNothing(record['issueTitle']);
 	return {
 		...(Array.isArray(prLinks)
 			? {prLinks: prLinks.flatMap(link => parsePrLink(link) ?? [])}
@@ -176,6 +180,7 @@ export function parseSpaceState(content: string): SpaceState {
 		...(isRecord(recap) ? {recap: parseRecap(recap)} : {}),
 		...(updatedAt === undefined ? {} : {updatedAt}),
 		...(profile === undefined ? {} : {profile}),
+		...(issueTitle === undefined ? {} : {issueTitle}),
 	};
 }
 
@@ -243,6 +248,11 @@ export type AgentSession = {
 	started: string | null;
 };
 
+/** Each agent profile's recorded session id in one space. */
+export type AgentSessionsLookup =
+	| {kind: 'sessions'; sessions: Record<string, string>}
+	| Unreadable;
+
 /**
  * Each agent profile's latest conversation in a space, by agent profile name,
  * written only by the agent's SessionStart/UserPromptSubmit hook
@@ -258,6 +268,7 @@ export interface AgentSessionsDao {
 	file(key: string): string;
 	/** The session id an agent profile recorded in a space. */
 	read(key: string, agentProfile: string): string | undefined;
+	sessions(key: string): AgentSessionsLookup;
 	/**
 	 * The agent profile whose agent started last in a space, which is the one
 	 * running there: a picker override launches once without being saved
@@ -338,7 +349,7 @@ export class JsonAgentSessionsDao implements AgentSessionsDao {
 	}
 
 	read(key: string, agentProfile: string): string | undefined {
-		const entry = this.sessions(key)[agentProfile];
+		const entry = this.entries(key)[agentProfile];
 		const id =
 			entry && typeof entry === 'object'
 				? (entry as Record<string, unknown>)['session_id']
@@ -346,9 +357,34 @@ export class JsonAgentSessionsDao implements AgentSessionsDao {
 		return typeof id === 'string' ? id : undefined;
 	}
 
+	sessions(key: string): AgentSessionsLookup {
+		let content: string;
+		try {
+			content = fs.readFileSync(this.file(key), 'utf8');
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+				return {kind: 'sessions', sessions: {}};
+			return {kind: 'unreadable', error};
+		}
+
+		try {
+			return {
+				kind: 'sessions',
+				sessions: Object.fromEntries(
+					[...parseAgentSessions(content)].map(([name, session]) => [
+						name,
+						session.sessionId,
+					]),
+				),
+			};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
+	}
+
 	latestProfile(key: string): string | undefined {
 		return latestStarted(
-			Object.entries(this.sessions(key)).map(([name, entry]) => [
+			Object.entries(this.entries(key)).map(([name, entry]) => [
 				name,
 				entry && typeof entry === 'object'
 					? (entry as Record<string, unknown>)['started']
@@ -397,7 +433,7 @@ export class JsonAgentSessionsDao implements AgentSessionsDao {
 		fs.rmSync(this.file(key), {force: true});
 	}
 
-	private sessions(key: string): Record<string, unknown> {
+	private entries(key: string): Record<string, unknown> {
 		try {
 			const sessions: unknown = JSON.parse(
 				fs.readFileSync(this.file(key), 'utf-8'),
@@ -457,8 +493,8 @@ export class JsonSpaceStateDao implements SpaceStateDao {
 		}
 	}
 
-	async writeRailStatuses(
-		entries: Array<{key: string; patch: RailStatusPatch}>,
+	async writeMany(
+		entries: Array<{key: string; patch: SpaceStatePatch}>,
 	): Promise<void> {
 		for (const {key, patch} of entries) await this.write(key, patch);
 	}

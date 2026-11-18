@@ -66,7 +66,7 @@ const link: SpacePrLink = {
 test('a rail poll that learns nothing new writes no row and no file', async t => {
 	const f = fixture(t);
 	const poll = async (first: RailStatusPatch) =>
-		f.spaceState.writeRailStatuses([
+		f.spaceState.writeMany([
 			{key: 'STA-1', patch: first},
 			{
 				key: 'STA-2',
@@ -132,7 +132,7 @@ for (let i = 1; i <= 40; i++) await ${write};
 	await Promise.all([
 		worker(`spaceState.write('STA-1', {profile: 'profile-' + i})`),
 		worker(
-			`spaceState.writeRailStatuses([{key: 'STA-1', patch: {pipeline: 'failing', unresolvedCommentCount: i, hasConflict: i % 2 === 0}}])`,
+			`spaceState.writeMany([{key: 'STA-1', patch: {pipeline: 'failing', unresolvedCommentCount: i, hasConflict: i % 2 === 0}}])`,
 		),
 	]);
 	const expected = {
