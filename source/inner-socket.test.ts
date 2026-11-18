@@ -12,7 +12,11 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
 import {testTmuxState, type TestState} from '../test/helpers/state.ts';
-import {sessionNamesFor, type ProtectedSessions} from './space-identity.ts';
+import {
+	sessionNamesFor,
+	sessionPrefix,
+	type ProtectedSessions,
+} from './space-identity.ts';
 import {
 	INNER_SOCKET,
 	cleanupOrphanedInnerSessions,
@@ -21,7 +25,6 @@ import {
 	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	exactSessionTarget,
-	getSessionPrefix,
 	innerTmuxArgs,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -227,7 +230,7 @@ test('exactSessionTarget stops tmux prefix-matching another session', t => {
 		);
 		// tmux 3.6 and older store a '.' as '_', so a name built with a dotted
 		// repo must already be in that spelling to be found again.
-		const dotted = `${getSessionPrefix('agent', 'my.repo')}STA-1`;
+		const dotted = `${sessionPrefix('agent', 'my.repo')}STA-1`;
 		t.is(tmux('new-session', '-d', '-s', dotted).status, 0);
 		t.is(tmux('has-session', '-t', exactSessionTarget(dotted)).status, 0);
 	} finally {

@@ -44,7 +44,6 @@ export type SpaceEntry = {
 	conversationLog?: string;
 	logModified?: number;
 	logMinutesAgo?: number;
-	/** Null for a space with no stored session names. */
 	tmuxSession: string | null;
 	title: string | null;
 	prUrl: string | null;

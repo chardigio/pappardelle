@@ -1,3 +1,4 @@
+import {legacyAgentSession, type SpaceSessionNames} from './space-identity.ts';
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
 import {getMainRepoRoot} from './config.ts';
@@ -34,12 +35,7 @@ export type CloseCommandDeps = {
 	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
 	killSpaceSessions: (key: string) => Promise<boolean>;
 	cleanup: (key: string) => Promise<boolean>;
-	/** Null for a space with no stored session names. */
-	sessionNames: (key: string) => {
-		agent: string;
-		companion: string;
-		legacyAgent: string;
-	} | null;
+	sessionNames: (key: string) => SpaceSessionNames | null;
 	currentInnerSession: () => string | null;
 	// The detached teardown starts here: a hook may have deleted the worktree
 	// the close was run from.
@@ -99,7 +95,11 @@ export async function runCloseCommand(
 	if (
 		current !== null &&
 		sessions !== null &&
-		[sessions.agent, sessions.companion, sessions.legacyAgent].includes(current)
+		[
+			sessions.agent,
+			sessions.companion,
+			legacyAgentSession(sessions.agent),
+		].includes(current)
 	) {
 		deps.print('Ending this session; teardown finishes in the background');
 		deps.spawnTeardown(key, deps.mainRepoRoot);

@@ -62,7 +62,6 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 		sessionNames: key => ({
 			agent: `agent-repo-${key}`,
 			companion: `companion-repo-${key}`,
-			legacyAgent: `claude-repo-${key}`,
 		}),
 		currentInnerSession: () => null,
 		mainRepoRoot: '/repo',
