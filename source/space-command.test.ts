@@ -242,15 +242,17 @@ test('a socket path is passed with -S', async t => {
 	});
 });
 
-test('without lifecycle records, an unregistered key with a live agent session is starting', async t => {
-	const state = testState(t, {sqlite: false});
-	const tmux = fakeTmux([{session: 'agent-repo-STA-5', id: '%1'}]).runner;
-	const result = await run(
-		['get', 'STA-5', '--field', 'phase'],
-		deps(state, {runner: tmux}),
-	);
-	t.deepEqual(result, {code: 0, stdout: 'starting', stderr: ''});
-});
+contractTest(
+	'an unregistered key with a live agent session is starting',
+	async (t, state) => {
+		const tmux = fakeTmux([{session: 'agent-repo-STA-5', id: '%1'}]).runner;
+		const result = await run(
+			['get', 'STA-5', '--field', 'phase'],
+			deps(state, {runner: tmux}),
+		);
+		t.deepEqual(result, {code: 0, stdout: 'starting', stderr: ''});
+	},
+);
 
 test('a key that is not open but has stored state is closed, and one with neither is unknown', async t => {
 	const state = testState(t);
