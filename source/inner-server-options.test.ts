@@ -3,6 +3,21 @@ import {mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
 import {ensureCompanionSession, getSessionNames} from './tmux.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
+import {getRepoName} from './config.ts';
+
+// tmux.ts names a space's sessions from the stores. Without the database they
+// are the names idow gives a space, which is all this file needs.
+const stateTeardowns: Array<() => void> = [];
+test.before(() => {
+	testTmuxState(
+		{teardown: fn => stateTeardowns.push(fn)},
+		{repo: getRepoName(), sqlite: false},
+	);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 const runtimeTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.skip;

@@ -12,6 +12,7 @@ import {
 	ensureAgentSession,
 	ensureCompanionSession,
 	getSessionNames,
+	initTmuxState,
 	killSpaceSessions,
 	registerAwaitingFrame,
 	type AsyncTmuxRunner,
@@ -30,13 +31,22 @@ import {
 	startupTrace,
 	type StartupRecord,
 } from './startup-trace.ts';
-import {testState, testTmuxState} from '../test/helpers/state.ts';
+import {
+	testState,
+	testTmuxState,
+	type TestState,
+} from '../test/helpers/state.ts';
 
 // A new agent session is told where its agent-sessions file is, which the
 // stores place.
 const stateTeardowns: Array<() => void> = [];
+let derived: TestState;
 test.before(() => {
-	testTmuxState({teardown: fn => stateTeardowns.push(fn)});
+	// Without the database a space's sessions get the names idow gives them.
+	derived = testTmuxState(
+		{teardown: fn => stateTeardowns.push(fn)},
+		{repo: getRepoName(), sqlite: false},
+	);
 });
 test.after.always(() => {
 	for (const teardown of stateTeardowns) teardown();
@@ -666,6 +676,62 @@ test.serial(
 			.map(command => command[4]);
 		t.deepEqual(titles, ['agent · TEST-B', 'companion']);
 		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
+	},
+);
+
+test.serial(
+	'a switch and a session start use the names stored for the space',
+	async t => {
+		const stored = testState(t, {repo: getRepoName(), sqlite: true});
+		for (const key of ['TEST-A', 'TEST-HAND']) {
+			// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
+			await stored.daos.spaceIdentities.record({
+				repo: getRepoName(),
+				key,
+				worktreePath: '/tmp',
+				tmux: {
+					socket: 'pappardelle_inner',
+					agentSession: `hand-named-agent-${key}`,
+					companionSession: `hand-named-companion-${key}`,
+				},
+			});
+		}
+
+		initTmuxState(stored.daos);
+		t.teardown(() => {
+			initTmuxState(derived.daos);
+		});
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-HAND', '%0', undefined, undefined, {
+				run: fake.run,
+			}),
+		);
+		t.deepEqual(
+			splitBatch(fake.calls[0]!.slice(2))
+				.filter(command => command[0] === 'switch-client')
+				.map(command => command[4]),
+			['=hand-named-agent-TEST-HAND:', '=hand-named-companion-TEST-HAND:'],
+		);
+
+		const started: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			started.push(args);
+			if (args.includes('has-session')) throw new Error('no session');
+			return '';
+		};
+		t.true(await ensureCompanionSession('TEST-HAND', '/tmp', '', run));
+		t.true(await ensureAgentSession('TEST-HAND', '/tmp', false, run));
+		t.deepEqual(
+			started
+				.filter(args => args.includes('new-session'))
+				.map(args => args[args.indexOf('-s') + 1]),
+			['hand-named-companion-TEST-HAND', 'hand-named-agent-TEST-HAND'],
+		);
 	},
 );
 

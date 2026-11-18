@@ -236,7 +236,7 @@ export function runInCompanion(
 	const created = createCompanionSplit(
 		spaceKey,
 		{...options, name: options.pane},
-		{runner: space.runner, repoName: deps.repoName},
+		{runner: space.runner},
 	);
 	if (!created.ok) throw new CompanionError(created.reason);
 	return {created: true};

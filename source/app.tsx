@@ -715,7 +715,7 @@ export default function App({
 				return registry.openSpacesAsync();
 			}),
 			statusReader: () => workspaceStatuses.reader(),
-			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
+			readWorktreePath: async key => getWorktreePathAsync(key),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
 			statusKey: async (key, mainBranch) =>

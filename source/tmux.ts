@@ -2,7 +2,7 @@
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -199,10 +199,11 @@ import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
 import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
 import {
+	legacyAgentSession,
 	sessionNamesFor,
 	sessionPrefix,
 	tmuxSessionRepo,
-	worktreePathFor,
+	type SpaceIdentity,
 	type SpaceIdentityDao,
 } from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -272,6 +273,36 @@ function spaceIdentities(): SpaceIdentityDao {
 function programStatus(): ProgramStatusDao {
 	if (!stateDaos) throw new Error('initTmuxState() was not called');
 	return stateDaos.programStatus;
+}
+
+/**
+ * A space's stored identity, or null after logging why it has none. Callers
+ * then fail the way they do when the space's session is missing.
+ */
+function storedIdentity(issueKey: string): SpaceIdentity | null {
+	const lookup = spaceIdentities().get(issueKey);
+	if (lookup.kind === 'identity') return lookup.identity;
+	if (lookup.kind === 'unknown') log.warn(`No stored identity for ${issueKey}`);
+	else
+		log.warn(
+			`Could not read the stored identity of ${issueKey}`,
+			lookup.error instanceof Error ? lookup.error : undefined,
+		);
+	return null;
+}
+
+/** A space's stored session names, or null when it has none. */
+function storedSessions(
+	issueKey: string,
+): {agent: string; companion: string; legacyAgent: string} | null {
+	const identity = storedIdentity(issueKey);
+	return (
+		identity && {
+			agent: identity.tmux.agentSession,
+			companion: identity.tmux.companionSession,
+			legacyAgent: legacyAgentSession(identity.tmux.agentSession),
+		}
+	);
 }
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
@@ -1539,10 +1570,10 @@ export async function killSpaceSessions(
 	issueKey: string,
 	options?: {
 		run?: AsyncTmuxRunner;
-		repoName?: string;
 	},
 ): Promise<boolean> {
-	const sessions = getSessionNames(issueKey, options?.repoName);
+	const sessions = storedSessions(issueKey);
+	if (!sessions) return false;
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
 	const run = options?.run ?? runTmux;
@@ -1860,7 +1891,6 @@ export async function sendToSpaceAgent(
 	issueKey: string,
 	text: string,
 	options: {
-		repoName?: string;
 		runner?: SendTmuxRunner;
 		lockDir?: string;
 		lockTimeoutMs?: number;
@@ -1869,7 +1899,8 @@ export async function sendToSpaceAgent(
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
-	const session = getSessionNames(issueKey, options.repoName).agent;
+	const session = storedSessions(issueKey)?.agent;
+	if (!session) return 'no-session';
 	const target = await resolveInnerSessionTarget(session, runner);
 	if (!target) return 'no-session';
 	try {
@@ -1904,7 +1935,6 @@ export function sendKeysToSpaceAgent(
 	issueKey: string,
 	keys: readonly string[],
 	options: {
-		repoName?: string;
 		runner?: OuterTmuxRunner;
 		/** Set by `pappardelle answer`, which has already checked the prompt. */
 		answering?: boolean;
@@ -1913,10 +1943,8 @@ export function sendKeysToSpaceAgent(
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(issueKey, options.repoName).agent,
-		runner,
-	);
+	const session = storedSessions(issueKey)?.agent;
+	const target = session && resolveInnerSessionTargetSync(session, runner);
 	if (!target) return 'no-session';
 	// A key such as 1 or Enter answers a prompt, which only `answer` may do
 	// under its policy. Escape declines a Claude prompt, so it stays open to
@@ -2460,7 +2488,12 @@ async function attachViewers(
 	// An interrupted switch may have moved only one pane. Never let the
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
-	const sessions = getSessionNames(issueKey);
+	const sessions = storedSessions(issueKey);
+	if (!sessions) {
+		traceDone?.('failed');
+		return false;
+	}
+
 	let configuredSplits: ResolvedCompanionSplit[] | undefined;
 	// A split that fails to show leaves the agent and companion attached.
 	// `listing` is the session listing the attach asked for along with its own
@@ -2884,10 +2917,9 @@ async function keepSplitDrags(
 	const measured =
 		snapshot ??
 		parseWindowGeometry(await run(paneGeometryArgs(layout.listPaneId)));
-	const {splits} = await listCompanion(
-		getSessionNames(shownSplitsSpace).companion,
-		run,
-	);
+	const companion = storedSessions(shownSplitsSpace)?.companion;
+	if (!companion) return;
+	const {splits} = await listCompanion(companion, run);
 	await rememberSplitDrags(
 		measured,
 		companionColumnWidth(measured, layout),
@@ -2962,12 +2994,9 @@ async function seedCompanionSplits(
 		}
 	}
 
-	if (!failed) {
-		await run(
-			innerTmuxArgs(
-				splitOptionArgs(getSessionNames(issueKey).companion, 'seeded', 1),
-			),
-		);
+	const companion = storedSessions(issueKey)?.companion;
+	if (!failed && companion) {
+		await run(innerTmuxArgs(splitOptionArgs(companion, 'seeded', 1)));
 	}
 
 	return started;
@@ -2994,7 +3023,8 @@ export async function syncCompanionSplits(
 	} = {},
 ): Promise<SplitSyncOutcome> {
 	const run = options.run ?? runTmux;
-	const companionSession = getSessionNames(issueKey).companion;
+	const companionSession = storedSessions(issueKey)?.companion;
+	if (!companionSession) return 'no-pane';
 	const listing = parseCompanionListing(
 		options.listing ?? (await listCompanionSessions(run)),
 		companionSession,
@@ -3658,37 +3688,31 @@ export async function reconcilePaneLayout(
 	return {layout, dimensions: {cols, rows}, stacked};
 }
 
-/**
- * Get the worktree path for an issue key
- */
-export function getWorktreePath(issueKey: string): string | null {
+function existingDirectory(identity: SpaceIdentity): string | null {
 	try {
-		const worktreePath = worktreePathFor(
-			process.env['HOME'] ?? '',
-			getRepoName(),
-			issueKey,
-		);
-
-		return existsSync(worktreePath) && statSync(worktreePath).isDirectory()
-			? worktreePath
+		return statSync(identity.worktreePath).isDirectory()
+			? identity.worktreePath
 			: null;
 	} catch {
 		return null;
 	}
 }
 
+/** A space's stored worktree, or null when it has none or it is gone. */
+export function getWorktreePath(issueKey: string): string | null {
+	const identity = storedIdentity(issueKey);
+	return identity && existingDirectory(identity);
+}
+
+/** `getWorktreePath` off the event loop. */
 export async function getWorktreePathAsync(
 	issueKey: string,
-	repoName: string,
 ): Promise<string | null> {
-	const worktreePath = worktreePathFor(
-		process.env['HOME'] ?? '',
-		repoName,
-		issueKey,
-	);
+	const identity = storedIdentity(issueKey);
+	if (!identity) return null;
 	try {
-		const stats = await stat(worktreePath);
-		return stats.isDirectory() ? worktreePath : null;
+		const stats = await stat(identity.worktreePath);
+		return stats.isDirectory() ? identity.worktreePath : null;
 	} catch (err) {
 		if (
 			['ENOENT', 'ENOTDIR'].includes((err as NodeJS.ErrnoException).code ?? '')
@@ -3928,8 +3952,13 @@ export async function ensureAgentSession(
 	launch?: AgentLaunch,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('agent-session');
-	const sessions = getSessionNames(issueKey);
-	const sessionName = sessions.agent;
+	const identity = storedIdentity(issueKey);
+	if (!identity) {
+		traceDone?.('failed');
+		return false;
+	}
+
+	const sessionName = identity.tmux.agentSession;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
@@ -3948,7 +3977,7 @@ export async function ensureAgentSession(
 		}
 	}
 
-	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
+	const worktreePath = explicitWorktreePath ?? existingDirectory(identity);
 	if (!worktreePath) {
 		log.warn(`Cannot create agent session for ${issueKey}: no worktree found`);
 		traceDone?.('failed');
@@ -4085,12 +4114,15 @@ export function createCompanionSplit(
 		size?: PaneWidth;
 		order?: number;
 	},
-	options: {runner?: OuterTmuxRunner; repoName?: string} = {},
+	options: {runner?: OuterTmuxRunner} = {},
 ): CreateSplitResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const failure = (args: string[], result: ReturnType<OuterTmuxRunner>) =>
 		`tmux ${args[0]} failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`;
-	const main = getSessionNames(issueKey, options.repoName).companion;
+	const identity = storedIdentity(issueKey);
+	if (!identity)
+		return {ok: false, reason: `${issueKey} has no stored session names`};
+	const main = identity.tmux.companionSession;
 	const pathArgs = [
 		'display-message',
 		'-p',
@@ -4108,7 +4140,7 @@ export function createCompanionSplit(
 			session,
 			cwd.stdout.trim(),
 			split.command,
-			options.repoName,
+			identity.repo,
 		),
 		';',
 		...splitOptionArgs(session, 'split', split.split),
@@ -4142,7 +4174,13 @@ export async function ensureCompanionSession(
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('companion-session');
-	const sessionName = getSessionNames(issueKey).companion;
+	const identity = storedIdentity(issueKey);
+	if (!identity) {
+		traceDone?.('failed');
+		return false;
+	}
+
+	const sessionName = identity.tmux.companionSession;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
@@ -4150,7 +4188,7 @@ export async function ensureCompanionSession(
 		return true;
 	}
 
-	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
+	const worktreePath = explicitWorktreePath ?? existingDirectory(identity);
 	if (!worktreePath) {
 		log.warn(
 			`Cannot create companion session for ${issueKey}: no worktree found`,

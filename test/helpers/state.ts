@@ -4,6 +4,11 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual} from 'node:util';
 import type {ClaudeSessionState} from '../../source/claude-status.ts';
+import {statusSocket} from '../../source/program-status-monitor.ts';
+import {
+	newSpaceIdentity,
+	worktreePathFor,
+} from '../../source/space-identity.ts';
 import {getRegistryPathForRepo} from '../../source/space-registry.ts';
 import {createStateDaos, type StateDaos} from '../../source/state-daos.ts';
 import {
@@ -128,5 +133,41 @@ export function testTmuxState(
 ): TestState {
 	const state = testState(t, options);
 	initTmuxState(state.daos);
+	return state;
+}
+
+/**
+ * Record identities for `keys` as idow records them when it opens a space:
+ * the worktree under `~/.worktrees` and the names the creation rule gives.
+ */
+export async function recordIdentities(
+	state: TestState,
+	keys: readonly string[],
+	home = os.homedir(),
+): Promise<void> {
+	for (const key of keys) {
+		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
+		await state.daos.spaceIdentities.record(
+			newSpaceIdentity({
+				repo: state.repo,
+				key,
+				worktreePath: worktreePathFor(home, state.repo, key),
+				socket: statusSocket(),
+			}),
+		);
+	}
+}
+
+/**
+ * `testTmuxState` for a test file whose spaces were opened by idow, for its
+ * `test.before`: tmux.ts reads one set of stores for the whole process.
+ */
+export async function testTmuxSpaces(
+	t: Teardown,
+	repo: string,
+	keys: readonly string[],
+): Promise<TestState> {
+	const state = testTmuxState(t, {repo});
+	await recordIdentities(state, keys);
 	return state;
 }
