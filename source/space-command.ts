@@ -226,7 +226,9 @@ export async function spaceRecord(
 	const branch =
 		identity &&
 		(groups.has('branch') ||
-			(groups.has('status') && key === MAIN_WORKTREE_KEY))
+			(groups.has('status') &&
+				key === MAIN_WORKTREE_KEY &&
+				daos.claudeStatus.mainKeyedByBranch))
 			? await deps.gitBranch(identity.worktreePath)
 			: null;
 	const agentPane =
