@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test, {type ExecutionContext} from 'ava';
+import {contractTest} from '../test/helpers/dao-contract.ts';
 import {
 	testState,
 	writeClaudeStatus,
@@ -298,6 +299,25 @@ test('a registry or state store that cannot be read exits 3, never 1', async t =
 	t.is(result.code, 3);
 	t.regex(result.stderr, /Could not read the state of STA-1/);
 });
+
+contractTest(
+	'an agent-sessions store that cannot be read fails only the lookups that read it',
+	async (t, state) => {
+		await state.daos.registry.add('STA-1');
+		await state.daos.spaceState.write('STA-1', {profile: 'dev'});
+		fs.mkdirSync(state.daos.agentSessions.file('STA-1'), {recursive: true});
+		t.deepEqual(
+			await run(['get', 'STA-1', '--field', 'profile'], deps(state)),
+			{code: 0, stdout: 'dev', stderr: ''},
+		);
+		const sessions = await run(
+			['get', 'STA-1', '--field', 'agentSessions.claude'],
+			deps(state),
+		);
+		t.is(sessions.code, 3);
+		t.regex(sessions.stderr, /Could not read the state of STA-1/);
+	},
+);
 
 test('a space named by PAPPARDELLE_SPACE belongs to PAPPARDELLE_REPO, not the nested checkout', async t => {
 	const outer = testState(t, {repo: 'repo'});
