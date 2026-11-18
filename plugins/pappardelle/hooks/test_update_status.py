@@ -863,6 +863,11 @@ class TestStoredSpace:
         update_status("processing", cwd=str(worktree))
         assert status_socket.messages() == []
 
+    def test_a_deleted_cwd_reports_nothing(self, worktree: Path, status_socket):
+        with patch("os.getcwd", side_effect=FileNotFoundError):
+            update_status("processing")
+        assert status_socket.messages() == []
+
     def test_a_cwd_in_no_stored_space_reports_nothing(
         self, worktree: Path, tmp_path: Path, status_socket, monkeypatch: pytest.MonkeyPatch
     ):

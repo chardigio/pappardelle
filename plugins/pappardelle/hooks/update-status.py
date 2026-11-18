@@ -112,12 +112,14 @@ def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
     space = os.environ.get("PAPPARDELLE_SPACE", "").strip()
     if space:
         return _qualify(repo, space) if repo else space
+    db_path = state_db_path()
     if cwd is None:
         try:
             cwd = os.getcwd()
         except OSError:
-            return "unknown"
-    db_path = state_db_path()
+            # A deleted worktree. With the database a status needs a stored
+            # space to go under, and this directory is in none.
+            return None if db_path is not None else "unknown"
     if db_path is not None:
         row = space_at_path(db_path, cwd)
         return _qualify(row.repo, row.key) if row else None
