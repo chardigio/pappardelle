@@ -255,6 +255,7 @@ test('session names and targets encode dots and underscores, and name main', asy
 		socketFlag: '-L',
 		agentSession: 'agent-repo-a_b__c',
 		companionSession: 'companion-repo-a_b__c',
+		legacyAgentSession: 'claude-repo-a_b__c',
 		agentTarget: '=agent-repo-a_b__c:',
 		companionTarget: '=companion-repo-a_b__c:',
 	});

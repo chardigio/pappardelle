@@ -261,6 +261,8 @@ function main() {
 				`agent-pappaverify${process.pid}-${issueKey}`,
 				'--companion-session',
 				`companion-pappaverify${process.pid}-${issueKey}`,
+				'--legacy-agent-session',
+				`claude-pappaverify${process.pid}-${issueKey}`,
 				...flags,
 			],
 			{

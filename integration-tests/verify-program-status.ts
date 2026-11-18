@@ -236,6 +236,8 @@ try {
 			shellSession,
 			'--companion-session',
 			shellSessions.companion,
+			'--legacy-agent-session',
+			legacyAgentSession(shellSessions.agent),
 			'--no-agent',
 		],
 		{env: process.env, timeout: 10000},
