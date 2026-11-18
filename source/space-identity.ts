@@ -230,8 +230,14 @@ function fileId(file: string): string | undefined {
 	}
 }
 
+/** The spaces whose sessions have an owner, and those sessions' names. */
+export type ProtectedSessions = {
+	names: ReadonlySet<string>;
+	keys: ReadonlySet<string>;
+};
+
 export type ProtectedSessionNames =
-	| {kind: 'names'; names: ReadonlySet<string>}
+	| ({kind: 'names'} & ProtectedSessions)
 	| {kind: 'missing'; keys: string[]}
 	| Unreadable;
 
@@ -253,7 +259,8 @@ export function protectedSessionNames(
 	);
 	const names = new Set<string>();
 	const missing: string[] = [];
-	for (const key of [MAIN_WORKTREE_KEY, ...owned.keys]) {
+	const keys = new Set([MAIN_WORKTREE_KEY, ...owned.keys]);
+	for (const key of keys) {
 		const identity = byKey.get(key);
 		if (identity) {
 			names.add(identity.tmux.agentSession);
@@ -265,5 +272,5 @@ export function protectedSessionNames(
 
 	return missing.length > 0
 		? {kind: 'missing', keys: missing}
-		: {kind: 'names', names};
+		: {kind: 'names', names, keys};
 }

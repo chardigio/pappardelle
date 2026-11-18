@@ -469,7 +469,7 @@ if (sqliteRun) {
 					stdout: args[0] === 'list-sessions' ? live.join('\n') : '',
 				};
 			};
-			t.is(cleanupOrphanedInnerSessions(owned.names, repo, runner, [repo]), 1);
+			t.is(cleanupOrphanedInnerSessions(owned, repo, runner, [repo]), 1);
 			t.deepEqual(killed, ['=agent-main checkout-gone-1:']);
 		},
 	);
