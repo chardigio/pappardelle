@@ -411,6 +411,9 @@ test.serial(
 					? 'companion-repo-STA-1\nhand-named-companion\n'
 					: '',
 		});
-		t.is(companionSessionTarget('STA-1', {runner}), '=hand-named-companion:');
+		t.is(
+			companionSessionTarget('STA-1', {runner}).target,
+			'=hand-named-companion:',
+		);
 	},
 );

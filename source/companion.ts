@@ -1,3 +1,4 @@
+import type {SpaceIdentity} from './space-identity.ts';
 import {
 	MAIN_PANE,
 	SPLIT_LIST_FORMAT,
@@ -12,7 +13,7 @@ import {
 	createCompanionSplit,
 	defaultInnerTmuxRunner,
 	exactSessionTarget,
-	spaceSessionNames,
+	storedIdentity,
 	INNER_SOCKET,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
@@ -94,13 +95,14 @@ export function parsePaneList(stdout: string): CompanionPane[] {
 export function companionSessionTarget(
 	spaceKey: string,
 	deps: CompanionDeps = {},
-): string {
+): {identity: SpaceIdentity; session: string; target: string} {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const session = spaceSessionNames(spaceKey)?.companion;
-	if (!session)
+	const identity = storedIdentity(spaceKey);
+	if (!identity)
 		throw new CompanionError(
 			`No companion session for ${spaceKey}: it has no stored session names. Open the space with Pappardelle to record them.`,
 		);
+	const session = identity.tmux.companionSession;
 	const target = resolveInnerSessionTargetSync(session, runner);
 	if (!target) {
 		throw new CompanionError(
@@ -108,7 +110,7 @@ export function companionSessionTarget(
 		);
 	}
 
-	return target;
+	return {identity, session, target};
 }
 
 /**
@@ -154,8 +156,10 @@ export function listCompanionPanes(
 
 function loadSpace(spaceKey: string, deps: CompanionDeps) {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const target = companionSessionTarget(spaceKey, {...deps, runner});
-	const session = target.slice(1, -1);
+	const {identity, session, target} = companionSessionTarget(spaceKey, {
+		...deps,
+		runner,
+	});
 	const main = listCompanionPanes(target, runner).find(
 		pane => pane.name === MAIN_PANE,
 	)!;
@@ -163,7 +167,7 @@ function loadSpace(spaceKey: string, deps: CompanionDeps) {
 		tmux(runner, ['list-sessions', '-F', SPLIT_LIST_FORMAT]),
 		session,
 	);
-	return {runner, session, main, splits};
+	return {runner, identity, session, main, splits};
 }
 
 type Space = ReturnType<typeof loadSpace>;
@@ -237,7 +241,7 @@ export function runInCompanion(
 	}
 
 	const created = createCompanionSplit(
-		spaceKey,
+		space.identity,
 		{...options, name: options.pane},
 		{runner: space.runner},
 	);
