@@ -220,7 +220,9 @@ contractTest(
 			'test-status',
 			async args => {
 				commands.push(args.join(' '));
-				return commands.length === 1 ? '\t%1\t12\t0\t0\t' : '';
+				return commands.length === 1
+					? 'agent-repo-STA-1\t1\t\t%1\t12\t0\t0\t'
+					: '';
 			},
 		);
 
