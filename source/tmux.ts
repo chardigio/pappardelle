@@ -277,6 +277,15 @@ let resolvedBackend: TerminalBackendName | null = null;
 export function activeBackend(): TerminalBackendName {
 	if (resolvedBackend) return resolvedBackend;
 
+	// A developer's machine-wide ~/.pappardelle/.pappardelle.yml must not choose
+	// the backend for a test run: before this, `backend: herdr-app` at home made
+	// the whole tmux suite take the herdr path. Tests are recognised the way
+	// ava runs them -- a .test.ts entry point is on the command line -- and a
+	// repo's own config still counts. An explicit PAPPARDELLE_BACKEND wins
+	// either way, and PAPPARDELLE_HOME_CONFIG opts a test back in.
+	const homeCounts =
+		!underTest() || Boolean(process.env['PAPPARDELLE_HOME_CONFIG']);
+
 	let configured: string | undefined;
 	try {
 		configured = getConfiguredBackend(loadConfig());
@@ -285,7 +294,7 @@ export function activeBackend(): TerminalBackendName {
 		// `backend: herdr-app` in the home layer, an invalid *repo* config used
 		// to fall back to tmux and start a tmux layout the user never asked
 		// for. Say so, and keep the configured intent when it can be read.
-		configured = readBackendIgnoringValidation();
+		configured = readBackendIgnoringValidation({repoOnly: !homeCounts});
 		if (configured === undefined) {
 			log.error(
 				'Could not read the configured backend; falling back to tmux',
@@ -298,8 +307,26 @@ export function activeBackend(): TerminalBackendName {
 		}
 	}
 
+	// Under test the home layer was skipped above, so read the repo's own key
+	// rather than accepting whatever merged value that produced.
+	if (!homeCounts) configured = readBackendIgnoringValidation({repoOnly: true});
+
 	resolvedBackend = selectBackend({configured}).name;
 	return resolvedBackend;
+}
+
+/**
+ * Whether this process is a test run.
+ *
+ * ava runs each case in a worker at `node_modules/ava/lib/worker/base.js`,
+ * which is the one signal available without a test-only helper module. The
+ * entry points passed to `ava` are not visible in the worker's argv.
+ */
+function underTest(): boolean {
+	if (process.env.NODE_ENV === 'test') return true;
+	return process.argv.some(argument =>
+		/(?:^|[/\\])ava[/\\]lib[/\\]worker[/\\]/.test(argument),
+	);
 }
 
 /**
@@ -309,10 +336,12 @@ export function activeBackend(): TerminalBackendName {
  * unrelated mistake (a missing `profiles:`, say) is worse than reading the one
  * key this function needs.
  */
-function readBackendIgnoringValidation(): string | undefined {
+function readBackendIgnoringValidation(
+	options: {repoOnly?: boolean} = {},
+): string | undefined {
 	try {
 		const layers = configLayerFiles({
-			homeConfigDir: getDefaultHomeConfigDir(),
+			homeConfigDir: options.repoOnly ? undefined : getDefaultHomeConfigDir(),
 			projectDir: getRepoRoot(),
 			fallbackProjectDir: getMainRepoRoot,
 		});
