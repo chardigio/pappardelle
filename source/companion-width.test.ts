@@ -5,6 +5,7 @@ import {promisify} from 'node:util';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {watcherReady} from '../test/helpers/wait.ts';
 import {
 	requestCompanionLayout,
 	requestCompanionWidth,
@@ -345,12 +346,13 @@ contractTest(
 			);
 		});
 		t.teardown(unwatch);
+		await watcherReady();
 		t.deepEqual(
 			await requestCompanionLayout({
 				requests: companionRequests,
 				space: 'A',
 				tuiIsRunning: () => true,
-				attemptMs: 60,
+				attemptMs: 500,
 				attempts: 1,
 				pollMs: 5,
 			}),

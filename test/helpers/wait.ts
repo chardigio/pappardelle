@@ -13,3 +13,11 @@ export async function waitUntil(
 		await delay(5);
 	}
 }
+
+/**
+ * Let a new fs.watch watcher start delivering. On macOS it misses a write made
+ * right after it is created; a watcher created at startup never meets that.
+ */
+export async function watcherReady(): Promise<void> {
+	await delay(100);
+}
