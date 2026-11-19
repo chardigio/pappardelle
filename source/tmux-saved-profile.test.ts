@@ -17,3 +17,22 @@ test('a space runs the agent profile of the profile saved for it', async t => {
 	await daos.spaceState.write(KEY, {profile: 'other'});
 	t.is(runningAgentProfile(config, KEY).name, 'codex');
 });
+
+test('a space runs the agent profile its agent session was last started with', async t => {
+	const {daos} = testTmuxState(t);
+	const config: PappardelleConfig = {
+		version: 1,
+		agent_profiles: {codex: {command: 'codex'}, pi: {command: 'pi'}},
+		profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
+	};
+	await daos.spaceState.write(KEY, {
+		profile: 'other',
+		agentProfile: {name: 'pi', isClaude: false},
+	});
+	t.is(runningAgentProfile(config, KEY).name, 'pi');
+	// The config no longer defines it, so the profile's own runs.
+	await daos.spaceState.write(KEY, {
+		agentProfile: {name: 'gone', isClaude: false},
+	});
+	t.is(runningAgentProfile(config, KEY).name, 'codex');
+});

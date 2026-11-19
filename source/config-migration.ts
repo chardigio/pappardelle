@@ -677,21 +677,29 @@ function agentProfileRenames(
 /**
  * Session ids are recorded per agent profile name, so a space whose profile
  * moved to a new agent profile would relaunch without resuming its
- * conversation. Its id moves to the new name.
+ * conversation. Its id moves to the new name, and so does the agent profile
+ * its running agent was started with, which its hook records the id under.
  */
 export async function moveAgentSessions(
 	renames: AgentProfileRename[],
 	agentSessions: Pick<AgentSessionsDao, 'keys' | 'renameProfile'>,
-	spaceState: Pick<SpaceStateDao, 'read'>,
+	spaceState: Pick<SpaceStateDao, 'read' | 'write'>,
 ): Promise<void> {
 	if (renames.length === 0) return;
 	for (const key of agentSessions.keys()) {
-		const profileName = spaceState.read(key)?.profile;
+		const state = spaceState.read(key);
+		const profileName = state?.profile;
 		// Only the main space launches without a profile. Another space without
 		// a saved one predates saving it, so its profile isn't known.
 		if (profileName === undefined && key !== MAIN_WORKTREE_KEY) continue;
 		const rename = renames.find(rename => rename.profileName === profileName);
-		if (rename) await agentSessions.renameProfile(key, rename.from, rename.to);
+		if (!rename) continue;
+		await agentSessions.renameProfile(key, rename.from, rename.to);
+		const launched = state?.agentProfile;
+		if (launched?.name === rename.from)
+			await spaceState.write(key, {
+				agentProfile: {...launched, name: rename.to},
+			});
 	}
 }
 
@@ -744,7 +752,7 @@ export type ConfigMigrationOutcome =
 export async function confirmConfigMigrations(
 	approved: ConfigMigration[],
 	agentSessions: Pick<AgentSessionsDao, 'keys' | 'renameProfile'>,
-	spaceState: Pick<SpaceStateDao, 'read'>,
+	spaceState: Pick<SpaceStateDao, 'read' | 'write'>,
 	paths: ConfigPaths = defaultConfigPaths(),
 ): Promise<ConfigMigrationOutcome> {
 	const plan = planConfigMigrations(paths);

@@ -57,10 +57,7 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
-		...buildAgentSessionEnvArgs(
-			{name: 'agy', isClaude: false},
-			path.join(harness.root, 'agent-sessions.json'),
-		),
+		...buildAgentSessionEnvArgs(),
 		'/bin/bash',
 		'--noprofile',
 		'--rcfile',

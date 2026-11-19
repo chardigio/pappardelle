@@ -36,8 +36,7 @@ import {
 	type TestState,
 } from '../test/helpers/state.ts';
 
-// A new agent session is told where its agent-sessions file is, which the
-// stores place.
+// A new agent session's launch is recorded in the stores.
 const stateTeardowns: Array<() => void> = [];
 let derived: TestState;
 test.before(() => {
@@ -1103,9 +1102,10 @@ test.serial(
 	},
 );
 
-// The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py).
+// The agent's hook records its session id under the stored agent profile
+// (plugins/pappardelle/hooks/agent_session.py), never one the session carries.
 test.serial(
-	'a new agent session tells the hook its agent profile, its kind and the agent-sessions file',
+	'a new agent session stores the agent profile it was started with',
 	async t => {
 		const calls: string[][] = [];
 		const run: AsyncTmuxRunner = async args => {
@@ -1123,22 +1123,12 @@ test.serial(
 				effort: '',
 			}),
 		);
+		t.deepEqual(derived.daos.spaceState.read('TEST-NEW')?.agentProfile, {
+			name: 'codex',
+			isClaude: false,
+		});
 		const created = calls.find(args => args.includes('new-session'))!;
-		t.true(created.includes('PAPPARDELLE_AGENT_PROFILE=codex'));
-		t.true(created.includes('PAPPARDELLE_AGENT_IS_CLAUDE=false'));
-		t.true(
-			created.some(
-				arg =>
-					arg.startsWith('PAPPARDELLE_AGENT_SESSIONS=') &&
-					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
-			),
-		);
-		// The main space has no PAPPARDELLE_SPACE, so the rows the hook writes
-		// are named by variables of their own.
-		t.true(
-			created.includes(`PAPPARDELLE_AGENT_SESSIONS_REPO=${getRepoName()}`),
-		);
-		t.true(created.includes('PAPPARDELLE_AGENT_SESSIONS_KEY=TEST-NEW'));
+		t.false(created.some(arg => arg.startsWith('PAPPARDELLE_AGENT_')));
 	},
 );
 

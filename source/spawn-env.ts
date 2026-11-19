@@ -63,35 +63,12 @@ export function buildSessionEnvArgs(
 }
 
 /**
- * The `-e` flags only the agent session gets, for the hook that records the
- * agent's session id (plugins/pappardelle/hooks/agent_session.py): which agent profile the pane
- * runs, so a later relaunch with a different one ignores the id; whether it is
- * a claude agent profile, so the hook of an agent of the other kind started in
- * the pane isn't recorded; and the file to write the id to, with the repo and
- * space key its rows go under in the state database. Those two are variables
- * of their own because the main space has no PAPPARDELLE_SPACE. Kept off the
- * companion session, where an agent started by hand isn't the space's agent.
- * Reporting overrides bypass the terminal probe that tmux cannot answer;
- * the pane monitor captures its reports without changing the terminal transport.
+ * The `-e` flags only the agent session gets, mirroring AGENT_SESSION_ENV in
+ * start-agent-session.sh. Pi and agy report their status to the pane monitor
+ * only when asked, since tmux cannot answer the terminal probe they would
+ * otherwise send; the monitor captures the reports without changing the
+ * terminal transport.
  */
-export function buildAgentSessionEnvArgs(
-	agentProfile: {name: string; isClaude: boolean},
-	agentSessions: {file: string; repo: string; key: string},
-): string[] {
-	return [
-		'-e',
-		'PI_PROGRAM_STATUS=1',
-		'-e',
-		'AGY_CLI_OSC7501=on',
-		'-e',
-		`PAPPARDELLE_AGENT_PROFILE=${agentProfile.name}`,
-		'-e',
-		`PAPPARDELLE_AGENT_IS_CLAUDE=${agentProfile.isClaude}`,
-		'-e',
-		`PAPPARDELLE_AGENT_SESSIONS=${agentSessions.file}`,
-		'-e',
-		`PAPPARDELLE_AGENT_SESSIONS_REPO=${agentSessions.repo}`,
-		'-e',
-		`PAPPARDELLE_AGENT_SESSIONS_KEY=${agentSessions.key}`,
-	];
+export function buildAgentSessionEnvArgs(): string[] {
+	return ['-e', 'PI_PROGRAM_STATUS=1', '-e', 'AGY_CLI_OSC7501=on'];
 }

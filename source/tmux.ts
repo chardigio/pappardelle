@@ -2372,9 +2372,9 @@ function savedSpaceProfile(issueKey: string): string | undefined {
 }
 
 /**
- * The agent profile running in a space: the one whose agent started last,
- * which covers a one-launch picker override, else the one its profile
- * selects. A recorded name the config no longer defines falls back too.
+ * The agent profile running in a space: the one its agent session was last
+ * started with, which covers a one-launch picker override, else the one its
+ * profile selects. A stored name the config no longer defines falls back too.
  */
 export function runningAgentProfile(
 	config: PappardelleConfig,
@@ -2382,10 +2382,10 @@ export function runningAgentProfile(
 	issueTitle?: string,
 ): ResolvedAgentProfile {
 	const profileName = savedSpaceProfile(issueKey);
-	const latest = agentSessions().latestProfile(issueKey);
+	const launched = spaceState().read(issueKey)?.agentProfile?.name;
 	const name =
-		latest && (latest === 'claude' || config.agent_profiles?.[latest])
-			? latest
+		launched && (launched === 'claude' || config.agent_profiles?.[launched])
+			? launched
 			: resolveAgentProfileName(config, issueTitle, profileName);
 	return getNamedAgentProfile(config, name, issueTitle, profileName);
 }
@@ -4005,6 +4005,9 @@ export async function ensureAgentSession(
 	];
 
 	try {
+		await spaceState().write(issueKey, {
+			agentProfile: {name: agentProfile.name, isClaude: agentProfile.isClaude},
+		});
 		await run(
 			innerTmuxArgs([
 				'new-session',
@@ -4014,11 +4017,7 @@ export async function ensureAgentSession(
 				'-c',
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
-				...buildAgentSessionEnvArgs(agentProfile, {
-					file: agentSessions().file(issueKey),
-					repo: getRepoName(),
-					key: issueKey,
-				}),
+				...buildAgentSessionEnvArgs(),
 				...launchArgs,
 				';',
 				'set-option',

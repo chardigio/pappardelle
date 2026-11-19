@@ -295,17 +295,11 @@ export type AgentSessionsLookup =
  * issue, whose key can't own an earlier conversation.
  */
 export interface AgentSessionsDao {
-	/** The file the hook writes for a space. The launchers hand it this path. */
+	/** The file the hook writes for a space. */
 	file(key: string): string;
 	/** The session id an agent profile recorded in a space. */
 	read(key: string, agentProfile: string): string | undefined;
 	sessions(key: string): AgentSessionsLookup;
-	/**
-	 * The agent profile whose agent started last in a space, which is the one
-	 * running there: a picker override launches once without being saved
-	 * anywhere else.
-	 */
-	latestProfile(key: string): string | undefined;
 	/** The spaces that have recorded sessions. */
 	keys(): string[];
 	/**
@@ -354,24 +348,6 @@ export function renderAgentSessions(
 	return JSON.stringify(entries, null, 2) + '\n';
 }
 
-/**
- * The name whose agent started last. `started` is the agent process's start
- * time as the hook reads it from `ps -o lstart` (LC_ALL=C).
- */
-export function latestStarted(
-	entries: Iterable<[name: string, started: unknown]>,
-): string | undefined {
-	let latest: {name: string; started: number} | undefined;
-	for (const [name, value] of entries) {
-		const started = Date.parse(String(value));
-		if (!Number.isNaN(started) && (!latest || started > latest.started)) {
-			latest = {name, started};
-		}
-	}
-
-	return latest?.name;
-}
-
 export class JsonAgentSessionsDao implements AgentSessionsDao {
 	constructor(private readonly dir: string) {}
 
@@ -411,17 +387,6 @@ export class JsonAgentSessionsDao implements AgentSessionsDao {
 		} catch (error) {
 			return {kind: 'unreadable', error};
 		}
-	}
-
-	latestProfile(key: string): string | undefined {
-		return latestStarted(
-			Object.entries(this.entries(key)).map(([name, entry]) => [
-				name,
-				entry && typeof entry === 'object'
-					? (entry as Record<string, unknown>)['started']
-					: undefined,
-			]),
-		);
 	}
 
 	keys(): string[] {
