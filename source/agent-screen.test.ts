@@ -3,7 +3,7 @@ import path from 'node:path';
 import test from 'ava';
 import {parseAgentScreen, parseResetTime} from './agent-screen.ts';
 
-// Captured from real Claude Code 2.1.319 and Codex 0.166 sessions.
+// Captured from real Claude Code (2.1.319, 2.1.327) and Codex (0.166) sessions.
 const fixtures = path.join(
 	import.meta.dirname,
 	'..',
@@ -205,6 +205,26 @@ test("Claude's suggested prompt is no draft and is left out of the screen text",
 	t.true(lines.some(line => line.trimEnd() === '❯'));
 	t.false(lines.some(line => line.trimEnd() === '❯ fix it'));
 	t.true(screen('claude-draft').lines.some(line => line.includes('a draft')));
+});
+
+test("Claude's input box is found under a rule that carries the session name", t => {
+	const suggestion = screen('claude-suggestion-named');
+	t.is(suggestion.composer, '');
+	t.false(suggestion.lines.some(line => line.includes("what's in calc.py")));
+	t.is(screen('claude-draft-named').composer, 'a draft I have not sent yet');
+});
+
+test("a message echoed into Claude's transcript is not taken for Codex's composer", t => {
+	const echo =
+		'\u001B[2m\u001B[37m›\u001B[0m \u001B[2m\u001B[37mMessage from @sous-chef\u001B[3m: keep going\u001B[0m';
+	const capture = fs.readFileSync(
+		path.join(fixtures, 'claude-suggestion-named.txt'),
+		'utf8',
+	);
+	const {composer, lines} = parseAgentScreen(`${echo}\n${capture}`, NOW);
+	t.is(composer, '');
+	t.true(lines.some(line => line.includes('Message from @sous-chef')));
+	t.false(lines.some(line => line.includes("what's in calc.py")));
 });
 
 test("a Codex dialog holds the keyboard, so there's no composer to read", t => {
