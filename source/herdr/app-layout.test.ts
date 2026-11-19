@@ -1,11 +1,9 @@
 import test from 'ava';
 import {
-	adoptionLabels,
 	findSpace,
 	findTerminalIn,
-	findTerminalTab,
-	paneIdsOfTab,
-	spaceHasPanes,
+	panesOfTab,
+	viewerPanesOf,
 } from './app-layout.ts';
 import type {AppSpace} from './app.ts';
 
@@ -36,30 +34,33 @@ const space = (
 	})),
 });
 
+// The rail's tab holds all three panes: rail, agent viewer, companion viewer.
+// A second tab exists to stand for a tab the person made themselves.
 const SPACES: AppSpace[] = [
 	space('spA', 'repo', [
-		{id: 'tbRail', terminals: [['t1', 'p1']]},
 		{
-			id: 'tbSTA-1',
+			id: 'tbRail',
 			terminals: [
-				['t2', 'p2'],
-				['t3', 'p3'],
+				['t1', 'p1'],
+				['t8', 'p8'],
+				['t9', 'p9'],
 			],
 		},
+		{id: 'tbTheirs', terminals: [['t2', 'p2']]},
 	]),
-	space('spB', 'other', [{id: 'tbB', terminals: [['t9', 'p9']]}]),
+	space('spB', 'other', [{id: 'tbB', terminals: [['t7', 'p7']]}]),
 ];
 
 test('findTerminalIn locates a terminal by its address', t => {
-	t.deepEqual(findTerminalIn(SPACES, 't3'), {
-		spaceId: 'spA',
-		tabId: 'tbSTA-1',
-		paneId: 'p3',
-	});
 	t.deepEqual(findTerminalIn(SPACES, 't9'), {
+		spaceId: 'spA',
+		tabId: 'tbRail',
+		paneId: 'p9',
+	});
+	t.deepEqual(findTerminalIn(SPACES, 't7'), {
 		spaceId: 'spB',
 		tabId: 'tbB',
-		paneId: 'p9',
+		paneId: 'p7',
 	});
 });
 
@@ -73,30 +74,24 @@ test('findSpace finds a space by id', t => {
 	t.is(findSpace(SPACES, 'spZ'), undefined);
 });
 
-test('findTerminalTab returns the space and tab around a terminal', t => {
-	const found = findTerminalTab(SPACES, 't2');
-	t.is(found?.space.id, 'spA');
-	t.is(found?.tab.id, 'tbSTA-1');
-	t.is(findTerminalTab(SPACES, 'nope'), null);
+test('panesOfTab lists a tab pane in the window order', t => {
+	t.deepEqual(panesOfTab(SPACES, 't1'), ['p1', 'p8', 'p9']);
+	t.deepEqual(panesOfTab(SPACES, 't2'), ['p2']);
+	t.deepEqual(panesOfTab(SPACES, 'nope'), []);
 });
 
-test('paneIdsOfTab lists a tab panes in the window order', t => {
-	t.deepEqual(paneIdsOfTab(SPACES, 't2'), ['p2', 'p3']);
-	t.deepEqual(paneIdsOfTab(SPACES, 't1'), ['p1']);
-	t.deepEqual(paneIdsOfTab(SPACES, 'nope'), []);
+// The viewers are the panes beside the rail, in the order they were split:
+// agent first, companion second. This order is what tells the layout which
+// pane to show a space's agent in.
+test('viewerPanesOf lists the tab panes beside the rail, in split order', t => {
+	t.deepEqual(viewerPanesOf(SPACES, 't1'), ['p8', 'p9']);
 });
 
-// Adoption is the whole integration: these two labels are what make the window
-// show a core terminal as a pane.
-test('adoptionLabels are the keys the window reads', t => {
-	t.deepEqual(adoptionLabels('spA', 'tb1'), {
-		'herdr.space': 'spA',
-		'herdr.tab': 'tb1',
-	});
+test('viewerPanesOf is empty for a rail with no viewers yet', t => {
+	t.deepEqual(viewerPanesOf(SPACES, 't2'), []);
+	t.deepEqual(viewerPanesOf(SPACES, 't404'), []);
 });
 
-test('spaceHasPanes tells a ready space from one with no tab', t => {
-	t.true(spaceHasPanes(SPACES[0]));
-	t.false(spaceHasPanes(undefined));
-	t.false(spaceHasPanes(space('spC', 'empty', [])));
+test('viewerPanesOf never names the rail', t => {
+	t.false(viewerPanesOf(SPACES, 't1').includes('p1'));
 });

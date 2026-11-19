@@ -5,28 +5,26 @@
 //   tmux / herdr CLI   a pane is a *viewer*. It runs `tmux attach` or
 //                      `hc attach`, and showing another space means typing
 //                      another command into it.
-//   Herdr desktop      a pane *is* a terminal, and the window arranges panes
-//                      itself. It also *adopts* any core terminal carrying
-//                      `herdr.space=<id>` and `herdr.tab=<id>`: that terminal
-//                      appears as a pane in that tab, with no command run and
-//                      no attach typed.
+//   Herdr desktop      a pane *owns* a terminal: the one `pane.split` made
+//                      for it. But `terminal.show` displays *another*
+//                      terminal in that pane "for now", and the shown
+//                      terminal takes the keys. That is the same viewer
+//                      semantics tmux has, so switching space means showing
+//                      that space's terminals in the panes that are already
+//                      there -- not selecting a tab.
 //
-// Adoption is the whole integration. Pappardelle starts a space's agent and
-// companion as ordinary core terminals (exactly what the `herdr` backend does)
-// and labels them into a tab. The window draws them. There is no layout maths,
-// no ratio, and nothing to reattach when the selection changes: selecting a
-// tab shows its panes.
+// What does *not* work is the earlier design: it relied on a space's tab being
+// selected to show its panes, which put the rail in a tab of its own and left
+// the person looking at an agent and companion with no rail beside them. The
+// three panes belong in one tab, like tmux's window.
 //
-// So this module deals in spaces and tabs, not pane ids.
+// So this module deals in one tab: the one holding the rail. The rail's own
+// pane is split right twice, and each space's agent and companion are core
+// terminals with no pane of their own (unlabelled, so the window does not
+// adopt them into a tab behind the person's back) shown in those two panes.
 
 import {createLogger} from '../logger.ts';
-import {
-	answerField,
-	doCommand,
-	listSpaces,
-	type AppSpace,
-	type AppTab,
-} from './app.ts';
+import {answerField, doCommand, listSpaces, type AppSpace} from './app.ts';
 
 const log = createLogger('herdr-app-layout');
 
@@ -86,53 +84,60 @@ export function findSpace(
 	return spaces.find(space => space.id === spaceId);
 }
 
-/** The tab and space holding a terminal, from a listing. */
-export function findTerminalTab(
+/** The pane ids of the tab holding a terminal, in the window's order. */
+export function panesOfTab(
 	spaces: readonly AppSpace[],
 	terminalId: string,
-): {space: AppSpace; tab: AppTab} | null {
+): string[] {
 	const location = findTerminalIn(spaces, terminalId);
-	if (!location) return null;
-	const space = findSpace(spaces, location.spaceId);
-	const tab = space?.tabs.find(candidate => candidate.id === location.tabId);
-	return space && tab ? {space, tab} : null;
+	if (!location) return [];
+	const tab = findSpace(spaces, location.spaceId)?.tabs.find(
+		candidate => candidate.id === location.tabId,
+	);
+	return tab ? tab.terminals.map(terminal => terminal.pane) : [];
 }
 
 /**
- * The labels a terminal needs for the window to show it in `spaceId`/`tabId`.
+ * The panes of the tab holding `terminalId`, except the one it is in.
  *
- * These are the app's own adoption labels; the window does the rest.
+ * These are the viewer panes: they were split off the rail's pane on an
+ * earlier run, and they survive relaunches because a pane outlives the
+ * process that made it.
  */
-export function adoptionLabels(
-	spaceId: string,
-	tabId: string,
-): Record<string, string> {
-	return {'herdr.space': spaceId, 'herdr.tab': tabId};
+export function viewerPanesOf(
+	spaces: readonly AppSpace[],
+	terminalId: string,
+): string[] {
+	const location = findTerminalIn(spaces, terminalId);
+	if (!location) return [];
+	const tab = findSpace(spaces, location.spaceId)?.tabs.find(
+		candidate => candidate.id === location.tabId,
+	);
+	if (!tab) return [];
+	return tab.terminals
+		.filter(terminal => terminal.terminal !== terminalId)
+		.map(terminal => terminal.pane);
 }
 
 /**
- * Make a space and a tab for it, returning their ids.
+ * Split a pane, returning the new pane's id.
  *
- * The rail cannot call this for itself: it is already a pane in some tab, and
- * creating a space would move the person's window. It is here for a space that
- * needs a home the window has not made yet.
+ * The new pane comes with a terminal of its own, which is what the window
+ * draws until something is shown in it.
  */
-export async function newSpaceFor(options: {
-	name: string;
-	folder: string;
-}): Promise<{spaceId: string; tabId: string} | null> {
+export async function splitPaneInApp(
+	paneId: string,
+	direction: 'right' | 'down' = 'right',
+): Promise<string | null> {
 	try {
-		const answer = await doCommand('space.new', {
-			name: options.name,
-			folder: options.folder,
-			focus: false,
+		const answer = await doCommand('pane.split', {
+			pane: paneId,
+			direction,
 		});
-		const spaceId = answerField(answer, 'space');
-		const tabId = answerField(answer, 'tab');
-		return spaceId && tabId ? {spaceId, tabId} : null;
+		return answerField(answer, 'pane') ?? null;
 	} catch (error) {
 		log.error(
-			'Could not make a space in the Herdr window',
+			`Could not split pane ${paneId}`,
 			error instanceof Error ? error : undefined,
 		);
 		return null;
@@ -140,75 +145,57 @@ export async function newSpaceFor(options: {
 }
 
 /**
- * Show the tab that holds a terminal.
+ * Show a terminal in a pane, in place of the pane's own.
  *
- * This is the desktop equivalent of `switch-client`: the app keeps every space
- * and tab live, so showing one is selecting it, and the panes come with it.
+ * This is the desktop equivalent of `tmux attach` in a viewer pane: the shown
+ * terminal takes the keys, and it stays shown across tab and space switches
+ * until another `terminal.show` replaces it.
  */
-export async function showTerminalTab(
+export async function showTerminalInPane(
 	terminalId: string,
-	options: {attempts?: number; delayMs?: number} = {},
+	paneId: string,
 ): Promise<boolean> {
-	const attempts = options.attempts ?? 6;
-	const delayMs = options.delayMs ?? 150;
-
-	// The window adopts a new terminal asynchronously, so a terminal started a
-	// moment ago may not be in the listing yet. Poll briefly rather than lose
-	// the switch.
-	for (let attempt = 0; attempt < attempts; attempt++) {
-		let spaces: AppSpace[];
-		try {
-			spaces = await listSpaces();
-		} catch {
-			return false;
-		}
-
-		const found = findTerminalTab(spaces, terminalId);
-		if (found) {
-			try {
-				await doCommand('space.select', {id: found.space.id});
-				await doCommand('tab.select', {id: found.tab.id});
-				return true;
-			} catch (error) {
-				log.warn(
-					`Could not select the tab holding ${terminalId}`,
-					error instanceof Error ? error : undefined,
-				);
-				return false;
-			}
-		}
-
-		if (attempt < attempts - 1) await sleep(delayMs);
+	try {
+		await doCommand('terminal.show', {terminal: terminalId, pane: paneId});
+		return true;
+	} catch (error) {
+		log.warn(
+			`Could not show ${terminalId} in pane ${paneId}`,
+			error instanceof Error ? error : undefined,
+		);
+		return false;
 	}
-
-	return false;
 }
 
-async function sleep(ms: number): Promise<void> {
-	await new Promise<void>(resolve => {
-		setTimeout(resolve, ms);
-	});
+/** Focus a pane, which is how the desktop backend puts the keyboard in it. */
+export async function focusPaneInApp(paneId: string): Promise<void> {
+	await doCommand('pane.focus', {pane: paneId});
 }
 
-/**
- * The pane ids of the tab holding a terminal, in the window's order.
- *
- * The rail's own pane comes first because it was there first; the agent and
- * companion follow in the order they were adopted.
- */
-export function paneIdsOfTab(
-	spaces: readonly AppSpace[],
-	terminalId: string,
-): string[] {
-	const found = findTerminalTab(spaces, terminalId);
-	return found ? found.tab.terminals.map(terminal => terminal.pane) : [];
+/** Close a pane the rail split off. */
+export async function closePaneInApp(paneId: string): Promise<void> {
+	await doCommand('pane.close', {pane: paneId});
 }
 
-/**
- * Whether a space already has a tab of its own, which is what tells the
- * desktop backend that a space is ready to show rather than needing to be
- * created.
- */
-export function spaceHasPanes(space: AppSpace | undefined): boolean {
-	return (space?.tabs.length ?? 0) > 0;
+/** Show a space and a tab, which is how the rail brings its window forward. */
+export async function selectSpaceTab(
+	spaceId: string,
+	tabId: string,
+): Promise<boolean> {
+	try {
+		await doCommand('space.select', {id: spaceId});
+		await doCommand('tab.select', {id: tabId});
+		return true;
+	} catch (error) {
+		log.warn(
+			`Could not show space ${spaceId}, tab ${tabId}`,
+			error instanceof Error ? error : undefined,
+		);
+		return false;
+	}
+}
+
+/** Name the tab the panes live in, so the window's strip reads like the rail. */
+export async function nameTab(tabId: string, name: string): Promise<void> {
+	await doCommand('tab.rename', {id: tabId, name}).catch(() => undefined);
 }

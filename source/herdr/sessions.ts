@@ -25,8 +25,8 @@ import {
 import {installAgentRules} from '../companion-rules.ts';
 import {createLogger} from '../logger.ts';
 import {getAgentSessionsPath} from '../space-state.ts';
+import {MAIN_WORKTREE_KEY} from '../space-utils.ts';
 import {buildSessionEnvArgs, buildAgentSessionEnvArgs} from '../spawn-env.ts';
-import {adoptionLabels} from './app-layout.ts';
 import {
 	buildAgentResumeCommand,
 	buildShellLaunchArgs,
@@ -90,12 +90,6 @@ export async function ensureHerdrAgentSession(
 		launch?: AgentLaunch;
 		sessionId?: string;
 		repoName?: string;
-		/**
-		 * The Herdr window tab to label the terminal into. The desktop backend
-		 * passes it so the window shows the agent as a pane; the `herdr` backend
-		 * leaves it out, where a viewer pane attaches instead.
-		 */
-		appTab?: {spaceId: string; tabId: string};
 	} = {},
 ): Promise<boolean> {
 	const repoName = options.repoName ?? getRepoName();
@@ -138,14 +132,6 @@ export async function ensureHerdrAgentSession(
 			cwd: worktreePath,
 			env: agentEnv(issueKey, repoName, profile),
 			keep: true,
-			...(options.appTab
-				? {
-						extraLabels: adoptionLabels(
-							options.appTab.spaceId,
-							options.appTab.tabId,
-						),
-					}
-				: {}),
 		});
 		log.info(`Created agent terminal: ${sessionName}`);
 		return true;
@@ -168,8 +154,6 @@ export async function ensureHerdrCompanionSession(
 	options: {
 		command?: string;
 		repoName?: string;
-		/** The Herdr window tab to label the terminal into, as for the agent. */
-		appTab?: {spaceId: string; tabId: string};
 	} = {},
 ): Promise<boolean> {
 	const repoName = options.repoName ?? getRepoName();
@@ -186,14 +170,6 @@ export async function ensureHerdrCompanionSession(
 			cwd: worktreePath,
 			env: spaceEnv(issueKey, repoName),
 			keep: true,
-			...(options.appTab
-				? {
-						extraLabels: adoptionLabels(
-							options.appTab.spaceId,
-							options.appTab.tabId,
-						),
-					}
-				: {}),
 		});
 		log.info(`Created companion terminal: ${sessionName}`);
 		return true;
@@ -360,9 +336,10 @@ export async function cleanupOrphanedHerdrTerminals(
 		return 0;
 	}
 
-	// A space's session name ends with its key, and the key is what the
-	// registry lists; any terminal named after a registered space is kept.
-	const keys = [...registered];
+	// The main worktree is not in the registry (it is always there, so it is
+	// never added), and its agent is the one the rail shows on every launch.
+	// Reaping it would kill the terminal the window is about to show.
+	const keys = [...registered, MAIN_WORKTREE_KEY];
 	let swept = 0;
 	for (const terminal of terminals) {
 		const session = terminal.labels['pappardelle.session'];

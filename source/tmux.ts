@@ -168,13 +168,7 @@ import {
 } from './herdr/sessions.ts';
 import {setupHerdrLayout, attachHerdrViewers} from './herdr/layout-setup.ts';
 import {setupDesktopLayout} from './herdr/app-layout-setup.ts';
-import {listSpaces} from './herdr/app.ts';
-import {answerField, doCommand} from './herdr/app.ts';
-import {
-	findTerminalIn,
-	locateInApp,
-	showTerminalTab,
-} from './herdr/app-layout.ts';
+import {focusPaneInApp, showTerminalInPane} from './herdr/app-layout.ts';
 import {findTerminal} from './herdr/terminals.ts';
 import {runInPane} from './herdr/layout.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
@@ -1729,9 +1723,18 @@ export async function focusPane(
 	paneId: string,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<void> {
-	// Under the desktop window, panes are the window's own; focusing one means
-	// selecting its tab, which `showTerminalTab` does when a space is shown.
-	if (usesDesktopWindow()) return;
+	// Under the desktop window the panes are the app's own, so focus is the
+	// app's `pane.focus` rather than tmux's `select-pane`.
+	if (usesDesktopWindow()) {
+		if (!paneId) return;
+		try {
+			await focusPaneInApp(paneId);
+		} catch (error) {
+			log.warn(`Failed to focus pane ${paneId}`, error as Error);
+		}
+
+		return;
+	}
 
 	try {
 		await run(['select-pane', '-t', paneId]);
@@ -2675,30 +2678,15 @@ async function attachHerdrSpace(
 const PANE_GONE = /^(?:can't find pane|no such pane):/m;
 
 /**
- * The Herdr window location a space's terminals belong in.
- *
- * A space gets its own tab in the rail's space: the rail keeps the list, and
- * each workspace's agent and companion are panes in a tab of that same space.
- * Selecting the tab is what shows them, so the rail never drives panes by hand.
- *
- * The rail's tab is returned as the home for the first space, so the window
- * does not grow one tab per workspace beside the rail.
- */
-export async function desktopHomeFor(): Promise<{
-	spaceId: string;
-	tabId: string;
-} | null> {
-	const location = await locateInApp();
-	if (!location) return null;
-	return {spaceId: location.spaceId, tabId: location.tabId};
-}
-
-/**
  * Show a space under the Herdr desktop backend.
  *
- * Order matters: the window only adopts a terminal for a tab that already
- * exists, so the terminals are started first (labelled with where they belong)
- * and the window then lists them as panes. Selecting the tab shows them.
+ * The rail's tab holds all three panes (see app-layout-setup.ts), so showing a
+ * space is `terminal.show`: the space's agent goes in the agent pane and its
+ * companion in the companion pane, exactly as `tmux attach` would put them in
+ * the viewer panes. The rail stays beside them the whole time.
+ *
+ * A shown terminal takes the keyboard and stays shown across switches, so this
+ * needs no tab selection and no reattach.
  */
 async function attachDesktopSpace(
 	viewers: {
@@ -2713,7 +2701,9 @@ async function attachDesktopSpace(
 	traceDone: ((outcome?: TraceOutcome) => void) | undefined,
 ): Promise<boolean> {
 	const {signal} = options;
-	const {issueKey, mainWorktreePath, issueTitle, name} = viewers;
+	const {agentViewerPaneId, companionViewerPaneId, issueKey, mainWorktreePath} =
+		viewers;
+	const {issueTitle, name} = viewers;
 	const repoName = getRepoName();
 	const sessions = getSessionNames(issueKey, repoName);
 
@@ -2748,29 +2738,24 @@ async function attachDesktopSpace(
 			return false;
 		}
 
-		// Where these panes should appear. A space that already has a home keeps
-		// it, so a reattach does not scatter panes into a second tab.
-		const home = await desktopHomeFor();
-		if (!home) {
-			log.warn('This process is not a pane in the Herdr window');
+		if (!agentViewerPaneId) {
+			log.warn(`No agent pane in the Herdr window for ${issueKey}`);
 			traceDone?.('failed');
 			return false;
 		}
 
-		const appTab = await tabForSpace(issueKey, home);
-		signal?.throwIfAborted();
-
+		// No `appTab`: these terminals are shown in the rail's panes, not
+		// adopted into tabs of their own. A space's tab per workspace is what
+		// left the rail stranded in a tab by itself.
 		const [agentReady, companionReady] = await Promise.all([
 			ensureHerdrAgentSession(issueKey, worktreePath, {
 				skipPermissions,
 				profile: agentProfile,
 				sessionId,
 				launch,
-				appTab,
 			}),
 			ensureHerdrCompanionSession(issueKey, worktreePath, {
 				command: companionCommand,
-				appTab,
 			}),
 		]);
 		signal?.throwIfAborted();
@@ -2780,23 +2765,43 @@ async function attachDesktopSpace(
 			return false;
 		}
 
-		// `showTerminalTab` matches the window's listing, which names terminals
-		// by their core address, so the session name is resolved first.
+		// These terminals are not in the window's listing: the listing only has
+		// terminals the window has adopted, and adopting would put each space
+		// in a tab of its own. `terminal.show` takes a core address directly,
+		// so the space's terminals need no listing entry to be shown.
 		const agentTerminal = await findTerminal(sessions.agent);
-		const shown = agentTerminal
-			? await showTerminalTab(agentTerminal.address)
-			: false;
-		if (!shown) {
+		if (!agentTerminal) {
 			log.warn(
-				`Could not show ${issueKey} in the Herdr window (agent ${sessions.agent})`,
+				`No terminal for ${sessions.agent}, so ${issueKey} is not shown`,
 			);
 			traceDone?.('failed');
 			return false;
 		}
 
+		const agentShown = await showTerminalInPane(
+			agentTerminal.address,
+			agentViewerPaneId,
+		);
+		if (!agentShown) {
+			traceDone?.('failed');
+			return false;
+		}
+
+		// The companion is optional: a space with none, or a layout too narrow
+		// for its pane, still shows its agent.
+		if (companionViewerPaneId && companionReady) {
+			const companionTerminal = await findTerminal(sessions.companion);
+			if (companionTerminal) {
+				await showTerminalInPane(
+					companionTerminal.address,
+					companionViewerPaneId,
+				);
+			}
+		}
+
 		currentlyViewingSpace = issueKey;
 		log.info(
-			`Showing ${name} (agent: ${sessions.agent}, companion: ${companionReady ? sessions.companion : 'none'})`,
+			`Showing ${name} (agent: ${agentTerminal.address} in pane ${agentViewerPaneId}, companion: ${companionReady ? sessions.companion : 'none'})`,
 		);
 		traceDone?.();
 		return true;
@@ -2811,57 +2816,6 @@ async function attachDesktopSpace(
 
 		traceDone?.(signal?.aborted ? 'cancelled' : 'failed');
 		return false;
-	}
-}
-
-/**
- * The tab a space's panes belong in: the one holding its agent already, else a
- * new tab in the rail's space, named after the space.
- *
- * A new tab per space keeps each workspace's panes together and makes the
- * window's own tab strip the space switcher.
- */
-async function tabForSpace(
-	issueKey: string,
-	home: {spaceId: string; tabId: string},
-): Promise<{spaceId: string; tabId: string}> {
-	const agentTerminal = await findTerminal(getSessionNames(issueKey).agent);
-	if (agentTerminal) {
-		const found = await tabHolding(agentTerminal.address);
-		if (found) return found;
-	}
-
-	try {
-		const answer = await doCommand('tab.new', {
-			space: home.spaceId,
-			name: issueKey,
-			folder: getWorktreePath(issueKey) ?? undefined,
-			focus: false,
-		});
-		const tabId = answerField(answer, 'tab');
-		if (tabId) return {spaceId: home.spaceId, tabId};
-	} catch (error) {
-		log.warn(
-			`Could not make a tab for ${issueKey}`,
-			error instanceof Error ? error : undefined,
-		);
-	}
-
-	// Falling back to the rail's tab keeps the workspace usable, with its panes
-	// beside the rail instead of in a tab of their own.
-	return home;
-}
-
-/** The space and tab holding a terminal, or null. */
-async function tabHolding(
-	terminalId: string,
-): Promise<{spaceId: string; tabId: string} | null> {
-	try {
-		const spaces = await listSpaces();
-		const found = findTerminalIn(spaces, terminalId);
-		return found ? {spaceId: found.spaceId, tabId: found.tabId} : null;
-	} catch {
-		return null;
 	}
 }
 
@@ -3668,8 +3622,9 @@ export function displayMessageInPane(paneId: string, message: string): boolean {
 	forgetViewerClient(paneId);
 
 	if (usesDesktopWindow()) {
-		// The window draws its own panes; writing into one would replace an
-		// agent's terminal with text.
+		// The window's panes have terminals of their own; showing a message
+		// would replace the space's agent with text. The rail already carries
+		// the empty state, so there is nothing to write here.
 		log.debug(`No message pane under the desktop window (${message})`);
 		return false;
 	}

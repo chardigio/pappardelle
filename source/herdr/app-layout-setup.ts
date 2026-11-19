@@ -1,28 +1,38 @@
-// Setting up the rail under the Herdr desktop app.
+// Setting up the rail's pane layout in the Herdr desktop app.
 //
-// This is the "lite" split of work: the window owns the panes, so Pappardelle
-// creates no layout at all. The rail already *is* a pane, and each workspace
-// gets a tab of its own whose panes the window makes by adopting the space's
-// terminals (see app-layout.ts).
+// This is `setupPappardellLayout` in tmux.ts, expressed with the app's pane
+// calls. The shape it builds is the same -- rail, agent viewer, companion
+// viewer -- because the person should see what tmux shows them, not a rail in
+// a tab of its own.
 //
-// So "setting up the layout" here means only finding the rail's own pane and
-// the ids the rest of the TUI expects. There is no splitting, no ratio, and no
-// width maths -- the window resizes panes itself, and the person can drag them.
+// The window has no ratio argument on `pane.split`, so the splits come out
+// equal. Splitting the rail's pane right twice gives rail | agent | companion,
+// and the person can drag the boundaries afterwards (the app's dividers are
+// resizable). Nothing here reattaches: the viewers are panes, and showing a
+// space in them is `terminal.show` (see attachDesktopSpace in tmux.ts).
+//
+// The panes outlive this process, so a relaunch finds them here and reuses
+// them instead of splitting again.
 
 import {createLogger} from '../logger.ts';
 import {startupTrace} from '../startup-trace.ts';
 import type {PaneLayout} from '../types.ts';
-import {locateInApp} from './app-layout.ts';
+import {
+	focusPaneInApp,
+	locateInApp,
+	nameTab,
+	splitPaneInApp,
+	viewerPanesOf,
+} from './app-layout.ts';
+import {listSpaces} from './app.ts';
 
 const log = createLogger('herdr-app-layout');
 
 /**
- * The rail's own pane, in the shape the TUI expects.
+ * The rail's own pane plus the two viewer panes, in the shape the TUI expects.
  *
- * `agentViewerPaneId` and `companionViewerPaneId` are empty on purpose: those
- * panes belong to a *space's* tab, not to the rail's, and the window shows
- * them when that tab is selected. Handing back the rail's own id would make
- * the TUI write into the list it is drawing.
+ * Returns null when this process is not inside the window, which is how the
+ * caller knows to keep another backend.
  */
 export async function setupDesktopLayout(): Promise<PaneLayout | null> {
 	const done = startupTrace.current?.begin('layout-setup');
@@ -35,19 +45,43 @@ export async function setupDesktopLayout(): Promise<PaneLayout | null> {
 			return null;
 		}
 
+		const spaces = await listSpaces();
+		const existing = viewerPanesOf(spaces, process.env['HC_TERMINAL_ID'] ?? '');
+
+		// A relaunch finds the panes an earlier run made. Two is the shape this
+		// builds; one means the companion was closed by hand, which the TUI
+		// already handles.
+		let viewerPanes = existing;
+		if (viewerPanes.length === 0) {
+			const agent = await splitPaneInApp(location.paneId, 'right');
+			if (!agent) {
+				done?.('failed');
+				return null;
+			}
+
+			const companion = await splitPaneInApp(agent, 'right');
+			viewerPanes = companion ? [agent, companion] : [agent];
+		}
+
+		const [agentViewerPaneId = '', companionViewerPaneId = ''] = viewerPanes;
+
+		// The rail keeps the keyboard, as the tmux layout leaves it.
+		await focusPaneInApp(location.paneId).catch(() => undefined);
+		await nameTab(location.tabId, 'pappardelle').catch(() => undefined);
+
 		done?.();
 		log.info(
-			`Herdr window: rail pane ${location.paneId} in space ${location.spaceId}, tab ${location.tabId}`,
+			`Herdr window: rail ${location.paneId}, agent ${agentViewerPaneId}, companion ${companionViewerPaneId || '(none)'}, in space ${location.spaceId}, tab ${location.tabId}`,
 		);
 
 		return {
 			listPaneId: location.paneId,
-			agentViewerPaneId: '',
-			companionViewerPaneId: '',
+			agentViewerPaneId,
+			companionViewerPaneId,
 		};
 	} catch (error) {
 		log.error(
-			'Failed to find the rail pane in the Herdr window',
+			'Failed to set up the Herdr window layout',
 			error instanceof Error ? error : undefined,
 		);
 		done?.('failed');
