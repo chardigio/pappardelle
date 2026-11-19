@@ -46,21 +46,46 @@ function unquote(word: string): string {
 // appends to whatever the variable held, so it's never scratch.
 const ASSIGNMENT_STATEMENT =
 	/(?:^|[;&|\n])\s*((?:[A-Za-z_]\w*\+?=(?:"[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)\s*)+)(?=[;&|\n]|$)/g;
+const ANY_ASSIGNMENT =
+	/\b([A-Za-z_]\w*)(\+?)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)/g;
+// Builtins that set a variable without NAME=, so the value can't be read here.
+const SET_BY_BUILTIN = [
+	/\b(?:read|mapfile|readarray)\b([^;&|\n]*)/g,
+	/\bprintf\b[^;&|\n]*?\s-v\s*([A-Za-z_]\w*)/g,
+	/\bfor\s+([A-Za-z_]\w*)/g,
+];
+
+function isScratchValue(
+	match: RegExpMatchArray,
+	policy: ApprovalPolicy,
+): boolean {
+	const value = unquote(match[3]!);
+	// Only the bare directory mktemp just made: nothing run beside it in
+	// the subshell.
+	const freshDir = /^\$\(\s*mktemp(?:\s+[^\s;&|$`()]+)*\s*\)$/.test(value);
+	return !match[2] && (freshDir || isScratchPath(value, policy));
+}
 
 /** Variables set to a fresh temp dir or a path under scratch in `before`. */
 function scratchVariables(before: string, policy: ApprovalPolicy): Set<string> {
 	const scratch = new Set<string>();
 	const elsewhere = new Set<string>();
 	for (const statement of before.matchAll(ASSIGNMENT_STATEMENT)) {
-		for (const match of statement[1]!.matchAll(
-			/([A-Za-z_]\w*)(\+?)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)/g,
-		)) {
-			const value = unquote(match[3]!);
-			// Only the bare directory mktemp just made: nothing run beside it in
-			// the subshell.
-			const freshDir = /^\$\(\s*mktemp(?:\s+[^\s;&|$`()]+)*\s*\)$/.test(value);
-			const safe = !match[2] && (freshDir || isScratchPath(value, policy));
-			(safe ? scratch : elsewhere).add(match[1]!);
+		for (const match of statement[1]!.matchAll(ANY_ASSIGNMENT)) {
+			(isScratchValue(match, policy) ? scratch : elsewhere).add(match[1]!);
+		}
+	}
+
+	// Through export, declare, local and the like, an assignment that isn't a
+	// statement of its own still changes the variable.
+	for (const match of before.matchAll(ANY_ASSIGNMENT)) {
+		if (!isScratchValue(match, policy)) elsewhere.add(match[1]!);
+	}
+
+	for (const pattern of SET_BY_BUILTIN) {
+		for (const match of before.matchAll(pattern)) {
+			for (const name of match[1]!.match(/(?<![-\w])[A-Za-z_]\w*/g) ?? [])
+				elsewhere.add(name);
 		}
 	}
 

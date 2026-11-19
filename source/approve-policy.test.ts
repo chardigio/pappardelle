@@ -46,6 +46,23 @@ test('only a variable the shell has set to scratch before the rm counts', t => {
 	t.false(allowed('D=/tmp/q-x; D+=/../../home; rm -rf $D'));
 });
 
+test('a builtin that sets the variable elsewhere means it is not scratch', t => {
+	for (const reset of [
+		'export D=$HOME',
+		'declare D=/',
+		'local D+=/../..',
+		'readonly D=/home/u',
+		'typeset D=/',
+		'read D',
+		'read -r X D',
+		'mapfile D',
+		'printf -v D %s /',
+		'for D in / /home',
+	]) {
+		t.false(allowed(`D=/tmp/q-a; ${reset}; rm -rf $D`), `${reset}`);
+	}
+});
+
 test('an rm target that brace expansion turns into another path needs a person', t => {
 	t.false(allowed('rm -rf /tmp/q-x/{..,}/{..,}/home'));
 	t.false(allowed('rm -rf /tmp/q-x/{.,.}{.,}/home'));
