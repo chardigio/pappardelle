@@ -142,6 +142,10 @@ import {
 	quoteLaunchValue,
 	getDangerouslySkipPermissions,
 	getConfiguredBackend,
+	getDefaultHomeConfigDir,
+	configLayerFiles,
+	parseConfigLayer,
+	getRepoRoot,
 	getMainRepoRoot,
 	getListLayout,
 	getPaneWidths,
@@ -276,12 +280,55 @@ export function activeBackend(): TerminalBackendName {
 	let configured: string | undefined;
 	try {
 		configured = getConfiguredBackend(loadConfig());
-	} catch {
-		configured = undefined;
+	} catch (error) {
+		// A config that will not load must not silently pick a backend: with
+		// `backend: herdr-app` in the home layer, an invalid *repo* config used
+		// to fall back to tmux and start a tmux layout the user never asked
+		// for. Say so, and keep the configured intent when it can be read.
+		configured = readBackendIgnoringValidation();
+		if (configured === undefined) {
+			log.error(
+				'Could not read the configured backend; falling back to tmux',
+				error instanceof Error ? error : undefined,
+			);
+		} else {
+			log.warn(
+				`Config did not validate, but its backend: ${configured} still applies`,
+			);
+		}
 	}
 
 	resolvedBackend = selectBackend({configured}).name;
 	return resolvedBackend;
+}
+
+/**
+ * The `backend:` value from the config files, read without validation.
+ *
+ * `loadConfig` throws on any invalid key, and losing the backend to an
+ * unrelated mistake (a missing `profiles:`, say) is worse than reading the one
+ * key this function needs.
+ */
+function readBackendIgnoringValidation(): string | undefined {
+	try {
+		const layers = configLayerFiles({
+			homeConfigDir: getDefaultHomeConfigDir(),
+			projectDir: getRepoRoot(),
+			fallbackProjectDir: getMainRepoRoot,
+		});
+		// Highest priority last, as the loader merges them.
+		let backend: string | undefined;
+		for (const {path: filePath} of layers) {
+			if (!filePath) continue;
+			const layer = parseConfigLayer(filePath, readFileSync(filePath, 'utf8'));
+			const value = layer?.['backend'];
+			if (typeof value === 'string') backend = value;
+		}
+
+		return backend;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Forget the cached choice. Tests only: a real process picks one backend. */
