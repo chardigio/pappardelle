@@ -159,9 +159,9 @@ test('railColumnWidths puts the agent at twice the rail and companion', t => {
 		agentViewerPaneId: 'pAgent',
 		companionViewerPaneId: 'pComp',
 	});
-	const px = Object.fromEntries(widths.map(w => [w.paneId, w.px]));
-	t.is(px['pAgent'], px['pRail']! * 2);
-	t.is(px['pComp'], px['pRail']);
+	const weight = Object.fromEntries(widths.map(w => [w.paneId, w.weight]));
+	t.is(weight['pAgent'], weight['pRail']! * 2);
+	t.is(weight['pComp'], weight['pRail']);
 	t.deepEqual(
 		widths.map(w => w.paneId),
 		['pRail', 'pAgent', 'pComp'],

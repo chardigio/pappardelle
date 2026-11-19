@@ -210,24 +210,20 @@ export async function focusPaneInApp(paneId: string): Promise<void> {
 }
 
 /**
- * Size a pane, in pixels of the window's logical width.
- *
- * `layout.resize` names layout nodes, but it also accepts a pane id and sets
- * that pane's width: the app normalises the values it is given, so a rail at
- * the window's quarter and a viewer at its half come out at the ratio asked
- * for. Setting proportions of a nominal width keeps the shape at any window
- * size, since only the proportions survive the normalisation.
+ * Give a pane a share of its row. `layout.resize` takes a `weight`: the
+ * panes of a row split its width in proportion to their weights, so the shape
+ * holds at any window size.
  */
 export async function sizePaneInApp(
 	paneId: string,
-	px: number,
+	weight: number,
 ): Promise<boolean> {
 	try {
-		await doCommand('layout.resize', {id: paneId, px: Math.round(px)});
+		await doCommand('layout.resize', {id: paneId, weight});
 		return true;
 	} catch (error) {
 		log.warn(
-			`Could not size pane ${paneId} to ${px}px`,
+			`Could not weight pane ${paneId} at ${weight}`,
 			error instanceof Error ? error : undefined,
 		);
 		return false;
@@ -235,29 +231,24 @@ export async function sizePaneInApp(
 }
 
 /**
- * The rail's three columns at 1/4 : 1/2 : 1/4, as the pixel values to ask for.
+ * The rail's three columns at 1/4 : 1/2 : 1/4, as weights 1 : 2 : 1.
  *
  * `pane.split` halves its source, so splitting twice leaves the widths at
  * {1/2, 1/4, 1/4} with the half at an edge, and swapping moves terminals
- * between those slots without moving the widths. `layout.resize` is what sets
- * them, so the halves are asked for directly. The values are proportions of a
- * nominal width: only their ratios matter to the app, so any scale gives the
- * same shape (`{@link sizeRailColumnsInApp}` sends them).
+ * between those slots without moving the widths. `layout.resize` sets them.
  */
 export function railColumnWidths(layout: {
 	listPaneId: string;
 	agentViewerPaneId: string;
 	companionViewerPaneId: string;
-}): Array<{paneId: string; px: number}> {
-	// A nominal width; only the ratios matter.
-	const unit = 400;
-	const widths = [{paneId: layout.listPaneId, px: unit}];
+}): Array<{paneId: string; weight: number}> {
+	const widths = [{paneId: layout.listPaneId, weight: 1}];
 	if (layout.agentViewerPaneId) {
-		widths.push({paneId: layout.agentViewerPaneId, px: unit * 2});
+		widths.push({paneId: layout.agentViewerPaneId, weight: 2});
 	}
 
 	if (layout.companionViewerPaneId) {
-		widths.push({paneId: layout.companionViewerPaneId, px: unit});
+		widths.push({paneId: layout.companionViewerPaneId, weight: 1});
 	}
 
 	return widths;
@@ -275,8 +266,8 @@ export async function sizeRailColumnsInApp(layout: {
 	agentViewerPaneId: string;
 	companionViewerPaneId: string;
 }): Promise<void> {
-	for (const {paneId, px} of railColumnWidths(layout)) {
-		await sizePaneInApp(paneId, px);
+	for (const {paneId, weight} of railColumnWidths(layout)) {
+		await sizePaneInApp(paneId, weight);
 	}
 }
 
