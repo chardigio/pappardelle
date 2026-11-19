@@ -115,10 +115,12 @@ chmod +x "$PATH_TMP/bin/tmux" "$PATH_TMP/bin/claude"
     --worktree "$PATH_WT" --issue-key "$PATH_KEY" --repo-name "bob's dad's app" --companion-command "" \
     --prompt "" --print-command)
 PATH_TITLE=$(printf '\033]0;%s\007' "$PATH_KEY")
+# Run from $PATH_TMP so anything that runs before the line's cd lands where the
+# last check looks, not in the checkout.
 assert_eq "agent pane is titled with the key" "$PATH_TITLE" \
-    "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$AGENT_PANE_LINE" 2>&1)"
+    "$(cd "$PATH_TMP" && PATH="$PATH_TMP/bin:$PATH" bash -c "$AGENT_PANE_LINE" 2>&1)"
 assert_eq "companion pane is titled with the key" "$PATH_TITLE" \
-    "$(PATH="$PATH_TMP/bin:$PATH" bash -c "$COMPANION_PANE_LINE" 2>&1)"
+    "$(cd "$PATH_TMP" && PATH="$PATH_TMP/bin:$PATH" bash -c "$COMPANION_PANE_LINE" 2>&1)"
 assert_eq "both panes start in the worktree" "$PATH_WT"$'\n'"$PATH_WT" "$(cat "$PATH_TMP/pwd" 2>/dev/null)"
 assert_eq "sessions are named after the repo and key" \
     "agent-bob's dad's app-$PATH_KEY"$'\n'"companion-bob's dad's app-$PATH_KEY" \
