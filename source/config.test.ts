@@ -33,6 +33,7 @@ import {
 	DEFAULT_IDE_COMMAND,
 	repoNameFromGitCommonDir,
 	validateConfig,
+	configExists,
 	buildWorkspaceTemplateVars,
 	ConfigValidationError,
 	parseConfigLayer,
@@ -6011,6 +6012,67 @@ test('loadAgentProfileSources names every layer that defines an agent profile, t
 				codex: ['.pappardelle.local.yml', '~/.pappardelle/.pappardelle.yml'],
 				opus: ['.pappardelle.yml'],
 			},
+		);
+	} finally {
+		fs.rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+// ============================================================================
+// configExists
+// ============================================================================
+
+const existsDir = (files: Record<string, string>) => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-exists-'));
+	for (const [file, content] of Object.entries(files)) {
+		const target = path.join(dir, file);
+		fs.mkdirSync(path.dirname(target), {recursive: true});
+		fs.writeFileSync(target, content);
+	}
+
+	return dir;
+};
+
+test('configExists is true when the repo has its own .pappardelle.yml', t => {
+	const dir = existsDir({'repo/.pappardelle.yml': 'version: 1\n'});
+	try {
+		t.true(
+			configExists({
+				homeConfigDir: path.join(dir, 'home'),
+				repoConfig: () => path.join(dir, 'repo/.pappardelle.yml'),
+			}),
+		);
+	} finally {
+		fs.rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+// The bug this covers: a repo with no config of its own refused to start even
+// though the machine-wide home layer was valid and would have been used.
+test('configExists is true from the home layer alone', t => {
+	const dir = existsDir({
+		'home/.pappardelle.yml': 'version: 1\nbackend: tmux\n',
+	});
+	try {
+		t.true(
+			configExists({
+				homeConfigDir: path.join(dir, 'home'),
+				repoConfig: () => undefined,
+			}),
+		);
+	} finally {
+		fs.rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+test('configExists is false when neither layer has a config', t => {
+	const dir = existsDir({'home/.keep': ''});
+	try {
+		t.false(
+			configExists({
+				homeConfigDir: path.join(dir, 'home'),
+				repoConfig: () => undefined,
+			}),
 		);
 	} finally {
 		fs.rmSync(dir, {recursive: true, force: true});

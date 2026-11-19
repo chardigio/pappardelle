@@ -1281,9 +1281,23 @@ export function loadAgentProfileSources(
 /**
  * Check if a .pappardelle.yml exists at the repo root
  */
-export function configExists(): boolean {
+/**
+ * Whether a config exists for this repo: its own file (working tree or main
+ * checkout), or the machine-wide home layer, which every repo inherits.
+ *
+ * The home layer counting is what lets a repo with no `.pappardelle.yml` run
+ * on machine-wide defaults instead of refusing to start.
+ */
+export function configExists(
+	options: {homeConfigDir?: string; repoConfig?: () => string | undefined} = {},
+): boolean {
 	try {
-		return findRepoConfig('.pappardelle.yml') !== undefined;
+		const repoConfig =
+			options.repoConfig ?? (() => findRepoConfig('.pappardelle.yml'));
+		if (repoConfig() !== undefined) return true;
+
+		const homeConfigDir = options.homeConfigDir ?? getDefaultHomeConfigDir();
+		return fs.existsSync(path.join(homeConfigDir, '.pappardelle.yml'));
 	} catch {
 		return false;
 	}

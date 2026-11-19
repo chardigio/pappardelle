@@ -38,6 +38,7 @@ import {cleanupOrphanedHerdrTerminals} from './herdr/sessions.ts';
 import type {PaneLayout} from './types.ts';
 import {
 	configExists,
+	getDefaultHomeConfigDir,
 	getRepoRoot,
 	getMainRepoRoot,
 	getRepoName,
@@ -247,14 +248,16 @@ function checkConfig(): void {
 		const repoRoot = getRepoRoot();
 		if (!configExists()) {
 			console.error(
-				'\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m',
+				'\x1b[31mError: No .pappardelle.yml found for this repo.\x1b[0m',
 			);
 			console.error('');
 			console.error(
 				'\x1b[33mPappardelle requires a configuration file to operate.\x1b[0m',
 			);
+			console.error('');
+			console.error(`Create .pappardelle.yml at: ${repoRoot}/.pappardelle.yml`);
 			console.error(
-				`Please create .pappardelle.yml at: ${repoRoot}/.pappardelle.yml`,
+				`Or set machine-wide defaults in: ${getDefaultHomeConfigDir()}/.pappardelle.yml`,
 			);
 			console.error('');
 			console.error(
@@ -265,11 +268,14 @@ function checkConfig(): void {
 	} catch (error) {
 		if (error instanceof ConfigNotFoundError) {
 			console.error(
-				'\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m',
+				'\x1b[31mError: No .pappardelle.yml found for this repo.\x1b[0m',
 			);
 			console.error('');
 			console.error(
-				`Please create .pappardelle.yml at: ${error.repoRoot}/.pappardelle.yml`,
+				`Create .pappardelle.yml at: ${error.repoRoot}/.pappardelle.yml`,
+			);
+			console.error(
+				`Or set machine-wide defaults in: ${getDefaultHomeConfigDir()}/.pappardelle.yml`,
 			);
 			process.exit(1);
 		} else if (error instanceof ConfigValidationError) {
