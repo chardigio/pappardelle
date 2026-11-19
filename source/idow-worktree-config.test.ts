@@ -12,6 +12,7 @@ import {BUILTIN_AGENTS} from './builtin-agents.ts';
 import {repoNameFromGitCommonDir} from './config.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
 import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
+import type {SpaceState} from './space-state.ts';
 import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath} from './state-db.ts';
 import {
@@ -901,19 +902,22 @@ test('--agent-profile launches another agent profile for that run only', async t
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
 		return args[args.indexOf(flag) + 1];
 	};
-
-	const stdout = await fixture.run({agentProfile: 'codex'});
-	t.is(launchArg('--agent-profile'), 'codex');
-	t.is(launchArg('--agent-command'), 'codex');
-	t.false(idowSkippedAgentOverride(stdout));
 	const statePath = path.join(
 		fixture.home,
 		'.pappardelle/repos/main checkout/space-state/test-abc.json',
 	);
-	t.false('agentProfile' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
+	// The agent's hook records its session id under this.
+	const launched = () =>
+		(JSON.parse(fs.readFileSync(statePath, 'utf8')) as SpaceState).agentProfile;
+
+	const stdout = await fixture.run({agentProfile: 'codex'});
+	t.is(launchArg('--agent-command'), 'codex');
+	t.deepEqual(launched(), {name: 'codex', isClaude: false});
+	t.false(idowSkippedAgentOverride(stdout));
 
 	await fixture.run();
-	t.is(launchArg('--agent-profile'), 'claude');
+	t.is(launchArg('--agent-command'), 'claude');
+	t.deepEqual(launched(), {name: 'claude', isClaude: true});
 });
 
 test("the agent profile's env reaches start-agent-session.sh, one --agent-env per variable", async t => {
@@ -951,6 +955,16 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 	const stdout = await fixture.run({agentProfile: 'codex'});
 	t.regex(stdout, /Agent session already running/);
 	t.true(idowSkippedAgentOverride(stdout));
+	const state = JSON.parse(
+		fs.readFileSync(
+			path.join(
+				fixture.home,
+				'.pappardelle/repos/main checkout/space-state/test-abc.json',
+			),
+			'utf8',
+		),
+	) as SpaceState;
+	t.false('agentProfile' in state);
 });
 
 test('an unknown --agent-profile stops idow before any setup', async t => {
@@ -1005,7 +1019,7 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	record({codex: 'thread-1'});
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
-	t.is(launchArg('--agent-profile'), 'codex');
+	t.is(launchArg('--agent-command'), 'codex');
 
 	// An id recorded by another agent profile is not this one's conversation.
 	record({claude: 'thread-2'});
@@ -1486,7 +1500,10 @@ test.serial(
 		const state = stateCli(fixture, 0);
 		await fixture.run({extraEnv: state.env});
 		const [call, ...rest] = state.calls();
-		t.deepEqual(rest, []);
+		// The agent's hook records its session id under this agent profile.
+		t.deepEqual(rest, [
+			`--internal-state launch-agent --repo ${path.basename(fixture.main)} --agent-profile claude --claude test-abc`,
+		]);
 		t.regex(
 			call!,
 			new RegExp(
@@ -1520,12 +1537,13 @@ test.serial(
 		await fixture.run({extraEnv});
 		t.deepEqual(state.calls(), [
 			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${fixture.workspace} --main-root ${fixture.main} --profile dev test-abc`,
+			`--internal-state launch-agent --repo ${repo} --agent-profile claude --claude test-abc`,
 		]);
 		t.true(fs.existsSync(fixture.launchArgs));
 
 		await fixture.run({extraEnv});
 		t.is(
-			state.calls().at(-1),
+			state.calls().at(-3),
 			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${fixture.workspace} --main-root ${fixture.main} test-abc`,
 		);
 	},

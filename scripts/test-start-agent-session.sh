@@ -151,14 +151,10 @@ assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY"
 assert_eq "session env carries PAPPARDELLE_REPO" "PAPPARDELLE_REPO=$TEST_REPO" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_REPO 2>/dev/null)"
 
-# The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py)
-assert_eq "agent session env names the agent" "PAPPARDELLE_AGENT_PROFILE=claude" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null)"
-assert_eq "agent session env says the agent is claude" "PAPPARDELLE_AGENT_IS_CLAUDE=true" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_IS_CLAUDE 2>/dev/null)"
-assert_eq "agent session env names the agent-sessions file" \
-    "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$TEST_REPO/space-state/$ISSUE_KEY.agent-sessions.json" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS 2>/dev/null)"
+# The agent's hook finds its space and agent profile in the stores
+# (plugins/pappardelle/hooks/agent_session.py), not in the session
+assert_eq "agent session env has no session-id variables" "" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" | grep '^PAPPARDELLE_AGENT_' || true)"
 # The agent profile's env
 assert_eq "agent session env carries a profile var with a space" "SPACED=a b" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" SPACED 2>/dev/null)"
@@ -168,14 +164,6 @@ assert_eq "pappardelle's own agent var wins over a profile var of the same name"
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PI_PROGRAM_STATUS 2>/dev/null)"
 assert_eq "companion session env has no profile var" "" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" SPACED 2>/dev/null || true)"
-# The repo and key the hook files those ids under in the state database
-assert_eq "agent session env names the sessions' repo" "PAPPARDELLE_AGENT_SESSIONS_REPO=$TEST_REPO" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS_REPO 2>/dev/null)"
-assert_eq "agent session env names the sessions' space" "PAPPARDELLE_AGENT_SESSIONS_KEY=$ISSUE_KEY" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS_KEY 2>/dev/null)"
-# An agent started by hand in the companion isn't the space's agent
-assert_eq "companion session env has no agent profile" "" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null || true)"
 
 # Verify session working directory (resolve symlinks for macOS /var → /private/var)
 SESSION_PATH=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -t "$CLAUDE_SESSION" -p '#{pane_current_path}' 2>/dev/null)

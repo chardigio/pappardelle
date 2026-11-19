@@ -162,7 +162,7 @@ if (${JSON.stringify(launcher)} === 'tui') {
     '--issue-key', 'TEST-1', '--repo-name', 'repo', '--worktree', process.cwd(),
     '--agent-session', 'agent-repo-TEST-1', '--companion-session', 'companion-repo-TEST-1', '--legacy-agent-session', 'claude-repo-TEST-1', '--companion-command', '',
     '--agent-command', profile.command, '--agent-args', profile.args, '--agent-is-claude', String(profile.isClaude),
-    '--agent-profile', profile.name, '--agent-resume-args', ''], {env: {...buildSpawnEnv(process.cwd(), {mainRepoRoot: process.cwd(), registerSpace: false}), ...(${JSON.stringify(launcher)} === 'compiled-shell' ? {PAPPARDELLE_BUN: '', PAPPARDELLE_EXECUTABLE: ${JSON.stringify(path.join(project, 'dist/pappardelle'))}} : {})}});
+    '--agent-resume-args', ''], {env: {...buildSpawnEnv(process.cwd(), {mainRepoRoot: process.cwd(), registerSpace: false}), ...(${JSON.stringify(launcher)} === 'compiled-shell' ? {PAPPARDELLE_BUN: '', PAPPARDELLE_EXECUTABLE: ${JSON.stringify(path.join(project, 'dist/pappardelle'))}} : {})}});
 }
 `,
 		);

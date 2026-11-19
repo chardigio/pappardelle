@@ -81,3 +81,45 @@ test('prepare-space stores an issue title that starts with a dash', t => {
 	const {spaceState} = testState(t, {stateDir}).daos;
 	t.is(spaceState.read('STA-1')?.issueTitle, '-x');
 });
+
+test("launch-agent records the agent profile a space's agent session starts with", t => {
+	const home = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
+	);
+	t.teardown(() => {
+		fs.rmSync(home, {recursive: true, force: true});
+	});
+	const stateDir = path.join(home, '.pappardelle');
+	const launch = (...args: string[]) =>
+		spawnSync(
+			process.execPath,
+			[
+				fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+				'launch-agent',
+				'--repo',
+				'repo',
+				...args,
+				'STA-1',
+			],
+			{
+				encoding: 'utf8',
+				env: {
+					...process.env,
+					HOME: home,
+					PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+				},
+			},
+		);
+	const {spaceState} = testState(t, {stateDir}).daos;
+	t.is(launch('--agent-profile', 'opus', '--claude').status, 0);
+	t.deepEqual(spaceState.read('STA-1')?.agentProfile, {
+		name: 'opus',
+		isClaude: true,
+	});
+	t.is(launch('--agent-profile', 'codex').status, 0);
+	t.deepEqual(spaceState.read('STA-1')?.agentProfile, {
+		name: 'codex',
+		isClaude: false,
+	});
+	t.is(launch().status, 2);
+});

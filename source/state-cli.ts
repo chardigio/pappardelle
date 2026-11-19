@@ -87,6 +87,33 @@ const verbs: Record<string, Verb> = {
 	},
 
 	/**
+	 * Record that idow is starting a space's agent session with the agent
+	 * profile `--agent-profile <name>`, a claude one when `--claude` is given.
+	 * The session's hook records the agent's session id under it.
+	 */
+	async 'launch-agent'(args) {
+		const {values, positionals} = parseArgs({
+			args,
+			allowPositionals: true,
+			options: {
+				repo: {type: 'string'},
+				'agent-profile': {type: 'string'},
+				claude: {type: 'boolean'},
+			},
+		});
+		const [key] = positionals;
+		const {repo, 'agent-profile': name} = values;
+		if (!repo || !name || !key || positionals.length !== 1)
+			return usage(
+				'launch-agent needs --repo <name>, --agent-profile <name> and one space key',
+			);
+		await createStateDaos({repo}).spaceState.write(key, {
+			agentProfile: {name, isClaude: values.claude === true},
+		});
+		return 0;
+	},
+
+	/**
 	 * Where the space's worktree is: the one stored for it, else where a new
 	 * space's goes. idow creates it there.
 	 */

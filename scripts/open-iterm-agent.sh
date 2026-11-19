@@ -2,7 +2,7 @@
 
 # open-iterm-agent.sh - Open iTerm with tmux, the configured agent, and the companion pane
 #
-# Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt "<prompt>" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>]
 #
 # Opens a new iTerm window with:
 #   1. A tmux session running the configured agent (default: Claude Code, with
@@ -33,7 +33,6 @@ AGENT_RESUME_ARGS_SET=false
 AGENT_PROMPT_ARGS=""
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
-AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
@@ -114,12 +113,8 @@ while [[ $# -gt 0 ]]; do
             AGENT_PROMPT_ARGS="$2"
             shift 2
             ;;
-        --agent-profile)
-            AGENT_PROFILE="$2"
-            shift 2
-            ;;
         --help|-h)
-            echo "Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
+            echo "Usage: open-iterm-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt \"<prompt>\" [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens iTerm."
@@ -206,10 +201,6 @@ else
     NAME_FLAG=""
 fi
 
-# Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
-# records its session id under these when this launcher creates the session.
-AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
-
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
@@ -257,13 +248,10 @@ on run argv
     set agentCommand to item 11 of argv
     set nameFlag to item 12 of argv
     set resumeArgs to item 13 of argv
-    set agentProfile to item 14 of argv
-    set agentSessions to item 15 of argv
-    set agentIsClaude to item 16 of argv
     -- The prompt, already quoted for the inner shell and wrapped in any
     -- prompt_args template (see PROMPT_WORDS). Empty when the prompt is.
-    set promptWords to item 17 of argv
-    set companionSession to item 18 of argv
+    set promptWords to item 14 of argv
+    set companionSession to item 15 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -289,13 +277,12 @@ on run argv
     -- so only the inner `sh -c` ever parses the values — and the caller
     -- already quoted each flag value for exactly that parse. Empty flags
     -- leave the command word unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; AGENT_NAME=" & quoted form of nameFlag & "; AGENT_SESSIONS_REPO=" & quoted form of repoName & "; AGENT_SESSIONS_KEY=" & quoted form of issueKey & "; "
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_NAME=" & quoted form of nameFlag & "; "
     set promptSeg to ""
     if promptWords is not equal to "" then
         set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
         set promptSeg to " $AGENT_PROMPT_WORDS"
     end if
-    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\" -e \"PAPPARDELLE_AGENT_SESSIONS_REPO=$AGENT_SESSIONS_REPO\" -e \"PAPPARDELLE_AGENT_SESSIONS_KEY=$AGENT_SESSIONS_KEY\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"
     set resumeChain to ""
     if resumeArgs is not equal to "" then
@@ -305,7 +292,7 @@ on run argv
         end if
         set resumeChain to resumeAttempt & " || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
-    set agentPrefix to flagsAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & tmuxL & " new-session -A -s " & quoted form of tmuxSession & agentEnv & " \"" & agentCmd & resumeChain
+    set agentPrefix to flagsAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & tmuxL & " new-session -A -s " & quoted form of tmuxSession & " \"" & agentCmd & resumeChain
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
@@ -375,7 +362,7 @@ APPLESCRIPT_END
 # switch: when true the script returns the assembled command lines and never
 # touches iTerm.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE" "$PROMPT_WORDS" "$COMPANION_SESSION"
+osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$PROMPT_WORDS" "$COMPANION_SESSION"
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     exit 0

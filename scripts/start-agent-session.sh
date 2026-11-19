@@ -2,7 +2,7 @@
 
 # start-agent-session.sh - Ensure agent and companion tmux sessions exist for an issue
 #
-# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> --agent-session <NAME> --companion-session <NAME> --legacy-agent-session <NAME> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>] [--agent-env <NAME=VALUE>]...
+# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> --agent-session <NAME> --companion-session <NAME> --legacy-agent-session <NAME> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-env <NAME=VALUE>]...
 #
 # Creates detached tmux sessions with the names `pappardelle space get` reports
 # for the space:
@@ -40,10 +40,6 @@
 #                     --continue unless --agent-resume-args says otherwise.
 #                     idow passes resume args with {session_id} already
 #                     filled in, or empty when no session is recorded.
-# --agent-profile: the agent profile's name in agent_profiles: (default: claude).
-#                  Set on the agent session as PAPPARDELLE_AGENT_PROFILE so the
-#                  hook that records its session id (plugins/pappardelle/hooks/agent_session.py)
-#                  can tag it.
 
 set -e
 
@@ -79,7 +75,6 @@ NO_PROMPT=false
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
 AGENT_PROFILE_ENV=()
-AGENT_PROFILE="claude"
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
 # shell; the non-empty default means the companion command is sent.
@@ -138,10 +133,6 @@ while [[ $# -gt 0 ]]; do
         --agent-resume-args)
             AGENT_RESUME_ARGS="$2"
             AGENT_RESUME_ARGS_SET=true
-            shift 2
-            ;;
-        --agent-profile)
-            AGENT_PROFILE="$2"
             shift 2
             ;;
         --agent-prompt-args)
@@ -233,17 +224,12 @@ if [[ -n "${PAPPARDELLE_MAIN_REPO_ROOT:-}" ]]; then
     SESSION_ENV+=(-e "PAPPARDELLE_MAIN_REPO_ROOT=$PAPPARDELLE_MAIN_REPO_ROOT")
 fi
 # Only the agent session gets these, mirroring buildAgentSessionEnvArgs() in
-# source/spawn-env.ts: an agent started by hand in the companion pane isn't the
-# space's agent, so its session id must not be recorded.
+# source/spawn-env.ts: Pi and agy report their status to the pane monitor only
+# when asked.
 AGENT_SESSION_ENV=(
     "${AGENT_PROFILE_ENV[@]}"
     -e "PI_PROGRAM_STATUS=1"
     -e "AGY_CLI_OSC7501=on"
-    -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
-    -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
-    -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
-    -e "PAPPARDELLE_AGENT_SESSIONS_REPO=$REPO_NAME"
-    -e "PAPPARDELLE_AGENT_SESSIONS_KEY=$ISSUE_KEY"
 )
 
 # Pre-trust the worktree directory for Claude Code (skipped for other agents:
