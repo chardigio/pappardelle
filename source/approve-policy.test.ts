@@ -83,6 +83,15 @@ test('kill-server is approved only on an isolated QA socket', t => {
 	t.true(allowed('tmux -S /tmp/q-a/s kill-session -t x'));
 });
 
+test('kill-server counts as isolated only when the wrapper or socket is what runs it', t => {
+	t.true(allowed('qtmux kill-server'));
+	t.true(allowed('X=1 qenv tmux kill-session -t a'));
+	t.false(allowed('tmux kill-server # qtmux cleanup'));
+	t.false(allowed('tmux kill-server qenv'));
+	t.false(allowed('tmux kill-server # -S /tmp/q-a/s'));
+	t.false(allowed('tmux -S /tmp/q-a/../../run/tmux-1000/default kill-server'));
+});
+
 test('a refusal says why', t => {
 	t.deepEqual(checkApproval('git push', policy), {
 		allow: false,

@@ -32,9 +32,7 @@ const PUBLISHING: Array<[RegExp, string]> = [
 	],
 ];
 
-// QA isolates tmux on a socket under /tmp/q-*, or through the qtmux/qkill
-// wrappers; anything else reaches the user's sessions.
-const ISOLATED_TMUX = /-S\s+["']?\/tmp\/q-|\bq(?:kill|tmux|env)\b/;
+const KILL = /\bkill-(?:server|session|pane)\b/;
 
 const SEGMENT_SEPARATOR = /(;|&&|\|\||\||\n)/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
@@ -82,6 +80,23 @@ function isScratchPath(target: string, policy: ApprovalPolicy): boolean {
 	return policy.scratchRoots.some(root => normalized.startsWith(root));
 }
 
+// QA isolates tmux on a socket under /tmp/q-*, or through the qtmux/qkill/qenv
+// wrappers; anything else reaches the user's sessions.
+function isolatedTmux(words: string[]): boolean {
+	const [program = '', ...args] = words;
+	if (/^q(?:kill|tmux|env)$/.test(program)) return true;
+	if (program !== 'tmux') return false;
+	const socket = args.indexOf('-S');
+	const kill = args.findIndex(word => KILL.test(word));
+	const socketPath = unquote(args[socket + 1] ?? '');
+	return (
+		socket !== -1 &&
+		socket < kill &&
+		socketPath.startsWith('/tmp/q-') &&
+		!mayClimb(socketPath)
+	);
+}
+
 function checkRm(
 	words: string[],
 	prefixed: Set<string>,
@@ -124,15 +139,15 @@ export function checkApproval(
 	let before = '';
 	for (let index = 0; index < parts.length; index += 2) {
 		const segment = parts[index]!;
-		const kill = /\bkill-(?:server|session|pane)\b/.exec(segment);
-		if (kill && !ISOLATED_TMUX.test(segment)) {
-			return {allow: false, reason: `${kill[0]} outside an isolated socket`};
-		}
-
 		const words = segment.match(WORD) ?? [];
 		const prefixed = new Set<string>();
 		while (words[0] && ASSIGNMENT.test(words[0]))
 			prefixed.add(words.shift()!.split('=')[0]!);
+		const kill = KILL.exec(segment);
+		if (kill && !isolatedTmux(words)) {
+			return {allow: false, reason: `${kill[0]} outside an isolated socket`};
+		}
+
 		const runsRm = words[0] === 'rm' || words[0]?.endsWith('/rm');
 		if (runsRm) {
 			const verdict = checkRm(words, prefixed, before, policy);
