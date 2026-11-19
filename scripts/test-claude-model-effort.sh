@@ -555,9 +555,9 @@ else
         *) assert_eq "no flags → claude defaults in the assignments" "AGENT_CMD='claude'; AGENT_FLAGS=''; AGENT_RESUME=' --continue';..." "$LINE" ;;
     esac
     case "$LINE" in
-        *'"$AGENT_CMD$AGENT_FLAGS --name QA-1$AGENT_RESUME'*)
+        *'"$AGENT_CMD$AGENT_FLAGS$AGENT_NAME$AGENT_RESUME'*)
             assert_eq "flags referenced by expansion, not interpolated" "ok" "ok" ;;
-        *) assert_eq "flags referenced by expansion, not interpolated" 'contains "$AGENT_CMD$AGENT_FLAGS --name QA-1$AGENT_RESUME' "$LINE" ;;
+        *) assert_eq "flags referenced by expansion, not interpolated" 'contains "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME$AGENT_RESUME' "$LINE" ;;
     esac
 
     LINE=$(iterm_command --agent-launch-flags "--model sonnet --effort medium")
@@ -603,8 +603,8 @@ else
         --agent-resume-args "" --agent-is-claude false)
     case "$LINE" in
         *'||'*) assert_eq "codex without resume args has no fallback chain" "no || chain" "$LINE" ;;
-        *'"$AGENT_CMD$AGENT_FLAGS"'*) assert_eq "codex without resume args has no fallback chain" "ok" "ok" ;;
-        *) assert_eq "codex without resume args has no fallback chain" 'contains "$AGENT_CMD$AGENT_FLAGS"' "$LINE" ;;
+        *'"$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"'*) assert_eq "codex without resume args has no fallback chain" "ok" "ok" ;;
+        *) assert_eq "codex without resume args has no fallback chain" 'contains "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"' "$LINE" ;;
     esac
 fi
 

@@ -190,8 +190,9 @@ fi
 if [[ -n "$PROFILE_LAUNCH_FLAGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${PROFILE_LAUNCH_FLAGS}"
 fi
+escaped_quote="'\\''"
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
-    NAME_FLAG=" --name ${ISSUE_KEY}"
+    NAME_FLAG=" --name '${ISSUE_KEY//\'/$escaped_quote}'"
 else
     NAME_FLAG=""
 fi
@@ -212,7 +213,6 @@ if [[ -n "$AGENT_PROMPT" ]]; then
     if [[ -z "$AGENT_PROMPT_ARGS" ]]; then
         AGENT_PROMPT_ARGS='{prompt}'
     fi
-    escaped_quote="'\\''"
     PROMPT_WORDS="${AGENT_PROMPT_ARGS%%\{prompt\}*}'${AGENT_PROMPT//\'/$escaped_quote}'${AGENT_PROMPT_ARGS#*\{prompt\}}"
 fi
 
@@ -269,28 +269,24 @@ on run argv
     --   normal mode: agent with the skill prompt
     -- An empty resumeArgs (non-claude agent with no resume_args) launches
     -- directly with no fallback chain.
-    -- issueKey is always PROJECT-NUMBER format (safe for direct interpolation).
-    -- The TS helper and start-agent-session.sh shell-quote for defense-in-depth;
-    -- AppleScript string assembly makes quoting awkward, so we rely on caller
-    -- validation here instead.
     --
-    -- agentCommand, launchFlags, and resumeArgs are NOT interpolated into the
-    -- double-quoted tmux argument — a quote or space in a config value would
-    -- break the string apart. Instead they're assigned to shell variables via
-    -- `quoted form of` (the same pattern the companion command uses) and
-    -- referenced as $AGENT_CMD / $AGENT_FLAGS / $AGENT_RESUME. The outer shell
-    -- expands them *after* quote processing, so only the inner `sh -c` ever
-    -- parses the values — and the caller already quoted each flag value for
-    -- exactly that parse. Empty flags leave the command word
-    -- unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; "
+    -- agentCommand, launchFlags, nameFlag and resumeArgs are NOT interpolated
+    -- into the double-quoted tmux argument — a quote or space in a config
+    -- value would break the string apart. Instead they're assigned to shell
+    -- variables via `quoted form of` (the same pattern the companion command
+    -- uses) and referenced as $AGENT_CMD / $AGENT_FLAGS / $AGENT_NAME /
+    -- $AGENT_RESUME. The outer shell expands them *after* quote processing,
+    -- so only the inner `sh -c` ever parses the values — and the caller
+    -- already quoted each flag value for exactly that parse. Empty flags
+    -- leave the command word unchanged.
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; AGENT_NAME=" & quoted form of nameFlag & "; "
     set promptSeg to ""
     if promptWords is not equal to "" then
         set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
         set promptSeg to " $AGENT_PROMPT_WORDS"
     end if
     set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
-    set agentCmd to "$AGENT_CMD$AGENT_FLAGS" & nameFlag
+    set agentCmd to "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"
     set resumeChain to ""
     if resumeArgs is not equal to "" then
         set resumeAttempt to "$AGENT_RESUME"
@@ -299,7 +295,7 @@ on run argv
         end if
         set resumeChain to resumeAttempt & " || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
-    set agentPrefix to flagsAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & tmuxL & " new-session -A -s '" & tmuxSession & "'" & agentEnv & " \"" & agentCmd & resumeChain
+    set agentPrefix to flagsAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & tmuxL & " new-session -A -s " & quoted form of tmuxSession & agentEnv & " \"" & agentCmd & resumeChain
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
@@ -317,12 +313,12 @@ on run argv
     -- (e.g. DESTDIR='/tmp') can't break out.
     set companionSession to "companion-" & (text ((length of "agent-") + 1) thru -1 of tmuxSession)
     set companionAssign to ""
-    set companionStart to tmuxL & " new-session -A -s '" & companionSession & "'"
+    set companionStart to tmuxL & " new-session -A -s " & quoted form of companionSession
     if companionCommand is not equal to "" then
         set companionAssign to "COMPANION_CMD=" & quoted form of companionCommand & "; "
         set companionStart to companionStart & " /bin/sh -c '\"$1\" -ic \"$2$(printf \"\\n:\")\"; exec \"$1\" -l' sh \"${SHELL:-/bin/sh}\" \"$COMPANION_CMD\""
     end if
-    set companionLine to companionAssign & "cd '" & worktreePath & "' && printf '\\033]0;" & issueKey & "\\007' && " & companionStart
+    set companionLine to companionAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & companionStart
 
     if printOnly is equal to "true" then
         return agentLine & linefeed & companionLine

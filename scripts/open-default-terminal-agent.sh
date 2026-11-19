@@ -113,7 +113,7 @@ if [[ -n "$PROFILE_LAUNCH_FLAGS" ]]; then
     LAUNCH_FLAGS="${LAUNCH_FLAGS} ${PROFILE_LAUNCH_FLAGS}"
 fi
 if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
-    NAME_FLAG=" --name ${ISSUE_KEY}"
+    NAME_FLAG=" --name $(quoted_form "$ISSUE_KEY")"
 else
     NAME_FLAG=""
 fi
@@ -145,12 +145,12 @@ fi
 
 TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 
-# $AGENT_CMD, $AGENT_FLAGS and $AGENT_RESUME stay literal here: the pane shell
-# expands them after the values have crossed this script unparsed, the same
-# two-layer scheme the AppleScript launchers use.
+# $AGENT_CMD, $AGENT_FLAGS, $AGENT_NAME and $AGENT_RESUME stay literal here: the
+# pane shell expands them after the values have crossed this script unparsed,
+# the same two-layer scheme the AppleScript launchers use.
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
-AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS'"${NAME_FLAG}"
-FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); "
+AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS$AGENT_NAME'
+FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); AGENT_NAME=$(quoted_form "$NAME_FLAG"); "
 PROMPT_SEG=""
 if [[ -n "$PROMPT_WORDS" ]]; then
     FLAGS_ASSIGN="${FLAGS_ASSIGN}AGENT_PROMPT_WORDS=$(quoted_form "$PROMPT_WORDS"); "
@@ -165,18 +165,18 @@ if [[ -n "$AGENT_RESUME_STR" ]]; then
     RESUME_CHAIN='$AGENT_RESUME'"${PROMPT_SEG} || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
 fi
 
-AGENT_PREFIX="${FLAGS_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${TMUX_L} new-session -A -s '${TMUX_SESSION}'${AGENT_ENV} \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
+AGENT_PREFIX="${FLAGS_ASSIGN}cd $(quoted_form "$WORKTREE") && printf '\\033]0;%s\\007' $(quoted_form "$ISSUE_KEY") && ${TMUX_L} new-session -A -s $(quoted_form "$TMUX_SESSION")${AGENT_ENV} \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
 AGENT_LINE="${AGENT_PREFIX}${PROMPT_SEG}\""
 
 COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"
 COMPANION_ASSIGN=""
-COMPANION_START="${TMUX_L} new-session -A -s '${COMPANION_SESSION}'"
+COMPANION_START="${TMUX_L} new-session -A -s $(quoted_form "$COMPANION_SESSION")"
 if [[ -n "$COMPANION_COMMAND" ]]; then
     COMPANION_ASSIGN="COMPANION_CMD=$(quoted_form "$COMPANION_COMMAND"); "
     # shellcheck disable=SC2016 # expanded by the pane shell, not here
     COMPANION_START="${COMPANION_START}"' /bin/sh -c '"'"'"$1" -ic "$2$(printf "\n:")"; exec "$1" -l'"'"' sh "${SHELL:-/bin/sh}" "$COMPANION_CMD"'
 fi
-COMPANION_LINE="${COMPANION_ASSIGN}cd '${WORKTREE}' && printf '\\033]0;${ISSUE_KEY}\\007' && ${COMPANION_START}"
+COMPANION_LINE="${COMPANION_ASSIGN}cd $(quoted_form "$WORKTREE") && printf '\\033]0;%s\\007' $(quoted_form "$ISSUE_KEY") && ${COMPANION_START}"
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     printf '%s\n%s\n' "$AGENT_LINE" "$COMPANION_LINE"

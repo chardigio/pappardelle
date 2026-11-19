@@ -133,8 +133,8 @@ jobs:
       - name: Terminal launcher resolution
         run: ./scripts/test-terminal-launcher.sh
 
-      # Only the portable prompt quoting test runs here; the parity half needs osascript.
-      - name: Workspace launcher prompt quoting
+      # Only the portable quoting tests run here; the parity half needs osascript.
+      - name: Workspace launcher quoting
         run: ./scripts/test-workspace-launchers.sh
 
   python-tests:
